@@ -2449,7 +2449,12 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // +26 for reconciling both renumber tests with a third branch in the history: each has to
         // rewind past this branch's 83-85 as well, and both now derive their totals from the
         // migration list instead of naming a number that the next migration would falsify.
-        budget: 3_245,
+        // +7 for migration 86 (`lsp-language-registry`): the six-line
+        // `apply_transactional_migration` call and its one-line `EXPECTED_MIGRATIONS` entry. That
+        // is the fixed cost of registering any migration here, so this budget moves by the same
+        // amount every time one lands -- it bounds this subtree's own growth, not the migration
+        // count.
+        budget: 3_252,
         owner: "split-database-migrations",
     },
 ];
@@ -3230,6 +3235,11 @@ const TRUSTED_IDENTIFIER_CALL_SITES: &[(&str, &str)] = &[
         "infrastructure/environment_runtime_adapters.rs",
         "self.next(\"cli-bulk\")",
     ),
+    // Every `id` in `LANGUAGE_DEFINITIONS` is a literal in that same table, so the argument cannot
+    // carry a stored row or a wire field whichever entry the reference points at. A language id
+    // that did come from outside resolves through `registry::definition` first, and an
+    // unregistered one gets no reference at all -- so nothing external can reach this.
+    ("code_intelligence/domain/registry.rs", "self.id"),
 ];
 
 /// The text between `trusted(` and the paren that closes it.

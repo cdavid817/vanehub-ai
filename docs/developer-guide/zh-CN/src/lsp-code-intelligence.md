@@ -34,10 +34,20 @@ npm install -g typescript-language-server typescript
 
 | 层 | 职责 |
 | --- | --- |
-| `domain/` | 语言/服务端标识、信任、配置、进程状态、能力、版本、规范化位置、诊断与软失败结果 |
+| `domain/` | 语言注册表、校验过的语言 id、信任、配置、进程状态、能力、版本、规范化位置、诊断与软失败结果 |
 | `application/` | 仓库与原生环境端口 |
 | `infrastructure/` | 发现、项目根、进程注册表、JSON-RPC、分帧、initialize 协商、文档租约、诊断、规范化、服务端测试、关闭与统一诊断 |
 | `api.rs` | 唯一的跨上下文代码智能门面 |
+
+### 语言注册表
+
+`domain/registry.rs` 里的 `LANGUAGE_DEFINITIONS` 每种支持的语言一条,形状对齐 `contexts/tooling/cli` 里已有的 `CLI_TOOL_DEFINITIONS`。每条声明语言 id、服务端 id、按偏好排序的候选可执行名、默认启动参数、项目根标记、扩展名到 `languageId` 的映射、平台适用性,以及隔离服务端测试要搭建的最小工程。
+
+加一种语言 = 加一条目 + 补五份 locale 文案。没有第二处枚举这个集合:发现、项目根探测、文档准入、服务端测试、配置默认值、命令 DTO 与设置页全部由它派生。`registry_tests.rs` 会让缺任一项数据的条目构建失败,并断言 id 与扩展名在全表唯一——扩展名查找返回首个匹配,被两种语言同时声明会按声明顺序静默路由到错误的服务端。
+
+**不存在 `LanguageFamily` 或 `ServerKind` 枚举**。一种语言就是 `Language = &'static LanguageDefinition`:一个 `Copy` 引用同时携带自己的 id 和服务端 id,两者从类型上不可能失配。`LspLanguageId` 是它的持有式校验形态,只用在值跨越存储或线协议、尚不存在 `'static` 引用的位置。`resolve_language` 把这样的值转回引用;当前构建未注册的 id 返回 `None`——这是**普通分支而非错误**,因为存储层已经不再约束 id 集合。
+
+这张表是编译期的,这是刻意选择:每条目都需要 fixture 工程与根探测规则,只有代码能提供,用户自行声明的语言只会变成运行时服务不了的一行数据。
 
 `agent_runtime` 拥有消费侧的 `AgentCodeIntelligencePort` 与 `AgentWorkspaceMutationPort` 契约。Bootstrap 将这些端口适配到 `CodeIntelligenceApi`;Agent 代码不得导入代码智能基础设施。检索通过其公共 `CodeIndexApi` 独立触达,用于针对性的变更协调。
 
@@ -51,6 +61,8 @@ React settings components
 ```
 
 React 组件不得直接调用 `invoke()`。Web/mock 代码不得导入原生的文件系统或进程适配器,也不得声称启动了真实服务端。
+
+**前端不持有语言集的副本**。`LspLanguageId` 是不透明字符串,`get_lsp_configuration` 携带一份描述符列表,设置页按它逐条渲染卡片。因此契约校验器无法拿"已知集合"去校验语言,它校验的是 id 的形状——与后端同一条 `[a-z0-9_]{1,64}` 规则——并交叉检查每个已配置语言在同一响应里都有描述符。Web/mock 模式没有后端注册表可问,`web-lsp-client.ts` 因此自带一份镜像表;在那里加语言是改数据。
 
 ## 进程与协议生命周期
 
@@ -112,13 +124,19 @@ provider 中立的目录在普通与 Plan Mode 生成中按条件暴露四个只
 
 ## 持久化与日志
 
-SQLite 持有默认禁用的主机配置与规范工作区信任记录。可执行文件、固定参数、初始化选项与信任修订共同构成配置指纹,因此陈旧进程无法服务新请求。
+SQLite 持有默认禁用的主机配置与规范工作区信任记录。可执行文件、**解析后的启动参数**、初始化选项与信任修订共同构成配置指纹,因此陈旧进程无法服务新请求。参数**边界**也是指纹的一部分:直接拼接会让 `["ab"]` 与 `["a", "b"]` 哈希相同,于是用户明明改了命令行、服务端却继续照旧运行。
+
+`lsp_language_configurations` 不再约束可以存在哪些语言 id——迁移 86 通过整表重建拆掉了那条 `CHECK`。于是"存储里有一行指向当前构建未注册的语言"是可达状态(降级即可产生)。加载时**跳过该行且原样保留**:拒绝它会让应用因为一种它只是服务不了的语言而无法启动;删除它会让"降级再升级"静默丢掉用户设置。
+
+`startup_arguments_json` 可空,而且这个区分是有意义的:`NULL` 表示"用注册表默认值";JSON 数组(包括空数组)是用户的显式选择。把两者合并会导致用户一清空输入框,`--stdio` 就被从 TypeScript 服务端上抹掉。
 
 生命周期与协议诊断使用统一日志。安全的元数据包括服务端/语言标识、生命周期跃迁、方法类别、时长、计数、重启尝试、超时/取消类别、退出码与安全的工作区标识。绝不持久化原始协议载荷、源码或 hover 内容、诊断消息、stderr、环境变量、可执行文件参数、凭据或私有的绝对路径。
 
 ## 扩展限制
 
-本基础有意排除 Python、Go、Java、C/C++、远程工作区、下载的服务端、格式化、补全、重命名、code action、工作区编辑、调用/类型层级、文件系统监听、未保存缓冲区与持久化的 LSP 增强。不要仅仅通过把一个变更方法加进目录就暴露它;它需要一份单独的 OpenSpec 变更、权限分析、Plan Mode 处理、协议限制与工作区隔离测试。
+目前仍只注册了 Rust 与 TypeScript/JavaScript。注册表消掉的是"加一种语言"的**分摊成本**,但每种语言仍各自需要根探测规则、扩展名映射与 fixture 工程;`jdtls` 还额外需要这个模型尚未表达的启动形态——它经由 JVM 启动、且带一个每工作区独立的 data 目录,而不是"可执行文件 + 固定参数"。
+
+本基础同样有意排除远程工作区、下载的服务端、格式化、补全、重命名、code action、工作区编辑、调用/类型层级、文件系统监听、未保存缓冲区与持久化的 LSP 增强。不要仅仅通过把一个变更方法加进目录就暴露它;它需要一份单独的 OpenSpec 变更、权限分析、Plan Mode 处理、协议限制与工作区隔离测试。
 
 LSP 不标准化可移植的服务端内存或已索引文件数,因此状态契约必须将这些指标保持为不支持,而不是捏造它们。
 
@@ -221,4 +239,7 @@ LSP 运行时的进程管理位于 `code_intelligence/infrastructure/process_reg
 - **帧边界** `lsp_framing.rs` —— Content-Length 硬上限,超限杀进程。
 - **服务器→客户端请求** `lsp_server_requests.rs` —— 处理 `workspace/configuration`、`register/unregister_capabilities`;**`workspace/applyEdit` 被拒**(只读基础)。
 - **诊断日志** `lsp_diagnostics.rs` —— `LspDiagnosticKind`(Lifecycle/Timeout/Cancellation/Crash/Restart/DiagnosticsCount/ProtocolLimit/Shutdown),`record()` 带限频,只记安全元数据(不落 payload/源码/hover/诊断文本/stderr/环境/绝对路径)。
-- **隔离测试** `server_test.rs` —— `ServerTestPhase`(Discovery → Spawn → Initialize → Cleanup),用 `tempfile::TempDir` 跑完整 initialize/initialized/shutdown/exit,64KB stderr 上限、min 100ms 超时。
+- **隔离测试** `server_test.rs` —— `ServerTestPhase`(Discovery → Spawn → Initialize → Cleanup),用 `tempfile::TempDir` 跑完整 initialize/initialized/shutdown/exit,64KB stderr 上限、min 100ms 超时;最小工程的文件来自注册表条目的 `fixture_files`。
+- **语言注册表** `domain/registry.rs` —— `LANGUAGE_DEFINITIONS` 与 `definition()` / `definition_for_extension()` / `definition_for_server()` 三个 `Option` 查找;`Language = &'static LanguageDefinition`。
+- **语言 id** `domain/language_id.rs` —— `LspLanguageId`,`[a-z0-9_]`、最长 64;`new()` 校验外部输入,`trusted()` 只给注册表字面量用(debug assert),该调用点登记在架构测试的审计清单里。
+- **启动参数上限** `domain/configuration.rs` —— `MAX_STARTUP_ARGUMENTS=32`、`MAX_STARTUP_ARGUMENT_BYTES=4KiB`,且拒绝内嵌 NUL(交给进程时会被平台截断或拒绝,那时已无法报告原因)。

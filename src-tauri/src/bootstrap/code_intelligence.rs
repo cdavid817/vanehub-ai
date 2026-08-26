@@ -6,7 +6,7 @@ use crate::contexts::agent_runtime::application::{
     AgentWorkspaceMutationPort,
 };
 use crate::contexts::code_intelligence::api::{
-    CodeIntelligenceApi, DiagnosticSeverity, LanguageFamily, NormalizedDiagnostic, NormalizedHover,
+    CodeIntelligenceApi, DiagnosticSeverity, NormalizedDiagnostic, NormalizedHover,
     NormalizedLocation, NormalizedRange, QueryOutcome, QueryStatus,
 };
 use crate::contexts::operations::api::DiagnosticLogPort;
@@ -225,11 +225,10 @@ fn map_outcome<T, U>(
             QueryStatus::Unavailable => AgentCodeIntelligenceStatus::Unavailable,
             QueryStatus::Failed => AgentCodeIntelligenceStatus::Failed,
         },
-        server: outcome.server.map(|server| server.as_id().to_owned()),
-        language: outcome
+        server: outcome
             .language
-            .map(LanguageFamily::as_id)
-            .map(str::to_owned),
+            .map(|language| language.server_id.to_owned()),
+        language: outcome.language.map(|language| language.id.to_owned()),
         document_version: outcome.document_version().map(|version| version.value()),
         stale: outcome.stale,
         returned_count: outcome.returned_count,
@@ -295,7 +294,7 @@ impl AgentWorkspaceMutationPort for WorkspaceMutationFanout {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::contexts::code_intelligence::api::{LanguageFamily, LspConfiguration};
+    use crate::contexts::code_intelligence::api::{LspConfiguration, LspLanguageId};
     use crate::contexts::operations::infrastructure::UnifiedLoggingAdapter;
     use crate::test_support::TempDirectory;
 
@@ -319,7 +318,7 @@ mod tests {
         };
         let rust = configuration
             .languages
-            .get_mut(&LanguageFamily::Rust)
+            .get_mut(&LspLanguageId::new("rust").expect("rust language id"))
             .expect("Rust configuration");
         rust.enabled = true;
         rust.executable_override = Some(

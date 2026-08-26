@@ -5,9 +5,8 @@ use super::runtime_process_coordinator::{
     LspProcessAcquisition, LspProcessLaunch, RuntimeProcessCoordinator,
 };
 use super::shutdown_coordinator::LspShutdownCoordinator;
-use crate::contexts::code_intelligence::domain::models::{
-    ConfigurationFingerprint, ProcessState, ServerKind,
-};
+use crate::contexts::code_intelligence::domain::models::{ConfigurationFingerprint, ProcessState};
+use crate::contexts::code_intelligence::domain::registry;
 use crate::contexts::operations::api::{DiagnosticLog, DiagnosticLogPort, OperationsError};
 use serde_json::json;
 use std::path::Path;
@@ -268,7 +267,7 @@ impl ProcessFixture {
         let key = ProcessKey::new(
             directory.path(),
             directory.path(),
-            ServerKind::RustAnalyzer,
+            registry::rust(),
             ConfigurationFingerprint::new("fixture-config").expect("fingerprint"),
         )
         .expect("process key");

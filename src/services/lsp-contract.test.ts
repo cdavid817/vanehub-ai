@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { lspTestDescriptors } from "../test/lsp-fixtures";
 import {
   normalizeLspConfiguration,
   normalizeLspServerDiscoveries,
@@ -10,6 +11,8 @@ import {
   normalizeLspWorkspaceTrustUpdate,
 } from "./lsp-contract";
 
+const descriptors = lspTestDescriptors();
+
 const configuration = {
   enabled: true,
   languages: [
@@ -17,15 +20,18 @@ const configuration = {
       language: "rust",
       enabled: true,
       executableOverride: "C:/tools/rust-analyzer.exe",
+      startupArguments: null,
       initializationOptions: { cargo: { allTargets: false } },
     },
     {
       language: "typescript_javascript",
       enabled: false,
       executableOverride: null,
+      startupArguments: ["--stdio"],
       initializationOptions: {},
     },
   ],
+  descriptors,
 };
 
 const capabilities = {
@@ -97,15 +103,46 @@ describe("LSP runtime contracts", () => {
       revision: 2,
     }).revision).toBe(2);
     expect(normalizeLspServerDiscoveries(discoveries)).toEqual(discoveries);
-    expect(normalizeLspServerTestResult(serverTest, "rust")).toEqual(serverTest);
+    expect(normalizeLspServerTestResult(serverTest)).toEqual(serverTest);
     expect(normalizeLspServerStatuses([serverStatus])).toEqual([serverStatus]);
   });
 
-  it("rejects incomplete, duplicate, and non-object language configurations", () => {
+  it("accepts a configuration that names only some of the described languages", () => {
+    // The old rule was "exactly these two, in this order". It only held while the set was compiled
+    // in; a build that registers a new language has to read configurations written before it.
+    const partial = { ...configuration, languages: [configuration.languages[0]] };
+    expect(normalizeLspConfiguration(partial)).toEqual(partial);
+    expect(normalizeLspConfiguration({ ...configuration, languages: [] }))
+      .toEqual({ ...configuration, languages: [] });
+  });
+
+  it("rejects configuration for a language the same response does not describe", () => {
+    // Such an entry has no label, no server, and no platform applicability to render, so it is
+    // refused here rather than surfacing as a control the UI cannot describe.
     expect(() => normalizeLspConfiguration({
       ...configuration,
-      languages: [configuration.languages[0]],
+      languages: [...configuration.languages, {
+        language: "go",
+        enabled: true,
+        executableOverride: null,
+        startupArguments: null,
+        initializationOptions: {},
+      }],
     })).toThrow("invalid LSP response");
+    expect(() => normalizeLspConfiguration({
+      ...configuration,
+      descriptors: [descriptors[0], descriptors[0]],
+    })).toThrow("invalid LSP response");
+  });
+
+  it("rejects malformed identifiers, duplicates, and non-object language configurations", () => {
+    for (const language of ["", "Rust", "c++", "rust.analyzer", " rust", "a".repeat(65)]) {
+      expect(() => normalizeLspConfiguration({
+        ...configuration,
+        languages: [{ ...configuration.languages[0], language }],
+        descriptors: [{ ...descriptors[0], language }],
+      }), language).toThrow("invalid LSP response");
+    }
     expect(() => normalizeLspConfiguration({
       ...configuration,
       languages: [configuration.languages[0], configuration.languages[0]],
@@ -149,11 +186,11 @@ describe("LSP runtime contracts", () => {
     })).toThrow("invalid LSP response");
   });
 
-  it("rejects mismatched server identities and inconsistent discovery states", () => {
-    expect(() => normalizeLspServerDiscoveries([
-      { ...discoveries[0], server: "typescript_language_server" },
-      discoveries[1],
-    ])).toThrow("invalid LSP response");
+  it("rejects duplicate languages and inconsistent discovery states", () => {
+    expect(() => normalizeLspServerDiscoveries([discoveries[0], discoveries[0]]))
+      .toThrow("invalid LSP response");
+    expect(() => normalizeLspServerDiscoveries([{ ...discoveries[0], server: "Rust Analyzer" }]))
+      .toThrow("invalid LSP response");
     expect(() => normalizeLspServerDiscoveries([
       { ...discoveries[0], executablePath: null },
       discoveries[1],
@@ -166,17 +203,22 @@ describe("LSP runtime contracts", () => {
 
   it("requires all isolated-test phases and validates the test input", () => {
     expect(normalizeLspServerTestInput({ language: "rust" })).toEqual({ language: "rust" });
-    expect(() => normalizeLspServerTestInput({ language: "python" })).toThrow("invalid LSP response");
+    // A well-formed id the frontend does not recognise is no longer rejectable here -- which
+    // languages exist is a backend fact. Only the id's shape is checkable, and the backend refuses
+    // an unregistered one. Malformed shapes still fail.
+    expect(normalizeLspServerTestInput({ language: "python" })).toEqual({ language: "python" });
+    expect(() => normalizeLspServerTestInput({ language: "Python" })).toThrow("invalid LSP response");
+    expect(() => normalizeLspServerTestInput({ language: "" })).toThrow("invalid LSP response");
     expect(() => normalizeLspServerTestResult({
       ...serverTest,
       phases: serverTest.phases.slice(0, 3),
-    }, "rust")).toThrow("invalid LSP response");
+    })).toThrow("invalid LSP response");
     expect(() => normalizeLspServerTestResult({
       ...serverTest,
       phases: serverTest.phases.map((phase) => (
         phase.phase === "initialize" ? { ...phase, status: "waiting" } : phase
       )),
-    }, "rust")).toThrow("invalid LSP response");
+    })).toThrow("invalid LSP response");
   });
 
   it("rejects invalid status timestamps, counts, states, and capabilities", () => {

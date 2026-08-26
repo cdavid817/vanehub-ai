@@ -3350,6 +3350,20 @@
         "settings-center-ui",
         "unified-log-management"
       ]
+    },
+    {
+      "archivedOn": "2026-08-26",
+      "changeName": "extend-lsp-language-registry",
+      "path": "openspec/changes/archive/2026-08-26-extend-lsp-language-registry/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "lsp-server-management",
+        "settings-center-ui"
+      ]
     }
   ]
 }

@@ -2,9 +2,8 @@ use super::lsp_diagnostics::{
     LspCrashReason, LspDiagnosticEvent, LspDiagnosticIdentity, LspDiagnosticKind,
     LspDiagnosticLogger, LspMethodCategory, LspPrivateDiagnosticData,
 };
-use crate::contexts::code_intelligence::domain::models::{
-    LanguageFamily, ProcessState, ServerKind,
-};
+use crate::contexts::code_intelligence::domain::models::ProcessState;
+use crate::contexts::code_intelligence::domain::registry;
 use crate::contexts::operations::api::{
     DiagnosticLog, DiagnosticLogPort, LogSeverity, OperationsError,
 };
@@ -42,8 +41,7 @@ fn private_fixture() -> LspPrivateDiagnosticData {
 fn event(kind: LspDiagnosticKind) -> LspDiagnosticEvent {
     LspDiagnosticEvent {
         identity: LspDiagnosticIdentity {
-            language: LanguageFamily::Rust,
-            server: ServerKind::RustAnalyzer,
+            language: registry::rust(),
             workspace_id: Some("workspace-safe-7".to_string()),
             correlation_id: Some("execution-safe-9".to_string()),
         },

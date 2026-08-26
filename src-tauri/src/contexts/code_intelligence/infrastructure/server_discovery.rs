@@ -1,4 +1,4 @@
-use crate::contexts::code_intelligence::domain::models::ServerKind;
+use crate::contexts::code_intelligence::domain::models::Language;
 #[cfg(windows)]
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -23,44 +23,17 @@ pub(crate) enum DiscoveryReason {
     ExecutableNotFound,
     OverrideMissing,
     OverrideNotExecutable,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct ServerCommandPreset {
-    kind: ServerKind,
-    executable_name: &'static str,
-    arguments: &'static [&'static str],
-}
-
-impl ServerCommandPreset {
-    pub(crate) const fn for_kind(kind: ServerKind) -> Self {
-        match kind {
-            ServerKind::RustAnalyzer => Self {
-                kind,
-                executable_name: "rust-analyzer",
-                arguments: &[],
-            },
-            ServerKind::TypeScriptLanguageServer => Self {
-                kind,
-                executable_name: "typescript-language-server",
-                arguments: &["--stdio"],
-            },
-        }
-    }
-
-    pub(crate) const fn executable_name(self) -> &'static str {
-        self.executable_name
-    }
-
-    pub(crate) const fn arguments(self) -> &'static [&'static str] {
-        self.arguments
-    }
+    UnsupportedOnThisPlatform,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ServerDiscoveryResult {
-    preset: ServerCommandPreset,
+    language: Language,
     executable: Option<PathBuf>,
+    /// Which of the language's declared candidates resolved. Reported so a user with several
+    /// installed servers can tell which one discovery picked.
+    selected_executable_name: Option<&'static str>,
+    arguments: Vec<String>,
     availability: DiscoveryAvailability,
     reason: Option<DiscoveryReason>,
 }
@@ -74,17 +47,39 @@ impl ServerDiscoveryResult {
         self.executable.as_deref()
     }
 
+    pub(crate) const fn selected_executable_name(&self) -> Option<&'static str> {
+        self.selected_executable_name
+    }
+
     pub(crate) const fn reason(&self) -> Option<DiscoveryReason> {
         self.reason
     }
 
-    pub(crate) const fn arguments(&self) -> &'static [&'static str] {
-        self.preset.arguments()
+    pub(crate) fn arguments(&self) -> &[String] {
+        &self.arguments
     }
 
-    pub(crate) const fn server_kind(&self) -> ServerKind {
-        self.preset.kind
+    pub(crate) const fn language(&self) -> Language {
+        self.language
     }
+}
+
+/// Resolves the arguments a server is started with: the user's list when they supplied one, the
+/// registry's declared default otherwise. An empty user list is a choice, not an absence.
+pub(crate) fn resolved_startup_arguments(
+    language: Language,
+    configured: Option<&Vec<String>>,
+) -> Vec<String> {
+    configured.map_or_else(
+        || {
+            language
+                .default_startup_arguments
+                .iter()
+                .map(|argument| (*argument).to_string())
+                .collect()
+        },
+        Clone::clone,
+    )
 }
 
 #[derive(Clone)]
@@ -101,21 +96,34 @@ impl ServerDiscovery {
 
     pub(crate) fn discover(
         &self,
-        kind: ServerKind,
+        language: Language,
         executable_override: Option<&Path>,
+        configured_arguments: Option<&Vec<String>>,
     ) -> ServerDiscoveryResult {
-        let preset = ServerCommandPreset::for_kind(kind);
+        let arguments = resolved_startup_arguments(language, configured_arguments);
+        // A language declared for other platforms is unsupported here, which is not the same as
+        // supported-but-not-installed. Reporting it as merely undiscovered would send a user
+        // looking for an executable that was never going to exist on this host.
+        if !language.supports_host() {
+            return unavailable(
+                language,
+                arguments,
+                DiscoveryReason::UnsupportedOnThisPlatform,
+            );
+        }
         if let Some(path) = executable_override {
-            return discover_override(preset, path);
+            return discover_override(language, arguments, path);
         }
 
-        let executable = self
-            .executable_location
-            .locate(preset.executable_name())
-            .filter(|path| is_executable_file(path));
-        match executable {
-            Some(executable) => available(preset, executable),
-            None => unavailable(preset, DiscoveryReason::ExecutableNotFound),
+        let located = language.executables.iter().find_map(|candidate| {
+            self.executable_location
+                .locate(candidate)
+                .filter(|path| is_executable_file(path))
+                .map(|path| (*candidate, path))
+        });
+        match located {
+            Some((name, executable)) => available(language, arguments, Some(name), executable),
+            None => unavailable(language, arguments, DiscoveryReason::ExecutableNotFound),
         }
     }
 }
@@ -143,32 +151,49 @@ pub(super) fn locate_in_directories(
         .and_then(|candidate| std::fs::canonicalize(candidate).ok())
 }
 
-fn discover_override(preset: ServerCommandPreset, path: &Path) -> ServerDiscoveryResult {
+fn discover_override(
+    language: Language,
+    arguments: Vec<String>,
+    path: &Path,
+) -> ServerDiscoveryResult {
     if !path.is_absolute() || !path.exists() {
-        return unavailable(preset, DiscoveryReason::OverrideMissing);
+        return unavailable(language, arguments, DiscoveryReason::OverrideMissing);
     }
     if !is_executable_file(path) {
-        return unavailable(preset, DiscoveryReason::OverrideNotExecutable);
+        return unavailable(language, arguments, DiscoveryReason::OverrideNotExecutable);
     }
     match std::fs::canonicalize(path) {
-        Ok(executable) => available(preset, executable),
-        Err(_) => unavailable(preset, DiscoveryReason::OverrideNotExecutable),
+        Ok(executable) => available(language, arguments, None, executable),
+        Err(_) => unavailable(language, arguments, DiscoveryReason::OverrideNotExecutable),
     }
 }
 
-fn available(preset: ServerCommandPreset, executable: PathBuf) -> ServerDiscoveryResult {
+fn available(
+    language: Language,
+    arguments: Vec<String>,
+    selected_executable_name: Option<&'static str>,
+    executable: PathBuf,
+) -> ServerDiscoveryResult {
     ServerDiscoveryResult {
-        preset,
+        language,
         executable: Some(executable),
+        selected_executable_name,
+        arguments,
         availability: DiscoveryAvailability::Available,
         reason: None,
     }
 }
 
-fn unavailable(preset: ServerCommandPreset, reason: DiscoveryReason) -> ServerDiscoveryResult {
+fn unavailable(
+    language: Language,
+    arguments: Vec<String>,
+    reason: DiscoveryReason,
+) -> ServerDiscoveryResult {
     ServerDiscoveryResult {
-        preset,
+        language,
         executable: None,
+        selected_executable_name: None,
+        arguments,
         availability: DiscoveryAvailability::Unavailable,
         reason: Some(reason),
     }

@@ -34,10 +34,20 @@ The main native ownership is under `src-tauri/src/contexts/code_intelligence/`:
 
 | Layer | Responsibility |
 | --- | --- |
-| `domain/` | Language/server identities, trust, configuration, process states, capabilities, versions, normalized locations, diagnostics, and fail-soft outcomes |
+| `domain/` | The language registry, the validated language id, trust, configuration, process states, capabilities, versions, normalized locations, diagnostics, and fail-soft outcomes |
 | `application/` | Repository and native environment ports |
 | `infrastructure/` | Discovery, project roots, process registry, JSON-RPC, framing, initialize negotiation, document leases, diagnostics, normalization, server testing, shutdown, and unified diagnostics |
 | `api.rs` | The only cross-context code-intelligence facade |
+
+### The language registry
+
+`domain/registry.rs` holds `LANGUAGE_DEFINITIONS`, one entry per supported language, following the `CLI_TOOL_DEFINITIONS` pattern in `contexts/tooling/cli`. Each entry declares the language id, the server id, candidate executable names in preference order, default startup arguments, project-root markers, extension-to-`languageId` mappings, platform applicability, and the minimal project the isolated server test builds.
+
+Adding a language means adding one entry plus its locale strings. Nothing else enumerates the set: discovery, project-root detection, document admission, server testing, configuration defaults, the command DTOs, and the settings page all derive it. `registry_tests.rs` fails a build whose entry is missing any of that data, and asserts that ids and extensions are unique — extension lookup returns the first match, so a contested extension would resolve by declaration order and route a file to the wrong server.
+
+There is no `LanguageFamily` or `ServerKind` enum. A language is `Language = &'static LanguageDefinition`: one `Copy` reference carrying both its own id and its server's, so the two cannot disagree. `LspLanguageId` is the owned validated form, used only where a value crosses storage or the wire and no `'static` reference exists yet. `resolve_language` turns such a value back into a reference, and returns `None` for an id this build does not register — which is an ordinary case, not an error, because storage no longer constrains the id set.
+
+The table is compile-time on purpose. Every entry needs a fixture project and root-detection rules that only code can supply, so a user-declared language would be a row the runtime cannot serve.
 
 `agent_runtime` owns the consumer-side `AgentCodeIntelligencePort` and `AgentWorkspaceMutationPort` contracts. Bootstrap adapts these ports to `CodeIntelligenceApi`; Agent code must not import code-intelligence infrastructure. Retrieval is reached independently through its public `CodeIndexApi` for targeted mutation reconciliation.
 
@@ -51,6 +61,8 @@ React settings components
 ```
 
 React components must not call `invoke()` directly. Web/mock code must not import native filesystem or process adapters and must not claim that a real server was launched.
+
+The frontend holds no copy of the language set. `LspLanguageId` is an opaque string, and `get_lsp_configuration` carries a descriptor list the settings page renders one card from. The contract validator therefore cannot check a language against a known set; it checks the id's shape against the same `[a-z0-9_]{1,64}` rule the backend enforces, and cross-checks that every configured language is described in the same response. Web/mock mode has no backend registry to ask, so `web-lsp-client.ts` carries a mirror table; adding a language there is a data edit.
 
 ## Process and protocol lifecycle
 
@@ -112,13 +124,19 @@ Successful Agent file writes publish one best-effort mutation signal. Bootstrap 
 
 ## Persistence and logging
 
-SQLite owns the disabled-by-default host configuration and canonical-workspace trust records. Executable, fixed arguments, initialization options, and trust revision contribute to the configuration fingerprint so stale processes cannot serve new requests.
+SQLite owns the disabled-by-default host configuration and canonical-workspace trust records. Executable, resolved startup arguments, initialization options, and trust revision contribute to the configuration fingerprint so stale processes cannot serve new requests. Argument boundaries are part of that fingerprint: concatenating would let `["ab"]` and `["a", "b"]` hash alike and leave a server running under a command line the user changed.
+
+`lsp_language_configurations` does not constrain which language ids may exist — migration 86 dropped that `CHECK` constraint by rebuilding the table. A row naming a language this build does not register is therefore reachable, by downgrading. Loading skips such a row and leaves it untouched: rejecting it would make the application unbootable over a language it merely cannot serve, and deleting it would silently discard the user's settings across a downgrade-then-upgrade cycle.
+
+`startup_arguments_json` is nullable, and the distinction matters. `NULL` means "use the registry default"; a JSON array, including an empty one, is the user's explicit choice. Collapsing them would strip `--stdio` from the TypeScript server whenever someone cleared the field.
 
 Lifecycle and protocol diagnostics use unified logging. Safe metadata includes server/language identity, lifecycle transition, method category, duration, counts, restart attempt, timeout/cancellation category, exit code, and safe workspace identity. Never persist raw protocol payloads, source or hover content, diagnostic messages, stderr, environment values, executable arguments, credentials, or private absolute paths.
 
 ## Extension limits
 
-The foundation intentionally excludes Python, Go, Java, C/C++, remote workspaces, downloaded servers, formatting, completion, rename, code actions, workspace edits, call/type hierarchy, filesystem watching, unsaved buffers, and persistent LSP enrichment. Do not expose a new mutating method merely by adding it to the catalog; it requires a separate OpenSpec change, permission analysis, Plan Mode treatment, protocol limits, and workspace-isolation tests.
+No language beyond Rust and TypeScript/JavaScript is registered yet. The registry removes the per-language cost of adding one, but each still needs its own root-detection rules, extension mappings, and fixture project, and `jdtls` additionally needs a launch shape this model does not yet express — it runs through a JVM with a per-workspace data directory rather than as an executable with fixed arguments.
+
+The foundation also intentionally excludes remote workspaces, downloaded servers, formatting, completion, rename, code actions, workspace edits, call/type hierarchy, filesystem watching, unsaved buffers, and persistent LSP enrichment. Do not expose a new mutating method merely by adding it to the catalog; it requires a separate OpenSpec change, permission analysis, Plan Mode treatment, protocol limits, and workspace-isolation tests.
 
 LSP does not standardize portable server memory or indexed-file counts, so the status contract must keep these metrics unsupported rather than inventing them.
 

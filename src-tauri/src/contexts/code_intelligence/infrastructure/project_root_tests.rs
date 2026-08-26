@@ -1,7 +1,6 @@
 use super::project_root::{ProcessKey, ProjectRootError, ProjectRootResolver};
-use crate::contexts::code_intelligence::domain::models::{
-    ConfigurationFingerprint, LanguageFamily, ServerKind,
-};
+use crate::contexts::code_intelligence::domain::models::ConfigurationFingerprint;
+use crate::contexts::code_intelligence::domain::registry;
 use std::path::{Path, PathBuf};
 
 #[test]
@@ -11,7 +10,7 @@ fn rust_uses_the_nearest_cargo_marker_for_nested_projects() {
     fixture.marker("crates/nested/Cargo.toml");
     let file = fixture.file("crates/nested/src/lib.rs");
 
-    let root = ProjectRootResolver::resolve(fixture.root(), &file, LanguageFamily::Rust)
+    let root = ProjectRootResolver::resolve(fixture.root(), &file, registry::rust())
         .expect("nested Rust root");
 
     assert_eq!(root, fixture.canonical("crates/nested"));
@@ -28,12 +27,8 @@ fn typescript_and_javascript_accept_every_supported_marker() {
         fixture.marker(&format!("apps/client/{marker}"));
         let file = fixture.file(&format!("apps/client/{source}"));
 
-        let root = ProjectRootResolver::resolve(
-            fixture.root(),
-            &file,
-            LanguageFamily::TypeScriptJavaScript,
-        )
-        .expect("TypeScript root");
+        let root = ProjectRootResolver::resolve(fixture.root(), &file, registry::typescript())
+            .expect("TypeScript root");
 
         assert_eq!(root, fixture.canonical("apps/client"));
     }
@@ -46,34 +41,21 @@ fn distinct_nested_typescript_projects_produce_distinct_process_keys() {
     fixture.marker("apps/b/package.json");
     let file_a = fixture.file("apps/a/src/main.ts");
     let file_b = fixture.file("apps/b/src/main.ts");
-    let root_a = ProjectRootResolver::resolve(
-        fixture.root(),
-        &file_a,
-        LanguageFamily::TypeScriptJavaScript,
-    )
-    .expect("project a");
-    let root_b = ProjectRootResolver::resolve(
-        fixture.root(),
-        &file_b,
-        LanguageFamily::TypeScriptJavaScript,
-    )
-    .expect("project b");
+    let root_a = ProjectRootResolver::resolve(fixture.root(), &file_a, registry::typescript())
+        .expect("project a");
+    let root_b = ProjectRootResolver::resolve(fixture.root(), &file_b, registry::typescript())
+        .expect("project b");
     let fingerprint = ConfigurationFingerprint::new("fixture-config").expect("fingerprint");
 
     let key_a = ProcessKey::new(
         fixture.root(),
         &root_a,
-        ServerKind::TypeScriptLanguageServer,
+        registry::typescript(),
         fingerprint.clone(),
     )
     .expect("process key a");
-    let key_b = ProcessKey::new(
-        fixture.root(),
-        &root_b,
-        ServerKind::TypeScriptLanguageServer,
-        fingerprint,
-    )
-    .expect("process key b");
+    let key_b = ProcessKey::new(fixture.root(), &root_b, registry::typescript(), fingerprint)
+        .expect("process key b");
 
     assert_ne!(key_a, key_b);
     assert_eq!(key_a.project_root(), root_a);
@@ -86,7 +68,7 @@ fn markerless_files_use_the_canonical_session_root() {
     let file = fixture.file("src/main.rs");
     let non_normalized_root = fixture.root().join("src").join("..");
 
-    let root = ProjectRootResolver::resolve(&non_normalized_root, &file, LanguageFamily::Rust)
+    let root = ProjectRootResolver::resolve(&non_normalized_root, &file, registry::rust())
         .expect("fallback root");
 
     assert_eq!(root, fixture.canonical(""));
@@ -101,7 +83,7 @@ fn detection_never_uses_a_marker_above_the_session_boundary() {
     let file = workspace.join("src/main.rs");
     std::fs::write(&file, b"fn main() {}").expect("source file");
 
-    let root = ProjectRootResolver::resolve(&workspace, &file, LanguageFamily::Rust)
+    let root = ProjectRootResolver::resolve(&workspace, &file, registry::rust())
         .expect("bounded fallback");
 
     assert_eq!(root, workspace.canonicalize().expect("canonical workspace"));
@@ -113,7 +95,7 @@ fn files_outside_the_session_root_are_rejected() {
     let outside = ProjectFixture::new();
     let file = outside.file("src/lib.rs");
 
-    let result = ProjectRootResolver::resolve(workspace.root(), &file, LanguageFamily::Rust);
+    let result = ProjectRootResolver::resolve(workspace.root(), &file, registry::rust());
 
     assert_eq!(result, Err(ProjectRootError::OutsideSessionRoot));
 }

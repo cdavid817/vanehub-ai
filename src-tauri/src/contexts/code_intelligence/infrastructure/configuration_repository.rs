@@ -5,7 +5,7 @@ use crate::contexts::code_intelligence::domain::configuration::{
     LanguageConfiguration, LspConfiguration,
 };
 use crate::contexts::code_intelligence::domain::models::{
-    DomainModelError, LanguageFamily, WorkspaceTrust,
+    resolve_language, DomainModelError, WorkspaceTrust,
 };
 use crate::platform::clock::SystemClock;
 use crate::platform::database::NativeDatabase;
@@ -43,8 +43,14 @@ impl LspConfigurationRepository for SqliteCodeIntelligenceRepository {
             )
             .map_err(|_| storage_error())?;
         for (language, language_configuration) in &configuration.languages {
-            let arguments = serde_json::to_string(language.startup_arguments())
-                .map_err(|_| DomainModelError::InvalidInitializationOptions)?;
+            // NULL rather than an empty array when unset: the registry default applies only when
+            // the user has expressed no preference, and an empty array is a preference.
+            let arguments = language_configuration
+                .startup_arguments
+                .as_ref()
+                .map(serde_json::to_string)
+                .transpose()
+                .map_err(|_| DomainModelError::InvalidStartupArguments)?;
             let options = serde_json::to_string(&language_configuration.initialization_options)
                 .map_err(|_| DomainModelError::InvalidInitializationOptions)?;
             transaction
@@ -61,7 +67,7 @@ impl LspConfigurationRepository for SqliteCodeIntelligenceRepository {
                         revision = lsp_language_configurations.revision + 1,
                         updated_at = excluded.updated_at",
                     params![
-                        language.as_id(),
+                        language.as_str(),
                         language_configuration.enabled,
                         language_configuration.executable_override,
                         arguments,
@@ -161,7 +167,8 @@ fn load_configuration(connection: &Connection) -> Result<LspConfiguration, Domai
         .map_err(|_| storage_error())?;
     let mut statement = connection
         .prepare(
-            "SELECT language_id, enabled, executable_override, initialization_options_json \
+            "SELECT language_id, enabled, executable_override, startup_arguments_json, \
+             initialization_options_json \
              FROM lsp_language_configurations ORDER BY language_id",
         )
         .map_err(|_| storage_error())?;
@@ -171,22 +178,34 @@ fn load_configuration(connection: &Connection) -> Result<LspConfiguration, Domai
                 row.get::<_, String>(0)?,
                 row.get::<_, bool>(1)?,
                 row.get::<_, Option<String>>(2)?,
-                row.get::<_, String>(3)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, String>(4)?,
             ))
         })
         .map_err(|_| storage_error())?;
     let mut languages = BTreeMap::new();
     for row in rows {
-        let (language, language_enabled, executable_override, options) =
+        let (language_id, language_enabled, executable_override, arguments, options) =
             row.map_err(|_| storage_error())?;
-        let language = LanguageFamily::parse(&language)?;
+        // A row naming a language this build does not register is skipped, not rejected. Storage
+        // no longer constrains the id set, so such a row is reachable by downgrading, and failing
+        // the whole load would make the application unbootable over a language it simply cannot
+        // serve. The row itself is left untouched so re-upgrading restores the user's settings.
+        let Some(language) = resolve_language(&language_id) else {
+            continue;
+        };
+        let startup_arguments = arguments
+            .map(|arguments| serde_json::from_str::<Vec<String>>(&arguments))
+            .transpose()
+            .map_err(|_| DomainModelError::InvalidStartupArguments)?;
         let initialization_options = serde_json::from_str(&options)
             .map_err(|_| DomainModelError::InvalidInitializationOptions)?;
         languages.insert(
-            language,
+            language.language_id(),
             LanguageConfiguration {
                 enabled: language_enabled,
                 executable_override,
+                startup_arguments,
                 initialization_options,
             },
         );

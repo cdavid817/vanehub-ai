@@ -1,3 +1,4 @@
+use super::registry::LanguageDefinition;
 use thiserror::Error;
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
@@ -12,10 +13,8 @@ pub(crate) enum DomainModelError {
     InvalidRange,
     #[error("ready query outcomes require a value")]
     ReadyOutcomeWithoutValue,
-    #[error("unsupported language id")]
-    UnsupportedLanguageId,
-    #[error("LSP configuration must contain every supported language exactly once")]
-    IncompleteLanguageConfiguration,
+    #[error("startup arguments must be a bounded list of strings")]
+    InvalidStartupArguments,
     #[error("executable override must be an absolute path")]
     InvalidExecutableOverride,
     #[error("initialization options must be a bounded JSON object")]
@@ -26,56 +25,18 @@ pub(crate) enum DomainModelError {
     Storage,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) enum LanguageFamily {
-    Rust,
-    TypeScriptJavaScript,
-}
+/// A registered language, carrying both its own id and its server's. The two used to be separate
+/// enums that every call site had to keep in agreement; as one reference they cannot disagree, and
+/// the reference is `Copy` where an owned id would not be.
+pub(crate) type Language = &'static LanguageDefinition;
 
-impl LanguageFamily {
-    pub(crate) const fn as_id(self) -> &'static str {
-        match self {
-            Self::Rust => "rust",
-            Self::TypeScriptJavaScript => "typescript_javascript",
-        }
-    }
-
-    pub(crate) const fn server_kind(self) -> ServerKind {
-        match self {
-            Self::Rust => ServerKind::RustAnalyzer,
-            Self::TypeScriptJavaScript => ServerKind::TypeScriptLanguageServer,
-        }
-    }
-
-    pub(crate) fn parse(value: &str) -> Result<Self, DomainModelError> {
-        match value {
-            "rust" => Ok(Self::Rust),
-            "typescript_javascript" => Ok(Self::TypeScriptJavaScript),
-            _ => Err(DomainModelError::UnsupportedLanguageId),
-        }
-    }
-
-    pub(crate) fn startup_arguments(self) -> &'static [&'static str] {
-        match self {
-            Self::Rust => &[],
-            Self::TypeScriptJavaScript => &["--stdio"],
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) enum ServerKind {
-    RustAnalyzer,
-    TypeScriptLanguageServer,
-}
-
-impl ServerKind {
-    pub(crate) const fn as_id(self) -> &'static str {
-        match self {
-            Self::RustAnalyzer => "rust_analyzer",
-            Self::TypeScriptLanguageServer => "typescript_language_server",
-        }
-    }
+/// Resolves a stored or wire-supplied language id against the registry.
+///
+/// Unlike the enum this replaces, an unregistered id is an ordinary `None` rather than a parse
+/// error: storage no longer constrains the id set, so a row naming a language this build does not
+/// register is a case every reader has to handle rather than an impossibility.
+pub(crate) fn resolve_language(language_id: &str) -> Option<Language> {
+    super::registry::definition(language_id)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -366,8 +327,9 @@ pub(crate) enum QueryStatus {
 pub(crate) struct QueryOutcome<T> {
     status: QueryStatus,
     value: Option<T>,
-    pub(crate) server: Option<ServerKind>,
-    pub(crate) language: Option<LanguageFamily>,
+    // One field where there were two. The server was always the one the language declares, so a
+    // separate field could only ever agree or be a bug.
+    pub(crate) language: Option<Language>,
     document_version: Option<DocumentVersion>,
     pub(crate) stale: bool,
     pub(crate) returned_count: usize,
@@ -382,7 +344,6 @@ impl<T> QueryOutcome<T> {
         Self {
             status: QueryStatus::Ready,
             value: Some(value),
-            server: None,
             language: None,
             document_version: Some(DocumentVersion::new(document_version)),
             stale: false,
@@ -404,7 +365,6 @@ impl<T> QueryOutcome<T> {
         Ok(Self {
             status,
             value: None,
-            server: None,
             language: None,
             document_version: None,
             stale: false,
@@ -416,11 +376,9 @@ impl<T> QueryOutcome<T> {
         })
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn ready_with_metadata(
         value: T,
-        server: ServerKind,
-        language: LanguageFamily,
+        language: Language,
         document_version: DocumentVersion,
         returned_count: usize,
         total: usize,
@@ -430,7 +388,6 @@ impl<T> QueryOutcome<T> {
         Self {
             status: QueryStatus::Ready,
             value: Some(value),
-            server: Some(server),
             language: Some(language),
             document_version: Some(document_version),
             stale: false,
@@ -445,15 +402,13 @@ impl<T> QueryOutcome<T> {
     pub(crate) fn degraded_with_identity(
         status: QueryStatus,
         reason_code: impl Into<String>,
-        server: Option<ServerKind>,
-        language: Option<LanguageFamily>,
+        language: Option<Language>,
         document_version: Option<DocumentVersion>,
     ) -> Self {
         debug_assert_ne!(status, QueryStatus::Ready);
         Self {
             status,
             value: None,
-            server,
             language,
             document_version,
             stale: false,
@@ -470,8 +425,7 @@ impl<T> QueryOutcome<T> {
         status: QueryStatus,
         value: Option<T>,
         reason_code: Option<&str>,
-        server: ServerKind,
-        language: LanguageFamily,
+        language: Language,
         document_version: DocumentVersion,
         stale: bool,
         returned_count: usize,
@@ -482,7 +436,6 @@ impl<T> QueryOutcome<T> {
         Self {
             status,
             value,
-            server: Some(server),
             language: Some(language),
             document_version: Some(document_version),
             stale,
