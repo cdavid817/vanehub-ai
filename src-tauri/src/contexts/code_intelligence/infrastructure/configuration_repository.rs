@@ -7,6 +7,7 @@ use crate::contexts::code_intelligence::domain::configuration::{
 use crate::contexts::code_intelligence::domain::models::{
     resolve_language, DomainModelError, WorkspaceTrust,
 };
+use crate::contexts::code_intelligence::domain::registry::LANGUAGE_DEFINITIONS;
 use crate::platform::clock::SystemClock;
 use crate::platform::database::NativeDatabase;
 use rusqlite::{params, Connection};
@@ -209,6 +210,16 @@ fn load_configuration(connection: &Connection) -> Result<LspConfiguration, Domai
                 initialization_options,
             },
         );
+    }
+    // A registered language with no stored row is not missing configuration -- it has never been
+    // configured, which means the registry defaults. Filling them in here keeps the map covering
+    // exactly the registered set, so no reader has to decide what absence means. Rows only exist
+    // for languages that were registered when something last saved, so every language added after
+    // an installation's last save arrives here without one.
+    for definition in LANGUAGE_DEFINITIONS {
+        languages
+            .entry(definition.language_id())
+            .or_insert_with(LanguageConfiguration::default);
     }
     let configuration = LspConfiguration { enabled, languages };
     configuration.validate()?;

@@ -59,7 +59,13 @@ pub(crate) struct LanguageDefinition {
     /// name, and the first that resolves wins.
     pub(crate) executables: &'static [&'static str],
     pub(crate) default_startup_arguments: &'static [&'static str],
+    /// Any one of these identifies a project root. A marker may name a path inside the candidate
+    /// directory rather than a file directly in it. Order is not meaningful.
     pub(crate) root_markers: &'static [&'static str],
+    /// When set, a workspace with no marker is refused instead of falling back to the session
+    /// root. Only for a server that answers confidently wrong without its project metadata, which
+    /// is worse than answering "unavailable".
+    pub(crate) requires_root_marker: bool,
     pub(crate) extensions: &'static [ExtensionMapping],
     pub(crate) fixture_files: &'static [FixtureFile],
     pub(crate) platforms: &'static [HostPlatform],
@@ -126,6 +132,7 @@ pub(crate) const LANGUAGE_DEFINITIONS: &[LanguageDefinition] = &[
         executables: &["rust-analyzer"],
         default_startup_arguments: &[],
         root_markers: &["Cargo.toml"],
+        requires_root_marker: false,
         extensions: &[("rs", "rust")],
         fixture_files: &[
             (
@@ -142,6 +149,7 @@ pub(crate) const LANGUAGE_DEFINITIONS: &[LanguageDefinition] = &[
         executables: &["typescript-language-server"],
         default_startup_arguments: &["--stdio"],
         root_markers: &["tsconfig.json", "jsconfig.json", "package.json"],
+        requires_root_marker: false,
         extensions: &[
             ("ts", "typescript"),
             ("tsx", "typescriptreact"),
@@ -154,6 +162,72 @@ pub(crate) const LANGUAGE_DEFINITIONS: &[LanguageDefinition] = &[
             ("package.json", "{\"private\":true}"),
             ("tsconfig.json", "{\"compilerOptions\":{}}"),
             ("src/index.ts", "export const fixture = true;\n"),
+        ],
+        platforms: EVERY_PLATFORM,
+    },
+    LanguageDefinition {
+        id: "go",
+        server_id: "gopls",
+        executables: &["gopls"],
+        default_startup_arguments: &[],
+        root_markers: &["go.mod"],
+        requires_root_marker: false,
+        extensions: &[("go", "go")],
+        fixture_files: &[
+            ("go.mod", "module lsp_test\n\ngo 1.21\n"),
+            ("main.go", "package main\n\nfunc main() {}\n"),
+        ],
+        platforms: EVERY_PLATFORM,
+    },
+    LanguageDefinition {
+        id: "python",
+        server_id: "pyright",
+        // The fork first: installing it is a deliberate act in a way that installing the upstream
+        // server is not, so a host carrying both most likely wants it. Discovery reports which
+        // candidate it selected, so the choice is visible rather than silent.
+        executables: &["basedpyright-langserver", "pyright-langserver"],
+        default_startup_arguments: &["--stdio"],
+        root_markers: &[
+            "pyproject.toml",
+            "setup.py",
+            "setup.cfg",
+            "requirements.txt",
+        ],
+        requires_root_marker: false,
+        extensions: &[("py", "python"), ("pyi", "python")],
+        fixture_files: &[
+            (
+                "pyproject.toml",
+                "[project]\nname = \"lsp_test\"\nversion = \"0.1.0\"\n",
+            ),
+            ("main.py", "def fixture() -> None:\n    return None\n"),
+        ],
+        platforms: EVERY_PLATFORM,
+    },
+    LanguageDefinition {
+        id: "cpp",
+        server_id: "clangd",
+        executables: &["clangd"],
+        default_startup_arguments: &[],
+        root_markers: &["compile_commands.json", "build/compile_commands.json"],
+        // Without a compilation database clangd assumes default flags and then answers definitions
+        // and diagnostics that are confidently wrong. An unavailable result is the better answer.
+        requires_root_marker: true,
+        extensions: &[
+            ("c", "c"),
+            // Shared by both dialects and undecidable from the extension alone. clangd infers the
+            // real one from the compilation database; `c` is the more conservative hint.
+            ("h", "c"),
+            ("cpp", "cpp"),
+            ("cc", "cpp"),
+            ("cxx", "cpp"),
+            ("hpp", "cpp"),
+            ("hh", "cpp"),
+            ("hxx", "cpp"),
+        ],
+        fixture_files: &[
+            ("compile_commands.json", "[]"),
+            ("main.cpp", "int main() { return 0; }\n"),
         ],
         platforms: EVERY_PLATFORM,
     },
@@ -193,4 +267,19 @@ pub(crate) fn rust() -> &'static LanguageDefinition {
 #[cfg(test)]
 pub(crate) fn typescript() -> &'static LanguageDefinition {
     definition("typescript_javascript").expect("typescript/javascript is registered")
+}
+
+#[cfg(test)]
+pub(crate) fn go() -> &'static LanguageDefinition {
+    definition("go").expect("go is registered")
+}
+
+#[cfg(test)]
+pub(crate) fn python() -> &'static LanguageDefinition {
+    definition("python").expect("python is registered")
+}
+
+#[cfg(test)]
+pub(crate) fn cpp() -> &'static LanguageDefinition {
+    definition("cpp").expect("c/c++ is registered")
 }

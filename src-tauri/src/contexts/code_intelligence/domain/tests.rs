@@ -15,7 +15,7 @@ fn resolving_a_language_id_yields_the_registry_entry_and_its_server() {
     assert_eq!(typescript, registry::typescript());
     assert_eq!(typescript.server_id, "typescript_language_server");
 
-    assert!(resolve_language("go").is_none());
+    assert!(resolve_language("ruby").is_none());
     assert!(resolve_language("").is_none());
     assert!(resolve_language("Rust").is_none());
 }

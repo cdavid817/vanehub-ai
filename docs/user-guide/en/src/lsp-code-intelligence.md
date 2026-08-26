@@ -10,6 +10,13 @@ Language Server Protocol (LSP) integration lets the native API Agent ask a local
 | --- | --- | --- | --- |
 | Rust | `rust-analyzer` | none | nearest `Cargo.toml` |
 | TypeScript and JavaScript | `typescript-language-server` | `--stdio` | nearest `tsconfig.json`, `jsconfig.json`, or `package.json` |
+| Go | `gopls` | none | nearest `go.mod` |
+| Python | `basedpyright-langserver`, else `pyright-langserver` | `--stdio` | nearest `pyproject.toml`, `setup.py`, `setup.cfg`, or `requirements.txt` |
+| C and C++ | `clangd` | none | nearest `compile_commands.json`, or `build/compile_commands.json` |
+
+C and C++ is the one language that will not fall back. Every other language treats the workspace root as its project root when no marker is found; `clangd` without a compilation database assumes default compiler flags and then answers definitions and diagnostics that are confidently wrong, so VaneHub AI reports the request as unavailable instead.
+
+Python prefers `basedpyright-langserver` when both are installed. Installing the fork is a deliberate act in a way that installing the upstream server is not, and the discovery panel names the one it selected.
 
 Which languages exist is decided by the desktop build, not by the settings page. The page renders one card per language the running build registers, so a language your build does not know about cannot be configured, and a language your build knows but cannot run on this operating system is shown as unsupported rather than as merely undetected.
 
@@ -48,6 +55,36 @@ typescript-language-server --version
 ```
 
 VaneHub AI supplies `--stdio` as this server's default startup argument; you can replace it under **Startup arguments** if your installation needs something else. See the upstream [TypeScript Language Server project](https://github.com/typescript-language-server/typescript-language-server#installing) for its current prerequisites.
+
+### Go
+
+```bash
+go install golang.org/x/tools/gopls@latest
+gopls version
+```
+
+`gopls` installs into `$(go env GOPATH)/bin`, which is not always on the `PATH` a desktop application inherits. See the upstream [gopls installation guide](https://pkg.go.dev/golang.org/x/tools/gopls#section-readme).
+
+### Python
+
+```bash
+npm install -g basedpyright   # or: npm install -g pyright
+basedpyright-langserver --help
+```
+
+Either server works; VaneHub AI supplies `--stdio`. See [basedpyright](https://docs.basedpyright.com/) or [pyright](https://microsoft.github.io/pyright/#/installation) for their current prerequisites.
+
+### C and C++
+
+`clangd` ships with LLVM. Install it through your platform's package manager, then generate a compilation database for each project:
+
+```bash
+clangd --version
+# CMake, in the project you want served:
+cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+```
+
+The generated `build/compile_commands.json` is what makes the project detectable. See the upstream [clangd installation guide](https://clangd.llvm.org/installation) for other build systems, including `bear` for Make-based projects.
 
 ## Enable LSP for a workspace
 
@@ -122,6 +159,10 @@ Use the failed phase to narrow the cause:
 - **Process start:** dependencies, permissions, or the executable itself prevented launch.
 - **Initialization:** the server rejected the minimal project, returned malformed capabilities, or timed out.
 - **Cleanup:** graceful shutdown failed and forced cleanup could not finish.
+
+### A C or C++ request reports a missing project marker
+
+`clangd` is installed and discovery shows it as available, but the workspace has no compilation database, so there is nothing to serve the request with. Generate one — `cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON`, `bear -- make`, or your build system's equivalent — and place it at the project root or in its `build` directory. This is deliberately distinct from an installation problem: the server is fine, the project is what cannot be read.
 
 ### A language is shown as unsupported on this operating system
 

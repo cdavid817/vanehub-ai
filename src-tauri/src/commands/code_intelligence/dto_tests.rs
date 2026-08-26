@@ -1,6 +1,9 @@
 use super::dto::*;
-use crate::contexts::code_intelligence::api::{LspConfiguration, LspLanguageId};
+use crate::contexts::code_intelligence::api::{
+    LanguageConfiguration, LspConfiguration, LspLanguageId, LANGUAGE_DEFINITIONS,
+};
 use serde_json::json;
+use std::collections::BTreeMap;
 
 #[test]
 fn configuration_contract_uses_stable_language_ids_and_camel_case_fields() {
@@ -181,58 +184,83 @@ fn server_test_contract_serializes_phases_and_optional_negotiated_capabilities()
 // contract change show up as a reviewable diff rather than as nothing at all.
 #[test]
 fn get_lsp_configuration_result_serializes_to_an_exact_object() {
-    // Built through the real domain-to-DTO conversion rather than by hand, so the descriptor list
-    // is whatever the registry actually declares. A hand-written expectation here would keep
-    // passing after the registry and the conversion had drifted apart.
+    // One configured language, pinned exactly. The list used to hold every registered language,
+    // which meant this expectation had to be rewritten each time one was added and grew a table
+    // that nobody would read. What it needs to catch is a field appearing, disappearing, or
+    // changing shape, and one entry catches that as well as five.
     let mut configuration = LspConfiguration {
         enabled: true,
-        ..LspConfiguration::default()
+        languages: BTreeMap::new(),
     };
-    let rust = configuration
-        .languages
-        .get_mut(&LspLanguageId::new("rust").expect("rust language id"))
-        .expect("rust configuration");
-    rust.enabled = true;
-    rust.executable_override = Some("C:/tools/rust-analyzer.exe".to_owned());
-    rust.initialization_options = json!({"check": {"command": "clippy"}});
-
-    assert_eq!(
-        serde_json::to_value(LspConfigurationDto::from(configuration))
-            .expect("serialize configuration"),
-        json!({
-            "enabled": true,
-            "languages": [
-                {
-                    "language": "rust",
-                    "enabled": true,
-                    "executableOverride": "C:/tools/rust-analyzer.exe",
-                    "startupArguments": null,
-                    "initializationOptions": {"check": {"command": "clippy"}}
-                },
-                {
-                    "language": "typescript_javascript",
-                    "enabled": false,
-                    "executableOverride": null,
-                    "startupArguments": null,
-                    "initializationOptions": {}
-                }
-            ],
-            "descriptors": [
-                {
-                    "language": "rust",
-                    "server": "rust_analyzer",
-                    "supportedOnHost": true,
-                    "defaultStartupArguments": []
-                },
-                {
-                    "language": "typescript_javascript",
-                    "server": "typescript_language_server",
-                    "supportedOnHost": true,
-                    "defaultStartupArguments": ["--stdio"]
-                }
-            ]
-        })
+    configuration.languages.insert(
+        LspLanguageId::new("rust").expect("rust language id"),
+        LanguageConfiguration {
+            enabled: true,
+            executable_override: Some("C:/tools/rust-analyzer.exe".to_owned()),
+            startup_arguments: None,
+            initialization_options: json!({"check": {"command": "clippy"}}),
+        },
     );
+
+    let value = serde_json::to_value(LspConfigurationDto::from(configuration)).expect("serialize");
+    assert_eq!(
+        value["languages"],
+        json!([{
+            "language": "rust",
+            "enabled": true,
+            "executableOverride": "C:/tools/rust-analyzer.exe",
+            "startupArguments": null,
+            "initializationOptions": {"check": {"command": "clippy"}}
+        }])
+    );
+    assert_eq!(value["enabled"], json!(true));
+    assert_eq!(
+        // serde_json orders object keys, so this is the key set rather than the field order.
+        value
+            .as_object()
+            .expect("object")
+            .keys()
+            .collect::<Vec<_>>(),
+        vec!["descriptors", "enabled", "languages"]
+    );
+}
+
+#[test]
+fn get_lsp_configuration_describes_every_registered_language() {
+    // The descriptor list comes from the registry, so asserting a literal here would only restate
+    // the registry and would have to be edited whenever it changed. What is worth pinning is the
+    // relationship: one descriptor per registered language, in the same order, each with the four
+    // fields the settings page renders from.
+    let value = serde_json::to_value(LspConfigurationDto::from(LspConfiguration::default()))
+        .expect("serialize");
+    let descriptors = value["descriptors"].as_array().expect("descriptor array");
+
+    assert_eq!(descriptors.len(), LANGUAGE_DEFINITIONS.len());
+    for (descriptor, definition) in descriptors.iter().zip(LANGUAGE_DEFINITIONS) {
+        assert_eq!(descriptor["language"], json!(definition.id));
+        assert_eq!(descriptor["server"], json!(definition.server_id));
+        assert_eq!(
+            descriptor["supportedOnHost"],
+            json!(definition.supports_host())
+        );
+        assert_eq!(
+            descriptor["defaultStartupArguments"],
+            json!(definition.default_startup_arguments)
+        );
+        assert_eq!(
+            descriptor
+                .as_object()
+                .expect("descriptor object")
+                .keys()
+                .collect::<Vec<_>>(),
+            vec![
+                "defaultStartupArguments",
+                "language",
+                "server",
+                "supportedOnHost"
+            ]
+        );
+    }
 }
 
 #[test]

@@ -130,10 +130,93 @@ fn the_registry_still_declares_the_two_languages_the_previous_enum_hard_coded() 
 }
 
 #[test]
+fn a_language_requiring_a_marker_declares_at_least_one() {
+    // The combination that would make a language permanently unusable: detection refuses to fall
+    // back, and there is nothing it could ever match instead.
+    for definition in LANGUAGE_DEFINITIONS {
+        if definition.requires_root_marker {
+            assert!(
+                !definition.root_markers.is_empty(),
+                "{}: requires a root marker but declares none",
+                definition.id
+            );
+        }
+    }
+}
+
+#[test]
+fn the_registry_declares_go_python_and_cpp() {
+    let go = definition("go").expect("go is registered");
+    assert_eq!(go.server_id, "gopls");
+    assert_eq!(go.executables, &["gopls"]);
+    assert!(go.default_startup_arguments.is_empty());
+    assert_eq!(go.root_markers, &["go.mod"]);
+    assert!(!go.requires_root_marker);
+    assert_eq!(go.language_id_for_extension("go"), Some("go"));
+
+    let python = definition("python").expect("python is registered");
+    assert_eq!(python.server_id, "pyright");
+    // The fork is first on purpose; installing it is a deliberate act.
+    assert_eq!(
+        python.executables,
+        &["basedpyright-langserver", "pyright-langserver"]
+    );
+    assert_eq!(python.default_startup_arguments, &["--stdio"]);
+    assert_eq!(
+        python.root_markers,
+        &[
+            "pyproject.toml",
+            "setup.py",
+            "setup.cfg",
+            "requirements.txt"
+        ]
+    );
+    assert!(!python.requires_root_marker);
+    for extension in ["py", "pyi"] {
+        assert_eq!(python.language_id_for_extension(extension), Some("python"));
+    }
+
+    let cpp = definition("cpp").expect("c/c++ is registered");
+    assert_eq!(cpp.server_id, "clangd");
+    assert_eq!(cpp.executables, &["clangd"]);
+    assert!(cpp.default_startup_arguments.is_empty());
+    assert_eq!(
+        cpp.root_markers,
+        &["compile_commands.json", "build/compile_commands.json"]
+    );
+    assert!(cpp.requires_root_marker);
+    assert_eq!(cpp.language_id_for_extension("c"), Some("c"));
+    // Undecidable from the extension alone; `c` is the conservative hint and clangd infers the
+    // real dialect from the compilation database.
+    assert_eq!(cpp.language_id_for_extension("h"), Some("c"));
+    for extension in ["cpp", "cc", "cxx", "hpp", "hh", "hxx"] {
+        assert_eq!(cpp.language_id_for_extension(extension), Some("cpp"));
+    }
+}
+
+#[test]
+fn a_marker_naming_a_nested_path_uses_a_forward_slash() {
+    // Detection joins the marker onto a candidate directory, and `Path::join` accepts a forward
+    // slash on every supported platform. A backslash would only resolve on Windows, so a marker
+    // written that way would silently stop matching on macOS and Linux.
+    for definition in LANGUAGE_DEFINITIONS {
+        for marker in definition.root_markers {
+            assert!(
+                !marker.contains('\\'),
+                "{}: marker {marker} uses a backslash",
+                definition.id
+            );
+        }
+    }
+}
+
+#[test]
 fn lookups_resolve_registered_values_and_reject_everything_else() {
-    assert!(definition("go").is_none());
-    assert!(definition_for_server("gopls").is_none());
-    assert!(definition_for_extension("go").is_none());
+    // `go` used to stand in for "unregistered" here and now names a real entry, which is the whole
+    // point of the change that registered it. Ruby is the current stand-in.
+    assert!(definition("ruby").is_none());
+    assert!(definition_for_server("solargraph").is_none());
+    assert!(definition_for_extension("rb").is_none());
 
     let (owner, language_id) = definition_for_extension("tsx").expect("tsx is admitted");
     assert_eq!(owner.id, "typescript_javascript");

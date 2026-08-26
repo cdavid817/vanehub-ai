@@ -16,6 +16,10 @@ pub(crate) enum ProjectRootError {
     TraversalLimit,
     #[error("project root is unavailable")]
     ProjectRootUnavailable,
+    /// Kept distinct from `ProjectRootUnavailable` on purpose: "no compilation database" tells a
+    /// user what to do and "project root unavailable" does not.
+    #[error("the language requires a project marker and none was found in the workspace")]
+    RequiredMarkerMissing,
 }
 
 pub(crate) struct ProjectRootResolver;
@@ -44,11 +48,21 @@ impl ProjectRootResolver {
 
         let markers = language.root_markers;
         for _ in 0..MAX_ANCESTORS {
+            // A marker may name a path inside the candidate directory rather than a file directly
+            // in it, which is how C/C++ finds `build/compile_commands.json` without a second
+            // detection mechanism.
             if markers.iter().any(|marker| current.join(marker).is_file()) {
                 return Ok(current);
             }
             if current == session_root {
-                return Ok(session_root);
+                // Falling back to the workspace root is right for a server that degrades
+                // gracefully without a manifest. A server that instead answers confidently wrong
+                // gets a refusal, because an unavailable result is the better answer.
+                return if language.requires_root_marker {
+                    Err(ProjectRootError::RequiredMarkerMissing)
+                } else {
+                    Ok(session_root)
+                };
             }
             let Some(parent) = current.parent() else {
                 return Err(ProjectRootError::OutsideSessionRoot);

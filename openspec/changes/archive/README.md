@@ -232,6 +232,7 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-23 | upgrade-cli-parameter-management | cli-parameter-management | `openspec/changes/archive/2026-08-23-upgrade-cli-parameter-management/` |
 | 2026-08-25 | add-local-composer-media-tools | app-settings, application-localization, chat-experience, desktop-runtime-verification, local-extension-management, local-media-runtime, native-app-packaging, native-runtime-architecture, onepiece-ocr-tool | `openspec/changes/archive/2026-08-25-add-local-composer-media-tools/` |
 | 2026-08-25 | add-source-aware-cli-environment-management | cli-environment-management, contract-and-task-foundation, desktop-runtime-verification, frontend-runtime-architecture, native-runtime-architecture, settings-center-ui, unified-log-management | `openspec/changes/archive/2026-08-25-add-source-aware-cli-environment-management/` |
+| 2026-08-26 | add-lsp-go-python-cpp | lsp-server-management | `openspec/changes/archive/2026-08-26-add-lsp-go-python-cpp/` |
 | 2026-08-26 | extend-lsp-language-registry | lsp-server-management, settings-center-ui | `openspec/changes/archive/2026-08-26-extend-lsp-language-registry/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.
