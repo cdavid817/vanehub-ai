@@ -245,7 +245,7 @@ give the replay code a caller is exactly the kind of fake wiring this note forbi
 - [x] 12.12 Add per-provider partial/truncated/unavailable states instead of one ambiguous global partial marker.
 - [x] 12.13 Preserve read-only semantics and omit create/edit/rename/delete/save controls from this change.
 - [x] 12.14 Split Files/Documents production components and hooks to remain within the line-size rule. Every Files/Documents module built in 12.1-12.13 was already inside it, so the splits this task anticipated had happened as the features were written. What had not: the tab host reached 282 lines from navigation callbacks added a round at a time, and the pre-existing logs hook sat at 290. A headroom guard at 280 now names the worst offender, which is what surfaced both.
-- [ ] 12.15 Add maximum-directory, maximum-search, large-preview, invalidation, stale-content, remote-unavailable, keyboard, and visual-style tests.
+- [x] 12.15 Add maximum-directory, maximum-search, large-preview, invalidation, stale-content, remote-unavailable, keyboard, and visual-style tests. Three suites split by what fails, not by which component: bounds (a full page is not a cut one), freshness (the workspace changed under the reader), and presentation (the keyboard contract both dialogs claim to share, and colour taken from tokens). The keyboard suite surfaced one accessibility gap that belongs to 14.9 and is recorded there rather than left in a comment.
 
 ## 13. Review Hunk State, Viewed Progress, Patch Copy, and Evidence
 
@@ -273,7 +273,7 @@ give the replay code a caller is exactly the kind of fake wiring this note forbi
 - [ ] 14.6 Verify no hover, loading, active, failure, or badge state changes control dimensions or shifts adjacent content.
 - [ ] 14.7 Add synchronized translations for every new label, tooltip, filter, status, coverage state, error, empty state, confirmation, drawer tab, and accessibility name in every registered locale.
 - [ ] 14.8 Run and fix i18n resource parity and visible-text guardrails without broad allowlisting.
-- [ ] 14.9 Add keyboard navigation and focus management for execution rows, Shell tabs, log follow controls, waterfall rows, detail drawers, quick open, document outline, and review actions.
+- [ ] 14.9 Add keyboard navigation and focus management for execution rows, Shell tabs, log follow controls, waterfall rows, detail drawers, quick open, document outline, and review actions. Found while writing 12.15's keyboard tests: both search dialogs keep focus in the input and mark the active row with `aria-selected` only, so nothing announces the move to assistive technology. They need the combobox pairing — `aria-activedescendant` on the input against a stable option id — and their `role="option"` currently sits on a button inside an `li`, which is not a valid listbox child.
 - [ ] 14.10 Verify icon-only controls have localized accessible names/tooltips and status is not communicated by color alone.
 - [ ] 14.11 Perform visual tests in `futuristic` and `minimal` styles at desktop and narrow widths, including partial/error/live states and long localized labels.
 
