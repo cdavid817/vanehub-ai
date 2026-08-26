@@ -4126,5 +4126,8 @@
   "sessionTabs.files.preview.newline.lf": "LF",
   "sessionTabs.files.preview.newline.crlf": "CRLF",
   "sessionTabs.files.preview.newline.mixed": "混合換行符號",
-  "sessionTabs.files.preview.newline.none": "無換行符號"
+  "sessionTabs.files.preview.newline.none": "無換行符號",
+  "sessionTabs.files.preview.refreshing": "正在重新讀取此檔案…",
+  "sessionTabs.files.preview.showingPrevious": "{{path}} 載入中,仍顯示上一個檔案。",
+  "sessionTabs.files.preview.loadFailed": "無法讀取 {{path}}({{reason}})。仍顯示上一個檔案。"
 }

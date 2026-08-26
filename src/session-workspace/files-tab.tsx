@@ -1,18 +1,15 @@
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { Check, ChevronDown, ChevronRight, Copy, File, Folder } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { copyFileReferencePath, writeFileReferenceDrag } from "../services/file-reference-transfer";
-import { agentService } from "../services/runtime-agent-client";
 import { PartialNotice, WorkspaceState } from "./workspace-state";
-import { workspaceErrorKey } from "./workspace-error";
 import { parentDirectoryOf, selectionStillExists } from "./workspace-invalidation-targets";
-import { workspaceQueryKeys } from "./workspace-query-keys";
 import { useWorkspaceFileTree } from "./use-workspace-file-tree";
 import { QuickOpenDialog } from "./quick-open-dialog";
 import { ContentSearchPanel } from "./content-search-panel";
 import { FilesToolbar } from "./files-toolbar";
 import { FilePreview } from "./file-preview";
+import { useFilePreview } from "./use-file-preview";
 import { useWorkspaceCapabilities } from "./workspace-capability-notice";
 
 export { flattenFileRows, type TreeRow } from "./use-workspace-file-tree";
@@ -50,11 +47,7 @@ export function FilesTab({
   // and, later, what the panel says when a capability is missing. Two reads would be two answers.
   const { capabilities } = useWorkspaceCapabilities(isVisible ? sessionId : null);
 
-  const previewQuery = useQuery({
-    enabled: Boolean(sessionId) && Boolean(selectedPath),
-    queryKey: workspaceQueryKeys.preview(sessionId ?? "", selectedPath ?? ""),
-    queryFn: () => agentService.readSessionFile(sessionId ?? "", selectedPath ?? ""),
-  });
+  const preview = useFilePreview(sessionId, selectedPath);
 
   useEffect(() => {
     setSelectedPath(null);
@@ -69,8 +62,9 @@ export function FilesTab({
     if (!selectionStillExists(selectedPath, siblings)) setSelectedPath(null);
   }, [selectedPath, tree.entriesByPath]);
 
-  const preview = previewQuery.data ?? null;
-  const error = tree.error ?? (previewQuery.error ? workspaceErrorKey(previewQuery.error) : null);
+  // The tree's failures still take the panel; a preview failure does not, because the reader may
+  // still be reading the file it could not replace.
+  const error = tree.error;
 
   if (!sessionId) return <WorkspaceState kind="unavailable" />;
   if (tree.isLoading && !tree.hasRoot) return <WorkspaceState kind="loading" />;
@@ -153,8 +147,23 @@ export function FilesTab({
         ))}
       </section>
       <section className="min-h-0 overflow-auto rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-3">
-        {previewQuery.isLoading && selectedPath ? <WorkspaceState kind="loading" /> : error ? <WorkspaceState kind="error" message={t(error)} /> : !preview ? <WorkspaceState kind="empty" message={t("sessionTabs.files.select")} /> : preview.status !== "text" ? <WorkspaceState kind="unavailable" message={t(`sessionTabs.files.${preview.status}`)} /> : (
-          <FilePreview file={preview} onShowEvidence={onShowEvidence} targetLine={previewLine} />
+        {error ? (
+          <WorkspaceState kind="error" message={t(error)} />
+        ) : preview.isEmpty && preview.status.kind === "loading" ? (
+          <WorkspaceState kind="loading" />
+        ) : preview.isEmpty && preview.status.kind === "failed" ? (
+          <WorkspaceState kind="error" message={t(preview.status.reason)} />
+        ) : !preview.shown ? (
+          <WorkspaceState kind="empty" message={t("sessionTabs.files.select")} />
+        ) : preview.shown.status !== "text" ? (
+          <WorkspaceState kind="unavailable" message={t(`sessionTabs.files.${preview.shown.status}`)} />
+        ) : (
+          <FilePreview
+            file={preview.shown}
+            onShowEvidence={onShowEvidence}
+            status={preview.status}
+            targetLine={previewLine}
+          />
         )}
       </section>
     </div>

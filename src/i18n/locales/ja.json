@@ -4126,5 +4126,8 @@
   "sessionTabs.files.preview.newline.lf": "LF",
   "sessionTabs.files.preview.newline.crlf": "CRLF",
   "sessionTabs.files.preview.newline.mixed": "混在した改行コード",
-  "sessionTabs.files.preview.newline.none": "改行なし"
+  "sessionTabs.files.preview.newline.none": "改行なし",
+  "sessionTabs.files.preview.refreshing": "このファイルを再読み込みしています…",
+  "sessionTabs.files.preview.showingPrevious": "{{path}} の読み込み中、前のファイルを表示しています。",
+  "sessionTabs.files.preview.loadFailed": "{{path}} を読み込めませんでした({{reason}})。前のファイルを表示しています。"
 }

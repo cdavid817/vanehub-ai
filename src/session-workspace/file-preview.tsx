@@ -5,6 +5,7 @@ import { highlightFileLines } from "../services/code-highlighting";
 import type { FileContent } from "../types/session-workspace";
 import { WorkspaceState } from "./workspace-state";
 import { PreviewToolbar } from "./file-preview-toolbar";
+import type { PreviewStatus } from "./use-file-preview";
 
 /**
  * A read-only file, with the things that make a long one usable.
@@ -19,11 +20,14 @@ import { PreviewToolbar } from "./file-preview-toolbar";
 export function FilePreview({
   file,
   onShowEvidence,
+  status,
   targetLine,
 }: {
   file: FileContent;
   /** Absent where nothing owns the evidence scope, in which case the action is not offered. */
   onShowEvidence?: (path: string) => void;
+  /** Why this may not be the file that was last asked for. */
+  status: PreviewStatus;
   /** A line to reveal on open, from a content-search result. */
   targetLine: number | null;
 }) {
@@ -65,6 +69,7 @@ export function FilePreview({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      <PreviewNotice status={status} />
       <PreviewToolbar
         activeMatch={activeMatch}
         file={file}
@@ -105,5 +110,32 @@ export function FilePreview({
         ) : null}
       </div>
     </div>
+  );
+}
+
+/**
+ * Why the content below may not answer the question that was just asked.
+ *
+ * Rendered above the path rather than replacing it, so the header keeps naming the file that is
+ * actually on screen. A banner that swapped the label would be the same thing as showing the wrong
+ * file: the content would be one file's and the name another's, and nothing would say which.
+ */
+function PreviewNotice({ status }: { status: PreviewStatus }) {
+  const { t } = useTranslation();
+  if (status.kind === "current") return null;
+  return (
+    <p
+      className="mb-2 rounded border border-border bg-muted px-2 py-1 text-xs text-muted-foreground"
+      role="status"
+    >
+      {status.kind === "refreshing"
+        ? t("sessionTabs.files.preview.refreshing")
+        : status.kind === "loading"
+          ? t("sessionTabs.files.preview.showingPrevious", { path: status.pendingPath })
+          : t("sessionTabs.files.preview.loadFailed", {
+              path: status.pendingPath,
+              reason: t(status.reason),
+            })}
+    </p>
   );
 }

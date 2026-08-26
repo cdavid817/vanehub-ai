@@ -20,7 +20,11 @@ function file(overrides: Partial<FileContent> = {}): FileContent {
 
 function render(overrides: Partial<FileContent> = {}, props: { targetLine?: number | null } = {}) {
   return renderWithAppProviders(
-    <FilePreview file={file(overrides)} targetLine={props.targetLine ?? null} />,
+    <FilePreview
+      file={file(overrides)}
+      status={{ kind: "current" }}
+      targetLine={props.targetLine ?? null}
+    />,
   );
 }
 
@@ -129,7 +133,12 @@ describe("FilePreview", () => {
   it("hands the evidence action the file it is showing", () => {
     const onShowEvidence = vi.fn();
     renderWithAppProviders(
-      <FilePreview file={file()} onShowEvidence={onShowEvidence} targetLine={null} />,
+      <FilePreview
+        file={file()}
+        onShowEvidence={onShowEvidence}
+        status={{ kind: "current" }}
+        targetLine={null}
+      />,
     );
 
     fireEvent.click(screen.getByRole("button", { name: /records for this file|此文件的记录/ }));
