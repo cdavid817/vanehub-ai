@@ -1,10 +1,13 @@
-import { FileText, SlidersHorizontal } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { FileText, Layers, SlidersHorizontal } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { AgentService } from "../../../services/agent-service";
 import { agentService as defaultAgentService } from "../../../services/runtime-agent-client";
 import type { PersonalizationPolicyRef } from "../../../types/personalization";
 import { SectionPanel } from "../page-parts";
+import { InheritancePanel } from "./inheritance-panel";
+import { layersBelow } from "./inheritance-model";
 import { InstructionEditor } from "./instruction-editor";
 import { isIncomplete, PersonalizationScopeSelector } from "./scope-selector";
 import { useInstructionDrafts } from "./use-instruction-drafts";
@@ -26,6 +29,11 @@ export function PersonalizationInstructionsView({
   const { agents, workspaces } = useScopeOptions(service);
   const drafts = useInstructionDrafts(service, scope);
   const incomplete = isIncomplete(scope);
+  const policiesQuery = useQuery({
+    queryKey: ["personalization", "policies"] as const,
+    queryFn: () => service.listPersonalizationPolicies(),
+  });
+  const inherited = layersBelow(scope, policiesQuery.data ?? []);
 
   return (
     <div className="grid gap-5">
@@ -52,6 +60,16 @@ export function PersonalizationInstructionsView({
       >
         {editorBody()}
       </SectionPanel>
+
+      {incomplete || !drafts.draft ? null : (
+        <SectionPanel
+          description={t("personalization.inheritance.description")}
+          icon={Layers}
+          title={t("personalization.inheritance.title")}
+        >
+          <InheritancePanel layers={inherited} scope={scope} values={drafts.draft.values} />
+        </SectionPanel>
+      )}
     </div>
   );
 

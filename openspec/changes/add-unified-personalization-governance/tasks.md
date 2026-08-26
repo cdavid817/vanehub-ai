@@ -115,7 +115,7 @@
 - [x] 10.3 Implement Overview cards and a compact dynamic Agent list showing effective source, capability, final instruction state, memory read state, and extraction state.
 - [x] 10.4 Implement global, Agent, workspace, and workspace-Agent scope selection without hard-coded Agent checkboxes.
 - [x] 10.5 Replace blur-only long-text saving with explicit Save/Discard, dirty state, inline 3,000-character validation, approximate token count, navigation protection, and per-scope pending state.
-- [ ] 10.6 Display inherited instruction text and effective source; explain append, replace, and disabled behavior before save.
+- [x] 10.6 Display inherited instruction text and effective source; explain append, replace, and disabled behavior before save.
 - [ ] 10.7 Preserve user drafts on native errors and revision conflicts and provide reload/compare actions without silent last-response-wins.
 - [ ] 10.8 Ensure keyboard navigation, focus management, screen-reader labels, narrow-layout behavior, and IME composition work for all instruction workflows.
 - [ ] 10.9 Add component tests for initial hydration, scope changes, inheritance, edit/save/discard, validation, concurrent independent saves, conflicts, external events, error recovery, accessibility, and responsive layout.
