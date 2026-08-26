@@ -71,6 +71,47 @@ pub(crate) struct AgentCapabilityView {
     pub(crate) supports_automatic_extraction: bool,
 }
 
+/// What a caller knows about a workspace, in the forms this context can identify one from.
+///
+/// A remote workspace arrives as its parts rather than as a URI. A URI can carry
+/// `user:password@host`, and the parts have nowhere to put one -- so a credential cannot reach
+/// this boundary even by accident, which is stronger than discarding it after it arrives.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WorkspaceScopeInput {
+    /// A stable id the workspace subsystem already assigns. Preferred over anything derived here.
+    #[serde(default)]
+    pub(crate) stable_id: Option<String>,
+    #[serde(default)]
+    pub(crate) project_path: Option<String>,
+    /// A worktree is its own workspace, so it wins over the project it was cut from.
+    #[serde(default)]
+    pub(crate) worktree_path: Option<String>,
+    #[serde(default)]
+    pub(crate) remote: Option<RemoteWorkspaceScopeInput>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RemoteWorkspaceScopeInput {
+    pub(crate) host: String,
+    #[serde(default)]
+    pub(crate) port: Option<u16>,
+    #[serde(default)]
+    pub(crate) user: Option<String>,
+    pub(crate) path: String,
+}
+
+/// The key alone. The caller already has a name for the workspace it just described, and echoing
+/// a resolved absolute path back would put one on a screen that has no use for it.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WorkspaceScopeView {
+    pub(crate) workspace_key: String,
+    /// `local` or `remote`.
+    pub(crate) kind: String,
+}
+
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct EffectivePreviewInput {

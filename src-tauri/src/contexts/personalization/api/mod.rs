@@ -26,7 +26,7 @@ use super::application::{
     MemoryApplicationService, MemoryHealthPort, MemoryIdGeneratorPort, MutationAdmission,
     PersonalizationApplicationError, PersonalizationPreviewService, PolicyRepository,
     PolicyResolutionService, ResolutionRequest, ReviewRequest, UpdateMemoryPatch,
-    WorkspaceIdentityPort,
+    WorkspaceIdentityPort, WorkspaceIdentityRequest,
 };
 use super::domain::{
     EffectivePersonalizationSnapshot, LegacyAddressKey, MemoryAudience, MemoryCandidate, MemoryId,
@@ -35,7 +35,7 @@ use super::domain::{
     PatchPolicyResult, PersonalizationDomainError, PersonalizationPolicyPatch,
     PersonalizationPolicyRecord, PersonalizationPolicyScope, ReconcileMemoryOutcome,
     ResetConfirmationToken, ResetMemoryOutcome, ResetMemoryPreview, ResetMemoryRequest,
-    ReviewOutcome, RevisionConflict,
+    ReviewOutcome, RevisionConflict, WorkspaceIdentity,
 };
 
 type Result<T> = std::result::Result<T, PersonalizationApplicationError>;
@@ -332,6 +332,19 @@ impl PersonalizationApi {
     /// behaviour, minus everything a screen must not carry.
     pub(crate) fn preview(&self, request: ResolutionRequest) -> Result<EffectivePreview> {
         self.preview.preview(request)
+    }
+
+    /// The stable key a workspace scope is addressed by.
+    ///
+    /// Published because only this context can produce it: a display path is not an identity, and
+    /// two remote workspaces sharing a path on different hosts must not share a scope. A caller
+    /// that derived its own key would be the second subsystem deciding what "the same workspace"
+    /// means.
+    pub(crate) fn resolve_workspace(
+        &self,
+        request: &WorkspaceIdentityRequest,
+    ) -> Result<Option<WorkspaceIdentity>> {
+        self.workspace_identity.resolve(request)
     }
 
     /// One page of governed memories.

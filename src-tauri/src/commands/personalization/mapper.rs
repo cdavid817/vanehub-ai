@@ -10,7 +10,7 @@ use crate::commands::error::CommandError;
 use crate::contexts::personalization::api::PersonalizationApi;
 use crate::contexts::personalization::application::{
     AgentCapabilityEntry, CreateMemoryInput, EffectivePreview, ResolutionRequest, ReviewRequest,
-    UpdateMemoryPatch,
+    UpdateMemoryPatch, WorkspaceIdentityRequest,
 };
 use crate::contexts::personalization::domain::{
     AgentId, InstructionMergeMode, MemoryAudience, MemoryCandidate, MemoryCandidateOperation,
@@ -217,6 +217,43 @@ pub(super) fn resolution_request(
         // hold, and inventing one here would show the user a resolution no session ever had.
         session_override: None,
     })
+}
+
+/// Composes the remote URI natively from parts the wire could carry.
+///
+/// The resolver accepts a URI, and building it here rather than accepting one keeps a password
+/// component from ever being a thing a caller could send.
+pub(super) fn workspace_request(input: dto::WorkspaceScopeInput) -> WorkspaceIdentityRequest {
+    let remote_uri = input.remote.map(|remote| {
+        let authority = match remote
+            .user
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            Some(user) => format!("{user}@{}", remote.host),
+            None => remote.host.clone(),
+        };
+        let path = remote.path.trim_start_matches('/');
+        format!("ssh://{authority}:{}/{path}", remote.port.unwrap_or(22))
+    });
+    WorkspaceIdentityRequest {
+        stable_id: input.stable_id,
+        project_path: input.project_path,
+        worktree_path: input.worktree_path,
+        remote_uri,
+    }
+}
+
+pub(super) fn workspace_to_dto(identity: &WorkspaceIdentity) -> dto::WorkspaceScopeView {
+    dto::WorkspaceScopeView {
+        workspace_key: identity.key().as_str().to_string(),
+        kind: match identity.kind() {
+            WorkspaceKind::Local => "local",
+            WorkspaceKind::Remote => "remote",
+        }
+        .to_string(),
+    }
 }
 
 pub(super) fn preview_to_dto(preview: EffectivePreview) -> dto::EffectivePreviewView {

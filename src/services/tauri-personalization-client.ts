@@ -7,6 +7,8 @@ import type {
   PersonalizationPolicy,
   PersonalizationPolicyPatch,
   PersonalizationPolicyRef,
+  WorkspaceScope,
+  WorkspaceScopeInput,
 } from "../types/personalization";
 import type {
   CreateMemoryInput,
@@ -58,6 +60,10 @@ export const tauriPersonalizationClient: PersonalizationService = {
 
   listPersonalizationAgentCapabilities() {
     return invoke<AgentPersonalizationCapability[]>("list_personalization_agent_capabilities");
+  },
+
+  resolvePersonalizationWorkspace(input: WorkspaceScopeInput) {
+    return invoke<WorkspaceScope | null>("resolve_personalization_workspace", { input });
   },
 
   queryPersonalizationMemories(query: MemoryQuery) {

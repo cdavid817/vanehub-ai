@@ -90,6 +90,7 @@ async function captureInvocations(): Promise<Map<string, Record<string, unknown>
   await client.patchPersonalizationPolicy({ scopeKind: "global", aboutUser: "x" });
   await client.previewEffectivePersonalization({ agentId: "onepiece", sessionId: "s-1" });
   await client.listPersonalizationAgentCapabilities();
+  await client.resolvePersonalizationWorkspace({ projectPath: "D:/code/vanehub" });
   await client.queryPersonalizationMemories({ limit: 10 });
   await client.getPersonalizationMemory("mem-0000000000000001");
   await client.createPersonalizationMemory({
@@ -117,14 +118,14 @@ describe("personalization wire contract", () => {
   it("still understands the Rust sources it reads", () => {
     // Without this, a parser that silently stopped matching would make every check below vacuous.
     expect(views.size).toBeGreaterThan(15);
-    expect(commands.size).toBe(16);
+    expect(commands.size).toBe(17);
     expect(fieldsOf("MemoryDetailView")).toContain("workspaceKey");
   });
 
   it("invokes only commands the native registry routes", async () => {
     const captured = await captureInvocations();
 
-    expect(captured.size).toBe(16);
+    expect(captured.size).toBe(17);
     for (const command of captured.keys()) {
       expect(commands.has(command)).toBe(true);
       // Registration alone is not enough: `registry.rs` routes by name, and a command missing from
@@ -153,6 +154,7 @@ describe("personalization wire contract", () => {
       ["update_personalization_memory", "UpdateMemoryCommandInput"],
       ["review_personalization_candidate", "ReviewCandidateInput"],
       ["preview_personalization_reset", "ResetScopeInput"],
+      ["resolve_personalization_workspace", "WorkspaceScopeInput"],
       ["execute_personalization_reset", "ResetScopeInput"],
     ];
 

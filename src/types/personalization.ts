@@ -198,3 +198,29 @@ export interface EffectivePreview {
    */
   cliInternalCompactionManaged: boolean;
 }
+
+/**
+ * What a caller knows about a workspace, in the forms the native side can identify one from.
+ *
+ * A remote workspace travels as its parts, never as a URI: a URI can carry `user:password@host`,
+ * and parts have nowhere to put one -- so a credential cannot reach the boundary by accident.
+ */
+export interface WorkspaceScopeInput {
+  /** A stable id the workspace subsystem already assigns; preferred over anything derived. */
+  stableId?: string;
+  projectPath?: string;
+  /** A worktree is its own workspace, so it wins over the project it was cut from. */
+  worktreePath?: string;
+  remote?: {
+    host: string;
+    port?: number;
+    user?: string;
+    path: string;
+  };
+}
+
+/** The key alone: the caller already has a name for the workspace it just described. */
+export interface WorkspaceScope {
+  workspaceKey: string;
+  kind: "local" | "remote";
+}

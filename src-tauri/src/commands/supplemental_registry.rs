@@ -15,6 +15,7 @@ pub(super) fn invoke_handler(
         crate::commands::personalization::preview_personalization_reset::preview_personalization_reset,
         crate::commands::personalization::query_personalization_memories::query_personalization_memories,
         crate::commands::personalization::reconcile_personalization_memories::reconcile_personalization_memories,
+        crate::commands::personalization::resolve_personalization_workspace::resolve_personalization_workspace,
         crate::commands::personalization::review_personalization_candidate::review_personalization_candidate,
         crate::commands::personalization::update_personalization_memory::update_personalization_memory,
         crate::commands::skill_evolution_evidence::save_message_feedback::save_message_feedback,
@@ -101,6 +102,7 @@ pub(super) fn is_command(command: &str) -> bool {
             | "preview_personalization_reset"
             | "query_personalization_memories"
             | "reconcile_personalization_memories"
+            | "resolve_personalization_workspace"
             | "review_personalization_candidate"
             | "update_personalization_memory"
     )

@@ -5,6 +5,7 @@ import type {
   PersonalizationHealth,
   PersonalizationPolicyPatch,
   PersonalizationPolicyRef,
+  WorkspaceScopeInput,
 } from "../types/personalization";
 import type {
   CreateMemoryInput,
@@ -42,6 +43,7 @@ import {
   notFound,
   previewFor,
   renderCursor,
+  resolveWorkspaceScope,
   requireScopeKey,
   resetMatches,
   resetToken,
@@ -91,6 +93,10 @@ export const webPersonalizationClient: PersonalizationService = {
 
   async listPersonalizationAgentCapabilities(): Promise<AgentPersonalizationCapability[]> {
     return MOCK_AGENT_CAPABILITIES;
+  },
+
+  async resolvePersonalizationWorkspace(input: WorkspaceScopeInput) {
+    return resolveWorkspaceScope(input);
   },
 
   async queryPersonalizationMemories(query: MemoryQuery): Promise<MemoryPage> {

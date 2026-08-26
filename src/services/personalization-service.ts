@@ -6,6 +6,8 @@ import type {
   PersonalizationPolicy,
   PersonalizationPolicyPatch,
   PersonalizationPolicyRef,
+  WorkspaceScope,
+  WorkspaceScopeInput,
 } from "../types/personalization";
 import type {
   CreateMemoryInput,
@@ -36,6 +38,8 @@ export interface PersonalizationService {
   patchPersonalizationPolicy(patch: PersonalizationPolicyPatch): Promise<PersonalizationPolicy>;
   previewEffectivePersonalization(input: EffectivePreviewInput): Promise<EffectivePreview>;
   listPersonalizationAgentCapabilities(): Promise<AgentPersonalizationCapability[]>;
+  /** Null means the input described no workspace, not that one could not be identified. */
+  resolvePersonalizationWorkspace(input: WorkspaceScopeInput): Promise<WorkspaceScope | null>;
   queryPersonalizationMemories(query: MemoryQuery): Promise<MemoryPage>;
   getPersonalizationMemory(memoryId: string): Promise<MemoryDetail | null>;
   createPersonalizationMemory(input: CreateMemoryInput): Promise<MemoryDetail>;

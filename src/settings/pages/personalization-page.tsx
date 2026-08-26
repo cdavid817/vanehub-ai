@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { useSettings } from "../settings-provider";
 import { PageHeader } from "./page-parts";
 import { AgentMemorySection } from "./personalization/agent-memory-section";
-import { CustomInstructionsSection } from "./personalization/custom-instructions-section";
+import { PersonalizationInstructionsView } from "./personalization/instructions-view";
 import { PersonalizationOverviewSection } from "./personalization/overview-section";
 import { RuntimePreviewSection } from "./personalization/runtime-preview-section";
 import { PersonalizationViewTabs, type PersonalizationView } from "./personalization/view-tabs";
@@ -23,7 +23,7 @@ export function PersonalizationPage() {
           four mounted would fetch on every visit to the page regardless of what the user opened. */}
       <div className="grid gap-5">
         {view === "overview" ? <PersonalizationOverviewSection /> : null}
-        {view === "instructions" ? <CustomInstructionsSection /> : null}
+        {view === "instructions" ? <PersonalizationInstructionsView /> : null}
         {view === "memory" ? <AgentMemorySection /> : null}
         {view === "runtimePreview" ? <RuntimePreviewSection /> : null}
       </div>

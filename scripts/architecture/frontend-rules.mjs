@@ -55,8 +55,11 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 任务 9.6 下线 `listAllMemories` 与无 scope 的 delete/reset 后,这条上限应当回落。
 // 20475 -> 20478: `agent-memory-service.ts` 上的废弃声明。那三个方法要到 10-11 组
 // 重建设置页后才能删,在那之前得有一句话拦住新的调用方。
+// 20478 -> 20530: 工作区 scope 选择需要一个只有 native 能给的 workspace key。
+// 接口、Tauri 映射与 Web/mock 解析器共 52 行；mock 镜像的是优先级规则而不是键的字节，
+// 因为键对调用方不透明，但 stable id 胜过推导、worktree 胜过所属项目这两条不能错。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 20478, owner: "add-unified-personalization-governance" },
+  { root: "src/services", budget: 20530, owner: "add-unified-personalization-governance" },
 ]);
 
 const STATE_PACKAGES = new Set([

@@ -19,5 +19,6 @@ pub(crate) mod preview_effective_personalization;
 pub(crate) mod preview_personalization_reset;
 pub(crate) mod query_personalization_memories;
 pub(crate) mod reconcile_personalization_memories;
+pub(crate) mod resolve_personalization_workspace;
 pub(crate) mod review_personalization_candidate;
 pub(crate) mod update_personalization_memory;

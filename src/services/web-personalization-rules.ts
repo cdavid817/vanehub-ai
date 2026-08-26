@@ -1,5 +1,7 @@
 import type {
   AgentPersonalizationCapability,
+  WorkspaceScope,
+  WorkspaceScopeInput,
   PersonalizationPolicy,
   PersonalizationPolicyPatch,
   PersonalizationPolicyRef,
@@ -182,4 +184,38 @@ export function maintenance(counts: Partial<MaintenanceResult>): MaintenanceResu
     failures: [],
     ...counts,
   };
+}
+
+/**
+ * Mirrors the native preference order, not the native key format.
+ *
+ * A key is opaque to every caller, so the mock owes callers the *rules* rather than the same bytes:
+ * a stable id beats anything derived, a worktree beats the project it was cut from, and a remote
+ * workspace is distinguished by its connection identity so that two hosts exposing the same path do
+ * not share a scope.
+ */
+export function resolveWorkspaceScope(input: WorkspaceScopeInput): WorkspaceScope | null {
+  const stableId = input.stableId?.trim();
+  if (stableId) return { workspaceKey: `ws-id-${stableId}`, kind: "local" };
+
+  if (input.remote) {
+    const { host, port = 22, user, path } = input.remote;
+    if (!host.trim()) return null;
+    const account = user?.trim() ? `${user.trim()}@` : "";
+    return {
+      workspaceKey: `ws-remote-${account}${host}:${port}${normalizePath(path)}`,
+      kind: "remote",
+    };
+  }
+
+  const local = input.worktreePath?.trim() || input.projectPath?.trim();
+  if (!local) return null;
+  // Local paths fold case here unconditionally. The desktop decides that per platform; the mock
+  // only has to be deterministic, and its keys are never compared against the desktop's.
+  return { workspaceKey: `ws-local-${normalizePath(local).toLowerCase()}`, kind: "local" };
+}
+
+function normalizePath(path: string): string {
+  const forward = path.split("\\").join("/");
+  return `/${forward.replace(/^\/+/u, "").replace(/\/+$/u, "")}`;
 }
