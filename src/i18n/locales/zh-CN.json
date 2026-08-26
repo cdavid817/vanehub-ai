@@ -1674,7 +1674,6 @@
   "sessionTabs.state.empty": "暂时没有可显示的数据。",
   "sessionTabs.state.unavailable": "请选择具有可用工作目录的会话后使用此标签页。",
   "sessionTabs.state.error": "无法加载会话数据。",
-  "sessionTabs.state.partial": "第一版采用有界加载，当前可能仅显示部分结果。",
   "sessionTabs.error.validation": "工作区请求无效或超出当前会话允许的范围。",
   "sessionTabs.error.notFound": "找不到请求的会话资源。",
   "sessionTabs.error.unsupported": "当前运行环境不支持此工作区操作。",
@@ -4137,5 +4136,11 @@
   "sessionTabs.documents.noMatches": "没有匹配的文档。",
   "sessionTabs.documents.mode.preview": "预览",
   "sessionTabs.documents.mode.source": "源码",
-  "sessionTabs.documents.openChanges": "在 Changes 中打开"
+  "sessionTabs.documents.openChanges": "在 Changes 中打开",
+  "sessionTabs.coverage.directory-page": "此文件夹的条目多于一页。",
+  "sessionTabs.coverage.document-walk": "文档搜索在上限处停止,可能有遗漏。",
+  "sessionTabs.coverage.git-status-bound": "变更的路径比此列表显示的更多。",
+  "sessionTabs.coverage.git-diff-bound": "此差异在大小上限处被截断,实际改动更大。",
+  "sessionTabs.coverage.provider.ssh": "(在远程主机上)",
+  "sessionTabs.coverage.provider.simulated": "(演示数据)"
 }

@@ -1674,7 +1674,6 @@
   "sessionTabs.state.empty": "まだデータはありません。",
   "sessionTabs.state.unavailable": "このタブを使用するには、使用可能なワークスペースのあるセッションを選択します。",
   "sessionTabs.state.error": "セッションデータをロードできませんでした。",
-  "sessionTabs.state.partial": "この最初のバージョンのビューは制限されており、部分的な結果が表示される場合があります。",
   "sessionTabs.error.validation": "ワークスペース要求が無効であるか、許可されたセッションの範囲外です。",
   "sessionTabs.error.notFound": "要求されたセッション リソースが見つかりませんでした。",
   "sessionTabs.error.unsupported": "このワークスペース操作は、現在のランタイムでは使用できません。",
@@ -4137,5 +4136,11 @@
   "sessionTabs.documents.noMatches": "一致するドキュメントがありません。",
   "sessionTabs.documents.mode.preview": "プレビュー",
   "sessionTabs.documents.mode.source": "ソース",
-  "sessionTabs.documents.openChanges": "Changes で開く"
+  "sessionTabs.documents.openChanges": "Changes で開く",
+  "sessionTabs.coverage.directory-page": "このフォルダーの項目は 1 ページに収まりません。",
+  "sessionTabs.coverage.document-walk": "ドキュメント検索が上限で停止したため、一部が欠けている可能性があります。",
+  "sessionTabs.coverage.git-status-bound": "この一覧に表示されているより多くのパスが変更されています。",
+  "sessionTabs.coverage.git-diff-bound": "この差分はサイズ上限で切り詰められており、実際の変更はより大きなものです。",
+  "sessionTabs.coverage.provider.ssh": "(リモートホスト上)",
+  "sessionTabs.coverage.provider.simulated": "(デモデータ)"
 }

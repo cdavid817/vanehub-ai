@@ -3,7 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { agentService } from "../services/runtime-agent-client";
 import type { SessionDocument } from "../types/session-workspace";
-import { PartialNotice, WorkspaceState } from "./workspace-state";
+import { WorkspaceState } from "./workspace-state";
+import { WorkspaceCoverageNotice } from "./workspace-coverage-notice";
 import { workspaceErrorKey } from "./workspace-error";
 import { workspaceQueryKeys } from "./workspace-query-keys";
 import { documentOutline } from "./document-outline";
@@ -131,7 +132,9 @@ export function DocumentsTab({
   return (
     <div className="grid h-full min-h-0 gap-3 lg:grid-cols-[240px_minmax(0,1fr)]">
       <div className="flex min-h-0 flex-col gap-2">
-        {listQuery.data?.truncated ? <PartialNotice /> : null}
+        {listQuery.data?.truncated ? (
+          <WorkspaceCoverageNotice provider={capabilities?.provider} reason="document-walk" />
+        ) : null}
         <DocumentSidebar
           documents={filtered}
           onSelect={openDocument}

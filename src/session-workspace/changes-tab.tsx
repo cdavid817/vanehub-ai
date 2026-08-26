@@ -6,7 +6,8 @@ import type { GitDiffResult, GitDiffSource, GitStatusEntry } from "../types/sess
 import { cn } from "../lib/utils";
 import { DiffView, type DiffViewMode } from "./diff-view";
 import { gitStatusPresentation } from "./git-status-presentation";
-import { PartialNotice, WorkspaceState } from "./workspace-state";
+import { WorkspaceState } from "./workspace-state";
+import { WorkspaceCoverageNotice } from "./workspace-coverage-notice";
 import { workspaceErrorKey, type WorkspaceErrorKey } from "./workspace-error";
 import { workspaceQueryKeys } from "./workspace-query-keys";
 import { ReviewCenter } from "./review-center";
@@ -94,7 +95,9 @@ function LegacyChangesTab({ isVisible, sessionId }: { isVisible: boolean; sessio
   return (
     <div className="grid h-full min-h-0 gap-3 lg:grid-cols-[220px_minmax(0,1fr)]">
       <section className="min-h-0 overflow-y-auto rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-2">
-        {gitStatus?.truncated ? <PartialNotice /> : null}
+        {gitStatus?.truncated ? (
+          <WorkspaceCoverageNotice provider={capabilities?.provider} reason="git-status-bound" />
+        ) : null}
         <p className="mb-2 truncate px-2 text-xs text-muted-foreground">{gitStatus?.branch ?? t("sessionTabs.changes.detached")}</p>
         {gitStatus?.items.map((entry) => (
           <FileRow entry={entry} isSelected={selected?.path === entry.path} key={entry.path} onClick={() => setSelected(entry)} />
@@ -109,7 +112,9 @@ function LegacyChangesTab({ isVisible, sessionId }: { isVisible: boolean; sessio
           </div>
         </div>
         <div className="min-h-0 flex-1 overflow-auto p-3">
-          {diff?.truncated ? <PartialNotice /> : null}
+          {diff?.truncated ? (
+            <WorkspaceCoverageNotice provider={capabilities?.provider} reason="git-diff-bound" />
+          ) : null}
           <DiffBody diff={diff} error={error} loading={diffQuery.isFetching} mode={mode} />
         </div>
       </section>

@@ -1674,7 +1674,6 @@
   "sessionTabs.state.empty": "No data is available yet.",
   "sessionTabs.state.unavailable": "Select a session with an available workspace to use this tab.",
   "sessionTabs.state.error": "The session data could not be loaded.",
-  "sessionTabs.state.partial": "This first-version view is bounded and may show partial results.",
   "sessionTabs.error.validation": "The workspace request is invalid or outside the allowed session scope.",
   "sessionTabs.error.notFound": "The requested session resource could not be found.",
   "sessionTabs.error.unsupported": "This workspace operation is unavailable in the current runtime.",
@@ -4137,5 +4136,11 @@
   "sessionTabs.documents.noMatches": "No documents match.",
   "sessionTabs.documents.mode.preview": "Preview",
   "sessionTabs.documents.mode.source": "Source",
-  "sessionTabs.documents.openChanges": "Open in Changes"
+  "sessionTabs.documents.openChanges": "Open in Changes",
+  "sessionTabs.coverage.directory-page": "This folder has more entries than one page.",
+  "sessionTabs.coverage.document-walk": "The document search stopped at its limit, so some may be missing.",
+  "sessionTabs.coverage.git-status-bound": "More paths have changed than this list shows.",
+  "sessionTabs.coverage.git-diff-bound": "This diff was cut at its size limit, so the real change is larger.",
+  "sessionTabs.coverage.provider.ssh": "(on the remote host)",
+  "sessionTabs.coverage.provider.simulated": "(demo data)"
 }

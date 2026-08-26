@@ -4,7 +4,8 @@ import { agentService } from "../services/runtime-agent-client";
 import { Check, ChevronDown, ChevronRight, Copy, File, Folder } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { copyFileReferencePath, writeFileReferenceDrag } from "../services/file-reference-transfer";
-import { PartialNotice, WorkspaceState } from "./workspace-state";
+import { WorkspaceState } from "./workspace-state";
+import { WorkspaceCoverageNotice } from "./workspace-coverage-notice";
 import { parentDirectoryOf, selectionStillExists } from "./workspace-invalidation-targets";
 import { useWorkspaceFileTree } from "./use-workspace-file-tree";
 import { workspaceQueryKeys } from "./workspace-query-keys";
@@ -115,7 +116,9 @@ export function FilesTab({
           selectedPath={selectedPath}
           sessionId={sessionId}
         />
-        {tree.truncated ? <PartialNotice /> : null}
+        {tree.truncated ? (
+          <WorkspaceCoverageNotice provider={capabilities?.provider} reason="directory-page" />
+        ) : null}
         {error ? <p className="mb-2 rounded border border-border bg-muted px-2 py-1 text-xs text-muted-foreground" role="alert">{t(error)}</p> : null}
         {tree.rows.length === 0 ? <WorkspaceState kind="empty" message={t("sessionTabs.files.empty")} /> : tree.rows.map(({ entry, depth }) => (
           <div className="group flex h-8 w-full items-center rounded pr-1 hover:bg-muted" key={entry.path}>

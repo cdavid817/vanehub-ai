@@ -242,7 +242,7 @@ give the replay code a caller is exactly the kind of fake wiring this note forbi
 - [x] 12.9 Add Recent Documents, document path search, source/preview modes, and heading outline derived from bounded content.
 - [x] 12.10 Reuse existing safe Markdown, link, image, code, math, and Mermaid handling; do not introduce direct HTML execution.
 - [x] 12.11 Add document/file links to related execution runs, commands, Changes, and review findings through the shared evidence scope.
-- [ ] 12.12 Add per-provider partial/truncated/unavailable states instead of one ambiguous global partial marker.
+- [x] 12.12 Add per-provider partial/truncated/unavailable states instead of one ambiguous global partial marker.
 - [ ] 12.13 Preserve read-only semantics and omit create/edit/rename/delete/save controls from this change.
 - [ ] 12.14 Split Files/Documents production components and hooks to remain within the line-size rule.
 - [ ] 12.15 Add maximum-directory, maximum-search, large-preview, invalidation, stale-content, remote-unavailable, keyboard, and visual-style tests.

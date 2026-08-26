@@ -1674,7 +1674,6 @@
   "sessionTabs.state.empty": "暫時沒有可顯示的數據。",
   "sessionTabs.state.unavailable": "請選擇具有可用工作目錄的會話後使用此標籤頁。",
   "sessionTabs.state.error": "無法載入會話資料。",
-  "sessionTabs.state.partial": "第一版採用有界加載，目前可能僅顯示部分結果。",
   "sessionTabs.error.validation": "工作區請求無效或超出目前會話允許的範圍。",
   "sessionTabs.error.notFound": "找不到請求的會話資源。",
   "sessionTabs.error.unsupported": "目前運行環境不支援此工作區操作。",
@@ -4137,5 +4136,11 @@
   "sessionTabs.documents.noMatches": "沒有符合的文件。",
   "sessionTabs.documents.mode.preview": "預覽",
   "sessionTabs.documents.mode.source": "原始碼",
-  "sessionTabs.documents.openChanges": "在 Changes 中開啟"
+  "sessionTabs.documents.openChanges": "在 Changes 中開啟",
+  "sessionTabs.coverage.directory-page": "此資料夾的項目多於一頁。",
+  "sessionTabs.coverage.document-walk": "文件搜尋在上限處停止,可能有遺漏。",
+  "sessionTabs.coverage.git-status-bound": "變更的路徑比此清單顯示的更多。",
+  "sessionTabs.coverage.git-diff-bound": "此差異在大小上限處被截斷,實際改動更大。",
+  "sessionTabs.coverage.provider.ssh": "(在遠端主機上)",
+  "sessionTabs.coverage.provider.simulated": "(示範資料)"
 }
