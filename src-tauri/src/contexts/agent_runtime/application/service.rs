@@ -336,7 +336,6 @@ pub(crate) struct AgentRuntimeApplicationPorts {
     pub(crate) api_credentials: Arc<dyn ApiCredentialPort>,
     pub(crate) onepiece_model_discovery: Arc<dyn OnePieceModelDiscoveryPort>,
     pub(crate) tool_approvals: Arc<dyn ToolApprovalPort>,
-    pub(crate) memories: Arc<dyn super::AgentMemoryPort>,
     pub(crate) memory_extraction: Arc<dyn super::AgentMemoryExtractionPort>,
     /// The one governed answer per CLI message and per completed CLI turn. Replaces reading flat
     /// settings and then listing every memory: those were two decisions taken at two moments, and
@@ -1908,23 +1907,6 @@ impl AgentRuntimeApplicationService {
         self.ports
             .tool_approvals
             .resolve(&process_id, call_id, decision)
-    }
-
-    pub(crate) fn list_all_memories(
-        &self,
-    ) -> Result<Vec<super::AgentMemory>, AgentRuntimeApplicationError> {
-        self.ports.memories.list_all()
-    }
-
-    pub(crate) fn delete_agent_memory(
-        &self,
-        memory_id: &str,
-    ) -> Result<(), AgentRuntimeApplicationError> {
-        self.ports.memories.delete(memory_id)
-    }
-
-    pub(crate) fn reset_all_memories(&self) -> Result<(), AgentRuntimeApplicationError> {
-        self.ports.memories.delete_all()
     }
 
     fn unique_api_agent_id(

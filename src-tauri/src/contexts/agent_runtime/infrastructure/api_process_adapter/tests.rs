@@ -1442,14 +1442,6 @@ impl AgentMemoryPort for FakeMemories {
     fn list_all(&self) -> Result<Vec<AgentMemory>, AgentRuntimeApplicationError> {
         Ok(self.to_list.clone())
     }
-
-    fn delete(&self, _memory_id: &str) -> Result<(), AgentRuntimeApplicationError> {
-        Ok(())
-    }
-
-    fn delete_all(&self) -> Result<(), AgentRuntimeApplicationError> {
-        Ok(())
-    }
 }
 
 /// Mirrors `application::models::MEMORY_BLOCK_PREAMBLE` (private to that module, not
@@ -8593,14 +8585,6 @@ struct PanicsOnListMemories;
 impl AgentMemoryPort for PanicsOnListMemories {
     fn list_all(&self) -> Result<Vec<AgentMemory>, AgentRuntimeApplicationError> {
         panic!("memory-disabled resolve_system_prompt must not query the repository");
-    }
-
-    fn delete(&self, _memory_id: &str) -> Result<(), AgentRuntimeApplicationError> {
-        unreachable!("not exercised by this test")
-    }
-
-    fn delete_all(&self) -> Result<(), AgentRuntimeApplicationError> {
-        unreachable!("not exercised by this test")
     }
 }
 

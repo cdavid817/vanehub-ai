@@ -5,14 +5,11 @@ use std::sync::{Arc, Mutex};
 use chrono::{DateTime, TimeZone, Utc};
 use tempfile::TempDir;
 
-use super::personalization_bridge::{
-    instruction_block, memory_access, to_candidate_operation, LegacyMemoryPortBridge,
-};
+use super::personalization_bridge::{instruction_block, memory_access, to_candidate_operation};
 use crate::contexts::agent_runtime::application::{AgentMemoryPort, AgentMemoryProposal};
-use crate::contexts::agent_runtime::domain::MemoryType as RuntimeMemoryType;
 use crate::contexts::agent_runtime::infrastructure::FileAgentMemoryStore;
-use crate::contexts::personalization::api::build_for_tests;
 use crate::contexts::personalization::api::CompatibilitySaveInput;
+use crate::contexts::personalization::api::{build_for_tests, CompatibilityMemory};
 use crate::contexts::personalization::application::{
     ClockPort, CreateMemoryInput, MemoryApplicationService, MigrationStatePort,
     PersonalizationApplicationError, RetrievalIndexPort,
@@ -78,7 +75,6 @@ struct Fixture {
     service: Arc<MemoryApplicationService>,
     migration_state: Arc<SqliteMigrationState>,
     personalization: crate::contexts::personalization::api::PersonalizationApi,
-    bridge: LegacyMemoryPortBridge,
 }
 
 fn fixture(label: &str) -> Fixture {
@@ -98,8 +94,7 @@ fn fixture(label: &str) -> Fixture {
         memory_root,
         service,
         migration_state: Arc::new(SqliteMigrationState::new(database)),
-        personalization: api.clone(),
-        bridge: LegacyMemoryPortBridge::new(api),
+        personalization: api,
     }
 }
 
@@ -136,6 +131,13 @@ fn seed(fixture: &Fixture, name: &str) -> MemoryRecord {
         })
         .expect("seed")
         .record
+}
+
+fn compatibility(fixture: &Fixture) -> Vec<CompatibilityMemory> {
+    fixture
+        .personalization
+        .compatibility_memories()
+        .expect("compatibility listing")
 }
 
 /// A user-confirmed save, through the governed create path.
@@ -190,39 +192,41 @@ fn the_previous_file_store_silently_misreads_a_v2_directory() {
     );
 }
 
+/// The handle the compatibility view hands out is the one its consumers address records by, so a
+/// listing that returned the governed id instead would break every caller that passes one back.
 #[test]
-fn the_bridge_projects_the_compatibility_view_onto_the_old_port() {
+fn the_compatibility_view_hands_out_the_v2_file_name() {
     let fixture = fixture("projection");
     mark_ready(&fixture);
     let record = seed(&fixture, "Global");
 
-    let seen = fixture.bridge.list_all().expect("bridge listing");
+    let seen = compatibility(&fixture);
     assert_eq!(seen.len(), 1);
     assert_eq!(
-        seen[0].id,
+        seen[0].file_name,
         record.file_name(),
         "the handle is the v2 file name"
     );
     assert_eq!(seen[0].name, "Global");
     assert_eq!(seen[0].content, "content for Global");
-    assert_eq!(seen[0].memory_type, Some(RuntimeMemoryType::Project));
+    assert_eq!(seen[0].memory_type, GovernedType::Project);
 }
 
 #[test]
-fn the_bridge_fails_closed_until_migration_is_ready() {
+fn the_compatibility_view_fails_closed_until_migration_is_ready() {
     let fixture = fixture("fail-closed");
     seed(&fixture, "Present but unusable");
     assert!(
-        fixture.bridge.list_all().expect("listing").is_empty(),
+        compatibility(&fixture).is_empty(),
         "an incomplete migration yields no memories rather than a partial set"
     );
 
     mark_ready(&fixture);
-    assert_eq!(fixture.bridge.list_all().expect("listing").len(), 1);
+    assert_eq!(compatibility(&fixture).len(), 1);
 }
 
 #[test]
-fn a_bridge_save_writes_v2_and_never_a_v1_file() {
+fn a_compatibility_save_writes_v2_and_never_a_v1_file() {
     let fixture = fixture("save");
     mark_ready(&fixture);
     save(&fixture, "Use npm", "Use npm for this repository.").expect("save");
@@ -246,16 +250,19 @@ fn saving_an_existing_name_updates_in_place_as_it_did_before() {
     let fixture = fixture("save-existing");
     mark_ready(&fixture);
     save(&fixture, "Use npm", "First version.").expect("save");
-    let first = fixture.bridge.list_all().expect("listing");
+    let first = compatibility(&fixture);
     save(&fixture, "Use npm", "Second version.").expect("save");
-    let second = fixture.bridge.list_all().expect("listing");
+    let second = compatibility(&fixture);
 
     assert_eq!(
         second.len(),
         1,
         "a repeated name must not add a second memory"
     );
-    assert_eq!(second[0].id, first[0].id, "the same record was updated");
+    assert_eq!(
+        second[0].file_name, first[0].file_name,
+        "the same record was updated"
+    );
     assert_eq!(second[0].content, "Second version.");
 }
 
@@ -264,7 +271,7 @@ fn an_empty_save_is_refused_without_writing_anything() {
     let fixture = fixture("empty-save");
     mark_ready(&fixture);
     assert!(save(&fixture, "Blank", "   ").is_err());
-    assert!(fixture.bridge.list_all().expect("listing").is_empty());
+    assert!(compatibility(&fixture).is_empty());
 }
 
 #[test]
@@ -272,11 +279,14 @@ fn deleting_uses_the_handle_the_listing_handed_out() {
     let fixture = fixture("delete");
     mark_ready(&fixture);
     let record = seed(&fixture, "Subject");
-    let listed = fixture.bridge.list_all().expect("listing");
-    assert_eq!(listed[0].id, record.file_name());
+    let listed = compatibility(&fixture);
+    assert_eq!(listed[0].file_name, record.file_name());
 
-    fixture.bridge.delete(&listed[0].id).expect("delete");
-    assert!(fixture.bridge.list_all().expect("listing").is_empty());
+    fixture
+        .personalization
+        .delete_compatibility_memory(&listed[0].file_name)
+        .expect("delete");
+    assert!(compatibility(&fixture).is_empty());
     assert!(fixture
         .service
         .detail(&record.id)
@@ -291,8 +301,11 @@ fn delete_all_clears_the_view() {
     for index in 0..3 {
         seed(&fixture, &format!("Global {index}"));
     }
-    fixture.bridge.delete_all().expect("delete all");
-    assert!(fixture.bridge.list_all().expect("listing").is_empty());
+    fixture
+        .personalization
+        .delete_all_compatibility_memories()
+        .expect("delete all");
+    assert!(compatibility(&fixture).is_empty());
 }
 
 fn resolved_snapshot(

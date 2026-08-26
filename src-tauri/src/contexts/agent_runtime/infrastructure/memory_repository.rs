@@ -7,8 +7,11 @@ use crate::contexts::agent_runtime::application::{
 #[cfg(test)]
 use crate::platform::clock::SystemClock;
 use crate::platform::database::NativeDatabase;
-use rusqlite::{params, Row};
+#[cfg(test)]
+use rusqlite::params;
+use rusqlite::Row;
 use std::collections::HashSet;
+#[cfg(test)]
 #[cfg(test)]
 use uuid::Uuid;
 
@@ -77,25 +80,6 @@ impl AgentMemoryPort for SqliteAgentMemoryRepository {
             .collect::<Result<Vec<_>, _>>()
             .map_err(repository_error)?;
         rows.into_iter().map(MemoryRow::into_memory).collect()
-    }
-
-    fn delete(&self, memory_id: &str) -> Result<(), AgentRuntimeApplicationError> {
-        let connection = self.database.connection().map_err(app_error)?;
-        connection
-            .execute(
-                "DELETE FROM agent_memories WHERE id = ?1",
-                params![memory_id],
-            )
-            .map_err(repository_error)?;
-        Ok(())
-    }
-
-    fn delete_all(&self) -> Result<(), AgentRuntimeApplicationError> {
-        let connection = self.database.connection().map_err(app_error)?;
-        connection
-            .execute("DELETE FROM agent_memories", [])
-            .map_err(repository_error)?;
-        Ok(())
     }
 }
 
@@ -313,69 +297,5 @@ mod tests {
         contents.sort_unstable();
         assert_eq!(contents, vec!["A fact.", "B fact."]);
         assert!(memories.iter().any(|memory| memory.agent_id == "agent-b"));
-    }
-
-    #[test]
-    fn delete_removes_exactly_the_targeted_memory() {
-        let fixture = Fixture::new("agent memory delete", &["my-agent"]);
-        fixture
-            .repository
-            .save(SaveMemoryInput::derived(
-                "my-agent",
-                None,
-                "Keep me.",
-                MemorySource::Explicit,
-            ))
-            .expect("save keep");
-        fixture
-            .repository
-            .save(SaveMemoryInput::derived(
-                "my-agent",
-                None,
-                "Delete me.",
-                MemorySource::Explicit,
-            ))
-            .expect("save delete");
-        let before = fixture.repository.list_all().expect("list before");
-        let target = before
-            .iter()
-            .find(|memory| memory.content == "Delete me.")
-            .expect("target memory");
-
-        fixture.repository.delete(&target.id).expect("delete");
-
-        let after = fixture.repository.list_all().expect("list after");
-        assert_eq!(after.len(), 1);
-        assert_eq!(after[0].content, "Keep me.");
-    }
-
-    /// `add-cli-memory-support`: reset is no longer scoped to one agent — it clears the entire
-    /// shared pool, since there is no longer a per-agent boundary to reset within.
-    #[test]
-    fn delete_all_removes_every_memory_across_every_agent() {
-        let fixture = Fixture::new("agent memory reset", &["my-agent", "other-agent"]);
-        fixture
-            .repository
-            .save(SaveMemoryInput::derived(
-                "my-agent",
-                Some("D:/project-a"),
-                "A fact.",
-                MemorySource::Explicit,
-            ))
-            .expect("save a");
-        fixture
-            .repository
-            .save(SaveMemoryInput::derived(
-                "other-agent",
-                None,
-                "Not mine.",
-                MemorySource::Explicit,
-            ))
-            .expect("save other agent");
-
-        fixture.repository.delete_all().expect("reset");
-
-        let after = fixture.repository.list_all().expect("list all after reset");
-        assert!(after.is_empty());
     }
 }

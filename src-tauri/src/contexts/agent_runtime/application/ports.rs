@@ -1192,21 +1192,15 @@ pub(crate) trait AgentMcpToolPort: Send + Sync {
 /// internal conversation compaction and its native memory/instruction files (`CLAUDE.md`,
 /// `AGENTS.md`, OpenCode configuration, and equivalents). VaneHub governs the personalization it
 /// injects; it does not read, write, or take responsibility for a CLI's own context machinery.
-/// The pre-governance memory surface, now read-and-remove only.
+/// The pre-governance memory surface, now down to one named maintenance enumeration.
 ///
-/// Nothing writes through it any longer: a runtime proposes, and the only path to an active record
-/// is review. What is left is the management view — list, delete one, delete all — which the
-/// governed management API replaces when the review and browse surfaces land.
+/// Nothing writes or deletes through it any longer: a runtime proposes, review is the only path to
+/// an active record, and the governed management API owns removal. What is left is the row-store
+/// conversion's read of what the old repository still holds — kept deliberately, because migration
+/// has to be able to enumerate the source it is converting.
 pub(crate) trait AgentMemoryPort: Send + Sync {
     /// Lists every memory in the shared pool, regardless of which agent or folder produced it.
     fn list_all(&self) -> Result<Vec<AgentMemory>, AgentRuntimeApplicationError>;
-
-    fn delete(&self, memory_id: &str) -> Result<(), AgentRuntimeApplicationError>;
-
-    /// Deletes every memory in the shared pool in one action (`add-personalization-settings`
-    /// design.md D6, scope widened to the whole pool by `add-cli-memory-support`) — used by the
-    /// "reset memory" management action, distinct from `delete`'s single-row removal.
-    fn delete_all(&self) -> Result<(), AgentRuntimeApplicationError>;
 }
 
 /// Independent, on-demand memory extraction for CLI-wrapped agents (`add-cli-memory-support`

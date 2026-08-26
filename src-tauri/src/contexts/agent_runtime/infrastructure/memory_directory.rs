@@ -410,16 +410,6 @@ impl AgentMemoryPort for FileAgentMemoryStore {
         }
         Ok(memories)
     }
-
-    fn delete(&self, memory_id: &str) -> Result<(), AgentRuntimeApplicationError> {
-        FileAgentMemoryStore::delete(self, memory_id)?;
-        self.reconcile_index()?;
-        Ok(())
-    }
-
-    fn delete_all(&self) -> Result<(), AgentRuntimeApplicationError> {
-        FileAgentMemoryStore::delete_all(self)
-    }
 }
 
 /// The file's directory-relative path is the memory's identity, so it becomes the `id` every

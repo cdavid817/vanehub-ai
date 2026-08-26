@@ -1,12 +1,12 @@
-use crate::contexts::personalization::api::{CompatibilityMemory, PersonalizationApi};
+use crate::contexts::personalization::api::PersonalizationApi;
 
 use std::time::SystemTime;
 
 use crate::contexts::agent_runtime::application::{
-    AgentCandidateOutcome, AgentCandidateSubmission, AgentMemory, AgentMemoryAccess,
-    AgentMemoryBody, AgentMemoryDelivery, AgentMemoryPort, AgentMemoryProposal, AgentMemoryRef,
-    AgentPersonalizationSnapshot, AgentPersonalizationSnapshotPort, AgentProposalOrigin,
-    AgentRuntimeApplicationError, GenerationPersonalizationContext, MemorySource,
+    AgentCandidateOutcome, AgentCandidateSubmission, AgentMemoryAccess, AgentMemoryBody,
+    AgentMemoryDelivery, AgentMemoryProposal, AgentMemoryRef, AgentPersonalizationSnapshot,
+    AgentPersonalizationSnapshotPort, AgentProposalOrigin, AgentRuntimeApplicationError,
+    GenerationPersonalizationContext,
 };
 use crate::contexts::agent_runtime::domain::MemoryType as RuntimeMemoryType;
 use crate::contexts::desktop::api::DesktopSettingsApi;
@@ -21,46 +21,6 @@ use crate::contexts::personalization::domain::{
     MemoryCandidateOperation, MemoryDeliveryMode, MemoryId, MemoryProvenance, MemoryScope,
     SessionId, SessionPersonalizationMode, UpdateMemoryCandidate,
 };
-
-/// Satisfies `agent_runtime`'s pre-governance memory port from the governed v2 store.
-///
-/// Lives at the composition boundary rather than inside either context. Implementing a consumer's
-/// trait from inside the provider would invert the dependency; implementing it inside the consumer
-/// would make that context know the provider's internals. `bootstrap` is where the repository's own
-/// architecture rules say to assemble an adapter over a published port.
-///
-/// # Why this exists
-///
-/// Migrating v1 files to v2 and deleting the sources leaves the old file store reading a directory
-/// it does not understand. It would not fail loudly — that would be easier. `FileAgentMemoryStore`
-/// strips quotes from frontmatter values and ignores unknown keys, so it partially reads a v2
-/// file: it recovers name, description, and body, silently loses the type (v2 writes
-/// `memory_type`, v1 reads `type`), and rejects outright any memory whose name contains a
-/// character v1 forbids in a filename — which v2 now permits, because v2 names are not filenames.
-/// The result would be a name-dependent subset appearing to work.
-///
-/// Three further hazards follow from leaving the old store wired:
-///
-/// - its `save` addresses memories by a name-derived filename, so saving over a migrated memory
-///   would write a second, v1 file beside the v2 one — the dual-write this change exists to end;
-/// - its `reconcile_index` rebuilds `MEMORY.md` from its own scan on every write, overwriting the
-///   v2 index with links that resolve to nothing;
-/// - that scan is still capped at 200, so a store larger than that would silently truncate.
-///
-/// This bridge removes all four by making the old port a projection of the new store. It is
-/// deliberately narrow: no policy resolution, no scope, no candidates, no change to OnePiece
-/// compaction or relevance selection, and no change to any CLI's internal context or native files.
-/// It is removed when the snapshot runtime adapters land.
-#[derive(Clone)]
-pub(crate) struct LegacyMemoryPortBridge {
-    personalization: PersonalizationApi,
-}
-
-impl LegacyMemoryPortBridge {
-    pub(crate) fn new(personalization: PersonalizationApi) -> Self {
-        Self { personalization }
-    }
-}
 
 fn bridge_error(error: impl std::fmt::Display) -> AgentRuntimeApplicationError {
     AgentRuntimeApplicationError::Memory(error.to_string())
@@ -86,55 +46,6 @@ fn to_runtime_type(value: GovernedMemoryType) -> Option<RuntimeMemoryType> {
         // `untyped` is a real governed value with no legacy equivalent. `None` is exactly how the
         // old model expressed it, so this degrades rather than inventing a type.
         GovernedMemoryType::Untyped => None,
-    }
-}
-
-fn to_agent_memory(memory: CompatibilityMemory) -> AgentMemory {
-    AgentMemory {
-        // The v2 file name, because that is the handle every downstream consumer — the management
-        // view, the retrieval index — passes back to address this memory.
-        id: memory.file_name,
-        agent_id: memory.source_agent_id.unwrap_or_default(),
-        folder: memory.source_workspace,
-        name: memory.name,
-        description: memory.description,
-        memory_type: to_runtime_type(memory.memory_type),
-        content: memory.content,
-        source: if memory.is_automatic {
-            MemorySource::Automatic
-        } else {
-            MemorySource::Explicit
-        },
-        created_at: memory.created_at.to_rfc3339(),
-        // Governed records carry their own `updated_at`, which is what recency and staleness
-        // already key on, so the filesystem timestamp the old store used is not needed.
-        modified_at: None,
-    }
-}
-
-impl AgentMemoryPort for LegacyMemoryPortBridge {
-    fn list_all(&self) -> Result<Vec<AgentMemory>, AgentRuntimeApplicationError> {
-        Ok(self
-            .personalization
-            .compatibility_memories()
-            .map_err(bridge_error)?
-            .into_iter()
-            .map(to_agent_memory)
-            .collect())
-    }
-
-    fn delete(&self, memory_id: &str) -> Result<(), AgentRuntimeApplicationError> {
-        self.personalization
-            .delete_compatibility_memory(memory_id)
-            .map(|_| ())
-            .map_err(bridge_error)
-    }
-
-    fn delete_all(&self) -> Result<(), AgentRuntimeApplicationError> {
-        self.personalization
-            .delete_all_compatibility_memories()
-            .map(|_| ())
-            .map_err(bridge_error)
     }
 }
 

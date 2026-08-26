@@ -24,9 +24,10 @@ const CURRENT_V20_DATA_FIXTURE: &str =
 /// migration 81 adds CLI parameter profile metadata (revision, selection schema, catalog version)
 /// beside the existing per-parameter rows without deleting any of them, migration 82 adds the
 /// personalization policy, memory projection, candidate, and migration-state tables without
-/// touching the legacy `AppSettings` personalization fields those records will be migrated from.
+/// touching the legacy `AppSettings` personalization fields those records will be migrated from,
+/// and migration 84 records when the governed memory store last reconciled its derived views.
 fn expected_versions() -> Vec<i64> {
-    (1..=83).collect()
+    (1..=84).collect()
 }
 
 fn applied_versions(conn: &Connection) -> Vec<i64> {

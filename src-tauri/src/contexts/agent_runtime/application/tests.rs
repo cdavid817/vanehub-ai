@@ -1101,19 +1101,6 @@ impl AgentMemoryPort for FakeWorld {
         }
         Ok(self.memories.lock().expect("memories").clone())
     }
-
-    fn delete(&self, memory_id: &str) -> Result<(), AgentRuntimeApplicationError> {
-        self.memories
-            .lock()
-            .expect("memories")
-            .retain(|memory| memory.id != memory_id);
-        Ok(())
-    }
-
-    fn delete_all(&self) -> Result<(), AgentRuntimeApplicationError> {
-        self.memories.lock().expect("memories").clear();
-        Ok(())
-    }
 }
 
 impl AgentMemoryExtractionPort for FakeWorld {
@@ -1956,7 +1943,6 @@ fn service_with_telemetry_port(
         api_credentials: world.clone(),
         onepiece_model_discovery: world.clone(),
         tool_approvals: world.clone(),
-        memories: world.clone(),
         memory_extraction: world.clone(),
         runner_discovery: world.clone(),
         personalization: world,

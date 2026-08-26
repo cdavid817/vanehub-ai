@@ -1,5 +1,5 @@
 use super::managed_mcp_relay::InvocationScopedMcpRelayAdapter;
-use super::personalization_bridge::{GovernedPersonalizationAdapter, LegacyMemoryPortBridge};
+use super::personalization_bridge::GovernedPersonalizationAdapter;
 use crate::contexts::agent_runtime::api::{AgentRuntimeApi, AgentRuntimeApiServices};
 use crate::contexts::agent_runtime::application::{
     web_native_tool_handlers, AgentClockPort, AgentCodeIntelligenceResponderPort, AgentLoggingPort,
@@ -543,13 +543,6 @@ pub(crate) fn assemble_agent_runtime_api(
         dependencies.skills.clone(),
         dependencies.evidence.clone(),
     ));
-    // The governed store, reached through the compatibility bridge. Neither the pre-v2 directory
-    // nor the row repository is touched from here any more: converting them is startup
-    // maintenance's job, and it runs once, in one order, rather than as a second path racing this
-    // one over the same directory.
-    let agent_memories = Arc::new(LegacyMemoryPortBridge::new(
-        dependencies.personalization.clone(),
-    ));
     let agent_mcp_tools = Arc::new(RuntimeAgentMcpToolAdapter::new(dependencies.mcp));
     // Read-through to the dedicated policy rather than to the legacy settings rows: from the moment
     // migration completes the policy is the source of truth, and two sources would drift as soon as
@@ -767,7 +760,6 @@ pub(crate) fn assemble_agent_runtime_api(
         api_credentials: api_credentials.clone(),
         onepiece_model_discovery: Arc::new(HttpOnePieceModelDiscoveryAdapter),
         tool_approvals: tool_approvals.clone(),
-        memories: agent_memories,
         memory_extraction: agent_memory_extraction,
         personalization: agent_personalization,
         runner_discovery: dependencies.runner_discovery,

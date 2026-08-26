@@ -138,12 +138,21 @@ const saveSetting = async (key, value) => {
 const createGovernedMemory = (input) => invoke(({ core }, value) => (
   core.invoke("create_personalization_memory", { input: value })
 ), input);
-// agent_runtime/list_agent_memories.rs:7-9 — no arguments.
-const listMemories = () => invoke(({ core }) => core.invoke("list_agent_memories"));
-// agent_runtime/delete_agent_memory.rs:46-52 — `memory_id: String`.
-const deleteMemory = (memoryId) => invoke(({ core }, id) => (
-  core.invoke("delete_agent_memory", { memoryId: id })
+// personalization/query_personalization_memories.rs:11-19 — `input: MemoryQueryInput`; returns a
+// page of summaries (`{ items, nextCursor, totalMatched }`). Summaries carry no body, so the one
+// this spec reads is fetched separately.
+const listMemories = (input = {}) => invoke(({ core }, value) => (
+  core.invoke("query_personalization_memories", { input: value })
+), input);
+// personalization/get_personalization_memory.rs — `memory_id: String`.
+const readMemory = (memoryId) => invoke(({ core }, id) => (
+  core.invoke("get_personalization_memory", { memoryId: id })
 ), memoryId);
+// personalization/delete_personalization_memory.rs:11-19 — `memory_id` plus the revision the
+// caller was looking at, so a delete racing an edit is refused rather than silently winning.
+const deleteMemory = (memoryId, expectedRevision) => invoke(({ core }, args) => (
+  core.invoke("delete_personalization_memory", args)
+), { memoryId, expectedRevision: expectedRevision ?? null });
 
 function mutation(id, order, templateBody, overrides = {}) {
   return {
@@ -670,8 +679,8 @@ globalThis.describe("VaneHub AI desktop Prompt Hooks, Expert Roles and Personali
         assert.equal((await readSettings())[key], true, `${key} did not survive a read after being turned back on`);
       }
 
-      const memories = await listMemories();
-      assert.ok(Array.isArray(memories), "the shared agent memory pool is not readable");
+      const page = await listMemories({ limit: 1 });
+      assert.ok(Array.isArray(page.items), "the governed memory store is not readable");
     } finally {
       // Restored from the values read at the top, not from a remembered default. Retried because a
       // concurrent write can hold the settings row and a lost restore would hand every later spec
@@ -702,50 +711,58 @@ globalThis.describe("VaneHub AI desktop Prompt Hooks, Expert Roles and Personali
     }
   });
 
-  globalThis.it("reads and deletes an entry in the shared agent memory pool", async function deleteOneMemory() {
-    // Seeded through the governed create command rather than by writing a file. The pool the
-    // legacy commands read is a projection of the governed store, not the directory
-    // (bootstrap/personalization_bridge.rs:115-142), so a markdown file dropped into the data
-    // directory is no longer in it -- and seeding one would assert the old dual-write path this
-    // change exists to remove. Producing one for real is not an option either: nothing writes a
-    // memory automatically except extraction, which runs inside compaction, so it would make the
-    // provider's behaviour the precondition of the test. Under test here is the read and delete
-    // surface over real persisted state, not extraction.
+  globalThis.it("writes, reads and deletes an entry in the governed memory store", async function deleteOneMemory() {
+    // Written through the governed create command rather than by dropping a markdown file. The
+    // file is the authoritative surface but not the entry point: writing one directly would leave
+    // the projection, the index and the retrieval entry behind, which is the dual-write this
+    // change exists to end. Producing one automatically is not an option either -- extraction runs
+    // inside compaction and only ever proposes -- so the provider's behaviour would become the
+    // precondition of the test. Under test here is the write/read/delete surface over real
+    // persisted state, not extraction.
     const name = `desktop-sweep-memory-${RUN}`;
     const created = await createGovernedMemory({
       name,
       description: "Seeded by the desktop prompt-hook sweep.",
       memoryType: "project",
-      content: "The desktop sweep seeded this memory to exercise the pool's read and delete surface.",
-      // Global rather than workspace-scoped: a workspace-scoped memory is invisible to a caller
-      // that names no workspace, and the legacy pool names none.
+      content: "The desktop sweep seeded this memory to exercise the store's read and delete surface.",
+      // Global rather than workspace-scoped: a workspace-scoped memory is not resolved for a
+      // caller that names no workspace, and this one names none.
       scopeKind: "global",
     });
     assert.ok(created.id, "the governed store did not return the created memory");
 
-    const memories = await listMemories();
-    const target = memories.find((memory) => memory.name === name);
+    const page = await listMemories({ text: name });
+    const target = page.items.find((memory) => memory.name === name);
     assert.ok(
       target,
-      `the seeded memory was not listed; the pool held ${JSON.stringify(memories.map((entry) => entry.name))}`,
+      `the created memory was not listed; the page held ${JSON.stringify(page.items.map((entry) => entry.name))}`,
     );
+    assert.equal(target.id, created.id);
     assert.equal(target.description, "Seeded by the desktop prompt-hook sweep.");
-    assert.match(target.content, /read and delete surface/);
-    // The pool addresses a memory by its file name (domain/memory.rs:284-286), not by the
-    // governed id, and a delete handed the wrong one of the two would silently do nothing.
-    assert.equal(target.id, `${created.id}.md`);
-
-    await deleteMemory(target.id);
-    const remaining = await listMemories();
     assert.equal(
-      remaining.find((memory) => memory.id === target.id),
+      target.content,
       undefined,
-      "the deleted memory is still in the pool",
+      "a list entry must not carry a body -- that is what makes the page bounded",
     );
+
+    const detail = await readMemory(created.id);
+    assert.ok(detail, "the memory could not be read back by id");
+    assert.match(detail.content, /read and delete surface/);
+
+    // A stale revision must be refused rather than deleting whatever is there now.
+    await rejects(
+      () => deleteMemory(created.id, detail.revision + 1),
+      "a delete made against a revision that never existed",
+    );
+    assert.ok(await readMemory(created.id), "the refused delete removed the memory anyway");
+
+    const outcome = await deleteMemory(created.id, detail.revision);
+    assert.equal(outcome.deletedFiles, 1, "the authoritative file was not removed");
+    assert.deepEqual(outcome.failures, [], "a storage surface was left holding the memory");
     assert.equal(
-      remaining.length,
-      memories.length - 1,
-      "deleting one memory changed the pool by more than one entry",
+      await readMemory(created.id),
+      null,
+      "the deleted memory can still be read back",
     );
   });
 

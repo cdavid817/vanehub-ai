@@ -105,7 +105,7 @@
 - [x] 9.3 Add `src/types/personalization.ts` and extend `AgentService` with the dedicated personalization contract.
 - [x] 9.4 Implement Tauri adapter mappings; React components must not invoke Tauri directly.
 - [x] 9.5 Implement Web/mock behavior with deterministic policies, revisions, candidates, cursor pages, conflicts, reset tokens, session modes, and safe maintenance results.
-- [ ] 9.6 Remove or deprecate `listAllMemories`, unscoped delete/reset methods, and legacy personalization settings mutations after all callers migrate.
+- [x] 9.6 Remove or deprecate `listAllMemories`, unscoped delete/reset methods, and legacy personalization settings mutations after all callers migrate.
 - [x] 9.7 Add frontend contract tests proving Tauri serialization names and Web/mock return shapes remain equivalent.
 
 ## 10. AI Personalization Settings UI
@@ -147,9 +147,9 @@
 - [x] 13.2 Update the user guide to explain unified management, scope precedence, Agent coverage, session modes, candidate review, memory source/audience, reset, repair, and CLI internal-compaction boundaries.
 - [x] 13.3 Update the developer guide with the personalization context boundary, runtime adapter contract, snapshot sequence, memory file/projection authority, migration, and extension checklist for a new Agent.
 - [x] 13.4 Add a developer checklist requiring every new VaneHub-managed Agent/runtime to declare capabilities and call the personalization resolver.
-- [ ] 13.5 Remove dead legacy UI components, unscoped service methods, duplicate prompt assembly, direct memory file mutations, and obsolete tests only after replacement coverage passes.
-- [ ] 13.6 Search for and eliminate production `list_all`/`listAllMemories` use that bypasses a policy context, while retaining explicitly named internal maintenance enumeration.
-- [ ] 13.7 Confirm no task introduces direct React-to-Tauri invocation, hard-coded Agent policy lists, or edits to CLI-owned memory/instruction files.
+- [x] 13.5 Remove dead legacy UI components, unscoped service methods, duplicate prompt assembly, direct memory file mutations, and obsolete tests only after replacement coverage passes.
+- [x] 13.6 Search for and eliminate production `list_all`/`listAllMemories` use that bypasses a policy context, while retaining explicitly named internal maintenance enumeration.
+- [x] 13.7 Confirm no task introduces direct React-to-Tauri invocation, hard-coded Agent policy lists, or edits to CLI-owned memory/instruction files.
 
 ## 14. Required Verification
 

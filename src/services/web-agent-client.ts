@@ -51,7 +51,6 @@ export {
   setWebLoopPhaseDelayForTest,
   simulateWebLoopRestartForTest,
 } from "./web-loop-state";
-import { webAgentMemoryClient } from "./web-agent-memory-client";
 import { webPersonalizationClient } from "./web-personalization-client";
 
 export { resetWebAgentMemoriesForTest } from "./web-agent-memory-state";
@@ -189,7 +188,6 @@ export const webAgentClient: AgentService = {
     replaceWebSkillMountPaths(listWebSkillMountPaths().filter((path) => path.agentId !== agentId));
   },
 
-  ...webAgentMemoryClient,
   ...webPersonalizationClient,
 
   async applyCliConfigProfile(input) {
