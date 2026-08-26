@@ -143,10 +143,10 @@
 
 ## 13. Localization, Documentation, and Cleanup
 
-- [ ] 13.1 Add synchronized locale keys for every new label, state, validation message, conflict, migration warning, reset result, preview explanation, session mode, and accessible name in every supported locale.
-- [ ] 13.2 Update the user guide to explain unified management, scope precedence, Agent coverage, session modes, candidate review, memory source/audience, reset, repair, and CLI internal-compaction boundaries.
-- [ ] 13.3 Update the developer guide with the personalization context boundary, runtime adapter contract, snapshot sequence, memory file/projection authority, migration, and extension checklist for a new Agent.
-- [ ] 13.4 Add a developer checklist requiring every new VaneHub-managed Agent/runtime to declare capabilities and call the personalization resolver.
+- [x] 13.1 Add synchronized locale keys for every new label, state, validation message, conflict, migration warning, reset result, preview explanation, session mode, and accessible name in every supported locale.
+- [x] 13.2 Update the user guide to explain unified management, scope precedence, Agent coverage, session modes, candidate review, memory source/audience, reset, repair, and CLI internal-compaction boundaries.
+- [x] 13.3 Update the developer guide with the personalization context boundary, runtime adapter contract, snapshot sequence, memory file/projection authority, migration, and extension checklist for a new Agent.
+- [x] 13.4 Add a developer checklist requiring every new VaneHub-managed Agent/runtime to declare capabilities and call the personalization resolver.
 - [ ] 13.5 Remove dead legacy UI components, unscoped service methods, duplicate prompt assembly, direct memory file mutations, and obsolete tests only after replacement coverage passes.
 - [ ] 13.6 Search for and eliminate production `list_all`/`listAllMemories` use that bypasses a policy context, while retaining explicitly named internal maintenance enumeration.
 - [ ] 13.7 Confirm no task introduces direct React-to-Tauri invocation, hard-coded Agent policy lists, or edits to CLI-owned memory/instruction files.
