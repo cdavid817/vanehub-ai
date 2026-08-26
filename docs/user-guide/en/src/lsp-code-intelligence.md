@@ -20,16 +20,25 @@ Python prefers `basedpyright-langserver` when both are installed. Installing the
 
 Which languages exist is decided by the desktop build, not by the settings page. The page renders one card per language the running build registers, so a language your build does not know about cannot be configured, and a language your build knows but cannot run on this operating system is shown as unsupported rather than as merely undetected.
 
-The Agent can use four read-only tools:
+The Agent can use nine read-only tools:
 
-| Tool | Result |
-| --- | --- |
-| `find_definition` | Workspace-relative definition locations and bounded previews |
-| `find_references` | Deterministically sorted references, at most 50 returned |
-| `get_hover` | Bounded type signature and documentation |
-| `get_diagnostics` | Current or explicitly stale version-aware diagnostics |
+| Tool | Result | Every server offers it? |
+| --- | --- | --- |
+| `find_definition` | Workspace-relative definition locations and bounded previews | Yes, in practice |
+| `find_references` | Deterministically sorted references, at most 50 returned | Yes, in practice |
+| `get_hover` | Bounded type signature and documentation | Yes, in practice |
+| `get_diagnostics` | Current or explicitly stale version-aware diagnostics | Always |
+| `find_type_definition` | Where the *type* of the symbol is declared, at most 20 locations | No |
+| `find_implementations` | Implementations of an interface, trait, or abstract member, at most 20 | No |
+| `find_workspace_symbols` | Symbols matching a name across one project, at most 50 | No |
+| `get_document_symbols` | A file's declarations, flattened, each naming what encloses it | No |
+| `find_call_hierarchy` | Callers of, or calls made by, a function, at most 50 | No |
 
-These tools are available in normal and Plan Mode sessions when the current local workspace is eligible. Python, Go, Java, C, and C++ language servers are not supported by this foundation.
+The last five are worth knowing about because a server may simply not offer them. The tool is still there and still answers — with an `unavailable` status rather than silence — because whether a server supports a method is discovered when it starts, not when the session begins. `gopls` and `rust-analyzer` offer all nine; older or smaller servers often stop at the first four. The runtime status card lists what the running server actually negotiated.
+
+`find_workspace_symbols` takes a file path as well as a query. The path is not a filter: it says which project's index to search. A repository can hold several projects of the same language, and a language server indexes one of them at a time.
+
+These tools are available in normal and Plan Mode sessions when the current local workspace is eligible. Java is not supported by this foundation.
 
 ## Install a server
 

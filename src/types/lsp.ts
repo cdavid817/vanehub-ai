@@ -143,9 +143,20 @@ export interface LspServerStatus {
   negotiatedCapabilities: LspNegotiatedCapabilities | null;
 }
 
+/**
+ * Declaration order mirrors the native catalog, which is append-only: a provider caches the
+ * tool-definition prefix, so reordering what came before costs every eligible session its prompt
+ * cache.
+ */
 export const lspToolNames: readonly [
   "find_definition", "find_references", "get_hover", "get_diagnostics",
-] = ["find_definition", "find_references", "get_hover", "get_diagnostics"];
+  "find_type_definition", "find_implementations", "find_workspace_symbols",
+  "get_document_symbols", "find_call_hierarchy",
+] = [
+  "find_definition", "find_references", "get_hover", "get_diagnostics",
+  "find_type_definition", "find_implementations", "find_workspace_symbols",
+  "get_document_symbols", "find_call_hierarchy",
+];
 export type LspToolName = (typeof lspToolNames)[number];
 
 export type LspToolResultStatus = "ready" | "warming" | "timeout" | "unavailable" | "failed";
@@ -191,8 +202,23 @@ export interface LspToolDiagnostic {
   code: string | null;
 }
 
+export interface LspToolSymbol {
+  name: string;
+  kind: string;
+  container: string | null;
+  file: string;
+  range: LspToolRange;
+}
+
+export interface LspToolCallRelation {
+  symbol: LspToolSymbol;
+  call_sites: LspToolRange[];
+}
+
 export type LspToolResult =
   | { metadata: LspToolResultMetadata; definitions: LspToolLocation[] }
   | { metadata: LspToolResultMetadata; references: LspToolLocation[] }
   | { metadata: LspToolResultMetadata; hover: LspToolHover | null }
-  | { metadata: LspToolResultMetadata; diagnostics: LspToolDiagnostic[] };
+  | { metadata: LspToolResultMetadata; diagnostics: LspToolDiagnostic[] }
+  | { metadata: LspToolResultMetadata; symbols: LspToolSymbol[] }
+  | { metadata: LspToolResultMetadata; relations: LspToolCallRelation[] };

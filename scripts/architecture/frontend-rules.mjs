@@ -89,8 +89,15 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 语言→服务器硬映射抵回去一部分,所以净额远小于新增逻辑本身。
 // -3 是 `tauri-agent-client.ts`:`normalizeLspServerTestResult` 的第二个参数原本只用于那条硬映射
 // 校验,映射没了参数也就没了。没有复制任何既有分支,前端也不再有任何写死的语言名。
+// 上调理由(expand-lsp-read-only-methods):+35,同样全部落在生产文件上。
+// 五个新的只读工具在 Web 侧各需要一个确定性的 unavailable 信封,加上 mock 协商能力列表里对应的
+// 五条方法。这一侧没有可删的重复:信封的形状本来就各不相同,类型定义与实现复用了 definition 的
+// 信封,已经是能复用的部分。
+// 同时把 `webLspToolClient` 从 `web-lsp-client.ts` 拆出去,因为九个工具的信封让合并后的文件撞上
+// 300 行硬规则。拆分只搬不抄:唯一被复制的 `clone` 帮助函数随即删掉了——那里每次都新建对象,
+// 本来就没有共享状态需要防御性拷贝。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 20292, owner: "extend-lsp-language-registry" },
+  { root: "src/services", budget: 20327, owner: "expand-lsp-read-only-methods" },
 ]);
 
 const STATE_PACKAGES = new Set([

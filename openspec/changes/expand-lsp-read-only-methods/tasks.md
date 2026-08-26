@@ -79,25 +79,41 @@
   - A new `lsp-hang-calls` fixture mode prepares normally and never answers the direction request, so the client's own cancellation is the only thing that can end it — no race with a reply.
   - The test wraps the join in a 3s timeout. Without it, a cancellation that fell through to the 10s request deadline would still pass, which is the failure the bounded-cleanup requirement is about.
   - Both direction handlers reject an item they did not prepare, so a request following an empty preparation kills the server instead of being answered.
-- [ ] 6.4 Add `ContextSourceKind::LspCallRelation` and feed relations into the candidate pipeline with the provenance definitions and references already carry
-  - **Moved into group 7, not dropped.** This is the first of the five methods to need `AgentCodeIntelligencePort`, which has six implementations across production and tests. Group 7 takes all five across that boundary at once; doing call relations alone would mean touching all six twice, and the second pass would be the one that has to keep the first consistent.
-- [ ] 6.5 Confirm the "supported call relations" clause in `lsp-code-intelligence` and `agent-context-engine` is now satisfied by an implemented source rather than vacuously
-  - Located: `lsp-code-intelligence` line 112 ("definitions, references, and supported call relations SHALL be normalizable as bounded Context Engine candidates") and `agent-context-engine` line 20 ("LSP definitions/references or call relations when supported"). Both are still vacuous — the query exists, the candidate source does not — so this stays open until 6.4 lands with group 7.
+- [x] 6.4 Add `ContextSourceKind::LspCallRelation` and feed relations into the candidate pipeline with the provenance definitions and references already carry
+  - **Done in group 7, not in group 6.** This was the first of the five methods to need `AgentCodeIntelligencePort`, which has seven implementations across production and tests; group 7 took all five across that boundary at once rather than touching all seven twice.
+  - Incoming calls only. Outgoing calls describe what the referenced symbol needs, which the definition source already reaches; callers are the direction that adds something.
+  - Relations flatten to locations at the source boundary, so a call relation carries exactly the provenance a definition does — one candidate per caller, at its declaration. That needed `AgentCodeSymbol` to carry `preview`, which `NormalizedLocation` already had and `map_symbol` was dropping. Symbol tool results gained the declaration line as a side effect, which is the right answer anyway: a symbol without one is a coordinate the reader has to go and open.
+- [x] 6.5 Confirm the "supported call relations" clause in `lsp-code-intelligence` and `agent-context-engine` is now satisfied by an implemented source rather than vacuously
+  - `lsp-code-intelligence` line 112 ("definitions, references, and supported call relations SHALL be normalizable as bounded Context Engine candidates") and `agent-context-engine` line 20 ("LSP definitions/references or call relations when supported"). Both were vacuous — the clause named a source nothing produced. `CodeIntelligenceContextSource::call_relations` is registered in `bootstrap/agent_runtime.rs` beside the definition and reference sources, so both now describe something that runs.
 
 ## 7. Tool catalog and Agent surface
 
-- [ ] 7.1 Append the five tools to the native catalog **after** every existing entry. Inserting among them changes the provider's cached tool-definition prefix
-- [ ] 7.2 Update the hard-coded tool-count assertions to the new count rather than deriving it, so a tool added by accident still fails something
-- [ ] 7.3 Add a test that the previously existing tools keep their declaration order
-- [ ] 7.4 Add deterministic `unavailable` envelopes for the five new tools in the Web/mock runtime, and extend the adapter conformance test
-- [ ] 7.5 Add the tool-name and capability-label locale strings to all five bundles and extend `lsp-settings-localization.test.ts`
+- [x] 7.1 Append the five tools to the native catalog **after** every existing entry. Inserting among them changes the provider's cached tool-definition prefix
+  - The catalog was the small part. Each tool crosses `AgentCodeIntelligencePort` and `AgentCodeIntelligenceResponderPort`, so the five landed as: two trait methods each, the runtime adapter, the unavailable responder, the native responder in bootstrap, and three test doubles — seven implementations.
+  - `find_workspace_symbols` and `find_call_hierarchy` needed their own schemas: a query string and a `direction` enum respectively. A `direction` that is not `"outgoing"` reads as the default rather than as an error — the choice is between two values, and refusing a typo would cost a whole tool call to say what the default already says.
+  - **The memory that says "adding a tool breaks seven count tests" did not apply.** Those seven pin the *baseline* catalog; LSP tools are conditional and are not in it. Two assertions broke, both listed below.
+- [x] 7.2 Update the hard-coded tool-count assertions to the new count rather than deriving it, so a tool added by accident still fails something
+  - `code_intelligence_tools_have_provider_neutral_workspace_implicit_schemas` now compares against a spelled-out `EXPECTED_CODE_INTELLIGENCE_TOOLS: [&str; 9]`, and the end-to-end test's sorted list gained the five names. Both are written out; an assertion that recomputes its own expectation passes for anything.
+- [x] 7.3 Add a test that the previously existing tools keep their declaration order
+  - `the_first_four_code_intelligence_tools_keep_their_declaration_order` checks the prefix specifically, not the whole list. The whole-list assertion above would also fail on a reorder, but it would fail the same way it fails for a rename, and the prompt-cache cost is not something a reader would infer from that.
+- [x] 7.4 Add deterministic `unavailable` envelopes for the five new tools in the Web/mock runtime, and extend the adapter conformance test
+  - Type definitions and implementations answer in the definition envelope, mirroring the desktop side reusing one normalization for all three. Symbols and relations get their own.
+  - The conformance table is written out rather than generated from `lspToolNames`, so a name added without an envelope would be tested by nothing. A second test pins the two lists together.
+- [x] 7.5 Add the tool-name and capability-label locale strings to all five bundles and extend `lsp-settings-localization.test.ts`
+  - Five capability labels × five bundles, inserted beside the existing capability keys rather than appended, and added to `requiredKeys`.
+  - No tool-*name* strings: the tool catalog is Agent-facing English sent to a provider, not UI copy, and there is no surface that renders a tool name to a user.
 
 ## 8. Documentation
 
-- [ ] 8.1 Update the user guides' tool table for the five new tools, and say plainly which ones a server may not advertise
-- [ ] 8.2 Update the developer guides for the negotiated method list, the call-hierarchy deadline, and the append-only catalog rule
-- [ ] 8.3 Correct the developer guides' exclusion list, which currently names call and type hierarchy as excluded
-- [ ] 8.4 Run `npm run docs:check`
+- [x] 8.1 Update the user guides' tool table for the five new tools, and say plainly which ones a server may not advertise
+  - The table gained a third column answering exactly that, with `gopls` and `rust-analyzer` named as servers that offer all nine and "older or smaller servers often stop at the first four" as the honest general case. The guide also explains the `unavailable` status rather than leaving a user to read it as breakage.
+  - Both guides also said "Python, Go, Java, C, and C++ are not supported"; that was already stale from the previous change and is now "Java is not supported".
+- [x] 8.2 Update the developer guides for the negotiated method list, the call-hierarchy deadline, and the append-only catalog rule
+  - Three paragraphs added: the append-only rule with the test name that enforces it, the one-deadline exchange with the reason two budgets would be wrong, and the anchor-not-scope reading of `find_workspace_symbols`' path argument.
+- [x] 8.3 Correct the developer guides' exclusion list, which currently names call and type hierarchy as excluded
+  - Call hierarchy and type definitions moved out of the exclusion list, with a sentence saying they used to be on it and why they moved. Type *hierarchy* (`typeHierarchy/supertypes`) stays excluded and is now named separately, because "call/type hierarchy" as one phrase was what made the old line wrong in two directions at once.
+- [x] 8.4 Run `npm run docs:check`
+  - Passes, including README parity and the link/media/boundary inventory.
 
 ## 9. Verification
 

@@ -671,6 +671,9 @@ pub(crate) fn assemble_agent_runtime_api(
             Arc::new(CodeIntelligenceContextSource::definition(
                 code_intelligence.clone(),
             )),
+            Arc::new(CodeIntelligenceContextSource::call_relations(
+                code_intelligence.clone(),
+            )),
             Arc::new(CodeIntelligenceContextSource::references(
                 code_intelligence.clone(),
             )),

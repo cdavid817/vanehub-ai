@@ -18,9 +18,6 @@ import {
   type LspServerDiscovery,
   type LspServerKind,
   type LspServerStatus,
-  type LspToolName,
-  type LspToolResult,
-  type LspToolResultMetadata,
   type LspWorkspaceTrust,
 } from "../types/lsp";
 
@@ -250,44 +247,5 @@ export const webLspClient: WebLspClient = {
 
   async getLspServerStatus() {
     return clone(normalizeLspServerStatuses(enabledLanguages().map(statusFor)));
-  },
-};
-
-export interface WebLspToolClient {
-  execute(tool: LspToolName): Promise<LspToolResult>;
-}
-
-function unavailableToolMetadata(): LspToolResultMetadata {
-  return {
-    status: "unavailable",
-    server: null,
-    language: null,
-    document_version: null,
-    stale: false,
-    returned_count: 0,
-    total: 0,
-    truncated: false,
-    filtered_count: 0,
-    reason_code: "web_runtime_unavailable",
-  };
-}
-
-function unavailableToolResult(tool: LspToolName): LspToolResult {
-  const metadata = unavailableToolMetadata();
-  switch (tool) {
-    case "find_definition":
-      return { metadata, definitions: [] };
-    case "find_references":
-      return { metadata, references: [] };
-    case "get_hover":
-      return { metadata, hover: null };
-    case "get_diagnostics":
-      return { metadata, diagnostics: [] };
-  }
-}
-
-export const webLspToolClient: WebLspToolClient = {
-  async execute(tool) {
-    return clone(unavailableToolResult(tool));
   },
 };

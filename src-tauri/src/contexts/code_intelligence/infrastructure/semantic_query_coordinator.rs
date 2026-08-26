@@ -162,12 +162,6 @@ impl SemanticQueryCoordinator {
         .await
     }
 
-    // Reached from tests until the tool catalog wires it up. `expect` rather than `allow` so the
-    // attribute fails the build once it is wired, instead of outliving its reason in silence.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "tool catalog wiring lands with the Agent surface")
-    )]
     pub(crate) async fn find_type_definition(
         &self,
         launch: LspProcessLaunch,
@@ -195,10 +189,6 @@ impl SemanticQueryCoordinator {
         .await
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "tool catalog wiring lands with the Agent surface")
-    )]
     pub(crate) async fn find_implementations(
         &self,
         launch: LspProcessLaunch,
@@ -268,10 +258,6 @@ impl SemanticQueryCoordinator {
 
     /// The one query with no document: it names a project through its launch, not a file, so it
     /// skips admission and the document lease entirely.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "tool catalog wiring lands with the Agent surface")
-    )]
     pub(crate) async fn find_workspace_symbols(
         &self,
         launch: LspProcessLaunch,
@@ -316,10 +302,6 @@ impl SemanticQueryCoordinator {
         }
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "tool catalog wiring lands with the Agent surface")
-    )]
     pub(crate) async fn get_document_symbols(
         &self,
         launch: LspProcessLaunch,
@@ -356,10 +338,6 @@ impl SemanticQueryCoordinator {
 
     /// Takes an `AgentPosition` rather than a line and a column: with the direction added, the
     /// separate pair would put this one argument over clippy's limit.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "tool catalog wiring lands with the Agent surface")
-    )]
     pub(crate) async fn find_call_hierarchy(
         &self,
         launch: LspProcessLaunch,

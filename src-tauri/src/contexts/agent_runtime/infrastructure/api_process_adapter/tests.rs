@@ -1,10 +1,11 @@
 use super::super::tools::{MAX_TASK_ITEMS, STATUS_COMPLETED, STATUS_IN_PROGRESS, STATUS_PENDING};
 use super::*;
 use crate::contexts::agent_runtime::application::{
-    AgentCodeDiagnostic, AgentCodeHover, AgentCodeIntelligenceMetadata,
-    AgentCodeIntelligenceOutcome, AgentCodeIntelligenceStatus, AgentCodeLocation,
-    AgentCodeRetrievalHit, AgentCodeRetrievalPort, AgentLaunchView, AgentRetrievalHit,
-    AgentSession, AgentView, AgentWorkspaceMutation, CliProfileSnapshot, ContextQualityRepository,
+    AgentCallHierarchyInput, AgentCodeCallRelation, AgentCodeDiagnostic, AgentCodeHover,
+    AgentCodeIntelligenceMetadata, AgentCodeIntelligenceOutcome, AgentCodeIntelligenceStatus,
+    AgentCodeLocation, AgentCodeRetrievalHit, AgentCodeRetrievalPort, AgentCodeSymbol,
+    AgentLaunchView, AgentRetrievalHit, AgentSession, AgentView, AgentWorkspaceMutation,
+    AgentWorkspaceSymbolInput, CliProfileSnapshot, ContextQualityRepository,
     GenerationProcessFailureKind, INTERFACE_FORMAT_ANTHROPIC,
 };
 use crate::contexts::agent_runtime::domain::{
@@ -926,6 +927,55 @@ impl AgentCodeIntelligencePort for ReadyCodeIntelligence {
         _: &AgentDocumentInput,
         _: Arc<AtomicBool>,
     ) -> AgentCodeIntelligenceOutcome<Vec<AgentCodeDiagnostic>> {
+        ready_code_intelligence(Vec::new())
+    }
+
+    fn find_type_definition(
+        &self,
+        context: &AgentCodeIntelligenceContext,
+        input: &AgentDocumentPositionInput,
+        _: Arc<AtomicBool>,
+    ) -> AgentCodeIntelligenceOutcome<Vec<AgentCodeLocation>> {
+        self.calls
+            .lock()
+            .expect("calls")
+            .push((context.session_workspace().to_owned(), input.clone()));
+        ready_code_intelligence(Vec::new())
+    }
+
+    fn find_implementations(
+        &self,
+        _: &AgentCodeIntelligenceContext,
+        _: &AgentDocumentPositionInput,
+        _: Arc<AtomicBool>,
+    ) -> AgentCodeIntelligenceOutcome<Vec<AgentCodeLocation>> {
+        ready_code_intelligence(Vec::new())
+    }
+
+    fn find_workspace_symbols(
+        &self,
+        _: &AgentCodeIntelligenceContext,
+        _: &AgentWorkspaceSymbolInput,
+        _: Arc<AtomicBool>,
+    ) -> AgentCodeIntelligenceOutcome<Vec<AgentCodeSymbol>> {
+        ready_code_intelligence(Vec::new())
+    }
+
+    fn get_document_symbols(
+        &self,
+        _: &AgentCodeIntelligenceContext,
+        _: &AgentDocumentInput,
+        _: Arc<AtomicBool>,
+    ) -> AgentCodeIntelligenceOutcome<Vec<AgentCodeSymbol>> {
+        ready_code_intelligence(Vec::new())
+    }
+
+    fn find_call_hierarchy(
+        &self,
+        _: &AgentCodeIntelligenceContext,
+        _: &AgentCallHierarchyInput,
+        _: Arc<AtomicBool>,
+    ) -> AgentCodeIntelligenceOutcome<Vec<AgentCodeCallRelation>> {
         ready_code_intelligence(Vec::new())
     }
 }

@@ -98,7 +98,7 @@ Agent coordinates and normalized result ranges are 1-based. Protocol coordinates
 
 ## Agent tools and hard limits
 
-The provider-neutral catalog conditionally exposes four read-only tools in normal and Plan Mode generations:
+The provider-neutral catalog conditionally exposes nine read-only tools in normal and Plan Mode generations:
 
 | Tool | Protocol method or source | Bound |
 | --- | --- | --- |
@@ -106,6 +106,19 @@ The provider-neutral catalog conditionally exposes four read-only tools in norma
 | `find_references` | `textDocument/references` | 50 accepted locations, deterministic order |
 | `get_hover` | `textDocument/hover` | bounded signature, documentation, and serialized output |
 | `get_diagnostics` | `textDocument/publishDiagnostics` cache | bounded count and message content |
+| `find_type_definition` | `textDocument/typeDefinition` | 20 accepted locations |
+| `find_implementations` | `textDocument/implementation` | 20 accepted locations |
+| `find_workspace_symbols` | `workspace/symbol` | 50 accepted symbols |
+| `get_document_symbols` | `textDocument/documentSymbol` | 200 accepted symbols, depth 8 |
+| `find_call_hierarchy` | `textDocument/prepareCallHierarchy` then `callHierarchy/incomingCalls` or `outgoingCalls` | 50 relations, 20 sites each, **one** 10s budget for the whole exchange |
+
+**Tools are appended, never inserted.** A provider caches the tool-definition prefix, so reordering the entries that came before costs every eligible session its prompt cache — and nothing in the diff would say so, because the names would all still be there. `the_first_four_code_intelligence_tools_keep_their_declaration_order` fails if that prefix moves.
+
+Call hierarchy is three requests presented as one tool, and it carries **one** deadline rather than the single-request budget per step. Two steps at the per-request budget would let a slow server take twice as long as any other tool while every individual request still looked healthy. Preparation resolving several items follows the first and returns `ready` with `call_hierarchy_items_not_followed`; following all of them would multiply the request count by an amount the server chooses.
+
+`find_workspace_symbols` names a document without being scoped to it. The path selects the server — which is to say the project root — because LSP has no notion of "the repository" and one repository can hold several projects. It is also the only method with no document lease: it skips admission entirely, so it can run without opening a file, and it reports no document version because there is none to report.
+
+Negotiated capabilities are carried as a list over `SemanticMethod::ALL`, one entry per method this build implements, with a `supported` flag. Absent and `supported: false` are different facts: absent means the client does not implement the method at all, and only the second is something a user can fix by changing servers. `SemanticMethod::ALL` is append-only for the same reason as the catalog — its order is what the settings card renders.
 
 Workspace scope always comes from the current session. Models cannot select a workspace, root, server path, or URI scheme. Only admitted `file:` locations inside the canonical workspace survive normalization.
 
@@ -142,7 +155,7 @@ Rust, TypeScript/JavaScript, Go, Python, and C/C++ are registered. Adding Go, Py
 
 Java is the remaining language on the roadmap and does not fit. `jdtls` runs through a JVM with a per-workspace data directory and a version-globbed launcher jar rather than as an executable with fixed arguments, so it needs a launch shape this model does not yet express.
 
-The foundation also intentionally excludes remote workspaces, downloaded servers, formatting, completion, rename, code actions, workspace edits, call/type hierarchy, filesystem watching, unsaved buffers, and persistent LSP enrichment. Do not expose a new mutating method merely by adding it to the catalog; it requires a separate OpenSpec change, permission analysis, Plan Mode treatment, protocol limits, and workspace-isolation tests.
+The foundation also intentionally excludes remote workspaces, downloaded servers, formatting, completion, rename, code actions, workspace edits, filesystem watching, unsaved buffers, and persistent LSP enrichment. Call hierarchy and type definitions were on that list until `expand-lsp-read-only-methods`; they are read-only, so they moved into scope rather than staying excluded. Type *hierarchy* (`typeHierarchy/supertypes`) is still out. Do not expose a new mutating method merely by adding it to the catalog; it requires a separate OpenSpec change, permission analysis, Plan Mode treatment, protocol limits, and workspace-isolation tests.
 
 LSP does not standardize portable server memory or indexed-file counts, so the status contract must keep these metrics unsupported rather than inventing them.
 

@@ -289,9 +289,6 @@ impl CodeIntelligenceApi {
             .await
     }
 
-    // No caller until the tool catalog wires it up. `expect` rather than `allow` so the attribute
-    // fails the build once it is wired, instead of outliving its reason in silence.
-    #[expect(dead_code, reason = "tool catalog wiring lands with the Agent surface")]
     pub(crate) async fn find_type_definition(
         &self,
         workspace_root: &Path,
@@ -309,7 +306,6 @@ impl CodeIntelligenceApi {
             .await
     }
 
-    #[expect(dead_code, reason = "tool catalog wiring lands with the Agent surface")]
     pub(crate) async fn find_implementations(
         &self,
         workspace_root: &Path,
@@ -347,7 +343,6 @@ impl CodeIntelligenceApi {
     /// `relative_path` anchors the search rather than scoping it. LSP has no notion of "the
     /// repository": a server indexes one project root, and a repository can hold several, so the
     /// file the Agent is working in is what says which index to search.
-    #[expect(dead_code, reason = "tool catalog wiring lands with the Agent surface")]
     pub(crate) async fn find_workspace_symbols(
         &self,
         workspace_root: &Path,
@@ -364,7 +359,6 @@ impl CodeIntelligenceApi {
             .await
     }
 
-    #[expect(dead_code, reason = "tool catalog wiring lands with the Agent surface")]
     pub(crate) async fn find_call_hierarchy(
         &self,
         workspace_root: &Path,
@@ -390,7 +384,6 @@ impl CodeIntelligenceApi {
             .await
     }
 
-    #[expect(dead_code, reason = "tool catalog wiring lands with the Agent surface")]
     pub(crate) async fn get_document_symbols(
         &self,
         workspace_root: &Path,

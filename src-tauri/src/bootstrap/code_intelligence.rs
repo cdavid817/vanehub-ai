@@ -1,13 +1,15 @@
 use crate::contexts::agent_runtime::application::{
-    AgentCodeDiagnostic, AgentCodeHover, AgentCodeIntelligenceContext,
-    AgentCodeIntelligenceMetadata, AgentCodeIntelligenceOutcome, AgentCodeIntelligencePending,
-    AgentCodeIntelligenceResponderPort, AgentCodeIntelligenceStatus, AgentCodeLocation,
-    AgentCodeRange, AgentDocumentInput, AgentDocumentPositionInput, AgentWorkspaceMutation,
-    AgentWorkspaceMutationPort,
+    AgentCallDirection, AgentCallHierarchyInput, AgentCodeCallRelation, AgentCodeDiagnostic,
+    AgentCodeHover, AgentCodeIntelligenceContext, AgentCodeIntelligenceMetadata,
+    AgentCodeIntelligenceOutcome, AgentCodeIntelligencePending, AgentCodeIntelligenceResponderPort,
+    AgentCodeIntelligenceStatus, AgentCodeLocation, AgentCodeRange, AgentCodeSymbol,
+    AgentDocumentInput, AgentDocumentPositionInput, AgentWorkspaceMutation,
+    AgentWorkspaceMutationPort, AgentWorkspaceSymbolInput,
 };
 use crate::contexts::code_intelligence::api::{
-    CodeIntelligenceApi, DiagnosticSeverity, NormalizedDiagnostic, NormalizedHover,
-    NormalizedLocation, NormalizedRange, QueryOutcome, QueryStatus,
+    CallDirection, CodeIntelligenceApi, DiagnosticSeverity, NormalizedCallRelation,
+    NormalizedDiagnostic, NormalizedHover, NormalizedLocation, NormalizedRange, NormalizedSymbol,
+    QueryOutcome, QueryStatus,
 };
 use crate::contexts::operations::api::DiagnosticLogPort;
 use crate::contexts::operations::infrastructure::UnifiedLoggingAdapter;
@@ -164,6 +166,133 @@ impl AgentCodeIntelligenceResponderPort for NativeCodeIntelligenceResponder {
             cancelled,
         )
     }
+
+    fn start_find_type_definition(
+        &self,
+        context: AgentCodeIntelligenceContext,
+        input: AgentDocumentPositionInput,
+    ) -> AgentCodeIntelligencePending<Vec<AgentCodeLocation>> {
+        let api = self.api.clone();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let request_cancelled = cancelled.clone();
+        Self::pending(
+            async move {
+                map_locations(
+                    api.find_type_definition(
+                        std::path::Path::new(context.session_workspace()),
+                        &input.relative_path,
+                        input.line,
+                        input.column,
+                        request_cancelled,
+                    )
+                    .await,
+                )
+            },
+            cancelled,
+        )
+    }
+
+    fn start_find_implementations(
+        &self,
+        context: AgentCodeIntelligenceContext,
+        input: AgentDocumentPositionInput,
+    ) -> AgentCodeIntelligencePending<Vec<AgentCodeLocation>> {
+        let api = self.api.clone();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let request_cancelled = cancelled.clone();
+        Self::pending(
+            async move {
+                map_locations(
+                    api.find_implementations(
+                        std::path::Path::new(context.session_workspace()),
+                        &input.relative_path,
+                        input.line,
+                        input.column,
+                        request_cancelled,
+                    )
+                    .await,
+                )
+            },
+            cancelled,
+        )
+    }
+
+    fn start_find_workspace_symbols(
+        &self,
+        context: AgentCodeIntelligenceContext,
+        input: AgentWorkspaceSymbolInput,
+    ) -> AgentCodeIntelligencePending<Vec<AgentCodeSymbol>> {
+        let api = self.api.clone();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let request_cancelled = cancelled.clone();
+        Self::pending(
+            async move {
+                map_symbols(
+                    api.find_workspace_symbols(
+                        std::path::Path::new(context.session_workspace()),
+                        &input.relative_path,
+                        &input.query,
+                        request_cancelled,
+                    )
+                    .await,
+                )
+            },
+            cancelled,
+        )
+    }
+
+    fn start_get_document_symbols(
+        &self,
+        context: AgentCodeIntelligenceContext,
+        input: AgentDocumentInput,
+    ) -> AgentCodeIntelligencePending<Vec<AgentCodeSymbol>> {
+        let api = self.api.clone();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let request_cancelled = cancelled.clone();
+        Self::pending(
+            async move {
+                map_symbols(
+                    api.get_document_symbols(
+                        std::path::Path::new(context.session_workspace()),
+                        &input.relative_path,
+                        request_cancelled,
+                    )
+                    .await,
+                )
+            },
+            cancelled,
+        )
+    }
+
+    fn start_find_call_hierarchy(
+        &self,
+        context: AgentCodeIntelligenceContext,
+        input: AgentCallHierarchyInput,
+    ) -> AgentCodeIntelligencePending<Vec<AgentCodeCallRelation>> {
+        let api = self.api.clone();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let request_cancelled = cancelled.clone();
+        let direction = match input.direction {
+            AgentCallDirection::Incoming => CallDirection::Incoming,
+            AgentCallDirection::Outgoing => CallDirection::Outgoing,
+        };
+        Self::pending(
+            async move {
+                map_call_relations(
+                    api.find_call_hierarchy(
+                        std::path::Path::new(context.session_workspace()),
+                        &input.position.relative_path,
+                        input.position.line,
+                        input.position.column,
+                        direction,
+                        request_cancelled,
+                    )
+                    .await,
+                )
+            },
+            cancelled,
+        )
+    }
 }
 
 fn map_locations(
@@ -172,6 +301,39 @@ fn map_locations(
     map_outcome(outcome, |locations| {
         locations.into_iter().map(map_location).collect()
     })
+}
+
+fn map_symbols(
+    outcome: QueryOutcome<Vec<NormalizedSymbol>>,
+) -> AgentCodeIntelligenceOutcome<Vec<AgentCodeSymbol>> {
+    map_outcome(outcome, |symbols| {
+        symbols.into_iter().map(map_symbol).collect()
+    })
+}
+
+fn map_call_relations(
+    outcome: QueryOutcome<Vec<NormalizedCallRelation>>,
+) -> AgentCodeIntelligenceOutcome<Vec<AgentCodeCallRelation>> {
+    map_outcome(outcome, |relations| {
+        relations
+            .into_iter()
+            .map(|relation| AgentCodeCallRelation {
+                symbol: map_symbol(relation.symbol),
+                call_sites: relation.call_sites.into_iter().map(map_range).collect(),
+            })
+            .collect()
+    })
+}
+
+fn map_symbol(symbol: NormalizedSymbol) -> AgentCodeSymbol {
+    AgentCodeSymbol {
+        name: symbol.name,
+        kind: symbol.kind.to_owned(),
+        container: symbol.container,
+        file: symbol.location.file().to_owned(),
+        range: map_range(symbol.location.range),
+        preview: symbol.location.preview,
+    }
 }
 
 fn map_hover(
