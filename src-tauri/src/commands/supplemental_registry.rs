@@ -34,6 +34,7 @@ pub(super) fn invoke_handler(
         crate::commands::goals::reopen_goal::reopen_goal,
         crate::commands::goals::abandon_goal::abandon_goal,
         crate::commands::local_media::profile::get_local_media_profile,
+        crate::commands::local_media::profile::discover_local_media_python_environments,
         crate::commands::local_media::profile::save_local_media_profile,
         crate::commands::local_media::profile::validate_local_media_profile,
         crate::commands::local_media::profile::get_local_media_status,
@@ -95,6 +96,7 @@ pub(super) fn is_command(command: &str) -> bool {
             | "reopen_goal"
             | "abandon_goal"
             | "get_local_media_profile"
+            | "discover_local_media_python_environments"
             | "save_local_media_profile"
             | "validate_local_media_profile"
             | "get_local_media_status"

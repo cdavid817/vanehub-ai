@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { activateAppLanguage } from "../../i18n";
@@ -134,6 +134,11 @@ function install(overrides: Partial<LocalMediaService> = {}) {
       inputs: [{ deviceId: "mic-1", label: "Built-in Microphone", isDefault: true }],
       outputs: [{ deviceId: "out-1", label: "Speakers", isDefault: true }],
     })),
+    discoverPythonEnvironments: vi.fn(async () => ({
+      availability: "available" as const,
+      reasonCode: null,
+      candidates: [],
+    })),
     probeEngine: vi.fn(async () => ({
       operationId: "op-1",
       kind: "local-media.probe" as const,
@@ -166,6 +171,11 @@ async function whenLoaded() {
   await screen.findByTestId("local-media-card-ocr");
 }
 
+function openAdvanced(engineIndex: number) {
+  const buttons = screen.getAllByRole("button", { name: "高级设置" });
+  fireEvent.click(buttons[engineIndex]!);
+}
+
 describe("LocalMediaPage", () => {
   beforeEach(async () => {
     invokeMock.mockClear();
@@ -181,6 +191,7 @@ describe("LocalMediaPage", () => {
     install({ getStatus: vi.fn(async () => incompatible) });
     renderPage();
     await whenLoaded();
+    openAdvanced(0);
 
     const notice = await screen.findByTestId(
       "local-media-compatibility-PADDLE_ONEDNN_MODEL_INCOMPATIBLE",
@@ -240,6 +251,7 @@ describe("LocalMediaPage", () => {
     install();
     renderPage();
     await whenLoaded();
+    openAdvanced(0);
 
     const control = screen.getByLabelText("CPU 加速") as HTMLSelectElement;
     expect(control.value).toBe("library-default");
@@ -325,6 +337,7 @@ describe("LocalMediaPage", () => {
     await waitFor(() =>
       expect(fieldAlert("模型文件")).toContain("该引擎无法打开位于此路径的模型"),
     );
+    openAdvanced(2);
     expect(fieldAlert("espeak-ng 数据目录")).toBeNull();
   });
 
@@ -338,6 +351,7 @@ describe("LocalMediaPage", () => {
     install({ getStatus: vi.fn(async () => next) });
     renderPage();
     await whenLoaded();
+    openAdvanced(2);
 
     expect(fieldAlert("模型文件")).toBeNull();
     expect(fieldAlert("espeak-ng 数据目录")).toBeNull();
@@ -387,6 +401,31 @@ describe("LocalMediaPage", () => {
     expect(screen.getByTestId("local-media-card-stt")).toBeTruthy();
     expect(screen.getByTestId("local-media-card-tts")).toBeTruthy();
     expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps advanced tuning collapsed behind accessible disclosure controls", async () => {
+    install();
+    renderPage();
+    await whenLoaded();
+
+    const disclosure = screen.getAllByRole("button", { name: "高级设置" })[0]!;
+    expect(disclosure.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByLabelText("CPU 加速")).toBeNull();
+
+    fireEvent.click(disclosure);
+    expect(disclosure.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByLabelText("CPU 加速")).toBeTruthy();
+  });
+
+  it("renders the guided environment surface in English", async () => {
+    await activateAppLanguage("en");
+    install();
+    renderPage();
+    await whenLoaded();
+
+    expect(screen.getByText("Setup overview")).toBeTruthy();
+    expect(screen.getByText("Python environments")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Advanced settings" })).toHaveLength(3);
   });
 
   it("shows each engine's own readiness so one failure does not gate the others", async () => {
@@ -448,6 +487,7 @@ describe("LocalMediaPage", () => {
     install();
     const { user } = renderPage();
     await whenLoaded();
+    openAdvanced(0);
 
     const save = screen.getByTestId("local-media-save");
     expect(save.hasAttribute("disabled")).toBe(true);
@@ -459,6 +499,7 @@ describe("LocalMediaPage", () => {
     install();
     const { user } = renderPage();
     await whenLoaded();
+    openAdvanced(0);
 
     const language = screen.getByLabelText("语言", {
       selector: "#local-media-ocr-language",
@@ -475,6 +516,7 @@ describe("LocalMediaPage", () => {
     const service = install();
     const { user } = renderPage();
     await whenLoaded();
+    openAdvanced(0);
 
     const probe = screen.getByTestId("local-media-probe-ocr");
     expect(probe.hasAttribute("disabled")).toBe(false);
@@ -495,6 +537,7 @@ describe("LocalMediaPage", () => {
     });
     const { user } = renderPage();
     await whenLoaded();
+    openAdvanced(0);
 
     await user.click(screen.getByTestId("local-media-probe-tts"));
 
@@ -517,6 +560,7 @@ describe("LocalMediaPage", () => {
     });
     const { user } = renderPage();
     await whenLoaded();
+    openAdvanced(0);
 
     await user.type(
       screen.getByLabelText("语言", { selector: "#local-media-ocr-language" }),
@@ -529,10 +573,14 @@ describe("LocalMediaPage", () => {
     await waitFor(() =>
       expect(screen.getAllByText("找不到配置的 Python 解释器")).toHaveLength(2),
     );
-    const python = screen.getByLabelText("Python 解释器", {
+    const python = screen.getByLabelText("自定义解释器", {
       selector: "#local-media-ocr-python",
     });
     expect(python.getAttribute("aria-invalid")).toBe("true");
+    expect(python.getAttribute("aria-describedby")).toBe("local-media-ocr-python-error");
+    expect(document.querySelector("#local-media-ocr-python-error")?.textContent).toContain(
+      "找不到配置的 Python 解释器",
+    );
     // The save never reached storage, so nothing partially applied.
     expect(service.saveProfile).not.toHaveBeenCalled();
   });
@@ -541,6 +589,7 @@ describe("LocalMediaPage", () => {
     const service = install();
     const { user } = renderPage();
     await whenLoaded();
+    openAdvanced(0);
 
     await user.type(
       screen.getByLabelText("语言", { selector: "#local-media-ocr-language" }),
@@ -560,6 +609,7 @@ describe("LocalMediaPage", () => {
     });
     const { user } = renderPage();
     await whenLoaded();
+    openAdvanced(0);
 
     await user.type(
       screen.getByLabelText("语言", { selector: "#local-media-ocr-language" }),
@@ -592,6 +642,7 @@ describe("LocalMediaPage", () => {
     });
     renderPage();
     await whenLoaded();
+    openAdvanced(1);
 
     const microphone = screen.getByLabelText("麦克风", {
       selector: "#local-media-stt-microphone",
@@ -599,6 +650,154 @@ describe("LocalMediaPage", () => {
     const options = [...microphone.querySelectorAll("option")].map((option) => option.textContent);
     // The host's own wording, verbatim. Only the "no explicit choice" entry is ours to translate.
     expect(options).toEqual(["系统默认设备", "Built-in Microphone"]);
+  });
+
+  it("assigns a detected Python environment to one draft without saving", async () => {
+    const service = install({
+      discoverPythonEnvironments: vi.fn(async () => ({
+        availability: "available" as const,
+        reasonCode: null,
+        candidates: [{
+          executablePath: "/opt/python-3.12/bin/python",
+          version: { major: 3, minor: 12, patch: 4 },
+          compatibility: "compatible" as const,
+          reasonCode: null,
+          source: "path" as const,
+        }],
+      })),
+    });
+    const { user } = renderPage();
+    await whenLoaded();
+
+    await user.selectOptions(
+      document.querySelector("#local-media-ocr-python-select") as HTMLSelectElement,
+      "/opt/python-3.12/bin/python",
+    );
+
+    expect((screen.getByLabelText("自定义解释器", { selector: "#local-media-ocr-python" }) as HTMLInputElement).value).toBe("/opt/python-3.12/bin/python");
+    expect((screen.getByLabelText("自定义解释器", { selector: "#local-media-stt-python" }) as HTMLInputElement).value).not.toBe("/opt/python-3.12/bin/python");
+    expect(service.saveProfile).not.toHaveBeenCalled();
+    expect(service.probeEngine).not.toHaveBeenCalled();
+    expect(screen.getByTestId("local-media-save").hasAttribute("disabled")).toBe(false);
+  });
+
+  it("shows incompatible Python candidates without offering them for assignment", async () => {
+    install({
+      discoverPythonEnvironments: vi.fn(async () => ({
+        availability: "available" as const,
+        reasonCode: "manual_configuration_required" as const,
+        candidates: [{
+          executablePath: "/opt/python-3.14/bin/python",
+          version: { major: 3, minor: 14, patch: 0 },
+          compatibility: "unsupported" as const,
+          reasonCode: "unsupported_version" as const,
+          source: "path" as const,
+        }],
+      })),
+    });
+    renderPage();
+    await whenLoaded();
+
+    expect(screen.getByText("Python 3.14.0 · 版本不受支持")).toBeTruthy();
+    const options = document.querySelectorAll("#local-media-ocr-python-select option");
+    expect([...options].some((option) => option.getAttribute("value")?.includes("3.14"))).toBe(false);
+  });
+
+  it("keeps editing available after discovery fails and retries without replacing the draft", async () => {
+    const discover = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValue({ availability: "available", reasonCode: null, candidates: [] });
+    install({ discoverPythonEnvironments: discover });
+    const { user } = renderPage();
+    await whenLoaded();
+    await screen.findByText(/未检测到兼容环境/);
+    openAdvanced(0);
+    const language = screen.getByLabelText("语言", { selector: "#local-media-ocr-language" });
+    await user.clear(language);
+    await user.type(language, "en");
+
+    await user.click(screen.getByRole("button", { name: "重新检测" }));
+    await waitFor(() => expect(discover).toHaveBeenCalledTimes(2));
+    expect((language as HTMLInputElement).value).toBe("en");
+  });
+
+  it("updates a custom interpreter only in the draft until Save succeeds", async () => {
+    const service = install({ selectProfilePath: vi.fn(async () => "/custom/python") });
+    const { user } = renderPage();
+    await whenLoaded();
+    const input = screen.getByLabelText("自定义解释器", { selector: "#local-media-ocr-python" });
+    const field = input.closest("div.grid");
+    const browse = field?.querySelector("button");
+    expect(browse).toBeTruthy();
+
+    await user.click(browse!);
+    await waitFor(() => expect((input as HTMLInputElement).value).toBe("/custom/python"));
+    expect(service.saveProfile).not.toHaveBeenCalled();
+    expect(screen.getByTestId("local-media-probe-ocr").hasAttribute("disabled")).toBe(true);
+
+    await user.click(screen.getByTestId("local-media-save"));
+    await waitFor(() => expect(service.saveProfile).toHaveBeenCalledTimes(1));
+    expect(screen.getByTestId("local-media-probe-ocr").hasAttribute("disabled")).toBe(false);
+  });
+
+  it("opens an advanced disclosure and focuses its linked validation target", async () => {
+    install({
+      validateProfile: vi.fn(async () => [{
+        engine: "ocr" as const,
+        field: "language",
+        code: "DEVICE_CONFIGURATION_INVALID" as const,
+        messageKey: "localMedia.errors.deviceConfigurationInvalid",
+      }]),
+    });
+    const { user } = renderPage();
+    await whenLoaded();
+    const toggle = screen.getAllByRole("button", { name: "高级设置" })[0]!;
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    await user.type(screen.getByLabelText("文本检测模型目录"), "-changed");
+    await user.click(screen.getByTestId("local-media-save"));
+
+    await waitFor(() => expect(toggle.getAttribute("aria-expanded")).toBe("true"));
+    const language = screen.getByLabelText("语言", { selector: "#local-media-ocr-language" });
+    await waitFor(() => expect(document.activeElement).toBe(language));
+    expect(language.getAttribute("aria-describedby")).toBe("local-media-ocr-language-error");
+  });
+
+  it("applies one detected environment to all drafts only after explicit confirmation", async () => {
+    install({
+      discoverPythonEnvironments: vi.fn(async () => ({
+        availability: "available" as const,
+        reasonCode: null,
+        candidates: [{
+          executablePath: "/opt/shared/python",
+          version: { major: 3, minor: 11, patch: 9 },
+          compatibility: "compatible" as const,
+          reasonCode: null,
+          source: "configured" as const,
+        }],
+      })),
+    });
+    const { user } = renderPage();
+    await whenLoaded();
+
+    await user.selectOptions(
+      document.querySelector("#local-media-python-all") as HTMLSelectElement,
+      "/opt/shared/python",
+    );
+    await user.click(screen.getByRole("button", { name: "应用到全部" }));
+
+    for (const engine of ["ocr", "stt", "tts"]) {
+      expect((document.querySelector(`#local-media-${engine}-python`) as HTMLInputElement).value).toBe("/opt/shared/python");
+    }
+  });
+
+  it("retains a configured Python path that is no longer detected", async () => {
+    install();
+    renderPage();
+    await whenLoaded();
+
+    expect((screen.getByLabelText("自定义解释器", { selector: "#local-media-ocr-python" }) as HTMLInputElement).value).toBe("/opt/ocr/bin/python");
+    expect((document.querySelector("#local-media-ocr-python-select") as HTMLSelectElement).value).toBe("");
   });
 
   it("says the page is read-only outside the desktop client", async () => {

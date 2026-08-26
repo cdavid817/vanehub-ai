@@ -6,6 +6,7 @@ mod ids;
 mod image_bounds;
 mod operation;
 mod profile;
+mod python_discovery;
 mod recording;
 mod result;
 mod staged_input;
@@ -28,6 +29,12 @@ pub(crate) use profile::TtsModelKind;
 pub(crate) use profile::{
     FasterWhisperProfile, LocalMediaProfile, PaddleOcrProfile, SherpaOnnxTtsProfile,
     DEFAULT_PROFILE_ID, MAX_TTS_CODE_POINTS,
+};
+#[cfg(test)]
+pub(crate) use python_discovery::PythonDiscoveryAvailability;
+pub(crate) use python_discovery::{
+    PythonCompatibility, PythonDiscoveryReason, PythonDiscoverySource, PythonEnvironmentCandidate,
+    PythonEnvironmentDiscovery, PythonVersion,
 };
 // Production code reaches the acceleration mode through `PaddleOcrProfile::cpu_acceleration` and
 // never names the type, so re-exporting it unconditionally is an unused import outside tests.

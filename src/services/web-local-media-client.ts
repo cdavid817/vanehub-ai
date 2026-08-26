@@ -115,6 +115,14 @@ export const webLocalMediaClient: LocalMediaService = {
     return { inputs: [], outputs: [] };
   },
 
+  async discoverPythonEnvironments() {
+    return {
+      availability: "unavailable" as const,
+      reasonCode: "native_unavailable" as const,
+      candidates: [],
+    };
+  },
+
   async probeEngine() {
     return nativeOnly();
   },

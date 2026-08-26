@@ -125,6 +125,16 @@ export interface LocalMediaProfile {
   updatedAt: string;
 }
 
+export type {
+  PythonCompatibility,
+  PythonDiscoveryAvailability,
+  PythonDiscoveryReason,
+  PythonDiscoverySource,
+  PythonEnvironmentCandidate,
+  PythonEnvironmentDiscovery,
+  PythonVersion,
+} from "./local-media-python";
+
 /** One rejected field, addressed to the input that produced it. */
 export interface ProfileFieldIssue {
   engine: LocalMediaEngine | null;

@@ -168,6 +168,11 @@ export function createLocalMediaDouble(
     validateProfile: vi.fn(async () => []),
     getStatus: vi.fn(async () => status),
     listAudioDevices: vi.fn(async () => ({ inputs: [], outputs: [] })),
+    discoverPythonEnvironments: vi.fn(async () => ({
+      availability: "available" as const,
+      reasonCode: null,
+      candidates: [],
+    })),
     probeEngine: vi.fn(async () => handle("probe")),
     selectProfilePath: vi.fn(async () => null),
     selectAndStageOcrSource: vi.fn(async () => staged),

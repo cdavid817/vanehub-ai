@@ -23,6 +23,11 @@ Desktop smoke verification MUST launch a native Tauri application and exercise i
 - **THEN** the smoke suite executes a real registered read-only Tauri command against the running application
 - **AND** it validates the returned native result without replacing that command with a mock
 
+#### Scenario: Observe frontend startup handoff
+- **WHEN** the native application has created its main window but visible React application content is not yet rendered
+- **THEN** the application reports frontend readiness as `starting` and keeps the branded startup surface visible
+- **AND** readiness transitions to `ready` only after the application root contains rendered surface content
+
 #### Scenario: Run browser-only E2E
 - **WHEN** the Playwright Web/mock suite completes successfully without launching a native Tauri artifact
 - **THEN** its result is reported as browser E2E and does not satisfy desktop smoke verification

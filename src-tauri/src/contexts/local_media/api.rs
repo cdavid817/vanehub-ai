@@ -13,7 +13,8 @@ use super::application::{
 use super::domain::{
     AudioDeviceCatalog, ComposerScopeId, LocalMediaEngine, LocalMediaError, LocalMediaErrorCode,
     LocalMediaOperationResult, LocalMediaProfile, LocalMediaRuntimeStatus, OcrResult, PlaybackId,
-    ProfileFieldIssue, RecordingHandle, RecordingId, StagedInputId, StagedOcrSource,
+    ProfileFieldIssue, PythonEnvironmentDiscovery, RecordingHandle, RecordingId, StagedInputId,
+    StagedOcrSource,
 };
 
 pub(crate) use super::application::PreparedLocalMediaOperation as PreparedLocalMediaWork;
@@ -59,6 +60,12 @@ impl LocalMediaApi {
 
     pub(crate) fn list_audio_devices(&self) -> Result<AudioDeviceCatalog, LocalMediaError> {
         self.service.list_audio_devices()
+    }
+
+    pub(crate) fn discover_python_environments(
+        &self,
+    ) -> Result<PythonEnvironmentDiscovery, LocalMediaError> {
+        self.service.discover_python_environments()
     }
 
     // ---------------------------------------------------------- operations ---

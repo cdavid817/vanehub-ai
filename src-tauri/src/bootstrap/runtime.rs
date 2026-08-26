@@ -8,6 +8,7 @@ use std::error::Error;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tauri::webview::{PageLoadEvent, PageLoadPayload};
 use tauri::Manager;
 
 const AGENT_TERMINAL_IDLE_TIMEOUT_SECONDS: i64 = 2 * 60 * 60;
@@ -32,6 +33,8 @@ pub(crate) fn run() {
         .plugin(tauri_plugin_wdio::init())
         .plugin(tauri_plugin_wdio_webdriver::init());
     let result = builder
+        // Keep the native window hidden until the static startup document is ready to paint.
+        .on_page_load(show_main_window_after_page_load)
         // 应用初始化完成后的setup回调函数
         .setup(setup)
         // 主窗口事件统一处理器（窗口打开/关闭/缩放/焦点等事件）
@@ -81,6 +84,20 @@ pub(crate) fn run() {
             "runtime.failure",
             &error.to_string(),
         ),
+    }
+}
+
+fn show_main_window_after_page_load(webview: &tauri::Webview, payload: &PageLoadPayload<'_>) {
+    if webview.label() != "main" || payload.event() != PageLoadEvent::Finished {
+        return;
+    }
+    if let Err(error) = webview.window().show() {
+        write_bootstrap_log(
+            &logging::fallback_log_dir(),
+            LogSeverity::Error,
+            "runtime.main-window.show",
+            &error.to_string(),
+        );
     }
 }
 

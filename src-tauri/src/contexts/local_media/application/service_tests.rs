@@ -1,8 +1,8 @@
 use super::service::{LocalMediaApplicationService, LocalMediaDependencies};
 use super::test_doubles::{
-    FakeCapture, FakeDevices, FakeOperationBridge, FakePlayback, FakeProfileRepository,
-    FakeTempStore, FakeWorkerSupervisor, FixedClock, RecordingDiagnostics, SequentialIds,
-    WorkerHandler,
+    EmptyPythonDiscovery, FakeCapture, FakeDevices, FakeOperationBridge, FakePlayback,
+    FakeProfileRepository, FakeTempStore, FakeWorkerSupervisor, FixedClock, FixedPythonDiscovery,
+    RecordingDiagnostics, SequentialIds, WorkerHandler,
 };
 use super::worker_contract::{
     OcrReply, ProbeReply, SynthesizeReply, TranscribeReply, WorkerCall, WorkerLine, WorkerPage,
@@ -10,7 +10,9 @@ use super::worker_contract::{
 };
 use crate::contexts::local_media::domain::{
     ComposerScopeId, EngineReadiness, LocalMediaEngine, LocalMediaError, LocalMediaErrorCode,
-    LocalMediaOperationResult, LocalMediaProfile, RecordingId, StagedInputId,
+    LocalMediaOperationResult, LocalMediaProfile, PythonCompatibility, PythonDiscoveryAvailability,
+    PythonDiscoveryReason, PythonDiscoverySource, PythonEnvironmentCandidate,
+    PythonEnvironmentDiscovery, PythonVersion, RecordingId, StagedInputId,
 };
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -58,6 +60,13 @@ fn ready_profile() -> LocalMediaProfile {
 }
 
 fn harness_with(profile: LocalMediaProfile) -> Harness {
+    harness_with_discovery(profile, Arc::new(EmptyPythonDiscovery))
+}
+
+fn harness_with_discovery(
+    profile: LocalMediaProfile,
+    python_discovery: Arc<dyn super::ports::PythonEnvironmentDiscoveryPort>,
+) -> Harness {
     let ids = SequentialIds::new();
     let repository = FakeProfileRepository::new(profile);
     let clock = FixedClock::new(1_000);
@@ -79,6 +88,7 @@ fn harness_with(profile: LocalMediaProfile) -> Harness {
         devices: Arc::new(FakeDevices),
         operations: operations.clone(),
         diagnostics: diagnostics.clone(),
+        python_discovery,
     });
 
     Harness {
@@ -96,6 +106,96 @@ fn harness_with(profile: LocalMediaProfile) -> Harness {
 
 fn harness() -> Harness {
     harness_with(ready_profile())
+}
+
+#[test]
+fn python_discovery_is_advisory_redacted_and_does_not_start_workers() {
+    let discovery = PythonEnvironmentDiscovery::available(vec![PythonEnvironmentCandidate {
+        executable_path: absolute("private/python"),
+        version: PythonVersion {
+            major: 3,
+            minor: 14,
+            patch: 0,
+        },
+        compatibility: PythonCompatibility::Unsupported,
+        reason_code: Some(PythonDiscoveryReason::UnsupportedVersion),
+        source: PythonDiscoverySource::Configured,
+    }]);
+    let harness = harness_with_discovery(ready_profile(), FixedPythonDiscovery::new(discovery));
+    let before = harness
+        .repository
+        .profile
+        .lock()
+        .expect("profile before discovery")
+        .clone();
+
+    let result = harness
+        .service
+        .discover_python_environments()
+        .expect("discovery result");
+
+    assert_eq!(result.candidates.len(), 1);
+    assert_eq!(harness.workers.call_count(), 0);
+    assert_eq!(
+        *harness
+            .repository
+            .profile
+            .lock()
+            .expect("profile after discovery"),
+        before
+    );
+    let diagnostics = harness.diagnostics.flattened();
+    assert!(diagnostics.contains("python.discovery"));
+    assert!(diagnostics.contains("candidateCount=1"));
+    assert!(diagnostics.contains("sourceCategories=configured"));
+    assert!(diagnostics.contains("reasonCodes=manual_configuration_required,unsupported_version"));
+    assert!(!diagnostics.contains("private/python"));
+}
+
+#[test]
+fn unavailable_python_discovery_is_typed_and_has_no_runtime_side_effects() {
+    let discovery = PythonEnvironmentDiscovery {
+        availability: PythonDiscoveryAvailability::Unavailable,
+        reason_code: Some(PythonDiscoveryReason::NativeUnavailable),
+        candidates: Vec::new(),
+    };
+    let harness = harness_with_discovery(ready_profile(), FixedPythonDiscovery::new(discovery));
+
+    let result = harness
+        .service
+        .discover_python_environments()
+        .expect("unavailable discovery result");
+
+    assert!(result.candidates.is_empty());
+    assert_eq!(
+        result.reason_code,
+        Some(PythonDiscoveryReason::NativeUnavailable)
+    );
+    assert_eq!(harness.workers.call_count(), 0);
+    assert!(harness
+        .diagnostics
+        .flattened()
+        .contains("reasonCodes=native_unavailable"));
+}
+
+#[test]
+fn empty_python_discovery_is_safe_and_does_not_start_workers() {
+    let harness = harness_with(ready_profile());
+
+    let result = harness
+        .service
+        .discover_python_environments()
+        .expect("empty discovery result");
+
+    assert!(result.candidates.is_empty());
+    assert_eq!(
+        result.reason_code,
+        Some(PythonDiscoveryReason::ManualConfigurationRequired)
+    );
+    assert_eq!(harness.workers.call_count(), 0);
+    let diagnostics = harness.diagnostics.flattened();
+    assert!(diagnostics.contains("candidateCount=0"));
+    assert!(!diagnostics.contains("/opt/ocr/bin/python"));
 }
 
 fn scope() -> ComposerScopeId {

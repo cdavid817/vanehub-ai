@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { i18n } from "./i18n";
 import "./styles.css";
 import { recoverFromBootstrapFailure } from "./bootstrap-failure";
+import { watchSurfaceReadiness } from "./bootstrap-readiness";
 
 const FATAL_FRONTEND_DIAGNOSTIC_LIMIT = 240;
 
@@ -19,14 +20,6 @@ if (floatingSurface) {
   document.body.classList.add("floating-assistant-surface");
 }
 
-function SurfaceReady({ children, root }: { children: React.ReactNode; root: HTMLElement }) {
-  React.useEffect(() => {
-    document.getElementById("bootstrap-shell")?.remove();
-    root.dataset.vanehubBootstrap = "ready";
-  }, [root]);
-  return children;
-}
-
 async function renderSurface() {
   const root = document.getElementById("root") as HTMLElement;
   if (import.meta.env.VITE_DESKTOP_E2E === "1") {
@@ -41,13 +34,20 @@ async function renderSurface() {
   const Surface = floatingSurface
     ? (await import("./floating-assistant/floating-assistant-root")).FloatingAssistantRoot
     : (await import("./App")).App;
-  ReactDOM.createRoot(root).render(
-    <React.StrictMode>
-      <SurfaceReady root={root}>
+  const stopWatchingReadiness = watchSurfaceReadiness(root, () => {
+    document.getElementById("bootstrap-shell")?.remove();
+    root.dataset.vanehubBootstrap = "ready";
+  });
+  try {
+    ReactDOM.createRoot(root).render(
+      <React.StrictMode>
         <Surface />
-      </SurfaceReady>
-    </React.StrictMode>,
-  );
+      </React.StrictMode>,
+    );
+  } catch (error: unknown) {
+    stopWatchingReadiness();
+    throw error;
+  }
 }
 
 void renderSurface().catch((error: unknown) => {

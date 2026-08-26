@@ -60,7 +60,14 @@ export function useLocalMediaComposer(
   /** Which composer scope started each in-flight operation. */
   const scopeRef = useRef<Record<string, string>>({});
   const currentScope = useRef(composerScopeId);
+  const previousScope = useRef(composerScopeId);
   currentScope.current = composerScopeId;
+  // Operation ownership must change with the render, before a fast user can start work in the new
+  // session. Clearing it later in an effect can erase an operation the new session already began.
+  if (previousScope.current !== composerScopeId) {
+    previousScope.current = composerScopeId;
+    scopeRef.current = {};
+  }
 
   const status = useQuery({
     queryKey: ["local-media", "status"],
@@ -128,7 +135,6 @@ export function useLocalMediaComposer(
     ocr.clearReview();
     setOverflow(null);
     setFailure(null);
-    scopeRef.current = {};
   };
   useEffect(() => {
     // A session switch abandons everything pending rather than letting it land somewhere new. The

@@ -6,6 +6,7 @@ import type {
   LocalMediaProfile,
   LocalMediaRuntimeStatus,
   ProfileFieldIssue,
+  PythonEnvironmentDiscovery,
   RecordingHandle,
   StagedOcrSource,
 } from "../types/local-media";
@@ -35,6 +36,7 @@ export interface LocalMediaService {
 
   getStatus(): Promise<LocalMediaRuntimeStatus>;
   listAudioDevices(): Promise<AudioDeviceCatalog>;
+  discoverPythonEnvironments(): Promise<PythonEnvironmentDiscovery>;
   probeEngine(engine: LocalMediaEngine): Promise<LocalMediaOperationHandle>;
 
   /**

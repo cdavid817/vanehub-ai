@@ -8,7 +8,6 @@ import type {
 import {
   fixtureOcrResult,
   fixturePlayback,
-  fixtureProfile,
   fixtureStatus,
   fixtureTranscript,
   initialFakeState,
@@ -146,13 +145,29 @@ export function createDeterministicFakeLocalMediaService(): LocalMediaService {
 
   return {
     isAvailable: async () => state.nativeAvailable,
-    getProfile: async () => fixtureProfile(),
-    saveProfile: async (input) => ({ ...input.profile, revision: input.profile.revision + 1 }),
+    getProfile: async () => state.profile,
+    saveProfile: async (input) => {
+      state.profile = { ...input.profile, revision: input.profile.revision + 1 };
+      return state.profile;
+    },
     validateProfile: async () => [],
     getStatus: async () => fixtureStatus(state),
     listAudioDevices: async () => ({
       inputs: [{ deviceId: "fixture-mic", label: "Fixture Microphone", isDefault: true }],
       outputs: [{ deviceId: "fixture-out", label: "Fixture Speaker", isDefault: true }],
+    }),
+    discoverPythonEnvironments: async () => ({
+      availability: "available",
+      reasonCode: null,
+      candidates: [
+        {
+          executablePath: "/fixture/python",
+          version: { major: 3, minor: 12, patch: 0 },
+          compatibility: "compatible",
+          reasonCode: null,
+          source: "path",
+        },
+      ],
     }),
     probeEngine: async () => {
       count("probeEngine");

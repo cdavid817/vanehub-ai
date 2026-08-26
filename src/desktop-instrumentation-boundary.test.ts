@@ -2,6 +2,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import type { PlaywrightTestConfig } from "@playwright/test";
+import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // playwright.config.ts belongs to the tsconfig.node.json composite project, so a static import
@@ -22,8 +23,10 @@ vi.mock("@wdio/tauri-plugin", () => {
   return { default: {} };
 });
 
-vi.mock("./App", () => ({ App: () => null }));
-vi.mock("./floating-assistant/floating-assistant-root", () => ({ FloatingAssistantRoot: () => null }));
+vi.mock("./App", () => ({ App: () => createElement("main") }));
+vi.mock("./floating-assistant/floating-assistant-root", () => ({
+  FloatingAssistantRoot: () => createElement("main"),
+}));
 // Compiling the Tailwind entry sheet costs ~20s per cold run and contributes nothing to the
 // branch under test, so the stylesheet import is stubbed rather than processed.
 vi.mock("./styles.css", () => ({}));

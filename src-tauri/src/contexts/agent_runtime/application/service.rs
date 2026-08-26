@@ -3258,11 +3258,50 @@ impl AgentRuntimeApplicationService {
     pub(crate) fn shutdown_generations(&self) -> Result<Vec<String>, AgentRuntimeApplicationError> {
         let session_ids = self.ports.generations.begin_shutdown()?;
         let mut stopped = Vec::new();
-        for session_id in session_ids {
-            self.stop_generation(&session_id)?;
-            stopped.push(session_id);
+        let mut first_error = None;
+        // Each local runner owns a bounded process-stop wait. Serial shutdown multiplied that wait
+        // by the number of active sessions and could exhaust the desktop's global exit deadline
+        // before later sessions persisted cancellation. Keep concurrency bounded while ensuring a
+        // failure in one session never prevents the remaining sessions from being settled.
+        for batch in session_ids.chunks(8) {
+            let results = std::thread::scope(|scope| {
+                batch
+                    .iter()
+                    .cloned()
+                    .map(|session_id| {
+                        let service = self.clone();
+                        scope.spawn(move || {
+                            let result = service.stop_generation(&session_id);
+                            (session_id, result)
+                        })
+                    })
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .map(|worker| worker.join())
+                    .collect::<Vec<_>>()
+            });
+            for result in results {
+                match result {
+                    Ok((session_id, Ok(_))) => stopped.push(session_id),
+                    Ok((_, Err(error))) => {
+                        if first_error.is_none() {
+                            first_error = Some(error);
+                        }
+                    }
+                    Err(_) => {
+                        if first_error.is_none() {
+                            first_error = Some(AgentRuntimeApplicationError::Generation(
+                                "Agent shutdown worker terminated unexpectedly.".to_string(),
+                            ));
+                        }
+                    }
+                }
+            }
         }
-        Ok(stopped)
+        match first_error {
+            Some(error) => Err(error),
+            None => Ok(stopped),
+        }
     }
 
     fn deliver_loop_terminal(

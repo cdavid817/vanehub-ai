@@ -8,6 +8,7 @@ vits lexicon and fail deep inside the native library with an unmappable error.
 from __future__ import annotations
 
 import array
+import sys
 import threading
 import wave
 from typing import Any, Dict, List, Optional
@@ -65,6 +66,11 @@ def _refuse_unopenable_paths(params: Dict[str, Any], resolved: Dict[str, Any]) -
     for faster-whisper, whose CTranslate2 backend opens these paths correctly. Revisit per field if
     a future sherpa-onnx release fixes its path handling.
     """
+
+    # This guard encodes a Windows-native loader limitation. POSIX paths are UTF-8 and must reach
+    # the canary instead of being rejected solely because the checkout contains Unicode.
+    if sys.platform != "win32":
+        return
 
     version = package_version()
     for field, code in _NATIVE_PATH_FIELDS:

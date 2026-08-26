@@ -6,8 +6,8 @@
 
 use super::super::domain::{
     AudioDeviceCatalog, CommittedRecording, LocalMediaEngine, LocalMediaError, LocalMediaProfile,
-    LocalMediaProfileSnapshot, PlaybackId, RecordingId, RecordingSummary, StagedInputId,
-    StagedOcrSource, WorkerState,
+    LocalMediaProfileSnapshot, PlaybackId, PythonEnvironmentDiscovery, RecordingId,
+    RecordingSummary, StagedInputId, StagedOcrSource, WorkerState,
 };
 use super::worker_contract::{WorkerCall, WorkerReply};
 use std::path::{Path, PathBuf};
@@ -27,6 +27,11 @@ pub(crate) trait LocalMediaProfileRepository: Send + Sync {
         profile: &LocalMediaProfile,
         expected_revision: i64,
     ) -> Result<LocalMediaProfile, LocalMediaError>;
+}
+
+/// Bounded host inspection used only by the settings surface.
+pub(crate) trait PythonEnvironmentDiscoveryPort: Send + Sync {
+    fn discover(&self, configured_paths: &[PathBuf]) -> PythonEnvironmentDiscovery;
 }
 
 pub(crate) trait LocalMediaClock: Send + Sync {
