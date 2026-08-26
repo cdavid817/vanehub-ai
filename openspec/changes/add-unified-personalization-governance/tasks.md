@@ -118,7 +118,7 @@
 - [x] 10.6 Display inherited instruction text and effective source; explain append, replace, and disabled behavior before save.
 - [x] 10.7 Preserve user drafts on native errors and revision conflicts and provide reload/compare actions without silent last-response-wins.
 - [x] 10.8 Ensure keyboard navigation, focus management, screen-reader labels, narrow-layout behavior, and IME composition work for all instruction workflows.
-- [ ] 10.9 Add component tests for initial hydration, scope changes, inheritance, edit/save/discard, validation, concurrent independent saves, conflicts, external events, error recovery, accessibility, and responsive layout.
+- [x] 10.9 Add component tests for initial hydration, scope changes, inheritance, edit/save/discard, validation, concurrent independent saves, conflicts, external events, error recovery, accessibility, and responsive layout.
 
 ## 11. Memory Management, Review, and Diagnostics UI
 

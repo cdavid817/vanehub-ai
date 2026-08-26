@@ -24,6 +24,13 @@ import { isIncomplete } from "./scope-selector";
 /** The code the native command layer sends; the message is the whole contract across the wire. */
 const CONFLICT_CODE = "personalization-revision-conflict";
 
+/** Everything a save needs, captured when it starts so a later scope change cannot rewrite it. */
+interface SaveRequest {
+  scope: PersonalizationPolicyRef;
+  values: InstructionValues;
+  expectedRevision: number | undefined;
+}
+
 export function policyQueryKey(scope: PersonalizationPolicyRef) {
   return ["personalization", "policy", scopeKeyOf(scope)] as const;
 }
@@ -61,35 +68,35 @@ export function useInstructionDrafts(service: AgentService, scope: Personalizati
   const draft = drafts[key];
 
   const saveMutation = useMutation({
-    mutationFn: async (values: InstructionValues) => {
-      const base = drafts[key];
-      return service.patchPersonalizationPolicy({
-        ...scope,
-        // Absent creates the layer. Sending 0 would claim the caller saw a revision that does not
-        // exist, and the store would refuse a first save forever.
-        expectedRevision: base && base.baseRevision > 0 ? base.baseRevision : undefined,
+    mutationFn: async ({ expectedRevision, scope: target, values }: SaveRequest) =>
+      service.patchPersonalizationPolicy({
+        ...target,
+        expectedRevision,
         aboutUser: values.aboutUser,
         styleRules: values.styleRules,
         instructionMergeMode: values.instructionMergeMode,
-      });
-    },
-    onMutate: () => setDrafts((current) => beginSave(current, scope)),
-    onSuccess: (policy) => {
-      setDrafts((current) => saveSucceeded(current, scope, policy));
-      queryClient.setQueryData(policyQueryKey(scope), policy);
+      }),
+    // Every callback answers the scope the save was *started* for, taken from the request rather
+    // than from the current selection. Switching layers mid-save is ordinary, and reading the
+    // selection here would land one layer's result -- or its failure -- on whichever layer the
+    // user happened to be looking at when the response arrived.
+    onMutate: ({ scope: target }) => setDrafts((current) => beginSave(current, target)),
+    onSuccess: (policy, { scope: target }) => {
+      setDrafts((current) => saveSucceeded(current, target, policy));
+      queryClient.setQueryData(policyQueryKey(target), policy);
       void queryClient.invalidateQueries({ queryKey: ["personalization", "overview"] });
       void queryClient.invalidateQueries({ queryKey: ["personalization", "policies"] });
     },
-    onError: async (error: Error) => {
+    onError: async (error: Error, { scope: target }) => {
       if (!error.message.includes(CONFLICT_CODE)) {
-        setDrafts((current) => saveFailed(current, scope, error.message));
+        setDrafts((current) => saveFailed(current, target, error.message));
         return;
       }
       // Read the store rather than trusting the numbers in the message: the user is about to be
       // shown what they would be overwriting, and that has to be the text, not just a revision.
-      const stored = await service.getPersonalizationPolicy(scope).catch(() => null);
-      queryClient.setQueryData(policyQueryKey(scope), stored);
-      setDrafts((current) => saveConflicted(current, scope, stored));
+      const stored = await service.getPersonalizationPolicy(target).catch(() => null);
+      queryClient.setQueryData(policyQueryKey(target), stored);
+      setDrafts((current) => saveConflicted(current, target, stored));
     },
   });
 
@@ -116,7 +123,14 @@ export function useInstructionDrafts(service: AgentService, scope: Personalizati
     discard: () => setDrafts((current) => discardDraft(current, scope)),
     save: () => {
       const current = drafts[key];
-      if (current && canSave(current)) saveMutation.mutate(current.values);
+      if (!current || !canSave(current)) return;
+      saveMutation.mutate({
+        scope,
+        values: current.values,
+        // Absent creates the layer. Sending 0 would claim the caller saw a revision that does not
+        // exist, and the store would refuse a first save forever.
+        expectedRevision: current.baseRevision > 0 ? current.baseRevision : undefined,
+      });
     },
     keepMine: () => setDrafts((current) => keepMine(current, scope)),
     /** Re-reads the stored side. `mergePolicies` then restates the conflict against fresh text,
