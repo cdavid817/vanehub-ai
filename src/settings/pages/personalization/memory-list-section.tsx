@@ -11,6 +11,7 @@ import type { MemoryQuery, MemorySummary } from "../../../types/personalization-
 import { SectionPanel } from "../page-parts";
 import { MemoryCreateForm } from "./memory-create-form";
 import { MemoryDetailPanel } from "./memory-detail-panel";
+import { MemoryResetDialog } from "./memory-reset-dialog";
 import { MemoryFilters } from "./memory-filters";
 import { useScopeOptions } from "./use-scope-options";
 
@@ -29,6 +30,7 @@ export function MemoryListSection({ service = defaultAgentService }: { service?:
   const [pageStack, setPageStack] = useState<(string | undefined)[]>([undefined]);
   const [openId, setOpenId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const { agents, workspaces } = useScopeOptions(service);
 
   const cursor = pageStack[pageStack.length - 1];
@@ -61,11 +63,17 @@ export function MemoryListSection({ service = defaultAgentService }: { service?:
       icon={Database}
       title={t("personalization.memoryList.title")}
     >
-      <div className="mb-3 flex justify-end">
+      <div className="mb-3 flex justify-end gap-2">
         <Button data-testid="personalization-create-open" onClick={() => setCreating((open) => !open)} size="sm">
           {t("personalization.create.open")}
         </Button>
+        <Button data-testid="personalization-reset-open" onClick={() => setResetting(true)} size="sm" variant="outline">
+          {t("personalization.reset.open")}
+        </Button>
       </div>
+      {resetting ? (
+        <MemoryResetDialog onClose={() => setResetting(false)} service={service} workspaces={workspaces} />
+      ) : null}
       {creating ? (
         <div className="mb-4 rounded-md border border-border/70 p-3">
           <h4 className="mb-1 text-sm font-semibold">{t("personalization.create.title")}</h4>
