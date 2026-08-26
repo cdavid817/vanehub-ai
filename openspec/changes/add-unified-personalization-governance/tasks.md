@@ -111,7 +111,7 @@
 ## 10. AI Personalization Settings UI
 
 - [x] 10.1 Rename the settings destination to localized **AI Personalization** and add Overview, Instructions, Memory, and Runtime Preview views using the existing settings navigation/design primitives.
-- [ ] 10.2 Build a page presentation model that separates query state, scope selection, drafts, pending mutations, conflict state, and maintenance state.
+- [x] 10.2 Build a page presentation model that separates query state, scope selection, drafts, pending mutations, conflict state, and maintenance state.
 - [ ] 10.3 Implement Overview cards and a compact dynamic Agent list showing effective source, capability, final instruction state, memory read state, and extraction state.
 - [ ] 10.4 Implement global, Agent, workspace, and workspace-Agent scope selection without hard-coded Agent checkboxes.
 - [ ] 10.5 Replace blur-only long-text saving with explicit Save/Discard, dirty state, inline 3,000-character validation, approximate token count, navigation protection, and per-scope pending state.
