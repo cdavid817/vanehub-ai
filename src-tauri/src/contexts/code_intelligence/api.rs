@@ -262,12 +262,9 @@ impl CodeIntelligenceApi {
         column: u32,
         cancelled: Arc<AtomicBool>,
     ) -> QueryOutcome<Vec<NormalizedLocation>> {
-        let Some(language) = language_for_path(Path::new(relative_path)) else {
-            return unavailable_query("unsupported_language", None);
-        };
-        let launch = match self.process_launch(workspace_root, relative_path) {
-            Ok(launch) => launch,
-            Err(error) => return unavailable_query(launch_reason(error), Some(language)),
+        let (language, launch) = match self.resolve_query(workspace_root, relative_path) {
+            Ok(resolved) => resolved,
+            Err(outcome) => return outcome,
         };
         self.semantic_queries
             .find_definition(launch, language, relative_path, line, column, cancelled)
@@ -282,15 +279,50 @@ impl CodeIntelligenceApi {
         column: u32,
         cancelled: Arc<AtomicBool>,
     ) -> QueryOutcome<Vec<NormalizedLocation>> {
-        let Some(language) = language_for_path(Path::new(relative_path)) else {
-            return unavailable_query("unsupported_language", None);
-        };
-        let launch = match self.process_launch(workspace_root, relative_path) {
-            Ok(launch) => launch,
-            Err(error) => return unavailable_query(launch_reason(error), Some(language)),
+        let (language, launch) = match self.resolve_query(workspace_root, relative_path) {
+            Ok(resolved) => resolved,
+            Err(outcome) => return outcome,
         };
         self.semantic_queries
             .find_references(launch, language, relative_path, line, column, cancelled)
+            .await
+    }
+
+    // No caller until the tool catalog wires it up. `expect` rather than `allow` so the attribute
+    // fails the build once it is wired, instead of outliving its reason in silence.
+    #[expect(dead_code, reason = "tool catalog wiring lands with the Agent surface")]
+    pub(crate) async fn find_type_definition(
+        &self,
+        workspace_root: &Path,
+        relative_path: &str,
+        line: u32,
+        column: u32,
+        cancelled: Arc<AtomicBool>,
+    ) -> QueryOutcome<Vec<NormalizedLocation>> {
+        let (language, launch) = match self.resolve_query(workspace_root, relative_path) {
+            Ok(resolved) => resolved,
+            Err(outcome) => return outcome,
+        };
+        self.semantic_queries
+            .find_type_definition(launch, language, relative_path, line, column, cancelled)
+            .await
+    }
+
+    #[expect(dead_code, reason = "tool catalog wiring lands with the Agent surface")]
+    pub(crate) async fn find_implementations(
+        &self,
+        workspace_root: &Path,
+        relative_path: &str,
+        line: u32,
+        column: u32,
+        cancelled: Arc<AtomicBool>,
+    ) -> QueryOutcome<Vec<NormalizedLocation>> {
+        let (language, launch) = match self.resolve_query(workspace_root, relative_path) {
+            Ok(resolved) => resolved,
+            Err(outcome) => return outcome,
+        };
+        self.semantic_queries
+            .find_implementations(launch, language, relative_path, line, column, cancelled)
             .await
     }
 
@@ -302,12 +334,9 @@ impl CodeIntelligenceApi {
         column: u32,
         cancelled: Arc<AtomicBool>,
     ) -> QueryOutcome<Option<NormalizedHover>> {
-        let Some(language) = language_for_path(Path::new(relative_path)) else {
-            return unavailable_query("unsupported_language", None);
-        };
-        let launch = match self.process_launch(workspace_root, relative_path) {
-            Ok(launch) => launch,
-            Err(error) => return unavailable_query(launch_reason(error), Some(language)),
+        let (language, launch) = match self.resolve_query(workspace_root, relative_path) {
+            Ok(resolved) => resolved,
+            Err(outcome) => return outcome,
         };
         self.semantic_queries
             .get_hover(launch, language, relative_path, line, column, cancelled)
@@ -323,6 +352,7 @@ impl CodeIntelligenceApi {
         let Some(language) = language_for_path(Path::new(relative_path)) else {
             return unavailable_query("unsupported_language", None);
         };
+        // Checked before the launch so a generation cancelled while queued never spawns a server.
         if cancelled.load(Ordering::Acquire) {
             return QueryOutcome::degraded_with_identity(
                 QueryStatus::Failed,
@@ -432,6 +462,23 @@ impl CodeIntelligenceApi {
         self.repository
             .as_ref()
             .ok_or(CodeIntelligenceApiError::ConfigurationUnavailable)
+    }
+
+    /// The language and the launch every semantic entry point needs, or the outcome to return
+    /// instead. Sharing it means a new entry point cannot reach a server picked for the wrong
+    /// language, which is the failure that looks like the server misbehaving.
+    fn resolve_query<T>(
+        &self,
+        workspace_root: &Path,
+        relative_path: &str,
+    ) -> Result<(Language, super::infrastructure::LspProcessLaunch), QueryOutcome<T>> {
+        let Some(language) = language_for_path(Path::new(relative_path)) else {
+            return Err(unavailable_query("unsupported_language", None));
+        };
+        match self.process_launch(workspace_root, relative_path) {
+            Ok(launch) => Ok((language, launch)),
+            Err(error) => Err(unavailable_query(launch_reason(error), Some(language))),
+        }
     }
 
     fn process_launch(

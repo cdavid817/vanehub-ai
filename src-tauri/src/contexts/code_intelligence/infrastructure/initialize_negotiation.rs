@@ -3,8 +3,9 @@ use crate::contexts::code_intelligence::domain::models::{
     DocumentSyncMode, NegotiatedCapabilities, NegotiatedMethod, PositionEncoding, SemanticMethod,
 };
 use lsp_types::{
-    HoverProviderCapability, InitializeResult, OneOf, PositionEncodingKind, ServerCapabilities,
-    TextDocumentSyncCapability, TextDocumentSyncKind,
+    HoverProviderCapability, ImplementationProviderCapability, InitializeResult, OneOf,
+    PositionEncodingKind, ServerCapabilities, TextDocumentSyncCapability, TextDocumentSyncKind,
+    TypeDefinitionProviderCapability,
 };
 use serde_json::{json, Value};
 use thiserror::Error;
@@ -57,6 +58,8 @@ pub(crate) fn build_initialize_params(
                     "didSave": true
                 },
                 "definition": {"dynamicRegistration": true, "linkSupport": true},
+                "typeDefinition": {"dynamicRegistration": true, "linkSupport": true},
+                "implementation": {"dynamicRegistration": true, "linkSupport": true},
                 "references": {"dynamicRegistration": true},
                 "hover": {
                     "dynamicRegistration": true,
@@ -112,6 +115,22 @@ fn advertised(capabilities: &ServerCapabilities, method: SemanticMethod) -> bool
         // Diagnostics arrive as a server-initiated notification rather than a capability the
         // server advertises, so there is nothing to read and nothing that can be unsupported.
         SemanticMethod::Diagnostics => true,
+        // These two carry their own provider types rather than `OneOf`, so they cannot go through
+        // `one_of_enabled`. The shape is otherwise the same: absent or `false` means no.
+        SemanticMethod::TypeDefinition => matches!(
+            &capabilities.type_definition_provider,
+            Some(
+                TypeDefinitionProviderCapability::Options(_)
+                    | TypeDefinitionProviderCapability::Simple(true)
+            )
+        ),
+        SemanticMethod::Implementation => matches!(
+            &capabilities.implementation_provider,
+            Some(
+                ImplementationProviderCapability::Options(_)
+                    | ImplementationProviderCapability::Simple(true)
+            )
+        ),
     }
 }
 

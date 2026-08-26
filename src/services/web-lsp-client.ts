@@ -87,6 +87,8 @@ const capabilities: LspNegotiatedCapabilities = {
     { method: "references", supported: true },
     { method: "hover", supported: true },
     { method: "diagnostics", supported: true },
+    { method: "type_definition", supported: true },
+    { method: "implementation", supported: true },
   ],
 };
 

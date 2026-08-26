@@ -144,6 +144,68 @@ impl SemanticQueryCoordinator {
         .await
     }
 
+    // Reached from tests until the tool catalog wires it up. `expect` rather than `allow` so the
+    // attribute fails the build once it is wired, instead of outliving its reason in silence.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "tool catalog wiring lands with the Agent surface")
+    )]
+    pub(crate) async fn find_type_definition(
+        &self,
+        launch: LspProcessLaunch,
+        language: Language,
+        relative_path: &str,
+        line: u32,
+        column: u32,
+        cancelled: Arc<AtomicBool>,
+    ) -> QueryOutcome<Vec<NormalizedLocation>> {
+        let request = PositionRequest {
+            launch,
+            language,
+            relative_path,
+            line,
+            column,
+            cancelled,
+        };
+        // `textDocument/typeDefinition` answers in the same three shapes as `definition`, so it
+        // reuses that normalization -- and with it the cap of 20 and the truncation metadata.
+        self.located_query(
+            request,
+            SemanticMethod::TypeDefinition,
+            |normalizer, response| normalizer.definitions(response),
+        )
+        .await
+    }
+
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "tool catalog wiring lands with the Agent surface")
+    )]
+    pub(crate) async fn find_implementations(
+        &self,
+        launch: LspProcessLaunch,
+        language: Language,
+        relative_path: &str,
+        line: u32,
+        column: u32,
+        cancelled: Arc<AtomicBool>,
+    ) -> QueryOutcome<Vec<NormalizedLocation>> {
+        let request = PositionRequest {
+            launch,
+            language,
+            relative_path,
+            line,
+            column,
+            cancelled,
+        };
+        self.located_query(
+            request,
+            SemanticMethod::Implementation,
+            |normalizer, response| normalizer.definitions(response),
+        )
+        .await
+    }
+
     pub(crate) async fn get_hover(
         &self,
         launch: LspProcessLaunch,
@@ -538,6 +600,8 @@ fn wire_request(method: SemanticMethod) -> (&'static str, Value) {
         // Diagnostics arrive as a server notification and never route through a request, so this
         // arm exists only to keep the match exhaustive.
         SemanticMethod::Diagnostics => ("textDocument/publishDiagnostics", json!({})),
+        SemanticMethod::TypeDefinition => ("textDocument/typeDefinition", json!({})),
+        SemanticMethod::Implementation => ("textDocument/implementation", json!({})),
     }
 }
 

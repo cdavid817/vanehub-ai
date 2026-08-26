@@ -186,6 +186,92 @@ async fn semantic_queries_sync_filter_bound_normalize_and_cancel() {
     }
 }
 
+#[tokio::test]
+async fn type_definition_and_implementations_reuse_the_definition_shape() {
+    let fixture = SemanticFixture::new();
+    let queries = coordinator();
+
+    let type_definition = queries
+        .find_type_definition(
+            fixture.launch.clone(),
+            registry::rust(),
+            "src/lib.rs",
+            1,
+            1,
+            active(),
+        )
+        .await;
+    assert_eq!(type_definition.status(), QueryStatus::Ready);
+    let located = type_definition.value().expect("type definitions");
+    assert_eq!(located.len(), 1);
+    assert_eq!(located[0].file(), "src/lib.rs");
+    // The fixture answers in LocationLink form with a wide target range and a narrow selection
+    // range. Columns 4..9 are the selection range, so the link path is not silently falling back
+    // to the enclosing target range.
+    assert_eq!(located[0].range.start_column, 4);
+    assert_eq!(located[0].range.end_column, 9);
+
+    let implementations = queries
+        .find_implementations(
+            fixture.launch.clone(),
+            registry::rust(),
+            "src/lib.rs",
+            1,
+            1,
+            active(),
+        )
+        .await;
+    // Nothing implements it. `ready` with an empty list says that; `unavailable` would say the
+    // server could not answer, which is a different thing and would send the agent looking again.
+    assert_eq!(implementations.status(), QueryStatus::Ready);
+    assert!(implementations.value().expect("implementations").is_empty());
+    assert_eq!(implementations.total, 0);
+    assert!(!implementations.truncated);
+}
+
+#[tokio::test]
+async fn an_unadvertised_method_is_refused_without_reaching_the_server() {
+    let fixture = SemanticFixture::with_mode("lsp-unadvertised");
+    let queries = coordinator();
+
+    let refused = queries
+        .find_implementations(
+            fixture.launch.clone(),
+            registry::rust(),
+            "src/lib.rs",
+            1,
+            1,
+            active(),
+        )
+        .await;
+    assert_eq!(refused.status(), QueryStatus::Unavailable);
+    assert_eq!(refused.reason_code(), Some("method_unsupported"));
+
+    // That mode exits on an unadvertised request, so a definition query still being answered is
+    // the evidence that nothing was sent -- an assertion on the outcome alone would also pass if
+    // the request went out and the server merely declined it.
+    let definition = queries
+        .find_definition(
+            fixture.launch.clone(),
+            registry::rust(),
+            "src/lib.rs",
+            1,
+            1,
+            active(),
+        )
+        .await;
+    assert_eq!(definition.status(), QueryStatus::Ready);
+}
+
+fn coordinator() -> SemanticQueryCoordinator {
+    let processes = RuntimeProcessCoordinator::new(
+        LspShutdownCoordinator::new(),
+        LifecyclePolicy::default(),
+        LspDiagnosticLogger::new(Arc::new(CapturingLogs::default())),
+    );
+    SemanticQueryCoordinator::new(processes, LspDocumentInvalidationQueue::default())
+}
+
 #[derive(Default)]
 struct CapturingLogs(Mutex<Vec<DiagnosticLog>>);
 
@@ -208,6 +294,10 @@ struct SemanticFixture {
 
 impl SemanticFixture {
     fn new() -> Self {
+        Self::with_mode("lsp-semantic")
+    }
+
+    fn with_mode(server_mode: &str) -> Self {
         let workspace = tempfile::tempdir().expect("workspace");
         std::fs::write(
             workspace.path().join("Cargo.toml"),
@@ -232,7 +322,7 @@ impl SemanticFixture {
                     .join("tests/fixtures/lsp_stdio_server.cjs")
                     .to_string_lossy()
                     .into_owned(),
-                "lsp-semantic".to_owned(),
+                server_mode.to_owned(),
             ],
             initialization_options: json!({}),
         };

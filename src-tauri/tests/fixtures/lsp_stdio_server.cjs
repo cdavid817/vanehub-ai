@@ -3,7 +3,12 @@
 const fs = require("node:fs");
 const { fileURLToPath } = require("node:url");
 const mode = process.argv[2];
-const semanticMode = mode === "lsp-semantic" || mode === "lsp-native-e2e";
+const semanticMode = mode === "lsp-semantic"
+  || mode === "lsp-native-e2e"
+  || mode === "lsp-unadvertised";
+// The one semantic mode that answers position queries without advertising typeDefinition or
+// implementation. It exits on either request, so a client that asks anyway is caught doing it.
+const advertisesGotoExtras = semanticMode && mode !== "lsp-unadvertised";
 
 if (mode === "oversized") {
   process.stdout.write("Content-Length: 1024\r\n\r\n");
@@ -17,6 +22,7 @@ if (mode === "oversized") {
   "lsp-hang",
   "lsp-semantic",
   "lsp-native-e2e",
+  "lsp-unadvertised",
   "lsp-crash",
   "lsp-protocol-limit",
 ].includes(mode)) {
@@ -66,6 +72,8 @@ if (mode === "oversized") {
           definitionProvider: true,
           referencesProvider: semanticMode,
           hoverProvider: semanticMode,
+          typeDefinitionProvider: advertisesGotoExtras,
+          implementationProvider: advertisesGotoExtras,
           textDocumentSync: semanticMode ? 1 : 2,
         } };
       send(message.id, result);
@@ -126,6 +134,25 @@ if (mode === "oversized") {
         },
       });
       send(message.id, references);
+    } else if (semanticMode && message.method === "textDocument/typeDefinition") {
+      if (!advertisesGotoExtras) process.exit(4);
+      // LocationLink form, which `definition` never returns here, so the shared normalization is
+      // exercised on both response shapes. The narrower targetSelectionRange is the one that wins.
+      send(message.id, [{
+        targetUri: openedUri,
+        targetRange: {
+          start: { line: 0, character: 0 },
+          end: { line: 0, character: 13 },
+        },
+        targetSelectionRange: {
+          start: { line: 0, character: 3 },
+          end: { line: 0, character: 8 },
+        },
+      }]);
+    } else if (semanticMode && message.method === "textDocument/implementation") {
+      if (!advertisesGotoExtras) process.exit(4);
+      // Nothing implements it. That is an answer, not a failure to answer.
+      send(message.id, []);
     } else if (semanticMode && message.method === "textDocument/hover") {
       send(message.id, {
         contents: [

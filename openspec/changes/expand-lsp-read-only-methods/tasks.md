@@ -37,8 +37,17 @@
 
 ## 4. Position-based methods
 
-- [ ] 4.1 Add `find_type_definition` and `find_implementations` over the factored shape, reusing the definition normalization, the cap of 20, and the truncation metadata
-- [ ] 4.2 Add tests: location links normalize into the common shape, an empty result is `ready` rather than unavailable, and an unadvertised method returns unavailable without a request being sent
+- [x] 4.1 Add `find_type_definition` and `find_implementations` over the factored shape, reusing the definition normalization, the cap of 20, and the truncation metadata
+  - Both go through `located_query` with `normalizer.definitions`, so the cap of 20 and the truncation metadata come from the same place `find_definition` gets them and cannot drift.
+  - `SemanticMethod` gained two variants, appended to `ALL` rather than inserted: that order is what the settings card renders. `advertised()` reads `type_definition_provider` and `implementation_provider`, which are their own provider types rather than `OneOf`, so they get their own arms.
+  - `build_initialize_params` now declares `typeDefinition` and `implementation` client capabilities. A server reads that list to decide what to index; asking for something we never send is as wrong as not asking for something we do.
+  - `api.rs` gained matching entry points and a shared `resolve_query`, so a new entry point cannot reach a server picked for the wrong language. Both are marked `expect(dead_code)` until group 7 wires the catalog — `expect`, not `allow`, so the attribute fails the build once it is wired.
+  - Measured cost of the two methods, against the ~50-lines-each the unfactored shape would have taken: coordinator 594 -> 658 (+64). Ten of those are the temporary dead-code annotations group 7 deletes, so ~27 each is the standing cost — the marginal figure recorded at 3.2. Group 3's +32 overhead is repaid.
+- [x] 4.2 Add tests: location links normalize into the common shape, an empty result is `ready` rather than unavailable, and an unadvertised method returns unavailable without a request being sent
+  - The fixture server answers `typeDefinition` in LocationLink form with a wide `targetRange` and a narrow `targetSelectionRange`; the test asserts columns 4..9, so a fallback to the enclosing range would fail rather than pass silently.
+  - `implementation` answers with an empty array and the test asserts `ready` with `total: 0`. `unavailable` would say the server could not answer, which sends the agent looking again.
+  - The unadvertised case uses a new `lsp-unadvertised` fixture mode that **exits** on either request. Asserting only the outcome would also pass if the request went out and the server declined it, so the evidence is a definition query still being answered afterwards.
+  - `all_lists_every_semantic_method` stopped compiling on the new variants, which is the guard from group 2 working. Suite: `code_intelligence` **192 -> 195** (+2 coordinator, +1 negotiation).
 
 ## 5. Symbol methods
 

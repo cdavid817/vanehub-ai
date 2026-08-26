@@ -356,7 +356,9 @@ fn list_lsp_server_status_result_serializes_to_an_exact_object() {
                     {"method": "definition", "supported": true},
                     {"method": "references", "supported": true},
                     {"method": "hover", "supported": true},
-                    {"method": "diagnostics", "supported": true}
+                    {"method": "diagnostics", "supported": true},
+                    {"method": "type_definition", "supported": true},
+                    {"method": "implementation", "supported": true}
                 ]
             }
         }])

@@ -92,7 +92,9 @@ fn all_lists_every_semantic_method() {
             SemanticMethod::Definition
             | SemanticMethod::References
             | SemanticMethod::Hover
-            | SemanticMethod::Diagnostics => (),
+            | SemanticMethod::Diagnostics
+            | SemanticMethod::TypeDefinition
+            | SemanticMethod::Implementation => (),
         }
     }
 

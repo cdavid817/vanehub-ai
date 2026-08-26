@@ -145,6 +145,8 @@ pub(crate) enum SemanticMethod {
     References,
     Hover,
     Diagnostics,
+    TypeDefinition,
+    Implementation,
 }
 
 impl SemanticMethod {
@@ -154,11 +156,16 @@ impl SemanticMethod {
     ///
     /// A variant missing from here is negotiated for no server and offered to nobody. The
     /// compiler cannot catch that, so `all_lists_every_semantic_method` does.
+    ///
+    /// Append, never insert. The order is what the settings card renders, and reordering it moves
+    /// rows under a reader for no reason a reader can see.
     pub(crate) const ALL: &'static [Self] = &[
         Self::Definition,
         Self::References,
         Self::Hover,
         Self::Diagnostics,
+        Self::TypeDefinition,
+        Self::Implementation,
     ];
 
     /// Stable wire and localization identifier. Not the LSP method name: that is a protocol
@@ -169,6 +176,8 @@ impl SemanticMethod {
             Self::References => "references",
             Self::Hover => "hover",
             Self::Diagnostics => "diagnostics",
+            Self::TypeDefinition => "type_definition",
+            Self::Implementation => "implementation",
         }
     }
 }
