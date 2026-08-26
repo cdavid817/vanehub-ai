@@ -4,7 +4,9 @@
   - Baseline on `11458275`: `code_intelligence` **190**, `native_lsp` **1**, frontend LSP suites **746**.
 - [x] 1.2 Record the current native tool count and where it is asserted, so the catalog growth is a deliberate diff rather than a surprise
   - **10**, asserted at `providers/tests.rs:768` (`fixtures.len()`) and `:1005` (`tools.len()`), plus the `resolve_tool_catalog_*` family.
-- [ ] 1.3 Measure the serialized size of the LSP tool definitions as declared to a provider. Nine tools where there were four lengthens every eligible session's system prompt, and the cost should be known rather than assumed
+- [x] 1.3 Measure the serialized size of the LSP tool definitions as declared to a provider. Nine tools where there were four lengthens every eligible session's system prompt, and the cost should be known rather than assumed
+  - **1,782 bytes for four; 4,546 for nine.** +2,764 bytes, or 2.55x, on every session with a trusted local workspace and a discoverable server.
+  - Turned into an assertion (`the_code_intelligence_tools_state_what_they_cost_a_system_prompt`) rather than left as a number in this file. A measurement recorded once goes stale the first time somebody rewrites a description; a bounded assertion makes them look at it.
 
 ## 2. Capability representation (refactor, no behavior change)
 
@@ -136,5 +138,7 @@
 - [ ] 10.1 Confirm the task 2.10 checkpoint held: the refactor alone changed no test outcome
 - [ ] 10.2 Confirm the frontend changed once, for the capability list, and not again for any of the five methods
 - [ ] 10.3 Confirm no database migration was added and the highest migration number is unchanged
-- [ ] 10.4 Compare the task 1.3 measurement against the new tool-definition size and state the increase rather than leaving it unmeasured
+- [x] 10.4 Compare the task 1.3 measurement against the new tool-definition size and state the increase rather than leaving it unmeasured
+  - 1,782 -> 4,546 bytes (+2,764, 2.55x). Both measured from the same build, so the comparison is exact rather than a before-and-after across two trees.
+  - Worth stating plainly: this is the largest single cost of the change and it falls on every eligible session, used or not. It is bounded by eligibility — a session without a trusted local workspace and a discoverable server is offered none of them — but it is not free, and the assertion above is what keeps it from drifting further without anyone noticing.
 - [ ] 10.5 Confirm the read-only invariant is intact: no mutating request is sent anywhere, and `workspace/applyEdit` is still rejected

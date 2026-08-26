@@ -660,20 +660,17 @@ fn workspace_symbol_schema() -> serde_json::Value {
 }
 
 fn call_hierarchy_schema() -> serde_json::Value {
-    let mut schema = document_schema(true);
-    let properties = schema
-        .get_mut("properties")
-        .and_then(serde_json::Value::as_object_mut)
-        .expect("document schema carries an object of properties");
-    properties.insert(
-        "direction".to_owned(),
-        json!({
-            "type": "string",
-            "enum": ["incoming", "outgoing"],
-            "description": "\"incoming\" for callers of the symbol, \"outgoing\" for what it calls. Defaults to \"incoming\"."
-        }),
-    );
-    schema
+    document_schema_with(
+        true,
+        vec![(
+            "direction",
+            json!({
+                "type": "string",
+                "enum": ["incoming", "outgoing"],
+                "description": "\"incoming\" for callers of the symbol, \"outgoing\" for what it calls. Defaults to \"incoming\"."
+            }),
+        )],
+    )
 }
 
 fn positioned_code_intelligence_tool(name: &str, description: &str) -> ToolDefinition {
@@ -685,6 +682,16 @@ fn positioned_code_intelligence_tool(name: &str, description: &str) -> ToolDefin
 }
 
 fn document_schema(with_position: bool) -> serde_json::Value {
+    document_schema_with(with_position, Vec::new())
+}
+
+/// `extra` is appended to the shared document properties rather than merged into the finished
+/// schema, so a caller that adds a field cannot reach for the object it built and find nothing
+/// there -- there is no fallible lookup to get wrong.
+fn document_schema_with(
+    with_position: bool,
+    extra: Vec<(&str, serde_json::Value)>,
+) -> serde_json::Value {
     let mut properties = serde_json::Map::from_iter([(
         "path".to_owned(),
         json!({
@@ -703,6 +710,9 @@ fn document_schema(with_position: bool) -> serde_json::Value {
             json!({ "type": "integer", "minimum": 1, "description": "1-based Unicode scalar column." }),
         );
         required.extend(["line", "column"]);
+    }
+    for (name, schema) in extra {
+        properties.insert(name.to_owned(), schema);
     }
     json!({
         "type": "object",
@@ -1244,6 +1254,38 @@ mod tests {
         GET_DOCUMENT_SYMBOLS_TOOL_NAME,
         FIND_CALL_HIERARCHY_TOOL_NAME,
     ];
+
+    #[test]
+    fn the_code_intelligence_tools_state_what_they_cost_a_system_prompt() {
+        // Nine tool definitions where there were four lengthens the system prompt of every session
+        // with a trusted local workspace and a discoverable server. Asserted rather than merely
+        // measured, so a description rewrite has to notice the cost it adds.
+        let definitions = code_intelligence_tool_definitions();
+        let serialized = |definitions: &[ToolDefinition]| {
+            definitions
+                .iter()
+                .map(|definition| {
+                    serde_json::to_string(&json!({
+                        "name": definition.name,
+                        "description": definition.description,
+                        "input_schema": definition.input_schema,
+                    }))
+                    .expect("serialize tool definition")
+                    .len()
+                })
+                .sum::<usize>()
+        };
+        let four = serialized(&definitions[..4]);
+        let nine = serialized(&definitions);
+        assert!(
+            (1_400..=1_800).contains(&four),
+            "the four original tools serialize to {four} bytes"
+        );
+        assert!(
+            (4_300..=4_800).contains(&nine),
+            "all nine tools serialize to {nine} bytes"
+        );
+    }
 
     #[test]
     fn the_first_four_code_intelligence_tools_keep_their_declaration_order() {
