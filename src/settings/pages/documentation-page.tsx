@@ -19,6 +19,17 @@ const readmeByLanguage: Record<string, string> = {
   zh: simplifiedChineseReadme,
 };
 
+const repositoryReadmeUrl = `${aboutRepositoryUrl}/blob/main/README.md`;
+
+/** README banner tags only carry GitHub alignment hints. Strip them in the app so raw HTML never
+ * leaks into the guide, while leaving the Markdown content for the safe renderer. */
+export function normalizeDocumentationMarkdown(markdown: string): string {
+  return markdown
+    .replace(/<\/?(?:div|p)(?:\s[^>]*)?>/giu, "")
+    .replace(/<br\s*\/?\s*>/giu, "\n")
+    .replace(/\]\((?![a-z][a-z\d+.-]*:|\/|#)([^)]+)\)/giu, (_match, target: string) => `](${new URL(target, repositoryReadmeUrl).toString()})`);
+}
+
 export function resolveReadme(language: string): string {
   const base = language.toLowerCase().split("-")[0];
   return readmeByLanguage[base] ?? englishReadme;
@@ -26,7 +37,10 @@ export function resolveReadme(language: string): string {
 
 export function DocumentationPage() {
   const { i18n, t } = useTranslation();
-  const readme = useMemo(() => resolveReadme(i18n.language), [i18n.language]);
+  const readme = useMemo(
+    () => normalizeDocumentationMarkdown(resolveReadme(i18n.language)),
+    [i18n.language],
+  );
 
   return (
     <div className="grid gap-6">

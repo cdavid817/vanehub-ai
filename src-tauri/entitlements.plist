@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Hardened runtime entitlements for the signed macOS build.
+
+  `NSMicrophoneUsageDescription` alone is not enough once the hardened runtime is enabled: the
+  release workflow signs and notarizes, and a hardened binary without `device.audio-input` is
+  denied the microphone before the user is ever asked. The two have to land together.
+
+  Nothing else is granted. In particular there is no `network.client` entitlement here, which is
+  consistent with a feature whose engines are required to run offline.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+  </dict>
+</plist>

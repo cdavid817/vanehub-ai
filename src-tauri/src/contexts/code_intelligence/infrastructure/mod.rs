@@ -74,6 +74,8 @@ mod project_root_tests;
 #[cfg(test)]
 mod runtime_process_coordinator_tests;
 #[cfg(test)]
+mod schema_tests;
+#[cfg(test)]
 mod semantic_query_coordinator_tests;
 #[cfg(test)]
 mod semantic_results_tests;
@@ -88,10 +90,11 @@ mod shutdown_coordinator_tests;
 pub(crate) use configuration_repository::SqliteCodeIntelligenceRepository;
 pub(crate) use document_invalidation::LspDocumentInvalidationQueue;
 pub(crate) use lsp_diagnostics::LspDiagnosticLogger;
+pub(crate) use position_conversion::AgentPosition;
 pub(crate) use process_registry::{ActivationReason, LifecyclePolicy};
-pub(crate) use project_root::{ProcessKey, ProjectRootResolver};
+pub(crate) use project_root::{ProcessKey, ProjectRootError, ProjectRootResolver};
 pub(crate) use runtime_process_coordinator::{LspProcessLaunch, RuntimeProcessCoordinator};
-pub(crate) use schema::apply_schema;
+pub(crate) use schema::{apply_language_registry_schema, apply_schema};
 pub(crate) use semantic_query_coordinator::SemanticQueryCoordinator;
 pub(crate) use server_discovery::{
     DiscoveryAvailability, DiscoveryReason, ServerDiscovery, ServerDiscoveryResult,

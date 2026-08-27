@@ -12,12 +12,21 @@ use std::time::{Duration, Instant};
 use thiserror::Error;
 
 pub(crate) use super::domain::configuration::{LanguageConfiguration, LspConfiguration};
+// Published for callers that hold a language id without a registry lookup; only tests need it in
+// this build, and gating the lint keeps that from reading as a dead export.
+#[cfg_attr(not(test), allow(unused_imports))]
+pub(crate) use super::domain::language_id::LspLanguageId;
 pub(crate) use super::domain::models::{
-    ConfigurationFingerprint, DiagnosticSeverity, DocumentSyncMode, LanguageFamily,
-    NegotiatedCapabilities, NormalizedDiagnostic, NormalizedHover, NormalizedLocation,
-    NormalizedRange, PositionEncoding, ProcessState, QueryOutcome, QueryStatus, ServerKind,
-    WorkspaceTrust,
+    resolve_language, CallDirection, ConfigurationFingerprint, DiagnosticSeverity,
+    DocumentSyncMode, Language, NegotiatedCapabilities, NormalizedCallRelation,
+    NormalizedDiagnostic, NormalizedHover, NormalizedLocation, NormalizedRange, NormalizedSymbol,
+    PositionEncoding, ProcessState, QueryOutcome, QueryStatus, WorkspaceTrust,
 };
+// Published so a command-layer test can build a negotiated record from the client's own method
+// list rather than restating it. Only tests need it in this build.
+#[cfg_attr(not(test), allow(unused_imports))]
+pub(crate) use super::domain::models::SemanticMethod;
+pub(crate) use super::domain::registry::{definition_for_extension, LANGUAGE_DEFINITIONS};
 pub(crate) use super::infrastructure::{
     DiscoveryAvailability, DiscoveryReason, IsolatedServerTestResult, ServerTestPhase,
     ServerTestPhaseStatus, ServerTestReason,
@@ -33,6 +42,11 @@ pub(crate) enum CodeIntelligenceApiError {
     InvalidConfiguration,
     #[error("invalid workspace root")]
     InvalidWorkspace,
+    /// Distinct from `InvalidWorkspace` so the boundary can say the language's required project
+    /// marker is missing. Collapsing them sends a user to the settings page when the thing to fix
+    /// is their build system.
+    #[error("the language's required project marker is missing from the workspace")]
+    MissingProjectMarker,
     #[error("code-intelligence storage operation failed")]
     Storage,
     #[error("language-server shutdown did not complete")]
@@ -41,8 +55,7 @@ pub(crate) enum CodeIntelligenceApiError {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DiscoveredServer {
-    pub(crate) language: LanguageFamily,
-    pub(crate) server: ServerKind,
+    pub(crate) language: Language,
     pub(crate) availability: DiscoveryAvailability,
     pub(crate) executable_path: Option<String>,
     pub(crate) arguments: Vec<String>,
@@ -58,8 +71,7 @@ pub(crate) enum ServerStatusReason {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ServerStatus {
-    pub(crate) language: LanguageFamily,
-    pub(crate) server: ServerKind,
+    pub(crate) language: Language,
     pub(crate) relative_project_root: String,
     pub(crate) state: ProcessState,
     pub(crate) restart_count: u32,
@@ -164,19 +176,22 @@ impl CodeIntelligenceApi {
         &self,
     ) -> Result<Vec<DiscoveredServer>, CodeIntelligenceApiError> {
         let configuration = self.configuration()?;
-        [LanguageFamily::Rust, LanguageFamily::TypeScriptJavaScript]
-            .into_iter()
+        LANGUAGE_DEFINITIONS
+            .iter()
             .map(|language| {
+                // A language the stored configuration has never seen -- one this build added --
+                // is discovered against its defaults rather than refused.
+                let defaults = LanguageConfiguration::default();
                 let language_configuration = configuration
-                    .languages
-                    .get(&language)
-                    .ok_or(CodeIntelligenceApiError::InvalidConfiguration)?;
+                    .language(&language.language_id())
+                    .unwrap_or(&defaults);
                 let discovery = self.discovery.discover(
-                    language.server_kind(),
+                    language,
                     language_configuration
                         .executable_override
                         .as_deref()
                         .map(Path::new),
+                    language_configuration.startup_arguments.as_ref(),
                 );
                 Ok(discovery_view(language, discovery))
             })
@@ -200,17 +215,22 @@ impl CodeIntelligenceApi {
             })
         });
         trusted
-            && configuration.languages.iter().any(|(language, settings)| {
-                settings.enabled
-                    && self
-                        .discovery
-                        .discover(
-                            language.server_kind(),
-                            settings.executable_override.as_deref().map(Path::new),
-                        )
-                        .availability()
-                        == DiscoveryAvailability::Available
-            })
+            && configuration
+                .languages
+                .iter()
+                .any(|(language_id, settings)| {
+                    settings.enabled
+                        && resolve_language(language_id.as_str()).is_some_and(|language| {
+                            self.discovery
+                                .discover(
+                                    language,
+                                    settings.executable_override.as_deref().map(Path::new),
+                                    settings.startup_arguments.as_ref(),
+                                )
+                                .availability()
+                                == DiscoveryAvailability::Available
+                        })
+                })
     }
 
     pub(crate) fn prewarm_workspace(&self, workspace_root: &Path) {
@@ -243,11 +263,9 @@ impl CodeIntelligenceApi {
         column: u32,
         cancelled: Arc<AtomicBool>,
     ) -> QueryOutcome<Vec<NormalizedLocation>> {
-        let Some(language) = language_for_path(Path::new(relative_path)) else {
-            return unavailable_query("unsupported_language", None);
-        };
-        let Ok(launch) = self.process_launch(workspace_root, relative_path) else {
-            return unavailable_query("not_configured", Some(language));
+        let (language, launch) = match self.resolve_query(workspace_root, relative_path) {
+            Ok(resolved) => resolved,
+            Err(outcome) => return outcome,
         };
         self.semantic_queries
             .find_definition(launch, language, relative_path, line, column, cancelled)
@@ -262,14 +280,46 @@ impl CodeIntelligenceApi {
         column: u32,
         cancelled: Arc<AtomicBool>,
     ) -> QueryOutcome<Vec<NormalizedLocation>> {
-        let Some(language) = language_for_path(Path::new(relative_path)) else {
-            return unavailable_query("unsupported_language", None);
-        };
-        let Ok(launch) = self.process_launch(workspace_root, relative_path) else {
-            return unavailable_query("not_configured", Some(language));
+        let (language, launch) = match self.resolve_query(workspace_root, relative_path) {
+            Ok(resolved) => resolved,
+            Err(outcome) => return outcome,
         };
         self.semantic_queries
             .find_references(launch, language, relative_path, line, column, cancelled)
+            .await
+    }
+
+    pub(crate) async fn find_type_definition(
+        &self,
+        workspace_root: &Path,
+        relative_path: &str,
+        line: u32,
+        column: u32,
+        cancelled: Arc<AtomicBool>,
+    ) -> QueryOutcome<Vec<NormalizedLocation>> {
+        let (language, launch) = match self.resolve_query(workspace_root, relative_path) {
+            Ok(resolved) => resolved,
+            Err(outcome) => return outcome,
+        };
+        self.semantic_queries
+            .find_type_definition(launch, language, relative_path, line, column, cancelled)
+            .await
+    }
+
+    pub(crate) async fn find_implementations(
+        &self,
+        workspace_root: &Path,
+        relative_path: &str,
+        line: u32,
+        column: u32,
+        cancelled: Arc<AtomicBool>,
+    ) -> QueryOutcome<Vec<NormalizedLocation>> {
+        let (language, launch) = match self.resolve_query(workspace_root, relative_path) {
+            Ok(resolved) => resolved,
+            Err(outcome) => return outcome,
+        };
+        self.semantic_queries
+            .find_implementations(launch, language, relative_path, line, column, cancelled)
             .await
     }
 
@@ -281,14 +331,71 @@ impl CodeIntelligenceApi {
         column: u32,
         cancelled: Arc<AtomicBool>,
     ) -> QueryOutcome<Option<NormalizedHover>> {
-        let Some(language) = language_for_path(Path::new(relative_path)) else {
-            return unavailable_query("unsupported_language", None);
-        };
-        let Ok(launch) = self.process_launch(workspace_root, relative_path) else {
-            return unavailable_query("not_configured", Some(language));
+        let (language, launch) = match self.resolve_query(workspace_root, relative_path) {
+            Ok(resolved) => resolved,
+            Err(outcome) => return outcome,
         };
         self.semantic_queries
             .get_hover(launch, language, relative_path, line, column, cancelled)
+            .await
+    }
+
+    /// `relative_path` anchors the search rather than scoping it. LSP has no notion of "the
+    /// repository": a server indexes one project root, and a repository can hold several, so the
+    /// file the Agent is working in is what says which index to search.
+    pub(crate) async fn find_workspace_symbols(
+        &self,
+        workspace_root: &Path,
+        relative_path: &str,
+        query: &str,
+        cancelled: Arc<AtomicBool>,
+    ) -> QueryOutcome<Vec<NormalizedSymbol>> {
+        let (language, launch) = match self.resolve_query(workspace_root, relative_path) {
+            Ok(resolved) => resolved,
+            Err(outcome) => return outcome,
+        };
+        self.semantic_queries
+            .find_workspace_symbols(launch, language, query, cancelled)
+            .await
+    }
+
+    pub(crate) async fn find_call_hierarchy(
+        &self,
+        workspace_root: &Path,
+        relative_path: &str,
+        line: u32,
+        column: u32,
+        direction: CallDirection,
+        cancelled: Arc<AtomicBool>,
+    ) -> QueryOutcome<Vec<NormalizedCallRelation>> {
+        let (language, launch) = match self.resolve_query(workspace_root, relative_path) {
+            Ok(resolved) => resolved,
+            Err(outcome) => return outcome,
+        };
+        self.semantic_queries
+            .find_call_hierarchy(
+                launch,
+                language,
+                relative_path,
+                super::infrastructure::AgentPosition::new(line, column),
+                direction,
+                cancelled,
+            )
+            .await
+    }
+
+    pub(crate) async fn get_document_symbols(
+        &self,
+        workspace_root: &Path,
+        relative_path: &str,
+        cancelled: Arc<AtomicBool>,
+    ) -> QueryOutcome<Vec<NormalizedSymbol>> {
+        let (language, launch) = match self.resolve_query(workspace_root, relative_path) {
+            Ok(resolved) => resolved,
+            Err(outcome) => return outcome,
+        };
+        self.semantic_queries
+            .get_document_symbols(launch, language, relative_path, cancelled)
             .await
     }
 
@@ -301,17 +408,18 @@ impl CodeIntelligenceApi {
         let Some(language) = language_for_path(Path::new(relative_path)) else {
             return unavailable_query("unsupported_language", None);
         };
+        // Checked before the launch so a generation cancelled while queued never spawns a server.
         if cancelled.load(Ordering::Acquire) {
             return QueryOutcome::degraded_with_identity(
                 QueryStatus::Failed,
                 "generation_cancelled",
-                Some(language.server_kind()),
                 Some(language),
                 None,
             );
         }
-        let Ok(launch) = self.process_launch(workspace_root, relative_path) else {
-            return unavailable_query("not_configured", Some(language));
+        let launch = match self.process_launch(workspace_root, relative_path) {
+            Ok(launch) => launch,
+            Err(error) => return unavailable_query(launch_reason(error), Some(language)),
         };
         self.semantic_queries
             .get_diagnostics(launch, language, relative_path, cancelled)
@@ -334,19 +442,20 @@ impl CodeIntelligenceApi {
 
     pub(crate) async fn test_server(
         &self,
-        language: LanguageFamily,
+        language: Language,
     ) -> Result<IsolatedServerTestResult, CodeIntelligenceApiError> {
         let configuration = self.configuration()?;
+        let defaults = LanguageConfiguration::default();
         let language_configuration = configuration
-            .languages
-            .get(&language)
-            .ok_or(CodeIntelligenceApiError::InvalidConfiguration)?;
+            .language(&language.language_id())
+            .unwrap_or(&defaults);
         let discovery = self.discovery.discover(
-            language.server_kind(),
+            language,
             language_configuration
                 .executable_override
                 .as_deref()
                 .map(Path::new),
+            language_configuration.startup_arguments.as_ref(),
         );
         let command = super::infrastructure::ServerTestCommand::from_discovery(
             &discovery,
@@ -373,13 +482,8 @@ impl CodeIntelligenceApi {
                     .filter(|path| !path.as_os_str().is_empty())
                     .map(|path| path.to_string_lossy().replace('\\', "/"))
                     .unwrap_or_else(|| ".".to_owned());
-                let language = match snapshot.key.server_kind() {
-                    ServerKind::RustAnalyzer => LanguageFamily::Rust,
-                    ServerKind::TypeScriptLanguageServer => LanguageFamily::TypeScriptJavaScript,
-                };
                 ServerStatus {
-                    language,
-                    server: snapshot.key.server_kind(),
+                    language: snapshot.key.language(),
                     relative_project_root,
                     state: snapshot.process.state,
                     restart_count: snapshot.process.restart_count,
@@ -416,6 +520,23 @@ impl CodeIntelligenceApi {
             .ok_or(CodeIntelligenceApiError::ConfigurationUnavailable)
     }
 
+    /// The language and the launch every semantic entry point needs, or the outcome to return
+    /// instead. Sharing it means a new entry point cannot reach a server picked for the wrong
+    /// language, which is the failure that looks like the server misbehaving.
+    fn resolve_query<T>(
+        &self,
+        workspace_root: &Path,
+        relative_path: &str,
+    ) -> Result<(Language, super::infrastructure::LspProcessLaunch), QueryOutcome<T>> {
+        let Some(language) = language_for_path(Path::new(relative_path)) else {
+            return Err(unavailable_query("unsupported_language", None));
+        };
+        match self.process_launch(workspace_root, relative_path) {
+            Ok(launch) => Ok((language, launch)),
+            Err(error) => Err(unavailable_query(launch_reason(error), Some(language))),
+        }
+    }
+
     fn process_launch(
         &self,
         workspace_root: &Path,
@@ -437,13 +558,13 @@ impl CodeIntelligenceApi {
             return Err(CodeIntelligenceApiError::ConfigurationUnavailable);
         }
         let settings = configuration
-            .languages
-            .get(&language)
+            .language(&language.language_id())
             .filter(|settings| settings.enabled)
             .ok_or(CodeIntelligenceApiError::ConfigurationUnavailable)?;
         let discovery = self.discovery.discover(
-            language.server_kind(),
+            language,
             settings.executable_override.as_deref().map(Path::new),
+            settings.startup_arguments.as_ref(),
         );
         let executable = discovery
             .executable()
@@ -454,7 +575,12 @@ impl CodeIntelligenceApi {
             &document,
             language,
         )
-        .map_err(|_| CodeIntelligenceApiError::InvalidWorkspace)?;
+        .map_err(|error| match error {
+            super::infrastructure::ProjectRootError::RequiredMarkerMissing => {
+                CodeIntelligenceApiError::MissingProjectMarker
+            }
+            _ => CodeIntelligenceApiError::InvalidWorkspace,
+        })?;
         let fingerprint = configuration_fingerprint(
             language,
             executable,
@@ -465,52 +591,50 @@ impl CodeIntelligenceApi {
         let key = super::infrastructure::ProcessKey::new(
             &canonical_root,
             &project_root,
-            language.server_kind(),
+            language,
             fingerprint,
         )
         .map_err(|_| CodeIntelligenceApiError::InvalidWorkspace)?;
         Ok(super::infrastructure::LspProcessLaunch {
             key,
             executable: executable.to_string_lossy().into_owned(),
-            arguments: discovery
-                .arguments()
-                .iter()
-                .map(|argument| (*argument).to_string())
-                .collect(),
+            arguments: discovery.arguments().to_vec(),
             initialization_options: settings.initialization_options.clone(),
         })
     }
 }
 
-fn unavailable_query<T>(reason: &'static str, language: Option<LanguageFamily>) -> QueryOutcome<T> {
-    QueryOutcome::degraded_with_identity(
-        QueryStatus::Unavailable,
-        reason,
-        language.map(LanguageFamily::server_kind),
-        language,
-        None,
-    )
-}
-
-fn language_for_path(path: &Path) -> Option<LanguageFamily> {
-    match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
-        "rs" => Some(LanguageFamily::Rust),
-        "ts" | "tsx" | "js" | "jsx" | "mts" | "cts" | "mjs" | "cjs" => {
-            Some(LanguageFamily::TypeScriptJavaScript)
-        }
-        _ => None,
+/// A launch that never happened still has to say why. Every failure used to read as
+/// `not_configured`, which is actively misleading for a workspace whose configuration is fine and
+/// whose build system has simply not produced the marker the language needs.
+const fn launch_reason(error: CodeIntelligenceApiError) -> &'static str {
+    match error {
+        CodeIntelligenceApiError::MissingProjectMarker => "missing_project_marker",
+        _ => "not_configured",
     }
 }
 
-fn configuration_fingerprint(
-    language: LanguageFamily,
+fn unavailable_query<T>(reason: &'static str, language: Option<Language>) -> QueryOutcome<T> {
+    QueryOutcome::degraded_with_identity(QueryStatus::Unavailable, reason, language, None)
+}
+
+/// Resolves through the same registry mapping document admission uses. The two lists used to be
+/// written separately and had drifted: this one accepted `.mts` and `.cts`, which admission then
+/// refused, so such a file passed the gate only to fail one step later.
+fn language_for_path(path: &Path) -> Option<Language> {
+    let extension = path.extension()?.to_str()?.to_ascii_lowercase();
+    definition_for_extension(&extension).map(|(language, _)| language)
+}
+
+pub(super) fn configuration_fingerprint(
+    language: Language,
     executable: &Path,
-    arguments: &[&str],
+    arguments: &[String],
     initialization_options: &serde_json::Value,
     trust_revision: u64,
 ) -> Result<ConfigurationFingerprint, CodeIntelligenceApiError> {
     let mut digest = Sha256::new();
-    digest.update(language.as_id().as_bytes());
+    digest.update(language.id.as_bytes());
     digest.update(executable.to_string_lossy().as_bytes());
     for argument in arguments {
         digest.update(argument.as_bytes());
@@ -566,21 +690,16 @@ fn prewarm_candidates(workspace_root: &Path) -> Vec<String> {
 }
 
 fn discovery_view(
-    language: LanguageFamily,
+    language: Language,
     discovery: super::infrastructure::ServerDiscoveryResult,
 ) -> DiscoveredServer {
     DiscoveredServer {
         language,
-        server: discovery.server_kind(),
         availability: discovery.availability(),
         executable_path: discovery
             .executable()
             .map(|path| path.to_string_lossy().into_owned()),
-        arguments: discovery
-            .arguments()
-            .iter()
-            .map(|argument| (*argument).to_string())
-            .collect(),
+        arguments: discovery.arguments().to_vec(),
         reason: discovery.reason(),
     }
 }
@@ -596,4 +715,8 @@ fn map_domain_error(error: super::domain::models::DomainModelError) -> CodeIntel
 
 pub(crate) fn apply_schema(connection: &Connection) -> Result<(), DatabaseError> {
     super::infrastructure::apply_schema(connection)
+}
+
+pub(crate) fn apply_language_registry_schema(connection: &Connection) -> Result<(), DatabaseError> {
+    super::infrastructure::apply_language_registry_schema(connection)
 }

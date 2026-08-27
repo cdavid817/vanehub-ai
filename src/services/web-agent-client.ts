@@ -9,7 +9,7 @@ import { webOnePieceProfileClient } from "./web-onepiece-profile-client";
 import { webHybridRoutingClient } from "./web-hybrid-routing-client";
 import { deleteWebApiAgentProviderConfig } from "./web-api-provider-state";
 import { webCodeIndexClient } from "./web-code-index-client";
-import { webCliToolClient } from "./web-cli-tool-client";
+import { webCliEnvironmentClient } from "./web-cli-environment-client";
 import { webCliParameterClient } from "./web-cli-parameter-client";
 import { webCliConfigClient } from "./web-cli-config-client";
 import { webScheduledTaskClient } from "./web-scheduled-task-client";
@@ -141,7 +141,7 @@ export const webAgentClient: AgentService = {
   ...webOnePieceProfileClient,
   ...webHybridRoutingClient,
   ...webCodeIndexClient,
-  ...webCliToolClient,
+  ...webCliEnvironmentClient,
   ...webCliParameterClient,
   ...webCliConfigClient,
   ...webScheduledTaskClient,

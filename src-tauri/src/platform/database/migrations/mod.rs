@@ -513,22 +513,56 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
     apply_transactional_migration(
         conn,
         82,
+        "local-media-profiles",
+        crate::contexts::local_media::infrastructure::apply_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        83,
+        "cli-environment-snapshots",
+        crate::contexts::tooling::cli::infrastructure::environment_schema::apply_environment_snapshot_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        84,
+        "cli-version-catalogs",
+        crate::contexts::tooling::cli::infrastructure::environment_schema::apply_version_catalog_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        85,
+        "cli-action-plans",
+        crate::contexts::tooling::cli::infrastructure::environment_schema::apply_action_plan_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        86,
+        "lsp-language-registry",
+        crate::contexts::code_intelligence::api::apply_language_registry_schema,
+    )?;
+    // 87-89 rather than the 82-84 this change was written against: those numbers shipped in v1.1.0
+    // and v1.2.0 carrying different schema, and a released version number is not available to be
+    // reused. No installation has ever applied personalization at 82, so renumbering is additive.
+    apply_transactional_migration(
+        conn,
+        87,
         "personalization-governance",
         crate::contexts::personalization::infrastructure::apply_schema,
     )?;
     apply_transactional_migration(
         conn,
-        83,
+        88,
         "session-personalization-mode",
         crate::contexts::sessions::infrastructure::apply_personalization_mode_schema,
     )?;
     apply_transactional_migration(
         conn,
-        84,
+        89,
         "personalization-last-reconciled",
         crate::contexts::personalization::infrastructure::apply_reconciliation_schema,
     )?;
     repair_missing_stable_participant_schema(conn)?;
+    repair_missing_cli_parameter_profile_schema(conn)?;
 
     // Fail fast when a migration was skipped or the persisted history contains a gap.
     assert_migration_history_is_dense(conn)?;
@@ -545,6 +579,18 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
 /// database). Keep this in lockstep with the `apply_migration` / `apply_transactional_migration`
 /// calls in `migrate` — the `migration_sequence_matches_expected` test guards against drift,
 /// and `assert_migration_history_is_dense` rejects a gapped history at startup.
+/// Every migration version, in order.
+///
+/// Exposed so tests can derive their expectations instead of hardcoding an upper bound that every
+/// new migration invalidates. Test-only: production reads `EXPECTED_MIGRATIONS` directly.
+#[cfg(test)]
+pub(crate) fn expected_migration_versions() -> Vec<i64> {
+    EXPECTED_MIGRATIONS
+        .iter()
+        .map(|(version, _)| *version)
+        .collect()
+}
+
 const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (1, "initial-schema"),
     (2, "agent-managed-sdk-dependency"),
@@ -627,13 +673,17 @@ const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (79, "agent-runner-projections"),
     (80, "retire-plan-execution"),
     (81, "cli-parameter-profiles"),
-    (82, "personalization-governance"),
-    // Three unmerged CLI lanes also claim 83. Skipping ahead to a free number is not an option:
-    // startup asserts the history is dense, so a gap fails every migration run outright. The
-    // collision is resolved when the branches meet, by renumbering whichever lands second — and it
-    // is detectable, because a colliding migration is silently skipped and only the name diverges.
-    (83, "session-personalization-mode"),
-    (84, "personalization-last-reconciled"),
+    (82, "local-media-profiles"),
+    (83, "cli-environment-snapshots"),
+    (84, "cli-version-catalogs"),
+    (85, "cli-action-plans"),
+    (86, "lsp-language-registry"),
+    // The CLI lanes this change was racing landed first and shipped, so personalization renumbered
+    // from 82-84 to 87-89. The collision was the predicted one: a colliding migration is silently
+    // skipped and only the name diverges, which is why the sequence below is asserted in tests.
+    (87, "personalization-governance"),
+    (88, "session-personalization-mode"),
+    (89, "personalization-last-reconciled"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {
@@ -685,6 +735,28 @@ fn repair_missing_stable_participant_schema(conn: &Connection) -> Result<(), Dat
 
     let transaction = conn.unchecked_transaction()?;
     crate::contexts::sessions::infrastructure::apply_stable_participant_schema(&transaction)?;
+    transaction.commit()?;
+    Ok(())
+}
+
+/// The same collision, one migration later: `add-local-composer-media-tools` and
+/// `upgrade-cli-parameter-management` both reserved 81 while unmerged, and local media renumbered
+/// to 82 once the CLI change landed first.
+///
+/// A database written by the unmerged branch records `(81, "local-media-profiles")`. On the merged
+/// binary the version gate then skips 81 legitimately, 82 re-runs local media's idempotent schema,
+/// and the history is still dense `1..82` — so nothing fails and `cli_parameter_profiles` is simply
+/// never created. The next managed CLI launch dies in `resolve_launch_parameters` with an opaque
+/// repository error, and a restart re-skips 81 forever. Names are not compared at startup by
+/// design (see `assert_migration_history_is_dense`), so the invariant is enforced here instead of
+/// by rewriting that database's history.
+fn repair_missing_cli_parameter_profile_schema(conn: &Connection) -> Result<(), DatabaseError> {
+    if table_has_column(conn, "cli_parameter_profiles", "agent_id")? {
+        return Ok(());
+    }
+
+    let transaction = conn.unchecked_transaction()?;
+    crate::contexts::tooling::cli_parameters::infrastructure::apply_schema(&transaction)?;
     transaction.commit()?;
     Ok(())
 }

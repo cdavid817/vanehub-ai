@@ -4,7 +4,7 @@ use tempfile::TempDir;
 use super::schema::apply_schema;
 use crate::platform::database::NativeDatabase;
 
-/// Every table migration 82 owns.
+/// Every table migration 87 owns.
 const EXPECTED_TABLES: &[&str] = &[
     "personalization_policy_overrides",
     "personalization_memory_projection",
@@ -41,7 +41,7 @@ fn object_exists(conn: &Connection, kind: &str, name: &str) -> bool {
         > 0
 }
 
-/// Columns migration 82 must create beyond the ones a summary reads.
+/// Columns migration 87 must create beyond the ones a summary reads.
 ///
 /// Listed explicitly because a missing one is a silent provenance loss rather than a failure: the
 /// insert would error at runtime, long after the migration reported success.
@@ -68,19 +68,19 @@ fn assert_full_schema(conn: &Connection) {
     for table in EXPECTED_TABLES {
         assert!(
             object_exists(conn, "table", table),
-            "{table} must exist after migration 82"
+            "{table} must exist after migration 87"
         );
     }
     for index in EXPECTED_INDEXES {
         assert!(
             object_exists(conn, "index", index),
-            "{index} must exist after migration 82"
+            "{index} must exist after migration 87"
         );
     }
     for column in EXPECTED_PROJECTION_COLUMNS {
         assert!(
             column_exists(conn, "personalization_memory_projection", column),
-            "personalization_memory_projection.{column} must exist after migration 82"
+            "personalization_memory_projection.{column} must exist after migration 87"
         );
     }
 }
@@ -93,17 +93,17 @@ fn a_fresh_database_reaches_the_full_personalization_schema() {
     assert_full_schema(&connection);
 
     // The maximum is whatever migration landed last, not this change's own: what matters here is
-    // that 82 recorded its own row under its own name.
+    // that 87 recorded its own row under its own name.
     let version: i64 = connection
         .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
             row.get(0)
         })
         .expect("migration version");
-    assert!(version >= 82);
+    assert!(version >= 87);
 
     let recorded: String = connection
         .query_row(
-            "SELECT name FROM schema_migrations WHERE version = 82",
+            "SELECT name FROM schema_migrations WHERE version = 87",
             [],
             |row| row.get(0),
         )
@@ -112,7 +112,7 @@ fn a_fresh_database_reaches_the_full_personalization_schema() {
 }
 
 #[test]
-fn upgrading_a_database_that_predates_migration_82_creates_the_whole_schema() {
+fn upgrading_a_database_that_predates_migration_87_creates_the_whole_schema() {
     // Stands in for a database built on `main`: every personalization object is removed and the
     // version row rolled back, so the upgrade path runs from the state a pre-branch installation
     // would actually be in.
@@ -140,10 +140,10 @@ fn upgrading_a_database_that_predates_migration_82_creates_the_whole_schema() {
             .execute(&format!("DROP TABLE IF EXISTS {table}"), [])
             .expect("drop table");
     }
-    // Everything from 82 up, not 82 alone: the density check refuses a history with a hole, and a
+    // Everything from 87 up, not 87 alone: the density check refuses a history with a hole, and a
     // later migration's row would leave one behind.
     connection
-        .execute("DELETE FROM schema_migrations WHERE version >= 82", [])
+        .execute("DELETE FROM schema_migrations WHERE version >= 87", [])
         .expect("roll the version back");
 
     let version_before: i64 = connection
@@ -152,7 +152,7 @@ fn upgrading_a_database_that_predates_migration_82_creates_the_whole_schema() {
         })
         .expect("version");
     assert_eq!(
-        version_before, 81,
+        version_before, 86,
         "the fixture is at the pre-branch version"
     );
     for table in EXPECTED_TABLES {
@@ -162,14 +162,14 @@ fn upgrading_a_database_that_predates_migration_82_creates_the_whole_schema() {
     crate::platform::database::migrate(&connection).expect("upgrade");
 
     assert_full_schema(&connection);
-    // At least 82: what this test is about is that the upgrade path reaches the full schema, not
+    // At least 87: what this test is about is that the upgrade path reaches the full schema, not
     // which migration happens to be newest.
     let version_after: i64 = connection
         .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
             row.get(0)
         })
         .expect("version");
-    assert!(version_after >= 82);
+    assert!(version_after >= 87);
 }
 
 #[test]
@@ -226,7 +226,7 @@ fn a_failing_migration_leaves_no_partial_schema_and_no_version_row() {
             .expect("drop table");
     }
     connection
-        .execute("DELETE FROM schema_migrations WHERE version >= 82", [])
+        .execute("DELETE FROM schema_migrations WHERE version >= 87", [])
         .expect("roll back the version");
 
     let transaction = connection.transaction().expect("transaction");
@@ -248,7 +248,7 @@ fn a_failing_migration_leaves_no_partial_schema_and_no_version_row() {
         })
         .expect("version");
     assert_eq!(
-        version, 81,
+        version, 86,
         "no version may be recorded for a migration that rolled back"
     );
 }

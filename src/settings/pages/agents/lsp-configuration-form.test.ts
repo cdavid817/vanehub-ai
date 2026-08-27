@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { LspConfiguration } from "../../../types/lsp";
+import { lspTestDescriptors } from "../../../test/lsp-fixtures";
 import {
   createLspConfigurationDraft,
   validateLspConfigurationDraft,
@@ -12,15 +13,18 @@ const configuration: LspConfiguration = {
       language: "rust",
       enabled: false,
       executableOverride: null,
+      startupArguments: null,
       initializationOptions: {},
     },
     {
       language: "typescript_javascript",
       enabled: false,
       executableOverride: null,
+      startupArguments: null,
       initializationOptions: {},
     },
   ],
+  descriptors: lspTestDescriptors(),
 };
 
 describe("validateLspConfigurationDraft", () => {

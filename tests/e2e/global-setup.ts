@@ -22,13 +22,9 @@ export default async function globalSetup(config: FullConfig) {
   try {
     const page = await browser.newPage();
     await page.goto(baseURL, { waitUntil: "load", timeout: 180_000 });
-    // `index.html` ships a static `Starting...` shell, so `load` fires long before the app
-    // mounts. React replaces the shell on mount, which is the signal that the module graph is
-    // actually transformed and warm.
-    await page
-      .locator("#root")
-      .getByText("Starting...")
-      .waitFor({ state: "detached", timeout: 180_000 });
+    // `index.html` ships a static `Starting...` overlay, so `load` fires long before the app
+    // mounts. The overlay leaves only after React commits, which proves the module graph is warm.
+    await page.locator("#bootstrap-shell").waitFor({ state: "detached", timeout: 180_000 });
   } finally {
     await browser.close();
   }

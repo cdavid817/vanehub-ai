@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, readdir, rm, utimes, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import process from "node:process";
 import { clearTimeout, setTimeout } from "node:timers";
@@ -12,6 +12,7 @@ import { detectHost } from "./desktop/platform.mjs";
 import { ensureOwnedProcessesStopped, ownedProcessIds } from "./desktop/process-ownership.mjs";
 import { createLayerResult, verificationExitCode } from "./desktop/result.mjs";
 import { createRunContext, disposeRunContext, validateIsolatedDataPath } from "./desktop/run-context.mjs";
+import { cliFixtureIsCurrent } from "../tests/desktop/wdio-cli-fixture.mjs";
 
 const exists = async (target) => access(target).then(() => true, () => false);
 
@@ -58,24 +59,54 @@ test("creates isolated run paths and rejects unsafe aliases", async () => {
   await rm(tempRoot, { recursive: true, force: true });
 });
 
-test("gives every run its own WebDriver endpoint", async () => {
-  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "vanehub-port-test-"));
+test("gives every run its own webdriver port and its own OS home", async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "vanehub-context-test-"));
   const repoRoot = path.join(tempRoot, "repo");
-  const first = await createRunContext(repoRoot, { tempRoot, runId: "port-1", normalDataDir: path.join(tempRoot, "normal") });
-  const second = await createRunContext(repoRoot, { tempRoot, runId: "port-2", normalDataDir: path.join(tempRoot, "normal") });
+  const first = await createRunContext(repoRoot, { tempRoot, runId: "run-a" });
+  const second = await createRunContext(repoRoot, { tempRoot, runId: "run-b" });
 
-  // Two runs on one machine must not answer on the same address. A constant port made the loser
-  // fail while creating a session, and the report named whichever spec started at that moment.
-  assert.notEqual(first.webdriverPort, second.webdriverPort);
-  for (const context of [first, second]) {
-    assert.ok(Number.isInteger(context.webdriverPort) && context.webdriverPort > 1024);
-    // Two names, one port, and both are load-bearing. The wdio config starts the driver on
-    // VANEHUB_WEBDRIVER_PORT; `browser.tauri.execute` bypasses the WebDriver session entirely and
-    // POSTs to a port it reads from TAURI_WEBDRIVER_PORT, defaulting to a hard-coded 4445. Setting
-    // only the first leaves sessions creating cleanly while every execute fails with `fetch failed`.
-    assert.equal(context.environment.VANEHUB_WEBDRIVER_PORT, String(context.webdriverPort));
-    assert.equal(context.environment.TAURI_WEBDRIVER_PORT, String(context.webdriverPort));
+  // A fixed port is the failure this replaces: layers run back to back in one job, so the previous
+  // layer's driver can still hold the number the next one is told to bind.
+  assert.notEqual(first.environment.VANEHUB_WEBDRIVER_PORT, second.environment.VANEHUB_WEBDRIVER_PORT);
+  assert.ok(Number(first.environment.VANEHUB_WEBDRIVER_PORT) > 0);
+
+  // `browser.tauri.execute` opens its own connection and reads this variable from the worker,
+  // defaulting to 4445. If the two names disagree, the WebDriver session connects while every
+  // `core.invoke` a spec makes fails as `TypeError: fetch failed`.
+  assert.equal(first.environment.TAURI_WEBDRIVER_PORT, first.environment.VANEHUB_WEBDRIVER_PORT);
+
+  // Carried under `VANEHUB_DESKTOP_*` on purpose: applying `HOME`/`APPDATA` to this process would
+  // repoint the npm and node running the harness, not just the application under test.
+  assert.equal(first.environment.HOME, undefined);
+  assert.equal(first.environment.APPDATA, undefined);
+  for (const key of ["VANEHUB_DESKTOP_HOME", "VANEHUB_DESKTOP_APPDATA", "VANEHUB_DESKTOP_LOCALAPPDATA"]) {
+    assert.ok(first.environment[key].startsWith(first.runRoot), `${key} escapes the run root`);
+    assert.notEqual(first.environment[key], second.environment[key]);
   }
+
+  await disposeRunContext(first);
+  await disposeRunContext(second);
+  await rm(tempRoot, { recursive: true, force: true });
+});
+
+test("rebuilds the fixture CLI only when its source is newer than the committed binary", async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "vanehub-fixture-test-"));
+  const source = path.join(tempRoot, "opencode.rs");
+  const binary = path.join(tempRoot, "opencode.exe");
+
+  assert.equal(await cliFixtureIsCurrent(source, binary), false, "nothing built yet");
+
+  await writeFile(source, "fn main() {}\n");
+  await writeFile(binary, "");
+  // Three layers call `prepareCliFixture`, and by the time the second one does, an earlier layer
+  // has run this stub. Windows had not released the handle, so `rustc` could not write the file and
+  // the layer died at config load with `LNK1104` before a single spec ran.
+  assert.equal(await cliFixtureIsCurrent(source, binary), true, "committed binary is current");
+
+  await writeFile(source, "fn main() { println!(\"changed\"); }\n");
+  await utimes(source, new Date(Date.now() + 10_000), new Date(Date.now() + 10_000));
+  assert.equal(await cliFixtureIsCurrent(source, binary), false, "a newer source still rebuilds");
+
   await rm(tempRoot, { recursive: true, force: true });
 });
 
@@ -179,12 +210,24 @@ test("each desktop layer owns a disjoint spec directory and its own wdio configu
   const smoke = await readFile("tests/desktop/wdio.conf.mjs", "utf8");
   const cliTerminal = await readFile("tests/desktop/wdio.cli-terminal.conf.mjs", "utf8");
 
-  // The CLI layer stays runnable on demand; the CI gate selects only the stable smoke layer.
+  // The CLI layer stays runnable on demand; the narrow CI gate selects only the core contract.
   assert.match(orchestrator, /mode === "cli-terminal"/);
   assert.match(orchestrator, /runFullSuite = process\.env\.VANEHUB_DESKTOP_FULL_SUITE === "1" \|\| !process\.env\.CI/);
-  assert.match(orchestrator, /const layers = runFullSuite \? fullSuiteLayers : \[smokeDesktop\]/);
+  assert.match(orchestrator, /const layers = runFullSuite \? fullSuiteLayers : \[coreSmokeDesktop\]/);
   assert.match(smoke, /specDirectory: "specs"/);
   assert.match(cliTerminal, /specDirectory: "specs-cli-terminal"/);
+});
+
+test("the live Skill layer is explicitly runnable without joining the deterministic full suite", async () => {
+  const orchestrator = await readFile("scripts/test-desktop.mjs", "utf8");
+  const { scripts } = JSON.parse(await readFile("package.json", "utf8"));
+  const config = await readFile("tests/desktop/wdio.skills.conf.mjs", "utf8");
+
+  assert.match(orchestrator, /mode === "skills"/);
+  assert.match(orchestrator, /function skillsDesktop\(artifact\)/);
+  assert.doesNotMatch(orchestrator, /fullSuiteLayers = \[[^\]]*skillsDesktop/);
+  assert.equal(scripts["test:desktop:skills"], "node scripts/test-desktop.mjs skills");
+  assert.match(config, /specDirectory: "specs-skills"/);
 });
 
 test("the CLI terminal layer resolves its fixture Agent instead of an installed one", async () => {
@@ -220,6 +263,8 @@ test("every native UI layer is wired, disjoint, and reachable on its own", async
     ["session-workspace", "sessionWorkspaceDesktop"],
     ["dialogs", "dialogsDesktop"],
     ["settings-persistence", "settingsPersistenceDesktop"],
+    ["cli-management", "cliManagementDesktop"],
+    ["agent-mcp", "agentMcpDesktop"],
   ];
 
   for (const [mode, factory] of layers) {
@@ -245,4 +290,44 @@ test("the settings persistence layer orders its specs so the relaunch is real", 
   // Browser storage is the Web adapter's persistence, not the desktop client's.
   assert.doesNotMatch(relaunch, /localStorage/);
   assert.match(relaunch, /core\.invoke\("get_settings"\)/);
+});
+
+test("the CLI management layer runs against a fixture PATH and orders its restart", async () => {
+  const config = await readFile("tests/desktop/wdio.cli-management.conf.mjs", "utf8");
+  const lifecycle = await readFile("tests/desktop/specs-cli-management/cli-lifecycle.e2e.mjs", "utf8");
+  const persistence = await readFile("tests/desktop/specs-cli-management/cli-persistence.e2e.mjs", "utf8");
+
+  // The fixture goes on the front of PATH before the application starts. Without that the layer
+  // would drive the machine's real npm against the user's real global prefix and still pass.
+  assert.match(config, /createCliManagementFixture/);
+  assert.match(config, /PATH: fixture\.pathValue/);
+  assert.match(config, /PATHEXT/);
+  assert.match(config, /specFiles: \["cli-lifecycle\.e2e\.mjs", "cli-persistence\.e2e\.mjs"\]/);
+  // A retry would run against a fixture the first attempt already mutated -- an upgrade rewrites
+  // the version a fake CLI reports -- so it could neither confirm nor deny anything about the code.
+  assert.doesNotMatch(config, /specFileRetries/);
+
+  // Real IPC, not the Web/mock adapter: the mock answers from invented data and can prove nothing
+  // about discovery, process execution, verification, or SQLite.
+  for (const command of [
+    "refresh_cli_environment",
+    "list_cli_environments",
+    "prepare_cli_action",
+    "get_cli_action_plan",
+    "execute_cli_action",
+    "prepare_cli_bulk_action",
+    "get_cli_bulk_action_plan",
+    "cancel_operation",
+  ]) {
+    assert.ok(lifecycle.includes(command), `the lifecycle spec never exercises ${command}`);
+  }
+  // The side-effect audit is part of the layer, not an optional extra.
+  assert.match(lifecycle, /auditCliSideEffects/);
+  assert.match(lifecycle, /describeCliSideEffects\(violations\), null/);
+
+  // The restart spec must not refresh before reading, or it would prove detection rather than
+  // persistence.
+  assert.doesNotMatch(persistence, /refreshEnvironments\(/);
+  assert.match(persistence, /list_cli_environments/);
+  assert.doesNotMatch(persistence, /localStorage/);
 });

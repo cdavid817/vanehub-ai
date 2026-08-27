@@ -2,9 +2,7 @@
 
 ## Purpose
 Defines a safe, repeatable verification contract for building, launching, exercising, and diagnosing the real VaneHub AI desktop runtime on each supported operating system.
-
 ## Requirements
-
 ### Requirement: Current-platform native verification
 The verification system SHALL detect the host operating system and architecture, build a compatible native VaneHub AI desktop test artifact, and report only platforms that were actually executed.
 
@@ -164,3 +162,208 @@ Desktop verification SHALL prove that a setting changed through the desktop UI r
 - **WHEN** the layer asserts that a setting persisted
 - **THEN** it SHALL read the value through the native settings boundary
 - **AND** it SHALL NOT accept browser storage as evidence of persistence
+
+### Requirement: Desktop verification SHALL exercise local-media behavior through deterministic native fixtures
+
+The desktop test harness SHALL verify OCR, recording, whole-utterance transcription, synthesis, playback, cancellation, worker failure, and composer integration without requiring a physical microphone, large production model, or audible output in default CI. Test-only fixture ports SHALL use the same application/service boundaries as production.
+
+#### Scenario: CI verifies hold-to-talk
+
+* WHEN a desktop test injects deterministic audio samples and a fake faster-whisper worker
+* THEN press SHALL start native recording state
+* AND release SHALL finalize one complete WAV operation
+* AND the final transcript SHALL append to the latest active draft
+* AND no send action SHALL occur
+
+#### Scenario: CI verifies OCR
+
+* WHEN a bounded image/PDF fixture is staged and the fake PaddleOCR worker succeeds
+* THEN the composer SHALL show editable review
+* AND only explicit confirmation SHALL append the edited text
+
+#### Scenario: CI verifies TTS
+
+* WHEN a fake sherpa-onnx worker generates a valid fixture WAV
+* THEN desktop state SHALL enter generating then playing
+* AND stop SHALL cancel playback and clean the output
+
+### Requirement: Desktop verification SHALL cover cancellation and race boundaries
+
+Tests SHALL cover pointer/keyboard cancellation, window blur, session switch, application shutdown, non-cooperative workers, and result/cancel races.
+
+#### Scenario: The session changes during STT
+
+* WHEN the active session changes before a transcription result commits
+* THEN no draft in the new session SHALL be modified
+* AND the disposed composer SHALL not apply the result
+
+#### Scenario: A worker ignores cancellation
+
+* WHEN a fake worker hangs after cancellation
+* THEN the supervisor SHALL terminate only that engine worker after the grace period
+* AND a later operation SHALL be able to start a replacement worker
+
+#### Scenario: The app shuts down during recording/playback
+
+* WHEN desktop shutdown begins with active media
+* THEN capture/playback SHALL stop
+* AND operation-owned files SHALL be cleaned or left eligible for the stale sweep
+
+### Requirement: Desktop verification SHALL cover permission, device, path, and offline failures
+
+The test matrix SHALL include stable error mapping for microphone denial/unavailability, playback unavailability, Python/import/model configuration, paths containing spaces/non-ASCII characters, malformed protocol, and denied network access.
+
+#### Scenario: Microphone permission is denied
+
+* WHEN the native capture fixture returns a permission-denied condition
+* THEN the UI SHALL render localized `MIC_PERMISSION_DENIED` guidance
+* AND it SHALL return to a recoverable idle state
+
+#### Scenario: A model loader attempts networking
+
+* WHEN worker socket creation is denied during an engine test
+* THEN no external request SHALL succeed
+* AND the operation SHALL produce `MODEL_DOWNLOAD_BLOCKED` or a stable local configuration error
+
+#### Scenario: A configured path contains spaces
+
+* WHEN the fake/local executable and model paths contain spaces or non-ASCII characters
+* THEN the worker launch/request SHALL preserve the exact argument values without shell parsing
+
+### Requirement: Real-platform evidence SHALL be recorded honestly
+
+In addition to deterministic CI, available Windows, macOS, and Linux environments SHALL verify real device/permission/package behavior. Each platform/check SHALL be reported as `PASSED`, `FAILED`, `BLOCKED`, or `NOT RUN` with a concrete reason; unavailable hardware or packages SHALL not be treated as passed.
+
+#### Scenario: A platform is unavailable
+
+* WHEN no macOS runner/device is available for real microphone permission verification
+* THEN the evidence SHALL be marked `NOT RUN` or `BLOCKED` with the missing prerequisite
+* AND deterministic tests SHALL not be misrepresented as real permission evidence
+
+#### Scenario: A real local engine smoke test runs
+
+* WHEN a developer machine has an explicitly configured compatible engine and model
+* THEN the smoke test SHALL run without downloading anything
+* AND evidence MAY record package/model/device versions
+* AND it SHALL not record input media, transcript/OCR/TTS text, or full local paths
+
+### Requirement: Existing Web and desktop regression suites SHALL remain part of acceptance
+
+The change SHALL pass the repository's existing lint, unit, build, architecture, Rust, panic, OpenSpec, Playwright, and native desktop gates in addition to local-media-specific tests.
+
+#### Scenario: Final change validation runs
+
+* WHEN implementation is complete
+* THEN `openspec validate add-local-composer-media-tools --strict` SHALL pass
+* AND `openspec validate --specs --strict` SHALL pass
+* AND required repository gates SHALL be reported with their actual outcomes
+
+### Requirement: Vendor-compatibility qualification SHALL be separated from fixture verification
+
+The record SHALL distinguish four kinds of evidence and SHALL NOT let one stand for another:
+deterministic fixture verification, real-engine qualification, real-hardware qualification performed
+by a person, and platforms with no host. A real-engine result SHALL name the package version and the
+path shape it was obtained under. A fixture result SHALL NOT be recorded as evidence about an engine,
+a device, or an operating-system permission prompt.
+
+#### Scenario: An engine passes under one path shape and fails under another
+
+* WHEN an engine qualifies with an ASCII path and fails with a non-ASCII one
+* THEN both outcomes SHALL be recorded against that engine
+* AND the engine SHALL NOT be recorded as qualified
+
+#### Scenario: A scenario needs a person
+
+* WHEN a scenario requires speaking, listening, or changing an operating-system setting
+* THEN it SHALL be recorded as NOT RUN or BLOCKED until a person performs it
+* AND no fixture or automated substitute SHALL be recorded in its place
+
+### Requirement: Two desktop verification gates with distinct prerequisites
+
+Desktop verification SHALL be split into a Required Hermetic Desktop Gate and an External Provider Desktop Suite, and every desktop spec SHALL belong to exactly one of them.
+
+The split exists because a single suite cannot be both. A gate every pull request must pass cannot depend on a real CLI Agent, a real credential, or a real vendor download, and a suite that verifies the real thing cannot be hermetic. Merging them means either the gate silently requires a developer's machine — which is what made `desktop-smoke` fail on all three hosted runners for want of `codex` on PATH — or the real-integration cases quietly stop running.
+
+#### Scenario: Required gate runs on an ordinary pull request
+
+- **WHEN** the Required Hermetic Desktop Gate runs on Windows, macOS, or Linux
+- **THEN** it SHALL run against a temporary HOME, PATH, user-data directory, and SQLite database
+- **AND** it SHALL resolve every CLI Agent to a fixture executable rather than a host installation
+- **AND** it SHALL NOT contact a real provider, read a credential store, download from a vendor, or read the user's application state
+- **AND** any failing required spec SHALL fail the gate
+
+#### Scenario: Required gate cannot silently degrade
+
+- **WHEN** a required spec cannot run because a CLI Agent, package manager, or other fixture-resolvable prerequisite is missing
+- **THEN** the gate SHALL report `FAILED` rather than skipping the spec
+- **AND** the missing prerequisite SHALL be treated as a defect in the fixture, not as an environment block
+
+#### Scenario: Required spec reports a genuinely external prerequisite
+
+- **WHEN** part of a required spec depends on something no fixture can stand in for, such as a live vendor release endpoint
+- **THEN** that part MAY record a `BLOCKED` reason and continue
+- **AND** the reason SHALL name the prerequisite
+- **AND** the gate SHALL still report `PASSED` only if no required assertion failed
+
+#### Scenario: External provider suite runs outside the gate
+
+- **WHEN** the External Provider Desktop Suite is dispatched
+- **THEN** it SHALL be triggered manually, on a schedule, or by a protected label rather than by an ordinary pull request
+- **AND** it SHALL NOT be a required check for merging
+
+#### Scenario: External provider suite lacks its prerequisites
+
+- **WHEN** a real CLI Agent, credential, or provider endpoint the suite needs is absent
+- **THEN** it SHALL record `BLOCKED` with the specific missing prerequisite
+- **AND** it SHALL NOT record `PASSED`
+- **AND** the `BLOCKED` result SHALL NOT count toward the Required Hermetic Desktop Gate
+
+### Requirement: Every desktop spec is classified and the classification is enforced
+
+Each desktop spec SHALL carry exactly one classification of `required-fixture`, `external-provider`, or `duplicate-replaced`, recorded in a manifest that automated tests check.
+
+A classification kept only in prose drifts the first time a spec is added or renamed. Enforcing it mechanically is what keeps "every spec is classified" true rather than aspirational.
+
+#### Scenario: A spec is added without a classification
+
+- **WHEN** a desktop spec file exists that the manifest does not classify
+- **THEN** the desktop verification tests SHALL fail and name the unclassified spec
+
+#### Scenario: The manifest names a spec that no longer exists
+
+- **WHEN** a manifest entry has no corresponding spec file
+- **THEN** the desktop verification tests SHALL fail and name the stale entry
+
+#### Scenario: A required spec declares an external prerequisite
+
+- **WHEN** a spec classified `required-fixture` declares a real credential, a real provider, or vendor network access
+- **THEN** the desktop verification tests SHALL fail
+
+#### Scenario: An external spec reaches the required command
+
+- **WHEN** a spec classified `external-provider` is included in the Required Hermetic Desktop Gate's spec set
+- **THEN** the desktop verification tests SHALL fail
+
+#### Scenario: A replaced spec names no replacement
+
+- **WHEN** a spec is classified `duplicate-replaced`
+- **THEN** the manifest SHALL name the spec or layer that covers the same behaviour
+- **AND** the desktop verification tests SHALL fail if that replacement does not exist
+
+### Requirement: Fixture-resolvable behaviour belongs to the required gate
+
+A desktop spec that verifies CLI process lifecycle, standard output or error handling, session creation, tab, drawer or dialog behaviour, operations, cancellation, error reporting, persistence, PATH resolution, or the Agent Runtime call boundary SHALL be classified `required-fixture` and driven by a fixture CLI.
+
+These behaviours are properties of this application, not of any vendor's binary. Verifying them against a real CLI Agent buys nothing and costs the ability to run the gate anywhere.
+
+#### Scenario: A spec needs an installed Agent to exercise application behaviour
+
+- **WHEN** a required spec needs a CLI Agent to be present
+- **THEN** the gate SHALL place fixture executables for the managed Agent names ahead of the inherited PATH
+- **AND** the spec SHALL exercise the same production resolution, launch, and persistence paths against them
+
+#### Scenario: Only vendor-specific truth is external
+
+- **WHEN** a spec verifies a real provider login, real account permissions, a real server response, real model output, or a real vendor CLI's current-version compatibility
+- **THEN** it SHALL be classified `external-provider`
+- **AND** it SHALL declare its prerequisites and the reason it is blocked without them

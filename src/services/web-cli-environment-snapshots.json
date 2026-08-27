@@ -1,0 +1,417 @@
+[
+  {
+    "schemaVersion": 1,
+    "displayName": "Anthropic Claude Code CLI",
+    "provider": "Anthropic",
+    "executableNames": [
+      "claude"
+    ],
+    "scope": "local-desktop",
+    "overallState": "update-available",
+    "freshness": "fresh",
+    "environmentFingerprint": "web-mock-fingerprint",
+    "installations": [
+      {
+        "executablePath": "/mock/bin/claude",
+        "canonicalPath": null,
+        "aliasPaths": [],
+        "targetMissing": false,
+        "reportedVersion": "1.2.0",
+        "sourceId": "npm",
+        "sourceKind": "npm",
+        "sourceConfidence": "inferred",
+        "pathPriority": 0,
+        "environmentOrigin": "path",
+        "executableStatus": "healthy",
+        "id": "claude"
+      }
+    ],
+    "pathSelectedInstallationId": "claude",
+    "recommendedInstallationId": "claude",
+    "discovery": "found-one",
+    "executable": "healthy",
+    "authentication": "unknown",
+    "readiness": "unknown",
+    "compatibility": "unknown",
+    "update": "available",
+    "conflicts": [],
+    "sources": [
+      {
+        "sourceId": "npm",
+        "kind": "npm",
+        "supportedOnThisPlatform": true,
+        "availableVersionCount": 9,
+        "availableVersions": [
+          "1.3.0",
+          "1.2.0",
+          "1.1.0",
+          "1.3.0-unverified",
+          "1.3.0-changed",
+          "1.3.0-fails",
+          "1.3.0-cancels",
+          "1.3.0-expired",
+          "1.3.0-stale"
+        ],
+        "capabilities": {
+          "install": "exact",
+          "upgrade": "exact",
+          "downgrade": "exact",
+          "reinstall": "exact",
+          "uninstall": true,
+          "repair": "unsupported"
+        },
+        "management": "managed",
+        "guidanceCode": null
+      }
+    ],
+    "allowedActions": [
+      {
+        "action": "upgrade",
+        "sourceId": "npm",
+        "targetMode": "exact",
+        "defaultTarget": "1.3.0",
+        "requiresTargetSelection": false,
+        "reasonCode": null
+      },
+      {
+        "action": "downgrade",
+        "sourceId": "npm",
+        "targetMode": "exact",
+        "defaultTarget": null,
+        "requiresTargetSelection": true,
+        "reasonCode": null
+      },
+      {
+        "action": "reinstall",
+        "sourceId": "npm",
+        "targetMode": "exact",
+        "defaultTarget": "1.3.0",
+        "requiresTargetSelection": false,
+        "reasonCode": null
+      },
+      {
+        "action": "uninstall",
+        "sourceId": "npm",
+        "targetMode": "latest-only",
+        "defaultTarget": null,
+        "requiresTargetSelection": false,
+        "reasonCode": null
+      }
+    ],
+    "lastMutation": null,
+    "lastOperationId": null,
+    "checkedAt": "2026-01-01T00:00:00+00:00",
+    "agentId": "claude-code"
+  },
+  {
+    "schemaVersion": 1,
+    "displayName": "OpenAI Codex CLI",
+    "provider": "OpenAI",
+    "executableNames": [
+      "codex"
+    ],
+    "scope": "local-desktop",
+    "overallState": "missing",
+    "freshness": "fresh",
+    "environmentFingerprint": "web-mock-fingerprint",
+    "installations": [],
+    "pathSelectedInstallationId": null,
+    "recommendedInstallationId": null,
+    "discovery": "not-found",
+    "executable": "not-applicable",
+    "authentication": "unknown",
+    "readiness": "broken",
+    "compatibility": "unknown",
+    "update": "unknown",
+    "conflicts": [],
+    "sources": [
+      {
+        "sourceId": "npm",
+        "kind": "npm",
+        "supportedOnThisPlatform": true,
+        "availableVersionCount": 3,
+        "availableVersions": [
+          "1.3.0",
+          "1.2.0",
+          "1.1.0"
+        ],
+        "capabilities": {
+          "install": "exact",
+          "upgrade": "exact",
+          "downgrade": "exact",
+          "reinstall": "exact",
+          "uninstall": true,
+          "repair": "unsupported"
+        },
+        "management": "managed",
+        "guidanceCode": null
+      }
+    ],
+    "allowedActions": [
+      {
+        "action": "install",
+        "sourceId": "npm",
+        "targetMode": "exact",
+        "defaultTarget": "2.0.0",
+        "requiresTargetSelection": false,
+        "reasonCode": null
+      }
+    ],
+    "lastMutation": null,
+    "lastOperationId": null,
+    "checkedAt": "2026-01-01T00:00:00+00:00",
+    "agentId": "codex-cli"
+  },
+  {
+    "schemaVersion": 1,
+    "displayName": "Google Gemini CLI",
+    "provider": "Google",
+    "executableNames": [
+      "gemini"
+    ],
+    "scope": "local-desktop",
+    "overallState": "ready",
+    "freshness": "stale",
+    "environmentFingerprint": "web-mock-fingerprint",
+    "installations": [
+      {
+        "executablePath": "/mock/bin/gemini",
+        "canonicalPath": null,
+        "aliasPaths": [],
+        "targetMissing": false,
+        "reportedVersion": "3.1.0",
+        "sourceId": "npm",
+        "sourceKind": "npm",
+        "sourceConfidence": "inferred",
+        "pathPriority": 0,
+        "environmentOrigin": "path",
+        "executableStatus": "healthy",
+        "id": "gemini"
+      }
+    ],
+    "pathSelectedInstallationId": "gemini",
+    "recommendedInstallationId": "gemini",
+    "discovery": "found-one",
+    "executable": "healthy",
+    "authentication": "unknown",
+    "readiness": "unknown",
+    "compatibility": "unknown",
+    "update": "up-to-date",
+    "conflicts": [],
+    "sources": [
+      {
+        "sourceId": "npm",
+        "kind": "npm",
+        "supportedOnThisPlatform": true,
+        "availableVersionCount": 3,
+        "availableVersions": [
+          "1.3.0",
+          "1.2.0",
+          "1.1.0"
+        ],
+        "capabilities": {
+          "install": "exact",
+          "upgrade": "exact",
+          "downgrade": "exact",
+          "reinstall": "exact",
+          "uninstall": true,
+          "repair": "unsupported"
+        },
+        "management": "managed",
+        "guidanceCode": null
+      }
+    ],
+    "allowedActions": [
+      {
+        "action": "uninstall",
+        "sourceId": "npm",
+        "targetMode": "latest-only",
+        "defaultTarget": null,
+        "requiresTargetSelection": false,
+        "reasonCode": null
+      }
+    ],
+    "lastMutation": null,
+    "lastOperationId": null,
+    "checkedAt": "2026-01-01T00:00:00+00:00",
+    "agentId": "gemini-cli"
+  },
+  {
+    "schemaVersion": 1,
+    "displayName": "OpenCode CLI",
+    "provider": "OpenCode",
+    "executableNames": [
+      "opencode"
+    ],
+    "scope": "local-desktop",
+    "overallState": "conflict",
+    "freshness": "fresh",
+    "environmentFingerprint": "web-mock-fingerprint",
+    "installations": [
+      {
+        "executablePath": "/mock/bin/opencode-a",
+        "canonicalPath": null,
+        "aliasPaths": [],
+        "targetMissing": false,
+        "reportedVersion": "0.9.0",
+        "sourceId": "npm",
+        "sourceKind": "npm",
+        "sourceConfidence": "inferred",
+        "pathPriority": 0,
+        "environmentOrigin": "path",
+        "executableStatus": "healthy",
+        "id": "opencode-a"
+      },
+      {
+        "executablePath": "/mock/homebrew/bin/opencode",
+        "canonicalPath": null,
+        "aliasPaths": [],
+        "targetMissing": false,
+        "reportedVersion": "1.0.0",
+        "sourceId": "homebrew",
+        "sourceKind": "homebrew",
+        "sourceConfidence": "inferred",
+        "pathPriority": 4,
+        "environmentOrigin": "path",
+        "executableStatus": "healthy",
+        "id": "opencode-b"
+      }
+    ],
+    "pathSelectedInstallationId": "opencode-a",
+    "recommendedInstallationId": "opencode-b",
+    "discovery": "found-multiple",
+    "executable": "healthy",
+    "authentication": "unknown",
+    "readiness": "unknown",
+    "compatibility": "unknown",
+    "update": "unknown",
+    "conflicts": [
+      {
+        "kind": "path-shadowing",
+        "severity": "blocking",
+        "installationIds": [
+          "opencode-a",
+          "opencode-b"
+        ],
+        "blocksMutation": true,
+        "blocksLaunch": false,
+        "reasonCode": "path-shadowing"
+      }
+    ],
+    "sources": [
+      {
+        "sourceId": "npm",
+        "kind": "npm",
+        "supportedOnThisPlatform": true,
+        "availableVersionCount": 3,
+        "availableVersions": [
+          "1.3.0",
+          "1.2.0",
+          "1.1.0"
+        ],
+        "capabilities": {
+          "install": "exact",
+          "upgrade": "exact",
+          "downgrade": "exact",
+          "reinstall": "exact",
+          "uninstall": true,
+          "repair": "unsupported"
+        },
+        "management": "managed",
+        "guidanceCode": null
+      },
+      {
+        "sourceId": "homebrew",
+        "kind": "homebrew",
+        "supportedOnThisPlatform": true,
+        "availableVersionCount": null,
+        "availableVersions": [],
+        "capabilities": {
+          "install": "unsupported",
+          "upgrade": "unsupported",
+          "downgrade": "unsupported",
+          "reinstall": "unsupported",
+          "uninstall": false,
+          "repair": "unsupported"
+        },
+        "management": "detect-only",
+        "guidanceCode": "cli.guidance.homebrew"
+      }
+    ],
+    "allowedActions": [],
+    "lastMutation": null,
+    "lastOperationId": null,
+    "checkedAt": "2026-01-01T00:00:00+00:00",
+    "agentId": "opencode"
+  },
+  {
+    "schemaVersion": 1,
+    "displayName": "Google Antigravity CLI",
+    "provider": "Google",
+    "executableNames": [
+      "agy"
+    ],
+    "scope": "local-desktop",
+    "overallState": "ready",
+    "freshness": "fresh",
+    "environmentFingerprint": "web-mock-fingerprint",
+    "installations": [
+      {
+        "executablePath": "/mock/bin/agy",
+        "canonicalPath": null,
+        "aliasPaths": [],
+        "targetMissing": false,
+        "reportedVersion": "0.4.2",
+        "sourceId": "vendor",
+        "sourceKind": "vendor-installer",
+        "sourceConfidence": "verified",
+        "pathPriority": 0,
+        "environmentOrigin": "known-location",
+        "executableStatus": "healthy",
+        "id": "agy"
+      }
+    ],
+    "pathSelectedInstallationId": "agy",
+    "recommendedInstallationId": "agy",
+    "discovery": "found-one",
+    "executable": "healthy",
+    "authentication": "unknown",
+    "readiness": "unknown",
+    "compatibility": "unknown",
+    "update": "not-applicable",
+    "conflicts": [],
+    "sources": [
+      {
+        "sourceId": "vendor",
+        "kind": "vendor-installer",
+        "supportedOnThisPlatform": true,
+        "availableVersionCount": null,
+        "availableVersions": [],
+        "capabilities": {
+          "install": "latest-only",
+          "upgrade": "latest-only",
+          "downgrade": "unsupported",
+          "reinstall": "unsupported",
+          "uninstall": false,
+          "repair": "unsupported"
+        },
+        "management": "managed",
+        "guidanceCode": null
+      }
+    ],
+    "allowedActions": [
+      {
+        "action": "upgrade",
+        "sourceId": "vendor",
+        "targetMode": "latest-only",
+        "defaultTarget": null,
+        "requiresTargetSelection": false,
+        "reasonCode": "cli.action.latest-only"
+      }
+    ],
+    "lastMutation": null,
+    "lastOperationId": null,
+    "checkedAt": "2026-01-01T00:00:00+00:00",
+    "agentId": "antigravity-cli"
+  }
+]

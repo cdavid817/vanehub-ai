@@ -21,6 +21,7 @@ use crate::contexts::agent_runtime::application::{
     OnePieceToolFeatureGates, RunnerDiscoveryPort, SubagentNativeToolHandler,
     UtilityDelegationApplicationPorts, UtilityDelegationApplicationService,
 };
+use crate::contexts::agent_runtime::infrastructure::LocalMediaOcrAdapter;
 use crate::contexts::agent_runtime::infrastructure::{
     builtin_expert_roles, AgentRuntimeLoggingAdapter, AgentRuntimeOperationAdapter,
     BuiltinAwareExpertRoleRepository, CodeIntelligenceContextSource, CompositeAgentProcessGateway,
@@ -75,6 +76,8 @@ use crate::contexts::execution_observability::infrastructure::{
     CompositeExecutionTelemetry, ExecutionTelemetryLifecycle, OpenTelemetryExecutionExporter,
     OsObservabilityCredentialAdapter, RandomExecutionIdentity, SqliteExecutionTimelineRepository,
 };
+use crate::contexts::local_media::api::LocalMediaApi;
+use crate::contexts::local_media::domain::LocalMediaEngine;
 use crate::contexts::operations::api::{
     AgentRunsApi, DiagnosticLog, DiagnosticLogPort, ExternalLogExportPort, LogSeverity,
     OperationLogPort, OperationsApi,
@@ -87,11 +90,6 @@ use crate::contexts::skill_evolution_evidence::application::RuntimeEvidenceProje
 use crate::contexts::ssh_connections::api::SshConnectionsApi;
 use crate::contexts::tooling::api::CliParameterRuntimeApi;
 use crate::contexts::tooling::cli::api::CliApi;
-use crate::contexts::tooling::cli::infrastructure::CliExecutableLocatorAdapter;
-use crate::contexts::tooling::extensions::application::PaddleOcrReadinessService;
-use crate::contexts::tooling::extensions::infrastructure::{
-    ManagedPaddleOcrReadinessInspector, OcrNativeToolAdapter, SqliteExtensionRepository,
-};
 use crate::contexts::tooling::mcp::api::McpApi;
 use crate::contexts::tooling::prompt_hooks::api::PromptHookApi;
 use crate::contexts::tooling::sdk::api::SdkApi;
@@ -118,6 +116,7 @@ pub(crate) struct AgentRuntimeDependencies {
     pub(crate) database: NativeDatabase,
     pub(crate) app: AppHandle,
     pub(crate) operations: OperationsApi,
+    pub(crate) local_media: LocalMediaApi,
     pub(crate) agent_runs: AgentRunsApi,
     pub(crate) cli: CliApi,
     pub(crate) cli_parameter_runtime: CliParameterRuntimeApi,
@@ -233,6 +232,7 @@ fn assemble_native_tool_registry(
     database: &NativeDatabase,
     app: &AppHandle,
     cli: &CliApi,
+    local_media: &LocalMediaApi,
     subagents: SubagentDependencies,
 ) -> Result<AssembledNativeTools, String> {
     let data_root = database
@@ -254,14 +254,14 @@ fn assemble_native_tool_registry(
         ),
         Arc::new(SqliteArtifactCatalog::new(database.clone())),
     ));
-    let install_path = data_root.join("extensions").join("paddleocr");
-    let readiness = PaddleOcrReadinessService::new(
-        Arc::new(SqliteExtensionRepository::new(database.clone())),
-        Arc::new(ManagedPaddleOcrReadinessInspector),
-    )
-    .check()
-    .ok()
-    .is_some_and(|snapshot| snapshot.ready);
+    // Readiness comes from the shared runtime rather than from an extensions-registry row, and it
+    // is still a bootstrap snapshot: the native-tool registry fixes eligibility once, so an engine
+    // configured after startup becomes usable on the next launch. That limitation predates this
+    // change and is preserved deliberately rather than fixed here.
+    let readiness = local_media
+        .get_status()
+        .map(|status| status.permits(LocalMediaEngine::Ocr))
+        .unwrap_or(false);
     let feature_gates = OnePieceToolFeatureGates::from_environment();
     let mut readiness_reasons = BTreeMap::new();
     let mut browser_handoff: Option<Arc<dyn BrowserHandoffControlPort>> = None;
@@ -353,10 +353,8 @@ fn assemble_native_tool_registry(
         }),
     ))));
     if readiness {
-        let port = Arc::new(OcrNativeToolAdapter::new(
-            install_path,
-            data_root.join("ocr-operations"),
-            Arc::new(PlatformSandboxBackend),
+        let port = Arc::new(LocalMediaOcrAdapter::new(
+            local_media.clone(),
             artifacts.clone(),
         ));
         handlers.push(Arc::new(OcrNativeToolHandler::new(port)));
@@ -370,9 +368,9 @@ fn assemble_native_tool_registry(
         );
     }
     let delegation_readiness = DelegationReadinessService::new(
-        Arc::new(PassiveDelegationProbe::new(Arc::new(
-            CliExecutableLocatorAdapter::new(),
-        ))),
+        // The same launch resolution the runtime itself uses, so readiness judges the binary a
+        // delegation would actually start.
+        Arc::new(PassiveDelegationProbe::new(Arc::new(cli.clone()))),
         DelegationCapabilityDependencies {
             process_tree_control: true,
             analyze_isolation: true,
@@ -583,6 +581,9 @@ pub(crate) fn assemble_agent_runtime_api(
             Arc::new(CodeIntelligenceContextSource::definition(
                 code_intelligence.clone(),
             )),
+            Arc::new(CodeIntelligenceContextSource::call_relations(
+                code_intelligence.clone(),
+            )),
             Arc::new(CodeIntelligenceContextSource::references(
                 code_intelligence.clone(),
             )),
@@ -617,6 +618,7 @@ pub(crate) fn assemble_agent_runtime_api(
         &dependencies.database,
         &dependencies.app,
         &dependencies.cli,
+        &dependencies.local_media,
         SubagentDependencies {
             credentials: api_credentials.clone(),
             agents: repository.clone(),

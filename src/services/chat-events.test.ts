@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyChatEvent, applyChatEvents } from "./chat-events";
+import { applyChatEvent, applyChatEvents, hasEventsForUnknownMessages } from "./chat-events";
 import type { ChatMessage, ChatStreamEvent } from "../types/chat";
 
 const baseMessage: ChatMessage = {
@@ -142,5 +142,37 @@ describe("applyChatEvents", () => {
   it("ignores an empty event batch", () => {
     const messages: ChatMessage[] = [{ ...baseMessage, id: "assistant-1", content: "x" }];
     expect(applyChatEvents(messages, [])).toBe(messages);
+  });
+});
+
+describe("hasEventsForUnknownMessages", () => {
+  it("flags events that target a message the list has never seen", () => {
+    const messages: ChatMessage[] = [{ ...baseMessage }];
+    const events: ChatStreamEvent[] = [
+      { type: "token", sessionId: "session-1", messageId: "assistant-1", contentDelta: "known" },
+      { type: "started", sessionId: "session-1", messageId: "seat-turn-9" },
+    ];
+    expect(hasEventsForUnknownMessages(messages, events)).toBe(true);
+  });
+
+  it("stays quiet when every event targets a known message", () => {
+    const messages: ChatMessage[] = [{ ...baseMessage }];
+    const events: ChatStreamEvent[] = [
+      { type: "token", sessionId: "session-1", messageId: "assistant-1", contentDelta: "known" },
+      { type: "completed", sessionId: "session-1", messageId: "assistant-1" },
+    ];
+    expect(hasEventsForUnknownMessages(messages, events)).toBe(false);
+  });
+
+  it("does not treat session-scoped turn_status as an unknown message", () => {
+    const events: ChatStreamEvent[] = [
+      {
+        type: "turn_status",
+        sessionId: "session-1",
+        status: { kind: "round_complete", seatIndex: 0, mention: "架构师" },
+      },
+    ];
+    expect(hasEventsForUnknownMessages([], events)).toBe(false);
+    expect(hasEventsForUnknownMessages([], [])).toBe(false);
   });
 });

@@ -17,6 +17,7 @@ mod manual_dispatch_tests;
 mod manual_operation;
 mod manual_waits;
 mod ocr_handler;
+mod ocr_result;
 mod persistence;
 mod ports;
 mod registry;
@@ -56,6 +57,9 @@ pub(crate) use manual_dispatch::{
     ManualStartDelegationRequest,
 };
 pub(crate) use ocr_handler::OcrNativeToolHandler;
+pub(crate) use ocr_result::{
+    normalize_ocr_result, NormalizedOcrResult, OcrResultBlock, OcrResultIdentity, OcrResultPoint,
+};
 pub(crate) use persistence::{
     ArtifactRecord, ChangeSetApplyRecord, ChangeSetFileRecord, ChangeSetRecord, ChangeSetStatus,
     DelegationAttemptRecord, DelegationMode, DelegationRecord, DelegationStatus, DelegationTarget,

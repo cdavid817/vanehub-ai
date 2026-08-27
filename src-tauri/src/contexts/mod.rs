@@ -10,6 +10,7 @@ pub(crate) mod communications;
 pub(crate) mod desktop;
 pub(crate) mod execution_observability;
 pub(crate) mod goals;
+pub(crate) mod local_media;
 pub(crate) mod operations;
 pub(crate) mod permissions;
 // Built bottom-up by `add-unified-personalization-governance`: the domain compiles and is tested

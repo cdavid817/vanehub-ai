@@ -1,6 +1,7 @@
 mod operation;
 mod run;
 
+pub(crate) use operation::OperationProgress;
 pub(crate) use operation::OperationRecoveryEvidence;
 pub use operation::{OperationKind, OperationStatus, OperationTask};
 pub(crate) use run::{

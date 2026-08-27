@@ -1,8 +1,7 @@
 use crate::contexts::cli_delegation::application::{
     DelegationAuthentication, DelegationProbeObservation, DelegationProbePort, DelegationTarget,
 };
-use crate::contexts::tooling::cli::application::CliExecutableLocatorPort;
-use crate::contexts::tooling::cli::domain::definition;
+use crate::contexts::tooling::cli::api::CliApi;
 use crate::platform::process::{ProcessAdapter, ProcessRequest};
 use sha2::{Digest, Sha256};
 use std::io::Read;
@@ -36,14 +35,30 @@ impl PassiveDelegationProbeRunner for PlatformProbeRunner {
     }
 }
 
+/// Where this probe gets an executable to run.
+///
+/// A trait rather than `CliApi` directly so the probe can be exercised without an environment
+/// service behind it. The production implementation is `CliApi`, which reads the same snapshot the
+/// CLI Management page renders -- probing one installation while the page reports another is how a
+/// delegation target came to be judged on a binary the user never sees.
+pub(crate) trait DelegationExecutableResolver: Send + Sync {
+    fn resolve(&self, target: DelegationTarget) -> Option<String>;
+}
+
+impl DelegationExecutableResolver for CliApi {
+    fn resolve(&self, target: DelegationTarget) -> Option<String> {
+        self.resolve_executable(target.as_str()).ok().flatten()
+    }
+}
+
 pub(crate) struct PassiveDelegationProbe {
-    locator: Arc<dyn CliExecutableLocatorPort>,
+    locator: Arc<dyn DelegationExecutableResolver>,
     runner: Arc<dyn PassiveDelegationProbeRunner>,
     authentication: Arc<dyn Fn(DelegationTarget) -> DelegationAuthentication + Send + Sync>,
 }
 
 impl PassiveDelegationProbe {
-    pub(crate) fn new(locator: Arc<dyn CliExecutableLocatorPort>) -> Self {
+    pub(crate) fn new(locator: Arc<dyn DelegationExecutableResolver>) -> Self {
         Self {
             locator,
             runner: Arc::new(PlatformProbeRunner),
@@ -53,7 +68,7 @@ impl PassiveDelegationProbe {
 
     #[cfg(test)]
     fn with_ports(
-        locator: Arc<dyn CliExecutableLocatorPort>,
+        locator: Arc<dyn DelegationExecutableResolver>,
         runner: Arc<dyn PassiveDelegationProbeRunner>,
         authentication: Arc<dyn Fn(DelegationTarget) -> DelegationAuthentication + Send + Sync>,
     ) -> Self {
@@ -67,8 +82,7 @@ impl PassiveDelegationProbe {
 
 impl DelegationProbePort for PassiveDelegationProbe {
     fn probe(&self, target: DelegationTarget) -> Result<DelegationProbeObservation, ()> {
-        let tool = definition(target.as_str()).ok_or(())?;
-        let resolved = self.locator.resolve(tool, None).ok_or(())?;
+        let resolved = self.locator.resolve(target).ok_or(())?;
         let executable = canonical_executable(Path::new(&resolved))?;
         let version = self.runner.execute(&executable, &["--version"])?;
         let mut help = self.runner.execute(&executable, &["--help"])?;

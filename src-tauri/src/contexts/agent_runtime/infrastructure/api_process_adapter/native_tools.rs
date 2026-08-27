@@ -1,9 +1,6 @@
 //! Native tool implementations: skills, registered tools, shell, code intelligence, memory.
 
 use super::super::agent_image::{prepare_image, AgentImage, MAX_IMAGES_PER_REQUEST};
-use super::super::code_intelligence_tool_output::{
-    diagnostics_outcome, hover_outcome, locations_outcome,
-};
 use super::super::tools::{
     background_shell_registry, execute_edit, execute_file, execute_glob, execute_grep,
     execute_notebook, execute_shell, is_reviewed_image_path, render_task_list, task_list_store,
@@ -11,12 +8,12 @@ use super::super::tools::{
     ToolExecutionOutcome, MAX_BACKGROUND_COMMANDS_PER_SESSION, OUTPUT_MODE_FILES,
 };
 use super::super::SqliteNativeToolRepository;
+use super::code_intelligence::execute_code_intelligence_tool;
 use super::interactive::{await_approval, plan_mode_denial, ApprovalOutcome};
 use super::{failed_non_retryable, failed_retryable, PendingApprovals, REQUEST_TIMEOUT};
 use crate::contexts::agent_runtime::application::{
-    AgentClockPort, AgentCodeIntelligenceContext, AgentCodeIntelligencePort,
-    AgentCodeRetrievalOutcome, AgentDocumentInput, AgentDocumentPositionInput, AgentLog,
-    AgentLogLevel, AgentLoggingPort, AgentMcpToolPort, AgentPermissionPort, AgentProcessEventSink,
+    AgentClockPort, AgentCodeIntelligencePort, AgentCodeRetrievalOutcome, AgentLog, AgentLogLevel,
+    AgentLoggingPort, AgentMcpToolPort, AgentPermissionPort, AgentProcessEventSink,
     AgentRetrievalOutcome, AgentRetrievalPort, AgentSkillPort, AgentSkillReadRequest,
     AgentWorkspaceMutation, AgentWorkspaceMutationPort, ExistingToolHandler,
     ExistingToolHandlerRegistry, GenerationProcessEvent, GenerationProcessRequest,
@@ -25,9 +22,8 @@ use crate::contexts::agent_runtime::application::{
     NativeToolProgressPhase, NativeToolProgressSink, NativeToolRegistry, NativeToolResultEnvelope,
     NativeToolResultStatus, StoredToolOperation, StoredToolOperationStatus, ToolEligibilityContext,
     ToolUseBlock, UtilityDelegationApplicationService, DELEGATE_UTILITY_SKILL_TOOL_NAME,
-    FILE_TOOL_NAME, FIND_DEFINITION_TOOL_NAME, FIND_REFERENCES_TOOL_NAME,
-    GET_DIAGNOSTICS_TOOL_NAME, GET_HOVER_TOOL_NAME, IMAGE_ARTIFACT_METADATA_KEY,
-    LIST_SKILLS_TOOL_NAME, LOAD_SKILL_TOOL_NAME, READ_SKILL_RESOURCE_TOOL_NAME,
+    FILE_TOOL_NAME, IMAGE_ARTIFACT_METADATA_KEY, LIST_SKILLS_TOOL_NAME, LOAD_SKILL_TOOL_NAME,
+    READ_SKILL_RESOURCE_TOOL_NAME,
 };
 use crate::contexts::agent_runtime::domain::{UtilityDelegationLimits, UtilityDelegationRequest};
 use crate::contexts::artifacts::application::ArtifactService;
@@ -1235,70 +1231,6 @@ fn publish_workspace_mutation(
         canonical_workspace,
         relative_path: relative_path.to_string_lossy().replace('\\', "/"),
     });
-}
-
-fn execute_code_intelligence_tool(
-    name: &str,
-    input: &Value,
-    folder: &str,
-    cancelled: Arc<AtomicBool>,
-    code_intelligence: &dyn AgentCodeIntelligencePort,
-) -> ToolExecutionOutcome {
-    let relative_path = input
-        .get("path")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_owned();
-    if relative_path.is_empty() {
-        return invalid_code_intelligence_input("path must be a non-empty relative string");
-    }
-    let context = AgentCodeIntelligenceContext::from_session_workspace(folder);
-    if name == GET_DIAGNOSTICS_TOOL_NAME {
-        return diagnostics_outcome(code_intelligence.get_diagnostics(
-            &context,
-            &AgentDocumentInput { relative_path },
-            cancelled,
-        ));
-    }
-    let Some(line) = one_based_u32(input, "line") else {
-        return invalid_code_intelligence_input("line must be a one-based integer");
-    };
-    let Some(column) = one_based_u32(input, "column") else {
-        return invalid_code_intelligence_input("column must be a one-based integer");
-    };
-    let position = AgentDocumentPositionInput {
-        relative_path,
-        line,
-        column,
-    };
-    match name {
-        FIND_DEFINITION_TOOL_NAME => locations_outcome(
-            "definitions",
-            code_intelligence.find_definition(&context, &position, cancelled),
-            20,
-        ),
-        FIND_REFERENCES_TOOL_NAME => locations_outcome(
-            "references",
-            code_intelligence.find_references(&context, &position, cancelled),
-            50,
-        ),
-        GET_HOVER_TOOL_NAME => {
-            hover_outcome(code_intelligence.get_hover(&context, &position, cancelled))
-        }
-        _ => invalid_code_intelligence_input("unsupported code-intelligence operation"),
-    }
-}
-
-fn one_based_u32(input: &Value, field: &str) -> Option<u32> {
-    let value = input.get(field)?.as_u64()?;
-    (value > 0).then(|| u32::try_from(value).ok()).flatten()
-}
-
-fn invalid_code_intelligence_input(message: &str) -> ToolExecutionOutcome {
-    ToolExecutionOutcome {
-        output: message.to_owned(),
-        is_error: true,
-    }
 }
 
 /// Retrieval failure **never** returns `Err` here — it returns a normal tool result telling the

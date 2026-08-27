@@ -49,6 +49,16 @@ pub(crate) fn run() {
             if matches!(event, tauri::RunEvent::Exit) {
                 let _ = write_desktop_e2e_process_marker("exited");
             }
+            // Stop the microphone, stop playback, and shut the engine workers down. A recording
+            // left running past exit keeps the OS capture indicator lit, and an orphaned Python
+            // process keeps a model resident in memory.
+            if matches!(event, tauri::RunEvent::Exit) {
+                if let Some(local_media) =
+                    app.try_state::<crate::contexts::local_media::api::LocalMediaApi>()
+                {
+                    local_media.shutdown();
+                }
+            }
             // 判断事件为程序退出事件，且存在遥测生命周期管理实例
             if matches!(event, tauri::RunEvent::Exit)
                 && app
@@ -133,6 +143,21 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         .unwrap_or_else(|| "zh-CN".to_string());
 
     let operations_api = super::assemble_operations_api(database.clone());
+    let local_media_api = super::assemble_local_media_api(
+        database.clone(),
+        operations_api.clone(),
+        Arc::new(UnifiedLoggingAdapter::active(
+            fallback_log_directory.clone(),
+        )),
+        database
+            .db_path
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new(".")),
+        &super::worker_bridge_candidates(app.path().resource_dir().ok()),
+    );
+    // Ephemeral media from a previous run -- a recording interrupted by a crash, a staged file the
+    // user never used -- is swept once here rather than accumulating until the disk notices.
+    local_media_api.sweep_stale_media();
     let code_intelligence_api =
         super::assemble_code_intelligence_api(database.clone(), fallback_log_directory.clone());
     code_intelligence_api.start_maintenance();
@@ -151,11 +176,14 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         operations_api.clone(),
         fallback_log_directory.clone(),
     );
-    let cli_api = super::assemble_cli_api(
+    let cli_environment_api = super::assemble_cli_environment_api(
         database.clone(),
         operations_api.clone(),
         fallback_log_directory.clone(),
     );
+    // Launch resolution reads the same environment the CLI Management page does, so what the
+    // runtime starts and what the page reports cannot be two different installations.
+    let cli_api = super::assemble_cli_api(cli_environment_api.clone());
     // Assembled after `cli_api` because compatibility is read from the CLI lifecycle subdomain's
     // cached detection state rather than from a second detector. Both facades share one service.
     let (cli_parameter_runtime_api, cli_parameter_settings_api) =
@@ -268,6 +296,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         telemetry_lifecycle,
         completion_events,
     } = super::assemble_agent_runtime_api(super::AgentRuntimeDependencies {
+        local_media: local_media_api.clone(),
         database: database.clone(),
         app: app.handle().clone(),
         operations: operations_api.clone(),
@@ -370,10 +399,12 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         .map_err(boxed_message)?;
 
     app.manage(operations_api.clone());
+    app.manage(local_media_api.clone());
     app.manage(agent_runs_api);
     app.manage(agent_run_controls_api);
     app.manage(code_intelligence_api.clone());
     app.manage(cli_api.clone());
+    app.manage(cli_environment_api.clone());
     app.manage(cli_config_api);
     app.manage(cli_parameter_settings_api);
     app.manage(mcp_api);
@@ -446,7 +477,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         &floating_assistant_api,
         fallback_log_directory.clone(),
     );
-    super::start_initial_cli_refresh(cli_api).map_err(boxed_error)?;
+    super::start_initial_cli_refresh(cli_environment_api.clone()).map_err(boxed_error)?;
     start_communications_maintenance_job(
         communications_api.clone(),
         communications_maintenance_database,

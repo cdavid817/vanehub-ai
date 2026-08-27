@@ -34,7 +34,7 @@ The same CLI is installed more than once. Select **Diagnose Conflicts** to see *
 
 **Upgrade only the active copy.** Upgrade the wrong one and the command line still resolves the old version, which looks as though the upgrade did nothing.
 
-If the active copy was not installed through npm, update it through its original source — installing another copy through npm only makes the conflict worse.
+If the active copy came from a source VaneHub only detects — Homebrew, Bun, Volta, a desktop bundle, or a system package — update it through that source. The CLI Management page names which one it is. Installing another copy through npm only makes the conflict worse, which is why VaneHub will not do it for you.
 
 ### I upgraded but the version did not change
 

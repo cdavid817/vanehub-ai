@@ -121,7 +121,7 @@ The names below are compatibility contracts and MUST remain registered until a s
 | Owner | Registered command names | Frontend contract owners |
 | --- | --- | --- |
 | `agent_runtime` | `list_agents`, `get_agent_by_id`, `get_workflow_state`, `select_agent`, `check_browser_readiness`, `launch_active_workflow`, `get_session_details`, `send_message`, `stop_generation` | `src/services/agent-service.ts`, `src/types/agent.ts`, `src/types/chat.ts`, `src/contracts/agent.ts`, `src/contracts/chat.ts` |
-| `tooling::cli` | `list_cli_tools`, `refresh_cli_detections`, `install_cli_version`, `upgrade_all_cli_versions`, `list_cli_parameter_profiles`, `save_cli_parameter_profile`, `reset_cli_parameter_profile` | `src/services/agent-service.ts`, `src/types/agent.ts`, `src/contracts/agent.ts` |
+| `tooling::cli` | `list_cli_environments`, `refresh_cli_environment`, `prepare_cli_action`, `get_cli_action_plan`, `execute_cli_action`, `prepare_cli_bulk_action`, `get_cli_bulk_action_plan`, `execute_cli_bulk_action`, `run_cli_doctor`, `list_cli_parameter_profiles`, `save_cli_parameter_profile`, `reset_cli_parameter_profile` | `src/services/cli-service.ts`, `src/services/tauri-cli-environment-client.ts`, `src/services/web-cli-environment-client.ts`, `src/types/cli-environment.ts`, `src/types/cli-environment-snapshot.ts`, `src/contracts/cli-environment.ts`, `src/contracts/cli-environment-snapshot.ts` |
 | `sessions` | `create_session`, `list_sessions`, `list_archived_sessions`, `search_sessions`, `list_session_categories`, `create_session_category`, `rename_session_category`, `delete_session_category`, `assign_session_category`, `get_active_session`, `get_session_chat_config`, `save_session_chat_config`, `switch_session`, `rename_session`, `pin_session`, `unpin_session`, `archive_session`, `unarchive_session`, `export_session`, `delete_session`, `list_messages`, `get_usage_statistics` | `src/services/agent-service.ts`, `src/types/agent.ts`, `src/types/chat.ts`, `src/contracts/agent.ts`, `src/contracts/chat.ts` |
 | `workspaces` | `list_known_projects`, `list_known_remote_workspaces`, `inspect_project`, `select_project_directory`, `list_session_directory`, `read_session_file`, `list_session_documents`, `get_session_git_status`, `get_session_git_diff`, `list_session_logs`, `export_session_logs`, `shell_create`, `shell_input`, `shell_cd`, `shell_resize`, `shell_kill` | `src/services/agent-service.ts`, `src/types/session-workspace.ts`, `src/contracts/session-workspace.ts` |
 | `desktop` | `get_settings`, `save_setting`, `get_automatic_archival_settings`, `save_automatic_archival_settings`, `set_launch_on_startup`, `get_floating_assistant_runtime_info`, `get_floating_assistant_config`, `set_floating_assistant_enabled`, `set_floating_assistant_surface`, `start_floating_assistant_drag`, `save_floating_assistant_anchor`, `persist_floating_assistant_position`, `show_main_window`, `exit_application`, `test_network_proxy`, `scan_network_proxies`, `get_data_management_info`, `open_database_directory`, `open_log_directory`, `report_client_log_event`, `get_node_info` | `src/services/settings-service.ts`, `src/services/agent-service.ts`, `src/services/floating-assistant-service.ts`, corresponding `src/types/*` |
@@ -173,8 +173,8 @@ Migration order stays global; migration SQL moves to its owning context without 
 | --- | --- | --- |
 | Session startup recovery | Bootstrap starts a worker and immediately returns; the worker invokes the `sessions` maintenance API | Implemented non-blocking sessions maintenance use case |
 | Hourly automatic archival | Bootstrap worker reloads the published desktop archival policy before each sessions maintenance cycle | Implemented scheduled sessions maintenance adapter |
-| Initial and requested CLI refresh | `commands::tooling::cli::background` schedules prepared `tooling::cli` application jobs | Implemented through status, detection, operation, logging, and clock ports |
-| CLI install/upgrade/bulk upgrade | `commands::tooling::cli::background` schedules prepared jobs serialized by `CliMutationAdapter` | Implemented through package, process, operation, logging, and mutation ports |
+| Initial and requested CLI refresh | `bootstrap::cli` starts one on first run; `commands::tooling::cli_environment::background` schedules requested ones | Implemented through discovery, probe, repository, operation, diagnostics, and clock ports; each refresh also sweeps expired plans |
+| CLI plan preparation, execution, and bulk upgrade | `commands::tooling::cli_environment::background` schedules prepared jobs serialized by `CliEnvironmentMutationCoordinator` | Implemented through distribution, process, repository, operation, coordinator, and diagnostics ports |
 | SDK install/update/rollback/uninstall | `commands::tooling::sdk::background` schedules prepared application jobs | Implemented through package, process, operation, repository, logging, and clock ports |
 | MCP connection test | `commands::tooling::mcp::background` schedules the prepared application job | Implemented `tooling::mcp` use case through connection/operation ports |
 | Extension refresh/install/start/stop/test | `commands::tooling::extensions::background` schedules prepared application jobs | Implemented through repository, installation, process, runtime, operation, logging, clock, and mutation ports |
@@ -232,3 +232,77 @@ CLI parameter catalogs and persisted selections remain a Tooling subdomain publi
 ### ADR-005: Generate TypeScript model contracts from Rust with `ts-rs`
 
 Frontend service interfaces stay hand-authored because they express UI/runtime semantics, but command payload/result models are generated from Rust models with `ts-rs`. Each serializable Rust model that crosses the frontend/backend boundary derives `TS` alongside `Serialize` and `Deserialize`; generated files live under a stable frontend contract directory, and a verification command regenerates contracts and fails when committed contract files are stale. This keeps React components behind service interfaces while reducing silent drift between Rust command models and TypeScript types. `specta` / `tauri-specta` were rejected for tighter Tauri coupling and a broader integration surface; manual TypeScript-only was rejected because parallel Rust/TypeScript models drift silently as Agent, MCP, SDK, and operation models grow.
+
+### ADR-005b: Resolve a CLI launch from the same snapshot the management page renders
+
+The Agent Runtime asks `CliApi::resolve_executable`, which reads the source-aware snapshot and
+follows its recommended installation, falling back to the PATH-selected one. A conflict that blocks
+launching, or a recommended installation that cannot run, refuses outright rather than reaching for
+a live candidate: falling back there would start the installation the backend just declined to pick.
+A tool that has never been scanned still gets one bounded live lookup, so a first launch after an
+install does not wait for a refresh.
+
+The answer is always an absolute path or nothing. A bare command name would re-enter PATH resolution
+inside the child process, and PATH is exactly what the conflict contract exists to arbitrate.
+
+This replaces reading the pre-change `cli_tool_status` row. That table is still created and still
+readable so an upgrading install sees its tools before the first refresh, but it is read-only and
+never authoritative -- a leftover row becomes a *stale* snapshot only when no real one exists, and
+`the_legacy_cli_table_has_exactly_one_reader_and_no_writer` fails the build if a second reader or
+any writer appears.
+
+### ADR-006: Route every CLI machine change through a declared source adapter
+
+Each distribution source (npm, WinGet, an audited vendor installer) is a `CliDistributionPort`
+adapter registered in `bootstrap/cli_environment.rs` under the id it reports for itself. The
+application never names a concrete source: it looks one up by the id a plan recorded. A plan naming
+a source that is not registered resolves to `source-unavailable`, a typed refusal.
+
+This replaces the previous behaviour, where a failed npm path could fall through to a vendor script
+and vice versa. Fallback made the source that actually ran unknowable after the fact, and produced
+the specific failure this change exists to remove: a user selecting version 1.2.3 from npm's catalog
+and receiving whatever a vendor installer considered latest. Each adapter stamps its own catalog
+with its own source id, so borrowing another source's version list is not expressible rather than
+merely discouraged.
+
+### ADR-007: Make an action plan single-use, revisioned, and bound to the environment
+
+A mutation is prepared as a persisted `cli_action_plans` row carrying a revision, a ten-minute
+expiry, the exact argv that will run, and a fingerprint of the environment it was built against.
+Execution submits only `{planId, expectedRevision}`. There is no parameter a command could be
+rebuilt from at execution time, so the version the user reviewed is structurally the version that
+runs.
+
+Admission takes an immediate SQLite transaction and moves `draft -> executing` before any external
+effect, so two callers cannot both be admitted. The `state` column is authoritative over the state
+embedded in the stored document: maintenance sweeps move the column alone, and a read that trusted
+the document could re-admit a plan that had already run.
+
+### ADR-008: Sequence external effects so nothing claims a rollback that did not happen
+
+A package manager is an external effect. It cannot be undone by writing an older row, so the
+lifecycle never restores the pre-operation snapshot on failure. Post-mutation detection runs after
+success, failure, timeout, and cancellation alike, and what it observes is what gets persisted.
+
+Detection runs on an uncancelled token even when the operation was cancelled: cancelling an upgrade
+stops the package manager, and must not also stop VaneHub from observing what the package manager
+already did. It asks the mutation coordinator first, and waits rather than probing a tree another
+operation is halfway through writing.
+
+Only positive evidence counts as a change -- two observed versions that differ, or an
+installation-count change from a detection that completed. A version that could not be re-read is
+not a version that vanished.
+
+### ADR-009: Report partial completion as its own outcome rather than as success or failure
+
+Five outcomes, not two: `verified`, `applied-unverified`, `changed-but-failed`, `no-change-failed`,
+and `cancelled`. `applied-unverified` covers a command that exited zero while verification could not
+confirm it; `changed-but-failed` covers a command that failed or was interrupted after the machine
+had already moved. Collapsing either into success or failure is how a half-applied change gets
+reported as a completed one.
+
+The persisted operation record keeps termination (`exited` with a code, `timed-out`, `cancelled`)
+separate from outcome for the same reason: both statements can be true at once. Every field of that
+record is an identifier, a version, or an enum, so no path, credential, or process fragment is
+representable in it -- process output belongs on the operation log, where it has already been
+bounded and redacted.

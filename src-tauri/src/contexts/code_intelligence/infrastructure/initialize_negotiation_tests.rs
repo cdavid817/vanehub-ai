@@ -37,6 +37,14 @@ fn initialize_declares_only_the_client_capabilities_we_implement() {
         params["capabilities"]["textDocument"]["definition"]["dynamicRegistration"],
         true
     );
+    // Declared because we implement them. A server reads this list to decide what to index, so
+    // asking for something we never send is as wrong as not asking for something we do.
+    for method in ["typeDefinition", "implementation"] {
+        assert_eq!(
+            params["capabilities"]["textDocument"][method]["linkSupport"], true,
+            "{method}"
+        );
+    }
     assert_eq!(params["initializationOptions"]["checkOnSave"], true);
     assert!(params["capabilities"].get("workspaceEdit").is_none());
 }
@@ -101,6 +109,38 @@ fn unsupported_semantic_methods_are_recorded_before_any_request_is_sent() {
     assert!(supports_method(&negotiated, SemanticMethod::Definition));
     assert!(!supports_method(&negotiated, SemanticMethod::References));
     assert!(supports_method(&negotiated, SemanticMethod::Hover));
+    // Omitted entirely, which is the common case for a server that predates them.
+    assert!(!supports_method(
+        &negotiated,
+        SemanticMethod::TypeDefinition
+    ));
+    assert!(!supports_method(
+        &negotiated,
+        SemanticMethod::Implementation
+    ));
+}
+
+#[test]
+fn goto_extras_are_read_from_their_own_provider_fields() {
+    // `typeDefinitionProvider` and `implementationProvider` are not `OneOf`, so they cannot be read
+    // the way definition and references are. Both spellings the protocol allows have to count, and
+    // an explicit `false` has to not.
+    let negotiated = negotiate_initialize_result(json!({
+        "capabilities": {
+            "typeDefinitionProvider": {"documentSelector": null},
+            "implementationProvider": true
+        }
+    }))
+    .expect("capabilities");
+    assert!(supports_method(&negotiated, SemanticMethod::TypeDefinition));
+    assert!(supports_method(&negotiated, SemanticMethod::Implementation));
+
+    let declined = negotiate_initialize_result(json!({
+        "capabilities": {"typeDefinitionProvider": false, "implementationProvider": false}
+    }))
+    .expect("capabilities");
+    assert!(!supports_method(&declined, SemanticMethod::TypeDefinition));
+    assert!(!supports_method(&declined, SemanticMethod::Implementation));
 }
 
 #[test]

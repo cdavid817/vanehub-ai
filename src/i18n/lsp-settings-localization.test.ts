@@ -22,6 +22,11 @@ const requiredKeys = [
   "lspSettings.configuration.saving", "lspSettings.configuration.saved",
   "lspSettings.configuration.saveError", "lspSettings.language.rust",
   "lspSettings.language.typescript_javascript", "lspSettings.language.enabled",
+  "lspSettings.language.go", "lspSettings.language.python", "lspSettings.language.cpp",
+  "lspSettings.language.unsupportedOnHost",
+  "lspSettings.startupArguments.title", "lspSettings.startupArguments.description",
+  "lspSettings.startupArguments.none", "lspSettings.startupArguments.placeholder",
+  "lspSettings.startupArguments.tooMany", "lspSettings.startupArguments.tooLarge",
   "lspSettings.discovery.title", "lspSettings.discovery.description",
   "lspSettings.discovery.automatic", "lspSettings.discovery.manual",
   "lspSettings.discovery.available", "lspSettings.discovery.unavailable",
@@ -52,6 +57,9 @@ const requiredKeys = [
   "lspSettings.capability.positionEncoding", "lspSettings.capability.documentSync",
   "lspSettings.capability.definition", "lspSettings.capability.references",
   "lspSettings.capability.hover", "lspSettings.capability.diagnostics",
+  "lspSettings.capability.type_definition", "lspSettings.capability.implementation",
+  "lspSettings.capability.workspace_symbols", "lspSettings.capability.document_symbols",
+  "lspSettings.capability.call_hierarchy",
   "lspSettings.capability.enabled", "lspSettings.capability.disabled",
   "lspSettings.reason.executable_not_found", "lspSettings.reason.override_missing",
   "lspSettings.reason.override_not_executable", "lspSettings.reason.executable_unavailable",
@@ -62,6 +70,7 @@ const requiredKeys = [
   "lspSettings.reason.protocol_limit", "lspSettings.reason.request_timeout",
   "lspSettings.reason.cancelled", "lspSettings.reason.untrusted",
   "lspSettings.reason.unsupported_method", "lspSettings.reason.invalid_configuration",
+  "lspSettings.reason.unsupported_on_this_platform",
 ] as const;
 
 describe("LSP settings localization", () => {

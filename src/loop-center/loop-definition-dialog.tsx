@@ -30,15 +30,22 @@ export function LoopDefinitionDialog({ definition, onClose, onSaved }: LoopDefin
   const [error, setError] = useState<string | null>(null);
   const [showStepErrors, setShowStepErrors] = useState(false);
   const [persistedDefinition, setPersistedDefinition] = useState<LoopDefinition | null>(null);
-  const updateDraft = (next: LoopDefinitionDraft) => { setDraft(next); setPersistedDefinition(null); };
+  // Editing invalidates whatever the footer complained about, so the message must not outlive the
+  // input it described; the inline per-command errors keep re-validating live on their own.
+  const updateDraft = (next: LoopDefinitionDraft) => { setDraft(next); setPersistedDefinition(null); setError(null); };
 
   useEffect(() => {
-    const available = agents.data ?? [];
-    if (available.length === 0) return;
+    const registered = agents.data ?? [];
+    if (registered.length === 0) return;
+    // The backend refuses to save a definition whose agent is not selectable, so preselecting the
+    // registry's first entry regardless of availability steered every fresh wizard into a rejection
+    // on hosts without that CLI. Prefer agents that can actually run.
+    const usable = registered.filter((agent) => agent.availabilityState === "available");
+    const pool = usable.length > 0 ? usable : registered;
     setDraft((current) => ({
       ...current,
-      workerAgentId: current.workerAgentId || available[0].id,
-      verifierAgentId: current.verifierAgentId || available[1]?.id || available[0].id,
+      workerAgentId: current.workerAgentId || pool[0].id,
+      verifierAgentId: current.verifierAgentId || pool[1]?.id || pool[0].id,
     }));
   }, [agents.data]);
 
@@ -96,7 +103,16 @@ export function LoopDefinitionDialog({ definition, onClose, onSaved }: LoopDefin
       }
       onSaved(saved, start);
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : String(submitError));
+      const message = submitError instanceof Error ? submitError.message : String(submitError);
+      // The backend refuses agents that cannot run (loop_service.rs validate_agent) with an
+      // untranslated message and no hint about where to act. Send the user to the step that can
+      // fix it and keep the backend detail as the explanation.
+      if (message.startsWith("agent is unavailable")) {
+        setStep(1);
+        setError(t("loops.editor.error.agentUnavailable", { detail: `${message.slice("agent is unavailable:".length).trim()} ` }));
+      } else {
+        setError(message);
+      }
     } finally {
       setSaving(false);
     }
@@ -122,7 +138,7 @@ export function LoopDefinitionDialog({ definition, onClose, onSaved }: LoopDefin
           {step === 3 ? <ReviewStep agents={agents.data ?? []} draft={draft} /> : null}
         </div>
         <footer className="flex min-h-14 items-center justify-between gap-3 border-t border-border px-4 py-2">
-          <p aria-live="polite" className="min-w-0 flex-1 truncate text-xs text-destructive">{error}</p>
+          <p aria-live="polite" className="line-clamp-3 min-w-0 flex-1 wrap-break-word text-xs text-destructive" title={error ?? undefined}>{error}</p>
           <div className="flex shrink-0 gap-2">
             {step > 0 ? <Button disabled={saving} onClick={() => { setError(null); setShowStepErrors(false); setStep(step - 1); }} size="sm" type="button" variant="outline"><ArrowLeft aria-hidden="true" />{t("loops.editor.back")}</Button> : null}
             {step < 3 ? <Button onClick={next} size="sm" type="button">{t("loops.editor.next")}<ArrowRight aria-hidden="true" /></Button> : <>
@@ -154,9 +170,14 @@ function ScopeStep({ branches, draft, loading, projects, setDraft }: StepProps &
 
 function AgentsStep({ agents, draft, loading, setDraft }: StepProps & { agents: AgentRegistryEntry[]; loading: boolean }) {
   const { t } = useTranslation();
+  // Same convention as the project and branch selects: an entry the backend would refuse stays
+  // pickable (its CLI may be installed later) but says so instead of failing at save time.
+  const optionLabel = (agent: AgentRegistryEntry) => agent.availabilityState === "available"
+    ? agent.displayName
+    : `${agent.displayName} — ${t(`createSession.agentAvailability.${agent.availabilityState}`)}`;
   return <div className="grid gap-4 sm:grid-cols-2">
-    <Field label="loops.editor.field.worker"><select className={inputClass} disabled={loading} value={draft.workerAgentId} onChange={(event) => setDraft({ ...draft, workerAgentId: event.target.value })}><option value="">{t("loops.editor.selectAgent")}</option>{agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.displayName}</option>)}</select></Field>
-    <Field label="loops.editor.field.verifier"><select className={inputClass} disabled={loading} value={draft.verifierAgentId} onChange={(event) => setDraft({ ...draft, verifierAgentId: event.target.value })}><option value="">{t("loops.editor.selectAgent")}</option>{agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.displayName}</option>)}</select></Field>
+    <Field label="loops.editor.field.worker"><select className={inputClass} disabled={loading} value={draft.workerAgentId} onChange={(event) => setDraft({ ...draft, workerAgentId: event.target.value })}><option value="">{t("loops.editor.selectAgent")}</option>{agents.map((agent) => <option key={agent.id} value={agent.id}>{optionLabel(agent)}</option>)}</select></Field>
+    <Field label="loops.editor.field.verifier"><select className={inputClass} disabled={loading} value={draft.verifierAgentId} onChange={(event) => setDraft({ ...draft, verifierAgentId: event.target.value })}><option value="">{t("loops.editor.selectAgent")}</option>{agents.map((agent) => <option key={agent.id} value={agent.id}>{optionLabel(agent)}</option>)}</select></Field>
   </div>;
 }
 

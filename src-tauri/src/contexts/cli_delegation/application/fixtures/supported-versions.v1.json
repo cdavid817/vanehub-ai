@@ -6,11 +6,7 @@
   },
   "paddleocr": {
     "engine_major": 3,
-    "protocol_version": "vanehub.paddleocr.inference.v1"
-  },
-  "pdfium": {
-    "protocol_version": "vanehub.pdfium.render.v1",
-    "checksum_required": true
+    "protocol_version": "vanehub.local-media.worker.v1"
   },
   "claude_code": {
     "minimum": "1.0.0",

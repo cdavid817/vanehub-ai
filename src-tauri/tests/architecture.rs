@@ -2370,6 +2370,27 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // VaneHub-owned Claude Code scope marker, and 8 lines verify chat and terminal projections add
     // it only for Claude Code across the complete managed-CLI policy matrix.
     //
+    // Raised from 59,467 by +173 for `add-local-composer-media-tools`. The change puts 552 lines
+    // in this subtree -- `local_media_ocr_adapter.rs` (387), its `_tests.rs` (163) and two `mod`
+    // declarations -- of which 379 fit the headroom the previous figure already carried, so only
+    // the remainder is a raise.
+    //
+    // It is relocation rather than growth. The OnePiece `ocr_read_text` tool used to reach a
+    // PaddleOCR runtime owned by `tooling/extensions`; that runtime is deleted (3,904 lines across
+    // 16 files), because the change requires exactly one PaddleOCR owner and it is now
+    // `local_media`. What lands here is the adapter re-pointing the unchanged tool contract at
+    // that owner, plus the tests that pin the contract as unchanged: `contractVersion: 1`, the
+    // same artifact-only input, and readiness read from the local-media status instead of from a
+    // second copy of the engine's own health.
+    //
+    // Raised from 59,640 by +207 for the same change's code-review fix. The adapter's chunked
+    // artifact read had dropped the `size_bytes == bytes.len()` assertion the deleted
+    // `ocr_admission.rs` carried, so a short read reached OCR: a truncated image still sniffs as
+    // one and its header dimensions still parse, and the result came back with full provenance.
+    // The read is now a free function -- 11 lines of length accounting plus the doc explaining
+    // which failures it catches -- and the rest is the test that could not exist before it: port
+    // doubles whose catalog and blob store disagree, covering exact, short, early-terminated,
+    // over-long, and multi-chunk reads plus the stable `IntegrityFailure` contract.
     // Raised from 59,467 to 60,547 by `upgrade-cli-parameter-management`'s native runtime cutover.
     // The subtree grows 1,476 lines against `ee3eaf3f`; 396 fit the existing headroom, so the
     // budget rises by 1,080. Production here does not grow at all — it falls by 328 — and every
@@ -2398,69 +2419,33 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // `cli_profile.rs` its duplicate `default` interpretation, both now owned by the tooling
     // resolver.
     //
-    // Raised again from 60,547 to 60,980 by `add-unified-personalization-governance`, which moves
-    // the OnePiece runtime off flat personalization settings and onto one governed snapshot per
-    // generation. The change adds 478 lines here; the previous figure carried 45 lines of
-    // headroom, so the ceiling moves by 433. Of the 478:
+    // `add-unified-personalization-governance` moves it again, and neither side's arithmetic
+    // survives the merge: this branch measured 61,601 against a base without the LSP expansion,
+    // `main` measured 61,799 against a base without the governed snapshot. The number below is a
+    // direct measurement of the merged tree.
     //
-    // +415 in `tests.rs`, and none of it duplicated coverage. ~200 is the two fixtures the new
-    // call shape needs — `SnapshotFromLegacyPorts`, which presents the pre-governance fakes
-    // through the snapshot port so ~13 assembly tests keep their existing setup, and
-    // `ScriptedSnapshots`, which answers with a prepared snapshot and records what it was asked.
-    // The rest is the seven tests for this group: verbatim instruction placement, absent block,
-    // eligible-only index, no fetch when delivery is denied, one snapshot per generation, the
-    // single fail-closed log line, and the shared `execute_with_snapshot_port` harness.
+    // What this change adds here is the runtime reading one governed snapshot per generation where
+    // it read three independent global toggles: the snapshot has to be taken, carried and
+    // reported, and the two test fixtures the new call shape needs -- one presenting the
+    // pre-governance fakes through the snapshot port so the existing assembly tests keep their
+    // setup, one answering with a prepared snapshot and recording what it was asked.
+    // Two rationales, both true, neither number usable. This branch measured 61,304 after taking
+    // `origin/main`'s CLI parameter work; `main` then measured 60,665 after adding the provider
+    // output framer's skip-and-resume path. They are increments over different bases against
+    // different files, so the merged tree is neither figure and not their sum. The number below is
+    // a direct measurement of the merged tree.
     //
-    // +55 in `prompt.rs`, net of two deletions. `resolve_generation_personalization` and its doc
-    // (+37) take this generation's one snapshot and record its loss, replacing
-    // `resolve_personalization_settings` (-35); `memory_from_ref` and the delivery match (+35)
-    // replace the unscoped `list_all` branch; `select_memory_bodies` gains the pinned-revision
-    // fetch and its degradation log (+31); `format_custom_instructions_section` (-13) is gone
-    // because policy now renders the block, and its four tests moved onto
-    // `PersonalizationSettings::custom_instructions_block` where the rule still lives.
-    //
-    // +5 in `compaction.rs` (the two-part extraction gate), +2 in `mod.rs`
-    // and +1 in `generation.rs` (import lists), and 0 net in `execution.rs` — the observability
-    // that would have pushed it past its own path budget lives in `prompt.rs` instead, beside the
-    // other prompt-assembly degradations it belongs with.
-    //
-    // Raised again to 61,475 by the same change's selection, freshness and session-mode work.
-    // +495, of which 487 are tests and 8 are production.
-    //
-    // The 487 are eight tests and the three fixtures they share: a
-    // `RecordingSelection` that captures what relevance selection was offered, a
-    // `ScriptedSnapshots::with_bodies` constructor, and a per-test session id — the already-
-    // surfaced tracker is a process-global keyed on session id, so tests sharing one would have
-    // inherited each other's exclusions and passed for the wrong reason. What they pin: selection
-    // is offered exactly the eligible set; a name the selector was never offered reaches no body;
-    // the age line and staleness caveat now reach the prompt (they were inert on the production
-    // path, because every `AgentMemory` the bridge built carried no modification time); an
-    // already-surfaced body is not re-offered and a corrected one is; a temporary session keeps
-    // its instructions, loses every memory surface, and still compacts; and a rejected `remember`
-    // never wakes the retrieval index, which is the one memory surface that outlives the process.
-    //
-    // The 8 production lines are one parameter on `resolve_generation_tool_catalog` and the
-    // comment explaining why `recall` needs two conditions rather than one. `execution.rs` is
-    // again 0 net: the argument is passed inline, and the `tool_assisted_session` comment above it
-    // lost a line it no longer needed once the gate moved into the snapshot.
-    //
-    // Raised again to 61,514 by the same change's candidate work, which routes automatic
-    // extraction and the model's memory tool through review instead of the store. +39 net across
-    // the subtree, and the composition is what matters rather than the size: +104 `prompt.rs` and
-    // +55 `generation.rs` for the two proposal paths and the `GenerationPersonalization` pair they
-    // travel in, against -62 `native_tools.rs` where `execute_remember` wrote a file, -23
-    // `memory_actions.rs` where the applier became a translator, -15 `tests.rs`, and -13 across
-    // `compaction.rs`, `execution.rs` and the two `mod.rs` files that stopped threading a memory
-    // port the OnePiece runtime no longer has any use for.
-    //
-    // Raised again to 61,601 by the same change's OnePiece integration pass. +87, all of it
-    // `tests.rs`: a `ScriptedSnapshots` that refuses a whole batch, and the test that pins what
-    // happens when the review queue cannot take what extraction produced — the compaction it hung
-    // off stays done, the turns stay replaced, the generation is unaffected, and what is logged
-    // says the batch could not be queued without saying what was in it.
+    // `expand-lsp-read-only-methods` raises it to 61,799 for five new read-only LSP tools. The
+    // Agent-facing cost of a tool here is not one function: `AgentCodeIntelligencePort` and
+    // `AgentCodeIntelligenceResponderPort` each gain a method, the runtime adapter and the
+    // unavailable responder each implement it, and three test doubles do the same. Five tools
+    // across seven implementations is where the +375 goes; there is no duplication in it to
+    // remove. What was removable was removed in the same commit: `execute_code_intelligence_tool`
+    // moved out of `native_tools.rs` into its own module, which is why the per-path budget below
+    // did not have to move.
     SubtreeBudget {
         root: "src-tauri/src/contexts/agent_runtime/infrastructure",
-        budget: 61_601,
+        budget: 62_618,
         owner: "decompose-api-tool-use-loop",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
@@ -2469,12 +2454,46 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // doc and imports), +28 for rustfmt wrapping 14 `pub(super) fn` signatures that now exceed
     // 100 columns, less 5 for the `mod tests { … }` wrapper disappearing and 1 blank separator.
     // No migration body was duplicated — every one of them moved byte-identically.
+    // Raised from 2,965 by +64 for `add-source-aware-cli-environment-management`: +24 registering
+    // migrations 82-84 for `cli_environment_snapshots`, `cli_version_catalogs`, and
+    // `cli_action_plans` (the schema bodies live in the owning context, not here), and +40 for
+    // `migration_versions_are_unique_and_dense` plus the derived `expected_migration_versions`.
+    // Raised again from 3,029 to 3,036 on merging `upgrade-cli-parameter-management`, which
+    // registers migration 81 beside these three. Measured on the merged tree, not summed.
+    //
+    // The test is the point of the raise. Every worktree shares one `ai.vanehub.app` database, and
+    // a duplicate version number is silently skipped rather than rejected -- it surfaces much later
+    // as an opaque "no such table" at startup. Three unmerged branches already claim 81. This makes
+    // that collision fail a test instead of a user's launch.
     SubtreeBudget {
         // Raised from 2,965 by `add-unified-personalization-governance`: migration 84 adds one
         // registry call, one expected-sequence entry, and the three version assertions that move
         // with them. Registering a migration anywhere costs those lines here; nothing was copied.
         root: "src-tauri/src/platform/database",
-        budget: 2_969,
+        // Raised again by `add-unified-personalization-governance` for migrations 87-89: the
+        // personalization schema, the session personalization mode column, and the reconciliation
+        // timestamp. Registering a migration costs a fixed six-line call and one inventory entry, so
+        // this budget moves by that amount per migration -- it bounds this subtree's growth, not the
+        // migration count.
+        // Raised from 2,965 to the merged tree's measurement. `add-local-composer-media-tools`
+        // adds migration 82 -- five lines of registration and one inventory entry -- plus the two
+        // tests for the upgrade paths its renumber created, and the reconciliation one of them
+        // requires. A database carrying `main`'s 81 must gain exactly one migration; a database
+        // carrying this branch's unmerged 81 must regain the CLI parameter schema the version gate
+        // legitimately skips. Nearly every line here is those three; without them the renumber's
+        // own failure modes have no coverage, and the second one is silent.
+        // Re-measured on the merged tree. `add-local-composer-media-tools` took 3,126 on its own
+        // base and this branch took 3,036 on a different one; the merged total is neither, because
+        // both added migrations and neither figure saw the other's.
+        // +26 for reconciling both renumber tests with a third branch in the history: each has to
+        // rewind past this branch's 83-85 as well, and both now derive their totals from the
+        // migration list instead of naming a number that the next migration would falsify.
+        // +7 for migration 86 (`lsp-language-registry`): the six-line
+        // `apply_transactional_migration` call and its one-line `EXPECTED_MIGRATIONS` entry. That
+        // is the fixed cost of registering any migration here, so this budget moves by the same
+        // amount every time one lands -- it bounds this subtree's own growth, not the migration
+        // count.
+        budget: 3_279,
         owner: "split-database-migrations",
     },
 ];
@@ -2493,27 +2512,28 @@ const NATIVE_PRODUCTION_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // top and continue with production code below. That discarded 5,966 real production lines
         // and left the subtree that much silent headroom — the opposite of what a ceiling is for.
         //
-        // Raised to 32,984 by `add-unified-personalization-governance`. Production grows by 63 —
-        // +55 `prompt.rs`, +5 `compaction.rs`, +2 `mod.rs`, +1 `generation.rs`, 0 `execution.rs`
-        // — against 43 lines of headroom in the previous figure, so the ceiling moves by 20. The
-        // itemised breakdown is on the aggregate entry above; what makes it production rather
-        // than test is that the runtime now reads one governed snapshot where it read three
-        // independent global toggles, and a snapshot has to be taken, carried and reported.
+        // `add-unified-personalization-governance` raises it again, and as above the merged figure is
+        // measured rather than derived: this branch reached 33,060 without the LSP expansion, `main`
+        // reached 33,742 without the governed snapshot.
         //
-        // Raised again to 32,992 by the same change's session-mode work: `recall` searches the
-        // same long-term pool the memory index draws from, so the tool catalog now takes whether
-        // this session may read memory at all. Suppressing the index while leaving the search tool
-        // in the catalog would have left a second door open into everything a temporary session
-        // was told would not be retained.
+        // The production growth this change contributes is the snapshot itself -- taken once per
+        // generation, carried through assembly, and reported when it degrades -- plus the two proposal
+        // paths and their translation, which is where "the model suggested this" stops being able to
+        // become "the user keeps this" without a person in between.
+        // Both sides then raised it for their own reason. This branch to 33,372, for
+        // `local_media_ocr_adapter.rs` -- the OnePiece OCR tool re-pointed at the shared
+        // local-media runtime, relocation rather than growth, except that the PaddleOCR runtime it
+        // replaces is deleted from a different subtree so this ceiling only sees the arrival.
+        // `main` to 33,049, for the provider framer's skip-and-resume path and its post-stream
+        // discarded-records log. Different files, so the merged tree is measured rather than
+        // guessed at from either.
         //
-        // Raised to 33,060 by the same change's candidate work. Production grows by 68 while the
-        // subtree as a whole grows by 39: the tests shrank because several of them had been
-        // asserting on a memory store the runtime no longer touches. The growth is the two
-        // proposal paths and their translation — a runtime proposal is a different shape from a
-        // save, and the difference is where "the model suggested this" stops being able to become
-        // "the user keeps this".
-        budget: 33_060,
-        owner: "upgrade-cli-parameter-management",
+        // `expand-lsp-read-only-methods` raises it to 33,742. Every line of the +285 is production:
+        // port methods, adapter implementations, and the symbol and call-relation result shapes.
+        // The three test doubles that also gained methods are counted by the aggregate above and
+        // deliberately not by this one.
+        budget: 33_750,
+        owner: "decompose-api-tool-use-loop",
     },
 ];
 
@@ -2785,6 +2805,343 @@ fn physical_line_counter_matches_newline_terminated_counting() {
 ///
 /// Found this way: the Goals screen rendered its error banner on a real desktop run while every
 /// goals command sat correctly in the handler macro.
+/// Production Rust sources, excluding tests, as (repo-relative path, contents).
+fn production_native_sources() -> Vec<(String, String)> {
+    rust_files(&project_root().join("src-tauri/src"))
+        .expect("enumerate native sources")
+        .into_iter()
+        .filter_map(|path| {
+            let relative = path
+                .strip_prefix(project_root())
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            if is_test_source(&relative) {
+                return None;
+            }
+            Some((
+                relative,
+                fs::read_to_string(&path).expect("read a native source"),
+            ))
+        })
+        .collect()
+}
+
+#[test]
+fn paddleocr_is_imported_and_constructed_only_by_the_local_media_worker() {
+    // The Python side is where PaddleOCR is actually loaded. Any second `import paddleocr` is a
+    // second runtime by definition, whatever the module around it is called.
+    let worker = project_root().join("src-tauri/resources/local-media-worker");
+    let mut importers = Vec::new();
+    let mut stack = vec![project_root()];
+    while let Some(directory) = stack.pop() {
+        for entry in fs::read_dir(&directory).expect("enumerate the repository") {
+            let path = entry.expect("read an entry").path();
+            let name = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
+            if path.is_dir() {
+                // Dependencies, build output, and the immutable OpenSpec archive are not ours.
+                // Every dot-directory is skipped because the documentation and screenshot builds
+                // copy the packaged worker into `.docs-target`, and a scan that counted a copy of
+                // our own file as a second runtime would fail for the one reason it must not.
+                if name.starts_with('.')
+                    || matches!(
+                        name.as_str(),
+                        "node_modules" | "target" | "dist" | "coverage" | "__pycache__" | "archive"
+                    )
+                {
+                    continue;
+                }
+                stack.push(path);
+                continue;
+            }
+            if path.extension().and_then(|value| value.to_str()) != Some("py") {
+                continue;
+            }
+            let source = fs::read_to_string(&path).expect("read a Python source");
+            if !source.contains("import paddleocr") && !source.contains("from paddleocr") {
+                continue;
+            }
+            if path.starts_with(&worker) {
+                continue;
+            }
+            importers.push(
+                path.strip_prefix(project_root())
+                    .unwrap_or(&path)
+                    .to_string_lossy()
+                    .replace('\\', "/"),
+            );
+        }
+    }
+
+    importers.sort();
+    assert!(
+        importers.is_empty(),
+        "[ARCH-NATIVE-011] PaddleOCR is imported outside the local-media worker, which is a \
+         second inference runtime:\n{}",
+        importers.join("\n")
+    );
+}
+
+#[test]
+fn onepiece_reaches_paddleocr_only_through_the_local_media_api() {
+    let adapter = "src-tauri/src/contexts/agent_runtime/infrastructure/local_media_ocr_adapter.rs";
+    let mut violations = Vec::new();
+
+    for (relative, source) in production_native_sources() {
+        if !relative.starts_with("src-tauri/src/contexts/agent_runtime/") {
+            continue;
+        }
+        // The adapter is the sanctioned seam; everything else in the Agent runtime must not know
+        // that PaddleOCR exists, let alone how to start it.
+        if relative == adapter {
+            continue;
+        }
+        for (index, line) in source.lines().enumerate() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("//") {
+                continue;
+            }
+            if trimmed.to_lowercase().contains("paddleocr") {
+                violations.push(format!("{relative}:{}", index + 1));
+            }
+        }
+    }
+
+    violations.sort();
+    assert!(
+        violations.is_empty(),
+        "[ARCH-NATIVE-011] OnePiece names PaddleOCR outside `local_media_ocr_adapter.rs`; OCR must \
+         be reached through `local_media::api`:\n{}",
+        violations.join("\n")
+    );
+
+    let source = fs::read_to_string(project_root().join(adapter)).expect("read the OCR adapter");
+    assert!(
+        source.contains("LocalMediaApi"),
+        "[ARCH-NATIVE-011] the OnePiece OCR adapter no longer holds the local-media API"
+    );
+    for forbidden in ["Command::new", "std_command", "spawn(", "ManagedChild"] {
+        assert!(
+            !source.contains(forbidden),
+            "[ARCH-NATIVE-011] the OnePiece OCR adapter reaches for `{forbidden}`; it must delegate \
+             process ownership to `local_media`"
+        );
+    }
+}
+
+#[test]
+fn tooling_extensions_registers_no_second_inference_runtime() {
+    let extensions = "src-tauri/src/contexts/tooling/extensions/";
+    let mut violations = Vec::new();
+
+    for (relative, source) in production_native_sources() {
+        if !relative.starts_with(extensions) {
+            continue;
+        }
+        for (index, line) in source.lines().enumerate() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("//") || trimmed.starts_with("///") {
+                continue;
+            }
+            // The catalog installs Python dependencies and probes a health-only sidecar. Naming an
+            // inference protocol, or reaching into `local_media`, is how it would quietly become a
+            // second owner of readiness and model lifecycle.
+            for needle in [
+                "inference_protocol",
+                "local_media",
+                "OcrInference",
+                "InferencePort",
+            ] {
+                if trimmed.contains(needle) {
+                    violations.push(format!("{relative}:{}: {needle}", index + 1));
+                }
+            }
+        }
+    }
+
+    violations.sort();
+    assert!(
+        violations.is_empty(),
+        "[ARCH-NATIVE-011] `tooling/extensions` claims inference ownership; it owns dependency \
+         installation and health only:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn no_production_extension_implements_a_framework_as_a_static_file_server() {
+    // `python -m http.server` is a health probe standing in for a real sidecar. That is tolerable
+    // for a liveness check and is not tolerable as the implementation of a named inference
+    // framework, so it must never appear on a path that claims to run one.
+    let mut violations = Vec::new();
+    for (relative, source) in production_native_sources() {
+        for (index, line) in source.lines().enumerate() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("//") || !trimmed.contains("http.server") {
+                continue;
+            }
+            let window_start = index.saturating_sub(40);
+            let window: String = source
+                .lines()
+                .skip(window_start)
+                .take(index - window_start + 40)
+                .collect::<Vec<_>>()
+                .join("\n")
+                .to_lowercase();
+            for framework in ["paddleocr", "faster_whisper", "sherpa_onnx", "inference"] {
+                if window.contains(framework) {
+                    violations.push(format!("{relative}:{}: near `{framework}`", index + 1));
+                }
+            }
+        }
+    }
+
+    violations.sort();
+    assert!(
+        violations.is_empty(),
+        "[ARCH-NATIVE-011] a static file server stands in for a named inference framework:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn no_local_media_log_or_diagnostic_call_site_carries_media_content() {
+    // The diagnostics port has no free-text parameter, which stops a whole class of leak at the
+    // type level. What it cannot stop is a *field value* built from a result: `("text", result
+    // .plain_text.clone())` type-checks and would put a recognized document into the unified log.
+    let root = project_root().join("src-tauri/src/contexts/local_media");
+    let content_bearing = [
+        "plain_text",
+        "transcript",
+        ".text",
+        "display_name",
+        "samples",
+        "source_path",
+        "audio_path",
+        "output_path",
+        "model_path",
+        "python_executable",
+    ];
+
+    let mut violations = Vec::new();
+    for path in rust_files(&root).expect("enumerate the local media context") {
+        if is_test_source(&path.to_string_lossy()) {
+            continue;
+        }
+        let source = fs::read_to_string(&path).expect("read a local media source");
+        for (index, line) in source.lines().enumerate() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("//") || trimmed.starts_with("///") {
+                continue;
+            }
+            let logs = trimmed.contains(".record(")
+                || trimmed.contains(".phase(")
+                || trimmed.contains("append_log(")
+                || trimmed.contains("write_diagnostic(");
+            if !logs {
+                continue;
+            }
+            for needle in content_bearing {
+                if trimmed.contains(needle) {
+                    violations.push(format!(
+                        "{}:{} passes `{needle}` to a log sink",
+                        path.strip_prefix(project_root())
+                            .unwrap_or(&path)
+                            .to_string_lossy()
+                            .replace('\\', "/"),
+                        index + 1
+                    ));
+                }
+            }
+        }
+    }
+
+    violations.sort();
+    assert!(
+        violations.is_empty(),
+        "[ARCH-NATIVE-010] local-media logging must carry codes and counts, never content or \
+         paths:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn the_local_media_bridge_is_bundled_and_carries_nothing_but_its_own_python() {
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let configuration = fs::read_to_string(manifest_dir.join("tauri.conf.json"))
+        .expect("read the Tauri configuration");
+    assert!(
+        configuration.contains("resources/local-media-worker/vane_local_media_worker/**/*"),
+        "[ARCH-NATIVE-009] the Python bridge is not in `bundle.resources`, so a packaged build \
+         reports every local-media engine unavailable while development works"
+    );
+    // Scoped to the package, not its parent: the sibling `tests/` directory is a development
+    // artefact and has no business in a shipped bundle.
+    assert!(
+        !configuration.contains("resources/local-media-worker/**/*"),
+        "[ARCH-NATIVE-009] the bundle glob covers the bridge's test suite as well as the package"
+    );
+
+    // The glob is recursive, so whatever sits in the package directory ships. A wheel, a model, or
+    // an interpreter dropped here during debugging would be packaged silently and turn a ~200 KiB
+    // resource into hundreds of megabytes -- and would ship a redistribution nobody reviewed.
+    let bridge = manifest_dir
+        .join("resources")
+        .join("local-media-worker")
+        .join("vane_local_media_worker");
+    let mut unexpected = Vec::new();
+    let mut python_sources = 0usize;
+    let mut stack = vec![bridge.clone()];
+    while let Some(directory) = stack.pop() {
+        for entry in fs::read_dir(&directory).expect("enumerate the bridge directory") {
+            let path = entry.expect("read a bridge entry").path();
+            if path.is_dir() {
+                if path.file_name().is_some_and(|name| name == "__pycache__") {
+                    // Build output, never committed; present only after a local test run.
+                    continue;
+                }
+                stack.push(path);
+                continue;
+            }
+            match path.extension().and_then(|value| value.to_str()) {
+                Some("py") => python_sources += 1,
+                _ => unexpected.push(
+                    path.strip_prefix(&bridge)
+                        .unwrap_or(&path)
+                        .to_string_lossy()
+                        .replace('\\', "/"),
+                ),
+            }
+        }
+    }
+    unexpected.sort();
+    assert!(
+        unexpected.is_empty(),
+        "[ARCH-NATIVE-009] non-Python files under the bundled bridge would be packaged:\n{}",
+        unexpected.join("\n")
+    );
+    assert!(
+        python_sources >= 6,
+        "the bridge parser found only {python_sources} Python sources, so it has stopped \
+         matching the tree"
+    );
+
+    // `__pycache__` is skipped above because a local test run creates it. Being git-ignored keeps
+    // it out of the repository; it does not keep a build machine that ran the Python tests first
+    // from copying it into `target/.../resources`. That residue is a few tens of KiB of `.pyc`
+    // that any interpreter ignores when stale, so it is recorded here rather than guarded against.
+    let ignore = fs::read_to_string(project_root().join(".gitignore")).expect("read .gitignore");
+    assert!(
+        ignore.contains("__pycache__/"),
+        "[ARCH-NATIVE-009] `__pycache__/` is not ignored, so Python byte cache can be committed \
+         into a directory the bundle packages recursively"
+    );
+}
+
 #[test]
 fn supplemental_registry_routes_every_command_it_registers() {
     let source = fs::read_to_string(
@@ -2850,7 +3207,9 @@ fn registered_supplemental_commands(source: &str) -> Vec<String> {
         .lines()
         .filter_map(|line| {
             let entry = line.trim().trim_end_matches(',');
-            (!entry.is_empty() && !entry.starts_with("//"))
+            // An attribute is not a command. A feature-gated entry carries one on the line above,
+            // and reading it as a name reported the attribute itself as an unroutable command.
+            (!entry.is_empty() && !entry.starts_with("//") && !entry.starts_with("#["))
                 .then(|| entry.rsplit("::").next().unwrap_or(entry).to_string())
         })
         .collect()
@@ -2879,6 +3238,12 @@ fn routed_supplemental_commands(source: &str) -> Vec<String> {
     };
     body.lines()
         .map(|line| line.trim().trim_start_matches('|').trim())
+        // Two shapes route a name: an arm of the `matches!` list, and a guarded early return. The
+        // second exists because a feature-gated name cannot be a conditional arm of `matches!`.
+        .map(|line| match line.split_once("command == ") {
+            Some((_, rest)) => rest.trim_end_matches(" {").trim(),
+            None => line,
+        })
         .filter_map(|line| line.strip_prefix('"')?.strip_suffix('"'))
         .filter(|name| {
             !name.is_empty()
@@ -2888,4 +3253,207 @@ fn routed_supplemental_commands(source: &str) -> Vec<String> {
         })
         .map(str::to_string)
         .collect()
+}
+
+/// Where `CliIdentifier::trusted` may be called, and with what.
+///
+/// The constructor skips validation, so it is only ever correct for a value this repository
+/// produced itself. Visibility already keeps it out of `commands/` -- it is scoped to the CLI
+/// context. This covers the half visibility cannot: a call *inside* that context that hands it a
+/// stored row, a DTO field, a PATH entry, or a package manager's stdout.
+///
+/// Each entry is (file suffix, exact argument text). Adding a call site means adding a line here
+/// and stating why the value cannot come from outside.
+const TRUSTED_IDENTIFIER_CALL_SITES: &[(&str, &str)] = &[
+    // Fixed source names owned by this repository, one per adapter.
+    ("infrastructure/npm_source.rs", "\"npm\""),
+    ("infrastructure/winget_source.rs", "\"winget\""),
+    ("infrastructure/vendor_source.rs", "\"vendor\""),
+    // A match over `CliSourceKind`'s own variants. Every arm is a literal in that file, so the
+    // argument cannot carry a stored row or a package manager's output no matter where the kind
+    // itself came from.
+    ("domain/source.rs", "self.as_str()"),
+    // Fallback literals. The dynamic value goes through the fallible `new` first; only the
+    // last-resort constant is trusted.
+    ("infrastructure/environment_discovery.rs", "\"i-unknown\""),
+    ("infrastructure/environment_serde.rs", "\"legacy\""),
+    // Generated in-process from an ASCII prefix, a counter, and a UUID. No caller supplies any
+    // part of it, and a fallback constant here would let two plans share an id.
+    (
+        "infrastructure/environment_runtime_adapters.rs",
+        "self.next(\"cli-plan\")",
+    ),
+    (
+        "infrastructure/environment_runtime_adapters.rs",
+        "self.next(\"cli-bulk\")",
+    ),
+    // Every `id` in `LANGUAGE_DEFINITIONS` is a literal in that same table, so the argument cannot
+    // carry a stored row or a wire field whichever entry the reference points at. A language id
+    // that did come from outside resolves through `registry::definition` first, and an
+    // unregistered one gets no reference at all -- so nothing external can reach this.
+    ("code_intelligence/domain/registry.rs", "self.id"),
+];
+
+/// The text between `trusted(` and the paren that closes it.
+///
+/// Depth-aware because the argument may itself be a call -- `self.next("cli-plan")` -- and because
+/// the whole thing may sit inside another call, as it does in an `unwrap_or_else` fallback.
+fn trusted_argument(rest: &str) -> String {
+    let mut depth = 0_i32;
+    for (index, character) in rest.char_indices() {
+        match character {
+            '(' => depth += 1,
+            ')' if depth == 0 => return rest[..index].trim().to_string(),
+            ')' => depth -= 1,
+            _ => {}
+        }
+    }
+    rest.trim().to_string()
+}
+
+#[test]
+fn the_trusted_argument_scanner_stops_at_the_closing_paren() {
+    assert_eq!(trusted_argument("\"npm\")"), "\"npm\"");
+    // Nested call: the inner `)` is part of the argument.
+    assert_eq!(
+        trusted_argument("self.next(\"cli-plan\"))"),
+        "self.next(\"cli-plan\")"
+    );
+    // Wrapped in an outer call, as a fallback inside `unwrap_or_else` is.
+    assert_eq!(trusted_argument("\"legacy\"));"), "\"legacy\"");
+}
+
+/// The one file allowed to name the pre-change CLI table, and the one that creates it.
+///
+/// `cli_tool_status` survives so an upgrading install still sees its tools before the first
+/// refresh. It is read-only and it is *not* authoritative: a legacy row becomes a stale snapshot
+/// only when no real one exists. A second reader would put the old table back in the running as a
+/// source of truth, which is exactly how the Agent Runtime and the CLI Management page came to
+/// disagree about which installation a tool has.
+const LEGACY_CLI_TABLE_READERS: &[&str] = &[
+    "contexts/tooling/cli/infrastructure/environment_repository.rs",
+    "contexts/tooling/cli/infrastructure/environment_schema.rs",
+    "contexts/tooling/cli/infrastructure/environment_serde.rs",
+    // Creates the table and registers that migration. Neither is a read of a live row.
+    "platform/database/migrations/inline_schema.rs",
+    "platform/database/migrations/mod.rs",
+];
+
+#[test]
+fn the_legacy_cli_table_has_exactly_one_reader_and_no_writer() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let files = rust_files(&root).expect("native sources");
+
+    let mut unexpected = Vec::new();
+    let mut writers = Vec::new();
+    for file in &files {
+        let display = file.display().to_string().replace('\\', "/");
+        // Tests seed a legacy row on purpose: proving the compatibility reader works means writing
+        // one first, and proving nothing else reads it means the assertion is about production.
+        if display.ends_with("_tests.rs") || display.ends_with("/tests.rs") {
+            continue;
+        }
+        let source = fs::read_to_string(file).expect("read native source");
+        for (index, line) in source.lines().enumerate() {
+            if !line.contains("cli_tool_status") {
+                continue;
+            }
+            // A comment naming the table is history, not a dependency on it.
+            let code = line.trim_start();
+            if code.starts_with("//") || code.starts_with("///") || code.starts_with("*") {
+                continue;
+            }
+            let allowed = LEGACY_CLI_TABLE_READERS
+                .iter()
+                .any(|suffix| display.ends_with(suffix));
+            if !allowed {
+                unexpected.push(format!("{display}:{}", index + 1));
+            }
+            let upper = line.to_ascii_uppercase();
+            if (upper.contains("INSERT INTO")
+                || upper.contains("UPDATE ")
+                || upper.contains("DELETE FROM"))
+                && !display.ends_with("inline_schema.rs")
+            {
+                writers.push(format!("{display}:{}", index + 1));
+            }
+        }
+    }
+
+    assert!(
+        unexpected.is_empty(),
+        "the legacy `cli_tool_status` table is read-only compatibility, not a second source of \
+         truth. These files reach for it outside the one reader that maps a leftover row to a \
+         stale snapshot: {}",
+        unexpected.join(", ")
+    );
+    assert!(
+        writers.is_empty(),
+        "nothing may write `cli_tool_status` after the cutover; a write would revive a model the \
+         CLI Management page does not read: {}",
+        writers.join(", ")
+    );
+}
+
+#[test]
+fn no_external_input_reaches_the_trusted_identifier_constructor() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let files = rust_files(&root).expect("native sources");
+
+    let mut unexpected = Vec::new();
+    for file in &files {
+        let display = file.display().to_string().replace('\\', "/");
+        // The definition itself and its own unit tests are not call sites.
+        if display.ends_with("domain/ids.rs") {
+            continue;
+        }
+        let source = fs::read_to_string(file).expect("read native source");
+        for (index, line) in source.lines().enumerate() {
+            let Some(position) = line.find("::trusted(") else {
+                continue;
+            };
+            let argument = trusted_argument(&line[position + "::trusted(".len()..]);
+            let allowed = TRUSTED_IDENTIFIER_CALL_SITES
+                .iter()
+                .any(|(suffix, expected)| display.ends_with(suffix) && argument == *expected);
+            if !allowed {
+                unexpected.push(format!("{display}:{}: `{argument}`", index + 1));
+            }
+        }
+    }
+
+    assert!(
+        unexpected.is_empty(),
+        "these `trusted` identifier constructions are not on the audited list. `trusted` skips \
+         validation, so a value that can be shaped by a DTO field, a SQLite column, a PATH entry, \
+         a package manager's output, or the network must use the fallible `new` instead: {}",
+        unexpected.join(", ")
+    );
+}
+
+#[test]
+fn command_adapters_cannot_construct_identifiers_without_validating_them() {
+    // Visibility is the real guard; this fails with a readable message rather than a privacy error
+    // if someone widens it.
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("commands");
+    let files = rust_files(&root).expect("command sources");
+
+    let offenders: Vec<String> = files
+        .iter()
+        .filter(|file| {
+            fs::read_to_string(file)
+                .map(|source| source.contains("::trusted("))
+                .unwrap_or(false)
+        })
+        .map(|file| file.display().to_string())
+        .collect();
+
+    assert!(
+        offenders.is_empty(),
+        "a command adapter builds an identifier without validating it. Everything a command \
+         receives came from outside the process: {}",
+        offenders.join(", ")
+    );
 }

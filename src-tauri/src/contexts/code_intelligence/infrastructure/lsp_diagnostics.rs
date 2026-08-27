@@ -1,6 +1,4 @@
-use crate::contexts::code_intelligence::domain::models::{
-    LanguageFamily, ProcessState, ServerKind,
-};
+use crate::contexts::code_intelligence::domain::models::{Language, ProcessState};
 use crate::contexts::operations::api::{DiagnosticLog, DiagnosticLogPort, LogSeverity};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
@@ -25,8 +23,7 @@ pub(crate) enum LspCrashReason {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct LspDiagnosticIdentity {
-    pub(crate) language: LanguageFamily,
-    pub(crate) server: ServerKind,
+    pub(crate) language: Language,
     pub(crate) workspace_id: Option<String>,
     pub(crate) correlation_id: Option<String>,
 }
@@ -210,11 +207,11 @@ fn build_log(event: LspDiagnosticEvent, suppressed_count: u64) -> DiagnosticLog 
     } = event;
     drop(private);
     let mut context = BTreeMap::from([
+        ("language".to_string(), identity.language.id.to_string()),
         (
-            "language".to_string(),
-            identity.language.as_id().to_string(),
+            "server".to_string(),
+            identity.language.server_id.to_string(),
         ),
-        ("server".to_string(), server_id(identity.server).to_string()),
     ]);
     insert_bounded(&mut context, "workspaceId", identity.workspace_id);
     insert_bounded(&mut context, "correlationId", identity.correlation_id);
@@ -326,13 +323,6 @@ fn insert_bounded(context: &mut BTreeMap<String, String>, key: &str, value: Opti
             key.to_string(),
             value.chars().take(MAX_IDENTITY_CHARS).collect(),
         );
-    }
-}
-
-const fn server_id(server: ServerKind) -> &'static str {
-    match server {
-        ServerKind::RustAnalyzer => "rust_analyzer",
-        ServerKind::TypeScriptLanguageServer => "typescript_language_server",
     }
 }
 

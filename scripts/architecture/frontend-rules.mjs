@@ -35,6 +35,33 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 合并后下调:上面两条各自按自己那一侧的增量报了上限(19471 / 19581),但同一批上游改动在
 // src/services 里是净减的,合并后实测只有 19234——比两侧的预估、也比它们共同的基线 19414 都低。
 // 上限按实测值收紧,不保留任何一侧凭预估留下的余量。
+// 由 `add-local-composer-media-tools` 从 19234 上调 351 行,全部是新增服务边界的固定开销,没有一行
+// 是复制既有分支:
+//   +60  `local-media-service.ts`——接口本身,15 个方法加注释;
+//   +114 `tauri-local-media-client.ts`——每个方法一次 `invoke`,外加原生文件选择器那一处
+//        (它必须留在服务层:React 层禁止 import `@tauri-apps/*`,而 OCR 需要一个文件选择器,
+//        仓库此前只有目录选择器);
+//   +154 `web-local-media-client.ts`——比其他 Web mock 长,因为它不能模拟成功。三个引擎的
+//        disabled profile 与 unavailable status 必须逐字段写全,页面才能在浏览器里渲染出真实布局
+//        并如实说明"仅桌面端可用";
+//   +13   `runtime-local-media-client.ts`——与 `runtime-ssh-connection-client.ts` 同构的绑定层;
+//   +10   `local-media-service.contract.test.ts` 不计入(测试文件不在 productionFiles 内)。
+// 上限取实测值,不预留余量。
+// 同一变更再上调 20 行:设置页需要为模型路径字段调起原生选择器,而 React 层不得 import
+// `@tauri-apps/*`,于是 `selectProfilePath` 只能落在服务边界上——接口 8 行(含说明为何设置页持有
+// 真实路径仍不算越界)、Tauri 侧 4 行、Web 侧 8 行(浏览器给不出宿主路径,返回 null 并写明理由,
+// 而不是让用户手填一条注定不可达的路径)。
+// 再上调 8 行:E2E fake 的接线落在 `runtime-local-media-client.ts`。fake 本体在 `src/testing/`
+// 不计入本预算,这里只有一个构建期常量分支加解释它为何是构建期而非运行时的注释——运行时开关会在
+// 已发布的构建里留下一个可以被打开的入口,而构建期常量在产物中根本不存在。
+// 再上调 25 行:桌面 fixture 需要替换「文件选择器返回了哪个文件」这一个边界,于是
+// `tauri-local-media-client.ts` 多出一个 `chooseOcrSource`——4 行逻辑加 17 行注释,说明为什么
+// 只替换选择结果、为什么 fail-closed 在原生侧而不在这里,以及为什么普通 Desktop Smoke 用同一个
+// 构建却必须仍然走真实对话框。选择之后的嗅探、限额、staging、one-time claim 与清理一行未改。
+// 再上调 18 行:上一版的 fixture 分支 catch 住任何异常就退回真实对话框,于是命令未注册、IPC 断链
+// 这类真实缺陷会在无人应答的 headless runner 上变成挂起,而不是一条能读的失败。现在只有恰好等于
+// `FIXTURE_OCR_SOURCE_UNAVAILABLE` 的稳定码才回退,其余一律重新抛出——多出来的是一个从错误串尾部
+// 取稳定码的小函数,以及说明为什么只有这一个码允许回退的注释。
 // 上调理由(upgrade-cli-parameter-management):CLI 参数命令切到 v2 DTO 后,Web/mock 适配器不能再
 // 依赖手工维护的 catalog。新增的 273 行是这条边界的固定开销:`cli-parameter-registry.ts` 用 zod
 // 解析 generated 契约(裸 `as` 会让生成器回归变成运行期形状错配,而适配器恰恰是 native 测试照不到
@@ -46,31 +73,40 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 匹配——与 native 侧同一条规则。迁移只读不写,v1 键原样保留。
 // 旧的 `cli-parameter-catalog.ts`(207 行)此时还删不掉——它只剩两个测试消费者,随 task 10.4
 // 一起下线,届时这条上限应当回落。
-// 上调理由(add-unified-personalization-governance):个性化治理在服务边界上多出 948 行,全部是新能力
-// 的固定开销,没有任何一行是从别处复制来的:`personalization-service.ts` 54 行是接口本身,
-// `tauri-personalization-client.ts` 109 行是 16 个命令的 invoke 映射,剩下 779 行是 Web/mock。
-// mock 占大头是因为它必须真的拒绝:版本冲突、reset token 与 scope 不匹配、未知枚举值、
-// 缺失的 workspace。一个一律放行的 mock 会让页面的冲突分支一次也跑不到,而那正是真实桌面上
-// 最先触发的一条。类型定义不在这笔里——它们住在 `src/types/`,不属于本预算。
-// 任务 9.6 下线 `listAllMemories` 与无 scope 的 delete/reset 后,这条上限应当回落。
-// 20475 -> 20478: `agent-memory-service.ts` 上的废弃声明。那三个方法要到 10-11 组
-// 重建设置页后才能删,在那之前得有一句话拦住新的调用方。
-// 20478 -> 20530: 工作区 scope 选择需要一个只有 native 能给的 workspace key。
-// 接口、Tauri 映射与 Web/mock 解析器共 52 行；mock 镜像的是优先级规则而不是键的字节，
-// 因为键对调用方不透明，但 stable id 胜过推导、worktree 胜过所属项目这两条不能错。
-// 20530 -> 20546: mock 的策略改成过 localStorage 持久化。桌面端策略本就能活过重启，
-// 不持久化的 mock 会放行一个"保存看似成功、重新加载后还是旧文本"的页面——
-// 设置页最不能有的那一种故障，也正是这份 mock 存在的意义。
-// 20546 -> 20550: 记忆列表需要按"谁可读取"过滤。native 的 MemoryQuery 本来就有
-// audience_agent_id，只是没有暴露到 DTO；这 4 行是类型字段与 mock 的过滤实现。
-// "谁记录的"与"谁可读取"是两个问题，合并成一个控件会让某些记忆从其中一侧彻底搜不到。
-// 20550 -> 20572: 健康状态新增"上次重建时间"与"需要修复"两个字段，
-// mock 跟着把时间戳持久化——桌面端它本就能活过重启，不持久化的 mock 会让
-// "从未重建"与"重建过但没发现问题"在页面上长得一样。
-// 20572 -> 20576: mock 创建会话时保留调用方要求的个性化模式。写死成 standard
-// 会放行一个"临时会话却照常保留一切"的页面，而 mock 正是让这件事在测试里可观测的地方。
+// 上调理由(add-unified-personalization-governance):个性化治理在服务边界上多出的是新能力的固定
+// 开销,没有一行是从别处复制来的:`personalization-service.ts` 是接口本身,
+// `tauri-personalization-client.ts` 是命令的 invoke 映射,剩下的大头在 Web/mock —— 它必须真的
+// 拒绝:版本冲突、reset token 与 scope 不匹配、未知枚举值、缺失的 workspace。一个一律放行的
+// mock 会让页面的冲突分支一次也跑不到,而那正是真实桌面上最先触发的一条。
+// 同一轮里 `agent-memory-service.ts` 与两侧的 `listAllMemories`/无 scope delete/reset 整个删掉,
+// 抵掉了一部分。
+// 与 origin/main 合并后按合并树实测重取:两侧各自在自己的基线上报了上限(20576 / 20327),改的是
+// 不同文件,合并树的真实总数既不是两者之一也不是两者之和。下面这个数字是直接测量得到的。
+// 上调理由(add-source-aware-cli-environment-management):CLI 环境边界从 3 个方法变成 9 个,
+// 因为"准备计划"和"执行计划"必须是两次调用——执行只收计划 ID 与版本号,这样"复核过的版本就是
+// 实际执行的版本"是结构上成立的,而不是靠约定。9 个方法在 Tauri 与 Web/mock 两侧各实现一份,
+// 是这条边界的固定开销。同一轮里 `web-cli-tool-client.ts`(183 行)整个删掉,mock 快照数据
+// (185 行)搬进 JSON,没有保留任何旧路径,也没有复制既有分支。
+// 与 upgrade-cli-parameter-management 合并后按合并树实测重取,不是两侧上限相加:那一侧删掉的
+// `cli-parameter-catalog.ts` 抵掉了这一侧的一部分。
+// 合并 origin/main(local-media)后按合并树重测:两侧各自在自己的基线上报了上限(19803 / 19960),
+// 改的是不同文件,合并树的真实总数既不是两者之一也不是两者之和。下面这个数字是直接测量得到的。
+// 上调理由(extend-lsp-language-registry):+49,全部落在生产文件上,测试不计入。
+// +45 是 `web-lsp-client.ts` 的 mock 语言注册表:Web 模式没有后端注册表可查,契约对等就要求这一侧
+// 自带一份镜像。它换来的正是这个变更的目的——之后加一种语言是改这张表里的一条数据,而不是改组件。
+// +7 是 `lsp-contract.ts` 的描述符归一化与 startupArguments 字段;同时删掉的 `expectedServer`
+// 语言→服务器硬映射抵回去一部分,所以净额远小于新增逻辑本身。
+// -3 是 `tauri-agent-client.ts`:`normalizeLspServerTestResult` 的第二个参数原本只用于那条硬映射
+// 校验,映射没了参数也就没了。没有复制任何既有分支,前端也不再有任何写死的语言名。
+// 上调理由(expand-lsp-read-only-methods):+35,同样全部落在生产文件上。
+// 五个新的只读工具在 Web 侧各需要一个确定性的 unavailable 信封,加上 mock 协商能力列表里对应的
+// 五条方法。这一侧没有可删的重复:信封的形状本来就各不相同,类型定义与实现复用了 definition 的
+// 信封,已经是能复用的部分。
+// 同时把 `webLspToolClient` 从 `web-lsp-client.ts` 拆出去,因为九个工具的信封让合并后的文件撞上
+// 300 行硬规则。拆分只搬不抄:唯一被复制的 `clone` 帮助函数随即删掉了——那里每次都新建对象,
+// 本来就没有共享状态需要防御性拷贝。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 20576, owner: "add-unified-personalization-governance" },
+  { root: "src/services", budget: 21337, owner: "add-unified-personalization-governance" },
 ]);
 
 const STATE_PACKAGES = new Set([

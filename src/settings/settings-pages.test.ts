@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { settingsPages } from "./settings-pages";
 
@@ -14,6 +15,7 @@ describe("settingsPages", () => {
       "personalization",
       "prompt-hooks",
       "expert-roles",
+      "local-media",
       "providers",
       "extensions",
       "plugins",
@@ -26,7 +28,7 @@ describe("settingsPages", () => {
     ]);
   });
   it("registers every page as a lazy first-visit module", () => {
-    expect(settingsPages).toHaveLength(19);
+    expect(settingsPages).toHaveLength(20);
     expect(settingsPages.every((page) => typeof page.loader === "function")).toBe(true);
     expect(settingsPages.every((page) => !("component" in page))).toBe(true);
   });
@@ -159,6 +161,23 @@ describe("settingsPages", () => {
       labelKey: "settings.pages.observability",
       searchPlaceholderKey: "settings.search.observability",
     });
+  });
+
+  it("keeps the CLI management route lazy and pointed at the module the bundler splits", async () => {
+    const page = settingsPages.find((candidate) => candidate.id === "providers");
+    expect(page?.loader).toBeTypeOf("function");
+
+    // The build's chunk check asserts a dynamic entry for this exact source path. Naming it here
+    // as well means a rename that leaves the two out of step fails on this side too, rather than
+    // only when the manifest is inspected -- and a check pointed at a path nothing emits cannot
+    // catch a page that quietly stopped being code-split.
+    const loaderSource = readFileSync("src/settings/settings-page-loaders.ts", "utf8");
+    expect(loaderSource).toContain('import("./pages/cli-management/cli-management-page")');
+    const chunkCheck = readFileSync("scripts/check-frontend-chunks.mjs", "utf8");
+    expect(chunkCheck).toContain('"src/settings/pages/cli-management/cli-management-page.tsx"');
+
+    const loaded = await page?.loader?.();
+    expect(loaded?.default).toBeTypeOf("function");
   });
 
   it("registers About as the final settings page", () => {

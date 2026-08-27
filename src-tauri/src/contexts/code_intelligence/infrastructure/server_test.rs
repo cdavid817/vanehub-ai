@@ -4,7 +4,7 @@ use super::lsp_framing::FrameLimits;
 use super::lsp_server_requests::{LspClientRequestLimits, LspServerRequestHandler};
 use super::lsp_stdio_child::{LspShutdownDisposition, ManagedLspStdio};
 use super::server_discovery::ServerDiscoveryResult;
-use crate::contexts::code_intelligence::domain::models::{NegotiatedCapabilities, ServerKind};
+use crate::contexts::code_intelligence::domain::models::{Language, NegotiatedCapabilities};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::fmt;
@@ -19,7 +19,7 @@ const MIN_TEST_TIMEOUT: Duration = Duration::from_millis(100);
 
 #[derive(Clone)]
 pub(crate) struct ServerTestCommand {
-    kind: ServerKind,
+    language: Language,
     executable: Option<String>,
     arguments: Vec<String>,
     initialization_options: Value,
@@ -29,7 +29,7 @@ impl fmt::Debug for ServerTestCommand {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("ServerTestCommand")
-            .field("kind", &self.kind)
+            .field("language", &self.language)
             .field("available", &self.executable.is_some())
             .finish()
     }
@@ -37,22 +37,22 @@ impl fmt::Debug for ServerTestCommand {
 
 impl ServerTestCommand {
     pub(crate) fn available(
-        kind: ServerKind,
+        language: Language,
         executable: String,
         arguments: Vec<String>,
         initialization_options: Value,
     ) -> Self {
         Self {
-            kind,
+            language,
             executable: Some(executable),
             arguments,
             initialization_options,
         }
     }
 
-    pub(crate) fn unavailable(kind: ServerKind) -> Self {
+    pub(crate) const fn unavailable(language: Language) -> Self {
         Self {
-            kind,
+            language,
             executable: None,
             arguments: Vec::new(),
             initialization_options: Value::Null,
@@ -64,22 +64,18 @@ impl ServerTestCommand {
         initialization_options: Value,
     ) -> Self {
         let Some(executable) = discovery.executable() else {
-            return Self::unavailable(discovery.server_kind());
+            return Self::unavailable(discovery.language());
         };
         Self::available(
-            discovery.server_kind(),
+            discovery.language(),
             executable.to_string_lossy().into_owned(),
-            discovery
-                .arguments()
-                .iter()
-                .map(|argument| (*argument).to_string())
-                .collect(),
+            discovery.arguments().to_vec(),
             initialization_options,
         )
     }
 
-    pub(crate) const fn server_kind(&self) -> ServerKind {
-        self.kind
+    pub(crate) const fn language(&self) -> Language {
+        self.language
     }
 
     pub(crate) fn arguments(&self) -> &[String] {
@@ -172,7 +168,7 @@ impl IsolatedServerTester {
         };
         succeed_phase(&mut result, ServerTestPhase::Discovery, None);
         let deadline = Instant::now() + timeout;
-        let project = match MinimalProject::create(command.kind) {
+        let project = match MinimalProject::create(command.language) {
             Ok(project) => project,
             Err(()) => {
                 fail_phase(
@@ -266,30 +262,10 @@ struct MinimalProject {
 }
 
 impl MinimalProject {
-    fn create(kind: ServerKind) -> Result<Self, ()> {
+    fn create(language: Language) -> Result<Self, ()> {
         let directory = tempfile::tempdir().map_err(|_| ())?;
-        match kind {
-            ServerKind::RustAnalyzer => {
-                write_file(
-                    directory.path(),
-                    "Cargo.toml",
-                    b"[package]\nname='lsp_test'\nversion='0.1.0'\n",
-                )?;
-                write_file(directory.path(), "src/lib.rs", b"pub fn fixture() {}\n")?;
-            }
-            ServerKind::TypeScriptLanguageServer => {
-                write_file(directory.path(), "package.json", b"{\"private\":true}")?;
-                write_file(
-                    directory.path(),
-                    "tsconfig.json",
-                    b"{\"compilerOptions\":{}}",
-                )?;
-                write_file(
-                    directory.path(),
-                    "src/index.ts",
-                    b"export const fixture = true;\n",
-                )?;
-            }
+        for (relative, contents) in language.fixture_files {
+            write_file(directory.path(), relative, contents.as_bytes())?;
         }
         let root_uri = Url::from_directory_path(directory.path())
             .map_err(|_| ())?

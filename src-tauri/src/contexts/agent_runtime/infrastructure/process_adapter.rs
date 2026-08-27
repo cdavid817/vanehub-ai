@@ -1,7 +1,7 @@
 use super::providers::{
-    add_codex_output_capture_args, output_parser_for_format, BoundedProviderLines,
-    ProviderOutputEvent, ProviderPromptDelivery, ProviderReportedUsage, ProviderToolEvent,
-    ProviderToolPhase, ProviderUsageOverlap,
+    add_codex_output_capture_args, add_opencode_directory_args, output_parser_for_format,
+    BoundedProviderLines, ProviderOutputEvent, ProviderPromptDelivery, ProviderReportedUsage,
+    ProviderToolEvent, ProviderToolPhase, ProviderUsageOverlap,
 };
 use crate::contexts::agent_runtime::application::{
     AgentClockPort, AgentLog, AgentLogLevel, AgentLoggingPort, AgentProcessEventSink,
@@ -31,7 +31,7 @@ use crate::contexts::tooling::skills::api::{CliSkillEvidenceSnapshot, SkillApi};
 use crate::platform::private_relay_fs::PreparedMcpRelayGuard;
 use crate::platform::process;
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -61,6 +61,7 @@ pub(crate) struct RuntimeAgentProcessAdapter {
 #[derive(Debug, Clone)]
 pub(crate) struct PreparedMcpRelay {
     pub(crate) invocation_args: Vec<String>,
+    pub(crate) environment: BTreeMap<String, String>,
     pub(crate) guard: Option<PreparedMcpRelayGuard>,
 }
 
@@ -186,30 +187,26 @@ impl RuntimeAgentProcessAdapter {
             role_briefing: request.role_briefing.as_deref(),
         })?;
         let mut relay_guard = None;
-        if request.execution_context.mcp_relay_enabled {
-            match self.mcp_relay.prepare(
-                &request.agent.id,
-                request.session.folder.as_deref(),
-                &request.execution_context,
-            ) {
-                Ok(prepared) => {
-                    apply_mcp_relay_args(
-                        &request.agent.id,
-                        &mut spec.args,
-                        prepared.invocation_args,
-                    );
-                    relay_guard = prepared.guard;
-                }
-                Err(error) => {
-                    self.record_log(
-                        AgentLogLevel::Warn,
-                        "session.runtime.mcp_relay",
-                        format!("managed MCP relay unavailable; continuing without relay: {error}"),
-                        Some(&request.agent.id),
-                        Some(&request.session.id),
-                        Some(&request.operation_id),
-                    );
-                }
+        let mut relay_environment = BTreeMap::new();
+        match self.mcp_relay.prepare(
+            &request.agent.id,
+            request.session.folder.as_deref(),
+            &request.execution_context,
+        ) {
+            Ok(prepared) => {
+                apply_mcp_relay_args(&request.agent.id, &mut spec.args, prepared.invocation_args);
+                relay_environment = prepared.environment;
+                relay_guard = prepared.guard;
+            }
+            Err(error) => {
+                self.record_log(
+                    AgentLogLevel::Warn,
+                    "session.runtime.mcp_relay",
+                    format!("managed MCP relay unavailable; continuing without relay: {error}"),
+                    Some(&request.agent.id),
+                    Some(&request.session.id),
+                    Some(&request.operation_id),
+                );
             }
         }
         let final_output_path = if request.agent.id == "codex-cli" {
@@ -219,12 +216,18 @@ impl RuntimeAgentProcessAdapter {
         } else {
             None
         };
-        let runner_spec = local_runner_launch_spec(
+        if request.agent.id == "opencode" {
+            if let Some(folder) = request.session.folder.as_deref() {
+                add_opencode_directory_args(&mut spec.args, folder);
+            }
+        }
+        let mut runner_spec = local_runner_launch_spec(
             &spec,
             Some(request.session.id.clone()),
             request.session.folder.clone(),
             request.execution_context.traceparent(),
         );
+        runner_spec.environment.extend(relay_environment);
         self.record_log(
             AgentLogLevel::Info,
             "session.runtime.cli",
@@ -912,7 +915,11 @@ impl ProcessMonitor {
         // terminal `GenerationProcessEvent::Completed` below rather than acted on
         // immediately, since the exit code (not this line) decides success/failure.
         let mut reported_usage: Option<ReportedUsageTotals> = None;
-        for line in BoundedProviderLines::new(&mut reader, 256 * 1024) {
+        // The bound matches ProviderParserPolicy's domain maximum. One oversized record — a CLI
+        // tool result carrying a large file read — is dropped by the framer and reported after
+        // the stream ends, instead of failing a turn that was doing real work.
+        let mut bounded_lines = BoundedProviderLines::new(&mut reader, 1_048_576);
+        for line in &mut bounded_lines {
             let event = match line {
                 Ok(line) => match parser.parse_line(&line) {
                     ProviderOutputEvent::Token(delta) => {
@@ -993,6 +1000,26 @@ impl ProcessMonitor {
                     break;
                 }
             }
+        }
+        let discarded_records = bounded_lines.discarded_records();
+        drop(bounded_lines);
+        if discarded_records > 0 {
+            // A dropped record must not be silent: without this line, whatever the record carried
+            // reads as "the Agent never said that".
+            let _ = logging.record(AgentLog {
+                level: AgentLogLevel::Warn,
+                category: "session.runtime.cli".to_string(),
+                message: format!(
+                    "Provider output dropped {discarded_records} oversized record(s) exceeding the bounded parser limit."
+                ),
+                agent_id: Some(agent_id.clone()),
+                session_id: Some(session_id.clone()),
+                operation_id: Some(operation_id.clone()),
+                run_id: Some(execution_context.run_id.as_str().to_string()),
+                trace_id: Some(execution_context.trace_id.as_str().to_string()),
+                span_id: Some(execution_context.span_id.as_str().to_string()),
+                occurred_at: clock.now(),
+            });
         }
         if reader.disconnected {
             record_runner_lifecycle(

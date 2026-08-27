@@ -1,6 +1,5 @@
 import type { LazyFeatureLoader } from "../components/lazy-feature";
-// Type-only, so this does not create a runtime import cycle with `settings-pages.ts`.
-import type { SettingsPageContext } from "./settings-pages";
+import type { SettingsPageContext } from "./settings-page-types";
 
 /**
  * Split out of `settings-pages.ts` so the navigation model stays readable: everything here is
@@ -8,8 +7,8 @@ import type { SettingsPageContext } from "./settings-pages";
  */
 export const loadBasicPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/basic-settings-page")
   .then((module) => ({ default: module.BasicSettingsPage }));
-export const loadProvidersPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/providers-page")
-  .then((module) => ({ default: module.ProvidersPage }));
+export const loadProvidersPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/cli-management/cli-management-page")
+  .then((module) => ({ default: module.CliManagementPage }));
 export const loadCliParametersPage: LazyFeatureLoader<SettingsPageContext> = () => import("./cli-parameters/cli-parameters-page")
   .then((module) => ({ default: module.CliParametersPage }));
 export const loadExtensionsPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/extensions-page")
@@ -30,6 +29,8 @@ export const loadSkillsPage: LazyFeatureLoader<SettingsPageContext> = () => impo
   .then((module) => ({ default: module.SkillsPage }));
 export const loadPromptHooksPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/prompt-hooks-page")
   .then((module) => ({ default: module.PromptHooksPage }));
+export const loadLocalMediaPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/local-media-page")
+  .then((module) => ({ default: module.LocalMediaPage }));
 export const loadImPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/im-page")
   .then((module) => ({ default: module.ImPage }));
 export const loadSshConnectionsPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/ssh-connections-page")

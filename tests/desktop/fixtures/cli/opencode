@@ -11,6 +11,26 @@ const READY = "VANEHUB-FIXTURE-CLI READY";
 const ECHO = "VANEHUB-FIXTURE-ECHO";
 const STOP = "vanehub-fixture-stop";
 
+if (process.argv.slice(2).includes("--version")) {
+  process.stdout.write("vanehub-fixture 1.0.0\n");
+  process.exit(0);
+}
+
+// The readiness probes the registry declares, answered and exited rather than fallen through to
+// the interactive loop. `registry.rs` runs exactly these: `doctor` for claude-code, `login status`
+// for codex-cli, `auth list` for opencode, each with a bounded budget. Blocking on stdin until that
+// budget expires marks the executable faulty, and launch resolution then refuses an Agent the
+// management page has just listed as runnable.
+//
+// Matched by argument rather than by asking whether stdin is a terminal. That check looked
+// equivalent and is not: an Agent terminal session is also driven over pipes, so treating every
+// pipe as a probe made real sessions exit instantly, and the Loop centre tripped its error boundary
+// with "Agent terminal is not connected".
+if (["doctor", "login", "auth"].includes(process.argv[2])) {
+  process.stdout.write(`${READY}\n`);
+  process.exit(0);
+}
+
 process.stdout.write(`${READY}\n`);
 
 let pending = "";

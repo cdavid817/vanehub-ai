@@ -1,8 +1,9 @@
 use super::ports::{
-    AgentCodeDiagnostic, AgentCodeHover, AgentCodeIntelligenceContext,
-    AgentCodeIntelligenceMetadata, AgentCodeIntelligenceOutcome, AgentCodeIntelligencePort,
-    AgentCodeIntelligenceStatus, AgentCodeLocation, AgentDocumentInput, AgentDocumentPositionInput,
-    AgentWorkspaceMutation, AgentWorkspaceMutationPort,
+    AgentCallHierarchyInput, AgentCodeCallRelation, AgentCodeDiagnostic, AgentCodeHover,
+    AgentCodeIntelligenceContext, AgentCodeIntelligenceMetadata, AgentCodeIntelligenceOutcome,
+    AgentCodeIntelligencePort, AgentCodeIntelligenceStatus, AgentCodeLocation, AgentCodeSymbol,
+    AgentDocumentInput, AgentDocumentPositionInput, AgentWorkspaceMutation,
+    AgentWorkspaceMutationPort, AgentWorkspaceSymbolInput,
 };
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
@@ -166,6 +167,56 @@ impl AgentCodeIntelligencePort for CapturingCodeIntelligence {
         _input: &AgentDocumentInput,
         _cancelled: Arc<AtomicBool>,
     ) -> AgentCodeIntelligenceOutcome<Vec<AgentCodeDiagnostic>> {
+        self.capture(context);
+        self.outcome(Vec::new())
+    }
+
+    fn find_type_definition(
+        &self,
+        context: &AgentCodeIntelligenceContext,
+        _input: &AgentDocumentPositionInput,
+        _cancelled: Arc<AtomicBool>,
+    ) -> AgentCodeIntelligenceOutcome<Vec<AgentCodeLocation>> {
+        self.capture(context);
+        self.outcome(Vec::new())
+    }
+
+    fn find_implementations(
+        &self,
+        context: &AgentCodeIntelligenceContext,
+        _input: &AgentDocumentPositionInput,
+        _cancelled: Arc<AtomicBool>,
+    ) -> AgentCodeIntelligenceOutcome<Vec<AgentCodeLocation>> {
+        self.capture(context);
+        self.outcome(Vec::new())
+    }
+
+    fn find_workspace_symbols(
+        &self,
+        context: &AgentCodeIntelligenceContext,
+        _input: &AgentWorkspaceSymbolInput,
+        _cancelled: Arc<AtomicBool>,
+    ) -> AgentCodeIntelligenceOutcome<Vec<AgentCodeSymbol>> {
+        self.capture(context);
+        self.outcome(Vec::new())
+    }
+
+    fn get_document_symbols(
+        &self,
+        context: &AgentCodeIntelligenceContext,
+        _input: &AgentDocumentInput,
+        _cancelled: Arc<AtomicBool>,
+    ) -> AgentCodeIntelligenceOutcome<Vec<AgentCodeSymbol>> {
+        self.capture(context);
+        self.outcome(Vec::new())
+    }
+
+    fn find_call_hierarchy(
+        &self,
+        context: &AgentCodeIntelligenceContext,
+        _input: &AgentCallHierarchyInput,
+        _cancelled: Arc<AtomicBool>,
+    ) -> AgentCodeIntelligenceOutcome<Vec<AgentCodeCallRelation>> {
         self.capture(context);
         self.outcome(Vec::new())
     }

@@ -6,34 +6,46 @@ import type { LspLanguageDraft } from "./lsp-configuration-form";
 const inputClass = "min-h-9 w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60";
 
 export function LspLanguageConfigurationCard({
+  defaultStartupArguments,
   discovery,
   draft,
   errorKey,
   language,
   onChange,
   pending,
+  supportedOnHost,
 }: {
+  defaultStartupArguments: string[];
   discovery?: LspServerDiscovery;
   draft: LspLanguageDraft;
   errorKey?: string;
   language: LspLanguageId;
   onChange: (draft: LspLanguageDraft) => void;
   pending: boolean;
+  supportedOnHost: boolean;
 }) {
   const { t } = useTranslation();
-  const languageName = t(`lspSettings.language.${language}`);
+  // Falls back to the raw id rather than rendering the missing key. Without this, registering a
+  // language would blank out its label in every locale that had not been updated yet.
+  const languageName = t(`lspSettings.language.${language}`, { defaultValue: language });
   const optionsId = `lsp-${language}-options`;
   const optionsDescriptionId = `${optionsId}-description`;
   const optionsErrorId = `${optionsId}-error`;
+  const disabled = pending || !supportedOnHost;
 
   return (
     <fieldset className="rounded-lg border border-border bg-muted/15 p-4">
       <legend className="px-1 text-sm font-semibold">{languageName}</legend>
+      {supportedOnHost ? null : (
+        <p className="mt-1 rounded-md border border-border/70 p-2 text-xs ucd-status-warning" role="note">
+          {t("lspSettings.language.unsupportedOnHost")}
+        </p>
+      )}
       <label className="mt-1 flex items-start gap-3 rounded-md py-2 text-sm">
         <input
           checked={draft.enabled}
           className="mt-0.5 h-4 w-4 accent-primary"
-          disabled={pending}
+          disabled={disabled}
           onChange={(event) => onChange({ ...draft, enabled: event.target.checked })}
           type="checkbox"
         />
@@ -60,11 +72,29 @@ export function LspLanguageConfigurationCard({
         <input
           aria-label={`${languageName} · ${t("lspSettings.discovery.override")}`}
           className={`${inputClass} mt-1 font-mono text-xs`}
-          disabled={pending}
+          disabled={disabled}
           onChange={(event) => onChange({ ...draft, executableOverride: event.target.value })}
           placeholder={t("lspSettings.discovery.overridePlaceholder")}
           spellCheck={false}
           value={draft.executableOverride}
+        />
+      </label>
+
+      <label className="mt-4 block text-sm font-medium">
+        {t("lspSettings.startupArguments.title")}
+        <p className="mt-1 text-xs leading-5 font-normal text-muted-foreground">
+          {t("lspSettings.startupArguments.description", {
+            defaults: defaultStartupArguments.join(" ") || t("lspSettings.startupArguments.none"),
+          })}
+        </p>
+        <textarea
+          aria-label={`${languageName} · ${t("lspSettings.startupArguments.title")}`}
+          className={`${inputClass} mt-2 min-h-16 resize-y font-mono text-xs leading-5`}
+          disabled={disabled}
+          onChange={(event) => onChange({ ...draft, startupArguments: event.target.value })}
+          placeholder={t("lspSettings.startupArguments.placeholder")}
+          spellCheck={false}
+          value={draft.startupArguments}
         />
       </label>
 
@@ -79,7 +109,7 @@ export function LspLanguageConfigurationCard({
         aria-invalid={Boolean(errorKey)}
         aria-label={`${languageName} · ${t("lspSettings.initialization.title")}`}
         className={`${inputClass} mt-2 min-h-32 resize-y font-mono text-xs leading-5`}
-        disabled={pending}
+        disabled={disabled}
         id={optionsId}
         onChange={(event) => onChange({ ...draft, initializationOptions: event.target.value })}
         placeholder={t("lspSettings.initialization.placeholder")}

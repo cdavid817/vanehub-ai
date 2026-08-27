@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { activateAppLanguage } from "../../../i18n";
 import { createAgentServiceDouble, renderWithAppProviders } from "../../../test/render";
 import type { LspServerTestResult, LspWorkspaceTrust } from "../../../types/lsp";
+import { lspTestConfiguration } from "../../../test/lsp-fixtures";
 import { LspServerTestPanel } from "./lsp-server-test-panel";
 import { LspWorkspaceTrustPanel } from "./lsp-workspace-trust-panel";
 
@@ -117,10 +118,13 @@ describe("LSP trust and server-test panels", () => {
 
   it("shows successful isolated server-test phases", async () => {
     const testLspServer = vi.fn(async () => successfulTest);
-    const service = createAgentServiceDouble({ testLspServer });
+    const service = createAgentServiceDouble({
+      getLspConfiguration: async () => lspTestConfiguration(),
+      testLspServer,
+    });
     const { user } = renderWithAppProviders(<LspServerTestPanel service={service} />);
 
-    await user.click(screen.getByRole("button", { name: /测试服务器.*Rust/ }));
+    await user.click(await screen.findByRole("button", { name: /测试服务器.*Rust/ }));
 
     const status = await screen.findByRole("status");
     expect(status.textContent).toContain("语言服务器测试成功。");
@@ -142,10 +146,13 @@ describe("LSP trust and server-test panels", () => {
     const testLspServer = vi.fn()
       .mockRejectedValueOnce(new Error("C:/private/token"))
       .mockResolvedValueOnce(failedTest);
-    const service = createAgentServiceDouble({ testLspServer });
+    const service = createAgentServiceDouble({
+      getLspConfiguration: async () => lspTestConfiguration(),
+      testLspServer,
+    });
     const { user } = renderWithAppProviders(<LspServerTestPanel service={service} />);
 
-    await user.click(screen.getByRole("button", { name: /测试服务器.*TypeScript/ }));
+    await user.click(await screen.findByRole("button", { name: /测试服务器.*TypeScript/ }));
     const transportAlert = await screen.findByRole("alert");
     expect(transportAlert.textContent).toContain("语言服务器测试未成功完成。");
     expect(transportAlert.textContent).not.toContain("private");

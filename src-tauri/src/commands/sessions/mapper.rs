@@ -102,6 +102,10 @@ pub(super) fn creation_operation_to_dto(operation: &SessionCreationOperation) ->
         error: None,
         created_at: operation.created_at.clone(),
         updated_at: operation.updated_at.clone(),
+        phase: None,
+        completed_units: None,
+        total_units: None,
+        cancellable: None,
     }
 }
 

@@ -1,27 +1,34 @@
 import process from "node:process";
+import { pathWithoutCompetingAgents, prepareManagedCliFixtures } from "./wdio-cli-fixture.mjs";
 import { createDesktopConfig } from "./wdio-shared.mjs";
+import { requiredSpecFiles } from "./spec-manifest.mjs";
 
-// Keep the cross-platform CI gate focused on the stable smoke contract. The broader domain sweep
-// remains opt-in while its host-dependent cases are promoted into the gate individually.
-const runFullSuite = process.env.VANEHUB_DESKTOP_FULL_SUITE === "1" || !process.env.CI;
-if (!runFullSuite) {
-  process.stdout.write(
-    "Desktop specs: gate run (smoke only). Set VANEHUB_DESKTOP_FULL_SUITE=1 for the full suite.\n",
-  );
+// The core contract, for a caller that wants the launch/IPC/shutdown check without the sweep.
+const coreSmokeOnly = process.env.VANEHUB_DESKTOP_CORE_SMOKE === "1";
+// One named required spec, for isolating a failure. Diagnosis only: it selects from the required
+// set and cannot introduce a spec the manifest does not classify.
+const onlySpec = process.env.VANEHUB_DESKTOP_SPEC;
+
+function selectedSpecs() {
+  if (coreSmokeOnly) return ["smoke.e2e.mjs"];
+  if (!onlySpec) return requiredSpecFiles();
+  const match = requiredSpecFiles().filter((spec) => spec === onlySpec);
+  if (match.length === 0) throw new Error(`VANEHUB_DESKTOP_SPEC names no required spec: ${onlySpec}`);
+  return match;
 }
 
-// One or more spec file names, comma-separated. Diagnosis only: without it, reproducing a single
-// spec's failure means a full sweep, and a twenty-minute round trip is what makes a flaky desktop
-// spec cheaper to explain away than to investigate.
-const requested = (process.env.VANEHUB_DESKTOP_SPEC ?? "")
-  .split(",")
-  .map((name) => name.trim())
-  .filter(Boolean);
-if (requested.length > 0) {
-  process.stdout.write(`Desktop specs: restricted to ${requested.join(", ")}.\n`);
-}
+// Fixture Agents ahead of the inherited PATH, so every managed Agent resolves to the stub whether
+// or not the machine has the real one. This is what makes the gate a gate: it used to need a real
+// `codex` installed, which no hosted runner has, so the sweep could only pass on a developer's
+// laptop and failed identically on Windows, macOS and Linux CI.
+const agentFixtureDir = await prepareManagedCliFixtures();
+// First is not enough: a real installation left reachable elsewhere on PATH makes two installations
+// from different sources, and the launch resolver refuses that as PATH shadowing. The gate has to
+// be independent of what the developer happens to have installed.
+const fixturePath = await pathWithoutCompetingAgents(agentFixtureDir);
 
 export const config = await createDesktopConfig({
   specDirectory: "specs",
-  specFiles: requested.length > 0 ? requested : runFullSuite ? undefined : ["smoke.e2e.mjs"],
+  specFiles: selectedSpecs(),
+  environment: { PATH: fixturePath },
 });
