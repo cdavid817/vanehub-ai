@@ -39,6 +39,8 @@ pub(crate) mod resolve_code_review_comment;
 pub(crate) mod revert_code_review_change;
 #[cfg(test)]
 mod review_contracts;
+#[cfg(test)]
+mod review_decision_isolation;
 mod review_dto;
 mod review_error;
 pub(crate) mod save_session_chat_config;
