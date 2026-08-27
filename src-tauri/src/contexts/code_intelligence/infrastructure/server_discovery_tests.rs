@@ -161,6 +161,146 @@ fn invalid_manual_override_is_rejected_without_native_discovery() {
     assert!(locator.requests.lock().expect("request lock").is_empty());
 }
 
+/// An install directory laid out the way the Java entry declares, with the given launcher names.
+fn fixture_install(launchers: &[&str]) -> PathBuf {
+    let directory = tempfile::tempdir().expect("temporary directory").keep();
+    std::fs::create_dir_all(directory.join("plugins")).expect("plugins directory");
+    std::fs::create_dir_all(directory.join(config_directory_name())).expect("config directory");
+    for launcher in launchers {
+        std::fs::write(directory.join("plugins").join(launcher), b"jar").expect("launcher");
+    }
+    directory
+}
+
+fn config_directory_name() -> &'static str {
+    if cfg!(windows) {
+        "config_win"
+    } else if cfg!(target_os = "macos") {
+        "config_mac"
+    } else {
+        "config_linux"
+    }
+}
+
+fn java_discovery(interpreter: Option<PathBuf>) -> ServerDiscovery {
+    ServerDiscovery::new(Arc::new(FakeExecutableLocator {
+        result: interpreter,
+        requests: Mutex::default(),
+    }))
+}
+
+#[test]
+fn an_interpreter_shaped_language_without_its_runtime_reports_the_prerequisite() {
+    let discovery = java_discovery(None);
+
+    let result = discovery.discover(registry::java(), Some(&fixture_install(&[])), None);
+
+    // "Install a JDK" is a different action from every other reason here, so it is its own reason
+    // rather than a generic missing executable.
+    assert_eq!(result.availability(), DiscoveryAvailability::Unavailable);
+    assert_eq!(result.reason(), Some(DiscoveryReason::PrerequisiteMissing));
+}
+
+#[test]
+fn an_interpreter_shaped_language_without_an_install_directory_says_so() {
+    let discovery = java_discovery(Some(fixture_executable("java")));
+
+    let result = discovery.discover(registry::java(), None, None);
+
+    // Not `ExecutableNotFound`: the server is a directory, so there is nothing the executable
+    // search path could have been asked for.
+    assert_eq!(
+        result.reason(),
+        Some(DiscoveryReason::InstallDirectoryNotSet)
+    );
+}
+
+#[test]
+fn the_prerequisite_is_reported_before_the_missing_directory() {
+    // A user with neither is told about the JDK, because that is the one they hit first anyway.
+    let discovery = java_discovery(None);
+
+    let result = discovery.discover(registry::java(), None, None);
+
+    assert_eq!(result.reason(), Some(DiscoveryReason::PrerequisiteMissing));
+}
+
+#[test]
+fn an_install_directory_without_a_launcher_is_distinct_from_a_missing_one() {
+    let discovery = java_discovery(Some(fixture_executable("java")));
+    let empty = fixture_install(&[]);
+
+    assert_eq!(
+        discovery
+            .discover(registry::java(), Some(&empty), None)
+            .reason(),
+        Some(DiscoveryReason::LauncherNotFound)
+    );
+    assert_eq!(
+        discovery
+            .discover(registry::java(), Some(&empty.join("absent")), None)
+            .reason(),
+        Some(DiscoveryReason::OverrideMissing)
+    );
+}
+
+#[test]
+fn several_launchers_are_refused_rather_than_chosen() {
+    let discovery = java_discovery(Some(fixture_executable("java")));
+    let ambiguous = fixture_install(&[
+        "org.eclipse.equinox.launcher_1.6.500.jar",
+        "org.eclipse.equinox.launcher_1.7.0.jar",
+    ]);
+
+    let result = discovery.discover(registry::java(), Some(&ambiguous), None);
+
+    // Picking the newest would start a server whose version the settings page does not name.
+    assert_eq!(result.reason(), Some(DiscoveryReason::AmbiguousInstall));
+    assert_eq!(result.executable(), None);
+}
+
+#[test]
+fn a_resolved_install_reports_the_launcher_rather_than_the_directory() {
+    let interpreter = fixture_executable("java");
+    let discovery = java_discovery(Some(interpreter.clone()));
+    let install = fixture_install(&["org.eclipse.equinox.launcher_1.6.500.jar"]);
+
+    let result = discovery.discover(registry::java(), Some(&install), None);
+
+    assert_eq!(result.availability(), DiscoveryAvailability::Available);
+    // The executable is the JVM; the server is the launcher, and a reader needs the second to tell
+    // which version will run.
+    assert_eq!(result.executable(), Some(interpreter.as_path()));
+    assert_eq!(
+        result
+            .resolved_launcher()
+            .and_then(|path| path.file_name())
+            .and_then(|name| name.to_str()),
+        Some("org.eclipse.equinox.launcher_1.6.500.jar")
+    );
+}
+
+#[test]
+fn a_launcher_outside_the_declared_directory_is_not_found() {
+    let discovery = java_discovery(Some(fixture_executable("java")));
+    let install = fixture_install(&[]);
+    // One level deeper than the entry declares. Matching it would start a server from a directory
+    // that only looks like the layout the entry describes.
+    std::fs::create_dir_all(install.join("plugins/nested")).expect("nested");
+    std::fs::write(
+        install.join("plugins/nested/org.eclipse.equinox.launcher_1.6.500.jar"),
+        b"jar",
+    )
+    .expect("nested launcher");
+
+    assert_eq!(
+        discovery
+            .discover(registry::java(), Some(&install), None)
+            .reason(),
+        Some(DiscoveryReason::LauncherNotFound)
+    );
+}
+
 fn fixture_executable(name: &str) -> PathBuf {
     let directory = tempfile::tempdir().expect("temporary directory").keep();
     let path = directory.join(executable_file_name(name));
