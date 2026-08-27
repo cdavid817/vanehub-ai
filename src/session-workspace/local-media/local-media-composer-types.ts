@@ -62,6 +62,7 @@ export type SpeechPhase = "idle" | "generating" | "playing";
 /** Per-capability availability, so one unconfigured engine never disables the others. */
 export interface LocalMediaAvailability {
   native: boolean;
+  screenshot: boolean;
   ocr: boolean;
   stt: boolean;
   tts: boolean;
@@ -100,6 +101,7 @@ export interface LocalMediaComposerModel {
   overflow: { text: string; engine: "ocr" | "stt" } | null;
 
   startOcr: () => void;
+  startScreenshot: () => void;
   updateReviewText: (text: string) => void;
   appendReviewText: () => void;
   cancelReview: () => void;

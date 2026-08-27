@@ -6,56 +6,15 @@
  * language and must not guess one.
  */
 
+import type { LocalMediaErrorCode } from "./local-media-error-codes";
+
 export const localMediaEngines = ["ocr", "stt", "tts"] as const;
 export type LocalMediaEngine = (typeof localMediaEngines)[number];
 
-export const localMediaErrorCodes = [
-  "LOCAL_MEDIA_NATIVE_ONLY",
-  "LOCAL_MEDIA_DISABLED",
-  "ENGINE_DISABLED",
-  "ENGINE_UNCONFIGURED",
-  "ENGINE_BUSY",
-  "ENGINE_UNAVAILABLE",
-  "PYTHON_NOT_FOUND",
-  "PYTHON_EXECUTION_DENIED",
-  "ENGINE_IMPORT_FAILED",
-  "ENGINE_VERSION_UNSUPPORTED",
-  "PROFILE_REVISION_CONFLICT",
-  "MODEL_NOT_CONFIGURED",
-  "MODEL_NOT_FOUND",
-  "MODEL_INCOMPATIBLE",
-  "MODEL_DOWNLOAD_BLOCKED",
-  "DEVICE_CONFIGURATION_INVALID",
-  "MIC_PERMISSION_DENIED",
-  "MIC_DEVICE_UNAVAILABLE",
-  "AUDIO_CAPTURE_START_FAILED",
-  "AUDIO_CAPTURE_OVERRUN",
-  "RECORDING_ALREADY_ACTIVE",
-  "RECORDING_NOT_FOUND",
-  "RECORDING_TOO_SHORT",
-  "RECORDING_LIMIT_REACHED",
-  "INPUT_NOT_FOUND",
-  "INPUT_TOO_LARGE",
-  "UNSUPPORTED_MEDIA_TYPE",
-  "PDF_PAGE_LIMIT_EXCEEDED",
-  "IMAGE_PIXEL_LIMIT_EXCEEDED",
-  "NO_TEXT_DETECTED",
-  "NO_SPEECH_DETECTED",
-  "TTS_TEXT_TOO_LONG",
-  "PLAYBACK_DEVICE_UNAVAILABLE",
-  "WORKER_START_FAILED",
-  "WORKER_CRASHED",
-  "WORKER_PROTOCOL_ERROR",
-  "OPERATION_CANCELLED",
-  "OPERATION_RESULT_EXPIRED",
-  "TEMP_STORAGE_FAILED",
-  "TEMP_CLEANUP_FAILED",
-  "PADDLE_ONEDNN_MODEL_INCOMPATIBLE",
-  "MODEL_PATH_ENCODING_UNSUPPORTED",
-  "TTS_DATA_PATH_ENCODING_UNSUPPORTED",
-  "TTS_PHONEMIZER_DATA_UNAVAILABLE",
-] as const;
-export type LocalMediaErrorCode = (typeof localMediaErrorCodes)[number];
+export {
+  localMediaErrorCodes,
+  type LocalMediaErrorCode,
+} from "./local-media-error-codes";
 
 export type LocalMediaDevice = "auto" | "cpu" | "cuda";
 export type WhisperComputeType = "auto" | "int8" | "float16" | "int8_float16" | "float32";

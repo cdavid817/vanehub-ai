@@ -84,6 +84,13 @@ impl LocalMediaApi {
         self.service.stage_ocr_source(source)
     }
 
+    pub(crate) fn stage_screenshot_ocr(
+        &self,
+        bytes: &[u8],
+    ) -> Result<StagedOcrSource, LocalMediaError> {
+        self.service.stage_ocr_artifact(bytes, "screenshot.png")
+    }
+
     pub(crate) fn prepare_ocr(
         &self,
         staged_input_id: &StagedInputId,

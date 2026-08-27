@@ -185,6 +185,19 @@ export function createDeterministicFakeLocalMediaService(): LocalMediaService {
         byteLength: 4096,
       };
     },
+    selectAndStageScreenshotRegion: async () => {
+      count("selectScreenshot");
+      if (state.ocr.outcome === "picker-cancelled") return null;
+      return {
+        stagedInputId: "fixture-screenshot",
+        displayName: "screenshot.png",
+        mediaType: "image",
+        byteLength: 4096,
+      };
+    },
+    commitScreenshotSelection: async () => undefined,
+    cancelScreenshotSelection: async () => undefined,
+    cancelActiveScreenshotSelection: async () => undefined,
     discardStagedOcrSource: async () => {
       count("discardStagedOcrSource");
     },

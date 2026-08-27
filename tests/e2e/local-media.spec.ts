@@ -100,13 +100,14 @@ async function openStructuredComposer(page: Page) {
 }
 
 test.describe("Composer media actions in Web mode", () => {
-  test("keeps the three actions visible and disabled instead of hiding them", async ({ page }) => {
+  test("keeps the four actions visible and disabled instead of hiding them", async ({ page }) => {
     await openStructuredComposer(page);
 
     // Hiding them would leave a user who reads about the feature with nowhere to find out why it
     // is missing. Disabled with a reason in the tooltip is the honest state.
     for (const id of [
       "composer-media-ocr",
+      "composer-media-screenshot",
       "composer-media-microphone",
       "composer-media-speak",
     ]) {
@@ -123,6 +124,10 @@ test.describe("Composer media actions in Web mode", () => {
     await expect(page.getByTestId("composer-media-ocr")).toHaveAttribute(
       "aria-label",
       "图片文字识别",
+    );
+    await expect(page.getByTestId("composer-media-screenshot")).toHaveAttribute(
+      "aria-label",
+      "截取屏幕区域",
     );
     await expect(page.getByTestId("composer-media-microphone")).toHaveAttribute(
       "aria-label",

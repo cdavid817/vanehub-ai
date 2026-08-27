@@ -808,7 +808,9 @@ impl From<crate::contexts::local_media::domain::LocalMediaError> for CommandErro
             | Code::InputTooLarge
             | Code::PdfPageLimitExceeded
             | Code::ImagePixelLimitExceeded
-            | Code::RecordingTooShort => CommandErrorCategory::Validation,
+            | Code::RecordingTooShort
+            | Code::ScreenshotInvalidSelection
+            | Code::ScreenshotBudgetExceeded => CommandErrorCategory::Validation,
             Code::InputNotFound
             | Code::RecordingNotFound
             | Code::ModelNotFound
@@ -817,8 +819,12 @@ impl From<crate::contexts::local_media::domain::LocalMediaError> for CommandErro
             Code::ProfileRevisionConflict
             | Code::RecordingAlreadyActive
             | Code::EngineBusy
+            | Code::ScreenshotBusy
             | Code::OperationCancelled => CommandErrorCategory::Conflict,
-            Code::LocalMediaNativeOnly | Code::LocalMediaDisabled | Code::EngineDisabled => {
+            Code::LocalMediaNativeOnly
+            | Code::LocalMediaDisabled
+            | Code::EngineDisabled
+            | Code::ScreenshotUnavailable => {
                 CommandErrorCategory::Unsupported
             }
             Code::EngineUnavailable
@@ -842,10 +848,15 @@ impl From<crate::contexts::local_media::domain::LocalMediaError> for CommandErro
             Code::TempStorageFailed
             | Code::TempCleanupFailed
             | Code::WorkerCrashed
-            | Code::WorkerProtocolError => CommandErrorCategory::Infrastructure,
+            | Code::WorkerProtocolError
+            | Code::ScreenshotCaptureFailed => CommandErrorCategory::Infrastructure,
             Code::NoTextDetected | Code::NoSpeechDetected | Code::RecordingLimitReached => {
                 CommandErrorCategory::Internal
             }
+            Code::ScreenshotPermissionDenied | Code::ScreenshotNoDisplays => {
+                CommandErrorCategory::Unavailable
+            }
+            Code::ScreenshotTimeout => CommandErrorCategory::Internal,
         };
         Self::stable_code(category, error.code().as_str())
     }

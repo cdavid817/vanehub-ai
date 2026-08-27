@@ -4338,6 +4338,16 @@ impl GenerationEventHandler {
     }
 
     fn finish_execution(&self, status: ExecutionStatus, error_classification: Option<&str>) {
+        let outcome = match status {
+            ExecutionStatus::Succeeded => CanonicalRunOutcome::Completed,
+            ExecutionStatus::Cancelled => CanonicalRunOutcome::Cancelled,
+            _ => CanonicalRunOutcome::Failed,
+        };
+        let _ = self.ports.operations.finish_canonical_run(
+            self.root_context.run_id.as_str(),
+            outcome,
+            error_classification,
+        );
         let ended_at = self.ports.clock.now();
         if let Ok(mut state) = self.state() {
             for span_id in std::mem::take(&mut state.active_tool_spans).into_values() {

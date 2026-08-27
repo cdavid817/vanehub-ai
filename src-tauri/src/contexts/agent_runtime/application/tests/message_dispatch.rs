@@ -927,6 +927,19 @@ fn stream_events_persist_complete_usage_and_operation_once() {
             .count(),
         1
     );
+    let canonical_completions = world
+        .operations
+        .lock()
+        .expect("operations")
+        .iter()
+        .filter(|event| {
+            matches!(
+                event,
+                OperationEvent::CanonicalRunFinished(_, CanonicalRunOutcome::Completed)
+            )
+        })
+        .count();
+    assert_eq!(canonical_completions, 1);
     let prompt_reports = world.prompt_reports.lock().expect("prompt reports");
     assert_eq!(prompt_reports.len(), 1);
     assert_eq!(

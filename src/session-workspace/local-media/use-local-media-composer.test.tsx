@@ -122,6 +122,18 @@ async function tick() {
 }
 
 describe("useLocalMediaComposer", () => {
+  it("cancels native region selection when the composer scope changes", async () => {
+    const double = createLocalMediaDouble();
+    const cancelCapture = vi.mocked(double.service.cancelActiveScreenshotSelection);
+    const harness = mount(double);
+    await waitFor(() => expect(cancelCapture).toHaveBeenCalled());
+    cancelCapture.mockClear();
+
+    harness.setScope("session-b");
+
+    await waitFor(() => expect(cancelCapture).toHaveBeenCalledTimes(1));
+  });
+
 
   describe("availability", () => {
     it("enables each action from its own engine's readiness", async () => {
@@ -130,7 +142,13 @@ describe("useLocalMediaComposer", () => {
       await whenReady(harness);
 
       // One unconfigured engine must not take the others down with it.
-      expect(harness.model.availability).toEqual({ native: true, ocr: true, stt: false, tts: false });
+      expect(harness.model.availability).toEqual({
+        native: true,
+        screenshot: true,
+        ocr: true,
+        stt: false,
+        tts: false,
+      });
     });
 
     it("disables everything when the master switch is off", async () => {
