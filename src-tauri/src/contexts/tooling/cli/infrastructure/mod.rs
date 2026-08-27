@@ -14,7 +14,6 @@ pub(crate) mod environment_schema;
 mod environment_serde;
 mod native_config_reader;
 pub(crate) mod npm_source;
-pub(crate) mod vendor_downloader;
 pub(crate) mod vendor_source;
 pub(crate) mod winget_source;
 

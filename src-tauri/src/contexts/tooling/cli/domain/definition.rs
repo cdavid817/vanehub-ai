@@ -234,13 +234,16 @@ pub(crate) const STABLE_CHANNEL_ONLY: &[CliReleaseChannel] = &[CliReleaseChannel
 mod tests {
     use super::*;
     use crate::contexts::tooling::cli::domain::trust::{
-        CliInstallerIntegrity, CliInstallerRuntime, CliInstallerTemplate, CliInstallerTrust,
+        CliInstallerRuntime, CliInstallerTemplate, CliInstallerTrust,
     };
+    use crate::contexts::tooling::managed_install::api::{ArtifactIntegrity, RetrievalPolicy};
 
     const UNIX_ONLY_INSTALLER: CliInstallerTrust = CliInstallerTrust {
-        allowed_hosts: &["example.test"],
-        max_download_bytes: 1024,
-        download_timeout_seconds: 30,
+        policy: RetrievalPolicy {
+            allowed_hosts: &["example.test"],
+            max_download_bytes: 1024,
+            download_timeout_seconds: 30,
+        },
         templates: &[CliInstallerTemplate {
             platform: CliPlatform::Linux,
             runtime: CliInstallerRuntime::ShellFile {
@@ -249,7 +252,7 @@ mod tests {
             url: "https://example.test/install.sh",
             target_version: CliTargetVersionMode::LatestOnly,
             version_argument: None,
-            integrity: CliInstallerIntegrity::Unverified,
+            integrity: ArtifactIntegrity::Unverified,
         }],
     };
 

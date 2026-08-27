@@ -58,6 +58,18 @@ The direction is derived in one place. `action: null` means "move this tool to t
 
 **There is no fallback.** A vendor installer that fails does not silently become an npm install, and every plan says so on its face.
 
+## Downloading something you are about to run
+
+The one path where VaneHub fetches a program and then executes it does not live in `tooling/cli` any more. It lives in `tooling/managed_install`, and `tooling/cli` is its first consumer rather than its owner.
+
+What moved is the part that must not exist twice: HTTPS with an exact-host allowlist applied to **every redirect hop** rather than once to the original URL, a byte ceiling enforced while reading rather than checked after the write, a deadline and a cancellation check between hops and mid-stream, SHA-256 verification before anything executes, and a temporary directory released on success, failure, timeout, and cancellation alike. A second copy of any of those drifts, and none of the ways it drifts is visible when reviewing the copy on its own — a duplicated redirect loop that checks the first URL and not the hops looks entirely correct in isolation.
+
+What stayed is the part that is genuinely about CLI tools: the installer templates, their interpreters and version arguments, `CliPlatform`, and the exact-platform selection whose missing fallback arm is the fix for the defect that once produced a `bash -lc` plan on Windows. `CliInstallerTrust` now nests a `RetrievalPolicy` where its three bound fields used to be.
+
+Only that half moved. Discovery, active resolution, conflicts, version catalogs, action plans, mutation coordination, persistence, and the management UI all stay here — extracting them would have been a 24,000-line behavior-preserving refactor reaching a persisted primary key, for no user-visible gain.
+
+`managed_install` also carries a bounded archive extractor, which nothing in `tooling/cli` calls. It exists because a language server distributed as an archive needs one, and designing it beside the download bounds is what stops the next consumer from writing a second set of them. Its containment check runs on each entry's **resolved** path: scanning for a leading separator misses `a/../../b`, which normalizes out of the destination while looking ordinary.
+
 ## After an external effect
 
 A package manager cannot be undone by writing an older row, so the outcome vocabulary distinguishes five terminal states: `verified`, `applied-unverified`, `changed-but-failed`, `no-change-failed`, `cancelled`.

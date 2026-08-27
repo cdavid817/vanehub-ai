@@ -11,9 +11,9 @@ use super::probe::{CliProbeAvailability, CliProbeCommand, CliProbeDefinition};
 use super::probe_interpretation::{CliAuthParser, CliDoctorParser};
 use super::source::{CliPlatform, CliSourceKind, CliTargetVersionMode, PlatformSet};
 use super::trust::{
-    CliInstallerIntegrity, CliInstallerRuntime, CliInstallerTemplate, CliInstallerTrust,
-    CliSourceTrustPolicy,
+    CliInstallerRuntime, CliInstallerTemplate, CliInstallerTrust, CliSourceTrustPolicy,
 };
+use crate::contexts::tooling::managed_install::api::{ArtifactIntegrity, RetrievalPolicy};
 
 /// Stable source ids. They appear in persisted plans and snapshots, so renaming one is a
 /// migration, not a refactor.
@@ -75,7 +75,7 @@ const fn shell_template(platform: CliPlatform, url: &'static str) -> CliInstalle
         // reporting success under the requested version's name.
         target_version: CliTargetVersionMode::LatestOnly,
         version_argument: None,
-        integrity: CliInstallerIntegrity::Unverified,
+        integrity: ArtifactIntegrity::Unverified,
     }
 }
 
@@ -83,9 +83,11 @@ const fn shell_template(platform: CliPlatform, url: &'static str) -> CliInstalle
 /// `template_for(Windows)` returns `None` -- which is the whole fix: no bash plan is generated on
 /// Windows, and no npm substitution happens behind the user's back.
 const CLAUDE_CODE_INSTALLER: CliInstallerTrust = CliInstallerTrust {
-    allowed_hosts: &["claude.ai"],
-    max_download_bytes: 8 * 1024 * 1024,
-    download_timeout_seconds: 90,
+    policy: RetrievalPolicy {
+        allowed_hosts: &["claude.ai"],
+        max_download_bytes: 8 * 1024 * 1024,
+        download_timeout_seconds: 90,
+    },
     templates: &[
         shell_template(CliPlatform::Macos, "https://claude.ai/install.sh"),
         shell_template(CliPlatform::Linux, "https://claude.ai/install.sh"),
@@ -93,9 +95,11 @@ const CLAUDE_CODE_INSTALLER: CliInstallerTrust = CliInstallerTrust {
 };
 
 const OPENCODE_INSTALLER: CliInstallerTrust = CliInstallerTrust {
-    allowed_hosts: &["opencode.ai"],
-    max_download_bytes: 8 * 1024 * 1024,
-    download_timeout_seconds: 90,
+    policy: RetrievalPolicy {
+        allowed_hosts: &["opencode.ai"],
+        max_download_bytes: 8 * 1024 * 1024,
+        download_timeout_seconds: 90,
+    },
     templates: &[
         shell_template(CliPlatform::Macos, "https://opencode.ai/install"),
         shell_template(CliPlatform::Linux, "https://opencode.ai/install"),
@@ -105,9 +109,11 @@ const OPENCODE_INSTALLER: CliInstallerTrust = CliInstallerTrust {
 /// Antigravity is the one vendor that publishes a Windows-native installer, so it is the one
 /// vendor distribution actionable on Windows.
 const ANTIGRAVITY_INSTALLER: CliInstallerTrust = CliInstallerTrust {
-    allowed_hosts: &["antigravity.google"],
-    max_download_bytes: 8 * 1024 * 1024,
-    download_timeout_seconds: 90,
+    policy: RetrievalPolicy {
+        allowed_hosts: &["antigravity.google"],
+        max_download_bytes: 8 * 1024 * 1024,
+        download_timeout_seconds: 90,
+    },
     templates: &[
         CliInstallerTemplate {
             platform: CliPlatform::Windows,
@@ -115,7 +121,7 @@ const ANTIGRAVITY_INSTALLER: CliInstallerTrust = CliInstallerTrust {
             url: "https://antigravity.google/cli/install.ps1",
             target_version: CliTargetVersionMode::LatestOnly,
             version_argument: None,
-            integrity: CliInstallerIntegrity::Unverified,
+            integrity: ArtifactIntegrity::Unverified,
         },
         shell_template(
             CliPlatform::Macos,
@@ -376,9 +382,14 @@ mod tests {
                 let Some(trust) = distribution.trust.installer() else {
                     continue;
                 };
-                assert!(!trust.allowed_hosts.is_empty());
-                assert!(trust.max_download_bytes > 0);
-                assert!(trust.download_timeout_seconds > 0);
+                // The shared capability refuses an unbounded declaration; this is where that
+                // refusal is observable, because the catalog is `static` data the build fixes and
+                // a fallible constructor would trade a compile-time fact for a runtime one.
+                assert!(
+                    trust.policy.is_bounded(),
+                    "{} declares a distribution without an allowlist or a ceiling",
+                    tool.agent_id
+                );
                 for template in trust.templates {
                     assert!(
                         trust.permits_url(template.url),

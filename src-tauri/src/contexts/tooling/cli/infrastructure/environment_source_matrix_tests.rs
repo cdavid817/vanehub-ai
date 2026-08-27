@@ -20,9 +20,9 @@ use crate::contexts::tooling::cli::domain::source::{CliSourceKind, CliSourceMana
 
 use super::environment_gateway::{CliCommandGateway, CliCommandOutput, CliCommandRequest};
 use super::npm_source::NpmSource;
-use super::vendor_downloader::HttpsInstallerDownloader;
 use super::vendor_source::VendorSource;
 use super::winget_source::WingetSource;
+use crate::contexts::tooling::managed_install::api::HttpsArtifactRetriever;
 
 /// A gateway that fails every call. These tests assert declared capability, never behaviour that
 /// would need a process.
@@ -46,10 +46,7 @@ fn adapters() -> Vec<Arc<dyn CliDistributionPort>> {
     vec![
         Arc::new(NpmSource::new(gateway.clone())),
         Arc::new(WingetSource::new(gateway.clone())),
-        Arc::new(VendorSource::new(
-            gateway,
-            Arc::new(HttpsInstallerDownloader),
-        )),
+        Arc::new(VendorSource::new(gateway, Arc::new(HttpsArtifactRetriever))),
     ]
 }
 

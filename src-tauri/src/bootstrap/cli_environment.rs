@@ -22,9 +22,9 @@ use crate::contexts::tooling::cli::infrastructure::environment_runtime_adapters:
     UuidCliIdFactory,
 };
 use crate::contexts::tooling::cli::infrastructure::npm_source::NpmSource;
-use crate::contexts::tooling::cli::infrastructure::vendor_downloader::HttpsInstallerDownloader;
 use crate::contexts::tooling::cli::infrastructure::vendor_source::VendorSource;
 use crate::contexts::tooling::cli::infrastructure::winget_source::WingetSource;
+use crate::contexts::tooling::managed_install::api::HttpsArtifactRetriever;
 use crate::platform::database::NativeDatabase;
 use std::path::PathBuf;
 
@@ -44,7 +44,7 @@ pub(crate) fn assemble_cli_environment_api(
         .with(Arc::new(WingetSource::new(gateway.clone())))
         .with(Arc::new(VendorSource::new(
             gateway,
-            Arc::new(HttpsInstallerDownloader),
+            Arc::new(HttpsArtifactRetriever),
         )));
 
     CliEnvironmentApi::new(CliEnvironmentService::new(CliEnvironmentPorts {
