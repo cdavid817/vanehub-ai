@@ -15,7 +15,6 @@
 //! Platform selection has no fallback arm: a vendor that publishes only a shell installer yields
 //! nothing on Windows, and the caller's only correct response is to withhold the action.
 
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -37,43 +36,49 @@ use crate::contexts::tooling::cli::domain::trust::{
     CliInstallerRuntime, CliInstallerTemplate, CliInstallerTrust,
 };
 
+use crate::contexts::tooling::managed_install::api::{
+    ArtifactRequest, ManagedArtifactRetriever, ManagedInstallError,
+};
+
 use super::environment_gateway::{CliCommandGateway, CliCommandRequest};
 
 const MUTATION_TIMEOUT: Duration = Duration::from_secs(900);
 
-/// A downloaded installer on disk. Removed when dropped, so a cancelled or panicking run does not
-/// leave an executable behind in the temporary directory.
-#[derive(Debug)]
-pub(crate) struct DownloadedInstaller {
-    pub(crate) path: PathBuf,
-    /// The directory the file lives in. Held rather than used: dropping it removes the directory
-    /// and everything under it, which is what makes cleanup cover an installer that wrote a
-    /// sibling file next to itself.
-    pub(crate) _directory: tempfile::TempDir,
+/// Converts at the boundary rather than sharing an error type. `managed_install` stays free of
+/// CLI vocabulary, and the mapping is the one place that decides how a refused download reads to
+/// a CLI caller.
+fn from_managed(error: ManagedInstallError) -> CliEnvironmentError {
+    match error {
+        // A digest mismatch and an allowlist refusal are both "we will not run this", which is
+        // what `Validation` means to the CLI surface.
+        ManagedInstallError::Refused(message) => CliEnvironmentError::Validation(message),
+        ManagedInstallError::ChecksumMismatch => CliEnvironmentError::Validation(
+            "the installer does not match its published checksum".to_string(),
+        ),
+        other => CliEnvironmentError::Process(other.to_string()),
+    }
 }
 
-/// Fetching an audited installer, under the trust policy's bounds.
+/// The file name the installer lands under, chosen by interpreter rather than by URL.
 ///
-/// A separate port so the size limit, the redirect policy, and the allowlist can be asserted
-/// without reaching the network.
-pub(crate) trait CliInstallerDownloader: Send + Sync {
-    fn download(
-        &self,
-        url: &str,
-        trust: &CliInstallerTrust,
-        cancellation: &CliCancellation,
-    ) -> Result<DownloadedInstaller, CliEnvironmentError>;
+/// A vendor-controlled path segment must not decide what lands on disk, and on Windows the
+/// extension is what picks an interpreter.
+const fn installer_file_name(runtime: CliInstallerRuntime) -> &'static str {
+    match runtime {
+        CliInstallerRuntime::PowerShellFile => "installer.ps1",
+        CliInstallerRuntime::ShellFile { .. } => "installer.sh",
+    }
 }
 
 pub(crate) struct VendorSource {
     gateway: Arc<dyn CliCommandGateway>,
-    downloader: Arc<dyn CliInstallerDownloader>,
+    downloader: Arc<dyn ManagedArtifactRetriever>,
 }
 
 impl VendorSource {
     pub(crate) fn new(
         gateway: Arc<dyn CliCommandGateway>,
-        downloader: Arc<dyn CliInstallerDownloader>,
+        downloader: Arc<dyn ManagedArtifactRetriever>,
     ) -> Self {
         Self {
             gateway,
@@ -247,7 +252,20 @@ impl CliDistributionPort for VendorSource {
         phases.enter(CliOperationPhase::Downloading, true);
         let installer = self
             .downloader
-            .download(template.url, &trust, cancellation)?;
+            .retrieve(
+                ArtifactRequest {
+                    url: template.url,
+                    policy: &trust.policy,
+                    // The selected template's digest, not whichever template happened to declare
+                    // one. Every shipped template is currently `Unverified`, so this is the same
+                    // behavior today and the right behavior once one is not.
+                    integrity: template.integrity,
+                    file_name: installer_file_name(template.runtime),
+                    executable: true,
+                },
+                &cancellation.signal(),
+            )
+            .map_err(from_managed)?;
         let args = match template.runtime {
             CliInstallerRuntime::PowerShellFile => vec![
                 "-NoProfile".to_string(),

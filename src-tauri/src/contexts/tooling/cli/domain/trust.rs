@@ -10,6 +10,8 @@
 //! `claude-code`; when that failed, a separate fallback silently switched the operation to npm, so
 //! the user was told a vendor install had happened when npm had done it.
 
+use crate::contexts::tooling::managed_install::api::{ArtifactIntegrity, RetrievalPolicy};
+
 use super::source::{CliPlatform, CliTargetVersionMode};
 
 /// The interpreter an installer file must be handed to. It travels with the URL because the URL
@@ -33,15 +35,6 @@ pub(crate) enum CliInstallerVersionArgument {
     Flag(&'static str),
 }
 
-/// An integrity check the adapter must perform on the downloaded bytes before executing them.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum CliInstallerIntegrity {
-    /// No published digest. The download is still bounded and host-checked, but the bytes are
-    /// unverified -- which is why exact-version installs are not offered from such a template.
-    Unverified,
-    Sha256(&'static str),
-}
-
 /// One audited installer for exactly one platform.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct CliInstallerTemplate {
@@ -53,17 +46,17 @@ pub(crate) struct CliInstallerTemplate {
     /// wrong-version install this field exists to prevent.
     pub(crate) target_version: CliTargetVersionMode,
     pub(crate) version_argument: Option<CliInstallerVersionArgument>,
-    pub(crate) integrity: CliInstallerIntegrity,
+    pub(crate) integrity: ArtifactIntegrity,
 }
 
-/// Bounds and host policy shared by every audited installer download.
+/// One vendor's audited installers, plus the bounds the shared retrieval runs them under.
+///
+/// The bounds are a `RetrievalPolicy` rather than three fields of their own: the allowlist, the
+/// ceiling, and the timeout are enforced by `managed_install`, and a second declaration of them
+/// here is exactly the copy this arrangement exists to avoid.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct CliInstallerTrust {
-    /// Hosts the initial URL and every redirect target must match exactly. A redirect that leaves
-    /// this list is rejected rather than followed.
-    pub(crate) allowed_hosts: &'static [&'static str],
-    pub(crate) max_download_bytes: u64,
-    pub(crate) download_timeout_seconds: u64,
+    pub(crate) policy: RetrievalPolicy,
     pub(crate) templates: &'static [CliInstallerTemplate],
 }
 
@@ -83,27 +76,9 @@ impl CliInstallerTrust {
         CliPlatform::current().and_then(|platform| self.template_for(platform))
     }
 
-    /// Whether a URL is admissible: HTTPS only, and its host must be on the allowlist. Applied to
-    /// the initial URL and to every redirect target.
+    /// Delegates to the shared policy. Kept as a method so call sites read unchanged.
     pub(crate) fn permits_url(&self, url: &str) -> bool {
-        let Some(rest) = url.strip_prefix("https://") else {
-            return false;
-        };
-        // Host ends at the first `/`, `?`, or `#`. Userinfo (`user@host`) is rejected outright
-        // rather than parsed: it is never needed here and is a classic way to disguise a host.
-        let host = rest
-            .split(['/', '?', '#'])
-            .next()
-            .unwrap_or_default()
-            .to_ascii_lowercase();
-        if host.is_empty() || host.contains('@') {
-            return false;
-        }
-        // Compare without any port suffix so `example.com:8443` cannot bypass an exact match.
-        let host = host.split(':').next().unwrap_or_default();
-        self.allowed_hosts
-            .iter()
-            .any(|allowed| allowed.eq_ignore_ascii_case(host))
+        self.policy.permits_url(url)
     }
 }
 
@@ -132,9 +107,11 @@ mod tests {
     use super::*;
 
     const SHELL_ONLY: CliInstallerTrust = CliInstallerTrust {
-        allowed_hosts: &["claude.ai"],
-        max_download_bytes: 4 * 1024 * 1024,
-        download_timeout_seconds: 60,
+        policy: RetrievalPolicy {
+            allowed_hosts: &["claude.ai"],
+            max_download_bytes: 4 * 1024 * 1024,
+            download_timeout_seconds: 60,
+        },
         templates: &[
             CliInstallerTemplate {
                 platform: CliPlatform::Macos,
@@ -144,7 +121,7 @@ mod tests {
                 url: "https://claude.ai/install.sh",
                 target_version: CliTargetVersionMode::LatestOnly,
                 version_argument: None,
-                integrity: CliInstallerIntegrity::Unverified,
+                integrity: ArtifactIntegrity::Unverified,
             },
             CliInstallerTemplate {
                 platform: CliPlatform::Linux,
@@ -154,22 +131,24 @@ mod tests {
                 url: "https://claude.ai/install.sh",
                 target_version: CliTargetVersionMode::LatestOnly,
                 version_argument: None,
-                integrity: CliInstallerIntegrity::Unverified,
+                integrity: ArtifactIntegrity::Unverified,
             },
         ],
     };
 
     const CROSS_PLATFORM: CliInstallerTrust = CliInstallerTrust {
-        allowed_hosts: &["antigravity.google"],
-        max_download_bytes: 4 * 1024 * 1024,
-        download_timeout_seconds: 60,
+        policy: RetrievalPolicy {
+            allowed_hosts: &["antigravity.google"],
+            max_download_bytes: 4 * 1024 * 1024,
+            download_timeout_seconds: 60,
+        },
         templates: &[CliInstallerTemplate {
             platform: CliPlatform::Windows,
             runtime: CliInstallerRuntime::PowerShellFile,
             url: "https://antigravity.google/cli/install.ps1",
             target_version: CliTargetVersionMode::LatestOnly,
             version_argument: None,
-            integrity: CliInstallerIntegrity::Unverified,
+            integrity: ArtifactIntegrity::Unverified,
         }],
     };
 
@@ -207,27 +186,19 @@ mod tests {
     }
 
     #[test]
-    fn only_https_urls_on_the_allowlist_are_admissible() {
+    fn permits_url_reaches_the_shared_policy() {
+        // The URL matrix -- scheme, suffix hosts, userinfo, port -- moved to
+        // `managed_install::domain::policy_tests` with the code that decides it. Two copies of a
+        // security matrix drift; what is worth asserting here is only that this accessor still
+        // reaches that decision rather than growing a second one.
         assert!(SHELL_ONLY.permits_url("https://claude.ai/install.sh"));
-        assert!(SHELL_ONLY.permits_url("https://CLAUDE.AI/install.sh"));
-
-        // Plain HTTP, even to an allowed host.
-        assert!(!SHELL_ONLY.permits_url("http://claude.ai/install.sh"));
-        // A host that merely ends with an allowed one.
-        assert!(!SHELL_ONLY.permits_url("https://evil-claude.ai/install.sh"));
-        assert!(!SHELL_ONLY.permits_url("https://claude.ai.evil.test/install.sh"));
-        // Userinfo disguising the real host.
-        assert!(!SHELL_ONLY.permits_url("https://claude.ai@evil.test/install.sh"));
-        // A different host entirely, which is what a redirect check must reject.
         assert!(!SHELL_ONLY.permits_url("https://cdn.example.test/install.sh"));
-        assert!(!SHELL_ONLY.permits_url("file:///tmp/install.sh"));
-        assert!(!SHELL_ONLY.permits_url(""));
-    }
-
-    #[test]
-    fn a_port_suffix_does_not_bypass_the_host_match() {
-        assert!(SHELL_ONLY.permits_url("https://claude.ai:443/install.sh"));
-        assert!(!SHELL_ONLY.permits_url("https://evil.test:443/install.sh"));
+        assert_eq!(
+            SHELL_ONLY.permits_url("https://claude.ai@evil.test/x"),
+            SHELL_ONLY
+                .policy
+                .permits_url("https://claude.ai@evil.test/x")
+        );
     }
 
     #[test]
@@ -236,8 +207,8 @@ mod tests {
         assert!(CliSourceTrustPolicy::DetectOnly.installer().is_none());
         let policy = CliSourceTrustPolicy::AuditedInstaller(SHELL_ONLY);
         let trust = policy.installer().expect("installer trust");
-        assert_eq!(trust.max_download_bytes, 4 * 1024 * 1024);
-        assert_eq!(trust.download_timeout_seconds, 60);
+        assert_eq!(trust.policy.max_download_bytes, 4 * 1024 * 1024);
+        assert_eq!(trust.policy.download_timeout_seconds, 60);
     }
 
     #[test]
@@ -247,7 +218,7 @@ mod tests {
         let positional = CliInstallerTemplate {
             target_version: CliTargetVersionMode::Exact,
             version_argument: Some(CliInstallerVersionArgument::Positional),
-            integrity: CliInstallerIntegrity::Sha256(
+            integrity: ArtifactIntegrity::Sha256(
                 "0000000000000000000000000000000000000000000000000000000000000000",
             ),
             ..SHELL_ONLY.templates[0]
@@ -269,7 +240,7 @@ mod tests {
         assert_ne!(flagged.version_argument, positional.version_argument);
         assert!(matches!(
             flagged.integrity,
-            CliInstallerIntegrity::Sha256(digest) if digest.len() == 64
+            ArtifactIntegrity::Sha256(digest) if digest.len() == 64
         ));
     }
 
@@ -278,7 +249,7 @@ mod tests {
         // No published digest and no verified version convention means the installer may not be
         // aimed at an exact version -- it would install latest and report the requested version.
         for template in SHELL_ONLY.templates {
-            assert_eq!(template.integrity, CliInstallerIntegrity::Unverified);
+            assert_eq!(template.integrity, ArtifactIntegrity::Unverified);
             assert_eq!(template.target_version, CliTargetVersionMode::LatestOnly);
             assert_eq!(template.version_argument, None);
         }

@@ -2,6 +2,9 @@
 //
 // No URL is fetched and no installer is executed. The downloader is a double that records what it
 // was asked for, which is how the allowlist and the no-pipe-to-shell rules become assertions.
+use crate::contexts::tooling::managed_install::api::{
+    ArtifactRequest, ManagedArtifactRetriever, ManagedInstallError, RetrievedArtifact,
+};
 use std::sync::Mutex;
 
 use super::super::environment_gateway::CliCommandOutput;
@@ -57,25 +60,34 @@ impl RecordingDownloader {
     }
 }
 
-impl CliInstallerDownloader for RecordingDownloader {
-    fn download(
+impl ManagedArtifactRetriever for RecordingDownloader {
+    fn retrieve(
         &self,
-        url: &str,
-        trust: &CliInstallerTrust,
-        _cancellation: &CliCancellation,
-    ) -> Result<DownloadedInstaller, CliEnvironmentError> {
-        // The real downloader applies the same check on every redirect target; asserting it here
+        request: ArtifactRequest<'_>,
+        _cancelled: &std::sync::atomic::AtomicBool,
+    ) -> Result<RetrievedArtifact, ManagedInstallError> {
+        // The real retriever applies the same check on every redirect target; asserting it here
         // keeps the contract visible at the port.
         assert!(
-            trust.permits_url(url),
-            "downloader received a non-allowlisted url"
+            request.policy.permits_url(request.url),
+            "retriever received a non-allowlisted url"
         );
-        self.urls.lock().expect("urls").push(url.to_string());
+        // The name is the caller's, never the URL's. Asserting it here is what keeps a
+        // publisher-controlled path segment out of the filesystem.
+        assert!(
+            request.file_name == "installer.ps1" || request.file_name == "installer.sh",
+            "unexpected artifact file name {}",
+            request.file_name
+        );
+        self.urls
+            .lock()
+            .expect("urls")
+            .push(request.url.to_string());
         // Its own directory, exactly as the production downloader does, so the handle owns cleanup.
         let directory = tempfile::tempdir().expect("fixture directory");
         let path = directory.path().join("installer.sh");
         std::fs::write(&path, b"#!/bin/sh\nexit 0\n").expect("write fixture installer");
-        Ok(DownloadedInstaller {
+        Ok(RetrievedArtifact {
             path,
             _directory: directory,
         })
@@ -308,7 +320,7 @@ fn a_downloaded_installer_is_removed_when_it_drops() {
     std::fs::write(&path, b"x").expect("write");
     assert!(path.exists());
     {
-        let _installer = DownloadedInstaller {
+        let _installer = RetrievedArtifact {
             path: path.clone(),
             _directory: directory,
         };
@@ -414,7 +426,7 @@ fn every_registered_installer_url_is_https_on_its_own_allowlist() {
             assert!(template.url.starts_with("https://"), "{agent_id}");
             assert!(trust.permits_url(template.url), "{agent_id}");
         }
-        assert!(trust.max_download_bytes > 0, "{agent_id}");
-        assert!(trust.download_timeout_seconds > 0, "{agent_id}");
+        assert!(trust.policy.max_download_bytes > 0, "{agent_id}");
+        assert!(trust.policy.download_timeout_seconds > 0, "{agent_id}");
     }
 }

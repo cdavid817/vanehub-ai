@@ -1,29 +1,37 @@
 ## 1. Baseline
 
-- [ ] 1.1 Record the pre-change pass state of `cargo test --workspace cli_environment`, `cargo test --workspace vendor`, and `cargo test --workspace tooling`. These counts are the acceptance evidence for the move, so they have to exist before anything moves
-- [ ] 1.2 Record the current physical line counts of `domain/trust.rs`, `infrastructure/vendor_downloader.rs`, `infrastructure/vendor_source.rs`, and the `tooling` subtree budget headroom, so the move can be shown to move code rather than duplicate it
+- [x] 1.1 Record the pre-change pass state of `cargo test --workspace cli_environment`, `cargo test --workspace vendor`, and `cargo test --workspace tooling`. These counts are the acceptance evidence for the move, so they have to exist before anything moves
+  - Baseline on `f6f7cd3b`: `cli_environment` **13**, `vendor` **30**, `tooling::cli` **725**.
+- [x] 1.2 Record the current physical line counts of `domain/trust.rs`, `infrastructure/vendor_downloader.rs`, `infrastructure/vendor_source.rs`, and the `tooling` subtree budget headroom, so the move can be shown to move code rather than duplicate it
+  - `trust.rs` 286, `vendor_downloader.rs` 241, `vendor_downloader_tests.rs` 305, `vendor_source.rs` 319. `tooling` subtree 121,663 and no registered budget on it.
 
 ## 2. The subdomain
 
-- [ ] 2.1 Create `contexts/tooling/managed_install/{mod,api}.rs` with `domain` and `infrastructure`, registered in `tooling/mod.rs`
-- [ ] 2.2 Add `ManagedInstallError` with the variants the retrieval actually produces, and a `From<ManagedInstallError> for CliEnvironmentError` in the CLI adapter — the conversion belongs on the CLI side, so the shared error never learns CLI vocabulary
+- [x] 2.1 Create `contexts/tooling/managed_install/{mod,api}.rs` with `domain` and `infrastructure`, registered in `tooling/mod.rs`
+- [x] 2.2 Add `ManagedInstallError` with the variants the retrieval actually produces, and a `From<ManagedInstallError> for CliEnvironmentError` in the CLI adapter — the conversion belongs on the CLI side, so the shared error never learns CLI vocabulary
 
 ## 3. Move the retrieval policy
 
-- [ ] 3.1 Move `allowed_hosts`, `max_download_bytes`, `download_timeout_seconds`, and `permits_url` into `managed_install::domain` as `RetrievalPolicy`. **The body of `permits_url` does not change** — a behavior-preserving move means the diff shows relocation, not edits
-- [ ] 3.2 Move `CliInstallerIntegrity` as `ArtifactIntegrity`
-- [ ] 3.3 Leave `CliInstallerTemplate`, `CliInstallerRuntime`, `CliInstallerVersionArgument`, `CliPlatform`, and `template_for` in `tooling/cli`. Their no-fallback test stays with them
-- [ ] 3.4 Move the `permits_url` tests verbatim. If a moved test needs editing to pass, the move was not behavior-preserving — find out why before editing it
-- [ ] 3.5 Add a catalog-walking test that every CLI vendor source declares a non-empty allowlist and a non-zero ceiling, satisfying the "refused at declaration" requirement without making startup fallible over a constant
+- [x] 3.1 Move `allowed_hosts`, `max_download_bytes`, `download_timeout_seconds`, and `permits_url` into `managed_install::domain` as `RetrievalPolicy`. **The body of `permits_url` does not change** — a behavior-preserving move means the diff shows relocation, not edits
+- [x] 3.2 Move `CliInstallerIntegrity` as `ArtifactIntegrity`
+- [x] 3.3 Leave `CliInstallerTemplate`, `CliInstallerRuntime`, `CliInstallerVersionArgument`, `CliPlatform`, and `template_for` in `tooling/cli`. Their no-fallback test stays with them
+  - `CliInstallerTrust` keeps `templates` and now nests a `RetrievalPolicy` where its three bound fields were, so a declaration site reads `policy: RetrievalPolicy { .. }, templates: &[..]`. Six literals across four files were rewritten mechanically.
+- [x] 3.4 Move the `permits_url` tests verbatim. If a moved test needs editing to pass, the move was not behavior-preserving — find out why before editing it
+  - Moved unchanged. What stayed behind is **not** a second copy of the URL matrix: `trust.rs` now asserts only that `permits_url` still reaches the shared decision. Two copies of a security matrix drift, and the one that drifts is the one nobody is looking at.
+- [x] 3.5 Add a catalog-walking test that every CLI vendor source declares a non-empty allowlist and a non-zero ceiling, satisfying the "refused at declaration" requirement without making startup fallible over a constant
 
 ## 4. Move the retrieval
 
-- [ ] 4.1 Move `vendor_downloader.rs` into `managed_install::infrastructure` as the artifact retriever, generalising `CliInstallerDownloader` to a `ManagedArtifactRetriever` port and `DownloadedInstaller` to `RetrievedArtifact`
-- [ ] 4.2 Move `vendor_downloader_tests.rs` with it, unchanged except for names
-- [ ] 4.3 Rewire `vendor_source.rs` to the shared port, converting the error at the boundary
-- [ ] 4.4 Move the concrete construction in `bootstrap/` to the shared type
-- [ ] 4.5 Delete the originals. A move that leaves the old file behind is a copy, and the subtree budget will say so
-- [ ] 4.6 **Acceptance for the move, before any new behavior:** the suites from task 1.1 pass with the same counts. Do not start group 5 until this holds
+- [x] 4.1 Move `vendor_downloader.rs` into `managed_install::infrastructure` as the artifact retriever, generalising `CliInstallerDownloader` to a `ManagedArtifactRetriever` port and `DownloadedInstaller` to `RetrievedArtifact`
+- [x] 4.2 Move `vendor_downloader_tests.rs` with it, unchanged except for names
+- [x] 4.3 Rewire `vendor_source.rs` to the shared port, converting the error at the boundary
+  - **One deliberate behavior difference.** The old downloader verified against *whichever* template in the vendor's list declared a digest; the shared retriever verifies against the digest of the template actually selected. Every shipped template is `Unverified` today, so the two agree on current data — but the old rule would have verified a Windows download against a macOS digest the first time a vendor published one.
+  - The installer file name also moved from being inferred from the response's content type to being chosen by the selected template's runtime. Same two values, decided from the thing that already knows which interpreter will run it rather than from a header the server controls.
+- [x] 4.4 Move the concrete construction in `bootstrap/` to the shared type
+- [x] 4.5 Delete the originals. A move that leaves the old file behind is a copy, and the subtree budget will say so
+- [x] 4.6 **Acceptance for the move, before any new behavior:** the suites from task 1.1 pass with the same counts. Do not start group 5 until this holds
+  - **Held, and every delta is accounted for.** `cli_environment` **13 -> 13**. `tooling::cli` **725 -> 712**: 12 downloader tests left with the code they cover, and the two URL-matrix tests merged into the one delegation assertion. `managed_install` **0 -> 17**: those 12, the 2 moved URL tests, and 3 new ones for `is_bounded`, platform selection, and the digest carrier.
+  - No existing assertion was edited to pass. The one behavior difference is deliberate and recorded at 4.3.
 
 ## 5. The archive kind
 
