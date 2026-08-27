@@ -2,12 +2,12 @@ use super::runtime_manager::{ConnectorDiagnostic, DiagnosticLevel};
 use super::sqlite_repository::SqliteCommunicationsRepository;
 use crate::contexts::agent_runtime::api::{
     AgentAvailability, AgentChatConfiguration, AgentMessageTerminalOutcome, AgentRuntimeApi,
-    InteractionMode, SendMessageRequest,
+    AgentRuntimeApplicationError, InteractionMode, SendMessageRequest,
 };
 use crate::contexts::communications::application::{
-    AgentExecutionRequest, AgentExecutionResult, CommunicationsAgentExecutionPort,
-    CommunicationsApplicationError, CommunicationsClockPort, CommunicationsLog,
-    CommunicationsLogLevel, CommunicationsLoggingPort, CommunicationsOperation,
+    AgentExecutionOutcome, AgentExecutionRequest, AgentExecutionResult,
+    CommunicationsAgentExecutionPort, CommunicationsApplicationError, CommunicationsClockPort,
+    CommunicationsLog, CommunicationsLogLevel, CommunicationsLoggingPort, CommunicationsOperation,
     CommunicationsOperationPort, CommunicationsSessionBindingPort,
 };
 use crate::contexts::communications::domain::{ConnectorKind, RoutingSettings};
@@ -73,7 +73,7 @@ impl CommunicationsAgentExecutionPort for CommunicationsAgentExecutionAdapter {
     fn execute(
         &self,
         request: AgentExecutionRequest,
-    ) -> Result<AgentExecutionResult, CommunicationsApplicationError> {
+    ) -> Result<AgentExecutionOutcome, CommunicationsApplicationError> {
         let configuration = self
             .sessions
             .load_chat_configuration(&request.session_id)
@@ -101,23 +101,29 @@ impl CommunicationsAgentExecutionPort for CommunicationsAgentExecutionAdapter {
             thinking: configuration.values.thinking,
             long_context: configuration.values.long_context,
         };
-        let started = self
+        let started = match self
             .agents
             .send_message_with_completion(SendMessageRequest {
-                source: crate::contexts::agent_runtime::application::AgentMessageSource::InstantMessage {
-                    connector_id: "managed-im".to_string(),
+            source:
+                crate::contexts::agent_runtime::application::AgentMessageSource::InstantMessage {
+                    connector_id: request.connector.as_str().to_string(),
                 },
-                session_id: request.session_id.clone(),
-                content: request.text,
-                configuration,
-                file_references: Vec::new(),
-            })
-            .map_err(|_| {
-                CommunicationsApplicationError::user_visible(
+            session_id: request.session_id.clone(),
+            content: request.text,
+            configuration,
+            file_references: Vec::new(),
+        }) {
+            Ok(started) => started,
+            Err(AgentRuntimeApplicationError::InvalidSeatMention { valid_mentions }) => {
+                return Ok(AgentExecutionOutcome::InvalidSeat { valid_mentions });
+            }
+            Err(_) => {
+                return Err(CommunicationsApplicationError::user_visible(
                     "agent-start-failed",
                     "The Agent could not start this request.",
-                )
-            })?;
+                ));
+            }
+        };
         let terminal = started
             .terminal
             .recv_timeout(std::time::Duration::from_secs(30 * 60))
@@ -132,16 +138,19 @@ impl CommunicationsAgentExecutionPort for CommunicationsAgentExecutionAdapter {
                     CommunicationsApplicationError::failure("completion-receiver-dropped")
                 }
             })?;
-        if terminal.message_id != started.message.id {
+        // Multi-seat rounds finish on a later assistant message, so the session is the stable correlation key.
+        if terminal.session_id != started.message.session_id {
             return Err(CommunicationsApplicationError::failure(
-                "completion-message-mismatch",
+                "completion-session-mismatch",
             ));
         }
         match terminal.outcome {
-            AgentMessageTerminalOutcome::Completed => Ok(AgentExecutionResult {
-                reply: terminal.content.unwrap_or_default(),
-                message_id: terminal.message_id,
-            }),
+            AgentMessageTerminalOutcome::Completed => {
+                Ok(AgentExecutionOutcome::Reply(AgentExecutionResult {
+                    reply: terminal.content.unwrap_or_default(),
+                    message_id: terminal.message_id,
+                }))
+            }
             AgentMessageTerminalOutcome::Failed => {
                 Err(CommunicationsApplicationError::user_visible(
                     "agent-generation-failed",

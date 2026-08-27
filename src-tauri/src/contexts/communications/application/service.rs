@@ -1,17 +1,18 @@
 use super::lifecycle_coordinator::ConnectorLifecycleCoordinator;
 use super::{
-    AgentExecutionRequest, CommunicationsAgentExecutionPort, CommunicationsApplicationError,
-    CommunicationsClockPort, CommunicationsCredentialPort, CommunicationsLog,
-    CommunicationsLogLevel, CommunicationsLoggingPort, CommunicationsOperationPort,
-    CommunicationsRepository, CommunicationsSessionBindingPort, CommunicationsTransportPort,
-    ConnectorCredential, ConnectorRuntimeDefinition, ConnectorStartupResult, ConnectorSummary,
-    InboundRouteOutcome, PairingStartResult, SaveConnectorRequest, SessionBindingSnapshot,
+    AgentExecutionOutcome, AgentExecutionRequest, CommunicationsAgentExecutionPort,
+    CommunicationsApplicationError, CommunicationsClockPort, CommunicationsCredentialPort,
+    CommunicationsLog, CommunicationsLogLevel, CommunicationsLoggingPort,
+    CommunicationsOperationPort, CommunicationsRepository, CommunicationsSessionBindingPort,
+    CommunicationsTransportPort, ConnectorCredential, ConnectorRuntimeDefinition,
+    ConnectorStartupResult, ConnectorSummary, InboundRouteOutcome, PairingStartResult,
+    SaveConnectorRequest, SessionBindingSnapshot,
 };
 use crate::contexts::communications::domain::{
     builtin_descriptors, connector_field_definitions, BindingState, ChatBindingKey,
     ConnectorConfig, ConnectorFieldStorage, ConnectorHealth, ConnectorKind, ConnectorLifecycle,
     InboundDisposition, InboundEventIdentity, NormalizedInbound, PairingIntent, RoutingSettings,
-    SessionBinding,
+    SessionBinding, SessionConnectorAccess,
 };
 
 /// Synchronous snapshot of connector configuration + credential presence, captured by
@@ -25,7 +26,7 @@ use chrono::{DateTime, Duration};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use zeroize::Zeroizing;
 
 const DEDUP_RETENTION_DAYS: u32 = 7;
@@ -42,6 +43,7 @@ pub(crate) struct CommunicationsCopy {
     pub(crate) pairing_invalid: &'static str,
     pub(crate) pairing_established: &'static str,
     pub(crate) completion: &'static str,
+    pub(crate) invalid_seat: &'static str,
 }
 
 pub(crate) type CommunicationsCopyProvider = Arc<dyn Fn() -> CommunicationsCopy + Send + Sync>;
@@ -64,6 +66,7 @@ pub(crate) struct CommunicationsApplicationService {
     ports: CommunicationsApplicationPorts,
     lifecycle: ConnectorLifecycleCoordinator,
     last_dedup_maintenance: Arc<Mutex<Option<std::time::Instant>>>,
+    session_access_gate: Arc<RwLock<()>>,
 }
 
 impl CommunicationsApplicationService {
@@ -72,6 +75,7 @@ impl CommunicationsApplicationService {
             ports,
             lifecycle: ConnectorLifecycleCoordinator::default(),
             last_dedup_maintenance: Arc::new(Mutex::new(None)),
+            session_access_gate: Arc::new(RwLock::new(())),
         }
     }
 
@@ -495,7 +499,8 @@ impl CommunicationsApplicationService {
         if inbound.disposition() != InboundDisposition::Deliver {
             return Ok(InboundRouteOutcome::Ignored);
         }
-        let key = ChatBindingKey::new(inbound.connector, inbound.chat_id)?;
+        let connector = inbound.connector;
+        let key = ChatBindingKey::new(connector, inbound.chat_id)?;
         if let Some(code) = pairing_code(&inbound.text) {
             return self.consume_pairing(&key, code);
         }
@@ -509,6 +514,10 @@ impl CommunicationsApplicationService {
                 text: (self.ports.copy)().paused.to_string(),
             });
         }
+        let _access_guard = self.session_access_gate.read().map_err(|_| {
+            CommunicationsApplicationError::failure("im-session-access-lock-failed")
+        })?;
+        self.require_session_access(&binding.session_id, connector)?;
         if !self.ports.sessions.exists(&binding.session_id)? {
             self.remove_binding(&binding.session_id)?;
             return Ok(InboundRouteOutcome::SystemReply {
@@ -517,14 +526,29 @@ impl CommunicationsApplicationService {
         }
         let session_id = binding.session_id;
         let result = self.ports.agents.execute(AgentExecutionRequest {
+            connector,
             session_id: session_id.clone(),
             text: inbound.text,
         })?;
-        Ok(InboundRouteOutcome::Reply {
-            text: result.reply,
-            session_id,
-            message_id: result.message_id,
-        })
+        match result {
+            AgentExecutionOutcome::Reply(result) => Ok(InboundRouteOutcome::Reply {
+                text: result.reply,
+                session_id,
+                message_id: result.message_id,
+            }),
+            AgentExecutionOutcome::InvalidSeat { valid_mentions } => {
+                let labels = valid_mentions
+                    .iter()
+                    .map(|mention| format!("@{mention}"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                Ok(InboundRouteOutcome::SystemReply {
+                    text: format!("{} {labels}", (self.ports.copy)().invalid_seat)
+                        .trim()
+                        .to_string(),
+                })
+            }
+        }
     }
 
     pub(crate) async fn begin_pairing(
@@ -538,6 +562,7 @@ impl CommunicationsApplicationService {
                 "im-session-not-found",
             ));
         }
+        self.require_session_access(session_id, connector)?;
         let configuration = self
             .ports
             .repository
@@ -574,7 +599,13 @@ impl CommunicationsApplicationService {
             (expires_at.clone(), created_at),
             replace_existing,
         )?;
-        self.ports.repository.save_pairing_intent(&intent)?;
+        {
+            let _access_guard = self.session_access_gate.read().map_err(|_| {
+                CommunicationsApplicationError::failure("im-session-access-lock-failed")
+            })?;
+            self.require_session_access(session_id, connector)?;
+            self.ports.repository.save_pairing_intent(&intent)?;
+        }
         self.record(
             CommunicationsLogLevel::Info,
             "communications.pairing.started",
@@ -624,7 +655,42 @@ impl CommunicationsApplicationService {
         Ok(SessionBindingSnapshot {
             binding,
             pending_connector,
+            access: self
+                .ports
+                .repository
+                .session_access(session_id, ConnectorKind::Feishu)?,
         })
+    }
+
+    pub(crate) fn set_session_access(
+        &self,
+        session_id: &str,
+        connector: ConnectorKind,
+        enabled: bool,
+    ) -> Result<SessionConnectorAccess, CommunicationsApplicationError> {
+        if !self.ports.sessions.exists(session_id)? {
+            return Err(CommunicationsApplicationError::failure(
+                "im-session-not-found",
+            ));
+        }
+        let _access_guard = self.session_access_gate.write().map_err(|_| {
+            CommunicationsApplicationError::failure("im-session-access-lock-failed")
+        })?;
+        let access = self.ports.repository.set_session_access(
+            session_id,
+            connector,
+            enabled,
+            &self.ports.clock.now_rfc3339(),
+        )?;
+        self.record(
+            CommunicationsLogLevel::Info,
+            "communications.session-access.updated",
+            "Session connector access updated.",
+            Some(connector),
+            None,
+            None,
+        );
+        Ok(access)
     }
 
     pub(crate) fn set_binding_paused(
@@ -685,6 +751,7 @@ impl CommunicationsApplicationService {
         if !binding.is_active() || !binding.completion_notifications {
             return Ok(false);
         }
+        self.require_session_access(session_id, binding.connector)?;
         let Some(reference) = self
             .ports
             .repository
@@ -745,6 +812,9 @@ impl CommunicationsApplicationService {
         key: &ChatBindingKey,
         code: &str,
     ) -> Result<InboundRouteOutcome, CommunicationsApplicationError> {
+        let _access_guard = self.session_access_gate.read().map_err(|_| {
+            CommunicationsApplicationError::failure("im-session-access-lock-failed")
+        })?;
         let now = self.ports.clock.now_rfc3339();
         let intent = self
             .ports
@@ -757,6 +827,7 @@ impl CommunicationsApplicationService {
                 text: (self.ports.copy)().pairing_invalid.to_string(),
             });
         };
+        self.require_session_access(&intent.session_id, key.connector())?;
         let displaced_references = self
             .ports
             .repository
@@ -796,6 +867,29 @@ impl CommunicationsApplicationService {
         Ok(InboundRouteOutcome::SystemReply {
             text: (self.ports.copy)().pairing_established.to_string(),
         })
+    }
+
+    fn require_session_access(
+        &self,
+        session_id: &str,
+        connector: ConnectorKind,
+    ) -> Result<(), CommunicationsApplicationError> {
+        if connector != ConnectorKind::Feishu {
+            return Ok(());
+        }
+        if self
+            .ports
+            .repository
+            .session_access(session_id, connector)?
+            .enabled
+        {
+            Ok(())
+        } else {
+            Err(CommunicationsApplicationError::user_visible(
+                "im-session-disabled",
+                "IM access is disabled for this session.",
+            ))
+        }
     }
 
     pub(crate) fn reset_bindings(

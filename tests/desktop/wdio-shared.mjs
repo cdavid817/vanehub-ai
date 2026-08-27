@@ -110,7 +110,17 @@ export async function closeDesktopSession(browser, waitForExit = () => delay(APP
  * environment — notably the CLI-terminal layer's fixture `PATH` — can never leak into another
  * and silently change what that layer tests.
  */
-export async function createDesktopConfig({ specDirectory, specFiles, environment = {} }) {
+export async function createDesktopConfig({
+  specDirectory,
+  specFiles,
+  environment = {},
+  captureFailureScreenshots = true,
+  captureServiceLogs = true,
+  commandTimeout = 30_000,
+  logLevel = "info",
+  mochaTimeout = 300_000,
+  beforeExit,
+}) {
   const artifactPath = process.env.VANEHUB_DESKTOP_ARTIFACT;
   const resultDir = process.env.VANEHUB_DESKTOP_RESULT_DIR;
   if (!artifactPath || !resultDir) throw new Error("Desktop artifact and result directory are required.");
@@ -134,9 +144,8 @@ export async function createDesktopConfig({ specDirectory, specFiles, environmen
       embeddedPort: embeddedDriverPort,
       startTimeout: 120_000,
       statusPollTimeout: 5_000,
-      commandTimeout: 30_000,
-      captureBackendLogs: true,
-      captureFrontendLogs: true,
+      captureBackendLogs: captureServiceLogs,
+      captureFrontendLogs: captureServiceLogs,
       backendLogLevel: "debug",
       frontendLogLevel: "debug",
       logDir,
@@ -156,8 +165,9 @@ export async function createDesktopConfig({ specDirectory, specFiles, environmen
     capabilities: [{
       browserName: "tauri",
       "tauri:options": { application: artifactPath },
+      "wdio:tauriServiceOptions": { commandTimeout },
     }],
-    logLevel: "info",
+    logLevel,
     outputDir: logDir,
     bail: 0,
     waitforTimeout: 20_000,
@@ -165,7 +175,7 @@ export async function createDesktopConfig({ specDirectory, specFiles, environmen
     connectionRetryCount: 1,
     framework: "mocha",
     reporters: ["spec"],
-    mochaOpts: { ui: "bdd", timeout: 300_000 },
+    mochaOpts: { ui: "bdd", timeout: mochaTimeout },
     // WDIO runs this launcher hook before the Tauri service hook. Wait until the prior worker's
     // clean app exit has really closed the port, so the service observes the stopped driver and
     // restarts it before creating the next session.
@@ -176,6 +186,13 @@ export async function createDesktopConfig({ specDirectory, specFiles, environmen
           .replaceAll(/[^\p{L}\p{N}]+/gu, "-")
           .replaceAll(/^-|-$/g, "")
           .slice(0, 120);
+        if (!captureFailureScreenshots) {
+          await writeFile(
+            path.join(resultDir, "screenshots", `${slug}-suppressed.txt`),
+            "Failure screenshot suppressed by the layer evidence policy.\n",
+          );
+          return;
+        }
         try {
           await globalThis.browser.saveScreenshot(path.join(resultDir, "screenshots", `${slug}.png`));
         } catch (error) {
@@ -190,7 +207,14 @@ export async function createDesktopConfig({ specDirectory, specFiles, environmen
       await mkdir(path.join(resultDir, "screenshots"), { recursive: true });
     },
     after: async () => {
+      let cleanupError;
+      try {
+        await beforeExit?.();
+      } catch (error) {
+        cleanupError = error;
+      }
       await closeDesktopSession(globalThis.browser);
+      if (cleanupError) throw cleanupError;
     },
     onComplete: async (exitCode, _config, _capabilities, results) => {
       await writeFile(path.join(resultDir, "wdio-result.json"), `${JSON.stringify({

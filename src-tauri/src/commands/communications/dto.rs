@@ -1,5 +1,6 @@
 use crate::contexts::communications::domain::{
     ConnectorConfig, ConnectorDescriptor, ConnectorHealth, ConnectorKind, SessionBinding,
+    SessionConnectorAccess,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -48,4 +49,5 @@ pub(crate) struct PairingStartView {
 pub(crate) struct SessionBindingView {
     pub(crate) binding: Option<SessionBinding>,
     pub(crate) pending_connector: Option<ConnectorKind>,
+    pub(crate) access: SessionConnectorAccess,
 }

@@ -41,6 +41,7 @@
 - [Skill 演进证据](skill-evolution-evidence.md)
 - [MCP 工具与客户端](mcp-tools.md)
 - [IM connector](im-connectors.md)
+- [飞书真实环境资格验证](feishu-live-qualification.md)
 
 # 策略与可观测
 

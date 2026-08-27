@@ -5,6 +5,7 @@ import type {
   ImConnectorView,
   ImPairingStart,
   ImSessionBinding,
+  ImSessionAccess,
 } from "../contracts/im";
 import type { ImService } from "../services/im-service";
 import { imService as runtimeImService } from "../services/runtime-im-client";
@@ -19,11 +20,14 @@ export function useSessionImState(
 ) {
   const [connectors, setConnectors] = useState<ImConnectorView[]>([]);
   const [binding, setBinding] = useState<ImSessionBinding | null>(null);
+  const [access, setAccessState] = useState<ImSessionAccess | null>(null);
   const [pairing, setPairingState] = useState<ImPairingStart | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const pairingRef = useRef<ImPairingStart | null>(null);
   const requestRef = useRef(0);
+  const activeSessionRef = useRef(sessionId);
+  activeSessionRef.current = sessionId;
 
   const setPairing = useCallback((value: ImPairingStart | null) => {
     pairingRef.current = value;
@@ -35,6 +39,7 @@ export function useSessionImState(
     requestRef.current = request;
     if (!sessionId) {
       setBinding(null);
+      setAccessState(null);
       setPairing(null);
       return;
     }
@@ -47,6 +52,7 @@ export function useSessionImState(
       if (requestRef.current !== request) return;
       setConnectors(views);
       setBinding(snapshot.binding);
+      setAccessState(snapshot.access);
       if (snapshot.binding || !snapshot.pendingConnector) setPairing(null);
     } catch (reason) {
       if (requestRef.current === request) setError(errorMessage(reason));
@@ -57,7 +63,9 @@ export function useSessionImState(
     let disposed = false;
     let unsubscribe: (() => void) | null = null;
     setBinding(null);
+    setAccessState(null);
     setPairing(null);
+    setPending(false);
     setError(null);
     void reload();
     void service.subscribeLifecycle((health: ImConnectorHealth) => {
@@ -175,7 +183,25 @@ export function useSessionImState(
     }
   }, [service, setPairing]);
 
+  const setAccess = useCallback(async (enabled: boolean) => {
+    if (!sessionId) return null;
+    setPending(true);
+    setError(null);
+    try {
+      const next = await service.setSessionAccess(sessionId, "feishu", enabled);
+      if (activeSessionRef.current !== sessionId) return null;
+      setAccessState(next);
+      return next;
+    } catch (reason) {
+      if (activeSessionRef.current === sessionId) setError(errorMessage(reason));
+      return null;
+    } finally {
+      if (activeSessionRef.current === sessionId) setPending(false);
+    }
+  }, [service, sessionId]);
+
   return {
+    access,
     beginPairing,
     binding,
     cancelPairing,
@@ -188,6 +214,7 @@ export function useSessionImState(
     )), [connectors]),
     reload,
     retryPairing,
+    setAccess,
     removeBinding: () => sessionId
       ? mutate(() => service.removeSessionBinding(sessionId))
       : Promise.resolve(null),
