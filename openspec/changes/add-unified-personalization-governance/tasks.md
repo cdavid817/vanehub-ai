@@ -153,19 +153,19 @@
 
 ## 14. Required Verification
 
-- [ ] 14.1 Run targeted Rust domain, repository, migration, OnePiece, CLI, session, command, and reconciliation tests after each corresponding task group.
-- [ ] 14.2 Run targeted frontend service, settings UI, memory UI, session UI, accessibility, and Web/mock tests after each corresponding task group.
-- [ ] 14.3 Run `npm run lint:ci`.
-- [ ] 14.4 Run `npm run test`.
-- [ ] 14.5 Run `npm run test:coverage` and confirm project thresholds remain satisfied.
-- [ ] 14.6 Run `npm run build`.
-- [ ] 14.7 Run `npx playwright test` for changed browser/Web/mock journeys and record the result.
+- [x] 14.1 Run targeted Rust domain, repository, migration, OnePiece, CLI, session, command, and reconciliation tests after each corresponding task group.
+- [x] 14.2 Run targeted frontend service, settings UI, memory UI, session UI, accessibility, and Web/mock tests after each corresponding task group.
+- [x] 14.3 Run `npm run lint:ci`.
+- [x] 14.4 Run `npm run test`.
+- [x] 14.5 Run `npm run test:coverage` and confirm project thresholds remain satisfied.
+- [x] 14.6 Run `npm run build`.
+- [x] 14.7 Run `npx playwright test` for changed browser/Web/mock journeys and record the result.
 - [ ] 14.8 Run the repository's desktop WebdriverIO/Tauri tests for native IPC, persistence, restart, migration, session mode, and 201+/1,000-memory reset scenarios on supported platforms.
-- [ ] 14.9 Run `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`.
-- [ ] 14.10 Run `cargo check --workspace`.
-- [ ] 14.11 Run `cargo clippy --workspace --all-targets -- -D warnings`.
-- [ ] 14.12 Run `npm run native:panic:check`.
+- [x] 14.9 Run `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`.
+- [x] 14.10 Run `cargo check --workspace`.
+- [x] 14.11 Run `cargo clippy --workspace --all-targets -- -D warnings`.
+- [x] 14.12 Run `npm run native:panic:check`.
 - [ ] 14.13 Run `cargo test --workspace`.
-- [ ] 14.14 Run `openspec validate add-unified-personalization-governance --strict`.
-- [ ] 14.15 Run `openspec validate --specs --strict`.
-- [ ] 14.16 Review every task checkbox against actual code/tests and leave incomplete tasks unchecked; do not mark completion based only on compilation.
+- [x] 14.14 Run `openspec validate add-unified-personalization-governance --strict`.
+- [x] 14.15 Run `openspec validate --specs --strict`.
+- [x] 14.16 Review every task checkbox against actual code/tests and leave incomplete tasks unchecked; do not mark completion based only on compilation.
