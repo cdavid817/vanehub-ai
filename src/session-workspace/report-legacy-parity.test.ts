@@ -111,3 +111,37 @@ describe("legacy report parity", () => {
     expect(report.usage.estimatedCharacters).toBeUndefined();
   });
 });
+
+describe("the retired aggregation stays retired", () => {
+  it("is reachable from tests and from nothing else", async () => {
+    // The module says at the top that nothing in the product calls it. That sentence is the only
+    // thing holding the rule, and a sentence does not fail a build. What makes this worth a test
+    // rather than a comment is how plausible the mistake is: the function is exported, its name
+    // describes exactly what somebody adding a session summary would search for, and it returns
+    // numbers that look right for any history that happens to be mounted. The figures it produces
+    // are a function of scrolling — page older messages in and the totals change — which is the
+    // divergence the cases above exist to record.
+    const { readFileSync, readdirSync } = await import("node:fs");
+    const { dirname, join } = await import("node:path");
+    const { fileURLToPath } = await import("node:url");
+
+    const root = dirname(dirname(fileURLToPath(import.meta.url)));
+    const callers: string[] = [];
+    const walk = (directory: string) => {
+      for (const entry of readdirSync(directory, { withFileTypes: true })) {
+        const path = join(directory, entry.name);
+        if (entry.isDirectory()) {
+          walk(path);
+        } else if (/\.tsx?$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name)) {
+          if (readFileSync(path, "utf8").includes("aggregateSessionReport")) {
+            callers.push(path.slice(root.length + 1).replace(/\\/g, "/"));
+          }
+        }
+      }
+    };
+    walk(root);
+
+    // The definition itself, and nothing beside it.
+    expect(callers).toEqual(["session-workspace/report-utils.ts"]);
+  });
+});

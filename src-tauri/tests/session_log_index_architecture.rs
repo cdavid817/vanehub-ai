@@ -339,3 +339,48 @@ fn the_export_command_never_sources_rows_from_the_log_index() {
         "[ARCH-LOGINDEX-004] nothing tells an export which files it may read"
     );
 }
+
+/// The three files the pager is spread across.
+const PAGER_SOURCES: &[&str] = &[
+    "contexts/operations/infrastructure/log_index_repository.rs",
+    "contexts/operations/application/log_cursor.rs",
+    "contexts/operations/application/log_query_service.rs",
+];
+
+/// The pager is keyset, and stays keyset.
+///
+/// The offset-only internals this capability replaced are gone; this is what keeps them from
+/// growing back, and the reason is not style. An offset names a position in a result set, and this
+/// result set grows underneath the reader continuously. Every row that arrives renumbers every
+/// position after it, so paging by offset skips exactly the rows that appeared while the reader was
+/// reading — and skips them silently, leaving a page that is short by however many arrived with
+/// nothing anywhere to say so. A keyset predicate names a row, and a row does not move.
+///
+/// Matched on the SQL keyword only. `source_offset` and `next_offset` are byte positions in a log
+/// file, they are all over these files, and they are not this.
+#[test]
+fn the_log_pager_never_falls_back_to_an_offset() {
+    let mut violations = Vec::new();
+    for relative in PAGER_SOURCES {
+        let code = code_of(relative);
+        if code.contains(" OFFSET ") || code.contains("OFFSET ?") {
+            violations.push(format!(
+                "[ARCH-LOGINDEX-005] {relative}: pages by offset. Repair: the keyset predicate \
+                 names a row, and an appending table renumbers every offset after each insert"
+            ));
+        }
+    }
+    assert!(violations.is_empty(), "{}", violations.join("\n"));
+}
+
+/// Without this, the byte-offset exclusion above is indistinguishable from a broken pattern.
+#[test]
+fn the_offset_rule_separates_sql_paging_from_byte_positions() {
+    let paged = "ORDER BY sequence DESC LIMIT ? OFFSET ?";
+    let byte_position = "let next = row.source_offset + line.len();";
+    let keyset = "AND (occurred_at_ms < ? OR (occurred_at_ms = ? AND sequence < ?))";
+
+    assert!(paged.contains("OFFSET ?"));
+    assert!(!byte_position.contains(" OFFSET ") && !byte_position.contains("OFFSET ?"));
+    assert!(!keyset.contains(" OFFSET ") && !keyset.contains("OFFSET ?"));
+}

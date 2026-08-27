@@ -232,3 +232,31 @@ CLI parameter catalogs and persisted selections remain a Tooling subdomain publi
 ### ADR-005: Generate TypeScript model contracts from Rust with `ts-rs`
 
 Frontend service interfaces stay hand-authored because they express UI/runtime semantics, but command payload/result models are generated from Rust models with `ts-rs`. Each serializable Rust model that crosses the frontend/backend boundary derives `TS` alongside `Serialize` and `Deserialize`; generated files live under a stable frontend contract directory, and a verification command regenerates contracts and fails when committed contract files are stale. This keeps React components behind service interfaces while reducing silent drift between Rust command models and TypeScript types. `specta` / `tauri-specta` were rejected for tighter Tauri coupling and a broader integration surface; manual TypeScript-only was rejected because parallel Rust/TypeScript models drift silently as Agent, MCP, SDK, and operation models grow.
+
+### ADR-006: The evidence journal records observations and never claims
+
+`execution_observability` owns an append-only journal (migration 81) of events the runtime watched, plus a projection derived from it. Producers report their own work through ports in their own vocabulary; translation into journal shape happens in `bootstrap/evidence_bridge.rs` and nowhere else, over a bounded channel with a non-blocking send, so a producer never waits on the journal and a slow journal never becomes a latency spike in the work it is recording.
+
+The rule that shapes everything else is that the journal holds only what was observed. Historical `message.toolUse` activity is *not* backfilled into it: a `toolUse` block is what an assistant said it was doing, and once that sits beside events the runtime witnessed, nothing downstream can separate them again — not the fidelity column, which a backfill would have to invent, and not the reader, who has no reason to suspect the question is worth asking. Historical activity is instead projected in the frontend from loaded messages, as its own list, always `inferred`, always partial coverage. Guards in `tests/evidence_bridge_architecture.rs` fail any file that both appends to the journal and reads the chat corpus, and no Tauri command may write evidence at all, since a client assertion is not an observation.
+
+Coverage travels with every answer rather than being fetched separately. Dropped events, source conflicts, retention trimming, and a projection that is behind each degrade it to a named state with a stable reason code, so a short answer is never mistaken for a small session.
+
+### ADR-007: The log index is a rebuildable projection, keyset-paged
+
+`operations` owns a query index (migration 82) over the redacted JSONL files `platform::logging` retains. Nothing in it is a second source of truth: every row is derivable again from the files, which is what lets the schema be shaped for reading rather than for durability.
+
+The index is brought up to date by a repair job started after the window exists, spawned rather than run, and handed to the blocking pool rather than executed on an async worker — synchronous SQLite on a runtime worker parks it for the length of the scan and queues every unrelated command behind it, with no symptom beyond "a few commands were slow once after launch". Progress is a persisted checkpoint keyed by directory generation rather than by path, so a rotated file resumes from zero instead of mid-file into bytes the offset was never written for. Reads happen outside any write transaction, batches commit rows, gaps, and checkpoint together, and every prune is bounded so a tidy-up never holds the write lock across the corpus.
+
+Paging is keyset and stays keyset: this result set grows underneath the reader, and an offset renumbers with every insert, so offset paging silently skips exactly the rows that arrived while the reader was reading. Expiry — the one deletion here that cannot be undone, because the file it would be re-read from is gone — records a `log_source_expired` gap in the same transaction as the delete, so a query after a rotation reports partial coverage rather than a short answer that calls itself complete.
+
+### ADR-008: Report is composed by the backend, from evidence
+
+Session Report figures come from an aggregate query over the journal rather than from whatever `ChatMessage[]` happens to be mounted. The React aggregation it replaced made every number a function of scrolling: paging older messages in changed the totals, and a trimmed history reported a smaller session with no field anywhere saying so. Coverage is per section rather than per report, because a report stays useful while one of its sections cannot be substantiated, and the reader needs to know which one.
+
+The retired aggregation is kept in `src/session-workspace/report-utils.ts`, uncalled, because `report-legacy-parity.test.ts` holds the divergences between the two as tests — those divergences are the reason for the replacement, and deleting the old code would delete the record of what its numbers meant, which is what invites somebody to make the backend agree with them again. A guard requires the only file mentioning it to be the one defining it.
+
+### ADR-009: One workspace provider per session, capability by capability
+
+`workspaces` answers file, search, diff, and shell questions for a session through one provider chosen by where the workspace is, and reports what that provider can do capability by capability rather than as a single flag. A remote host with Git but no ripgrep is ordinary, and one flag would either hide the search gap or disable the four things that work. Unsupported actions render disabled with a reason rather than vanishing: a control that disappears makes a reader think they misremembered where it was.
+
+Session Shell has exactly one lifecycle owner, `SessionShellRegistry`, so a shell survives a tab switch, a session switch, and a remount, and stops only when someone says so. Its runtime descriptor is an internally tagged union — the frontend narrows on `kind`, and the string union it replaced let the UI offer resize to a simulated shell and reconnect to a PTY, because a string carries no constraints.

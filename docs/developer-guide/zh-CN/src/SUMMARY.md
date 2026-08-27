@@ -45,6 +45,7 @@
 
 - [权限模型](permission-model.md)
 - [执行可观测性与 Agent 评测](execution-observability.md)
+- [会话工作区证据控制台](session-workspace-console.md)
 - [持久化与统一日志](persistence-and-logging.md)
 - [使用统计](usage-statistics.md)
 

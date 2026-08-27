@@ -315,3 +315,60 @@ fn session_shell_and_agent_terminal_stay_separate() {
         violations.join("\n")
     );
 }
+
+/// The runtime descriptor stays narrowable by `kind`.
+///
+/// The string capability union this replaced let the UI offer resize to a simulated shell and
+/// reconnect to a PTY, because a string carries no constraints. The union that replaced it carries
+/// each capability inside the variant that has it — but the field the frontend narrows on exists
+/// only because of the serde attribute. Remove the attribute and serde falls back to external
+/// tagging, `{"native": {…}}`, at which point `kind` is `undefined` on every descriptor and every
+/// narrow falls through to its last branch.
+///
+/// Nothing else catches that. TypeScript will not: the frontend type is declared rather than
+/// derived, so it goes on claiming a field the wire no longer carries, and the failure surfaces as
+/// a shell that quietly reports the wrong capabilities rather than as an error anywhere.
+#[test]
+fn the_shell_runtime_descriptor_stays_narrowable_by_kind() {
+    let dto = fs::read_to_string(project_root().join("src-tauri/src/commands/workspaces/dto.rs"))
+        .expect("the workspaces DTO");
+
+    let before_declaration = dto
+        .split("pub(crate) enum ShellRuntimeDescriptor")
+        .next()
+        .expect("the descriptor is declared in the workspaces DTO");
+    // The attributes immediately above the declaration, not the whole file: a `tag = "kind"` on
+    // some other enum would otherwise satisfy this.
+    let attributes = before_declaration
+        .lines()
+        .rev()
+        .take(3)
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(
+        dto.contains("pub(crate) enum ShellRuntimeDescriptor"),
+        "the descriptor was renamed; this rule is now checking nothing"
+    );
+    assert!(
+        attributes.contains(r#"tag = "kind""#),
+        "[ARCH-SHELL-006] the runtime descriptor is no longer internally tagged, so the \
+         frontend's `runtime.kind` narrow reads undefined on every variant. Found: {attributes}"
+    );
+
+    // And the frontend still narrows on it, rather than having gone back to a bare string.
+    let frontend = fs::read_to_string(project_root().join("src/types/session-workspace.ts"))
+        .expect("the frontend workspace types");
+    let declaration = frontend
+        .split("export type ShellRuntimeDescriptor")
+        .nth(1)
+        .expect("the frontend declares the descriptor")
+        .split("\n\n")
+        .next()
+        .unwrap_or_default();
+    assert_eq!(
+        declaration.matches("kind: \"").count(),
+        4,
+        "every variant carries its own `kind`, and there are four: {declaration}"
+    );
+}
