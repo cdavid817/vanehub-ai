@@ -90,7 +90,6 @@ use crate::contexts::skill_evolution_evidence::application::RuntimeEvidenceProje
 use crate::contexts::ssh_connections::api::SshConnectionsApi;
 use crate::contexts::tooling::api::CliParameterRuntimeApi;
 use crate::contexts::tooling::cli::api::CliApi;
-use crate::contexts::tooling::cli::infrastructure::CliExecutableLocatorAdapter;
 use crate::contexts::tooling::mcp::api::McpApi;
 use crate::contexts::tooling::prompt_hooks::api::PromptHookApi;
 use crate::contexts::tooling::sdk::api::SdkApi;
@@ -366,9 +365,9 @@ fn assemble_native_tool_registry(
         );
     }
     let delegation_readiness = DelegationReadinessService::new(
-        Arc::new(PassiveDelegationProbe::new(Arc::new(
-            CliExecutableLocatorAdapter::new(),
-        ))),
+        // The same launch resolution the runtime itself uses, so readiness judges the binary a
+        // delegation would actually start.
+        Arc::new(PassiveDelegationProbe::new(Arc::new(cli.clone()))),
         DelegationCapabilityDependencies {
             process_tree_control: true,
             analyze_isolation: true,
@@ -670,6 +669,9 @@ pub(crate) fn assemble_agent_runtime_api(
                 dependencies.retrieval.clone(),
             )),
             Arc::new(CodeIntelligenceContextSource::definition(
+                code_intelligence.clone(),
+            )),
+            Arc::new(CodeIntelligenceContextSource::call_relations(
                 code_intelligence.clone(),
             )),
             Arc::new(CodeIntelligenceContextSource::references(

@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import process from "node:process";
 import { promisify } from "node:util";
 import { readOnePieceApiKey } from "../helpers/onepiece-credential.mjs";
+import { navigateTo } from "../helpers/navigation.mjs";
 
 /**
  * The chat surface driven the way a user drives it: keystrokes into the composer, clicks on the
@@ -108,12 +109,7 @@ async function bootstrapReady() {
   );
 }
 
-async function navigate(path) {
-  await globalThis.browser.execute((target) => {
-    globalThis.history.pushState({}, "", target);
-    globalThis.dispatchEvent(new globalThis.PopStateEvent("popstate"));
-  }, path);
-}
+const navigate = navigateTo;
 
 const countOf = async (selector) => (await globalThis.$$(selector)).length;
 

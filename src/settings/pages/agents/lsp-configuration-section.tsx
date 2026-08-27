@@ -5,13 +5,13 @@ import { useTranslation } from "react-i18next";
 import { Button } from "../../../components/ui/button";
 import type { AgentService } from "../../../services/agent-service";
 import { agentService as defaultAgentService } from "../../../services/runtime-agent-client";
-import { lspLanguageIds, type LspConfiguration } from "../../../types/lsp";
+import type { LspConfiguration } from "../../../types/lsp";
 import { SectionPanel } from "../page-parts";
 import {
   createLspConfigurationDraft,
   validateLspConfigurationDraft,
   type LspConfigurationDraft,
-  type LspInitializationErrors,
+  type LspFieldErrors,
 } from "./lsp-configuration-form";
 import { LspLanguageConfigurationCard } from "./lsp-language-configuration-card";
 
@@ -38,7 +38,7 @@ function ConfigurationEditor({
   const [draft, setDraft] = useState<LspConfigurationDraft>(
     () => createLspConfigurationDraft(configuration),
   );
-  const [errors, setErrors] = useState<LspInitializationErrors>({});
+  const [errors, setErrors] = useState<LspFieldErrors>({});
 
   useEffect(() => {
     setDraft(createLspConfigurationDraft(configuration));
@@ -79,16 +79,20 @@ function ConfigurationEditor({
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
-        {lspLanguageIds.map((language) => (
+        {draft.descriptors.map((descriptor) => (
           <LspLanguageConfigurationCard
-            discovery={discoveries.find((entry) => entry.language === language)}
-            draft={draft.languages[language]}
-            errorKey={errors[language]}
-            key={language}
-            language={language}
+            defaultStartupArguments={descriptor.defaultStartupArguments}
+            discovery={discoveries.find((entry) => entry.language === descriptor.language)}
+            draft={draft.languages[descriptor.language]}
+            errorKey={errors[descriptor.language]}
+            key={descriptor.language}
+            language={descriptor.language}
+            overrideTarget={descriptor.overrideTarget}
+            prerequisite={descriptor.prerequisite}
+            supportedOnHost={descriptor.supportedOnHost}
             onChange={(languageDraft) => setDraft((current) => ({
               ...current,
-              languages: { ...current.languages, [language]: languageDraft },
+              languages: { ...current.languages, [descriptor.language]: languageDraft },
             }))}
             pending={pending}
           />

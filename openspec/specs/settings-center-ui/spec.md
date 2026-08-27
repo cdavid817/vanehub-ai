@@ -345,7 +345,7 @@ The settings center SHALL include Personalization as a first-class settings page
 - **THEN** the settings center SHALL render the Personalization settings page while preserving mounted state for other stateful settings pages
 
 ### Requirement: Settings expose LSP configuration and runtime status
-The Agent configuration area SHALL provide a localized service-backed LSP section with the master switch, Rust and TypeScript/JavaScript switches, automatic discovery state, executable override controls, bounded initialization-options validation, trusted-workspace management, isolated server testing, and running-server status. React components SHALL use the shared frontend service boundary, and desktop and Web adapters SHALL implement the same contract shape.
+The Agent configuration area SHALL provide a localized service-backed LSP section with the master switch, one switch per registered language obtained from the service boundary, automatic discovery state, override controls whose meaning follows each language's backend-reported launch shape, bounded startup-argument controls, bounded initialization-options validation, trusted-workspace management, isolated server testing, and running-server status. The section SHALL render its language controls from the backend-supplied registered-language set, and its negotiated-capability rows from the backend-supplied negotiated method list, rather than from fixed lists compiled into the frontend. React components SHALL use the shared frontend service boundary, and desktop and Web adapters SHALL implement the same contract shape.
 
 #### Scenario: User configures Rust LSP
 - **WHEN** a user enables LSP and Rust, selects a discovered `rust-analyzer` or valid executable override, supplies valid bounded initialization options, and saves
@@ -372,6 +372,41 @@ The Agent configuration area SHALL provide a localized service-backed LSP sectio
 - **THEN** it SHALL support deterministic mock configuration, trust, discovery, testing, and status behavior
 - **AND** it SHALL not require a native filesystem or process
 
+#### Scenario: Registered language set determines the rendered controls
+- **WHEN** the settings section loads the registered-language set through the service boundary
+- **THEN** it SHALL render exactly one language control group per registered language, each with that language's own discovery state, override, startup arguments, and initialization options
+- **AND** adding a language to the backend registry SHALL require no new per-language frontend component
+
+#### Scenario: A language's override names a directory rather than a file
+- **WHEN** the backend reports a language whose launch shape takes an install directory
+- **THEN** the override control SHALL describe and validate a directory rather than an executable file
+- **AND** it SHALL do so from the reported launch shape, not from the language's identity, so a second such language needs no frontend change
+
+#### Scenario: A prerequisite runtime is missing
+- **WHEN** discovery reports that a language's prerequisite runtime is absent
+- **THEN** the language card SHALL present that as its own state, distinct from an unset install directory and from a directory missing its launcher
+- **AND** it SHALL name the runtime the user has to install rather than reporting a generic unavailable server
+
+#### Scenario: Language is unsupported on this host
+- **WHEN** a registered language declares no applicability for the current operating system
+- **THEN** its control group SHALL present it as unsupported on this host and SHALL NOT offer enablement or server testing
+- **AND** it SHALL be distinguishable from a supported language whose executable was simply not discovered
+
+#### Scenario: Startup arguments are invalid
+- **WHEN** a user attempts to save startup arguments that are not a bounded list of strings or that exceed the declared size limit
+- **THEN** shared form validation SHALL reject the submission
+- **AND** the last valid persisted configuration SHALL remain active
+
+#### Scenario: Negotiated method list determines the rendered capability rows
+- **WHEN** the status surface renders a ready server's negotiated capabilities
+- **THEN** it SHALL render one supported-or-unsupported row per method the backend reports, in the order reported
+- **AND** adding a method to the backend SHALL require no new frontend row
+
+#### Scenario: A reported method has no localized label
+- **WHEN** the backend reports a negotiated method whose localization key is absent from the active locale
+- **THEN** the row SHALL fall back to the raw method identifier
+- **AND** it SHALL NOT render the missing key or an empty label
+
 ### Requirement: Workflow-oriented settings navigation order
 The Settings sidebar SHALL order destinations by expected workflow frequency: general setup and recurring Agent behavior first, reusable capabilities and customization next, one-time CLI installation and external integrations after that, and diagnostics and product information last.
 
@@ -379,4 +414,173 @@ The Settings sidebar SHALL order destinations by expected workflow frequency: ge
 - **WHEN** the Settings sidebar renders
 - **THEN** destinations SHALL appear in the order Basic, Agent Configuration, Agent Policies, CLI Parameters, MCP, Skills, Personalization, Prompt Hooks, Expert Roles, CLI Management, Extensions, Plugin Integrations, IM, SSH Connections, Observability, Usage Statistics, and About
 - **AND** existing destination ids and deep-link behavior SHALL remain unchanged
+
+### Requirement: CLI Management operational summary and filters
+
+The CLI Management page SHALL present a compact operational summary and filters derived from normalized backend snapshots.
+
+#### Scenario: Display summary
+
+- **WHEN** CLI snapshots are available
+- **THEN** the page SHALL show counts for ready, needs login, update available, conflicts, and broken
+- **AND** it SHALL avoid oversized dashboard cards that reduce desktop information density
+
+#### Scenario: Filter CLI tools
+
+- **WHEN** the user searches or filters by status, source, or needs-action state
+- **THEN** the visible tool list SHALL update without changing backend lifecycle policy
+- **AND** filter and scroll state SHALL remain mounted across Settings navigation
+
+### Requirement: Orthogonal CLI status presentation
+
+The CLI Management page SHALL distinguish health, authentication, compatibility, update state, source, freshness, and manageability.
+
+#### Scenario: Healthy detect-only installation
+
+- **WHEN** a tool is healthy but its source is detect-only
+- **THEN** the page SHALL show healthy executable status and detect-only management separately
+- **AND** it SHALL not use a broken/error presentation merely because VaneHub cannot mutate it
+
+#### Scenario: Tool needs authentication
+
+- **WHEN** authentication is required
+- **THEN** the page SHALL show needs-login/readiness state independently from installation and executable health
+
+#### Scenario: Data is stale
+
+- **WHEN** a snapshot is stale or refreshing
+- **THEN** the page SHALL keep the last known values visible with freshness and last-checked information
+
+### Requirement: Backend-authoritative CLI actions
+
+The CLI Management page SHALL render only backend-derived allowed actions and SHALL not compare versions or infer lifecycle support in React.
+
+#### Scenario: Primary action is rendered
+
+- **WHEN** the backend returns one or more allowed actions
+- **THEN** the page SHALL show one contextually appropriate primary action and place remaining actions in an accessible menu
+
+#### Scenario: Current version is selected
+
+- **WHEN** the selected target equals the active version
+- **THEN** the page SHALL show current state
+- **AND** no install, upgrade, or downgrade action SHALL be enabled
+
+#### Scenario: No automatic action is allowed
+
+- **WHEN** the backend returns no mutation action
+- **THEN** the page SHALL show the backend reason and safe guidance rather than constructing a fallback action
+
+### Requirement: CLI environment details drawer
+
+The CLI Management page SHALL provide an accessible details drawer with Overview, Installations, Diagnostics, and Operations sections.
+
+#### Scenario: View overview
+
+- **WHEN** a user opens a tool's details
+- **THEN** the drawer SHALL show overall and orthogonal states, active path/version/source, freshness, update source/channel, and last mutation outcome
+
+#### Scenario: View installations
+
+- **WHEN** the Installations section is selected
+- **THEN** the drawer SHALL show bounded discovered paths, versions, sources, confidence, PATH priority, executable state, and active/shadowed identity
+
+#### Scenario: View diagnostics
+
+- **WHEN** the Diagnostics section is selected
+- **THEN** the drawer SHALL show normalized version, Doctor, authentication, dependency, and compatibility results
+- **AND** it SHALL provide a service-backed rerun action
+
+#### Scenario: View operations
+
+- **WHEN** the Operations section is selected
+- **THEN** the drawer SHALL show related queued/running/terminal operations, phases, outcomes, timestamps, and bounded redacted logs
+
+### Requirement: CLI action-plan review dialog
+
+The UI SHALL require review of a persisted action plan before every CLI machine mutation.
+
+#### Scenario: Review plan
+
+- **WHEN** planning succeeds
+- **THEN** the dialog SHALL show action, source, current and target versions, channel, structured command preview, network access, elevation, preconditions, warnings, expiry, and the absence of automatic source fallback
+
+#### Scenario: Confirm plan
+
+- **WHEN** the user confirms a non-stale plan
+- **THEN** the page SHALL execute the plan id and revision through the service
+- **AND** it SHALL not submit a command string or recompute the action
+
+#### Scenario: Plan expires or becomes stale
+
+- **WHEN** the backend rejects the plan as expired or stale
+- **THEN** the dialog SHALL close or disable confirmation, explain that the environment changed, and offer preparation of a new plan
+
+### Requirement: CLI bulk upgrade preview
+
+The CLI Management page SHALL show a persisted bulk upgrade preview before starting any bulk mutation.
+
+#### Scenario: Preview eligible items
+
+- **WHEN** a bulk plan is prepared
+- **THEN** the dialog SHALL list each eligible tool, source, current-to-target transition, elevation/network requirement, and warning
+
+#### Scenario: Preview skipped items
+
+- **WHEN** one or more tools are already current, detect-only, broken, unauthenticated, catalog-unavailable, or otherwise ineligible
+- **THEN** the dialog SHALL list each skipped tool and localized reason
+
+#### Scenario: Observe item outcomes
+
+- **WHEN** bulk execution runs
+- **THEN** the page SHALL show queued/running/terminal state and final outcome for every item
+- **AND** one stale or failed item SHALL not erase other item results
+
+### Requirement: CLI operation interaction
+
+The CLI Management page SHALL display per-tool operation state, bounded logs, cancellation where supported, and partial-completion guidance.
+
+#### Scenario: One tool operation runs
+
+- **WHEN** one CLI operation is queued or running
+- **THEN** only the affected tool SHALL show its active state
+- **AND** unrelated tools SHALL remain inspectable
+
+#### Scenario: Operation is cancellable
+
+- **WHEN** the operation contract reports `cancellable`
+- **THEN** the UI SHALL expose a cancel action through `OperationService`
+
+#### Scenario: Mutation is applied but unverified
+
+- **WHEN** the terminal result is applied-unverified
+- **THEN** the UI SHALL state that the package command completed but verification failed
+- **AND** it SHALL offer refresh or diagnostics without claiming rollback
+
+#### Scenario: Command failed but machine changed
+
+- **WHEN** the terminal result is changed-but-failed
+- **THEN** the UI SHALL state that the machine appears to have changed despite the failed or cancelled command
+- **AND** it SHALL display the observed snapshot and diagnostic action
+
+### Requirement: Accessible and localized CLI Management
+
+Every CLI Management control, state, dialog, drawer, tooltip, empty state, and error SHALL be accessible and localized in every registered application locale.
+
+#### Scenario: Use keyboard and assistive technology
+
+- **WHEN** a user navigates cards, menus, expanders, drawer tabs, dialogs, logs, or cancel actions by keyboard or assistive technology
+- **THEN** focus order, focus restoration, labels, `aria-expanded`, `aria-controls`, dialog semantics, and non-color status cues SHALL be correct
+- **AND** operation announcements SHALL not repeatedly announce streaming log lines
+
+#### Scenario: Render registered locale
+
+- **WHEN** the active application locale changes
+- **THEN** all user-owned CLI Management labels and messages SHALL use matching locale resources
+- **AND** dates SHALL use the active locale
+
+#### Scenario: Render both visual styles
+
+- **WHEN** `futuristic` or `minimal` style is active at desktop or narrow width
+- **THEN** the page SHALL use shared semantic tokens, compact density, stable control dimensions, and no nested card-in-card layout
 

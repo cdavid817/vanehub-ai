@@ -2,15 +2,16 @@ export type JsonPrimitive = boolean | number | string | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | JsonObject;
 export interface JsonObject { [key: string]: JsonValue }
 
-export const lspLanguageIds: readonly ["rust", "typescript_javascript"] = [
-  "rust", "typescript_javascript",
-];
-export type LspLanguageId = (typeof lspLanguageIds)[number];
+/**
+ * Which languages exist is a backend registry fact, so these are opaque ids rather than the
+ * literal unions they used to be. The frontend learns the set from `LspConfiguration.descriptors`;
+ * compiling a copy in here is what made adding a language a frontend change.
+ */
+export type LspLanguageId = string;
+export type LspServerKind = string;
 
-export const lspServerKinds: readonly ["rust_analyzer", "typescript_language_server"] = [
-  "rust_analyzer", "typescript_language_server",
-];
-export type LspServerKind = (typeof lspServerKinds)[number];
+/** Shape both sides agree an id has, so a malformed one is refused rather than rendered. */
+export const lspLanguageIdPattern = /^[a-z0-9_]{1,64}$/;
 
 export const lspProcessStates: readonly [
   "absent", "starting", "initializing", "ready", "stopping", "backoff", "failed",
@@ -46,12 +47,14 @@ export const lspSafeReasonCodes: readonly [
   "initialize_failed", "initialize_timed_out", "forced_termination", "cleanup_failed",
   "invalid_deadline", "restart_exhausted", "protocol_limit", "request_timeout",
   "cancelled", "untrusted", "unsupported_method", "invalid_configuration",
+  "unsupported_on_this_platform",
 ] = [
   "executable_not_found", "override_missing", "override_not_executable",
   "executable_unavailable", "minimal_project_failed", "spawn_failed",
   "initialize_failed", "initialize_timed_out", "forced_termination", "cleanup_failed",
   "invalid_deadline", "restart_exhausted", "protocol_limit", "request_timeout",
   "cancelled", "untrusted", "unsupported_method", "invalid_configuration",
+  "unsupported_on_this_platform",
 ];
 export type LspSafeReasonCode = (typeof lspSafeReasonCodes)[number];
 
@@ -59,12 +62,33 @@ export interface LspLanguageConfiguration {
   language: LspLanguageId;
   enabled: boolean;
   executableOverride: string | null;
+  /** `null` means "use the registry default"; `[]` means the user chose no arguments. */
+  startupArguments: string[] | null;
   initializationOptions: JsonObject;
+}
+
+/** What the backend registry declares about a language, so the UI renders no compiled-in list. */
+/**
+ * What a language's override control names. Reported by the backend rather than inferred from the
+ * language id: a second install-directory language must need no change here.
+ */
+export const lspOverrideTargets = ["executable_file", "install_directory"] as const;
+export type LspOverrideTarget = (typeof lspOverrideTargets)[number];
+
+export interface LspLanguageDescriptor {
+  language: LspLanguageId;
+  server: LspServerKind;
+  supportedOnHost: boolean;
+  defaultStartupArguments: string[];
+  overrideTarget: LspOverrideTarget;
+  /** The host runtime the user installs themselves, for the languages that need one. */
+  prerequisite: string | null;
 }
 
 export interface LspConfiguration {
   enabled: boolean;
   languages: LspLanguageConfiguration[];
+  descriptors: LspLanguageDescriptor[];
 }
 
 export interface LspWorkspaceTrust {
@@ -95,13 +119,20 @@ export interface LspServerTestPhaseResult {
   reasonCode: LspSafeReasonCode | null;
 }
 
+/** One method the backend implements, and whether this server advertised it. */
+export interface LspNegotiatedMethod {
+  method: string;
+  supported: boolean;
+}
+
 export interface LspNegotiatedCapabilities {
   positionEncoding: LspPositionEncoding;
   documentSync: LspDocumentSyncMode;
-  definition: boolean;
-  references: boolean;
-  hover: boolean;
-  diagnostics: boolean;
+  /**
+   * One entry per method the backend implements, in the order it reports them. The frontend holds
+   * no copy of that set, so a method added later renders without a change here.
+   */
+  methods: LspNegotiatedMethod[];
 }
 
 export interface LspServerTestResult {
@@ -122,9 +153,20 @@ export interface LspServerStatus {
   negotiatedCapabilities: LspNegotiatedCapabilities | null;
 }
 
+/**
+ * Declaration order mirrors the native catalog, which is append-only: a provider caches the
+ * tool-definition prefix, so reordering what came before costs every eligible session its prompt
+ * cache.
+ */
 export const lspToolNames: readonly [
   "find_definition", "find_references", "get_hover", "get_diagnostics",
-] = ["find_definition", "find_references", "get_hover", "get_diagnostics"];
+  "find_type_definition", "find_implementations", "find_workspace_symbols",
+  "get_document_symbols", "find_call_hierarchy",
+] = [
+  "find_definition", "find_references", "get_hover", "get_diagnostics",
+  "find_type_definition", "find_implementations", "find_workspace_symbols",
+  "get_document_symbols", "find_call_hierarchy",
+];
 export type LspToolName = (typeof lspToolNames)[number];
 
 export type LspToolResultStatus = "ready" | "warming" | "timeout" | "unavailable" | "failed";
@@ -170,8 +212,23 @@ export interface LspToolDiagnostic {
   code: string | null;
 }
 
+export interface LspToolSymbol {
+  name: string;
+  kind: string;
+  container: string | null;
+  file: string;
+  range: LspToolRange;
+}
+
+export interface LspToolCallRelation {
+  symbol: LspToolSymbol;
+  call_sites: LspToolRange[];
+}
+
 export type LspToolResult =
   | { metadata: LspToolResultMetadata; definitions: LspToolLocation[] }
   | { metadata: LspToolResultMetadata; references: LspToolLocation[] }
   | { metadata: LspToolResultMetadata; hover: LspToolHover | null }
-  | { metadata: LspToolResultMetadata; diagnostics: LspToolDiagnostic[] };
+  | { metadata: LspToolResultMetadata; diagnostics: LspToolDiagnostic[] }
+  | { metadata: LspToolResultMetadata; symbols: LspToolSymbol[] }
+  | { metadata: LspToolResultMetadata; relations: LspToolCallRelation[] };

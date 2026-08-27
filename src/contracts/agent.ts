@@ -385,64 +385,6 @@ export interface SessionDetails {
   details: Record<string, string>;
 }
 
-export type CliVersionCheckStatus =
-  "unsupported" | "not-detected" | "succeeded" | "failed";
-export type CliEnvironmentType = "windows" | "macos" | "linux" | "unknown";
-export type CliInstallSource =
-  | "npm"
-  | "winget"
-  | "desktop"
-  | "homebrew"
-  | "volta"
-  | "bun"
-  | "vendor"
-  | "system"
-  | "unknown";
-export type CliConflictState =
-  "none" | "multiple" | "version-mismatch" | "runnable-mismatch";
-export type CliLifecycleEligibility =
-  "npm" | "wget" | "winget" | "manual" | "unavailable";
-
-export interface CliInstallation {
-  path: string;
-  version: string | null;
-  runnable: boolean;
-  error: string | null;
-  source: CliInstallSource;
-  environmentType: CliEnvironmentType;
-  isActive: boolean;
-}
-
-export interface CliToolStatus {
-  agentId: string;
-  displayName: string;
-  provider: string;
-  executableName: string;
-  /** Null for CLIs distributed only by installer script, which have no npm package. */
-  packageName: string | null;
-  installed: boolean | null;
-  currentVersion: string | null;
-  latestVersion: string | null;
-  availableVersions: string[];
-  detectedPath: string | null;
-  installCommand: string;
-  lastCheckedAt: string | null;
-  lastError: string | null;
-  lastOperationId: string | null;
-  versionCheckStatus: CliVersionCheckStatus;
-  environmentType: CliEnvironmentType;
-  installations: CliInstallation[];
-  activeInstallationPath: string | null;
-  conflictState: CliConflictState;
-  lifecycleEligibility: CliLifecycleEligibility;
-}
-
-export interface CliPackageOperationInput {
-  agentId: string;
-  targetVersion: string;
-  confirmedActivePath?: string | null;
-}
-
 export const managedCliAgentIds = [
   "claude-code",
   "codex-cli",

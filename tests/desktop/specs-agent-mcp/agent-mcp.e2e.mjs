@@ -137,6 +137,17 @@ globalThis.describe("VaneHub Agent MCP desktop runtime", () => {
       });
       throw new Error(`${error.message}: ${JSON.stringify(diagnostic)}`, { cause: error });
     }
+    // Wait for CLI detection to finish before anything asks whether an Agent is available.
+    // Creating a session consults the environment snapshot, and the refresh that builds it starts
+    // in the background at launch: querying before it lands reports whichever Agents happened to
+    // resolve already and `Command 'codex' was not found on PATH` for the rest, with the fixture
+    // binaries sitting on PATH the whole time.
+    const detection = await invoke(({ core }, agentIds) => core.invoke("refresh_cli_environment", {
+      agentIds,
+      forceCatalog: false,
+    }), CLI_AGENTS);
+    await settle({ id: detection.operationId }, "CLI detection never settled");
+
     repository = await mkdtemp(join(tmpdir(), "vanehub-agent-mcp-"));
     await startOnePieceFixture();
     const settings = await invoke(({ core }) => core.invoke("get_observability_settings"));

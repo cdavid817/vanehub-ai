@@ -6,7 +6,6 @@ use crate::contexts::permissions::api::PermissionsApplicationError;
 use crate::contexts::sessions::api::SessionsError;
 use crate::contexts::ssh_connections::api::SshConnectionsError;
 use crate::contexts::ssh_connections::api::SshRuntimeError;
-use crate::contexts::tooling::cli::api::CliError;
 use crate::contexts::tooling::cli_config::domain::CliConfigError;
 use crate::contexts::tooling::extensions::api::ExtensionError;
 use crate::contexts::tooling::mcp::api::McpError;
@@ -75,7 +74,7 @@ impl CommandError {
     }
 
     /// For lower-layer messages forwarded verbatim that may carry absolute filesystem paths
-    /// or provider diagnostics (e.g. `CliError::Internal`, `SdkError::Package`,
+    /// or provider diagnostics (e.g. `SdkError::Package`,
     /// `SessionsError::Repository`). Applied at the `From` boundary rather than at the
     /// `Serialize` boundary so category-level error codes (`connector-credentials-required`
     /// etc.) — which are safe, structured, and matched by the frontend — are not mangled by
@@ -553,32 +552,6 @@ impl From<McpError> for CommandError {
     }
 }
 
-impl From<CliError> for CommandError {
-    fn from(error: CliError) -> Self {
-        match error {
-            CliError::Validation(message) => Self {
-                category: CommandErrorCategory::Validation,
-                message: format!("validation error: {message}"),
-            },
-            CliError::Database(message) => Self {
-                category: CommandErrorCategory::Infrastructure,
-                message: format!("database error: {message}"),
-            },
-            CliError::Storage(message) => Self {
-                category: CommandErrorCategory::Infrastructure,
-                message: format!("storage error: {message}"),
-            },
-            CliError::Detection(message) | CliError::Package(message) => {
-                Self::redacted(CommandErrorCategory::Internal, message)
-            }
-            CliError::Operation(message) | CliError::Logging(message) => {
-                Self::redacted(CommandErrorCategory::Infrastructure, message)
-            }
-            CliError::Internal(message) => Self::redacted(CommandErrorCategory::Internal, message),
-        }
-    }
-}
-
 impl From<CliConfigError> for CommandError {
     fn from(error: CliConfigError) -> Self {
         match error {
@@ -909,26 +882,6 @@ mod tests {
         assert_eq!(
             serde_json::to_value(database).expect("database"),
             serde_json::json!("database error: fixture failure")
-        );
-    }
-
-    #[test]
-    fn cli_application_errors_preserve_legacy_tauri_strings() {
-        let validation = map_command_error(CliError::Validation("invalid fixture".to_string()));
-        let database = map_command_error(CliError::Database("fixture failure".to_string()));
-        let storage = map_command_error(CliError::Storage("lock unavailable".to_string()));
-
-        assert_eq!(
-            serde_json::to_value(validation).expect("validation"),
-            serde_json::json!("validation error: invalid fixture")
-        );
-        assert_eq!(
-            serde_json::to_value(database).expect("database"),
-            serde_json::json!("database error: fixture failure")
-        );
-        assert_eq!(
-            serde_json::to_value(storage).expect("storage"),
-            serde_json::json!("storage error: lock unavailable")
         );
     }
 

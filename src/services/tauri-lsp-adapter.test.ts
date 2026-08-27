@@ -9,6 +9,7 @@ vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn() }));
 
 import { tauriAgentClient } from "./tauri-agent-client";
 import type { LspConfiguration } from "../types/lsp";
+import { lspTestDescriptors } from "../test/lsp-fixtures";
 
 const configuration: LspConfiguration = {
   enabled: false,
@@ -17,15 +18,18 @@ const configuration: LspConfiguration = {
       language: "rust",
       enabled: false,
       executableOverride: null,
+      startupArguments: null,
       initializationOptions: {},
     },
     {
       language: "typescript_javascript",
       enabled: false,
       executableOverride: null,
+      startupArguments: null,
       initializationOptions: {},
     },
   ],
+  descriptors: lspTestDescriptors(),
 };
 
 const trust = {
@@ -103,7 +107,23 @@ describe("Tauri LSP adapter", () => {
   });
 
   it("rejects malformed native payloads before they reach service consumers", async () => {
-    invokeMock.mockResolvedValueOnce({ ...configuration, languages: [] });
+    // An empty language list used to be the malformed case, because the payload had to name every
+    // supported language. It is legal now, so the check that remains is a language id no
+    // descriptor in the same payload accounts for.
+    invokeMock.mockResolvedValueOnce({
+      ...configuration,
+      languages: [...configuration.languages, {
+        language: "go",
+        enabled: true,
+        executableOverride: null,
+        startupArguments: null,
+        initializationOptions: {},
+      }],
+    });
+    await expect(tauriAgentClient.getLspConfiguration())
+      .rejects.toThrow("invalid LSP response");
+
+    invokeMock.mockResolvedValueOnce({ ...configuration, descriptors: [{ language: "rust" }] });
     await expect(tauriAgentClient.getLspConfiguration())
       .rejects.toThrow("invalid LSP response");
   });

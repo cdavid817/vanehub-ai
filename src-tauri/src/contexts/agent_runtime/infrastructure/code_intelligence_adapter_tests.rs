@@ -1,9 +1,10 @@
 use super::code_intelligence_adapter::RuntimeAgentCodeIntelligenceAdapter;
 use crate::contexts::agent_runtime::application::{
-    AgentCodeDiagnostic, AgentCodeHover, AgentCodeIntelligenceContext,
-    AgentCodeIntelligenceMetadata, AgentCodeIntelligenceOutcome, AgentCodeIntelligencePending,
-    AgentCodeIntelligencePort, AgentCodeIntelligenceResponderPort, AgentCodeIntelligenceStatus,
-    AgentCodeLocation, AgentDocumentInput, AgentDocumentPositionInput,
+    AgentCallHierarchyInput, AgentCodeCallRelation, AgentCodeDiagnostic, AgentCodeHover,
+    AgentCodeIntelligenceContext, AgentCodeIntelligenceMetadata, AgentCodeIntelligenceOutcome,
+    AgentCodeIntelligencePending, AgentCodeIntelligencePort, AgentCodeIntelligenceResponderPort,
+    AgentCodeIntelligenceStatus, AgentCodeLocation, AgentCodeSymbol, AgentDocumentInput,
+    AgentDocumentPositionInput, AgentWorkspaceSymbolInput,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
@@ -53,6 +54,46 @@ impl AgentCodeIntelligenceResponderPort for FakeResponder {
         _: AgentCodeIntelligenceContext,
         _: AgentDocumentInput,
     ) -> AgentCodeIntelligencePending<Vec<AgentCodeDiagnostic>> {
+        immediate_pending(ready(Vec::new()))
+    }
+
+    fn start_find_type_definition(
+        &self,
+        _: AgentCodeIntelligenceContext,
+        _: AgentDocumentPositionInput,
+    ) -> AgentCodeIntelligencePending<Vec<AgentCodeLocation>> {
+        immediate_pending(ready(Vec::new()))
+    }
+
+    fn start_find_implementations(
+        &self,
+        _: AgentCodeIntelligenceContext,
+        _: AgentDocumentPositionInput,
+    ) -> AgentCodeIntelligencePending<Vec<AgentCodeLocation>> {
+        immediate_pending(ready(Vec::new()))
+    }
+
+    fn start_find_workspace_symbols(
+        &self,
+        _: AgentCodeIntelligenceContext,
+        _: AgentWorkspaceSymbolInput,
+    ) -> AgentCodeIntelligencePending<Vec<AgentCodeSymbol>> {
+        immediate_pending(ready(Vec::new()))
+    }
+
+    fn start_get_document_symbols(
+        &self,
+        _: AgentCodeIntelligenceContext,
+        _: AgentDocumentInput,
+    ) -> AgentCodeIntelligencePending<Vec<AgentCodeSymbol>> {
+        immediate_pending(ready(Vec::new()))
+    }
+
+    fn start_find_call_hierarchy(
+        &self,
+        _: AgentCodeIntelligenceContext,
+        _: AgentCallHierarchyInput,
+    ) -> AgentCodeIntelligencePending<Vec<AgentCodeCallRelation>> {
         immediate_pending(ready(Vec::new()))
     }
 }

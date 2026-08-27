@@ -44,7 +44,7 @@ VaneHub AI 把 Claude Code、OpenCode、Codex CLI、Gemini CLI 和 Antigravity C
 | Gemini CLI | Google | `gemini` | Google | ✅ `@google/gemini-cli` | ⚠️ 端点可改，但目录中只有官方预设 |
 | Antigravity CLI | Google | `agy` | Google | ❌ 无 npm 包，走官方安装脚本 | ❌ 只接受 Google 登录 |
 
-- 应用内安装指能否在设置 → CLI 管理里由 VaneHub AI 代为安装与升级——它只走 npm，Homebrew、winget、scoop 装的那份需要你用原来的来源升级。
+- 应用内安装指能否在设置 → CLI 管理里由 VaneHub AI 代为安装与升级——它能驱动 npm、Windows 上的 WinGet，以及逐个 CLI 审核过的官方安装器。来自 Homebrew、Bun、Volta、桌面应用自带或系统包的那一份会被检测并报告，但不会被改动——VaneHub 会告诉你真正拥有它的是哪个工具，而不是在旁边再装一份。
 - 第三方模型端点指能否在设置 → Agent 配置里把该 CLI 指向 DeepSeek、OpenRouter 一类兼容端点。**各家的官方订阅登录（OAuth）一律在终端里完成**，VaneHub AI 不代管。
 - OpenCode 的模型族是「未知」而非漏填：它驱动的是你自己配置的任意模型，没有固定归属，「要求评审来自不同模型族」这类策略对它不生效。
 - Gemini CLI 正在被 Antigravity CLI 取代，Google 自 2026-06-18 起对个人/免费账号逐步停用它。

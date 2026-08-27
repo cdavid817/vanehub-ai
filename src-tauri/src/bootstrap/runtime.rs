@@ -187,8 +187,17 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     // Ephemeral media from a previous run -- a recording interrupted by a crash, a staged file the
     // user never used -- is swept once here rather than accumulating until the disk notices.
     local_media_api.sweep_stale_media();
-    let code_intelligence_api =
-        super::assemble_code_intelligence_api(database.clone(), fallback_log_directory.clone());
+    let code_intelligence_api = super::assemble_code_intelligence_api(
+        database.clone(),
+        fallback_log_directory.clone(),
+        // Beside the database rather than beside the logs: a language server's per-workspace index
+        // is state, and it belongs with the other state this profile owns.
+        database
+            .db_path
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .to_path_buf(),
+    );
     code_intelligence_api.start_maintenance();
     let code_intelligence_responder = Arc::new(super::NativeCodeIntelligenceResponder::new(
         code_intelligence_api.clone(),
@@ -205,11 +214,14 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         operations_api.clone(),
         fallback_log_directory.clone(),
     );
-    let cli_api = super::assemble_cli_api(
+    let cli_environment_api = super::assemble_cli_environment_api(
         database.clone(),
         operations_api.clone(),
         fallback_log_directory.clone(),
     );
+    // Launch resolution reads the same environment the CLI Management page does, so what the
+    // runtime starts and what the page reports cannot be two different installations.
+    let cli_api = super::assemble_cli_api(cli_environment_api.clone());
     // Assembled after `cli_api` because compatibility is read from the CLI lifecycle subdomain's
     // cached detection state rather than from a second detector. Both facades share one service.
     let (cli_parameter_runtime_api, cli_parameter_settings_api) =
@@ -396,6 +408,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     app.manage(agent_run_controls_api);
     app.manage(code_intelligence_api.clone());
     app.manage(cli_api.clone());
+    app.manage(cli_environment_api.clone());
     app.manage(cli_config_api);
     app.manage(cli_parameter_settings_api);
     app.manage(mcp_api);
@@ -468,7 +481,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         &floating_assistant_api,
         fallback_log_directory.clone(),
     );
-    super::start_initial_cli_refresh(cli_api).map_err(boxed_error)?;
+    super::start_initial_cli_refresh(cli_environment_api.clone()).map_err(boxed_error)?;
     start_communications_maintenance_job(
         communications_api.clone(),
         communications_maintenance_database,

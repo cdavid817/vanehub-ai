@@ -3,7 +3,7 @@ use super::server_test::{
     IsolatedServerTester, ServerTestCommand, ServerTestPhase, ServerTestPhaseStatus,
     ServerTestReason,
 };
-use crate::contexts::code_intelligence::domain::models::ServerKind;
+use crate::contexts::code_intelligence::domain::registry;
 use serde_json::json;
 use std::path::Path;
 use std::path::PathBuf;
@@ -23,12 +23,11 @@ fn discovered_typescript_server_maps_to_the_stdio_test_command() {
     let locator = Arc::new(FixedLocator(
         std::env::current_exe().expect("test executable"),
     ));
-    let discovery =
-        ServerDiscovery::new(locator).discover(ServerKind::TypeScriptLanguageServer, None);
+    let discovery = ServerDiscovery::new(locator).discover(registry::typescript(), None, None);
 
     let command = ServerTestCommand::from_discovery(&discovery, json!({}));
 
-    assert_eq!(command.server_kind(), ServerKind::TypeScriptLanguageServer);
+    assert_eq!(command.language(), registry::typescript());
     assert_eq!(command.arguments(), &["--stdio"]);
 }
 
@@ -44,7 +43,7 @@ fn fixture_command(mode: &str, marker: Option<&str>) -> ServerTestCommand {
         arguments.push(marker.to_string());
     }
     ServerTestCommand::available(
-        ServerKind::RustAnalyzer,
+        registry::rust(),
         "node".to_string(),
         arguments,
         json!({"fixture": true}),
@@ -128,7 +127,7 @@ async fn initialize_timeout_forces_bounded_process_tree_cleanup_without_cancella
 #[tokio::test]
 async fn unavailable_discovery_skips_process_phases_without_spawning() {
     let result = IsolatedServerTester::run(
-        ServerTestCommand::unavailable(ServerKind::RustAnalyzer),
+        ServerTestCommand::unavailable(registry::rust()),
         Duration::from_secs(1),
     )
     .await;
@@ -156,7 +155,7 @@ async fn unavailable_discovery_skips_process_phases_without_spawning() {
 #[tokio::test]
 async fn spawn_failure_is_reported_without_leaking_private_executable_details() {
     let command = ServerTestCommand::available(
-        ServerKind::TypeScriptLanguageServer,
+        registry::typescript(),
         absolute_missing_executable(),
         vec!["--stdio".to_string()],
         json!({}),

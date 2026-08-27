@@ -516,6 +516,30 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "local-media-profiles",
         crate::contexts::local_media::infrastructure::apply_schema,
     )?;
+    apply_transactional_migration(
+        conn,
+        83,
+        "cli-environment-snapshots",
+        crate::contexts::tooling::cli::infrastructure::environment_schema::apply_environment_snapshot_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        84,
+        "cli-version-catalogs",
+        crate::contexts::tooling::cli::infrastructure::environment_schema::apply_version_catalog_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        85,
+        "cli-action-plans",
+        crate::contexts::tooling::cli::infrastructure::environment_schema::apply_action_plan_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        86,
+        "lsp-language-registry",
+        crate::contexts::code_intelligence::api::apply_language_registry_schema,
+    )?;
     repair_missing_stable_participant_schema(conn)?;
     repair_missing_cli_parameter_profile_schema(conn)?;
 
@@ -534,6 +558,18 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
 /// database). Keep this in lockstep with the `apply_migration` / `apply_transactional_migration`
 /// calls in `migrate` — the `migration_sequence_matches_expected` test guards against drift,
 /// and `assert_migration_history_is_dense` rejects a gapped history at startup.
+/// Every migration version, in order.
+///
+/// Exposed so tests can derive their expectations instead of hardcoding an upper bound that every
+/// new migration invalidates. Test-only: production reads `EXPECTED_MIGRATIONS` directly.
+#[cfg(test)]
+pub(crate) fn expected_migration_versions() -> Vec<i64> {
+    EXPECTED_MIGRATIONS
+        .iter()
+        .map(|(version, _)| *version)
+        .collect()
+}
+
 const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (1, "initial-schema"),
     (2, "agent-managed-sdk-dependency"),
@@ -617,6 +653,10 @@ const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (80, "retire-plan-execution"),
     (81, "cli-parameter-profiles"),
     (82, "local-media-profiles"),
+    (83, "cli-environment-snapshots"),
+    (84, "cli-version-catalogs"),
+    (85, "cli-action-plans"),
+    (86, "lsp-language-registry"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {

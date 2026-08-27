@@ -10,6 +10,7 @@ The first implementation supports only these server families:
 | --- | --- | --- | --- |
 | Rust | `rust-analyzer` | stdio LSP | nearest `Cargo.toml` |
 | TypeScript/JavaScript | `typescript-language-server` | VaneHub appends `--stdio` | nearest `tsconfig.json`, `jsconfig.json`, or `package.json` |
+| Java | `java` running `jdtls`'s launcher jar | resolved argument template, stdio LSP | nearest `pom.xml`, `build.gradle`, `build.gradle.kts`, or `settings.gradle` |
 
 Install a standard rustup-managed Rust server with:
 
@@ -34,10 +35,24 @@ The main native ownership is under `src-tauri/src/contexts/code_intelligence/`:
 
 | Layer | Responsibility |
 | --- | --- |
-| `domain/` | Language/server identities, trust, configuration, process states, capabilities, versions, normalized locations, diagnostics, and fail-soft outcomes |
+| `domain/` | The language registry, the validated language id, trust, configuration, process states, capabilities, versions, normalized locations, diagnostics, and fail-soft outcomes |
 | `application/` | Repository and native environment ports |
 | `infrastructure/` | Discovery, project roots, process registry, JSON-RPC, framing, initialize negotiation, document leases, diagnostics, normalization, server testing, shutdown, and unified diagnostics |
 | `api.rs` | The only cross-context code-intelligence facade |
+
+### The language registry
+
+`domain/registry.rs` holds `LANGUAGE_DEFINITIONS`, one entry per supported language, following the `CLI_TOOL_DEFINITIONS` pattern in `contexts/tooling/cli`. Each entry declares the language id, the server id, candidate executable names in preference order, default startup arguments, project-root markers, extension-to-`languageId` mappings, platform applicability, and the minimal project the isolated server test builds.
+
+A marker may name a path inside the candidate directory rather than a file directly in it, which is how C/C++ finds `build/compile_commands.json` without a second detection mechanism. Marker order is not meaningful: any one of a language's markers identifies a root, and the nearest ancestor holding any of them wins, so which one matched changes nothing observable.
+
+An entry may set `requires_root_marker`. Detection then refuses instead of falling back to the session workspace root, and the failure carries its own reason code. Only C/C++ sets it, because `clangd` without a compilation database assumes default flags and answers confidently wrong, which is worse than answering unavailable. The distinction is deliberate at the boundary too: discovery still reports `clangd` as available, because it is — the workspace is what cannot be served.
+
+Adding a language means adding one entry plus its locale strings. Nothing else enumerates the set: discovery, project-root detection, document admission, server testing, configuration defaults, the command DTOs, and the settings page all derive it. `registry_tests.rs` fails a build whose entry is missing any of that data, and asserts that ids and extensions are unique — extension lookup returns the first match, so a contested extension would resolve by declaration order and route a file to the wrong server.
+
+There is no `LanguageFamily` or `ServerKind` enum. A language is `Language = &'static LanguageDefinition`: one `Copy` reference carrying both its own id and its server's, so the two cannot disagree. `LspLanguageId` is the owned validated form, used only where a value crosses storage or the wire and no `'static` reference exists yet. `resolve_language` turns such a value back into a reference, and returns `None` for an id this build does not register — which is an ordinary case, not an error, because storage no longer constrains the id set.
+
+The table is compile-time on purpose. Every entry needs a fixture project and root-detection rules that only code can supply, so a user-declared language would be a row the runtime cannot serve.
 
 `agent_runtime` owns the consumer-side `AgentCodeIntelligencePort` and `AgentWorkspaceMutationPort` contracts. Bootstrap adapts these ports to `CodeIntelligenceApi`; Agent code must not import code-intelligence infrastructure. Retrieval is reached independently through its public `CodeIndexApi` for targeted mutation reconciliation.
 
@@ -51,6 +66,8 @@ React settings components
 ```
 
 React components must not call `invoke()` directly. Web/mock code must not import native filesystem or process adapters and must not claim that a real server was launched.
+
+The frontend holds no copy of the language set. `LspLanguageId` is an opaque string, and `get_lsp_configuration` carries a descriptor list the settings page renders one card from. The contract validator therefore cannot check a language against a known set; it checks the id's shape against the same `[a-z0-9_]{1,64}` rule the backend enforces, and cross-checks that every configured language is described in the same response. Web/mock mode has no backend registry to ask, so `web-lsp-client.ts` carries a mirror table; adding a language there is a data edit.
 
 ## Process and protocol lifecycle
 
@@ -82,7 +99,7 @@ Agent coordinates and normalized result ranges are 1-based. Protocol coordinates
 
 ## Agent tools and hard limits
 
-The provider-neutral catalog conditionally exposes four read-only tools in normal and Plan Mode generations:
+The provider-neutral catalog conditionally exposes nine read-only tools in normal and Plan Mode generations:
 
 | Tool | Protocol method or source | Bound |
 | --- | --- | --- |
@@ -90,6 +107,19 @@ The provider-neutral catalog conditionally exposes four read-only tools in norma
 | `find_references` | `textDocument/references` | 50 accepted locations, deterministic order |
 | `get_hover` | `textDocument/hover` | bounded signature, documentation, and serialized output |
 | `get_diagnostics` | `textDocument/publishDiagnostics` cache | bounded count and message content |
+| `find_type_definition` | `textDocument/typeDefinition` | 20 accepted locations |
+| `find_implementations` | `textDocument/implementation` | 20 accepted locations |
+| `find_workspace_symbols` | `workspace/symbol` | 50 accepted symbols |
+| `get_document_symbols` | `textDocument/documentSymbol` | 200 accepted symbols, depth 8 |
+| `find_call_hierarchy` | `textDocument/prepareCallHierarchy` then `callHierarchy/incomingCalls` or `outgoingCalls` | 50 relations, 20 sites each, **one** 10s budget for the whole exchange |
+
+**Tools are appended, never inserted.** A provider caches the tool-definition prefix, so reordering the entries that came before costs every eligible session its prompt cache — and nothing in the diff would say so, because the names would all still be there. `the_first_four_code_intelligence_tools_keep_their_declaration_order` fails if that prefix moves.
+
+Call hierarchy is three requests presented as one tool, and it carries **one** deadline rather than the single-request budget per step. Two steps at the per-request budget would let a slow server take twice as long as any other tool while every individual request still looked healthy. Preparation resolving several items follows the first and returns `ready` with `call_hierarchy_items_not_followed`; following all of them would multiply the request count by an amount the server chooses.
+
+`find_workspace_symbols` names a document without being scoped to it. The path selects the server — which is to say the project root — because LSP has no notion of "the repository" and one repository can hold several projects. It is also the only method with no document lease: it skips admission entirely, so it can run without opening a file, and it reports no document version because there is none to report.
+
+Negotiated capabilities are carried as a list over `SemanticMethod::ALL`, one entry per method this build implements, with a `supported` flag. Absent and `supported: false` are different facts: absent means the client does not implement the method at all, and only the second is something a user can fix by changing servers. `SemanticMethod::ALL` is append-only for the same reason as the catalog — its order is what the settings card renders.
 
 Workspace scope always comes from the current session. Models cannot select a workspace, root, server path, or URI scheme. Only admitted `file:` locations inside the canonical workspace survive normalization.
 
@@ -112,13 +142,34 @@ Successful Agent file writes publish one best-effort mutation signal. Bootstrap 
 
 ## Persistence and logging
 
-SQLite owns the disabled-by-default host configuration and canonical-workspace trust records. Executable, fixed arguments, initialization options, and trust revision contribute to the configuration fingerprint so stale processes cannot serve new requests.
+SQLite owns the disabled-by-default host configuration and canonical-workspace trust records. Executable, resolved startup arguments, initialization options, and trust revision contribute to the configuration fingerprint so stale processes cannot serve new requests. Argument boundaries are part of that fingerprint: concatenating would let `["ab"]` and `["a", "b"]` hash alike and leave a server running under a command line the user changed.
+
+`lsp_language_configurations` does not constrain which language ids may exist — migration 86 dropped that `CHECK` constraint by rebuilding the table. A row naming a language this build does not register is therefore reachable, by downgrading. Loading skips such a row and leaves it untouched: rejecting it would make the application unbootable over a language it merely cannot serve, and deleting it would silently discard the user's settings across a downgrade-then-upgrade cycle.
+
+`startup_arguments_json` is nullable, and the distinction matters. `NULL` means "use the registry default"; a JSON array, including an empty one, is the user's explicit choice. Collapsing them would strip `--stdio` from the TypeScript server whenever someone cleared the field.
 
 Lifecycle and protocol diagnostics use unified logging. Safe metadata includes server/language identity, lifecycle transition, method category, duration, counts, restart attempt, timeout/cancellation category, exit code, and safe workspace identity. Never persist raw protocol payloads, source or hover content, diagnostic messages, stderr, environment values, executable arguments, credentials, or private absolute paths.
 
 ## Extension limits
 
-The foundation intentionally excludes Python, Go, Java, C/C++, remote workspaces, downloaded servers, formatting, completion, rename, code actions, workspace edits, call/type hierarchy, filesystem watching, unsaved buffers, and persistent LSP enrichment. Do not expose a new mutating method merely by adding it to the catalog; it requires a separate OpenSpec change, permission analysis, Plan Mode treatment, protocol limits, and workspace-isolation tests.
+Rust, TypeScript/JavaScript, Go, Python, C/C++, and Java are registered. Adding Go, Python, and C/C++ cost five registry entries' worth of data, three fixture projects, five locale strings, and one new resolver flag — and no frontend change at all, which is the property the registry was built for.
+
+Java did not fit that shape, so the registry gained one. A `LaunchShape` field decides what the other fields mean: under `Executable` — what the first five declare — `executables` names the server and a manual override is an absolute executable file. Under `Interpreter` it names the *interpreter*, the server lives in an argument template, and an override is the install **directory**.
+
+The template's placeholders are enum variants rather than strings, so an unresolved one is a case the compiler knows about instead of a substitution that quietly failed. Three of them are resolved late: the launcher by matching a declared prefix and suffix in one declared directory, the configuration directory by exact platform match, and the data directory from a hash of the canonical workspace root.
+
+Two rules are worth stating because their opposites look reasonable:
+
+- **Several matching launchers is a refusal, not a choice.** Picking the newest would start a server whose version the settings page cannot name. The match is also not recursive — a launcher three levels down is not the layout the entry describes.
+- **A user's startup arguments append to the template rather than replacing it.** Everywhere else configured arguments replace the registry default, because clearing the field has to mean something. The template is not a default; one a user can replace is one they can replace with something that does not start a server.
+
+The per-workspace data directory is derived rather than recorded — there is no table to keep in step with trust, and the only way to reach a workspace's directory is to already have its canonical root. It is removed when trust is revoked, after the processes stop, because a running server holds its index open. Not on idle shutdown: that index is what makes the next start fast.
+
+The settings card learns what an override means from a descriptor field, never from the language id. A second interpreter-shaped language must need no frontend change, and `lsp-configuration-section.test.tsx` asserts that with a language that is deliberately not Java.
+
+**Java is not installed for you.** `manage-language-server-installation` is the change that does that; until it lands, the user extracts `jdtls` and points at the directory, which is the same position every other language is in.
+
+The foundation also intentionally excludes remote workspaces, downloaded servers (until `manage-language-server-installation` lands — the verified-download capability exists, the language-server consumer does not yet), formatting, completion, rename, code actions, workspace edits, filesystem watching, unsaved buffers, and persistent LSP enrichment. Call hierarchy and type definitions were on that list until `expand-lsp-read-only-methods`; they are read-only, so they moved into scope rather than staying excluded. Type *hierarchy* (`typeHierarchy/supertypes`) is still out. Do not expose a new mutating method merely by adding it to the catalog; it requires a separate OpenSpec change, permission analysis, Plan Mode treatment, protocol limits, and workspace-isolation tests.
 
 LSP does not standardize portable server memory or indexed-file counts, so the status contract must keep these metrics unsupported rather than inventing them.
 
