@@ -1,4 +1,5 @@
 use sha2::{Digest, Sha256};
+use unicode_normalization::UnicodeNormalization;
 
 use super::error::PersonalizationDomainError;
 use super::scope::{WorkspaceIdentity, WorkspaceKey, WorkspaceKind};
@@ -32,16 +33,37 @@ pub(crate) enum WorkspaceIdentitySource {
     },
 }
 
+/// Which spellings of one path this filesystem treats as the same directory.
+///
+/// Both rules are passed in rather than read from `cfg!` at the point of use, so each is exercised
+/// in both directions on every platform. The key never leaves the machine that derived it, so
+/// following the local filesystem's rules is correct here rather than a portability problem.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct LocalPathRules {
+    /// Windows and macOS fold case; Linux does not.
+    pub(crate) fold_case: bool,
+    /// macOS treats the composed and decomposed spellings of one name as the same file. Linux does
+    /// not — there they are two files, and folding them would merge two real directories into one
+    /// scope.
+    pub(crate) normalize_unicode: bool,
+}
+
+impl LocalPathRules {
+    /// What this platform's filesystem actually does.
+    pub(crate) fn for_this_platform() -> Self {
+        Self {
+            fold_case: cfg!(any(target_os = "windows", target_os = "macos")),
+            normalize_unicode: cfg!(target_os = "macos"),
+        }
+    }
+}
+
 /// Normalizes a local filesystem root into a form two spellings of the same directory agree on.
 ///
 /// Pure and filesystem-free on purpose: canonicalizing would make the key depend on whether the
 /// directory currently exists and on symlink resolution at that instant, so a workspace would
 /// change identity when a link was repointed or a drive was offline.
-///
-/// `case_insensitive` is passed in rather than read from `cfg!` so the rule is testable on every
-/// platform. The caller sets it for filesystems that fold case; the key never leaves this machine,
-/// so a platform-dependent rule here is correct rather than a portability problem.
-pub(crate) fn normalize_local_root(path: &str, case_insensitive: bool) -> String {
+pub(crate) fn normalize_local_root(path: &str, rules: LocalPathRules) -> String {
     // Windows extended-length paths address the same directory as their plain form.
     let trimmed = path
         .trim()
@@ -68,16 +90,28 @@ pub(crate) fn normalize_local_root(path: &str, case_insensitive: bool) -> String
     while normalized.len() > 1 && normalized.ends_with('/') {
         normalized.pop();
     }
-    if case_insensitive {
+    // Before case folding, because folding a decomposed name lowercases the base letter and leaves
+    // the combining mark, which is not the same string as folding the composed one.
+    if rules.normalize_unicode {
+        normalized = normalized.nfc().collect();
+    }
+    if rules.fold_case {
         normalized = normalized.to_lowercase();
     }
     normalized
 }
 
-/// Normalizes a remote path. Always case-sensitive: the remote filesystem's folding rules are not
-/// knowable from here, and folding a case-sensitive remote path would merge distinct directories.
+/// Normalizes a remote path. Neither rule applies: the remote filesystem's folding and
+/// normalization behaviour is not knowable from here, and applying this machine's rules to a
+/// remote path would merge directories that are distinct on the far side.
 fn normalize_remote_path(path: &str) -> String {
-    normalize_local_root(path, false)
+    normalize_local_root(
+        path,
+        LocalPathRules {
+            fold_case: false,
+            normalize_unicode: false,
+        },
+    )
 }
 
 fn derive_key(parts: &[&str]) -> Result<WorkspaceKey, PersonalizationDomainError> {
@@ -112,12 +146,12 @@ impl WorkspaceIdentitySource {
     /// and would put recoverable material into a value that appears in diagnostics.
     pub(crate) fn derive_key(
         &self,
-        case_insensitive_local: bool,
+        local_rules: LocalPathRules,
     ) -> Result<WorkspaceKey, PersonalizationDomainError> {
         match self {
             Self::StableId(id) => WorkspaceKey::parse(id.trim()),
             Self::LocalRoot { path } => {
-                derive_key(&["local", &normalize_local_root(path, case_insensitive_local)])
+                derive_key(&["local", &normalize_local_root(path, local_rules)])
             }
             Self::Remote {
                 host,
@@ -159,21 +193,12 @@ impl WorkspaceIdentitySource {
     /// Builds the full identity: the key authorization compares, plus the path a user reads.
     pub(crate) fn resolve(
         &self,
-        case_insensitive_local: bool,
+        local_rules: LocalPathRules,
     ) -> Result<WorkspaceIdentity, PersonalizationDomainError> {
         Ok(WorkspaceIdentity::new(
-            self.derive_key(case_insensitive_local)?,
+            self.derive_key(local_rules)?,
             self.display_path(),
             self.kind(),
         ))
     }
-}
-
-/// Whether this platform's filesystem folds case for local paths.
-///
-/// Windows and macOS default to case-insensitive; Linux does not. The workspace key never leaves
-/// the machine that derived it, so following the local filesystem's rule is what makes two
-/// spellings of one directory agree.
-pub(crate) fn local_paths_fold_case() -> bool {
-    cfg!(any(target_os = "windows", target_os = "macos"))
 }

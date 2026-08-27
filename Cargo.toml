@@ -58,6 +58,7 @@ prost = "0.14"
 qrcode = { version = "0.14.1", default-features = false, features = ["svg"] }
 rand = "0.10"
 sha2 = "0.11"
+unicode-normalization = "0.1"
 hmac = "0.13"
 zip = { version = "=8.6.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }

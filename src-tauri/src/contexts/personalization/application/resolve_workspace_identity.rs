@@ -2,7 +2,7 @@ use super::error::PersonalizationApplicationError;
 use super::models::WorkspaceIdentityRequest;
 use super::ports::WorkspaceIdentityPort;
 use crate::contexts::personalization::domain::{
-    local_paths_fold_case, WorkspaceIdentity, WorkspaceIdentitySource,
+    LocalPathRules, WorkspaceIdentity, WorkspaceIdentitySource,
 };
 
 type Result<T> = std::result::Result<T, PersonalizationApplicationError>;
@@ -16,25 +16,23 @@ type Result<T> = std::result::Result<T, PersonalizationApplicationError>;
 /// A worktree resolves to its own identity rather than its parent project's. Two worktrees of one
 /// repository are different working directories with different state, and merging their memories
 /// would surface one branch's notes while working on another.
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct WorkspaceIdentityResolver {
-    /// Whether local paths fold case. Injected rather than read from `cfg!` at the point of use so
-    /// the rule is exercised in both directions on every platform.
-    case_insensitive_local: bool,
+    /// Which spellings this filesystem treats as one directory. Injected rather than read from
+    /// `cfg!` at the point of use so each rule is exercised in both directions on every platform.
+    local_rules: LocalPathRules,
 }
 
 impl WorkspaceIdentityResolver {
     pub(crate) fn for_this_platform() -> Self {
         Self {
-            case_insensitive_local: local_paths_fold_case(),
+            local_rules: LocalPathRules::for_this_platform(),
         }
     }
 
     #[cfg(test)]
-    pub(crate) fn with_case_folding(case_insensitive_local: bool) -> Self {
-        Self {
-            case_insensitive_local,
-        }
+    pub(crate) fn with_local_rules(local_rules: LocalPathRules) -> Self {
+        Self { local_rules }
     }
 
     /// Chooses the identity source a request describes, or `None` when it describes no workspace.
@@ -107,6 +105,6 @@ impl WorkspaceIdentityPort for WorkspaceIdentityResolver {
         let Some(source) = Self::source(request) else {
             return Ok(None);
         };
-        Ok(Some(source.resolve(self.case_insensitive_local)?))
+        Ok(Some(source.resolve(self.local_rules)?))
     }
 }

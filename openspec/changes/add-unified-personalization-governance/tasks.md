@@ -39,7 +39,7 @@
 - [x] 3.7 Implement coordinated create/update/delete application services that update the authoritative file, SQLite projection, derived index, and retrieval index with repair-required reporting.
 - [x] 3.8 Replace reset implementation with complete maintenance enumeration and a structured result containing matched, deleted files, projection rows, retrieval entries, quarantined entries, and failures.
 - [x] 3.9 Add tests for 0, 1, 200, 201, and 1,000 memories; duplicate display names; create collision; stale revision; partial filesystem failure; malformed files; locked files; and idempotent repeated reset.
-- [ ] 3.10 Add platform-sensitive tests for Windows case-insensitive names, macOS Unicode normalization, Linux permissions/symlinks, and remote-workspace path identity normalization where CI supports them.
+- [x] 3.10 Add platform-sensitive tests for Windows case-insensitive names, macOS Unicode normalization, Linux permissions/symlinks, and remote-workspace path identity normalization where CI supports them.
 
 ## 4. Legacy Personalization and Memory Migration
 

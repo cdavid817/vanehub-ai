@@ -71,5 +71,5 @@ pub(crate) use snapshot::{
     FAIL_CLOSED_REVISION_TOKEN,
 };
 pub(crate) use workspace_identity::{
-    local_paths_fold_case, normalize_local_root, WorkspaceIdentitySource,
+    normalize_local_root, LocalPathRules, WorkspaceIdentitySource,
 };

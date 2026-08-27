@@ -1,10 +1,22 @@
 use super::models::WorkspaceIdentityRequest;
 use super::ports::WorkspaceIdentityPort;
 use super::resolve_workspace_identity::WorkspaceIdentityResolver;
-use crate::contexts::personalization::domain::WorkspaceKind;
+use crate::contexts::personalization::domain::{LocalPathRules, WorkspaceKind};
+
+/// Linux rules: nothing is folded, so every distinct spelling is a distinct workspace.
+const LINUX: LocalPathRules = LocalPathRules {
+    fold_case: false,
+    normalize_unicode: false,
+};
+
+/// Windows rules: case folds, Unicode spellings stay apart.
+const WINDOWS: LocalPathRules = LocalPathRules {
+    fold_case: true,
+    normalize_unicode: false,
+};
 
 fn resolver() -> WorkspaceIdentityResolver {
-    WorkspaceIdentityResolver::with_case_folding(false)
+    WorkspaceIdentityResolver::with_local_rules(LINUX)
 }
 
 fn resolve(request: WorkspaceIdentityRequest) -> Option<(String, String, WorkspaceKind)> {
@@ -142,8 +154,8 @@ fn a_remote_uri_beats_a_local_path_when_both_are_present() {
 
 #[test]
 fn case_folding_follows_the_injected_platform_rule() {
-    let folding = WorkspaceIdentityResolver::with_case_folding(true);
-    let sensitive = WorkspaceIdentityResolver::with_case_folding(false);
+    let folding = WorkspaceIdentityResolver::with_local_rules(WINDOWS);
+    let sensitive = WorkspaceIdentityResolver::with_local_rules(LINUX);
     let upper = WorkspaceIdentityRequest {
         project_path: Some(r"D:\Work\App".to_string()),
         ..Default::default()

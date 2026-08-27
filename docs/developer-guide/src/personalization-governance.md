@@ -68,6 +68,22 @@ Workspace outranks a generic Agent override so that project guidance wins by def
 
 A `scope_key` is built from typed newtypes joined with `/`, which is safe precisely because every identity newtype rejects `/`. Assembling one from display text would let a workspace name forge another scope's key.
 
+### Which spellings of a path are one workspace
+
+A workspace key is derived from a normalized path, and what counts as "the same path" is a fact about the local filesystem. `LocalPathRules` carries both rules, and both are passed in rather than read from `cfg!` at the point of use, so each is exercised in both directions on every platform:
+
+| Platform | `fold_case` | `normalize_unicode` |
+| --- | --- | --- |
+| Windows | ✓ | — |
+| macOS | ✓ | ✓ |
+| Linux | — | — |
+
+macOS opens the composed and decomposed spellings of one name as the same file, and a path can arrive in either form depending on whether it came from a file dialog, a shell, or git; two keys for one directory would scope a workspace's memories to whichever spelling was recorded first. On Linux those are genuinely two files, so folding them would merge two real directories into one scope. Normalization runs **before** case folding — lowercasing a decomposed name folds the base letter and leaves the combining mark, which is not the string you get by lowercasing the composed one.
+
+A remote path takes neither rule. The far side's filesystem behaviour is not knowable from here, and applying this machine's would merge directories that are distinct on the server.
+
+Normalization is deliberately string-only: canonicalizing would make the key depend on whether the directory exists and on symlink resolution at that instant, so a workspace would change identity when a link was repointed or a drive went offline.
+
 ## Memory: which surface is authoritative
 
 | Surface | Authority | Rebuildable |
