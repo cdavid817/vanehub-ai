@@ -1,6 +1,10 @@
 import { useTranslation } from "react-i18next";
 import { Badge } from "../../../components/ui/badge";
-import type { LspLanguageId, LspServerDiscovery } from "../../../types/lsp";
+import type {
+  LspLanguageId,
+  LspOverrideTarget,
+  LspServerDiscovery,
+} from "../../../types/lsp";
 import type { LspLanguageDraft } from "./lsp-configuration-form";
 
 const inputClass = "min-h-9 w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60";
@@ -12,7 +16,9 @@ export function LspLanguageConfigurationCard({
   errorKey,
   language,
   onChange,
+  overrideTarget,
   pending,
+  prerequisite,
   supportedOnHost,
 }: {
   defaultStartupArguments: string[];
@@ -21,7 +27,9 @@ export function LspLanguageConfigurationCard({
   errorKey?: string;
   language: LspLanguageId;
   onChange: (draft: LspLanguageDraft) => void;
+  overrideTarget: LspOverrideTarget;
   pending: boolean;
+  prerequisite: string | null;
   supportedOnHost: boolean;
 }) {
   const { t } = useTranslation();
@@ -32,6 +40,12 @@ export function LspLanguageConfigurationCard({
   const optionsDescriptionId = `${optionsId}-description`;
   const optionsErrorId = `${optionsId}-error`;
   const disabled = pending || !supportedOnHost;
+  // Read from the descriptor, never from the language id. A second install-directory language has
+  // to work here without an edit, which an equality check against a name would quietly give up.
+  const directoryOverride = overrideTarget === "install_directory";
+  const overrideLabel = directoryOverride
+    ? t("lspSettings.discovery.installDirectory")
+    : t("lspSettings.discovery.override");
 
   return (
     <fieldset className="rounded-lg border border-border bg-muted/15 p-4">
@@ -39,6 +53,11 @@ export function LspLanguageConfigurationCard({
       {supportedOnHost ? null : (
         <p className="mt-1 rounded-md border border-border/70 p-2 text-xs ucd-status-warning" role="note">
           {t("lspSettings.language.unsupportedOnHost")}
+        </p>
+      )}
+      {prerequisite === null ? null : (
+        <p className="mt-1 rounded-md border border-border/70 p-2 text-xs text-muted-foreground" role="note">
+          {t("lspSettings.language.prerequisite", { prerequisite })}
         </p>
       )}
       <label className="mt-1 flex items-start gap-3 rounded-md py-2 text-sm">
@@ -68,13 +87,15 @@ export function LspLanguageConfigurationCard({
       </div>
 
       <label className="mt-4 block text-sm font-medium">
-        {t("lspSettings.discovery.override")}
+        {overrideLabel}
         <input
-          aria-label={`${languageName} · ${t("lspSettings.discovery.override")}`}
+          aria-label={`${languageName} · ${overrideLabel}`}
           className={`${inputClass} mt-1 font-mono text-xs`}
           disabled={disabled}
           onChange={(event) => onChange({ ...draft, executableOverride: event.target.value })}
-          placeholder={t("lspSettings.discovery.overridePlaceholder")}
+          placeholder={directoryOverride
+            ? t("lspSettings.discovery.installDirectoryPlaceholder")
+            : t("lspSettings.discovery.overridePlaceholder")}
           spellCheck={false}
           value={draft.executableOverride}
         />

@@ -261,6 +261,22 @@ fn get_lsp_configuration_describes_every_registered_language() {
             json!(definition.default_startup_arguments)
         );
         assert_eq!(
+            descriptor["overrideTarget"],
+            json!(match definition.launch.interpreter() {
+                Some(_) => "install_directory",
+                None => "executable_file",
+            })
+        );
+        assert_eq!(
+            descriptor["prerequisite"],
+            json!(definition
+                .launch
+                .interpreter()
+                .map(|launch| launch.prerequisite))
+        );
+        // Alphabetical, because `serde_json::Value` keys a map by `BTreeMap` rather than by
+        // declaration order.
+        assert_eq!(
             descriptor
                 .as_object()
                 .expect("descriptor object")
@@ -269,6 +285,8 @@ fn get_lsp_configuration_describes_every_registered_language() {
             vec![
                 "defaultStartupArguments",
                 "language",
+                "overrideTarget",
+                "prerequisite",
                 "server",
                 "supportedOnHost"
             ]

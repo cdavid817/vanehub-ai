@@ -88,6 +88,9 @@ pub(crate) struct CodeIntelligenceApi {
     processes: super::infrastructure::RuntimeProcessCoordinator,
     semantic_queries: super::infrastructure::SemanticQueryCoordinator,
     document_invalidations: super::infrastructure::LspDocumentInvalidationQueue,
+    /// Where per-workspace server state lives. Supplied rather than discovered so a test can point
+    /// it at a temporary directory instead of the real profile.
+    data_directory: std::path::PathBuf,
     maintenance_started: Arc<AtomicBool>,
 }
 
@@ -95,6 +98,7 @@ impl CodeIntelligenceApi {
     pub(crate) fn from_database(
         database: NativeDatabase,
         logging: Arc<dyn DiagnosticLogPort>,
+        data_directory: std::path::PathBuf,
     ) -> Self {
         let shutdown = super::infrastructure::LspShutdownCoordinator::default();
         let diagnostics = super::infrastructure::LspDiagnosticLogger::new(logging);
@@ -117,6 +121,7 @@ impl CodeIntelligenceApi {
             ),
             processes,
             document_invalidations,
+            data_directory,
             maintenance_started: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -165,8 +170,16 @@ impl CodeIntelligenceApi {
         if !trust.is_trusted() {
             let processes = self.processes.clone();
             let canonical_root = std::path::PathBuf::from(trust.canonical_root());
+            let data_directory = self.data_directory.clone();
             tauri::async_runtime::spawn(async move {
                 processes.revoke_workspace(&canonical_root).await;
+                // After the processes stop, not before: a running server holds its index open, and
+                // on Windows removing a directory a process still has open simply fails.
+                super::infrastructure::remove_workspace_data(
+                    &data_directory,
+                    LANGUAGE_DEFINITIONS.iter().map(|definition| definition.id),
+                    &canonical_root,
+                );
             });
         }
         Ok(trust)
@@ -569,6 +582,9 @@ impl CodeIntelligenceApi {
         let executable = discovery
             .executable()
             .ok_or(CodeIntelligenceApiError::ConfigurationUnavailable)?;
+        // Resolved here rather than in discovery because the template names the workspace, and
+        // discovery answers "is this server usable at all" without one.
+        let arguments = self.launch_arguments(language, &discovery, &canonical_root)?;
         let document = canonical_root.join(relative_path);
         let project_root = super::infrastructure::ProjectRootResolver::resolve(
             &canonical_root,
@@ -584,7 +600,7 @@ impl CodeIntelligenceApi {
         let fingerprint = configuration_fingerprint(
             language,
             executable,
-            discovery.arguments(),
+            &arguments,
             &settings.initialization_options,
             trust.revision(),
         )?;
@@ -598,9 +614,64 @@ impl CodeIntelligenceApi {
         Ok(super::infrastructure::LspProcessLaunch {
             key,
             executable: executable.to_string_lossy().into_owned(),
-            arguments: discovery.arguments().to_vec(),
+            arguments,
             initialization_options: settings.initialization_options.clone(),
         })
+    }
+
+    /// The arguments the process actually starts with.
+    ///
+    /// For an executable-shaped language that is what discovery already resolved. For an
+    /// interpreter-shaped one the template is filled in here, where the workspace is known, and
+    /// the user's configured arguments are appended after it rather than replacing it — a template
+    /// a user can replace is one they can replace with something that does not start a server.
+    fn launch_arguments(
+        &self,
+        language: Language,
+        discovery: &super::infrastructure::ServerDiscoveryResult,
+        canonical_root: &Path,
+    ) -> Result<Vec<String>, CodeIntelligenceApiError> {
+        let Some(launch) = language.launch.interpreter() else {
+            return Ok(discovery.arguments().to_vec());
+        };
+        let launcher = discovery
+            .resolved_launcher()
+            .ok_or(CodeIntelligenceApiError::ConfigurationUnavailable)?;
+        // The launcher sits inside the install directory, so its grandparent is that directory --
+        // derived rather than re-read from configuration, which would let the two disagree.
+        let install_directory = launcher
+            .parent()
+            .and_then(Path::parent)
+            .ok_or(CodeIntelligenceApiError::ConfigurationUnavailable)?;
+        let configuration_directory =
+            super::infrastructure::resolve_configuration_directory(install_directory, launch)
+                .ok_or(CodeIntelligenceApiError::ConfigurationUnavailable)?;
+        let data_directory = super::infrastructure::workspace_data_directory(
+            &self.data_directory,
+            language.id,
+            canonical_root,
+        );
+        std::fs::create_dir_all(&data_directory)
+            .map_err(|_| CodeIntelligenceApiError::InvalidWorkspace)?;
+
+        let mut arguments =
+            Vec::with_capacity(launch.arguments.len() + discovery.arguments().len());
+        for argument in launch.arguments {
+            arguments.push(match argument {
+                super::domain::registry::LaunchArgument::Literal(value) => (*value).to_owned(),
+                super::domain::registry::LaunchArgument::Launcher => {
+                    launcher.to_string_lossy().into_owned()
+                }
+                super::domain::registry::LaunchArgument::ConfigurationDirectory => {
+                    configuration_directory.to_string_lossy().into_owned()
+                }
+                super::domain::registry::LaunchArgument::WorkspaceDataDirectory => {
+                    data_directory.to_string_lossy().into_owned()
+                }
+            });
+        }
+        arguments.extend(discovery.arguments().iter().cloned());
+        Ok(arguments)
     }
 }
 

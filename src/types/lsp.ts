@@ -68,11 +68,21 @@ export interface LspLanguageConfiguration {
 }
 
 /** What the backend registry declares about a language, so the UI renders no compiled-in list. */
+/**
+ * What a language's override control names. Reported by the backend rather than inferred from the
+ * language id: a second install-directory language must need no change here.
+ */
+export const lspOverrideTargets = ["executable_file", "install_directory"] as const;
+export type LspOverrideTarget = (typeof lspOverrideTargets)[number];
+
 export interface LspLanguageDescriptor {
   language: LspLanguageId;
   server: LspServerKind;
   supportedOnHost: boolean;
   defaultStartupArguments: string[];
+  overrideTarget: LspOverrideTarget;
+  /** The host runtime the user installs themselves, for the languages that need one. */
+  prerequisite: string | null;
 }
 
 export interface LspConfiguration {

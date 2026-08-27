@@ -1,6 +1,7 @@
 use super::language_id::{LanguageIdError, LspLanguageId};
 use super::registry::{
-    definition, definition_for_extension, definition_for_server, HostPlatform, LANGUAGE_DEFINITIONS,
+    definition, definition_for_extension, definition_for_server, HostPlatform, LaunchArgument,
+    LANGUAGE_DEFINITIONS,
 };
 use std::collections::BTreeSet;
 
@@ -269,4 +270,65 @@ fn language_id_validation_rejects_what_would_break_a_key_or_a_localization_looku
         LspLanguageId::new("a".repeat(65)),
         Err(LanguageIdError::TooLong { length: 65 })
     ));
+}
+
+#[test]
+fn the_registry_declares_java_through_an_interpreter() {
+    let java = definition("java").expect("java is registered");
+    assert_eq!(java.server_id, "jdtls");
+    // The JVM, not the server. Under this shape `executables` names what gets executed and the
+    // server is the launcher the template points at.
+    assert_eq!(java.executables, &["java"]);
+    assert_eq!(java.language_id_for_extension("java"), Some("java"));
+    assert_eq!(
+        java.root_markers,
+        &[
+            "pom.xml",
+            "build.gradle",
+            "build.gradle.kts",
+            "settings.gradle"
+        ]
+    );
+    assert!(!java.requires_root_marker);
+
+    let launch = java
+        .launch
+        .interpreter()
+        .expect("java launches through a JVM");
+    // Empty, because the template is not a default a user replaces -- anything they configure is
+    // appended after it.
+    assert!(java.default_startup_arguments.is_empty());
+    assert!(launch.arguments.contains(&LaunchArgument::Launcher));
+    assert!(launch
+        .arguments
+        .contains(&LaunchArgument::ConfigurationDirectory));
+    assert!(launch
+        .arguments
+        .contains(&LaunchArgument::WorkspaceDataDirectory));
+}
+
+#[test]
+fn every_language_declares_a_launch_shape_it_can_actually_use() {
+    for definition in LANGUAGE_DEFINITIONS {
+        assert!(
+            !definition.executables.is_empty(),
+            "{} declares no executable",
+            definition.id
+        );
+        let Some(launch) = definition.launch.interpreter() else {
+            continue;
+        };
+        assert!(!launch.prerequisite.is_empty(), "{}", definition.id);
+        assert!(!launch.launcher_prefix.is_empty(), "{}", definition.id);
+        assert!(!launch.launcher_suffix.is_empty(), "{}", definition.id);
+        // A platform the entry claims but declares no configuration directory for would resolve
+        // its template to nothing at launch, on that platform only.
+        for platform in definition.platforms {
+            assert!(
+                launch.configuration_directory(*platform).is_some(),
+                "{} claims a platform with no configuration directory",
+                definition.id
+            );
+        }
+    }
 }

@@ -2,6 +2,7 @@ import {
   lspDiscoveryAvailabilities,
   lspDocumentSyncModes,
   lspLanguageIdPattern,
+  lspOverrideTargets,
   lspPositionEncodings,
   lspProcessStates,
   lspSafeReasonCodes,
@@ -145,6 +146,8 @@ function normalizeDescriptor(value: unknown): LspLanguageDescriptor {
     supportedOnHost: booleanValue(value.supportedOnHost),
     defaultStartupArguments: arrayValue(value.defaultStartupArguments, 32)
       .map((item) => requiredString(item)),
+    overrideTarget: member(lspOverrideTargets, value.overrideTarget),
+    prerequisite: value.prerequisite === null ? null : requiredString(value.prerequisite),
   };
 }
 

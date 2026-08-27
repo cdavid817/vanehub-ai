@@ -79,18 +79,20 @@ function ConfigurationEditor({
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
-        {draft.descriptors.map(({ language, supportedOnHost, defaultStartupArguments }) => (
+        {draft.descriptors.map((descriptor) => (
           <LspLanguageConfigurationCard
-            defaultStartupArguments={defaultStartupArguments}
-            discovery={discoveries.find((entry) => entry.language === language)}
-            draft={draft.languages[language]}
-            errorKey={errors[language]}
-            key={language}
-            language={language}
-            supportedOnHost={supportedOnHost}
+            defaultStartupArguments={descriptor.defaultStartupArguments}
+            discovery={discoveries.find((entry) => entry.language === descriptor.language)}
+            draft={draft.languages[descriptor.language]}
+            errorKey={errors[descriptor.language]}
+            key={descriptor.language}
+            language={descriptor.language}
+            overrideTarget={descriptor.overrideTarget}
+            prerequisite={descriptor.prerequisite}
+            supportedOnHost={descriptor.supportedOnHost}
             onChange={(languageDraft) => setDraft((current) => ({
               ...current,
-              languages: { ...current.languages, [language]: languageDraft },
+              languages: { ...current.languages, [descriptor.language]: languageDraft },
             }))}
             pending={pending}
           />

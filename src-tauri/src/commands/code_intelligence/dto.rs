@@ -73,6 +73,10 @@ pub(crate) enum LspSafeReasonCodeDto {
     OverrideMissing,
     OverrideNotExecutable,
     UnsupportedOnThisPlatform,
+    PrerequisiteMissing,
+    InstallDirectoryNotSet,
+    LauncherNotFound,
+    AmbiguousInstall,
     ExecutableUnavailable,
     MinimalProjectFailed,
     SpawnFailed,
@@ -113,6 +117,19 @@ pub(crate) struct LspLanguageDescriptorDto {
     pub(crate) server: String,
     pub(crate) supported_on_host: bool,
     pub(crate) default_startup_arguments: Vec<String>,
+    /// What the override control means for this language: an executable file, or the server's
+    /// install directory. Reported so the settings card learns it from the backend rather than by
+    /// checking a language id -- a second interpreter-shaped language must need no frontend edit.
+    pub(crate) override_target: LspOverrideTargetDto,
+    /// The host runtime the user has to install themselves, for the languages that need one.
+    pub(crate) prerequisite: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum LspOverrideTargetDto {
+    ExecutableFile,
+    InstallDirectory,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -268,6 +285,14 @@ impl From<LspConfiguration> for LspConfigurationDto {
                         .iter()
                         .map(|argument| (*argument).to_string())
                         .collect(),
+                    override_target: match definition.launch.interpreter() {
+                        Some(_) => LspOverrideTargetDto::InstallDirectory,
+                        None => LspOverrideTargetDto::ExecutableFile,
+                    },
+                    prerequisite: definition
+                        .launch
+                        .interpreter()
+                        .map(|launch| launch.prerequisite.to_owned()),
                 })
                 .collect(),
         }
@@ -371,6 +396,10 @@ fn discovery_reason(value: DiscoveryReason) -> LspSafeReasonCodeDto {
         DiscoveryReason::UnsupportedOnThisPlatform => {
             LspSafeReasonCodeDto::UnsupportedOnThisPlatform
         }
+        DiscoveryReason::PrerequisiteMissing => LspSafeReasonCodeDto::PrerequisiteMissing,
+        DiscoveryReason::InstallDirectoryNotSet => LspSafeReasonCodeDto::InstallDirectoryNotSet,
+        DiscoveryReason::LauncherNotFound => LspSafeReasonCodeDto::LauncherNotFound,
+        DiscoveryReason::AmbiguousInstall => LspSafeReasonCodeDto::AmbiguousInstall,
     }
 }
 
