@@ -172,8 +172,14 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 值得说明的是为什么夹具要重算而不是存一个计数:计数存下来就是同一个问题的第二份答案,而 marks
 // 和 files 各自会变;两者第一次不同步时,header 就在自信地报错数,并且没有任何东西会说它错了。
 // 上限按实测值 21893 记录,不留余量。
+// 再次上调(同一 change,Task Group 13.7):+31 是标准补丁这条读取在服务边界上的三处——接口方法、
+// Tauri 侧的 invoke、Web 侧带真实文件头与 hunk 头的夹具。
+// 值得说明的是为什么 Web 夹具不能只回显面板上那几行:那几行没有文件头也没有 hunk 头,并且在面板
+// 截断的地方就截断了,读起来对、贴到 git apply 里必然失败。而 Web 构建里没有 git,谁也跑不出这个
+// 失败;夹具照着真实结构渲染,才不会让"可读"和"可应用"的区别恰好在这一侧消失。
+// 上限按实测值 21924 记录,不留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 21893, owner: "upgrade-session-workspace-evidence-console" },
+  { root: "src/services", budget: 21924, owner: "upgrade-session-workspace-evidence-console" },
 ]);
 
 const STATE_PACKAGES = new Set([

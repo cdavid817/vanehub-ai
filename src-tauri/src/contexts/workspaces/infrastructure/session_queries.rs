@@ -3,10 +3,10 @@ use crate::contexts::workspaces::application::{
     DirectoryFingerprint, DirectoryFingerprintState, DirectoryListing, DocumentListing,
     FileContent, FileSearchListing, GitDiffFile, GitDiffHunk, GitDiffLine, GitDiffResult,
     GitDiffSource, GitStatusEntry, GitStatusResult, ReviewDiffFile, ReviewDiffHunk,
-    ReviewFileSummary, ReviewRevertReceipt, ReviewRevertRequest, ReviewSnapshot, SessionDocument,
-    SessionLogEntry, SessionLogExportResult, SessionLogPage, SessionLogQuery,
-    SessionWorkspaceContext, WorkspaceApplicationError as AppError, WorkspaceLogLevel,
-    WorkspaceReviewPort, WorkspaceSessionQueryPort, DEFAULT_DIRECTORY_PAGE_SIZE,
+    ReviewFileSummary, ReviewPatch, ReviewPatchRequest, ReviewRevertReceipt, ReviewRevertRequest,
+    ReviewSnapshot, SessionDocument, SessionLogEntry, SessionLogExportResult, SessionLogPage,
+    SessionLogQuery, SessionWorkspaceContext, WorkspaceApplicationError as AppError,
+    WorkspaceLogLevel, WorkspaceReviewPort, WorkspaceSessionQueryPort, DEFAULT_DIRECTORY_PAGE_SIZE,
     MAX_FINGERPRINT_PATHS, MAX_REVIEW_DIFF_BYTES, MAX_REVIEW_FILES, MAX_REVIEW_FILE_BYTES,
 };
 use crate::contexts::workspaces::application::{
@@ -203,6 +203,11 @@ impl WorkspaceReviewPort for SessionWorkspaceQueryAdapter {
         let file = load_review_file(&connection, session_id, path, expected_snapshot)?;
         write_review_event(&connection, "diff-loaded", session_id, file.hunks.len());
         Ok(file)
+    }
+
+    fn render_review_patch(&self, request: &ReviewPatchRequest) -> Result<ReviewPatch, AppError> {
+        let connection = self.connection()?;
+        render_review_patch(&connection, request)
     }
 
     fn revert_review_change(
@@ -1392,6 +1397,66 @@ fn digest_hex(digest: sha2::Sha256) -> String {
         .collect()
 }
 
+/// The hunks one request selects, and the normalized path they belong to.
+///
+/// Shared by the patch render and the revert, because they answer the same three questions in the
+/// same order — is the snapshot current, does the path resolve, is the hunk selection unambiguous
+/// — and a second copy would drift into two answers for the same request.
+fn select_review_hunks(
+    conn: &Connection,
+    session_id: &str,
+    path: &str,
+    expected_snapshot: &str,
+    hunk_fingerprint: Option<&String>,
+) -> Result<(String, String, ReviewDiffFile, Vec<usize>), AppError> {
+    let current = create_review_snapshot(conn, session_id)?;
+    if current.fingerprint != expected_snapshot {
+        return Err(AppError::Validation(
+            "Review snapshot is stale.".to_string(),
+        ));
+    }
+    let root = resolve_session_root(conn, session_id)?
+        .ok_or_else(|| AppError::Validation("Session workspace is unavailable.".to_string()))?;
+    let (_candidate, normalized) = resolve_git_path(&root, path)?;
+    let file = load_review_file(conn, session_id, &normalized, &current.fingerprint)?;
+    let selected = file
+        .hunks
+        .iter()
+        .enumerate()
+        .filter(|(_, hunk)| hunk_fingerprint.is_none_or(|expected| &hunk.fingerprint == expected))
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    if selected.is_empty() || (hunk_fingerprint.is_some() && selected.len() != 1) {
+        return Err(AppError::Validation(
+            "Review hunk is unavailable or ambiguous.".to_string(),
+        ));
+    }
+    Ok((current.fingerprint, normalized, file, selected))
+}
+
+fn render_review_patch(
+    conn: &Connection,
+    request: &ReviewPatchRequest,
+) -> Result<ReviewPatch, AppError> {
+    let (snapshot, normalized, file, selected) = select_review_hunks(
+        conn,
+        &request.session_id,
+        &request.path,
+        &request.expected_snapshot,
+        request.hunk_fingerprint.as_ref(),
+    )?;
+    let hunks = selected
+        .iter()
+        .map(|index| &file.hunks[*index])
+        .collect::<Vec<_>>();
+    Ok(ReviewPatch {
+        patch: render_patch(&normalized, &hunks),
+        hunks: hunks.len(),
+        path: normalized,
+        snapshot,
+    })
+}
+
 fn revert_review_change(
     conn: &Connection,
     request: &ReviewRevertRequest,
@@ -1407,31 +1472,19 @@ fn revert_review_change(
         .get_or_init(|| std::sync::Mutex::new(()))
         .lock()
         .map_err(|_| AppError::Storage("Workspace mutation guard is unavailable.".to_string()))?;
-    let current = create_review_snapshot(conn, &request.session_id)?;
-    if current.fingerprint != request.expected_snapshot {
-        return Err(AppError::Validation(
-            "Review snapshot is stale.".to_string(),
-        ));
-    }
+    let (previous_snapshot, normalized, file, selected_indexes) = select_review_hunks(
+        conn,
+        &request.session_id,
+        &request.path,
+        &request.expected_snapshot,
+        request.hunk_fingerprint.as_ref(),
+    )?;
     let root = resolve_session_root(conn, &request.session_id)?
         .ok_or_else(|| AppError::Validation("Session workspace is unavailable.".to_string()))?;
-    let (_candidate, normalized) = resolve_git_path(&root, &request.path)?;
-    let file = load_review_file(conn, &request.session_id, &normalized, &current.fingerprint)?;
-    let selected = file
-        .hunks
+    let selected = selected_indexes
         .iter()
-        .filter(|hunk| {
-            request
-                .hunk_fingerprint
-                .as_ref()
-                .is_none_or(|expected| &hunk.fingerprint == expected)
-        })
+        .map(|index| &file.hunks[*index])
         .collect::<Vec<_>>();
-    if selected.is_empty() || (request.hunk_fingerprint.is_some() && selected.len() != 1) {
-        return Err(AppError::Validation(
-            "Review hunk is unavailable or ambiguous.".to_string(),
-        ));
-    }
     let patch = render_patch(&normalized, &selected);
     let mut patch_file =
         tempfile::NamedTempFile::new().map_err(|error| AppError::Storage(error.to_string()))?;
@@ -1468,14 +1521,46 @@ fn revert_review_change(
     drop(guard);
     Ok(ReviewRevertReceipt {
         path: normalized,
-        previous_snapshot: current.fingerprint,
+        previous_snapshot,
         resulting_snapshot: resulting.fingerprint,
         reverted_hunks: selected.len(),
     })
 }
 
+/// Renders selected hunks as a unified diff Git will accept.
+///
+/// The two `/dev/null` cases are the reason this is not a format string. A file with no old side
+/// needs `--- /dev/null` and a file with no new side needs `+++ /dev/null`; naming the path on
+/// both sides produces a patch that reads correctly and that `git apply` refuses, which is exactly
+/// the failure a rendering assertion cannot see and `git apply --check` can.
+///
+/// Derived from the hunks rather than from the summary's `change_type`. The summary's `old_hash`
+/// is always absent here, so it cannot distinguish an addition from a modification, and a change
+/// type is a word from `git status` while this has to agree with the diff it is rendering.
 fn render_patch(path: &str, hunks: &[&ReviewDiffHunk]) -> String {
-    let mut patch = format!("diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n");
+    let no_old_side = hunks
+        .iter()
+        .all(|selected| selected.hunk.old_lines == 0 && selected.hunk.old_start == 0);
+    let no_new_side = hunks
+        .iter()
+        .all(|selected| selected.hunk.new_lines == 0 && selected.hunk.new_start == 0);
+    let old_side = if no_old_side {
+        "/dev/null".to_string()
+    } else {
+        format!("a/{path}")
+    };
+    let new_side = if no_new_side {
+        "/dev/null".to_string()
+    } else {
+        format!("b/{path}")
+    };
+    let mut patch = format!("diff --git a/{path} b/{path}\n");
+    if no_old_side {
+        patch.push_str("new file mode 100644\n");
+    } else if no_new_side {
+        patch.push_str("deleted file mode 100644\n");
+    }
+    patch.push_str(&format!("--- {old_side}\n+++ {new_side}\n"));
     for review_hunk in hunks {
         let hunk = &review_hunk.hunk;
         patch.push_str(&hunk.header);
@@ -1759,6 +1844,180 @@ mod tests {
             .status()
             .expect("git command");
         assert!(status.success(), "git {:?} failed", args);
+    }
+
+    use crate::contexts::workspaces::application::GitDiffLine;
+    use crate::test_support::git_patch_fixture::{GitPatchFixture, PatchCheck};
+
+    fn hunk(
+        header: &str,
+        old_start: usize,
+        old_lines: usize,
+        new_start: usize,
+        new_lines: usize,
+        lines: Vec<(&str, &str)>,
+    ) -> ReviewDiffHunk {
+        ReviewDiffHunk {
+            fingerprint: format!("hunk-{header}"),
+            context_fingerprints: Vec::new(),
+            hunk: GitDiffHunk {
+                header: header.to_string(),
+                old_start,
+                old_lines,
+                new_start,
+                new_lines,
+                lines: lines
+                    .into_iter()
+                    .map(|(kind, content)| GitDiffLine {
+                        kind: kind.to_string(),
+                        content: content.to_string(),
+                        old_line_number: None,
+                        new_line_number: None,
+                    })
+                    .collect(),
+            },
+        }
+    }
+
+    /// The gate 0.8 exists for. A patch that reads correctly and that Git refuses is the failure a
+    /// rendering assertion cannot see, and it is the only failure that matters here: what this
+    /// renderer produces is handed to a reviewer to paste into `git apply`.
+    #[test]
+    fn a_rendered_modification_applies_to_the_repository_it_came_from() {
+        let fixture =
+            GitPatchFixture::committed("render-modification", &[("src/main.rs", "fn main() {}\n")]);
+        let rendered = render_patch(
+            "src/main.rs",
+            &[&hunk(
+                "@@ -1,1 +1,1 @@",
+                1,
+                1,
+                1,
+                1,
+                vec![
+                    ("deletion", "fn main() {}"),
+                    ("addition", "fn main() { work(); }"),
+                ],
+            )],
+        );
+
+        assert_eq!(fixture.apply_check(&rendered), PatchCheck::Applies);
+    }
+
+    #[test]
+    fn a_rendered_addition_names_dev_null_on_the_side_that_has_nothing() {
+        let fixture = GitPatchFixture::committed("render-addition", &[("keep.txt", "keep\n")]);
+        let rendered = render_patch(
+            "added.rs",
+            &[&hunk(
+                "@@ -0,0 +1,1 @@",
+                0,
+                0,
+                1,
+                1,
+                vec![("addition", "fn added() {}")],
+            )],
+        );
+
+        // `--- a/added.rs` would name a file that has no old side, and Git refuses that. The
+        // version of this renderer before 13.7 wrote exactly that, which nothing noticed because
+        // its only caller applied patches in reverse against files that already existed.
+        assert!(rendered.contains("--- /dev/null"));
+        assert!(rendered.contains("new file mode"));
+        assert_eq!(fixture.apply_check(&rendered), PatchCheck::Applies);
+    }
+
+    #[test]
+    fn a_rendered_deletion_names_dev_null_on_the_side_that_has_nothing() {
+        let fixture = GitPatchFixture::committed("render-deletion", &[("gone.txt", "gone\n")]);
+        let rendered = render_patch(
+            "gone.txt",
+            &[&hunk(
+                "@@ -1,1 +0,0 @@",
+                1,
+                1,
+                0,
+                0,
+                vec![("deletion", "gone")],
+            )],
+        );
+
+        assert!(rendered.contains("+++ /dev/null"));
+        assert!(rendered.contains("deleted file mode"));
+        assert_eq!(fixture.apply_check(&rendered), PatchCheck::Applies);
+    }
+
+    #[test]
+    fn a_rendered_patch_for_content_that_moved_on_is_refused_by_git() {
+        let fixture =
+            GitPatchFixture::committed("render-stale", &[("src/main.rs", "fn main() {}\n")]);
+        let rendered = render_patch(
+            "src/main.rs",
+            &[&hunk(
+                "@@ -1,1 +1,1 @@",
+                1,
+                1,
+                1,
+                1,
+                vec![
+                    ("deletion", "fn main() {}"),
+                    ("addition", "fn main() { work(); }"),
+                ],
+            )],
+        );
+        fixture.write("src/main.rs", "fn main() { somebody_else(); }\n");
+
+        // Not a claim about this renderer: a claim that the check can fail. A gate that passed for
+        // every input would let 13.13 pass while proving nothing.
+        assert!(matches!(
+            fixture.apply_check(&rendered),
+            PatchCheck::Refused(_)
+        ));
+    }
+
+    #[test]
+    fn several_hunks_render_into_one_patch_that_applies_as_a_whole() {
+        let fixture = GitPatchFixture::committed(
+            "render-multi-hunk",
+            &[("src/main.rs", "one\ntwo\nthree\nfour\nfive\nsix\nseven\n")],
+        );
+        let rendered = render_patch(
+            "src/main.rs",
+            &[
+                &hunk(
+                    "@@ -1,3 +1,3 @@",
+                    1,
+                    3,
+                    1,
+                    3,
+                    vec![
+                        ("deletion", "one"),
+                        ("addition", "ONE"),
+                        ("context", "two"),
+                        ("context", "three"),
+                    ],
+                ),
+                &hunk(
+                    "@@ -5,3 +5,3 @@",
+                    5,
+                    3,
+                    5,
+                    3,
+                    vec![
+                        ("context", "five"),
+                        ("deletion", "six"),
+                        ("addition", "SIX"),
+                        ("context", "seven"),
+                    ],
+                ),
+            ],
+        );
+
+        // One file header for the file, one header per hunk. A renderer that repeated the file
+        // header per hunk produces something Git reads as two patches for the same file.
+        assert_eq!(rendered.matches("diff --git").count(), 1);
+        assert_eq!(rendered.matches("@@ ").count(), 2);
+        assert_eq!(fixture.apply_check(&rendered), PatchCheck::Applies);
     }
 
     #[test]

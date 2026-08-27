@@ -183,7 +183,7 @@ import {
   normalizeLspWorkspaceTrustUpdate,
 } from "./lsp-contract";
 import { tauriBuiltinToolClient } from "./tauri-builtin-tool-client";
-import type { AddReviewCommentInput, CodeReview, ReviewAction, ReviewComment, ReviewDecision, ReviewDiffFile, ReviewFileViewedReceipt, ReviewHunkDecisionReceipt, ReviewRevertReceipt, RevertReviewChangeInput, SetReviewFileViewedInput, SetReviewHunkDecisionInput } from "../types/code-review";
+import type { AddReviewCommentInput, CodeReview, GetReviewPatchInput, ReviewAction, ReviewComment, ReviewDecision, ReviewDiffFile, ReviewFileViewedReceipt, ReviewHunkDecisionReceipt, ReviewPatch, ReviewRevertReceipt, RevertReviewChangeInput, SetReviewFileViewedInput, SetReviewHunkDecisionInput } from "../types/code-review";
 
 function invokeSkillOverlay<TResult>(command: string, input: unknown): Promise<TResult> {
   return invoke<TResult>(command, { input }).catch((error: unknown) =>
@@ -262,6 +262,9 @@ export const tauriAgentClient: AgentService = {
   },
   setCodeReviewDecision(reviewId, decision: ReviewDecision) {
     return invoke<CodeReview>("set_code_review_decision", { reviewId, decision });
+  },
+  getCodeReviewPatch(input: GetReviewPatchInput) {
+    return invoke<ReviewPatch>("get_code_review_patch", { input });
   },
   revertCodeReviewChange(input: RevertReviewChangeInput) {
     return invoke<ReviewRevertReceipt>("revert_code_review_change", { input });

@@ -5,7 +5,7 @@ use crate::contexts::sessions::domain::{
     ReviewFile, ReviewFileViewState, ReviewFinding, ReviewFindingSeverity, ReviewHunkDecision,
     ReviewStatus,
 };
-use crate::contexts::workspaces::application::{ReviewDiffFile, ReviewRevertReceipt};
+use crate::contexts::workspaces::application::{ReviewDiffFile, ReviewPatch, ReviewRevertReceipt};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Deserialize)]
@@ -369,6 +369,32 @@ impl From<ReviewDiffFile> for ReviewDiffFileDto {
                         .collect(),
                 })
                 .collect(),
+        }
+    }
+}
+
+/// A patch and the diff it came from.
+///
+/// `snapshot` is echoed rather than assumed: a reviewer can hold a copied patch for as long as
+/// they like, and the fingerprint is what lets anything downstream tell a current one from a stale
+/// one. The patch text itself is not fingerprinted here — that arrives with 13.8, along with the
+/// bounds that decide when a patch is too large to hand over at all.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ReviewPatchDto {
+    path: String,
+    snapshot: String,
+    hunks: usize,
+    patch: String,
+}
+
+impl From<ReviewPatch> for ReviewPatchDto {
+    fn from(rendered: ReviewPatch) -> Self {
+        Self {
+            path: rendered.path,
+            snapshot: rendered.snapshot,
+            hunks: rendered.hunks,
+            patch: rendered.patch,
         }
     }
 }

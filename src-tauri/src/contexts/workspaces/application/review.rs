@@ -43,6 +43,31 @@ pub(crate) struct ReviewSnapshot {
     pub(crate) accepted_bytes: usize,
 }
 
+/// What a reviewer is asking to copy.
+///
+/// Session-scoped rather than review-scoped, matching `ReviewRevertRequest` beside it. The
+/// workspaces context knows sessions and snapshots; the review id belongs to the aggregate in
+/// another context, and threading it here would mean a lookup this side cannot perform.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ReviewPatchRequest {
+    pub(crate) session_id: String,
+    pub(crate) path: String,
+    pub(crate) expected_snapshot: String,
+    /// One hunk, or the whole file when absent.
+    pub(crate) hunk_fingerprint: Option<String>,
+}
+
+/// A patch a reviewer can hand to `git apply`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ReviewPatch {
+    pub(crate) path: String,
+    /// The snapshot it was rendered from, so a caller can tell a patch that is still current from
+    /// one they have been holding while the workspace moved.
+    pub(crate) snapshot: String,
+    pub(crate) hunks: usize,
+    pub(crate) patch: String,
+}
+
 pub(crate) trait WorkspaceReviewPort: Send + Sync {
     fn create_review_snapshot(
         &self,
@@ -55,6 +80,16 @@ pub(crate) trait WorkspaceReviewPort: Send + Sync {
         path: &str,
         expected_snapshot: &str,
     ) -> Result<ReviewDiffFile, WorkspaceApplicationError>;
+
+    /// Renders a standard patch for the current snapshot without changing anything.
+    ///
+    /// Distinct from copying the displayed lines, which is what the panel renders: those carry no
+    /// file or hunk headers and are truncated exactly where the panel truncated them, so they
+    /// cannot be applied anywhere. This is the one a reviewer can paste into `git apply`.
+    fn render_review_patch(
+        &self,
+        request: &ReviewPatchRequest,
+    ) -> Result<ReviewPatch, WorkspaceApplicationError>;
 
     fn revert_review_change(
         &self,

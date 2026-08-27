@@ -4,9 +4,11 @@ import type {
   ReviewAction,
   ReviewComment,
   ReviewDecision,
+  GetReviewPatchInput,
   ReviewDiffFile,
   ReviewFileViewedReceipt,
   ReviewHunkDecisionReceipt,
+  ReviewPatch,
   ReviewRevertReceipt,
   RevertReviewChangeInput,
   SetReviewFileViewedInput,
@@ -34,6 +36,7 @@ export interface CodeReviewService {
   setCodeReviewDecision(reviewId: string, decision: ReviewDecision): Promise<CodeReview>;
   setCodeReviewHunkDecision(input: SetReviewHunkDecisionInput): Promise<ReviewHunkDecisionReceipt>;
   setCodeReviewFileViewed(input: SetReviewFileViewedInput): Promise<ReviewFileViewedReceipt>;
+  getCodeReviewPatch(input: GetReviewPatchInput): Promise<ReviewPatch>;
   revertCodeReviewChange(input: RevertReviewChangeInput): Promise<ReviewRevertReceipt>;
   sendCodeReviewFeedback(reviewId: string, acknowledgeStale: boolean): Promise<{ messageId: string }>;
   startCodeReviewAction(reviewId: string, action: ReviewAction): Promise<{ operationId: string }>;

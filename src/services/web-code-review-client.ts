@@ -5,9 +5,11 @@ import type {
   ReviewComment,
   ReviewDecision,
   ReviewDiffFile,
+  GetReviewPatchInput,
   ReviewFileSummary,
   ReviewFileViewedReceipt,
   ReviewHunkDecisionReceipt,
+  ReviewPatch,
   ReviewRevertReceipt,
   ReviewSummary,
   RevertReviewChangeInput,
@@ -205,6 +207,29 @@ export function createWebCodeReviewClient(workspace: WorkspaceReviewSource) {
       const viewedAt = input.viewed ? new Date().toISOString() : undefined;
       fileViews.set(JSON.stringify([input.reviewId, input.relativePath]), { fileWitness, viewed: input.viewed, viewedAt });
       return { reviewId: input.reviewId, relativePath: input.relativePath, fileWitness, viewed: input.viewed, viewedAt, simulated: true };
+    },
+    async getCodeReviewPatch(input: GetReviewPatchInput): Promise<ReviewPatch> {
+      const review = [...reviews.values()].find((value) => value.sessionId === input.sessionId && value.status === "active");
+      if (!review || review.fingerprint !== input.expectedSnapshot) throw new Error("stale_witness");
+      const diff = await this.loadCodeReviewFile(input.sessionId, input.path, input.expectedSnapshot);
+      const selected = input.hunkFingerprint
+        ? diff.hunks.filter((hunk) => hunk.fingerprint === input.hunkFingerprint)
+        : diff.hunks;
+      if (selected.length !== (input.hunkFingerprint ? 1 : selected.length) || selected.length === 0) {
+        throw new Error("review-hunk-unavailable");
+      }
+      // Real headers even in the fixture. A mock that returned the displayed lines would let the
+      // difference between "readable" and "appliable" disappear on the one adapter where nothing
+      // can run `git apply` to notice.
+      const body = selected
+        .map((hunk) => [hunk.header, ...hunk.lines.map((line) => `${line.kind === "addition" ? "+" : line.kind === "deletion" ? "-" : " "}${line.content}`)].join("\n"))
+        .join("\n");
+      return {
+        path: input.path,
+        snapshot: review.fingerprint,
+        hunks: selected.length,
+        patch: `diff --git a/${input.path} b/${input.path}\n--- a/${input.path}\n+++ b/${input.path}\n${body}\n`,
+      };
     },
     async revertCodeReviewChange(input: RevertReviewChangeInput): Promise<ReviewRevertReceipt> {
       if (!input.confirmed) throw new Error("review-revert-confirmation-required");

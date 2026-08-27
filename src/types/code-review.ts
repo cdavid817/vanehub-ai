@@ -162,6 +162,29 @@ export interface RevertReviewChangeInput {
   confirmed: boolean;
 }
 
+export interface GetReviewPatchInput {
+  sessionId: string;
+  path: string;
+  expectedSnapshot: string;
+  /** Absent means the whole file. Absent rather than a sentinel: "every hunk" and "the hunk called
+   *  empty string" are different requests. */
+  hunkFingerprint?: string;
+}
+
+/**
+ * A patch a reviewer can hand to `git apply`.
+ *
+ * Distinct from copying the displayed lines, which carries no file or hunk headers and is
+ * truncated exactly where the panel truncated it — readable, and impossible to apply anywhere.
+ */
+export interface ReviewPatch {
+  path: string;
+  /** The snapshot it was rendered from, so a held copy can be told from a current one. */
+  snapshot: string;
+  hunks: number;
+  patch: string;
+}
+
 export interface ReviewRevertReceipt {
   path: string;
   previousSnapshot: string;

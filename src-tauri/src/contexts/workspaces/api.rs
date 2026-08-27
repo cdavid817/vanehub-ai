@@ -16,10 +16,10 @@ pub(crate) use super::application::{
 pub(crate) use super::application::{
     CreatedWorktree, DirectoryListing, DocumentListing, FileContent, FileSearchListing,
     GitBranchReference, GitDiffFile, GitDiffHunk, GitDiffLine, GitDiffResult, GitDiffSource,
-    GitStatusResult, KnownProject, KnownRemoteWorkspace, ReviewDiffFile, ReviewRevertReceipt,
-    ReviewRevertRequest, ReviewSnapshot, SessionLogExportResult, SessionLogQuery,
-    SessionWorkspaceContext, WorkspaceApplicationError as WorkspaceError, WorkspaceLogLevel,
-    WorkspaceReviewPort,
+    GitStatusResult, KnownProject, KnownRemoteWorkspace, ReviewDiffFile, ReviewPatch,
+    ReviewPatchRequest, ReviewRevertReceipt, ReviewRevertRequest, ReviewSnapshot,
+    SessionLogExportResult, SessionLogQuery, SessionWorkspaceContext,
+    WorkspaceApplicationError as WorkspaceError, WorkspaceLogLevel, WorkspaceReviewPort,
 };
 use super::application::{WorkspaceApplicationService, WorkspaceQueryApplicationService};
 /// Normalized workspace change notices.
@@ -152,6 +152,13 @@ impl WorkspaceApi {
     ) -> Result<ReviewDiffFile, WorkspaceError> {
         self.review
             .load_review_file(session_id, path, expected_snapshot)
+    }
+
+    pub(crate) fn render_review_patch(
+        &self,
+        request: &ReviewPatchRequest,
+    ) -> Result<ReviewPatch, WorkspaceError> {
+        self.review.render_review_patch(request)
     }
 
     pub(crate) fn revert_review_change(
