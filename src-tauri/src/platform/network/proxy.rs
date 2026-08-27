@@ -724,13 +724,13 @@ mod tests {
         apply(&format!("http://{proxy_address}"), DEFAULT_BYPASS).expect("apply proxy");
 
         let client = blocking_http_client(Duration::from_secs(5)).expect("client");
-        let _ = client.get("http://routed.example/probe").send();
+        let _ = client.get("https://routed.example/probe").send();
 
         let request = proxy_fixture.join().expect("proxy fixture thread");
         apply("", DEFAULT_BYPASS).expect("reset proxy");
 
         assert!(
-            request.starts_with("GET http://routed.example/probe "),
+            request.starts_with("CONNECT routed.example:443 "),
             "expected a proxied request, got: {request}"
         );
     }
