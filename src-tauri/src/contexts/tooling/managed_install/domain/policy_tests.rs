@@ -1,7 +1,10 @@
 //! Moved from `tooling/cli/domain/trust.rs` with the code they cover. The assertions are
 //! unchanged: a behavior-preserving move means these still pass without being edited to.
 
-use super::policy::{ArtifactIntegrity, ManagedPlatform, RetrievalPolicy};
+use super::policy::{
+    artifact_for, artifact_for_current_platform, ArtifactIntegrity, ManagedPlatform,
+    PlatformArtifact, RetrievalPolicy,
+};
 
 const CLAUDE: RetrievalPolicy = RetrievalPolicy {
     allowed_hosts: &["claude.ai"],
@@ -81,4 +84,36 @@ fn a_declared_digest_is_carried_verbatim() {
         ArtifactIntegrity::Unverified,
         ArtifactIntegrity::Sha256(digest)
     );
+}
+
+static LINUX_ONLY: &[PlatformArtifact] = &[PlatformArtifact {
+    platform: ManagedPlatform::Linux,
+    url: "https://vendor.example/tool-linux.zip",
+    integrity: ArtifactIntegrity::Unverified,
+}];
+
+#[test]
+fn selection_matches_the_platform_exactly_and_never_substitutes() {
+    assert_eq!(
+        artifact_for(LINUX_ONLY, ManagedPlatform::Linux).map(|artifact| artifact.url),
+        Some("https://vendor.example/tool-linux.zip")
+    );
+    // The whole point: a publisher that ships only Linux offers nothing elsewhere, and the caller
+    // withholds the action rather than running the wrong bytes or switching source.
+    assert_eq!(artifact_for(LINUX_ONLY, ManagedPlatform::Windows), None);
+    assert_eq!(artifact_for(LINUX_ONLY, ManagedPlatform::Macos), None);
+    assert_eq!(artifact_for(&[], ManagedPlatform::Linux), None);
+}
+
+#[test]
+fn current_platform_selection_follows_the_build_target_with_no_fallback() {
+    let selected = artifact_for_current_platform(LINUX_ONLY);
+    if cfg!(target_os = "linux") {
+        assert!(selected.is_some());
+    } else {
+        assert!(
+            selected.is_none(),
+            "a non-Linux target must not select the Linux artifact"
+        );
+    }
 }

@@ -12,6 +12,13 @@
 /// Separate from any consumer's platform enum on purpose. Sharing one would make this capability
 /// describe the first consumer's vocabulary, which is the drift the extraction exists to prevent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the archive kind ships tested and without a caller; add-lsp-java-jdtls is the consumer"
+    )
+)]
 pub(crate) enum ManagedPlatform {
     Windows,
     Macos,
@@ -41,6 +48,13 @@ pub(crate) enum ArtifactIntegrity {
     /// No published digest. The download is still bounded and host-checked, but the bytes are
     /// unverified -- which is why a caller that needs verified bytes must withhold the action.
     Unverified,
+    /// Every shipped artifact is currently `Unverified`, so nothing constructs this yet. The arm
+    /// that reads it in `verify_integrity` is live, and the first publisher that offers a digest
+    /// is what removes the attribute.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "no shipped artifact publishes a digest yet")
+    )]
     Sha256(&'static str),
 }
 
@@ -62,6 +76,13 @@ impl RetrievalPolicy {
     /// Checked by a test that walks each contributor's catalog rather than by a fallible
     /// constructor: the declarations are `static` data the build already fixes, and making startup
     /// fallible over a constant would trade a compile-time-known fact for a runtime one.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "asserted by each contributor's catalog-walking test"
+        )
+    )]
     pub(crate) const fn is_bounded(&self) -> bool {
         !self.allowed_hosts.is_empty()
             && self.max_download_bytes > 0
@@ -90,4 +111,54 @@ impl RetrievalPolicy {
             .iter()
             .any(|allowed| allowed.eq_ignore_ascii_case(host))
     }
+}
+
+/// One artifact published for exactly one platform.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the archive kind ships tested and without a caller; add-lsp-java-jdtls is the consumer"
+    )
+)]
+pub(crate) struct PlatformArtifact {
+    pub(crate) platform: ManagedPlatform,
+    pub(crate) url: &'static str,
+    pub(crate) integrity: ArtifactIntegrity,
+}
+
+/// The artifact for exactly this platform, or `None`.
+///
+/// There is deliberately no fallback arm, for the same reason the CLI installer templates have
+/// none: a caller's only correct response to "nothing is published for this platform" is to
+/// withhold the action. Substituting another platform's artifact, or quietly switching to a
+/// different acquisition source, is how a user gets told an install happened that did not.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the archive kind ships tested and without a caller; add-lsp-java-jdtls is the consumer"
+    )
+)]
+pub(crate) fn artifact_for(
+    artifacts: &'static [PlatformArtifact],
+    platform: ManagedPlatform,
+) -> Option<&'static PlatformArtifact> {
+    artifacts
+        .iter()
+        .find(|artifact| artifact.platform == platform)
+}
+
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the archive kind ships tested and without a caller; add-lsp-java-jdtls is the consumer"
+    )
+)]
+pub(crate) fn artifact_for_current_platform(
+    artifacts: &'static [PlatformArtifact],
+) -> Option<&'static PlatformArtifact> {
+    ManagedPlatform::current().and_then(|platform| artifact_for(artifacts, platform))
 }
