@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { activateAppLanguage } from "../i18n";
 import { renderWithAppProviders } from "../test/render";
@@ -116,6 +116,74 @@ describe("the Basic Info evidence summary", () => {
 
     await waitFor(() => expect(screen.getByText("Queued")).toBeTruthy());
     expect(screen.queryByText(/since/)).toBeNull();
+  });
+
+  it.each([
+    ["Runtime", "traces"],
+    ["Workspace", "files"],
+    ["Shells", "shell"],
+    ["Changes", "changes"],
+    ["Verification", "report"],
+    ["Diagnostics", "logs"],
+  ])("sends the %s row to the tab that owns it", async (label, tab) => {
+    getSummary.mockResolvedValue(summary());
+    const onNavigateToTab = vi.fn();
+    renderWithAppProviders(
+      <SessionEvidenceSummary
+        onNavigateToTab={onNavigateToTab}
+        onShowUsage={vi.fn()}
+        sessionId={SESSION}
+      />,
+    );
+    await waitFor(() => expect(screen.getByText("2 live")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(`^${label}`) }));
+
+    expect(onNavigateToTab).toHaveBeenCalledWith(tab);
+  });
+
+  it("keeps usage in this panel rather than sending it to a workspace tab", async () => {
+    getSummary.mockResolvedValue(summary());
+    const onNavigateToTab = vi.fn();
+    const onShowUsage = vi.fn();
+    renderWithAppProviders(
+      <SessionEvidenceSummary
+        onNavigateToTab={onNavigateToTab}
+        onShowUsage={onShowUsage}
+        sessionId={SESSION}
+      />,
+    );
+    await waitFor(() => expect(screen.getByText("2 live")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: /^Usage/ }));
+
+    // Token usage is a pane here, not a tab over there. Routing it through the same callback would
+    // make one destination mean two different kinds of place.
+    expect(onShowUsage).toHaveBeenCalled();
+    expect(onNavigateToTab).not.toHaveBeenCalled();
+  });
+
+  it("renders rows as plain text where nothing owns the tabs", async () => {
+    getSummary.mockResolvedValue(summary());
+    renderWithAppProviders(<SessionEvidenceSummary sessionId={SESSION} />);
+
+    await waitFor(() => expect(screen.getByText("2 live")).toBeTruthy());
+    // Not disabled buttons. A row nobody can follow is a fact with no destination, and a dead
+    // control says the opposite.
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
+  });
+
+  it("names each row by its label and its value together", async () => {
+    getSummary.mockResolvedValue(summary());
+    renderWithAppProviders(
+      <SessionEvidenceSummary onNavigateToTab={vi.fn()} onShowUsage={vi.fn()} sessionId={SESSION} />,
+    );
+
+    // What a screen reader announces is the sentence that is on screen, not the label alone —
+    // "Changes" says nothing a reader can act on without the count beside it.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Changes 8 files · 4 unviewed" })).toBeTruthy(),
+    );
   });
 
   it("renders nothing at all without a session", () => {
