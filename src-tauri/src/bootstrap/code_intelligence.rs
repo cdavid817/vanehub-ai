@@ -25,10 +25,11 @@ use std::sync::OnceLock;
 pub(crate) fn assemble_code_intelligence_api(
     database: NativeDatabase,
     fallback_log_directory: PathBuf,
+    data_directory: PathBuf,
 ) -> CodeIntelligenceApi {
     let logging: Arc<dyn DiagnosticLogPort> =
         Arc::new(UnifiedLoggingAdapter::active(fallback_log_directory));
-    CodeIntelligenceApi::from_database(database, logging)
+    CodeIntelligenceApi::from_database(database, logging, data_directory)
 }
 
 pub(crate) struct NativeCodeIntelligenceResponder {
@@ -467,6 +468,7 @@ mod tests {
         let api = CodeIntelligenceApi::from_database(
             database,
             Arc::new(UnifiedLoggingAdapter::new(directory.path().join("logs"))),
+            directory.path().join("state"),
         );
         let responder = NativeCodeIntelligenceResponder::new(api.clone());
         let context = AgentCodeIntelligenceContext::from_session_workspace(

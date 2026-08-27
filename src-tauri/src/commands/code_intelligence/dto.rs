@@ -73,6 +73,10 @@ pub(crate) enum LspSafeReasonCodeDto {
     OverrideMissing,
     OverrideNotExecutable,
     UnsupportedOnThisPlatform,
+    PrerequisiteMissing,
+    InstallDirectoryNotSet,
+    LauncherNotFound,
+    AmbiguousInstall,
     ExecutableUnavailable,
     MinimalProjectFailed,
     SpawnFailed,
@@ -371,6 +375,10 @@ fn discovery_reason(value: DiscoveryReason) -> LspSafeReasonCodeDto {
         DiscoveryReason::UnsupportedOnThisPlatform => {
             LspSafeReasonCodeDto::UnsupportedOnThisPlatform
         }
+        DiscoveryReason::PrerequisiteMissing => LspSafeReasonCodeDto::PrerequisiteMissing,
+        DiscoveryReason::InstallDirectoryNotSet => LspSafeReasonCodeDto::InstallDirectoryNotSet,
+        DiscoveryReason::LauncherNotFound => LspSafeReasonCodeDto::LauncherNotFound,
+        DiscoveryReason::AmbiguousInstall => LspSafeReasonCodeDto::AmbiguousInstall,
     }
 }
 
