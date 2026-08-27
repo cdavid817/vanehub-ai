@@ -28,6 +28,8 @@ type WebLspClient = Pick<AgentService,
   | "updateLspWorkspaceTrust"
   | "discoverLspServers"
   | "testLspServer"
+  | "installLspServer"
+  | "uninstallLspServer"
   | "getLspServerStatus"
 >;
 
@@ -47,6 +49,8 @@ const mockRegistry: readonly (LspLanguageDescriptor & { executable: string })[] 
     defaultStartupArguments: [],
     overrideTarget: "executable_file",
     prerequisite: null,
+    distribution: null,
+    installed: false,
     executable: "/mock/lsp/rust-analyzer",
   },
   {
@@ -56,6 +60,8 @@ const mockRegistry: readonly (LspLanguageDescriptor & { executable: string })[] 
     defaultStartupArguments: ["--stdio"],
     overrideTarget: "executable_file",
     prerequisite: null,
+    distribution: null,
+    installed: false,
     executable: "/mock/lsp/typescript-language-server",
   },
   {
@@ -67,6 +73,10 @@ const mockRegistry: readonly (LspLanguageDescriptor & { executable: string })[] 
     defaultStartupArguments: [],
     overrideTarget: "install_directory",
     prerequisite: "Java 17 or newer",
+    // Declared so the Web adapter renders the install action and reports it unavailable, rather
+    // than never reaching that branch at all.
+    distribution: { verified: false },
+    installed: false,
     executable: "/mock/lsp/jdtls",
   },
 ];
@@ -79,6 +89,8 @@ function descriptors(): LspLanguageDescriptor[] {
     defaultStartupArguments: [...entry.defaultStartupArguments],
     overrideTarget: entry.overrideTarget,
     prerequisite: entry.prerequisite,
+    distribution: entry.distribution,
+    installed: entry.installed,
   }));
 }
 
@@ -260,6 +272,16 @@ export const webLspClient: WebLspClient = {
       })),
       negotiatedCapabilities: capabilities,
     }));
+  },
+
+  async installLspServer() {
+    // Honest rather than simulated: there is no filesystem to install into, and reporting success
+    // would make the Web adapter the one surface where an install appears to work and does not.
+    throw new Error("Installing a language server requires the desktop runtime.");
+  },
+
+  async uninstallLspServer() {
+    throw new Error("Removing a language server requires the desktop runtime.");
   },
 
   async getLspServerStatus() {

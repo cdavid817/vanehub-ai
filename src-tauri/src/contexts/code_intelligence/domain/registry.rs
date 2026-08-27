@@ -10,9 +10,7 @@
 //! rules that only code can supply, so a user-declared language would be a row the runtime cannot
 //! actually serve.
 
-use crate::contexts::tooling::managed_install::api::{
-    ArtifactIntegrity, ExtractionLimits, RetrievalPolicy,
-};
+use crate::contexts::tooling::api::{ArtifactIntegrity, ExtractionLimits, RetrievalPolicy};
 
 use super::language_id::LspLanguageId;
 use std::cmp::Ordering;

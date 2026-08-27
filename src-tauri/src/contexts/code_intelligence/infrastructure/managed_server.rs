@@ -15,7 +15,7 @@ use std::sync::atomic::AtomicBool;
 
 use crate::contexts::code_intelligence::domain::models::Language;
 use crate::contexts::code_intelligence::domain::registry::DistributionFormat;
-use crate::contexts::tooling::managed_install::api::{
+use crate::contexts::tooling::api::{
     extract_tar_gz, extract_zip, ArtifactRequest, ManagedArtifactRetriever, ManagedInstallError,
 };
 

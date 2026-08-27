@@ -71,11 +71,9 @@ pub(crate) enum ManagedInstallFailure {
     ChecksumMismatch,
 }
 
-impl From<crate::contexts::tooling::managed_install::api::ManagedInstallError>
-    for ManagedInstallFailure
-{
-    fn from(error: crate::contexts::tooling::managed_install::api::ManagedInstallError) -> Self {
-        use crate::contexts::tooling::managed_install::api::ManagedInstallError as Source;
+impl From<crate::contexts::tooling::api::ManagedInstallError> for ManagedInstallFailure {
+    fn from(error: crate::contexts::tooling::api::ManagedInstallError) -> Self {
+        use crate::contexts::tooling::api::ManagedInstallError as Source;
         match error {
             Source::Refused(_) => Self::Refused,
             Source::Transfer(_) => Self::Transfer,
@@ -125,7 +123,7 @@ pub(crate) struct CodeIntelligenceApi {
     /// it at a temporary directory instead of the real profile.
     data_directory: std::path::PathBuf,
     /// Fetching a declared distribution. A port so an install can be driven without a network.
-    retriever: Arc<dyn crate::contexts::tooling::managed_install::api::ManagedArtifactRetriever>,
+    retriever: Arc<dyn crate::contexts::tooling::api::ManagedArtifactRetriever>,
     maintenance_started: Arc<AtomicBool>,
 }
 
@@ -157,11 +155,24 @@ impl CodeIntelligenceApi {
             processes,
             document_invalidations,
             data_directory,
-            retriever: Arc::new(
-                crate::contexts::tooling::managed_install::api::HttpsArtifactRetriever,
-            ),
+            retriever: Arc::new(crate::contexts::tooling::api::HttpsArtifactRetriever),
             maintenance_started: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    /// Which registered languages currently have a managed install.
+    ///
+    /// Reported from the filesystem rather than from a table: the directory's existence is the
+    /// fact, and a record of it would be a second answer that could disagree.
+    pub(crate) fn installed_languages(&self) -> Vec<&'static str> {
+        LANGUAGE_DEFINITIONS
+            .iter()
+            .filter(|definition| {
+                super::infrastructure::managed_install(&self.data_directory, definition.id)
+                    .is_some()
+            })
+            .map(|definition| definition.id)
+            .collect()
     }
 
     /// Installs a language's declared distribution.

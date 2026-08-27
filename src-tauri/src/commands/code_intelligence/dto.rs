@@ -133,6 +133,19 @@ pub(crate) struct LspLanguageDescriptorDto {
     pub(crate) override_target: LspOverrideTargetDto,
     /// The host runtime the user has to install themselves, for the languages that need one.
     pub(crate) prerequisite: Option<String>,
+    /// Present when VaneHub can fetch this server. `None` means no install action is offered,
+    /// which the card reads from here rather than from the language's identity.
+    pub(crate) distribution: Option<LspDistributionDto>,
+    /// Whether a managed install exists right now.
+    pub(crate) installed: bool,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LspDistributionDto {
+    /// Whether the download is checked against a published digest. Reported so the surface can
+    /// say it, rather than presenting an unverified download as a verified one.
+    pub(crate) verified: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -303,6 +316,14 @@ impl From<LspConfiguration> for LspConfigurationDto {
                         .launch
                         .interpreter()
                         .map(|launch| launch.prerequisite.to_owned()),
+                    distribution: definition.distribution.as_ref().map(|distribution| {
+                        LspDistributionDto {
+                            verified: distribution.is_verified(),
+                        }
+                    }),
+                    // Filled in by the command layer, which knows the profile directory. The
+                    // conversion from a bare configuration cannot: it has no filesystem.
+                    installed: false,
                 })
                 .collect(),
         }

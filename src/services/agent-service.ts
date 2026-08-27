@@ -124,15 +124,7 @@ import type { AgentTerminalService } from "./agent-terminal-service";
 import type { MissionControlService } from "./mission-control-service";
 import type { LoopService } from "./loop-service";
 import type { UsageStatisticsService } from "./usage-statistics-service";
-import type {
-  LspConfiguration,
-  LspLanguageId,
-  LspServerDiscovery,
-  LspServerStatus,
-  LspServerTestResult,
-  LspWorkspaceTrust,
-  LspWorkspaceTrustUpdate,
-} from "../types/lsp";
+import type { LspService } from "./lsp-service";
 import type { BuiltinToolService } from "./builtin-tool-service";
 import type { CliConfigService, CliParameterService, CliToolService } from "./cli-service";
 import type { AgentRegistryService } from "./agent-registry-service";
@@ -180,6 +172,7 @@ export interface AgentService extends
   SessionQueryService,
   SessionRecoveryService,
   SessionSeatService,
+  LspService,
   LoopService {
   getDesktopUpdateSnapshot(): Promise<DesktopUpdateSnapshot>;
   getDesktopUpdatePreferences(): Promise<UpdatePreferences>;
@@ -198,13 +191,6 @@ export interface AgentService extends
   sendCodeReviewFeedback(reviewId: string, acknowledgeStale: boolean): Promise<{ messageId: string }>;
   startCodeReviewAction(reviewId: string, action: ReviewAction): Promise<{ operationId: string }>;
   deleteApiAgent(agentId: string): Promise<void>;
-  getLspConfiguration(): Promise<LspConfiguration>;
-  saveLspConfiguration(configuration: LspConfiguration): Promise<void>;
-  listLspWorkspaceTrust(): Promise<LspWorkspaceTrust[]>;
-  updateLspWorkspaceTrust(update: LspWorkspaceTrustUpdate): Promise<LspWorkspaceTrust>;
-  discoverLspServers(): Promise<LspServerDiscovery[]>;
-  testLspServer(language: LspLanguageId): Promise<LspServerTestResult>;
-  getLspServerStatus(): Promise<LspServerStatus[]>;
   applyCliConfigProfile(input: ApplyCliConfigProfileInput): Promise<CliConfigApplyResult>;
   listSessionDirectory(sessionId: string, path?: string): Promise<DirectoryListing>;
   readSessionFile(sessionId: string, path: string): Promise<FileContent>;

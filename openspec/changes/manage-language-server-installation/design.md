@@ -58,6 +58,8 @@ Discovery order: manual override, then managed install, then unavailable. An ove
 
 A rename across filesystems can fail, so the temporary directory is created under the same parent as the destination rather than in the system temp.
 
+**Reversed during implementation: the install copies rather than renames.** `ExtractionGuard`'s directory is owned by a `TempDir` that removes it when the handle drops, so renaming it away leaves the handle pointing at nothing and the removal fires against a path the install now depends on. The choice was to make the guard's ownership conditional or to copy out of it; conditional ownership costs the property the guard exists for — that every failure path cleans up without the caller remembering to. The install therefore copies the tree to the destination and lets the handle drop normally, removing a partially copied destination if the copy fails. The observable behaviour the requirement asks for is unchanged: an interrupted install leaves nothing that looks installed. What is lost is atomicity — a copy is not a single filesystem operation — which matters only if the process dies mid-copy, and that case is covered by the removal-on-failure and by reinstall replacing rather than merging.
+
 ## Risks / Trade-offs
 
 - **Unverified bytes.** Stated above and stated in the UI. It is the existing posture, not a new one, but it is the thing to look at hardest in review.

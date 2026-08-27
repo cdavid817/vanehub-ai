@@ -6,7 +6,7 @@
 use super::*;
 
 use crate::contexts::code_intelligence::domain::registry;
-use crate::contexts::tooling::managed_install::api::RetrievedArtifact;
+use crate::contexts::tooling::api::RetrievedArtifact;
 
 /// Serves a prepared archive instead of fetching one, and records what it was asked for.
 struct FixtureRetriever {
