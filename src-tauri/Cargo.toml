@@ -46,6 +46,7 @@ opentelemetry_sdk = { workspace = true }
 tauri-plugin-dialog = { workspace = true }
 reqwest = { workspace = true }
 flate2 = { workspace = true }
+tar = { workspace = true }
 html5ever = { workspace = true }
 russh = { workspace = true }
 async-trait = { workspace = true }
