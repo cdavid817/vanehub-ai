@@ -2411,9 +2411,18 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // Raised again from 2,988 by +8 for migration 84, which adds the per-file witness Viewed marks
     // are keyed on: 6 lines of registration, 1 repair call, 1 history entry. Same shape as 83, and
     // the schema again lives in the context that owns the review.
+    //
+    // Raised from 2,996 by +133, of which 131 are the upgrade fixture for versions 81 through 84
+    // and 2 are migration 82's repair call and its comment correction. The fixture is a test and
+    // could have gone anywhere; it lives here because the thing it exercises is `migrate` itself —
+    // drop all nine tables, leave `schema_migrations` intact, migrate again, and require every one
+    // back. Splitting it into the four owning contexts would give four tests that each prove their
+    // own repair runs and none that proves the sequence recovers, which is the failure mode: the
+    // one migration whose repair was missing was invisible precisely because its own schema
+    // function was already idempotent.
     SubtreeBudget {
         root: "src-tauri/src/platform/database",
-        budget: 2_996,
+        budget: 3_129,
         owner: "split-database-migrations",
     },
 ];

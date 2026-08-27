@@ -510,7 +510,7 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
     // `lsp-language-registry`. Whichever ran first against a shared application database wins the
     // version gate and this branch's statements are silently skipped, so each one carries a repair
     // that re-asserts its schema rather than leaving a database whose history looks complete while
-    // its tables are missing. These three renumber above main's ceiling when this branch merges;
+    // its tables are missing. These four renumber above main's ceiling when this branch merges;
     // until then they stay dense, because a gap is what `assert_migration_history_is_dense`
     // rejects at startup.
     apply_migration(
@@ -539,6 +539,7 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
     )?;
     repair_missing_stable_participant_schema(conn)?;
     crate::contexts::execution_observability::infrastructure::repair_missing_evidence_schema(conn)?;
+    crate::contexts::operations::infrastructure::repair_missing_log_query_index_schema(conn)?;
     crate::contexts::sessions::infrastructure::repair_missing_review_decision_schema(conn)?;
     crate::contexts::sessions::infrastructure::repair_missing_review_file_witness(conn)?;
 

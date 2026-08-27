@@ -96,3 +96,31 @@ pub(crate) fn apply_log_query_index_schema(
     )?;
     Ok(())
 }
+
+/// Creates the index schema when the version gate skipped its migration.
+///
+/// Every statement above is `IF NOT EXISTS`, which makes re-running the function harmless — but
+/// idempotency is not the property that was missing. Parallel worktrees share one application
+/// database and `main` already records 82 under a different name, so a developer whose database
+/// was migrated by another branch has version 82 in `schema_migrations` and none of these tables.
+/// `apply_migration` is version-gated, so it never calls the function at all; being safe to call
+/// twice does not help something that is called zero times.
+///
+/// This rewrites no history. It re-asserts the invariant the skipped migration was supposed to
+/// establish, which is the repair versions 54, 81, 83, and 84 already carry for the same reason.
+/// The presence check reads the index table rather than one of the three bookkeeping tables: the
+/// index is what a query fails on, and it is the one a half-created schema would still be missing.
+pub(crate) fn repair_missing_log_query_index_schema(
+    connection: &Connection,
+) -> Result<(), crate::platform::database::DatabaseError> {
+    let present: i64 = connection.query_row(
+        "SELECT COUNT(*) FROM sqlite_master \
+         WHERE type = 'table' AND name = 'unified_log_query_index'",
+        [],
+        |row| row.get(0),
+    )?;
+    if present > 0 {
+        return Ok(());
+    }
+    apply_log_query_index_schema(connection)
+}

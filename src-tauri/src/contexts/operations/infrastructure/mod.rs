@@ -29,7 +29,9 @@ pub(crate) use run_repository::persistent_run_service_for_test;
 mod unified_logging;
 
 pub(crate) use log_index_repository::SqliteLogIndexRepository;
-pub(crate) use log_index_schema::apply_log_query_index_schema;
+pub(crate) use log_index_schema::{
+    apply_log_query_index_schema, repair_missing_log_query_index_schema,
+};
 pub(crate) use log_index_support::{
     BoundedLogIndexDiagnostics, SystemLogIndexClock, TauriBackfillPublisher,
     TauriLogNoticePublisher, UuidLogIndexIds,
