@@ -181,6 +181,8 @@ export interface ReviewPatch {
   path: string;
   /** The snapshot it was rendered from, so a held copy can be told from a current one. */
   snapshot: string;
+  /** Over the patch bytes, so two renders of the same selection are recognisably the same copy. */
+  fingerprint: string;
   hunks: number;
   patch: string;
 }

@@ -425,6 +425,9 @@ fn workspace_error(error: WorkspaceError) -> SessionsApplicationError {
     match error {
         WorkspaceError::Domain(error) => SessionsApplicationError::Validation(error.to_string()),
         WorkspaceError::Validation(message) => SessionsApplicationError::Validation(message),
+        // The code, unwrapped. Sessions has no richer conflict of its own to map onto, and losing
+        // it would turn a matchable refusal into an unexplained validation failure.
+        WorkspaceError::Conflict(code) => SessionsApplicationError::Validation(code.to_string()),
         WorkspaceError::LaunchFailed(message) => SessionsApplicationError::WorkspaceLaunch(message),
         WorkspaceError::SessionNotFound(session_id) => {
             SessionsApplicationError::SessionNotFound(session_id)

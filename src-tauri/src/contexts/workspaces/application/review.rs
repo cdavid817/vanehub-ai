@@ -4,6 +4,13 @@ use sha2::{Digest, Sha256};
 pub(crate) const MAX_REVIEW_FILES: usize = 1_000;
 pub(crate) const MAX_REVIEW_FILE_BYTES: usize = 2 * 1024 * 1024;
 pub(crate) const MAX_REVIEW_DIFF_BYTES: usize = 8 * 1024 * 1024;
+/// How large a patch may be before it is refused rather than handed over.
+///
+/// Refused, never truncated: a patch cut short is a patch that cannot apply, and it looks exactly
+/// like one that can until somebody tries it somewhere it matters. Matched to the per-file read
+/// bound, because a patch is roughly the size of the file's diff and a reviewer who cannot read
+/// the file in this application has no use for its patch either.
+pub(crate) const MAX_REVIEW_PATCH_BYTES: usize = MAX_REVIEW_FILE_BYTES;
 const CONTEXT_RADIUS: usize = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,6 +68,10 @@ pub(crate) struct ReviewPatchRequest {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ReviewPatch {
     pub(crate) path: String,
+    /// Of the patch text, so a copy held on a clipboard can be told from a fresh render of the
+    /// same selection. Distinct from `snapshot`, which says which diff it came from: two renders
+    /// of the same snapshot agree on both, and a render after an edit agrees on neither.
+    pub(crate) fingerprint: String,
     /// The snapshot it was rendered from, so a caller can tell a patch that is still current from
     /// one they have been holding while the workspace moved.
     pub(crate) snapshot: String,
@@ -132,6 +143,16 @@ pub(crate) fn measured_hunk_fingerprint(hunk: &GitDiffHunk) -> (String, usize, u
         accepted_bytes = accepted_bytes.saturating_add(line.kind.len() + line.content.len());
     }
     (digest_hex(digest), hunk.lines.len(), accepted_bytes)
+}
+
+/// The patch's own identity, over its bytes.
+///
+/// Not length-prefixed like the others: there is one part, so there is nothing for a second part
+/// to be confused with.
+pub(crate) fn fingerprint_patch(patch: &str) -> String {
+    let mut digest = Sha256::new();
+    digest.update(patch.as_bytes());
+    digest_hex(digest)
 }
 
 pub(crate) fn fingerprint_context(hunk: &GitDiffHunk, line_index: usize) -> String {
@@ -238,6 +259,21 @@ mod tests {
             fingerprint_context(&first, 0),
             fingerprint_context(&first, 1)
         );
+    }
+
+    #[test]
+    fn a_patch_fingerprint_is_stable_and_content_sensitive() {
+        let patch = "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-old\n+new\n";
+        assert_eq!(fingerprint_patch(patch), fingerprint_patch(patch));
+        // One byte. The whole point of carrying this beside the snapshot is that two renders of
+        // the same selection are recognisably the same copy, which is only useful if a different
+        // patch is recognisably different.
+        assert_ne!(
+            fingerprint_patch(patch),
+            fingerprint_patch(&patch.replace("+new", "+other"))
+        );
+        // And it is not the snapshot fingerprint wearing a different name.
+        assert_ne!(fingerprint_patch(patch), fingerprint_snapshot(&[]));
     }
 
     #[test]

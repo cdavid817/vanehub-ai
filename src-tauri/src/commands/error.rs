@@ -339,6 +339,7 @@ impl From<WorkspaceError> for CommandError {
         match error {
             WorkspaceError::Domain(error) => Self::validation(error.to_string()),
             WorkspaceError::Validation(message) => Self::validation(message),
+            WorkspaceError::Conflict(code) => Self::conflict(code),
             WorkspaceError::Repository(message) => command_error_with_default(
                 CommandErrorCategory::Infrastructure,
                 message,

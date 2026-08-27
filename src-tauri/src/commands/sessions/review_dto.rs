@@ -375,15 +375,16 @@ impl From<ReviewDiffFile> for ReviewDiffFileDto {
 
 /// A patch and the diff it came from.
 ///
-/// `snapshot` is echoed rather than assumed: a reviewer can hold a copied patch for as long as
-/// they like, and the fingerprint is what lets anything downstream tell a current one from a stale
-/// one. The patch text itself is not fingerprinted here — that arrives with 13.8, along with the
-/// bounds that decide when a patch is too large to hand over at all.
+/// Two identities, because they answer different questions. `snapshot` says which diff the patch
+/// came from; `fingerprint` is over the patch bytes, so two renders of the same selection can be
+/// recognised as the same copy. A reviewer can hold a patch on a clipboard for as long as they
+/// like, and neither question is answerable from the text alone.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ReviewPatchDto {
     path: String,
     snapshot: String,
+    fingerprint: String,
     hunks: usize,
     patch: String,
 }
@@ -393,6 +394,7 @@ impl From<ReviewPatch> for ReviewPatchDto {
         Self {
             path: rendered.path,
             snapshot: rendered.snapshot,
+            fingerprint: rendered.fingerprint,
             hunks: rendered.hunks,
             patch: rendered.patch,
         }

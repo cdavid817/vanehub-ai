@@ -224,12 +224,8 @@ export function createWebCodeReviewClient(workspace: WorkspaceReviewSource) {
       const body = selected
         .map((hunk) => [hunk.header, ...hunk.lines.map((line) => `${line.kind === "addition" ? "+" : line.kind === "deletion" ? "-" : " "}${line.content}`)].join("\n"))
         .join("\n");
-      return {
-        path: input.path,
-        snapshot: review.fingerprint,
-        hunks: selected.length,
-        patch: `diff --git a/${input.path} b/${input.path}\n--- a/${input.path}\n+++ b/${input.path}\n${body}\n`,
-      };
+      const patch = `diff --git a/${input.path} b/${input.path}\n--- a/${input.path}\n+++ b/${input.path}\n${body}\n`;
+      return { path: input.path, snapshot: review.fingerprint, fingerprint: fingerprint(patch), hunks: selected.length, patch };
     },
     async revertCodeReviewChange(input: RevertReviewChangeInput): Promise<ReviewRevertReceipt> {
       if (!input.confirmed) throw new Error("review-revert-confirmation-required");

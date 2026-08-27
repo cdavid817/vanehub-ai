@@ -8,6 +8,7 @@ use crate::contexts::workspaces::application::{
     SessionLogQuery, SessionWorkspaceContext, WorkspaceApplicationError as AppError,
     WorkspaceLogLevel, WorkspaceReviewPort, WorkspaceSessionQueryPort, DEFAULT_DIRECTORY_PAGE_SIZE,
     MAX_FINGERPRINT_PATHS, MAX_REVIEW_DIFF_BYTES, MAX_REVIEW_FILES, MAX_REVIEW_FILE_BYTES,
+    MAX_REVIEW_PATCH_BYTES,
 };
 use crate::contexts::workspaces::application::{
     WorkspaceContentSearchRequest, WorkspaceContentSearchResult, WorkspacePathSearchRequest,
@@ -1411,9 +1412,9 @@ fn select_review_hunks(
 ) -> Result<(String, String, ReviewDiffFile, Vec<usize>), AppError> {
     let current = create_review_snapshot(conn, session_id)?;
     if current.fingerprint != expected_snapshot {
-        return Err(AppError::Validation(
-            "Review snapshot is stale.".to_string(),
-        ));
+        // The same code the hunk-decision path returns, because it is the same fact and the
+        // reviewer's next move is the same: reload and look again.
+        return Err(AppError::Conflict("stale_witness"));
     }
     let root = resolve_session_root(conn, session_id)?
         .ok_or_else(|| AppError::Validation("Session workspace is unavailable.".to_string()))?;
@@ -1427,11 +1428,31 @@ fn select_review_hunks(
         .map(|(index, _)| index)
         .collect::<Vec<_>>();
     if selected.is_empty() || (hunk_fingerprint.is_some() && selected.len() != 1) {
-        return Err(AppError::Validation(
-            "Review hunk is unavailable or ambiguous.".to_string(),
-        ));
+        // Absent and ambiguous are one refusal on purpose: in both cases the request names a hunk
+        // this diff cannot single out, and there is nothing a reviewer does differently about the
+        // two.
+        return Err(AppError::Conflict("review_hunk_unavailable"));
     }
     Ok((current.fingerprint, normalized, file, selected))
+}
+
+/// Why this file has no patch to give, or nothing.
+///
+/// Two codes rather than one, because they are two sentences: a binary file has no text to patch
+/// and never will, while an oversized one has a change this application declined to read. A
+/// reviewer does something different about each.
+fn patch_refusal(file: &ReviewDiffFile) -> Option<&'static str> {
+    if file.summary.binary {
+        return Some("patch_unavailable_binary");
+    }
+    if file.summary.oversized {
+        return Some("patch_too_large");
+    }
+    None
+}
+
+fn patch_exceeds_bound(patch: &str) -> bool {
+    patch.len() > MAX_REVIEW_PATCH_BYTES
 }
 
 fn render_review_patch(
@@ -1445,12 +1466,24 @@ fn render_review_patch(
         &request.expected_snapshot,
         request.hunk_fingerprint.as_ref(),
     )?;
+    // Before rendering, because rendering a patch for content this application never decoded
+    // would produce something confident and wrong rather than something empty.
+    if let Some(code) = patch_refusal(&file) {
+        return Err(AppError::Conflict(code));
+    }
     let hunks = selected
         .iter()
         .map(|index| &file.hunks[*index])
         .collect::<Vec<_>>();
+    let patch = render_patch(&normalized, &hunks);
+    // Refused rather than truncated. A patch cut short looks exactly like one that applies until
+    // somebody runs it somewhere it matters.
+    if patch_exceeds_bound(&patch) {
+        return Err(AppError::Conflict("patch_too_large"));
+    }
     Ok(ReviewPatch {
-        patch: render_patch(&normalized, &hunks),
+        fingerprint: crate::contexts::workspaces::application::fingerprint_patch(&patch),
+        patch,
         hunks: hunks.len(),
         path: normalized,
         snapshot,
@@ -2018,6 +2051,72 @@ mod tests {
         assert_eq!(rendered.matches("diff --git").count(), 1);
         assert_eq!(rendered.matches("@@ ").count(), 2);
         assert_eq!(fixture.apply_check(&rendered), PatchCheck::Applies);
+    }
+
+    fn diff_file(binary: bool, oversized: bool, hunks: Vec<ReviewDiffHunk>) -> ReviewDiffFile {
+        ReviewDiffFile {
+            summary: ReviewFileSummary {
+                path: "src/main.rs".into(),
+                previous_path: None,
+                change_type: "modified".into(),
+                old_hash: None,
+                new_hash: Some("new".into()),
+                binary,
+                oversized,
+            },
+            hunks,
+            truncated: false,
+            accepted_bytes: 0,
+        }
+    }
+
+    fn one_hunk() -> Vec<ReviewDiffHunk> {
+        vec![hunk(
+            "@@ -1,1 +1,1 @@",
+            1,
+            1,
+            1,
+            1,
+            vec![
+                ("deletion", "fn main() {}"),
+                ("addition", "fn main() { work(); }"),
+            ],
+        )]
+    }
+
+    /// The four refusals, at the point they are decided rather than through a session fixture.
+    ///
+    /// Each is a different sentence for the reviewer -- reload it, this file is not text, this
+    /// change is too big to hand over -- so each gets a code rather than one shared "unavailable".
+    #[test]
+    fn a_binary_file_has_no_patch_to_copy() {
+        let file = diff_file(true, false, one_hunk());
+        assert!(file.summary.binary);
+        // Rendering first and refusing after would produce something confident and wrong for
+        // content this application never decoded.
+        assert_eq!(patch_refusal(&file), Some("patch_unavailable_binary"));
+    }
+
+    #[test]
+    fn an_oversized_file_has_no_patch_to_copy() {
+        assert_eq!(
+            patch_refusal(&diff_file(false, true, one_hunk())),
+            Some("patch_too_large")
+        );
+    }
+
+    #[test]
+    fn a_readable_file_has_no_refusal() {
+        assert_eq!(patch_refusal(&diff_file(false, false, one_hunk())), None);
+    }
+
+    #[test]
+    fn a_patch_over_the_bound_is_refused_rather_than_cut_short() {
+        // A patch cut short looks exactly like one that applies, until somebody runs it somewhere
+        // it matters.
+        let oversize = "x".repeat(MAX_REVIEW_PATCH_BYTES + 1);
+        assert!(patch_exceeds_bound(&oversize));
+        assert!(!patch_exceeds_bound(&"x".repeat(MAX_REVIEW_PATCH_BYTES)));
     }
 
     #[test]
