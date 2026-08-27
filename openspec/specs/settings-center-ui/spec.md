@@ -345,7 +345,7 @@ The settings center SHALL include Personalization as a first-class settings page
 - **THEN** the settings center SHALL render the Personalization settings page while preserving mounted state for other stateful settings pages
 
 ### Requirement: Settings expose LSP configuration and runtime status
-The Agent configuration area SHALL provide a localized service-backed LSP section with the master switch, one switch per registered language obtained from the service boundary, automatic discovery state, executable override controls, bounded startup-argument controls, bounded initialization-options validation, trusted-workspace management, isolated server testing, and running-server status. The section SHALL render its language controls from the backend-supplied registered-language set, and its negotiated-capability rows from the backend-supplied negotiated method list, rather than from fixed lists compiled into the frontend. React components SHALL use the shared frontend service boundary, and desktop and Web adapters SHALL implement the same contract shape.
+The Agent configuration area SHALL provide a localized service-backed LSP section with the master switch, one switch per registered language obtained from the service boundary, automatic discovery state, override controls whose meaning follows each language's backend-reported launch shape, bounded startup-argument controls, bounded initialization-options validation, trusted-workspace management, isolated server testing, and running-server status. The section SHALL render its language controls from the backend-supplied registered-language set, and its negotiated-capability rows from the backend-supplied negotiated method list, rather than from fixed lists compiled into the frontend. React components SHALL use the shared frontend service boundary, and desktop and Web adapters SHALL implement the same contract shape.
 
 #### Scenario: User configures Rust LSP
 - **WHEN** a user enables LSP and Rust, selects a discovered `rust-analyzer` or valid executable override, supplies valid bounded initialization options, and saves
@@ -374,8 +374,18 @@ The Agent configuration area SHALL provide a localized service-backed LSP sectio
 
 #### Scenario: Registered language set determines the rendered controls
 - **WHEN** the settings section loads the registered-language set through the service boundary
-- **THEN** it SHALL render exactly one language control group per registered language, each with that language's own discovery state, executable override, startup arguments, and initialization options
+- **THEN** it SHALL render exactly one language control group per registered language, each with that language's own discovery state, override, startup arguments, and initialization options
 - **AND** adding a language to the backend registry SHALL require no new per-language frontend component
+
+#### Scenario: A language's override names a directory rather than a file
+- **WHEN** the backend reports a language whose launch shape takes an install directory
+- **THEN** the override control SHALL describe and validate a directory rather than an executable file
+- **AND** it SHALL do so from the reported launch shape, not from the language's identity, so a second such language needs no frontend change
+
+#### Scenario: A prerequisite runtime is missing
+- **WHEN** discovery reports that a language's prerequisite runtime is absent
+- **THEN** the language card SHALL present that as its own state, distinct from an unset install directory and from a directory missing its launcher
+- **AND** it SHALL name the runtime the user has to install rather than reporting a generic unavailable server
 
 #### Scenario: Language is unsupported on this host
 - **WHEN** a registered language declares no applicability for the current operating system
