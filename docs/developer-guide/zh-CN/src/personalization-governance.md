@@ -6,7 +6,7 @@
 
 ## 上下文边界
 
-```
+```text
 src-tauri/src/contexts/personalization/
 ├─ domain/           作用域、合并状态机、记忆记录、快照
 ├─ application/      用例，以及它们需要的 port
@@ -25,7 +25,7 @@ src-tauri/src/contexts/personalization/
 
 `agent_runtime` 把自己需要的东西声明成 `AgentPersonalizationSnapshotPort`（`contexts/agent_runtime/application/ports.rs`），由 `GovernedPersonalizationAdapter` 从治理后的策略满足它。
 
-```rust
+```rust,ignore
 fn snapshot(&self, context: GenerationPersonalizationContext) -> AgentPersonalizationSnapshot;
 fn pinned_bodies(&self, refs: &[AgentMemoryRef]) -> ...;
 ```
@@ -37,7 +37,7 @@ fn pinned_bodies(&self, refs: &[AgentMemoryRef]) -> ...;
 
 ### 快照时序
 
-```
+```text
 一轮开始
   └─ resolve_snapshot(agent, session, workspace, 运行时种类, 会话模式)
        ├─ 读策略各层：global → agent → workspace → workspace-agent

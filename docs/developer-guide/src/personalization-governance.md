@@ -6,7 +6,7 @@ This chapter orients contributors. The authoritative requirements live in [unifi
 
 ## The context boundary
 
-```
+```text
 src-tauri/src/contexts/personalization/
 ├─ domain/           scopes, merge state machine, memory records, snapshots
 ├─ application/      use cases and the ports they need
@@ -25,7 +25,7 @@ The frontend mirrors this: React components depend on `src/services/personalizat
 
 `agent_runtime` declares what it needs as `AgentPersonalizationSnapshotPort` (`contexts/agent_runtime/application/ports.rs`). `GovernedPersonalizationAdapter` satisfies it from the governed policy.
 
-```rust
+```rust,ignore
 fn snapshot(&self, context: GenerationPersonalizationContext) -> AgentPersonalizationSnapshot;
 fn pinned_bodies(&self, refs: &[AgentMemoryRef]) -> ...;
 ```
@@ -37,7 +37,7 @@ Two properties are contractual rather than incidental:
 
 ### Snapshot sequence
 
-```
+```text
 turn starts
   └─ resolve_snapshot(agent, session, workspace, runtime kind, session mode)
        ├─ read policy layers: global → agent → workspace → workspace-agent
