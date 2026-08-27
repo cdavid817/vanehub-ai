@@ -19,13 +19,18 @@ const run = promisify(execFile);
 // move when the client's copy does.
 export const FONT_SIZE_TARGET = "18px";
 
-export async function bootDesktopUi() {
+export async function waitForDesktopBootstrap() {
   const root = await globalThis.$("#root");
   await root.waitForExist({ timeout: 120000 });
   await globalThis.browser.waitUntil(async () => (await root.getAttribute("data-vanehub-bootstrap")) === "ready", {
     timeout: 120000,
     timeoutMsg: "React bootstrap did not become ready.",
   });
+  return root;
+}
+
+export async function bootDesktopUi() {
+  const root = await waitForDesktopBootstrap();
   await globalThis.browser.tauri.execute(({ core }) => core.invoke("save_setting", {
     input: { key: "applicationLanguage", value: "zh-CN" },
   }));

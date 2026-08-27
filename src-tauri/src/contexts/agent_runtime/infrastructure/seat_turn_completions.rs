@@ -68,6 +68,7 @@ mod tests {
 
     fn terminal(message_id: &str, seat_index: usize) -> SeatTurnTerminal {
         SeatTurnTerminal {
+            source: crate::contexts::agent_runtime::application::AgentMessageSource::Desktop,
             session_id: "s1".to_string(),
             message_id: message_id.to_string(),
             seat_id: format!("seat-{seat_index}"),

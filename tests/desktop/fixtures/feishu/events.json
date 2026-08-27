@@ -1,0 +1,58 @@
+{
+  "ignored": {
+    "eventId": "evt-sanitized-ignored-v1",
+    "text": "fixture ignored event",
+    "direct": false
+  },
+  "disabled": {
+    "eventId": "evt-sanitized-disabled-v1",
+    "text": "fixture disabled event",
+    "direct": true
+  },
+  "reconnect": {
+    "eventId": "evt-sanitized-reconnect-v1",
+    "text": "fixture reconnect event",
+    "direct": true
+  },
+  "singleAgent": {
+    "eventId": "evt-sanitized-single-agent-v1",
+    "text": "fixture single agent event",
+    "direct": true
+  },
+  "relaunchRoundTrip": {
+    "eventId": "evt-sanitized-relaunch-round-trip-v1",
+    "text": "fixture relaunch round trip",
+    "direct": true
+  },
+  "outboundFailure": {
+    "eventId": "evt-sanitized-outbound-failure-v1",
+    "text": "fixture outbound failure event",
+    "direct": true
+  },
+  "malformed": {
+    "eventId": "evt-sanitized-malformed-v1",
+    "text": "fixture malformed protocol event",
+    "direct": true,
+    "malformed": true
+  },
+  "recovered": {
+    "eventId": "evt-sanitized-recovered-v1",
+    "text": "fixture recovered event",
+    "direct": true
+  },
+  "oversized": {
+    "eventId": "evt-sanitized-oversized-v1",
+    "text": "VANEHUB_E2E_OVERSIZED",
+    "direct": true
+  },
+  "disableRace": {
+    "eventId": "evt-sanitized-disable-race-v1",
+    "text": "VANEHUB_E2E_SLOW",
+    "direct": true
+  },
+  "afterDisable": {
+    "eventId": "evt-sanitized-after-disable-v1",
+    "text": "fixture after disable",
+    "direct": true
+  }
+}

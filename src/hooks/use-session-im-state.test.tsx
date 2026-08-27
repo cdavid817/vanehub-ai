@@ -2,7 +2,12 @@
 
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ImConnectorHealth, ImConnectorView, ImSessionBinding } from "../contracts/im";
+import type {
+  ImConnectorHealth,
+  ImConnectorView,
+  ImSessionAccess,
+  ImSessionBinding,
+} from "../contracts/im";
 import type { ImService } from "../services/im-service";
 import { useSessionImState } from "./use-session-im-state";
 
@@ -24,6 +29,7 @@ const binding: ImSessionBinding = {
 
 function mockService(initialBinding: ImSessionBinding | null = null) {
   let currentBinding = initialBinding;
+  const accessBySession = new Map<string, ImSessionAccess>();
   let lifecycleHandler: ((health: ImConnectorHealth) => void) | null = null;
   const unsubscribe = vi.fn();
   const service: ImService = {
@@ -36,7 +42,21 @@ function mockService(initialBinding: ImSessionBinding | null = null) {
     testConnector: vi.fn(),
     clearConnector: vi.fn(),
     resetBindings: vi.fn(),
-    getSessionBinding: vi.fn(async () => ({ binding: currentBinding, pendingConnector: null })),
+    getSessionBinding: vi.fn(async (sessionId) => ({
+      access: accessBySession.get(sessionId) ?? {
+        sessionId,
+        connector: "feishu",
+        enabled: false,
+        updatedAt: "1970-01-01T00:00:00Z",
+      },
+      binding: currentBinding,
+      pendingConnector: null,
+    })),
+    setSessionAccess: vi.fn(async (sessionId, connector, enabled) => {
+      const access = { sessionId, connector, enabled, updatedAt: "2026-08-13T00:01:00Z" };
+      accessBySession.set(sessionId, access);
+      return access;
+    }),
     beginPairing: vi.fn(async (sessionId, connector, replaceExisting = false) => ({
       code: "ABCDEFGH",
       connector,
@@ -68,6 +88,14 @@ function mockService(initialBinding: ImSessionBinding | null = null) {
   return { emitHealth: (health: ImConnectorHealth) => lifecycleHandler?.(health), service, unsubscribe };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 describe("useSessionImState", () => {
   afterEach(() => vi.useRealTimers());
 
@@ -80,6 +108,83 @@ describe("useSessionImState", () => {
 
     expect(result.current.readyConnectors).toHaveLength(0);
     expect(result.current.connectors[0].health.lifecycle).toBe("error");
+  });
+
+  it("loads access default-off and recovers after a failed enable mutation", async () => {
+    const mock = mockService();
+    vi.mocked(mock.service.setSessionAccess).mockRejectedValueOnce(new Error("native-access-failed"));
+    const { result } = renderHook(() => useSessionImState("session-1", mock.service));
+
+    await waitFor(() => expect(result.current.access?.enabled).toBe(false));
+    await act(() => result.current.setAccess(true));
+    expect(result.current.access?.enabled).toBe(false);
+    expect(result.current.error).toBe("native-access-failed");
+
+    await act(() => result.current.setAccess(true));
+    expect(result.current.access?.enabled).toBe(true);
+    expect(result.current.error).toBeNull();
+    await act(() => result.current.setAccess(false));
+    await act(() => result.current.setAccess(true));
+    expect(result.current.access?.enabled).toBe(true);
+  });
+
+  it("discards an access mutation that resolves after the selected session changes", async () => {
+    const mock = mockService();
+    const stale = deferred<ImSessionAccess>();
+    vi.mocked(mock.service.setSessionAccess).mockReturnValueOnce(stale.promise);
+    const { result, rerender } = renderHook(
+      ({ sessionId }) => useSessionImState(sessionId, mock.service),
+      { initialProps: { sessionId: "session-1" as string } },
+    );
+    await waitFor(() => expect(result.current.access?.sessionId).toBe("session-1"));
+
+    let mutation!: Promise<ImSessionAccess | null>;
+    act(() => {
+      mutation = result.current.setAccess(true);
+    });
+    expect(result.current.pending).toBe(true);
+    rerender({ sessionId: "session-2" });
+    await waitFor(() => {
+      expect(result.current.access).toMatchObject({ sessionId: "session-2", enabled: false });
+      expect(result.current.pending).toBe(false);
+    });
+
+    await act(async () => {
+      stale.resolve({
+        sessionId: "session-1",
+        connector: "feishu",
+        enabled: true,
+        updatedAt: "2026-08-13T00:02:00Z",
+      });
+      await mutation;
+    });
+    expect(result.current.access).toMatchObject({ sessionId: "session-2", enabled: false });
+  });
+
+  it("keeps an access mutation when only the same-session reload sequence changes", async () => {
+    const mock = mockService();
+    const mutationResult = deferred<ImSessionAccess>();
+    vi.mocked(mock.service.setSessionAccess).mockReturnValueOnce(mutationResult.promise);
+    const { result } = renderHook(() => useSessionImState("session-1", mock.service));
+    await waitFor(() => expect(result.current.access?.sessionId).toBe("session-1"));
+
+    let mutation!: Promise<ImSessionAccess | null>;
+    act(() => {
+      mutation = result.current.setAccess(true);
+    });
+    await act(() => result.current.reload());
+    await act(async () => {
+      mutationResult.resolve({
+        sessionId: "session-1",
+        connector: "feishu",
+        enabled: true,
+        updatedAt: "2026-08-13T00:03:00Z",
+      });
+      await mutation;
+    });
+
+    expect(result.current.access?.enabled).toBe(true);
+    expect(result.current.pending).toBe(false);
   });
 
   it("clears and cancels plaintext pairing state when the session changes", async () => {

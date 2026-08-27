@@ -4,7 +4,7 @@ use super::dto::{
 };
 use crate::contexts::communications::domain::{
     builtin_descriptors, BindingState, ConnectorConfig, ConnectorHealth, ConnectorKind,
-    ConnectorLifecycle, SessionBinding,
+    ConnectorLifecycle, SessionBinding, SessionConnectorAccess,
 };
 
 #[test]
@@ -79,6 +79,7 @@ fn session_pairing_dtos_expose_only_safe_metadata() {
             updated_at: "2026-08-12T00:00:00Z".to_string(),
         }),
         pending_connector: None,
+        access: SessionConnectorAccess::disabled("session-1", ConnectorKind::Feishu),
     })
     .expect("binding view");
 

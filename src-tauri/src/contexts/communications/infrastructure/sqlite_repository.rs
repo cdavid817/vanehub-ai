@@ -4,6 +4,7 @@ use crate::contexts::communications::application::{
 use crate::contexts::communications::domain::{
     BindingState, ChatBindingKey, CheckpointKey, ConnectorCheckpoint, ConnectorConfig,
     ConnectorKind, InboundEventIdentity, PairingIntent, RoutingSettings, SessionBinding,
+    SessionConnectorAccess,
 };
 use crate::platform::database::{NativeDatabase, PooledSqlite};
 use rusqlite::{params, OptionalExtension, Row};
@@ -119,6 +120,73 @@ impl SqliteCommunicationsRepository {
             .map_err(sqlite_error)?
             .map(session_binding_from_row)
             .transpose()
+    }
+
+    pub(crate) fn session_access(
+        &self,
+        session_id: &str,
+        connector: ConnectorKind,
+    ) -> Result<SessionConnectorAccess, CommunicationsApplicationError> {
+        self.connection()?
+            .query_row(
+                r#"SELECT enabled, updated_at
+                   FROM im_session_connector_access
+                   WHERE session_id = ?1 AND connector = ?2"#,
+                params![session_id, connector.as_str()],
+                |row| {
+                    Ok(SessionConnectorAccess {
+                        session_id: session_id.to_string(),
+                        connector,
+                        enabled: row.get::<_, i64>(0)? != 0,
+                        updated_at: row.get(1)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(sqlite_error)
+            .map(|access| {
+                access.unwrap_or_else(|| SessionConnectorAccess::disabled(session_id, connector))
+            })
+    }
+
+    pub(crate) fn set_session_access(
+        &self,
+        session_id: &str,
+        connector: ConnectorKind,
+        enabled: bool,
+        updated_at: &str,
+    ) -> Result<SessionConnectorAccess, CommunicationsApplicationError> {
+        let connection = self.connection()?;
+        let session_exists = connection
+            .query_row("SELECT 1 FROM sessions WHERE id = ?1", [session_id], |_| {
+                Ok(())
+            })
+            .optional()
+            .map_err(sqlite_error)?
+            .is_some();
+        if !session_exists {
+            return Err(CommunicationsApplicationError::user_visible(
+                "im-session-not-found",
+                "The selected session no longer exists.",
+            ));
+        }
+        connection
+            .execute(
+                r#"INSERT INTO im_session_connector_access
+                   (session_id, connector, enabled, updated_at)
+                   VALUES (?1, ?2, ?3, ?4)
+                   ON CONFLICT(session_id, connector) DO UPDATE SET
+                     enabled = excluded.enabled,
+                     updated_at = excluded.updated_at"#,
+                params![session_id, connector.as_str(), enabled, updated_at],
+            )
+            .map_err(sqlite_error)?;
+        Ok(SessionConnectorAccess {
+            session_id: session_id.to_string(),
+            connector,
+            enabled,
+            updated_at: updated_at.to_string(),
+        })
     }
 
     pub(crate) fn set_binding_state(
@@ -580,6 +648,26 @@ impl CommunicationsRepository for SqliteCommunicationsRepository {
             .map_err(sqlite_error)?
             .map(ConnectorRow::into_domain)
             .transpose()
+    }
+
+    fn session_access(
+        &self,
+        session_id: &str,
+        connector: ConnectorKind,
+    ) -> Result<SessionConnectorAccess, CommunicationsApplicationError> {
+        SqliteCommunicationsRepository::session_access(self, session_id, connector)
+    }
+
+    fn set_session_access(
+        &self,
+        session_id: &str,
+        connector: ConnectorKind,
+        enabled: bool,
+        updated_at: &str,
+    ) -> Result<SessionConnectorAccess, CommunicationsApplicationError> {
+        SqliteCommunicationsRepository::set_session_access(
+            self, session_id, connector, enabled, updated_at,
+        )
     }
 
     fn save_configuration(
@@ -1213,6 +1301,36 @@ mod tests {
         }
         drop(connection);
 
+        let default_access = fixture
+            .repository
+            .session_access("session-feishu", ConnectorKind::Feishu)
+            .expect("default access");
+        assert!(!default_access.enabled);
+        let enabled_access = fixture
+            .repository
+            .set_session_access(
+                "session-feishu",
+                ConnectorKind::Feishu,
+                true,
+                "2026-07-18T03:00:30Z",
+            )
+            .expect("enable access");
+        assert!(enabled_access.enabled);
+        let restarted_repository = SqliteCommunicationsRepository::new(fixture.database.clone());
+        assert!(
+            restarted_repository
+                .session_access("session-feishu", ConnectorKind::Feishu)
+                .expect("access after repository restart")
+                .enabled
+        );
+        assert!(
+            !fixture
+                .repository
+                .session_access("session-telegram", ConnectorKind::Feishu)
+                .expect("isolated access")
+                .enabled
+        );
+
         let telegram_key =
             ChatBindingKey::new(ConnectorKind::Telegram, "private-chat-telegram").expect("key");
         let feishu_key =
@@ -1275,6 +1393,17 @@ mod tests {
             .find_binding(&feishu_key)
             .expect("binding after delete")
             .is_none());
+        let access_rows: i64 = fixture
+            .database
+            .connection()
+            .expect("connection")
+            .query_row(
+                "SELECT COUNT(*) FROM im_session_connector_access WHERE session_id = 'session-feishu'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("access after delete");
+        assert_eq!(access_rows, 0);
     }
 
     #[test]

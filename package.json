@@ -35,6 +35,8 @@
     "test:desktop:agent-mcp": "node scripts/test-desktop.mjs agent-mcp",
     "test:desktop:local-media": "node scripts/test-desktop.mjs local-media",
     "test:desktop:skills": "node scripts/test-desktop.mjs skills",
+    "test:desktop:feishu-im": "node scripts/test-desktop.mjs feishu-im",
+    "test:desktop:feishu-live": "node scripts/test-desktop.mjs feishu-live",
     "test:desktop:multi-agent-requirement": "node scripts/test-desktop.mjs multi-agent-requirement",
     "test:desktop:multi-agent-longrun": "node scripts/test-desktop.mjs multi-agent-longrun",
     "test:desktop:loop": "node scripts/test-desktop.mjs loop",

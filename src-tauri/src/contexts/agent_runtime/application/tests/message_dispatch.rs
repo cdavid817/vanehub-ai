@@ -427,6 +427,94 @@ fn completion_without_reported_usage_falls_back_to_character_count_estimate() {
 }
 
 #[test]
+fn feishu_single_agent_turn_preserves_session_execution_context_and_completes_once() {
+    let world = test_world();
+    {
+        let mut sessions = world.sessions.lock().expect("sessions");
+        let session = sessions.get_mut("session-1").expect("session");
+        session.folder = Some("C:/project/.worktrees/feishu-im".to_string());
+        session.runtime_session_id = Some("provider-thread-stable".to_string());
+    }
+    let service = service(world.clone());
+    let configuration = AgentChatConfiguration {
+        agent_id: "codex-cli".to_string(),
+        interaction_mode: InteractionMode::Cli,
+        execution_mode: "execute".to_string(),
+        provider_id: Some("openai".to_string()),
+        model_id: Some("gpt-5-5".to_string()),
+        reasoning_depth: Some("high".to_string()),
+        streaming: true,
+        thinking: true,
+        long_context: false,
+    };
+
+    let started = service
+        .send_message_with_completion(SendMessageRequest {
+            source: AgentMessageSource::InstantMessage {
+                connector_id: "feishu".to_string(),
+            },
+            session_id: "session-1".to_string(),
+            content: "continue the bound session".to_string(),
+            configuration: configuration.clone(),
+            file_references: Vec::new(),
+        })
+        .expect("start Feishu turn");
+
+    let requests = world
+        .generation_requests
+        .lock()
+        .expect("generation requests");
+    assert_eq!(requests.len(), 1);
+    let request = &requests[0];
+    assert_eq!(request.session.id, "session-1");
+    assert_eq!(request.session.agent_id, "codex-cli");
+    assert_eq!(request.agent.id, "codex-cli");
+    assert_eq!(
+        request.session.folder.as_deref(),
+        Some("C:/project/.worktrees/feishu-im")
+    );
+    assert_eq!(request.configuration, configuration);
+    assert_eq!(
+        request.resume_thread_id.as_deref(),
+        Some("provider-thread-stable")
+    );
+    assert!(!request.interactive);
+    assert_eq!(request.role_briefing, None);
+    drop(requests);
+
+    let sink = world
+        .generation_sinks
+        .lock()
+        .expect("generation sinks")
+        .get("process-1")
+        .cloned()
+        .expect("generation sink");
+    sink.handle(GenerationProcessEvent::Token("final reply".to_string()))
+        .expect("terminal token");
+    sink.handle(GenerationProcessEvent::Completed(None))
+        .expect("terminal completion");
+    sink.handle(GenerationProcessEvent::Completed(None))
+        .expect("duplicate terminal completion");
+    let terminal = started
+        .terminal
+        .recv_timeout(std::time::Duration::ZERO)
+        .expect("one terminal completion");
+    assert_eq!(terminal.message_id, started.message.id);
+    assert_eq!(terminal.outcome, AgentMessageTerminalOutcome::Completed);
+    assert_eq!(terminal.content.as_deref(), Some("final reply"));
+    assert_eq!(
+        world
+            .operations
+            .lock()
+            .expect("operations")
+            .iter()
+            .filter(|event| matches!(event, OperationEvent::Completed(_)))
+            .count(),
+        1
+    );
+}
+
+#[test]
 fn im_completion_receiver_observes_persisted_completed_failed_and_cancelled_messages() {
     let completed_world = test_world();
     let completed_service = service(completed_world.clone());

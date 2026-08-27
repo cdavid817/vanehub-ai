@@ -2179,7 +2179,8 @@ impl AgentRuntimeApplicationService {
                 "Archived sessions cannot accept messages.".to_string(),
             ));
         }
-        let initial_seat_context = self.initial_seat_turn_context(&session, &content)?;
+        let initial_seat_context =
+            self.initial_seat_turn_context(&session, &content, &request.source)?;
         // The addressed seat runs its own Agent, which is not necessarily the session's: the
         // session mirrors the *first* seat, so honouring a mention while still invoking
         // `session.agent_id` would answer as one participant in another's name.
@@ -3920,15 +3921,17 @@ impl GenerationEventHandler {
             invocation_usage: (self.configuration.interaction_mode != InteractionMode::Api)
                 .then_some(invocation_usage),
         })?;
-        let _ = self
-            .ports
-            .message_completions
-            .deliver(AgentMessageTerminal {
-                session_id: self.session_id.clone(),
-                message_id: self.message_id.clone(),
-                outcome: AgentMessageTerminalOutcome::Completed,
-                content: Some(response.clone()),
-            });
+        if self.seat_ownership.is_none() {
+            let _ = self
+                .ports
+                .message_completions
+                .deliver(AgentMessageTerminal {
+                    session_id: self.session_id.clone(),
+                    message_id: self.message_id.clone(),
+                    outcome: AgentMessageTerminalOutcome::Completed,
+                    content: Some(response.clone()),
+                });
+        }
         self.ports
             .sessions
             .update_lifecycle(&self.session_id, AgentLifecycle::Idle)?;
@@ -4162,15 +4165,17 @@ impl GenerationEventHandler {
         self.ports
             .sessions
             .fail_message(&self.message_id, &self.session_id, safe_error)?;
-        let _ = self
-            .ports
-            .message_completions
-            .deliver(AgentMessageTerminal {
-                session_id: self.session_id.clone(),
-                message_id: self.message_id.clone(),
-                outcome: AgentMessageTerminalOutcome::Failed,
-                content: None,
-            });
+        if self.seat_ownership.is_none() {
+            let _ = self
+                .ports
+                .message_completions
+                .deliver(AgentMessageTerminal {
+                    session_id: self.session_id.clone(),
+                    message_id: self.message_id.clone(),
+                    outcome: AgentMessageTerminalOutcome::Failed,
+                    content: None,
+                });
+        }
         self.ports
             .sessions
             .update_lifecycle(&self.session_id, AgentLifecycle::Failed)?;
@@ -4235,6 +4240,7 @@ impl GenerationEventHandler {
             return;
         };
         let _ = self.ports.seat_completions.deliver(SeatTurnTerminal {
+            source: ownership.source.clone(),
             session_id: self.session_id.clone(),
             message_id: self.message_id.clone(),
             seat_id: ownership.seat_id.clone(),
