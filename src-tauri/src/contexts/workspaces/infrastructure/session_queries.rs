@@ -2119,6 +2119,145 @@ mod tests {
         assert!(!patch_exceeds_bound(&"x".repeat(MAX_REVIEW_PATCH_BYTES)));
     }
 
+    /// A session whose workspace is a real repository, and the review snapshot it currently has.
+    ///
+    /// End to end on purpose. The five cases above check the renderer against hand-built hunks;
+    /// these check the whole request path — witness, path resolution, hunk selection, render —
+    /// against a repository Git can be asked about. Between the two lies everything a renderer
+    /// cannot get wrong on its own and a request can.
+    fn reviewed_repository(
+        label: &str,
+    ) -> (GitPatchFixture, TempDirectory, NativeDatabase, String) {
+        let repository = GitPatchFixture::committed(
+            label,
+            &[("src/main.rs", "line-1\nline-2\nline-3\nline-4\nline-5\nline-6\nline-7\nline-8\nline-9\nline-10\nline-11\nline-12\nline-13\nline-14\nline-15\nline-16\nline-17\nline-18\nline-19\nline-20\nline-21\nline-22\nline-23\nline-24\n"), ("keep.txt", "untouched\n")],
+        );
+        // Two edits far enough apart that Git does not fold them into one hunk: three lines of
+        // context on each side would merge changes any closer, and a single-hunk selection cannot
+        // be tested against a diff that only has one.
+        repository.write("src/main.rs", "LINE-1\nline-2\nline-3\nline-4\nline-5\nline-6\nline-7\nline-8\nline-9\nline-10\nline-11\nline-12\nline-13\nline-14\nline-15\nline-16\nline-17\nline-18\nline-19\nLINE-20\nline-21\nline-22\nline-23\nline-24\n");
+
+        let data = TempDirectory::new(&format!("{label}-data"));
+        let database = NativeDatabase::new(data.path().to_path_buf()).expect("database");
+        let connection = database.connection().expect("connection");
+        connection
+            .execute(
+                "INSERT INTO agents(id, display_name, provider, launch_kind) \
+                 VALUES ('review-agent', 'Review Agent', 'test', 'api')",
+                [],
+            )
+            .expect("seed agent");
+        connection
+            .execute(
+                "INSERT INTO sessions \
+                 (id, title, agent_id, interaction_mode, lifecycle_state, project_path, \
+                  pinned, archived, created_at, updated_at) \
+                 VALUES ('session-1', 'Review', 'review-agent', 'api', 'idle', ?1, 0, 0, \
+                         '2026-08-27T00:00:00Z', '2026-08-27T00:00:00Z')",
+                rusqlite::params![repository.root().to_string_lossy().as_ref()],
+            )
+            .expect("seed session");
+        let snapshot = create_review_snapshot(&connection, "session-1")
+            .expect("snapshot")
+            .fingerprint;
+        drop(connection);
+        // The data directory is handed back rather than forgotten: a helper that leaked it would
+        // leave one directory per run of these four cases in the system temp, and this machine has
+        // already been cleaned out by hand once for exactly that shape of leak.
+        (repository, data, database, snapshot)
+    }
+
+    fn patch_for(
+        database: &NativeDatabase,
+        snapshot: &str,
+        hunk: Option<&str>,
+    ) -> Result<ReviewPatch, AppError> {
+        let connection = database.connection().expect("connection");
+        render_review_patch(
+            &connection,
+            &ReviewPatchRequest {
+                session_id: "session-1".into(),
+                path: "src/main.rs".into(),
+                expected_snapshot: snapshot.to_string(),
+                hunk_fingerprint: hunk.map(str::to_string),
+            },
+        )
+    }
+
+    #[test]
+    fn a_whole_file_patch_for_the_current_snapshot_applies() {
+        let (repository, _data, database, snapshot) = reviewed_repository("review-patch-file");
+
+        let rendered = patch_for(&database, &snapshot, None).expect("file patch");
+
+        assert_eq!(rendered.path, "src/main.rs");
+        assert_eq!(rendered.snapshot, snapshot);
+        assert!(!rendered.fingerprint.is_empty());
+        // Against the index, which holds the base this diff was taken from. The working tree
+        // already contains the change, so checking there would ask whether it applies on top of
+        // itself.
+        assert_eq!(
+            repository.apply_check_cached(&rendered.patch),
+            PatchCheck::Applies
+        );
+    }
+
+    #[test]
+    fn a_single_hunk_patch_for_the_current_snapshot_applies() {
+        let (repository, _data, database, snapshot) = reviewed_repository("review-patch-hunk");
+        let whole = patch_for(&database, &snapshot, None).expect("file patch");
+        assert!(
+            whole.hunks > 1,
+            "the fixture must produce more than one hunk"
+        );
+
+        let connection = database.connection().expect("connection");
+        let file = load_review_file(&connection, "session-1", "src/main.rs", &snapshot)
+            .expect("review file");
+        drop(connection);
+        let first = file.hunks[0].fingerprint.clone();
+
+        let rendered = patch_for(&database, &snapshot, Some(&first)).expect("hunk patch");
+
+        // One hunk out of several, and it still applies on its own. A renderer that emitted the
+        // file header once per hunk, or that kept the other hunks' line counts, produces something
+        // that reads correctly and that Git refuses.
+        assert_eq!(rendered.hunks, 1);
+        assert_ne!(rendered.fingerprint, whole.fingerprint);
+        assert_eq!(
+            repository.apply_check_cached(&rendered.patch),
+            PatchCheck::Applies
+        );
+    }
+
+    #[test]
+    fn a_patch_for_a_snapshot_that_moved_is_refused_rather_than_rendered() {
+        let (repository, _data, database, snapshot) = reviewed_repository("review-patch-stale");
+        // Something else wrote to the workspace, so the snapshot the caller holds is no longer the
+        // one the review would produce.
+        repository.write("keep.txt", "changed by somebody else\n");
+
+        let refused = patch_for(&database, &snapshot, None);
+
+        // Fails closed: no patch at all rather than one rendered against a diff the caller has not
+        // seen. Copying an obsolete patch is worse than copying nothing, because it applies
+        // somewhere and produces a change nobody reviewed.
+        assert!(matches!(refused, Err(AppError::Conflict("stale_witness"))));
+    }
+
+    #[test]
+    fn a_patch_for_a_hunk_the_diff_does_not_hold_is_refused() {
+        let (_repository, _data, database, snapshot) =
+            reviewed_repository("review-patch-unknown-hunk");
+
+        let refused = patch_for(&database, &snapshot, Some("a-hunk-that-is-not-there"));
+
+        assert!(matches!(
+            refused,
+            Err(AppError::Conflict("review_hunk_unavailable"))
+        ));
+    }
+
     #[test]
     fn relative_paths_reject_traversal_absolute_and_hidden_components() {
         assert!(validate_relative_path("src/main.rs").is_ok());

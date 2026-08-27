@@ -68,12 +68,31 @@ impl GitPatchFixture {
         std::fs::remove_file(self.directory.path().join(relative)).expect("remove fixture file");
     }
 
-    /// Whether Git would apply this patch, without applying it.
+    /// Whether Git would apply this patch to the working tree as it currently stands.
     ///
     /// `--check` and nothing else: the fixture must be readable by the next assertion in the same
     /// test, and a check that mutated the working tree would make every case after the first one
     /// depend on the order they run in.
     pub(crate) fn apply_check(&self, patch: &str) -> PatchCheck {
+        self.check(patch, &[])
+    }
+
+    /// Whether Git would apply this patch to the index — the base a review diffs *from*.
+    ///
+    /// This is the question a review patch answers, and it is not the same one. A review patch
+    /// describes committed content becoming working-tree content, so checking it against the
+    /// working tree asks whether the change can be applied on top of itself: it cannot, and the
+    /// refusal says "while searching for" the old lines that are no longer there. Against the
+    /// index, where the committed content still is, the same patch applies.
+    ///
+    /// Both are kept because both are real questions. A patch generated for one snapshot and used
+    /// after another has moved on fails the index check too, which is what makes staleness visible
+    /// here rather than in somebody's repository.
+    pub(crate) fn apply_check_cached(&self, patch: &str) -> PatchCheck {
+        self.check(patch, &["--cached"])
+    }
+
+    fn check(&self, patch: &str, extra: &[&str]) -> PatchCheck {
         // Through a file rather than stdin. Git reads a patch as bytes and this crate's tests run
         // on Windows, where writing a `\n`-only patch through a pipe is one std layer away from
         // being helpfully translated into `\r\n` — which changes every hunk's content.
@@ -82,6 +101,7 @@ impl GitPatchFixture {
         let output = Command::new("git")
             .current_dir(self.directory.path())
             .args(["apply", "--check", "--verbose"])
+            .args(extra)
             .arg(&patch_path)
             .stdin(Stdio::null())
             .output()
@@ -175,6 +195,18 @@ index 0000000..1111111 100644\n\
             fixture.apply_check("not a patch at all\n"),
             PatchCheck::Refused(_)
         ));
+    }
+
+    #[test]
+    fn a_patch_can_be_checked_against_the_index_rather_than_the_working_tree() {
+        let fixture = fixture("patch-cached");
+        // The change is already in the working tree, which is what a review looks at. Checking
+        // there asks whether it can be applied on top of itself; checking the index asks the
+        // question a review patch is actually answering.
+        fixture.write("src/main.rs", "fn main() { work(); }\n");
+
+        assert!(matches!(fixture.apply_check(VALID), PatchCheck::Refused(_)));
+        assert_eq!(fixture.apply_check_cached(VALID), PatchCheck::Applies);
     }
 
     #[test]
