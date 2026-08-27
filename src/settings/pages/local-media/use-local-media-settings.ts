@@ -9,6 +9,7 @@ import type {
   LocalMediaProfile,
   LocalMediaRuntimeStatus,
   ProfileFieldIssue,
+  PythonEnvironmentDiscovery,
 } from "../../../types/local-media";
 
 /** Poll interval for a probe. Probes are short and rare, so a timer beats an event subscription. */
@@ -30,12 +31,16 @@ export interface LocalMediaSettingsModel {
   loadError: LocalMediaErrorCode | null;
   loading: boolean;
   nativeAvailable: boolean;
+  pythonDiscovery: PythonEnvironmentDiscovery | null;
+  pythonDiscoveryLoading: boolean;
   probing: LocalMediaEngine | null;
   saveState: SaveState;
   status: LocalMediaRuntimeStatus | null;
   discard: () => void;
   probe: (engine: LocalMediaEngine) => void;
   reloadFromNative: () => void;
+  refreshPythonDiscovery: () => void;
+  setPythonForEngines: (executablePath: string, engines: LocalMediaEngine[]) => void;
   /** `override` saves a profile the draft does not hold yet, which is what remediation needs. */
   save: (override?: LocalMediaProfile) => void;
   update: (mutate: (draft: LocalMediaProfile) => LocalMediaProfile) => void;
@@ -69,6 +74,8 @@ export function useLocalMediaSettings(isActive: boolean): LocalMediaSettingsMode
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<LocalMediaErrorCode | null>(null);
   const [nativeAvailable, setNativeAvailable] = useState(false);
+  const [pythonDiscovery, setPythonDiscovery] = useState<PythonEnvironmentDiscovery | null>(null);
+  const [pythonDiscoveryLoading, setPythonDiscoveryLoading] = useState(false);
   const [probing, setProbing] = useState<LocalMediaEngine | null>(null);
   const [saveState, setSaveState] = useState<SaveState>({ kind: "idle" });
 
@@ -111,15 +118,50 @@ export function useLocalMediaSettings(isActive: boolean): LocalMediaSettingsMode
     }
   }, []);
 
+  const refreshPythonDiscovery = useCallback(() => {
+    setPythonDiscoveryLoading(true);
+    void localMediaService
+      .discoverPythonEnvironments()
+      .then((result) => {
+        if (alive.current) setPythonDiscovery(result);
+      })
+      .catch(() => {
+        if (alive.current) {
+          setPythonDiscovery({
+            availability: "unavailable",
+            reasonCode: "native_unavailable",
+            candidates: [],
+          });
+        }
+      })
+      .finally(() => {
+        if (alive.current) setPythonDiscoveryLoading(false);
+      });
+  }, []);
+
   useEffect(() => {
     if (!isActive) return;
     void load();
-  }, [isActive, load]);
+    refreshPythonDiscovery();
+  }, [isActive, load, refreshPythonDiscovery]);
 
   const update = useCallback((mutate: (current: LocalMediaProfile) => LocalMediaProfile) => {
     setSaveState({ kind: "idle" });
     setDraft((current) => (current ? mutate(current) : current));
   }, []);
+
+  const setPythonForEngines = useCallback(
+    (executablePath: string, engines: LocalMediaEngine[]) => {
+      const selected = new Set(engines);
+      update((current) => ({
+        ...current,
+        ocr: selected.has("ocr") ? { ...current.ocr, pythonExecutable: executablePath } : current.ocr,
+        stt: selected.has("stt") ? { ...current.stt, pythonExecutable: executablePath } : current.stt,
+        tts: selected.has("tts") ? { ...current.tts, pythonExecutable: executablePath } : current.tts,
+      }));
+    },
+    [update],
+  );
 
   const dirty = useMemo(
     () => Boolean(draft && saved && JSON.stringify(draft) !== JSON.stringify(saved)),
@@ -215,12 +257,16 @@ export function useLocalMediaSettings(isActive: boolean): LocalMediaSettingsMode
     loadError,
     loading,
     nativeAvailable,
+    pythonDiscovery,
+    pythonDiscoveryLoading,
     probing,
     saveState,
     status,
     discard,
     probe,
     reloadFromNative,
+    refreshPythonDiscovery,
+    setPythonForEngines,
     save,
     update,
   };

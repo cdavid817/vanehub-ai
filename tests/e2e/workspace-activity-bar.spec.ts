@@ -21,6 +21,9 @@ test.describe("workspace activity bar", () => {
     const workspaceTabs = page.getByTestId("session-workspace").getByRole("tablist");
     await expect(sessionSidebar).toHaveCSS("border-right-style", "solid");
     await expectContinuousBottomDivider(page);
+    const expandedSidebarBox = await sessionSidebar.boundingBox();
+    const expandedConversationBox = await grid.locator(":scope > section").first().boundingBox();
+    expect(Math.round((expandedConversationBox?.x ?? 0) - ((expandedSidebarBox?.x ?? 0) + (expandedSidebarBox?.width ?? 0)))).toBe(12);
 
     const menu = page.getByTestId("conversation-overflow-trigger");
     await menu.click();
@@ -35,6 +38,7 @@ test.describe("workspace activity bar", () => {
     await menu.click();
     await page.getByTestId("toggle-session-list").click();
     await expect(grid).toHaveAttribute("data-session-collapsed", "true");
+    await expect(grid.locator(":scope > section").first()).toHaveCSS("margin-left", "0px");
     await menu.click();
     await page.getByTestId("toggle-session-list").click();
     await expect(grid).toHaveAttribute("data-session-collapsed", "false");

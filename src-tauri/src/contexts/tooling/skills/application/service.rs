@@ -2534,7 +2534,7 @@ impl SkillApplicationService {
             .deleted_builtin_ids()?
             .into_iter()
             .collect::<BTreeSet<_>>();
-        self.transact(|transaction| {
+        let result = self.transact(|transaction| {
             let mut changed = BTreeMap::new();
             let mut resolved_issue_indexes = BTreeSet::new();
             let cleared_tombstones = Vec::new();
@@ -2734,7 +2734,12 @@ impl SkillApplicationService {
                 &reconciled_report,
             )?;
             Ok(result)
-        })
+        })?;
+        // Drift repair can replace a migrated User source or rematerialize a System package.
+        // Without invalidation the next overview reuses the pre-sync effective snapshot and
+        // immediately reports the same repaired SKILL.md as drifted again.
+        self.invalidate_effective_catalog();
+        Ok(result)
     }
 
     fn effective_mount_configurations(

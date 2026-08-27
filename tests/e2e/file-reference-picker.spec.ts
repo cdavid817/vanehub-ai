@@ -43,11 +43,26 @@ async function createComposerSession(page: Page, title: string) {
 }
 
 test.describe("file reference picker", () => {
+  test("opens a file preview through keyboard-only completion", async ({ page }) => {
+    await createComposerSession(page, "键盘引用会话");
+
+    const composer = page.getByPlaceholder(/输入指令/);
+    await composer.fill("@long-module");
+    const completion = page.getByRole("listbox", { name: /会话成员.*文件/ });
+    const fileOption = completion.getByRole("option", { name: "src/long-module.ts" });
+    await expect(completion.getByRole("option")).toHaveCount(1);
+    await expect(fileOption).toHaveAttribute("aria-selected", "false");
+    await composer.press("ArrowDown");
+    await expect(fileOption).toHaveAttribute("aria-selected", "true");
+    await composer.press("Enter");
+    await expect(page.getByTestId("preview-line-1")).toBeVisible();
+  });
+
   test("selects a line range across a scroll and keeps the numbers consistent", async ({ page }) => {
     await createComposerSession(page, "引用选行会话");
 
     await page.getByPlaceholder(/输入指令/).fill("@long-module");
-    await page.getByRole("button", { name: "src/long-module.ts" }).click();
+    await page.getByRole("option", { name: "src/long-module.ts" }).click();
     await expect(page.getByTestId("preview-line-1")).toBeVisible();
 
     // Anchor near the top, then reach a line far outside the initial window. That line is
@@ -75,7 +90,7 @@ test.describe("file reference picker", () => {
     await createComposerSession(page, "长行预览会话");
 
     await page.getByPlaceholder(/输入指令/).fill("@long-module");
-    await page.getByRole("button", { name: "src/long-module.ts" }).click();
+    await page.getByRole("option", { name: "src/long-module.ts" }).click();
     await expect(page.getByTestId("preview-line-1")).toBeVisible();
 
     const list = page.getByTestId("file-preview-lines");

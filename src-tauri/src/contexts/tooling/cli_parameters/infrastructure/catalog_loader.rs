@@ -211,14 +211,13 @@ mod tests {
     }
 
     /// The registry is compiled into the binary with `include_str!`, so resolution cannot depend on
-    /// a source tree being present next to the executable.
+    /// a source tree being present next to the executable. Do not mutate the process-wide working
+    /// directory here: Rust tests run concurrently, and another filesystem test may observe and
+    /// later clean up that temporary directory.
     #[test]
-    fn the_registry_loads_independently_of_the_working_directory() {
-        let directory = tempfile::tempdir().expect("tempdir");
-        let original = std::env::current_dir().expect("cwd");
-        std::env::set_current_dir(directory.path()).expect("chdir");
+    fn the_embedded_registry_parses_without_a_filesystem_lookup() {
+        assert!(!CANONICAL_CATALOG_SOURCE.is_empty());
         let parsed = CliParameterCatalog::parse(CANONICAL_CATALOG_SOURCE);
-        std::env::set_current_dir(original).expect("restore cwd");
         assert!(parsed.is_ok());
     }
 

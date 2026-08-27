@@ -13,7 +13,12 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from vane_local_media_worker import errors, paddle_ocr_engine, privacy  # noqa: E402
+from vane_local_media_worker import (  # noqa: E402
+    errors,
+    paddle_ocr_engine,
+    privacy,
+    sherpa_onnx_tts_engine,
+)
 
 NON_ASCII_DIR = os.path.join("C:" + os.sep, "vanehub qualification 本地媒体", "models", "det")
 ASCII_DIR = os.path.join("C:" + os.sep, "vanehub", "models", "det")
@@ -107,6 +112,19 @@ class PathEncodingClassificationTest(unittest.TestCase):
             path=ASCII_DIR,
         )
         self.assertEqual(failure.code, errors.ENGINE_UNAVAILABLE)
+
+    def test_sherpa_preflight_allows_unicode_paths_on_posix(self):
+        params = {"modelPath": NON_ASCII_DIR}
+        with mock.patch.object(sherpa_onnx_tts_engine.sys, "platform", "linux"):
+            sherpa_onnx_tts_engine._refuse_unopenable_paths(params, {})  # noqa: SLF001
+
+    def test_sherpa_preflight_keeps_the_measured_windows_guard(self):
+        params = {"modelPath": NON_ASCII_DIR}
+        with mock.patch.object(sherpa_onnx_tts_engine.sys, "platform", "win32"):
+            with self.assertRaises(errors.WorkerError) as raised:
+                sherpa_onnx_tts_engine._refuse_unopenable_paths(params, {})  # noqa: SLF001
+        self.assertEqual(raised.exception.code, errors.MODEL_PATH_ENCODING_UNSUPPORTED)
+        self.assertNotIn("本地媒体", repr(raised.exception.details))
 
 
 class ErrorPayloadTest(unittest.TestCase):

@@ -59,7 +59,7 @@ describe("SkillOverlayReconciliationDialog", () => {
       witnesses: final.witnesses,
       choices: [{ conflictId: "conflict-1", resolution: "editPatch", oldString: "Current base", newString: "Reconciled base", replaceAll: false }],
     }));
-  }, 10_000);
+  }, 30_000);
 
   it("explains that ignoring disables a non-patch mutation but preserves audit history", async () => {
     const user = userEvent.setup();

@@ -45,6 +45,7 @@ pub(super) fn invoke_handler(
         crate::commands::goals::reopen_goal::reopen_goal,
         crate::commands::goals::abandon_goal::abandon_goal,
         crate::commands::local_media::profile::get_local_media_profile,
+        crate::commands::local_media::profile::discover_local_media_python_environments,
         crate::commands::local_media::profile::save_local_media_profile,
         crate::commands::local_media::profile::validate_local_media_profile,
         crate::commands::local_media::profile::get_local_media_status,
@@ -62,6 +63,10 @@ pub(super) fn invoke_handler(
         crate::commands::local_media::operations::stop_local_media_playback,
         crate::commands::local_media::operations::cancel_local_media_operation,
         crate::commands::local_media::operations::get_local_media_operation_result,
+        crate::commands::local_media::screenshot::select_and_stage_screenshot_region,
+        crate::commands::local_media::screenshot::commit_screenshot_selection,
+        crate::commands::local_media::screenshot::cancel_screenshot_selection,
+        crate::commands::local_media::screenshot::cancel_active_screenshot_selection,
     ]
 }
 
@@ -127,6 +132,7 @@ pub(super) fn is_command(command: &str) -> bool {
             | "reopen_goal"
             | "abandon_goal"
             | "get_local_media_profile"
+            | "discover_local_media_python_environments"
             | "save_local_media_profile"
             | "validate_local_media_profile"
             | "get_local_media_status"
@@ -142,6 +148,10 @@ pub(super) fn is_command(command: &str) -> bool {
             | "stop_local_media_playback"
             | "cancel_local_media_operation"
             | "get_local_media_operation_result"
+            | "select_and_stage_screenshot_region"
+            | "commit_screenshot_selection"
+            | "cancel_screenshot_selection"
+            | "cancel_active_screenshot_selection"
     )
 }
 

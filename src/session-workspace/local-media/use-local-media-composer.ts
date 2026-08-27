@@ -60,7 +60,14 @@ export function useLocalMediaComposer(
   /** Which composer scope started each in-flight operation. */
   const scopeRef = useRef<Record<string, string>>({});
   const currentScope = useRef(composerScopeId);
+  const previousScope = useRef(composerScopeId);
   currentScope.current = composerScopeId;
+  // Operation ownership must change with the render, before a fast user can start work in the new
+  // session. Clearing it later in an effect can erase an operation the new session already began.
+  if (previousScope.current !== composerScopeId) {
+    previousScope.current = composerScopeId;
+    scopeRef.current = {};
+  }
 
   const status = useQuery({
     queryKey: ["local-media", "status"],
@@ -70,6 +77,7 @@ export function useLocalMediaComposer(
 
   const availability = {
     native: status.data?.nativeAvailable ?? false,
+    screenshot: permits(status.data, "ocr"),
     ocr: permits(status.data, "ocr"),
     stt: permits(status.data, "stt"),
     tts: permits(status.data, "tts"),
@@ -120,27 +128,30 @@ export function useLocalMediaComposer(
     sttEnabled: availability.stt,
   });
 
-  // Held in a ref and invoked from an effect keyed only on the scope, so the reset cannot be
-  // retriggered by an unrelated identity change. Listing the callbacks as dependencies instead
-  // would make every re-render look like a session switch.
+  // Held in a ref so callback identity changes cannot make every render look like a session switch.
   const resetForScope = useRef<() => void>(() => undefined);
   resetForScope.current = () => {
     ocr.clearReview();
     setOverflow(null);
     setFailure(null);
-    scopeRef.current = {};
   };
   useEffect(() => {
     // A session switch abandons everything pending rather than letting it land somewhere new. The
     // native operations continue and clean up after themselves; what changes is that nothing here
     // will read them.
     resetForScope.current();
-  }, [composerScopeId]);
+    void service.cancelActiveScreenshotSelection().catch(() => undefined);
+  }, [composerScopeId, service]);
 
   const startOcr = useCallback(() => {
     if (!availability.ocr) return;
     ocr.startOcr();
   }, [availability.ocr, ocr]);
+
+  const startScreenshot = useCallback(() => {
+    if (!availability.screenshot) return;
+    ocr.startScreenshot();
+  }, [availability.screenshot, ocr]);
 
   const toggleSpeech = useCallback(() => {
     // Stopping stays available even if readiness lapsed mid-playback; only starting is gated.
@@ -159,6 +170,7 @@ export function useLocalMediaComposer(
     review: ocr.review,
     overflow,
     startOcr,
+    startScreenshot,
     updateReviewText: ocr.updateReviewText,
     appendReviewText: ocr.appendReviewText,
     cancelReview: ocr.cancelReview,

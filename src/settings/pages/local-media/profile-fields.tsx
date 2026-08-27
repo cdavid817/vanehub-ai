@@ -37,7 +37,7 @@ function FieldShell({
       {children}
       {hintKey ? <p className="text-xs leading-5 text-muted-foreground">{t(hintKey)}</p> : null}
       {issueKey ? (
-        <p className="text-xs leading-5 text-danger" role="alert">
+        <p className="text-xs leading-5 text-danger" id={`${htmlFor}-error`} role="alert">
           {t(issueKey)}
         </p>
       ) : null}
@@ -63,6 +63,7 @@ export function TextField({
   return (
     <FieldShell hintKey={hintKey} htmlFor={id} issueKey={issueKey} label={label}>
       <input
+        aria-describedby={issueKey ? `${id}-error` : undefined}
         aria-invalid={issueKey ? true : undefined}
         className={`${CONTROL_CLASS} ${issueKey ? INVALID_CLASS : ""}`}
         id={id}
@@ -106,6 +107,7 @@ export function PathField({
     <FieldShell hintKey={hintKey} htmlFor={id} issueKey={issueKey} label={label}>
       <div className="flex items-center gap-2">
         <input
+          aria-describedby={issueKey ? `${id}-error` : undefined}
           aria-invalid={issueKey ? true : undefined}
           className={`${CONTROL_CLASS} ${issueKey ? INVALID_CLASS : ""}`}
           disabled={disabled}
@@ -170,6 +172,7 @@ export function NumberField({
   return (
     <FieldShell hintKey={hintKey} htmlFor={id} issueKey={issueKey} label={label}>
       <input
+        aria-describedby={issueKey ? `${id}-error` : undefined}
         aria-invalid={issueKey ? true : undefined}
         className={`${CONTROL_CLASS} ${issueKey ? INVALID_CLASS : ""}`}
         id={id}
@@ -210,7 +213,9 @@ export function SelectField<Value extends string>({
   return (
     <FieldShell hintKey={hintKey} htmlFor={id} issueKey={issueKey} label={label}>
       <select
-        className={CONTROL_CLASS}
+        aria-describedby={issueKey ? `${id}-error` : undefined}
+        aria-invalid={issueKey ? true : undefined}
+        className={`${CONTROL_CLASS} ${issueKey ? INVALID_CLASS : ""}`}
         id={id}
         onChange={(event) => onChange(event.currentTarget.value as Value)}
         value={value}

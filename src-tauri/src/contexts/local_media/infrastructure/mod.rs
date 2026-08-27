@@ -19,6 +19,7 @@ pub(super) fn audio_host_guard() -> std::sync::MutexGuard<'static, ()> {
 #[cfg(feature = "desktop-e2e")]
 pub(crate) mod fixtures;
 mod persistence;
+mod python_discovery;
 mod staging;
 mod support;
 mod workers;
@@ -26,6 +27,7 @@ mod workers;
 pub(crate) use audio_capture::{CpalAudioCapture, CpalDeviceCatalog};
 pub(crate) use audio_playback::RodioPlayback;
 pub(crate) use persistence::{apply_schema, SqliteLocalMediaProfileRepository};
+pub(crate) use python_discovery::SystemPythonEnvironmentDiscovery;
 pub(crate) use staging::FilesystemMediaTempStore;
 pub(crate) use support::{
     resolve_worker_bridge_root, OperationsApiBridge, RandomIdFactory, SystemLocalMediaClock,

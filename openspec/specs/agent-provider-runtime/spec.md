@@ -110,7 +110,7 @@ Each built-in provider adapter SHALL own its executable/version declaration, pro
 - **AND** the terminal result SHALL use the unified classified error vocabulary
 
 ### Requirement: Side-effect-free detection and health diagnostics
-Executable availability, version detection, readiness, and health assessment SHALL use bounded non-interactive probe specifications and SHALL NOT start an interactive Agent session or generation. Failures SHALL be classified and persisted only through unified redacted diagnostics.
+Executable availability, version detection, readiness, Runner discovery, and health assessment SHALL use bounded non-interactive probe specifications and SHALL NOT start an interactive Agent session or generation. Independent discovery results SHALL be projected fail-soft so a failed optional or remote lookup does not hide an independently usable local Runner. Failures SHALL be classified and persisted only through unified redacted diagnostics.
 
 #### Scenario: Check provider availability
 - **WHEN** runtime availability is refreshed for a registered provider
@@ -121,6 +121,12 @@ Executable availability, version detection, readiness, and health assessment SHA
 - **WHEN** an executable is missing, times out, exits unsuccessfully, or returns an invalid version
 - **THEN** the runtime SHALL return a classified safe diagnostic
 - **AND** unified logs SHALL omit credentials, prompt content, sensitive arguments, environment values, and unbounded raw output
+
+#### Scenario: Optional Runner discovery fails
+- **WHEN** an optional or remote Runner lookup fails while the Local Runner remains usable
+- **THEN** Runner discovery SHALL still return the Local Runner as available
+- **AND** the unresolvable optional Runner SHALL be omitted rather than converted into a global discovery failure
+- **AND** no interactive process or provider session SHALL be started
 
 ### Requirement: Unified provider error classification
 Provider contract, manifest, capability, preparation, detection, parser, permission, cancellation, and process failures SHALL map to the existing command-safe Agent Runtime error boundary with stable classifications and concise messages.
@@ -143,7 +149,7 @@ A test-only provider SHALL be addable through static registry composition withou
 - **AND** production Agent enumeration SHALL remain unchanged
 
 ### Requirement: Provider and Runner remain orthogonal
-Provider adapters SHALL continue to own provider invocation, prompt/input translation, output parsing, usage, provider sessions, cancellation semantics, and provider error mapping, while Runner adapters SHALL own execution location, transport, process/channel I/O, inspection, cleanup, and runner errors. Generic orchestration MUST NOT select Runner behavior by provider id or provider behavior by Runner kind.
+Provider adapters SHALL continue to own provider invocation, prompt/input translation, output parsing, usage, provider sessions, cancellation semantics, and provider error mapping, while Runner adapters SHALL own execution location, transport, process/channel I/O, inspection, cleanup, discovery, and runner errors. Generic orchestration MUST NOT select Runner behavior by provider id or provider behavior by Runner kind, and one Runner's discovery failure MUST NOT change another independently discovered Runner's readiness.
 
 #### Scenario: Run one provider locally and remotely
 - **WHEN** a provider declares the capabilities required by both an eligible Local and SSH Runner
@@ -152,6 +158,10 @@ Provider adapters SHALL continue to own provider invocation, prompt/input transl
 #### Scenario: Runner transport fails
 - **WHEN** transport fails before a provider terminal protocol event
 - **THEN** provider parsing does not fabricate a provider error and orchestration preserves the Runner classification
+
+#### Scenario: Local Runner survives remote discovery failure
+- **WHEN** discovery cannot read or validate an SSH target
+- **THEN** orchestration SHALL preserve the Local Runner's independently established availability
 
 ### Requirement: Prompt delivery suits the resolved executable
 A provider adapter SHALL choose prompt delivery so the prompt survives the host's process-creation rules for the executable that will actually run, rather than fixing one channel per Agent.
@@ -184,4 +194,3 @@ The fallback that treats a line as literal Agent text SHALL apply only to output
 #### Scenario: Provider emits unstructured text
 - **WHEN** a provider emits a line that is not structured output
 - **THEN** the parser SHALL surface it as Agent text
-
