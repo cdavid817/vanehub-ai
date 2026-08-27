@@ -156,6 +156,23 @@ describe("switching session while the microphone is live", () => {
     expect(double.calls.cancelRecording).toEqual(["rec-1@session-a"]);
   });
 
+  it("keeps the new session's transcript after releasing the previous session", async () => {
+    const mounted = await recordingInSessionA();
+    await mounted.switchTo("session-b");
+    await settle();
+
+    await press();
+    await settle();
+    await release();
+    await settle();
+    double.settle("op-1", { kind: "stt", result: transcription("words from session b") });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    });
+
+    expect(screen.getByTestId("draft").textContent).toBe("words from session b");
+  });
+
   it("keeps the abandoned recording's transcript out of the new session's draft", async () => {
     const mounted = await recordingInSessionA();
     await mounted.switchTo("session-b");

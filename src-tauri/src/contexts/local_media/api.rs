@@ -13,7 +13,8 @@ use super::application::{
 use super::domain::{
     AudioDeviceCatalog, ComposerScopeId, LocalMediaEngine, LocalMediaError, LocalMediaErrorCode,
     LocalMediaOperationResult, LocalMediaProfile, LocalMediaRuntimeStatus, OcrResult, PlaybackId,
-    ProfileFieldIssue, RecordingHandle, RecordingId, StagedInputId, StagedOcrSource,
+    ProfileFieldIssue, PythonEnvironmentDiscovery, RecordingHandle, RecordingId, StagedInputId,
+    StagedOcrSource,
 };
 
 pub(crate) use super::application::PreparedLocalMediaOperation as PreparedLocalMediaWork;
@@ -61,6 +62,12 @@ impl LocalMediaApi {
         self.service.list_audio_devices()
     }
 
+    pub(crate) fn discover_python_environments(
+        &self,
+    ) -> Result<PythonEnvironmentDiscovery, LocalMediaError> {
+        self.service.discover_python_environments()
+    }
+
     // ---------------------------------------------------------- operations ---
 
     pub(crate) fn prepare_probe(
@@ -75,6 +82,13 @@ impl LocalMediaApi {
         source: &Path,
     ) -> Result<StagedOcrSource, LocalMediaError> {
         self.service.stage_ocr_source(source)
+    }
+
+    pub(crate) fn stage_screenshot_ocr(
+        &self,
+        bytes: &[u8],
+    ) -> Result<StagedOcrSource, LocalMediaError> {
+        self.service.stage_ocr_artifact(bytes, "screenshot.png")
     }
 
     pub(crate) fn prepare_ocr(

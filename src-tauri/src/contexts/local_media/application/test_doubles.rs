@@ -8,19 +8,43 @@
 use super::ports::{
     AudioCapturePort, AudioDeviceCatalogPort, AudioPlaybackPort, ClaimedInput, LocalMediaClock,
     LocalMediaDiagnostics, LocalMediaProfileRepository, MediaTempStore, OpaqueIdFactory,
-    OperationBridge, StartCaptureRequest, WorkerSupervisorPort,
+    OperationBridge, PythonEnvironmentDiscoveryPort, StartCaptureRequest, WorkerSupervisorPort,
 };
 use super::worker_contract::{WorkerCall, WorkerReply};
 use crate::contexts::local_media::domain::{
     AudioDevice, AudioDeviceCatalog, CommittedRecording, ComposerScopeId, LocalMediaEngine,
     LocalMediaError, LocalMediaErrorCode, LocalMediaProfile, LocalMediaProfileSnapshot,
-    OcrMediaType, PlaybackId, RecordingId, RecordingSummary, StagedInputId, StagedOcrSource,
-    WorkerState,
+    OcrMediaType, PlaybackId, PythonEnvironmentDiscovery, RecordingId, RecordingSummary,
+    StagedInputId, StagedOcrSource, WorkerState,
 };
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+
+pub(super) struct EmptyPythonDiscovery;
+
+impl PythonEnvironmentDiscoveryPort for EmptyPythonDiscovery {
+    fn discover(&self, _configured_paths: &[PathBuf]) -> PythonEnvironmentDiscovery {
+        PythonEnvironmentDiscovery::available(Vec::new())
+    }
+}
+
+pub(super) struct FixedPythonDiscovery {
+    result: PythonEnvironmentDiscovery,
+}
+
+impl FixedPythonDiscovery {
+    pub(super) fn new(result: PythonEnvironmentDiscovery) -> Arc<Self> {
+        Arc::new(Self { result })
+    }
+}
+
+impl PythonEnvironmentDiscoveryPort for FixedPythonDiscovery {
+    fn discover(&self, _configured_paths: &[PathBuf]) -> PythonEnvironmentDiscovery {
+        self.result.clone()
+    }
+}
 
 pub(super) struct FakeProfileRepository {
     pub(super) profile: Mutex<LocalMediaProfile>,

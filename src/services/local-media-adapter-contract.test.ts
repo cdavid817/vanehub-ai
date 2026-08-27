@@ -22,9 +22,14 @@ const METHODS: Array<keyof LocalMediaService> = [
   "validateProfile",
   "getStatus",
   "listAudioDevices",
+  "discoverPythonEnvironments",
   "probeEngine",
   "selectProfilePath",
   "selectAndStageOcrSource",
+  "selectAndStageScreenshotRegion",
+  "commitScreenshotSelection",
+  "cancelScreenshotSelection",
+  "cancelActiveScreenshotSelection",
   "discardStagedOcrSource",
   "startOcr",
   "startRecording",
@@ -147,6 +152,28 @@ describe("local media adapters", () => {
         request: { operationId: "op-9" },
       });
     });
+
+    it("normalizes Python discovery and rejects malformed native payloads", async () => {
+      const discovery = {
+        availability: "available",
+        reasonCode: null,
+        candidates: [{
+          executablePath: "/usr/bin/python3",
+          version: { major: 3, minor: 12, patch: 2 },
+          compatibility: "compatible",
+          reasonCode: null,
+          source: "path",
+        }],
+      };
+      invokeMock.mockResolvedValueOnce(discovery);
+      await expect(tauriLocalMediaClient.discoverPythonEnvironments()).resolves.toEqual(discovery);
+      expect(invokeMock).toHaveBeenLastCalledWith("discover_local_media_python_environments");
+
+      invokeMock.mockResolvedValueOnce({ ...discovery, candidates: [{ version: "3.12" }] });
+      await expect(tauriLocalMediaClient.discoverPythonEnvironments()).rejects.toThrow(
+        "LOCAL_MEDIA_DISCOVERY_INVALID_RESPONSE",
+      );
+    });
   });
 
   describe("the Web adapter", () => {
@@ -201,6 +228,14 @@ describe("local media adapters", () => {
 
     it("cannot produce a host path from a browser", async () => {
       expect(await webLocalMediaClient.selectProfilePath({ kind: "file" })).toBeNull();
+    });
+
+    it("reports Python discovery as native-only without inventing candidates", async () => {
+      await expect(webLocalMediaClient.discoverPythonEnvironments()).resolves.toEqual({
+        availability: "unavailable",
+        reasonCode: "native_unavailable",
+        candidates: [],
+      });
     });
 
     it("never reaches a Tauri command", async () => {

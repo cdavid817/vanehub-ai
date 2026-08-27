@@ -66,6 +66,21 @@ globalThis.describe("VaneHub AI desktop local media domain", () => {
     assert.equal(profile.tts.enabled, false);
   });
 
+  globalThis.it("discovers Python environments without mutating the profile or starting a worker", async () => {
+    const before = await invoke(({ core }) => core.invoke("get_local_media_profile"));
+    const discovery = await invoke(({ core }) => core.invoke("discover_local_media_python_environments"));
+    const after = await invoke(({ core }) => core.invoke("get_local_media_profile"));
+
+    assert.equal(discovery.availability, "available");
+    assert.ok(Array.isArray(discovery.candidates));
+    for (const candidate of discovery.candidates) {
+      assert.equal(typeof candidate.executablePath, "string");
+      assert.equal(typeof candidate.version.major, "number");
+      assert.ok(["compatible", "unsupported"].includes(candidate.compatibility));
+    }
+    assert.deepEqual(after, before, "discovery changed the saved profile");
+  });
+
   globalThis.it("round-trips a saved profile and bumps its revision", async () => {
     const before = await invoke(({ core }) => core.invoke("get_local_media_profile"));
     const request = {

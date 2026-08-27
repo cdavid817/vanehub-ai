@@ -7,10 +7,12 @@ use crate::contexts::local_media::domain::AdmissionLimits;
 use crate::contexts::local_media::infrastructure::{
     build_supervisor, resolve_worker_bridge_root, CpalAudioCapture, CpalDeviceCatalog,
     FilesystemMediaTempStore, OperationsApiBridge, RandomIdFactory, RodioPlayback,
-    SqliteLocalMediaProfileRepository, SystemLocalMediaClock, UnifiedLocalMediaDiagnostics,
+    SqliteLocalMediaProfileRepository, SystemLocalMediaClock, SystemPythonEnvironmentDiscovery,
+    UnifiedLocalMediaDiagnostics,
 };
 use crate::contexts::operations::api::{DiagnosticLogPort, OperationsApi};
 use crate::platform::database::NativeDatabase;
+use crate::platform::process::ProcessAdapter;
 
 /// Where ephemeral media lives, relative to the application data root.
 const MEDIA_ROOT: &str = "local-media";
@@ -79,6 +81,7 @@ pub(crate) fn assemble_local_media_api(
         devices: Arc::new(CpalDeviceCatalog),
         operations: Arc::new(OperationsApiBridge::new(operations_api)),
         diagnostics: Arc::new(UnifiedLocalMediaDiagnostics::new(diagnostics)),
+        python_discovery: Arc::new(SystemPythonEnvironmentDiscovery::new(ProcessAdapter)),
     })
 }
 
@@ -138,6 +141,7 @@ fn assemble_with_fixtures(
         devices: Arc::new(FixtureAudioDeviceCatalog::new(scenario)),
         operations: Arc::new(OperationsApiBridge::new(operations_api)),
         diagnostics: Arc::new(UnifiedLocalMediaDiagnostics::new(diagnostics)),
+        python_discovery: Arc::new(SystemPythonEnvironmentDiscovery::new(ProcessAdapter)),
     })
 }
 

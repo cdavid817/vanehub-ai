@@ -9,6 +9,7 @@ import type {
   TtsModelKind,
 } from "../../../types/local-media";
 import { EngineCard } from "./engine-card";
+import { AdvancedFields } from "./advanced-fields";
 import { DeviceField, NumberField, PathField, SelectField } from "./profile-fields";
 import { DEVICE_OPTIONS, TTS_MODEL_KIND_OPTIONS, type FieldIssueLookup } from "./shared";
 
@@ -47,15 +48,6 @@ export function TtsCard({
       status={status}
       title={t("localMedia.settings.tts.title")}
     >
-      <PathField
-        hintKey="localMedia.settings.hint.pythonExecutable"
-        id="local-media-tts-python"
-        issueKey={issue("pythonExecutable")}
-        kind="file"
-        label={t("localMedia.settings.field.pythonExecutable")}
-        onChange={(pythonExecutable) => onUpdate((current) => ({ ...current, pythonExecutable }))}
-        value={profile.pythonExecutable}
-      />
       <SelectField<TtsModelKind>
         hintKey="localMedia.settings.hint.modelKind"
         id="local-media-tts-kind"
@@ -104,6 +96,10 @@ export function TtsCard({
           value={profile.vocoderPath ?? ""}
         />
       ) : null}
+      <AdvancedFields
+        hasError={Boolean(issue("lexiconPath") || issue("dataDir") || issue("dictDir") || issue("speakerId") || issue("speed") || issue("numThreads") || issue("device") || issue("ruleFsts"))}
+        id="local-media-tts-advanced"
+      >
       <PathField
         hintKey="localMedia.settings.hint.lexiconPath"
         id="local-media-tts-lexicon"
@@ -190,6 +186,7 @@ export function TtsCard({
           {t("localMedia.settings.field.ruleFsts")}
         </label>
         <textarea
+          aria-describedby={issue("ruleFsts") ? "local-media-tts-rule-fsts-error" : undefined}
           aria-invalid={issue("ruleFsts") ? true : undefined}
           className="min-h-20 w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
           id="local-media-tts-rule-fsts"
@@ -206,11 +203,12 @@ export function TtsCard({
           {t("localMedia.settings.hint.ruleFsts")}
         </p>
         {issue("ruleFsts") ? (
-          <p className="text-xs leading-5 text-danger" role="alert">
+          <p className="text-xs leading-5 text-danger" id="local-media-tts-rule-fsts-error" role="alert">
             {t(issue("ruleFsts") ?? "")}
           </p>
         ) : null}
       </div>
+      </AdvancedFields>
     </EngineCard>
   );
 }

@@ -31,7 +31,6 @@ Every model-visible LSP tool SHALL derive its workspace from the current session
 - **WHEN** a server returns a definition location outside the current canonical workspace
 - **THEN** that location SHALL NOT be returned to the Agent
 - **AND** the result SHALL report a bounded filtered-location count
-
 #### Scenario: Model attempts to select another workspace
 - **WHEN** a tool input includes an unsupported workspace id, absolute root, or server selector
 - **THEN** the system SHALL ignore or reject that field according to the declared schema
@@ -221,4 +220,3 @@ Code intelligence benchmarks SHALL cover Tree-sitter incremental updates, worksp
 - **WHEN** an incoming or outgoing call resolves to a location outside the canonical workspace
 - **THEN** that relation SHALL NOT be returned
 - **AND** the result SHALL report a bounded filtered-location count
-

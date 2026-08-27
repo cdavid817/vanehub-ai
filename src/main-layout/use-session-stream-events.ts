@@ -1,9 +1,23 @@
 import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { applyChatEvents, hasEventsForUnknownMessages } from "../services/chat-events";
+import { applyChatEvents } from "../services/chat-events";
 import { agentService } from "../services/runtime-agent-client";
 import type { TurnStatusEvent } from "../services/turn-status";
 import type { ChatMessage, ChatStreamEvent } from "../types/chat";
+
+function partitionChatEventsByKnownMessages(
+  messages: readonly ChatMessage[],
+  events: readonly ChatStreamEvent[],
+): { known: ChatStreamEvent[]; unknown: ChatStreamEvent[] } {
+  const messageIds = new Set(messages.map((message) => message.id));
+  const known: ChatStreamEvent[] = [];
+  const unknown: ChatStreamEvent[] = [];
+  for (const event of events) {
+    if (event.type === "turn_status" || messageIds.has(event.messageId)) known.push(event);
+    else unknown.push(event);
+  }
+  return { known, unknown };
+}
 
 /**
  * The active session's chat-event subscription: buffers the token firehose into one array
@@ -42,21 +56,42 @@ export function useSessionStreamEvents({
     // Events for a message the cache has never seen cannot create rows, so the list has to be
     // refetched; the flag collapses a burst into one refetch.
     let refreshingUnknown = false;
-    let sawUnknown = false;
+    let deferredUnknown: ChatStreamEvent[] = [];
+    let reconcileTimer = 0;
+    let reconcileAttempts = 0;
+    const reconcileUnknown = () => {
+      if (refreshingUnknown || deferredUnknown.length === 0 || reconcileAttempts >= 5) return;
+      refreshingUnknown = true;
+      reconcileAttempts += 1;
+      void queryClient.invalidateQueries({ queryKey: messagesKey }).then(() => {
+        if (cancelled) return;
+        const refreshed = queryClient.getQueryData<ChatMessage[]>(messagesKey) ?? [];
+        const partitioned = partitionChatEventsByKnownMessages(refreshed, deferredUnknown);
+        deferredUnknown = partitioned.unknown;
+        if (partitioned.known.length > 0) {
+          reconcileAttempts = 0;
+          queryClient.setQueryData<ChatMessage[]>(
+            messagesKey,
+            applyChatEvents(refreshed, partitioned.known),
+          );
+        }
+      }).catch(() => undefined).finally(() => {
+        refreshingUnknown = false;
+        if (!cancelled && deferredUnknown.length > 0) {
+          reconcileTimer = window.setTimeout(reconcileUnknown, 50);
+        }
+      });
+    };
     const flush = () => {
       frame = 0;
       if (pending.length === 0) return;
       const batch = pending;
       pending = [];
       const current = queryClient.getQueryData<ChatMessage[]>(messagesKey) ?? [];
-      queryClient.setQueryData<ChatMessage[]>(messagesKey, applyChatEvents(current, batch));
-      if (!refreshingUnknown && hasEventsForUnknownMessages(current, batch)) {
-        refreshingUnknown = true;
-        sawUnknown = true;
-        void queryClient
-          .invalidateQueries({ queryKey: messagesKey })
-          .finally(() => { refreshingUnknown = false; });
-      }
+      const partitioned = partitionChatEventsByKnownMessages(current, batch);
+      queryClient.setQueryData<ChatMessage[]>(messagesKey, applyChatEvents(current, partitioned.known));
+      deferredUnknown.push(...partitioned.unknown);
+      reconcileUnknown();
     };
     void agentService.subscribeMessageEvents(sessionId, (event) => {
       if (event.type === "turn_status") {
@@ -76,12 +111,6 @@ export function useSessionStreamEvents({
         // Flush the buffered tokens now so the terminal message lands with the status change.
         if (frame !== 0) { cancelAnimationFrame(frame); frame = 0; }
         flush();
-        // A stream that ever touched unknown rows may have dropped deltas that raced the
-        // refetch; one settle-time refetch restores exact parity with the persisted thread.
-        if (sawUnknown) {
-          sawUnknown = false;
-          void queryClient.invalidateQueries({ queryKey: messagesKey });
-        }
       } else if (frame === 0) {
         frame = requestAnimationFrame(flush);
       }
@@ -89,6 +118,7 @@ export function useSessionStreamEvents({
     return () => {
       cancelled = true;
       if (frame !== 0) cancelAnimationFrame(frame);
+      if (reconcileTimer !== 0) window.clearTimeout(reconcileTimer);
       cleanup?.();
     };
   }, [messagesKey, queryClient, sessionId]);

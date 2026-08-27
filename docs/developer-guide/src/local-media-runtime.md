@@ -1,6 +1,12 @@
 # Local media runtime
 
-The `local_media` context provides three composer capabilities — recognizing text in an image or PDF, hold-to-talk transcription, and reading text aloud — and one native tool path for OnePiece's `ocr_read_text`. All three run entirely in processes on the user's own machine.
+The `local_media` context provides four composer capabilities — recognizing text in an image or PDF, capturing a screen region for text recognition, hold-to-talk transcription, and reading text aloud — and one native tool path for OnePiece's `ocr_read_text`. All four run entirely on the user's own machine.
+
+## Image picker and screen capture
+
+The image/PDF button opens a normal file picker. The screenshot button instead hides VaneHub, freezes each available display, and opens a full-screen region selector. Drag one rectangle, or cancel with **Esc**, right-click, or the cancel button. The selected PNG enters the same editable OCR review as a picked image; recognized text is never appended or sent automatically.
+
+Screen capture is available only in the desktop client and only when OCR is ready. It is intentionally unavailable in Web mode and in a single-Agent CLI terminal. macOS may require Screen Recording permission; Linux support depends on the active X11 or Wayland compositor. Captured pixels remain local, are not written to logs, and are released when capture succeeds, is cancelled, times out, the session changes, or the application exits.
 
 ## What the product does not do
 

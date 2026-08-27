@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { i18n } from "./i18n";
 import "./styles.css";
 import { recoverFromBootstrapFailure } from "./bootstrap-failure";
+import { watchSurfaceReadiness } from "./bootstrap-readiness";
 
 const FATAL_FRONTEND_DIAGNOSTIC_LIMIT = 240;
 
@@ -14,18 +15,13 @@ function redactFatalFrontendDiagnostic(value: unknown) {
     .slice(0, FATAL_FRONTEND_DIAGNOSTIC_LIMIT);
 }
 
-const floatingSurface = new URLSearchParams(window.location.search).get("surface") === "floating-assistant";
+const surface = new URLSearchParams(window.location.search).get("surface");
+const floatingSurface = surface === "floating-assistant";
+const regionCaptureSurface = surface === "region-capture";
 if (floatingSurface) {
   document.body.classList.add("floating-assistant-surface");
 }
-
-function SurfaceReady({ children, root }: { children: React.ReactNode; root: HTMLElement }) {
-  React.useEffect(() => {
-    document.getElementById("bootstrap-shell")?.remove();
-    root.dataset.vanehubBootstrap = "ready";
-  }, [root]);
-  return children;
-}
+if (regionCaptureSurface) document.body.classList.add("region-capture-surface");
 
 async function renderSurface() {
   const root = document.getElementById("root") as HTMLElement;
@@ -38,16 +34,25 @@ async function renderSurface() {
     window.addEventListener("unhandledrejection", (event) => markFatalFrontendError("unhandledrejection", event.reason));
     await import("@wdio/tauri-plugin");
   }
-  const Surface = floatingSurface
-    ? (await import("./floating-assistant/floating-assistant-root")).FloatingAssistantRoot
-    : (await import("./App")).App;
-  ReactDOM.createRoot(root).render(
-    <React.StrictMode>
-      <SurfaceReady root={root}>
+  const Surface = regionCaptureSurface
+    ? (await import("./region-capture/region-capture-root")).RegionCaptureRoot
+    : floatingSurface
+      ? (await import("./floating-assistant/floating-assistant-root")).FloatingAssistantRoot
+      : (await import("./App")).App;
+  const stopWatchingReadiness = watchSurfaceReadiness(root, () => {
+    document.getElementById("bootstrap-shell")?.remove();
+    root.dataset.vanehubBootstrap = "ready";
+  });
+  try {
+    ReactDOM.createRoot(root).render(
+      <React.StrictMode>
         <Surface />
-      </SurfaceReady>
-    </React.StrictMode>,
-  );
+      </React.StrictMode>,
+    );
+  } catch (error: unknown) {
+    stopWatchingReadiness();
+    throw error;
+  }
 }
 
 void renderSurface().catch((error: unknown) => {
@@ -60,7 +65,7 @@ void renderSurface().catch((error: unknown) => {
       retry: i18n.t("app.bootstrapFailure.retry"),
     },
     error,
-    surface: floatingSurface ? "floating-assistant" : "main",
+    surface: floatingSurface ? "floating-assistant" : regionCaptureSurface ? "region-capture" : "main",
     retry: () => window.location.reload(),
     report: async (event) => {
       const { settingsService } = await import("./services/runtime-settings-client");

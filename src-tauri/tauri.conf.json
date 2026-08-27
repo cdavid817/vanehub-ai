@@ -20,7 +20,8 @@
         "maximized": true,
         "fullscreen": false,
         "center": true,
-        "backgroundColor": "#07111F"
+        "visible": false,
+        "backgroundColor": "#F4F7FB"
       }
     ],
     "security": {

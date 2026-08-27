@@ -6,6 +6,8 @@ import { localMediaMessageKey } from "../../session-workspace/local-media/local-
 import type { LocalMediaEngine } from "../../types/local-media";
 import { compatibilityMessageKey } from "./local-media/compatibility-notice";
 import { OcrCard } from "./local-media/ocr-card";
+import { PythonEnvironmentPanel } from "./local-media/python-environment-panel";
+import { SetupOverview } from "./local-media/setup-overview";
 import { SttCard } from "./local-media/stt-card";
 import { TtsCard } from "./local-media/tts-card";
 import { ToggleField } from "./local-media/profile-fields";
@@ -54,30 +56,8 @@ export function LocalMediaPage({ isActive }: SettingsPageContext) {
       : null;
 
   return (
-    <div className="mx-auto w-full max-w-5xl">
+    <div className="mx-auto w-full max-w-5xl pb-24">
       <PageHeader
-        actions={
-          <div className="flex items-center gap-2">
-            <Button
-              disabled={!model.dirty || model.saveState.kind === "saving"}
-              onClick={model.discard}
-              type="button"
-              variant="outline"
-            >
-              {t("localMedia.settings.discard")}
-            </Button>
-            <Button
-              data-testid="local-media-save"
-              disabled={!model.dirty || model.saveState.kind === "saving"}
-              // Wrapped, not passed: `save` now takes an optional profile, and handing it straight
-              // to onClick would offer it the MouseEvent as one.
-              onClick={() => model.save()}
-              type="button"
-            >
-              {t(model.saveState.kind === "saving" ? "localMedia.settings.saving" : "localMedia.settings.save")}
-            </Button>
-          </div>
-        }
         description={t("localMedia.settings.description")}
         icon={AudioLines}
         title={t("localMedia.settings.title")}
@@ -104,6 +84,12 @@ export function LocalMediaPage({ isActive }: SettingsPageContext) {
 
         {draft ? (
           <>
+            <SetupOverview
+              dirty={model.dirty}
+              discovery={model.pythonDiscovery}
+              profile={draft}
+              status={status}
+            />
             <SectionPanel
               description={t("localMedia.settings.master.description")}
               title={t("localMedia.settings.master.title")}
@@ -120,6 +106,15 @@ export function LocalMediaPage({ isActive }: SettingsPageContext) {
                 />
               </div>
             </SectionPanel>
+
+            <PythonEnvironmentPanel
+              discovery={model.pythonDiscovery}
+              issueFor={issueFor}
+              loading={model.pythonDiscoveryLoading}
+              onRefresh={model.refreshPythonDiscovery}
+              onSelect={model.setPythonForEngines}
+              profile={draft}
+            />
 
             <OcrCard
               issueFor={issueFor}
@@ -160,8 +155,33 @@ export function LocalMediaPage({ isActive }: SettingsPageContext) {
             <p className="text-xs leading-5 text-muted-foreground">
               {t("localMedia.settings.privacyNote")}
             </p>
+            <SaveActionBar model={model} />
           </>
         ) : null}
+      </div>
+    </div>
+  );
+}
+
+function SaveActionBar({ model }: { model: ReturnType<typeof useLocalMediaSettings> }) {
+  const { t } = useTranslation();
+  return (
+    <div className="sticky bottom-3 z-20 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-background/95 px-4 py-3 shadow-lg backdrop-blur">
+      <span className="text-xs text-muted-foreground" role="status">
+        {t(model.dirty ? "localMedia.settings.unsaved" : "localMedia.settings.noUnsaved")}
+      </span>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button disabled={!model.dirty || model.saveState.kind === "saving"} onClick={model.discard} type="button" variant="outline">
+          {t("localMedia.settings.discard")}
+        </Button>
+        <Button
+          data-testid="local-media-save"
+          disabled={!model.dirty || model.saveState.kind === "saving"}
+          onClick={() => model.save()}
+          type="button"
+        >
+          {t(model.saveState.kind === "saving" ? "localMedia.settings.saving" : "localMedia.settings.save")}
+        </Button>
       </div>
     </div>
   );

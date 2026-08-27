@@ -8,14 +8,17 @@ import { withModelFamily } from "../services/agent-model-family";
 import { snapshotSeat, seatDisplayName } from "../services/seat-presentation";
 import { activeSeatsFromSession, seatsFromSession } from "../services/session-seats";
 import type { Session, SessionSeat } from "../types/agent";
+import type { ChatMessage } from "../types/chat";
 import { isSessionAgentSelectable, selectSessionAgents } from "./create-session-agents";
 import { SessionSeatsPanel } from "./session-seats-panel";
 
 export function SessionRosterEditor({
   currentSpeakerSeatId = null,
+  messages = [],
   session,
 }: {
   currentSpeakerSeatId?: string | null;
+  messages?: ChatMessage[];
   session: Session;
 }) {
   const { t } = useTranslation();
@@ -86,6 +89,7 @@ export function SessionRosterEditor({
         onSeatsChange={save}
         roles={roles.data ?? []}
         seats={draft}
+        messages={messages}
         speakingSeatId={currentSpeakerSeatId}
       />
       <div className="grid grid-cols-2 gap-2 border-t border-border/60 pt-3">

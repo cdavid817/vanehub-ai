@@ -13,7 +13,7 @@ import { ComposerMediaActions } from "./ComposerMediaActions";
 
 function model(overrides: Partial<LocalMediaComposerModel> = {}): LocalMediaComposerModel {
   return {
-    availability: { native: true, ocr: true, stt: true, tts: true },
+    availability: { native: true, screenshot: true, ocr: true, stt: true, tts: true },
     ocrPhase: "idle",
     microphonePhase: "idle",
     speechPhase: "idle",
@@ -23,6 +23,7 @@ function model(overrides: Partial<LocalMediaComposerModel> = {}): LocalMediaComp
     review: null,
     overflow: null,
     startOcr: vi.fn(),
+    startScreenshot: vi.fn(),
     updateReviewText: vi.fn(),
     appendReviewText: vi.fn(),
     cancelReview: vi.fn(),
@@ -43,6 +44,7 @@ function model(overrides: Partial<LocalMediaComposerModel> = {}): LocalMediaComp
 }
 
 const OCR = "composer-media-ocr";
+const SCREENSHOT = "composer-media-screenshot";
 const MIC = "composer-media-microphone";
 const SPEAK = "composer-media-speak";
 
@@ -61,6 +63,7 @@ describe("ComposerMediaActions", () => {
     render();
 
     expect(screen.getByTestId(OCR).getAttribute("aria-label")).toBe("图片文字识别");
+    expect(screen.getByTestId(SCREENSHOT).getAttribute("aria-label")).toBe("截取屏幕区域");
     expect(screen.getByTestId(MIC).getAttribute("aria-label")).toBe("按住说话");
     expect(screen.getByTestId(SPEAK).getAttribute("aria-label")).toBe("朗读文本");
   });
@@ -74,21 +77,22 @@ describe("ComposerMediaActions", () => {
   });
 
   it("disables an action whose own engine is unready and leaves the others alone", () => {
-    render({ availability: { native: true, ocr: false, stt: true, tts: true } });
+    render({ availability: { native: true, screenshot: false, ocr: false, stt: true, tts: true } });
 
     expect(screen.getByTestId(OCR).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByTestId(SCREENSHOT).hasAttribute("disabled")).toBe(true);
     expect(screen.getByTestId(MIC).hasAttribute("disabled")).toBe(false);
     expect(screen.getByTestId(SPEAK).hasAttribute("disabled")).toBe(false);
   });
 
   it("explains a disabled control as native-only when there is no native runtime", () => {
-    render({ availability: { native: false, ocr: false, stt: false, tts: false } });
+    render({ availability: { native: false, screenshot: false, ocr: false, stt: false, tts: false } });
 
     expect(screen.getByTestId(OCR).getAttribute("title")).toBe("该功能只在桌面客户端可用");
   });
 
   it("explains a disabled control as unready when the runtime is present", () => {
-    render({ availability: { native: true, ocr: false, stt: false, tts: false } });
+    render({ availability: { native: true, screenshot: false, ocr: false, stt: false, tts: false } });
 
     expect(screen.getByTestId(OCR).getAttribute("title")).toContain("尚未就绪");
   });

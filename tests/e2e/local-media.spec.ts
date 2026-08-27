@@ -43,6 +43,19 @@ test.describe("Local media settings in Web mode", () => {
     await expect(page.getByRole("button", { name: /下载|安装|Download|Install/ })).toHaveCount(0);
   });
 
+  test("keeps the guided setup readable and truthful at narrow desktop width", async ({ page }) => {
+    await openLocalMediaSettings(page);
+    await page.setViewportSize({ width: 720, height: 900 });
+
+    await expect(page.getByRole("heading", { name: /配置概览|Setup overview/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Python 环境|Python environments/ })).toBeVisible();
+    await expect(page.getByText(/未检测到兼容环境|No compatible environment/)).toBeVisible();
+    await expect(page.getByTestId("local-media-save")).toBeVisible();
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth),
+    ).toBe(true);
+  });
+
   test("states the local-only guarantee as a claim about this feature, not the operating system", async ({
     page,
   }) => {
@@ -87,13 +100,14 @@ async function openStructuredComposer(page: Page) {
 }
 
 test.describe("Composer media actions in Web mode", () => {
-  test("keeps the three actions visible and disabled instead of hiding them", async ({ page }) => {
+  test("keeps the four actions visible and disabled instead of hiding them", async ({ page }) => {
     await openStructuredComposer(page);
 
     // Hiding them would leave a user who reads about the feature with nowhere to find out why it
     // is missing. Disabled with a reason in the tooltip is the honest state.
     for (const id of [
       "composer-media-ocr",
+      "composer-media-screenshot",
       "composer-media-microphone",
       "composer-media-speak",
     ]) {
@@ -110,6 +124,10 @@ test.describe("Composer media actions in Web mode", () => {
     await expect(page.getByTestId("composer-media-ocr")).toHaveAttribute(
       "aria-label",
       "图片文字识别",
+    );
+    await expect(page.getByTestId("composer-media-screenshot")).toHaveAttribute(
+      "aria-label",
+      "截取屏幕区域",
     );
     await expect(page.getByTestId("composer-media-microphone")).toHaveAttribute(
       "aria-label",

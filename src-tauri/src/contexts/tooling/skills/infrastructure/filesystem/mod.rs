@@ -675,10 +675,7 @@ impl SkillFilesystemPort for ManagedSkillFilesystem {
                 let content = std::fs::read_to_string(&skill_file).map_err(filesystem_error)?;
                 SkillSourceInspection::Present {
                     path: skill_file.to_string_lossy().to_string(),
-                    content_hash: observed_content_hash(
-                        &content,
-                        &record.managed_source.content_hash,
-                    ),
+                    content_hash: observed_content_hash(record, &source, &content),
                 }
             } else {
                 SkillSourceInspection::Missing {
@@ -853,7 +850,22 @@ fn normalize_path(path: &Path) -> String {
     value.strip_prefix(r"\\?\").unwrap_or(&value).to_string()
 }
 
-fn observed_content_hash(content: &str, expected: &str) -> String {
+fn observed_content_hash(record: &SkillRecord, source: &Path, content: &str) -> String {
+    let expected = &record.managed_source.content_hash;
+    // Effective cache directories are addressed by the complete package revision, which also
+    // covers resources and overlays. Materialization verifies that package immediately before
+    // drift inspection, so comparing that revision with only SKILL.md's digest is invalid.
+    if record.resolved_metadata.is_some()
+        && source.file_name().and_then(|value| value.to_str()) == Some(expected.as_str())
+        && source
+            .parent()
+            .and_then(Path::parent)
+            .and_then(Path::file_name)
+            .and_then(|value| value.to_str())
+            == Some("effective")
+    {
+        return expected.clone();
+    }
     if expected.len() == 64 && expected.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         Sha256::digest(content.as_bytes())
             .iter()
@@ -942,7 +954,8 @@ mod tests {
     use super::transaction::remove_path;
     use super::*;
     use crate::contexts::tooling::skills::domain::{
-        SkillId, SkillKey, SkillLocation, SkillMetadata, SkillScope, SkillSource,
+        detect_drift, SkillDriftIssueType, SkillId, SkillKey, SkillLocation, SkillMetadata,
+        SkillScope, SkillSource,
     };
     use crate::test_support::TempDirectory;
 
@@ -1377,6 +1390,36 @@ mod tests {
             std::fs::read_to_string(mounted.join("references/guide.md")).expect("mounted resource"),
             "Effective resource"
         );
+
+        let inspection = filesystem
+            .inspect_drift(&location(), &[stored], &[])
+            .expect("effective cache drift inspection");
+        assert!(detect_drift(&inspection).is_empty());
+    }
+
+    #[test]
+    fn edited_mutable_source_still_reports_metadata_drift() {
+        let home = TempDirectory::new("Skill mutable source drift");
+        let filesystem = ManagedSkillFilesystem::with_home_root(home.path().to_path_buf());
+        let transaction = filesystem.begin_mutation().expect("source transaction");
+        let source = filesystem
+            .create_source(
+                &transaction,
+                &location(),
+                &SkillId::parse("mutable-drift").expect("Skill id"),
+                &document("mutable-drift", "original"),
+            )
+            .expect("managed source");
+        filesystem.commit_mutation(transaction);
+        std::fs::write(&source.skill_md_path, "changed outside VaneHub").expect("external edit");
+
+        let inspection = filesystem
+            .inspect_drift(&location(), &[record("mutable-drift", source)], &[])
+            .expect("mutable source drift inspection");
+
+        assert!(detect_drift(&inspection)
+            .iter()
+            .any(|issue| issue.issue_type == SkillDriftIssueType::MetadataChanged));
     }
 
     #[test]

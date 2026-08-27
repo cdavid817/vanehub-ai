@@ -460,4 +460,3 @@ The system SHALL bound and redact CLI process output before retaining, displayin
 
 - **WHEN** output contains a password, token, API key, bearer value, cookie, OAuth code, or provider credential pattern
 - **THEN** the sensitive value SHALL be replaced before the operation log is visible to the frontend or written to disk
-

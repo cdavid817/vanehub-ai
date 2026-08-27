@@ -74,7 +74,10 @@ function composer(page: Page) {
 
 /** Make another existing session the active one, the way a user does. */
 async function switchTo(page: Page, title: string) {
-  await page.locator("[data-session-id]").filter({ hasText: title }).first().click();
+  const session = page.locator("[data-session-id]").filter({ hasText: title }).first();
+  await session.click();
+  await expect(session).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("heading", { level: 2, name: title, exact: true })).toBeVisible();
   await expect(page.getByTestId("composer-media-actions")).toBeVisible();
 }
 
@@ -107,6 +110,20 @@ test.describe("local media driven by the deterministic fake", () => {
 
     await page.getByTestId("composer-ocr-append").click();
     await expect(composer(page)).toHaveValue(/existing draft\n\nfixture recognized line one/);
+  });
+
+  test("stages a screenshot through the same editable OCR review", async ({ page }) => {
+    await openComposer(page);
+    await composer(page).fill("screenshot draft");
+
+    await page.getByTestId("composer-media-screenshot").click();
+    await expect(page.getByTestId("composer-ocr-review")).toBeVisible();
+    await expect(composer(page)).toHaveValue("screenshot draft");
+    await page.getByTestId("composer-ocr-text").fill("reviewed screenshot text");
+    await page.getByTestId("composer-ocr-append").click();
+
+    await expect(composer(page)).toHaveValue("screenshot draft\n\nreviewed screenshot text");
+    expect((await calls(page)).selectScreenshot).toBe(1);
   });
 
   test("keeps an edit made in the review", async ({ page }) => {
@@ -249,7 +266,9 @@ test.describe("local media driven by the deterministic fake", () => {
     expect(afterSwitch.stopRecordingAndTranscribe).toBeUndefined();
 
     // The session the user arrived in owns the microphone now.
+    await expect(microphone).toBeEnabled();
     await microphone.dispatchEvent("pointerdown", { button: 0, pointerId: 1 });
+    await expect(microphone).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByTestId("composer-media-recording")).toBeVisible();
     await microphone.dispatchEvent("pointerup", { button: 0, pointerId: 1 });
     await expect(composer(page)).toHaveValue("fixture transcript");
@@ -275,7 +294,9 @@ test.describe("local media driven by the deterministic fake", () => {
     expect(afterSwitch.cancelRecording).toBe(1);
     expect(afterSwitch.stopRecordingAndTranscribe).toBeUndefined();
 
+    await expect(microphone).toBeEnabled();
     await microphone.dispatchEvent("pointerdown", { button: 0, pointerId: 1 });
+    await expect(microphone).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByTestId("composer-media-recording")).toBeVisible();
     await microphone.dispatchEvent("pointerup", { button: 0, pointerId: 1 });
     await expect(composer(page)).toHaveValue("fixture transcript");
@@ -412,5 +433,43 @@ test.describe("local media driven by the deterministic fake", () => {
     await expect(page.getByTestId("local-media-card-ocr")).toContainText("可用");
     await page.getByTestId("local-media-probe-ocr").click();
     await expect(page.getByTestId("local-media-card-ocr")).toContainText("fixture-1.0.0");
+  });
+
+  test("configures a discovered Python environment, saves required fields, and probes readiness", async ({ page }) => {
+    await page.setViewportSize({ width: 980, height: 900 });
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await page.getByRole("button", { name: /设置|Settings/ }).click();
+    await page.getByRole("button", { name: /^(本地媒体|Local Media)$/ }).click();
+
+    await expect(page.locator("#local-media-stt-python-select option[value='/fixture/python']")).toBeAttached();
+    await page.locator("#local-media-stt-python").fill("");
+    await page.locator("#local-media-stt-python-select").selectOption("/fixture/python");
+    await page.locator("#local-media-stt-model").fill("/fixture/whisper-next");
+    await expect(page.getByTestId("local-media-next-step")).toContainText(/保存|Save/);
+    await page.getByTestId("local-media-save").click();
+
+    await expect(page.getByText(/^(已保存|Saved)$/)).toBeVisible();
+    await expect(page.getByTestId("local-media-probe-stt")).toBeEnabled();
+    await page.getByTestId("local-media-probe-stt").click();
+    await expect(page.getByTestId("local-media-card-stt")).toContainText("fixture-1.0.0");
+  });
+
+  test("keeps the guided settings usable at narrow width in Chinese and English", async ({ page }) => {
+    await page.setViewportSize({ width: 520, height: 760 });
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await page.getByRole("button", { name: "设置" }).click();
+    await page.getByLabel("应用语言").selectOption("en");
+    await expect(page.getByRole("heading", { name: "Basic Configuration" }).first()).toBeVisible();
+    await page.getByRole("button", { name: "Local Media", exact: true }).click();
+    await expect(page.getByTestId("local-media-next-step")).toContainText("Next step");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await expect(page.getByTestId("local-media-save")).toBeVisible();
+
+    await page.getByRole("button", { name: "Basic Configuration", exact: true }).click();
+    await page.getByLabel("Application Language").selectOption("zh-CN");
+    await page.getByRole("button", { name: "本地媒体", exact: true }).click();
+    await expect(page.getByTestId("local-media-next-step")).toContainText("下一步");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await expect(page.getByTestId("local-media-save")).toBeVisible();
   });
 });
