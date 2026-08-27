@@ -3380,6 +3380,20 @@
     },
     {
       "archivedOn": "2026-08-27",
+      "changeName": "add-lsp-java-jdtls",
+      "path": "openspec/changes/archive/2026-08-27-add-lsp-java-jdtls/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "lsp-server-management",
+        "settings-center-ui"
+      ]
+    },
+    {
+      "archivedOn": "2026-08-27",
       "changeName": "expand-lsp-read-only-methods",
       "path": "openspec/changes/archive/2026-08-27-expand-lsp-read-only-methods/",
       "artifacts": [
