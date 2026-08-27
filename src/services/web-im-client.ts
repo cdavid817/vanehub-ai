@@ -12,7 +12,6 @@ import {
 import type { ImService } from "./im-service";
 import { compactFieldPatch, connectorFieldMaps, mockAuthorization } from "./web-im-client-helpers";
 import { getSessionAccess, mutateBinding } from "./web-im-session-state";
-
 const kinds: ImConnectorKind[] = ["feishu", "telegram", "dingtalk", "wecom", "weixin"];
 const limits: Record<ImConnectorKind, number> = {
   feishu: 20_000,
@@ -21,7 +20,6 @@ const limits: Record<ImConnectorKind, number> = {
   wecom: 2_000,
   weixin: 2_000,
 };
-
 let routing: ImRouting | null = null;
 let pairingSequence = 0;
 let pairings = new Map<string, ImPairingStart>();
@@ -56,11 +54,9 @@ let connectorState: Record<ImConnectorKind, ImConnectorView> = Object.fromEntrie
     } satisfies ImConnectorView,
   ]),
 ) as Record<ImConnectorKind, ImConnectorView>;
-
 let authorizationPoll = 0;
 let authorizationActive = false;
 const lifecycleSubscribers = new Set<(health: ImConnectorView["health"]) => void>();
-
 function cloneView(view: ImConnectorView): ImConnectorView {
   return {
     ...view,
@@ -163,10 +159,11 @@ export const webImClient: ImService = {
     }));
   },
   async resetBindings() {},
-  async getSessionBinding(sessionId) {
-    return { binding: sessionBindings.get(sessionId) ?? null,
-      pendingConnector: pairings.get(sessionId)?.connector ?? null,
-      access: getSessionAccess(sessionAccess, sessionId, "feishu") };
+  async getSessionBinding(sessionId, connector) {
+    const binding = sessionBindings.get(sessionId) ?? null;
+    const accessConnector = binding?.connector ?? connector;
+    return { binding, pendingConnector: pairings.get(sessionId)?.connector ?? null,
+      access: getSessionAccess(sessionAccess, sessionId, accessConnector) };
   },
   async setSessionAccess(sessionId, connector, enabled) {
     const access: ImSessionAccess = { sessionId, connector, enabled, updatedAt: new Date().toISOString() };
@@ -174,7 +171,7 @@ export const webImClient: ImService = {
     return { ...access };
   },
   async beginPairing(sessionId, connector, replaceExisting = false) {
-    if (connector === "feishu" && !getSessionAccess(sessionAccess, sessionId, connector).enabled) throw new Error("im-session-disabled");
+    if (!getSessionAccess(sessionAccess, sessionId, connector).enabled) throw new Error("im-session-disabled");
     const view = connectorState[connector];
     if (!view.config.enabled || view.health.lifecycle !== "connected") {
       throw new Error("im-connector-not-ready");
@@ -192,6 +189,7 @@ export const webImClient: ImService = {
     if (previousTimer) globalThis.clearTimeout(previousTimer);
     pairingTimers.set(sessionId, globalThis.setTimeout(() => {
       if (pairings.get(sessionId)?.code !== pairing.code) return;
+      if (!getSessionAccess(sessionAccess, sessionId, connector).enabled) { pairings.delete(sessionId); pairingTimers.delete(sessionId); return; }
       const now = new Date().toISOString();
       sessionBindings.set(sessionId, {
         completionNotifications: false,

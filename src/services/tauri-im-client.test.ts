@@ -88,10 +88,14 @@ describe("Tauri IM client contract", () => {
       replaceExisting: false,
       sessionId: "session-1",
     });
-    await expect(tauriImClient.getSessionBinding("session-1")).resolves.toEqual({
+    await expect(tauriImClient.getSessionBinding("session-1", "feishu")).resolves.toEqual({
       access: { connector: "feishu", enabled: false, sessionId: "session-1", updatedAt: "1970-01-01T00:00:00Z" },
       binding: null,
       pendingConnector: "telegram",
+    });
+    expect(invoke).toHaveBeenNthCalledWith(2, "get_im_session_binding", {
+      connector: "feishu",
+      sessionId: "session-1",
     });
   });
 
@@ -128,6 +132,17 @@ describe("Tauri IM client contract", () => {
       pendingConnector: null,
     });
 
-    await expect(tauriImClient.getSessionBinding("session-1")).rejects.toThrow();
+    await expect(tauriImClient.getSessionBinding("session-1", "feishu")).rejects.toThrow();
+  });
+
+  it("rejects access returned for a different unbound connector", async () => {
+    invoke.mockResolvedValue({
+      access: { connector: "telegram", enabled: false, sessionId: "session-1", updatedAt: "1970-01-01T00:00:00Z" },
+      binding: null,
+      pendingConnector: null,
+    });
+
+    await expect(tauriImClient.getSessionBinding("session-1", "feishu"))
+      .rejects.toThrow("im-session-access-connector-mismatch");
   });
 });

@@ -42,7 +42,7 @@ async function recordOperatorScenarios(status, safeErrorCode) {
 
 async function waitForBinding(sessionId) {
   return globalThis.browser.waitUntil(async () => {
-    const snapshot = await coreInvoke("get_im_session_binding", { sessionId });
+    const snapshot = await coreInvoke("get_im_session_binding", { sessionId, connector: "feishu" });
     return snapshot.binding?.state === "active" ? snapshot : false;
   }, { timeout: OPERATOR_TIMEOUT, interval: 1_000, timeoutMsg: "operator pairing timed out" });
 }

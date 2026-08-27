@@ -188,8 +188,9 @@ impl CommunicationsApi {
     pub(crate) fn session_binding(
         &self,
         session_id: &str,
+        connector: ConnectorKind,
     ) -> Result<SessionBindingSnapshot, CommunicationsApplicationError> {
-        self.service.session_binding(session_id)
+        self.service.session_binding(session_id, connector)
     }
 
     pub(crate) fn set_binding_paused(
