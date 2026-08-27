@@ -16,7 +16,10 @@ globalThis.describe("VaneHub AI desktop Feishu IM session access: enable", () =>
     this.timeout(240_000);
     await bootDesktopUi();
     const session = await createFeishuSession(persistedSessionTitle);
-    const initial = await coreInvoke("get_im_session_binding", { sessionId: session.id });
+    const initial = await coreInvoke("get_im_session_binding", {
+      sessionId: session.id,
+      connector: "feishu",
+    });
     assert.equal(initial.access.enabled, false, "native access did not default off");
     assert.equal(initial.binding, null, "a new session unexpectedly had an IM binding");
 
@@ -29,14 +32,20 @@ globalThis.describe("VaneHub AI desktop Feishu IM session access: enable", () =>
 
     await accessSwitch.click();
     await globalThis.browser.waitUntil(async () => {
-      const snapshot = await coreInvoke("get_im_session_binding", { sessionId: session.id });
+      const snapshot = await coreInvoke("get_im_session_binding", {
+        sessionId: session.id,
+        connector: "feishu",
+      });
       return snapshot.access.enabled;
     }, { timeout: 30_000, timeoutMsg: "The UI switch never reached native storage." });
 
     await coreInvoke("fixture_feishu_im_reset");
     const setup = await coreInvoke("fixture_feishu_im_setup", { sessionId: session.id });
     assert.deepEqual(setup, { ready: true, connector: "feishu" });
-    const bound = await coreInvoke("get_im_session_binding", { sessionId: session.id });
+    const bound = await coreInvoke("get_im_session_binding", {
+      sessionId: session.id,
+      connector: "feishu",
+    });
     assert.equal(bound.access.enabled, true);
     assert.equal(bound.binding?.state, "active", "the fixture pairing did not persist an active binding");
   });

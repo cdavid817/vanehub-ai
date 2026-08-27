@@ -165,9 +165,9 @@ pub(crate) fn apply_session_connector_access_schema(
 
         INSERT OR IGNORE INTO im_session_connector_access
             (session_id, connector, enabled, updated_at)
-        SELECT session_id, 'feishu', 1, updated_at
+        SELECT session_id, connector, 1, updated_at
         FROM im_session_bindings
-        WHERE connector = 'feishu';
+        WHERE connector IN ('feishu', 'telegram', 'dingtalk', 'wecom', 'weixin');
         "#,
     )?;
     Ok(())
@@ -419,7 +419,7 @@ mod tests {
     }
 
     #[test]
-    fn session_access_backfills_feishu_without_enabling_new_sessions() {
+    fn session_access_backfills_matching_connector_without_enabling_new_sessions() {
         let connection = Connection::open_in_memory().expect("database");
         connection
             .execute_batch(
@@ -442,7 +442,7 @@ mod tests {
                 INSERT INTO im_session_bindings
                     (connector, external_chat_hash, session_id, state,
                      completion_notifications, created_at, updated_at)
-                VALUES ('feishu', 'chat', 'bound', 'active', 0,
+                VALUES ('telegram', 'chat', 'bound', 'active', 0,
                     '2026-08-12T00:00:00Z', '2026-08-12T00:01:00Z');
                 "#,
             )
@@ -452,7 +452,7 @@ mod tests {
         let access: (i64, String) = connection
             .query_row(
                 "SELECT enabled, updated_at FROM im_session_connector_access \
-                 WHERE session_id = 'bound' AND connector = 'feishu'",
+                 WHERE session_id = 'bound' AND connector = 'telegram'",
                 [],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )

@@ -8,11 +8,13 @@ export function SessionImAccessToggle({
   enabled,
   onChange,
   pending,
+  platformName,
 }: {
   binding: ImSessionBinding | null;
   enabled: boolean;
   onChange: (enabled: boolean) => Promise<unknown>;
   pending: boolean;
+  platformName: string;
 }) {
   const { t } = useTranslation();
   const [confirmDisable, setConfirmDisable] = useState(false);
@@ -29,13 +31,13 @@ export function SessionImAccessToggle({
     <section className="ucd-muted-panel grid gap-3 rounded-lg p-3" data-testid="session-im-access">
       <label className="flex items-start justify-between gap-3">
         <span>
-          <span className="block text-sm font-semibold">{t("im.session.access.title")}</span>
+          <span className="block text-sm font-semibold">{t("im.session.access.title", { platform: platformName })}</span>
           <span className="mt-1 block text-xs text-muted-foreground">
-            {t(enabled ? "im.session.access.enabledHint" : "im.session.access.disabledHint")}
+            {t(enabled ? "im.session.access.enabledHint" : "im.session.access.disabledHint", { platform: platformName })}
           </span>
         </span>
         <input
-          aria-label={t("im.session.access.switch")}
+          aria-label={t("im.session.access.switch", { platform: platformName })}
           checked={enabled}
           disabled={pending}
           onChange={(event) => requestChange(event.target.checked)}
@@ -45,7 +47,7 @@ export function SessionImAccessToggle({
       </label>
       {confirmDisable ? (
         <div aria-live="polite" className="grid gap-2 rounded-md border border-destructive/40 p-2 text-xs">
-          <p>{t("im.session.access.disableConfirm")}</p>
+          <p>{t("im.session.access.disableConfirm", { platform: platformName })}</p>
           <div className="grid grid-cols-2 gap-2">
             <Button onClick={() => setConfirmDisable(false)} size="sm" variant="ghost">
               {t("im.session.access.keepEnabled")}

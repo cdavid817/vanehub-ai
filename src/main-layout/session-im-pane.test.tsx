@@ -38,9 +38,9 @@ function serviceFixture(
     testConnector: vi.fn(),
     clearConnector: vi.fn(),
     resetBindings: vi.fn(),
-    getSessionBinding: vi.fn(async (sessionId) => ({
+    getSessionBinding: vi.fn(async (sessionId, selectedConnector) => ({
       access: {
-        connector: "feishu" as const,
+        connector: selectedConnector,
         enabled: accessBySession.get(sessionId) ?? false,
         sessionId,
         updatedAt: "2026-08-13T00:00:00Z",
@@ -114,6 +114,33 @@ describe("SessionImPane", () => {
     await waitFor(() => expect((accessSwitch as HTMLInputElement).checked).toBe(true));
     expect(service.setSessionAccess).toHaveBeenCalledWith("session-1", "feishu", true);
     expect(screen.getByRole("button", { name: "Feishu" })).toBeTruthy();
+  });
+
+  it("selects a ready connector and scopes access and pairing to it", async () => {
+    const user = userEvent.setup();
+    const service = serviceFixture("connected", null, false);
+    const telegram: ImConnectorView = {
+      descriptor: { kind: "telegram", experimental: false, maxOutboundChars: 4_096, supportsQrAuthorization: false },
+      config: { kind: "telegram", enabled: true, publicConfig: {} },
+      hasCredentials: true,
+      health: { kind: "telegram", generation: 1, lifecycle: "connected", updatedAt: "2026-08-13T00:00:00Z" },
+    };
+    const feishu = (await service.listConnectors())[0];
+    vi.mocked(service.listConnectors).mockResolvedValue([feishu, telegram]);
+    render(<SessionImPane service={service} sessionId="session-1" />);
+
+    const selector = await screen.findByRole("combobox", { name: "IM connector" });
+    await user.selectOptions(selector, "telegram");
+    const accessSwitch = await screen.findByRole("switch", { name: "Enable Telegram for this session" });
+    await user.click(accessSwitch);
+
+    await waitFor(() => expect(service.setSessionAccess).toHaveBeenCalledWith(
+      "session-1",
+      "telegram",
+      true,
+    ));
+    await user.click(screen.getByRole("button", { name: "Telegram" }));
+    expect(service.beginPairing).toHaveBeenCalledWith("session-1", "telegram", false);
   });
 
   it("keeps access off and reports a failed enable mutation", async () => {

@@ -634,8 +634,13 @@ impl CommunicationsApplicationService {
     pub(crate) fn session_binding(
         &self,
         session_id: &str,
+        connector: ConnectorKind,
     ) -> Result<SessionBindingSnapshot, CommunicationsApplicationError> {
         let binding = self.ports.repository.binding_for_session(session_id)?;
+        let access_connector = binding
+            .as_ref()
+            .map(|binding| binding.connector)
+            .unwrap_or(connector);
         let now = self.ports.clock.now_rfc3339();
         let pending_connector = builtin_descriptors()
             .into_iter()
@@ -658,7 +663,7 @@ impl CommunicationsApplicationService {
             access: self
                 .ports
                 .repository
-                .session_access(session_id, ConnectorKind::Feishu)?,
+                .session_access(session_id, access_connector)?,
         })
     }
 
@@ -874,9 +879,6 @@ impl CommunicationsApplicationService {
         session_id: &str,
         connector: ConnectorKind,
     ) -> Result<(), CommunicationsApplicationError> {
-        if connector != ConnectorKind::Feishu {
-            return Ok(());
-        }
         if self
             .ports
             .repository

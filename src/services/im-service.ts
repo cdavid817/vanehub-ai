@@ -20,7 +20,7 @@ export interface ImService {
   testConnector(kind: ImConnectorKind): Promise<void>;
   clearConnector(kind: ImConnectorKind): Promise<void>;
   resetBindings(kind?: ImConnectorKind): Promise<void>;
-  getSessionBinding(sessionId: string): Promise<ImSessionBindingView>;
+  getSessionBinding(sessionId: string, connector: ImConnectorKind): Promise<ImSessionBindingView>;
   setSessionAccess(sessionId: string, connector: ImConnectorKind, enabled: boolean): Promise<ImSessionAccess>;
   beginPairing(sessionId: string, connector: ImConnectorKind, replaceExisting?: boolean): Promise<ImPairingStart>;
   cancelPairing(sessionId: string, connector: ImConnectorKind): Promise<boolean>;

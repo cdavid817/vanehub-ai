@@ -1,5 +1,6 @@
 use crate::commands::error::{map_command_error, CommandError};
 use crate::contexts::communications::api::CommunicationsApi;
+use crate::contexts::communications::domain::ConnectorKind;
 use crate::contexts::communications::infrastructure::{
     FeishuDesktopFixture, FeishuFixtureEvent, FeishuFixtureLedgerEntry, FeishuFixtureSetupResult,
 };
@@ -11,9 +12,14 @@ pub(crate) fn fixture_feishu_im_setup(
     database: State<'_, NativeDatabase>,
     fixture: State<'_, FeishuDesktopFixture>,
     session_id: String,
+    connector: Option<ConnectorKind>,
 ) -> Result<FeishuFixtureSetupResult, CommandError> {
     fixture
-        .setup(database.inner(), &session_id)
+        .setup(
+            database.inner(),
+            &session_id,
+            connector.unwrap_or(ConnectorKind::Feishu),
+        )
         .map_err(map_command_error)
 }
 

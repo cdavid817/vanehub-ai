@@ -45,10 +45,12 @@ export const tauriImClient: ImService = {
   resetBindings(kind?: ImConnectorKind) {
     return invoke<void>("reset_im_bindings", { kind: kind ?? null });
   },
-  async getSessionBinding(sessionId) {
-    return imSessionBindingViewSchema.parse(
-      await invoke<unknown>("get_im_session_binding", { sessionId }),
-    );
+  async getSessionBinding(sessionId, connector) {
+    const raw = await invoke<unknown>("get_im_session_binding", { sessionId, connector });
+    const view = imSessionBindingViewSchema.parse(raw);
+    const expectedConnector = view.binding?.connector ?? connector;
+    if (view.access.connector !== expectedConnector) throw new Error("im-session-access-connector-mismatch");
+    return view;
   },
   async setSessionAccess(sessionId, connector, enabled) {
     return imSessionAccessSchema.parse(
