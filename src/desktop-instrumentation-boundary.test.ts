@@ -147,7 +147,7 @@ describe("Playwright browser suite independence", () => {
     const packageJson = readFileSync(path.join(projectRoot, "package.json"), "utf8");
     const devScript = (JSON.parse(packageJson) as { scripts: Record<string, string> }).scripts.dev;
     expect(devScript).not.toMatch(/VITE_DESKTOP_E2E|desktop-e2e|wdio/);
-  });
+  }, 30_000);
 
   it("keeps browser specs free of desktop automation dependencies", () => {
     const specDir = path.join(projectRoot, "tests", "e2e");

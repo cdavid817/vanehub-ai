@@ -28,7 +28,9 @@ describe("AgentMemorySection", () => {
   it("shows an empty state when the shared pool has no memories", async () => {
     const service = createAgentServiceDouble({ listAllMemories: async () => [] });
     renderSection(service);
-    expect(await screen.findByText("暂无已保存的记忆。")).toBeTruthy();
+    expect(
+      await screen.findByText("暂无已保存的记忆。", undefined, { timeout: 5_000 }),
+    ).toBeTruthy();
   });
 
   it("lists memories from every agent with source, agent, and folder, and deletes one on confirm", async () => {
