@@ -8,7 +8,6 @@
 //! Seats respond one at a time. Running a round's seats concurrently would mean a later seat
 //! reading a thread that is missing an earlier seat's reply, which is the whole content of the
 //! turn it was handed.
-
 use crate::contexts::agent_runtime::application::{
     AgentRuntimeApplicationError, AgentRuntimeApplicationService, SeatTurnAssignment, SeatTurnStop,
 };
@@ -20,7 +19,6 @@ use std::time::{Duration, Instant};
 /// Agent doing real work routinely runs for minutes; the point is to release the round rather than
 /// to bound the work.
 const TURN_TIMEOUT: Duration = Duration::from_secs(30 * 60);
-
 const POLL_INTERVAL: Duration = Duration::from_millis(200);
 
 #[derive(Clone)]
@@ -36,7 +34,6 @@ impl NativeSeatTurnCoordinator {
             running: Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
         }
     }
-
     /// Starts driving `session_id`'s round, if one is not already being driven.
     ///
     /// Refusing a second driver is what keeps seats serial: two coordinators on one session would
@@ -71,7 +68,6 @@ impl NativeSeatTurnCoordinator {
         }
         Ok(())
     }
-
     fn run(&self, session_id: &str) {
         let mut queue: VecDeque<SeatTurnAssignment> = VecDeque::new();
         loop {
@@ -86,14 +82,19 @@ impl NativeSeatTurnCoordinator {
                         decision.stop,
                         Some(SeatTurnStop::AwaitingHuman | SeatTurnStop::RoundComplete)
                     ) {
+                        let _ = self.runtime.complete_seat_round(&terminal);
                         return;
                     }
                     queue.extend(decision.next);
                 }
-                Err(_) => return,
+                Err(_) => {
+                    let _ = self.runtime.fail_seat_round(&terminal);
+                    return;
+                }
             }
 
             let Some(assignment) = queue.pop_front() else {
+                let _ = self.runtime.complete_seat_round(&terminal);
                 return;
             };
             if self
@@ -101,6 +102,7 @@ impl NativeSeatTurnCoordinator {
                 .start_seat_turn(session_id, &assignment)
                 .is_err()
             {
+                let _ = self.runtime.fail_seat_round(&terminal);
                 return;
             }
         }

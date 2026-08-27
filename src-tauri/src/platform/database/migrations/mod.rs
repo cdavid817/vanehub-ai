@@ -540,6 +540,12 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "lsp-language-registry",
         crate::contexts::code_intelligence::api::apply_language_registry_schema,
     )?;
+    apply_transactional_migration(
+        conn,
+        87,
+        "im-session-connector-access",
+        crate::contexts::communications::infrastructure::apply_session_connector_access_schema,
+    )?;
     repair_missing_stable_participant_schema(conn)?;
     repair_missing_cli_parameter_profile_schema(conn)?;
 
@@ -657,6 +663,7 @@ const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (84, "cli-version-catalogs"),
     (85, "cli-action-plans"),
     (86, "lsp-language-registry"),
+    (87, "im-session-connector-access"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {

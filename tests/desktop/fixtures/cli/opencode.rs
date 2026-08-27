@@ -4,8 +4,27 @@ use std::thread;
 use std::time::Duration;
 
 fn main() -> io::Result<()> {
-    if env::args().skip(1).any(|arg| arg == "--version") {
+    let args = env::args().skip(1).collect::<Vec<_>>();
+    if args.iter().any(|arg| arg == "--version") {
         println!("vanehub-fixture 1.0.0");
+        return Ok(());
+    }
+    if args.iter().any(|arg| arg == "run") {
+        let prompt = args.join(" ");
+        if prompt.contains("VANEHUB_E2E_SLOW") {
+            thread::sleep(Duration::from_millis(1_000));
+        }
+        let final_text = if prompt.contains("VANEHUB_E2E_OVERSIZED") {
+            "界".repeat(20_001)
+        } else {
+            "deterministic fixture final".to_string()
+        };
+        println!(
+            r#"{{"type":"text","sessionID":"fixture-session","part":{{"id":"fixture-text","messageID":"fixture-message","sessionID":"fixture-session","type":"text","text":"{final_text}"}}}}"#
+        );
+        println!(
+            r#"{{"type":"step_finish","sessionID":"fixture-session","part":{{"id":"fixture-finish","reason":"stop","messageID":"fixture-message","sessionID":"fixture-session","type":"step-finish"}}}}"#
+        );
         return Ok(());
     }
 

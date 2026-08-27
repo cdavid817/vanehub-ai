@@ -106,10 +106,68 @@ describe("web IM client", () => {
     expect(pairing).toMatchObject({ connector: "telegram", sessionId: "session-1" });
     expect(pairing.code).toHaveLength(8);
     await expect(webImClient.getSessionBinding("session-1")).resolves.toEqual({
+      access: { connector: "feishu", enabled: false, sessionId: "session-1", updatedAt: "1970-01-01T00:00:00Z" },
       binding: null,
       pendingConnector: "telegram",
     });
     await expect(webImClient.cancelPairing("session-1", "telegram")).resolves.toBe(true);
+  });
+
+  it("keeps Feishu access default-off and isolated by session", async () => {
+    await expect(webImClient.getSessionBinding("session-a")).resolves.toMatchObject({
+      access: { connector: "feishu", enabled: false, sessionId: "session-a" },
+    });
+    await expect(webImClient.setSessionAccess("session-a", "feishu", true)).resolves.toMatchObject({
+      enabled: true,
+      sessionId: "session-a",
+    });
+    await expect(webImClient.getSessionBinding("session-a")).resolves.toMatchObject({
+      access: { enabled: true },
+    });
+    await expect(webImClient.getSessionBinding("session-b")).resolves.toMatchObject({
+      access: { enabled: false, sessionId: "session-b" },
+    });
+  });
+
+  it("requires session access before Feishu pairing and allows re-enable", async () => {
+    await webImClient.saveConnector({
+      kind: "feishu",
+      enabled: true,
+      publicConfig: { appId: "fixture-app" },
+      credentials: { appSecret: "write-only-secret" },
+    });
+    await expect(webImClient.beginPairing("session-1", "feishu"))
+      .rejects.toThrow("im-session-disabled");
+    await webImClient.setSessionAccess("session-1", "feishu", true);
+    await expect(webImClient.beginPairing("session-1", "feishu"))
+      .resolves.toMatchObject({ connector: "feishu", sessionId: "session-1" });
+    await webImClient.setSessionAccess("session-1", "feishu", false);
+    await webImClient.setSessionAccess("session-1", "feishu", true);
+    await expect(webImClient.getSessionBinding("session-1")).resolves.toMatchObject({
+      access: { enabled: true },
+    });
+  });
+
+  it("preserves a manual binding pause across Feishu access disable and re-enable", async () => {
+    await webImClient.saveConnector({
+      kind: "feishu",
+      enabled: true,
+      publicConfig: { appId: "fixture-app" },
+      credentials: { appSecret: "write-only-secret" },
+    });
+    await webImClient.setSessionAccess("session-1", "feishu", true);
+    vi.useFakeTimers();
+    await webImClient.beginPairing("session-1", "feishu");
+    await vi.advanceTimersByTimeAsync(500);
+    await webImClient.setBindingPaused("session-1", true);
+
+    await webImClient.setSessionAccess("session-1", "feishu", false);
+    await webImClient.setSessionAccess("session-1", "feishu", true);
+
+    await expect(webImClient.getSessionBinding("session-1")).resolves.toMatchObject({
+      access: { enabled: true },
+      binding: { state: "paused" },
+    });
   });
 
   it("simulates IM-side pairing completion deterministically", async () => {
@@ -125,6 +183,7 @@ describe("web IM client", () => {
     await vi.advanceTimersByTimeAsync(500);
 
     await expect(webImClient.getSessionBinding("session-1")).resolves.toMatchObject({
+      access: { connector: "feishu", enabled: false, sessionId: "session-1" },
       binding: { connector: "telegram", sessionId: "session-1", state: "active" },
       pendingConnector: null,
     });

@@ -6,10 +6,12 @@ import {
   type ImPairingStart,
   type ImRouting,
   type ImSessionBinding,
+  type ImSessionAccess,
   type SaveImConnectorInput,
 } from "../contracts/im";
 import type { ImService } from "./im-service";
 import { compactFieldPatch, connectorFieldMaps, mockAuthorization } from "./web-im-client-helpers";
+import { getSessionAccess, mutateBinding } from "./web-im-session-state";
 
 const kinds: ImConnectorKind[] = ["feishu", "telegram", "dingtalk", "wecom", "weixin"];
 const limits: Record<ImConnectorKind, number> = {
@@ -25,6 +27,7 @@ let pairingSequence = 0;
 let pairings = new Map<string, ImPairingStart>();
 let pairingTimers = new Map<string, ReturnType<typeof globalThis.setTimeout>>();
 let sessionBindings = new Map<string, ImSessionBinding>();
+let sessionAccess = new Map<string, ImSessionAccess>();
 let connectorState: Record<ImConnectorKind, ImConnectorView> = Object.fromEntries(
   kinds.map((kind) => [
     kind,
@@ -81,16 +84,13 @@ export const webImClient: ImService = {
   async listConnectors() {
     return kinds.map((kind) => cloneView(connectorState[kind]));
   },
-
   async getRouting() {
     return routing ? { ...routing } : null;
   },
-
   async saveRouting(nextRouting) {
     routing = { agentId: nextRouting.agentId.trim(), projectPath: nextRouting.projectPath.trim() };
     return { ...routing };
   },
-
   async saveConnector(input: SaveImConnectorInput) {
     await mockMutationLatency();
     const patch = compactFieldPatch(input.kind, input.credentials);
@@ -128,7 +128,6 @@ export const webImClient: ImService = {
     }));
     return { ...config, publicConfig: { ...config.publicConfig } };
   },
-
   async setConnectorEnabled(kind, enabled) {
     if (enabled && !connectorState[kind].hasCredentials) {
       throw new Error("connector-credentials-required");
@@ -145,7 +144,6 @@ export const webImClient: ImService = {
       },
     }));
   },
-
   async restartConnector(kind) {
     if (!connectorState[kind].config.enabled) return;
     update(kind, (view) => ({
@@ -153,11 +151,9 @@ export const webImClient: ImService = {
       health: { ...view.health, lifecycle: "connected", generation: view.health.generation + 1, updatedAt: new Date().toISOString() },
     }));
   },
-
   async testConnector(kind) {
     if (!connectorState[kind].hasCredentials) throw new Error("connector-credentials-required");
   },
-
   async clearConnector(kind) {
     update(kind, (view) => ({
       ...view,
@@ -166,16 +162,19 @@ export const webImClient: ImService = {
       health: { ...view.health, lifecycle: "unconfigured", safeErrorCode: null, updatedAt: new Date().toISOString() },
     }));
   },
-
   async resetBindings() {},
-
   async getSessionBinding(sessionId) {
-    return {
-      binding: sessionBindings.get(sessionId) ?? null,
+    return { binding: sessionBindings.get(sessionId) ?? null,
       pendingConnector: pairings.get(sessionId)?.connector ?? null,
-    };
+      access: getSessionAccess(sessionAccess, sessionId, "feishu") };
+  },
+  async setSessionAccess(sessionId, connector, enabled) {
+    const access: ImSessionAccess = { sessionId, connector, enabled, updatedAt: new Date().toISOString() };
+    sessionAccess.set(`${sessionId}\u0000${connector}`, access);
+    return { ...access };
   },
   async beginPairing(sessionId, connector, replaceExisting = false) {
+    if (connector === "feishu" && !getSessionAccess(sessionAccess, sessionId, connector).enabled) throw new Error("im-session-disabled");
     const view = connectorState[connector];
     if (!view.config.enabled || view.health.lifecycle !== "connected") {
       throw new Error("im-connector-not-ready");
@@ -215,16 +214,14 @@ export const webImClient: ImService = {
     return pairings.delete(sessionId);
   },
   async setBindingPaused(sessionId, paused) {
-    return mutateBinding(sessionId, (binding) => ({
-      ...binding,
-      state: paused ? "paused" : "active",
-    }));
+    return mutateBinding(sessionBindings, sessionId, (binding) => (
+      { ...binding, state: paused ? "paused" : "active" }
+    ));
   },
   async setCompletionNotifications(sessionId, enabled) {
-    return mutateBinding(sessionId, (binding) => ({
-      ...binding,
-      completionNotifications: enabled,
-    }));
+    return mutateBinding(sessionBindings, sessionId, (binding) => (
+      { ...binding, completionNotifications: enabled }
+    ));
   },
   async removeSessionBinding(sessionId) {
     return sessionBindings.delete(sessionId);
@@ -273,18 +270,8 @@ export function resetWebImMock(): void {
   pairingTimers = new Map();
   pairings = new Map();
   sessionBindings = new Map();
+  sessionAccess = new Map();
   connectorState = Object.fromEntries(
     kinds.map((kind) => [kind, { ...connectorState[kind], config: { ...connectorState[kind].config, enabled: false, credentialRef: null }, health: { ...connectorState[kind].health, lifecycle: "unconfigured", generation: 0, updatedAt: new Date().toISOString() }, hasCredentials: false }]),
   ) as Record<ImConnectorKind, ImConnectorView>;
-}
-
-function mutateBinding(
-  sessionId: string,
-  mutate: (binding: ImSessionBinding) => ImSessionBinding,
-): ImSessionBinding {
-  const binding = sessionBindings.get(sessionId);
-  if (!binding) throw new Error("im-binding-not-found");
-  const next = { ...mutate(binding), updatedAt: new Date().toISOString() };
-  sessionBindings.set(sessionId, next);
-  return { ...next };
 }

@@ -85,6 +85,14 @@ export type ImRouting = z.infer<typeof imRoutingSchema>;
 export const imBindingStateSchema = z.enum(["active", "paused"]);
 export type ImBindingState = z.infer<typeof imBindingStateSchema>;
 
+export const imSessionAccessSchema = z.object({
+  sessionId: z.string().min(1),
+  connector: imConnectorKindSchema,
+  enabled: z.boolean(),
+  updatedAt: z.string(),
+}).strict();
+export type ImSessionAccess = z.infer<typeof imSessionAccessSchema>;
+
 export const imSessionBindingSchema = z.object({
   connector: imConnectorKindSchema,
   sessionId: z.string().min(1),
@@ -98,6 +106,7 @@ export type ImSessionBinding = z.infer<typeof imSessionBindingSchema>;
 export const imSessionBindingViewSchema = z.object({
   binding: imSessionBindingSchema.nullable(),
   pendingConnector: imConnectorKindSchema.nullable(),
+  access: imSessionAccessSchema,
 }).strict();
 export type ImSessionBindingView = z.infer<typeof imSessionBindingViewSchema>;
 
