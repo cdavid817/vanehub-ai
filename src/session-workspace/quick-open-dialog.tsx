@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { File, Folder } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "../lib/utils";
@@ -15,6 +15,11 @@ import { useQuickOpen } from "./use-quick-open";
  * The active row is tracked by index rather than by path. Results are replaced wholesale on each
  * keystroke, and a path-based selection would either vanish or, worse, silently point at a row that
  * is no longer where it was.
+ *
+ * Wired as a combobox over a listbox, which is the only shape that makes "focus stays in the input
+ * while the highlight moves" announceable. Without `aria-activedescendant` the DOM focus never
+ * moves, so a screen reader has nothing to read out when the reader presses the down arrow: they
+ * hear the query they typed and nothing about the row Enter would take.
  */
 export function QuickOpenDialog({
   isOpen,
@@ -31,6 +36,10 @@ export function QuickOpenDialog({
   const inputRef = useRef<HTMLInputElement>(null);
   const [active, setActive] = useState(0);
   const quickOpen = useQuickOpen(sessionId, isOpen);
+  // Stable per mount, so the input's `aria-activedescendant` names an element that exists rather
+  // than one that happened to be at that index when the string was built.
+  const listId = useId();
+  const optionId = (index: number) => `${listId}-option-${index}`;
 
   useEffect(() => {
     if (isOpen) inputRef.current?.focus();
@@ -82,48 +91,63 @@ export function QuickOpenDialog({
         role="dialog"
       >
         <input
+          aria-activedescendant={quickOpen.matches.length > 0 ? optionId(active) : undefined}
+          aria-autocomplete="list"
+          aria-controls={listId}
+          aria-expanded={quickOpen.matches.length > 0}
           aria-label={t("sessionTabs.files.quickOpen.placeholder")}
           className="w-full border-b border-border bg-transparent px-3 py-2 text-sm outline-none"
           onChange={(event) => quickOpen.setQuery(event.target.value)}
           onKeyDown={onKeyDown}
           placeholder={t("sessionTabs.files.quickOpen.placeholder")}
           ref={inputRef}
+          role="combobox"
           type="text"
           value={quickOpen.query}
         />
-        <ul aria-label={t("sessionTabs.files.quickOpen.results")} className="min-h-0 flex-1 overflow-y-auto p-1" role="listbox">
+        <ul
+          aria-label={t("sessionTabs.files.quickOpen.results")}
+          className="min-h-0 flex-1 overflow-y-auto p-1"
+          id={listId}
+          role="listbox"
+        >
           {quickOpen.matches.map((match, index) => (
-            <li key={`${match.kind}:${match.path}`}>
-              <button
-                aria-selected={index === active}
-                className={cn(
-                  "flex h-8 w-full items-center gap-2 rounded px-2 text-left text-sm hover:bg-muted",
-                  index === active && "bg-muted text-primary",
-                )}
-                onClick={() => choose(match)}
-                // Pointer focus would take it from the input and end the reader's ability to keep
-                // typing, which is the entire point of the surface.
-                onMouseDown={(event) => event.preventDefault()}
-                role="option"
-                type="button"
-              >
-                {match.kind === "directory" ? (
-                  <Folder className="h-4 w-4 shrink-0 text-primary" />
-                ) : (
-                  <File className="h-4 w-4 shrink-0 text-muted-foreground" />
-                )}
-                <span className="truncate">{match.path}</span>
-              </button>
+            // The option is the list item itself. A button carrying `role="option"` inside an
+            // `li` puts a listitem between the listbox and its options, which is not a shape the
+            // accessibility tree allows — and the interactive descendant is what breaks the
+            // activedescendant pairing above.
+            <li
+              aria-selected={index === active}
+              className={cn(
+                "flex h-8 w-full cursor-default items-center gap-2 rounded px-2 text-left text-sm hover:bg-muted",
+                index === active && "bg-muted text-primary",
+              )}
+              id={optionId(index)}
+              key={`${match.kind}:${match.path}`}
+              onClick={() => choose(match)}
+              // Pointer focus would take it from the input and end the reader's ability to keep
+              // typing, which is the entire point of the surface.
+              onMouseDown={(event) => event.preventDefault()}
+              role="option"
+            >
+              {match.kind === "directory" ? (
+                <Folder className="h-4 w-4 shrink-0 text-primary" />
+              ) : (
+                <File className="h-4 w-4 shrink-0 text-muted-foreground" />
+              )}
+              <span className="truncate">{match.path}</span>
             </li>
           ))}
-          {quickOpen.matches.length === 0 && !quickOpen.isLoading ? (
-            <li className="px-2 py-3 text-sm text-muted-foreground">
-              {quickOpen.failed
-                ? t("sessionTabs.files.quickOpen.failed")
-                : t("sessionTabs.files.quickOpen.empty")}
-            </li>
-          ) : null}
         </ul>
+        {/* Outside the listbox. A listbox may hold options and groups; a plain list item announces
+            itself as one more thing to choose from, and there is nothing here to choose. */}
+        {quickOpen.matches.length === 0 && !quickOpen.isLoading ? (
+          <p className="px-3 py-3 text-sm text-muted-foreground" role="status">
+            {quickOpen.failed
+              ? t("sessionTabs.files.quickOpen.failed")
+              : t("sessionTabs.files.quickOpen.empty")}
+          </p>
+        ) : null}
         <QuickOpenFooter
           coverageReason={
             quickOpen.coverage && quickOpen.coverage.state !== "complete"

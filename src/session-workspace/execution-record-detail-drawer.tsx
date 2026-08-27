@@ -51,7 +51,15 @@ export function ExecutionRecordDetailDrawer({
   useEffect(() => {
     // The drawer takes focus when it opens so a keyboard reader is not left on a row behind it,
     // and the close button is the one control every drawer has.
+    const returnTo = document.activeElement;
     closeRef.current?.focus();
+    return () => {
+      // And hands it back on the way out. Without this the focus lands on the document body when
+      // the drawer closes, so the next Tab starts from the top of the page rather than from the
+      // row the reader was reading — a keyboard reader loses their place for opening a detail and
+      // closing it again.
+      if (returnTo instanceof HTMLElement && returnTo.isConnected) returnTo.focus();
+    };
   }, [record.id]);
 
   return (

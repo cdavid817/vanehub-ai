@@ -2573,6 +2573,7 @@
   "layout.autoSave": "자동 저장",
   "layout.enabled": "활성화됨",
   "layout.rename": "이름 바꾸기",
+  "layout.sessionActions": "세션 작업",
   "layout.renameSession": "세션 이름 바꾸기",
   "layout.renameDescription": "사이드바에서 세션 표시 이름을 변경합니다.",
   "layout.cancel": "취소",

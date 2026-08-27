@@ -2573,6 +2573,7 @@
   "layout.autoSave": "Auto Save",
   "layout.enabled": "Enabled",
   "layout.rename": "Rename",
+  "layout.sessionActions": "Session actions",
   "layout.renameSession": "Rename Session",
   "layout.renameDescription": "Change the session display name in the sidebar.",
   "layout.cancel": "Cancel",

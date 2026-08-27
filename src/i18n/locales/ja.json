@@ -2573,6 +2573,7 @@
   "layout.autoSave": "自動保存",
   "layout.enabled": "有効",
   "layout.rename": "名前の変更",
+  "layout.sessionActions": "セッション操作",
   "layout.renameSession": "セッション名の変更",
   "layout.renameDescription": "サイドバーのセッション表示名を変更します。",
   "layout.cancel": "キャンセル",

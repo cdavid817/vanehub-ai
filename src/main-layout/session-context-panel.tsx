@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { PlugZap, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { Session, SessionCategory, SessionExportFormat } from "../types/agent";
@@ -23,6 +23,33 @@ export function SessionContextPanel({ categories, onArchive, onAssignCategory, o
 }) {
   const { t } = useTranslation();
   const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!value) return;
+    // Escape closes it. The scrim behind the menu closes it on a click, which is the whole of how
+    // it could be dismissed until now — so a reader driving the keyboard could open this menu and
+    // had no way at all to get out of it.
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        onDismiss();
+      }
+    };
+    // On the document rather than on the menu: focus may be on any of the menu's own buttons, or
+    // still on the row that opened it, and both have to answer the key.
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onDismiss, value]);
+
+  useEffect(() => {
+    if (!value || value.mode !== "menu") return;
+    const returnTo = document.activeElement;
+    // The first item, so the keyboard lands inside the menu rather than behind it.
+    menuRef.current?.querySelector<HTMLElement>("button")?.focus();
+    return () => {
+      if (returnTo instanceof HTMLElement && returnTo.isConnected) returnTo.focus();
+    };
+  }, [value]);
   const rawX = value?.position?.x ?? 224;
   const rawY = value?.position?.y ?? 80;
   const [menuPosition, setMenuPosition] = useState({ x: rawX, y: rawY, ready: false });
@@ -52,11 +79,16 @@ export function SessionContextPanel({ categories, onArchive, onAssignCategory, o
 
   if (!value) return null;
   if (value.mode === "menu") {
+    // No `aria-hidden` on the scrim: the menu is inside it, so hiding the scrim hides the menu
+    // with it. The scrim is a bare div with no role, which is already silent to a screen reader —
+    // what it carries is a click target, not a thing to announce.
     return <div className="fixed inset-0 z-50" onClick={onDismiss} onContextMenu={(event) => { event.preventDefault(); onDismiss(); }}>
       <div
+        aria-label={t("layout.sessionActions")}
         className="ucd-panel fixed grid max-h-[70vh] w-56 gap-1 overflow-y-auto rounded-md p-1 text-sm shadow-lg"
         onClick={(event) => event.stopPropagation()}
         ref={menuRef}
+        role="menu"
         style={{ left: menuPosition.x, top: menuPosition.y, visibility: menuPosition.ready ? "visible" : "hidden" }}
       >
     <button className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => onChange({ ...value, mode: "rename" })} type="button">{t("layout.rename")}</button>

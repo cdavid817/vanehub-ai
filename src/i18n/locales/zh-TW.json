@@ -2573,6 +2573,7 @@
   "layout.autoSave": "自動儲存",
   "layout.enabled": "已啟用",
   "layout.rename": "重新命名",
+  "layout.sessionActions": "工作階段操作",
   "layout.renameSession": "重新命名會話",
   "layout.renameDescription": "修改目前會話在側邊欄中的顯示名稱。",
   "layout.cancel": "取消",

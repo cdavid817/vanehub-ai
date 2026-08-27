@@ -128,7 +128,7 @@ async function openWithRows(surface: SearchSurface) {
   const onClose = vi.fn();
   const onSelect = vi.fn();
   surface.open(onClose, onSelect);
-  const input = screen.getByRole("textbox");
+  const input = screen.getByRole("combobox");
   if (surface.needsQuery) fireEvent.change(input, { target: { value: TYPED } });
   await waitFor(
     () => {
@@ -203,6 +203,50 @@ describe.each(SURFACES)("$name answers the keyboard", (surface) => {
     expect(selected).toHaveLength(1);
   });
 
+  it("announces the row Enter would take, without moving focus to it", async () => {
+    const { input } = await openWithRows(surface);
+
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    await waitFor(() => expect(highlightedRow()).toContain(ROWS[1]));
+
+    // The pairing that makes "focus stays in the input while the highlight moves" announceable.
+    // Without it the DOM focus never moves, so a screen reader has nothing to read out on the
+    // down arrow: the reader hears the query they typed and nothing about what Enter would do.
+    const named = input.getAttribute("aria-activedescendant");
+    expect(named).toBeTruthy();
+    const highlighted = screen
+      .getAllByRole("option")
+      .find((option) => option.getAttribute("aria-selected") === "true");
+    expect(highlighted?.id).toBe(named);
+    expect(document.activeElement).toBe(input);
+  });
+
+  it("puts the options directly inside the listbox", async () => {
+    await openWithRows(surface);
+
+    // A button carrying `role="option"` inside an `li` puts a listitem between the listbox and
+    // its options, which the accessibility tree does not allow — and the interactive descendant is
+    // what breaks the activedescendant pairing above.
+    for (const option of screen.getAllByRole("option")) {
+      expect(option.parentElement?.getAttribute("role")).toBe("listbox");
+      expect(option.querySelector("button")).toBeNull();
+    }
+  });
+
+  it("says the list is closed when there is nothing in it", async () => {
+    surface.arrange([]);
+    surface.open(vi.fn(), vi.fn());
+    const input = screen.getByRole("combobox");
+    if (surface.needsQuery) fireEvent.change(input, { target: { value: TYPED } });
+
+    // An expanded combobox with no options tells a reader there is something to arrow through.
+    await waitFor(() => expect(input.getAttribute("aria-expanded")).toBe("false"), { timeout: 4000 });
+    expect(input.getAttribute("aria-activedescendant")).toBeNull();
+    // And the empty message is not inside the listbox, where it would announce itself as one more
+    // thing to choose from.
+    expect(screen.queryAllByRole("option")).toHaveLength(0);
+  });
+
   it("closes on Escape without choosing anything", async () => {
     const { input, onClose, onSelect } = await openWithRows(surface);
 
@@ -272,7 +316,7 @@ describe("the Files and Documents surfaces look like the rest of the application
     const surface = SURFACES[0];
     if (!surface) throw new Error("no search surface to check");
     await openWithRows(surface);
-    fireEvent.keyDown(screen.getByRole("textbox"), { key: "ArrowDown" });
+    fireEvent.keyDown(screen.getByRole("combobox"), { key: "ArrowDown" });
     await waitFor(() => expect(highlightedRow()).toContain(ROWS[1]));
 
     const options = screen.getAllByRole("option");

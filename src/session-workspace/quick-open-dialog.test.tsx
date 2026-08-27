@@ -62,7 +62,7 @@ describe("QuickOpenDialog", () => {
     const { onSelect } = open();
     await shown("c.rs");
 
-    const input = screen.getByRole("textbox");
+    const input = screen.getByRole("combobox");
     fireEvent.keyDown(input, { key: "ArrowDown" });
     fireEvent.keyDown(input, { key: "ArrowDown" });
     fireEvent.keyDown(input, { key: "ArrowUp" });
@@ -78,7 +78,7 @@ describe("QuickOpenDialog", () => {
     const { onSelect } = open();
     await shown("b.rs");
 
-    const input = screen.getByRole("textbox");
+    const input = screen.getByRole("combobox");
     fireEvent.keyDown(input, { key: "ArrowUp" });
     fireEvent.keyDown(input, { key: "ArrowDown" });
     fireEvent.keyDown(input, { key: "ArrowDown" });
@@ -95,7 +95,7 @@ describe("QuickOpenDialog", () => {
     open();
     await shown("a.rs");
 
-    const input = screen.getByRole("textbox");
+    const input = screen.getByRole("combobox");
     fireEvent.keyDown(input, { key: "ArrowDown" });
 
     // Moving the highlight must not move focus: the interaction is typing, and a result list that
@@ -121,7 +121,7 @@ describe("QuickOpenDialog", () => {
     // cancels it and the case never exercises the overtaking it exists to check.
     await waitFor(() => expect(search).toHaveBeenCalledTimes(1));
 
-    const input = screen.getByRole("textbox");
+    const input = screen.getByRole("combobox");
     fireEvent.change(input, { target: { value: "fr" } });
     await waitFor(() => expect(screen.getByText("fresh.rs")).toBeTruthy());
 

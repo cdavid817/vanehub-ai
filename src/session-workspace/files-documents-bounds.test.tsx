@@ -196,7 +196,7 @@ describe("a content search at its match bound", () => {
     renderWithAppProviders(
       <ContentSearchPanel isOpen onClose={vi.fn()} onSelect={vi.fn()} sessionId="session-1" />,
     );
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "value" } });
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "value" } });
 
     await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(200), { timeout: 4000 });
     expect(screen.getByText("Part of this workspace was not searched.")).toBeTruthy();
@@ -208,7 +208,7 @@ describe("a content search at its match bound", () => {
     renderWithAppProviders(
       <ContentSearchPanel isOpen onClose={vi.fn()} onSelect={vi.fn()} sessionId="session-1" />,
     );
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "value" } });
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "value" } });
 
     await waitFor(() => expect(screen.getByText("No matching lines.")).toBeTruthy(), {
       timeout: 4000,

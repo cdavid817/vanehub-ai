@@ -44,7 +44,7 @@ function open(onSelect = vi.fn(), onClose = vi.fn()) {
 }
 
 async function type(value: string) {
-  fireEvent.change(screen.getByRole("textbox"), { target: { value } });
+  fireEvent.change(screen.getByRole("combobox"), { target: { value } });
 }
 
 describe("ContentSearchPanel", () => {
@@ -65,7 +65,7 @@ describe("ContentSearchPanel", () => {
     await type("needle");
     await waitFor(() => expect(screen.getByText(/src\/main\.rs:42/)).toBeTruthy());
 
-    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" });
+    fireEvent.keyDown(screen.getByRole("combobox"), { key: "Enter" });
 
     expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ line: 42 }));
   });
@@ -87,7 +87,7 @@ describe("ContentSearchPanel", () => {
     await type("needle");
     await waitFor(() => expect(search).toHaveBeenCalled());
 
-    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Escape" });
+    fireEvent.keyDown(screen.getByRole("combobox"), { key: "Escape" });
 
     // Closing alone would leave a full workspace scan running for a reader who has already stopped
     // looking at it.
