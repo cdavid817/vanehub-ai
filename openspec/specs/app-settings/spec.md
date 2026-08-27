@@ -241,31 +241,6 @@ Changes to observability settings SHALL apply prospectively and SHALL NOT rewrit
 - **THEN** the active run SHALL continue under its captured settings snapshot
 - **AND** the new settings SHALL apply to later runs
 
-### Requirement: Personalization settings model
-The shared application settings model SHALL include two custom-instruction text fields ("about you" and "response style"), a custom-instructions enablement toggle, and two memory-preference toggles (overall memory enablement, and tool-assisted chat extraction), persisted through the same settings storage as other common settings without a dedicated table.
-
-#### Scenario: Load default personalization settings
-- **WHEN** no personalization settings have been saved
-- **THEN** the system SHALL provide empty custom-instruction fields
-- **AND** SHALL treat the custom-instructions, memory-enablement, and tool-assisted-extraction toggles as enabled
-
-#### Scenario: Save personalization settings
-- **WHEN** a user changes a custom-instruction field or any of the three personalization toggles
-- **THEN** the system SHALL persist the change through the existing settings service boundary
-- **AND** the change SHALL apply to subsequent OnePiece generations without an application restart
-
-#### Scenario: Reject an oversized custom-instruction field
-- **WHEN** a user saves a custom-instruction field exceeding 3,000 Unicode characters
-- **THEN** the system SHALL reject the value without changing the previously saved field
-
-#### Scenario: Restore saved personalization settings
-- **WHEN** the application restarts after personalization settings have been saved
-- **THEN** the system SHALL restore the saved field values and toggle states for the active runtime
-
-#### Scenario: Preserve Web mock parity
-- **WHEN** personalization settings are loaded or saved through the Web/mock adapter
-- **THEN** the Web adapter SHALL preserve the same field and toggle shape without accessing SQLite
-
 ### Requirement: Automatic context compaction application setting
 The shared application settings model SHALL include a boolean automatic-context-compaction preference, default it to enabled, and persist it through the active settings adapter without a dedicated storage table.
 
@@ -339,4 +314,42 @@ The application SHALL use the `minimal` visual style when no valid persisted the
 #### Scenario: Recover from an invalid theme value
 - **WHEN** startup encounters a missing, invalid, or unreadable visual-theme value
 - **THEN** the runtime SHALL fall back to `minimal` consistently in desktop and Web/mock modes
+
+### Requirement: Personalization settings migration boundary
+The system SHALL ensure that the generic shared application settings model is no longer the runtime source of truth for custom instructions or long-term memory policy after dedicated-personalization migration completes. Personalization policy SHALL be persisted and mutated through the revisioned personalization service. During the compatibility window, the settings layer MAY retain legacy custom-instruction and memory fields for deserialization and one-time migration, and SHALL persist a migration-generation marker without exposing whole-object personalization mutation to the new UI.
+
+#### Scenario: Fresh installation loads personalization
+- **WHEN** no legacy personalization settings or dedicated policy exist
+- **THEN** the personalization service SHALL create or resolve its validated default global policy
+- **AND** generic `AppSettings` SHALL not need to create a second personalization configuration
+
+#### Scenario: Existing installation migrates personalization
+- **WHEN** legacy about-you, response-style, custom-instruction enablement, memory enablement, or tool-assisted extraction fields exist and migration has not completed
+- **THEN** the native runtime SHALL migrate them idempotently into dedicated policy records
+- **AND** SHALL mark the migration generation only after the policy transaction succeeds
+
+#### Scenario: Restore migrated personalization
+- **WHEN** the application restarts after migration completes
+- **THEN** runtime personalization SHALL load from the dedicated personalization service
+- **AND** legacy `AppSettings` values SHALL not override newer policy revisions
+
+#### Scenario: New UI saves personalization
+- **WHEN** the user changes custom instructions or memory policy in the AI Personalization page
+- **THEN** React SHALL call the dedicated personalization service with a typed scope patch and expected revision
+- **AND** SHALL not submit or replace the entire `AppSettings` aggregate
+
+#### Scenario: Legacy whole-settings save occurs during compatibility
+- **WHEN** an older internal caller saves an `AppSettings` object containing legacy personalization fields after migration
+- **THEN** the settings layer SHALL preserve ordinary non-personalization settings
+- **AND** SHALL not overwrite the dedicated personalization policy from those deprecated fields
+
+#### Scenario: Preserve Web/mock parity
+- **WHEN** personalization is loaded or saved in Web/mock mode
+- **THEN** the Web adapter SHALL implement the dedicated personalization contract and migration-shaped defaults deterministically
+- **AND** generic mock `AppSettings` SHALL not be treated as the authoritative policy store
+
+#### Scenario: Migration cannot establish a valid policy
+- **WHEN** legacy migration or dedicated policy loading fails before any validated policy exists
+- **THEN** the application SHALL retain a localized maintenance warning
+- **AND** personalization runtime behavior SHALL use fail-closed instruction and memory defaults without blocking unrelated application startup
 

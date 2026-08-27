@@ -230,5 +230,6 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-21 | prevent-hook-bash-permission-blocks | claude-code-permission-hook, cli-agent-permission-launch-flags | `openspec/changes/archive/2026-08-21-prevent-hook-bash-permission-blocks/` |
 | 2026-08-21 | rebuild-project-documentation-topology | native-developer-documentation, user-guide-documentation | `openspec/changes/archive/2026-08-21-rebuild-project-documentation-topology/` |
 | 2026-08-23 | upgrade-cli-parameter-management | cli-parameter-management | `openspec/changes/archive/2026-08-23-upgrade-cli-parameter-management/` |
+| 2026-08-27 | add-unified-personalization-governance | agent-cross-session-memory, app-settings, custom-instructions, session-management, unified-personalization-governance | `openspec/changes/archive/2026-08-27-add-unified-personalization-governance/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

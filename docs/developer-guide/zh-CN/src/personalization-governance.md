@@ -2,7 +2,7 @@
 
 自定义指令、长期记忆，以及会话层面对两者的限制，都住在同一个限界上下文 `personalization` 里。每个运行时——OnePiece 与每个 CLI 包装的 Agent——通过**一个适配器、一个快照**读取它，而不是各自从设置表里拼自己的提示词。
 
-本章用于引导贡献者。权威需求位于 `unified-personalization-governance` 能力规范；被它取代的两层分别见 [custom-instructions](../../../../openspec/specs/custom-instructions/spec.md) 与 [agent-cross-session-memory](../../../../openspec/specs/agent-cross-session-memory/spec.md)。
+本章用于引导贡献者。权威需求位于 [unified-personalization-governance](../../../../openspec/specs/unified-personalization-governance/spec.md)；被它取代的两层分别见 [custom-instructions](../../../../openspec/specs/custom-instructions/spec.md) 与 [agent-cross-session-memory](../../../../openspec/specs/agent-cross-session-memory/spec.md)。
 
 ## 上下文边界
 
@@ -17,7 +17,7 @@ src-tauri/src/contexts/personalization/
 两条规则撑住这条边界，且都由 `src-tauri/tests/architecture.rs` 强制：
 
 - **`personalization` 只发布中立的 `PersonalizationApi`（以及它的兼容视图），绝不反向依赖 `agent_runtime` 的 port、基础设施或具体存储**。依赖是单向的。为了省几行而回头去拿一个运行时类型，就是把它倒过来；行数预算不构成理由。
-- **上下文只定义 port；适配器与跨上下文装配放在 `bootstrap/`。**`RegistryAgentCapabilities`、`GovernedPersonalizationAdapter`、`LegacyMemoryPortBridge` 全在 `src-tauri/src/bootstrap/personalization*.rs`，一个都不在两个上下文内部。
+- **上下文只定义 port；适配器与跨上下文装配放在 `bootstrap/`。**`RegistryAgentCapabilities` 与 `GovernedPersonalizationAdapter` 都在 `src-tauri/src/bootstrap/personalization*.rs`，两个都不在上下文内部。
 
 前端镜像同一条边界：React 组件依赖 `src/services/personalization-service.ts`，Tauri 与 Web/mock 两个适配器同步实现它。组件永远不调用 `invoke()`。
 
@@ -139,7 +139,7 @@ VaneHub 治理的是**它自己注入什么**，不治理 CLI 在自己进程里
 
 ## 设计所在之处
 
-- `openspec/specs/unified-personalization-governance` —— 作用域、合并、记忆治理、会话模式、迁移。
+- [openspec/specs/unified-personalization-governance](../../../../openspec/specs/unified-personalization-governance/spec.md) —— 作用域、合并、记忆治理、会话模式、迁移。
 - [openspec/specs/custom-instructions](../../../../openspec/specs/custom-instructions/spec.md) —— 被取代的指令层。
 - [openspec/specs/agent-cross-session-memory](../../../../openspec/specs/agent-cross-session-memory/spec.md) —— 被取代的记忆池。
 - [跨会话记忆](cross-session-memory.md) —— 共享池与这里的治理如何衔接。

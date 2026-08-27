@@ -2,7 +2,7 @@
 
 Custom instructions, long-term memory, and the per-session limits on both live in one bounded context, `personalization`. Every runtime — OnePiece and each CLI-wrapped Agent — reads from it through one adapter and one snapshot, rather than each assembling its own prompt from the settings table.
 
-This chapter orients contributors. The authoritative requirements live in the `unified-personalization-governance` capability spec, with the layers it supersedes in [custom-instructions](../../../openspec/specs/custom-instructions/spec.md) and [agent-cross-session-memory](../../../openspec/specs/agent-cross-session-memory/spec.md).
+This chapter orients contributors. The authoritative requirements live in [unified-personalization-governance](../../../openspec/specs/unified-personalization-governance/spec.md), with the layers it supersedes in [custom-instructions](../../../openspec/specs/custom-instructions/spec.md) and [agent-cross-session-memory](../../../openspec/specs/agent-cross-session-memory/spec.md).
 
 ## The context boundary
 
@@ -17,7 +17,7 @@ src-tauri/src/contexts/personalization/
 Two rules make the boundary hold, and both are enforced by `src-tauri/tests/architecture.rs`:
 
 - **`personalization` publishes only a neutral `PersonalizationApi` (and its compatibility views). It never depends on `agent_runtime`'s ports, infrastructure, or storage.** The dependency runs one way. A context that reached back for a runtime type to save a few lines would invert it, and the line budget is not a reason to.
-- **The context defines ports; adapters and cross-context assembly live in `bootstrap/`.** `RegistryAgentCapabilities`, `GovernedPersonalizationAdapter`, and `LegacyMemoryPortBridge` are all in `src-tauri/src/bootstrap/personalization*.rs` — none of them inside either context.
+- **The context defines ports; adapters and cross-context assembly live in `bootstrap/`.** `RegistryAgentCapabilities` and `GovernedPersonalizationAdapter` are both in `src-tauri/src/bootstrap/personalization*.rs` — neither inside either context.
 
 The frontend mirrors this: React components depend on `src/services/personalization-service.ts`, which the Tauri and Web/mock adapters implement in lockstep. A component never calls `invoke()`.
 
@@ -139,7 +139,7 @@ Every new Agent must do both of these. Neither is optional, and neither is satis
 
 ## Where the design lives
 
-- `openspec/specs/unified-personalization-governance` — scopes, merge, memory governance, session modes, migration.
+- [openspec/specs/unified-personalization-governance](../../../openspec/specs/unified-personalization-governance/spec.md) — scopes, merge, memory governance, session modes, migration.
 - [openspec/specs/custom-instructions](../../../openspec/specs/custom-instructions/spec.md) — the instruction layer this supersedes.
 - [openspec/specs/agent-cross-session-memory](../../../openspec/specs/agent-cross-session-memory/spec.md) — the memory pool this supersedes.
 - [openspec/specs/retrieval-vector-search](../../../openspec/specs/retrieval-vector-search/spec.md) — the recall tool and its degradation.
