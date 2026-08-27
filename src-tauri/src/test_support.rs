@@ -1,5 +1,9 @@
 #![allow(dead_code)]
 
+/// Public rather than re-exported: nothing outside its own tests names it until 13.7 renders the
+/// first patch, and a re-export nobody reads is an unused import rather than a useful shorthand.
+pub(crate) mod git_patch_fixture;
+
 use rusqlite::Connection;
 use std::collections::VecDeque;
 use std::fs;

@@ -90,6 +90,12 @@ fn is_test_source(relative: &str) -> bool {
         || file_name.ends_with("_tests.rs")
         || normalized.starts_with("tests/")
         || normalized.contains("/tests/")
+        // `lib.rs` declares `test_support` under `#[cfg(test)]`, so everything beneath it is test
+        // code a per-file visitor cannot recognise as such — the same blind spot the comment at
+        // the ARCH-NATIVE-004 call site describes. Without this, a fixture that spawns `git` to
+        // check whether a generated patch applies reads as production process construction.
+        || normalized == "test_support.rs"
+        || normalized.starts_with("test_support/")
 }
 
 #[test]
@@ -100,6 +106,8 @@ fn test_sources_are_recognized_as_files_and_as_directories() {
         "contexts/agent_runtime/application/tests/message_dispatch.rs",
         "contexts/sessions/infrastructure/tests/recovery.rs",
         "tests/architecture.rs",
+        "test_support.rs",
+        "test_support/git_patch_fixture.rs",
     ] {
         assert!(
             is_test_source(relative),
@@ -114,6 +122,9 @@ fn test_sources_are_recognized_as_files_and_as_directories() {
         "contexts/sessions/infrastructure/sqlite_repository.rs",
         "contexts/agent_runtime/application/service.rs",
         "contexts/agent_runtime/application/contest.rs",
+        // Not any path containing the words. A production module named for the support it gives
+        // to testing would still be production, and would still have to use the shared adapters.
+        "contexts/tooling/test_support_catalog.rs",
     ] {
         assert!(
             !is_test_source(relative),
