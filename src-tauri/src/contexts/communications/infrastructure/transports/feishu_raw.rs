@@ -241,7 +241,15 @@ impl RawFeishuLongConnection {
         heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
             tokio::select! {
-                _ = shutdown.changed() => { let _ = writer.close().await; return Ok(()); }
+                changed = shutdown.changed() => {
+                    if changed.is_err() {
+                        return Err(ConnectorRuntimeError::new("feishu-shutdown-channel-closed"));
+                    }
+                    if *shutdown.borrow() {
+                        let _ = writer.close().await;
+                        return Ok(());
+                    }
+                }
                 _ = heartbeat.tick() => {
                     let ping = WireFrame { seq_id: 0, log_id: 0, service: service_id, method: 0,
                         headers: vec![Header { key: "type".into(), value: "ping".into() }],
@@ -250,7 +258,9 @@ impl RawFeishuLongConnection {
                         .map_err(|_| ConnectorRuntimeError::new("feishu-ws-ping-failed"))?;
                 }
                 outgoing = outbound.recv() => {
-                    let Some(outgoing) = outgoing else { return Ok(()); };
+                    let Some(outgoing) = outgoing else {
+                        return Err(ConnectorRuntimeError::new("feishu-outbound-channel-closed"));
+                    };
                     writer.send(Message::Binary(outgoing.encode_to_vec().into())).await
                         .map_err(|_| ConnectorRuntimeError::new("feishu-ws-ack-send-failed"))?;
                 }

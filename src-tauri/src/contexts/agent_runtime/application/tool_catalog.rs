@@ -46,6 +46,11 @@ pub(crate) const FIND_DEFINITION_TOOL_NAME: &str = "find_definition";
 pub(crate) const FIND_REFERENCES_TOOL_NAME: &str = "find_references";
 pub(crate) const GET_HOVER_TOOL_NAME: &str = "get_hover";
 pub(crate) const GET_DIAGNOSTICS_TOOL_NAME: &str = "get_diagnostics";
+pub(crate) const FIND_TYPE_DEFINITION_TOOL_NAME: &str = "find_type_definition";
+pub(crate) const FIND_IMPLEMENTATIONS_TOOL_NAME: &str = "find_implementations";
+pub(crate) const FIND_WORKSPACE_SYMBOLS_TOOL_NAME: &str = "find_workspace_symbols";
+pub(crate) const GET_DOCUMENT_SYMBOLS_TOOL_NAME: &str = "get_document_symbols";
+pub(crate) const FIND_CALL_HIERARCHY_TOOL_NAME: &str = "find_call_hierarchy";
 /// Prefixes every MCP-sourced tool's catalog name (`mcp__<server-name>__<tool-name>`,
 /// `add-agent-mcp-tools`) — never collides with the fixed names above since MCP tool names are
 /// always prefixed before entering the catalog.
@@ -607,7 +612,65 @@ pub(crate) fn code_intelligence_tool_definitions() -> Vec<ToolDefinition> {
                 .to_owned(),
             input_schema: document_schema(false),
         },
+        // Appended, never inserted. A provider caches the tool-definition prefix, so reordering
+        // what came before costs every eligible session its prompt cache for nothing a reader of
+        // the diff would see.
+        positioned_code_intelligence_tool(
+            FIND_TYPE_DEFINITION_TOOL_NAME,
+            "Find the declaration of the type of the symbol at a position in the current workspace. Not the same as find_definition: for a variable this leads to its type, not to where the variable is declared.",
+        ),
+        positioned_code_intelligence_tool(
+            FIND_IMPLEMENTATIONS_TOOL_NAME,
+            "Find implementations of the interface, trait, or abstract member at a position in the current workspace.",
+        ),
+        ToolDefinition {
+            name: FIND_WORKSPACE_SYMBOLS_TOOL_NAME.to_owned(),
+            description: "Search symbols by name across the project that contains the given file. The path selects which project's index is searched, not which files match.".to_owned(),
+            input_schema: workspace_symbol_schema(),
+        },
+        ToolDefinition {
+            name: GET_DOCUMENT_SYMBOLS_TOOL_NAME.to_owned(),
+            description: "List the symbols declared in a file in the current workspace, flattened, with each entry naming the symbol that encloses it.".to_owned(),
+            input_schema: document_schema(false),
+        },
+        ToolDefinition {
+            name: FIND_CALL_HIERARCHY_TOOL_NAME.to_owned(),
+            description: "Find callers of, or calls made by, the function at a position in the current workspace.".to_owned(),
+            input_schema: call_hierarchy_schema(),
+        },
     ]
+}
+
+fn workspace_symbol_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "A normalized path relative to the current session workspace. Selects which project answers; any file in that project will do."
+            },
+            "query": {
+                "type": "string",
+                "description": "The symbol name, or part of one, to search for. Must not be empty."
+            }
+        },
+        "required": ["path", "query"],
+        "additionalProperties": false
+    })
+}
+
+fn call_hierarchy_schema() -> serde_json::Value {
+    document_schema_with(
+        true,
+        vec![(
+            "direction",
+            json!({
+                "type": "string",
+                "enum": ["incoming", "outgoing"],
+                "description": "\"incoming\" for callers of the symbol, \"outgoing\" for what it calls. Defaults to \"incoming\"."
+            }),
+        )],
+    )
 }
 
 fn positioned_code_intelligence_tool(name: &str, description: &str) -> ToolDefinition {
@@ -619,6 +682,16 @@ fn positioned_code_intelligence_tool(name: &str, description: &str) -> ToolDefin
 }
 
 fn document_schema(with_position: bool) -> serde_json::Value {
+    document_schema_with(with_position, Vec::new())
+}
+
+/// `extra` is appended to the shared document properties rather than merged into the finished
+/// schema, so a caller that adds a field cannot reach for the object it built and find nothing
+/// there -- there is no fallible lookup to get wrong.
+fn document_schema_with(
+    with_position: bool,
+    extra: Vec<(&str, serde_json::Value)>,
+) -> serde_json::Value {
     let mut properties = serde_json::Map::from_iter([(
         "path".to_owned(),
         json!({
@@ -637,6 +710,9 @@ fn document_schema(with_position: bool) -> serde_json::Value {
             json!({ "type": "integer", "minimum": 1, "description": "1-based Unicode scalar column." }),
         );
         required.extend(["line", "column"]);
+    }
+    for (name, schema) in extra {
+        properties.insert(name.to_owned(), schema);
     }
     json!({
         "type": "object",
@@ -1164,6 +1240,73 @@ mod tests {
         assert_eq!(definition.input_schema["additionalProperties"], false);
     }
 
+    /// Spelled out rather than derived from the catalog it checks. A tool added by accident
+    /// still has to fail something, and an assertion that recomputes its own expectation would
+    /// pass for anything.
+    const EXPECTED_CODE_INTELLIGENCE_TOOLS: [&str; 9] = [
+        FIND_DEFINITION_TOOL_NAME,
+        FIND_REFERENCES_TOOL_NAME,
+        GET_HOVER_TOOL_NAME,
+        GET_DIAGNOSTICS_TOOL_NAME,
+        FIND_TYPE_DEFINITION_TOOL_NAME,
+        FIND_IMPLEMENTATIONS_TOOL_NAME,
+        FIND_WORKSPACE_SYMBOLS_TOOL_NAME,
+        GET_DOCUMENT_SYMBOLS_TOOL_NAME,
+        FIND_CALL_HIERARCHY_TOOL_NAME,
+    ];
+
+    #[test]
+    fn the_code_intelligence_tools_state_what_they_cost_a_system_prompt() {
+        // Nine tool definitions where there were four lengthens the system prompt of every session
+        // with a trusted local workspace and a discoverable server. Asserted rather than merely
+        // measured, so a description rewrite has to notice the cost it adds.
+        let definitions = code_intelligence_tool_definitions();
+        let serialized = |definitions: &[ToolDefinition]| {
+            definitions
+                .iter()
+                .map(|definition| {
+                    serde_json::to_string(&json!({
+                        "name": definition.name,
+                        "description": definition.description,
+                        "input_schema": definition.input_schema,
+                    }))
+                    .expect("serialize tool definition")
+                    .len()
+                })
+                .sum::<usize>()
+        };
+        let four = serialized(&definitions[..4]);
+        let nine = serialized(&definitions);
+        assert!(
+            (1_400..=1_800).contains(&four),
+            "the four original tools serialize to {four} bytes"
+        );
+        assert!(
+            (4_300..=4_800).contains(&nine),
+            "all nine tools serialize to {nine} bytes"
+        );
+    }
+
+    #[test]
+    fn the_first_four_code_intelligence_tools_keep_their_declaration_order() {
+        // A provider caches the tool-definition prefix. Inserting among the tools that were here
+        // before costs every eligible session its prompt cache, and nothing about the diff would
+        // say so -- the names would all still be present.
+        let declared = code_intelligence_tool_definitions()
+            .into_iter()
+            .map(|definition| definition.name)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            declared.get(..4).map(<[String]>::to_vec),
+            Some(vec![
+                FIND_DEFINITION_TOOL_NAME.to_owned(),
+                FIND_REFERENCES_TOOL_NAME.to_owned(),
+                GET_HOVER_TOOL_NAME.to_owned(),
+                GET_DIAGNOSTICS_TOOL_NAME.to_owned(),
+            ])
+        );
+    }
+
     #[test]
     fn code_intelligence_tools_have_provider_neutral_workspace_implicit_schemas() {
         let definitions = code_intelligence_tool_definitions();
@@ -1172,12 +1315,7 @@ mod tests {
                 .iter()
                 .map(|definition| definition.name.as_str())
                 .collect::<Vec<_>>(),
-            vec![
-                FIND_DEFINITION_TOOL_NAME,
-                FIND_REFERENCES_TOOL_NAME,
-                GET_HOVER_TOOL_NAME,
-                GET_DIAGNOSTICS_TOOL_NAME,
-            ]
+            EXPECTED_CODE_INTELLIGENCE_TOOLS.to_vec()
         );
 
         for definition in &definitions {

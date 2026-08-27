@@ -3,7 +3,20 @@
 const fs = require("node:fs");
 const { fileURLToPath } = require("node:url");
 const mode = process.argv[2];
-const semanticMode = mode === "lsp-semantic" || mode === "lsp-native-e2e";
+const semanticMode = mode === "lsp-semantic"
+  || mode === "lsp-native-e2e"
+  || mode === "lsp-unadvertised"
+  || mode === "lsp-flat-symbols"
+  || mode === "lsp-hang-calls";
+// Answers documentSymbol in the flat SymbolInformation form instead of the nested one, so the two
+// response shapes can be compared for equal output.
+const flatSymbols = mode === "lsp-flat-symbols";
+// Prepares a call hierarchy and then never answers the direction request, so a cancellation
+// between the two steps is the only thing that can end it.
+const hangCalls = mode === "lsp-hang-calls";
+// The one semantic mode that answers position queries without advertising typeDefinition or
+// implementation. It exits on either request, so a client that asks anyway is caught doing it.
+const advertisesGotoExtras = semanticMode && mode !== "lsp-unadvertised";
 
 if (mode === "oversized") {
   process.stdout.write("Content-Length: 1024\r\n\r\n");
@@ -17,6 +30,9 @@ if (mode === "oversized") {
   "lsp-hang",
   "lsp-semantic",
   "lsp-native-e2e",
+  "lsp-unadvertised",
+  "lsp-flat-symbols",
+  "lsp-hang-calls",
   "lsp-crash",
   "lsp-protocol-limit",
 ].includes(mode)) {
@@ -66,6 +82,11 @@ if (mode === "oversized") {
           definitionProvider: true,
           referencesProvider: semanticMode,
           hoverProvider: semanticMode,
+          typeDefinitionProvider: advertisesGotoExtras,
+          implementationProvider: advertisesGotoExtras,
+          workspaceSymbolProvider: semanticMode,
+          documentSymbolProvider: semanticMode,
+          callHierarchyProvider: semanticMode,
           textDocumentSync: semanticMode ? 1 : 2,
         } };
       send(message.id, result);
@@ -126,6 +147,140 @@ if (mode === "oversized") {
         },
       });
       send(message.id, references);
+    } else if (semanticMode && message.method === "textDocument/typeDefinition") {
+      if (!advertisesGotoExtras) process.exit(4);
+      // LocationLink form, which `definition` never returns here, so the shared normalization is
+      // exercised on both response shapes. The narrower targetSelectionRange is the one that wins.
+      send(message.id, [{
+        targetUri: openedUri,
+        targetRange: {
+          start: { line: 0, character: 0 },
+          end: { line: 0, character: 13 },
+        },
+        targetSelectionRange: {
+          start: { line: 0, character: 3 },
+          end: { line: 0, character: 8 },
+        },
+      }]);
+    } else if (semanticMode && message.method === "textDocument/implementation") {
+      if (!advertisesGotoExtras) process.exit(4);
+      // Nothing implements it. That is an answer, not a failure to answer.
+      send(message.id, []);
+    } else if (semanticMode && message.method === "textDocument/prepareCallHierarchy") {
+      // Two items on purpose: the client follows the first and reports the rest, and a fixture
+      // that returned one could not tell the difference.
+      send(message.id, message.params.position.character === 4 ? [] : [{
+        name: "alpha",
+        kind: 12,
+        uri: openedUri,
+        range: { start: { line: 0, character: 0 }, end: { line: 0, character: 13 } },
+        selectionRange: { start: { line: 0, character: 3 }, end: { line: 0, character: 8 } },
+      }, {
+        name: "beta",
+        kind: 12,
+        uri: openedUri,
+        range: { start: { line: 0, character: 0 }, end: { line: 0, character: 13 } },
+        selectionRange: { start: { line: 0, character: 0 }, end: { line: 0, character: 2 } },
+      }]);
+    } else if (semanticMode && message.method === "callHierarchy/incomingCalls") {
+      if (message.params.item.name !== "alpha") process.exit(5);
+      // Never answered when cancellation is being exercised, so the client's own cancellation is
+      // what ends the request rather than a race with the reply.
+      if (hangCalls) return;
+      send(message.id, [{
+        from: {
+          name: "caller",
+          kind: 12,
+          uri: openedUri,
+          range: { start: { line: 0, character: 0 }, end: { line: 0, character: 13 } },
+          selectionRange: { start: { line: 0, character: 3 }, end: { line: 0, character: 8 } },
+          detail: "fn caller()",
+        },
+        fromRanges: [
+          { start: { line: 0, character: 0 }, end: { line: 0, character: 2 } },
+        ],
+      }]);
+    } else if (semanticMode && message.method === "callHierarchy/outgoingCalls") {
+      // Same guard as the incoming direction: a request that follows an empty preparation has no
+      // item to name, so reading `.name` throws and the server dies rather than answering.
+      if (message.params.item.name !== "alpha") process.exit(5);
+      if (hangCalls) return;
+      send(message.id, []);
+    } else if (semanticMode && message.method === "workspace/symbol") {
+      // Deliberately more than the cap of 50, plus one outside the workspace, so the truncation
+      // and filtered counts are both non-trivial.
+      const matches = Array.from({ length: 55 }, (_, index) => ({
+        name: `alpha_${index}`,
+        kind: 12,
+        containerName: "fixture",
+        location: {
+          uri: openedUri,
+          range: {
+            start: { line: 0, character: 0 },
+            end: { line: 0, character: 2 },
+          },
+        },
+      }));
+      matches.push({
+        name: "outside",
+        kind: 12,
+        location: {
+          uri: "https://outside.invalid/source.rs",
+          range: {
+            start: { line: 0, character: 0 },
+            end: { line: 0, character: 1 },
+          },
+        },
+      });
+      send(message.id, matches);
+    } else if (semanticMode && message.method === "textDocument/documentSymbol") {
+      // The nested form. `lsp-flat-symbols` answers the same content in the flat form, so the two
+      // shapes can be compared without a second server behaviour to keep in sync.
+      send(message.id, flatSymbols ? [{
+        name: "alpha",
+        kind: 12,
+        location: {
+          uri: openedUri,
+          range: {
+            start: { line: 0, character: 3 },
+            end: { line: 0, character: 8 },
+          },
+        },
+      }, {
+        name: "inner",
+        kind: 13,
+        containerName: "alpha",
+        location: {
+          uri: openedUri,
+          range: {
+            start: { line: 0, character: 0 },
+            end: { line: 0, character: 2 },
+          },
+        },
+      }] : [{
+        name: "alpha",
+        kind: 12,
+        range: {
+          start: { line: 0, character: 0 },
+          end: { line: 0, character: 13 },
+        },
+        selectionRange: {
+          start: { line: 0, character: 3 },
+          end: { line: 0, character: 8 },
+        },
+        children: [{
+          name: "inner",
+          kind: 13,
+          range: {
+            start: { line: 0, character: 0 },
+            end: { line: 0, character: 2 },
+          },
+          selectionRange: {
+            start: { line: 0, character: 0 },
+            end: { line: 0, character: 2 },
+          },
+        }],
+      }]);
     } else if (semanticMode && message.method === "textDocument/hover") {
       send(message.id, {
         contents: [

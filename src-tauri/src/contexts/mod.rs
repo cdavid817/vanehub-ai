@@ -10,6 +10,7 @@ pub(crate) mod communications;
 pub(crate) mod desktop;
 pub(crate) mod execution_observability;
 pub(crate) mod goals;
+pub(crate) mod local_media;
 pub(crate) mod operations;
 pub(crate) mod permissions;
 pub(crate) mod retrieval;

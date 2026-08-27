@@ -2,13 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type {
-  AgentService,
-  SessionRecoveryAcknowledgement,
-  SessionRecoveryReport,
-  SessionRecoverySummary,
-  SessionStateEvent,
-} from "./agent-service";
+import type { AgentService, SessionStateEvent } from "./agent-service";
 import type {
   AgentMemory,
   AgentRegistryEntry,
@@ -18,9 +12,6 @@ import type {
   AgentTerminalSize,
   AssignSessionCategoryInput,
   AutomaticArchivalSettings,
-  CliParameterProfile,
-  CliPackageOperationInput,
-  CliToolStatus,
   CreateSessionCategoryInput,
   CreateScheduledTaskInput,
   DiscoverOnePieceProviderModelsInput,
@@ -34,7 +25,6 @@ import type {
   KnownProject,
   LaunchResult,
   LocalModelDiscoveryResult,
-  ManagedCliAgentId,
   OnePieceProviderConfig,
   OnePieceProviderProfiles,
   OnePieceProviderModelDiscoveryResult,
@@ -55,7 +45,6 @@ import type {
   Session,
   SessionCategory,
   SessionDetails,
-  SaveCliParameterProfileInput,
   ScheduledTask,
   ScheduledTaskRun,
   SetScheduledTaskEnabledInput,
@@ -64,6 +53,15 @@ import type {
   SessionSearchResult,
   WorkflowState,
 } from "../types/agent";
+import { tauriCliEnvironmentClient } from "./tauri-cli-environment-client";
+import type {
+  CliParameterPreview,
+  CliParameterProfile,
+  PreviewCliParameterProfileInput,
+  ResetCliParameterProfileInput,
+  SaveCliParameterProfileInput,
+} from "../types/cli-parameter-profile";
+import { tauriSessionRecoveryClient } from "./tauri-session-recovery-client";
 import type { ChatConfig, ChatMessage, ChatStreamEvent, MessageFeedback } from "../types/chat";
 import type {
   ContextQualityHistoryPage,
@@ -512,46 +510,27 @@ export const tauriAgentClient: AgentService = {
 
   async testLspServer(language: LspLanguageId) {
     const input = normalizeLspServerTestInput({ language });
-    return normalizeLspServerTestResult(
-      await invoke<unknown>("test_lsp_server", { input }),
-      input.language,
-    );
+    return normalizeLspServerTestResult(await invoke<unknown>("test_lsp_server", { input }));
   },
 
   async getLspServerStatus() {
     return normalizeLspServerStatuses(await invoke<unknown>("list_lsp_server_status"));
   },
 
-  listCliTools() {
-    return invoke<CliToolStatus[]>("list_cli_tools");
-  },
-
-  refreshCliDetections(agentId) {
-    return invoke<OperationTask>("refresh_cli_detections", { agentId: agentId ?? null });
-  },
-
-  installCliVersion(input: CliPackageOperationInput) {
-    return invoke<OperationTask>("install_cli_version", {
-      agentId: input.agentId,
-      targetVersion: input.targetVersion,
-      confirmedActivePath: input.confirmedActivePath ?? null,
-    });
-  },
-
-  upgradeAllCliVersions() {
-    return invoke<OperationTask>("upgrade_all_cli_versions");
-  },
-
   listCliParameterProfiles() {
     return invoke<CliParameterProfile[]>("list_cli_parameter_profiles");
+  },
+
+  previewCliParameterProfile(input: PreviewCliParameterProfileInput) {
+    return invoke<CliParameterPreview>("preview_cli_parameter_profile", { input });
   },
 
   saveCliParameterProfile(input: SaveCliParameterProfileInput) {
     return invoke<CliParameterProfile>("save_cli_parameter_profile", { input });
   },
 
-  resetCliParameterProfile(agentId: ManagedCliAgentId) {
-    return invoke<CliParameterProfile>("reset_cli_parameter_profile", { agentId });
+  resetCliParameterProfile(input: ResetCliParameterProfileInput) {
+    return invoke<CliParameterProfile>("reset_cli_parameter_profile", { input });
   },
 
   listCliConfigPresets(agentId: string) {
@@ -651,24 +630,6 @@ export const tauriAgentClient: AgentService = {
 
   getSession(sessionId: string) {
     return invoke<Session>("get_session", { sessionId });
-  },
-
-  getSessionRecoverySummary(sessionId: string) {
-    return invoke<SessionRecoverySummary>("get_session_recovery_summary", { sessionId });
-  },
-
-  listSessionRecoveryReports(sessionId: string, limit?: number) {
-    return invoke<SessionRecoveryReport[]>("list_session_recovery_reports", {
-      sessionId,
-      limit: limit ?? null,
-    });
-  },
-
-  acknowledgeSessionRecovery(sessionId: string, expectedRecoveryRevision: number) {
-    return invoke<SessionRecoveryAcknowledgement>("acknowledge_session_recovery", {
-      sessionId,
-      expectedRecoveryRevision,
-    });
   },
 
   getActiveSession() {
@@ -976,6 +937,8 @@ export const tauriAgentClient: AgentService = {
     return unlisten;
   },
 
+  ...tauriCliEnvironmentClient,
+  ...tauriSessionRecoveryClient,
   ...tauriSessionWorkspaceClient,
   async subscribeSessionEvents(handler) {
     return listen<unknown>("session:event", (event) => {

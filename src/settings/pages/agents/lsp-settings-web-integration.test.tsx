@@ -11,6 +11,7 @@ import { LspConfigurationSection } from "./lsp-configuration-section";
 import { LspRuntimeStatusPanel } from "./lsp-runtime-status-panel";
 import { LspServerTestPanel } from "./lsp-server-test-panel";
 import { LspWorkspaceTrustPanel } from "./lsp-workspace-trust-panel";
+import { lspTestDescriptors } from "../../../test/lsp-fixtures";
 
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
 
@@ -23,15 +24,18 @@ const enabledRustConfiguration: LspConfiguration = {
       language: "rust",
       enabled: true,
       executableOverride: null,
+      startupArguments: null,
       initializationOptions: {},
     },
     {
       language: "typescript_javascript",
       enabled: false,
       executableOverride: null,
+      startupArguments: null,
       initializationOptions: {},
     },
   ],
+  descriptors: lspTestDescriptors(),
 };
 
 describe("LSP settings Web integration", () => {
@@ -105,7 +109,9 @@ describe("LSP settings Web integration", () => {
     const { user } = renderWithAppProviders(
       <LspServerTestPanel service={webAgentClient} />,
     );
-    const rustTestButton = screen.getByRole("button", { name: /测试服务器.*Rust/ });
+    // The panel renders one card per registered language, so the buttons appear only after the
+    // configuration query that carries the descriptors resolves.
+    const rustTestButton = await screen.findByRole("button", { name: /测试服务器.*Rust/ });
 
     await user.click(rustTestButton);
     const firstStatus = await screen.findByRole("status");

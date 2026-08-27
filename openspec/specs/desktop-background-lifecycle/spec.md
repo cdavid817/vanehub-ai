@@ -51,6 +51,12 @@ The desktop runtime SHALL provide an explicit tray quit action that stops connec
 - **WHEN** a connector exceeds the graceful shutdown timeout
 - **THEN** the runtime SHALL record a redacted warning and continue explicit application exit
 
+#### Scenario: Quit with multiple active Agent sessions
+- **WHEN** explicit desktop exit begins while multiple Agent sessions own active generations
+- **THEN** the runtime SHALL stop new generation admission and settle the active sessions in bounded parallel batches within the shared shutdown deadline
+- **AND** one session's cleanup failure SHALL NOT prevent cancellation from being attempted for the remaining active sessions
+- **AND** sessions successfully settled during shutdown SHALL NOT be reported as orphaned failed generations on the next launch
+
 ### Requirement: Tray initialization fallback
 The desktop application SHALL remain closable when native tray initialization is unavailable.
 
@@ -85,4 +91,3 @@ The Tauri desktop runtime SHALL open the main application window maximized to th
 #### Scenario: Use floating assistant
 - **WHEN** the desktop floating assistant window is created or shown
 - **THEN** it SHALL retain its independent compact sizing and placement behavior
-

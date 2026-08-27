@@ -6,21 +6,40 @@ Language Server Protocol (LSP) integration lets the native API Agent ask a local
 
 ## Supported servers and tools
 
-| Language | Server | Project-root markers |
+| Language | Server | Default startup arguments | Project-root markers |
+| --- | --- | --- | --- |
+| Rust | `rust-analyzer` | none | nearest `Cargo.toml` |
+| TypeScript and JavaScript | `typescript-language-server` | `--stdio` | nearest `tsconfig.json`, `jsconfig.json`, or `package.json` |
+| Go | `gopls` | none | nearest `go.mod` |
+| Python | `basedpyright-langserver`, else `pyright-langserver` | `--stdio` | nearest `pyproject.toml`, `setup.py`, `setup.cfg`, or `requirements.txt` |
+| C and C++ | `clangd` | none | nearest `compile_commands.json`, or `build/compile_commands.json` |
+| Java | `jdtls` through a JVM | none | nearest `pom.xml`, `build.gradle`, `build.gradle.kts`, or `settings.gradle` |
+
+C and C++ is the one language that will not fall back. Every other language treats the workspace root as its project root when no marker is found; `clangd` without a compilation database assumes default compiler flags and then answers definitions and diagnostics that are confidently wrong, so VaneHub AI reports the request as unavailable instead.
+
+Python prefers `basedpyright-langserver` when both are installed. Installing the fork is a deliberate act in a way that installing the upstream server is not, and the discovery panel names the one it selected.
+
+Which languages exist is decided by the desktop build, not by the settings page. The page renders one card per language the running build registers, so a language your build does not know about cannot be configured, and a language your build knows but cannot run on this operating system is shown as unsupported rather than as merely undetected.
+
+The Agent can use nine read-only tools:
+
+| Tool | Result | Every server offers it? |
 | --- | --- | --- |
-| Rust | `rust-analyzer` | nearest `Cargo.toml` |
-| TypeScript and JavaScript | `typescript-language-server --stdio` | nearest `tsconfig.json`, `jsconfig.json`, or `package.json` |
+| `find_definition` | Workspace-relative definition locations and bounded previews | Yes, in practice |
+| `find_references` | Deterministically sorted references, at most 50 returned | Yes, in practice |
+| `get_hover` | Bounded type signature and documentation | Yes, in practice |
+| `get_diagnostics` | Current or explicitly stale version-aware diagnostics | Always |
+| `find_type_definition` | Where the *type* of the symbol is declared, at most 20 locations | No |
+| `find_implementations` | Implementations of an interface, trait, or abstract member, at most 20 | No |
+| `find_workspace_symbols` | Symbols matching a name across one project, at most 50 | No |
+| `get_document_symbols` | A file's declarations, flattened, each naming what encloses it | No |
+| `find_call_hierarchy` | Callers of, or calls made by, a function, at most 50 | No |
 
-The Agent can use four read-only tools:
+The last five are worth knowing about because a server may simply not offer them. The tool is still there and still answers — with an `unavailable` status rather than silence — because whether a server supports a method is discovered when it starts, not when the session begins. `gopls` and `rust-analyzer` offer all nine; older or smaller servers often stop at the first four. The runtime status card lists what the running server actually negotiated.
 
-| Tool | Result |
-| --- | --- |
-| `find_definition` | Workspace-relative definition locations and bounded previews |
-| `find_references` | Deterministically sorted references, at most 50 returned |
-| `get_hover` | Bounded type signature and documentation |
-| `get_diagnostics` | Current or explicitly stale version-aware diagnostics |
+`find_workspace_symbols` takes a file path as well as a query. The path is not a filter: it says which project's index to search. A repository can hold several projects of the same language, and a language server indexes one of them at a time.
 
-These tools are available in normal and Plan Mode sessions when the current local workspace is eligible. Python, Go, Java, C, and C++ language servers are not supported by this foundation.
+These tools are available in normal and Plan Mode sessions when the current local workspace is eligible.
 
 ## Install a server
 
@@ -45,22 +64,77 @@ npm install -g typescript-language-server typescript
 typescript-language-server --version
 ```
 
-VaneHub AI supplies the required `--stdio` argument. See the upstream [TypeScript Language Server project](https://github.com/typescript-language-server/typescript-language-server#installing) for its current prerequisites.
+VaneHub AI supplies `--stdio` as this server's default startup argument; you can replace it under **Startup arguments** if your installation needs something else. See the upstream [TypeScript Language Server project](https://github.com/typescript-language-server/typescript-language-server#installing) for its current prerequisites.
+
+### Go
+
+```bash
+go install golang.org/x/tools/gopls@latest
+gopls version
+```
+
+`gopls` installs into `$(go env GOPATH)/bin`, which is not always on the `PATH` a desktop application inherits. See the upstream [gopls installation guide](https://pkg.go.dev/golang.org/x/tools/gopls#section-readme).
+
+### Python
+
+```bash
+npm install -g basedpyright   # or: npm install -g pyright
+basedpyright-langserver --help
+```
+
+Either server works; VaneHub AI supplies `--stdio`. See [basedpyright](https://docs.basedpyright.com/) or [pyright](https://microsoft.github.io/pyright/#/installation) for their current prerequisites.
+
+### C and C++
+
+`clangd` ships with LLVM. Install it through your platform's package manager, then generate a compilation database for each project:
+
+```bash
+clangd --version
+# CMake, in the project you want served:
+cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+```
+
+The generated `build/compile_commands.json` is what makes the project detectable. See the upstream [clangd installation guide](https://clangd.llvm.org/installation) for other build systems, including `bear` for Make-based projects.
+
+### Java
+
+Java is the one language you point at a **directory** rather than an executable, because `jdtls` is not an executable — it is an Eclipse application VaneHub AI starts through a JVM.
+
+Two things have to be in place:
+
+1. **A JDK, version 17 or newer**, with `java` on your `PATH`. Install it however you normally would; VaneHub AI does not install it for you.
+2. **An extracted `jdtls`.** Download the Eclipse JDT Language Server archive, extract it anywhere, and put that directory in the Java card's **Server install directory** field. VaneHub AI does not download it for you yet — that arrives with a later change.
+
+The directory has to be the one containing `plugins/` and `config_win`, `config_mac`, or `config_linux`. VaneHub AI finds the versioned launcher inside `plugins/` itself, so you never type a version number.
+
+If Java shows as unavailable, the reason says which of three things to fix:
+
+| What it says | What to do |
+| --- | --- |
+| The runtime this server needs is not installed | Install a JDK 17+ and make sure `java` runs from your shell |
+| No server install directory is configured | Fill in the Server install directory field |
+| That directory holds no server launcher | You pointed at the wrong level, or the archive did not extract fully |
+| That directory holds more than one server launcher | Two `jdtls` versions are mixed in one directory; extract a clean copy |
+
+`jdtls` also keeps an index per workspace. VaneHub AI gives each trusted workspace its own directory for that, and deletes it when you revoke trust for the workspace.
+
+Java startup is noticeably slower than the other servers, and it reports progress for a while after it starts answering. That is normal; the runtime status card distinguishes "ready" from "still indexing".
 
 ## Enable LSP for a workspace
 
 Use the desktop application for these steps:
 
 1. Open **Settings > Agent Configurations** and find **Language server intelligence**.
-2. Turn on **Enable LSP integration**, then enable Rust and/or TypeScript/JavaScript.
+2. Turn on **Enable LSP integration**, then enable the languages you want.
 3. Select **Refresh discovery**. If the desktop process cannot see the executable, enter its absolute path in **Executable override**.
-4. Keep initialization options as `{}` unless you need server-specific settings. The value must be a bounded JSON object.
-5. Save the configuration.
-6. Under **Test language server**, run the isolated test. Review the discovery, process start, initialization, and cleanup phases.
-7. Read the trust disclosure, enter the absolute local workspace path under **Trusted workspaces**, and select **Trust workspace**.
-8. Open a native API Agent session for that local workspace. The four LSP tools become eligible without requiring a code index.
+4. Leave **Startup arguments** blank to use the defaults in the table above. To pass your own, enter one argument per line — the list you enter replaces the defaults rather than adding to them, so a server that needs `--stdio` must still list it. An entered-but-empty list means "start this server with no arguments at all", which is not the same as leaving the field blank.
+5. Keep initialization options as `{}` unless you need server-specific settings. The value must be a bounded JSON object.
+6. Save the configuration.
+7. Under **Test language server**, run the isolated test. Review the discovery, process start, initialization, and cleanup phases.
+8. Read the trust disclosure, enter the absolute local workspace path under **Trusted workspaces**, and select **Trust workspace**.
+9. Open a native API Agent session for that local workspace. The four LSP tools become eligible without requiring a code index.
 
-Testing a server uses an isolated minimal project; it does not grant workspace trust. Enabling a Tree-sitter code index also does not grant LSP trust.
+Changing startup arguments changes the command line a server runs under, so any server already running for that configuration is drained and restarted before the next request. Testing a server uses an isolated minimal project; it does not grant workspace trust. Enabling a Tree-sitter code index also does not grant LSP trust.
 
 ## Understand workspace trust
 
@@ -119,6 +193,14 @@ Use the failed phase to narrow the cause:
 - **Process start:** dependencies, permissions, or the executable itself prevented launch.
 - **Initialization:** the server rejected the minimal project, returned malformed capabilities, or timed out.
 - **Cleanup:** graceful shutdown failed and forced cleanup could not finish.
+
+### A C or C++ request reports a missing project marker
+
+`clangd` is installed and discovery shows it as available, but the workspace has no compilation database, so there is nothing to serve the request with. Generate one — `cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON`, `bear -- make`, or your build system's equivalent — and place it at the project root or in its `build` directory. This is deliberately distinct from an installation problem: the server is fine, the project is what cannot be read.
+
+### A language is shown as unsupported on this operating system
+
+That is different from an undiscovered executable. The running build registers the language but declares that its server does not run on this platform, so there is no executable to install and the enablement switch and isolated test are unavailable. An undiscovered executable, by contrast, reports **Unavailable** with a reason and can be fixed by installing the server or setting an override.
 
 ### The Agent does not receive LSP tools
 

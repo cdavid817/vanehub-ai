@@ -10,6 +10,8 @@ use zeroize::Zeroizing;
 
 const SERVICE_NAME: &str = "io.vanehub.ai.im";
 const DEFAULT_PROFILE: &str = "default";
+#[cfg(any(feature = "desktop-e2e", test))]
+const DESKTOP_LIVE_PROFILE_PREFIX: &str = "desktop-live-";
 
 pub(crate) trait SecureCredentialStore: Send + Sync {
     fn set(&self, account: &str, secret: &str) -> Result<(), InfrastructureError>;
@@ -34,15 +36,24 @@ impl SecureCredentialStore for OsCredentialStore {
 #[derive(Clone)]
 pub(crate) struct CommunicationsCredentialAdapter {
     store: Arc<dyn SecureCredentialStore>,
+    profile: String,
 }
 
 impl CommunicationsCredentialAdapter {
     pub(crate) fn new() -> Self {
-        Self::with_store(Arc::new(OsCredentialStore::new(SERVICE_NAME)))
+        Self::with_store_and_profile(
+            Arc::new(OsCredentialStore::new(SERVICE_NAME)),
+            runtime_credential_profile(),
+        )
     }
 
+    #[cfg(test)]
     fn with_store(store: Arc<dyn SecureCredentialStore>) -> Self {
-        Self { store }
+        Self::with_store_and_profile(store, DEFAULT_PROFILE.to_string())
+    }
+
+    fn with_store_and_profile(store: Arc<dyn SecureCredentialStore>, profile: String) -> Self {
+        Self { store, profile }
     }
 }
 
@@ -59,7 +70,7 @@ impl CommunicationsCredentialPort for CommunicationsCredentialAdapter {
         &self,
         kind: ConnectorKind,
     ) -> Result<Option<ConnectorCredential>, CommunicationsApplicationError> {
-        let account = credential_account(kind, DEFAULT_PROFILE);
+        let account = credential_account(kind, &self.profile);
         if let Some(secret) = self.store.get(&account).map_err(|_| read_error())? {
             return Ok(Some(ConnectorCredential {
                 reference: account,
@@ -91,7 +102,7 @@ impl CommunicationsCredentialPort for CommunicationsCredentialAdapter {
         kind: ConnectorKind,
         secret: &str,
     ) -> Result<ConnectorCredential, CommunicationsApplicationError> {
-        let account = credential_account(kind, DEFAULT_PROFILE);
+        let account = credential_account(kind, &self.profile);
         self.store
             .set(&account, secret)
             .map_err(|_| write_error())?;
@@ -102,7 +113,7 @@ impl CommunicationsCredentialPort for CommunicationsCredentialAdapter {
     }
 
     fn delete(&self, kind: ConnectorKind) -> Result<(), CommunicationsApplicationError> {
-        let account = credential_account(kind, DEFAULT_PROFILE);
+        let account = credential_account(kind, &self.profile);
         self.store.delete(&account).map_err(|_| delete_error())?;
         if kind == ConnectorKind::WeChat {
             self.store
@@ -145,6 +156,27 @@ impl CommunicationsCredentialPort for CommunicationsCredentialAdapter {
     ) -> Result<(), CommunicationsApplicationError> {
         self.store.delete(reference).map_err(|_| delete_error())
     }
+}
+
+fn runtime_credential_profile() -> String {
+    #[cfg(feature = "desktop-e2e")]
+    if std::env::var_os("VANEHUB_FEISHU_LIVE_QUALIFICATION").is_some_and(|value| value == "1") {
+        if let Ok(profile) = std::env::var("VANEHUB_IM_CREDENTIAL_PROFILE") {
+            if is_desktop_live_profile(&profile) {
+                return profile;
+            }
+        }
+    }
+    DEFAULT_PROFILE.to_string()
+}
+
+#[cfg(any(feature = "desktop-e2e", test))]
+fn is_desktop_live_profile(profile: &str) -> bool {
+    profile.starts_with(DESKTOP_LIVE_PROFILE_PREFIX)
+        && profile.len() <= 96
+        && profile
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || character == '-')
 }
 
 pub(crate) fn credential_account(kind: ConnectorKind, profile: &str) -> String {
@@ -295,6 +327,41 @@ mod tests {
         assert_eq!(
             credential_account(ConnectorKind::Telegram, "  "),
             "telegram/default"
+        );
+    }
+
+    #[test]
+    fn run_owned_profiles_are_narrow_and_keep_default_credentials_untouched() {
+        assert!(is_desktop_live_profile("desktop-live-run-123"));
+        assert!(!is_desktop_live_profile("default"));
+        assert!(!is_desktop_live_profile("desktop-live-../shared"));
+
+        let store = Arc::new(MemorySecureCredentialStore::default());
+        store
+            .set("feishu/default", "developer-private-value")
+            .expect("default credential");
+        let adapter = CommunicationsCredentialAdapter::with_store_and_profile(
+            store.clone(),
+            "desktop-live-run-123".to_string(),
+        );
+        adapter
+            .store(ConnectorKind::Feishu, "run-private-value")
+            .expect("run credential");
+        adapter
+            .delete(ConnectorKind::Feishu)
+            .expect("delete run credential");
+
+        assert!(store
+            .get("feishu/desktop-live-run-123")
+            .expect("run read")
+            .is_none());
+        assert_eq!(
+            store
+                .get("feishu/default")
+                .expect("default read")
+                .expect("default retained")
+                .as_str(),
+            "developer-private-value"
         );
     }
 

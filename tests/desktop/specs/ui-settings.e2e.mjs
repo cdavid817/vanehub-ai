@@ -495,11 +495,14 @@ globalThis.describe("VaneHub AI desktop Settings interactions", () => {
     assert.equal(created.name, HOOK_NAME, "the name typed into the dialog was not the one stored");
 
     const cardDelete = async () => {
-      const row = await globalThis.$(`${PANEL} article[data-hook-id="${HOOK_ID}"]`);
-      const summary = await row.$("summary");
+      const row = `${PANEL} article[data-hook-id="${HOOK_ID}"]`;
+      const summary = await (await globalThis.$(row)).$("summary");
       assert.ok(summary, "the Prompt Hook overflow summary is missing");
       await summary.click();
-      return row.$("button*=Delete");
+      // The overflow's delete button carries Trash2 (prompt-hook-card-list.tsx:209-210). It used
+      // to be located by the English text "Delete", which this file's own selector policy rules
+      // out and which never matched: the label is localized and this host renders zh-CN.
+      return pick("the Prompt Hook card delete button", `${row} button`, iconButtonLocator, "svg.lucide-trash-2");
     };
 
     // Cancelling the confirmation must leave the hook alone -- a delete dialog whose cancel still

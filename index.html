@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#07111F" />
+    <meta name="theme-color" content="#F4F7FB" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
@@ -12,16 +12,15 @@
     <title>VaneHub AI</title>
   </head>
   <body>
-    <div id="root">
-      <main class="bootstrap-shell" role="status" aria-live="polite">
-        <img class="bootstrap-shell__logo" src="/icon-192.png" alt="" width="64" height="64" />
-        <div class="bootstrap-shell__copy">
-          <strong>VaneHub AI</strong>
-          <span>Starting...</span>
-        </div>
-        <span class="bootstrap-shell__progress" aria-hidden="true"></span>
-      </main>
-    </div>
+    <main id="bootstrap-shell" class="bootstrap-shell" role="status" aria-live="polite">
+      <img class="bootstrap-shell__logo" src="/icon-192.png" alt="" width="64" height="64" />
+      <div class="bootstrap-shell__copy">
+        <strong>VaneHub AI</strong>
+        <span>Starting...</span>
+      </div>
+      <span class="bootstrap-shell__progress" aria-hidden="true"></span>
+    </main>
+    <div id="root" data-vanehub-bootstrap="starting"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

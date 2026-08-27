@@ -150,7 +150,7 @@ describe("session sidebar filtering and grouping", () => {
   });
 
   it("clamps the resizable session sidebar width", () => {
-    expect(clampSessionSidebarWidth(120)).toBe(220);
+    expect(clampSessionSidebarWidth(120)).toBe(232);
     expect(clampSessionSidebarWidth(300.4)).toBe(300);
     expect(clampSessionSidebarWidth(900)).toBe(420);
   });

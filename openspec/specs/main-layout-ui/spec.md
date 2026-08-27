@@ -98,6 +98,12 @@ The workspace shell SHALL render a fixed-width activity bar beside a sidebar, ma
 - **WHEN** the workspace shell renders between the top bar and status bar
 - **THEN** the activity bar and all visible workspace panels SHALL use the same available height and align at the bottom edge
 
+#### Scenario: Separate the session list from the conversation surface
+- **WHEN** the session sidebar and main conversation panel are both visible
+- **THEN** the workspace SHALL reserve a non-overlapping visual gap between the two surfaces
+- **AND** the gap SHALL NOT reduce or cover the session cards' trailing content
+- **AND** the gap SHALL be removed when the session sidebar is collapsed or the workspace switches to its single-column mobile layout
+
 ### Requirement: Sidebar session organization
 The sidebar SHALL support service-backed session navigation without utility or tool shortcuts and SHALL provide activity, folder, pinned, archived session organization, and dialog-based session creation.
 

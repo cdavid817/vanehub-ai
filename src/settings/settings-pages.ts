@@ -1,5 +1,6 @@
 import {
   BarChart3,
+  BookOpen,
   Boxes,
   Braces,
   Cpu,
@@ -7,6 +8,7 @@ import {
   KeyRound,
   MessagesSquare,
   Activity,
+  AudioLines,
   Puzzle,
   Plug,
   Settings,
@@ -17,110 +19,41 @@ import {
   Terminal,
   UserRound,
   Workflow,
-  type LucideIcon,
 } from "lucide-react";
-import type { LazyFeatureLoader } from "../components/lazy-feature";
-import type { CliConfigAgentId } from "../types/cli-agent-config";
+import {
+  loadAboutPage,
+  loadAgentConfigurationsPage,
+  loadAgentPoliciesPage,
+  loadBasicPage,
+  loadCliParametersPage,
+  loadCodeIntelligencePage,
+  loadDocumentationPage,
+  loadExpertRolesPage,
+  loadExtensionsPage,
+  loadImPage,
+  loadLocalMediaPage,
+  loadMcpPage,
+  loadObservabilityPage,
+  loadPersonalizationPage,
+  loadPluginIntegrationsPage,
+  loadPromptHooksPage,
+  loadProvidersPage,
+  loadSkillsPage,
+  loadSshConnectionsPage,
+  loadUsagePage,
+} from "./settings-page-loaders";
+import type { SettingsPageDefinition, SettingsPageId } from "./settings-page-types";
 
-export type SettingsPageId =
-  | "basic"
-  | "providers"
-  | "cli-parameters"
-  | "extensions"
-  | "plugins"
-  | "mcp"
-  | "agent-configurations"
-  | "code-intelligence"
-  | "expert-roles"
-  | "agent-policies"
-  | "personalization"
-  | "skills"
-  | "prompt-hooks"
-  | "im"
-  | "ssh-connections"
-  | "observability"
-  | "usage"
-  | "about";
-
-export interface SettingsPageContext {
-  searchTerm: string;
-  navigationTarget: SettingsNavigationTarget | null;
-  onNavigate: (pageId: SettingsPageId, target?: SettingsNavigationTarget) => void;
-  onReturn?: () => void;
-  /**
-   * False while the page is mounted but hidden. Visited pages stay mounted so their state survives
-   * tab switches, which means background work has to be gated on this rather than on mount.
-   */
-  isActive: boolean;
-}
-
-export interface SettingsNavigationTarget {
-  cliConfigAgentId?: CliConfigAgentId;
-  agentConfigAgentId?: CliConfigAgentId | "onepiece";
-}
-
-/**
- * Sidebar grouping only. The page order itself is a deliberate product decision asserted by
- * `tests/e2e/settings-navigation-order.spec.ts`, so groups must stay contiguous in that order
- * rather than re-sorting pages into a tidier taxonomy.
- */
-export type SettingsPageGroup = "general" | "agent" | "capabilities" | "integrations" | "diagnostics";
-
-export const settingsPageGroupOrder: SettingsPageGroup[] = [
-  "general",
-  "agent",
-  "capabilities",
-  "integrations",
-  "diagnostics",
-];
-
-export interface SettingsPageDefinition {
-  id: SettingsPageId;
-  labelKey: string;
-  crumbKey: string;
-  group: SettingsPageGroup;
-  icon: LucideIcon;
-  badge?: number;
-  searchPlaceholderKey: string;
-  loader: LazyFeatureLoader<SettingsPageContext>;
-}
-
-const loadBasicPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/basic-settings-page")
-  .then((module) => ({ default: module.BasicSettingsPage }));
-const loadProvidersPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/providers-page")
-  .then((module) => ({ default: module.ProvidersPage }));
-const loadCliParametersPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/cli-parameters-page")
-  .then((module) => ({ default: module.CliParametersPage }));
-const loadExtensionsPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/extensions-page")
-  .then((module) => ({ default: module.ExtensionsPage }));
-const loadMcpPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/mcp-page")
-  .then((module) => ({ default: module.McpPage }));
-const loadAgentConfigurationsPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/agent-configurations-page")
-  .then((module) => ({ default: module.AgentConfigurationsPage }));
-const loadCodeIntelligencePage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/code-intelligence-page")
-  .then((module) => ({ default: module.CodeIntelligencePage }));
-const loadExpertRolesPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/expert-roles-page")
-  .then((module) => ({ default: module.ExpertRolesPage }));
-const loadAgentPoliciesPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/agent-policies-page")
-  .then((module) => ({ default: module.AgentPoliciesPage }));
-const loadPersonalizationPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/personalization-page")
-  .then((module) => ({ default: module.PersonalizationPage }));
-const loadSkillsPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/skills-page")
-  .then((module) => ({ default: module.SkillsPage }));
-const loadPromptHooksPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/prompt-hooks-page")
-  .then((module) => ({ default: module.PromptHooksPage }));
-const loadImPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/im-page")
-  .then((module) => ({ default: module.ImPage }));
-const loadSshConnectionsPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/ssh-connections-page")
-  .then((module) => ({ default: module.SshConnectionsPage }));
-const loadPluginIntegrationsPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/plugin-integrations-page")
-  .then((module) => ({ default: module.PluginIntegrationsPage }));
-const loadObservabilityPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/observability-settings-page")
-  .then((module) => ({ default: module.ObservabilitySettingsPage }));
-const loadUsagePage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/usage-statistics-page")
-  .then((module) => ({ default: module.UsageStatisticsPage }));
-const loadAboutPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/about-page")
-  .then((module) => ({ default: module.AboutPage }));
+// The navigation shape lives in `settings-page-types.ts`; re-exported here so the many modules
+// that already import these names from the page list keep working.
+export type {
+  SettingsNavigationTarget,
+  SettingsPageContext,
+  SettingsPageDefinition,
+  SettingsPageGroup,
+  SettingsPageId,
+} from "./settings-page-types";
+export { settingsPageGroupOrder } from "./settings-page-types";
 
 export const settingsPages: SettingsPageDefinition[] = [
   {
@@ -214,6 +147,15 @@ export const settingsPages: SettingsPageDefinition[] = [
     loader: loadExpertRolesPage,
   },
   {
+    id: "local-media",
+    group: "capabilities",
+    labelKey: "settings.pages.localMedia",
+    crumbKey: "settings.pages.localMedia",
+    icon: AudioLines,
+    searchPlaceholderKey: "settings.search.localMedia",
+    loader: loadLocalMediaPage,
+  },
+  {
     id: "providers",
     group: "integrations",
     labelKey: "settings.pages.providers",
@@ -275,6 +217,15 @@ export const settingsPages: SettingsPageDefinition[] = [
     icon: BarChart3,
     searchPlaceholderKey: "settings.search.usage",
     loader: loadUsagePage,
+  },
+  {
+    id: "help",
+    group: "diagnostics",
+    labelKey: "settings.pages.help",
+    crumbKey: "settings.pages.help",
+    icon: BookOpen,
+    searchPlaceholderKey: "settings.search.help",
+    loader: loadDocumentationPage,
   },
   {
     id: "about",

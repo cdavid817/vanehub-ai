@@ -1,6 +1,6 @@
 [package]
 name = "vanehub-ai"
-version = "1.0.0"
+version = "1.2.0"
 description = "Unified AI coding agent management"
 authors = ["vanehub-ai"]
 edition = "2021"
@@ -51,6 +51,10 @@ russh = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
 image = { workspace = true }
+xcap = { workspace = true }
+cpal = { workspace = true }
+hound = { workspace = true }
+rodio = { workspace = true }
 futures-util = { workspace = true }
 keyring = { workspace = true }
 prost = { workspace = true }

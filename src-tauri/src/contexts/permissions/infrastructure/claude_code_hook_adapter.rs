@@ -7,7 +7,7 @@
 use crate::contexts::permissions::application::{ClaudeCodeHookPort, PermissionsApplicationError};
 use crate::contexts::tooling::cli_config::api::ClaudeCodeHookProjectionPort;
 use serde_json::{json, Value};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// Every built-in tool `claude-code-permission-hook`'s mapping table
@@ -47,8 +47,17 @@ impl ClaudeCodeHookAdapter {
     }
 
     fn entries(&self) -> Vec<Value> {
-        hook_entries(&self.wrapper_path.display().to_string())
+        hook_entries(&shell_command_path(&self.wrapper_path))
     }
+}
+
+/// Claude Code executes hook commands through a POSIX-compatible shell even on Windows. Raw
+/// Windows paths therefore lose every backslash as an escape and paths containing spaces split
+/// into multiple arguments. Forward slashes are accepted by Windows executables and quoting the
+/// result keeps the path a single shell token on every supported desktop platform.
+fn shell_command_path(path: &Path) -> String {
+    let normalized = path.to_string_lossy().replace('\\', "/");
+    format!("'{}'", normalized.replace('\'', "'\\''"))
 }
 
 impl ClaudeCodeHookPort for ClaudeCodeHookAdapter {
@@ -138,10 +147,31 @@ mod tests {
         assert_eq!(entries[0]["matcher"], "Bash|Edit|Write|Read|Glob|Grep");
         assert_eq!(entries[1]["matcher"], "mcp__.*");
         for entry in entries {
-            assert_eq!(entry["hooks"][0]["command"], wrapper.display().to_string());
+            assert_eq!(entry["hooks"][0]["command"], shell_command_path(&wrapper));
             assert_eq!(entry["hooks"][0]["type"], "command");
             assert_eq!(entry["hooks"][0]["timeout"], 330);
         }
+    }
+
+    #[test]
+    fn windows_wrapper_path_is_bash_safe() {
+        let command = shell_command_path(Path::new(
+            r"D:\c00606997\Documents\code OpenSource\vanehub-ai\target\debug\vanehub-permission-hook.exe",
+        ));
+
+        assert_eq!(
+            command,
+            "'D:/c00606997/Documents/code OpenSource/vanehub-ai/target/debug/vanehub-permission-hook.exe'"
+        );
+        assert!(!command.contains('\\'));
+    }
+
+    #[test]
+    fn wrapper_path_with_apostrophe_remains_one_shell_token() {
+        assert_eq!(
+            shell_command_path(Path::new("/tmp/user's tools/vanehub-permission-hook")),
+            "'/tmp/user'\\''s tools/vanehub-permission-hook'"
+        );
     }
 
     #[test]

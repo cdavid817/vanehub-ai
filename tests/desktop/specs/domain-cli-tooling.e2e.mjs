@@ -5,27 +5,49 @@ import { readFile } from "node:fs/promises";
 const invoke = (fn, ...args) => globalThis.browser.tauri.execute(fn, ...args);
 const blocked = [];
 
-// src-tauri/src/contexts/tooling/cli_parameters.rs:25 (MANAGED_CLI_AGENT_IDS). `list_profiles`
-// (same file:770) maps over the constant in order, so the response order is itself the contract.
+// src-tauri/src/contexts/tooling/cli_parameters/domain/catalog_validation.rs
+// (MANAGED_CLI_AGENT_IDS). `list_profiles` maps over the constant in order, so the response order
+// is itself the contract.
 const MANAGED_CLI_AGENT_IDS = ["claude-code", "codex-cli", "gemini-cli", "opencode", "antigravity-cli"];
-// src-tauri/src/contexts/tooling/cli_parameters.rs:33-54 -- the serde renames on the control
-// (kebab-case), risk (lowercase) and launch-scope (lowercase) enums.
-const PARAMETER_CONTROLS = ["enum", "boolean", "multi-enum", "custom-text"];
+// src-tauri/src/contexts/tooling/cli_parameters/domain/definition.rs -- the serde renames on the
+// control (kebab-case), risk (lowercase) and launch-scope (lowercase) enums.
+const PARAMETER_CONTROLS = [
+  "enum",
+  "boolean-flag",
+  "tri-state",
+  "multi-enum",
+  "custom-text",
+  "ordered-string-list",
+  "path-list",
+];
 const PARAMETER_RISKS = ["normal", "warning"];
 const PARAMETER_LAUNCH_SCOPES = ["interactive", "chat"];
-// opencode's editable catalogue. `agent` and `autoApprove` are policy-governed
-// (src-tauri/src/contexts/tooling/cli_parameters.rs:403-419), so they are filtered out of both the
-// definitions and the selections a profile exposes; they belong to the policy template layer.
+// opencode's editable catalogue. `agent` and `autoApprove` are policy-governed in
+// catalog.v2.json, so they are filtered out of both the fields and the selections a profile
+// exposes; they belong to the policy template layer.
 const OPENCODE_PARAMETER_IDS = ["model", "variant", "thinking", "pure", "printLogs", "logLevel"];
 const OPENCODE_PARAMETER_FLAGS = ["--model", "--variant", "--thinking", "--pure", "--print-logs", "--log-level"];
+// v2 selections are explicit envelopes: inheritance is its own state, not a value named "default".
+const INHERIT = { state: "inherit" };
+// Must satisfy the registry's `provider/model` constraint on `opencode.model`.
+const OPENCODE_MODEL = "anthropic/claude-sonnet-4";
 const OPENCODE_DEFAULT_SELECTIONS = {
-  model: "default",
-  variant: "default",
-  thinking: false,
-  pure: false,
-  printLogs: false,
-  logLevel: "default",
+  model: INHERIT,
+  variant: INHERIT,
+  thinking: INHERIT,
+  pure: INHERIT,
+  printLogs: INHERIT,
+  logLevel: INHERIT,
 };
+
+function parameterFlag(definition) {
+  const renderer = definition.renderer;
+  return renderer.kind === "positive-negative-flag" ? renderer.positiveFlag : renderer.flag;
+}
+
+function previewArgs(segments) {
+  return [...segments.global, ...segments.invocation].map((token) => token.value);
+}
 
 // src-tauri/src/contexts/tooling/cli_config/domain/mod.rs:8 (SUPPORTED_AGENT_IDS) -- deliberately a
 // different order from the CLI parameter constant above.
@@ -73,20 +95,37 @@ async function readParameterProfile(agentId) {
   return profile;
 }
 
-async function saveParameterProfile(agentId, selections) {
-  // src-tauri/src/commands/tooling/cli_parameters/save_cli_parameter_profile.rs:8 takes `input`;
-  // `SaveCliParameterProfileInput` (src-tauri/src/contexts/tooling/cli_parameters.rs:88-93,
-  // camelCase) is `{ agentId, selections }`.
+// `SaveCliParameterProfileRequest` requires both optimistic tokens, so a caller that has not read
+// the profile cannot construct the request at all.
+async function saveParameterProfile(agentId, selections, overrides = {}) {
+  const current = await readParameterProfile(agentId);
   return invoke(({ core }, input) => core.invoke("save_cli_parameter_profile", { input }), {
     agentId,
+    expectedRevision: current.revision,
+    catalogVersion: current.catalogVersion,
     selections,
+    ...overrides,
   });
 }
 
 async function resetParameterProfile(agentId) {
-  // src-tauri/src/commands/tooling/cli_parameters/reset_cli_parameter_profile.rs:6 -- `agent_id`
-  // crosses the boundary camelCased (src/services/tauri-agent-client.ts:554).
-  return invoke(({ core }, id) => core.invoke("reset_cli_parameter_profile", { agentId: id }), agentId);
+  const current = await readParameterProfile(agentId);
+  return invoke(({ core }, input) => core.invoke("reset_cli_parameter_profile", { input }), {
+    agentId,
+    expectedRevision: current.revision,
+    catalogVersion: current.catalogVersion,
+  });
+}
+
+// Read-only: it renders a draft and must not move the revision or the stored selections.
+async function previewParameterProfile(agentId, selections, scope) {
+  const current = await readParameterProfile(agentId);
+  return invoke(({ core }, input) => core.invoke("preview_cli_parameter_profile", { input }), {
+    agentId,
+    catalogVersion: current.catalogVersion,
+    scope,
+    selections,
+  });
 }
 
 async function readConfigStatus(agentId) {
@@ -127,17 +166,20 @@ globalThis.describe("VaneHub AI desktop CLI tooling domain", () => {
     );
 
     for (const profile of profiles) {
-      assert.ok(profile.definitions.length > 0, `${profile.agentId} exposes no editable parameters`);
-      // Selections and definitions are derived from the same filtered catalogue
-      // (cli_parameters.rs:682-700), so a key on one side and not the other is a real defect: the
-      // UI would render a control with no value, or hold a value with no control.
+      assert.ok(profile.fields.length > 0, `${profile.agentId} exposes no editable parameters`);
+      assert.equal(typeof profile.revision, "number", `${profile.agentId} carries no revision`);
+      assert.ok(profile.catalogVersion.length > 0, `${profile.agentId} carries no catalog version`);
+      // Selections and fields are derived from the same filtered catalogue, so a key on one side
+      // and not the other is a real defect: the UI would render a control with no value, or hold a
+      // value with no control.
       assert.deepEqual(
         Object.keys(profile.selections).sort(),
-        profile.definitions.map((definition) => definition.id).sort(),
-        `${profile.agentId} selections and definitions disagree`,
+        profile.fields.map((field) => field.definition.id).sort(),
+        `${profile.agentId} selections and fields disagree`,
       );
-      for (const definition of profile.definitions) {
+      for (const { definition } of profile.fields) {
         assert.equal(definition.agentId, profile.agentId);
+        assert.equal(definition.ownership, "user-editable", `${definition.id} is not user-editable`);
         assert.ok(PARAMETER_CONTROLS.includes(definition.control), `unexpected control ${definition.control}`);
         assert.ok(PARAMETER_RISKS.includes(definition.risk), `unexpected risk ${definition.risk}`);
         assert.ok(definition.launchScopes.length > 0, `${definition.id} declares no launch scope`);
@@ -146,15 +188,20 @@ globalThis.describe("VaneHub AI desktop CLI tooling domain", () => {
           `${definition.id} declares an unexpected launch scope`,
         );
         // The catalogue is the surface a user can flip from the UI, so bypass flags must never
-        // reach it (asserted natively at cli_parameters.rs:1076, restated here end to end).
-        assert.equal(definition.flag.includes("dangerously"), false, `${definition.id} exposes a bypass flag`);
+        // reach it (asserted natively in the registry validator, restated here end to end).
+        assert.equal(
+          parameterFlag(definition).includes("dangerously"),
+          false,
+          `${definition.id} exposes a bypass flag`,
+        );
       }
-      assert.ok(Array.isArray(profile.previewArgs), `${profile.agentId} rendered no preview arguments`);
+      assert.ok(Array.isArray(previewArgs(profile.savedPreviews.chat)));
+      assert.ok(Array.isArray(previewArgs(profile.savedPreviews.interactive)));
     }
 
     const opencode = profiles.find((profile) => profile.agentId === "opencode");
-    assert.deepEqual(opencode.definitions.map((definition) => definition.id), OPENCODE_PARAMETER_IDS);
-    assert.deepEqual(opencode.definitions.map((definition) => definition.flag), OPENCODE_PARAMETER_FLAGS);
+    assert.deepEqual(opencode.fields.map((field) => field.definition.id), OPENCODE_PARAMETER_IDS);
+    assert.deepEqual(opencode.fields.map((field) => parameterFlag(field.definition)), OPENCODE_PARAMETER_FLAGS);
     for (const governed of ["agent", "autoApprove"]) {
       assert.equal(
         Object.hasOwn(opencode.selections, governed),
@@ -172,23 +219,57 @@ globalThis.describe("VaneHub AI desktop CLI tooling domain", () => {
     try {
       // Scoped to opencode by explicit instruction: claude-code and codex-cli keep whatever
       // configuration this host already has.
-      const saved = await saveParameterProfile("opencode", { variant: "high", thinking: true });
+      // `variant` names a variant of the selected model, so the registry makes it depend on
+      // `model` being set. Setting it alone is rejected rather than silently rendered.
+      await assert.rejects(() =>
+        saveParameterProfile("opencode", { variant: { state: "value", value: "high" } }),
+      );
+
+      const saved = await saveParameterProfile("opencode", {
+        model: { state: "value", value: OPENCODE_MODEL },
+        variant: { state: "value", value: "high" },
+        thinking: { state: "value", value: true },
+      });
       assert.equal(saved.agentId, "opencode");
-      // `model` is absent from the request and is backfilled from its default
-      // (cli_parameters.rs:504-521), so a stored selection is always complete.
+      assert.equal(saved.revision, original.revision + 1, "the save did not advance the revision");
+      // The remaining parameters are absent from the request and are backfilled from their
+      // defaults, so a stored selection is always complete.
       assert.deepEqual(saved.selections, {
         ...OPENCODE_DEFAULT_SELECTIONS,
-        variant: "high",
-        thinking: true,
+        model: { state: "value", value: OPENCODE_MODEL },
+        variant: { state: "value", value: "high" },
+        thinking: { state: "value", value: true },
       });
-      // Rendered for the chat launch scope in definition order (cli_parameters.rs:689-693):
-      // `model` stays at "default" and contributes nothing, `variant` renders flag plus value, and
-      // the boolean renders its flag alone.
-      assert.deepEqual(saved.previewArgs, ["--variant", "high", "--thinking"]);
+      // Rendered for the chat launch scope in registry order: two flag-value pairs, then the
+      // boolean's flag alone.
+      assert.deepEqual(previewArgs(saved.savedPreviews.chat), [
+        "--model",
+        OPENCODE_MODEL,
+        "--variant",
+        "high",
+        "--thinking",
+      ]);
 
       const reread = await readParameterProfile("opencode");
       assert.deepEqual(reread.selections, saved.selections, "the saved selection did not survive a read");
-      assert.deepEqual(reread.previewArgs, saved.previewArgs);
+      assert.deepEqual(previewArgs(reread.savedPreviews.chat), previewArgs(saved.savedPreviews.chat));
+
+      // A draft preview must not move the revision or the stored selections.
+      const preview = await previewParameterProfile(
+        "opencode",
+        { ...saved.selections, variant: { state: "value", value: "low" } },
+        "chat",
+      );
+      assert.deepEqual(previewArgs(preview.segments), [
+        "--model",
+        OPENCODE_MODEL,
+        "--variant",
+        "low",
+        "--thinking",
+      ]);
+      const afterPreview = await readParameterProfile("opencode");
+      assert.equal(afterPreview.revision, saved.revision, "preview moved the revision");
+      assert.deepEqual(afterPreview.selections, saved.selections, "preview mutated the stored profile");
 
       const others = (await readParameterProfiles())
         .filter((profile) => ["claude-code", "codex-cli"].includes(profile.agentId));
@@ -200,19 +281,38 @@ globalThis.describe("VaneHub AI desktop CLI tooling domain", () => {
 
       // A policy-governed parameter is not merely ignored on save, it is rejected: dropping it
       // silently would let the launch surface disagree with the applied policy template.
-      await assert.rejects(() => saveParameterProfile("opencode", { autoApprove: true }));
+      await assert.rejects(() =>
+        saveParameterProfile("opencode", { autoApprove: { state: "value", value: true } }),
+      );
       assert.deepEqual(
         (await readParameterProfile("opencode")).selections,
         saved.selections,
         "the rejected save still mutated the stored profile",
       );
       // A boolean control must refuse a string, and must do so before anything is written.
-      await assert.rejects(() => saveParameterProfile("opencode", { thinking: "yes" }));
+      await assert.rejects(() =>
+        saveParameterProfile("opencode", { thinking: { state: "value", value: "yes" } }),
+      );
+      assert.deepEqual((await readParameterProfile("opencode")).selections, saved.selections);
+
+      // A stale revision loses to the write that already landed, and leaves the profile alone.
+      await assert.rejects(() =>
+        saveParameterProfile("opencode", saved.selections, { expectedRevision: original.revision }),
+      );
+      assert.deepEqual((await readParameterProfile("opencode")).selections, saved.selections);
+      // So does a stale catalog version.
+      await assert.rejects(() =>
+        saveParameterProfile("opencode", saved.selections, { catalogVersion: "0.0.1" }),
+      );
       assert.deepEqual((await readParameterProfile("opencode")).selections, saved.selections);
 
       const reset = await resetParameterProfile("opencode");
       assert.deepEqual(reset.selections, OPENCODE_DEFAULT_SELECTIONS, "reset did not restore the defaults");
-      assert.deepEqual(reset.previewArgs, [], "a default profile still contributes launch arguments");
+      assert.deepEqual(
+        previewArgs(reset.savedPreviews.chat),
+        [],
+        "a default profile still contributes launch arguments",
+      );
       assert.deepEqual((await readParameterProfile("opencode")).selections, OPENCODE_DEFAULT_SELECTIONS);
     } finally {
       // Spec files in one run share a single data directory. Reset again defensively -- a failure

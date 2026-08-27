@@ -48,3 +48,9 @@ export function statusTone(status: DerivedGoalStatus): string {
 export function progressLabel(goal: Goal): string {
   return `${goal.terminal}/${goal.counted}`;
 }
+
+/** 0..1 for the list's progress meter. A goal with nothing counted reads as empty, not as done. */
+export function progressRatio(goal: Goal): number {
+  if (goal.counted <= 0) return 0;
+  return Math.min(1, Math.max(0, goal.terminal / goal.counted));
+}

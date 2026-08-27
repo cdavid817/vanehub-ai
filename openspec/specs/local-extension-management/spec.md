@@ -114,28 +114,43 @@ First-version extension management sidecars SHALL bind only to loopback interfac
 - **WHEN** a first-version framework is installed, enabled, or running
 - **THEN** the system SHALL report only management lifecycle and runtime self-test readiness and SHALL defer model-backed inference availability to a future capability-consumer change
 
-### Requirement: Managed PaddleOCR inference consumer
-The local-extension service SHALL expose a versioned, bounded PaddleOCR inference operation for authorized native consumers after the installed framework passes capability-specific inference readiness. This operation SHALL run through a backend-owned local worker boundary, SHALL accept only native-service-resolved inputs, and SHALL remain separate from the existing loopback management sidecar whose contract continues to provide lifecycle and health only.
+### Requirement: Local extension management SHALL own dependency installation and health only
 
-#### Scenario: OnePiece OCR invokes a ready framework
-- **WHEN** the OnePiece OCR service submits an admitted local input and PaddleOCR inference readiness passes
-- **THEN** the extension service SHALL run the reviewed local inference plan and return a bounded structured engine result
+The local-extension capability SHALL own the framework catalog, managed Python environment creation, package installation and version inventory, enablement state, and a loopback management sidecar used solely as a liveness probe. It SHALL NOT own an inference runtime, inference readiness, model lifecycle, or an inference worker for any framework it lists.
 
-#### Scenario: Management sidecar is healthy but inference is unavailable
-- **WHEN** the existing health sidecar is running but the framework cannot satisfy the versioned inference protocol
-- **THEN** inference readiness SHALL remain false and the service SHALL not claim OCR request availability
+#### Scenario: A catalog entry describes an external dependency
 
-#### Scenario: Untrusted caller supplies a process plan
-- **WHEN** a caller attempts to choose an executable, module, package, environment, endpoint, or arbitrary argument outside the backend-owned inference contract
-- **THEN** the service SHALL reject the request without launching it
+* WHEN the catalog lists a framework such as PaddleOCR, faster-whisper, or sherpa-onnx
+* THEN the entry SHALL describe the external packages, version range, disk estimate, and model requirement
+* AND the entry SHALL NOT advertise an inference protocol, inference readiness, or an inference worker
+* AND the presence of the entry SHALL NOT make the framework usable for inference
 
-### Requirement: OCR inference remains local and bounded
-PaddleOCR inference SHALL not send input or extracted text to a remote service, bind a non-loopback listener, inherit unrestricted environment variables, or persist raw inference content in unified logs. The worker SHALL enforce cancellation, duration, memory/process, input, and output limits and SHALL clean up owned descendants.
+#### Scenario: A consumer needs local inference
 
-#### Scenario: Inference is cancelled
-- **WHEN** the originating OCR tool call is cancelled
-- **THEN** the extension service SHALL stop the owned inference work and return a cancelled outcome without continuing in the background
+* WHEN a native consumer needs OCR, transcription, or speech synthesis
+* THEN it SHALL obtain them from `local_media`, which owns the engine profile, worker supervision, and readiness
+* AND it SHALL NOT start, probe, or resolve an inference process through the local-extension service
 
-#### Scenario: Worker emits sensitive diagnostics
-- **WHEN** PaddleOCR stderr includes input text, local paths, or environment values
-- **THEN** durable logs SHALL retain only redacted safe diagnostics and stable error categories
+#### Scenario: The management sidecar is running
+
+* WHEN the loopback management sidecar reports healthy
+* THEN the system SHALL treat that as installation liveness only
+* AND it SHALL NOT report the framework as ready for inference on that basis
+
+### Requirement: A framework entry SHALL NOT be implemented by a stand-in process
+
+A catalog entry named after a real inference framework SHALL NOT present a stand-in process as that framework's implementation. A liveness probe MAY be a generic process, provided the system does not describe it as running the named framework or derive inference readiness from it.
+
+#### Scenario: A liveness probe stands in for the framework
+
+* WHEN the managed environment starts a generic process such as a static file server for health purposes
+* THEN the system SHALL report only that the managed environment is installed and responsive
+* AND it SHALL NOT claim the named framework is running, ready, or serving inference
+
+#### Scenario: Ownership is reviewed in the repository
+
+* WHEN architecture validation inspects production sources
+* THEN PaddleOCR SHALL be imported and constructed only by the local-media worker
+* AND the Agent runtime SHALL reach PaddleOCR only through `local_media::api`
+* AND the local-extension context SHALL name no inference protocol or inference port
+* AND no stand-in process SHALL appear on a code path that names an inference framework

@@ -268,7 +268,8 @@ impl ManagedSkillFilesystem {
             let target =
                 self.paths
                     .mount_target(&record.key.location, &record.key.id, mount_path)?;
-            if paths_overlap(&source, &target) {
+            let already_mounted = is_managed_link(&target, &source);
+            if !already_mounted && paths_overlap(&source, &target) {
                 return Err(SkillApplicationError::Validation(format!(
                     "Skill mount target overlaps its managed source: {}",
                     target.display()
@@ -284,7 +285,7 @@ impl ManagedSkillFilesystem {
             let mut overwritten = Vec::new();
             let mut backed_up = Vec::new();
             if path_exists(&target) {
-                if is_managed_link(&target, &source) {
+                if already_mounted {
                     return Ok(repair_binding(
                         agent_id,
                         mount_path,
@@ -674,10 +675,7 @@ impl SkillFilesystemPort for ManagedSkillFilesystem {
                 let content = std::fs::read_to_string(&skill_file).map_err(filesystem_error)?;
                 SkillSourceInspection::Present {
                     path: skill_file.to_string_lossy().to_string(),
-                    content_hash: observed_content_hash(
-                        &content,
-                        &record.managed_source.content_hash,
-                    ),
+                    content_hash: observed_content_hash(record, &source, &content),
                 }
             } else {
                 SkillSourceInspection::Missing {
@@ -852,7 +850,22 @@ fn normalize_path(path: &Path) -> String {
     value.strip_prefix(r"\\?\").unwrap_or(&value).to_string()
 }
 
-fn observed_content_hash(content: &str, expected: &str) -> String {
+fn observed_content_hash(record: &SkillRecord, source: &Path, content: &str) -> String {
+    let expected = &record.managed_source.content_hash;
+    // Effective cache directories are addressed by the complete package revision, which also
+    // covers resources and overlays. Materialization verifies that package immediately before
+    // drift inspection, so comparing that revision with only SKILL.md's digest is invalid.
+    if record.resolved_metadata.is_some()
+        && source.file_name().and_then(|value| value.to_str()) == Some(expected.as_str())
+        && source
+            .parent()
+            .and_then(Path::parent)
+            .and_then(Path::file_name)
+            .and_then(|value| value.to_str())
+            == Some("effective")
+    {
+        return expected.clone();
+    }
     if expected.len() == 64 && expected.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         Sha256::digest(content.as_bytes())
             .iter()
@@ -941,7 +954,8 @@ mod tests {
     use super::transaction::remove_path;
     use super::*;
     use crate::contexts::tooling::skills::domain::{
-        SkillId, SkillKey, SkillLocation, SkillMetadata, SkillScope, SkillSource,
+        detect_drift, SkillDriftIssueType, SkillId, SkillKey, SkillLocation, SkillMetadata,
+        SkillScope, SkillSource,
     };
     use crate::test_support::TempDirectory;
 
@@ -1376,6 +1390,71 @@ mod tests {
             std::fs::read_to_string(mounted.join("references/guide.md")).expect("mounted resource"),
             "Effective resource"
         );
+
+        let inspection = filesystem
+            .inspect_drift(&location(), &[stored], &[])
+            .expect("effective cache drift inspection");
+        assert!(detect_drift(&inspection).is_empty());
+    }
+
+    #[test]
+    fn edited_mutable_source_still_reports_metadata_drift() {
+        let home = TempDirectory::new("Skill mutable source drift");
+        let filesystem = ManagedSkillFilesystem::with_home_root(home.path().to_path_buf());
+        let transaction = filesystem.begin_mutation().expect("source transaction");
+        let source = filesystem
+            .create_source(
+                &transaction,
+                &location(),
+                &SkillId::parse("mutable-drift").expect("Skill id"),
+                &document("mutable-drift", "original"),
+            )
+            .expect("managed source");
+        filesystem.commit_mutation(transaction);
+        std::fs::write(&source.skill_md_path, "changed outside VaneHub").expect("external edit");
+
+        let inspection = filesystem
+            .inspect_drift(&location(), &[record("mutable-drift", source)], &[])
+            .expect("mutable source drift inspection");
+
+        assert!(detect_drift(&inspection)
+            .iter()
+            .any(|issue| issue.issue_type == SkillDriftIssueType::MetadataChanged));
+    }
+
+    #[test]
+    fn repairing_an_existing_managed_link_is_idempotent() {
+        let home = TempDirectory::new("Skill idempotent mount");
+        let filesystem = ManagedSkillFilesystem::with_home_root(home.path().to_path_buf());
+        let id = SkillId::parse("idempotent-mount").expect("Skill id");
+        let source_transaction = filesystem.begin_mutation().expect("source transaction");
+        let source = filesystem
+            .create_source(
+                &source_transaction,
+                &location(),
+                &id,
+                &document("idempotent-mount", "body"),
+            )
+            .expect("source");
+        filesystem.commit_mutation(source_transaction);
+        let stored = record("idempotent-mount", source);
+        let mount_path = SkillMountPath::parse(".codex/skills").expect("mount path");
+
+        for _ in 0..2 {
+            let transaction = filesystem.begin_mutation().expect("mount transaction");
+            let repair = filesystem
+                .repair_binding(&transaction, &stored, "codex-cli", &mount_path)
+                .expect("idempotent mount repair");
+            filesystem.commit_mutation(transaction);
+            assert!(repair.binding.mounted);
+            assert!(repair.overwritten.is_empty());
+            assert!(repair.backed_up.is_empty());
+        }
+
+        assert!(is_managed_link(
+            home.path().join(".codex/skills/idempotent-mount").as_path(),
+            Path::new(&stored.managed_source.skill_dir)
+        ));
     }
 
     #[test]

@@ -18,6 +18,7 @@
 - [SSH connections and the remote runtime](ssh-connections.md)
 - [Tool registry and execution](tool-registry.md)
 - [Extended tool contexts](extended-tool-contexts.md)
+- [Local media runtime](local-media-runtime.md)
 - [CLI delegation and the ChangeSet pipeline](cli-delegation.md)
 - [Multi-Agent group chat](multi-agent-group-chat.md)
 - [Loop runtime and session Plan mode](loop-and-plan-runtime.md)
@@ -40,6 +41,7 @@
 - [Skill evolution evidence](skill-evolution-evidence.md)
 - [MCP tools and clients](mcp-tools.md)
 - [IM connectors](im-connectors.md)
+- [Live Feishu qualification](feishu-live-qualification.md)
 
 # Policy and observability
 

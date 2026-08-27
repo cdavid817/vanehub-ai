@@ -9,12 +9,15 @@ use crate::contexts::tooling::mcp::infrastructure::{
 use crate::platform::database::NativeDatabase;
 use crate::platform::private_relay_fs::PrivateRelayDirectory;
 use serde_json::{json, Map, Value};
+use std::collections::BTreeMap;
+use std::env;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 const RELAY_FLAG: &str = "--vanehub-mcp-relay";
 const RELAY_TIMEOUT_MS: u64 = 30_000;
+const OPENCODE_INLINE_CONFIGURATION_BYTES: usize = 16 * 1024;
 
 pub(crate) struct InvocationScopedMcpRelayAdapter {
     repository: SqliteMcpServerRepository,
@@ -83,13 +86,7 @@ impl InvocationScopedMcpRelayAdapter {
         let configuration = RelayConfiguration {
             target,
             traceparent: context.traceparent(),
-            observation: Some(RelayObservation {
-                database_path: self.database_path.clone(),
-                run_id: context.run_id.as_str().to_string(),
-                trace_id: context.trace_id.as_str().to_string(),
-                parent_span_id: context.span_id.as_str().to_string(),
-                capture_policy: capture_policy(context.capture_policy).to_string(),
-            }),
+            observation: relay_observation(context, &self.database_path),
             timeout_ms: RELAY_TIMEOUT_MS,
         };
         let configuration_path = write_configuration(relay_directory, &configuration)?;
@@ -107,9 +104,10 @@ impl ManagedMcpRelayPort for InvocationScopedMcpRelayAdapter {
         project_path: Option<&str>,
         context: &ExecutionContext,
     ) -> Result<PreparedMcpRelay, String> {
-        if !matches!(agent_id, "claude-code" | "codex-cli") {
+        if !matches!(agent_id, "claude-code" | "codex-cli" | "opencode") {
             return Ok(PreparedMcpRelay {
                 invocation_args: Vec::new(),
+                environment: BTreeMap::new(),
                 guard: None,
             });
         }
@@ -119,20 +117,20 @@ impl ManagedMcpRelayPort for InvocationScopedMcpRelayAdapter {
         if servers.is_empty() {
             return Ok(PreparedMcpRelay {
                 invocation_args: Vec::new(),
+                environment: BTreeMap::new(),
                 guard: None,
             });
         }
-        let invocation_args = match provider_invocation_args(
+        let projection = provider_projection(
             agent_id,
             &self.executable,
             &servers,
             &relay_directory,
-        ) {
-            Ok((args, _provider_path)) => args,
-            Err(error) => return Err(error),
-        };
+            env::var("OPENCODE_CONFIG_CONTENT").ok().as_deref(),
+        )?;
         Ok(PreparedMcpRelay {
-            invocation_args,
+            invocation_args: projection.invocation_args,
+            environment: projection.environment,
             guard: Some(guard),
         })
     }
@@ -143,26 +141,88 @@ struct PreparedServer {
     configuration_path: PathBuf,
 }
 
-fn provider_invocation_args(
+#[derive(Debug)]
+struct ProviderProjection {
+    invocation_args: Vec<String>,
+    environment: BTreeMap<String, String>,
+}
+
+fn provider_projection(
     agent_id: &str,
     executable: &Path,
     servers: &[PreparedServer],
     directory: &PrivateRelayDirectory,
-) -> Result<(Vec<String>, Option<PathBuf>), String> {
+    existing_opencode_config: Option<&str>,
+) -> Result<ProviderProjection, String> {
     match agent_id {
         "claude-code" => {
             let path = write_claude_configuration(executable, servers, directory)?;
-            Ok((
-                vec![
+            Ok(ProviderProjection {
+                invocation_args: vec![
                     "--mcp-config".to_string(),
                     path.to_string_lossy().to_string(),
                 ],
-                Some(path),
-            ))
+                environment: BTreeMap::new(),
+            })
         }
-        "codex-cli" => Ok((codex_overrides(executable, servers)?, None)),
-        _ => Ok((Vec::new(), None)),
+        "codex-cli" => Ok(ProviderProjection {
+            invocation_args: codex_overrides(executable, servers)?,
+            environment: BTreeMap::new(),
+        }),
+        "opencode" => Ok(ProviderProjection {
+            invocation_args: Vec::new(),
+            environment: BTreeMap::from([(
+                "OPENCODE_CONFIG_CONTENT".to_string(),
+                opencode_configuration(executable, servers, existing_opencode_config)?,
+            )]),
+        }),
+        _ => Ok(ProviderProjection {
+            invocation_args: Vec::new(),
+            environment: BTreeMap::new(),
+        }),
     }
+}
+
+fn opencode_configuration(
+    executable: &Path,
+    servers: &[PreparedServer],
+    existing: Option<&str>,
+) -> Result<String, String> {
+    let mut root = match existing.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(value) => serde_json::from_str::<Value>(value)
+            .map_err(|_| "OpenCode inline configuration is not a valid JSON object".to_string())?,
+        None => json!({}),
+    };
+    let root = root
+        .as_object_mut()
+        .ok_or_else(|| "OpenCode inline configuration is not a valid JSON object".to_string())?;
+    let mcp = root.entry("mcp").or_insert_with(|| json!({}));
+    let mcp = mcp
+        .as_object_mut()
+        .ok_or_else(|| "OpenCode inline MCP configuration is not an object".to_string())?;
+    for server in servers {
+        mcp.insert(
+            server.name.clone(),
+            json!({
+                "type": "local",
+                "command": [
+                    executable.to_string_lossy(),
+                    RELAY_FLAG,
+                    server.configuration_path.to_string_lossy()
+                ],
+                "enabled": true
+            }),
+        );
+    }
+    let value = serde_json::to_string(&root).map_err(|error| error.to_string())?;
+    crate::contexts::tooling::mcp::application::McpLimits::DEFAULT
+        .validate_bytes(
+            "OpenCode inline MCP configuration",
+            value.len(),
+            OPENCODE_INLINE_CONFIGURATION_BYTES,
+        )
+        .map_err(|error| error.to_string())?;
+    Ok(value)
 }
 
 fn write_claude_configuration(
@@ -228,6 +288,16 @@ fn capture_policy(policy: CapturePolicy) -> &'static str {
     }
 }
 
+fn relay_observation(context: &ExecutionContext, database_path: &Path) -> Option<RelayObservation> {
+    context.mcp_relay_enabled.then(|| RelayObservation {
+        database_path: database_path.to_path_buf(),
+        run_id: context.run_id.as_str().to_string(),
+        trace_id: context.trace_id.as_str().to_string(),
+        parent_span_id: context.span_id.as_str().to_string(),
+        capture_policy: capture_policy(context.capture_policy).to_string(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -257,18 +327,19 @@ mod tests {
         let owned_path = directory.path().to_path_buf();
         let guard = directory.guard().expect("guard");
 
-        let (args, configuration_path) = provider_invocation_args(
+        let projection = provider_projection(
             "claude-code",
             Path::new("vanehub.exe"),
             &[server("local-tools")],
             &directory,
+            None,
         )
         .expect("configuration");
 
-        let configuration_path = configuration_path.expect("configuration path");
+        let configuration_path = PathBuf::from(&projection.invocation_args[1]);
         assert_eq!(configuration_path.parent(), Some(owned_path.as_path()));
         assert!(configuration_path.is_file());
-        assert_eq!(args[0], "--mcp-config");
+        assert_eq!(projection.invocation_args[0], "--mcp-config");
         drop(guard);
         assert!(!owned_path.exists());
     }
@@ -293,11 +364,12 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        let error = provider_invocation_args(
+        let error = provider_projection(
             "claude-code",
             Path::new("vanehub.exe"),
             &servers,
             &directory,
+            None,
         )
         .expect_err("provider configuration limit");
 
@@ -317,15 +389,78 @@ mod tests {
     fn unsupported_providers_receive_no_relay_arguments() {
         let root = TempDirectory::new("unsupported-provider-relay");
         let directory = PrivateRelayDirectory::create_in(root.path()).expect("directory");
-        let result = provider_invocation_args(
+        let result = provider_projection(
             "gemini-cli",
             Path::new("vanehub"),
             &[server("local-tools")],
             &directory,
+            None,
         )
         .expect("fallback");
-        assert!(result.0.is_empty());
-        assert!(result.1.is_none());
+        assert!(result.invocation_args.is_empty());
+        assert!(result.environment.is_empty());
+    }
+
+    #[test]
+    fn opencode_merges_managed_servers_with_existing_inline_configuration() {
+        let root = TempDirectory::new("opencode-provider-relay");
+        let directory = PrivateRelayDirectory::create_in(root.path()).expect("directory");
+        let projection = provider_projection(
+            "opencode",
+            Path::new("vanehub"),
+            &[server("local-tools")],
+            &directory,
+            Some(
+                r#"{"model":"fixture/model","mcp":{"existing":{"type":"remote","url":"https://example.invalid/mcp"}}}"#,
+            ),
+        )
+        .expect("projection");
+        assert!(projection.invocation_args.is_empty());
+        let config = serde_json::from_str::<Value>(
+            projection
+                .environment
+                .get("OPENCODE_CONFIG_CONTENT")
+                .expect("inline configuration"),
+        )
+        .expect("valid JSON");
+        assert_eq!(config["model"], "fixture/model");
+        assert_eq!(config["mcp"]["existing"]["type"], "remote");
+        assert_eq!(config["mcp"]["local-tools"]["type"], "local");
+        assert_eq!(config["mcp"]["local-tools"]["enabled"], true);
+        assert_eq!(config["mcp"]["local-tools"]["command"][1], RELAY_FLAG);
+    }
+
+    #[test]
+    fn opencode_rejects_invalid_existing_inline_configuration() {
+        let error = opencode_configuration(
+            Path::new("vanehub"),
+            &[server("local-tools")],
+            Some("not-json"),
+        )
+        .expect_err("invalid inline configuration");
+        assert_eq!(
+            error,
+            "OpenCode inline configuration is not a valid JSON object"
+        );
+    }
+
+    #[test]
+    fn disabled_observation_omits_telemetry_without_disabling_projection() {
+        use crate::contexts::execution_observability::api::{ExecutionRunId, SpanId, TraceId};
+
+        let context = ExecutionContext {
+            run_id: ExecutionRunId::parse("018f0f17-4d6a-7e20-b41d-66c5271a28d0").expect("run id"),
+            trace_id: TraceId::parse("0123456789abcdef0123456789abcdef").expect("trace id"),
+            span_id: SpanId::parse("0123456789abcdef").expect("span id"),
+            capture_policy: CapturePolicy::MetadataOnly,
+            sampling_per_million: 1_000_000,
+            mcp_relay_enabled: false,
+        };
+        assert!(relay_observation(&context, Path::new("vanehub.db")).is_none());
+
+        let config = opencode_configuration(Path::new("vanehub"), &[server("local-tools")], None)
+            .expect("projection remains available");
+        assert!(config.contains("local-tools"));
     }
 
     #[test]

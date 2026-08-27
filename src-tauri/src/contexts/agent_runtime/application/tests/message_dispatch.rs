@@ -1,5 +1,49 @@
 use super::*;
 
+struct SlowProcessGateway {
+    inner: Arc<FakeWorld>,
+    active_stops: AtomicUsize,
+    max_concurrent_stops: AtomicUsize,
+}
+
+impl AgentProcessGateway for SlowProcessGateway {
+    fn launch_workflow(
+        &self,
+        request: WorkflowLaunchRequest,
+    ) -> Result<WorkflowLaunchOutcome, AgentRuntimeApplicationError> {
+        self.inner.launch_workflow(request)
+    }
+
+    fn start_generation(
+        &self,
+        request: GenerationProcessRequest,
+    ) -> Result<StartedGenerationProcess, AgentRuntimeApplicationError> {
+        AgentProcessGateway::start_generation(self.inner.as_ref(), request)
+    }
+
+    fn monitor_generation(
+        &self,
+        process_id: &str,
+        sink: Arc<dyn AgentProcessEventSink>,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        self.inner.monitor_generation(process_id, sink)
+    }
+
+    fn stop_generation(
+        &self,
+        process_id: &str,
+        initiator: ProcessStopInitiator,
+    ) -> Result<bool, AgentRuntimeApplicationError> {
+        let active = self.active_stops.fetch_add(1, Ordering::SeqCst) + 1;
+        self.max_concurrent_stops
+            .fetch_max(active, Ordering::SeqCst);
+        std::thread::sleep(Duration::from_millis(50));
+        let result = self.inner.stop_generation(process_id, initiator);
+        self.active_stops.fetch_sub(1, Ordering::SeqCst);
+        result
+    }
+}
+
 #[test]
 fn launch_coordinates_lifecycle_details_operations_logs_and_failure_state() {
     let world = test_world();
@@ -383,6 +427,94 @@ fn completion_without_reported_usage_falls_back_to_character_count_estimate() {
 }
 
 #[test]
+fn feishu_single_agent_turn_preserves_session_execution_context_and_completes_once() {
+    let world = test_world();
+    {
+        let mut sessions = world.sessions.lock().expect("sessions");
+        let session = sessions.get_mut("session-1").expect("session");
+        session.folder = Some("C:/project/.worktrees/feishu-im".to_string());
+        session.runtime_session_id = Some("provider-thread-stable".to_string());
+    }
+    let service = service(world.clone());
+    let configuration = AgentChatConfiguration {
+        agent_id: "codex-cli".to_string(),
+        interaction_mode: InteractionMode::Cli,
+        execution_mode: "execute".to_string(),
+        provider_id: Some("openai".to_string()),
+        model_id: Some("gpt-5-5".to_string()),
+        reasoning_depth: Some("high".to_string()),
+        streaming: true,
+        thinking: true,
+        long_context: false,
+    };
+
+    let started = service
+        .send_message_with_completion(SendMessageRequest {
+            source: AgentMessageSource::InstantMessage {
+                connector_id: "feishu".to_string(),
+            },
+            session_id: "session-1".to_string(),
+            content: "continue the bound session".to_string(),
+            configuration: configuration.clone(),
+            file_references: Vec::new(),
+        })
+        .expect("start Feishu turn");
+
+    let requests = world
+        .generation_requests
+        .lock()
+        .expect("generation requests");
+    assert_eq!(requests.len(), 1);
+    let request = &requests[0];
+    assert_eq!(request.session.id, "session-1");
+    assert_eq!(request.session.agent_id, "codex-cli");
+    assert_eq!(request.agent.id, "codex-cli");
+    assert_eq!(
+        request.session.folder.as_deref(),
+        Some("C:/project/.worktrees/feishu-im")
+    );
+    assert_eq!(request.configuration, configuration);
+    assert_eq!(
+        request.resume_thread_id.as_deref(),
+        Some("provider-thread-stable")
+    );
+    assert!(!request.interactive);
+    assert_eq!(request.role_briefing, None);
+    drop(requests);
+
+    let sink = world
+        .generation_sinks
+        .lock()
+        .expect("generation sinks")
+        .get("process-1")
+        .cloned()
+        .expect("generation sink");
+    sink.handle(GenerationProcessEvent::Token("final reply".to_string()))
+        .expect("terminal token");
+    sink.handle(GenerationProcessEvent::Completed(None))
+        .expect("terminal completion");
+    sink.handle(GenerationProcessEvent::Completed(None))
+        .expect("duplicate terminal completion");
+    let terminal = started
+        .terminal
+        .recv_timeout(std::time::Duration::ZERO)
+        .expect("one terminal completion");
+    assert_eq!(terminal.message_id, started.message.id);
+    assert_eq!(terminal.outcome, AgentMessageTerminalOutcome::Completed);
+    assert_eq!(terminal.content.as_deref(), Some("final reply"));
+    assert_eq!(
+        world
+            .operations
+            .lock()
+            .expect("operations")
+            .iter()
+            .filter(|event| matches!(event, OperationEvent::Completed(_)))
+            .count(),
+        1
+    );
+}
+
+#[test]
 fn im_completion_receiver_observes_persisted_completed_failed_and_cancelled_messages() {
     let completed_world = test_world();
     let completed_service = service(completed_world.clone());
@@ -497,6 +629,118 @@ fn im_completion_receiver_observes_persisted_completed_failed_and_cancelled_mess
     assert_eq!(
         cancelled_terminal.outcome,
         AgentMessageTerminalOutcome::Cancelled
+    );
+}
+
+#[test]
+fn recovery_releases_a_stuck_generation_and_leaves_the_session_idle() {
+    let world = test_world();
+    let service = service(world.clone());
+    let started = service
+        .send_message_with_completion(SendMessageRequest {
+            source: AgentMessageSource::Desktop,
+            session_id: "session-1".to_string(),
+            content: "this one gets stuck".to_string(),
+            configuration: chat_configuration(),
+            file_references: Vec::new(),
+        })
+        .expect("start generation");
+    *world.streaming_message_ids.lock().expect("streaming ids") = vec![started.message.id.clone()];
+
+    let recovered = service.recover_session("session-1").expect("recover");
+
+    assert_eq!(recovered.lifecycle, AgentLifecycle::Idle);
+    assert!(recovered
+        .cancelled_message_ids
+        .contains(&started.message.id));
+    // Idle, not Starting: recovery restores a session that accepts the next message, it does not
+    // spend the user's budget relaunching an Agent they did not ask for.
+    assert_eq!(
+        world
+            .lifecycle_updates
+            .lock()
+            .expect("lifecycle updates")
+            .last(),
+        Some(&AgentLifecycle::Idle)
+    );
+}
+
+#[test]
+fn recovery_is_idempotent_and_refuses_archived_sessions() {
+    let world = test_world();
+    let service = service(world.clone());
+
+    let quiet = service.recover_session("session-1").expect("recover quiet");
+    assert!(quiet.cancelled_message_ids.is_empty());
+    assert!(!quiet.process_stopped);
+    assert_eq!(quiet.lifecycle, AgentLifecycle::Idle);
+
+    world
+        .sessions
+        .lock()
+        .expect("sessions")
+        .get_mut("session-1")
+        .expect("seeded session")
+        .archived = true;
+    assert!(matches!(
+        service.recover_session("session-1"),
+        Err(AgentRuntimeApplicationError::Validation(_))
+    ));
+}
+
+#[test]
+fn desktop_shutdown_settles_multiple_active_sessions_concurrently() {
+    let world = test_world();
+    let processes = Arc::new(SlowProcessGateway {
+        inner: world.clone(),
+        active_stops: AtomicUsize::new(0),
+        max_concurrent_stops: AtomicUsize::new(0),
+    });
+    let second = {
+        let sessions = world.sessions.lock().expect("sessions");
+        let mut second = sessions.get("session-1").expect("first session").clone();
+        second.id = "session-2".to_string();
+        second
+    };
+    world
+        .sessions
+        .lock()
+        .expect("sessions")
+        .insert(second.id.clone(), second);
+    let generations = Arc::new(
+        crate::contexts::agent_runtime::infrastructure::InMemoryGenerationCoordinator::default(),
+    );
+    let mut service = service(world.clone());
+    service.ports.generations = generations;
+    service.ports.processes = processes.clone();
+
+    for session_id in ["session-1", "session-2"] {
+        service
+            .send_message(SendMessageRequest {
+                source: AgentMessageSource::Desktop,
+                session_id: session_id.to_string(),
+                content: "remain active until desktop shutdown".to_string(),
+                configuration: chat_configuration(),
+                file_references: Vec::new(),
+            })
+            .expect("start generation");
+    }
+
+    let mut stopped = service
+        .shutdown_generations()
+        .expect("shutdown generations");
+    stopped.sort();
+
+    assert_eq!(stopped, ["session-1", "session-2"]);
+    assert_eq!(processes.max_concurrent_stops.load(Ordering::SeqCst), 2);
+    let sessions = world.sessions.lock().expect("sessions");
+    assert_eq!(
+        sessions.get("session-1").expect("first session").lifecycle,
+        AgentLifecycle::Stopped
+    );
+    assert_eq!(
+        sessions.get("session-2").expect("second session").lifecycle,
+        AgentLifecycle::Stopped
     );
 }
 
@@ -771,6 +1015,19 @@ fn stream_events_persist_complete_usage_and_operation_once() {
             .count(),
         1
     );
+    let canonical_completions = world
+        .operations
+        .lock()
+        .expect("operations")
+        .iter()
+        .filter(|event| {
+            matches!(
+                event,
+                OperationEvent::CanonicalRunFinished(_, CanonicalRunOutcome::Completed)
+            )
+        })
+        .count();
+    assert_eq!(canonical_completions, 1);
     let prompt_reports = world.prompt_reports.lock().expect("prompt reports");
     assert_eq!(prompt_reports.len(), 1);
     assert_eq!(

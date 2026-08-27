@@ -1,5 +1,7 @@
 use crate::contexts::operations::api::{DiagnosticLog, DiagnosticLogPort, LogSeverity};
-use crate::contexts::tooling::cli::application::{CliApplicationError, NativeConfigPort};
+use crate::contexts::tooling::cli::application::native_config::{
+    NativeConfigError, NativeConfigPort,
+};
 use rusqlite::OpenFlags;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -44,7 +46,7 @@ impl NativeConfigPort for NativeConfigReader {
         &self,
         agent_id: &str,
         workspace_path: Option<&str>,
-    ) -> Result<Option<String>, CliApplicationError> {
+    ) -> Result<Option<String>, NativeConfigError> {
         let home = match Self::home_dir() {
             Some(dir) => dir,
             None => {

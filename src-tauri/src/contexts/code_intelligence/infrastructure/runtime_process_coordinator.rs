@@ -17,9 +17,7 @@ use super::runtime_notifications::RuntimeNotificationRouter;
 use super::shutdown_coordinator::{
     ActiveLspProcess, ActiveLspProcessWait, LspShutdownCoordinator, LspShutdownSummary,
 };
-use crate::contexts::code_intelligence::domain::models::{
-    LanguageFamily, NegotiatedCapabilities, ProcessState, ServerKind,
-};
+use crate::contexts::code_intelligence::domain::models::{NegotiatedCapabilities, ProcessState};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
@@ -344,12 +342,12 @@ impl RuntimeProcessCoordinator {
             (
                 left.key.session_root_ref(),
                 left.key.project_root_ref(),
-                left.key.server_kind().as_id(),
+                left.key.language().server_id,
             )
                 .cmp(&(
                     right.key.session_root_ref(),
                     right.key.project_root_ref(),
-                    right.key.server_kind().as_id(),
+                    right.key.language().server_id,
                 ))
         });
         snapshots.truncate(MAX_SERVER_STATUS_SNAPSHOTS);
@@ -806,11 +804,7 @@ fn now_rfc3339() -> String {
 }
 
 fn diagnostic_identity(key: &ProcessKey) -> LspDiagnosticIdentity {
-    let server = key.server_kind();
-    let language = match server {
-        ServerKind::RustAnalyzer => LanguageFamily::Rust,
-        ServerKind::TypeScriptLanguageServer => LanguageFamily::TypeScriptJavaScript,
-    };
+    let language = key.language();
     let mut digest = Sha256::new();
     digest.update(key.session_root_ref().to_string_lossy().as_bytes());
     let workspace_id = digest
@@ -821,7 +815,6 @@ fn diagnostic_identity(key: &ProcessKey) -> LspDiagnosticIdentity {
         .collect::<String>();
     LspDiagnosticIdentity {
         language,
-        server,
         workspace_id: Some(format!("workspace-{workspace_id}")),
         correlation_id: None,
     }

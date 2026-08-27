@@ -156,6 +156,20 @@ fn selections_and_launches_reject_unsafe_or_unsupported_values() {
             .kind,
         RunnerErrorKind::PermissionDenied
     );
+    let mut opencode_configuration = launch_spec();
+    opencode_configuration
+        .environment
+        .insert("OPENCODE_CONFIG_CONTENT".into(), r#"{"mcp":{}}"#.into());
+    assert!(opencode_configuration
+        .validate_for(RunnerKind::Local)
+        .is_ok());
+    assert_eq!(
+        opencode_configuration
+            .validate_for(RunnerKind::Ssh)
+            .expect_err("OpenCode configuration remains local")
+            .kind,
+        RunnerErrorKind::PermissionDenied
+    );
     let mut remote_secret = launch_spec();
     remote_secret.arguments = vec!["--api-key=secret-value".into()];
     assert_eq!(

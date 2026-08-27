@@ -32,3 +32,21 @@ test("requires the explicit test feature, config, and frontend build flag", asyn
   assert.equal(testCapability.identifier, "desktop-e2e");
   assert.equal(testCapability.permissions.every((permission) => permission.startsWith("wdio")), true);
 });
+
+test("the file-backed credential store exists only in a desktop test build", async () => {
+  const credentials = await readFile("src-tauri/src/platform/credentials/mod.rs", "utf8");
+
+  // Two backends, each behind its own cfg, so a production build cannot compile the file-backed
+  // one and a test build cannot reach the OS store. Without the split the desktop suite wrote
+  // connector tokens into the developer's real Credential Manager and outlived the run.
+  assert.match(credentials, /#\[cfg\(not\(feature = "desktop-e2e"\)\)\]\s*\nmod backend \{/);
+  assert.match(credentials, /#\[cfg\(feature = "desktop-e2e"\)\]\s*\nmod backend \{/);
+
+  const production = credentials.split('#[cfg(feature = "desktop-e2e")]')[0];
+  assert.match(production, /keyring::Entry::new/, "the production backend no longer uses the OS store");
+
+  const testOnly = credentials.split('#[cfg(feature = "desktop-e2e")]')[1] ?? "";
+  assert.doesNotMatch(testOnly, /keyring::/, "the test backend must not reach the OS store");
+  // Inside the run's isolated data directory, which the orchestrator validates and then deletes.
+  assert.match(testOnly, /VANEHUB_APP_DATA_DIR/);
+});

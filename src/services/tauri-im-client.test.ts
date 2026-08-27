@@ -74,7 +74,11 @@ describe("Tauri IM client contract", () => {
         expiresAt: "2026-08-12T10:10:00Z",
         replaceExisting: false,
       })
-      .mockResolvedValueOnce({ binding: null, pendingConnector: "telegram" });
+      .mockResolvedValueOnce({
+        access: { connector: "feishu", enabled: false, sessionId: "session-1", updatedAt: "1970-01-01T00:00:00Z" },
+        binding: null,
+        pendingConnector: "telegram",
+      });
 
     await expect(tauriImClient.beginPairing("session-1", "telegram")).resolves.toMatchObject({
       code: "ABCD2345",
@@ -85,8 +89,45 @@ describe("Tauri IM client contract", () => {
       sessionId: "session-1",
     });
     await expect(tauriImClient.getSessionBinding("session-1")).resolves.toEqual({
+      access: { connector: "feishu", enabled: false, sessionId: "session-1", updatedAt: "1970-01-01T00:00:00Z" },
       binding: null,
       pendingConnector: "telegram",
     });
+  });
+
+  it("maps session access mutations and rejects malformed native access responses", async () => {
+    const access = {
+      connector: "feishu",
+      enabled: true,
+      sessionId: "session-1",
+      updatedAt: "2026-08-12T10:00:00Z",
+    };
+    invoke
+      .mockResolvedValueOnce(access)
+      .mockResolvedValueOnce({ ...access, enabled: "true" })
+      .mockResolvedValueOnce({ ...access, deliveryCredentialRef: "private-ref" });
+
+    await expect(tauriImClient.setSessionAccess("session-1", "feishu", true)).resolves.toEqual(access);
+    expect(invoke).toHaveBeenNthCalledWith(1, "set_im_session_access", {
+      connector: "feishu",
+      enabled: true,
+      sessionId: "session-1",
+    });
+    await expect(tauriImClient.setSessionAccess("session-1", "feishu", true)).rejects.toThrow();
+    await expect(tauriImClient.setSessionAccess("session-1", "feishu", true)).rejects.toThrow();
+  });
+
+  it("rejects a malformed access object nested in a native binding snapshot", async () => {
+    invoke.mockResolvedValue({
+      access: {
+        connector: "feishu",
+        enabled: false,
+        sessionId: "session-1",
+      },
+      binding: null,
+      pendingConnector: null,
+    });
+
+    await expect(tauriImClient.getSessionBinding("session-1")).rejects.toThrow();
   });
 });

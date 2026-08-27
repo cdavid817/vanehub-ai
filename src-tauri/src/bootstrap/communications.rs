@@ -83,6 +83,7 @@ pub(crate) fn assemble_communications(
             pairing_invalid: copy.communications_pairing_invalid,
             pairing_established: copy.communications_pairing_established,
             completion: copy.communications_completion,
+            invalid_seat: copy.communications_invalid_seat,
         }
     });
     // 步骤4：初始化通信入站消息桥接器，承载外部消息接收、限流提示能力

@@ -6,6 +6,24 @@ Define how VaneHub keeps its desktop and browser surfaces observable, recoverabl
 
 ## Requirements
 
+### Requirement: Desktop startup remains continuously visible
+The desktop runtime SHALL delay the main window's first presentation until its opaque branded startup document is ready, then keep that startup surface visible until the selected React surface has rendered visible application content. The startup surface SHALL use a light neutral branded background rather than a black frame, SHALL contain the VaneHub AI icon, an activity indicator, and `Starting...`, and SHALL NOT expose an intermediate blank, transparent, or unrelated-color frame.
+
+#### Scenario: Native window is created before frontend assets load
+- **WHEN** the native main window is created before the frontend document and styles have loaded
+- **THEN** the runtime SHALL keep the main window hidden until the startup document finishes loading
+- **AND** the native window and first frontend document backgrounds SHALL match the opaque startup surface background
+
+#### Scenario: Settings and localization are still hydrating
+- **WHEN** React has started but the application root has not rendered visible surface content because settings, theme, localization, or initial routing is still loading
+- **THEN** the branded startup surface SHALL remain visible
+- **AND** frontend readiness SHALL remain `starting`
+
+#### Scenario: Application content becomes visible
+- **WHEN** the selected React surface renders its first application element into the application root
+- **THEN** the startup surface SHALL be removed
+- **AND** frontend readiness SHALL transition to `ready` without an intermediate blank or unrelated-color frame
+
 ### Requirement: Native WebView failures are observable
 The Windows desktop runtime SHALL observe WebView2 process failures for the main application WebView and SHALL write a redacted unified diagnostic containing the normalized failure kind and selected recovery action.
 

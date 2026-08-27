@@ -1,5 +1,5 @@
 use super::document_snapshot::{DocumentAdmission, DocumentAdmissionError};
-use crate::contexts::code_intelligence::domain::models::LanguageFamily;
+use crate::contexts::code_intelligence::domain::registry;
 use std::path::{Path, PathBuf};
 
 #[test]
@@ -13,7 +13,7 @@ fn relative_source_file_resolves_to_a_bounded_canonical_snapshot() {
         .expect("snapshot");
 
     assert_eq!(snapshot.relative_path(), "src/main.rs");
-    assert_eq!(snapshot.language(), LanguageFamily::Rust);
+    assert_eq!(snapshot.language(), registry::rust());
     assert_eq!(snapshot.text(), "fn main() {}\n");
     assert_eq!(snapshot.canonical_path(), fixture.canonical("src/main.rs"));
 }
@@ -124,7 +124,7 @@ fn supported_typescript_and_javascript_extensions_share_one_language_family() {
         let relative = format!("src/file.{extension}");
         fixture.write(&relative, b"export {};\n");
         let snapshot = admission.read(&relative).expect("snapshot");
-        assert_eq!(snapshot.language(), LanguageFamily::TypeScriptJavaScript);
+        assert_eq!(snapshot.language(), registry::typescript());
         assert_eq!(snapshot.language_id(), language_id);
     }
 }

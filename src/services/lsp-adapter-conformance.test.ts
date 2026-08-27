@@ -19,6 +19,7 @@ import {
 import { tauriAgentClient } from "./tauri-agent-client";
 import { webAgentClient } from "./web-agent-client";
 import { resetWebLspMockStateForTest } from "./web-lsp-client";
+import { lspTestDescriptors } from "../test/lsp-fixtures";
 
 const lspMethods = [
   "getLspConfiguration",
@@ -32,6 +33,8 @@ const lspMethods = [
 
 type LspAdapter = Pick<AgentService, (typeof lspMethods)[number]>;
 
+const descriptors = lspTestDescriptors();
+
 const configuration = {
   enabled: false,
   languages: [
@@ -39,15 +42,18 @@ const configuration = {
       language: "rust",
       enabled: false,
       executableOverride: null,
+      startupArguments: null,
       initializationOptions: {},
     },
     {
       language: "typescript_javascript",
       enabled: false,
       executableOverride: null,
+      startupArguments: null,
       initializationOptions: {},
     },
   ],
+  descriptors,
 };
 
 const trust = { canonicalRoot: "D:/code/app", trusted: true, revision: 1 };
@@ -72,10 +78,12 @@ const discoveries = [
 const capabilities = {
   positionEncoding: "utf16",
   documentSync: "incremental",
-  definition: true,
-  references: true,
-  hover: true,
-  diagnostics: true,
+  methods: [
+    { method: "definition", supported: true },
+    { method: "references", supported: true },
+    { method: "hover", supported: true },
+    { method: "diagnostics", supported: true },
+  ],
 };
 const serverTest = {
   server: "rust_analyzer",
@@ -109,7 +117,7 @@ async function exerciseContract(adapter: LspAdapter): Promise<void> {
     trusted: true,
   }));
   normalizeLspServerDiscoveries(await adapter.discoverLspServers());
-  normalizeLspServerTestResult(await adapter.testLspServer("rust"), "rust");
+  normalizeLspServerTestResult(await adapter.testLspServer("rust"));
   normalizeLspServerStatuses(await adapter.getLspServerStatus());
 }
 
@@ -130,17 +138,32 @@ describe("LSP adapter conformance", () => {
   });
 
   it.each([
-    ["configuration", { ...configuration, languages: [] },
-      () => tauriAgentClient.getLspConfiguration()],
+    ["configuration", {
+      ...configuration,
+      languages: [...configuration.languages, {
+        language: "go",
+        enabled: true,
+        executableOverride: null,
+        startupArguments: null,
+        initializationOptions: {},
+      }],
+    }, () => tauriAgentClient.getLspConfiguration()],
+    ["configuration identifier", {
+      ...configuration,
+      descriptors: [{ ...descriptors[0], language: "Rust" }],
+      languages: [{ ...configuration.languages[0], language: "Rust" }],
+    }, () => tauriAgentClient.getLspConfiguration()],
     ["trust list", [trust, { ...trust, revision: 2 }],
       () => tauriAgentClient.listLspWorkspaceTrust()],
     ["trust update", { ...trust, revision: -1 },
       () => tauriAgentClient.updateLspWorkspaceTrust({
         canonicalRoot: "D:/code/app", trusted: true,
       })],
-    ["discovery", [{ ...discoveries[0], server: "typescript_language_server" }, discoveries[1]],
+    ["discovery", [discoveries[0], discoveries[0]],
       () => tauriAgentClient.discoverLspServers()],
-    ["server identity", { ...serverTest, server: "typescript_language_server" },
+    ["discovery identifier", [{ ...discoveries[0], server: "Rust Analyzer" }],
+      () => tauriAgentClient.discoverLspServers()],
+    ["server identity", { ...serverTest, server: "" },
       () => tauriAgentClient.testLspServer("rust")],
     ["test phase", {
       ...serverTest,

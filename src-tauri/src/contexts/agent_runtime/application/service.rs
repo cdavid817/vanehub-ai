@@ -20,8 +20,8 @@ use super::{
     PendingPromptExecution, PersonalizationSettings, PromptExecutionOutcome, PromptExecutionReport,
     PromptVersionReference, ProviderCredentialProbeAuthentication, ProviderCredentialProbeProtocol,
     ProviderCredentialProbeRequest, ProviderCredentialValidationResult, ReadinessView,
-    RegisterApiAgentInput, ReportedUsageTotals, RunnerDescriptor, RunnerDiscoveryPort,
-    RunnerSelection, SaveCustomOnePieceProviderProfileInput, SaveMemoryInput,
+    RecoverSessionResult, RegisterApiAgentInput, ReportedUsageTotals, RunnerDescriptor,
+    RunnerDiscoveryPort, RunnerSelection, SaveCustomOnePieceProviderProfileInput, SaveMemoryInput,
     SaveOnePieceProviderConfigInput, SaveOnePieceProviderProfileInput, SeatTurnCompletionPort,
     SeatTurnTerminal, SendMessageRequest, StartedAgentMessage, StopGenerationResult,
     StoredEndpointProfileMetadata, StoredHybridRoutingRule, StoredOnePieceProviderConfig,
@@ -2179,7 +2179,8 @@ impl AgentRuntimeApplicationService {
                 "Archived sessions cannot accept messages.".to_string(),
             ));
         }
-        let initial_seat_context = self.initial_seat_turn_context(&session, &content)?;
+        let initial_seat_context =
+            self.initial_seat_turn_context(&session, &content, &request.source)?;
         // The addressed seat runs its own Agent, which is not necessarily the session's: the
         // session mirrors the *first* seat, so honouring a mention while still invoking
         // `session.agent_id` would answer as one participant in another's name.
@@ -2694,11 +2695,11 @@ impl AgentRuntimeApplicationService {
             );
         }
         let profile = if agent.launch().kind_str() == "cli" {
-            match self
-                .ports
-                .cli_profiles
-                .load(agent.id().as_str(), &configuration)
-            {
+            match self.ports.cli_profiles.load(
+                agent.id().as_str(),
+                &configuration,
+                Some(&operation.id),
+            ) {
                 Ok(profile) => profile,
                 Err(error) => {
                     self.record_prompt_execution(
@@ -2722,12 +2723,8 @@ impl AgentRuntimeApplicationService {
                 }
             }
         } else {
-            CliProfileSnapshot {
-                executable: String::new(),
-                selections: std::collections::BTreeMap::new(),
-                managed_args: Vec::new(),
-                env: std::collections::BTreeMap::new(),
-            }
+            // API agents launch no CLI process, so there is no profile to resolve.
+            CliProfileSnapshot::default()
         };
         let input_count = effective_prompt.content.chars().count();
         let agent_context = child_context(&root_context, self.ports.execution_ids.next_span_id());
@@ -3218,14 +3215,94 @@ impl AgentRuntimeApplicationService {
         })
     }
 
+    /// Returns a stuck session to a state that accepts messages.
+    ///
+    /// Deliberately does not launch anything: CLI generations start per message, so an idle
+    /// session answers the user's next message on its own. Spawning a process here would turn an
+    /// error the user is reporting into work they did not ask for.
+    pub(crate) fn recover_session(
+        &self,
+        session_id: &str,
+    ) -> Result<RecoverSessionResult, AgentRuntimeApplicationError> {
+        let session = self.require_session(session_id)?;
+        if session.archived {
+            return Err(AgentRuntimeApplicationError::Validation(
+                "Archived sessions cannot be recovered.".to_string(),
+            ));
+        }
+        // `stop_generation` returns early without touching the lifecycle when there is nothing to
+        // cancel, which is exactly the case a `failed` session is usually in, so the reset below
+        // is unconditional rather than a fallback.
+        let stopped = self.stop_generation(session_id)?;
+        self.ports
+            .sessions
+            .update_lifecycle(session_id, AgentLifecycle::Idle)?;
+        self.record_log(
+            AgentLogLevel::Info,
+            "session.runtime",
+            format!(
+                "session runtime recovered (cancelled {} message(s), process stopped: {})",
+                stopped.cancelled_message_ids.len(),
+                stopped.process_stopped
+            ),
+            Some(&session.agent_id),
+            Some(session_id),
+            None,
+        );
+        Ok(RecoverSessionResult {
+            cancelled_message_ids: stopped.cancelled_message_ids,
+            process_stopped: stopped.process_stopped,
+            lifecycle: AgentLifecycle::Idle,
+        })
+    }
+
     pub(crate) fn shutdown_generations(&self) -> Result<Vec<String>, AgentRuntimeApplicationError> {
         let session_ids = self.ports.generations.begin_shutdown()?;
         let mut stopped = Vec::new();
-        for session_id in session_ids {
-            self.stop_generation(&session_id)?;
-            stopped.push(session_id);
+        let mut first_error = None;
+        // Each local runner owns a bounded process-stop wait. Serial shutdown multiplied that wait
+        // by the number of active sessions and could exhaust the desktop's global exit deadline
+        // before later sessions persisted cancellation. Keep concurrency bounded while ensuring a
+        // failure in one session never prevents the remaining sessions from being settled.
+        for batch in session_ids.chunks(8) {
+            let results = std::thread::scope(|scope| {
+                batch
+                    .iter()
+                    .cloned()
+                    .map(|session_id| {
+                        let service = self.clone();
+                        scope.spawn(move || {
+                            let result = service.stop_generation(&session_id);
+                            (session_id, result)
+                        })
+                    })
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .map(|worker| worker.join())
+                    .collect::<Vec<_>>()
+            });
+            for result in results {
+                match result {
+                    Ok((session_id, Ok(_))) => stopped.push(session_id),
+                    Ok((_, Err(error))) => {
+                        if first_error.is_none() {
+                            first_error = Some(error);
+                        }
+                    }
+                    Err(_) => {
+                        if first_error.is_none() {
+                            first_error = Some(AgentRuntimeApplicationError::Generation(
+                                "Agent shutdown worker terminated unexpectedly.".to_string(),
+                            ));
+                        }
+                    }
+                }
+            }
         }
-        Ok(stopped)
+        match first_error {
+            Some(error) => Err(error),
+            None => Ok(stopped),
+        }
     }
 
     fn deliver_loop_terminal(
@@ -3844,15 +3921,17 @@ impl GenerationEventHandler {
             invocation_usage: (self.configuration.interaction_mode != InteractionMode::Api)
                 .then_some(invocation_usage),
         })?;
-        let _ = self
-            .ports
-            .message_completions
-            .deliver(AgentMessageTerminal {
-                session_id: self.session_id.clone(),
-                message_id: self.message_id.clone(),
-                outcome: AgentMessageTerminalOutcome::Completed,
-                content: Some(response.clone()),
-            });
+        if self.seat_ownership.is_none() {
+            let _ = self
+                .ports
+                .message_completions
+                .deliver(AgentMessageTerminal {
+                    session_id: self.session_id.clone(),
+                    message_id: self.message_id.clone(),
+                    outcome: AgentMessageTerminalOutcome::Completed,
+                    content: Some(response.clone()),
+                });
+        }
         self.ports
             .sessions
             .update_lifecycle(&self.session_id, AgentLifecycle::Idle)?;
@@ -4086,15 +4165,17 @@ impl GenerationEventHandler {
         self.ports
             .sessions
             .fail_message(&self.message_id, &self.session_id, safe_error)?;
-        let _ = self
-            .ports
-            .message_completions
-            .deliver(AgentMessageTerminal {
-                session_id: self.session_id.clone(),
-                message_id: self.message_id.clone(),
-                outcome: AgentMessageTerminalOutcome::Failed,
-                content: None,
-            });
+        if self.seat_ownership.is_none() {
+            let _ = self
+                .ports
+                .message_completions
+                .deliver(AgentMessageTerminal {
+                    session_id: self.session_id.clone(),
+                    message_id: self.message_id.clone(),
+                    outcome: AgentMessageTerminalOutcome::Failed,
+                    content: None,
+                });
+        }
         self.ports
             .sessions
             .update_lifecycle(&self.session_id, AgentLifecycle::Failed)?;
@@ -4159,6 +4240,7 @@ impl GenerationEventHandler {
             return;
         };
         let _ = self.ports.seat_completions.deliver(SeatTurnTerminal {
+            source: ownership.source.clone(),
             session_id: self.session_id.clone(),
             message_id: self.message_id.clone(),
             seat_id: ownership.seat_id.clone(),
@@ -4262,6 +4344,16 @@ impl GenerationEventHandler {
     }
 
     fn finish_execution(&self, status: ExecutionStatus, error_classification: Option<&str>) {
+        let outcome = match status {
+            ExecutionStatus::Succeeded => CanonicalRunOutcome::Completed,
+            ExecutionStatus::Cancelled => CanonicalRunOutcome::Cancelled,
+            _ => CanonicalRunOutcome::Failed,
+        };
+        let _ = self.ports.operations.finish_canonical_run(
+            self.root_context.run_id.as_str(),
+            outcome,
+            error_classification,
+        );
         let ended_at = self.ports.clock.now();
         if let Ok(mut state) = self.state() {
             for span_id in std::mem::take(&mut state.active_tool_spans).into_values() {

@@ -174,6 +174,9 @@ describe("SessionInfoPanel", () => {
     expect(html).toContain("Token Usage");
     expect(html).toContain("Skill");
     expect(html).toContain('id="info-tab-im"');
+    expect(html).toContain('data-testid="session-im-access"');
+    expect(html).toContain("max-[900px]:absolute");
+    expect(html).toContain("max-[900px]:w-[min(320px,90vw)]");
     expect(html).not.toContain(">Files<");
     expect(html).not.toContain(">Changes<");
     expect(html).not.toContain(">Logs<");
@@ -214,7 +217,7 @@ describe("SessionInfoPanel", () => {
     expect(editor).toBeLessThan(basicPane);
     expect(html).toContain('data-speaking="true"');
     expect(html).toContain('aria-current="true"');
-    expect(html).toContain("working");
+    expect(html).toContain("starting");
   });
 
   it("keeps reported tokens primary and shows estimated fallback context separately", () => {

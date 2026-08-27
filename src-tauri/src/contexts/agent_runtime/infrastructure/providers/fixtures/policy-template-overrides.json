@@ -2,121 +2,125 @@
   {
     "agentId": "claude-code",
     "template": "readonly",
-    "base": {"permissionMode": "acceptEdits", "model": "sonnet"},
-    "expected": {"permissionMode": "plan", "model": "sonnet"}
+    "expectedOverrides": { "permissionMode": { "state": "value", "value": "plan" } }
   },
   {
     "agentId": "claude-code",
     "template": "standard",
-    "base": {"permissionMode": "plan", "model": "sonnet"},
-    "expected": {"permissionMode": "default", "model": "sonnet"}
+    "expectedOverrides": { "permissionMode": { "state": "inherit" } }
   },
   {
     "agentId": "claude-code",
     "template": "trusted",
-    "base": {"permissionMode": "plan", "model": "sonnet"},
-    "expected": {"permissionMode": "acceptEdits", "model": "sonnet"}
+    "expectedOverrides": { "permissionMode": { "state": "value", "value": "acceptEdits" } }
   },
   {
     "agentId": "claude-code",
     "template": "yolo",
-    "base": {"permissionMode": "default", "model": "sonnet"},
-    "expected": {"permissionMode": "acceptEdits", "model": "sonnet"}
+    "expectedOverrides": { "permissionMode": { "state": "value", "value": "acceptEdits" } }
   },
   {
     "agentId": "codex-cli",
     "template": "readonly",
-    "base": {"sandbox": "workspace-write", "approvalPolicy": "untrusted", "model": "gpt-5.5"},
-    "expected": {"sandbox": "read-only", "approvalPolicy": "never", "model": "gpt-5.5"}
+    "expectedOverrides": {
+      "approvalPolicy": { "state": "value", "value": "never" },
+      "sandbox": { "state": "value", "value": "read-only" }
+    }
   },
   {
     "agentId": "codex-cli",
     "template": "standard",
-    "base": {"sandbox": "read-only", "approvalPolicy": "never", "model": "gpt-5.5"},
-    "expected": {"sandbox": "workspace-write", "approvalPolicy": "on-request", "model": "gpt-5.5"}
+    "expectedOverrides": {
+      "approvalPolicy": { "state": "value", "value": "on-request" },
+      "sandbox": { "state": "value", "value": "workspace-write" }
+    }
   },
   {
     "agentId": "codex-cli",
     "template": "trusted",
-    "base": {"sandbox": "read-only", "approvalPolicy": "on-request", "model": "gpt-5.5"},
-    "expected": {"sandbox": "workspace-write", "approvalPolicy": "never", "model": "gpt-5.5"}
+    "expectedOverrides": {
+      "approvalPolicy": { "state": "value", "value": "never" },
+      "sandbox": { "state": "value", "value": "workspace-write" }
+    }
   },
   {
     "agentId": "codex-cli",
     "template": "yolo",
-    "base": {"sandbox": "read-only", "approvalPolicy": "untrusted", "model": "gpt-5.5"},
-    "expected": {"sandbox": "workspace-write", "approvalPolicy": "never", "model": "gpt-5.5"}
+    "expectedOverrides": {
+      "approvalPolicy": { "state": "value", "value": "never" },
+      "sandbox": { "state": "value", "value": "workspace-write" }
+    }
   },
   {
     "agentId": "gemini-cli",
     "template": "readonly",
-    "base": {"approvalMode": "yolo", "model": "gemini-2.5-pro"},
-    "expected": {"approvalMode": "plan", "model": "gemini-2.5-pro"}
+    "expectedOverrides": { "approvalMode": { "state": "value", "value": "plan" } }
   },
   {
     "agentId": "gemini-cli",
     "template": "standard",
-    "base": {"approvalMode": "yolo", "model": "gemini-2.5-pro"},
-    "expected": {"approvalMode": "default", "model": "gemini-2.5-pro"}
+    "expectedOverrides": { "approvalMode": { "state": "value", "value": "default" } }
   },
   {
     "agentId": "gemini-cli",
     "template": "trusted",
-    "base": {"approvalMode": "plan", "model": "gemini-2.5-pro"},
-    "expected": {"approvalMode": "yolo", "model": "gemini-2.5-pro"}
+    "expectedOverrides": { "approvalMode": { "state": "value", "value": "yolo" } }
   },
   {
     "agentId": "gemini-cli",
     "template": "yolo",
-    "base": {"approvalMode": "default", "model": "gemini-2.5-pro"},
-    "expected": {"approvalMode": "yolo", "model": "gemini-2.5-pro"}
+    "expectedOverrides": { "approvalMode": { "state": "value", "value": "yolo" } }
   },
   {
     "agentId": "opencode",
     "template": "readonly",
-    "base": {"agent": "build", "thinking": true},
-    "expected": {"agent": "plan", "thinking": true}
+    "expectedOverrides": { "agent": { "state": "value", "value": "plan" } }
   },
   {
     "agentId": "opencode",
     "template": "standard",
-    "base": {"agent": "build", "thinking": true},
-    "expected": {"agent": "build", "thinking": true}
+    "expectedOverrides": {}
   },
   {
     "agentId": "opencode",
     "template": "trusted",
-    "base": {"agent": "plan", "autoApprove": false},
-    "expected": {"agent": "plan", "autoApprove": true}
+    "expectedOverrides": { "autoApprove": { "state": "value", "value": true } }
   },
   {
     "agentId": "opencode",
     "template": "yolo",
-    "base": {"agent": "default", "autoApprove": false},
-    "expected": {"agent": "default", "autoApprove": true}
+    "expectedOverrides": { "autoApprove": { "state": "value", "value": true } }
   },
   {
     "agentId": "antigravity-cli",
     "template": "readonly",
-    "base": {"sandbox": false, "mode": "accept-edits", "model": "gemini-3-pro"},
-    "expected": {"sandbox": true, "mode": "plan", "model": "gemini-3-pro"}
+    "expectedOverrides": {
+      "mode": { "state": "value", "value": "plan" },
+      "sandbox": { "state": "value", "value": true }
+    }
   },
   {
     "agentId": "antigravity-cli",
     "template": "standard",
-    "base": {"sandbox": true, "mode": "accept-edits", "model": "gemini-3-pro"},
-    "expected": {"sandbox": false, "mode": "default", "model": "gemini-3-pro"}
+    "expectedOverrides": {
+      "mode": { "state": "inherit" },
+      "sandbox": { "state": "value", "value": false }
+    }
   },
   {
     "agentId": "antigravity-cli",
     "template": "trusted",
-    "base": {"sandbox": true, "mode": "plan", "model": "gemini-3-pro"},
-    "expected": {"sandbox": false, "mode": "accept-edits", "model": "gemini-3-pro"}
+    "expectedOverrides": {
+      "mode": { "state": "value", "value": "accept-edits" },
+      "sandbox": { "state": "value", "value": false }
+    }
   },
   {
     "agentId": "antigravity-cli",
     "template": "yolo",
-    "base": {"sandbox": true, "mode": "default", "model": "gemini-3-pro"},
-    "expected": {"sandbox": false, "mode": "accept-edits", "model": "gemini-3-pro"}
+    "expectedOverrides": {
+      "mode": { "state": "value", "value": "accept-edits" },
+      "sandbox": { "state": "value", "value": false }
+    }
   }
 ]

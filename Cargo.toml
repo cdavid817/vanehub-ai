@@ -52,6 +52,25 @@ base64 = "0.23"
 # photos and scans, and every other codec default-features would enable is attack surface for a
 # format nothing in this product produces.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+xcap = { version = "0.9.8", default-features = false }
+# Native audio for `add-local-composer-media-tools`. Defaults only: cpal's optional backends (jack,
+# pipewire, pulseaudio, asio) each add a system -dev package to the build matrix, and the default
+# host API -- WASAPI, CoreAudio, ALSA -- is what the three Tier 1 targets already provide. ALSA on
+# Linux still needs `libasound2-dev` at build time; that is declared in the CI apt step, not here.
+#
+# Pinned to 0.17 to match `rodio`'s requirement. 0.18 is available and has a nicer API -- a
+# persistable `DeviceId` and a typed `ErrorKind::PermissionDenied` -- but taking it here would put
+# two cpal versions in the graph, each opening its own handle to WASAPI/CoreAudio/ALSA and each
+# enumerating devices the other cannot resolve. One audio backend per process is worth more than
+# the better error type; revisit when rodio moves to 0.18.
+cpal = "0.17.3"
+# 16-bit PCM WAV only, both directions. hound has no feature flags and no codec surface, which is
+# the reason it is here rather than a general media library.
+hound = "3.5.1"
+# Playback of files this application generated itself. Every decoder except WAV is switched off:
+# rodio's defaults pull in symphonia for mp3/aac/flac/vorbis/mp4, none of which can appear on the
+# only path that reaches this crate -- the sherpa-onnx worker's operation-owned output.
+rodio = { version = "0.22.2", default-features = false, features = ["playback", "wav"] }
 futures-util = "0.3"
 keyring = "4.1.5"
 prost = "0.14"

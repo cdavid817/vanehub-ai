@@ -12,11 +12,25 @@ import { LoopDefinitionOverview } from "./loop-definition-overview";
 describe("LoopDefinitionOverview", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("shows the full saved definition and guards actions while a run is active", () => {
+  it("shows the full saved definition and guards actions while a run is active", async () => {
+    vi.spyOn(agentService, "listAgents").mockResolvedValue([{
+      id: "codex-cli",
+      displayName: "Codex CLI",
+      provider: "test",
+      launch: { kind: "cli", command: "codex" },
+      supportedInteractionModes: ["cli"],
+      availabilityState: "available",
+      capabilityTags: [],
+      agentOrigin: "builtin",
+    }]);
     renderOverview([loopRunFixture("running")]);
     expect(screen.getByRole("heading", { name: "Fixture Loop" })).toBeTruthy();
     expect(screen.getByText("Tests pass")).toBeTruthy();
-    expect(screen.getByText("codex-cli")).toBeTruthy();
+    // Roles resolve to the registry display name; an id shows only while the registry has no entry.
+    expect(await screen.findByText("Codex CLI")).toBeTruthy();
+    // Read-only labels drop the editor's "one per line" guidance.
+    expect(screen.queryByText("允许路径（每行一项）")).toBeNull();
+    expect(screen.getByText("允许路径")).toBeTruthy();
     expect((screen.getByRole("button", { name: "检查并启动" }) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole("button", { name: "删除" }) as HTMLButtonElement).disabled).toBe(true);
   });

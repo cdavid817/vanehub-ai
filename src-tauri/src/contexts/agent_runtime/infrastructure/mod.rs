@@ -3,8 +3,12 @@ mod anthropic_provider;
 mod api_credentials;
 mod api_process_adapter;
 mod availability;
+#[cfg(test)]
+mod baseline_argv_equivalence_tests;
 mod builtin_expert_roles;
 mod cli_profile;
+#[cfg(test)]
+mod cli_profile_tests;
 mod code_intelligence_adapter;
 #[cfg(test)]
 mod code_intelligence_adapter_tests;
@@ -30,6 +34,7 @@ mod events;
 mod evidence_gateway;
 mod expert_role_repository;
 mod generation_coordinator;
+mod local_media_ocr_adapter;
 mod local_model_discovery;
 mod local_runner;
 mod loop_execution_coordinator;
@@ -121,6 +126,7 @@ pub(crate) use expert_role_repository::{
     BuiltinAwareExpertRoleRepository, SqliteExpertRoleRepository,
 };
 pub(crate) use generation_coordinator::InMemoryGenerationCoordinator;
+pub(crate) use local_media_ocr_adapter::LocalMediaOcrAdapter;
 pub(crate) use local_model_discovery::HttpLocalModelDiscoveryAdapter;
 pub(crate) use local_runner::LocalRunner;
 pub(crate) use loop_execution_coordinator::InMemoryLoopExecutionCoordinator;

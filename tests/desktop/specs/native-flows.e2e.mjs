@@ -102,48 +102,65 @@ globalThis.describe("VaneHub AI desktop native flows", () => {
     assert.ok(Array.isArray(pending), "the pending approval queue is not readable");
   });
 
-  globalThis.it("detects CLI tools and installs the version the UI offers for opencode", async function installOpencode() {
+  globalThis.it("detects CLI tools and installs the version the plan names for opencode", async function installOpencode() {
     if (process.env.VANEHUB_DESKTOP_MUTATE_HOST !== "1") {
       blocked.push("opencode install: set VANEHUB_DESKTOP_MUTATE_HOST=1 to reinstall a global CLI");
       this.skip();
     }
     this.timeout(600_000);
-    const tools = await invoke(({ core }) => core.invoke("list_cli_tools"));
-    assert.ok(tools.length >= 4, `expected the managed CLI catalogue, found ${tools.length}`);
+    // The one test in this repository that drives a real package manager against the real host.
+    // `desktop-cli-management` covers the same pipeline against a fixture; this exists because a
+    // fixture cannot show that the real npm, the real global prefix, and the real PATH agree.
+    const refresh = await invoke(({ core }) => core.invoke("refresh_cli_environment", {
+      agentIds: ["opencode"],
+      forceCatalog: true,
+    }));
+    await settle(refresh.operationId, "CLI detection refresh never settled.");
 
-    const refresh = await invoke(({ core }) => core.invoke("refresh_cli_detections"));
-    if (refresh?.id) {
-      await settle(refresh.id, "CLI detection refresh never settled.");
-    }
-
-    const refreshed = await invoke(({ core }) => core.invoke("list_cli_tools"));
-    const opencode = refreshed.find((tool) => tool.agentId === "opencode");
+    const snapshots = await invoke(({ core }) => core.invoke("list_cli_environments"));
+    assert.ok(snapshots.length >= 4, `expected the managed CLI catalogue, found ${snapshots.length}`);
+    const opencode = snapshots.find((snapshot) => snapshot.agentId === "opencode");
     assert.ok(opencode, "opencode is missing from the CLI catalogue");
-    // Reinstalling the version already on disk, deliberately: it drives the whole install
-    // pipeline -- operation task, npm global install, detection refresh -- and leaves the host on
-    // exactly the version it started on. Installing a different one would exercise the same code
-    // and change the developer's working CLI as a side effect.
-    const target = opencode.latestVersion ?? opencode.currentVersion;
-    if (!target) {
-      blocked.push("opencode install: the catalogue reported no installable version");
+
+    const installed = opencode.installations
+      .find((installation) => installation.id === opencode.recommendedInstallationId)
+      ?.reportedVersion;
+    // Reinstalling the version already on disk, deliberately: it drives the whole pipeline --
+    // plan, operation, npm global install, verification -- and leaves the host on exactly the
+    // version it started on. Installing a different one would exercise the same code and change
+    // the developer's working CLI as a side effect.
+    if (!installed) {
+      blocked.push("opencode install: nothing installed to reinstall at its current version");
       this.skip();
     }
 
     // Scoped to opencode by explicit instruction: claude-code and codex-cli must not be mutated.
-    const install = await invoke(({ core }, input) => core.invoke("install_cli_version", input), {
+    const prepared = await invoke(({ core }, input) => core.invoke("prepare_cli_action", input), {
       agentId: "opencode",
-      targetVersion: target,
-      confirmedActivePath: opencode.activePath ?? null,
+      action: "reinstall",
+      sourceId: "npm",
+      targetVersion: installed,
+      channel: null,
     });
-    const outcome = await settle(install.id, "The opencode install never settled.");
-    assert.equal(outcome.status, "succeeded", outcome.error ?? "opencode install failed");
+    const planning = await settle(prepared.operationId, "The opencode plan never settled.");
+    if (planning.status !== "succeeded") {
+      blocked.push(`opencode install: planning refused -- ${planning.error ?? "no reason recorded"}`);
+      this.skip();
+    }
+    const plan = await invoke(({ core }, planId) => core.invoke("get_cli_action_plan", { planId }), planning.result.planId);
+    // The version reviewed is the version that runs, and nothing else crosses the execute call.
+    assert.equal(plan.targetVersion, installed);
 
-    const after = await globalThis.browser.waitUntil(async () => {
-      const tools = await invoke(({ core }) => core.invoke("list_cli_tools"));
-      const entry = tools.find((tool) => tool.agentId === "opencode");
-      return entry?.currentVersion === target ? entry : false;
-    }, { timeout: 120_000, interval: 2_000, timeoutMsg: `opencode still does not report ${target}.` });
-    assert.equal(after.currentVersion, target);
+    const execution = await invoke(({ core }, input) => core.invoke("execute_cli_action", input), {
+      planId: plan.id,
+      expectedRevision: plan.revision,
+    });
+    const outcome = await settle(execution.operationId, "The opencode install never settled.");
+    assert.equal(outcome.status, "succeeded", outcome.error ?? "opencode install failed");
+    // Verified, not merely started: the host was re-read after the command and reported the
+    // version the plan named.
+    assert.equal(outcome.result.outcome, "verified", JSON.stringify(outcome.result));
+    assert.equal(outcome.result.observedVersion, installed);
   });
 
   globalThis.it("installs and removes a real extension framework through pip", async function pipExtension() {

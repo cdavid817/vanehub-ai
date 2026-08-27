@@ -1,5 +1,6 @@
 import type { SessionRecoveryAcknowledgement } from "./agent-service";
-import type { SessionRecoveryService } from "./session-recovery-service";
+import type { SessionRecoveryService, SessionRuntimeRecovery } from "./session-recovery-service";
+import { cancelWebActiveStream, getWebSessionMessages, setWebSessionMessages } from "./web-chat-state";
 import { emitWebSessionEvent, findWebSession, updateWebSession } from "./web-session-state";
 import {
   listWebRecoveryReports,
@@ -50,5 +51,31 @@ export const webSessionRecoveryClient: SessionRecoveryService = {
       recoveryRevision,
     });
     return structuredClone({ session: updated, report });
+  },
+
+  async recoverSession(sessionId: string): Promise<SessionRuntimeRecovery> {
+    const session = findWebSession(sessionId);
+    if (session.archived) {
+      throw new Error(`Archived sessions cannot be recovered: ${sessionId}.`);
+    }
+    // Collected before cancelling: once the stream is torn down the messages it owned are the
+    // only evidence that anything was stuck, and reporting an empty list would read as "nothing
+    // was wrong" on exactly the session the user came here to unstick.
+    const cancelledMessageIds = getWebSessionMessages(sessionId)
+      .filter((message) => message.status === "streaming" || message.status === "pending")
+      .map((message) => message.id);
+    const processStopped = cancelWebActiveStream(sessionId);
+    setWebSessionMessages(
+      sessionId,
+      getWebSessionMessages(sessionId).map((message) =>
+        cancelledMessageIds.includes(message.id) ? { ...message, status: "cancelled" as const } : message,
+      ),
+    );
+    updateWebSession(sessionId, {
+      lifecycleState: "idle",
+      activeExecutionRunId: null,
+      stateRevision: session.stateRevision + 1,
+    });
+    return { cancelledMessageIds, processStopped, lifecycleState: "idle" };
   },
 };

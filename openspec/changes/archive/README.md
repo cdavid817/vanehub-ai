@@ -229,5 +229,13 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-21 | optimize-loop-engineering-workbench | loop-management-ui | `openspec/changes/archive/2026-08-21-optimize-loop-engineering-workbench/` |
 | 2026-08-21 | prevent-hook-bash-permission-blocks | claude-code-permission-hook, cli-agent-permission-launch-flags | `openspec/changes/archive/2026-08-21-prevent-hook-bash-permission-blocks/` |
 | 2026-08-21 | rebuild-project-documentation-topology | native-developer-documentation, user-guide-documentation | `openspec/changes/archive/2026-08-21-rebuild-project-documentation-topology/` |
+| 2026-08-23 | upgrade-cli-parameter-management | cli-parameter-management | `openspec/changes/archive/2026-08-23-upgrade-cli-parameter-management/` |
+| 2026-08-25 | add-local-composer-media-tools | app-settings, application-localization, chat-experience, desktop-runtime-verification, local-extension-management, local-media-runtime, native-app-packaging, native-runtime-architecture, onepiece-ocr-tool | `openspec/changes/archive/2026-08-25-add-local-composer-media-tools/` |
+| 2026-08-25 | add-source-aware-cli-environment-management | cli-environment-management, contract-and-task-foundation, desktop-runtime-verification, frontend-runtime-architecture, native-runtime-architecture, settings-center-ui, unified-log-management | `openspec/changes/archive/2026-08-25-add-source-aware-cli-environment-management/` |
+| 2026-08-26 | add-lsp-go-python-cpp | lsp-server-management | `openspec/changes/archive/2026-08-26-add-lsp-go-python-cpp/` |
+| 2026-08-26 | extend-lsp-language-registry | lsp-server-management, settings-center-ui | `openspec/changes/archive/2026-08-26-extend-lsp-language-registry/` |
+| 2026-08-27 | add-lsp-java-jdtls | lsp-server-management, settings-center-ui | `openspec/changes/archive/2026-08-27-add-lsp-java-jdtls/` |
+| 2026-08-27 | expand-lsp-read-only-methods | agent-tool-execution, lsp-code-intelligence, lsp-server-management, settings-center-ui | `openspec/changes/archive/2026-08-27-expand-lsp-read-only-methods/` |
+| 2026-08-27 | extract-managed-tool-installation | cli-environment-management, managed-tool-installation | `openspec/changes/archive/2026-08-27-extract-managed-tool-installation/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

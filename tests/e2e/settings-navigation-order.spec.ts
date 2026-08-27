@@ -15,6 +15,7 @@ test("orders Settings destinations around common setup and customization workflo
     "个性化",
     "Prompt Hook",
     "专家角色",
+    "本地媒体",
     "CLI 管理",
     "扩展能力",
     "插件集成",
@@ -22,6 +23,7 @@ test("orders Settings destinations around common setup and customization workflo
     "SSH 连接",
     "执行可观测性",
     "使用统计",
+    "使用文档",
     "关于",
   ];
   const navigation = page.locator("nav");

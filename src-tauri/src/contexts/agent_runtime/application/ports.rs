@@ -467,10 +467,13 @@ pub(crate) trait AgentSessionGateway: Send + Sync {
 }
 
 pub(crate) trait AgentCliProfileGateway: Send + Sync {
+    /// `operation_id` associates any resolution diagnostic with the observable operation that
+    /// triggered the launch. An Agent Terminal launch has none.
     fn load(
         &self,
         agent_id: &str,
         configuration: &AgentChatConfiguration,
+        operation_id: Option<&str>,
     ) -> Result<CliProfileSnapshot, AgentRuntimeApplicationError>;
 
     fn load_interactive(
@@ -1382,6 +1385,54 @@ pub(crate) struct AgentCodeLocation {
     pub(crate) preview: Option<String>,
 }
 
+/// A symbol as a tool result carries it. `kind` is one of a closed set the code-intelligence
+/// context maps from the protocol's numeric kinds, so it is a plain string here rather than an
+/// enum this context would have to keep in step with another one's protocol handling.
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentCodeSymbol {
+    pub(crate) name: String,
+    pub(crate) kind: String,
+    pub(crate) container: Option<String>,
+    pub(crate) file: String,
+    pub(crate) range: AgentCodeRange,
+    /// The declaration line, as a location carries it. Without it a symbol is a coordinate the
+    /// reader has to go and open, and the Context Engine has nothing to put in a candidate.
+    pub(crate) preview: Option<String>,
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentCodeCallRelation {
+    pub(crate) symbol: AgentCodeSymbol,
+    pub(crate) call_sites: Vec<AgentCodeRange>,
+}
+
+/// Which way to walk a call hierarchy. Spelled out here rather than borrowed from the
+/// code-intelligence context: a port type this context owns is what keeps the two independent.
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AgentCallDirection {
+    Incoming,
+    Outgoing,
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentCallHierarchyInput {
+    pub(crate) position: AgentDocumentPositionInput,
+    pub(crate) direction: AgentCallDirection,
+}
+
+/// `relative_path` selects which server answers, not which files are searched: a repository can
+/// hold several project roots and LSP indexes one at a time.
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentWorkspaceSymbolInput {
+    pub(crate) relative_path: String,
+    pub(crate) query: String,
+}
+
 #[cfg_attr(not(test), allow(dead_code))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AgentCodeHover {
@@ -1456,6 +1507,41 @@ pub(crate) trait AgentCodeIntelligencePort: Send + Sync {
         input: &AgentDocumentInput,
         cancelled: Arc<AtomicBool>,
     ) -> AgentCodeIntelligenceOutcome<Vec<AgentCodeDiagnostic>>;
+
+    fn find_type_definition(
+        &self,
+        context: &AgentCodeIntelligenceContext,
+        input: &AgentDocumentPositionInput,
+        cancelled: Arc<AtomicBool>,
+    ) -> AgentCodeIntelligenceOutcome<Vec<AgentCodeLocation>>;
+
+    fn find_implementations(
+        &self,
+        context: &AgentCodeIntelligenceContext,
+        input: &AgentDocumentPositionInput,
+        cancelled: Arc<AtomicBool>,
+    ) -> AgentCodeIntelligenceOutcome<Vec<AgentCodeLocation>>;
+
+    fn find_workspace_symbols(
+        &self,
+        context: &AgentCodeIntelligenceContext,
+        input: &AgentWorkspaceSymbolInput,
+        cancelled: Arc<AtomicBool>,
+    ) -> AgentCodeIntelligenceOutcome<Vec<AgentCodeSymbol>>;
+
+    fn get_document_symbols(
+        &self,
+        context: &AgentCodeIntelligenceContext,
+        input: &AgentDocumentInput,
+        cancelled: Arc<AtomicBool>,
+    ) -> AgentCodeIntelligenceOutcome<Vec<AgentCodeSymbol>>;
+
+    fn find_call_hierarchy(
+        &self,
+        context: &AgentCodeIntelligenceContext,
+        input: &AgentCallHierarchyInput,
+        cancelled: Arc<AtomicBool>,
+    ) -> AgentCodeIntelligenceOutcome<Vec<AgentCodeCallRelation>>;
 }
 
 pub(crate) struct AgentCodeIntelligencePending<T> {
@@ -1492,6 +1578,36 @@ pub(crate) trait AgentCodeIntelligenceResponderPort: Send + Sync {
         context: AgentCodeIntelligenceContext,
         input: AgentDocumentInput,
     ) -> AgentCodeIntelligencePending<Vec<AgentCodeDiagnostic>>;
+
+    fn start_find_type_definition(
+        &self,
+        context: AgentCodeIntelligenceContext,
+        input: AgentDocumentPositionInput,
+    ) -> AgentCodeIntelligencePending<Vec<AgentCodeLocation>>;
+
+    fn start_find_implementations(
+        &self,
+        context: AgentCodeIntelligenceContext,
+        input: AgentDocumentPositionInput,
+    ) -> AgentCodeIntelligencePending<Vec<AgentCodeLocation>>;
+
+    fn start_find_workspace_symbols(
+        &self,
+        context: AgentCodeIntelligenceContext,
+        input: AgentWorkspaceSymbolInput,
+    ) -> AgentCodeIntelligencePending<Vec<AgentCodeSymbol>>;
+
+    fn start_get_document_symbols(
+        &self,
+        context: AgentCodeIntelligenceContext,
+        input: AgentDocumentInput,
+    ) -> AgentCodeIntelligencePending<Vec<AgentCodeSymbol>>;
+
+    fn start_find_call_hierarchy(
+        &self,
+        context: AgentCodeIntelligenceContext,
+        input: AgentCallHierarchyInput,
+    ) -> AgentCodeIntelligencePending<Vec<AgentCodeCallRelation>>;
 }
 
 #[cfg_attr(not(test), allow(dead_code))]

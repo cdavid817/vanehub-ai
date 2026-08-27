@@ -3,10 +3,18 @@ import { describe, expect, it } from "vitest";
 
 describe("frontend feature module boundaries", () => {
   it("keeps every settings page behind a first-visit dynamic import", () => {
-    const source = read("settings/settings-pages.ts");
-    const pageModules = source.match(/import\("\.\/pages\/[^"]+"\)/g) ?? [];
-    expect(pageModules).toHaveLength(18);
-    expect(source).not.toMatch(/from "\.\/pages\//);
+    // The loaders moved into their own module; the page list next door must still never reach a
+    // page through a static import.
+    const loaders = read("settings/settings-page-loaders.ts");
+    const pages = read("settings/settings-pages.ts");
+    // A page may live in its own directory rather than under `pages/`, so the count is of dynamic
+    // imports rather than of one path shape; what must not appear is a static import of either.
+    // 20 after merging both branches: 19 from the CLI-parameter cutover plus the Local media page.
+    const pageModules = loaders.match(/import\("\.\/[^"]+"\)/g) ?? [];
+    expect(pageModules).toHaveLength(20);
+    expect(loaders).not.toMatch(/from "\.\/pages\//);
+    expect(loaders).not.toMatch(/from "\.\/cli-parameters\//);
+    expect(pages).not.toMatch(/from "\.\/pages\//);
   });
 
   it("warms the settings modules used by reload-heavy browser tests", () => {

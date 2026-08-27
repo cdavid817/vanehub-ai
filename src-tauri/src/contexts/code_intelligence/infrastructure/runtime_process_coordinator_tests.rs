@@ -6,8 +6,9 @@ use super::runtime_process_coordinator::{
 };
 use super::shutdown_coordinator::LspShutdownCoordinator;
 use crate::contexts::code_intelligence::domain::models::{
-    ConfigurationFingerprint, ProcessState, ServerKind,
+    ConfigurationFingerprint, ProcessState, SemanticMethod,
 };
+use crate::contexts::code_intelligence::domain::registry;
 use crate::contexts::operations::api::{DiagnosticLog, DiagnosticLogPort, OperationsError};
 use serde_json::json;
 use std::path::Path;
@@ -32,7 +33,7 @@ async fn on_demand_process_initializes_and_registers_for_desktop_shutdown() {
         LspProcessAcquisition::Ready(handle) => handle,
         _ => panic!("process must become ready"),
     };
-    assert!(handle.capabilities().definition);
+    assert!(handle.capabilities().supports(SemanticMethod::Definition));
     assert_eq!(
         handle
             .client()
@@ -268,7 +269,7 @@ impl ProcessFixture {
         let key = ProcessKey::new(
             directory.path(),
             directory.path(),
-            ServerKind::RustAnalyzer,
+            registry::rust(),
             ConfigurationFingerprint::new("fixture-config").expect("fingerprint"),
         )
         .expect("process key");
