@@ -139,10 +139,21 @@ test.describe("multi-Agent session", () => {
 
     const composer = page.getByPlaceholder(/输入指令/);
     await composer.fill("@cod");
-    await expect(page.getByRole("group", { name: /会话成员/ })).toBeVisible();
+    const participantGroup = page.getByRole("group", { name: /会话成员/ });
+    await expect(participantGroup).toBeVisible();
+    const participantOption = participantGroup.getByRole("option").first();
+    await expect(participantOption).toHaveAttribute("aria-selected", "false");
+    await composer.press("ArrowUp");
+    await expect(participantOption).toHaveAttribute("aria-selected", "true");
+    const participantOptionId = await participantOption.getAttribute("id");
+    expect(participantOptionId).not.toBeNull();
+    await expect(composer).toHaveAttribute("aria-activedescendant", participantOptionId!);
+    await composer.press("Enter");
+    await expect(composer).toHaveValue(/@\S+\s$/);
     const longPrompt = Array.from({ length: 80 }, () => "请一起检查这个方案").join("，");
     await composer.fill(longPrompt);
     await page.getByRole("button", { name: "发送", exact: true }).click();
+    await expect(editor.locator('[data-seat-activity="streaming"]')).toHaveCount(1);
     const historicalSpeaker = page.getByTestId("message-speaker").first();
     await expect(historicalSpeaker).toBeVisible();
     const speakerLabel = await historicalSpeaker.textContent();

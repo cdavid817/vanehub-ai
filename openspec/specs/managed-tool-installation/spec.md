@@ -113,4 +113,3 @@ The system SHALL take the allowlist, byte ceiling, timeout, digest, and platform
 - **WHEN** a contributed artifact declares no allowed hosts or no byte ceiling
 - **THEN** the declaration SHALL be refused
 - **AND** the refusal SHALL be observable at the point of declaration rather than only when a download is attempted
-

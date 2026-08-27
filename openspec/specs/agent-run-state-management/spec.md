@@ -93,7 +93,7 @@ The desktop runtime SHALL persist Run snapshots and append-only events in additi
 - **THEN** the transaction rolls back without recording a partial migration version
 
 ### Requirement: Shared Run service and minimal status presentation
-The frontend SHALL query and control Runs through the shared Agent service interface with contract-compatible Tauri and Web/mock adapters. A reusable localized status presentation SHALL show status, elapsed time, explicit waiting reason, retry count, and only permitted cancel/resume actions using semantic visual tokens.
+The frontend SHALL query and control Runs through the shared Agent service interface with contract-compatible Tauri and Web/mock adapters. A reusable localized status presentation SHALL show status, elapsed time, explicit waiting reason, retry count, and only permitted cancel/resume actions using semantic visual tokens. Elapsed time for an active Run SHALL advance from its canonical creation or start timestamp against the current clock and SHALL freeze against its terminal timestamp after completion.
 
 #### Scenario: Desktop queries a Run
 - **WHEN** React requests Run status in desktop mode
@@ -106,6 +106,19 @@ The frontend SHALL query and control Runs through the shared Agent service inter
 #### Scenario: Status renders across supported layouts
 - **WHEN** the status component renders in futuristic or minimal style at desktop or narrow width
 - **THEN** status and actions remain readable, keyboard accessible, non-overlapping, and distinguishable without color alone
+
+#### Scenario: Active elapsed time advances
+- **WHEN** a Run remains in a non-terminal active state while its persisted update timestamp is unchanged
+- **THEN** the visible elapsed duration SHALL continue increasing from the Run's canonical timestamp
+
+#### Scenario: Terminal elapsed time freezes
+- **WHEN** a Run reaches a terminal state
+- **THEN** its visible elapsed duration SHALL be calculated against its terminal update timestamp and SHALL no longer increase
+
+#### Scenario: Managed CLI completion survives restart
+- **WHEN** a managed CLI generation persists a completed, failed, or cancelled terminal message and Operation
+- **THEN** the correlated canonical Run SHALL persist the matching terminal outcome before the execution is treated as finished
+- **AND** a later client restart SHALL preserve that terminal Run instead of replacing it with `interrupted_restart`
 
 ### Requirement: Bounded lifecycle performance
 Run transitions SHALL use bounded validation and one atomic snapshot/event persistence boundary, and Run/event queries SHALL be indexed and paginated with bounded reason and event metadata.
@@ -143,7 +156,7 @@ The canonical Run benchmark SHALL cover event propagation, valid state transitio
 - **AND** shared CI SHALL enforce only declared concurrency, buffer, and item-count bounds
 
 ### Requirement: Canonical Runs retain bounded Runner ownership
-Every accepted Agent generation Run SHALL persist one immutable runner kind and stable bounded runner reference plus versioned capability, authority, and recovery witnesses needed by its owner. Runner metadata SHALL contain no credential, raw environment, prompt, output, unrestricted path, or transport secret.
+Every accepted Agent generation Run SHALL persist one immutable runner kind and stable bounded runner reference plus versioned capability, authority, recovery, and progress witnesses needed by its owner. Runner and progress metadata SHALL contain no credential, raw environment, prompt, unrestricted output, unrestricted path, or transport secret. Member progress projection SHALL identify the stable seat and bounded lifecycle milestone without creating a second Run lifecycle authority.
 
 #### Scenario: Create a Local or SSH Run
 - **WHEN** Agent generation is accepted for an eligible Runner
@@ -153,6 +166,11 @@ Every accepted Agent generation Run SHALL persist one immutable runner kind and 
 - **WHEN** a legacy Run snapshot is loaded after migration
 - **THEN** it remains readable and is conservatively projected as legacy Local only where existing ownership proves that classification
 - **AND** no remote capability or live state is fabricated
+
+#### Scenario: Project bounded member progress
+- **WHEN** a child member Run starts, produces its first activity or output, waits, or terminates
+- **THEN** the service SHALL expose its stable seat identity and bounded current milestone through the existing Run or stream boundary
+- **AND** SHALL NOT expose secrets or unbounded raw process data in progress metadata
 
 ### Requirement: Runner-aware canonical cancellation and recovery
 Canonical cancellation SHALL delegate owned process or channel termination through the Run owner's Runner handle, and startup recovery SHALL use runner inspection evidence before choosing reconnect, interrupted failure, or attention-required state. A Runner MUST NOT create a second Run lifecycle authority.

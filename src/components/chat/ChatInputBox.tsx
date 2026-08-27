@@ -3,6 +3,7 @@ import { FileText, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useComposerDropTarget } from "../../hooks/use-composer-drop-target";
 import { useComposerMention } from "../../hooks/use-composer-mention";
+import { useComposerCompletionNavigation } from "../../hooks/use-composer-completion-navigation";
 import { cn } from "../../lib/utils";
 import { LazyFeature } from "../lazy-feature";
 
@@ -15,8 +16,9 @@ import type { AgentRegistryEntry } from "../../types/agent";
 import type { FileSearchMatch } from "../../types/session-workspace";
 import type { ChatConfig, ChatFileReference, ModelInfo, ReasoningDepth, SessionExecutionMode } from "../../types/chat";
 import { ButtonArea } from "./ButtonArea";
+import { ComposerMentionCompletion } from "./ComposerMentionCompletion";
 import { FileReferenceLines } from "./FileReferenceLines";
-import { SeatMentionCompletion, type SeatMentionOption } from "./SeatMentionCompletion";
+import type { SeatMentionOption } from "./SeatMentionCompletion";
 import { SlashCommandCompletion } from "./SlashCommandCompletion";
 import { SlashCommandOutput } from "./SlashCommandOutput";
 import type { CommandOutput, SlashCommand } from "../../services/slash-commands/types";
@@ -112,6 +114,10 @@ export function ChatInputBox({
     participantMentions,
     value,
   });
+  const completion = useComposerCompletionNavigation([
+    ...participantSuggestions.map((option) => `participant:${option.mention}`),
+    ...fileSuggestions.map((candidate) => `file:${candidate.path}`),
+  ]);
 
   const dropTarget = useComposerDropTarget({
     disabled: Boolean(disabled) || isStreaming,
@@ -139,6 +145,15 @@ export function ChatInputBox({
   function selectParticipant(mentionHandle: string) {
     onChange(applyMention(mentionHandle));
     textAreaRef.current?.focus();
+  }
+
+  function activateCompletion(index: number) {
+    const participant = participantSuggestions[index];
+    if (participant) selectParticipant(participant.mention);
+    else {
+      const candidate = fileSuggestions[index - participantSuggestions.length];
+      if (candidate) selectReference(candidate);
+    }
   }
 
   // A pending preview belongs to the session it was opened from. Left alone across a
@@ -203,18 +218,7 @@ export function ChatInputBox({
                 <SlashCommandCompletion onSelect={onSelectSlashCommand ?? (() => undefined)} options={slashCommandSuggestions} />
               </div>
             ) : null}
-            {participantSuggestions.length || fileSuggestions.length ? (
-              <div className="ucd-panel grid max-h-56 w-full gap-1 overflow-y-auto rounded-md p-1 text-xs shadow-lg">
-                <SeatMentionCompletion onSelect={selectParticipant} options={participantSuggestions} />
-                {fileSuggestions.length ? <p className="px-2 py-1 text-[11px] font-semibold uppercase text-muted-foreground">{t("chat.completion.file")}</p> : null}
-                {fileSuggestions.map((candidate) => (
-                  <button className="flex min-w-0 items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted" key={candidate.path} onClick={() => selectReference(candidate)} type="button">
-                    <FileText className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
-                    <span className="min-w-0 flex-1 truncate">{candidate.path}</span>
-                  </button>
-                ))}
-              </div>
-            ) : null}
+            <ComposerMentionCompletion activeIndex={completion.activeIndex} fileSuggestions={fileSuggestions} listboxId={completion.listboxId} onSelectFile={selectReference} onSelectParticipant={selectParticipant} optionId={completion.optionId} participantSuggestions={participantSuggestions} />
           </div>
         ) : null}
         {fileReferences.length ? (
@@ -233,10 +237,15 @@ export function ChatInputBox({
         ) : null}
         <div className="relative">
         <textarea
+          aria-activedescendant={completion.activeOptionId}
+          aria-controls={participantSuggestions.length || fileSuggestions.length ? completion.listboxId : undefined}
+          aria-expanded={participantSuggestions.length + fileSuggestions.length > 0}
+          aria-haspopup="listbox"
           className="min-h-22 w-full resize-none border-0 bg-transparent px-3 py-3 pr-10 text-sm leading-6 outline-hidden placeholder:text-muted-foreground focus-visible:ring-0 disabled:cursor-not-allowed disabled:opacity-60"
           disabled={disabled}
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={(event) => {
+            if (completion.onKeyDown(event, activateCompletion)) return;
             if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
             event.preventDefault();
             if (canSubmit) onSubmit();

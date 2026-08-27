@@ -13,6 +13,8 @@ import type {
   RecordingHandle,
   StagedOcrSource,
 } from "../types/local-media";
+import { normalizePythonEnvironmentDiscovery } from "../types/local-media-python";
+import { tauriScreenshotClient } from "../region-capture/tauri-screenshot-client";
 
 /**
  * Formats the native picker offers.
@@ -68,43 +70,41 @@ async function chooseOcrSource(): Promise<string | null> {
 }
 
 export const tauriLocalMediaClient: LocalMediaService = {
+  ...tauriScreenshotClient,
   async isAvailable() {
     return true;
   },
-
   async getProfile() {
     return invoke<LocalMediaProfile>("get_local_media_profile");
   },
-
   async saveProfile(input) {
     return invoke<LocalMediaProfile>("save_local_media_profile", { request: input });
   },
-
   async validateProfile(profile) {
     return invoke<ProfileFieldIssue[]>("validate_local_media_profile", {
       request: { profile },
     });
   },
-
   async getStatus() {
     return invoke<LocalMediaRuntimeStatus>("get_local_media_status");
   },
-
   async listAudioDevices() {
     return invoke<AudioDeviceCatalog>("list_local_media_audio_devices");
   },
-
+  async discoverPythonEnvironments() {
+    return normalizePythonEnvironmentDiscovery(
+      await invoke<unknown>("discover_local_media_python_environments"),
+    );
+  },
   async probeEngine(engine: LocalMediaEngine) {
     return invoke<LocalMediaOperationHandle>("start_local_media_probe", {
       request: { engine },
     });
   },
-
   async selectProfilePath(input) {
     const selected = await open({ directory: input.kind === "directory", multiple: false });
     return typeof selected === "string" ? selected : null;
   },
-
   /**
    * The picked path is used once, here, and is never returned to the caller.
    *
@@ -120,43 +120,34 @@ export const tauriLocalMediaClient: LocalMediaService = {
       request: { path: selected },
     });
   },
-
   async discardStagedOcrSource(stagedInputId) {
     await invoke("cleanup_local_media_staged_source", { request: { stagedInputId } });
   },
-
   async startOcr(input) {
     return invoke<LocalMediaOperationHandle>("start_local_media_ocr", { request: input });
   },
-
   async startRecording(input) {
     return invoke<RecordingHandle>("start_microphone_recording", { request: input });
   },
-
   async stopRecordingAndTranscribe(input) {
     return invoke<LocalMediaOperationHandle>("stop_recording_and_transcribe", {
       request: input,
     });
   },
-
   async cancelRecording(input) {
     await invoke("cancel_microphone_recording", { request: input });
   },
-
   async startTts(input) {
     return invoke<LocalMediaOperationHandle>("start_local_media_tts", { request: input });
   },
-
   async stopPlayback(input) {
     await invoke("stop_local_media_playback", {
       request: { playbackId: input.playbackId ?? null },
     });
   },
-
   async cancelOperation(operationId) {
     await invoke("cancel_local_media_operation", { request: { operationId } });
   },
-
   async getOperationResult(operationId) {
     return invoke<LocalMediaOperationResult | null>("get_local_media_operation_result", {
       request: { operationId },

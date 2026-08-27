@@ -21,8 +21,11 @@ test.describe("CLI parameter settings", () => {
 
     // The preview is tokenized: the flag and its config assignment are separate argv entries, and
     // a joined command line is never shown.
-    await expect(page.getByText("--config", { exact: true })).toBeVisible();
-    await expect(page.getByText('model_reasoning_effort="high"', { exact: true })).toBeVisible();
+    const argumentTokens = page.getByLabel(/参数令牌|Argument tokens/);
+    await expect(argumentTokens.getByText("--config", { exact: true })).toBeVisible();
+    await expect(
+      argumentTokens.getByText('model_reasoning_effort="high"', { exact: true }),
+    ).toBeVisible();
 
     // Policy-governed parameters are not editable here, and the page says where they live.
     await expect(page.getByRole("combobox", { name: /沙箱|Sandbox/ })).toHaveCount(0);

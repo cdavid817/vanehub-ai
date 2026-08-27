@@ -217,7 +217,7 @@ describe("SessionInfoPanel", () => {
     expect(editor).toBeLessThan(basicPane);
     expect(html).toContain('data-speaking="true"');
     expect(html).toContain('aria-current="true"');
-    expect(html).toContain("working");
+    expect(html).toContain("starting");
   });
 
   it("keeps reported tokens primary and shows estimated fallback context separately", () => {

@@ -369,7 +369,8 @@ const masks: Record<string, (page: Page) => Locator[]> = {
 };
 
 test.describe("documentation screenshots", () => {
-  test.describe.configure({ mode: "serial" });
+  // Keep collecting platform-specific mismatches so one stale baseline does not hide the rest.
+  test.describe.configure({ mode: "default" });
 
   for (const definition of inventory.screenshots) {
     test(definition.id, async ({ page }) => {

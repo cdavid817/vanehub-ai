@@ -1,5 +1,6 @@
 import type { LocalMediaService } from "./local-media-service";
 import type { LocalMediaProfile, LocalMediaRuntimeStatus } from "../types/local-media";
+import { webScreenshotClient } from "../region-capture/web-screenshot-client";
 
 /**
  * Web/mock behaviour, and it is deliberately inert.
@@ -89,6 +90,7 @@ function unavailableStatus(): LocalMediaRuntimeStatus {
 }
 
 export const webLocalMediaClient: LocalMediaService = {
+  ...webScreenshotClient,
   async isAvailable() {
     return false;
   },
@@ -115,6 +117,14 @@ export const webLocalMediaClient: LocalMediaService = {
     return { inputs: [], outputs: [] };
   },
 
+  async discoverPythonEnvironments() {
+    return {
+      availability: "unavailable" as const,
+      reasonCode: "native_unavailable" as const,
+      candidates: [],
+    };
+  },
+
   async probeEngine() {
     return nativeOnly();
   },
@@ -128,6 +138,7 @@ export const webLocalMediaClient: LocalMediaService = {
   async selectAndStageOcrSource() {
     return nativeOnly();
   },
+
 
   async discardStagedOcrSource() {
     return nativeOnly();

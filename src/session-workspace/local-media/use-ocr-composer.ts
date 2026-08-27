@@ -14,6 +14,7 @@ export interface OcrComposer {
   ocrPhase: OcrPhase;
   review: OcrReviewState | null;
   startOcr: () => void;
+  startScreenshot: () => void;
   updateReviewText: (text: string) => void;
   appendReviewText: () => void;
   cancelReview: () => void;
@@ -53,14 +54,16 @@ export function useOcrComposer(context: LocalMediaComposerContext): OcrComposer 
     });
   });
 
-  const startOcr = useCallback(() => {
+  const startFrom = useCallback((source: "file" | "screenshot") => {
     const { composerScopeId, service } = context;
     if (!composerScopeId || ocrPhase !== "idle") return;
     context.clearFailure();
     setOcrPhase("picking");
     void (async () => {
       try {
-        const staged = await service.selectAndStageOcrSource();
+        const staged = source === "file"
+          ? await service.selectAndStageOcrSource()
+          : await service.selectAndStageScreenshotRegion({ composerScopeId });
         if (!staged) {
           // Closing the picker is not a failure and must not start anything.
           setOcrPhase("idle");
@@ -81,6 +84,9 @@ export function useOcrComposer(context: LocalMediaComposerContext): OcrComposer 
       }
     })();
   }, [context, ocrPhase, operation]);
+
+  const startOcr = useCallback(() => startFrom("file"), [startFrom]);
+  const startScreenshot = useCallback(() => startFrom("screenshot"), [startFrom]);
 
   const appendReviewText = useCallback(() => {
     if (!review) return;
@@ -120,6 +126,7 @@ export function useOcrComposer(context: LocalMediaComposerContext): OcrComposer 
     ocrPhase,
     review,
     startOcr,
+    startScreenshot,
     updateReviewText,
     appendReviewText,
     cancelReview,

@@ -172,6 +172,15 @@ fn stream_failure_uses_safe_message_and_keeps_diagnostic_in_associated_log() {
         .contains(&OperationEvent::Failed(
             "generation-operation-1".to_string()
         )));
+    assert!(world
+        .operations
+        .lock()
+        .expect("operations")
+        .iter()
+        .any(|event| matches!(
+            event,
+            OperationEvent::CanonicalRunFinished(_, CanonicalRunOutcome::Failed)
+        )));
     let prompt_reports = world.prompt_reports.lock().expect("prompt reports");
     assert_eq!(prompt_reports.len(), 1);
     assert_eq!(prompt_reports[0].invocation_id, "generation-operation-1");
@@ -297,6 +306,15 @@ fn prompt_failure_is_safe_terminal_and_stop_deduplicates_cancelled_events() {
         .expect("operations")
         .contains(&OperationEvent::Cancelled(
             "generation-operation-1".to_string()
+        )));
+    assert!(world
+        .operations
+        .lock()
+        .expect("operations")
+        .iter()
+        .any(|event| matches!(
+            event,
+            OperationEvent::CanonicalRunFinished(_, CanonicalRunOutcome::Cancelled)
         )));
     let prompt_reports = world.prompt_reports.lock().expect("prompt reports");
     assert_eq!(prompt_reports.len(), 1);

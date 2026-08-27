@@ -4046,3 +4046,4 @@ fn adoption_leaves_an_intentionally_deleted_builtin_unregistered() {
         "a source on disk must not resurrect a built-in the user deleted"
     );
 }
+mod drift_sync;

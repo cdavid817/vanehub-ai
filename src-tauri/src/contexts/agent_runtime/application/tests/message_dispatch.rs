@@ -1,5 +1,49 @@
 use super::*;
 
+struct SlowProcessGateway {
+    inner: Arc<FakeWorld>,
+    active_stops: AtomicUsize,
+    max_concurrent_stops: AtomicUsize,
+}
+
+impl AgentProcessGateway for SlowProcessGateway {
+    fn launch_workflow(
+        &self,
+        request: WorkflowLaunchRequest,
+    ) -> Result<WorkflowLaunchOutcome, AgentRuntimeApplicationError> {
+        self.inner.launch_workflow(request)
+    }
+
+    fn start_generation(
+        &self,
+        request: GenerationProcessRequest,
+    ) -> Result<StartedGenerationProcess, AgentRuntimeApplicationError> {
+        AgentProcessGateway::start_generation(self.inner.as_ref(), request)
+    }
+
+    fn monitor_generation(
+        &self,
+        process_id: &str,
+        sink: Arc<dyn AgentProcessEventSink>,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        self.inner.monitor_generation(process_id, sink)
+    }
+
+    fn stop_generation(
+        &self,
+        process_id: &str,
+        initiator: ProcessStopInitiator,
+    ) -> Result<bool, AgentRuntimeApplicationError> {
+        let active = self.active_stops.fetch_add(1, Ordering::SeqCst) + 1;
+        self.max_concurrent_stops
+            .fetch_max(active, Ordering::SeqCst);
+        std::thread::sleep(Duration::from_millis(50));
+        let result = self.inner.stop_generation(process_id, initiator);
+        self.active_stops.fetch_sub(1, Ordering::SeqCst);
+        result
+    }
+}
+
 #[test]
 fn launch_coordinates_lifecycle_details_operations_logs_and_failure_state() {
     let world = test_world();
@@ -645,6 +689,62 @@ fn recovery_is_idempotent_and_refuses_archived_sessions() {
 }
 
 #[test]
+fn desktop_shutdown_settles_multiple_active_sessions_concurrently() {
+    let world = test_world();
+    let processes = Arc::new(SlowProcessGateway {
+        inner: world.clone(),
+        active_stops: AtomicUsize::new(0),
+        max_concurrent_stops: AtomicUsize::new(0),
+    });
+    let second = {
+        let sessions = world.sessions.lock().expect("sessions");
+        let mut second = sessions.get("session-1").expect("first session").clone();
+        second.id = "session-2".to_string();
+        second
+    };
+    world
+        .sessions
+        .lock()
+        .expect("sessions")
+        .insert(second.id.clone(), second);
+    let generations = Arc::new(
+        crate::contexts::agent_runtime::infrastructure::InMemoryGenerationCoordinator::default(),
+    );
+    let mut service = service(world.clone());
+    service.ports.generations = generations;
+    service.ports.processes = processes.clone();
+
+    for session_id in ["session-1", "session-2"] {
+        service
+            .send_message(SendMessageRequest {
+                source: AgentMessageSource::Desktop,
+                session_id: session_id.to_string(),
+                content: "remain active until desktop shutdown".to_string(),
+                configuration: chat_configuration(),
+                file_references: Vec::new(),
+            })
+            .expect("start generation");
+    }
+
+    let mut stopped = service
+        .shutdown_generations()
+        .expect("shutdown generations");
+    stopped.sort();
+
+    assert_eq!(stopped, ["session-1", "session-2"]);
+    assert_eq!(processes.max_concurrent_stops.load(Ordering::SeqCst), 2);
+    let sessions = world.sessions.lock().expect("sessions");
+    assert_eq!(
+        sessions.get("session-1").expect("first session").lifecycle,
+        AgentLifecycle::Stopped
+    );
+    assert_eq!(
+        sessions.get("session-2").expect("second session").lifecycle,
+        AgentLifecycle::Stopped
+    );
+}
+
+#[test]
 fn normalized_tool_lifecycle_deduplicates_and_marks_missing_boundaries() {
     let world = test_world();
     let (service, telemetry) = service_with_telemetry(world.clone());
@@ -915,6 +1015,19 @@ fn stream_events_persist_complete_usage_and_operation_once() {
             .count(),
         1
     );
+    let canonical_completions = world
+        .operations
+        .lock()
+        .expect("operations")
+        .iter()
+        .filter(|event| {
+            matches!(
+                event,
+                OperationEvent::CanonicalRunFinished(_, CanonicalRunOutcome::Completed)
+            )
+        })
+        .count();
+    assert_eq!(canonical_completions, 1);
     let prompt_reports = world.prompt_reports.lock().expect("prompt reports");
     assert_eq!(prompt_reports.len(), 1);
     assert_eq!(
