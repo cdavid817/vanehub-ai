@@ -52,12 +52,77 @@ pub(crate) type FixtureFile = (&'static str, &'static str);
 /// belongs to the TypeScript/JavaScript language but must be announced as `typescriptreact`.
 pub(crate) type ExtensionMapping = (&'static str, &'static str);
 
+/// One argument in an interpreter launch template.
+///
+/// Placeholders are variants rather than strings so an unresolved one is a case the compiler
+/// knows about, not a substitution that quietly failed and left `{launcher}` on a command line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LaunchArgument {
+    Literal(&'static str),
+    /// The versioned launcher resolved inside the install directory.
+    Launcher,
+    /// The platform's configuration directory inside the install directory.
+    ConfigurationDirectory,
+    /// A writable directory unique to the workspace being served.
+    WorkspaceDataDirectory,
+}
+
+/// A server that runs through a host interpreter rather than as an executable of its own.
+///
+/// `executables` on the owning definition names the *interpreter* candidates under this shape.
+/// The server itself lives in the template, which is why an install directory rather than an
+/// executable is what a user points at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct InterpreterLaunch {
+    /// What the user has to install themselves, named in the prerequisite reason. Display text,
+    /// not an identifier.
+    pub(crate) prerequisite: &'static str,
+    /// The one directory inside the install that holds the launcher. Not searched recursively:
+    /// a launcher found three levels down is not the install layout this entry describes.
+    pub(crate) launcher_directory: &'static str,
+    pub(crate) launcher_prefix: &'static str,
+    pub(crate) launcher_suffix: &'static str,
+    /// The configuration directory for each platform, relative to the install directory.
+    pub(crate) configuration_directories: &'static [(HostPlatform, &'static str)],
+    pub(crate) arguments: &'static [LaunchArgument],
+}
+
+impl InterpreterLaunch {
+    pub(crate) fn configuration_directory(&self, platform: HostPlatform) -> Option<&'static str> {
+        self.configuration_directories
+            .iter()
+            .find(|(declared, _)| *declared == platform)
+            .map(|(_, directory)| *directory)
+    }
+}
+
+/// How a language's server is started.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LaunchShape {
+    /// The server is one of the declared executables, started with the declared arguments. What
+    /// every language registered before Java uses, and what a manual override names a file for.
+    Executable,
+    Interpreter(&'static InterpreterLaunch),
+}
+
+impl LaunchShape {
+    pub(crate) const fn interpreter(self) -> Option<&'static InterpreterLaunch> {
+        match self {
+            Self::Executable => None,
+            Self::Interpreter(launch) => Some(launch),
+        }
+    }
+}
+
 pub(crate) struct LanguageDefinition {
     pub(crate) id: &'static str,
     pub(crate) server_id: &'static str,
     /// Candidate executable names in preference order. A language may ship under more than one
     /// name, and the first that resolves wins.
     pub(crate) executables: &'static [&'static str],
+    /// Decides what `executables` names and what a manual override means. Adding this field to the
+    /// four entries that predate it changed nothing: they all declare `Executable`.
+    pub(crate) launch: LaunchShape,
     pub(crate) default_startup_arguments: &'static [&'static str],
     /// Any one of these identifies a project root. A marker may name a path inside the candidate
     /// directory rather than a file directly in it. Order is not meaningful.
@@ -130,6 +195,7 @@ pub(crate) const LANGUAGE_DEFINITIONS: &[LanguageDefinition] = &[
         id: "rust",
         server_id: "rust_analyzer",
         executables: &["rust-analyzer"],
+        launch: LaunchShape::Executable,
         default_startup_arguments: &[],
         root_markers: &["Cargo.toml"],
         requires_root_marker: false,
@@ -147,6 +213,7 @@ pub(crate) const LANGUAGE_DEFINITIONS: &[LanguageDefinition] = &[
         id: "typescript_javascript",
         server_id: "typescript_language_server",
         executables: &["typescript-language-server"],
+        launch: LaunchShape::Executable,
         default_startup_arguments: &["--stdio"],
         root_markers: &["tsconfig.json", "jsconfig.json", "package.json"],
         requires_root_marker: false,
@@ -169,6 +236,7 @@ pub(crate) const LANGUAGE_DEFINITIONS: &[LanguageDefinition] = &[
         id: "go",
         server_id: "gopls",
         executables: &["gopls"],
+        launch: LaunchShape::Executable,
         default_startup_arguments: &[],
         root_markers: &["go.mod"],
         requires_root_marker: false,
@@ -186,6 +254,7 @@ pub(crate) const LANGUAGE_DEFINITIONS: &[LanguageDefinition] = &[
         // server is not, so a host carrying both most likely wants it. Discovery reports which
         // candidate it selected, so the choice is visible rather than silent.
         executables: &["basedpyright-langserver", "pyright-langserver"],
+        launch: LaunchShape::Executable,
         default_startup_arguments: &["--stdio"],
         root_markers: &[
             "pyproject.toml",
@@ -208,6 +277,7 @@ pub(crate) const LANGUAGE_DEFINITIONS: &[LanguageDefinition] = &[
         id: "cpp",
         server_id: "clangd",
         executables: &["clangd"],
+        launch: LaunchShape::Executable,
         default_startup_arguments: &[],
         root_markers: &["compile_commands.json", "build/compile_commands.json"],
         // Without a compilation database clangd assumes default flags and then answers definitions
@@ -231,7 +301,77 @@ pub(crate) const LANGUAGE_DEFINITIONS: &[LanguageDefinition] = &[
         ],
         platforms: EVERY_PLATFORM,
     },
+    LanguageDefinition {
+        id: "java",
+        server_id: "jdtls",
+        // The JVM, not the server. Under `Interpreter` this is what gets executed, and the server
+        // is the launcher jar the template names.
+        executables: &["java"],
+        launch: LaunchShape::Interpreter(&JDTLS_LAUNCH),
+        // The template is not a default the user replaces. Anything configured here is appended
+        // after it, which is why this is empty rather than carrying the template.
+        default_startup_arguments: &[],
+        root_markers: &[
+            "pom.xml",
+            "build.gradle",
+            "build.gradle.kts",
+            "settings.gradle",
+        ],
+        // Unlike clangd, jdtls without project metadata degrades to single-file analysis rather
+        // than to confident wrong answers, so a workspace without a marker is still worth serving.
+        requires_root_marker: false,
+        extensions: &[("java", "java")],
+        fixture_files: &[
+            (
+                "pom.xml",
+                concat!(
+                    "<project><modelVersion>4.0.0</modelVersion>",
+                    "<groupId>lsp</groupId><artifactId>lsp_test</artifactId>",
+                    "<version>0.1.0</version></project>\n"
+                ),
+            ),
+            (
+                "src/main/java/Fixture.java",
+                "public class Fixture { void fixture() {} }\n",
+            ),
+        ],
+        platforms: EVERY_PLATFORM,
+    },
 ];
+
+/// How Eclipse JDT Language Server is launched.
+///
+/// `java -jar <install>/plugins/org.eclipse.equinox.launcher_<version>.jar -configuration
+/// <install>/config_<platform> -data <per-workspace>`. The version in the launcher's file name is
+/// why it is resolved rather than declared, and the per-workspace data directory is why the
+/// template is resolved at launch rather than at discovery.
+static JDTLS_LAUNCH: InterpreterLaunch = InterpreterLaunch {
+    prerequisite: "Java 17 or newer",
+    launcher_directory: "plugins",
+    launcher_prefix: "org.eclipse.equinox.launcher_",
+    launcher_suffix: ".jar",
+    configuration_directories: &[
+        (HostPlatform::Windows, "config_win"),
+        (HostPlatform::Macos, "config_mac"),
+        (HostPlatform::Linux, "config_linux"),
+    ],
+    arguments: &[
+        LaunchArgument::Literal("-Declipse.application=org.eclipse.jdt.ls.core.id1"),
+        LaunchArgument::Literal("-Dosgi.bundles.defaultStartLevel=4"),
+        LaunchArgument::Literal("-Declipse.product=org.eclipse.jdt.ls.core.product"),
+        LaunchArgument::Literal("--add-modules=ALL-SYSTEM"),
+        LaunchArgument::Literal("--add-opens"),
+        LaunchArgument::Literal("java.base/java.util=ALL-UNNAMED"),
+        LaunchArgument::Literal("--add-opens"),
+        LaunchArgument::Literal("java.base/java.lang=ALL-UNNAMED"),
+        LaunchArgument::Literal("-jar"),
+        LaunchArgument::Launcher,
+        LaunchArgument::Literal("-configuration"),
+        LaunchArgument::ConfigurationDirectory,
+        LaunchArgument::Literal("-data"),
+        LaunchArgument::WorkspaceDataDirectory,
+    ],
+};
 
 pub(crate) fn definition(language_id: &str) -> Option<&'static LanguageDefinition> {
     LANGUAGE_DEFINITIONS
@@ -282,4 +422,9 @@ pub(crate) fn python() -> &'static LanguageDefinition {
 #[cfg(test)]
 pub(crate) fn cpp() -> &'static LanguageDefinition {
     definition("cpp").expect("c/c++ is registered")
+}
+
+#[cfg(test)]
+pub(crate) fn java() -> &'static LanguageDefinition {
+    definition("java").expect("java is registered")
 }

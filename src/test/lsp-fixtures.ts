@@ -16,12 +16,24 @@ export function lspTestDescriptors(): LspLanguageDescriptor[] {
       server: "rust_analyzer",
       supportedOnHost: true,
       defaultStartupArguments: [],
+      overrideTarget: "executable_file",
+      prerequisite: null,
     },
     {
       language: "typescript_javascript",
       server: "typescript_language_server",
       supportedOnHost: true,
       defaultStartupArguments: ["--stdio"],
+      overrideTarget: "executable_file",
+      prerequisite: null,
+    },
+    {
+      language: "java",
+      server: "jdtls",
+      supportedOnHost: true,
+      defaultStartupArguments: [],
+      overrideTarget: "install_directory",
+      prerequisite: "Java 17 or newer",
     },
   ];
 }

@@ -1,4 +1,5 @@
 use crate::contexts::code_intelligence::domain::models::Language;
+use crate::contexts::code_intelligence::domain::registry::{HostPlatform, InterpreterLaunch};
 #[cfg(windows)]
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -24,6 +25,17 @@ pub(crate) enum DiscoveryReason {
     OverrideMissing,
     OverrideNotExecutable,
     UnsupportedOnThisPlatform,
+    /// The host runtime an interpreter-shaped server needs is not installed. Its own reason
+    /// because the action is "install a JDK", which no other reason here asks for.
+    PrerequisiteMissing,
+    /// An interpreter-shaped language with no configured install directory. Distinct from a
+    /// missing executable: there is nothing to search the path for.
+    InstallDirectoryNotSet,
+    /// The directory exists but holds no launcher matching the declared pattern.
+    LauncherNotFound,
+    /// Several launchers match. Refused rather than chosen -- picking one would start a server
+    /// whose version the settings page does not name.
+    AmbiguousInstall,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,6 +45,9 @@ pub(crate) struct ServerDiscoveryResult {
     /// Which of the language's declared candidates resolved. Reported so a user with several
     /// installed servers can tell which one discovery picked.
     selected_executable_name: Option<&'static str>,
+    /// The versioned launcher an interpreter-shaped language resolved. Reported rather than the
+    /// install directory alone, so a reader can tell which version will run.
+    resolved_launcher: Option<PathBuf>,
     arguments: Vec<String>,
     availability: DiscoveryAvailability,
     reason: Option<DiscoveryReason>,
@@ -53,6 +68,10 @@ impl ServerDiscoveryResult {
 
     pub(crate) const fn reason(&self) -> Option<DiscoveryReason> {
         self.reason
+    }
+
+    pub(crate) fn resolved_launcher(&self) -> Option<&Path> {
+        self.resolved_launcher.as_deref()
     }
 
     pub(crate) fn arguments(&self) -> &[String] {
@@ -111,6 +130,9 @@ impl ServerDiscovery {
                 DiscoveryReason::UnsupportedOnThisPlatform,
             );
         }
+        if let Some(launch) = language.launch.interpreter() {
+            return self.discover_interpreter(language, arguments, launch, executable_override);
+        }
         if let Some(path) = executable_override {
             return discover_override(language, arguments, path);
         }
@@ -126,6 +148,86 @@ impl ServerDiscovery {
             None => unavailable(language, arguments, DiscoveryReason::ExecutableNotFound),
         }
     }
+
+    /// The interpreter path: resolve the runtime, then the install directory, then the launcher.
+    ///
+    /// Ordered so the first missing thing is the one reported. A user with neither a JDK nor an
+    /// install directory is told about the JDK, because that is the one they hit first anyway.
+    fn discover_interpreter(
+        &self,
+        language: Language,
+        arguments: Vec<String>,
+        launch: &'static InterpreterLaunch,
+        install_directory: Option<&Path>,
+    ) -> ServerDiscoveryResult {
+        let interpreter = language.executables.iter().find_map(|candidate| {
+            self.executable_location
+                .locate(candidate)
+                .filter(|path| is_executable_file(path))
+                .map(|path| (*candidate, path))
+        });
+        let Some((interpreter_name, interpreter)) = interpreter else {
+            return unavailable(language, arguments, DiscoveryReason::PrerequisiteMissing);
+        };
+        let Some(directory) = install_directory else {
+            // Not `ExecutableNotFound`: the server is a directory, so there is nothing the
+            // executable search path could have been asked for.
+            return unavailable(language, arguments, DiscoveryReason::InstallDirectoryNotSet);
+        };
+        if !directory.is_absolute() || !directory.is_dir() {
+            return unavailable(language, arguments, DiscoveryReason::OverrideMissing);
+        }
+        match resolve_launcher(directory, launch) {
+            Ok(launcher) => ServerDiscoveryResult {
+                resolved_launcher: Some(launcher),
+                ..available(language, arguments, Some(interpreter_name), interpreter)
+            },
+            Err(reason) => unavailable(language, arguments, reason),
+        }
+    }
+}
+
+/// The one launcher in the declared directory, or why there is not exactly one.
+///
+/// Prefix-and-suffix matching in a single directory rather than a glob library and rather than a
+/// recursive walk: a launcher found three levels down is not the install layout the entry
+/// describes, and matching it would start a server from a directory that only looks right.
+pub(super) fn resolve_launcher(
+    install_directory: &Path,
+    launch: &InterpreterLaunch,
+) -> Result<PathBuf, DiscoveryReason> {
+    let Ok(entries) = std::fs::read_dir(install_directory.join(launch.launcher_directory)) else {
+        return Err(DiscoveryReason::LauncherNotFound);
+    };
+    let mut matched = entries
+        .flatten()
+        .filter(|entry| entry.path().is_file())
+        .filter(|entry| {
+            entry.file_name().to_str().is_some_and(|name| {
+                name.starts_with(launch.launcher_prefix) && name.ends_with(launch.launcher_suffix)
+            })
+        })
+        .map(|entry| entry.path())
+        // Bounded: two is already a refusal, so there is no reason to walk a directory that
+        // contains thousands of files looking for a third.
+        .take(2)
+        .collect::<Vec<_>>();
+    match matched.len() {
+        0 => Err(DiscoveryReason::LauncherNotFound),
+        1 => Ok(matched.remove(0)),
+        _ => Err(DiscoveryReason::AmbiguousInstall),
+    }
+}
+
+/// The configuration directory this host's launch needs, or `None` when the entry declares none
+/// for this platform.
+pub(crate) fn resolve_configuration_directory(
+    install_directory: &Path,
+    launch: &InterpreterLaunch,
+) -> Option<PathBuf> {
+    launch
+        .configuration_directory(HostPlatform::current())
+        .map(|relative| install_directory.join(relative))
 }
 
 #[derive(Debug, Default)]
@@ -178,6 +280,7 @@ fn available(
         language,
         executable: Some(executable),
         selected_executable_name,
+        resolved_launcher: None,
         arguments,
         availability: DiscoveryAvailability::Available,
         reason: None,
@@ -193,6 +296,7 @@ fn unavailable(
         language,
         executable: None,
         selected_executable_name: None,
+        resolved_launcher: None,
         arguments,
         availability: DiscoveryAvailability::Unavailable,
         reason: Some(reason),
