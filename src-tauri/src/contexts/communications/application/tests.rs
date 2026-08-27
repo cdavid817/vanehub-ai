@@ -859,6 +859,23 @@ fn session_binding(session_id: &str, state: BindingState) -> SessionBinding {
     }
 }
 
+fn grant_session_access(fixture: &Fixture, session_id: &str, connector: ConnectorKind) {
+    fixture
+        .repository
+        .session_access
+        .lock()
+        .expect("session access")
+        .insert(
+            (session_id.to_string(), connector),
+            SessionConnectorAccess {
+                session_id: session_id.to_string(),
+                connector,
+                enabled: true,
+                updated_at: "2026-07-18T10:00:00Z".to_string(),
+            },
+        );
+}
+
 fn install_feishu_binding(fixture: &Fixture, state: BindingState, notifications: bool) {
     fixture
         .repository
@@ -1285,6 +1302,7 @@ async fn saved_connector_startup_reports_each_connector_without_first_failure_ab
 #[tokio::test]
 async fn pairing_is_expiring_single_use_and_routes_only_after_binding() {
     let fixture = fixture();
+    grant_session_access(&fixture, "session-1", ConnectorKind::Telegram);
     fixture
         .repository
         .configurations
@@ -1389,6 +1407,30 @@ async fn pairing_is_expiring_single_use_and_routes_only_after_binding() {
     ] {
         assert!(!logs.contains(forbidden));
     }
+}
+
+#[tokio::test]
+async fn every_connector_requires_its_own_session_access_before_pairing() {
+    let fixture = fixture();
+    for connector in ConnectorKind::ALL {
+        let error = fixture
+            .service
+            .begin_pairing("session-1", connector, false)
+            .await
+            .expect_err("missing access must deny pairing");
+        assert_eq!(error.safe_code(), "im-session-disabled");
+    }
+
+    fixture
+        .service
+        .set_session_access("session-1", ConnectorKind::Feishu, true)
+        .expect("enable only Feishu");
+    let isolated = fixture
+        .service
+        .begin_pairing("session-1", ConnectorKind::Telegram, false)
+        .await
+        .expect_err("Feishu access must not authorize Telegram");
+    assert_eq!(isolated.safe_code(), "im-session-disabled");
 }
 
 #[tokio::test]
@@ -1745,6 +1787,7 @@ fn completed_disable_excludes_subsequent_inbound_during_a_concurrent_turn() {
 #[tokio::test]
 async fn inbound_status_and_completion_messages_use_injected_locale_copy() {
     let fixture = fixture_with_copy(simplified_chinese_copy());
+    grant_session_access(&fixture, "session-1", ConnectorKind::Telegram);
     fixture
         .repository
         .configurations
@@ -1846,6 +1889,7 @@ async fn inbound_status_and_completion_messages_use_injected_locale_copy() {
 #[test]
 fn stale_session_binding_is_removed_without_agent_execution() {
     let fixture = fixture();
+    grant_session_access(&fixture, "deleted-session", ConnectorKind::Telegram);
     fixture
         .repository
         .managed_bindings
@@ -1900,14 +1944,14 @@ fn paused_and_removed_bindings_block_delivery() {
         .expect("notifications");
     assert!(fixture
         .service
-        .session_binding("session-1")
+        .session_binding("session-1", ConnectorKind::Feishu)
         .expect("snapshot")
         .binding
         .is_some_and(|binding| binding.completion_notifications));
     assert!(fixture.service.remove_binding("session-1").expect("remove"));
     assert!(fixture
         .service
-        .session_binding("session-1")
+        .session_binding("session-1", ConnectorKind::Feishu)
         .expect("snapshot")
         .binding
         .is_none());
@@ -1916,6 +1960,7 @@ fn paused_and_removed_bindings_block_delivery() {
 #[test]
 fn router_uses_dedup_routing_binding_and_agent_ports() {
     let fixture = fixture();
+    grant_session_access(&fixture, "session-1", ConnectorKind::Telegram);
     fixture
         .repository
         .managed_bindings
@@ -2091,6 +2136,7 @@ async fn credential_store_failure_does_not_fall_back_to_plaintext_configuration(
 #[test]
 fn existing_binding_ignores_changed_routing_defaults() {
     let fixture = fixture();
+    grant_session_access(&fixture, "session-existing", ConnectorKind::Telegram);
     fixture
         .repository
         .managed_bindings

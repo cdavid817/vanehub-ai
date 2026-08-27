@@ -16,7 +16,10 @@ globalThis.describe("VaneHub AI desktop Feishu IM session access", () => {
     this.timeout(240_000);
     const root = await bootDesktopUi();
     const session = await findSession(persistedSessionTitle);
-    const persisted = await coreInvoke("get_im_session_binding", { sessionId: session.id });
+    const persisted = await coreInvoke("get_im_session_binding", {
+      sessionId: session.id,
+      connector: "feishu",
+    });
     assert.equal(persisted.access.enabled, true, "native access did not survive the relaunch");
     assert.equal(persisted.binding?.state, "active", "the fixture binding did not survive the relaunch");
     const restoredSwitch = await openSessionIm(session.id);
@@ -73,6 +76,71 @@ globalThis.describe("VaneHub AI desktop Feishu IM session access", () => {
       assert.equal(serialized.includes(event.text), false, "ledger leaked message content");
     }
     assert.equal(serialized.includes(session.id), false, "ledger leaked a session id");
+  });
+
+  globalThis.it("enforces connector-scoped access for a Telegram-bound session", async function telegramAccess() {
+    this.timeout(240_000);
+    await bootDesktopUi();
+    const session = await createFeishuSession("Telegram IM connector fixture");
+    await coreInvoke("fixture_feishu_im_reset");
+    const setup = await coreInvoke("fixture_feishu_im_setup", {
+      sessionId: session.id,
+      connector: "telegram",
+    });
+    assert.deepEqual(setup, { ready: true, connector: "telegram" });
+    await coreInvoke("set_im_session_access", {
+      sessionId: session.id,
+      connector: "feishu",
+      enabled: true,
+    });
+
+    await globalThis.browser.refresh();
+    await bootDesktopUi();
+    const accessSwitch = await openSessionIm(session.id);
+    const connectorSelect = await globalThis.$('[aria-label="IM 连接器"]');
+    assert.equal(await connectorSelect.getValue(), "telegram");
+    assert.equal(await accessSwitch.isSelected(), true);
+    await accessSwitch.click();
+    const confirm = await globalThis.$("button=关闭接入");
+    await confirm.waitForClickable({ timeout: 30_000 });
+    await confirm.click();
+    await globalThis.browser.waitUntil(async () => !(await accessSwitch.isSelected()), {
+      timeout: 30_000,
+      timeoutMsg: "Telegram access did not disable",
+    });
+
+    const disabled = await coreInvoke("fixture_feishu_im_inject", {
+      input: {
+        connector: "telegram",
+        eventId: "fixture-telegram-disabled",
+        text: "connector isolation fixture",
+        direct: true,
+      },
+    });
+    assert.equal(disabled.status, "rejected");
+    assert.equal(disabled.safeErrorCode, "im-session-disabled");
+
+    await accessSwitch.click();
+    await globalThis.browser.waitUntil(() => accessSwitch.isSelected(), {
+      timeout: 30_000,
+      timeoutMsg: "Telegram access did not re-enable",
+    });
+    const delivered = await coreInvoke("fixture_feishu_im_inject", {
+      input: {
+        connector: "telegram",
+        eventId: "fixture-telegram-enabled",
+        text: "deterministic connector fixture",
+        direct: true,
+      },
+    });
+    assert.equal(delivered.status, "delivered");
+    assert.equal(delivered.outboundChunks, 1);
+
+    const serialized = JSON.stringify(await coreInvoke("fixture_feishu_im_ledger"));
+    for (const forbidden of [session.id, "fixture-telegram-disabled", "fixture-telegram-enabled",
+      "connector isolation fixture", "deterministic connector fixture"]) {
+      assert.equal(serialized.includes(forbidden), false, `ledger leaked ${forbidden}`);
+    }
   });
 
   globalThis.it("routes one Feishu event through one real CLI Agent turn and one terminal delivery", async function singleAgent() {

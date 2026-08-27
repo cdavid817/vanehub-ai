@@ -42,10 +42,10 @@ function mockService(initialBinding: ImSessionBinding | null = null) {
     testConnector: vi.fn(),
     clearConnector: vi.fn(),
     resetBindings: vi.fn(),
-    getSessionBinding: vi.fn(async (sessionId) => ({
-      access: accessBySession.get(sessionId) ?? {
+    getSessionBinding: vi.fn(async (sessionId, connector) => ({
+      access: accessBySession.get(`${sessionId}\u0000${connector}`) ?? {
         sessionId,
-        connector: "feishu",
+        connector,
         enabled: false,
         updatedAt: "1970-01-01T00:00:00Z",
       },
@@ -54,7 +54,7 @@ function mockService(initialBinding: ImSessionBinding | null = null) {
     })),
     setSessionAccess: vi.fn(async (sessionId, connector, enabled) => {
       const access = { sessionId, connector, enabled, updatedAt: "2026-08-13T00:01:00Z" };
-      accessBySession.set(sessionId, access);
+      accessBySession.set(`${sessionId}\u0000${connector}`, access);
       return access;
     }),
     beginPairing: vi.fn(async (sessionId, connector, replaceExisting = false) => ({
@@ -104,6 +104,7 @@ describe("useSessionImState", () => {
     const { result } = renderHook(() => useSessionImState("session-1", mock.service));
 
     await waitFor(() => expect(result.current.readyConnectors).toHaveLength(1));
+    expect(result.current.selectedConnector).toBe("telegram");
     act(() => mock.emitHealth({ ...connectedTelegram.health, lifecycle: "error", generation: 2 }));
 
     expect(result.current.readyConnectors).toHaveLength(0);
@@ -122,6 +123,11 @@ describe("useSessionImState", () => {
 
     await act(() => result.current.setAccess(true));
     expect(result.current.access?.enabled).toBe(true);
+    expect(mock.service.setSessionAccess).toHaveBeenLastCalledWith(
+      "session-1",
+      "telegram",
+      true,
+    );
     expect(result.current.error).toBeNull();
     await act(() => result.current.setAccess(false));
     await act(() => result.current.setAccess(true));
