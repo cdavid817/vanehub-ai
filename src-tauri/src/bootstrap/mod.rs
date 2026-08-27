@@ -20,6 +20,7 @@ mod prompt_hooks;
 mod retrieval;
 mod runtime;
 mod scheduled_tasks;
+pub(crate) mod screenshot_capture;
 mod sdk;
 mod sessions;
 mod skills;

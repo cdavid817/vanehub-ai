@@ -1,4 +1,4 @@
-import { LoaderCircle, Mic, ScanText, Square, Volume2, X } from "lucide-react";
+import { Camera, LoaderCircle, Mic, ScanText, Square, Volume2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { localMediaMessageKey } from "../../session-workspace/local-media/local-media-errors";
@@ -49,6 +49,25 @@ export function ComposerMediaActions({
           <ScanText aria-hidden="true" className="h-4 w-4" />
         ) : (
           <LoaderCircle aria-hidden="true" className="h-4 w-4 motion-safe:animate-spin" />
+        )}
+      </Button>
+
+      <Button
+        aria-label={t("localMedia.composer.screenshot")}
+        className={ACTION_CLASS}
+        data-testid="composer-media-screenshot"
+        disabled={!availability.screenshot || ocrPhase !== "idle"}
+        onClick={media.startScreenshot}
+        title={availability.screenshot
+          ? t("localMedia.composer.screenshotTitle")
+          : t(unavailableReason)}
+        type="button"
+        variant="ghost"
+      >
+        {ocrPhase === "picking" ? (
+          <LoaderCircle aria-hidden="true" className="h-4 w-4 motion-safe:animate-spin" />
+        ) : (
+          <Camera aria-hidden="true" className="h-4 w-4" />
         )}
       </Button>
 

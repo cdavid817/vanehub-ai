@@ -395,6 +395,7 @@ export function MainLayout({
               activeSession={displayedSession}
               collapsed={effectiveInfoPanelCollapsed}
               currentSpeakerSeatId={loopInspection || model.turnStatus?.kind !== "agent" ? null : model.turnStatus.seatId ?? null}
+              messages={loopInspection ? [] : model.messages}
               onOpenImSettings={() => onOpenSettings("im")}
               onOpenSkillSettings={() => onOpenSettings("skills")}
               requestedTab={loopInspection?.target.surface === "usage" ? "usage" : requestedInfoTab}

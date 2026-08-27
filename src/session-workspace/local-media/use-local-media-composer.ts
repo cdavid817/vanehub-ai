@@ -77,6 +77,7 @@ export function useLocalMediaComposer(
 
   const availability = {
     native: status.data?.nativeAvailable ?? false,
+    screenshot: permits(status.data, "ocr"),
     ocr: permits(status.data, "ocr"),
     stt: permits(status.data, "stt"),
     tts: permits(status.data, "tts"),
@@ -127,9 +128,7 @@ export function useLocalMediaComposer(
     sttEnabled: availability.stt,
   });
 
-  // Held in a ref and invoked from an effect keyed only on the scope, so the reset cannot be
-  // retriggered by an unrelated identity change. Listing the callbacks as dependencies instead
-  // would make every re-render look like a session switch.
+  // Held in a ref so callback identity changes cannot make every render look like a session switch.
   const resetForScope = useRef<() => void>(() => undefined);
   resetForScope.current = () => {
     ocr.clearReview();
@@ -141,12 +140,18 @@ export function useLocalMediaComposer(
     // native operations continue and clean up after themselves; what changes is that nothing here
     // will read them.
     resetForScope.current();
-  }, [composerScopeId]);
+    void service.cancelActiveScreenshotSelection().catch(() => undefined);
+  }, [composerScopeId, service]);
 
   const startOcr = useCallback(() => {
     if (!availability.ocr) return;
     ocr.startOcr();
   }, [availability.ocr, ocr]);
+
+  const startScreenshot = useCallback(() => {
+    if (!availability.screenshot) return;
+    ocr.startScreenshot();
+  }, [availability.screenshot, ocr]);
 
   const toggleSpeech = useCallback(() => {
     // Stopping stays available even if readiness lapsed mid-playback; only starting is gated.
@@ -165,6 +170,7 @@ export function useLocalMediaComposer(
     review: ocr.review,
     overflow,
     startOcr,
+    startScreenshot,
     updateReviewText: ocr.updateReviewText,
     appendReviewText: ocr.appendReviewText,
     cancelReview: ocr.cancelReview,

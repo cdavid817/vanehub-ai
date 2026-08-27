@@ -112,6 +112,20 @@ test.describe("local media driven by the deterministic fake", () => {
     await expect(composer(page)).toHaveValue(/existing draft\n\nfixture recognized line one/);
   });
 
+  test("stages a screenshot through the same editable OCR review", async ({ page }) => {
+    await openComposer(page);
+    await composer(page).fill("screenshot draft");
+
+    await page.getByTestId("composer-media-screenshot").click();
+    await expect(page.getByTestId("composer-ocr-review")).toBeVisible();
+    await expect(composer(page)).toHaveValue("screenshot draft");
+    await page.getByTestId("composer-ocr-text").fill("reviewed screenshot text");
+    await page.getByTestId("composer-ocr-append").click();
+
+    await expect(composer(page)).toHaveValue("screenshot draft\n\nreviewed screenshot text");
+    expect((await calls(page)).selectScreenshot).toBe(1);
+  });
+
   test("keeps an edit made in the review", async ({ page }) => {
     await openComposer(page);
     await page.getByTestId("composer-media-ocr").click();

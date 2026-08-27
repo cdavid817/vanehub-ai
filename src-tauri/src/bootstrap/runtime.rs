@@ -17,6 +17,13 @@ const AGENT_TERMINAL_IDLE_TIMEOUT_SECONDS: i64 = 2 * 60 * 60;
 pub(crate) fn run() {
     // 1. 构建Tauri应用实例，配置各类插件、生命周期、事件、命令
     let builder = tauri::Builder::default()
+        .register_uri_scheme_protocol("vanehub-capture", |context, request| {
+            crate::bootstrap::screenshot_capture::protocol_response(
+                context.app_handle(),
+                context.webview_label(),
+                request.uri().path(),
+            )
+        })
         // 注册弹窗对话框插件（文件选择、提示框、确认框等）
         .plugin(tauri_plugin_dialog::init())
         // External provider/help links are opened by the operating system browser.
@@ -56,6 +63,11 @@ pub(crate) fn run() {
             // left running past exit keeps the OS capture indicator lit, and an orphaned Python
             // process keeps a model resident in memory.
             if matches!(event, tauri::RunEvent::Exit) {
+                if let Some(capture) = app.try_state::<
+                    crate::bootstrap::screenshot_capture::ScreenshotCaptureState,
+                >() {
+                    capture.shutdown(app);
+                }
                 if let Some(local_media) =
                     app.try_state::<crate::contexts::local_media::api::LocalMediaApi>()
                 {
@@ -379,6 +391,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
 
     app.manage(operations_api.clone());
     app.manage(local_media_api.clone());
+    app.manage(crate::bootstrap::screenshot_capture::ScreenshotCaptureState::default());
     app.manage(agent_runs_api);
     app.manage(agent_run_controls_api);
     app.manage(code_intelligence_api.clone());

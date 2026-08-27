@@ -216,6 +216,14 @@ jobs:
             curl \
             file \
             libasound2-dev \
+            libclang-dev \
+            libpipewire-0.3-dev \
+            libwayland-dev \
+            libegl1-mesa-dev \
+            libgbm-dev \
+            libxcb1-dev \
+            libxrandr-dev \
+            libdbus-1-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
             libssl-dev \
@@ -288,6 +296,14 @@ jobs:
             curl \
             file \
             libasound2-dev \
+            libclang-dev \
+            libpipewire-0.3-dev \
+            libwayland-dev \
+            libegl1-mesa-dev \
+            libgbm-dev \
+            libxcb1-dev \
+            libxrandr-dev \
+            libdbus-1-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
             libssl-dev \
@@ -401,6 +417,14 @@ jobs:
             curl \
             file \
             libasound2-dev \
+            libclang-dev \
+            libpipewire-0.3-dev \
+            libwayland-dev \
+            libegl1-mesa-dev \
+            libgbm-dev \
+            libxcb1-dev \
+            libxrandr-dev \
+            libdbus-1-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
             libssl-dev \
@@ -559,6 +583,14 @@ jobs:
             curl \
             file \
             libasound2-dev \
+            libclang-dev \
+            libpipewire-0.3-dev \
+            libwayland-dev \
+            libegl1-mesa-dev \
+            libgbm-dev \
+            libxcb1-dev \
+            libxrandr-dev \
+            libdbus-1-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
             libssl-dev \

@@ -14,6 +14,7 @@ import type {
   StagedOcrSource,
 } from "../types/local-media";
 import { normalizePythonEnvironmentDiscovery } from "../types/local-media-python";
+import { tauriScreenshotClient } from "../region-capture/tauri-screenshot-client";
 
 /**
  * Formats the native picker offers.
@@ -69,6 +70,7 @@ async function chooseOcrSource(): Promise<string | null> {
 }
 
 export const tauriLocalMediaClient: LocalMediaService = {
+  ...tauriScreenshotClient,
   async isAvailable() {
     return true;
   },

@@ -9,6 +9,7 @@ mod profile;
 mod python_discovery;
 mod recording;
 mod result;
+mod screenshot;
 mod staged_input;
 mod validation;
 
@@ -48,6 +49,7 @@ pub(crate) use result::{
     OcrProvenance, OcrResult, OcrSourceSummary, OcrWarning, SpeechPlaybackResult,
     TranscriptionProvenance, TranscriptionResult,
 };
+pub(crate) use screenshot::{map_screenshot_selection, DisplayGeometry, LogicalSelection};
 #[cfg(test)]
 pub(crate) use staged_input::STAGED_INPUT_TTL_MS;
 pub(crate) use staged_input::{

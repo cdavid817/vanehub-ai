@@ -54,6 +54,14 @@ pub(crate) enum LocalMediaErrorCode {
     OperationResultExpired,
     TempStorageFailed,
     TempCleanupFailed,
+    ScreenshotUnavailable,
+    ScreenshotPermissionDenied,
+    ScreenshotNoDisplays,
+    ScreenshotBusy,
+    ScreenshotInvalidSelection,
+    ScreenshotBudgetExceeded,
+    ScreenshotTimeout,
+    ScreenshotCaptureFailed,
     /// Vendor-compatibility codes. Each names a third-party limitation the user can act on, which
     /// a generic `EngineUnavailable` cannot: one is fixed by a setting, the others by moving files.
     PaddleOnednnModelIncompatible,
@@ -107,6 +115,14 @@ impl LocalMediaErrorCode {
             Self::OperationResultExpired => "OPERATION_RESULT_EXPIRED",
             Self::TempStorageFailed => "TEMP_STORAGE_FAILED",
             Self::TempCleanupFailed => "TEMP_CLEANUP_FAILED",
+            Self::ScreenshotUnavailable => "SCREENSHOT_UNAVAILABLE",
+            Self::ScreenshotPermissionDenied => "SCREENSHOT_PERMISSION_DENIED",
+            Self::ScreenshotNoDisplays => "SCREENSHOT_NO_DISPLAYS",
+            Self::ScreenshotBusy => "SCREENSHOT_BUSY",
+            Self::ScreenshotInvalidSelection => "SCREENSHOT_INVALID_SELECTION",
+            Self::ScreenshotBudgetExceeded => "SCREENSHOT_BUDGET_EXCEEDED",
+            Self::ScreenshotTimeout => "SCREENSHOT_TIMEOUT",
+            Self::ScreenshotCaptureFailed => "SCREENSHOT_CAPTURE_FAILED",
             Self::PaddleOnednnModelIncompatible => "PADDLE_ONEDNN_MODEL_INCOMPATIBLE",
             Self::ModelPathEncodingUnsupported => "MODEL_PATH_ENCODING_UNSUPPORTED",
             Self::TtsDataPathEncodingUnsupported => "TTS_DATA_PATH_ENCODING_UNSUPPORTED",
@@ -146,7 +162,7 @@ impl LocalMediaErrorCode {
         key
     }
 
-    pub(crate) const ALL: [Self; 44] = [
+    pub(crate) const ALL: [Self; 52] = [
         Self::LocalMediaNativeOnly,
         Self::LocalMediaDisabled,
         Self::EngineDisabled,
@@ -187,6 +203,14 @@ impl LocalMediaErrorCode {
         Self::OperationResultExpired,
         Self::TempStorageFailed,
         Self::TempCleanupFailed,
+        Self::ScreenshotUnavailable,
+        Self::ScreenshotPermissionDenied,
+        Self::ScreenshotNoDisplays,
+        Self::ScreenshotBusy,
+        Self::ScreenshotInvalidSelection,
+        Self::ScreenshotBudgetExceeded,
+        Self::ScreenshotTimeout,
+        Self::ScreenshotCaptureFailed,
         Self::PaddleOnednnModelIncompatible,
         Self::ModelPathEncodingUnsupported,
         Self::TtsDataPathEncodingUnsupported,

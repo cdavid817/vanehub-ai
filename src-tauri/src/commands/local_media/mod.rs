@@ -7,3 +7,4 @@ mod dto;
 mod mapper;
 pub(crate) mod operations;
 pub(crate) mod profile;
+pub(crate) mod screenshot;

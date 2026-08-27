@@ -84,7 +84,7 @@ The system SHALL display chat messages for the active session in chronological o
 - **AND** a reader reviewing history SHALL retain the preceding bottom offset instead of jumping to another part of the thread
 
 ### Requirement: Assistant responses stream into the message list
-The system SHALL display assistant responses incrementally as stream events arrive through the frontend agent service.
+The system SHALL display assistant responses incrementally as stream events arrive through the frontend agent service. When events target a newly created assistant message that is not yet present in the frontend cache, the client SHALL reconcile that message and preserve subsequent incremental events instead of remaining on an indefinite waiting indicator. Multi-seat messages SHALL retain their stable speaker-seat attribution throughout reconciliation and streaming.
 
 #### Scenario: Assistant response starts
 - **WHEN** the agent service emits a `started` event for the active session
@@ -95,6 +95,11 @@ The system SHALL display assistant responses incrementally as stream events arri
 - **WHEN** the agent service emits a `token` event for a streaming assistant message
 - **THEN** the token content SHALL be appended to that assistant message
 - **AND** the message SHALL NOT be duplicated
+
+#### Scenario: Newly created member message races the cache
+- **WHEN** a started, thinking, tool, or token event targets a seat-attributed message not yet present in the active message cache
+- **THEN** the client SHALL reconcile the persisted message and apply or recover the incremental state without waiting for terminal completion
+- **AND** the message SHALL remain attributed to its stable speaker seat
 
 #### Scenario: Thinking event appends thinking content
 - **WHEN** the agent service emits a `thinking` event for a streaming assistant message
@@ -1228,4 +1233,3 @@ The integration SHALL preserve current IME composition handling, Enter/Shift+Ent
 
 * WHEN OCR or STT updates the draft
 * THEN slash-command and file-reference suggestion logic SHALL receive the same updated value through the existing setter path
-
