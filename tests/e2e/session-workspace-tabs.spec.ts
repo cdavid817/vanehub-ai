@@ -111,7 +111,7 @@ test.describe("session workspace tabs", () => {
     await expect(page.getByLabel("会话交互式 Shell")).toBeVisible();
   });
 
-  test("shows simulated Agent terminal input and an honest empty report", async ({ page }) => {
+  test("shows simulated Agent terminal input and a report that states its own coverage", async ({ page }) => {
     await openWorkspace(page);
     await page.getByRole("textbox", { name: "工作区命令输入" }).fill("echo workspace data");
     await page.getByRole("button", { name: "发送命令" }).click();
@@ -126,7 +126,20 @@ test.describe("session workspace tabs", () => {
     await expect(activeWorkspacePanel(page)).toContainText("npm test");
 
     await page.getByRole("tab", { name: "报告" }).click();
-    await expect(activeWorkspacePanel(page)).toContainText("发送消息后即可生成会话报告。");
+    const report = activeWorkspacePanel(page);
+    // Report reads the backend aggregate now rather than whatever messages happen to be mounted,
+    // so it is no longer empty here — and what makes it honest has moved with it. It is no longer
+    // the empty state but what the report says about figures it cannot substantiate: coverage is
+    // per section, so a section nothing backs says so while the rest still reads as complete.
+    await expect(report).toContainText("总览");
+    await expect(report).toContainText("完整");
+    // The mock has no usage accounting behind it, and the usage section says that rather than
+    // presenting the numbers it does have as though the set were whole.
+    await expect(report).toContainText("部分");
+    // Absent, not zero. A reported zero would mean somebody reported zero tokens; nobody did, and
+    // the two are different claims that a dash keeps apart and a `0` would not.
+    await expect(report).toContainText("上报输入 token");
+    await expect(report).not.toContainText("上报输入 token0");
   });
 
   test("resets mounted tabs and active tab when selecting another session", async ({ page }) => {
