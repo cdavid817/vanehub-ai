@@ -149,6 +149,7 @@ export function SessionInfoPanel({
               />
             </dl>
             <SessionEvidenceSummary
+              active={activeTab === "basic"}
               onNavigateToTab={onNavigateToTab}
               // Usage is a pane in this panel rather than a workspace tab, so its row stays here.
               onShowUsage={() => setActiveTab("usage")}
@@ -165,14 +166,14 @@ export function SessionInfoPanel({
               </div>
             )}
           </Pane>
-          <Pane active={activeTab === "usage"} tab="usage"><SessionTokenUsagePane lifecycle={activeSession?.lifecycleState} sessionId={sessionId} /></Pane>
+          <Pane active={activeTab === "usage"} tab="usage"><SessionTokenUsagePane active={activeTab === "usage"} lifecycle={activeSession?.lifecycleState} sessionId={sessionId} /></Pane>
           <Pane active={activeTab === "skills"} tab="skills">
-            <SessionSkillsPane activeSession={activeSession} onOpenSkillSettings={onOpenSkillSettings} />
+            <SessionSkillsPane active={activeTab === "skills"} activeSession={activeSession} onOpenSkillSettings={onOpenSkillSettings} />
           </Pane>
           <Pane active={activeTab === "im"} tab="im">
-            <SessionImPane onOpenSettings={onOpenImSettings} sessionId={sessionId} />
+            <SessionImPane active={activeTab === "im"} onOpenSettings={onOpenImSettings} sessionId={sessionId} />
           </Pane>
-          {showCodeIndex && workspacePath ? <Pane active={activeTab === "codeIndex"} tab="codeIndex"><SessionCodeIndexPane workspacePath={workspacePath} /></Pane> : null}
+          {showCodeIndex && workspacePath ? <Pane active={activeTab === "codeIndex"} tab="codeIndex"><SessionCodeIndexPane active={activeTab === "codeIndex"} workspacePath={workspacePath} /></Pane> : null}
         </div>
       </div>
     </aside>

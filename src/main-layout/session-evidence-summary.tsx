@@ -45,17 +45,20 @@ const ROW_TABS = {
  * as numbers and lead a reader to opposite conclusions.
  */
 export function SessionEvidenceSummary({
+  active = true,
   onNavigateToTab,
   onShowUsage,
   sessionId,
 }: {
+  /** Whether Basic Info is the pane on screen. See the panes beside it for why this is not unmount. */
+  active?: boolean;
   /** Absent where nothing owns the workspace tabs, in which case the rows are plain text. */
   onNavigateToTab?: (tab: SessionTabId) => void;
   onShowUsage?: () => void;
   sessionId: string | null;
 }) {
   const { t } = useTranslation();
-  const parsed = sessionId === null ? null : evidenceSessionIdSchema.safeParse(sessionId);
+  const parsed = sessionId === null || !active ? null : evidenceSessionIdSchema.safeParse(sessionId);
   const evidenceSessionId = parsed?.success ? parsed.data : null;
   const { state, summary } = useWorkspaceEvidenceSummary(evidenceSessionId);
   // The same key the Files, Documents, and Changes tabs read, so this costs a request only when

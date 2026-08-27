@@ -53,9 +53,16 @@ beforeAll(async () => {
   await activateAppLanguage("en");
 });
 
+let getUsage: ReturnType<typeof vi.spyOn>;
+let getSkills: ReturnType<typeof vi.spyOn>;
+
 beforeEach(() => {
   // The summary is not the subject here; it must simply not take the panel down with it.
   vi.spyOn(agentService, "getWorkspaceEvidenceSummary").mockRejectedValue(new Error("unavailable"));
+  getUsage = vi
+    .spyOn(agentService, "getTokenUsageSummary")
+    .mockRejectedValue(new Error("unavailable"));
+  getSkills = vi.spyOn(agentService, "getSkillOverview").mockRejectedValue(new Error("unavailable"));
   vi.spyOn(agentService, "getWorkspaceInspectionCapabilities").mockRejectedValue(
     new Error("unavailable"),
   );
@@ -136,6 +143,30 @@ describe("the information panel's tab set", () => {
       expect(screen.getByText("This session's activity could not be read.")).toBeTruthy(),
     );
     expect(screen.getByText("CLI work")).toBeTruthy();
+  });
+
+  it("reads only for the pane that is on screen", async () => {
+    renderWithAppProviders(<SessionInfoPanel activeSession={session()} collapsed={false} />);
+    await waitFor(() => expect(screen.getByTestId("info-pane-basic")).toBeTruthy());
+
+    // Basic Info is the pane that opens, so the four behind it must not have asked for anything.
+    // One request per pane per session open is four answers nobody is looking at.
+    expect(getUsage).not.toHaveBeenCalled();
+    expect(getSkills).not.toHaveBeenCalled();
+  });
+
+  it("starts reading when a pane becomes the one on screen", async () => {
+    renderWithAppProviders(<SessionInfoPanel activeSession={session()} collapsed={false} />);
+    await waitFor(() => expect(screen.getByTestId("info-pane-basic")).toBeTruthy());
+
+    fireEvent.click(
+      within(screen.getByRole("tablist", { name: "Info Panel" })).getByRole("tab", { name: "Token Usage" }),
+    );
+
+    // And it is a suspension rather than an unmount, so what the pane already held is still there
+    // while the read runs.
+    await waitFor(() => expect(getUsage).toHaveBeenCalled());
+    expect(screen.getByTestId("info-pane-basic")).toBeTruthy();
   });
 
   it("says there is no session rather than an empty summary", () => {

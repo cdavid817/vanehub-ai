@@ -7,10 +7,23 @@ import { useSessionImState } from "../hooks/use-session-im-state";
 import type { ImService } from "../services/im-service";
 
 export function SessionImPane({
+  active = true,
   onOpenSettings,
   service,
   sessionId,
 }: {
+  /**
+   * Whether this pane is the one on screen.
+   *
+   * Mounted either way — these panes hold local form state, and a reader who typed something,
+   * checked another tab, and came back must find it still there. What stops is the reading: a
+   * hidden pane polling its own service costs a request per pane per session open, for answers
+   * nobody is looking at.
+   *
+   * Mutations are unaffected. React Query runs one to completion regardless of this flag, so a
+   * write that was in flight when the reader switched away still finishes and still invalidates.
+   */
+  active?: boolean;
   onOpenSettings?: () => void;
   service?: ImService;
   sessionId: string | null;
@@ -18,7 +31,7 @@ export function SessionImPane({
   const { i18n, t } = useTranslation();
   const [replaceExisting, setReplaceExisting] = useState(false);
   const [confirmRemoval, setConfirmRemoval] = useState(false);
-  const state = useSessionImState(sessionId, service);
+  const state = useSessionImState(sessionId, service, active);
   const { binding, connectors, error, pairing, pending, readyConnectors: ready } = state;
 
   if (!sessionId) return <Empty>{t("im.session.noSession")}</Empty>;

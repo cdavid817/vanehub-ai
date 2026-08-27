@@ -16,6 +16,15 @@ function errorMessage(reason: unknown): string {
 export function useSessionImState(
   sessionId: string | null,
   service: ImService = runtimeImService,
+  /**
+   * Whether the pane reading this is on screen.
+   *
+   * The connector lifecycle subscription is the expensive half: it stays open for as long as the
+   * effect lives, so a hidden pane holds a live channel for updates nobody can see. The state
+   * itself survives — a reader returning to the tab sees what was last loaded while the reload
+   * runs.
+   */
+  active = true,
 ) {
   const [connectors, setConnectors] = useState<ImConnectorView[]>([]);
   const [binding, setBinding] = useState<ImSessionBinding | null>(null);
@@ -54,6 +63,7 @@ export function useSessionImState(
   }, [service, sessionId, setPairing]);
 
   useEffect(() => {
+    if (!active) return;
     let disposed = false;
     let unsubscribe: (() => void) | null = null;
     setBinding(null);
@@ -81,7 +91,9 @@ export function useSessionImState(
         void service.cancelPairing(activePairing.sessionId, activePairing.connector);
       }
     };
-  }, [reload, service, sessionId, setPairing]);
+    // `active` belongs here: becoming visible has to reopen the subscription, and becoming hidden
+    // has to run the cleanup that cancels a pending pairing.
+  }, [active, reload, service, sessionId, setPairing]);
 
   useEffect(() => {
     if (!pairing) return undefined;
