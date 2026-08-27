@@ -27,10 +27,12 @@ export function DiffView({ file, mode }: { file: GitDiffFile; mode: DiffViewMode
  *
  * Not decoration. Strip it and the only thing separating an added line from a deleted one is the
  * background tint, which is no separation at all for a reader who cannot tell the two tints apart
- * or who is having the diff read aloud. The unified view has carried the sign since it was written;
- * the split view rendered bare content, so the readers who most needed the marker were the only
- * ones without it. Shared from here so the two views cannot drift apart again.
+ * or who is having the diff read aloud. The unified view here has carried the sign since it was
+ * written; the split view rendered bare content, and both of the review center's views did too —
+ * where each line is a button whose accessible name was the number and the text, so the one thing
+ * a reviewer needs to know about a line was the one thing it did not say. Shared from here so the
+ * four views cannot drift apart again.
  */
-function signOf(kind: string) { return kind === "addition" ? "+" : kind === "deletion" ? "-" : " "; }
+export function signOf(kind: string) { return kind === "addition" ? "+" : kind === "deletion" ? "-" : " "; }
 function HunkHeader({ header }: { header: string }) { return <div className="bg-muted px-2 py-1 font-mono text-xs text-primary">{header}</div>; }
 function DiffCell({ content, kind, number }: { content: string; kind: string; number: number | null }) { return <div className={cn("grid grid-cols-[48px_minmax(0,1fr)] border-r border-border font-mono text-xs", kind === "addition" && "bg-[hsl(var(--success-soft))]", kind === "deletion" && "bg-destructive/10")}><span className="border-r border-border px-2 py-1 text-right text-muted-foreground">{number}</span><span className="whitespace-pre px-2 py-1">{signOf(kind)}{content}</span></div>; }

@@ -87,7 +87,13 @@ afterEach(() => {
 
 async function open() {
   renderWithAppProviders(<ReviewCenter sessionId="session-1" />);
-  await waitFor(() => expect(screen.getByText("fn main() { work(); }")).toBeTruthy());
+  // Two queries deep — the review, then the file — and Testing Library's default is one second,
+  // which is a number about its own convenience rather than about how long this load takes. On a
+  // machine running something else the diff arrives later and the failure reads as the line being
+  // wrong rather than absent. The assertion is unchanged; only the patience is stated.
+  await waitFor(() => expect(screen.getByText("+fn main() { work(); }")).toBeTruthy(), {
+    timeout: 5_000,
+  });
 }
 
 describe("the Review header and the marks behind it", () => {

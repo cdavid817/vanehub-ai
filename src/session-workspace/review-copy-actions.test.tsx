@@ -96,8 +96,12 @@ async function open() {
   });
   // Waits for the diff, not just for the review. The buttons render as soon as the review loads,
   // so a wait on them lets a click land while `diff` is still null — which copies an empty string
-  // and reads as the action being broken.
-  await waitFor(() => expect(screen.getByText("fn main() { work(); }")).toBeTruthy());
+  // and reads as the action being broken. The explicit timeout is for the same reason the wait
+  // exists: two queries deep, and Testing Library's one-second default is a number about its own
+  // convenience rather than about this load.
+  await waitFor(() => expect(screen.getByText("+fn main() { work(); }")).toBeTruthy(), {
+    timeout: 5_000,
+  });
 }
 
 describe("the Review Center's two copy actions", () => {
@@ -108,8 +112,9 @@ describe("the Review Center's two copy actions", () => {
 
     await waitFor(() => expect(written).toHaveLength(1));
     // What is on screen and nothing else. Headers here would be a quote nobody can paste into a
-    // sentence.
-    expect(written[0]).toBe("fn main() {}\nfn main() { work(); }");
+    // sentence — but the signs stay, because they are on screen and because a pasted run of
+    // unmarked lines reads as if every one of them were added.
+    expect(written[0]).toBe("-fn main() {}\n+fn main() { work(); }");
     expect(getPatch).not.toHaveBeenCalled();
   });
 

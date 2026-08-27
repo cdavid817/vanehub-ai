@@ -1,14 +1,16 @@
 /** @vitest-environment jsdom */
-import { screen } from "@testing-library/react";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { activateAppLanguage } from "../i18n";
 import { renderWithAppProviders } from "../test/render";
+import { agentService } from "../services/runtime-agent-client";
 import { DiffView } from "./diff-view";
 import { FilesToolbar } from "./files-toolbar";
 import { LogEntryArticle } from "./log-entry-article";
 import { LogsToolbar } from "./logs-toolbar";
+import { ReviewCenter } from "./review-center";
 import { ReviewProgress } from "./review-progress";
-import type { CodeReview } from "../types/code-review";
+import type { CodeReview, ReviewDiffFile } from "../types/code-review";
 import type { GitDiffFile, GitDiffLine } from "../types/session-workspace";
 
 /**
@@ -27,6 +29,12 @@ import type { GitDiffFile, GitDiffLine } from "../types/session-workspace";
 
 beforeAll(async () => {
   await activateAppLanguage("en");
+});
+
+// Two cases stub the review service. Without this the stub survives into the colour cases, which
+// render no review at all and would pass while quietly holding a mock nobody asked for.
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 function everyButtonIsNamed() {
@@ -133,6 +141,46 @@ function line(kind: GitDiffLine["kind"], content: string, at: number): GitDiffLi
   };
 }
 
+const REVIEW = {
+  comments: [],
+  createdAt: "2026-08-27T00:00:00Z",
+  decision: "pending",
+  files: [{ changeType: "modified", path: "src/main.rs", viewed: false }],
+  findings: [],
+  fingerprint: "snapshot-a",
+  hunkDecisions: [],
+  id: "review-1",
+  sessionId: "session-1",
+  status: "active",
+  summary: { changedFiles: 1, unresolvedComments: 0, unresolvedFindings: 0, viewedFiles: 0 },
+  updatedAt: "2026-08-27T00:00:00Z",
+  workspaceId: "workspace-1",
+} satisfies CodeReview;
+
+const REVIEW_DIFF = {
+  acceptedBytes: 0,
+  binary: false,
+  changeType: "modified",
+  hunks: [
+    {
+      contextFingerprints: [],
+      fingerprint: "hunk-1",
+      header: "@@ -1,1 +1,1 @@",
+      lines: [
+        { content: "let value = 1;", kind: "deletion" },
+        { content: "let value = 2;", kind: "addition" },
+      ],
+      newLines: 1,
+      newStart: 1,
+      oldLines: 1,
+      oldStart: 1,
+    },
+  ],
+  oversized: false,
+  path: "src/main.rs",
+  truncated: false,
+} satisfies ReviewDiffFile;
+
 const CHANGED_FILE = {
   binary: false,
   hunks: [
@@ -181,6 +229,28 @@ describe("status is never only a colour", () => {
       .filter((row) => row.trim().length > 0)
       .map((row) => row[0]);
     expect(new Set(signs)).toEqual(new Set(["-", "+"]));
+  });
+
+  it.each(["unified", "split"] as const)("marks them apart in the review center's %s view", async (
+    view,
+  ) => {
+    // The review center draws its own diff rather than reusing the one above, and it was the worse
+    // case of the two: each line is a button, so the accessible name a reviewer hears was the line
+    // number and the text with nothing to say which side of the change it was on.
+    vi.spyOn(agentService, "openCodeReview").mockResolvedValue(REVIEW);
+    vi.spyOn(agentService, "loadCodeReviewFile").mockResolvedValue(REVIEW_DIFF);
+
+    renderWithAppProviders(<ReviewCenter sessionId="session-1" />);
+    await waitFor(() => expect(screen.getByText("+let value = 2;")).toBeTruthy());
+    if (view === "split") fireEvent.click(screen.getByRole("button", { name: "Split" }));
+
+    // Read off the buttons, which is where the name a screen reader announces comes from.
+    const named = screen
+      .getAllByRole("button")
+      .map((button) => button.textContent ?? "")
+      .filter((text) => text.includes("let value ="));
+    expect(named.some((text) => text.includes("-let value = 1;"))).toBe(true);
+    expect(named.some((text) => text.includes("+let value = 2;"))).toBe(true);
   });
 
   it("says the level of a log entry in words, not only in red", () => {
