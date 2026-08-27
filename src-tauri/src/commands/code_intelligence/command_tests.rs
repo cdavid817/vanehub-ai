@@ -15,10 +15,8 @@ fn fixture(label: &str) -> (TempDirectory, CodeIntelligenceApi) {
     let directory = TempDirectory::new(label);
     let database = NativeDatabase::new(directory.path().join("data")).expect("database");
     let logging = Arc::new(UnifiedLoggingAdapter::new(directory.path().join("logs")));
-    (
-        directory,
-        CodeIntelligenceApi::from_database(database, logging),
-    )
+    let api = CodeIntelligenceApi::from_database(database, logging, directory.path().join("state"));
+    (directory, api)
 }
 
 fn unavailable_configuration(root: &Path) -> LspConfigurationDto {
@@ -174,13 +172,26 @@ async fn discovery_and_server_test_return_safe_unavailable_results() {
     // not installed on this host. Both are unavailable, and each must say which it is.
     let configured = ["rust", "typescript_javascript"];
     assert!(discoveries.iter().all(|result| {
-        let expected = if configured.contains(&result.language.as_str()) {
-            LspSafeReasonCodeDto::OverrideMissing
+        let acceptable: &[LspSafeReasonCodeDto] = if configured.contains(&result.language.as_str())
+        {
+            &[LspSafeReasonCodeDto::OverrideMissing]
+        } else if result.language == "java" {
+            // Interpreter-shaped, so which reason it gives depends on whether this host happens to
+            // have a JDK. Both are correct and neither is what the executable-shaped languages
+            // report -- asserting one of them would make the test pass or fail on the runner's
+            // installed software rather than on the code.
+            &[
+                LspSafeReasonCodeDto::PrerequisiteMissing,
+                LspSafeReasonCodeDto::InstallDirectoryNotSet,
+            ]
         } else {
-            LspSafeReasonCodeDto::ExecutableNotFound
+            &[LspSafeReasonCodeDto::ExecutableNotFound]
         };
         result.availability == LspDiscoveryAvailabilityDto::Unavailable
-            && result.reason_code == Some(expected)
+            && result
+                .reason_code
+                .as_ref()
+                .is_some_and(|reason| acceptable.contains(reason))
     }));
 
     let result = super::test_lsp_server::execute(

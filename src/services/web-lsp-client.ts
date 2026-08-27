@@ -45,6 +45,8 @@ const mockRegistry: readonly (LspLanguageDescriptor & { executable: string })[] 
     server: "rust_analyzer",
     supportedOnHost: true,
     defaultStartupArguments: [],
+    overrideTarget: "executable_file",
+    prerequisite: null,
     executable: "/mock/lsp/rust-analyzer",
   },
   {
@@ -52,7 +54,20 @@ const mockRegistry: readonly (LspLanguageDescriptor & { executable: string })[] 
     server: "typescript_language_server",
     supportedOnHost: true,
     defaultStartupArguments: ["--stdio"],
+    overrideTarget: "executable_file",
+    prerequisite: null,
     executable: "/mock/lsp/typescript-language-server",
+  },
+  {
+    // The mock's one install-directory language, so the Web adapter exercises the same branch the
+    // desktop one does rather than only ever reporting the executable shape.
+    language: "java",
+    server: "jdtls",
+    supportedOnHost: true,
+    defaultStartupArguments: [],
+    overrideTarget: "install_directory",
+    prerequisite: "Java 17 or newer",
+    executable: "/mock/lsp/jdtls",
   },
 ];
 
@@ -62,6 +77,8 @@ function descriptors(): LspLanguageDescriptor[] {
     server: entry.server,
     supportedOnHost: entry.supportedOnHost,
     defaultStartupArguments: [...entry.defaultStartupArguments],
+    overrideTarget: entry.overrideTarget,
+    prerequisite: entry.prerequisite,
   }));
 }
 

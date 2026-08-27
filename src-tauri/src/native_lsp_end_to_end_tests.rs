@@ -23,6 +23,7 @@ async fn native_lsp_runtime_covers_tools_reconfiguration_trust_and_desktop_shutd
     let api = CodeIntelligenceApi::from_database(
         NativeDatabase::new(fixture.data.path().to_path_buf()).expect("database"),
         logs.clone(),
+        fixture.data.path().join("state"),
     );
     let adapter = Arc::new(RuntimeAgentCodeIntelligenceAdapter::new(Arc::new(
         NativeCodeIntelligenceResponder::new(api.clone()),

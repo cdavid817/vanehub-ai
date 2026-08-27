@@ -158,8 +158,17 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     // Ephemeral media from a previous run -- a recording interrupted by a crash, a staged file the
     // user never used -- is swept once here rather than accumulating until the disk notices.
     local_media_api.sweep_stale_media();
-    let code_intelligence_api =
-        super::assemble_code_intelligence_api(database.clone(), fallback_log_directory.clone());
+    let code_intelligence_api = super::assemble_code_intelligence_api(
+        database.clone(),
+        fallback_log_directory.clone(),
+        // Beside the database rather than beside the logs: a language server's per-workspace index
+        // is state, and it belongs with the other state this profile owns.
+        database
+            .db_path
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .to_path_buf(),
+    );
     code_intelligence_api.start_maintenance();
     let code_intelligence_responder = Arc::new(super::NativeCodeIntelligenceResponder::new(
         code_intelligence_api.clone(),

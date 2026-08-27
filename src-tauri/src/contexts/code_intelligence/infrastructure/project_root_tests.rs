@@ -251,3 +251,39 @@ impl ProjectFixture {
             .expect("canonical fixture path")
     }
 }
+
+#[test]
+fn a_java_project_root_is_the_nearest_directory_holding_any_build_file() {
+    let workspace = tempfile::tempdir().expect("workspace");
+    let module = workspace.path().join("services/api");
+    std::fs::create_dir_all(module.join("src/main/java")).expect("module tree");
+    // Two markers in one directory, which must resolve to that directory rather than to two
+    // candidates, and a Kotlin-DSL build file so the resolution does not depend on `build.gradle`.
+    std::fs::write(
+        module.join("build.gradle.kts"),
+        b"plugins {}
+",
+    )
+    .expect("build file");
+    std::fs::write(
+        module.join("settings.gradle"),
+        b"
+",
+    )
+    .expect("settings file");
+    let document = module.join("src/main/java/Api.java");
+    std::fs::write(
+        &document,
+        b"public class Api {}
+",
+    )
+    .expect("source");
+
+    let resolved = ProjectRootResolver::resolve(workspace.path(), &document, registry::java())
+        .expect("java project root");
+
+    assert_eq!(
+        resolved.canonicalize().expect("canonical resolved"),
+        module.canonicalize().expect("canonical module")
+    );
+}

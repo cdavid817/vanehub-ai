@@ -105,8 +105,13 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 同时把 `webLspToolClient` 从 `web-lsp-client.ts` 拆出去,因为九个工具的信封让合并后的文件撞上
 // 300 行硬规则。拆分只搬不抄:唯一被复制的 `clone` 帮助函数随即删掉了——那里每次都新建对象,
 // 本来就没有共享状态需要防御性拷贝。
+// 上调理由(add-lsp-java-jdtls):+20,全部在生产文件上。
+// `lsp-contract.ts` 的描述符归一化多出 overrideTarget 与 prerequisite 两个字段;`types/lsp.ts` 加
+// 了 LspOverrideTarget;`web-lsp-client.ts` 的 mock 注册表多了 Java 这一条,并把两个新字段带进
+// descriptors()。这一条 mock 数据正是让 Web 侧也走 install_directory 分支的原因——否则那个分支
+// 只有桌面侧跑得到。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 21337, owner: "add-unified-personalization-governance" },
+  { root: "src/services", budget: 21357, owner: "add-unified-personalization-governance" },
 ]);
 
 const STATE_PACKAGES = new Set([

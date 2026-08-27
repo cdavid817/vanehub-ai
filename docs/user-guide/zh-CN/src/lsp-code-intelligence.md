@@ -50,6 +50,7 @@ LSP 出现之前,每个编辑器要支持"智能感知"(补全、跳转定义、
 | Go | `gopls` | 无 | 最近的 `go.mod` |
 | Python | `basedpyright-langserver`，否则 `pyright-langserver` | `--stdio` | 最近的 `pyproject.toml`、`setup.py`、`setup.cfg` 或 `requirements.txt` |
 | C 与 C++ | `clangd` | 无 | 最近的 `compile_commands.json`，或 `build/compile_commands.json` |
+| Java | 经 JVM 启动的 `jdtls` | 无 | 最近的 `pom.xml`、`build.gradle`、`build.gradle.kts` 或 `settings.gradle` |
 
 **C/C++ 是唯一不会回退的语言**。其它语言在找不到标记时会把工作区根目录当作项目根；而 `clangd` 没有编译数据库就会假定默认编译参数，然后给出**看起来很确定但其实是错的**定义和诊断，所以 VaneHub AI 宁可把请求报为不可用。
 
@@ -75,7 +76,7 @@ Agent 可以使用九个只读工具：
 
 `find_workspace_symbols` 除了查询词还要一个文件路径。这个路径不是过滤条件，它决定搜索哪个项目的索引：一个仓库里可以有多个同语言项目，而一个语言服务器一次只索引其中一个。
 
-当前本地工作区满足条件时，这些工具会同时出现在普通会话和 Plan Mode 中。本阶段不支持 Java 语言服务器。
+当前本地工作区满足条件时，这些工具会同时出现在普通会话和 Plan Mode 中。
 
 ## 安装语言服务器
 
@@ -131,6 +132,30 @@ cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 ```
 
 生成的 `build/compile_commands.json` 才是让项目可被识别的东西。其它构建系统(含 Make 项目用的 `bear`)见上游 [clangd 安装指南](https://clangd.llvm.org/installation)。
+
+### Java
+
+Java 是唯一一个你指向**目录**而不是可执行文件的语言，因为 `jdtls` 本身不是可执行文件——它是一个 Eclipse 应用，由 VaneHub AI 通过 JVM 启动。
+
+需要两样东西就位：
+
+1. **JDK 17 或更新版本**，且 `java` 在 `PATH` 上。按你平时的方式安装；VaneHub AI 不会替你装。
+2. **已解压的 `jdtls`。** 下载 Eclipse JDT Language Server 归档，解压到任意位置，把那个目录填进 Java 卡片的**服务器安装目录**。VaneHub AI 目前还不会替你下载——那要等后续变更。
+
+填的目录必须是包含 `plugins/` 与 `config_win` / `config_mac` / `config_linux` 的那一层。带版本号的 launcher 由 VaneHub AI 自己在 `plugins/` 里找，你不用输入版本号。
+
+如果 Java 显示为不可用，原因会指明该修三件事里的哪一件：
+
+| 提示 | 该做什么 |
+| --- | --- |
+| 该服务器所需的运行时未安装 | 装一个 JDK 17+，并确认 `java` 能在你的 shell 里跑起来 |
+| 尚未配置服务器安装目录 | 把服务器安装目录填上 |
+| 该目录中没有服务器启动器 | 指错层级了，或者归档没有完整解压 |
+| 该目录中有多个服务器启动器 | 一个目录里混了两个 `jdtls` 版本；重新解压一份干净的 |
+
+`jdtls` 还会为每个工作区维护一份索引。VaneHub AI 给每个受信任工作区单独一个目录存放它，并在你撤销该工作区信任时删除。
+
+Java 的启动明显比其他服务器慢，而且在开始应答之后还会持续上报一段时间的进度。这是正常的；运行状态卡片会区分"就绪"和"仍在索引"。
 
 ## 为工作区启用 LSP
 
