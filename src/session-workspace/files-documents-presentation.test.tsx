@@ -9,6 +9,7 @@ import { renderWithAppProviders } from "../test/render";
 import { agentService } from "../services/runtime-agent-client";
 import { ContentSearchPanel } from "./content-search-panel";
 import { QuickOpenDialog } from "./quick-open-dialog";
+import { LITERAL_COLOR, PALETTE_COLOR, TOKEN_RULE_SAMPLES } from "./visual-token-rules";
 
 /**
  * How the Files and Documents surfaces answer the keyboard, and what they are allowed to look like.
@@ -214,17 +215,14 @@ describe.each(SURFACES)("$name answers the keyboard", (surface) => {
 });
 
 /**
- * Colour written as a literal rather than taken from the theme.
+ * The same two patterns 14.5 holds over every console surface, read from the same place.
  *
- * A scrim is deliberately not in here: `bg-black/30` over a dialog is an absolute on purpose, it is
- * what the application's own dialog component uses, and it is the one place where following the
- * theme would be wrong. It carries no number, so the palette pattern does not reach it.
+ * Two copies would drift, and the copy that drifts is always the one with fewer readers — at which
+ * point Files and Documents are held to a rule the rest of the console is not, and nothing on
+ * either side says so.
  */
-const PALETTE =
-  /\b(?:bg|text|border|ring|fill|stroke|from|via|to|shadow|decoration|outline|accent|caret|divide|placeholder)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}\b/;
-
-/** An arbitrary value that is a colour rather than a token. `hsl(var(--panel))` is the token form. */
-const LITERAL_VALUE = /\[(?:#[0-9a-fA-F]{3,8}|rgba?\(|hsla?\((?!var\()|oklch\()/;
+const PALETTE = PALETTE_COLOR;
+const LITERAL_VALUE = LITERAL_COLOR;
 
 /** Utilities that occupy space. A state change that touches one of these moves its neighbours. */
 const DIMENSION = [
@@ -254,10 +252,10 @@ describe("the Files and Documents surfaces look like the rest of the application
 
     // Proved against strings rather than trusted. A typo in either pattern leaves a check that
     // passes because it matches nothing, which is the failure a source scan hides best.
-    expect(PALETTE.test('className="text-red-500"')).toBe(true);
-    expect(PALETTE.test('className="text-muted-foreground"')).toBe(false);
-    expect(LITERAL_VALUE.test('className="bg-[#0f172a]"')).toBe(true);
-    expect(LITERAL_VALUE.test('className="bg-[hsl(var(--panel))]"')).toBe(false);
+    expect(PALETTE.test(TOKEN_RULE_SAMPLES.paletteMatches)).toBe(true);
+    expect(PALETTE.test(TOKEN_RULE_SAMPLES.paletteRejects)).toBe(false);
+    expect(LITERAL_VALUE.test(TOKEN_RULE_SAMPLES.literalMatches)).toBe(true);
+    expect(LITERAL_VALUE.test(TOKEN_RULE_SAMPLES.literalRejects)).toBe(false);
   });
 
   it("takes every colour from the shared tokens", () => {
