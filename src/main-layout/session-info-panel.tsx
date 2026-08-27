@@ -18,6 +18,7 @@ import { seatsFromSession } from "../services/session-seats";
 import type { Session } from "../types/agent";
 import { SessionSkillsPane } from "./session-skills-pane";
 import { SessionCodeIndexPane } from "./session-code-index-pane";
+import { SessionEvidenceSummary } from "./session-evidence-summary";
 import { SessionRosterEditor } from "./session-roster-editor";
 import { SessionImPane } from "./session-im-pane";
 import { SessionTokenUsagePane } from "./session-token-usage-pane";
@@ -131,6 +132,7 @@ export function SessionInfoPanel({
           ) : null}
           <Pane active={activeTab === "basic"} tab="basic">
             {activeSession ? (
+            <>
             <dl className="ucd-muted-panel grid gap-2 rounded-lg p-3">
               <Field icon={<Bot className="h-3.5 w-3.5 text-primary" />} label={t("layout.info.session")} value={activeSession?.title ?? t("layout.noSession")} />
               <Field icon={<Sparkles className="h-3.5 w-3.5 text-primary" />} label={t("layout.info.cli")} value={<span className="flex min-w-0 items-center gap-2"><span className={cn("flex h-6 w-6 shrink-0 items-center justify-center rounded border", identity.tone)}><AgentBrandIcon agentId={activeSession?.agentId} className="h-3.5 w-3.5" /></span><span className="truncate">{activeSession ? identity.label : t("layout.startChat")}</span></span>} />
@@ -142,6 +144,8 @@ export function SessionInfoPanel({
                 value={workspaceDisplayPath ? normalizeDisplayPath(workspaceDisplayPath) : t("layout.info.workspaceUnavailable")}
               />
             </dl>
+            <SessionEvidenceSummary sessionId={sessionId} />
+            </>
             ) : (
               // Every field rendered its own "no session selected" placeholder, so an empty
               // panel repeated the same sentence five times.

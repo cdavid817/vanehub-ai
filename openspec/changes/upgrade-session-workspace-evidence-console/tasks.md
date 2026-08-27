@@ -265,7 +265,7 @@ give the replay code a caller is exactly the kind of fake wiring this note forbi
 
 ## 14. Information Panel, Visual Integration, Accessibility, and i18n
 
-- [ ] 14.1 Add the evidence-aware runtime/workspace/Shell/change/verification/diagnostic/usage summary to the existing Basic Info pane through `WorkspaceEvidenceSummary`.
+- [x] 14.1 Add the evidence-aware runtime/workspace/Shell/change/verification/diagnostic/usage summary to the existing Basic Info pane through `WorkspaceEvidenceSummary`. Every number comes from the one summary read the workspace already makes — the same query key the tab badges use — so Basic Info cannot quietly disagree with the tab bar. Two facts are deliberately derived rather than fetched: "dirty" from the change count in the row below it, and the workspace provider from the capabilities query the Files/Documents/Changes tabs already share. A failed read says so instead of rendering zeroes, because "nothing has happened" and "nothing could be read" are identical as numbers and lead to opposite conclusions; the same reasoning keeps an absent token total from rendering as "0 reported". The runtime row shows the moment a run started rather than an elapsed time computed here, which would tick against a clock the backend does not share and keep ticking for a run that ended while the panel was hidden.
 - [ ] 14.2 Make every summary row navigate to its owning workspace tab and preserve the current Session.
 - [ ] 14.3 Preserve the existing Basic Info, Token Usage, Skill, optional Members, IM, and Code Index tab set and state semantics.
 - [ ] 14.4 Keep inactive information-panel panes mounted but disable queries/subscriptions while inactive unless an in-flight mutation must finish.
