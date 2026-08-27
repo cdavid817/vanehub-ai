@@ -7,10 +7,11 @@ import { WorkspaceState } from "./workspace-state";
 import { useCodeReview } from "./use-code-review";
 import { useReviewAction } from "./use-review-action";
 import { ApplicationDialog } from "../components/ui/application-dialog";
+import { ReviewFindings } from "./review-findings";
 import { ReviewProgress } from "./review-progress";
 import { useReviewMarks } from "./use-review-marks";
 
-export function ReviewCenter({ sessionId }: { sessionId: string }) {
+export function ReviewCenter({ onShowOperation, sessionId }: { onShowOperation?: (operationId: string) => void; sessionId: string }) {
   const { t } = useTranslation();
   const state = useCodeReview(sessionId);
   const [mode, setMode] = useState<"unified" | "split">("unified");
@@ -21,10 +22,10 @@ export function ReviewCenter({ sessionId }: { sessionId: string }) {
   if (state.loading) return <WorkspaceState kind="loading" />;
   if (!review) return <WorkspaceState kind="error" message={state.error ?? t("sessionTabs.review.error")} />;
   if (review.files.length === 0) return <WorkspaceState kind="empty" message={t("sessionTabs.changes.clean")} />;
-  return <ReviewCenterContent mode={mode} setMode={setMode} draft={draft} setDraft={setDraft} anchor={anchor} setAnchor={setAnchor} receipt={receipt} setReceipt={setReceipt} sessionId={sessionId} state={state} review={review} />;
+  return <ReviewCenterContent mode={mode} setMode={setMode} draft={draft} setDraft={setDraft} anchor={anchor} setAnchor={setAnchor} onShowOperation={onShowOperation} receipt={receipt} setReceipt={setReceipt} sessionId={sessionId} state={state} review={review} />;
 }
 
-function ReviewCenterContent({ mode, setMode, draft, setDraft, anchor, setAnchor, receipt, setReceipt, sessionId, state, review }: { mode: "unified" | "split"; setMode: (value: "unified" | "split") => void; draft: string; setDraft: (value: string) => void; anchor: Omit<ReviewAnchor, "state"> | null; setAnchor: (value: Omit<ReviewAnchor, "state"> | null) => void; receipt: string | null; setReceipt: (value: string | null) => void; sessionId: string; state: ReturnType<typeof useCodeReview>; review: NonNullable<ReturnType<typeof useCodeReview>["review"]> }) {
+function ReviewCenterContent({ mode, setMode, draft, setDraft, anchor, setAnchor, onShowOperation, receipt, setReceipt, sessionId, state, review }: { mode: "unified" | "split"; setMode: (value: "unified" | "split") => void; draft: string; setDraft: (value: string) => void; anchor: Omit<ReviewAnchor, "state"> | null; setAnchor: (value: Omit<ReviewAnchor, "state"> | null) => void; onShowOperation?: (operationId: string) => void; receipt: string | null; setReceipt: (value: string | null) => void; sessionId: string; state: ReturnType<typeof useCodeReview>; review: NonNullable<ReturnType<typeof useCodeReview>["review"]> }) {
   const { t } = useTranslation();
   const actionState = useReviewAction(review.id);
   const marks = useReviewMarks(review, state.replaceReview);
@@ -130,7 +131,7 @@ function ReviewCenterContent({ mode, setMode, draft, setDraft, anchor, setAnchor
           {receipt ? <p role="status" className="text-xs text-muted-foreground">{receipt}</p> : null}
           {actionState.operation ? <div aria-live="polite" className="rounded border border-border p-2 text-xs"><p>{actionState.operation.message}: {actionState.operation.status}</p>{actionState.operation.logs.map((log) => <pre className="overflow-x-auto whitespace-pre-wrap" key={`${log.timestamp}-${log.line}`}>{log.line}</pre>)}{!["succeeded", "failed", "cancelled"].includes(actionState.operation.status) ? <button className="text-destructive" onClick={() => void actionState.cancel()} type="button">{t("confirmation.cancel")}</button> : null}</div> : null}
           {actionState.error ? <p role="alert" className="text-xs text-destructive">{actionState.error}</p> : null}
-          {review.findings.map((finding) => <p className="rounded border border-border p-2 text-xs" key={finding.id}>{finding.severity}: {finding.title}</p>)}
+          <ReviewFindings findings={review.findings} onShowCode={state.setSelectedPath} onShowOperation={onShowOperation} />
           {review.comments.map((comment) => <div className="flex items-start gap-2 rounded border border-border p-2 text-xs" key={comment.id}><input aria-label={t("sessionTabs.review.selectComment")} checked={comment.selected} onChange={(event) => void agentService.selectCodeReviewComment(review.id, comment.id, event.target.checked).then(state.replaceReview)} type="checkbox" /><p className="min-w-0 flex-1 break-words">{comment.body}</p>{comment.status === "active" ? <button className="text-primary" onClick={() => void agentService.resolveCodeReviewComment(review.id, comment.id).then(state.replaceReview)} type="button">{t("sessionTabs.review.resolve")}</button> : <span>{t("sessionTabs.review.resolved")}</span>}</div>)}
           {anchor ? <textarea aria-label={t("sessionTabs.review.comment")} className="min-h-20 w-full rounded border border-border bg-background p-2 text-sm" maxLength={8192} onChange={(event) => setDraft(event.target.value)} value={draft} /> : null}
           <div className="flex flex-wrap gap-2">

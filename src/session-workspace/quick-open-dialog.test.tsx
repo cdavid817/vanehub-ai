@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderWithAppProviders } from "../test/render";
 import { agentService } from "../services/runtime-agent-client";
@@ -27,6 +27,20 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+/**
+ * Waits for a row and drains the effects the render queued behind it.
+ *
+ * The dialog sends the highlight back to the top whenever a result set arrives, in an effect
+ * queued by the same commit that renders the rows. React runs passive effects after the commit, so
+ * a case that starts pressing keys the moment it sees a row gets its keystrokes undone by an
+ * effect from before it pressed them. Under an unloaded run the effect always won the race and
+ * these read as deterministic; under a full suite they do not.
+ */
+async function shown(text: string) {
+  await waitFor(() => expect(screen.getByText(text)).toBeTruthy());
+  await act(async () => {});
+}
+
 function open(onSelect = vi.fn()) {
   const rendered = renderWithAppProviders(
     <QuickOpenDialog isOpen onClose={vi.fn()} onSelect={onSelect} sessionId="session-1" />,
@@ -46,7 +60,7 @@ describe("QuickOpenDialog", () => {
   it("moves through results with the arrow keys and opens with Enter", async () => {
     search.mockResolvedValue(result({ matches: [match("a.rs"), match("b.rs"), match("c.rs")] }));
     const { onSelect } = open();
-    await waitFor(() => expect(screen.getByText("c.rs")).toBeTruthy());
+    await shown("c.rs");
 
     const input = screen.getByRole("textbox");
     fireEvent.keyDown(input, { key: "ArrowDown" });
@@ -62,7 +76,7 @@ describe("QuickOpenDialog", () => {
   it("does not walk past either end of the list", async () => {
     search.mockResolvedValue(result({ matches: [match("a.rs"), match("b.rs")] }));
     const { onSelect } = open();
-    await waitFor(() => expect(screen.getByText("b.rs")).toBeTruthy());
+    await shown("b.rs");
 
     const input = screen.getByRole("textbox");
     fireEvent.keyDown(input, { key: "ArrowUp" });
@@ -79,7 +93,7 @@ describe("QuickOpenDialog", () => {
   it("keeps focus in the input so a reader can keep typing", async () => {
     search.mockResolvedValue(result({ matches: [match("a.rs")] }));
     open();
-    await waitFor(() => expect(screen.getByText("a.rs")).toBeTruthy());
+    await shown("a.rs");
 
     const input = screen.getByRole("textbox");
     fireEvent.keyDown(input, { key: "ArrowDown" });

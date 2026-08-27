@@ -18,13 +18,18 @@ import {
 
 export function ChangesTab({
   isVisible = true,
+  onShowOperation,
   sessionId,
 }: {
   /** False while the panel stays mounted behind another tab. */
   isVisible?: boolean;
+  /** Absent where nothing owns the evidence scope, in which case finding links are not offered. */
+  onShowOperation?: (operationId: string) => void;
   sessionId: string | null;
 }) {
-  if (sessionId && typeof agentService.openCodeReview === "function") return <ReviewCenter sessionId={sessionId} />;
+  if (sessionId && typeof agentService.openCodeReview === "function") {
+    return <ReviewCenter onShowOperation={onShowOperation} sessionId={sessionId} />;
+  }
   return <LegacyChangesTab isVisible={isVisible} sessionId={sessionId} />;
 }
 

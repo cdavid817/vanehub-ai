@@ -1850,6 +1850,8 @@
   "sessionTabs.review.next": "下一个变更文件",
   "sessionTabs.review.copyDisplayedLines": "复制显示的行",
   "sessionTabs.review.copyStandardPatch": "复制标准补丁",
+  "sessionTabs.review.findingRun": "查看运行",
+  "sessionTabs.review.findingCode": "查看代码",
   "sessionTabs.review.progress_one": "已读 {{viewed, number}} / {{count, number}} 个文件",
   "sessionTabs.review.progress_other": "已读 {{viewed, number}} / {{count, number}} 个文件",
   "sessionTabs.review.unresolvedComments_one": "{{count, number}} 条未处理评论",

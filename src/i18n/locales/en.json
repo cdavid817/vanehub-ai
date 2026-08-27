@@ -1850,6 +1850,8 @@
   "sessionTabs.review.next": "Next changed file",
   "sessionTabs.review.copyDisplayedLines": "Copy displayed lines",
   "sessionTabs.review.copyStandardPatch": "Copy standard patch",
+  "sessionTabs.review.findingRun": "Show the run",
+  "sessionTabs.review.findingCode": "Show the code",
   "sessionTabs.review.progress_one": "{{viewed, number}} of {{count, number}} file read",
   "sessionTabs.review.progress_other": "{{viewed, number}} of {{count, number}} files read",
   "sessionTabs.review.unresolvedComments_one": "{{count, number}} open comment",

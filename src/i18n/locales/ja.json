@@ -1850,6 +1850,8 @@
   "sessionTabs.review.next": "次の変更ファイル",
   "sessionTabs.review.copyDisplayedLines": "表示中の行をコピー",
   "sessionTabs.review.copyStandardPatch": "標準パッチをコピー",
+  "sessionTabs.review.findingRun": "実行を表示",
+  "sessionTabs.review.findingCode": "コードを表示",
   "sessionTabs.review.progress_one": "{{count, number}} 件中 {{viewed, number}} 件を確認済み",
   "sessionTabs.review.progress_other": "{{count, number}} 件中 {{viewed, number}} 件を確認済み",
   "sessionTabs.review.unresolvedComments_one": "未対応のコメント {{count, number}} 件",

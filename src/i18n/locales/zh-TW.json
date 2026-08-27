@@ -1850,6 +1850,8 @@
   "sessionTabs.review.next": "下一個變更檔案",
   "sessionTabs.review.copyDisplayedLines": "複製顯示的行",
   "sessionTabs.review.copyStandardPatch": "複製標準修補檔",
+  "sessionTabs.review.findingRun": "檢視執行",
+  "sessionTabs.review.findingCode": "檢視程式碼",
   "sessionTabs.review.progress_one": "已讀 {{viewed, number}} / {{count, number}} 個檔案",
   "sessionTabs.review.progress_other": "已讀 {{viewed, number}} / {{count, number}} 個檔案",
   "sessionTabs.review.unresolvedComments_one": "{{count, number}} 則未處理評論",

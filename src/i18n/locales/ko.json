@@ -1850,6 +1850,8 @@
   "sessionTabs.review.next": "다음 변경 파일",
   "sessionTabs.review.copyDisplayedLines": "표시된 줄 복사",
   "sessionTabs.review.copyStandardPatch": "표준 패치 복사",
+  "sessionTabs.review.findingRun": "실행 보기",
+  "sessionTabs.review.findingCode": "코드 보기",
   "sessionTabs.review.progress_one": "{{count, number}}개 중 {{viewed, number}}개 읽음",
   "sessionTabs.review.progress_other": "{{count, number}}개 중 {{viewed, number}}개 읽음",
   "sessionTabs.review.unresolvedComments_one": "미해결 댓글 {{count, number}}개",

@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { evidenceOperationIdSchema } from "../contracts/session-workspace-evidence-ids";
 import { useWorkspaceEvidenceScope } from "./workspace-evidence-scope";
 
 /**
@@ -14,6 +15,14 @@ import { useWorkspaceEvidenceScope } from "./workspace-evidence-scope";
  * the action being unavailable.
  */
 export interface WorkspacePathNavigation {
+  /**
+   * Open the execution records for one operation. Absent without a session.
+   *
+   * The operation is the only correlation an automated finding carries. It is enough: the records
+   * tab resolves the run, the trace, and the span from it, so a link that carried them too would
+   * be three identifiers this side would have to keep agreeing with a store it cannot read.
+   */
+  showOperation?: (operationId: string) => void;
   /** Open the Changes tab focused on a path. Absent without a session. */
   showChanges?: (relativePath: string) => void;
   /** Open the execution records for a path. Absent without a session. */
@@ -38,6 +47,21 @@ export function useWorkspacePathNavigation(): WorkspacePathNavigation {
     return {
       showChanges: toTab("changes"),
       showEvidence: toTab("traces"),
+      showOperation:
+        scope && sessionId
+          ? (operationId: string) =>
+              // Parsed rather than asserted. A finding carries its operation as a plain string, and
+              // the brand exists so nothing on this side can invent one; the schema is where a
+              // string legitimately becomes an identifier.
+              navigate({
+                scope: {
+                  ...scope,
+                  operationId: evidenceOperationIdSchema.parse(operationId),
+                  sessionId,
+                },
+                tab: "terminal",
+              })
+          : undefined,
       // No scope needed: nothing is being focused, the reader is simply being taken to the Shell
       // that was just created for them.
       showShell: () => activateTab("shell"),
