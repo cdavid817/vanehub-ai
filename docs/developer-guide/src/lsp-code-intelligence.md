@@ -10,6 +10,7 @@ The first implementation supports only these server families:
 | --- | --- | --- | --- |
 | Rust | `rust-analyzer` | stdio LSP | nearest `Cargo.toml` |
 | TypeScript/JavaScript | `typescript-language-server` | VaneHub appends `--stdio` | nearest `tsconfig.json`, `jsconfig.json`, or `package.json` |
+| Java | `java` running `jdtls`'s launcher jar | resolved argument template, stdio LSP | nearest `pom.xml`, `build.gradle`, `build.gradle.kts`, or `settings.gradle` |
 
 Install a standard rustup-managed Rust server with:
 
@@ -151,11 +152,24 @@ Lifecycle and protocol diagnostics use unified logging. Safe metadata includes s
 
 ## Extension limits
 
-Rust, TypeScript/JavaScript, Go, Python, and C/C++ are registered. Adding Go, Python, and C/C++ cost five registry entries' worth of data, three fixture projects, five locale strings, and one new resolver flag — and no frontend change at all, which is the property the registry was built for.
+Rust, TypeScript/JavaScript, Go, Python, C/C++, and Java are registered. Adding Go, Python, and C/C++ cost five registry entries' worth of data, three fixture projects, five locale strings, and one new resolver flag — and no frontend change at all, which is the property the registry was built for.
 
-Java is the remaining language on the roadmap and does not fit. `jdtls` runs through a JVM with a per-workspace data directory and a version-globbed launcher jar rather than as an executable with fixed arguments, so it needs a launch shape this model does not yet express.
+Java did not fit that shape, so the registry gained one. A `LaunchShape` field decides what the other fields mean: under `Executable` — what the first five declare — `executables` names the server and a manual override is an absolute executable file. Under `Interpreter` it names the *interpreter*, the server lives in an argument template, and an override is the install **directory**.
 
-The foundation also intentionally excludes remote workspaces, downloaded servers, formatting, completion, rename, code actions, workspace edits, filesystem watching, unsaved buffers, and persistent LSP enrichment. Call hierarchy and type definitions were on that list until `expand-lsp-read-only-methods`; they are read-only, so they moved into scope rather than staying excluded. Type *hierarchy* (`typeHierarchy/supertypes`) is still out. Do not expose a new mutating method merely by adding it to the catalog; it requires a separate OpenSpec change, permission analysis, Plan Mode treatment, protocol limits, and workspace-isolation tests.
+The template's placeholders are enum variants rather than strings, so an unresolved one is a case the compiler knows about instead of a substitution that quietly failed. Three of them are resolved late: the launcher by matching a declared prefix and suffix in one declared directory, the configuration directory by exact platform match, and the data directory from a hash of the canonical workspace root.
+
+Two rules are worth stating because their opposites look reasonable:
+
+- **Several matching launchers is a refusal, not a choice.** Picking the newest would start a server whose version the settings page cannot name. The match is also not recursive — a launcher three levels down is not the layout the entry describes.
+- **A user's startup arguments append to the template rather than replacing it.** Everywhere else configured arguments replace the registry default, because clearing the field has to mean something. The template is not a default; one a user can replace is one they can replace with something that does not start a server.
+
+The per-workspace data directory is derived rather than recorded — there is no table to keep in step with trust, and the only way to reach a workspace's directory is to already have its canonical root. It is removed when trust is revoked, after the processes stop, because a running server holds its index open. Not on idle shutdown: that index is what makes the next start fast.
+
+The settings card learns what an override means from a descriptor field, never from the language id. A second interpreter-shaped language must need no frontend change, and `lsp-configuration-section.test.tsx` asserts that with a language that is deliberately not Java.
+
+**Java is not installed for you.** `manage-language-server-installation` is the change that does that; until it lands, the user extracts `jdtls` and points at the directory, which is the same position every other language is in.
+
+The foundation also intentionally excludes remote workspaces, downloaded servers (until `manage-language-server-installation` lands — the verified-download capability exists, the language-server consumer does not yet), formatting, completion, rename, code actions, workspace edits, filesystem watching, unsaved buffers, and persistent LSP enrichment. Call hierarchy and type definitions were on that list until `expand-lsp-read-only-methods`; they are read-only, so they moved into scope rather than staying excluded. Type *hierarchy* (`typeHierarchy/supertypes`) is still out. Do not expose a new mutating method merely by adding it to the catalog; it requires a separate OpenSpec change, permission analysis, Plan Mode treatment, protocol limits, and workspace-isolation tests.
 
 LSP does not standardize portable server memory or indexed-file counts, so the status contract must keep these metrics unsupported rather than inventing them.
 

@@ -96,6 +96,14 @@ describe("Web LSP adapter", () => {
         arguments: ["--stdio"],
         reasonCode: null,
       },
+      {
+        language: "java",
+        server: "jdtls",
+        availability: "available",
+        executablePath: "/mock/lsp/jdtls",
+        arguments: [],
+        reasonCode: null,
+      },
     ]);
 
     const result = await webAgentClient.testLspServer("rust");

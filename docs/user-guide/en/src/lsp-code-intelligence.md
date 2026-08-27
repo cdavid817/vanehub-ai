@@ -13,6 +13,7 @@ Language Server Protocol (LSP) integration lets the native API Agent ask a local
 | Go | `gopls` | none | nearest `go.mod` |
 | Python | `basedpyright-langserver`, else `pyright-langserver` | `--stdio` | nearest `pyproject.toml`, `setup.py`, `setup.cfg`, or `requirements.txt` |
 | C and C++ | `clangd` | none | nearest `compile_commands.json`, or `build/compile_commands.json` |
+| Java | `jdtls` through a JVM | none | nearest `pom.xml`, `build.gradle`, `build.gradle.kts`, or `settings.gradle` |
 
 C and C++ is the one language that will not fall back. Every other language treats the workspace root as its project root when no marker is found; `clangd` without a compilation database assumes default compiler flags and then answers definitions and diagnostics that are confidently wrong, so VaneHub AI reports the request as unavailable instead.
 
@@ -38,7 +39,7 @@ The last five are worth knowing about because a server may simply not offer them
 
 `find_workspace_symbols` takes a file path as well as a query. The path is not a filter: it says which project's index to search. A repository can hold several projects of the same language, and a language server indexes one of them at a time.
 
-These tools are available in normal and Plan Mode sessions when the current local workspace is eligible. Java is not supported by this foundation.
+These tools are available in normal and Plan Mode sessions when the current local workspace is eligible.
 
 ## Install a server
 
@@ -95,12 +96,36 @@ cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
 The generated `build/compile_commands.json` is what makes the project detectable. See the upstream [clangd installation guide](https://clangd.llvm.org/installation) for other build systems, including `bear` for Make-based projects.
 
+### Java
+
+Java is the one language you point at a **directory** rather than an executable, because `jdtls` is not an executable — it is an Eclipse application VaneHub AI starts through a JVM.
+
+Two things have to be in place:
+
+1. **A JDK, version 17 or newer**, with `java` on your `PATH`. Install it however you normally would; VaneHub AI does not install it for you.
+2. **An extracted `jdtls`.** Download the Eclipse JDT Language Server archive, extract it anywhere, and put that directory in the Java card's **Server install directory** field. VaneHub AI does not download it for you yet — that arrives with a later change.
+
+The directory has to be the one containing `plugins/` and `config_win`, `config_mac`, or `config_linux`. VaneHub AI finds the versioned launcher inside `plugins/` itself, so you never type a version number.
+
+If Java shows as unavailable, the reason says which of three things to fix:
+
+| What it says | What to do |
+| --- | --- |
+| The runtime this server needs is not installed | Install a JDK 17+ and make sure `java` runs from your shell |
+| No server install directory is configured | Fill in the Server install directory field |
+| That directory holds no server launcher | You pointed at the wrong level, or the archive did not extract fully |
+| That directory holds more than one server launcher | Two `jdtls` versions are mixed in one directory; extract a clean copy |
+
+`jdtls` also keeps an index per workspace. VaneHub AI gives each trusted workspace its own directory for that, and deletes it when you revoke trust for the workspace.
+
+Java startup is noticeably slower than the other servers, and it reports progress for a while after it starts answering. That is normal; the runtime status card distinguishes "ready" from "still indexing".
+
 ## Enable LSP for a workspace
 
 Use the desktop application for these steps:
 
 1. Open **Settings > Agent Configurations** and find **Language server intelligence**.
-2. Turn on **Enable LSP integration**, then enable Rust and/or TypeScript/JavaScript.
+2. Turn on **Enable LSP integration**, then enable the languages you want.
 3. Select **Refresh discovery**. If the desktop process cannot see the executable, enter its absolute path in **Executable override**.
 4. Leave **Startup arguments** blank to use the defaults in the table above. To pass your own, enter one argument per line — the list you enter replaces the defaults rather than adding to them, so a server that needs `--stdio` must still list it. An entered-but-empty list means "start this server with no arguments at all", which is not the same as leaving the field blank.
 5. Keep initialization options as `{}` unless you need server-specific settings. The value must be a bounded JSON object.

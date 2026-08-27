@@ -23,6 +23,7 @@ const requiredKeys = [
   "lspSettings.configuration.saveError", "lspSettings.language.rust",
   "lspSettings.language.typescript_javascript", "lspSettings.language.enabled",
   "lspSettings.language.go", "lspSettings.language.python", "lspSettings.language.cpp",
+  "lspSettings.language.java", "lspSettings.language.prerequisite",
   "lspSettings.language.unsupportedOnHost",
   "lspSettings.startupArguments.title", "lspSettings.startupArguments.description",
   "lspSettings.startupArguments.none", "lspSettings.startupArguments.placeholder",
@@ -31,7 +32,10 @@ const requiredKeys = [
   "lspSettings.discovery.automatic", "lspSettings.discovery.manual",
   "lspSettings.discovery.available", "lspSettings.discovery.unavailable",
   "lspSettings.discovery.refresh", "lspSettings.discovery.override",
-  "lspSettings.discovery.overridePlaceholder", "lspSettings.initialization.title",
+  "lspSettings.discovery.overridePlaceholder",
+  "lspSettings.discovery.installDirectory",
+  "lspSettings.discovery.installDirectoryPlaceholder",
+  "lspSettings.initialization.title",
   "lspSettings.initialization.description", "lspSettings.initialization.placeholder",
   "lspSettings.initialization.invalidJson", "lspSettings.initialization.objectRequired",
   "lspSettings.initialization.tooLarge", "lspSettings.trust.title",
@@ -71,6 +75,10 @@ const requiredKeys = [
   "lspSettings.reason.cancelled", "lspSettings.reason.untrusted",
   "lspSettings.reason.unsupported_method", "lspSettings.reason.invalid_configuration",
   "lspSettings.reason.unsupported_on_this_platform",
+  "lspSettings.reason.prerequisite_missing",
+  "lspSettings.reason.install_directory_not_set",
+  "lspSettings.reason.launcher_not_found",
+  "lspSettings.reason.ambiguous_install",
 ] as const;
 
 describe("LSP settings localization", () => {
