@@ -548,10 +548,8 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
     )?;
     repair_missing_stable_participant_schema(conn)?;
     repair_missing_cli_parameter_profile_schema(conn)?;
-
     // Fail fast when a migration was skipped or the persisted history contains a gap.
     assert_migration_history_is_dense(conn)?;
-
     Ok(())
 }
 

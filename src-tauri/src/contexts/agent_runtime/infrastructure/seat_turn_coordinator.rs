@@ -14,7 +14,6 @@ use crate::contexts::agent_runtime::application::{
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-
 /// How long a single seat's turn may take before the round is abandoned. Generous, because a CLI
 /// Agent doing real work routinely runs for minutes; the point is to release the round rather than
 /// to bound the work.
@@ -26,7 +25,6 @@ pub(crate) struct NativeSeatTurnCoordinator {
     runtime: AgentRuntimeApplicationService,
     running: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
 }
-
 impl NativeSeatTurnCoordinator {
     pub(crate) fn new(runtime: AgentRuntimeApplicationService) -> Self {
         Self {
@@ -107,7 +105,6 @@ impl NativeSeatTurnCoordinator {
             }
         }
     }
-
     fn await_terminal(
         &self,
         session_id: &str,
