@@ -43,14 +43,6 @@ pub(crate) trait ReviewDecisionRepository: Send + Sync {
     ) -> Result<Vec<ReviewFileViewState>, ReviewApplicationError>;
 
     /// Every hunk decision recorded for a review, in path then fingerprint order.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the write path is live; reading decisions back is what 13.10's per-hunk \
-                 controls render"
-        )
-    )]
     fn list_hunk_decisions(
         &self,
         review_id: &str,
@@ -204,6 +196,20 @@ pub(crate) struct ReviewSummary {
 pub(crate) struct ReviewView {
     pub(crate) session: ReviewSession,
     pub(crate) summary: ReviewSummary,
+    /// Every hunk decision the review holds, current or not.
+    ///
+    /// Not filtered to the review's snapshot, and that is deliberate. The snapshot fingerprint
+    /// covers every changed file, so filtering by it would drop every decision the moment an agent
+    /// touched any file — the same mistake the Viewed mark avoids by witnessing to the file. A
+    /// decision applies while its *hunk* is unchanged, and a hunk that changed has a different
+    /// fingerprint, so the reader matches on that and a stale decision simply matches nothing.
+    pub(crate) hunk_decisions: Vec<ReviewHunkDecision>,
+    /// Which of the review's current files carry a Viewed mark that still applies.
+    ///
+    /// Paths rather than a count, because the panel needs to answer "is *this* file read" for the
+    /// one on screen, and a count cannot. The count stays beside it: a header that recomputed it
+    /// from this list would be a second answer to a question the summary already answers.
+    pub(crate) viewed_paths: Vec<String>,
 }
 
 /// What a caller is asking to mark as read, and the diff they read.
@@ -594,7 +600,7 @@ impl ReviewApplicationService {
         session: ReviewSession,
     ) -> Result<ReviewView, ReviewApplicationError> {
         let states = self.decisions.list_file_view_states(&session.id)?;
-        let viewed_files = session
+        let viewed_paths = session
             .files()
             .iter()
             .filter(|file| {
@@ -603,10 +609,11 @@ impl ReviewApplicationService {
                     state.viewed && state.path == file.path && state.file_witness == witness
                 })
             })
-            .count();
+            .map(|file| file.path.clone())
+            .collect::<Vec<_>>();
         let summary = ReviewSummary {
             changed_files: session.files().len(),
-            viewed_files,
+            viewed_files: viewed_paths.len(),
             unresolved_comments: session
                 .comments()
                 .iter()
@@ -618,7 +625,13 @@ impl ReviewApplicationService {
                 .filter(|finding| !finding.resolved)
                 .count(),
         };
-        Ok(ReviewView { session, summary })
+        let hunk_decisions = self.decisions.list_hunk_decisions(&session.id)?;
+        Ok(ReviewView {
+            hunk_decisions,
+            session,
+            summary,
+            viewed_paths,
+        })
     }
 
     /// Every file view state this review holds, whether or not it still applies.
@@ -683,8 +696,8 @@ impl ReviewApplicationService {
         not(test),
         expect(
             dead_code,
-            reason = "the write path is live; reading decisions back is what 13.10's per-hunk \
-                 controls render"
+            reason = "the view carries these to callers; the direct read is for tests that are \
+                 about the store rather than about a review"
         )
     )]
     pub(crate) fn hunk_decisions(

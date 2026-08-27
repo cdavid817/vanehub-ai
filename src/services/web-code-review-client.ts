@@ -50,16 +50,22 @@ export function createWebCodeReviewClient(workspace: WorkspaceReviewSource) {
   /** Recomputed on every read: the marks and the files both move, and a stored count would not. */
   const summarize = (review: CodeReview): ReviewSummary => ({
     changedFiles: review.files.length,
-    viewedFiles: review.files.filter((file) => {
-      const mark = fileViews.get(JSON.stringify([review.id, file.path]));
-      return Boolean(mark?.viewed) && mark?.fileWitness === witnessOf(file);
-    }).length,
+    viewedFiles: review.files.filter((file) => isViewed(review, file)).length,
     unresolvedComments: review.comments.filter((comment) => comment.status !== "resolved").length,
     unresolvedFindings: review.findings.filter((finding) => !finding.resolved).length,
   });
+  const isViewed = (review: CodeReview, file: ReviewFileSummary) => {
+    const mark = fileViews.get(JSON.stringify([review.id, file.path]));
+    return Boolean(mark?.viewed) && mark?.fileWitness === witnessOf(file);
+  };
   const withSummary = (review: CodeReview) => {
     const clone = structuredClone(review);
+    clone.files = clone.files.map((file) => ({ ...file, viewed: isViewed(clone, file) }));
     clone.summary = summarize(clone);
+    clone.hunkDecisions = [...hunkDecisions.entries()].flatMap(([key, decision]) => {
+      const [reviewId, relativePath, hunkFingerprint] = JSON.parse(key) as [string, string, string];
+      return reviewId === clone.id ? [{ decision, hunkFingerprint, relativePath }] : [];
+    });
     return clone;
   };
   const find = (reviewId: string) => {
@@ -74,6 +80,7 @@ export function createWebCodeReviewClient(workspace: WorkspaceReviewSource) {
         path: item.path,
         previousPath: item.previousPath ?? undefined,
         changeType: item.worktree !== "unmodified" ? item.worktree : item.index,
+        viewed: false,
       }));
       const snapshot = fingerprint(JSON.stringify(files));
       const recovered = [...reviews.values()].find((review) => review.sessionId === sessionId && review.status === "active");
@@ -103,6 +110,7 @@ export function createWebCodeReviewClient(workspace: WorkspaceReviewSource) {
         files,
         comments: [],
         findings: [],
+        hunkDecisions: [],
         // Replaced on the way out by `withSummary`. Present here only because the type requires a
         // review to carry one, and a review with no files has read none of them.
         summary: { changedFiles: files.length, viewedFiles: 0, unresolvedComments: 0, unresolvedFindings: 0 },

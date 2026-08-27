@@ -48,6 +48,9 @@ pub(crate) struct ReviewAnchorDto {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ReviewFileDto {
+    /// Whether this file's Viewed mark is current. Overlaid by the view conversion, because the
+    /// marks live in a store the aggregate does not carry.
+    viewed: bool,
     path: String,
     previous_path: Option<String>,
     change_type: String,
@@ -94,6 +97,21 @@ pub(crate) struct ReviewSessionDto {
     comments: Vec<ReviewCommentDto>,
     findings: Vec<ReviewFindingDto>,
     summary: ReviewSummaryDto,
+    hunk_decisions: Vec<ReviewHunkDecisionDto>,
+}
+
+/// One hunk's decision, as the panel needs to render it.
+///
+/// Matched by `hunkFingerprint` on the reading side, so a decision survives an edit to a different
+/// hunk and stops applying to one that changed. The snapshot it was recorded against is not sent:
+/// it is provenance, and a caller that used it to decide what to show would drop every decision
+/// whenever any file in the review moved.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ReviewHunkDecisionDto {
+    relative_path: String,
+    hunk_fingerprint: String,
+    decision: &'static str,
 }
 
 /// The header's four numbers.
@@ -130,8 +148,28 @@ impl From<ReviewSummary> for ReviewSummaryDto {
 /// caller can produce that sentence by accident.
 impl From<ReviewView> for ReviewSessionDto {
     fn from(view: ReviewView) -> Self {
+        let hunk_decisions = view
+            .hunk_decisions
+            .into_iter()
+            .map(|recorded| ReviewHunkDecisionDto {
+                relative_path: recorded.path,
+                hunk_fingerprint: recorded.hunk_fingerprint,
+                decision: decision(recorded.decision),
+            })
+            .collect();
         let review = view.session;
-        let files = review.files().iter().cloned().map(Into::into).collect();
+        let files = review
+            .files()
+            .iter()
+            .cloned()
+            .map(|file| {
+                let viewed = view.viewed_paths.contains(&file.path);
+                ReviewFileDto {
+                    viewed,
+                    ..ReviewFileDto::from(file)
+                }
+            })
+            .collect();
         let comments = review.comments().iter().cloned().map(Into::into).collect();
         let findings = review.findings().iter().cloned().map(Into::into).collect();
         Self {
@@ -149,11 +187,17 @@ impl From<ReviewView> for ReviewSessionDto {
             comments,
             findings,
             summary: view.summary.into(),
+            hunk_decisions,
         }
     }
 }
 
 impl From<ReviewFile> for ReviewFileDto {
+    /// Unviewed unless the view says otherwise.
+    ///
+    /// Safe to default here in a way `viewed_files` was not: the aggregate genuinely holds no mark
+    /// for this file, and the conversion that can see the store overlays every one it finds. A
+    /// count defaulted the same way would have claimed the reviewer had read nothing.
     fn from(file: ReviewFile) -> Self {
         Self {
             path: file.path,
@@ -161,6 +205,7 @@ impl From<ReviewFile> for ReviewFileDto {
             change_type: file.change_type,
             old_hash: file.old_hash,
             new_hash: file.new_hash,
+            viewed: false,
         }
     }
 }

@@ -167,14 +167,6 @@ fn decision_value(decision: ReviewDecision) -> &'static str {
 /// The column has a CHECK that makes it unreachable through this application, so reading one back
 /// means the row came from somewhere else. Refusing beats defaulting to `Pending`, which would
 /// present tampered data as "nobody has decided".
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the write path is live; reading decisions back arrives with 13.6's \
-                 review summary counts"
-    )
-)]
 fn parse_decision(value: &str) -> Result<ReviewDecision, ReviewApplicationError> {
     match value {
         "pending" => Ok(ReviewDecision::Pending),

@@ -28,7 +28,9 @@ fn review_dto_uses_stable_camel_case_and_explicit_enum_values() {
     .unwrap();
     review.set_timestamps("created".into(), "updated".into());
     let value = serde_json::to_value(ReviewSessionDto::from(ReviewView {
+        hunk_decisions: Vec::new(),
         session: review,
+        viewed_paths: Vec::new(),
         summary: ReviewSummary {
             changed_files: 1,
             viewed_files: 0,
@@ -60,7 +62,16 @@ fn review_summary_crosses_as_four_named_counts() {
     .unwrap();
     review.set_timestamps("created".into(), "updated".into());
     let value = serde_json::to_value(ReviewSessionDto::from(ReviewView {
+        hunk_decisions: vec![ReviewHunkDecision::try_new(
+            "src/main.rs".into(),
+            "hunk-1".into(),
+            "snapshot".into(),
+            ReviewDecision::Accepted,
+            "2026-08-27T00:00:00Z".into(),
+        )
+        .unwrap()],
         session: review,
+        viewed_paths: vec!["src/main.rs".into()],
         summary: ReviewSummary {
             changed_files: 8,
             viewed_files: 4,
@@ -80,6 +91,17 @@ fn review_summary_crosses_as_four_named_counts() {
     // Unviewed is the subtraction, and it is the caller's to make. Shipping it as well would be a
     // fifth number that can disagree with the two it came from.
     assert!(value["summary"].get("unviewedFiles").is_none());
+
+    // Matched by fingerprint on the reading side, so a decision survives an edit to a different
+    // hunk. The snapshot it was recorded against is not sent: a caller that filtered on it would
+    // drop every decision whenever any file in the review moved.
+    assert_eq!(value["hunkDecisions"][0]["relativePath"], "src/main.rs");
+    assert_eq!(value["hunkDecisions"][0]["hunkFingerprint"], "hunk-1");
+    assert_eq!(value["hunkDecisions"][0]["decision"], "accepted");
+    assert!(value["hunkDecisions"][0]
+        .get("snapshotFingerprint")
+        .is_none());
+    assert!(value["hunkDecisions"][0].get("decidedAt").is_none());
 }
 
 #[test]

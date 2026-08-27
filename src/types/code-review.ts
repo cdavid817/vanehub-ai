@@ -13,6 +13,8 @@ export interface ReviewAnchor {
 }
 
 export interface ReviewFileSummary {
+  /** Whether this file's Viewed mark is current. False for a file whose content moved since. */
+  viewed: boolean;
   path: string;
   previousPath?: string;
   changeType: string;
@@ -53,6 +55,19 @@ export interface ReviewSummary {
   unresolvedFindings: number;
 }
 
+/**
+ * One hunk's recorded decision.
+ *
+ * Matched by `hunkFingerprint`, so a decision survives an edit to a different hunk and stops
+ * applying to one that changed. The snapshot it was recorded against is deliberately not carried:
+ * a reader that filtered on it would drop every decision whenever any file in the review moved.
+ */
+export interface ReviewHunkDecisionRecord {
+  relativePath: string;
+  hunkFingerprint: string;
+  decision: ReviewDecision;
+}
+
 export interface CodeReview {
   id: string;
   sessionId: string;
@@ -68,6 +83,7 @@ export interface CodeReview {
   comments: ReviewComment[];
   findings: ReviewFinding[];
   summary: ReviewSummary;
+  hunkDecisions: ReviewHunkDecisionRecord[];
 }
 
 /**

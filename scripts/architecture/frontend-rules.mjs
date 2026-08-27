@@ -178,8 +178,13 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 截断的地方就截断了,读起来对、贴到 git apply 里必然失败。而 Web 构建里没有 git,谁也跑不出这个
 // 失败;夹具照着真实结构渲染,才不会让"可读"和"可应用"的区别恰好在这一侧消失。
 // 上限按实测值 21924 记录,不留余量。
+// 再次上调(同一 change,Task Group 13.10):+4,全部在 Web adapter 的 `withSummary` 里——把每个
+// 文件的 `viewed`、以及本次 review 的 hunk 决定一起投影到返回值上。
+// 值得说明的是为什么这四行不能省:面板只有在读取里拿得到这两样,重新加载后才不会把已记录的决定
+// 全部显示成"未决定"。夹具少投影一样,Web 侧就会长出一个桌面侧没有的行为差异。
+// 上限按实测值 21928 记录,不留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 21924, owner: "upgrade-session-workspace-evidence-console" },
+  { root: "src/services", budget: 21928, owner: "upgrade-session-workspace-evidence-console" },
 ]);
 
 const STATE_PACKAGES = new Set([
