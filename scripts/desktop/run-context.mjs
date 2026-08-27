@@ -1,8 +1,35 @@
 import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { DesktopVerificationError } from "./verification-error.mjs";
+
+/**
+ * Reserves a free loopback port for this run's WebDriver endpoint.
+ *
+ * The run root, data directory, CLI home and result directory are already per-run; the driver port
+ * was the one thing left shared, and a fixed one means two desktop runs on the same machine — a
+ * second worktree, or a rerun started before the previous driver had exited — answer on the same
+ * address. The loser sees `ECONNRESET` then `ECONNREFUSED` while creating a session, which is
+ * reported as whichever spec happened to start at that moment rather than as a collision.
+ *
+ * Binding to port 0 and releasing it leaves a short window before the driver claims it. That is the
+ * standard trade and far narrower than a constant.
+ */
+export async function reserveLoopbackPort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.on("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      server.close(() => {
+        if (address && typeof address === "object") resolve(address.port);
+        else reject(new DesktopVerificationError("BLOCKED", "No loopback port could be reserved."));
+      });
+    });
+  });
+}
 
 const normalize = (value) => process.platform === "win32" ? value.toLowerCase() : value;
 const isWithin = (parent, child) => {
@@ -61,6 +88,7 @@ export async function createRunContext(repoRoot, options = {}) {
     mkdir(cliConfigHome),
     mkdir(resultDir, { recursive: true }),
   ]);
+  const webdriverPort = options.webdriverPort ?? (await reserveLoopbackPort());
   const canonicalRoot = await realpath(runRoot);
   const canonicalData = await realpath(dataDir);
   validateIsolatedDataPath({
@@ -74,11 +102,19 @@ export async function createRunContext(repoRoot, options = {}) {
     dataDir: canonicalData,
     fixtureDir,
     resultDir,
+    webdriverPort,
     environment: {
       VANEHUB_APP_DATA_DIR: canonicalData,
       VANEHUB_CLI_CONFIG_HOME: cliConfigHome,
       VANEHUB_TEST_RUN_ID: runId,
       VANEHUB_DESKTOP_RESULT_DIR: resultDir,
+      VANEHUB_WEBDRIVER_PORT: String(webdriverPort),
+      // The same port under the name the service's direct-eval channel reads. `browser.tauri
+      // .execute` does not go through the WebDriver session: it POSTs to `/wdio/eval` on a port it
+      // takes from `TAURI_WEBDRIVER_PORT`, falling back to a hard-coded 4445 that has nothing to do
+      // with the service's `embeddedPort` option. Moving the driver without moving this leaves
+      // sessions creating cleanly while every `execute` fails with a bare `fetch failed`.
+      TAURI_WEBDRIVER_PORT: String(webdriverPort),
     },
   };
 }

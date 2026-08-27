@@ -58,6 +58,27 @@ test("creates isolated run paths and rejects unsafe aliases", async () => {
   await rm(tempRoot, { recursive: true, force: true });
 });
 
+test("gives every run its own WebDriver endpoint", async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "vanehub-port-test-"));
+  const repoRoot = path.join(tempRoot, "repo");
+  const first = await createRunContext(repoRoot, { tempRoot, runId: "port-1", normalDataDir: path.join(tempRoot, "normal") });
+  const second = await createRunContext(repoRoot, { tempRoot, runId: "port-2", normalDataDir: path.join(tempRoot, "normal") });
+
+  // Two runs on one machine must not answer on the same address. A constant port made the loser
+  // fail while creating a session, and the report named whichever spec started at that moment.
+  assert.notEqual(first.webdriverPort, second.webdriverPort);
+  for (const context of [first, second]) {
+    assert.ok(Number.isInteger(context.webdriverPort) && context.webdriverPort > 1024);
+    // Two names, one port, and both are load-bearing. The wdio config starts the driver on
+    // VANEHUB_WEBDRIVER_PORT; `browser.tauri.execute` bypasses the WebDriver session entirely and
+    // POSTs to a port it reads from TAURI_WEBDRIVER_PORT, defaulting to a hard-coded 4445. Setting
+    // only the first leaves sessions creating cleanly while every execute fails with `fetch failed`.
+    assert.equal(context.environment.VANEHUB_WEBDRIVER_PORT, String(context.webdriverPort));
+    assert.equal(context.environment.TAURI_WEBDRIVER_PORT, String(context.webdriverPort));
+  }
+  await rm(tempRoot, { recursive: true, force: true });
+});
+
 test("uses explicit result states and failure exit codes", () => {
   assert.equal(verificationExitCode("PASSED"), 0);
   assert.equal(verificationExitCode("FAILED"), 1);

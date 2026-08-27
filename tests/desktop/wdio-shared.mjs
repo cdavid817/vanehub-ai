@@ -70,11 +70,25 @@ export async function createDesktopConfig({ specDirectory, specFiles, environmen
     waitforTimeout: 20_000,
     connectionRetryTimeout: 120_000,
     connectionRetryCount: 1,
+    // One embedded driver serves every spec file in a run, and it is torn down and brought back
+    // between them. A worker that posts `/session` into that window gets `ECONNRESET` and then
+    // `ECONNREFUSED`, which surfaces as whichever spec happened to start at that moment — three
+    // different specs on three consecutive sweeps, none of them actually broken.
+    // `connectionRetryCount` cannot cover it: its retry lands milliseconds later, well inside the
+    // restart. Deferred so the retry runs at the end of the sweep, by which point the driver is up.
+    // Retries are reported, so a genuinely failing spec still shows as failing rather than passing
+    // quietly on a second attempt.
+    specFileRetries: 1,
+    specFileRetriesDeferred: true,
     framework: "mocha",
     reporters: ["spec"],
     mochaOpts: { ui: "bdd", timeout: 300_000 },
     afterTest: async (test, _context, result) => {
-      if (!result.passed) {
+      // A skipped test reports `passed: false` too, and a spec that blocked on a missing host
+      // dependency skips every case it has. Screenshotting those photographs a screen nobody
+      // asserted anything about, and it is the command that trips over a session already being
+      // torn down — turning a legitimately blocked spec into a failed one.
+      if (!result.passed && test.pending !== true) {
         const slug = `${test.parent ?? "spec"}-${test.title ?? "test"}`
           .replaceAll(/[^\p{L}\p{N}]+/gu, "-")
           .replaceAll(/^-|-$/g, "")
