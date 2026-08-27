@@ -1,5 +1,7 @@
 use crate::contexts::agent_runtime::api::AgentRuntimeApplicationError;
 use crate::contexts::communications::api::CommunicationsApplicationError;
+#[cfg(feature = "desktop-e2e")]
+use crate::contexts::communications::infrastructure::FeishuFixtureError;
 use crate::contexts::desktop::api::{DesktopSettingsError, FloatingAssistantError};
 use crate::contexts::operations::application::ApplicationError;
 use crate::contexts::permissions::api::PermissionsApplicationError;
@@ -182,6 +184,16 @@ impl From<CommunicationsApplicationError> for CommandError {
     }
 }
 
+#[cfg(feature = "desktop-e2e")]
+impl From<FeishuFixtureError> for CommandError {
+    fn from(error: FeishuFixtureError) -> Self {
+        match error {
+            FeishuFixtureError::Validation(message) => Self::validation(message),
+            FeishuFixtureError::Storage(message) => Self::storage(message),
+        }
+    }
+}
+
 impl From<SkillToolApplicationError> for CommandError {
     fn from(error: SkillToolApplicationError) -> Self {
         let code = error.code().to_string();
@@ -228,6 +240,9 @@ impl From<AgentRuntimeApplicationError> for CommandError {
                 category: CommandErrorCategory::Unavailable,
                 message: format!("agent is unavailable: {message}"),
             },
+            AgentRuntimeApplicationError::InvalidSeatMention { .. } => {
+                Self::validation("mentioned seat is unavailable")
+            }
             AgentRuntimeApplicationError::UnsupportedInteractionMode(mode) => Self {
                 category: CommandErrorCategory::Unsupported,
                 message: format!("unsupported interaction mode: {mode}"),

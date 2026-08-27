@@ -107,6 +107,26 @@ pub(crate) struct SessionBinding {
     pub(crate) updated_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SessionConnectorAccess {
+    pub(crate) session_id: String,
+    pub(crate) connector: ConnectorKind,
+    pub(crate) enabled: bool,
+    pub(crate) updated_at: String,
+}
+
+impl SessionConnectorAccess {
+    pub(crate) fn disabled(session_id: impl Into<String>, connector: ConnectorKind) -> Self {
+        Self {
+            session_id: session_id.into(),
+            connector,
+            enabled: false,
+            updated_at: "1970-01-01T00:00:00Z".to_string(),
+        }
+    }
+}
+
 impl SessionBinding {
     pub(crate) fn is_active(&self) -> bool {
         self.state == BindingState::Active

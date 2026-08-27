@@ -31,6 +31,39 @@ if (["doctor", "login", "auth"].includes(process.argv[2])) {
   process.exit(0);
 }
 
+if (process.argv.slice(2).includes("run")) {
+  const prompt = process.argv.slice(2).join(" ");
+  if (prompt.includes("VANEHUB_E2E_SLOW")) {
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
+  const finalText = prompt.includes("VANEHUB_E2E_OVERSIZED")
+    ? "界".repeat(20_001)
+    : "deterministic fixture final";
+  process.stdout.write(`${JSON.stringify({
+    type: "text",
+    sessionID: "fixture-session",
+    part: {
+      id: "fixture-text",
+      messageID: "fixture-message",
+      sessionID: "fixture-session",
+      type: "text",
+      text: finalText,
+    },
+  })}\n`);
+  process.stdout.write(`${JSON.stringify({
+    type: "step_finish",
+    sessionID: "fixture-session",
+    part: {
+      id: "fixture-finish",
+      reason: "stop",
+      messageID: "fixture-message",
+      sessionID: "fixture-session",
+      type: "step-finish",
+    },
+  })}\n`);
+  process.exit(0);
+}
+
 process.stdout.write(`${READY}\n`);
 
 let pending = "";

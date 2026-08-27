@@ -22,6 +22,6 @@ pub(crate) use error::CommunicationsDomainError;
 pub(crate) use routing::ChatBinding;
 pub(crate) use routing::{
     BindingState, ChatBindingKey, CheckpointKey, ConnectorCheckpoint, InboundEventIdentity,
-    PairingIntent, RoutingSettings, SessionBinding,
+    PairingIntent, RoutingSettings, SessionBinding, SessionConnectorAccess,
 };
 pub(crate) use status::{ConnectorHealth, ConnectorLifecycle, ConnectorStatus};

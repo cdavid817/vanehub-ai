@@ -84,7 +84,8 @@ export async function createRunContext(repoRoot, options = {}) {
   // stores and `VANEHUB_CLI_CONFIG_HOME` covers what the CLI agents store, but anything either one
   // resolves through the *platform's* home -- a cache, a keyring path, a tool's dotfile -- still
   // landed in the developer's real profile and outlived the run.
-  const resultDir = path.join(repoRoot, "test-results", "desktop", runId);
+  const resultScope = options.resultScope ?? "desktop";
+  const resultDir = path.join(repoRoot, "test-results", resultScope, runId);
   await Promise.all([
     mkdir(dataDir),
     mkdir(fixtureDir),

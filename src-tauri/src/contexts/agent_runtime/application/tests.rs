@@ -143,7 +143,7 @@ type ActiveGeneration = (
 );
 
 pub(super) struct FakeWorld {
-    agents: Mutex<Vec<AgentDefinition>>,
+    pub(super) agents: Mutex<Vec<AgentDefinition>>,
     expert_roles: Mutex<Vec<crate::contexts::agent_runtime::domain::ExpertRole>>,
     workflow: Mutex<AgentWorkflow>,
     details: Mutex<(String, BTreeMap<String, String>)>,

@@ -11,6 +11,8 @@ pub mod wechat;
 pub mod wecom;
 pub mod wecom_raw;
 
+#[cfg(feature = "desktop-e2e")]
+pub(crate) use protocol::normalize_fixture;
 #[cfg(test)]
 pub(crate) use runtime::submit_inbound;
 pub(crate) use runtime::SafeDiagnosticSink;

@@ -2493,7 +2493,7 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // is the fixed cost of registering any migration here, so this budget moves by the same
         // amount every time one lands -- it bounds this subtree's own growth, not the migration
         // count.
-        budget: 3_279,
+        budget: 3_280,
         owner: "split-database-migrations",
     },
 ];

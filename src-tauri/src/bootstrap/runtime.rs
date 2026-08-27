@@ -433,6 +433,8 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     app.manage(telemetry_lifecycle);
     app.manage(execution_observability_api);
     app.manage(evaluation_api);
+    #[cfg(feature = "desktop-e2e")]
+    app.manage(crate::contexts::communications::infrastructure::FeishuDesktopFixture::default());
     app.manage(communications_api.clone());
     app.manage(wechat_authorization_api);
     app.manage(desktop_settings_api.clone());

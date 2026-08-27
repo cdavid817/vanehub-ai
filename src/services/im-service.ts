@@ -6,10 +6,10 @@ import type {
   ImRouting,
   ImSessionBinding,
   ImSessionBindingView,
+  ImSessionAccess,
   SaveImConnectorInput,
   WeChatAuthorization,
 } from "../contracts/im";
-
 export interface ImService {
   listConnectors(): Promise<ImConnectorView[]>;
   getRouting(): Promise<ImRouting | null>;
@@ -21,6 +21,7 @@ export interface ImService {
   clearConnector(kind: ImConnectorKind): Promise<void>;
   resetBindings(kind?: ImConnectorKind): Promise<void>;
   getSessionBinding(sessionId: string): Promise<ImSessionBindingView>;
+  setSessionAccess(sessionId: string, connector: ImConnectorKind, enabled: boolean): Promise<ImSessionAccess>;
   beginPairing(sessionId: string, connector: ImConnectorKind, replaceExisting?: boolean): Promise<ImPairingStart>;
   cancelPairing(sessionId: string, connector: ImConnectorKind): Promise<boolean>;
   setBindingPaused(sessionId: string, paused: boolean): Promise<ImSessionBinding>;

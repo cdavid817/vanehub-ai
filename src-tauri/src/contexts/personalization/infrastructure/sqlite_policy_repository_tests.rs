@@ -44,7 +44,7 @@ fn agent_scope() -> PersonalizationPolicyScope {
 }
 
 #[test]
-fn migration_87_creates_the_personalization_tables_and_indexes() {
+fn migration_88_creates_the_personalization_tables_and_indexes() {
     let fixture = fixture("schema");
     let connection = fixture
         .repository
@@ -65,7 +65,7 @@ fn migration_87_creates_the_personalization_tables_and_indexes() {
                 |row| row.get(0),
             )
             .expect("table lookup");
-        assert_eq!(present, 1, "{table} must exist after migration 87");
+        assert_eq!(present, 1, "{table} must exist after migration 88");
     }
 
     for index in [
@@ -85,7 +85,7 @@ fn migration_87_creates_the_personalization_tables_and_indexes() {
                 |row| row.get(0),
             )
             .expect("index lookup");
-        assert_eq!(present, 1, "{index} must exist after migration 87");
+        assert_eq!(present, 1, "{index} must exist after migration 88");
     }
 
     // The singleton migration-state row is seeded so later code never has to branch on "no row".

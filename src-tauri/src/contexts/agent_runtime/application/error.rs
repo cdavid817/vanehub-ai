@@ -11,6 +11,7 @@ pub(crate) enum AgentRuntimeApplicationError {
     MessageNotFound(String),
     NoActiveAgent,
     AgentUnavailable(String),
+    InvalidSeatMention { valid_mentions: Vec<String> },
     UnsupportedInteractionMode(String),
     GenerationConflict(String),
     PolicyDenied { session_id: String, action: String },
@@ -50,6 +51,11 @@ impl fmt::Display for AgentRuntimeApplicationError {
             }
             Self::NoActiveAgent => formatter.write_str("No active agent selected."),
             Self::AgentUnavailable(message) => write!(formatter, "Agent unavailable: {message}"),
+            Self::InvalidSeatMention { valid_mentions } => write!(
+                formatter,
+                "Mentioned seat is unavailable; valid seat count: {}",
+                valid_mentions.len()
+            ),
             Self::UnsupportedInteractionMode(mode) => {
                 write!(formatter, "Unsupported interaction mode: {mode}")
             }

@@ -11,16 +11,17 @@
 
 use super::service::MessageGenerationInput;
 use super::{
-    AgentChatConfiguration, AgentEvent, AgentRuntimeApplicationError,
-    AgentRuntimeApplicationService, AgentSession, SeatTurnOwnership, SeatTurnStatus,
-    SeatTurnTerminal,
+    AgentChatConfiguration, AgentEvent, AgentMessageTerminal, AgentMessageTerminalOutcome,
+    AgentRuntimeApplicationError, AgentRuntimeApplicationService, AgentSession, SeatTurnOwnership,
+    SeatTurnStatus, SeatTurnTerminal,
 };
 use crate::contexts::agent_runtime::domain::{
     apply_human_handoff, build_seat_briefing, build_seat_context, derive_mentions,
     next_turn_targets, normalize_model_family, parse_human_handoff, route_user_message,
     ChainEndReason, SeatBriefingEntry, SeatContextMode, SeatTurn as SeatContextTurn,
+    UserMessageRoute,
 };
-use crate::contexts::agent_runtime::domain::{AgentDefinition, InteractionMode};
+use crate::contexts::agent_runtime::domain::{AgentAvailability, AgentDefinition, InteractionMode};
 use uuid::Uuid;
 
 /// Inherited defaults that have not been measured against this runtime, so they live here as
@@ -45,6 +46,7 @@ pub(crate) struct SeatRosterEntry {
     pub(crate) seat_id: String,
     pub(crate) seat_index: usize,
     pub(crate) agent_id: String,
+    pub(crate) available: bool,
     pub(crate) briefing: SeatBriefingEntry,
 }
 
@@ -73,6 +75,7 @@ pub(crate) struct SeatTurnDecision {
 /// A seat the coordinator is to invoke, and how deep into the chain that turn sits.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SeatTurnAssignment {
+    pub(crate) source: super::AgentMessageSource,
     pub(crate) seat_id: String,
     pub(crate) seat_index: usize,
     pub(crate) depth: usize,
@@ -102,6 +105,38 @@ fn seat_speaker<'a>(
 }
 
 impl AgentRuntimeApplicationService {
+    pub(crate) fn complete_seat_round(
+        &self,
+        terminal: &SeatTurnTerminal,
+    ) -> Result<bool, AgentRuntimeApplicationError> {
+        let (outcome, content) = match terminal.reply.clone() {
+            Some(reply) => (AgentMessageTerminalOutcome::Completed, Some(reply)),
+            None => (AgentMessageTerminalOutcome::Failed, None),
+        };
+        self.ports
+            .message_completions
+            .deliver(AgentMessageTerminal {
+                session_id: terminal.session_id.clone(),
+                message_id: terminal.message_id.clone(),
+                outcome,
+                content,
+            })
+    }
+
+    pub(crate) fn fail_seat_round(
+        &self,
+        terminal: &SeatTurnTerminal,
+    ) -> Result<bool, AgentRuntimeApplicationError> {
+        self.ports
+            .message_completions
+            .deliver(AgentMessageTerminal {
+                session_id: terminal.session_id.clone(),
+                message_id: terminal.message_id.clone(),
+                outcome: AgentMessageTerminalOutcome::Failed,
+                content: None,
+            })
+    }
+
     /// Whether a session has more than one participant, and therefore a turn to hand off.
     ///
     /// A missing session answers `false`: there is nothing to coordinate, and reporting the lookup
@@ -164,6 +199,7 @@ impl AgentRuntimeApplicationService {
                         seat_id,
                         seat_index,
                         agent_id,
+                        available: agent.availability().state() == AgentAvailability::Available,
                         briefing: SeatBriefingEntry {
                             mention,
                             role_name,
@@ -221,6 +257,7 @@ impl AgentRuntimeApplicationService {
         &self,
         session: &AgentSession,
         content: &str,
+        source: &super::AgentMessageSource,
     ) -> Result<Option<(SeatRosterEntry, SeatTurnOwnership, String)>, AgentRuntimeApplicationError>
     {
         let roster = self.seat_roster(session)?;
@@ -241,10 +278,22 @@ impl AgentRuntimeApplicationService {
             last_holder.as_deref(),
             &first.briefing.mention,
         );
+        let valid_mentions = roster
+            .iter()
+            .filter(|entry| entry.available)
+            .map(|entry| entry.briefing.mention.clone())
+            .collect::<Vec<_>>();
+        let addressed = match addressed {
+            UserMessageRoute::Seat(mention) => mention,
+            UserMessageRoute::InvalidMention => {
+                return Err(AgentRuntimeApplicationError::InvalidSeatMention { valid_mentions });
+            }
+        };
         let seat = roster
             .iter()
             .find(|entry| entry.briefing.mention == addressed)
-            .unwrap_or(first);
+            .filter(|entry| entry.available)
+            .ok_or(AgentRuntimeApplicationError::InvalidSeatMention { valid_mentions })?;
         let others = roster
             .iter()
             .filter(|entry| entry.seat_index != seat.seat_index)
@@ -259,6 +308,7 @@ impl AgentRuntimeApplicationService {
         Ok(Some((
             seat.clone(),
             SeatTurnOwnership {
+                source: source.clone(),
                 seat_id: seat.seat_id.clone(),
                 seat_index: seat.seat_index,
                 seat_mention: seat.briefing.mention.clone(),
@@ -343,6 +393,7 @@ impl AgentRuntimeApplicationService {
                     .iter()
                     .find(|entry| &entry.briefing.mention == mention)
                     .map(|entry| SeatTurnAssignment {
+                        source: terminal.source.clone(),
                         seat_id: entry.seat_id.clone(),
                         seat_index: entry.seat_index,
                         depth: terminal.depth + 1,
@@ -439,12 +490,13 @@ impl AgentRuntimeApplicationService {
             &session,
             &agent,
             MessageGenerationInput {
-                source: super::AgentMessageSource::Desktop,
+                source: assignment.source.clone(),
                 configuration,
                 content: prompt,
                 file_references: Vec::new(),
                 role_briefing: Some(briefing),
                 seat_ownership: Some(SeatTurnOwnership {
+                    source: assignment.source.clone(),
                     seat_id: seat.seat_id.clone(),
                     seat_index: seat.seat_index,
                     seat_mention: seat.briefing.mention.clone(),

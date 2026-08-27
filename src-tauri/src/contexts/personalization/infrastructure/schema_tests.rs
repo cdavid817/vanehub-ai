@@ -4,7 +4,7 @@ use tempfile::TempDir;
 use super::schema::apply_schema;
 use crate::platform::database::NativeDatabase;
 
-/// Every table migration 87 owns.
+/// Every table migration 88 owns.
 const EXPECTED_TABLES: &[&str] = &[
     "personalization_policy_overrides",
     "personalization_memory_projection",
@@ -41,7 +41,7 @@ fn object_exists(conn: &Connection, kind: &str, name: &str) -> bool {
         > 0
 }
 
-/// Columns migration 87 must create beyond the ones a summary reads.
+/// Columns migration 88 must create beyond the ones a summary reads.
 ///
 /// Listed explicitly because a missing one is a silent provenance loss rather than a failure: the
 /// insert would error at runtime, long after the migration reported success.
@@ -68,19 +68,19 @@ fn assert_full_schema(conn: &Connection) {
     for table in EXPECTED_TABLES {
         assert!(
             object_exists(conn, "table", table),
-            "{table} must exist after migration 87"
+            "{table} must exist after migration 88"
         );
     }
     for index in EXPECTED_INDEXES {
         assert!(
             object_exists(conn, "index", index),
-            "{index} must exist after migration 87"
+            "{index} must exist after migration 88"
         );
     }
     for column in EXPECTED_PROJECTION_COLUMNS {
         assert!(
             column_exists(conn, "personalization_memory_projection", column),
-            "personalization_memory_projection.{column} must exist after migration 87"
+            "personalization_memory_projection.{column} must exist after migration 88"
         );
     }
 }
@@ -99,11 +99,11 @@ fn a_fresh_database_reaches_the_full_personalization_schema() {
             row.get(0)
         })
         .expect("migration version");
-    assert!(version >= 87);
+    assert!(version >= 88);
 
     let recorded: String = connection
         .query_row(
-            "SELECT name FROM schema_migrations WHERE version = 87",
+            "SELECT name FROM schema_migrations WHERE version = 88",
             [],
             |row| row.get(0),
         )
@@ -112,7 +112,7 @@ fn a_fresh_database_reaches_the_full_personalization_schema() {
 }
 
 #[test]
-fn upgrading_a_database_that_predates_migration_87_creates_the_whole_schema() {
+fn upgrading_a_database_that_predates_migration_88_creates_the_whole_schema() {
     // Stands in for a database built on `main`: every personalization object is removed and the
     // version row rolled back, so the upgrade path runs from the state a pre-branch installation
     // would actually be in.
@@ -140,10 +140,10 @@ fn upgrading_a_database_that_predates_migration_87_creates_the_whole_schema() {
             .execute(&format!("DROP TABLE IF EXISTS {table}"), [])
             .expect("drop table");
     }
-    // Everything from 87 up, not 87 alone: the density check refuses a history with a hole, and a
+    // Everything from 88 up, not 88 alone: the density check refuses a history with a hole, and a
     // later migration's row would leave one behind.
     connection
-        .execute("DELETE FROM schema_migrations WHERE version >= 87", [])
+        .execute("DELETE FROM schema_migrations WHERE version >= 88", [])
         .expect("roll the version back");
 
     let version_before: i64 = connection
@@ -152,7 +152,7 @@ fn upgrading_a_database_that_predates_migration_87_creates_the_whole_schema() {
         })
         .expect("version");
     assert_eq!(
-        version_before, 86,
+        version_before, 87,
         "the fixture is at the pre-branch version"
     );
     for table in EXPECTED_TABLES {
@@ -169,7 +169,7 @@ fn upgrading_a_database_that_predates_migration_87_creates_the_whole_schema() {
             row.get(0)
         })
         .expect("version");
-    assert!(version_after >= 87);
+    assert!(version_after >= 88);
 }
 
 #[test]
@@ -226,7 +226,7 @@ fn a_failing_migration_leaves_no_partial_schema_and_no_version_row() {
             .expect("drop table");
     }
     connection
-        .execute("DELETE FROM schema_migrations WHERE version >= 87", [])
+        .execute("DELETE FROM schema_migrations WHERE version >= 88", [])
         .expect("roll back the version");
 
     let transaction = connection.transaction().expect("transaction");
@@ -248,7 +248,7 @@ fn a_failing_migration_leaves_no_partial_schema_and_no_version_row() {
         })
         .expect("version");
     assert_eq!(
-        version, 86,
+        version, 87,
         "no version may be recorded for a migration that rolled back"
     );
 }

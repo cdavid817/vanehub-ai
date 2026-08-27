@@ -800,7 +800,12 @@ impl AgentRuntimeApi {
         &self,
         request: SendMessageRequest,
     ) -> Result<StartedAgentMessage, AgentRuntimeApplicationError> {
-        self.service.send_message_with_completion(request)
+        let session_id = request.session_id.clone();
+        let message = self.service.send_message_with_completion(request)?;
+        if self.service.is_multi_seat_session(&session_id) {
+            self.seat_turns.schedule(&session_id)?;
+        }
+        Ok(message)
     }
 
     pub(crate) fn send_evaluation_message_with_completion(

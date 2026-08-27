@@ -145,6 +145,34 @@ pub(crate) fn apply_session_binding_schema(connection: &Connection) -> Result<()
     Ok(())
 }
 
+pub(crate) fn apply_session_connector_access_schema(
+    connection: &Connection,
+) -> Result<(), DatabaseError> {
+    connection.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS im_session_connector_access (
+            session_id TEXT NOT NULL,
+            connector TEXT NOT NULL CHECK (
+                connector IN ('feishu', 'telegram', 'dingtalk', 'wecom', 'weixin')
+            ),
+            enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (session_id, connector),
+            FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_im_session_connector_access_enabled
+            ON im_session_connector_access(connector, enabled, session_id);
+
+        INSERT OR IGNORE INTO im_session_connector_access
+            (session_id, connector, enabled, updated_at)
+        SELECT session_id, 'feishu', 1, updated_at
+        FROM im_session_bindings
+        WHERE connector = 'feishu';
+        "#,
+    )?;
+    Ok(())
+}
+
 fn migrate_legacy_wechat_id(connection: &Connection) -> Result<(), DatabaseError> {
     connection.execute_batch(
         r#"
@@ -388,5 +416,83 @@ mod tests {
             )
             .expect("paused duplicate");
         assert_eq!(paused, 1);
+    }
+
+    #[test]
+    fn session_access_backfills_feishu_without_enabling_new_sessions() {
+        let connection = Connection::open_in_memory().expect("database");
+        connection
+            .execute_batch(
+                r#"
+                PRAGMA foreign_keys = ON;
+                CREATE TABLE sessions (id TEXT PRIMARY KEY);
+                INSERT INTO sessions (id) VALUES ('bound'), ('new');
+                CREATE TABLE im_session_bindings (
+                    connector TEXT NOT NULL,
+                    external_chat_hash TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    state TEXT NOT NULL,
+                    completion_notifications INTEGER NOT NULL,
+                    delivery_credential_ref TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (connector, external_chat_hash),
+                    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+                );
+                INSERT INTO im_session_bindings
+                    (connector, external_chat_hash, session_id, state,
+                     completion_notifications, created_at, updated_at)
+                VALUES ('feishu', 'chat', 'bound', 'active', 0,
+                    '2026-08-12T00:00:00Z', '2026-08-12T00:01:00Z');
+                "#,
+            )
+            .expect("fixture");
+
+        apply_session_connector_access_schema(&connection).expect("migration");
+        let access: (i64, String) = connection
+            .query_row(
+                "SELECT enabled, updated_at FROM im_session_connector_access \
+                 WHERE session_id = 'bound' AND connector = 'feishu'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("backfilled access");
+        assert_eq!(access, (1, "2026-08-12T00:01:00Z".to_string()));
+        let missing: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM im_session_connector_access WHERE session_id = 'new'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("new session access");
+        assert_eq!(missing, 0);
+
+        connection
+            .execute(
+                "UPDATE im_session_connector_access SET enabled = 0 WHERE session_id = 'bound'",
+                [],
+            )
+            .expect("disable");
+        apply_session_connector_access_schema(&connection).expect("repeat migration");
+        let preserved: i64 = connection
+            .query_row(
+                "SELECT enabled FROM im_session_connector_access WHERE session_id = 'bound'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("preserved access");
+        assert_eq!(preserved, 0);
+
+        connection
+            .execute("DELETE FROM sessions WHERE id = 'bound'", [])
+            .expect("delete session");
+        let cascaded: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM im_session_connector_access WHERE session_id = 'bound'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("cascaded access");
+        assert_eq!(cascaded, 0);
     }
 }

@@ -24,8 +24,8 @@ const CURRENT_V20_DATA_FIXTURE: &str =
 /// adds CLI parameter profile metadata beside the existing per-parameter rows, migration 82 adds
 /// the local-media engine profile, migrations 83-85 add the source-aware CLI environment
 /// tables, and migration 86 rebuilds the LSP language configuration table so the supported
-/// language set no longer lives in a storage CHECK constraint. Derived from the migration list
-/// rather than hardcoded.
+/// language set no longer lives in a storage CHECK constraint. Migration 87 adds per-session IM
+/// connector access. Derived from the migration list rather than hardcoded.
 ///
 /// A literal upper bound here means every new migration breaks this file for a reason that has
 /// nothing to do with the fixture under test, and neither the compiler nor clippy catches it --

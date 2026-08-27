@@ -4,6 +4,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadDesktopMetadata, resolveDesktopArtifact } from "./desktop/artifact.mjs";
 import { collectUnifiedLogs, writeRunSummary } from "./desktop/evidence.mjs";
+import { auditFeishuEvidence } from "./desktop/feishu-evidence-safety.mjs";
+import { auditFeishuLiveEvidence } from "./desktop/feishu-live-evidence-safety.mjs";
+import {
+  evaluateFeishuLivePrerequisites,
+  writeFeishuLivePreflight,
+} from "./desktop/feishu-live-qualification.mjs";
 import { detectHost } from "./desktop/platform.mjs";
 import { ensureOwnedProcessesStopped, readProcessMarker } from "./desktop/process-ownership.mjs";
 import { createLayerResult, verificationExitCode } from "./desktop/result.mjs";
@@ -109,12 +115,23 @@ async function readWdioCoverage(resultDir) {
  * process cleanup, evidence collection, and a layer result. Every layer gets its own run context
  * and its own wdio configuration, so one layer's environment cannot change what another tests.
  */
-async function runDesktopLayer({ layer, config, label, artifact, environment = {} }) {
+async function runDesktopLayer({
+  layer,
+  config,
+  label,
+  artifact,
+  environment = {},
+  evidenceAudit,
+  contextOptions,
+  successStatus = "PASSED",
+  successReason,
+  resultDetails = {},
+}) {
   artifact ??= await loadArtifact();
   if (!artifact.testBuild || !path.isAbsolute(artifact.executablePath)) {
     throw new DesktopVerificationError("BLOCKED", `${label} requires an absolute test-build artifact path.`);
   }
-  const context = await createRunContext(repoRoot);
+  const context = await createRunContext(repoRoot, contextOptions);
   const startedAt = new Date().toISOString();
   let status = "FAILED";
   let errorDetails;
@@ -141,7 +158,7 @@ async function runDesktopLayer({ layer, config, label, artifact, environment = {
         marker: processState,
       });
     }
-    status = "PASSED";
+    status = successStatus;
   } catch (error) {
     errorDetails = { message: error.message, status: error.status ?? "FAILED", details: error.details ?? {} };
     try {
@@ -159,6 +176,8 @@ async function runDesktopLayer({ layer, config, label, artifact, environment = {
   const layerResult = createLayerResult({
     layer,
     status,
+    ...(status === successStatus && successReason ? { reason: successReason } : {}),
+    ...resultDetails,
     platform: artifact.platform,
     architecture: artifact.architecture,
     artifact: artifact.executablePath,
@@ -171,7 +190,22 @@ async function runDesktopLayer({ layer, config, label, artifact, environment = {
     ...(errorDetails ? { error: errorDetails } : {}),
   });
   const coverage = await readWdioCoverage(context.resultDir);
-  const summaryPath = await writeRunSummary(context.resultDir, { layers: [layerResult], coverage });
+  let summaryPath = await writeRunSummary(context.resultDir, { layers: [layerResult], coverage });
+  if (evidenceAudit) {
+    const evidenceSafety = await evidenceAudit(context.resultDir);
+    layerResult.evidenceSafety = evidenceSafety;
+    if (evidenceSafety.status !== "PASSED") {
+      status = "FAILED";
+      layerResult.status = status;
+      delete layerResult.reason;
+      layerResult.error = {
+        message: "Retained desktop evidence failed the safe-metadata policy.",
+        status,
+        details: { findingCount: evidenceSafety.findings.length },
+      };
+    }
+    summaryPath = await writeRunSummary(context.resultDir, { layers: [layerResult], coverage });
+  }
   await disposeRunContext(context);
   const skipped = coverage?.skipped ? ` (${coverage.skipped} skipped — see BLOCKED above)` : "";
   process.stdout.write(`${label}: ${status}${skipped}\nEvidence: ${context.resultDir}\n`);
@@ -342,6 +376,43 @@ function skillsDesktop(artifact) {
   });
 }
 
+function feishuImDesktop(artifact) {
+  return runDesktopLayer({
+    layer: "desktop-feishu-im",
+    config: "tests/desktop/wdio.feishu-im.conf.mjs",
+    label: "Desktop Feishu IM",
+    artifact,
+    evidenceAudit: auditFeishuEvidence,
+  });
+}
+
+async function feishuLiveQualification() {
+  const preflight = evaluateFeishuLivePrerequisites();
+  if (preflight.status !== "READY") {
+    const result = await writeFeishuLivePreflight(repoRoot);
+    process.stdout.write(`Desktop Feishu live: ${result.status}\nReason: ${result.reason}\nEvidence: ${result.resultDir}\n`);
+    process.exitCode = verificationExitCode(result.status);
+    return result;
+  }
+  // A live run must exercise the code under qualification. Reusing latest-artifact.json can
+  // silently launch a desktop-e2e binary built before credential-isolation changes landed.
+  const artifact = await buildDesktop();
+  const operatorPhase = process.env.VANEHUB_FEISHU_LIVE_OPERATOR === "1";
+  return runDesktopLayer({
+    layer: "desktop-feishu-live",
+    config: "tests/desktop/wdio.feishu-live.conf.mjs",
+    label: "Desktop Feishu live",
+    artifact,
+    contextOptions: { resultScope: "desktop-live" },
+    successStatus: operatorPhase ? "BLOCKED" : "NOT RUN",
+    successReason: operatorPhase
+      ? "feishu-platform-retry-not-observed"
+      : "live-inbound-operator-phase-pending",
+    resultDetails: { livePlatform: true, fixture: false, preflight },
+    evidenceAudit: (resultDir) => auditFeishuLiveEvidence(resultDir, process.env),
+  });
+}
+
 /** The layers the required hermetic gate runs. Every one of them must pass. */
 const fullSuiteLayers = [
   smokeDesktop,
@@ -376,6 +447,8 @@ async function main() {
   else if (mode === "agent-mcp") await agentMcpDesktop();
   else if (mode === "local-media") await localMediaDesktop();
   else if (mode === "skills") await skillsDesktop();
+  else if (mode === "feishu-im") await feishuImDesktop();
+  else if (mode === "feishu-live") await feishuLiveQualification();
   else if (mode === "multi-agent-requirement") await multiAgentRequirementDesktop();
   else if (mode === "multi-agent-longrun") await multiAgentLongrunDesktop();
   else if (mode === "loop") await loopDesktop();

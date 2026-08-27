@@ -38,7 +38,18 @@ pub(super) fn invoke_handler(
         crate::commands::communications::get_im_session_binding::get_im_session_binding,
         crate::commands::communications::set_im_binding_paused::set_im_binding_paused,
         crate::commands::communications::set_im_completion_notifications::set_im_completion_notifications,
+        crate::commands::communications::set_im_session_access::set_im_session_access,
         crate::commands::communications::remove_im_session_binding::remove_im_session_binding,
+        #[cfg(feature = "desktop-e2e")]
+        crate::commands::communications::fixture_feishu_im::fixture_feishu_im_setup,
+        #[cfg(feature = "desktop-e2e")]
+        crate::commands::communications::fixture_feishu_im::fixture_feishu_im_inject,
+        #[cfg(feature = "desktop-e2e")]
+        crate::commands::communications::fixture_feishu_im::fixture_feishu_im_set_fault,
+        #[cfg(feature = "desktop-e2e")]
+        crate::commands::communications::fixture_feishu_im::fixture_feishu_im_ledger,
+        #[cfg(feature = "desktop-e2e")]
+        crate::commands::communications::fixture_feishu_im::fixture_feishu_im_reset,
         crate::commands::goals::list_goals::list_goals,
         crate::commands::goals::get_goal::get_goal,
         crate::commands::goals::create_goal::create_goal,
@@ -77,6 +88,26 @@ pub(super) fn is_command(command: &str) -> bool {
     if command == "fixture_local_media_ocr_source" {
         return true;
     }
+    #[cfg(feature = "desktop-e2e")]
+    if command == "fixture_feishu_im_setup" {
+        return true;
+    }
+    #[cfg(feature = "desktop-e2e")]
+    if command == "fixture_feishu_im_inject" {
+        return true;
+    }
+    #[cfg(feature = "desktop-e2e")]
+    if command == "fixture_feishu_im_set_fault" {
+        return true;
+    }
+    #[cfg(feature = "desktop-e2e")]
+    if command == "fixture_feishu_im_ledger" {
+        return true;
+    }
+    #[cfg(feature = "desktop-e2e")]
+    if command == "fixture_feishu_im_reset" {
+        return true;
+    }
     matches!(
         command,
         "save_message_feedback"
@@ -99,6 +130,7 @@ pub(super) fn is_command(command: &str) -> bool {
             | "get_im_session_binding"
             | "set_im_binding_paused"
             | "set_im_completion_notifications"
+            | "set_im_session_access"
             | "remove_im_session_binding"
             | "list_goals"
             | "get_goal"
