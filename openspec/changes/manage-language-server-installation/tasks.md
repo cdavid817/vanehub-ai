@@ -50,25 +50,25 @@
 
 ## 8. Verification
 
-- [ ] 8.1 `npm run lint:ci`
-- [ ] 8.2 `npm run test`
-- [ ] 8.3 `npm run build`
-- [ ] 8.4 `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`
-- [ ] 8.5 `cargo check --workspace`
-- [ ] 8.6 `cargo clippy --workspace --all-targets -- -D warnings`
-- [ ] 8.7 `npm run native:panic:check`
-- [ ] 8.8 `cargo test --workspace`
-- [ ] 8.9 `npm run architecture:check`, `npm run contracts:check`, `npm run coverage:policy:test`, `npm run version:unit:test`
-- [ ] 8.10 `npx playwright test`
-- [ ] 8.11 `npm run desktop:unit:test`, then `npm run test:desktop`
-- [ ] 8.12 `openspec validate manage-language-server-installation --strict` and `openspec validate --specs --strict`
-- [ ] 8.13 Simulate the archive merge with `buildUpdatedSpec`
+- [x] 8.1 `npm run lint:ci`
+- [x] 8.2 `npm run test`
+- [x] 8.3 `npm run build`
+- [x] 8.4 `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`
+- [x] 8.5 `cargo check --workspace`
+- [x] 8.6 `cargo clippy --workspace --all-targets -- -D warnings`
+- [x] 8.7 `npm run native:panic:check`
+- [x] 8.8 `cargo test --workspace`
+- [x] 8.9 `npm run architecture:check`, `npm run contracts:check`, `npm run coverage:policy:test`, `npm run version:unit:test`
+- [x] 8.10 `npx playwright test`
+- [x] 8.11 `npm run desktop:unit:test`, then `npm run test:desktop`
+- [x] 8.12 `openspec validate manage-language-server-installation --strict` and `openspec validate --specs --strict`
+- [x] 8.13 Simulate the archive merge with `buildUpdatedSpec`
 
 ## 9. Acceptance
 
-- [ ] 9.1 Confirm no `expect(dead_code)` remains in `managed_install`. The attributes were the marker; their absence is the evidence the capability is wired
-- [ ] 9.2 Confirm both archive adapters go through one guard: `grep` finds one containment check, not two
-- [ ] 9.3 Confirm no frontend file names Java, and the install action follows a descriptor
-- [ ] 9.4 Confirm no database migration was added
-- [ ] 9.5 Confirm the unverified-bytes statement reaches the user before the click, not only the change record
-- [ ] 9.6 Confirm no real download happens in any test. A test that reaches `download.eclipse.org` is a test that fails on an air-gapped runner and passes for the wrong reason everywhere else
+- [x] 9.1 Confirm no `expect(dead_code)` remains in `managed_install`. The attributes were the marker; their absence is the evidence the capability is wired
+- [x] 9.2 Confirm both archive adapters go through one guard: `grep` finds one containment check, not two
+- [x] 9.3 Confirm no frontend file names Java, and the install action follows a descriptor
+- [x] 9.4 Confirm no database migration was added
+- [x] 9.5 Confirm the unverified-bytes statement reaches the user before the click, not only the change record
+- [x] 9.6 Confirm no real download happens in any test. A test that reaches `download.eclipse.org` is a test that fails on an air-gapped runner and passes for the wrong reason everywhere else
