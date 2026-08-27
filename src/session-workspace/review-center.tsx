@@ -28,12 +28,32 @@ function ReviewCenterContent({ mode, setMode, draft, setDraft, anchor, setAnchor
   const [railOpen, setRailOpen] = useState(true);
   const [pending, setPending] = useState<{ kind: "revert"; hunk?: string } | { kind: "stale-feedback" } | null>(null);
   const [hunkError, setHunkError] = useState<string | null>(null);
+  const [patchStatus, setPatchStatus] = useState<string | null>(null);
   const selectedIndex = review.files.findIndex((file) => file.path === state.selectedPath);
   const move = (offset: number) => state.setSelectedPath(review.files[(selectedIndex + offset + review.files.length) % review.files.length].path);
   // What the panel renders, not an apply-ready patch: no file or hunk headers, and truncated
-  // content is copied as truncated. Copy Standard Patch is the witnessed one; Task Group 13
-  // implements the backend operation that can produce it.
+  // content is copied as truncated. Kept as its own action rather than folded into the one below,
+  // because a reviewer quoting three lines into a message wants exactly these three lines and no
+  // headers around them.
   const copyDisplayedLines = () => navigator.clipboard.writeText(state.diff?.hunks.flatMap((hunk) => hunk.lines.map((line) => line.content)).join("\n") ?? "");
+  // The witnessed one. Rendered by the backend against the snapshot the reviewer is looking at, so
+  // what lands on the clipboard is something `git apply` accepts rather than something that reads
+  // like it would.
+  const copyStandardPatch = async () => {
+    if (!state.selectedPath) return;
+    setPatchStatus(null);
+    try {
+      const rendered = await agentService.getCodeReviewPatch({
+        sessionId,
+        path: state.selectedPath,
+        expectedSnapshot: review.fingerprint,
+      });
+      await navigator.clipboard.writeText(rendered.patch);
+      setPatchStatus(t("sessionTabs.review.copyStandardPatchDone"));
+    } catch (reason: unknown) {
+      setPatchStatus(t(patchFailureKey(String(reason))));
+    }
+  };
 
   const decide = async (decision: ReviewDecision) => state.replaceReview(
     await agentService.setCodeReviewDecision(review.id, decision),
@@ -99,7 +119,7 @@ function ReviewCenterContent({ mode, setMode, draft, setDraft, anchor, setAnchor
           <button aria-label={t("sessionTabs.review.previous")} className="rounded border border-border px-2 py-1 text-xs" onClick={() => move(-1)} type="button">←</button>
           <button aria-label={t("sessionTabs.review.next")} className="rounded border border-border px-2 py-1 text-xs" onClick={() => move(1)} type="button">→</button>
           <button className="rounded border border-border px-2 py-1 text-xs" onClick={() => void copyDisplayedLines()} type="button">{t("sessionTabs.review.copyDisplayedLines")}</button>
-          <button className="rounded border border-border px-2 py-1 text-xs" disabled title={t("sessionTabs.review.copyStandardPatchPending")} type="button">{t("sessionTabs.review.copyStandardPatch")}</button>
+          <button className="rounded border border-border px-2 py-1 text-xs" onClick={() => void copyStandardPatch()} type="button">{t("sessionTabs.review.copyStandardPatch")}</button>
           <Toggle active={mode === "unified"} label={t("sessionTabs.changes.unified")} onClick={() => setMode("unified")} />
           <Toggle active={mode === "split"} label={t("sessionTabs.changes.split")} onClick={() => setMode("split")} />
           <button className="rounded border border-destructive/50 px-2 py-1 text-xs text-destructive" onClick={() => revert()} type="button">{t("sessionTabs.review.revertFile")}</button>
@@ -110,6 +130,7 @@ function ReviewCenterContent({ mode, setMode, draft, setDraft, anchor, setAnchor
           {state.diff?.binary || state.diff?.oversized ? <WorkspaceState kind="unavailable" message={t(state.diff.binary ? "sessionTabs.files.binary" : "sessionTabs.files.oversized")} /> : null}
           {state.diff?.truncated ? <p className="text-xs text-warning">{t("sessionTabs.review.truncated")}</p> : null}
           {hunkError ? <p role="alert" className="text-sm text-destructive">{hunkError}</p> : null}
+          {patchStatus ? <p role="status" className="text-xs text-muted-foreground">{patchStatus}</p> : null}
           {state.diff?.hunks.map((hunk) => <ReviewHunk hunk={hunk} key={hunk.fingerprint} mode={mode} onAccept={() => void decideHunk(hunk.fingerprint, "accepted")} onAnchor={setAnchor} onRevert={() => revert(hunk.fingerprint)} path={state.selectedPath ?? ""} />)}
         </div>
         <footer className="space-y-2 border-t border-border p-3">
@@ -140,6 +161,20 @@ function ReviewHunk({ hunk, mode, path, onAccept, onAnchor, onRevert }: { hunk: 
     onAnchor({ filePath: path, side: line.kind === "deletion" ? "old" : "new", startLine: line.oldLineNumber ?? line.newLineNumber ?? 1, endLine: line.oldLineNumber ?? line.newLineNumber ?? 1, hunkFingerprint: hunk.fingerprint, contextFingerprint: hunk.contextFingerprints[index] ?? hunk.fingerprint });
   };
   return <article className="mb-3 min-w-max overflow-hidden rounded border border-border"><div className="flex items-center justify-between gap-2 bg-muted px-2 py-1"><code className="text-xs">{hunk.header}</code><span><button aria-label={t("sessionTabs.review.acceptHunk")} className="mr-2 text-primary" onClick={onAccept} type="button">✓</button><button aria-label={t("sessionTabs.review.revertHunk")} className="text-destructive" onClick={onRevert} type="button">↶</button></span></div>{mode === "unified" ? hunk.lines.map((line, index) => <button className={cn("grid w-full grid-cols-[4rem_4rem_minmax(20rem,1fr)] font-mono text-xs hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring", line.kind === "addition" && "bg-success/10", line.kind === "deletion" && "bg-destructive/10")} key={`${hunk.fingerprint}-${index}`} onClick={() => choose(index)} type="button"><span>{line.oldLineNumber}</span><span>{line.newLineNumber}</span><span className="whitespace-pre text-left">{line.content}</span></button>) : <div className="grid min-w-[48rem] grid-cols-2 divide-x divide-border">{hunk.lines.map((line, index) => <button className={cn("col-span-2 grid grid-cols-2 font-mono text-xs hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring", line.kind === "addition" && "bg-success/10", line.kind === "deletion" && "bg-destructive/10")} key={`${hunk.fingerprint}-split-${index}`} onClick={() => choose(index)} type="button"><span className="grid grid-cols-[4rem_1fr] px-1 text-left"><span>{line.oldLineNumber}</span><span className="whitespace-pre">{line.kind === "addition" ? "" : line.content}</span></span><span className="grid grid-cols-[4rem_1fr] px-1 text-left"><span>{line.newLineNumber}</span><span className="whitespace-pre">{line.kind === "deletion" ? "" : line.content}</span></span></button>)}</div>}</article>;
+}
+
+/**
+ * Which sentence to show for a refused patch.
+ *
+ * Four codes because they are four different situations with four different next moves: reload it,
+ * there is nothing to patch, this is too big, or something went wrong that a reviewer cannot fix
+ * from here. One shared "could not copy" would be true of all four and useful for none.
+ */
+function patchFailureKey(reason: string): string {
+  if (reason.includes("stale_witness")) return "sessionTabs.review.copyStandardPatchStale";
+  if (reason.includes("patch_unavailable_binary")) return "sessionTabs.review.copyStandardPatchBinary";
+  if (reason.includes("patch_too_large")) return "sessionTabs.review.copyStandardPatchTooLarge";
+  return "sessionTabs.review.copyStandardPatchFailed";
 }
 
 function Toggle({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
