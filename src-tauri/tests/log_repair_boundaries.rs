@@ -61,6 +61,53 @@ fn startup_hands_the_repair_to_a_background_task_rather_than_running_it() {
     );
 }
 
+/// The repair runs on a blocking thread, not on an async worker.
+///
+/// The rule above keeps the repair off the startup path; this one keeps it off everybody else's.
+/// `repair()` is synchronous SQLite and filesystem work, and calling it directly from an `async fn`
+/// compiles, starts instantly, and parks one of the runtime's few worker threads for as long as
+/// the scan takes. Every unrelated Tauri command scheduled onto that worker waits behind it.
+///
+/// That failure has no symptom a developer would recognise. Startup is still fast, the repair
+/// still finishes, and what a user sees is a handful of commands that are slow once, shortly after
+/// launch, on a machine with a lot of retained logs — which reads as the machine rather than as
+/// this. So the shape is asserted rather than the outcome: the await must be on a `spawn_blocking`
+/// handle, and the bare call must not appear.
+#[test]
+fn the_repair_never_parks_an_async_worker() {
+    let log_api = code_of("contexts/operations/log_api.rs");
+
+    let body = log_api
+        .split("pub(crate) async fn repair_blocking")
+        .nth(1)
+        .expect("the async repair entry point exists")
+        .split("\n    }")
+        .next()
+        .unwrap_or_default();
+
+    assert!(
+        body.contains("spawn_blocking(move || service.repair())"),
+        "the repair must be handed to the blocking pool: {body}"
+    );
+    // The bare call is what the spawn exists to prevent, and it is one deletion away.
+    assert!(
+        !body.contains("service.repair().await") && !body.contains("= service.repair()"),
+        "the repair is called directly from an async context: {body}"
+    );
+}
+
+/// Without this, a renamed function makes both assertions above pass by finding nothing.
+#[test]
+fn the_worker_rule_recognises_both_shapes() {
+    let handed_off = "spawn_blocking(move || service.repair()).await";
+    let parked = "let status = service.repair();";
+
+    assert!(handed_off.contains("spawn_blocking(move || service.repair())"));
+    assert!(!handed_off.contains("= service.repair()"));
+    assert!(parked.contains("= service.repair()"));
+    assert!(!parked.contains("spawn_blocking(move || service.repair())"));
+}
+
 /// The runtime starts the job after the window exists, never before.
 #[test]
 fn the_runtime_starts_the_repair_job_off_the_critical_path() {

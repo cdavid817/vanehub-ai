@@ -2420,9 +2420,15 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // own repair runs and none that proves the sequence recovers, which is the failure mode: the
     // one migration whose repair was missing was invisible precisely because its own schema
     // function was already idempotent.
+    //
+    // Raised from 3,129 by +58 for the no-backfill migration test: a database holding a `toolUse`
+    // message is upgraded and the journal is required to come out empty. It sits beside `migrate`
+    // for the same reason the fixture above does — the claim is about what running the migrations
+    // does to an existing installation, and there is no context that owns "the journal was not
+    // filled from somebody else's table".
     SubtreeBudget {
         root: "src-tauri/src/platform/database",
-        budget: 3_129,
+        budget: 3_187,
         owner: "split-database-migrations",
     },
 ];

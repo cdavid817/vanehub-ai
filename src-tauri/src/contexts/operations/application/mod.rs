@@ -38,6 +38,11 @@ pub(crate) use log_index_ports::{
 #[cfg(test)]
 pub(crate) use log_index_test_doubles::inert_repair_methods;
 pub(crate) use log_query_service::SessionLogQueryService;
+// Re-exported so the infrastructure capacity fixture is built from the bound the repair actually
+// uses. A test with its own copy of the number stops testing the boundary the moment the real one
+// changes, and goes on passing while it does.
+#[cfg(test)]
+pub(crate) use log_query_service::REPAIR_PRUNE_ROWS;
 pub(crate) use logging::{
     DiagnosticLog, DiagnosticLogPort, ExternalLogExportPort, LogSeverity, OperationLog,
     OperationLogPort,

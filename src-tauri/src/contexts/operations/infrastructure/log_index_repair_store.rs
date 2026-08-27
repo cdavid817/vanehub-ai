@@ -13,6 +13,7 @@ use crate::contexts::operations::application::{
     SessionLogBackfillState, SessionLogBackfillStatus,
 };
 use rusqlite::{params, Connection, OptionalExtension};
+use std::collections::BTreeMap;
 
 /// Writes one batch's rows, gaps and checkpoint inside a single transaction.
 ///
@@ -274,11 +275,23 @@ pub(crate) fn conflict_count(
     Ok(u32::try_from(count).unwrap_or(u32::MAX))
 }
 
+/// What a reader is told when retention removed rows they might otherwise expect to find.
+///
+/// The index is rebuildable from the retained files, so a row whose file is gone is gone for good:
+/// no later pass can bring it back. That makes this the one deletion in the repair that has to
+/// leave a mark. Without it a query after a log rotation returns fewer rows and calls itself
+/// complete, and the reader concludes the work never happened rather than that the record expired.
+pub(crate) const SOURCE_EXPIRED_REASON: &str = "log_source_expired";
+
 /// Deletes rows whose source is no longer retained, at most `limit` at a time.
 ///
 /// The checkpoints go only on the final call — the one that finds no rows left. Removing them up
 /// front would let a concurrent pass re-index a generation mid-expiry from offset zero, racing the
 /// delete it is supposed to be finishing.
+///
+/// The gap is written in the same transaction as the delete. Two statements would leave a window
+/// where a crash loses the rows and keeps no record of having lost them, which is worse than either
+/// outcome alone: the index would be short and would say it was whole.
 pub(crate) fn expire_sources(
     connection: &mut Connection,
     retained: &[LogSourceIdentity],
@@ -297,19 +310,58 @@ pub(crate) fn expire_sources(
         keys.iter().map(|key| key as &dyn rusqlite::ToSql).collect();
     let bounded = i64::from(limit);
     bindings.push(&bounded);
-    let removed = transaction
-        .execute(
-            &format!(
-                "DELETE FROM unified_log_query_index
-                 WHERE rowid IN (
-                     SELECT rowid FROM unified_log_query_index
-                     WHERE source_file_id NOT IN ({placeholders}) LIMIT ?{}
-                 )",
+
+    // Read the batch before deleting it. Counting per source afterwards is not possible — the rows
+    // are gone — and counting the whole expired set beforehand would attribute rows to this batch
+    // that a later batch will delete, so the gaps would sum to more than was ever indexed.
+    let doomed: Vec<(i64, String)> = {
+        let mut statement = transaction
+            .prepare(&format!(
+                "SELECT rowid, source_file_id FROM unified_log_query_index
+                 WHERE source_file_id NOT IN ({placeholders}) LIMIT ?{}",
                 keys.len() + 1
-            ),
-            bindings.as_slice(),
-        )
-        .map_err(storage_error)?;
+            ))
+            .map_err(storage_error)?;
+        let collected = statement
+            .query_map(bindings.as_slice(), |row| Ok((row.get(0)?, row.get(1)?)))
+            .map_err(storage_error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(storage_error)?;
+        collected
+    };
+
+    let mut per_source: BTreeMap<String, u32> = BTreeMap::new();
+    for (_, source_file_id) in &doomed {
+        *per_source.entry(source_file_id.clone()).or_default() += 1;
+    }
+    let rowids: Vec<i64> = doomed.into_iter().map(|(rowid, _)| rowid).collect();
+    let removed = if rowids.is_empty() {
+        0
+    } else {
+        let row_placeholders = rowids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+        let row_bindings: Vec<&dyn rusqlite::ToSql> = rowids
+            .iter()
+            .map(|rowid| rowid as &dyn rusqlite::ToSql)
+            .collect();
+        transaction
+            .execute(
+                &format!("DELETE FROM unified_log_query_index WHERE rowid IN ({row_placeholders})"),
+                row_bindings.as_slice(),
+            )
+            .map_err(storage_error)?
+    };
+
+    for (source_file_id, dropped) in &per_source {
+        transaction
+            .execute(
+                "INSERT INTO unified_log_index_gaps
+                     (source_file_id, reason_code, dropped_count, observed_at)
+                 VALUES (?1, ?2, ?3, datetime('now'))",
+                rusqlite::params![source_file_id, SOURCE_EXPIRED_REASON, i64::from(*dropped)],
+            )
+            .map_err(storage_error)?;
+    }
+
     if removed == 0 {
         let checkpoint_bindings: Vec<&dyn rusqlite::ToSql> =
             keys.iter().map(|key| key as &dyn rusqlite::ToSql).collect();

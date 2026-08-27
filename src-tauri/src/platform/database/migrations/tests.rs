@@ -1181,3 +1181,61 @@ fn evidence_console_repairs_leave_recorded_rows_alone() {
         .expect("surviving checkpoint");
     assert_eq!(checkpoint, ("gen-1".to_string(), 4096));
 }
+
+#[test]
+fn the_journal_starts_empty_on_a_database_that_already_holds_chat_history() {
+    let connection = Connection::open_in_memory().expect("in-memory database");
+    migrate(&connection).expect("current schema");
+    connection
+        .execute(
+            "INSERT INTO agents (id, display_name, provider, launch_kind) \
+             VALUES ('agent-1', 'Agent', 'Test', 'api')",
+            [],
+        )
+        .expect("agent");
+    connection
+        .execute(
+            "INSERT INTO sessions (id, title, agent_id, interaction_mode, lifecycle_state, \
+             created_at, updated_at) VALUES ('historical', 'Old work', 'agent-1', 'chat', 'idle', \
+             '2026-08-01T00:00:00Z', '2026-08-01T00:00:00Z')",
+            [],
+        )
+        .expect("historical session");
+    connection
+        .execute(
+            "INSERT INTO messages (id, session_id, role, content, tool_use, created_at, \
+             updated_at) VALUES ('message-1', 'historical', 'assistant', 'ran the tests', \
+             '[{\"id\":\"tool-1\",\"name\":\"Bash\",\"status\":\"completed\"}]', \
+             '2026-08-01T00:00:00Z', '2026-08-01T00:00:00Z')",
+            [],
+        )
+        .expect("historical toolUse message");
+
+    // The upgrade an existing installation actually performs.
+    migrate(&connection).expect("re-migrate");
+
+    // Empty is the correct answer, and it is the one that looks like a bug. A console showing
+    // nothing for a session with visible history is what makes backfill tempting, and backfilling
+    // is what would make the journal unable to distinguish what the runtime watched from what an
+    // assistant said it was doing. The history is shown — projected, separately, as `inferred` —
+    // and it is not written down.
+    let recorded: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM execution_evidence_records",
+            [],
+            |row| row.get(0),
+        )
+        .expect("journal count");
+    assert_eq!(recorded, 0, "migration must not mint evidence from history");
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT COUNT(*) FROM messages WHERE id = 'message-1'",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .expect("message count"),
+        1,
+        "and it must not consume the history either"
+    );
+}

@@ -18,7 +18,11 @@ use rusqlite::{params, Transaction};
 /// Bounded so retention never turns into a full-table scan on a write path. The pass repeats until
 /// it clears fewer rows than the batch, which is how a large backlog drains without any single
 /// call holding the database.
-const RETENTION_BATCH: usize = 500;
+///
+/// Visible to the tests so the capacity fixture is built from the bound rather than from a literal
+/// beside it. A fixture with its own copy of the number stops testing the boundary the first time
+/// somebody changes this one, and it goes on passing.
+pub(super) const RETENTION_BATCH: usize = 500;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) struct EvidenceRetentionOutcome {

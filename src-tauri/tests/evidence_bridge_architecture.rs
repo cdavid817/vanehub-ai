@@ -408,6 +408,99 @@ fn strip_comments(source: &str) -> String {
         .join("\n")
 }
 
+/// A statement that appends to the journal.
+const JOURNAL_APPEND: &str = "INSERT INTO execution_evidence";
+
+/// A statement that reads the chat corpus.
+const READS_MESSAGES: &[&str] = &["FROM messages", "JOIN messages", "INTO messages"];
+
+/// The journal is filled by observation, never by backfill.
+///
+/// Migration 81 creates the journal on databases that already hold years of chat history, and the
+/// tempting next step is to walk `messages` for `toolUse` blocks so the console has something to
+/// show for an old session. That would be the one thing this capability cannot do. A `toolUse`
+/// block is what an assistant said it was doing; the journal's entire value is that everything in
+/// it was watched happening, and once the two are filed together nothing downstream can tell them
+/// apart again — not the fidelity column, which the backfill would have to invent, and not the
+/// reader, who has no way to know the question is worth asking.
+///
+/// Historical activity is still shown. It is projected in the frontend from loaded messages, as a
+/// separate list, always `inferred`, always partial coverage. That projection is checked by its own
+/// suite; what this checks is that nothing ever writes it down.
+#[test]
+fn nothing_backfills_the_journal_from_chat_history() {
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut violations = Vec::new();
+    for path in rust_sources(&source_root) {
+        let relative = relative_path(&source_root, &path);
+        if relative.ends_with("_tests.rs") || relative.contains("/tests/") {
+            continue;
+        }
+        let source = fs::read_to_string(&path).expect("read source");
+        if !source.contains(JOURNAL_APPEND) {
+            continue;
+        }
+        // Read the pair rather than either half. Files that write the journal are expected and
+        // files that read messages are expected; a file that does both is the backfill.
+        for marker in READS_MESSAGES {
+            if source.contains(marker) {
+                violations.push(format!(
+                    "[ARCH-EVIDENCE-006] {relative}: appends to the journal and reads the chat \
+                     corpus (`{marker}`). Repair: historical activity is projected, never \
+                     recorded — a message says what an assistant claimed, and the journal holds \
+                     only what the runtime observed"
+                ));
+            }
+        }
+    }
+    assert!(violations.is_empty(), "{}", violations.join("\n"));
+}
+
+/// Without this, a typo in either constant reports every file as clean.
+#[test]
+fn the_backfill_rule_recognises_the_shape_it_forbids() {
+    let backfill = "INSERT INTO execution_evidence_records SELECT id FROM messages WHERE 1 = 1";
+    assert!(backfill.contains(JOURNAL_APPEND));
+    assert!(READS_MESSAGES
+        .iter()
+        .any(|marker| backfill.contains(marker)));
+
+    let honest_append = "INSERT INTO execution_evidence_records (record_id) VALUES (?1)";
+    assert!(honest_append.contains(JOURNAL_APPEND));
+    assert!(!READS_MESSAGES.iter().any(|m| honest_append.contains(m)));
+
+    let honest_read = "SELECT id, tool_use FROM messages WHERE session_id = ?1";
+    assert!(!honest_read.contains(JOURNAL_APPEND));
+}
+
+/// The files the rule is about, named.
+///
+/// A tree walk that found nothing would pass, and the two ways it finds nothing — a renamed
+/// directory and a rewritten insert — are both changes that deserve a failure rather than silence.
+#[test]
+fn the_backfill_rule_scans_the_files_that_write_the_journal() {
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let writers: Vec<String> = rust_sources(&source_root)
+        .into_iter()
+        .filter(|path| {
+            fs::read_to_string(path)
+                .expect("read source")
+                .contains(JOURNAL_APPEND)
+        })
+        .map(|path| relative_path(&source_root, &path))
+        .collect();
+
+    for expected in [
+        "contexts/execution_observability/infrastructure/evidence/projection.rs",
+        "contexts/execution_observability/infrastructure/evidence/repository.rs",
+    ] {
+        assert!(
+            writers.iter().any(|found| found == expected),
+            "{expected} no longer appends to the journal; the rule above may be scanning nothing"
+        );
+    }
+}
+
 fn rust_sources(root: &Path) -> Vec<PathBuf> {
     let mut found = Vec::new();
     let Ok(entries) = fs::read_dir(root) else {

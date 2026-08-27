@@ -990,6 +990,66 @@ fn retention_removes_expired_evidence_in_a_bounded_batch() {
     );
 }
 
+/// The batch bound, at the bound.
+///
+/// The test above proves retention deletes; it uses four rows against a bound of five hundred, so
+/// it has never once exercised the thing the bound is for. A pass that quietly deleted everything
+/// in one statement would satisfy it, and would hold the write lock across an entire backlog —
+/// which on a machine with a year of history is the whole database, unavailable, at startup.
+///
+/// Built from `RETENTION_BATCH` rather than from a literal beside it: a fixture with its own copy
+/// of the number stops testing the boundary the moment somebody changes the real one, and goes on
+/// passing while it does.
+#[test]
+fn retention_at_the_batch_bound_stops_at_the_bound_and_drains_across_passes() {
+    let (_directory, database, repository) = repository("evidence-retention-capacity");
+    let expired = super::maintenance::RETENTION_BATCH + 1;
+    for index in 0..expired {
+        append(
+            &repository,
+            &command_started(
+                &format!("source-old-{index}"),
+                &format!("command-old-{index}"),
+                // Every one of them is inside the same expired day. Spreading them over distinct
+                // days would let the batch boundary fall on a date change and pass for that reason
+                // rather than because the limit held.
+                "2025-01-01T00:00:00Z",
+            ),
+        );
+    }
+
+    let first = repository
+        .maintain_retention("2026-01-01T00:00:00Z", "2026-06-02T00:00:00Z")
+        .expect("first pass");
+    assert_eq!(
+        first.deleted_events,
+        super::maintenance::RETENTION_BATCH,
+        "one pass must stop at the bound rather than draining the backlog"
+    );
+
+    let second = repository
+        .maintain_retention("2026-01-01T00:00:00Z", "2026-06-02T00:00:00Z")
+        .expect("second pass");
+    assert_eq!(
+        second.deleted_events, 1,
+        "the remainder goes on the next pass"
+    );
+
+    let remaining: i64 = database
+        .connection()
+        .expect("connection")
+        .query_row(
+            "SELECT COUNT(*) FROM execution_evidence_events",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count");
+    assert_eq!(
+        remaining, 0,
+        "and the backlog does drain, rather than stall"
+    );
+}
+
 /// A record whose lifecycle straddles the cutoff keeps its projection: its newest event is still
 /// inside the window, and dropping it would lose work the user can still act on.
 #[test]
@@ -1028,6 +1088,69 @@ fn the_retention_sweep_uses_its_index() {
     assert!(
         plan.contains("idx_execution_evidence_retention"),
         "expected the retention index, got: {plan}"
+    );
+}
+
+/// Deleting expired projections must not read the journal once per candidate.
+///
+/// A record survives while any retained event still backs it, and the check is a correlation
+/// lookup rather than a stored back-reference. That shape is right and it is also the shape that
+/// degrades worst: three `OR`ed columns inside a `NOT EXISTS` is the classic way to make SQLite
+/// give up on indexes and read a session's whole event history for every record it is considering.
+/// Nothing about that is visible in a test with ten rows — it is visible in a long session, on a
+/// user's machine, as a retention pass that holds the write lock for minutes.
+///
+/// Read off the plan rather than timed. A duration assertion on a shared runner measures the
+/// runner; the plan is the property.
+#[test]
+fn expiring_projections_never_reads_the_whole_journal_per_record() {
+    let (_directory, database, _repository) = repository("evidence-retention-projection-plan");
+    let connection = database.connection().expect("connection");
+    let plan: Vec<String> = {
+        let mut statement = connection
+            .prepare(
+                "EXPLAIN QUERY PLAN DELETE FROM execution_evidence_records \
+                 WHERE occurred_at < '2026-01-01T00:00:00Z' \
+                   AND NOT EXISTS ( \
+                     SELECT 1 FROM execution_evidence_events event \
+                     WHERE event.session_id = execution_evidence_records.session_id \
+                       AND ( \
+                         event.command_id = SUBSTR(execution_evidence_records.record_id, 9) \
+                         OR event.tool_call_id = SUBSTR(execution_evidence_records.record_id, 6) \
+                         OR event.agent_id = execution_evidence_records.agent_id \
+                       ) \
+                   )",
+            )
+            .expect("prepare plan");
+        let rows = statement
+            .query_map([], |row| row.get::<_, String>(3))
+            .expect("plan rows")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("plan");
+        rows
+    };
+    let plan = plan.join(" | ");
+
+    // Matched on `SCAN` rather than on a table name, because SQLite reports the subquery under the
+    // alias `event` — the first version of this test asked for `SCAN execution_evidence_events`,
+    // which never appears under any plan and so passed while checking nothing.
+    assert!(
+        !plan.contains("SCAN "),
+        "something in the retention delete reads a table end to end: {plan}"
+    );
+    // The two halves, named. Without these the `SCAN` assertion above passes on an empty plan, on
+    // a rewritten delete that dropped the survivor check, and on a renamed index.
+    assert!(
+        plan.contains("CORRELATED SCALAR SUBQUERY"),
+        "the per-candidate survivor check is gone from the plan: {plan}"
+    );
+    assert!(
+        plan.contains("USING INDEX idx_execution_evidence_session_sequence"),
+        "the survivor check no longer reaches the journal through its session index: {plan}"
+    );
+    assert!(
+        plan.contains("USING INDEX idx_evidence_records_retention"),
+        "the outer delete no longer seeks the expired window: {plan}"
     );
 }
 

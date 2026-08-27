@@ -15,7 +15,7 @@ use super::log_source_reader::UnifiedLogSourceReader;
 use crate::contexts::operations::application::{
     IndexedLogLevel, LineRejections, LogCorrelation, LogSourceIdentity, RedactedLogRecord,
     RedactedLogSourceReader, SessionLogBackfillState, SessionLogBackfillStatus,
-    SessionLogIndexRepository,
+    SessionLogCoverageState, SessionLogIndexRepository,
 };
 use crate::platform::database::NativeDatabase;
 use crate::platform::logging::LOG_FILE_NAME;
@@ -515,4 +515,333 @@ fn clearing_gaps_never_reaches_a_source_the_pass_did_not_cover() {
         )
         .expect("count");
     assert_eq!(remaining, 1);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Resume
+// ---------------------------------------------------------------------------------------------
+
+/// A restart: the same directory, everything in-process dropped.
+///
+/// Not a second `harness()`, which would make a new temp directory and prove nothing. The only
+/// thing carried across is the file on disk, which is the only thing a restart carries.
+fn restart(harness: Harness) -> Harness {
+    let Harness {
+        _directory,
+        database,
+        repository,
+    } = harness;
+    let path = _directory.path().join("data");
+    drop(repository);
+    drop(database);
+    let database = NativeDatabase::new(path).expect("reopened database");
+    Harness {
+        repository: SqliteLogIndexRepository::new(database.clone()),
+        database,
+        _directory,
+    }
+}
+
+/// The checkpoint survives the process that wrote it.
+///
+/// The resume point is read from the database on every pass rather than carried in the repair's
+/// own state, and that distinction is invisible while the process stays up: an in-memory offset
+/// and a persisted one behave identically until something restarts. What a lost checkpoint costs
+/// is not correctness — the unique constraint on `record_id` would absorb the duplicates — but a
+/// full re-read of every retained log file on every launch, which is silent, unbounded, and grows
+/// with how long the user has been running the app.
+#[test]
+fn a_restart_resumes_from_the_persisted_checkpoint_rather_than_the_start() {
+    let harness = harness("repair-store-restart");
+    harness
+        .repository
+        .commit_batch(
+            &source("file-1"),
+            &[record("record-1", 0), record("record-2", 100)],
+            &LineRejections::new(),
+            4_096,
+        )
+        .expect("first pass");
+
+    let harness = restart(harness);
+
+    assert_eq!(
+        harness
+            .repository
+            .checkpoint(&source("file-1"))
+            .expect("checkpoint"),
+        Some(4_096),
+        "the resume point must come back from disk"
+    );
+    let second = harness
+        .repository
+        .commit_batch(
+            &source("file-1"),
+            &[record("record-3", 4_096), record("record-4", 4_196)],
+            &LineRejections::new(),
+            8_192,
+        )
+        .expect("second pass");
+
+    assert_eq!(second.inserted, 2);
+    assert_eq!(rows_for(&harness, &source("file-1")), 4);
+}
+
+/// Replaying across a restart is the same no-op it is within one.
+///
+/// The stronger half of the rule. Resuming from the right offset is what makes a restart cheap;
+/// this is what makes it safe when the offset is wrong anyway — a batch that was already committed
+/// before the restart adds nothing after it.
+#[test]
+fn a_batch_already_committed_before_a_restart_inserts_nothing_after_it() {
+    let harness = harness("repair-store-restart-replay");
+    let batch = [record("record-1", 0), record("record-2", 100)];
+    harness
+        .repository
+        .commit_batch(&source("file-1"), &batch, &LineRejections::new(), 4_096)
+        .expect("first pass");
+
+    let harness = restart(harness);
+    let replayed = harness
+        .repository
+        .commit_batch(&source("file-1"), &batch, &LineRejections::new(), 4_096)
+        .expect("replay after restart");
+
+    assert_eq!(replayed.inserted, 0);
+    assert_eq!(replayed.already_indexed, 2);
+    assert_eq!(rows_for(&harness, &source("file-1")), 2);
+}
+
+/// A recreated file resumes from zero, not from the old file's offset.
+///
+/// Checkpoints are keyed by generation and not by path for exactly this: a rotated or recreated log
+/// file reuses the path, and an offset written for the old file points into bytes the new one never
+/// had. Resuming there would skip the beginning of the new file silently — the index would simply
+/// be missing its first records, with nothing to say so.
+#[test]
+fn a_new_generation_does_not_inherit_the_previous_one_s_checkpoint() {
+    let harness = harness("repair-store-generation");
+    harness
+        .repository
+        .commit_batch(
+            &source("file-1"),
+            &[record("record-1", 0)],
+            &LineRejections::new(),
+            4_096,
+        )
+        .expect("first generation");
+
+    let recreated = LogSourceIdentity {
+        directory_generation: "generation-2".to_string(),
+        file_id: "file-1".to_string(),
+    };
+
+    assert_eq!(
+        harness
+            .repository
+            .checkpoint(&recreated)
+            .expect("checkpoint"),
+        None,
+        "the same path under a new generation is a different source"
+    );
+    assert_eq!(
+        harness
+            .repository
+            .checkpoint(&source("file-1"))
+            .expect("checkpoint"),
+        Some(4_096),
+        "and the old generation's checkpoint is still its own"
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// Retention
+// ---------------------------------------------------------------------------------------------
+
+fn gaps_for(harness: &Harness, reason: &str) -> Vec<(String, i64)> {
+    let connection = harness.database.connection().expect("connection");
+    let mut statement = connection
+        .prepare(
+            "SELECT source_file_id, dropped_count FROM unified_log_index_gaps \
+             WHERE reason_code = ?1 ORDER BY source_file_id",
+        )
+        .expect("prepare");
+    let rows = statement
+        .query_map(rusqlite::params![reason], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
+        .expect("query")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("collect");
+    rows
+}
+
+/// Expiry is the one deletion in the repair that cannot be undone, so it is the one that must
+/// leave a mark.
+///
+/// Every other row the repair removes can be read again from the file it came from. A row whose
+/// file is no longer retained cannot: there is nothing left to re-read. Without the gap, a query
+/// after a log rotation returns fewer rows and calls itself complete, and the reader concludes the
+/// work never happened rather than that the record expired — which is the difference between an
+/// absent record and an absent event, and the whole thing this console exists to keep apart.
+#[test]
+fn expiring_a_source_records_what_it_removed_and_says_so_in_coverage() {
+    let harness = harness("repair-store-expire-gap");
+    harness
+        .repository
+        .commit_batch(
+            &source("file-1"),
+            &[record("record-1", 0), record("record-2", 100)],
+            &LineRejections::new(),
+            4_096,
+        )
+        .expect("index the source");
+    assert_eq!(
+        harness.repository.coverage(None).expect("coverage").state.0,
+        SessionLogCoverageState::Complete,
+        "the precondition: nothing is wrong before retention runs"
+    );
+
+    // The file is gone from the retained inventory — rotated away, or the directory reconfigured.
+    let removed = harness.repository.expire_sources(&[], 100).expect("expire");
+
+    assert_eq!(removed, 2);
+    assert_eq!(
+        gaps_for(&harness, "log_source_expired"),
+        vec![(source("file-1").as_key(), 2)],
+        "the gap must name the source and how much of it went"
+    );
+    let coverage = harness.repository.coverage(None).expect("coverage");
+    assert_eq!(coverage.state.0, SessionLogCoverageState::Partial);
+    assert!(coverage
+        .reason_codes
+        .iter()
+        .any(|code| code == "log_source_expired"));
+}
+
+/// Batched expiry counts each row once.
+///
+/// The tempting implementation counts the whole expired set before deleting the first batch, which
+/// attributes rows to this batch that a later batch will delete — and the gaps then sum to more
+/// records than were ever indexed, which reads as a much larger loss than occurred.
+#[test]
+fn expiring_in_batches_never_counts_a_row_twice() {
+    let harness = harness("repair-store-expire-batched");
+    harness
+        .repository
+        .commit_batch(
+            &source("file-1"),
+            &[
+                record("record-1", 0),
+                record("record-2", 100),
+                record("record-3", 200),
+            ],
+            &LineRejections::new(),
+            4_096,
+        )
+        .expect("index the source");
+
+    let first = harness
+        .repository
+        .expire_sources(&[], 2)
+        .expect("batch one");
+    let second = harness
+        .repository
+        .expire_sources(&[], 2)
+        .expect("batch two");
+
+    assert_eq!((first, second), (2, 1));
+    let total: i64 = gaps_for(&harness, "log_source_expired")
+        .iter()
+        .map(|(_, dropped)| dropped)
+        .sum();
+    assert_eq!(total, 3, "three rows indexed, three rows reported gone");
+}
+
+/// A finished repair pass does not erase the record of what retention took.
+///
+/// `clear_gaps_through` exists to retire gaps a later pass resolved, and it is scoped to the
+/// sources that pass covered. An expired source is not among them by construction — it was
+/// expired because it is no longer retained — so the gap survives. That is the correct outcome
+/// and it is currently implicit, which is the reason to hold it: widening the clear to every gap
+/// would look like tidying up and would silently restore the "complete" this whole rule exists to
+/// prevent.
+#[test]
+fn clearing_gaps_after_a_pass_leaves_the_expiry_record_standing() {
+    let harness = harness("repair-store-expire-survives");
+    harness
+        .repository
+        .commit_batch(
+            &source("file-1"),
+            &[record("record-1", 0)],
+            &LineRejections::new(),
+            4_096,
+        )
+        .expect("index the source");
+    harness
+        .repository
+        .expire_sources(&[source("file-2")], 100)
+        .expect("expire file-1");
+
+    let watermark = harness.repository.gap_watermark().expect("watermark");
+    harness
+        .repository
+        .clear_gaps_through(&[source("file-2")], watermark)
+        .expect("clear what the pass covered");
+
+    assert_eq!(
+        gaps_for(&harness, "log_source_expired"),
+        vec![(source("file-1").as_key(), 1)],
+        "the expired source was not in the pass, so its gap is not the pass's to clear"
+    );
+}
+
+/// Expiry at the real batch size, not a convenient one.
+///
+/// The other bounded-prune test uses a limit of ten because what it is watching is the write lock
+/// between transactions, and ten batches show that faster than fifty do. Nothing then exercises
+/// `REPAIR_PRUNE_ROWS` itself — and expiry now names every row it deletes, so a full batch is five
+/// hundred bound parameters in one statement. SQLite's variable limit is generous on current
+/// builds and was 999 for years; either way it is a ceiling nobody would think to look for, and
+/// the failure it produces is a retention pass that stops working on exactly the databases big
+/// enough to need it.
+#[test]
+fn expiry_at_the_real_batch_size_deletes_a_full_batch_and_then_the_remainder() {
+    use crate::contexts::operations::application::REPAIR_PRUNE_ROWS;
+
+    let harness = harness("repair-store-expire-capacity");
+    let indexed = REPAIR_PRUNE_ROWS as usize + 1;
+    let batch: Vec<_> = (0..indexed)
+        .map(|index| record(&format!("record-{index}"), index as u64 * 100))
+        .collect();
+    harness
+        .repository
+        .commit_batch(
+            &source("file-1"),
+            &batch,
+            &LineRejections::new(),
+            indexed as u64 * 100,
+        )
+        .expect("index a full batch and one more");
+
+    let first = harness
+        .repository
+        .expire_sources(&[], REPAIR_PRUNE_ROWS)
+        .expect("first batch");
+    let second = harness
+        .repository
+        .expire_sources(&[], REPAIR_PRUNE_ROWS)
+        .expect("second batch");
+
+    assert_eq!(first, REPAIR_PRUNE_ROWS, "a pass stops at the bound");
+    assert_eq!(second, 1, "and the remainder goes on the next one");
+    assert_eq!(rows_for(&harness, &source("file-1")), 0);
+    let reported: i64 = gaps_for(&harness, "log_source_expired")
+        .iter()
+        .map(|(_, dropped)| dropped)
+        .sum();
+    assert_eq!(
+        reported, indexed as i64,
+        "every expired row is accounted for exactly once across the batches"
+    );
 }
