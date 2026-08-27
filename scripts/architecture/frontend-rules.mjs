@@ -167,8 +167,13 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // agent 动了一个文件就把其余十一个的"已读"全部清掉,于是"8 个文件 · 4 个未读"这类计数在真实
 // 会话里永远在归零,读者没法据此做任何事。夹具照着真实语义实现,才能在桌面侧走偏时先挂掉。
 // 上限按实测值 21865 记录,不留余量。
+// 再次上调(同一 change,Task Group 13.6):+28 全部在 Web adapter——按文件自身指纹算见证的
+// `witnessOf`、每次读取重算的 `summarize`、以及包装返回的 `withSummary`。
+// 值得说明的是为什么夹具要重算而不是存一个计数:计数存下来就是同一个问题的第二份答案,而 marks
+// 和 files 各自会变;两者第一次不同步时,header 就在自信地报错数,并且没有任何东西会说它错了。
+// 上限按实测值 21893 记录,不留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 21865, owner: "upgrade-session-workspace-evidence-console" },
+  { root: "src/services", budget: 21893, owner: "upgrade-session-workspace-evidence-console" },
 ]);
 
 const STATE_PACKAGES = new Set([

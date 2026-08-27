@@ -1,8 +1,9 @@
 use crate::commands::error::CommandError;
+use crate::contexts::sessions::application::{ReviewSummary, ReviewView};
 use crate::contexts::sessions::domain::{
     ReviewAnchor, ReviewAnchorState, ReviewComment, ReviewCommentStatus, ReviewDecision,
     ReviewFile, ReviewFileViewState, ReviewFinding, ReviewFindingSeverity, ReviewHunkDecision,
-    ReviewSession, ReviewStatus,
+    ReviewStatus,
 };
 use crate::contexts::workspaces::application::{ReviewDiffFile, ReviewRevertReceipt};
 use serde::{Deserialize, Serialize};
@@ -92,10 +93,44 @@ pub(crate) struct ReviewSessionDto {
     files: Vec<ReviewFileDto>,
     comments: Vec<ReviewCommentDto>,
     findings: Vec<ReviewFindingDto>,
+    summary: ReviewSummaryDto,
 }
 
-impl From<ReviewSession> for ReviewSessionDto {
-    fn from(review: ReviewSession) -> Self {
+/// The header's four numbers.
+///
+/// `viewedFiles` is the one a caller cannot work out for itself: the marks live in a store the
+/// review does not carry, and whether a mark still applies depends on comparing its witness with
+/// the file's current one. The other three are derivable from the arrays beside them, and are here
+/// anyway so the header reads one shape rather than folding two lists on every render.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ReviewSummaryDto {
+    changed_files: usize,
+    viewed_files: usize,
+    unresolved_comments: usize,
+    unresolved_findings: usize,
+}
+
+impl From<ReviewSummary> for ReviewSummaryDto {
+    fn from(summary: ReviewSummary) -> Self {
+        Self {
+            changed_files: summary.changed_files,
+            viewed_files: summary.viewed_files,
+            unresolved_comments: summary.unresolved_comments,
+            unresolved_findings: summary.unresolved_findings,
+        }
+    }
+}
+
+/// Built from a view and nothing else.
+///
+/// There is deliberately no conversion from a bare `ReviewSession`. One would have to invent a
+/// viewed count, and the only value available to invent is zero — which reads as "you have read
+/// none of these files" rather than as "this path could not find out". Requiring the view means no
+/// caller can produce that sentence by accident.
+impl From<ReviewView> for ReviewSessionDto {
+    fn from(view: ReviewView) -> Self {
+        let review = view.session;
         let files = review.files().iter().cloned().map(Into::into).collect();
         let comments = review.comments().iter().cloned().map(Into::into).collect();
         let findings = review.findings().iter().cloned().map(Into::into).collect();
@@ -113,6 +148,7 @@ impl From<ReviewSession> for ReviewSessionDto {
             files,
             comments,
             findings,
+            summary: view.summary.into(),
         }
     }
 }

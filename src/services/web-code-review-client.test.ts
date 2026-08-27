@@ -145,6 +145,53 @@ describe("web code review parity", () => {
     expect((await client.getCodeReview(review.id)).decision).toBe("pending");
   });
 
+  it("counts a file as read only while it is the file that was read", async () => {
+    const source = workspace();
+    const client = createWebCodeReviewClient(source);
+    const review = await client.openCodeReview("session-1");
+    expect(review.summary.viewedFiles).toBe(0);
+    expect(review.summary.changedFiles).toBe(review.files.length);
+
+    await client.setCodeReviewFileViewed({
+      reviewId: review.id,
+      relativePath: "src/main.ts",
+      expectedSnapshotFingerprint: review.fingerprint,
+      viewed: true,
+    });
+    expect((await client.getCodeReview(review.id)).summary.viewedFiles).toBe(1);
+
+    // The same file, changed. Nothing sweeps the mark: it stops matching, so the count drops.
+    source.getSessionGitStatus.mockResolvedValue({
+      context: { availability: "available", rootName: "demo", reason: null },
+      isGit: true,
+      branch: "main",
+      items: [{ path: "src/main.ts", previousPath: null, index: "unmodified", worktree: "deleted" }],
+      truncated: false,
+      nextCursor: null,
+    });
+
+    const reopened = await client.openCodeReview("session-1");
+    expect(reopened.summary.changedFiles).toBe(1);
+    expect(reopened.summary.viewedFiles).toBe(0);
+  });
+
+  it("counts what is unresolved rather than what exists", async () => {
+    const client = createWebCodeReviewClient(workspace());
+    const review = await client.openCodeReview("session-1");
+    const comment = await client.addCodeReviewComment({
+      reviewId: review.id,
+      body: "Please fix",
+      anchor: { filePath: "src/main.ts", side: "new", startLine: 1, endLine: 1, hunkFingerprint: "h", contextFingerprint: "c" },
+    });
+    expect((await client.getCodeReview(review.id)).summary.unresolvedComments).toBe(1);
+
+    const resolved = await client.resolveCodeReviewComment(review.id, comment.id);
+
+    // The comment is still there. What changed is whether anybody still has to act on it.
+    expect(resolved.comments).toHaveLength(1);
+    expect(resolved.summary.unresolvedComments).toBe(0);
+  });
+
   it("witnesses a viewed mark to the file rather than to the review snapshot", async () => {
     const client = createWebCodeReviewClient(workspace());
     const review = await client.openCodeReview("session-1");

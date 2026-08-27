@@ -38,6 +38,21 @@ export interface ReviewFinding {
   resolved: boolean;
 }
 
+/**
+ * What the Review header counts.
+ *
+ * `viewedFiles` is the one nothing on this side can work out: the marks live in a store the review
+ * does not carry, and whether a mark still applies depends on comparing its witness with the
+ * file's current one. Unviewed is the subtraction and is deliberately not here — a fifth number
+ * can disagree with the two it came from.
+ */
+export interface ReviewSummary {
+  changedFiles: number;
+  viewedFiles: number;
+  unresolvedComments: number;
+  unresolvedFindings: number;
+}
+
 export interface CodeReview {
   id: string;
   sessionId: string;
@@ -52,6 +67,7 @@ export interface CodeReview {
   files: ReviewFileSummary[];
   comments: ReviewComment[];
   findings: ReviewFinding[];
+  summary: ReviewSummary;
 }
 
 /**

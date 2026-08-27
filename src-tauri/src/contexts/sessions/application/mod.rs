@@ -64,7 +64,7 @@ pub(crate) use review::{
     ReviewActionFindingInput, ReviewApplicationError, ReviewApplicationService, ReviewClockPort,
     ReviewDecisionRepository, ReviewFeedbackPort, ReviewHunkWitnessPort, ReviewIdPort,
     ReviewLogEvent, ReviewLoggingPort, ReviewOperationPort, ReviewRepository, ReviewSnapshotPort,
-    SetFileViewedRequest, SetHunkDecisionRequest,
+    ReviewSummary, ReviewView, SetFileViewedRequest, SetHunkDecisionRequest,
 };
 pub(crate) use service::{SessionApplicationPorts, SessionsApplicationService};
 pub(crate) use usage_accounting::{

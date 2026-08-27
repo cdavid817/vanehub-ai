@@ -1,6 +1,7 @@
 use super::review_dto::{
     ReviewFileViewedReceiptDto, ReviewHunkDecisionReceiptDto, ReviewSessionDto,
 };
+use crate::contexts::sessions::application::{ReviewSummary, ReviewView};
 use crate::contexts::sessions::domain::{
     ReviewDecision, ReviewFile, ReviewFileViewState, ReviewHunkDecision, ReviewSession,
 };
@@ -26,12 +27,59 @@ fn review_dto_uses_stable_camel_case_and_explicit_enum_values() {
     )
     .unwrap();
     review.set_timestamps("created".into(), "updated".into());
-    let value = serde_json::to_value(ReviewSessionDto::from(review)).unwrap();
+    let value = serde_json::to_value(ReviewSessionDto::from(ReviewView {
+        session: review,
+        summary: ReviewSummary {
+            changed_files: 1,
+            viewed_files: 0,
+            unresolved_comments: 0,
+            unresolved_findings: 0,
+        },
+    }))
+    .unwrap();
     assert_eq!(value["sessionId"], "session-1");
     assert_eq!(value["baseRevision"], "base");
     assert_eq!(value["decision"], "pending");
     assert_eq!(value["createdAt"], "created");
     assert_eq!(value["files"][0]["changeType"], "modified");
+}
+
+#[test]
+fn review_summary_crosses_as_four_named_counts() {
+    let file =
+        ReviewFile::try_new("src/main.rs".into(), None, "modified".into(), None, None).unwrap();
+    let mut review = ReviewSession::try_new(
+        "review-1".into(),
+        "session-1".into(),
+        "workspace-1".into(),
+        None,
+        None,
+        "snapshot".into(),
+        vec![file],
+    )
+    .unwrap();
+    review.set_timestamps("created".into(), "updated".into());
+    let value = serde_json::to_value(ReviewSessionDto::from(ReviewView {
+        session: review,
+        summary: ReviewSummary {
+            changed_files: 8,
+            viewed_files: 4,
+            unresolved_comments: 2,
+            unresolved_findings: 1,
+        },
+    }))
+    .unwrap();
+
+    // Four numbers rather than a rendered sentence: "8 files · 4 unviewed" is a translation
+    // problem, and a backend that shipped the string would have to know which locale to write it
+    // in.
+    assert_eq!(value["summary"]["changedFiles"], 8);
+    assert_eq!(value["summary"]["viewedFiles"], 4);
+    assert_eq!(value["summary"]["unresolvedComments"], 2);
+    assert_eq!(value["summary"]["unresolvedFindings"], 1);
+    // Unviewed is the subtraction, and it is the caller's to make. Shipping it as well would be a
+    // fifth number that can disagree with the two it came from.
+    assert!(value["summary"].get("unviewedFiles").is_none());
 }
 
 #[test]

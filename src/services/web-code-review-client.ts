@@ -5,9 +5,11 @@ import type {
   ReviewComment,
   ReviewDecision,
   ReviewDiffFile,
+  ReviewFileSummary,
   ReviewFileViewedReceipt,
   ReviewHunkDecisionReceipt,
   ReviewRevertReceipt,
+  ReviewSummary,
   RevertReviewChangeInput,
   SetReviewFileViewedInput,
   SetReviewHunkDecisionInput,
@@ -33,10 +35,35 @@ export function createWebCodeReviewClient(workspace: WorkspaceReviewSource) {
   /** Keyed by review and path, holding the witness the mark was made against. */
   const fileViews = new Map<string, { fileWitness: string; viewed: boolean; viewedAt?: string }>();
   let sequence = 0;
+  /**
+   * The witness a Viewed mark has to still match, computed the way the native side computes it.
+   *
+   * The fixture reproduces the rule rather than storing a boolean, because the rule is the
+   * behaviour: a mark survives an edit to another file and does not survive an edit to its own.
+   */
+  const witnessOf = (file: ReviewFileSummary) =>
+    fingerprint(
+      [file.path, file.previousPath ?? "", file.changeType, file.oldHash ?? "", file.newHash ?? ""].join("\u0000"),
+    );
+  /** Recomputed on every read: the marks and the files both move, and a stored count would not. */
+  const summarize = (review: CodeReview): ReviewSummary => ({
+    changedFiles: review.files.length,
+    viewedFiles: review.files.filter((file) => {
+      const mark = fileViews.get(JSON.stringify([review.id, file.path]));
+      return Boolean(mark?.viewed) && mark?.fileWitness === witnessOf(file);
+    }).length,
+    unresolvedComments: review.comments.filter((comment) => comment.status !== "resolved").length,
+    unresolvedFindings: review.findings.filter((finding) => !finding.resolved).length,
+  });
+  const withSummary = (review: CodeReview) => {
+    const clone = structuredClone(review);
+    clone.summary = summarize(clone);
+    return clone;
+  };
   const find = (reviewId: string) => {
     const review = reviews.get(reviewId);
     if (!review) throw new Error("review-not-found");
-    return structuredClone(review);
+    return withSummary(review);
   };
   return {
     async openCodeReview(sessionId: string) {
@@ -59,7 +86,7 @@ export function createWebCodeReviewClient(workspace: WorkspaceReviewSource) {
           recovered.fingerprint = snapshot;
           recovered.updatedAt = new Date().toISOString();
         }
-        return structuredClone(recovered);
+        return withSummary(recovered);
       }
       const now = new Date().toISOString();
       const review: CodeReview = {
@@ -74,9 +101,12 @@ export function createWebCodeReviewClient(workspace: WorkspaceReviewSource) {
         files,
         comments: [],
         findings: [],
+        // Replaced on the way out by `withSummary`. Present here only because the type requires a
+        // review to carry one, and a review with no files has read none of them.
+        summary: { changedFiles: files.length, viewedFiles: 0, unresolvedComments: 0, unresolvedFindings: 0 },
       };
       reviews.set(review.id, review);
-      return structuredClone(review);
+      return withSummary(review);
     },
     async getCodeReview(reviewId: string) {
       return find(reviewId);
@@ -171,9 +201,7 @@ export function createWebCodeReviewClient(workspace: WorkspaceReviewSource) {
       if (!file) throw new Error("review-file-not-found");
       // Witnessed to the file, not to the review, so the fixture reproduces the behaviour that
       // matters: an edit to one file leaves the marks on the others standing.
-      const fileWitness = fingerprint(
-        [file.path, file.previousPath ?? "", file.changeType, file.oldHash ?? "", file.newHash ?? ""].join("\u0000"),
-      );
+      const fileWitness = witnessOf(file);
       const viewedAt = input.viewed ? new Date().toISOString() : undefined;
       fileViews.set(JSON.stringify([input.reviewId, input.relativePath]), { fileWitness, viewed: input.viewed, viewedAt });
       return { reviewId: input.reviewId, relativePath: input.relativePath, fileWitness, viewed: input.viewed, viewedAt, simulated: true };

@@ -1,6 +1,6 @@
 use crate::contexts::sessions::domain::{
-    ReviewAnchor, ReviewComment, ReviewDecision, ReviewDomainError, ReviewFile,
-    ReviewFileViewState, ReviewFinding, ReviewHunkDecision, ReviewSession,
+    ReviewAnchor, ReviewComment, ReviewCommentStatus, ReviewDecision, ReviewDomainError,
+    ReviewFile, ReviewFileViewState, ReviewFinding, ReviewHunkDecision, ReviewSession,
 };
 use std::fmt;
 use std::sync::Arc;
@@ -37,14 +37,6 @@ pub(crate) trait ReviewDecisionRepository: Send + Sync {
     ) -> Result<(), ReviewApplicationError>;
 
     /// Every file view state recorded for a review, in path order.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the write path is live; reading view states back arrives with 13.6's \
-                 review summary counts"
-        )
-    )]
     fn list_file_view_states(
         &self,
         review_id: &str,
@@ -55,8 +47,8 @@ pub(crate) trait ReviewDecisionRepository: Send + Sync {
         not(test),
         expect(
             dead_code,
-            reason = "the write path is live; reading decisions back arrives with 13.6's \
-                 review summary counts"
+            reason = "the write path is live; reading decisions back is what 13.10's per-hunk \
+                 controls render"
         )
     )]
     fn list_hunk_decisions(
@@ -184,6 +176,34 @@ pub(crate) struct SetHunkDecisionRequest {
     /// The snapshot the reviewer was looking at.
     pub(crate) expected_snapshot_fingerprint: String,
     pub(crate) decision: ReviewDecision,
+}
+
+/// What the Review header counts.
+///
+/// Derived on every read rather than stored. A stored count is a second answer to a question the
+/// rows already answer, and the two disagree the first time anything writes without updating both
+/// — at which point the header is confidently wrong and nothing says so.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ReviewSummary {
+    /// Files the review currently holds as changed.
+    pub(crate) changed_files: usize,
+    /// How many of those the reviewer has read *at their current version*.
+    pub(crate) viewed_files: usize,
+    /// Comments nobody has resolved.
+    pub(crate) unresolved_comments: usize,
+    /// Automated findings nobody has resolved.
+    pub(crate) unresolved_findings: usize,
+}
+
+/// A review and what its header says about it.
+///
+/// Paired rather than folded into the aggregate: the counts are a projection over two stores, and
+/// an aggregate that carried them would have to be reloaded to stay honest after every write to
+/// either one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ReviewView {
+    pub(crate) session: ReviewSession,
+    pub(crate) summary: ReviewSummary,
 }
 
 /// What a caller is asking to mark as read, and the diff they read.
@@ -562,13 +582,52 @@ impl ReviewApplicationService {
         Ok(state)
     }
 
+    /// A review together with the counts its header shows.
+    ///
+    /// The viewed count is the interesting one. It walks the review's *current* files and asks
+    /// whether each has a mark made against the version that is there now — so a file that changed
+    /// since it was read counts as unread without anything having swept the store. That is the
+    /// reset, and deriving it rather than writing it is why it is also correct for changes nobody
+    /// published.
+    pub(crate) fn view(
+        &self,
+        session: ReviewSession,
+    ) -> Result<ReviewView, ReviewApplicationError> {
+        let states = self.decisions.list_file_view_states(&session.id)?;
+        let viewed_files = session
+            .files()
+            .iter()
+            .filter(|file| {
+                let witness = file.witness();
+                states.iter().any(|state| {
+                    state.viewed && state.path == file.path && state.file_witness == witness
+                })
+            })
+            .count();
+        let summary = ReviewSummary {
+            changed_files: session.files().len(),
+            viewed_files,
+            unresolved_comments: session
+                .comments()
+                .iter()
+                .filter(|comment| comment.status == ReviewCommentStatus::Active)
+                .count(),
+            unresolved_findings: session
+                .findings()
+                .iter()
+                .filter(|finding| !finding.resolved)
+                .count(),
+        };
+        Ok(ReviewView { session, summary })
+    }
+
     /// Every file view state this review holds, whether or not it still applies.
     #[cfg_attr(
         not(test),
         expect(
             dead_code,
-            reason = "the write path is live; reading view states back arrives with 13.6's \
-                 review summary counts"
+            reason = "the summary reads through the view; the raw list is what 13.10's per-file \
+                 controls render"
         )
     )]
     pub(crate) fn file_view_states(
@@ -624,8 +683,8 @@ impl ReviewApplicationService {
         not(test),
         expect(
             dead_code,
-            reason = "the write path is live; reading decisions back arrives with 13.6's \
-                 review summary counts"
+            reason = "the write path is live; reading decisions back is what 13.10's per-hunk \
+                 controls render"
         )
     )]
     pub(crate) fn hunk_decisions(
@@ -1670,6 +1729,95 @@ mod tests {
             ReviewDecision::Pending
         );
         assert!(service.hunk_decisions(&review.id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn the_summary_counts_a_file_as_read_only_while_it_is_the_file_that_was_read() {
+        let (service, decisions, _witnesses, _evidence) = reviewing();
+        let review = opened(&service);
+        service
+            .set_file_viewed(&review.id, read("src/a.rs", true))
+            .unwrap();
+
+        assert_eq!(
+            service.view(review.clone()).unwrap().summary.viewed_files,
+            1
+        );
+
+        // The same path, marked against a version of the file that is not the one the review
+        // holds. Nothing swept the store; the mark simply stops matching.
+        decisions
+            .upsert_file_view_state(
+                &review.id,
+                &ReviewFileViewState::try_new(
+                    "src/a.rs".into(),
+                    review.fingerprint.clone(),
+                    "a-witness-from-an-older-version".into(),
+                    true,
+                    Some("2026-08-27T00:00:00Z".into()),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+
+        assert_eq!(service.view(review).unwrap().summary.viewed_files, 0);
+    }
+
+    #[test]
+    fn the_summary_counts_the_review_s_current_files_not_the_marks_it_holds() {
+        let (service, decisions, _witnesses, _evidence) = reviewing();
+        let review = opened(&service);
+        // A mark for a file that is no longer in the review — the reviewer read it, then the agent
+        // reverted it. Counting marks instead of files would report 1 of 1 read on a review whose
+        // one changed file nobody has opened.
+        decisions
+            .upsert_file_view_state(
+                &review.id,
+                &ReviewFileViewState::try_new(
+                    "src/gone.rs".into(),
+                    review.fingerprint.clone(),
+                    "witness".into(),
+                    true,
+                    Some("2026-08-27T00:00:00Z".into()),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+
+        let summary = service.view(review).unwrap().summary;
+        assert_eq!(summary.changed_files, 1);
+        assert_eq!(summary.viewed_files, 0);
+    }
+
+    #[test]
+    fn the_summary_counts_what_is_unresolved_rather_than_what_exists() {
+        let (service, _decisions, _witnesses, _evidence) = reviewing();
+        let review = opened(&service);
+        let comment = service
+            .add_comment(AddReviewCommentRequest {
+                review_id: review.id.clone(),
+                anchor: anchor(),
+                body: "Please fix".into(),
+            })
+            .unwrap();
+
+        assert_eq!(
+            service
+                .view(service.find(&review.id).unwrap())
+                .unwrap()
+                .summary
+                .unresolved_comments,
+            1
+        );
+
+        let resolved = service.resolve_comment(&review.id, &comment.id).unwrap();
+        // The comment is still there. What changed is whether anybody still has to act on it, and
+        // that is the number a header is for.
+        assert_eq!(resolved.comments().len(), 1);
+        assert_eq!(
+            service.view(resolved).unwrap().summary.unresolved_comments,
+            0
+        );
     }
 
     #[test]
