@@ -67,15 +67,25 @@
 - [x] 8.8 `cargo test --workspace` — **4,610 passed, 0 failed.** A fully green run, including both tests that were load-sensitive in the previous two changes.
 - [x] 8.9 `npm run architecture:check`, `npm run contracts:check`, `npm run coverage:policy:test`, `npm run version:unit:test`
   - One budget moved: `src/services` +20, for the descriptor's two new fields and the mock's Java entry. That entry is what makes the Web adapter exercise the `install_directory` branch at all.
-- [ ] 8.10 `npx playwright test`
-- [ ] 8.11 `npm run desktop:unit:test`, then `npm run test:desktop`
-- [ ] 8.12 `openspec validate add-lsp-java-jdtls --strict` and `openspec validate --specs --strict`
-- [ ] 8.13 Simulate the archive merge with `buildUpdatedSpec`
+- [x] 8.10 `npx playwright test` — **184 passed**
+- [x] 8.11 `npm run desktop:unit:test`, then `npm run test:desktop`
+  - **All seven layers PASSED on Windows**, including `desktop-settings-persistence`, which was the one that failed under load in the previous change and passes here on the first attempt.
+  - **Windows only.** macOS and Linux are NOT RUN here; CI's `Desktop Smoke` is the only evidence for those.
+- [x] 8.12 `openspec validate add-lsp-java-jdtls --strict` and `openspec validate --specs --strict` — valid; 139/139
+- [x] 8.13 Simulate the archive merge with `buildUpdatedSpec` — `lsp-server-management +6 ~2`, `settings-center-ui ~1`
+  - The simulator caught a real archive-time failure before it could happen: the `settings-center-ui` MODIFIED block had dropped four scenarios the current spec still holds. `validate --strict` does not model the merge, so this is the only step that would have found it.
 
 ## 9. Acceptance
 
-- [ ] 9.1 Confirm the four existing languages behave identically: their discovery tests pass unchanged and no executable-shaped code path was rewritten
-- [ ] 9.2 Confirm no frontend file names Java. The card, the override control, and the reason display all read a descriptor
-- [ ] 9.3 Confirm no database migration was added
+- [x] 9.1 Confirm the four existing languages behave identically: their discovery tests pass unchanged and no executable-shaped code path was rewritten
+  - Five, not four. All eight executable-shaped discovery tests pass untouched, and `discover` still runs the same code for them — the interpreter path is an early return above it, not a rewrite of it.
+- [x] 9.2 Confirm no frontend file names Java. The card, the override control, and the reason display all read a descriptor
+  - No frontend **branch** on Java. Three files contain the string: `code-highlighting.ts` and `types/code-index.ts` predate this change and are unrelated, and `web-lsp-client.ts` is the Web mock's registry mirror — data standing in for a backend table, which is what that file is for. The card, the override control, and the prerequisite note read the descriptor.
+- [x] 9.3 Confirm no database migration was added
+  - `git diff -- src-tauri/src/platform/database/` is empty. Migration 86 had already removed the `CHECK` that a sixth language id would otherwise have needed.
 - [ ] 9.4 Measure whether the isolated server test completes for `jdtls` within the current fixed deadline, and either record that it does or move the deadline into the registry with the measurement that justified it
-- [ ] 9.5 Confirm the deferred half is deferred and not forgotten: state plainly in the change record that Java must be installed by hand until `manage-language-server-installation` lands
+  - **Not measured, and not claimed either way.** `SERVER_TEST_TIMEOUT` is a global 10s. This host has no JDK (`java: command not found`) and no `jdtls`, so there is nothing to time.
+  - Left open rather than guessed at. Raising a deadline on a suspicion is how a deadline stops being one, and the honest state is that whether 10s suffices for a JVM cold start plus `initialize` and `shutdown` is unknown. The registry field to move it into does not exist yet either — adding one for a number nobody has measured would be the same guess with more machinery.
+  - What to do when someone has the setup: run the isolated server test against a real `jdtls`, and if it times out, add a per-language deadline to the registry with that measurement recorded beside it.
+- [x] 9.5 Confirm the deferred half is deferred and not forgotten: state plainly in the change record that Java must be installed by hand until `manage-language-server-installation` lands
+  - Stated in the proposal, in both developer guides' extension-limits sections, and in both user guides' Java sections — the last of these being the one a user actually reads before wondering why there is no install button.
