@@ -17,13 +17,6 @@ use crate::platform::logging::redact_text;
 /// What an archive may expand to. Declared by the contributor for the same reason the download
 /// ceiling is: an archive's compressed size says nothing about its expanded size.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the archive kind ships tested and without a caller; add-lsp-java-jdtls is the consumer"
-    )
-)]
 pub(crate) struct ExtractionLimits {
     pub(crate) max_total_bytes: u64,
     pub(crate) max_entries: usize,
@@ -49,13 +42,6 @@ pub(crate) enum ArchiveEntryKind {
 
 /// A directory this process created and will remove unless extraction completes.
 #[derive(Debug)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the archive kind ships tested and without a caller; add-lsp-java-jdtls is the consumer"
-    )
-)]
 pub(crate) struct ExtractedArchive {
     pub(crate) directory: tempfile::TempDir,
 }
@@ -65,13 +51,6 @@ pub(crate) struct ExtractedArchive {
 /// Holds the destination so a failure anywhere removes everything already written: a partially
 /// unpacked tool is worse than none, because it looks installed.
 #[derive(Debug)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the archive kind ships tested and without a caller; add-lsp-java-jdtls is the consumer"
-    )
-)]
 pub(crate) struct ExtractionGuard {
     destination: tempfile::TempDir,
     limits: ExtractionLimits,
@@ -98,9 +77,15 @@ impl ExtractionGuard {
         })
     }
 
+    /// Where entries land. Reached by the tests rather than by an adapter -- an adapter is
+    /// handed each entry's path by `admit` and never needs the root, which is what keeps the
+    /// containment decision in one place.
     #[cfg_attr(
         not(test),
-        expect(dead_code, reason = "reached by the format adapter a consumer adds")
+        expect(
+            dead_code,
+            reason = "an adapter is given each path by admit and never needs the root"
+        )
     )]
     pub(crate) fn destination(&self) -> &Path {
         self.destination.path()
@@ -215,13 +200,6 @@ impl ExtractionGuard {
 /// Zip because it needs no dependency this build does not already carry. A format that does --
 /// `tar.gz` is the obvious next one -- is a new adapter plus a dependency decision, and both
 /// belong to the change that has a consumer for them rather than to this one.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the archive kind ships tested and without a caller; add-lsp-java-jdtls is the consumer"
-    )
-)]
 pub(crate) fn extract_zip(
     archive: &Path,
     limits: ExtractionLimits,
@@ -265,13 +243,6 @@ pub(crate) fn extract_zip(
 /// The second format, and deliberately the same shape as the first: it classifies each entry and
 /// then asks the guard where it may go. It never joins a path to the destination itself, which is
 /// what keeps the containment check in one place rather than in each adapter.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the install action wired in the next commit is the caller"
-    )
-)]
 pub(crate) fn extract_tar_gz(
     archive: &Path,
     limits: ExtractionLimits,

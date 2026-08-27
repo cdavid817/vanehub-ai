@@ -78,6 +78,9 @@ pub(crate) enum LspSafeReasonCodeDto {
     LauncherNotFound,
     AmbiguousInstall,
     ExecutableUnavailable,
+    InstallRefused,
+    InstallFailed,
+    ChecksumMismatch,
     MinimalProjectFailed,
     SpawnFailed,
     InitializeFailed,
@@ -92,6 +95,13 @@ pub(crate) enum LspSafeReasonCodeDto {
     Untrusted,
     UnsupportedMethod,
     InvalidConfiguration,
+}
+
+/// Names a language for an install or uninstall action.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LspServerInstallInputDto {
+    pub(crate) language: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
