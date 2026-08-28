@@ -68,7 +68,7 @@ impl ReviewDecisionRepository for SqliteReviewDecisionRepository {
         for row in rows {
             let (path, snapshot_fingerprint, file_witness, viewed, viewed_at) =
                 row.map_err(repository_error)?;
-            // A row written before migration 84 has no witness, so nothing can say whether its
+            // A row written before migration 94 has no witness, so nothing can say whether its
             // mark still applies. Skipped rather than shown: presenting it as viewed would claim a
             // reviewer read a version of the file this database cannot identify.
             let Some(file_witness) = file_witness else {
@@ -345,7 +345,7 @@ mod tests {
     fn a_row_from_before_the_witness_column_is_skipped_rather_than_shown_as_viewed() {
         let (directory, repository) = reviewed("review-file-views-legacy");
         let database = NativeDatabase::new(directory.path().to_path_buf()).expect("reopen");
-        // What migration 83 could write and migration 84 could not backfill: a mark with nothing
+        // What migration 93 could write and migration 94 could not backfill: a mark with nothing
         // to say which version of the file it was made about.
         database
             .connection()

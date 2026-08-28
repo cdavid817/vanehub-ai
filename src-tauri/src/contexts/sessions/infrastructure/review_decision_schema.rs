@@ -228,7 +228,7 @@ mod tests {
 
     // The header reads "viewed files out of the files that changed", once per render of the Review
     // tab. Without the index that is a scan of every decision the review ever recorded.
-    // Migration 84's column, and the reason it is not the snapshot one beside it: a review
+    // Migration 94's column, and the reason it is not the snapshot one beside it: a review
     // snapshot covers every changed file, so a mark witnessed to it is cleared by an edit to a
     // different file.
     #[test]
