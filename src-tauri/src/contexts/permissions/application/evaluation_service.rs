@@ -399,6 +399,57 @@ mod tests {
         }
     }
 
+    /// A grant store that is down. What evaluation actually meets when SQLite is unavailable.
+    struct UnavailableGrants;
+    impl GrantRepository for UnavailableGrants {
+        fn find_effective_grant(
+            &self,
+            _query: &GrantQuery<'_>,
+        ) -> Result<Option<Grant>, PermissionsApplicationError> {
+            Err(PermissionsApplicationError::infrastructure(
+                "sqlite",
+                // Deliberately quotes a statement and a path, the way a real driver error does.
+                // Nothing this test asserts on may contain either.
+                "SELECT ... FROM permission_grants: unable to open /home/user/secret/vanehub.sqlite"
+                    .to_string(),
+            ))
+        }
+    }
+
+    /// Records what the last-resort diagnostic was told, so a test can assert on the fields rather
+    /// than on a log file.
+    #[derive(Default)]
+    struct RecordingDiagnostics {
+        calls: Mutex<Vec<(String, &'static str, String, String)>>,
+    }
+    impl PermissionsDiagnosticsPort for RecordingDiagnostics {
+        fn evaluation_failed_closed(
+            &self,
+            action: &Action,
+            reason: &'static str,
+            session_id: &str,
+            generation_id: &str,
+        ) {
+            self.calls.lock().unwrap().push((
+                action.as_str().to_string(),
+                reason,
+                session_id.to_string(),
+                generation_id.to_string(),
+            ));
+        }
+    }
+
+    /// An audit store that is down too — the case the diagnostic port exists for.
+    struct UnavailableAudit;
+    impl AuditRepository for UnavailableAudit {
+        fn append(&self, _record: AuditRecord) -> Result<(), PermissionsApplicationError> {
+            Err(PermissionsApplicationError::infrastructure(
+                "sqlite",
+                "unable to open /home/user/secret/vanehub.sqlite".to_string(),
+            ))
+        }
+    }
+
     struct FixedClock;
     impl PermissionsClockPort for FixedClock {
         fn now(&self) -> String {
@@ -467,6 +518,90 @@ mod tests {
             _generation_id: &str,
         ) {
         }
+    }
+
+    /// `permissions-core`'s "Evaluation storage failure".
+    ///
+    /// Two things have to be true at once and only one of them was before: the evaluation fails
+    /// closed, *and* it leaves evidence saying it was an infrastructure failure. Without the
+    /// second, a database outage and a policy that genuinely asks are indistinguishable in the
+    /// audit trail, and an operator seeing a burst of prompts has nothing to go on.
+    #[test]
+    fn a_storage_failure_fails_closed_and_records_attributed_evidence() {
+        let principals = Arc::new(FakePrincipals::default());
+        let audit = Arc::new(FakeAudit::default());
+        let diagnostics = Arc::new(RecordingDiagnostics::default());
+        let service = EvaluationService::new(
+            principals,
+            Arc::new(UnavailableGrants),
+            audit.clone(),
+            Arc::new(FixedClock),
+            Arc::new(FakeIds(Mutex::new(0))),
+            Arc::new(FakeDefaultTemplate(Mutex::new(PolicyTemplateName::Trusted))),
+            diagnostics.clone(),
+        );
+
+        let effect = service.evaluate(
+            "agent-1",
+            Action::file_write(),
+            crate::contexts::permissions::domain::Resource::file_path("a.txt"),
+            "session-1",
+            "generation-1",
+            "project-1",
+        );
+
+        // Trusted would normally allow this. A storage failure must not be able to produce Allow.
+        assert_eq!(effect, Effect::Ask);
+        let records = audit.records.lock().unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].1, Effect::Ask);
+        assert_eq!(
+            records[0].2,
+            AuditDecider::EvaluationError,
+            "a storage failure was recorded as an ordinary policy decision"
+        );
+        // The audit store was available, so the last-resort diagnostic is not used.
+        assert!(diagnostics.calls.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn when_the_audit_store_is_also_down_the_diagnostic_carries_codes_and_no_content() {
+        let principals = Arc::new(FakePrincipals::default());
+        let diagnostics = Arc::new(RecordingDiagnostics::default());
+        let service = EvaluationService::new(
+            principals,
+            Arc::new(UnavailableGrants),
+            Arc::new(UnavailableAudit),
+            Arc::new(FixedClock),
+            Arc::new(FakeIds(Mutex::new(0))),
+            Arc::new(FakeDefaultTemplate(Mutex::new(PolicyTemplateName::Trusted))),
+            diagnostics.clone(),
+        );
+
+        let effect = service.evaluate(
+            "agent-1",
+            Action::file_write(),
+            crate::contexts::permissions::domain::Resource::file_path("secret/keys.pem"),
+            "session-1",
+            "generation-1",
+            "project-1",
+        );
+
+        assert_eq!(effect, Effect::Ask);
+        let calls = diagnostics.calls.lock().unwrap();
+        assert_eq!(calls.len(), 1);
+        let (action, reason, session_id, generation_id) = &calls[0];
+        assert_eq!(action, "file.write");
+        assert_eq!(*reason, "evaluation_storage_unavailable");
+        assert_eq!(session_id, "session-1");
+        assert_eq!(generation_id, "generation-1");
+        // The resource is a user path and the driver error quotes a database location; neither may
+        // reach a diagnostic, and the port's signature is what makes that structural rather than a
+        // convention somebody has to remember at each call site.
+        let emitted = format!("{action}{reason}{session_id}{generation_id}");
+        assert!(!emitted.contains("secret"));
+        assert!(!emitted.contains("keys.pem"));
+        assert!(!emitted.contains("vanehub.sqlite"));
     }
 
     #[test]
