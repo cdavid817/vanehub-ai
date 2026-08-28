@@ -41,6 +41,10 @@ pub(crate) struct AppSettings {
     pub(crate) custom_instructions_enabled: bool,
     pub(crate) memory_enabled: bool,
     pub(crate) memory_tool_assisted_chats_enabled: bool,
+    /// The revision the personalization fields above were read at, or `0` while the dedicated
+    /// policy is unreachable. The page echoes it back on save, so a write from a screen rendered
+    /// before someone else's edit is refused instead of silently reverting it.
+    pub(crate) personalization_revision: u64,
     pub(crate) logging_policy: LoggingPolicy,
 }
 
@@ -49,6 +53,10 @@ pub(crate) struct AppSettings {
 pub(crate) struct SaveSettingInput {
     pub(crate) key: String,
     pub(crate) value: serde_json::Value,
+    /// Required for a personalization key, ignored for every other one. Optional in the wire shape
+    /// so a caller that touches none of them needs no change.
+    #[serde(default)]
+    pub(crate) expected_personalization_revision: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

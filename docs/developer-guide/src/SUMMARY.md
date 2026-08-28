@@ -28,6 +28,7 @@
 # Context and retrieval
 
 - [Context compaction](context-compaction.md)
+- [Personalization governance](personalization-governance.md)
 - [Cross-session memory](cross-session-memory.md)
 - [Retrieval and vector search](retrieval.md)
 - [Tree-sitter code indexing](tree-sitter-code-indexing.md)

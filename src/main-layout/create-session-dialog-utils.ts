@@ -11,6 +11,7 @@ import type { OperationTask } from "../types/operation";
 import type { SaveSshConnectionInput } from "../types/ssh-connection";
 import { isSessionAgentSelectable } from "./create-session-agents";
 import type { WorkspaceMode } from "./create-session-workspace-sections";
+import type { SessionPersonalizationMode } from "../types/personalization";
 import type { SessionAgentMode } from "./session-agent-mode-selector";
 
 
@@ -129,6 +130,7 @@ export async function submitCreateSession({
   sshConnectionDraft,
   title,
   t,
+  personalizationMode,
   workspaceMode,
   worktreeEnabled,
   worktreeName,
@@ -152,6 +154,7 @@ export async function submitCreateSession({
   sshConnectionDraft: SaveSshConnectionInput;
   title: string;
   t: (key: string) => string;
+  personalizationMode: SessionPersonalizationMode;
   workspaceMode: WorkspaceMode;
   worktreeEnabled: boolean;
   worktreeName: string;
@@ -184,6 +187,7 @@ export async function submitCreateSession({
     agentId: seats ? seats[0].agentId : selectedAgent.id,
     ...(seats ? { seats } : {}),
     interactionMode,
+    personalizationMode,
     title,
     projectPath: workspaceMode === "local" ? projectPath : null,
     folder: workspaceMode === "local" ? projectPath : null,

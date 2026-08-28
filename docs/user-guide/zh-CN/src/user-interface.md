@@ -151,7 +151,7 @@ Agent 回复支持富内容渲染：代码块（语法高亮）、Mermaid 图（
 | **Agent 配置** | 按 Agent 配置 provider、端点与模型（含 OnePiece），见 [工具与扩展](tooling.md#agent-配置) |
 | **Agent 权限策略** | 权限策略与审批模板，见 [权限审批](permissions.md) |
 | **专家角色** | 角色与评审策略，见 [专家角色](expert-roles.md) |
-| **个性化** | Custom Instructions 与跨会话记忆，见 [个性化](personalization.md) |
+| **AI 个性化** | Custom Instructions 与跨会话记忆，见 [个性化](personalization.md) |
 | **Skill 管理** | Skill 安装与绑定，见 [Skill 管理](skill-management.md) |
 | **Prompt Hook** | 钩子管理，见 [Prompt Hook](prompt-hooks.md) |
 | **IM 能力** | IM 连接器配置，见 [远程与 IM](remote-and-im.md#im-连接器) |

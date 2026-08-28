@@ -100,6 +100,10 @@ globalThis.describe("VaneHub AI native desktop smoke", () => {
         agentId: "onepiece",
         interactionMode: "api",
         title: "Desktop local model fixture",
+        // Asserted below after a real round trip through SQLite. The mode is a promise made once at
+        // creation about what the conversation will use, and only the desktop actually persists it
+        // -- the Web/mock adapter keeps sessions in memory, so a restart there proves nothing.
+        personalizationMode: "temporary",
         folder: projectPath,
         projectPath,
         remoteWorkspace: null,
@@ -118,6 +122,11 @@ globalThis.describe("VaneHub AI native desktop smoke", () => {
       const sessions = await globalThis.browser.tauri.execute(({ core }) => core.invoke("list_sessions"));
       return sessions.find((item) => item.title === "Desktop local model fixture") ?? false;
     }, { timeout: 30_000, timeoutMsg: "Desktop local session was not created." });
+    assert.equal(
+      localSession.personalizationMode,
+      "temporary",
+      "the session did not keep the personalization mode it was created with",
+    );
     await globalThis.browser.tauri.execute(({ core }, sessionId) => core.invoke("send_message", {
       sessionId,
       content: "Reply from the deterministic local server.",

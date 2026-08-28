@@ -3,81 +3,111 @@
 ## Purpose
 TBD - created by archiving change add-personalization-settings. Update Purpose after archive.
 ## Requirements
-### Requirement: Custom instructions configuration and persistence
-The system SHALL provide host-level custom instructions applied to OnePiece and to the CLI-wrapped agents (`claude-code`, `codex-cli`, `gemini-cli`, `opencode`), containing two independent text fields ("about you" and "response style") and one enablement toggle, persisted through the shared application settings model rather than a dedicated table, and SHALL NOT transmit their content to any remote service beyond the generation or CLI prompt requests they are injected into. Each field SHALL be limited to 3,000 Unicode characters; a value exceeding that limit SHALL be rejected rather than persisted. A single enablement toggle SHALL govern both OnePiece and the CLI-wrapped agents together.
+### Requirement: Scoped custom instructions configuration and persistence
+The system SHALL provide two custom-instruction fields ("about you" and "response style") through the dedicated personalization service, SHALL support global, Agent, workspace, and workspace-Agent policy scopes, and SHALL apply them to every compatible VaneHub-managed Agent through deterministic inheritance rather than one host-wide toggle. Each field at a persisted scope SHALL be limited to 3,000 Unicode characters and SHALL be saved through an expected-revision policy patch. The system SHALL NOT transmit instruction content anywhere except the concrete generation or CLI prompt request in which the effective segment is intentionally injected.
 
-#### Scenario: Save custom instructions for the first time
-- **WHEN** a user fills in the about-you and/or response-style fields and saves
-- **THEN** the system SHALL persist both fields and the enabled state through the settings service
-- **AND** the saved values SHALL apply to subsequently started OnePiece generations and CLI-wrapped agent messages without an application restart
+#### Scenario: Save global custom instructions
+- **WHEN** a user saves valid global about-you or response-style fields with the current global policy revision
+- **THEN** the personalization service SHALL persist only the global policy scope
+- **AND** the new values SHALL apply to subsequent compatible VaneHub-managed Agent generations without an application restart
+
+#### Scenario: Save an Agent override
+- **WHEN** a user saves an Agent-scope `append`, `replace`, or `disabled` override for a stable registered Agent id
+- **THEN** the system SHALL persist the override independently from the global and other Agent scopes
+- **AND** subsequent generations for that Agent SHALL resolve it according to personalization precedence
+
+#### Scenario: Save a workspace or workspace-Agent override
+- **WHEN** a user saves a valid override for a resolved workspace or workspace-Agent scope
+- **THEN** the override SHALL apply only when that workspace context is active and, for a workspace-Agent scope, only for the selected Agent
 
 #### Scenario: Load default custom instructions
-- **WHEN** no custom instructions have been saved yet
-- **THEN** the system SHALL treat both fields as empty and the enabled toggle as on
+- **WHEN** no migrated or persisted personalization policy exists
+- **THEN** the system SHALL present empty custom-instruction fields
+- **AND** SHALL use the personalization domain's validated safe defaults
 
-#### Scenario: Oversized field is rejected
-- **WHEN** a user submits a field exceeding 3,000 Unicode characters
-- **THEN** the settings UI SHALL prevent saving and show the used/remaining character count
-- **AND** the native command layer SHALL independently validate and reject an oversized value, defense in depth against a non-UI caller
+#### Scenario: Reject an oversized field
+- **WHEN** a user submits either field with more than 3,000 Unicode characters
+- **THEN** the UI SHALL prevent save and show a localized inline count/error
+- **AND** the native personalization boundary SHALL independently reject the patch without changing the persisted revision
 
-#### Scenario: One toggle governs every agent
-- **WHEN** a user disables the custom instructions enablement toggle
-- **THEN** neither OnePiece nor any CLI-wrapped agent SHALL receive injected custom instructions until the toggle is re-enabled
+#### Scenario: Reject a stale edit
+- **WHEN** a custom-instruction patch carries a stale expected revision
+- **THEN** the service SHALL return a typed conflict and safe current scope record
+- **AND** the UI SHALL preserve the user's draft rather than replacing unrelated personalization state
 
-### Requirement: Custom instructions system-prompt section assembly
-The system SHALL assemble enabled, non-empty custom instructions into one distinct system-prompt section, with response style ordered before about-you within that section. When custom instructions are disabled or both fields are empty, the system SHALL produce no section and SHALL skip any related lookup. This requirement governs only the internal shape of the custom-instructions section; its position relative to core instructions, Skills, and memory is governed by the `agent-skill-injection` capability.
+#### Scenario: Migrate legacy host-level settings
+- **WHEN** an existing installation first loads the dedicated personalization service
+- **THEN** the system SHALL migrate the legacy fields and enablement value into the global policy idempotently
+- **AND** the generic `AppSettings` fields SHALL no longer be the runtime source of truth after migration completes
 
-#### Scenario: Both fields present
-- **WHEN** a OnePiece generation starts with custom instructions enabled and both fields non-empty
-- **THEN** the assembled section SHALL present response style before about-you
+### Requirement: Resolved custom instructions system-prompt section assembly
+The system SHALL assemble effective, non-empty resolved custom-instruction segments into a distinct personalization section while retaining segment scope and order metadata for diagnostics. Within each scope segment, response style SHALL be ordered before about-you. When the resolved instruction mode is disabled or no effective field is non-empty, the system SHALL produce no user-personalization section. This requirement governs only user-personalization content; core instructions, role instructions, Skills, Prompt Hooks, memory, and safety instructions remain governed by their own capabilities.
 
-#### Scenario: Disabled produces no section
-- **WHEN** the custom instructions enabled toggle is off
-- **THEN** the generation request SHALL contain no custom-instructions section
+#### Scenario: Assemble inherited and appended fields
+- **WHEN** a generation resolves non-empty global and appended higher-precedence instruction fields
+- **THEN** the section SHALL preserve scope resolution order
+- **AND** SHALL place response style before about-you within each included scope segment
+
+#### Scenario: Replace inherited fields
+- **WHEN** the highest effective instruction merge mode is `replace`
+- **THEN** the section SHALL contain only the replacement and any later appended user-personalization segments
+- **AND** SHALL retain all non-personalization core/runtime sections
+
+#### Scenario: Disabled produces no personalization section
+- **WHEN** the effective instruction merge mode is `disabled`
+- **THEN** the generation request SHALL contain no user-personalization instruction section
 
 #### Scenario: Only one field is populated
-- **WHEN** only one of the two fields is non-empty
-- **THEN** the assembled section SHALL contain only that field's content, with no empty placeholder for the other
+- **WHEN** an included scope contains only one non-empty field
+- **THEN** the assembled segment SHALL contain only that field and no empty placeholder
 
-#### Scenario: Settings lookup fails
-- **WHEN** resolving custom instructions fails during generation
-- **THEN** the system SHALL log the failure and omit the custom-instructions section
-- **AND** it SHALL NOT fail the generation or affect independently resolved core-instruction, Skill, or memory sections
+#### Scenario: Snapshot resolution fails without a safe policy
+- **WHEN** no validated personalization policy can be resolved for a generation
+- **THEN** the system SHALL omit the user-personalization section
+- **AND** SHALL continue core instructions, Skills, Prompt Hooks, and the generation without enabling personalization implicitly
 
-### Requirement: Web runtime custom instructions parity
-The Web/mock runtime SHALL simulate custom instructions persistence deterministically for every agent kind, without a real provider call or a real CLI process. Because the Web/mock `sendMessage` simulation does not model provider- or CLI-bound prompt content for any agent kind (its simulated responses are fixed templates, not a function of assembled prompt content), this requirement governs only settings persistence and loading — not simulating the CLI prepend mechanism itself, which has no user-observable effect to simulate in mock mode.
+### Requirement: Web runtime scoped custom instructions parity
+The Web/mock runtime SHALL implement the same scoped policy, inheritance, validation, expected-revision, conflict, effective-preview, and session-mode contracts as the desktop runtime without accessing SQLite, contacting a real provider, or launching a real CLI process. Fixed simulated chat responses are not required to vary according to hidden assembled prompt text.
 
-#### Scenario: Web mock custom instructions settings behavior
-- **WHEN** custom instructions are saved or loaded through the Web/mock adapter, regardless of which agent kind will use them
-- **THEN** the Web adapter SHALL simulate the corresponding persistence behavior through the same service contracts the desktop runtime uses
-- **AND** it SHALL NOT access SQLite, contact a real provider, or launch a real CLI process to produce it
+#### Scenario: Web mock saves scoped instructions
+- **WHEN** custom instructions are created or updated through the Web/mock adapter
+- **THEN** the adapter SHALL preserve the selected scope, merge mode, fields, revision, and conflict semantics through the same `AgentService` contract
+
+#### Scenario: Web mock previews effective instructions
+- **WHEN** an effective preview is requested for a registered mock Agent and workspace
+- **THEN** the adapter SHALL return deterministic contributing scopes and final instruction state equivalent to desktop policy resolution
 
 #### Scenario: No simulated prompt-content divergence
-- **WHEN** custom instructions are enabled and non-empty during a mock message send to any agent kind
-- **THEN** the Web adapter's simulated response SHALL behave identically to when custom instructions are disabled or empty
-- **AND** this SHALL NOT be treated as a parity gap, since the desktop runtime's own prepended CLI prompt content is equally not observable through the chat UI
+- **WHEN** custom instructions are enabled, disabled, appended, or replaced during a mock message send
+- **THEN** the fixed simulated response MAY remain unchanged
+- **AND** this SHALL NOT be treated as a service-contract parity failure
 
-### Requirement: Custom instructions CLI prompt injection
-The system SHALL prepend enabled, non-empty custom instructions to the Prompt-Hook-assembled effective prompt for every message sent to a CLI-wrapped agent (`claude-code`, `codex-cli`, `gemini-cli`, `opencode`), using the same section formatting as the OnePiece system-prompt section. This requirement governs only the CLI delivery mechanism; the Prompt Hook pipeline's own assembly, bindings, and template rendering are unaffected and remain governed by the `native-runtime-architecture` and Prompt Hook specifications.
+### Requirement: Resolved custom instructions CLI prompt injection
+The system SHALL prepend effective non-empty resolved custom-instruction segments to the Prompt-Hook-assembled effective prompt for every message sent through a compatible VaneHub-managed CLI runtime adapter. Coverage SHALL be derived from the stable Agent registry and runtime capability metadata rather than a fixed list. This delivery mechanism SHALL NOT modify the CLI's native instruction files or internal conversation compaction.
 
-#### Scenario: Custom instructions precede the Prompt Hook assembly
-- **WHEN** a message is sent to a CLI-wrapped agent with custom instructions enabled and non-empty
-- **THEN** the final text delivered to that CLI process SHALL contain the custom-instructions section before the Prompt-Hook-assembled content
+#### Scenario: Effective custom instructions precede Prompt Hook assembly
+- **WHEN** a CLI message snapshot contains effective custom-instruction segments
+- **THEN** the final text delivered to the CLI process SHALL contain those segments before the Prompt-Hook-assembled content
 
-#### Scenario: Repeated on every turn
-- **WHEN** a CLI-wrapped agent session sends more than one message
-- **THEN** the system SHALL prepend the custom-instructions section to each message independently, not only the first
+#### Scenario: Apply scoped instructions on every turn
+- **WHEN** a CLI session sends multiple messages or changes active workspace context
+- **THEN** each turn SHALL capture and prepend its own effective snapshot
+- **AND** SHALL NOT rely on a one-time first-turn injection
 
 #### Scenario: Disabled or empty produces no injection
-- **WHEN** custom instructions are disabled or both fields are empty
-- **THEN** the text delivered to the CLI process SHALL be exactly the Prompt-Hook-assembled content, unchanged from behavior before this requirement existed
+- **WHEN** the effective instruction mode is disabled or all effective fields are empty
+- **THEN** the CLI adapter SHALL deliver the existing Prompt-Hook-assembled content without a user-personalization section
 
-#### Scenario: Settings lookup failure does not block the CLI message
-- **WHEN** resolving custom instructions fails while sending a message to a CLI-wrapped agent
-- **THEN** the system SHALL log the failure and send the Prompt-Hook-assembled content without the custom-instructions section
-- **AND** it SHALL NOT fail or delay the message send
+#### Scenario: Resolution failure does not block a CLI response
+- **WHEN** custom-instruction resolution fails and no validated policy is available
+- **THEN** the system SHALL send the Prompt-Hook-assembled content without custom instructions
+- **AND** SHALL surface only a safe warning without failing or materially delaying the CLI message
 
-#### Scenario: Does not alter Prompt Hook template rendering
-- **WHEN** custom instructions are prepended for a CLI-wrapped agent
-- **THEN** the Prompt Hook pipeline's own template variables (including the rendered user message) SHALL reflect only the user's original input, unaffected by the prepended custom-instructions content
+#### Scenario: Prompt Hook template input remains original
+- **WHEN** custom instructions are prepended for a CLI Agent
+- **THEN** Prompt Hook template variables representing the user message SHALL continue to use the user's original input rather than the prepended text
+
+#### Scenario: Dynamic compatible CLI Agent
+- **WHEN** a newly registered CLI Agent declares custom-instruction support and uses the shared CLI adapter
+- **THEN** it SHALL receive effective custom instructions without a new Agent-specific personalization branch
 

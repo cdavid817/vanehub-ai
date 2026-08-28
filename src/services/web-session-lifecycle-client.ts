@@ -77,6 +77,12 @@ export const webSessionLifecycleClient: SessionLifecycleService = {
       throw new Error("Remote workspace cannot use Git worktree");
     }
     const projectPath = remoteWorkspace ? null : resolveProjectPath(input);
+    // Refused here rather than at the first turn, and with the native wording: a project-only
+    // session with nothing to be isolated to would fall back to reading everything global, which is
+    // the exact interpretation the mode exists to prevent.
+    if (input.personalizationMode === "project-only" && !projectPath && !remoteWorkspace && !input.folder) {
+      throw new Error("A project-only session needs a workspace to be isolated to.");
+    }
     const inspection = projectPath ? inspectMockProject(projectPath) : null;
     if (inspection) {
       upsertKnownProject(inspection);
@@ -114,6 +120,10 @@ export const webSessionLifecycleClient: SessionLifecycleService = {
       // Mirrors the native normalization: no seats means one seat built from the Agent.
       seats: normalizedSeats,
       interactionMode: input.interactionMode,
+      // Whatever the caller asked for. Forcing `standard` here would let a page ship whose
+      // temporary session quietly retains everything, and the mock is where that has to be
+      // reachable in a test.
+      personalizationMode: input.personalizationMode ?? "standard",
       lifecycleState: "idle",
       recoveryStatus: "clean",
       recoveryRevision: 0,

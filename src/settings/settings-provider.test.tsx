@@ -189,6 +189,34 @@ describe("SettingsProvider hydration", () => {
     expect(onRender.mock.lastCall?.[0].error).not.toContain("optional chunk unavailable");
   });
 
+  it("saves against the revision the screen was rendered from, not a fresher one", async () => {
+    // The whole point of the compatibility window's concurrency check. Sending a revision re-read
+    // at save time would accept every write and silently revert another screen's edit.
+    const onRender = vi.fn<(snapshot: HydrationSnapshot) => void>();
+    vi.mocked(settingsService.getSettings).mockResolvedValue({ ...defaultAppSettings, personalizationRevision: 9 });
+    vi.mocked(settingsService.saveSetting).mockResolvedValue({
+      ...defaultAppSettings,
+      applicationLanguage: "ko",
+      personalizationRevision: 10,
+    });
+
+    render(
+      <SettingsProvider>
+        <HydratedSurface onRender={onRender} />
+      </SettingsProvider>,
+    );
+
+    await screen.findByTestId("hydrated-surface");
+    fireEvent.click(screen.getByRole("button", { name: "switch" }));
+
+    await waitFor(() => expect(settingsService.saveSetting).toHaveBeenCalled());
+    expect(settingsService.saveSetting).toHaveBeenCalledWith({
+      key: "applicationLanguage",
+      value: "ko",
+      expectedPersonalizationRevision: 9,
+    });
+  });
+
   it("switches immediately and keeps the language returned by persistence", async () => {
     const onRender = vi.fn<(snapshot: HydrationSnapshot) => void>();
     vi.mocked(settingsService.getSettings).mockResolvedValue(defaultAppSettings);
@@ -208,6 +236,12 @@ describe("SettingsProvider hydration", () => {
 
     await waitFor(() => expect(i18n.language).toBe("ko"));
     expect(document.documentElement.lang).toBe("ko");
-    expect(settingsService.saveSetting).toHaveBeenCalledWith({ key: "applicationLanguage", value: "ko" });
+    // The revision travels on every save, not only on personalization keys: the provider has no
+    // per-key knowledge, and the native side ignores it for keys the policy does not own.
+    expect(settingsService.saveSetting).toHaveBeenCalledWith({
+      key: "applicationLanguage",
+      value: "ko",
+      expectedPersonalizationRevision: 0,
+    });
   });
 });

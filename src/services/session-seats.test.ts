@@ -8,7 +8,7 @@ function session(overrides: Partial<Session> = {}): Session {
     title: "会话",
     agentId: "claude-code",
     interactionMode: "cli",
-    lifecycleState: "idle",
+    personalizationMode: "standard", lifecycleState: "idle",
     recoveryStatus: "clean",
     recoveryRevision: 0,
     stateRevision: 0,

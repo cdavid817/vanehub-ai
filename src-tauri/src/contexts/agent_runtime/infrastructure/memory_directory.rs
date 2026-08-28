@@ -1,11 +1,18 @@
+#[cfg(test)]
 use super::memory_naming::{derive_description, derive_name};
+#[cfg(test)]
+use crate::contexts::agent_runtime::application::SaveMemoryInput;
 use crate::contexts::agent_runtime::application::{
-    AgentMemory, AgentMemoryPort, AgentRuntimeApplicationError, MemorySource, SaveMemoryInput,
+    AgentMemory, AgentMemoryPort, AgentRuntimeApplicationError, MemorySource,
 };
+#[cfg(test)]
+use crate::contexts::agent_runtime::domain::validate_name;
 use crate::contexts::agent_runtime::domain::{
-    compose_memory_document, parse_memory_document, validate_name, MemoryDocument, MemoryMetadata,
+    compose_memory_document, parse_memory_document, MemoryDocument, MemoryMetadata,
 };
+#[cfg(test)]
 use crate::platform::clock::SystemClock;
+#[cfg(test)]
 use std::collections::HashSet;
 use std::fs;
 use std::io::{BufRead, BufReader};
@@ -65,13 +72,6 @@ impl FileAgentMemoryStore {
     #[allow(dead_code)]
     pub(crate) fn root(&self) -> &Path {
         &self.root
-    }
-
-    /// Whether the directory has been initialized. The index's presence is the marker: it is
-    /// legitimate directory content rather than a hidden sentinel, and it survives the user
-    /// deleting every memory — which must not cause migration to resurrect them from the rows.
-    pub(crate) fn has_index(&self) -> bool {
-        self.root.join(INDEX_FILE_NAME).is_file()
     }
 
     /// Every memory in the directory, newest-modified first, capped at [`MAX_SCANNED_FILES`].
@@ -301,13 +301,17 @@ pub(crate) fn is_within_memory_directory(path: &str) -> bool {
 impl FileAgentMemoryStore {
     /// The memories behind an explicit path list, in no particular order.
     ///
-    /// Deliberately off `AgentMemoryPort`, mirroring the row repository it replaces: its only
-    /// caller is the composition root's retrieval index source, and no use case inside this
-    /// context resolves memories by path.
+    /// Deliberately off `AgentMemoryPort`, mirroring the row repository it replaces. Its production
+    /// caller was the retrieval index source, which now reads the governed store; it survives for
+    /// the migration tests that assert what this directory held before conversion.
     ///
     /// A path with no file is simply absent from the result rather than an error. That is what
     /// keeps a deleted memory from ever being surfaced again: the index can outlive the file, and
     /// results resolve against the directory rather than against the indexed copy.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "retained for the migration tests")
+    )]
     pub(crate) fn list_by_paths(
         &self,
         relative_paths: &[String],
@@ -333,14 +337,23 @@ impl FileAgentMemoryStore {
     }
 }
 
-impl AgentMemoryPort for FileAgentMemoryStore {
+/// The pre-governance write path, kept for this store's own tests.
+///
+/// It is no longer part of `AgentMemoryPort`: nothing in production writes a memory through a v1
+/// store any more, and leaving it on the port would be a second way into a directory the governed
+/// store now owns.
+#[cfg(test)]
+impl FileAgentMemoryStore {
     /// Writes one memory file and reconciles the index in the same operation.
     ///
     /// A writer that supplied no name gets one derived from the content, checked against the names
     /// already in the directory. A writer that supplied one addresses an existing memory by it, so
     /// saving under a name that is already present replaces that memory rather than adding a
     /// second one for the same fact — the update path the row store could not express.
-    fn save(&self, input: SaveMemoryInput<'_>) -> Result<(), AgentRuntimeApplicationError> {
+    pub(crate) fn save(
+        &self,
+        input: SaveMemoryInput<'_>,
+    ) -> Result<(), AgentRuntimeApplicationError> {
         let content = input.content.trim();
         if content.is_empty() {
             return Err(memory_error("Memory content is empty.".to_string()));
@@ -375,7 +388,9 @@ impl AgentMemoryPort for FileAgentMemoryStore {
         self.reconcile_index()?;
         Ok(())
     }
+}
 
+impl AgentMemoryPort for FileAgentMemoryStore {
     /// Every memory in the shared pool, newest-modified first. Unlike a scan this reads bodies, so
     /// it is the listing and injection path rather than the manifest path.
     fn list_all(&self) -> Result<Vec<AgentMemory>, AgentRuntimeApplicationError> {
@@ -394,16 +409,6 @@ impl AgentMemoryPort for FileAgentMemoryStore {
             ));
         }
         Ok(memories)
-    }
-
-    fn delete(&self, memory_id: &str) -> Result<(), AgentRuntimeApplicationError> {
-        FileAgentMemoryStore::delete(self, memory_id)?;
-        self.reconcile_index()?;
-        Ok(())
-    }
-
-    fn delete_all(&self) -> Result<(), AgentRuntimeApplicationError> {
-        FileAgentMemoryStore::delete_all(self)
     }
 }
 

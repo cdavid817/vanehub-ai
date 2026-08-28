@@ -12,7 +12,7 @@ test("orders Settings destinations around common setup and customization workflo
     "代码智能",
     "MCP 服务器",
     "Skill 管理",
-    "个性化",
+    "AI 个性化",
     "Prompt Hook",
     "专家角色",
     "本地媒体",

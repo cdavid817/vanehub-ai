@@ -1,6 +1,4 @@
 import assert from "node:assert/strict";
-import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
 import process from "node:process";
 
 const invoke = (fn, ...args) => globalThis.browser.tauri.execute(fn, ...args);
@@ -111,18 +109,50 @@ const deleteRole = (roleId) => invoke(({ core }, id) => (
 
 // desktop/get_settings.rs:7-9 — no arguments; returns `AppSettings` (desktop/dto.rs:23-40).
 const readSettings = () => invoke(({ core }) => core.invoke("get_settings"));
-// desktop/save_setting.rs:7-11 — `input: SaveSettingInput` (desktop/dto.rs:42-47): `{ key, value }`.
-// `value` must be a JSON boolean or string; a JSON number is accepted for
-// `contextQualityRetentionDays` alone (desktop/mapper.rs:14-28).
-const saveSetting = (key, value) => invoke(({ core }, input) => (
-  core.invoke("save_setting", { input })
-), { key, value });
-// agent_runtime/list_agent_memories.rs:7-9 — no arguments.
-const listMemories = () => invoke(({ core }) => core.invoke("list_agent_memories"));
-// agent_runtime/delete_agent_memory.rs:46-52 — `memory_id: String`.
-const deleteMemory = (memoryId) => invoke(({ core }, id) => (
-  core.invoke("delete_agent_memory", { memoryId: id })
+// The five keys the dedicated personalization policy owns rather than the settings table
+// (contexts/desktop/api.rs:186-210). A write to one of them is refused unless it states the
+// revision it was read at, so that no screen rendered before someone else's edit can revert it.
+const POLICY_OWNED_SETTINGS = new Set([
+  "customInstructionsAboutUser",
+  "customInstructionsStyleRules",
+  "customInstructionsEnabled",
+  "memoryEnabled",
+  "memoryToolAssistedChatsEnabled",
+]);
+// desktop/save_setting.rs:7-11 — `input: SaveSettingInput` (desktop/dto.rs:42-53):
+// `{ key, value, expectedPersonalizationRevision? }`. `value` must be a JSON boolean or string; a
+// JSON number is accepted for `contextQualityRetentionDays` alone (desktop/mapper.rs:14-28).
+//
+// The revision is read here rather than passed in by each call site: every accepted write advances
+// it, so a value captured once would be stale by the second save and the helper would start
+// failing for a reason that has nothing to do with what is under test.
+const saveSetting = async (key, value) => {
+  const expectedPersonalizationRevision = POLICY_OWNED_SETTINGS.has(key)
+    ? (await readSettings()).personalizationRevision
+    : undefined;
+  return invoke(({ core }, input) => (
+    core.invoke("save_setting", { input })
+  ), { key, value, expectedPersonalizationRevision });
+};
+// personalization/create_personalization_memory.rs:11-19 — `input: CreateMemoryCommandInput`.
+const createGovernedMemory = (input) => invoke(({ core }, value) => (
+  core.invoke("create_personalization_memory", { input: value })
+), input);
+// personalization/query_personalization_memories.rs:11-19 — `input: MemoryQueryInput`; returns a
+// page of summaries (`{ items, nextCursor, totalMatched }`). Summaries carry no body, so the one
+// this spec reads is fetched separately.
+const listMemories = (input = {}) => invoke(({ core }, value) => (
+  core.invoke("query_personalization_memories", { input: value })
+), input);
+// personalization/get_personalization_memory.rs — `memory_id: String`.
+const readMemory = (memoryId) => invoke(({ core }, id) => (
+  core.invoke("get_personalization_memory", { memoryId: id })
 ), memoryId);
+// personalization/delete_personalization_memory.rs:11-19 — `memory_id` plus the revision the
+// caller was looking at, so a delete racing an edit is refused rather than silently winning.
+const deleteMemory = (memoryId, expectedRevision) => invoke(({ core }, args) => (
+  core.invoke("delete_personalization_memory", args)
+), { memoryId, expectedRevision: expectedRevision ?? null });
 
 function mutation(id, order, templateBody, overrides = {}) {
   return {
@@ -649,8 +679,8 @@ globalThis.describe("VaneHub AI desktop Prompt Hooks, Expert Roles and Personali
         assert.equal((await readSettings())[key], true, `${key} did not survive a read after being turned back on`);
       }
 
-      const memories = await listMemories();
-      assert.ok(Array.isArray(memories), "the shared agent memory pool is not readable");
+      const page = await listMemories({ limit: 1 });
+      assert.ok(Array.isArray(page.items), "the governed memory store is not readable");
     } finally {
       // Restored from the values read at the top, not from a remembered default. Retried because a
       // concurrent write can hold the settings row and a lost restore would hand every later spec
@@ -681,62 +711,58 @@ globalThis.describe("VaneHub AI desktop Prompt Hooks, Expert Roles and Personali
     }
   });
 
-  globalThis.it("reads and deletes an entry in the shared agent memory pool", async function deleteOneMemory() {
-    const dataDir = process.env.VANEHUB_APP_DATA_DIR;
-    if (!dataDir) {
-      blocked.push("agent memory delete: VANEHUB_APP_DATA_DIR is unset, so the pool cannot be seeded");
-      this.skip();
-    }
-
-    // Seeded as a file rather than produced by a generation. Nothing writes a memory except
-    // extraction, and extraction only runs inside compaction, so producing one for real would mean
-    // pushing a conversation past the compaction threshold and then depending on the model
-    // choosing to emit a well-formed create action -- which makes the provider's behaviour the
-    // precondition of the test. The pool is a directory of markdown files whose id is the relative
-    // path (infrastructure/memory_directory.rs:53-54, :412-418), so a file is a first-class way in,
-    // the same way domain-skills seeds a Skill package. Under test here is the read and delete
-    // surface over real on-disk state, not extraction.
+  globalThis.it("writes, reads and deletes an entry in the governed memory store", async function deleteOneMemory() {
+    // Written through the governed create command rather than by dropping a markdown file. The
+    // file is the authoritative surface but not the entry point: writing one directly would leave
+    // the projection, the index and the retrieval entry behind, which is the dual-write this
+    // change exists to end. Producing one automatically is not an option either -- extraction runs
+    // inside compaction and only ever proposes -- so the provider's behaviour would become the
+    // precondition of the test. Under test here is the write/read/delete surface over real
+    // persisted state, not extraction.
     const name = `desktop-sweep-memory-${RUN}`;
-    const memoryRoot = join(dataDir, "memory");
-    await mkdir(memoryRoot, { recursive: true });
-    // Frontmatter shape taken from `compose_memory_document`
-    // (domain/memory_document.rs:131-153), which is what writes these files in production.
-    await writeFile(
-      join(memoryRoot, `${name}.md`),
-      [
-        "---",
-        `name: ${name}`,
-        "description: Seeded by the desktop prompt-hook sweep.",
-        "type: project",
-        "source: automatic",
-        "---",
-        "",
-        "The desktop sweep seeded this memory to exercise the pool's read and delete surface.",
-        "",
-      ].join("\n"),
-      "utf8",
-    );
+    const created = await createGovernedMemory({
+      name,
+      description: "Seeded by the desktop prompt-hook sweep.",
+      memoryType: "project",
+      content: "The desktop sweep seeded this memory to exercise the store's read and delete surface.",
+      // Global rather than workspace-scoped: a workspace-scoped memory is not resolved for a
+      // caller that names no workspace, and this one names none.
+      scopeKind: "global",
+    });
+    assert.ok(created.id, "the governed store did not return the created memory");
 
-    const memories = await listMemories();
-    const target = memories.find((memory) => memory.name === name);
+    const page = await listMemories({ text: name });
+    const target = page.items.find((memory) => memory.name === name);
     assert.ok(
       target,
-      `the seeded memory was not listed; the pool held ${JSON.stringify(memories.map((entry) => entry.name))}`,
+      `the created memory was not listed; the page held ${JSON.stringify(page.items.map((entry) => entry.name))}`,
     );
+    assert.equal(target.id, created.id);
     assert.equal(target.description, "Seeded by the desktop prompt-hook sweep.");
-    assert.match(target.content, /read and delete surface/);
-
-    await deleteMemory(target.id);
-    const remaining = await listMemories();
     assert.equal(
-      remaining.find((memory) => memory.id === target.id),
+      target.content,
       undefined,
-      "the deleted memory is still in the pool",
+      "a list entry must not carry a body -- that is what makes the page bounded",
     );
+
+    const detail = await readMemory(created.id);
+    assert.ok(detail, "the memory could not be read back by id");
+    assert.match(detail.content, /read and delete surface/);
+
+    // A stale revision must be refused rather than deleting whatever is there now.
+    await rejects(
+      () => deleteMemory(created.id, detail.revision + 1),
+      "a delete made against a revision that never existed",
+    );
+    assert.ok(await readMemory(created.id), "the refused delete removed the memory anyway");
+
+    const outcome = await deleteMemory(created.id, detail.revision);
+    assert.equal(outcome.deletedFiles, 1, "the authoritative file was not removed");
+    assert.deepEqual(outcome.failures, [], "a storage surface was left holding the memory");
     assert.equal(
-      remaining.length,
-      memories.length - 1,
-      "deleting one memory changed the pool by more than one entry",
+      await readMemory(created.id),
+      null,
+      "the deleted memory can still be read back",
     );
   });
 

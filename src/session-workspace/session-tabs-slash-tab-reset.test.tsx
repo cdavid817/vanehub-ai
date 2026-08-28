@@ -29,7 +29,7 @@ function session(id: string): Session {
     title: id,
     agentId: "opencode",
     interactionMode: "cli",
-    lifecycleState: "running",
+    personalizationMode: "standard", lifecycleState: "running",
     recoveryStatus: "clean",
     recoveryRevision: 0,
     stateRevision: 0,

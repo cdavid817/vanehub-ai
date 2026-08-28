@@ -12,7 +12,7 @@ function session(agentId: string): Session {
     title: `${agentId} work`,
     agentId,
     interactionMode: "cli",
-    lifecycleState: "idle",
+    personalizationMode: "standard", lifecycleState: "idle",
     recoveryStatus: "clean",
     recoveryRevision: 0,
     stateRevision: 0,

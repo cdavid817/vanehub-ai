@@ -4,6 +4,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadDesktopMetadata, resolveDesktopArtifact } from "./desktop/artifact.mjs";
 import { collectUnifiedLogs, writeRunSummary } from "./desktop/evidence.mjs";
+import { auditAgentEvaluationEvidence } from "./desktop/agent-evaluation-evidence-safety.mjs";
+import {
+  evaluateAgentEvaluationPrerequisites,
+  writeAgentEvaluationPreflight,
+} from "./desktop/agent-evaluation-qualification.mjs";
 import { auditFeishuEvidence } from "./desktop/feishu-evidence-safety.mjs";
 import { auditFeishuLiveEvidence } from "./desktop/feishu-live-evidence-safety.mjs";
 import {
@@ -413,6 +418,31 @@ async function feishuLiveQualification() {
   });
 }
 
+async function agentEvaluationQualification(mode = "fixture-opencode") {
+  const preflight = evaluateAgentEvaluationPrerequisites({ mode });
+  if (preflight.status !== "READY") {
+    const result = await writeAgentEvaluationPreflight(repoRoot, preflight);
+    process.stdout.write(
+      `Desktop Agent evaluation (${mode}): ${result.status}\nReason: ${preflight.reason}\nEvidence: ${result.resultDir}\n`,
+    );
+    process.exitCode = verificationExitCode(result.status);
+    return result;
+  }
+  // Provider qualification must run the code in this worktree. Reusing an older artifact can turn
+  // a fixed harness into evidence for a binary that never contained the fix.
+  const artifact = await buildDesktop();
+  return runDesktopLayer({
+    layer: "desktop-agent-evaluation",
+    config: "tests/desktop/wdio.agent-evaluation.conf.mjs",
+    label: `Desktop Agent evaluation (${mode})`,
+    artifact,
+    environment: { VANEHUB_AGENT_EVALUATION_MODE: mode },
+    contextOptions: { resultScope: mode === "fixture-opencode" ? "desktop" : "desktop-live" },
+    resultDetails: { mode, fixture: preflight.fixture, preflightReason: preflight.reason },
+    evidenceAudit: (resultDir) => auditAgentEvaluationEvidence(resultDir, process.env),
+  });
+}
+
 /** The layers the required hermetic gate runs. Every one of them must pass. */
 const fullSuiteLayers = [
   smokeDesktop,
@@ -449,6 +479,9 @@ async function main() {
   else if (mode === "skills") await skillsDesktop();
   else if (mode === "feishu-im") await feishuImDesktop();
   else if (mode === "feishu-live") await feishuLiveQualification();
+  else if (mode === "agent-evaluation") await agentEvaluationQualification();
+  else if (mode === "agent-evaluation-live-opencode") await agentEvaluationQualification("live-opencode");
+  else if (mode === "agent-evaluation-live-onepiece") await agentEvaluationQualification("live-onepiece");
   else if (mode === "multi-agent-requirement") await multiAgentRequirementDesktop();
   else if (mode === "multi-agent-longrun") await multiAgentLongrunDesktop();
   else if (mode === "loop") await loopDesktop();

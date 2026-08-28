@@ -10,11 +10,11 @@
 
 大概率是**没有配置 OnePiece 的 provider**。
 
-CLI Agent 的记忆提取由 OnePiece 代做——未配置时不会产生任何记忆。即使你主力用 Claude Code，也需要先配好 OnePiece。详见[个性化配置](personalization.md#两个必须知道的前提)。
+CLI Agent 的记忆提取由 OnePiece 代做——未配置时不会产生任何记忆。即使你主力用 Claude Code，也需要先配好 OnePiece。详见[个性化配置](personalization.md#记忆什么时候被抽取)。
 
 ## 能让某个 Agent 有独立的记忆吗？
 
-**不能**。当前记忆是主机级共享池，一个 Agent 记下的内容其他 Agent 也能用。如果需要隔离，只能整体关闭记忆。
+**可以，按每条记忆设置**。每条记忆都有受众：默认全部 Agent，也可以只给你指定的那几个。在批准建议时或在记忆详情里设置。详见[个性化配置](personalization.md#每条记忆的作用域来源与受众)。
 
 ## recall 能搜到我的项目代码吗？
 
