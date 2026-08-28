@@ -42,6 +42,15 @@ impl HookWaitRegistry {
         rx
     }
 
+    /// Whether a loopback request is still blocked on `request_id`.
+    ///
+    /// Asked before a resolution is committed, so a hook waiter that timed out or disconnected is
+    /// discovered while the decision can still be recorded as stale rather than delivered. Does not
+    /// consume the registration: proving somebody is there is not the same as releasing them.
+    pub(crate) fn has_waiter(&self, request_id: &str) -> bool {
+        self.lock_pending().contains_key(request_id)
+    }
+
     /// Delivers `effect` to whatever's waiting on `request_id`. Returns `false` (mirroring
     /// `AgentRuntimeApi::resolve_tool_approval`'s own shape) if nothing is registered — the
     /// request already resolved some other way, or never went through this registry at all (for

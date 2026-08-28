@@ -6,16 +6,12 @@
 
 use super::error::PermissionsApplicationError;
 use super::ports::{
-    AuditDecider, AuditRecord, AuditRepository, GrantRepository, PendingApprovalEventPort,
-    PendingGrantIntent, PermissionsClockPort, PermissionsIdPort, PrincipalRepository,
+    PendingApprovalEventPort, PermissionsClockPort, PermissionsIdPort, PrincipalRepository,
 };
 use crate::contexts::permissions::domain::{
-    risk_level_for, Action, ApprovalDecision, ApprovalRequest, CanonicalGrantKey, Effect,
-    PersistedEffect, PolicyTemplateName, Principal, RememberedScope, Resource, Scope,
+    risk_level_for, Action, ApprovalRequest, PolicyTemplateName, Principal, Resource,
     SkillApprovalInvalidation, SkillApprovalProvenance,
 };
-#[cfg(test)]
-use crate::contexts::permissions::domain::{Grant, GrantActivationState};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -57,23 +53,20 @@ pub(crate) enum ApprovalClaim {
     Claimed(Box<ApprovalRequest>),
     /// Somebody else got there first. Carries their resolution id so the caller can report the
     /// existing outcome instead of producing a competing one.
-    AlreadyClaimed {
-        /// Read by `ResolveApprovalUseCase` once it exists (task 5.2/5.3), which answers a losing
-        /// caller with the winner's durable state. `finalize` currently only needs to know that it
-        /// lost, so nothing in production reads the id yet.
-        #[cfg_attr(not(test), expect(dead_code))]
-        resolution_id: String,
-    },
+    AlreadyClaimed { resolution_id: String },
     /// No such pending request. Distinguished from `AlreadyClaimed` because only this one means
     /// the durable ledger is the place left to look.
     NotPending,
 }
 
+/// The pending queue, and nothing that writes a decision.
+///
+/// It used to hold the grant and audit repositories too, because finalization lived here. Both are
+/// gone: a decision becomes durable in one transaction owned by `ResolveApprovalUseCase`, and a
+/// broker that could still write a grant would be a second way to create authority.
 #[derive(Clone)]
 pub(crate) struct ApprovalBroker {
     principals: Arc<dyn PrincipalRepository>,
-    grants: Arc<dyn GrantRepository>,
-    audit: Arc<dyn AuditRepository>,
     clock: Arc<dyn PermissionsClockPort>,
     ids: Arc<dyn PermissionsIdPort>,
     events: Arc<dyn PendingApprovalEventPort>,
@@ -81,22 +74,9 @@ pub(crate) struct ApprovalBroker {
     timeout_seconds: i64,
 }
 
-/// The result of resolving (or attempting to resolve) a pending approval.
-///
-/// `request`/`effect` are read by this module's own tests; no production caller consumes the
-/// resolved value beyond `is_some()` today — reserved for a future audit/UI surface.
-#[allow(dead_code)]
-pub(crate) struct ResolvedApproval {
-    pub(crate) request: ApprovalRequest,
-    pub(crate) effect: Effect,
-}
-
 impl ApprovalBroker {
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         principals: Arc<dyn PrincipalRepository>,
-        grants: Arc<dyn GrantRepository>,
-        audit: Arc<dyn AuditRepository>,
         clock: Arc<dyn PermissionsClockPort>,
         ids: Arc<dyn PermissionsIdPort>,
         events: Arc<dyn PendingApprovalEventPort>,
@@ -104,8 +84,6 @@ impl ApprovalBroker {
     ) -> Self {
         Self {
             principals,
-            grants,
-            audit,
             clock,
             ids,
             events,
@@ -314,6 +292,12 @@ impl ApprovalBroker {
             .collect()
     }
 
+    /// One pending approval, whatever phase it is in.
+    ///
+    /// No production caller today: the frontend reads `list_pending`, and the resolver claims by id
+    /// rather than looking first. Kept because it is what the tests assert queue state with, and a
+    /// single-request read is the natural companion to the list.
+    #[cfg_attr(not(test), expect(dead_code))]
     pub(crate) fn get_pending(&self, request_id: &str) -> Option<ApprovalRequest> {
         self.lock_pending()
             .get(request_id)
@@ -358,187 +342,30 @@ impl ApprovalBroker {
             .map(|phase| phase.request().clone())
     }
 
-    /// Finalizes a pending approval. `delivered` distinguishes two outcomes the caller (the
-    /// `permissions` command handler, per design.md D8's refinement) determines by first calling
-    /// `AgentRuntimeApi::resolve_tool_approval`: `true` means a live generation was actually
-    /// unblocked (this was a genuine human decision — `AuditDecider::Human`, and a grant is
-    /// created if `scope` is remembered); `false` means the generation had already ended (nothing
-    /// to unblock — `AuditDecider::StaleGeneration`, no grant, matching design.md D6). Returns
-    /// `None` if `request_id` names no pending approval (already resolved, or never existed).
+    /// Which pending approvals have waited past the timeout window.
     ///
-    /// Claims before it writes, and reverts the claim if nothing became durable. The previous
-    /// implementation removed the request first, which made a storage failure unrecoverable: the
-    /// user's decision existed only in the map that had just been emptied.
-    pub(crate) fn finalize(
-        &self,
-        request_id: &str,
-        decision: ApprovalDecision,
-        scope: Scope,
-        delivered: bool,
-    ) -> Result<Option<ResolvedApproval>, PermissionsApplicationError> {
-        let resolution_id = self.ids.next_id("resolution");
-        let request = match self.claim(request_id, &resolution_id) {
-            ApprovalClaim::Claimed(request) => *request,
-            // Another caller owns this decision. Reporting its outcome rather than writing a
-            // second one is what makes a double click one resolution instead of two.
-            ApprovalClaim::AlreadyClaimed { .. } | ApprovalClaim::NotPending => return Ok(None),
-        };
-
-        match self.write_resolution(&request, &resolution_id, decision, scope, delivered) {
-            Ok(effect) => {
-                self.mark_committed(request_id, &resolution_id);
-                self.release_committed(request_id, &resolution_id);
-                Ok(Some(ResolvedApproval { request, effect }))
-            }
-            Err(error) => {
-                // Nothing durable was written, so the decision is still the user's to make and the
-                // request has to go back on offer.
-                self.revert_claim(request_id, &resolution_id);
-                Err(error)
-            }
-        }
-    }
-
-    /// The durable half of finalization: remembered-grant intent first, then the decision audit.
+    /// Reports rather than resolves, and that is the change. It used to remove each expired request
+    /// and write its own denial audit, which made the sweep a second decision engine racing the
+    /// human one. Now the caller feeds these ids back through the same claim/commit/deliver use
+    /// case a human `Deny` uses, so a timeout that arrives while somebody is clicking loses the
+    /// claim instead of writing a competing resolution.
     ///
-    /// Ordered so a grant failure cannot leave an audit row claiming a decision that was never
-    /// recorded. Group 4 replaces both writes with one transaction; until then the ordering is
-    /// what bounds the damage.
-    fn write_resolution(
-        &self,
-        request: &ApprovalRequest,
-        resolution_id: &str,
-        decision: ApprovalDecision,
-        scope: Scope,
-        delivered: bool,
-    ) -> Result<Effect, PermissionsApplicationError> {
-        let effect = decision.as_effect();
-        let decider = if delivered {
-            AuditDecider::Human
-        } else {
-            AuditDecider::StaleGeneration
-        };
-        // Skills and delegation are authorised for one use only, whatever the caller asked for.
-        // Enforced here rather than trusted from the request so a new caller cannot widen it.
-        let scope = if request.action.as_str() == "delegation.apply" || request.skill.is_some() {
-            Scope::Once
-        } else {
-            scope
-        };
-        if delivered {
-            if let Some(intent) = self.grant_intent(request, resolution_id, effect, scope)? {
-                self.grants.upsert_pending_grant_intent(&intent)?;
-                self.grants
-                    .activate_grant_for_resolution(resolution_id, &self.clock.now())?;
-            }
-        }
-        self.audit.append(AuditRecord {
-            id: self.ids.next_id("audit"),
-            principal_id: request.principal_id.clone(),
-            session_id: request.session_id.clone(),
-            generation_id: request.generation_id.clone(),
-            action: request.action.clone(),
-            resource: request.resource.clone(),
-            effect,
-            risk_level: request.risk_level,
-            decider,
-            channel: "native_agent",
-            created_at: self.clock.now(),
-        })?;
-        Ok(effect)
-    }
-
-    /// What this decision should remember, if anything.
-    ///
-    /// `None` covers every decision that is not rememberable — `Once`, and an effect that is not
-    /// Allow or Deny. Both are refusals by the domain rather than checks repeated here, so a new
-    /// scope or effect cannot quietly become persistable by being forgotten at this call site.
-    fn grant_intent(
-        &self,
-        request: &ApprovalRequest,
-        resolution_id: &str,
-        effect: Effect,
-        scope: Scope,
-    ) -> Result<Option<PendingGrantIntent>, PermissionsApplicationError> {
-        // A request always carries both a session and a project. Which of them owns the grant is
-        // decided by the scope alone, so the other is cleared rather than passed through — a
-        // binding that named both would be rejected, and rightly so.
-        let binding = match scope {
-            Scope::Once => return Ok(None),
-            Scope::Session => {
-                RememberedScope::parse(scope, Some(request.session_id.as_str()), None)?
-            }
-            Scope::Project => {
-                RememberedScope::parse(scope, None, Some(request.project_key.as_str()))?
-            }
-            Scope::Global => RememberedScope::parse(scope, None, None)?,
-        };
-        let Ok(effect) = PersistedEffect::parse(effect) else {
-            return Ok(None);
-        };
-        let key = CanonicalGrantKey::new(
-            request.principal_id.clone(),
-            request.action.clone(),
-            request.resource.clone(),
-            binding,
-        )?;
-        Ok(Some(PendingGrantIntent {
-            id: self.ids.next_id("grant"),
-            key,
-            effect,
-            resolution_id: resolution_id.to_string(),
-            now: self.clock.now(),
-        }))
-    }
-
-    /// Sweeps every pending approval that has waited longer than the timeout window, resolving
-    /// each as a fail-closed `Deny` (design.md D5) — the caller is responsible for delivering
-    /// that denial back to the waiting generation via the same PEP-specific channel
-    /// `create_pending` was raised through, exactly as a human `Deny` would be.
-    pub(crate) fn sweep_timed_out(&self) -> Vec<ApprovalRequest> {
+    /// Claimed entries are skipped for the same reason: a request somebody is midway through
+    /// resolving is not waiting for anyone.
+    pub(crate) fn expired_pending_ids(&self) -> Vec<String> {
         let now: i64 = self.clock.now().parse().unwrap_or(0);
-        let expired: Vec<ApprovalRequest> = {
-            let mut pending = self.lock_pending();
-            let expired_ids: Vec<String> = pending
-                .values()
-                // Only unclaimed entries. A request somebody is midway through resolving is not
-                // waiting for anyone — sweeping it would race a human decision and produce a second
-                // one, which is exactly what the single-winner claim exists to prevent.
-                .filter_map(|phase| match phase {
-                    PendingPhase::Pending(request) => Some(request),
-                    PendingPhase::Resolving { .. } | PendingPhase::Committed { .. } => None,
-                })
-                .filter(|request| {
-                    let created_at: i64 = request.created_at.parse().unwrap_or(now);
-                    now.saturating_sub(created_at) >= self.timeout_seconds
-                })
-                .map(|request| request.id.clone())
-                .collect();
-            expired_ids
-                .into_iter()
-                .filter_map(|id| pending.remove(&id))
-                .map(|phase| phase.request().clone())
-                .collect()
-        };
-        // Best-effort: an audit-write failure must not stop the swept request from still being
-        // returned, since the caller still needs to unblock its waiting generation regardless
-        // (design.md D5 — timeout must always fail closed, never hang).
-        for request in &expired {
-            let _ = self.audit.append(AuditRecord {
-                id: self.ids.next_id("audit"),
-                principal_id: request.principal_id.clone(),
-                session_id: request.session_id.clone(),
-                generation_id: request.generation_id.clone(),
-                action: request.action.clone(),
-                resource: request.resource.clone(),
-                effect: Effect::Deny,
-                risk_level: request.risk_level,
-                decider: AuditDecider::Timeout,
-                channel: "native_agent",
-                created_at: self.clock.now(),
-            });
-        }
-        expired
+        self.lock_pending()
+            .values()
+            .filter_map(|phase| match phase {
+                PendingPhase::Pending(request) => Some(request),
+                PendingPhase::Resolving { .. } | PendingPhase::Committed { .. } => None,
+            })
+            .filter(|request| {
+                let created_at: i64 = request.created_at.parse().unwrap_or(now);
+                now.saturating_sub(created_at) >= self.timeout_seconds
+            })
+            .map(|request| request.id.clone())
+            .collect()
     }
 
     fn get_or_create_principal(
@@ -599,156 +426,6 @@ mod tests {
         }
     }
 
-    /// Records every intent it is handed and which resolutions were activated, so a test can tell
-    /// "an intent was written" apart from "a grant became visible to evaluation" — the whole point
-    /// of the two-phase activation.
-    #[derive(Default)]
-    struct FakeGrants {
-        intents: StdMutex<Vec<PendingGrantIntent>>,
-        activated: StdMutex<Vec<String>>,
-    }
-    impl GrantRepository for FakeGrants {
-        fn find_effective_grant(
-            &self,
-            _query: &super::super::ports::GrantQuery<'_>,
-        ) -> Result<Option<Grant>, PermissionsApplicationError> {
-            Ok(None)
-        }
-        fn upsert_pending_grant_intent(
-            &self,
-            intent: &PendingGrantIntent,
-        ) -> Result<Grant, PermissionsApplicationError> {
-            let grant = Grant {
-                id: intent.id.clone(),
-                key: intent.key.clone(),
-                effect: intent.effect,
-                revision: 1,
-                activation_state: GrantActivationState::PendingDelivery,
-                resolution_id: Some(intent.resolution_id.clone()),
-                created_at: intent.now.clone(),
-                updated_at: intent.now.clone(),
-            };
-            self.intents.lock().unwrap().push(PendingGrantIntent {
-                id: intent.id.clone(),
-                key: intent.key.clone(),
-                effect: intent.effect,
-                resolution_id: intent.resolution_id.clone(),
-                now: intent.now.clone(),
-            });
-            Ok(grant)
-        }
-        fn activate_grant_for_resolution(
-            &self,
-            resolution_id: &str,
-            _now: &str,
-        ) -> Result<(), PermissionsApplicationError> {
-            self.activated
-                .lock()
-                .unwrap()
-                .push(resolution_id.to_string());
-            Ok(())
-        }
-    }
-
-    /// A grant store that is down for the first `failures` writes and healthy afterwards.
-    ///
-    /// Stands in for the storage outage the atomic-resolution requirement is written against. The
-    /// recovery matters as much as the failure: "the decision did not become durable" is only half
-    /// the requirement, and the other half is that the user's approval survives to be retried.
-    #[derive(Default)]
-    struct FlakyGrants {
-        remaining_failures: StdMutex<usize>,
-        intents: StdMutex<Vec<String>>,
-    }
-    impl FlakyGrants {
-        fn failing(times: usize) -> Self {
-            Self {
-                remaining_failures: StdMutex::new(times),
-                intents: StdMutex::new(Vec::new()),
-            }
-        }
-    }
-    impl GrantRepository for FlakyGrants {
-        fn find_effective_grant(
-            &self,
-            _query: &super::super::ports::GrantQuery<'_>,
-        ) -> Result<Option<Grant>, PermissionsApplicationError> {
-            Ok(None)
-        }
-        fn upsert_pending_grant_intent(
-            &self,
-            intent: &PendingGrantIntent,
-        ) -> Result<Grant, PermissionsApplicationError> {
-            let mut remaining = self.remaining_failures.lock().unwrap();
-            if *remaining > 0 {
-                *remaining -= 1;
-                return Err(PermissionsApplicationError::infrastructure(
-                    "sqlite",
-                    "grant store unavailable".to_string(),
-                ));
-            }
-            self.intents.lock().unwrap().push(intent.id.clone());
-            Ok(Grant {
-                id: intent.id.clone(),
-                key: intent.key.clone(),
-                effect: intent.effect,
-                revision: 1,
-                activation_state: GrantActivationState::PendingDelivery,
-                resolution_id: Some(intent.resolution_id.clone()),
-                created_at: intent.now.clone(),
-                updated_at: intent.now.clone(),
-            })
-        }
-        fn activate_grant_for_resolution(
-            &self,
-            _resolution_id: &str,
-            _now: &str,
-        ) -> Result<(), PermissionsApplicationError> {
-            Ok(())
-        }
-    }
-
-    /// A grant store that is down. Stands in for the storage outage the atomic-resolution
-    /// requirement is written against — the point is not which statement failed but that the
-    /// decision did not become durable.
-    struct UnavailableGrants;
-    impl GrantRepository for UnavailableGrants {
-        fn find_effective_grant(
-            &self,
-            _query: &super::super::ports::GrantQuery<'_>,
-        ) -> Result<Option<Grant>, PermissionsApplicationError> {
-            Ok(None)
-        }
-        fn upsert_pending_grant_intent(
-            &self,
-            _intent: &PendingGrantIntent,
-        ) -> Result<Grant, PermissionsApplicationError> {
-            Err(PermissionsApplicationError::infrastructure(
-                "sqlite",
-                "grant store unavailable".to_string(),
-            ))
-        }
-        fn activate_grant_for_resolution(
-            &self,
-            _resolution_id: &str,
-            _now: &str,
-        ) -> Result<(), PermissionsApplicationError> {
-            Err(PermissionsApplicationError::infrastructure(
-                "sqlite",
-                "grant store unavailable".to_string(),
-            ))
-        }
-    }
-
-    #[derive(Default)]
-    struct FakeAudit(StdMutex<Vec<AuditDecider>>);
-    impl AuditRepository for FakeAudit {
-        fn append(&self, record: AuditRecord) -> Result<(), PermissionsApplicationError> {
-            self.0.lock().unwrap().push(record.decider);
-            Ok(())
-        }
-    }
-
     #[derive(Default)]
     struct FakeEvents(StdMutex<Vec<String>>);
     impl PendingApprovalEventPort for FakeEvents {
@@ -777,27 +454,16 @@ mod tests {
         }
     }
 
-    fn broker(
-        timeout_seconds: i64,
-    ) -> (
-        ApprovalBroker,
-        Arc<FakeGrants>,
-        Arc<FakeAudit>,
-        Arc<FakeEvents>,
-    ) {
-        let grants = Arc::new(FakeGrants::default());
-        let audit = Arc::new(FakeAudit::default());
+    fn broker(timeout_seconds: i64) -> (ApprovalBroker, Arc<FakeEvents>) {
         let events = Arc::new(FakeEvents::default());
         let broker = ApprovalBroker::new(
             Arc::new(FakePrincipals::default()),
-            grants.clone(),
-            audit.clone(),
             Arc::new(StepClock(StdMutex::new(0))),
             Arc::new(FakeIds(StdMutex::new(0))),
             events.clone(),
             timeout_seconds,
         );
-        (broker, grants, audit, events)
+        (broker, events)
     }
 
     /// One ordinary pending approval, so a test about claiming states only what it is about.
@@ -817,7 +483,7 @@ mod tests {
 
     #[test]
     fn create_pending_appears_in_list_pending() {
-        let (broker, _grants, _audit, _events) = broker(60);
+        let (broker, _events) = broker(60);
         let request = broker
             .create_pending(
                 "agent-1",
@@ -835,7 +501,7 @@ mod tests {
 
     #[test]
     fn create_pending_publishes_an_event() {
-        let (broker, _grants, _audit, events) = broker(60);
+        let (broker, events) = broker(60);
         let request = broker
             .create_pending(
                 "agent-1",
@@ -852,7 +518,7 @@ mod tests {
 
     #[test]
     fn skill_pending_carries_provenance_and_never_creates_a_reusable_grant() {
-        let (broker, grants, _audit, _events) = broker(60);
+        let (broker, _events) = broker(60);
         let provenance = SkillApprovalProvenance {
             parent_agent_id: "agent-1".to_string(),
             skill_id: "review".to_string(),
@@ -878,10 +544,9 @@ mod tests {
 
         assert_eq!(request.skill, Some(provenance));
         assert_eq!(request.risk_level, RiskLevel::L1);
-        broker
-            .finalize(&request.id, ApprovalDecision::Approve, Scope::Global, true)
-            .unwrap();
-        assert!(grants.intents.lock().unwrap().is_empty());
+        // The forced-Once rule that keeps this from becoming a reusable grant lives in
+        // `ResolveApprovalUseCase` and is asserted there; the broker's job is to carry the
+        // provenance that makes the request recognisable as a delegated one.
     }
 
     #[test]
@@ -893,7 +558,7 @@ mod tests {
             SkillApprovalInvalidation::Quarantined,
             SkillApprovalInvalidation::WitnessMismatch,
         ] {
-            let (broker, grants, _audit, _events) = broker(60);
+            let (broker, _events) = broker(60);
             let request = broker
                 .create_skill_pending(
                     SkillApprovalProvenance {
@@ -924,17 +589,19 @@ mod tests {
             assert!(broker
                 .invalidate_skill_pending(&request.id, current, reason)
                 .is_some());
-            assert!(broker
-                .finalize(&request.id, ApprovalDecision::Approve, Scope::Global, true)
-                .unwrap()
-                .is_none());
-            assert!(grants.intents.lock().unwrap().is_empty());
+            // An invalidated request is gone from the queue, so a decision arriving afterwards has
+            // nothing to claim — which is what stops a late click from resolving a Skill whose
+            // revision was replaced underneath it.
+            assert!(matches!(
+                broker.claim(&request.id, "resolution-1"),
+                ApprovalClaim::NotPending
+            ));
         }
     }
 
     #[test]
     fn mismatched_identity_cannot_invalidate_an_unrelated_skill_request() {
-        let (broker, _grants, _audit, _events) = broker(60);
+        let (broker, _events) = broker(60);
         let request = broker
             .create_skill_pending(
                 SkillApprovalProvenance {
@@ -968,114 +635,8 @@ mod tests {
     }
 
     #[test]
-    fn finalize_removes_from_pending_and_creates_a_grant_when_remembered_and_delivered() {
-        let (broker, grants, audit, _events) = broker(60);
-        let request = broker
-            .create_pending(
-                "agent-1",
-                Action::file_write(),
-                Resource::file_path("a.txt"),
-                "session-1",
-                "generation-1",
-                "call-1",
-                "project-1",
-            )
-            .unwrap();
-        let resolved = broker
-            .finalize(&request.id, ApprovalDecision::Approve, Scope::Session, true)
-            .unwrap()
-            .expect("pending approval should resolve");
-        assert_eq!(resolved.effect, Effect::Allow);
-        assert!(broker.get_pending(&request.id).is_none());
-        assert_eq!(grants.intents.lock().unwrap().len(), 1);
-        assert_eq!(*audit.0.lock().unwrap(), vec![AuditDecider::Human]);
-    }
-
-    #[test]
-    fn finalize_with_once_scope_does_not_create_a_grant() {
-        let (broker, grants, _audit, _events) = broker(60);
-        let request = broker
-            .create_pending(
-                "agent-1",
-                Action::file_write(),
-                Resource::file_path("a.txt"),
-                "session-1",
-                "generation-1",
-                "call-1",
-                "project-1",
-            )
-            .unwrap();
-        broker
-            .finalize(&request.id, ApprovalDecision::Approve, Scope::Once, true)
-            .unwrap();
-        assert!(grants.intents.lock().unwrap().is_empty());
-    }
-
-    #[test]
-    fn delegation_apply_cannot_create_a_remembered_grant() {
-        let (broker, grants, _audit, _events) = broker(60);
-        let request = broker
-            .create_pending(
-                "onepiece",
-                Action::new("delegation.apply"),
-                Resource::new("changeset/artifact-1"),
-                "session-1",
-                "generation-1",
-                "call-1",
-                "project-1",
-            )
-            .unwrap();
-
-        broker
-            .finalize(&request.id, ApprovalDecision::Approve, Scope::Global, true)
-            .unwrap();
-
-        assert!(grants.intents.lock().unwrap().is_empty());
-    }
-
-    #[test]
-    fn finalize_when_not_delivered_records_stale_generation_and_skips_the_grant() {
-        let (broker, grants, audit, _events) = broker(60);
-        let request = broker
-            .create_pending(
-                "agent-1",
-                Action::file_write(),
-                Resource::file_path("a.txt"),
-                "session-1",
-                "generation-1",
-                "call-1",
-                "project-1",
-            )
-            .unwrap();
-        let resolved = broker
-            .finalize(
-                &request.id,
-                ApprovalDecision::Approve,
-                Scope::Session,
-                false,
-            )
-            .unwrap()
-            .expect("pending approval should still resolve, just as stale");
-        assert_eq!(resolved.effect, Effect::Allow);
-        assert!(grants.intents.lock().unwrap().is_empty());
-        assert_eq!(
-            *audit.0.lock().unwrap(),
-            vec![AuditDecider::StaleGeneration]
-        );
-    }
-
-    #[test]
-    fn finalize_on_an_unknown_request_id_returns_none() {
-        let (broker, _grants, _audit, _events) = broker(60);
-        let resolved = broker
-            .finalize("does-not-exist", ApprovalDecision::Deny, Scope::Once, true)
-            .unwrap();
-        assert!(resolved.is_none());
-    }
-
-    #[test]
-    fn sweep_timed_out_removes_only_expired_requests() {
-        let (broker, _grants, _audit, _events) = broker(5);
+    fn only_requests_past_the_timeout_window_are_reported_as_expired() {
+        let (broker, _events) = broker(5);
         // StepClock advances by 1 each call: create_pending's internal `clock.now()` call
         // consumes tick 0.
         let old_request = broker
@@ -1105,81 +666,17 @@ mod tests {
             .unwrap();
         let _ = fresh_request;
 
-        let expired = broker.sweep_timed_out();
-        assert_eq!(expired.len(), 1);
-        assert_eq!(expired[0].id, old_request.id);
-        assert_eq!(broker.list_pending().len(), 1);
+        let expired = broker.expired_pending_ids();
+
+        assert_eq!(expired, vec![old_request.id]);
+        // Reported, not removed. The resolver claims each id through the same path a human
+        // decision uses, so the entry has to still be there for it to claim.
+        assert_eq!(broker.list_pending().len(), 2);
     }
 
-    /// Characterization for `permissions-core`'s "Grant write fails inside resolution transaction"
-    /// and the invariant that removing the pending request is never the first irreversible step.
-    ///
-    /// Finalization takes the request out of the pending map before it writes anything. When the
-    /// grant write then fails, the decision is gone from the only place that still knew about it:
-    /// the caller holds an error it cannot act on, a retry finds nothing, and the audit row that
-    /// would have recorded the attempt was never reached either. The approval is neither applied
-    /// nor recoverable.
-    #[test]
-    fn a_failed_grant_write_leaves_the_approval_retryable_and_unaudited() {
-        let audit = Arc::new(FakeAudit::default());
-        // Down for exactly one write. The recovery is half the requirement: a decision that cannot
-        // be retried is as lost as one that was never made.
-        let grants = Arc::new(FlakyGrants::failing(1));
-        let broker = ApprovalBroker::new(
-            Arc::new(FakePrincipals::default()),
-            grants.clone(),
-            audit.clone(),
-            Arc::new(StepClock(StdMutex::new(0))),
-            Arc::new(FakeIds(StdMutex::new(0))),
-            Arc::new(FakeEvents::default()),
-            60,
-        );
-        let request = broker
-            .create_pending(
-                "agent-1",
-                Action::file_write(),
-                Resource::file_path("a.txt"),
-                "session-1",
-                "generation-1",
-                "call-1",
-                "project-1",
-            )
-            .unwrap();
-
-        let failed = broker.finalize(&request.id, ApprovalDecision::Approve, Scope::Session, true);
-        assert!(failed.is_err(), "the grant store was down");
-        assert!(grants.intents.lock().unwrap().is_empty());
-
-        // Nothing durable was written, so the decision has to still be resolvable. A pending entry
-        // consumed by a failed attempt is an approval the user made that the system can neither
-        // honour nor be asked about again.
-        assert!(
-            broker.get_pending(&request.id).is_some(),
-            "the failed resolution consumed the pending request, so it cannot be retried"
-        );
-        assert!(
-            audit.0.lock().unwrap().is_empty(),
-            "a failed resolution must not leave a partial audit trail"
-        );
-
-        // And the retry, once storage is the only thing that changed, must be able to complete.
-        let retried = broker.finalize(&request.id, ApprovalDecision::Approve, Scope::Session, true);
-        assert!(
-            retried.is_ok_and(|resolved| resolved.is_some()),
-            "a resolution that failed before commit must be retryable"
-        );
-        assert_eq!(grants.intents.lock().unwrap().len(), 1);
-        assert_eq!(*audit.0.lock().unwrap(), vec![AuditDecider::Human]);
-        assert!(broker.get_pending(&request.id).is_none());
-    }
-
-    /// `permissions-approval`'s "Two frontends resolve the same request concurrently".
-    ///
-    /// Not raced for: the first claim is taken and held, which is the state a second caller
-    /// actually meets when two clicks land close together. Exactly one of them owns the decision.
     #[test]
     fn only_one_caller_can_claim_a_pending_request() {
-        let (broker, _grants, _audit, _events) = broker(60);
+        let (broker, _events) = broker(60);
         let request = pending(&broker);
 
         let first = broker.claim(&request.id, "resolution-1");
@@ -1202,7 +699,7 @@ mod tests {
 
     #[test]
     fn claiming_a_request_that_was_never_pending_is_distinguishable_from_losing_a_race() {
-        let (broker, _grants, _audit, _events) = broker(60);
+        let (broker, _events) = broker(60);
         // The distinction matters to the caller: only this one means the durable ledger is the
         // place left to look for an answer.
         assert!(matches!(
@@ -1213,7 +710,7 @@ mod tests {
 
     #[test]
     fn only_the_claimant_can_revert_or_commit_its_claim() {
-        let (broker, _grants, _audit, _events) = broker(60);
+        let (broker, _events) = broker(60);
         let request = pending(&broker);
         broker.claim(&request.id, "resolution-1");
 
@@ -1232,7 +729,7 @@ mod tests {
 
     #[test]
     fn a_reverted_claim_puts_the_request_back_on_offer() {
-        let (broker, _grants, _audit, _events) = broker(60);
+        let (broker, _events) = broker(60);
         let request = pending(&broker);
         broker.claim(&request.id, "resolution-1");
         broker.revert_claim(&request.id, "resolution-1");
@@ -1245,7 +742,7 @@ mod tests {
 
     #[test]
     fn a_committed_claim_is_never_returned_to_pending() {
-        let (broker, _grants, _audit, _events) = broker(60);
+        let (broker, _events) = broker(60);
         let request = pending(&broker);
         broker.claim(&request.id, "resolution-1");
         assert!(broker.mark_committed(&request.id, "resolution-1"));
@@ -1263,7 +760,7 @@ mod tests {
 
     #[test]
     fn a_claimed_request_is_still_visible_to_the_pending_list() {
-        let (broker, _grants, _audit, _events) = broker(60);
+        let (broker, _events) = broker(60);
         let request = pending(&broker);
         broker.claim(&request.id, "resolution-1");
 
@@ -1275,77 +772,30 @@ mod tests {
 
     #[test]
     fn a_timeout_sweep_leaves_a_request_somebody_is_already_resolving() {
-        let (broker, _grants, audit, _events) = broker(0);
+        let (broker, _events) = broker(0);
         let request = pending(&broker);
         broker.claim(&request.id, "resolution-1");
 
-        let expired = broker.sweep_timed_out();
-
-        // Sweeping a claimed request would race the human decision and produce a second one.
-        assert!(expired.is_empty());
-        assert!(audit.0.lock().unwrap().is_empty());
+        // Reporting a claimed request as expired would send the sweep to race a human decision
+        // for the same claim, which is exactly what the single-winner phase exists to prevent.
+        assert!(broker.expired_pending_ids().is_empty());
         assert!(broker.get_pending(&request.id).is_some());
     }
 
     #[test]
-    fn a_delivered_remembered_decision_writes_an_intent_and_activates_it() {
-        let (broker, grants, _audit, _events) = broker(60);
+    fn an_expired_request_stays_in_the_queue_for_the_resolver_to_claim() {
+        let (broker, _events) = broker(0);
         let request = pending(&broker);
 
-        broker
-            .finalize(&request.id, ApprovalDecision::Approve, Scope::Session, true)
-            .unwrap();
+        let expired = broker.expired_pending_ids();
 
-        let intents = grants.intents.lock().unwrap();
-        assert_eq!(intents.len(), 1);
-        assert_eq!(intents[0].effect, PersistedEffect::Allow);
-        assert_eq!(
-            intents[0].key.scope,
-            RememberedScope::Session("session-1".to_string()),
-            "the session scope did not bind the grant to the request's session"
-        );
-        // Activation is addressed by resolution id, which is what the delivery acknowledgement
-        // will carry.
-        assert_eq!(
-            *grants.activated.lock().unwrap(),
-            vec![intents[0].resolution_id.clone()]
-        );
-    }
-
-    #[test]
-    fn a_project_scoped_decision_binds_to_the_project_and_not_the_session() {
-        let (broker, grants, _audit, _events) = broker(60);
-        let request = pending(&broker);
-
-        broker
-            .finalize(&request.id, ApprovalDecision::Deny, Scope::Project, true)
-            .unwrap();
-
-        let intents = grants.intents.lock().unwrap();
-        assert_eq!(
-            intents[0].key.scope,
-            RememberedScope::Project("project-1".to_string())
-        );
-        assert_eq!(intents[0].effect, PersistedEffect::Deny);
-    }
-
-    #[test]
-    fn sweep_timed_out_audits_each_expired_request_as_a_timeout_denial() {
-        let (broker, _grants, audit, _events) = broker(0);
-        broker
-            .create_pending(
-                "agent-1",
-                Action::shell_exec(),
-                Resource::workspace(),
-                "session-1",
-                "generation-1",
-                "call-1",
-                "project-1",
-            )
-            .unwrap();
-
-        let expired = broker.sweep_timed_out();
-        assert_eq!(expired.len(), 1);
-        assert_eq!(*audit.0.lock().unwrap(), vec![AuditDecider::Timeout]);
+        assert_eq!(expired, vec![request.id.clone()]);
+        // The denial's audit row belongs to the resolution transaction that commits it, not to the
+        // sweep that noticed the expiry — so the sweep leaves the entry alone and the resolver
+        // claims it exactly as a human decision would.
+        assert!(matches!(
+            broker.claim(&request.id, "resolution-1"),
+            ApprovalClaim::Claimed(_)
+        ));
     }
 }

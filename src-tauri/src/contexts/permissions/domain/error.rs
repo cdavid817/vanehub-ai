@@ -14,4 +14,10 @@ pub(crate) enum PermissionsDomainError {
     ScopeOwnerMismatch,
     #[error("unknown grant activation state")]
     UnknownActivationState,
+    #[error("Ask is not a decision and cannot be committed as a resolution")]
+    UndecidedResolution,
+    #[error("an emergency fail-closed resolution can only deny")]
+    EmergencyResolutionMustDeny,
+    #[error("unknown approval resolution {0}")]
+    UnknownResolutionField(&'static str),
 }

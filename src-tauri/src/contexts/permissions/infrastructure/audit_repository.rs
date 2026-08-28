@@ -1,9 +1,8 @@
+use super::resolution_repository::append_audit_on;
 use crate::contexts::permissions::application::{
-    AuditDecider, AuditRecord, AuditRepository, PermissionsApplicationError,
+    AuditRecord, AuditRepository, PermissionsApplicationError,
 };
-use crate::contexts::permissions::domain::{Effect, RiskLevel};
 use crate::platform::database::NativeDatabase;
-use rusqlite::params;
 
 #[derive(Clone)]
 pub(crate) struct SqliteAuditRepository {
@@ -17,57 +16,14 @@ impl SqliteAuditRepository {
 }
 
 impl AuditRepository for SqliteAuditRepository {
+    /// Appends outside any transaction, for the evaluation path — the decision the engine made on
+    /// its own, with nobody waiting on it. Decisions that resolve a pending approval go through
+    /// `commit_resolution` instead, which writes the same row inside the transaction that carries
+    /// the resolution. Both call one `INSERT`, so a new column cannot end up populated on one path
+    /// and null on the other.
     fn append(&self, record: AuditRecord) -> Result<(), PermissionsApplicationError> {
-        self.database
-            .connection()
-            .map_err(repository_error)?
-            .execute(
-                "INSERT INTO approval_audit \
-                 (id, principal_id, session_id, generation_id, action, resource, effect, \
-                  risk_level, decider, channel, created_at) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-                params![
-                    record.id,
-                    record.principal_id,
-                    record.session_id,
-                    record.generation_id,
-                    record.action.as_str(),
-                    record.resource.as_str(),
-                    effect_to_str(record.effect),
-                    risk_level_to_str(record.risk_level),
-                    decider_to_str(record.decider),
-                    record.channel,
-                    record.created_at,
-                ],
-            )
-            .map(|_| ())
-            .map_err(repository_error)
-    }
-}
-
-fn effect_to_str(effect: Effect) -> &'static str {
-    match effect {
-        Effect::Allow => "allow",
-        Effect::Deny => "deny",
-        Effect::Ask => "ask",
-    }
-}
-
-fn risk_level_to_str(risk_level: RiskLevel) -> &'static str {
-    match risk_level {
-        RiskLevel::L0 => "l0",
-        RiskLevel::L1 => "l1",
-        RiskLevel::L2 => "l2",
-        RiskLevel::L3 => "l3",
-    }
-}
-
-fn decider_to_str(decider: AuditDecider) -> &'static str {
-    match decider {
-        AuditDecider::Policy => "policy",
-        AuditDecider::Human => "human",
-        AuditDecider::Timeout => "timeout",
-        AuditDecider::StaleGeneration => "stale_generation",
+        let connection = self.database.connection().map_err(repository_error)?;
+        append_audit_on(&connection, &record).map_err(repository_error)
     }
 }
 
@@ -78,7 +34,8 @@ fn repository_error(error: impl std::fmt::Display) -> PermissionsApplicationErro
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::contexts::permissions::domain::{Action, Resource};
+    use crate::contexts::permissions::application::AuditDecider;
+    use crate::contexts::permissions::domain::{Action, Effect, Resource, RiskLevel};
     use crate::test_support::TempDirectory;
 
     fn repository() -> (SqliteAuditRepository, TempDirectory) {
@@ -102,6 +59,8 @@ mod tests {
                 risk_level: RiskLevel::L2,
                 decider: AuditDecider::Timeout,
                 channel: "native_agent",
+                resolution_id: None,
+                outcome_reason: None,
                 created_at: "100".to_string(),
             })
             .unwrap();

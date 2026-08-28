@@ -230,6 +230,39 @@ pub(crate) fn activate_grant_for_resolution_on(
     )
 }
 
+impl SqliteGrantRepository {
+    /// Writes the value of one canonical key as `pending_delivery` on this repository's own
+    /// connection.
+    ///
+    /// Inherent rather than part of `GrantRepository`, because the only production writer is the
+    /// resolution transaction, which calls [`upsert_pending_grant_intent_on`] with its own
+    /// connection. Exposing a standalone write on the port would be a way to create authority
+    /// without a decision behind it. This exists so the repository's own tests can exercise the
+    /// same SQL the transaction runs.
+    #[cfg_attr(not(test), expect(dead_code))]
+    pub(crate) fn upsert_pending_grant_intent(
+        &self,
+        intent: &PendingGrantIntent,
+    ) -> Result<Grant, PermissionsApplicationError> {
+        let connection = self.database.connection().map_err(repository_error)?;
+        upsert_pending_grant_intent_on(&connection, intent).map_err(repository_error)
+    }
+
+    /// Activates an acknowledged resolution's intent, on this repository's own connection. Same
+    /// reasoning as above: production activates inside `acknowledge_delivery_and_activate`.
+    #[cfg_attr(not(test), expect(dead_code))]
+    pub(crate) fn activate_grant_for_resolution(
+        &self,
+        resolution_id: &str,
+        now: &str,
+    ) -> Result<(), PermissionsApplicationError> {
+        let connection = self.database.connection().map_err(repository_error)?;
+        activate_grant_for_resolution_on(&connection, resolution_id, now)
+            .map(|_| ())
+            .map_err(repository_error)
+    }
+}
+
 impl GrantRepository for SqliteGrantRepository {
     fn find_effective_grant(
         &self,
@@ -250,25 +283,6 @@ impl GrantRepository for SqliteGrantRepository {
                 grant_from_row,
             )
             .optional()
-            .map_err(repository_error)
-    }
-
-    fn upsert_pending_grant_intent(
-        &self,
-        intent: &PendingGrantIntent,
-    ) -> Result<Grant, PermissionsApplicationError> {
-        let connection = self.database.connection().map_err(repository_error)?;
-        upsert_pending_grant_intent_on(&connection, intent).map_err(repository_error)
-    }
-
-    fn activate_grant_for_resolution(
-        &self,
-        resolution_id: &str,
-        now: &str,
-    ) -> Result<(), PermissionsApplicationError> {
-        let connection = self.database.connection().map_err(repository_error)?;
-        activate_grant_for_resolution_on(&connection, resolution_id, now)
-            .map(|_| ())
             .map_err(repository_error)
     }
 }

@@ -14,7 +14,7 @@
 
 use super::{
     PermissionsSystemClock, PermissionsUuidIdGenerator, SqliteAuditRepository,
-    SqliteGrantRepository, SqlitePrincipalRepository,
+    SqliteGrantRepository, SqlitePrincipalRepository, UnifiedLogDiagnosticsAdapter,
 };
 use crate::contexts::permissions::application::{DefaultTemplatePort, EvaluationService};
 use crate::contexts::permissions::domain::{Action, Effect, PolicyTemplateName, Resource};
@@ -68,6 +68,7 @@ fn migrated_service(temp_label: &str, trusted: bool) -> EvaluationService {
         Arc::new(PermissionsSystemClock),
         Arc::new(PermissionsUuidIdGenerator),
         Arc::new(FixedStandardDefault),
+        Arc::new(UnifiedLogDiagnosticsAdapter),
     )
 }
 

@@ -199,7 +199,7 @@ mod tests {
     use crate::contexts::permissions::domain::{ApprovalRequest, PolicyTemplateName};
     use crate::contexts::permissions::infrastructure::{
         PermissionsSystemClock, PermissionsUuidIdGenerator, SqliteAuditRepository,
-        SqliteGrantRepository, SqlitePrincipalRepository,
+        SqliteGrantRepository, SqlitePrincipalRepository, UnifiedLogDiagnosticsAdapter,
     };
     use crate::platform::database::NativeDatabase;
     use crate::test_support::TempDirectory;
@@ -258,16 +258,9 @@ mod tests {
             clock.clone(),
             ids.clone(),
             Arc::new(FixedTemplate(template)),
+            Arc::new(UnifiedLogDiagnosticsAdapter),
         );
-        let approvals = ApprovalBroker::new(
-            principals,
-            grants,
-            audit,
-            clock,
-            ids,
-            Arc::new(NoopEvents),
-            300,
-        );
+        let approvals = ApprovalBroker::new(principals, clock, ids, Arc::new(NoopEvents), 300);
         let permissions = PermissionsApi::new(
             evaluation,
             approvals,

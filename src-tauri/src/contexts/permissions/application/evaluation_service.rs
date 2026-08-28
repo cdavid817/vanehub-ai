@@ -2,11 +2,9 @@
 //! every decision to the audit trail.
 
 use super::error::PermissionsApplicationError;
-#[cfg(test)]
-use super::ports::PendingGrantIntent;
 use super::ports::{
     AuditDecider, AuditRecord, AuditRepository, DefaultTemplatePort, GrantQuery, GrantRepository,
-    PermissionsClockPort, PermissionsIdPort, PrincipalRepository,
+    PermissionsClockPort, PermissionsDiagnosticsPort, PermissionsIdPort, PrincipalRepository,
 };
 use crate::contexts::permissions::domain::{
     policies_for_template, resolve_for, risk_level_for, Action, Effect, PolicyTemplateName,
@@ -22,6 +20,7 @@ pub(crate) struct EvaluationService {
     clock: Arc<dyn PermissionsClockPort>,
     ids: Arc<dyn PermissionsIdPort>,
     default_template: Arc<dyn DefaultTemplatePort>,
+    diagnostics: Arc<dyn PermissionsDiagnosticsPort>,
 }
 
 impl EvaluationService {
@@ -33,6 +32,7 @@ impl EvaluationService {
         clock: Arc<dyn PermissionsClockPort>,
         ids: Arc<dyn PermissionsIdPort>,
         default_template: Arc<dyn DefaultTemplatePort>,
+        diagnostics: Arc<dyn PermissionsDiagnosticsPort>,
     ) -> Self {
         Self {
             principals,
@@ -41,6 +41,7 @@ impl EvaluationService {
             clock,
             ids,
             default_template,
+            diagnostics,
         }
     }
 
@@ -59,15 +60,81 @@ impl EvaluationService {
         generation_id: &str,
         project_key: &str,
     ) -> Effect {
-        self.evaluate_inner(
+        match self.evaluate_inner(
             agent_id,
             &action,
             &resource,
             session_id,
             generation_id,
             project_key,
-        )
-        .unwrap_or(Effect::Ask)
+        ) {
+            Ok(effect) => effect,
+            Err(error) => {
+                // Fail closed, and leave evidence saying why. A bare `unwrap_or(Ask)` made a
+                // storage outage and a policy that genuinely asks look identical in the audit
+                // trail, so an operator seeing a burst of approval prompts had no way to tell
+                // which of the two was happening.
+                self.record_evaluation_failure(
+                    agent_id,
+                    &action,
+                    &resource,
+                    session_id,
+                    generation_id,
+                    &error,
+                );
+                Effect::Ask
+            }
+        }
+    }
+
+    /// Records an evaluation that could not complete, with a stable reason code and no payload.
+    ///
+    /// Two levels of fallback, because the thing that failed is usually storage and the audit trail
+    /// is storage. If the audit write also fails there is nowhere durable left, so the last resort
+    /// is one redacted line through unified logging. Neither path carries the resource, the tool
+    /// input, or the underlying error text: the first is a user path, the last can quote a query.
+    fn record_evaluation_failure(
+        &self,
+        agent_id: &str,
+        action: &Action,
+        resource: &Resource,
+        session_id: &str,
+        generation_id: &str,
+        error: &PermissionsApplicationError,
+    ) {
+        let reason = evaluation_failure_reason(error);
+        // Attributed to the principal only when one is already known. Creating one here would mean
+        // a storage failure could write the very row whose absence caused it.
+        let principal_id = self
+            .principals
+            .find_by_agent_id(agent_id)
+            .ok()
+            .flatten()
+            .map(|principal| principal.id().to_string());
+
+        if let Some(principal_id) = principal_id {
+            let appended = self.audit.append(AuditRecord {
+                id: self.ids.next_id("audit"),
+                principal_id,
+                session_id: session_id.to_string(),
+                generation_id: generation_id.to_string(),
+                action: action.clone(),
+                resource: resource.clone(),
+                effect: Effect::Ask,
+                risk_level: risk_level_for(action),
+                decider: AuditDecider::EvaluationError,
+                channel: "native_agent",
+                resolution_id: None,
+                outcome_reason: Some(reason),
+                created_at: self.clock.now(),
+            });
+            if appended.is_ok() {
+                return;
+            }
+        }
+
+        self.diagnostics
+            .evaluation_failed_closed(action, reason, session_id, generation_id);
     }
 
     fn evaluate_inner(
@@ -210,17 +277,30 @@ impl EvaluationService {
             risk_level: risk_level_for(action),
             decider,
             channel: "native_agent",
+            resolution_id: None,
+            outcome_reason: None,
             created_at: self.clock.now(),
         })
+    }
+}
+
+/// A stable code for why evaluation could not complete.
+///
+/// Derived from the error's kind, never from its message: the message can quote a SQL statement or
+/// a path, and this value is written to the audit trail and to the log.
+fn evaluation_failure_reason(error: &PermissionsApplicationError) -> &'static str {
+    match error {
+        PermissionsApplicationError::Infrastructure { .. } => "evaluation_storage_unavailable",
+        PermissionsApplicationError::NotFound(_) => "evaluation_principal_unavailable",
+        PermissionsApplicationError::Domain(_) => "evaluation_invalid_stored_state",
+        PermissionsApplicationError::Internal(_) => "evaluation_internal_error",
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::contexts::permissions::domain::{
-        Effect, Grant, GrantActivationState, PersistedEffect, RememberedScope,
-    };
+    use crate::contexts::permissions::domain::{Effect, Grant, PersistedEffect, RememberedScope};
     use std::collections::HashMap;
     use std::sync::Mutex;
 
@@ -301,47 +381,6 @@ mod tests {
                 .max_by_key(|grant| (grant.specificity(), grant.revision))
                 .cloned())
         }
-
-        fn upsert_pending_grant_intent(
-            &self,
-            intent: &PendingGrantIntent,
-        ) -> Result<Grant, PermissionsApplicationError> {
-            let mut grants = self.grants.lock().unwrap();
-            let existing = grants.iter().position(|grant| grant.key == intent.key);
-            let grant = Grant {
-                id: existing
-                    .map(|index| grants[index].id.clone())
-                    .unwrap_or_else(|| intent.id.clone()),
-                key: intent.key.clone(),
-                effect: intent.effect,
-                revision: existing.map_or(1, |index| grants[index].revision + 1),
-                activation_state: GrantActivationState::PendingDelivery,
-                resolution_id: Some(intent.resolution_id.clone()),
-                created_at: intent.now.clone(),
-                updated_at: intent.now.clone(),
-            };
-            match existing {
-                Some(index) => grants[index] = grant.clone(),
-                None => grants.push(grant.clone()),
-            }
-            Ok(grant)
-        }
-
-        fn activate_grant_for_resolution(
-            &self,
-            resolution_id: &str,
-            now: &str,
-        ) -> Result<(), PermissionsApplicationError> {
-            for grant in self.grants.lock().unwrap().iter_mut() {
-                if grant.resolution_id.as_deref() == Some(resolution_id)
-                    && grant.activation_state == GrantActivationState::PendingDelivery
-                {
-                    grant.activation_state = GrantActivationState::Active;
-                    grant.updated_at = now.to_string();
-                }
-            }
-            Ok(())
-        }
     }
 
     #[derive(Default)]
@@ -410,8 +449,24 @@ mod tests {
             Arc::new(FixedClock),
             Arc::new(FakeIds(Mutex::new(0))),
             default_template.clone(),
+            Arc::new(SilentDiagnostics),
         );
         (service, grants, audit, principals, default_template)
+    }
+
+    /// Swallows the fallback diagnostic. These tests are about which effect an evaluation returns,
+    /// and the one case that reaches this port is asserted through the audit trail instead — a
+    /// double that recorded lines here would tempt a test to assert on log text.
+    struct SilentDiagnostics;
+    impl PermissionsDiagnosticsPort for SilentDiagnostics {
+        fn evaluation_failed_closed(
+            &self,
+            _action: &Action,
+            _reason: &'static str,
+            _session_id: &str,
+            _generation_id: &str,
+        ) {
+        }
     }
 
     #[test]

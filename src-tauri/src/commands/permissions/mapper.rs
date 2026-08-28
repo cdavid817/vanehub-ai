@@ -1,5 +1,4 @@
 use super::dto::{PendingApprovalEntry, PrincipalEntry, SkillApprovalEntry};
-use crate::contexts::agent_runtime::application::ToolApprovalDecision;
 use crate::contexts::permissions::api::{
     ApprovalDecision, ApprovalRequest, PolicyTemplateName, Principal, RiskLevel, Scope,
 };
@@ -53,13 +52,9 @@ pub(super) fn parse_scope(value: &str) -> Scope {
     }
 }
 
-pub(super) fn tool_approval_decision(approved: bool) -> ToolApprovalDecision {
-    if approved {
-        ToolApprovalDecision::Approved
-    } else {
-        ToolApprovalDecision::Denied
-    }
-}
+// The `bool` -> `ToolApprovalDecision` mapping moved to the routed delivery adapter in bootstrap.
+// It belonged to whichever layer actually talks to `agent_runtime`, and the command no longer does:
+// it hands a decision to one use case and returns that use case's typed outcome.
 
 pub(super) fn approval_decision(approved: bool) -> ApprovalDecision {
     if approved {
