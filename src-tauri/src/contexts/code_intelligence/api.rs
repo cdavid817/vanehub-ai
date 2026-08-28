@@ -51,6 +51,37 @@ pub(crate) enum CodeIntelligenceApiError {
     Storage,
     #[error("language-server shutdown did not complete")]
     ShutdownFailed,
+    /// A managed install or uninstall failed. Carries which kind rather than a message: the
+    /// boundary this crosses reports closed reason codes, not free text, and collapsing all five
+    /// into one variant would tell a user nothing about what to do next.
+    #[error("managed installation failed: {0:?}")]
+    Managed(ManagedInstallFailure),
+}
+
+/// Why a managed install or uninstall failed, as a closed set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ManagedInstallFailure {
+    /// The allowlist, a ceiling, an entry the archive should not contain, or a declaration that
+    /// bounds nothing.
+    Refused,
+    /// The transfer or the filesystem failed.
+    Transfer,
+    TimedOut,
+    Cancelled,
+    ChecksumMismatch,
+}
+
+impl From<crate::contexts::tooling::api::ManagedInstallError> for ManagedInstallFailure {
+    fn from(error: crate::contexts::tooling::api::ManagedInstallError) -> Self {
+        use crate::contexts::tooling::api::ManagedInstallError as Source;
+        match error {
+            Source::Refused(_) => Self::Refused,
+            Source::Transfer(_) => Self::Transfer,
+            Source::TimedOut => Self::TimedOut,
+            Source::Cancelled => Self::Cancelled,
+            Source::ChecksumMismatch => Self::ChecksumMismatch,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -91,6 +122,8 @@ pub(crate) struct CodeIntelligenceApi {
     /// Where per-workspace server state lives. Supplied rather than discovered so a test can point
     /// it at a temporary directory instead of the real profile.
     data_directory: std::path::PathBuf,
+    /// Fetching a declared distribution. A port so an install can be driven without a network.
+    retriever: Arc<dyn crate::contexts::tooling::api::ManagedArtifactRetriever>,
     maintenance_started: Arc<AtomicBool>,
 }
 
@@ -122,8 +155,66 @@ impl CodeIntelligenceApi {
             processes,
             document_invalidations,
             data_directory,
+            retriever: Arc::new(crate::contexts::tooling::api::HttpsArtifactRetriever),
             maintenance_started: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    /// Which registered languages currently have a managed install.
+    ///
+    /// Reported from the filesystem rather than from a table: the directory's existence is the
+    /// fact, and a record of it would be a second answer that could disagree.
+    pub(crate) fn installed_languages(&self) -> Vec<&'static str> {
+        LANGUAGE_DEFINITIONS
+            .iter()
+            .filter(|definition| {
+                super::infrastructure::managed_install(&self.data_directory, definition.id)
+                    .is_some()
+            })
+            .map(|definition| definition.id)
+            .collect()
+    }
+
+    /// Installs a language's declared distribution.
+    ///
+    /// Blocking work — a download and an unpack — moved off the caller's thread. The API stays
+    /// `async` like the other long-running entry points rather than making every caller remember.
+    pub(crate) async fn install_language_server(
+        &self,
+        language_id: &str,
+    ) -> Result<(), CodeIntelligenceApiError> {
+        let language =
+            resolve_language(language_id).ok_or(CodeIntelligenceApiError::InvalidWorkspace)?;
+        let retriever = self.retriever.clone();
+        let data_directory = self.data_directory.clone();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        tauri::async_runtime::spawn_blocking(move || {
+            super::infrastructure::install_managed_server(
+                retriever.as_ref(),
+                &data_directory,
+                language,
+                &cancelled,
+            )
+            .map(|_| ())
+        })
+        .await
+        .map_err(|_| CodeIntelligenceApiError::ConfigurationUnavailable)?
+        .map_err(|error| CodeIntelligenceApiError::Managed(error.into()))
+    }
+
+    /// Removes a language's managed install, stopping its servers first.
+    ///
+    /// The ordering is a requirement rather than politeness: on Windows a directory a process
+    /// still holds open simply will not delete.
+    pub(crate) async fn uninstall_language_server(
+        &self,
+        language_id: &str,
+    ) -> Result<(), CodeIntelligenceApiError> {
+        let language =
+            resolve_language(language_id).ok_or(CodeIntelligenceApiError::InvalidWorkspace)?;
+        self.processes.stop_language(language).await;
+        super::infrastructure::uninstall_managed_server(&self.data_directory, language.id)
+            .map_err(|error| CodeIntelligenceApiError::Managed(error.into()))
     }
 
     pub(crate) fn configuration(&self) -> Result<LspConfiguration, CodeIntelligenceApiError> {
@@ -198,13 +289,16 @@ impl CodeIntelligenceApi {
                 let language_configuration = configuration
                     .language(&language.language_id())
                     .unwrap_or(&defaults);
-                let discovery = self.discovery.discover(
+                let managed =
+                    super::infrastructure::managed_install(&self.data_directory, language.id);
+                let discovery = self.discovery.discover_with_managed_install(
                     language,
                     language_configuration
                         .executable_override
                         .as_deref()
                         .map(Path::new),
                     language_configuration.startup_arguments.as_ref(),
+                    managed.as_deref(),
                 );
                 Ok(discovery_view(language, discovery))
             })
@@ -462,13 +556,15 @@ impl CodeIntelligenceApi {
         let language_configuration = configuration
             .language(&language.language_id())
             .unwrap_or(&defaults);
-        let discovery = self.discovery.discover(
+        let managed = super::infrastructure::managed_install(&self.data_directory, language.id);
+        let discovery = self.discovery.discover_with_managed_install(
             language,
             language_configuration
                 .executable_override
                 .as_deref()
                 .map(Path::new),
             language_configuration.startup_arguments.as_ref(),
+            managed.as_deref(),
         );
         let command = super::infrastructure::ServerTestCommand::from_discovery(
             &discovery,
@@ -574,10 +670,12 @@ impl CodeIntelligenceApi {
             .language(&language.language_id())
             .filter(|settings| settings.enabled)
             .ok_or(CodeIntelligenceApiError::ConfigurationUnavailable)?;
-        let discovery = self.discovery.discover(
+        let managed = super::infrastructure::managed_install(&self.data_directory, language.id);
+        let discovery = self.discovery.discover_with_managed_install(
             language,
             settings.executable_override.as_deref().map(Path::new),
             settings.startup_arguments.as_ref(),
+            managed.as_deref(),
         );
         let executable = discovery
             .executable()

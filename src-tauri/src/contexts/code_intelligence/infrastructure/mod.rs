@@ -26,6 +26,7 @@ mod lsp_server_requests;
 mod initialize_negotiation;
 #[cfg_attr(not(test), allow(dead_code))]
 mod lsp_stdio_child;
+mod managed_server;
 #[cfg_attr(not(test), allow(dead_code))]
 mod position_conversion;
 #[cfg_attr(not(test), allow(dead_code))]
@@ -91,6 +92,9 @@ mod shutdown_coordinator_tests;
 pub(crate) use configuration_repository::SqliteCodeIntelligenceRepository;
 pub(crate) use document_invalidation::LspDocumentInvalidationQueue;
 pub(crate) use lsp_diagnostics::LspDiagnosticLogger;
+pub(crate) use managed_server::{
+    install_managed_server, managed_install, uninstall_managed_server,
+};
 pub(crate) use position_conversion::AgentPosition;
 pub(crate) use process_registry::{ActivationReason, LifecyclePolicy};
 pub(crate) use project_root::{ProcessKey, ProjectRootError, ProjectRootResolver};

@@ -110,8 +110,22 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 了 LspOverrideTarget;`web-lsp-client.ts` 的 mock 注册表多了 Java 这一条,并把两个新字段带进
 // descriptors()。这一条 mock 数据正是让 Web 侧也走 install_directory 分支的原因——否则那个分支
 // 只有桌面侧跑得到。
+// 上调理由(manage-language-server-installation):+89,全部在生产文件上。其中只有 54 行是新能力，
+// 其余 35 行是两次拆分的固定开销——只搬不抄，两侧都有实测减数对应。
+// 新能力：`tauri-agent-client.ts` +26(install/uninstall 两个方法，加一个把 `Result<_, String>`
+// 命令抛出的裸字符串包成 `Error` 的小函数——不包的话调用方的 `instanceof Error`
+// 分支会把后端给的 reason code 掉成一条通用失败)；`web-lsp-client.ts` +22(两个如实拒绝的
+// 方法加 mock 注册表的 distribution/installed 两个字段)；`lsp-contract.ts` +6(描述符的
+// distribution 归一化。它没有被内联掉：内联后一个既非 null 也非 record 的 distribution
+// 会静默变成"没有发行信息"，而这个模块的整个存在意义就是 fail closed)。
+// 拆分：`lsp-service.ts` +23 / `agent-service.ts` -14——LSP 的 9 个方法从伞型接口里搬进自己的
+// 服务接口，和它已经组合的另外 30 个领域接口一致；`agent-service.ts` 降到 292 行，按
+// eslint.config.js 写明的策略，它在技术债清单里那条 306 行的条目同一个 commit 删掉。
+// `lsp-contract-values.ts` +99 / `lsp-contract.ts` -89(另 +16 是它的 import 块)——强制 fail closed
+// 的值强转帮助函数单独成模块，`lsp-contract.ts` 从 302 降到 227。它本来就不在技术债清单上，
+// 300 行是硬规则；不拆的唯一选项是把上面那个 fail-closed 检查换成 6 行额度。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 21357, owner: "add-unified-personalization-governance" },
+  { root: "src/services", budget: 21446, owner: "add-unified-personalization-governance" },
 ]);
 
 const STATE_PACKAGES = new Set([

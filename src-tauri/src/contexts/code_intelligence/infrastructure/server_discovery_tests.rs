@@ -301,6 +301,40 @@ fn a_launcher_outside_the_declared_directory_is_not_found() {
     );
 }
 
+#[test]
+fn a_managed_install_is_used_when_the_user_set_no_override() {
+    let discovery = java_discovery(Some(fixture_executable("java")));
+    let managed = fixture_install(&["org.eclipse.equinox.launcher_1.7.0.jar"]);
+
+    let result =
+        discovery.discover_with_managed_install(registry::java(), None, None, Some(&managed));
+
+    assert_eq!(result.availability(), DiscoveryAvailability::Available);
+    assert!(result
+        .resolved_launcher()
+        .is_some_and(|path| path.starts_with(&managed)));
+}
+
+#[test]
+fn an_override_wins_over_a_managed_install_that_also_exists() {
+    let discovery = java_discovery(Some(fixture_executable("java")));
+    let managed = fixture_install(&["org.eclipse.equinox.launcher_1.7.0.jar"]);
+    let chosen = fixture_install(&["org.eclipse.equinox.launcher_1.6.500.jar"]);
+
+    let result = discovery.discover_with_managed_install(
+        registry::java(),
+        Some(&chosen),
+        None,
+        Some(&managed),
+    );
+
+    // Installing through VaneHub must not silently retarget a user who already pointed somewhere.
+    // Both are on disk here, so a wrong precedence would start a server rather than fail visibly.
+    assert!(result
+        .resolved_launcher()
+        .is_some_and(|path| path.starts_with(&chosen)));
+}
+
 fn fixture_executable(name: &str) -> PathBuf {
     let directory = tempfile::tempdir().expect("temporary directory").keep();
     let path = directory.join(executable_file_name(name));
