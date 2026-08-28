@@ -443,7 +443,10 @@ mod tests {
                 "developer",
                 "private.json",
             ] {
-                assert!(!rendered.contains(secret), "telemetry leaked {secret}");
+                assert!(
+                    !rendered.contains(secret),
+                    "telemetry leaked a protected value"
+                );
             }
             assert!(rendered.contains("[REDACTED]"));
             assert!(rendered.contains("[REDACTED_PATH]"));
