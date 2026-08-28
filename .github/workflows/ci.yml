@@ -487,12 +487,14 @@ jobs:
       # Path-list normalization, executable status, argv token preservation, and profile
       # persistence with revision and catalog CAS. No provider is launched, no credential is read,
       # and the only executable involved is the repository's own stub, which is inspected rather
-      # than run.
+      # than run. Keep the native test fan-out bounded: each test creates and migrates an isolated
+      # SQLite database, and the Windows hosted runner can otherwise exhaust r2d2's five-second
+      # connection acquisition window while hundreds of migrations start concurrently.
       - name: Native CLI parameter fixtures
-        run: cargo test --workspace platform_fixture_tests
+        run: cargo test --workspace platform_fixture_tests -- --test-threads=4
 
       - name: Native CLI parameter subdomain
-        run: cargo test --workspace cli_parameters
+        run: cargo test --workspace cli_parameters -- --test-threads=4
 
       - name: Install npm dependencies
         run: npm ci
