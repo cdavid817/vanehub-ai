@@ -3504,6 +3504,7 @@
   "lspSettings.reason.ambiguous_install": "That directory holds more than one server launcher.",
   "lspSettings.reason.install_refused": "The download or the archive was refused by a safety limit.",
   "lspSettings.reason.install_failed": "The download or the unpacking failed.",
+  "lspSettings.reason.install_timed_out": "The download took longer than its time limit. Retrying is safe: a failed install leaves nothing behind.",
   "lspSettings.reason.checksum_mismatch": "The download did not match its published checksum.",
   "codeIndex.currentSession": "Code index",
   "codeIndex.currentSessionUnavailable": "Not indexed",

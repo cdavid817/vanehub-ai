@@ -3504,6 +3504,7 @@
   "lspSettings.reason.ambiguous_install": "そのディレクトリに複数のサーバーランチャーがあります。",
   "lspSettings.reason.install_refused": "ダウンロードまたはアーカイブが安全上の制限により拒否されました。",
   "lspSettings.reason.install_failed": "ダウンロードまたは展開に失敗しました。",
+  "lspSettings.reason.install_timed_out": "ダウンロードが制限時間を超えました。再試行しても安全です：失敗したインストールは何も残しません。",
   "lspSettings.reason.checksum_mismatch": "ダウンロードが公開チェックサムと一致しませんでした。",
   "codeIndex.currentSession": "コードインデックス",
   "codeIndex.currentSessionUnavailable": "未インデックス",

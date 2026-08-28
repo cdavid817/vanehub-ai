@@ -80,6 +80,7 @@ const requiredKeys = [
   "lspSettings.reason.launcher_not_found",
   "lspSettings.reason.ambiguous_install",
   "lspSettings.reason.install_refused", "lspSettings.reason.install_failed",
+  "lspSettings.reason.install_timed_out",
   "lspSettings.reason.checksum_mismatch",
   "lspSettings.install.title", "lspSettings.install.installed",
   "lspSettings.install.notInstalled", "lspSettings.install.unverified",

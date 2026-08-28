@@ -3504,6 +3504,7 @@
   "lspSettings.reason.ambiguous_install": "해당 디렉터리에 서버 런처가 여러 개 있습니다.",
   "lspSettings.reason.install_refused": "다운로드 또는 아카이브가 안전 제한에 의해 거부되었습니다.",
   "lspSettings.reason.install_failed": "다운로드 또는 압축 해제에 실패했습니다.",
+  "lspSettings.reason.install_timed_out": "다운로드가 제한 시간을 초과했습니다. 다시 시도해도 안전합니다: 실패한 설치는 아무것도 남기지 않습니다.",
   "lspSettings.reason.checksum_mismatch": "다운로드가 게시된 체크섬과 일치하지 않습니다.",
   "codeIndex.currentSession": "코드 인덱스",
   "codeIndex.currentSessionUnavailable": "인덱싱되지 않음",

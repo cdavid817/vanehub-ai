@@ -3504,6 +3504,7 @@
   "lspSettings.reason.ambiguous_install": "該目錄中有多個伺服器啟動器。",
   "lspSettings.reason.install_refused": "下載或封存被某項安全限制拒絕。",
   "lspSettings.reason.install_failed": "下載或解壓縮失敗。",
+  "lspSettings.reason.install_timed_out": "下載超出了時間上限。重試是安全的：失敗的安裝不會留下任何東西。",
   "lspSettings.reason.checksum_mismatch": "下載內容與已發佈的總和檢查碼不符。",
   "codeIndex.currentSession": "程式碼索引",
   "codeIndex.currentSessionUnavailable": "未建立索引",
