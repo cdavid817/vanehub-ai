@@ -80,10 +80,18 @@ pub(crate) const DISPATCH_AGENT_UNSUPPORTED: &str =
     "evaluation supports OnePiece or an available managed CLI Agent";
 pub(crate) const DISPATCH_TERMINAL_DISCONNECTED: &str =
     "evaluation Agent terminal channel disconnected";
-pub(crate) const SAFE_DISPATCH_REASONS: [&str; 3] = [
+pub(crate) const DISPATCH_CLI_PROFILE_UNAVAILABLE: &str =
+    "evaluation CLI launch profile is unavailable";
+pub(crate) const DISPATCH_PROCESS_UNAVAILABLE: &str = "evaluation Agent process could not start";
+pub(crate) const DISPATCH_GENERATION_UNAVAILABLE: &str =
+    "evaluation Agent generation could not start";
+pub(crate) const SAFE_DISPATCH_REASONS: [&str; 6] = [
     DISPATCH_AGENT_UNAVAILABLE,
     DISPATCH_AGENT_UNSUPPORTED,
     DISPATCH_TERMINAL_DISCONNECTED,
+    DISPATCH_CLI_PROFILE_UNAVAILABLE,
+    DISPATCH_PROCESS_UNAVAILABLE,
+    DISPATCH_GENERATION_UNAVAILABLE,
 ];
 
 /// Reduces a dispatch failure to something safe to persist, export, and render.

@@ -18,15 +18,20 @@ describe("EvaluationCenter", () => {
     render(<EvaluationCenter />);
     const run = await screen.findByRole("button", { name: "运行竞技场" });
     await waitFor(() => expect((run as HTMLButtonElement).disabled).toBe(false));
+    expect(screen.getByTestId("evaluation-agent-opencode")).toBeTruthy();
+    for (const agentId of ["claude-code", "opencode", "gemini-cli", "antigravity-cli"]) {
+      fireEvent.click(screen.getByTestId(`evaluation-agent-${agentId}`));
+    }
     fireEvent.click(run);
     expect(await screen.findByText("onepiece")).toBeTruthy();
-    expect(screen.getAllByText("codex-cli").length).toBeGreaterThan(1);
+    expect(screen.getByText("Codex CLI")).toBeTruthy();
+    expect(screen.getByText("codex-cli")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("筛选结果"), { target: { value: "codex-cli" } });
     expect(document.querySelectorAll("tbody tr")).toHaveLength(1);
-    fireEvent.click(screen.getByText("任务失败").closest("tr")!);
+    fireEvent.click(document.querySelector("tbody tr")!);
     expect(screen.getByText("验证")).toBeTruthy();
     expect(screen.getByText("指标与来源")).toBeTruthy();
-    expect(screen.getByText(/unavailable · provider/)).toBeTruthy();
+    expect(screen.getByText(/reported · provider/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "导出 JSON" }));
     await waitFor(() => expect(exportSpy).toHaveBeenCalled());
     expect(click).toHaveBeenCalled();

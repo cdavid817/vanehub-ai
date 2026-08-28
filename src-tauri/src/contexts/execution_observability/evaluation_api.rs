@@ -160,7 +160,7 @@ impl EvaluationApi {
         let worker = std::thread::Builder::new()
             .name("evaluation-arena".into())
             .spawn(move || {
-                if background.execute(&arena_id).is_err() {
+                if let Err(error) = background.execute(&arena_id) {
                     // Whatever `execute` gave up on -- a fixture that would not prepare, a run
                     // transition that was refused -- it abandoned every attempt it had not reached
                     // yet at `queued`. Queued is not a verdict: the client polls a non-terminal
@@ -168,7 +168,7 @@ impl EvaluationApi {
                     background.abandon(&arena_id);
                     let _ = background
                         .operations
-                        .fail(&operation_id, "evaluation benchmark failed safely".into());
+                        .fail(&operation_id, safe_benchmark_error(&error));
                 }
             });
         if worker.is_err() {
@@ -203,26 +203,29 @@ impl EvaluationApi {
     }
 
     pub(crate) fn execute(&self, arena_id: &str) -> Result<EvaluationArena, String> {
-        let mut arena = self.get(arena_id)?;
-        let manifest = self.manifest(&arena.task_id, arena.task_version)?;
+        let mut arena = self
+            .get(arena_id)
+            .map_err(|_| "evaluation arena loading failed".to_string())?;
+        let manifest = self
+            .manifest(&arena.task_id, arena.task_version)
+            .map_err(|_| "evaluation manifest loading failed".to_string())?;
         for index in 0..arena.attempts.len() {
             let attempt = arena.attempts[index].clone();
             self.runs
                 .transition(&attempt.canonical_run_id, RunTrigger::Prepare, None)
-                .map_err(display)?;
+                .map_err(|_| "evaluation run preparation failed".to_string())?;
             self.runs
                 .transition(&attempt.canonical_run_id, RunTrigger::Start, None)
-                .map_err(display)?;
+                .map_err(|_| "evaluation run start failed".to_string())?;
             let source = self.fixture_root.join(&manifest.fixture);
-            let prepared =
-                self.workspaces
-                    .prepare_evaluation_fixture(&source, &self.run_root, &attempt.id)?;
+            let prepared = self
+                .workspaces
+                .prepare_evaluation_fixture(&source, &self.run_root, &attempt.id)
+                .map_err(|_| "evaluation workspace preparation failed".to_string())?;
             let dispatch = self.agent.dispatch(&EvaluationDispatchRequest {
                 task_id: manifest.id.clone(),
                 attempt_id: attempt.id.clone(),
                 agent_id: attempt.agent.agent_id.clone(),
-                provider_id: Some(attempt.agent.provider_id.clone()),
-                model_id: attempt.agent.model_id.clone(),
                 prompt: manifest.prompt.clone(),
                 workspace: prepared.workspace_path.clone(),
                 timeout_seconds: u64::from(manifest.timeout_seconds),
@@ -232,6 +235,10 @@ impl EvaluationApi {
                 .acceptance
                 .verifier_profiles
                 .iter()
+                // Static files and diff rules are expanded into their real bounded checks below;
+                // persisting the verifier adapter's placeholder as well would duplicate the
+                // `diff-rules` check id and reject an otherwise successful terminal write.
+                .filter(|profile| !matches!(profile.as_str(), "static-files" | "diff-rules"))
                 .map(|profile| self.verifier.verify(profile, &prepared.workspace_path))
                 .collect::<Vec<_>>();
             checks.extend(
@@ -249,10 +256,13 @@ impl EvaluationApi {
                 .into_iter()
                 .map(Ok),
             );
-            let changed_paths = self.workspaces.changed_evaluation_paths(
-                &source,
-                PathBuf::from(&prepared.workspace_path).as_path(),
-            )?;
+            let changed_paths = self
+                .workspaces
+                .changed_evaluation_paths(
+                    &source,
+                    PathBuf::from(&prepared.workspace_path).as_path(),
+                )
+                .map_err(|_| "evaluation diff collection failed".to_string())?;
             checks.push(Ok(verify_diff_rules(&changed_paths)));
             // Kept before the aggregate consumes it: `aggregate_evaluation` maps a dispatch `Err`
             // to `agent_failed` and drops the reason, which left the user with an empty panel and
@@ -290,12 +300,14 @@ impl EvaluationApi {
             };
             self.runs
                 .transition(&attempt.canonical_run_id, trigger, None)
-                .map_err(display)?;
-            self.repository.save_terminal(
-                &arena,
-                &arena.attempts[index],
-                &chrono::Utc::now().to_rfc3339(),
-            )?;
+                .map_err(|_| "evaluation run finalization failed".to_string())?;
+            self.repository
+                .save_terminal(
+                    &arena,
+                    &arena.attempts[index],
+                    &chrono::Utc::now().to_rfc3339(),
+                )
+                .map_err(|_| "evaluation result persistence failed".to_string())?;
             if arena.attempts[index].outcome != EvaluationOutcome::Succeeded {
                 let _ = self
                     .workspaces
@@ -305,7 +317,7 @@ impl EvaluationApi {
         let arena = ranked(arena);
         self.operations
             .complete(&arena.operation_id, serde_json::to_value(&arena).ok())
-            .map_err(display)?;
+            .map_err(|_| "evaluation operation completion failed".to_string())?;
         Ok(arena)
     }
 
@@ -355,6 +367,25 @@ impl EvaluationApi {
             .into_iter()
             .find(|item| item.id == id && item.version == version)
             .ok_or_else(|| "evaluation task version not found".into())
+    }
+}
+
+fn safe_benchmark_error(error: &str) -> String {
+    const SAFE_STAGE_ERRORS: [&str; 9] = [
+        "evaluation arena loading failed",
+        "evaluation manifest loading failed",
+        "evaluation run preparation failed",
+        "evaluation run start failed",
+        "evaluation workspace preparation failed",
+        "evaluation diff collection failed",
+        "evaluation run finalization failed",
+        "evaluation result persistence failed",
+        "evaluation operation completion failed",
+    ];
+    if SAFE_STAGE_ERRORS.contains(&error) {
+        error.to_string()
+    } else {
+        "evaluation benchmark failed safely".to_string()
     }
 }
 
@@ -496,6 +527,18 @@ mod tests {
         for reason in SAFE_DISPATCH_REASONS {
             assert_eq!(safe_dispatch_diagnostic(reason), reason);
         }
+    }
+
+    #[test]
+    fn benchmark_failures_expose_only_fixed_stage_diagnostics() {
+        assert_eq!(
+            safe_benchmark_error("evaluation result persistence failed"),
+            "evaluation result persistence failed"
+        );
+        assert_eq!(
+            safe_benchmark_error("database failed at /home/user/private.db"),
+            "evaluation benchmark failed safely"
+        );
     }
 
     #[test]
