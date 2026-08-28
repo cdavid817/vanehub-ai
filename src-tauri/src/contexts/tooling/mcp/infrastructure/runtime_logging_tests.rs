@@ -42,10 +42,13 @@ fn assert_only_safe_log_remains(directory: &std::path::Path, secrets: &[&str]) -
     assert_eq!(entry.file_name(), logging::LOG_FILE_NAME);
     let raw = std::fs::read_to_string(entry.path()).expect("safe log");
     for secret in secrets {
-        assert!(!raw.contains(secret), "runtime log leaked {secret}");
+        assert!(
+            !raw.contains(secret),
+            "runtime log leaked a protected value"
+        );
         assert!(
             !entry.file_name().to_string_lossy().contains(secret),
-            "diagnostic filename leaked {secret}"
+            "diagnostic filename leaked a protected value"
         );
     }
     raw

@@ -2556,12 +2556,14 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // `upgrade-session-workspace-evidence-console`. The +23 is the evidence a tool call now reports
     // about itself as it runs; both branches touched this subtree and neither duplicated the
     // other's code, so the number is measured here rather than summed from two branch-local ones.
-    // Re-measured again at 62,639 on merging `add-unified-personalization-governance`, which moves
-    // agent memory behind the governed store. Same rule: measured on the merged tree, because each
-    // branch had already recorded its own increment against a baseline the other also carries.
+    // Re-measured on each subsequent merge, most recently at 62,647:
+    // `add-unified-personalization-governance` moved agent memory behind the governed store, and
+    // the CodeQL logging and transport fixes added eight lines. Same rule every time: measured on
+    // the merged tree, because each branch had already recorded its own increment against a
+    // baseline the other also carries, so summing them counts that baseline twice.
     SubtreeBudget {
         root: "src-tauri/src/contexts/agent_runtime/infrastructure",
-        budget: 62_639,
+        budget: 62_647,
         owner: "decompose-api-tool-use-loop",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a

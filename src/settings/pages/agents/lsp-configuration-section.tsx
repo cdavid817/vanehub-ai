@@ -34,7 +34,7 @@ function ConfigurationEditor({
   configuration: LspConfiguration;
   discoveries: Awaited<ReturnType<AgentService["discoverLspServers"]>>;
   discoveryPending: boolean;
-  installBusy: string | null;
+  installBusy: ReadonlySet<string>;
   installReasons: Record<string, string>;
   onInstall: (language: string) => void;
   onRefreshDiscovery: () => void;
@@ -95,7 +95,7 @@ function ConfigurationEditor({
             errorKey={errors[descriptor.language]}
             key={descriptor.language}
             install={descriptor.distribution === null ? undefined : {
-              busy: installBusy === descriptor.language,
+              busy: installBusy.has(descriptor.language),
               distribution: descriptor.distribution,
               installed: descriptor.installed,
               onInstall: () => onInstall(descriptor.language),
@@ -148,12 +148,15 @@ export function LspConfigurationSection({ service = defaultAgentService }: { ser
       ]);
     },
   });
-  // Keyed by language so two cards cannot both look busy, and so a failure stays on the card it
-  // belongs to rather than becoming a page-level banner about "an install".
-  const [installBusy, setInstallBusy] = useState<string | null>(null);
+  // A set rather than one language: a single slot means starting a second install clears the
+  // first card's busy state and re-enables its button while its download is still running. Only
+  // one language declares a distribution today, so nothing exercises that yet — which is exactly
+  // why it has to be right now, since the point of the descriptor is that the second language
+  // needs no change here.
+  const [installBusy, setInstallBusy] = useState<ReadonlySet<string>>(new Set());
   const [installReasons, setInstallReasons] = useState<Record<string, string>>({});
   const runInstall = async (language: string, action: (language: string) => Promise<void>) => {
-    setInstallBusy(language);
+    setInstallBusy((current) => new Set(current).add(language));
     setInstallReasons((current) => ({ ...current, [language]: "" }));
     try {
       await action(language);
@@ -169,7 +172,11 @@ export function LspConfigurationSection({ service = defaultAgentService }: { ser
     } finally {
       // Cleared on every path: an action left stuck in "working" reads as an install still
       // running when nothing is.
-      setInstallBusy(null);
+      setInstallBusy((current) => {
+        const remaining = new Set(current);
+        remaining.delete(language);
+        return remaining;
+      });
     }
   };
   const loading = configurationQuery.isLoading || discoveryQuery.isLoading;

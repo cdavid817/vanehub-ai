@@ -638,7 +638,10 @@ mod tests {
             "plain-secret",
             "bearer-secret",
         ] {
-            assert!(!redacted.contains(secret), "redaction leaked {secret}");
+            assert!(
+                !redacted.contains(secret),
+                "redaction leaked a protected value"
+            );
         }
         assert!(redacted.contains("[REDACTED]"));
     }

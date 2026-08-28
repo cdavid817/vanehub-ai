@@ -238,6 +238,8 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-27 | add-unified-personalization-governance | agent-cross-session-memory, app-settings, custom-instructions, session-management, unified-personalization-governance | `openspec/changes/archive/2026-08-27-add-unified-personalization-governance/` |
 | 2026-08-27 | expand-lsp-read-only-methods | agent-tool-execution, lsp-code-intelligence, lsp-server-management, settings-center-ui | `openspec/changes/archive/2026-08-27-expand-lsp-read-only-methods/` |
 | 2026-08-27 | extract-managed-tool-installation | cli-environment-management, managed-tool-installation | `openspec/changes/archive/2026-08-27-extract-managed-tool-installation/` |
+| 2026-08-28 | add-session-im-toggle | desktop-runtime-verification, feishu-session-im-integration, im-connector-management, im-session-binding-ui, multi-agent-group-chat | `openspec/changes/archive/2026-08-28-add-session-im-toggle/` |
+| 2026-08-28 | expand-session-im-connectors | desktop-runtime-verification, im-connector-management, im-session-binding-ui | `openspec/changes/archive/2026-08-28-expand-session-im-connectors/` |
 | 2026-08-28 | manage-language-server-installation | lsp-server-management, managed-tool-installation, settings-center-ui | `openspec/changes/archive/2026-08-28-manage-language-server-installation/` |
 | 2026-08-28 | upgrade-session-workspace-evidence-console | agent-code-review, agent-execution-observability, main-layout-ui, remote-terminal-runtime, session-log-viewer, session-project-inspection, session-workspace-execution-evidence, unified-log-management, usage-statistics | `openspec/changes/archive/2026-08-28-upgrade-session-workspace-evidence-console/` |
 

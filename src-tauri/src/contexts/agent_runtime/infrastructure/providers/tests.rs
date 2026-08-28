@@ -776,7 +776,7 @@ fn managed_cli_usage_edge_fixture_covers_bounded_verified_shapes() {
         match fixture.expected.kind.as_str() {
             "usage" => {
                 let ProviderOutputEvent::Completed(Some(usage)) = event else {
-                    panic!("{} expected usage, got {event:?}", fixture.name);
+                    panic!("{} expected a usage event", fixture.name);
                 };
                 assert_eq!(
                     usage.input_tokens,
@@ -837,7 +837,7 @@ fn managed_cli_usage_edge_fixture_covers_bounded_verified_shapes() {
             ),
             "failure" => {
                 let ProviderOutputEvent::Failed(failure) = event else {
-                    panic!("{} expected failure, got {event:?}", fixture.name);
+                    panic!("{} expected a failure event", fixture.name);
                 };
                 let expected_kind = match fixture.expected.failure_kind.as_deref() {
                     Some("retryable") => GenerationProcessFailureKind::Retryable,
@@ -1100,7 +1100,7 @@ fn claude_error_result_becomes_a_failure_carrying_the_cli_diagnostic() {
                 "a 403 is an authentication problem; retrying cannot fix it"
             );
         }
-        other => panic!("expected a failure event, got {other:?}"),
+        _ => panic!("expected a failure event"),
     }
 }
 
@@ -1117,7 +1117,7 @@ fn antigravity_result_event_maps_status_and_diagnostic() {
             assert_eq!(failure.diagnostic, "authentication failed or timed out");
             assert_eq!(failure.kind, GenerationProcessFailureKind::NonRetryable);
         }
-        other => panic!("expected a failure event, got {other:?}"),
+        _ => panic!("expected a failure event"),
     }
 }
 
@@ -1136,7 +1136,7 @@ fn antigravity_success_preserves_verified_usage_dimensions() {
             assert_eq!(usage.reasoning_overlap, ProviderUsageOverlap::Exclusive);
             assert_eq!(usage.source_identity.as_deref(), Some("c-1"));
         }
-        other => panic!("expected a completion carrying usage, got {other:?}"),
+        _ => panic!("expected a completion carrying usage"),
     }
 }
 
@@ -1184,11 +1184,10 @@ fn antigravity_non_terminal_result_status_fails_loudly() {
         ProviderOutputEvent::Failed(failure) => {
             assert!(
                 failure.diagnostic.contains("non-terminal"),
-                "{}",
-                failure.diagnostic
+                "failure diagnostic did not describe the expected condition"
             );
         }
-        other => panic!("expected a failure event, got {other:?}"),
+        _ => panic!("expected a failure event"),
     }
 }
 
@@ -1207,7 +1206,7 @@ fn claude_successful_result_still_completes_with_its_usage() {
             assert_eq!(usage.input_tokens, 11);
             assert_eq!(usage.output_tokens, 5);
         }
-        other => panic!("expected a completed event, got {other:?}"),
+        _ => panic!("expected a completed event"),
     }
 }
 
@@ -1229,7 +1228,7 @@ fn claude_error_result_without_a_status_stays_retryable() {
                 "without a classifying code the existing retryable default must hold"
             );
         }
-        other => panic!("expected a failure event, got {other:?}"),
+        _ => panic!("expected a failure event"),
     }
 }
 
