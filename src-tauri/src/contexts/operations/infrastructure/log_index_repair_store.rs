@@ -12,8 +12,29 @@ use crate::contexts::operations::application::{
     LineRejections, LogBatchCommit, LogSourceIdentity, OperationsLogError, RedactedLogRecord,
     SessionLogBackfillState, SessionLogBackfillStatus,
 };
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use std::collections::BTreeMap;
+
+/// Opens the write transaction by taking the write lock up front.
+///
+/// Every transaction in this file reads before it writes — the batch commit checks for an existing
+/// row, the expiry reads the batch it is about to delete, the prune counts before removing. A
+/// deferred transaction takes a shared lock on that first read and then tries to upgrade, and
+/// SQLite answers a failed upgrade with `SQLITE_BUSY` *without consulting the busy handler*,
+/// because a handler there could deadlock two readers each waiting to become the writer. So the
+/// five-second busy timeout, which every other contended path relies on, does not apply to these
+/// at all: they fail immediately instead of waiting.
+///
+/// `IMMEDIATE` asks for the write lock at `BEGIN`, before any read, which is the case the busy
+/// handler does cover. The repair runs concurrently with a user's first interactions by design —
+/// it is started right after the window appears — so this is the ordinary case, not a rare one.
+fn write_transaction(
+    connection: &mut Connection,
+) -> Result<rusqlite::Transaction<'_>, OperationsLogError> {
+    connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(storage_error)
+}
 
 /// Writes one batch's rows, gaps and checkpoint inside a single transaction.
 ///
@@ -28,7 +49,7 @@ pub(crate) fn commit_batch(
     rejections: &LineRejections,
     next_offset: u64,
 ) -> Result<LogBatchCommit, OperationsLogError> {
-    let transaction = connection.transaction().map_err(storage_error)?;
+    let transaction = write_transaction(connection)?;
     let mut outcome = LogBatchCommit::default();
     for record in records {
         let stored: Option<(String, i64)> = transaction
@@ -305,7 +326,7 @@ pub(crate) fn expire_sources(
     } else {
         keys.iter().map(|_| "?").collect::<Vec<_>>().join(", ")
     };
-    let transaction = connection.transaction().map_err(storage_error)?;
+    let transaction = write_transaction(connection)?;
     let mut bindings: Vec<&dyn rusqlite::ToSql> =
         keys.iter().map(|key| key as &dyn rusqlite::ToSql).collect();
     let bounded = i64::from(limit);
@@ -389,7 +410,7 @@ pub(crate) fn prune_source_generation(
     source: &LogSourceIdentity,
     limit: u32,
 ) -> Result<u32, OperationsLogError> {
-    let transaction = connection.transaction().map_err(storage_error)?;
+    let transaction = write_transaction(connection)?;
     let removed = transaction
         .execute(
             "DELETE FROM unified_log_query_index

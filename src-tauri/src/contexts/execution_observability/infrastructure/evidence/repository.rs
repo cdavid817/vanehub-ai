@@ -23,7 +23,9 @@ use crate::contexts::execution_observability::domain::{
     EvidenceSessionId, ExecutionEvidenceEvent, ExecutionStatus, SafeReasonCode,
 };
 use crate::platform::database::{NativeDatabase, PooledSqlite};
-use rusqlite::{params, params_from_iter, Connection, OptionalExtension, ToSql};
+use rusqlite::{
+    params, params_from_iter, Connection, OptionalExtension, ToSql, TransactionBehavior,
+};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
@@ -169,7 +171,16 @@ impl EvidenceRepositoryPort for SqliteEvidenceRepository {
         recorded_at: &str,
     ) -> Result<EvidenceAppendOutcome, EvidenceApplicationError> {
         let mut connection = self.connection()?;
-        let transaction = connection.transaction().map_err(storage)?;
+        // `IMMEDIATE`, because this reads before it writes: the idempotency check below runs first,
+        // and a deferred transaction takes a shared lock there and then tries to upgrade. SQLite
+        // answers a failed upgrade with `SQLITE_BUSY` *without* consulting the busy handler — a
+        // handler there could deadlock two readers each waiting to become the writer — so the
+        // connection's five-second busy timeout does not apply to this path at all. Taking the
+        // write lock at `BEGIN` is the case the handler does cover. Every agent action appends
+        // evidence, so this contends with ordinary use rather than with anything rare.
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(storage)?;
 
         let existing: Option<(i64, String)> = transaction
             .query_row(

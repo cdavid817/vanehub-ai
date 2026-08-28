@@ -11,7 +11,14 @@ use crate::contexts::execution_observability::domain::{
 };
 #[cfg(test)]
 use rusqlite::Connection;
-use rusqlite::{params, Transaction};
+use rusqlite::{params, Transaction, TransactionBehavior};
+
+// Both transactions below are `IMMEDIATE`. Each reads before it writes — retention selects the
+// sessions it is about to trim, replay reads the events it projects — and a deferred transaction
+// takes a shared lock on that read and then tries to upgrade. SQLite answers a failed upgrade with
+// `SQLITE_BUSY` without consulting the busy handler, since a handler there could deadlock two
+// readers each waiting to become the writer, so the connection's busy timeout does not apply.
+// Asking for the write lock at `BEGIN` is the case the handler does cover.
 
 /// How many journal rows one maintenance pass touches.
 ///
@@ -42,7 +49,9 @@ impl SqliteEvidenceRepository {
         session_id: Option<&EvidenceSessionId>,
     ) -> Result<usize, EvidenceApplicationError> {
         let mut connection = self.connection_for_maintenance()?;
-        let transaction = connection.transaction().map_err(storage)?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(storage)?;
 
         match session_id {
             Some(session_id) => transaction
@@ -84,7 +93,9 @@ impl SqliteEvidenceRepository {
         now: &str,
     ) -> Result<EvidenceRetentionOutcome, EvidenceApplicationError> {
         let mut connection = self.connection_for_maintenance()?;
-        let transaction = connection.transaction().map_err(storage)?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(storage)?;
 
         let sessions: Vec<String> = {
             let mut statement = transaction
