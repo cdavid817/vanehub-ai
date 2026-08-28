@@ -23,6 +23,7 @@ export interface Pending {
 }
 
 export interface FakeState {
+  profile: LocalMediaProfile;
   nativeAvailable: boolean;
   ready: Record<LocalMediaEngine, boolean>;
   unavailable: Partial<Record<LocalMediaEngine, LocalMediaErrorCode>>;
@@ -38,6 +39,7 @@ export interface FakeState {
 
 export function initialFakeState(): FakeState {
   return {
+    profile: fixtureProfile(),
     nativeAvailable: true,
     ready: { ocr: true, stt: true, tts: true },
     unavailable: {},
@@ -106,8 +108,8 @@ export function fixtureStatus(state: FakeState): LocalMediaRuntimeStatus {
   return {
     nativeAvailable: state.nativeAvailable,
     platformSupport: state.nativeAvailable ? "supported" : "unsupported",
-    enabled: true,
-    profileRevision: 4,
+    enabled: state.profile.enabled,
+    profileRevision: state.profile.revision,
     pathClassifications: [],
     engines: (["ocr", "stt", "tts"] as const).map((engine) => ({
       engine,
@@ -116,7 +118,7 @@ export function fixtureStatus(state: FakeState): LocalMediaRuntimeStatus {
         : state.ready[engine]
           ? { state: "ready" as const }
           : { state: "unconfigured" as const },
-      profileRevision: 4,
+      profileRevision: state.profile.revision,
       workerState: state.ready[engine] ? ("idle" as const) : ("stopped" as const),
       installedVersion: state.ready[engine] ? "fixture-1.0.0" : null,
       modelIdentity: state.ready[engine] ? "fixture-model" : null,

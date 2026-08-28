@@ -1112,6 +1112,7 @@ fn a_database_holding_the_cli_parameter_migration_gains_only_local_media() {
             DROP TABLE cli_action_plans;
             DROP TABLE cli_version_catalogs;
             DROP TABLE cli_environment_snapshots;
+            DROP TABLE im_session_connector_access;
             "#,
         )
         .expect("pre-82 fixture");
@@ -1123,9 +1124,7 @@ fn a_database_holding_the_cli_parameter_migration_gains_only_local_media() {
         )
         .expect("fixture state");
     assert_eq!(before, (81, 81));
-
     migrate(&connection).expect("upgrade migration");
-
     let after: (i64, i64) = connection
         .query_row(
             "SELECT COUNT(*), MAX(version) FROM schema_migrations",
@@ -1168,7 +1167,6 @@ fn a_database_holding_the_cli_parameter_migration_gains_only_local_media() {
             "{table} is missing after the upgrade"
         );
     }
-
     // Idempotent: a second start applies nothing further.
     migrate(&connection).expect("second start");
     let repeated: i64 = connection
@@ -1190,7 +1188,6 @@ fn a_database_holding_the_cli_parameter_migration_gains_only_local_media() {
 fn a_database_holding_the_unmerged_local_media_migration_regains_the_cli_parameter_schema() {
     let connection = Connection::open_in_memory().expect("in-memory database");
     migrate(&connection).expect("current schema");
-
     // Rewind to the state an unmerged `worktree-ocr` build leaves behind: local media recorded at
     // 81 under its old number, nothing at 82, and the CLI parameter table never created.
     connection
@@ -1202,6 +1199,7 @@ fn a_database_holding_the_unmerged_local_media_migration_regains_the_cli_paramet
             DROP TABLE cli_action_plans;
             DROP TABLE cli_version_catalogs;
             DROP TABLE cli_environment_snapshots;
+            DROP TABLE im_session_connector_access;
             "#,
         )
         .expect("pre-merge fixture");
@@ -1210,9 +1208,7 @@ fn a_database_holding_the_unmerged_local_media_migration_regains_the_cli_paramet
         0,
         "the fixture must start without the CLI parameter table"
     );
-
     migrate(&connection).expect("upgrade migration");
-
     // Without the reconciliation the CLI parameter table is still missing here, and every
     // `resolve_launch_parameters` call fails with a repository error nobody can act on.
     for table in ["cli_parameter_profiles", "local_media_profiles"] {
@@ -1256,7 +1252,6 @@ fn a_database_holding_the_unmerged_local_media_migration_regains_the_cli_paramet
         .expect("repeat count");
     assert_eq!(repeated, i64::try_from(history.len()).expect("count fits"));
 }
-
 fn table_count(connection: &Connection, table: &str) -> i64 {
     connection
         .query_row(

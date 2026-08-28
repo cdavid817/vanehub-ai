@@ -5,6 +5,7 @@ import { Button } from "../components/ui/button";
 import { formatAppDateTime } from "../i18n/format";
 import { useSessionImState } from "../hooks/use-session-im-state";
 import type { ImService } from "../services/im-service";
+import { SessionImAccessToggle } from "./session-im-access-toggle";
 
 export function SessionImPane({
   onOpenSettings,
@@ -19,16 +20,54 @@ export function SessionImPane({
   const [replaceExisting, setReplaceExisting] = useState(false);
   const [confirmRemoval, setConfirmRemoval] = useState(false);
   const state = useSessionImState(sessionId, service);
-  const { binding, connectors, error, pairing, pending, readyConnectors: ready } = state;
+  const { access, binding, connectors, error, pairing, pending } = state;
 
   if (!sessionId) return <Empty>{t("im.session.noSession")}</Empty>;
   const boundConnector = binding
     ? connectors.find((connector) => connector.descriptor.kind === binding.connector)
     : undefined;
+  const selectedConnector = connectors.find(
+    (connector) => connector.descriptor.kind === state.selectedConnector,
+  );
+  const selectedReady = state.readyConnectors.some(
+    (connector) => connector.descriptor.kind === state.selectedConnector,
+  );
+  const selectableConnectors = binding && boundConnector
+    ? [boundConnector]
+    : state.readyConnectors.length
+      ? state.readyConnectors
+      : selectedConnector ? [selectedConnector] : [];
   return (
     <div className="grid gap-3" data-testid="session-im-pane">
       {error ? <div className="rounded-md border p-2 text-xs ucd-status-danger" role="alert">{error}</div> : null}
-      {binding ? (
+      <label className="grid gap-1 text-xs font-medium">
+        <span>{t("im.session.connector")}</span>
+        <select
+          aria-label={t("im.session.connector")}
+          className="ucd-input rounded-md px-2 py-1.5"
+          disabled={Boolean(binding || pairing || pending) || selectableConnectors.length === 0}
+          onChange={(event) => void state.selectConnector(event.target.value as typeof state.selectedConnector)}
+          value={state.selectedConnector}
+        >
+          {selectableConnectors.length === 0 ? (
+            <option value={state.selectedConnector}>{t(`im.platform.${state.selectedConnector}.name`)}</option>
+          ) : selectableConnectors.map((connector) => (
+            <option key={connector.descriptor.kind} value={connector.descriptor.kind}>
+              {t(`im.platform.${connector.descriptor.kind}.name`)}
+            </option>
+          ))}
+        </select>
+      </label>
+      <SessionImAccessToggle
+        binding={binding}
+        enabled={access?.enabled ?? false}
+        onChange={state.setAccess}
+        pending={pending}
+        platformName={t(`im.platform.${state.selectedConnector}.name`)}
+      />
+      {!access?.enabled ? (
+        <p className="px-1 text-xs text-muted-foreground">{t("im.session.access.optedOut")}</p>
+      ) : binding ? (
         <section className="ucd-muted-panel grid gap-3 rounded-lg p-3">
           <div className="flex items-start justify-between gap-2">
             <div>
@@ -124,11 +163,11 @@ export function SessionImPane({
             <h3 className="text-sm font-semibold">{t("im.session.connectTitle")}</h3>
             <p className="mt-1 text-xs text-muted-foreground">{t("im.session.connectDescription")}</p>
           </div>
-          {ready.length ? ready.map((connector) => (
-            <Button disabled={pending} key={connector.descriptor.kind} onClick={() => void state.beginPairing(connector.descriptor.kind, replaceExisting)} variant="outline">
-              <Link2 />{t(`im.platform.${connector.descriptor.kind}.name`)}
+          {state.readyConnectors.length ? (
+            <Button disabled={pending || !selectedReady} onClick={() => void state.beginPairing(state.selectedConnector, replaceExisting)} variant="outline">
+              <Link2 />{t(`im.platform.${state.selectedConnector}.name`)}
             </Button>
-          )) : (
+          ) : (
             <div className="grid gap-2 text-xs text-muted-foreground">
               <p>{t("im.session.noConnector")}</p>
               {onOpenSettings ? <Button onClick={onOpenSettings} size="sm" variant="outline">{t("im.session.openSettings")}</Button> : null}

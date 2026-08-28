@@ -55,6 +55,7 @@ base64 = "0.23"
 # photos and scans, and every other codec default-features would enable is attack surface for a
 # format nothing in this product produces.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+xcap = { version = "0.9.8", default-features = false }
 # Native audio for `add-local-composer-media-tools`. Defaults only: cpal's optional backends (jack,
 # pipewire, pulseaudio, asio) each add a system -dev package to the build matrix, and the default
 # host API -- WASAPI, CoreAudio, ALSA -- is what the three Tier 1 targets already provide. ALSA on

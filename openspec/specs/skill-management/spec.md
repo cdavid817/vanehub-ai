@@ -437,6 +437,7 @@ Synchronizing drift for an immutable built-in Skill SHALL reconcile supported le
 - **WHEN** an existing installation contains legacy registry or cache state for a built-in Skill whose shipped package is authoritative
 - **AND** drift detection reports that `SKILL.md` differs from the registry snapshot
 - **THEN** synchronization SHALL materialize or adopt the current immutable package and atomically update the registry witness
+- **AND** the system SHALL invalidate the pre-synchronization effective Skill catalog before refreshing the overview
 - **AND** a subsequent drift detection SHALL not report the same metadata-change issue
 
 #### Scenario: Repair the affected shipped Skill set
@@ -459,4 +460,3 @@ The atomic synchronization record SHALL represent the state after successful rep
 - **WHEN** only a subset of detected drift issues can be repaired
 - **THEN** the committed drift snapshot SHALL retain only issues that remain observable after the committed repairs
 - **AND** successful repairs and remaining failures SHALL be distinguishable in the synchronization result
-

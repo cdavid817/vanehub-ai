@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { agentService } from "../../services/runtime-agent-client";
 import type { AgentRun } from "../../types/agent-run";
+import { agentRunElapsed } from "./agent-run-elapsed";
 import { AgentRunStatus } from "./agent-run-status";
 
 export function AgentRunOwnerStatus({ ownerId, ownerType }: {
@@ -20,11 +21,9 @@ export function AgentRunOwnerStatus({ ownerId, ownerType }: {
   }, [ownerId, ownerType]);
 
   if (!run) return null;
-  const elapsedMs = Math.max(0, Date.parse(run.updatedAt) - Date.parse(run.createdAt));
-  const elapsed = `${Math.floor(elapsedMs / 60_000)}:${String(Math.floor(elapsedMs / 1_000) % 60).padStart(2, "0")}`;
   return (
     <AgentRunStatus
-      elapsed={elapsed}
+      elapsed={agentRunElapsed(run)}
       onCancel={() => void agentService.cancelAgentRun(run.id, run.version).then(setRun)}
       onResume={() => void agentService.resumeAgentRun(run.id, run.version).then(setRun)}
       run={run}

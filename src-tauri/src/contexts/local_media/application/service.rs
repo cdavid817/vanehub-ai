@@ -9,16 +9,16 @@ use super::operation_store::LocalMediaOperationStore;
 use super::ports::{
     AudioCapturePort, AudioDeviceCatalogPort, AudioPlaybackPort, ClaimedInput, LocalMediaClock,
     LocalMediaDiagnostics, LocalMediaProfileRepository, MediaTempStore, OpaqueIdFactory,
-    OperationBridge, WorkerSupervisorPort,
+    OperationBridge, PythonEnvironmentDiscoveryPort, WorkerSupervisorPort,
 };
 use crate::contexts::local_media::domain::{
     classify_model_paths, first_error, validate_profile, AudioDeviceCatalog, EngineReadiness,
     EngineStatus, LocalMediaEngine, LocalMediaError, LocalMediaErrorCode, LocalMediaOperationKind,
     LocalMediaOperationResult, LocalMediaProfile, LocalMediaProfileSnapshot,
-    LocalMediaRuntimeStatus, PlatformSupport, PlaybackId, ProfileFieldIssue, RecordingId,
-    RecordingSummary, StagedInputId,
+    LocalMediaRuntimeStatus, PlatformSupport, PlaybackId, ProfileFieldIssue,
+    PythonEnvironmentDiscovery, RecordingId, RecordingSummary, StagedInputId,
 };
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex};
 
 /// Typed results are retained for five minutes. Long enough for a user to come back to a review
@@ -80,6 +80,7 @@ pub(super) struct Inner {
     pub(super) devices: Arc<dyn AudioDeviceCatalogPort>,
     pub(super) operations: Arc<dyn OperationBridge>,
     pub(super) diagnostics: Arc<dyn LocalMediaDiagnostics>,
+    pub(super) python_discovery: Arc<dyn PythonEnvironmentDiscoveryPort>,
     pub(super) store: LocalMediaOperationStore,
     pub(super) engine_state: Mutex<HashMap<LocalMediaEngine, EngineRuntimeState>>,
     /// The one recording allowed application-wide, together with the scope that owns it. Held here
@@ -104,6 +105,7 @@ pub(crate) struct LocalMediaDependencies {
     pub(crate) devices: Arc<dyn AudioDeviceCatalogPort>,
     pub(crate) operations: Arc<dyn OperationBridge>,
     pub(crate) diagnostics: Arc<dyn LocalMediaDiagnostics>,
+    pub(crate) python_discovery: Arc<dyn PythonEnvironmentDiscoveryPort>,
 }
 
 impl LocalMediaApplicationService {
@@ -120,6 +122,7 @@ impl LocalMediaApplicationService {
                 devices: dependencies.devices,
                 operations: dependencies.operations,
                 diagnostics: dependencies.diagnostics,
+                python_discovery: dependencies.python_discovery,
                 store: LocalMediaOperationStore::new(RESULT_RETENTION_MS, RESULT_CAPACITY),
                 engine_state: Mutex::new(HashMap::new()),
                 active_recording: Mutex::new(None),
@@ -169,6 +172,74 @@ impl LocalMediaApplicationService {
 
     pub(crate) fn list_audio_devices(&self) -> Result<AudioDeviceCatalog, LocalMediaError> {
         self.inner.devices.catalog()
+    }
+
+    pub(crate) fn discover_python_environments(
+        &self,
+    ) -> Result<PythonEnvironmentDiscovery, LocalMediaError> {
+        let profile = self.inner.repository.load()?;
+        let configured = [
+            profile.ocr.python_executable,
+            profile.stt.python_executable,
+            profile.tts.python_executable,
+        ]
+        .into_iter()
+        .filter(|path| !path.trim().is_empty())
+        .map(std::path::PathBuf::from)
+        .collect::<Vec<_>>();
+        let started_at = self.inner.clock.now_ms();
+        let result = self.inner.python_discovery.discover(&configured);
+        let elapsed = self.inner.clock.now_ms().saturating_sub(started_at);
+        let compatible = result
+            .candidates
+            .iter()
+            .filter(|candidate| {
+                candidate.compatibility
+                    == crate::contexts::local_media::domain::PythonCompatibility::Compatible
+            })
+            .count();
+        let source_categories = result
+            .candidates
+            .iter()
+            .map(|candidate| candidate.source.as_str())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>()
+            .join(",");
+        let reason_codes = result
+            .reason_code
+            .into_iter()
+            .chain(
+                result
+                    .candidates
+                    .iter()
+                    .filter_map(|candidate| candidate.reason_code),
+            )
+            .map(|reason| reason.as_str())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>()
+            .join(",");
+        self.inner.diagnostics.record(
+            "python.discovery",
+            &[
+                (
+                    "outcome",
+                    if compatible > 0 {
+                        "compatible"
+                    } else {
+                        "manual_required"
+                    }
+                    .to_string(),
+                ),
+                ("candidateCount", result.candidates.len().to_string()),
+                ("compatibleCount", compatible.to_string()),
+                ("sourceCategories", source_categories),
+                ("reasonCodes", reason_codes),
+                ("durationBucket", duration_bucket(elapsed).to_string()),
+            ],
+        );
+        Ok(result)
     }
 
     pub(crate) fn get_operation_result(
@@ -386,5 +457,14 @@ impl LocalMediaApplicationService {
             accepted_at.clone(),
         );
         Ok((operation_id, snapshot, accepted_at))
+    }
+}
+
+fn duration_bucket(elapsed_ms: u64) -> &'static str {
+    match elapsed_ms {
+        0..=99 => "under_100ms",
+        100..=499 => "under_500ms",
+        500..=1_999 => "under_2s",
+        _ => "over_2s",
     }
 }

@@ -5,6 +5,7 @@ use crate::commands::error::{map_command_error, CommandError};
 use crate::contexts::local_media::api::LocalMediaApi;
 use crate::contexts::local_media::domain::{
     AudioDeviceCatalog, LocalMediaProfile, LocalMediaRuntimeStatus, ProfileFieldIssue,
+    PythonEnvironmentDiscovery,
 };
 
 #[tauri::command]
@@ -48,4 +49,12 @@ pub(crate) fn list_local_media_audio_devices(
     api: State<'_, LocalMediaApi>,
 ) -> Result<AudioDeviceCatalog, CommandError> {
     api.list_audio_devices().map_err(map_command_error)
+}
+
+#[tauri::command]
+pub(crate) fn discover_local_media_python_environments(
+    api: State<'_, LocalMediaApi>,
+) -> Result<PythonEnvironmentDiscovery, CommandError> {
+    api.discover_python_environments()
+        .map_err(map_command_error)
 }

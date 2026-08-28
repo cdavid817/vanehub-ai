@@ -21,7 +21,18 @@ pub(super) fn invoke_handler(
         crate::commands::communications::get_im_session_binding::get_im_session_binding,
         crate::commands::communications::set_im_binding_paused::set_im_binding_paused,
         crate::commands::communications::set_im_completion_notifications::set_im_completion_notifications,
+        crate::commands::communications::set_im_session_access::set_im_session_access,
         crate::commands::communications::remove_im_session_binding::remove_im_session_binding,
+        #[cfg(feature = "desktop-e2e")]
+        crate::commands::communications::fixture_feishu_im::fixture_feishu_im_setup,
+        #[cfg(feature = "desktop-e2e")]
+        crate::commands::communications::fixture_feishu_im::fixture_feishu_im_inject,
+        #[cfg(feature = "desktop-e2e")]
+        crate::commands::communications::fixture_feishu_im::fixture_feishu_im_set_fault,
+        #[cfg(feature = "desktop-e2e")]
+        crate::commands::communications::fixture_feishu_im::fixture_feishu_im_ledger,
+        #[cfg(feature = "desktop-e2e")]
+        crate::commands::communications::fixture_feishu_im::fixture_feishu_im_reset,
         crate::commands::goals::list_goals::list_goals,
         crate::commands::goals::get_goal::get_goal,
         crate::commands::goals::create_goal::create_goal,
@@ -34,6 +45,7 @@ pub(super) fn invoke_handler(
         crate::commands::goals::reopen_goal::reopen_goal,
         crate::commands::goals::abandon_goal::abandon_goal,
         crate::commands::local_media::profile::get_local_media_profile,
+        crate::commands::local_media::profile::discover_local_media_python_environments,
         crate::commands::local_media::profile::save_local_media_profile,
         crate::commands::local_media::profile::validate_local_media_profile,
         crate::commands::local_media::profile::get_local_media_status,
@@ -51,6 +63,10 @@ pub(super) fn invoke_handler(
         crate::commands::local_media::operations::stop_local_media_playback,
         crate::commands::local_media::operations::cancel_local_media_operation,
         crate::commands::local_media::operations::get_local_media_operation_result,
+        crate::commands::local_media::screenshot::select_and_stage_screenshot_region,
+        crate::commands::local_media::screenshot::commit_screenshot_selection,
+        crate::commands::local_media::screenshot::cancel_screenshot_selection,
+        crate::commands::local_media::screenshot::cancel_active_screenshot_selection,
     ]
 }
 
@@ -58,6 +74,26 @@ pub(super) fn is_command(command: &str) -> bool {
     // Gated separately from the list below: a default build must not answer this name at all.
     #[cfg(feature = "desktop-e2e")]
     if command == "fixture_local_media_ocr_source" {
+        return true;
+    }
+    #[cfg(feature = "desktop-e2e")]
+    if command == "fixture_feishu_im_setup" {
+        return true;
+    }
+    #[cfg(feature = "desktop-e2e")]
+    if command == "fixture_feishu_im_inject" {
+        return true;
+    }
+    #[cfg(feature = "desktop-e2e")]
+    if command == "fixture_feishu_im_set_fault" {
+        return true;
+    }
+    #[cfg(feature = "desktop-e2e")]
+    if command == "fixture_feishu_im_ledger" {
+        return true;
+    }
+    #[cfg(feature = "desktop-e2e")]
+    if command == "fixture_feishu_im_reset" {
         return true;
     }
     matches!(
@@ -82,6 +118,7 @@ pub(super) fn is_command(command: &str) -> bool {
             | "get_im_session_binding"
             | "set_im_binding_paused"
             | "set_im_completion_notifications"
+            | "set_im_session_access"
             | "remove_im_session_binding"
             | "list_goals"
             | "get_goal"
@@ -95,6 +132,7 @@ pub(super) fn is_command(command: &str) -> bool {
             | "reopen_goal"
             | "abandon_goal"
             | "get_local_media_profile"
+            | "discover_local_media_python_environments"
             | "save_local_media_profile"
             | "validate_local_media_profile"
             | "get_local_media_status"
@@ -110,6 +148,10 @@ pub(super) fn is_command(command: &str) -> bool {
             | "stop_local_media_playback"
             | "cancel_local_media_operation"
             | "get_local_media_operation_result"
+            | "select_and_stage_screenshot_region"
+            | "commit_screenshot_selection"
+            | "cancel_screenshot_selection"
+            | "cancel_active_screenshot_selection"
     )
 }
 

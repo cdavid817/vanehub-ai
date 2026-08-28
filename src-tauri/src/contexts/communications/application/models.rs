@@ -1,5 +1,6 @@
 use crate::contexts::communications::domain::{
     ConnectorConfig, ConnectorDescriptor, ConnectorHealth, ConnectorKind, SessionBinding,
+    SessionConnectorAccess,
 };
 use std::collections::BTreeMap;
 use zeroize::Zeroizing;
@@ -57,6 +58,7 @@ pub(crate) struct CommunicationsLog {
 
 #[derive(Clone)]
 pub(crate) struct AgentExecutionRequest {
+    pub(crate) connector: ConnectorKind,
     pub(crate) session_id: String,
     pub(crate) text: String,
 }
@@ -93,6 +95,13 @@ pub(crate) struct PairingStartResult {
 pub(crate) struct SessionBindingSnapshot {
     pub(crate) binding: Option<SessionBinding>,
     pub(crate) pending_connector: Option<ConnectorKind>,
+    pub(crate) access: SessionConnectorAccess,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum AgentExecutionOutcome {
+    Reply(AgentExecutionResult),
+    InvalidSeat { valid_mentions: Vec<String> },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

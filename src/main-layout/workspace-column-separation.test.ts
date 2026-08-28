@@ -6,20 +6,19 @@ const styles = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 const layout = readFileSync(new URL("./main-layout.tsx", import.meta.url), "utf8");
 
 describe("workspace column separation", () => {
-  it("reserves the gutter inside the sidebar column instead of hanging off its edge", () => {
+  it("reserves a real gap on the conversation column instead of covering sidebar content", () => {
     // The resize handle used to sit at `right: -5px`, which put it — and anything else the
     // sidebar overflowed — under the conversation column's opaque background.
-    expect(styles).toContain("--session-sidebar-gutter: 10px;");
-    expect(styles).toContain("padding-right: var(--session-sidebar-gutter, 10px);");
+    expect(styles).toContain("--session-conversation-gap: 12px;");
+    expect(styles).toMatch(/\.ucd-conversation-shell \{[^}]*margin-left: var\(--session-conversation-gap, 12px\);/);
     expect(styles).toMatch(/\.ucd-session-sidebar-resize \{[^}]*right: 0;/);
     expect(styles).not.toMatch(/\.ucd-session-sidebar-resize \{[^}]*right: -/);
+    expect(layout).toContain("ucd-conversation-shell");
   });
 
-  it("drops the gutter when the sidebar is collapsed", () => {
-    // A border-box element cannot shrink below its own padding, so leaving the gutter on kept a
-    // collapsed sidebar 11px wide inside a zero-width column — the desktop smoke caught it.
+  it("drops the conversation gap when the sidebar is collapsed", () => {
     expect(styles).toMatch(
-      /\.ucd-workspace-grid\[data-session-collapsed="true"\] \.ucd-session-sidebar-shell \{[^}]*padding-right: 0;/,
+      /\.ucd-workspace-grid\[data-session-collapsed="true"\] \.ucd-conversation-shell \{[^}]*margin-left: 0;/,
     );
   });
 
@@ -31,8 +30,7 @@ describe("workspace column separation", () => {
   });
 
   it("floors the sidebar wide enough to hold a row's trailing content beside the gutter", () => {
-    // The floor grew with the gutter: the column now pays for the separation, so the content
-    // width a session row gets is unchanged.
+    // The external gap means the entire minimum width remains available to the sidebar itself.
     expect(clampSessionSidebarWidth(0)).toBe(232);
     expect(styles).toContain("minmax(232px, min(var(--session-sidebar-width, 232px), 42vw))");
   });

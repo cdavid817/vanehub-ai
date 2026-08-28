@@ -388,4 +388,3 @@ The registry SHALL declare Java served by `jdtls` through a JVM interpreter over
 - **WHEN** a `.java` file's nearest ancestor holding any Java marker holds `build.gradle.kts`
 - **THEN** that directory SHALL be the project root
 - **AND** a directory holding several Java markers SHALL resolve to that same directory
-

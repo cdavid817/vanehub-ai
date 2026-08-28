@@ -9,6 +9,7 @@ import type {
   WhisperComputeType,
 } from "../../../types/local-media";
 import { EngineCard } from "./engine-card";
+import { AdvancedFields } from "./advanced-fields";
 import {
   DeviceField,
   NumberField,
@@ -55,15 +56,6 @@ export function SttCard({
       title={t("localMedia.settings.stt.title")}
     >
       <PathField
-        hintKey="localMedia.settings.hint.pythonExecutable"
-        id="local-media-stt-python"
-        issueKey={issue("pythonExecutable")}
-        kind="file"
-        label={t("localMedia.settings.field.pythonExecutable")}
-        onChange={(pythonExecutable) => onUpdate((current) => ({ ...current, pythonExecutable }))}
-        value={profile.pythonExecutable}
-      />
-      <PathField
         hintKey="localMedia.settings.hint.whisperModelDirectory"
         id="local-media-stt-model"
         issueKey={issue("modelDirectory")}
@@ -72,6 +64,10 @@ export function SttCard({
         onChange={(modelDirectory) => onUpdate((current) => ({ ...current, modelDirectory }))}
         value={profile.modelDirectory}
       />
+      <AdvancedFields
+        hasError={Boolean(issue("language") || issue("device") || issue("computeType") || issue("beamSize") || issue("maxRecordingSeconds"))}
+        id="local-media-stt-advanced"
+      >
       <DeviceField
         devices={devices.inputs}
         emptyKey="localMedia.settings.hint.noInputDevices"
@@ -141,6 +137,7 @@ export function SttCard({
           {t("localMedia.settings.hint.vadFilter")}
         </p>
       </div>
+      </AdvancedFields>
     </EngineCard>
   );
 }

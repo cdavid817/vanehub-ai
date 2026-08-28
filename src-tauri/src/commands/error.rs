@@ -1,5 +1,7 @@
 use crate::contexts::agent_runtime::api::AgentRuntimeApplicationError;
 use crate::contexts::communications::api::CommunicationsApplicationError;
+#[cfg(feature = "desktop-e2e")]
+use crate::contexts::communications::infrastructure::FeishuFixtureError;
 use crate::contexts::desktop::api::{DesktopSettingsError, FloatingAssistantError};
 use crate::contexts::operations::application::ApplicationError;
 use crate::contexts::permissions::api::PermissionsApplicationError;
@@ -170,6 +172,16 @@ impl From<CommunicationsApplicationError> for CommandError {
     }
 }
 
+#[cfg(feature = "desktop-e2e")]
+impl From<FeishuFixtureError> for CommandError {
+    fn from(error: FeishuFixtureError) -> Self {
+        match error {
+            FeishuFixtureError::Validation(message) => Self::validation(message),
+            FeishuFixtureError::Storage(message) => Self::storage(message),
+        }
+    }
+}
+
 impl From<SkillToolApplicationError> for CommandError {
     fn from(error: SkillToolApplicationError) -> Self {
         let code = error.code().to_string();
@@ -216,6 +228,9 @@ impl From<AgentRuntimeApplicationError> for CommandError {
                 category: CommandErrorCategory::Unavailable,
                 message: format!("agent is unavailable: {message}"),
             },
+            AgentRuntimeApplicationError::InvalidSeatMention { .. } => {
+                Self::validation("mentioned seat is unavailable")
+            }
             AgentRuntimeApplicationError::UnsupportedInteractionMode(mode) => Self {
                 category: CommandErrorCategory::Unsupported,
                 message: format!("unsupported interaction mode: {mode}"),
@@ -781,7 +796,9 @@ impl From<crate::contexts::local_media::domain::LocalMediaError> for CommandErro
             | Code::InputTooLarge
             | Code::PdfPageLimitExceeded
             | Code::ImagePixelLimitExceeded
-            | Code::RecordingTooShort => CommandErrorCategory::Validation,
+            | Code::RecordingTooShort
+            | Code::ScreenshotInvalidSelection
+            | Code::ScreenshotBudgetExceeded => CommandErrorCategory::Validation,
             Code::InputNotFound
             | Code::RecordingNotFound
             | Code::ModelNotFound
@@ -790,8 +807,12 @@ impl From<crate::contexts::local_media::domain::LocalMediaError> for CommandErro
             Code::ProfileRevisionConflict
             | Code::RecordingAlreadyActive
             | Code::EngineBusy
+            | Code::ScreenshotBusy
             | Code::OperationCancelled => CommandErrorCategory::Conflict,
-            Code::LocalMediaNativeOnly | Code::LocalMediaDisabled | Code::EngineDisabled => {
+            Code::LocalMediaNativeOnly
+            | Code::LocalMediaDisabled
+            | Code::EngineDisabled
+            | Code::ScreenshotUnavailable => {
                 CommandErrorCategory::Unsupported
             }
             Code::EngineUnavailable
@@ -815,10 +836,15 @@ impl From<crate::contexts::local_media::domain::LocalMediaError> for CommandErro
             Code::TempStorageFailed
             | Code::TempCleanupFailed
             | Code::WorkerCrashed
-            | Code::WorkerProtocolError => CommandErrorCategory::Infrastructure,
+            | Code::WorkerProtocolError
+            | Code::ScreenshotCaptureFailed => CommandErrorCategory::Infrastructure,
             Code::NoTextDetected | Code::NoSpeechDetected | Code::RecordingLimitReached => {
                 CommandErrorCategory::Internal
             }
+            Code::ScreenshotPermissionDenied | Code::ScreenshotNoDisplays => {
+                CommandErrorCategory::Unavailable
+            }
+            Code::ScreenshotTimeout => CommandErrorCategory::Internal,
         };
         Self::stable_code(category, error.code().as_str())
     }

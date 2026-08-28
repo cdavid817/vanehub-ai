@@ -22,6 +22,12 @@ pub(crate) struct NextTurn {
     pub(crate) ended_reason: Option<ChainEndReason>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum UserMessageRoute {
+    Seat(String),
+    InvalidMention,
+}
+
 /// How an Agent meant to hand the turn to the human. Separating these is what keeps the
 /// informational case cheap enough that Agents keep using it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -196,12 +202,21 @@ pub(crate) fn route_user_message(
     mentions: &[String],
     last_holder: Option<&str>,
     first_seat: &str,
-) -> String {
-    parse_handoff_mentions(text, mentions, None, 1)
-        .targets
-        .into_iter()
-        .next()
-        .unwrap_or_else(|| last_holder.unwrap_or(first_seat).to_string())
+) -> UserMessageRoute {
+    let stripped = strip_fenced_code(text);
+    let mentioned = stripped.lines().find_map(|line| {
+        let candidate = strip_line_prefix(line).strip_prefix('@')?;
+        let end = candidate
+            .char_indices()
+            .find_map(|(index, character)| is_boundary(character).then_some(index))
+            .unwrap_or(candidate.len());
+        (end > 0).then(|| candidate[..end].to_string())
+    });
+    match mentioned {
+        Some(mention) if mentions.contains(&mention) => UserMessageRoute::Seat(mention),
+        Some(_) => UserMessageRoute::InvalidMention,
+        None => UserMessageRoute::Seat(last_holder.unwrap_or(first_seat).to_string()),
+    }
 }
 
 /// Which seats a completed reply hands off to, respecting the chain depth limit.
@@ -405,7 +420,7 @@ mod tests {
     fn a_user_message_goes_to_the_seat_it_names() {
         assert_eq!(
             route_user_message("@代码审查 帮我看下", &mentions(), Some("实现者"), "架构师"),
-            "代码审查"
+            UserMessageRoute::Seat("代码审查".to_string())
         );
     }
 
@@ -413,7 +428,7 @@ mod tests {
     fn an_unaddressed_user_message_stays_with_the_last_holder() {
         assert_eq!(
             route_user_message("再改一版", &mentions(), Some("实现者"), "架构师"),
-            "实现者"
+            UserMessageRoute::Seat("实现者".to_string())
         );
     }
 
@@ -421,7 +436,7 @@ mod tests {
     fn a_thread_nobody_has_spoken_in_goes_to_the_first_seat() {
         assert_eq!(
             route_user_message("开始吧", &mentions(), None, "架构师"),
-            "架构师"
+            UserMessageRoute::Seat("架构师".to_string())
         );
     }
 
@@ -431,7 +446,7 @@ mod tests {
     fn a_user_message_dispatches_one_seat_even_when_it_names_two() {
         assert_eq!(
             route_user_message("@实现者 改\n@代码审查 看", &mentions(), None, "架构师"),
-            "实现者"
+            UserMessageRoute::Seat("实现者".to_string())
         );
     }
 
@@ -441,10 +456,18 @@ mod tests {
         for text in ["麻烦 @代码审查 看下", "示例：\n```\n@代码审查 看下\n```"] {
             assert_eq!(
                 route_user_message(text, &mentions(), Some("实现者"), "架构师"),
-                "实现者",
+                UserMessageRoute::Seat("实现者".to_string()),
                 "failed for {text}"
             );
         }
+    }
+
+    #[test]
+    fn an_unknown_line_leading_user_mention_is_rejected() {
+        assert_eq!(
+            route_user_message("@已移除席位 继续", &mentions(), Some("实现者"), "架构师"),
+            UserMessageRoute::InvalidMention
+        );
     }
 
     #[test]

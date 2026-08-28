@@ -112,6 +112,13 @@ Every supported Tauri package SHALL include the permission-hook wrapper as a tar
 - **WHEN** the installed wrapper is present beside the main executable
 - **THEN** hook configuration SHALL name that executable
 
+#### Scenario: Install a hook from a Windows path
+
+- **WHEN** the permission hook executable has a drive-qualified Windows path, including a directory whose name contains spaces
+- **THEN** the projected command SHALL use shell-compatible separators and quoting
+- **AND** Claude Code's hook shell SHALL preserve the drive, every path segment, and the executable name as one command token
+- **AND** reinstalling the hook SHALL replace VaneHub's earlier raw-path entry while preserving non-owned hook entries
+
 #### Scenario: An installation is incomplete or damaged
 - **WHEN** the resolved packaged wrapper is absent
 - **THEN** enabling hook management SHALL fail without modifying Claude Code's global settings

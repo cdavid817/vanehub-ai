@@ -1,8 +1,8 @@
 use crate::contexts::agent_runtime::application::{
     AgentRuntimeApplicationError, RunnerCapabilities, RunnerDescriptor, RunnerDiscoveryPort,
-    RunnerKind, RunnerRecoveryMode, RunnerSelection,
+    RunnerRecoveryMode, RunnerSelection,
 };
-use crate::contexts::sessions::api::SessionsApi;
+use crate::contexts::sessions::api::{optional_session_metadata, SessionsApi};
 use crate::contexts::ssh_connections::api::SshConnectionsApi;
 
 #[derive(Clone)]
@@ -23,18 +23,11 @@ impl RunnerDiscoveryPort for NativeRunnerDiscovery {
         session_id: &str,
         _agent_id: &str,
     ) -> Result<Vec<RunnerDescriptor>, AgentRuntimeApplicationError> {
-        let mut runners = vec![descriptor(
-            RunnerSelection::local(),
-            "Local",
-            Some("This device".to_string()),
-            true,
-            None,
-            local_capabilities(),
-        )];
-        if let Some(target) = self
-            .sessions
-            .current_runner_target(session_id)
-            .map_err(|_| safe_discovery_error())?
+        let mut runners = builtin_runners();
+        // Optional SSH metadata must not erase the independently usable Local descriptor.
+        if let Some(target) =
+            optional_session_metadata(self.sessions.current_runner_target(session_id))
+                .map_err(|_| safe_discovery_error())?
         {
             let profile = self.ssh.execution_profile(&target.connection_id).ok();
             let available = profile.as_ref().is_some_and(|profile| {
@@ -55,32 +48,6 @@ impl RunnerDiscoveryPort for NativeRunnerDiscovery {
                 ssh_capabilities(),
             ));
         }
-        runners.extend([
-            descriptor(
-                RunnerSelection {
-                    kind: RunnerKind::Docker,
-                    target_id: None,
-                    target_revision: None,
-                },
-                "Docker / Sandbox",
-                None,
-                false,
-                Some("runner_not_implemented"),
-                unavailable_capabilities(),
-            ),
-            descriptor(
-                RunnerSelection {
-                    kind: RunnerKind::Cloud,
-                    target_id: None,
-                    target_revision: None,
-                },
-                "Cloud",
-                None,
-                false,
-                Some("runner_not_implemented"),
-                unavailable_capabilities(),
-            ),
-        ]);
         for runner in &runners {
             runner
                 .validate()
@@ -88,6 +55,17 @@ impl RunnerDiscoveryPort for NativeRunnerDiscovery {
         }
         Ok(runners)
     }
+}
+
+fn builtin_runners() -> Vec<RunnerDescriptor> {
+    vec![descriptor(
+        RunnerSelection::local(),
+        "Local",
+        Some("This device".to_string()),
+        true,
+        None,
+        local_capabilities(),
+    )]
 }
 
 fn descriptor(
@@ -129,16 +107,22 @@ fn ssh_capabilities() -> RunnerCapabilities {
     }
 }
 
-fn unavailable_capabilities() -> RunnerCapabilities {
-    RunnerCapabilities {
-        interactive_input: false,
-        pty: false,
-        cancellation: false,
-        inspection: false,
-        recovery: RunnerRecoveryMode::None,
-    }
-}
-
 fn safe_discovery_error() -> AgentRuntimeApplicationError {
     AgentRuntimeApplicationError::Process("Runner discovery is unavailable.".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::builtin_runners;
+
+    #[test]
+    fn builtin_catalog_contains_only_valid_available_runners() {
+        let runners = builtin_runners();
+
+        assert_eq!(runners.len(), 1);
+        assert!(runners[0].available);
+        for runner in runners {
+            runner.validate().expect("built-in Runner is valid");
+        }
+    }
 }

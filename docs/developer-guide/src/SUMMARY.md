@@ -41,6 +41,7 @@
 - [Skill evolution evidence](skill-evolution-evidence.md)
 - [MCP tools and clients](mcp-tools.md)
 - [IM connectors](im-connectors.md)
+- [Live Feishu qualification](feishu-live-qualification.md)
 
 # Policy and observability
 
