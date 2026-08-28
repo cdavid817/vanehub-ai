@@ -40,7 +40,7 @@ A missing or unrecognized type **degrades to untyped** and remains enumerable, i
 
 ### Two toggles
 
-Under **Settings → Personalization → Memory**:
+Under **Settings → AI Personalization → Memory**:
 
 **Enable memory** — turning it off **also stops already-saved memories from being used**, not just from being saved. This is easy to misread: it is not a read-only mode, it is off.
 

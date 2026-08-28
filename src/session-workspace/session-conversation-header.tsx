@@ -9,6 +9,7 @@ import {
   type LifecycleTone,
 } from "../lib/session-lifecycle";
 import { activeSeatsFromSession } from "../services/session-seats";
+import { SessionPersonalizationBadge } from "./session-personalization-badge";
 import type { Session } from "../types/agent";
 
 const pillClass: Record<LifecycleTone, string> = {
@@ -56,6 +57,7 @@ export function SessionConversationHeader({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
+          {session ? <SessionPersonalizationBadge mode={session.personalizationMode} /> : null}
           {session && onOpenIm ? (
             <button
               aria-label={t("im.session.open")}

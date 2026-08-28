@@ -101,7 +101,7 @@ function session(): Session {
     title: "Drag session",
     agentId: "codex-cli",
     interactionMode: "cli",
-    lifecycleState: "idle",
+    personalizationMode: "standard", lifecycleState: "idle",
     recoveryStatus: "clean",
     recoveryRevision: 0,
     stateRevision: 0,

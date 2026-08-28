@@ -56,10 +56,14 @@ impl DesktopUpdateApi {
         input: UpdatePreferences,
     ) -> Result<UpdatePreferences, String> {
         self.settings
-            .save_setting("updateAutomaticCheck", &input.automatic_check.to_string())
+            .save_setting(
+                "updateAutomaticCheck",
+                &input.automatic_check.to_string(),
+                None,
+            )
             .map_err(|error| error.to_string())?;
         self.settings
-            .save_setting("updateChannel", channel_name(input.channel))
+            .save_setting("updateChannel", channel_name(input.channel), None)
             .map_err(|error| error.to_string())?;
         Ok(input)
     }

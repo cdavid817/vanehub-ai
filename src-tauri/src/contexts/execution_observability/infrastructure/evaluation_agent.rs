@@ -53,6 +53,9 @@ impl NativeEvaluationAgentAdapter {
         let prepared = self
             .sessions
             .prepare_creation(NewSessionRequest {
+                // An evaluation session is machine-driven; it takes the default like any other
+                // caller that does not choose.
+                personalization_mode: None,
                 agent_id: request.agent_id.clone(),
                 seats: Vec::new(),
                 interaction_mode: mode.as_str().to_string(),

@@ -235,6 +235,7 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-26 | add-lsp-go-python-cpp | lsp-server-management | `openspec/changes/archive/2026-08-26-add-lsp-go-python-cpp/` |
 | 2026-08-26 | extend-lsp-language-registry | lsp-server-management, settings-center-ui | `openspec/changes/archive/2026-08-26-extend-lsp-language-registry/` |
 | 2026-08-27 | add-lsp-java-jdtls | lsp-server-management, settings-center-ui | `openspec/changes/archive/2026-08-27-add-lsp-java-jdtls/` |
+| 2026-08-27 | add-unified-personalization-governance | agent-cross-session-memory, app-settings, custom-instructions, session-management, unified-personalization-governance | `openspec/changes/archive/2026-08-27-add-unified-personalization-governance/` |
 | 2026-08-27 | expand-lsp-read-only-methods | agent-tool-execution, lsp-code-intelligence, lsp-server-management, settings-center-ui | `openspec/changes/archive/2026-08-27-expand-lsp-read-only-methods/` |
 | 2026-08-27 | extract-managed-tool-installation | cli-environment-management, managed-tool-installation | `openspec/changes/archive/2026-08-27-extract-managed-tool-installation/` |
 | 2026-08-28 | manage-language-server-installation | lsp-server-management, managed-tool-installation, settings-center-ui | `openspec/changes/archive/2026-08-28-manage-language-server-installation/` |

@@ -14,9 +14,10 @@ pub(crate) fn create_session(
     log_directory: State<'_, ScheduledTaskLogDirectory>,
     input: dto::CreateSessionInput,
 ) -> Result<OperationTask, CommandError> {
-    let prepared = api
-        .prepare_creation(mapper::creation_request(input))
-        .map_err(map_command_error)?;
+    let request = mapper::creation_request(input).map_err(|error| {
+        map_command_error(crate::contexts::sessions::api::SessionsError::Domain(error))
+    })?;
+    let prepared = api.prepare_creation(request).map_err(map_command_error)?;
     let operation = mapper::creation_operation_to_dto(&prepared.operation);
     background::spawn_creation(
         app,

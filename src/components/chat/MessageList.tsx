@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { MessageSpeaker } from "../../services/message-speaker";
 import type { ChatMessage } from "../../types/chat";
 import { MessageItem } from "./MessageItem";
+import type { MessageMemoryContext } from "./MessageMemoryMenu";
 import { ScrollControl } from "./ScrollControl";
 import { WelcomeScreen } from "./WelcomeScreen";
 
@@ -18,12 +19,15 @@ export function anchoredScrollTop(autoScroll: boolean, previousHeight: number, c
 export function MessageList({
   hasActiveSession,
   hasMore,
+  memoryContext = null,
   messages,
   onLoadEarlier,
   speakers,
 }: {
   hasActiveSession: boolean;
   hasMore: boolean;
+  /** Threaded from the session rather than read here: a message knows neither Agent nor project. */
+  memoryContext?: MessageMemoryContext | null;
   messages: ChatMessage[];
   onLoadEarlier: () => void;
   /** Empty for a single-Agent session, which renders exactly as it did before seats existed. */
@@ -92,6 +96,7 @@ export function MessageList({
         {messages.map((message) => (
           <MessageItem
             key={message.id}
+            memoryContext={memoryContext}
             message={message}
             speaker={speakers?.get(message.speakerSeatId ?? message.seatIndex ?? "") ?? null}
           />

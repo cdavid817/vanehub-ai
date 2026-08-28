@@ -85,6 +85,8 @@ export interface AppSettings {
   memoryToolAssistedChatsEnabled: boolean;
   automaticContextCompactionEnabled: boolean;
   contextQualityRetentionDays: ContextQualityRetentionDays;
+  /** Revision the personalization fields above were read at. Echoed back on save so a write from a screen rendered before someone else's edit is refused rather than silently reverting it. `0` while the dedicated policy is unreachable, which the native side refuses. */
+  personalizationRevision: number;
 }
 
 export interface NodeInfo {

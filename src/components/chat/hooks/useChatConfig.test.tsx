@@ -16,7 +16,7 @@ const agent: AgentRegistryEntry = {
   supportedInteractionModes: ["api"], availabilityState: "available", capabilityTags: [], agentOrigin: "builtin",
 };
 const session: Session = {
-  id: "session-1", title: "Plan", agentId: "onepiece", interactionMode: "api", lifecycleState: "running",
+  id: "session-1", title: "Plan", agentId: "onepiece", interactionMode: "api", personalizationMode: "standard", lifecycleState: "running",
   recoveryStatus: "clean", recoveryRevision: 0, stateRevision: 0, historyRevision: 0,
   activeExecutionRunId: null, folder: null, projectPath: "D:/app", worktreePath: null,
   worktreeName: null, worktreeBranch: null, remoteWorkspace: null, remoteSshConnectionId: null,

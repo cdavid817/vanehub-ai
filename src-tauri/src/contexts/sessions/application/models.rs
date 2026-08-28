@@ -1,7 +1,7 @@
 use crate::contexts::sessions::domain::{
     ChatConfigurationRequest, ChatPreferences, FileReferenceSet, LoopSessionRole, MessageStatus,
     SessionActivation, SessionAggregate, SessionCategory, SessionLifecycle, SessionMessage,
-    SessionOwner, SessionSeat,
+    SessionOwner, SessionPersonalizationMode, SessionSeat,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -83,6 +83,11 @@ pub(crate) struct SessionRecord {
     /// that predate seats keep working unchanged.
     pub(crate) seats: Vec<SessionSeat>,
     pub(crate) interaction_mode: String,
+    /// How much long-term personalization this session participates in. Stored with the session
+    /// because it is a property of the conversation the user opened, not of the Agent or the
+    /// workspace: switching Agents mid-session must not quietly re-enable what the user turned off
+    /// when they started it.
+    pub(crate) personalization_mode: SessionPersonalizationMode,
     pub(crate) workspace: SessionWorkspace,
     pub(crate) runtime_session_id: Option<String>,
     pub(crate) execution_origin_kind: String,
@@ -103,6 +108,7 @@ pub(crate) struct RuntimeSessionSnapshot {
     pub(crate) agent_id: String,
     pub(crate) seats: Vec<SessionSeat>,
     pub(crate) interaction_mode: String,
+    pub(crate) personalization_mode: SessionPersonalizationMode,
     pub(crate) lifecycle: String,
     pub(crate) folder: Option<String>,
     pub(crate) runtime_session_id: Option<String>,
@@ -122,6 +128,7 @@ impl RuntimeSessionSnapshot {
             agent_id: record.agent_id.clone(),
             seats: record.seats.clone(),
             interaction_mode: record.interaction_mode.clone(),
+            personalization_mode: record.personalization_mode,
             lifecycle: record.aggregate.lifecycle().as_str().to_string(),
             folder: record.workspace.folder.clone(),
             runtime_session_id: record.runtime_session_id.clone(),
@@ -146,6 +153,7 @@ pub(super) struct CreateSessionRequest {
     pub(crate) seats: Vec<SessionSeat>,
     pub(crate) interaction_mode: String,
     pub(crate) title: Option<String>,
+    pub(crate) personalization_mode: SessionPersonalizationMode,
     pub(crate) workspace: SessionWorkspace,
     pub(crate) owner: SessionOwner,
     pub(crate) activation: SessionActivation,
@@ -159,6 +167,8 @@ pub(crate) struct NewSessionRequest {
     pub(crate) seats: Vec<SessionSeat>,
     pub(crate) interaction_mode: String,
     pub(crate) title: Option<String>,
+    /// Absent means standard. A caller that predates the mode gets the behaviour it had.
+    pub(crate) personalization_mode: Option<SessionPersonalizationMode>,
     pub(crate) workspace: NewSessionWorkspace,
     pub(crate) owner: SessionOwner,
     pub(crate) activation: SessionActivation,

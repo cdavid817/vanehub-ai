@@ -11,7 +11,7 @@ import {
 
 const session: Session = {
   id: "session-roster", title: "Shared", agentId: "codex-cli", interactionMode: "cli",
-  lifecycleState: "running", folder: null, projectPath: null, worktreePath: null,
+  personalizationMode: "standard", lifecycleState: "running", folder: null, projectPath: null, worktreePath: null,
   worktreeName: null, worktreeBranch: null, remoteWorkspace: null, remoteSshConnectionId: null,
   remoteSshConnectionRevision: null, runtimeSessionId: null, categoryId: null,
   source: { kind: "desktop", connector: null }, pinned: false, archived: false,

@@ -398,24 +398,6 @@ impl RetrievalDocumentRepository for SqliteRetrievalDocumentRepository {
         Ok(rows)
     }
 
-    fn delete_by_source_scoped(
-        &self,
-        source_kind: SourceKind,
-        scope: &RetrievalScope,
-        source_id: &str,
-    ) -> Result<(), RetrievalError> {
-        let workspace_id = validated_workspace(source_kind, scope)?;
-        let connection = self.database.connection().map_err(database_error)?;
-        connection
-            .execute(
-                "DELETE FROM retrieval_documents
-                 WHERE source_kind = ?1 AND (?2 IS NULL OR scope_folder = ?2) AND source_id = ?3",
-                params![source_kind.as_str(), workspace_id, source_id],
-            )
-            .map_err(storage_error)?;
-        Ok(())
-    }
-
     fn claim_pending_batch_scoped(
         &self,
         source_kind: SourceKind,
@@ -832,10 +814,6 @@ mod tests {
                 .indexed,
             1
         );
-        fixture
-            .repository
-            .delete_by_source_scoped(SourceKind::WorkspaceFile, &scope_a, "b-indexed")
-            .expect("wrong-scope delete is a no-op");
         assert_eq!(
             fixture
                 .repository

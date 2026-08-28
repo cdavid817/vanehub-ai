@@ -5,16 +5,16 @@ use super::super::context_reduction::{build_structured_summary_turns, reconstruc
 use super::super::model_context_catalog;
 use super::generation::{extract_memories_accounted, summarize_turns_accounted, GenerationOptions};
 use super::invocation::WireFormat;
-use super::prompt::resolve_personalization_settings;
+use super::prompt::GenerationPersonalization;
 use super::{
     failed_retryable, COMPACTION_KEEP_RECENT_TURNS, COMPACTION_TRIGGER_CHARACTERS,
     OPTIMIZER_TARGET_CHARACTERS, SUMMARIZATION_INSTRUCTION,
 };
 use crate::contexts::agent_runtime::application::{
-    AgentClockPort, AgentLog, AgentLogLevel, AgentLoggingPort, AgentMemoryPort,
-    AgentPersonalizationPort, AgentProcessEventSink, ApiProviderConfig, ContextAnalysisInput,
-    ContextAnalysisService, ContextQualityRecorder, GenerationProcessEvent,
-    GenerationProcessRequest, ToolDefinition, INTERFACE_FORMAT_OPENAI_COMPATIBLE,
+    AgentClockPort, AgentLog, AgentLogLevel, AgentLoggingPort, AgentProcessEventSink,
+    ApiProviderConfig, ContextAnalysisInput, ContextAnalysisService, ContextQualityRecorder,
+    GenerationProcessEvent, GenerationProcessRequest, ToolDefinition,
+    INTERFACE_FORMAT_OPENAI_COMPATIBLE,
 };
 use crate::contexts::agent_runtime::domain::{
     build_optimization_plan, select_authoritative_compaction, verify_optimization_candidate,
@@ -123,8 +123,7 @@ pub(super) fn maybe_compact_accounted(
     logging: &dyn AgentLoggingPort,
     clock: &dyn AgentClockPort,
     request: &GenerationProcessRequest,
-    memories: &dyn AgentMemoryPort,
-    personalization: &dyn AgentPersonalizationPort,
+    personalization: GenerationPersonalization<'_>,
     tool_assisted: bool,
     accounting: Option<&SessionsApi>,
     request_sequence: &mut u32,
@@ -148,7 +147,6 @@ pub(super) fn maybe_compact_accounted(
         logging,
         clock,
         request,
-        memories,
         personalization,
         tool_assisted,
         accounting,
@@ -180,8 +178,7 @@ pub(super) fn run_automatic_compaction(
     logging: &dyn AgentLoggingPort,
     clock: &dyn AgentClockPort,
     request: &GenerationProcessRequest,
-    memories: &dyn AgentMemoryPort,
-    personalization: &dyn AgentPersonalizationPort,
+    personalization: GenerationPersonalization<'_>,
     tool_assisted: bool,
     accounting: Option<&SessionsApi>,
     request_sequence: &mut u32,
@@ -324,7 +321,6 @@ pub(super) fn run_automatic_compaction(
                 logging,
                 clock,
                 request,
-                memories,
                 personalization,
                 tool_assisted,
                 accounting,
@@ -823,8 +819,7 @@ pub(super) fn compatibility_compact_accounted(
     logging: &dyn AgentLoggingPort,
     clock: &dyn AgentClockPort,
     request: &GenerationProcessRequest,
-    memories: &dyn AgentMemoryPort,
-    personalization: &dyn AgentPersonalizationPort,
+    personalization: GenerationPersonalization<'_>,
     tool_assisted: bool,
     accounting: Option<&SessionsApi>,
     request_sequence: &mut u32,
@@ -876,10 +871,17 @@ pub(super) fn compatibility_compact_accounted(
     // were used, the tool-assisted-chats sub-switch (`add-personalization-settings` D4/D5) — the
     // explicit `remember` tool is unaffected by either gate, this only skips the passive,
     // automatic extraction call itself.
-    let personalization_settings =
-        resolve_personalization_settings(personalization, logging, clock, request);
-    let extraction_allowed = personalization_settings.memory_enabled
-        && (!tool_assisted || personalization_settings.memory_tool_assisted_chats_enabled);
+    // Two questions, both answered by this generation's snapshot: whether extraction runs at all,
+    // and whether it runs on a compaction that included tool calls. The sub-policy narrows the
+    // second only — it must not suppress extraction on turns that used no tool. Neither is
+    // re-resolved here: compaction happens partway through a generation, and a policy edit made in
+    // the meantime must not extract under a rule the rest of the turn never saw.
+    let extraction_allowed = personalization.snapshot.memory.automatic_extraction
+        && (!tool_assisted
+            || personalization
+                .snapshot
+                .memory
+                .automatic_extraction_in_tool_assisted_turns);
     if extraction_allowed {
         extract_memories_accounted(
             wire_format,
@@ -890,9 +892,8 @@ pub(super) fn compatibility_compact_accounted(
             system,
             &turns[..split_at],
             cancelled,
-            request.agent.id.as_str(),
-            request.session.folder.as_deref(),
-            memories,
+            personalization.port,
+            personalization.snapshot,
             logging,
             clock,
             request,
