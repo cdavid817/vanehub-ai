@@ -20,10 +20,13 @@ import zhTW from "../i18n/locales/zh-TW.json";
  * the way this test exists to prevent.
  */
 function backendReasonCodes(): string[] {
+  // Line endings normalized before matching. The repository checks out CRLF on Windows, and both
+  // patterns below anchor on `\n` — so without this the enum is simply never found and the failure
+  // reads as "the type is missing" on every Windows machine while passing everywhere else.
   const source = readFileSync(
     "src-tauri/src/commands/code_intelligence/dto.rs",
     "utf8",
-  );
+  ).replace(/\r\n/gu, "\n");
   const body = /enum LspSafeReasonCodeDto \{\n(?<variants>[\s\S]*?)\n\}/u.exec(source)?.groups
     ?.variants;
   if (body === undefined) throw new Error("LspSafeReasonCodeDto not found in dto.rs");
