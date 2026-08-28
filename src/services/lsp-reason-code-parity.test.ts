@@ -20,10 +20,11 @@ import zhTW from "../i18n/locales/zh-TW.json";
  * the way this test exists to prevent.
  */
 function backendReasonCodes(): string[] {
+  // Git may materialize the Rust source with CRLF on Windows, while the parser below is line based.
   const source = readFileSync(
     "src-tauri/src/commands/code_intelligence/dto.rs",
     "utf8",
-  );
+  ).replaceAll("\r\n", "\n");
   const body = /enum LspSafeReasonCodeDto \{\n(?<variants>[\s\S]*?)\n\}/u.exec(source)?.groups
     ?.variants;
   if (body === undefined) throw new Error("LspSafeReasonCodeDto not found in dto.rs");
