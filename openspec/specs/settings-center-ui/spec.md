@@ -345,7 +345,7 @@ The settings center SHALL include Personalization as a first-class settings page
 - **THEN** the settings center SHALL render the Personalization settings page while preserving mounted state for other stateful settings pages
 
 ### Requirement: Settings expose LSP configuration and runtime status
-The Agent configuration area SHALL provide a localized service-backed LSP section with the master switch, one switch per registered language obtained from the service boundary, automatic discovery state, override controls whose meaning follows each language's backend-reported launch shape, bounded startup-argument controls, bounded initialization-options validation, trusted-workspace management, isolated server testing, and running-server status. The section SHALL render its language controls from the backend-supplied registered-language set, and its negotiated-capability rows from the backend-supplied negotiated method list, rather than from fixed lists compiled into the frontend. React components SHALL use the shared frontend service boundary, and desktop and Web adapters SHALL implement the same contract shape.
+The Agent configuration area SHALL provide a localized service-backed LSP section with the master switch, one switch per registered language obtained from the service boundary, automatic discovery state, override controls whose meaning follows each language's backend-reported launch shape, install and uninstall actions for the languages that declare a published distribution, bounded startup-argument controls, bounded initialization-options validation, trusted-workspace management, isolated server testing, and running-server status. The section SHALL render its language controls from the backend-supplied registered-language set, and its negotiated-capability rows from the backend-supplied negotiated method list, rather than from fixed lists compiled into the frontend. React components SHALL use the shared frontend service boundary, and desktop and Web adapters SHALL implement the same contract shape.
 
 #### Scenario: User configures Rust LSP
 - **WHEN** a user enables LSP and Rust, selects a discovered `rust-analyzer` or valid executable override, supplies valid bounded initialization options, and saves
@@ -406,6 +406,31 @@ The Agent configuration area SHALL provide a localized service-backed LSP sectio
 - **WHEN** the backend reports a negotiated method whose localization key is absent from the active locale
 - **THEN** the row SHALL fall back to the raw method identifier
 - **AND** it SHALL NOT render the missing key or an empty label
+
+#### Scenario: A language declares a published distribution
+- **WHEN** the backend reports a language whose server VaneHub can install
+- **THEN** the card SHALL offer an install action and show whether the server is not installed, installing, installed, or failed
+- **AND** it SHALL offer uninstall only once a managed install exists
+
+#### Scenario: The bytes are not verified
+- **WHEN** the reported distribution publishes no digest
+- **THEN** the install action SHALL say the download is not checksum-verified before the user starts it
+- **AND** it SHALL NOT present an unverified download as a verified one
+
+#### Scenario: Installation fails
+- **WHEN** an install is refused by the host allowlist, the byte ceiling, the deadline, or extraction
+- **THEN** the card SHALL show that reason and return to the not-installed state
+- **AND** it SHALL NOT leave the action stuck in an installing state
+
+#### Scenario: A language declares no distribution
+- **WHEN** the backend reports a language with no published distribution
+- **THEN** no install or uninstall action SHALL be rendered for it
+- **AND** that SHALL follow from the reported descriptor rather than from the language's identity
+
+#### Scenario: Web runtime opens the install action
+- **WHEN** the LSP settings section is used in browser Web mode
+- **THEN** install and uninstall SHALL report as unavailable
+- **AND** the Web adapter SHALL NOT simulate a download or claim an install succeeded
 
 ### Requirement: Workflow-oriented settings navigation order
 The Settings sidebar SHALL order destinations by expected workflow frequency: general setup and recurring Agent behavior first, reusable capabilities and customization next, one-time CLI installation and external integrations after that, and diagnostics and product information last.

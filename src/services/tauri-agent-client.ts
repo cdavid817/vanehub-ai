@@ -194,6 +194,18 @@ function invokeSkillOverlay<TResult>(command: string, input: unknown): Promise<T
   );
 }
 
+/**
+ * A `Result<_, String>` command rejects with the bare string, not with an `Error`.
+ *
+ * Callers of the service boundary are not supposed to know that, and a caller that assumes `Error`
+ * silently loses the reason code and reports a generic failure instead.
+ */
+function rejectWithReasonCode(pending: Promise<void>): Promise<void> {
+  return pending.catch((error: unknown) =>
+    Promise.reject(typeof error === "string" ? new Error(error) : error),
+  );
+}
+
 function requireCliConfigAgentId(agentId: string): CliConfigAgentId {
   if (cliConfigAgentIds.some((candidate) => candidate === agentId)) return agentId as CliConfigAgentId;
   throw new Error(`Unsupported CLI configuration Agent: ${agentId}`);
@@ -523,6 +535,20 @@ export const tauriAgentClient: AgentService = {
   async testLspServer(language: LspLanguageId) {
     const input = normalizeLspServerTestInput({ language });
     return normalizeLspServerTestResult(await invoke<unknown>("test_lsp_server", { input }));
+  },
+
+  async installLspServer(language: LspLanguageId) {
+    // The same input shape the test command validates, so an unregistered id is refused by the
+    // one validator rather than by two that could disagree.
+    await rejectWithReasonCode(
+      invoke<void>("install_lsp_server", { input: normalizeLspServerTestInput({ language }) }),
+    );
+  },
+
+  async uninstallLspServer(language: LspLanguageId) {
+    await rejectWithReasonCode(
+      invoke<void>("uninstall_lsp_server", { input: normalizeLspServerTestInput({ language }) }),
+    );
   },
 
   async getLspServerStatus() {

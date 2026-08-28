@@ -115,15 +115,7 @@ import type { AgentTerminalService } from "./agent-terminal-service";
 import type { MissionControlService } from "./mission-control-service";
 import type { LoopService } from "./loop-service";
 import type { UsageStatisticsService } from "./usage-statistics-service";
-import type {
-  LspConfiguration,
-  LspLanguageId,
-  LspServerDiscovery,
-  LspServerStatus,
-  LspServerTestResult,
-  LspWorkspaceTrust,
-  LspWorkspaceTrustUpdate,
-} from "../types/lsp";
+import type { LspService } from "./lsp-service";
 import type { BuiltinToolService } from "./builtin-tool-service";
 import type { CliConfigService, CliParameterService, CliToolService } from "./cli-service";
 import type { AgentRegistryService } from "./agent-registry-service";
@@ -174,6 +166,7 @@ export interface AgentService extends
   SessionQueryService,
   SessionRecoveryService,
   SessionSeatService,
+  LspService,
   SessionWorkspaceInspectionService,
   LoopService {
   getDesktopUpdateSnapshot(): Promise<DesktopUpdateSnapshot>;
@@ -183,13 +176,6 @@ export interface AgentService extends
   downloadAndInstallDesktopUpdate(): Promise<UpdateOperationReceipt>;
   restartAfterDesktopUpdate(): Promise<void>;
   deleteApiAgent(agentId: string): Promise<void>;
-  getLspConfiguration(): Promise<LspConfiguration>;
-  saveLspConfiguration(configuration: LspConfiguration): Promise<void>;
-  listLspWorkspaceTrust(): Promise<LspWorkspaceTrust[]>;
-  updateLspWorkspaceTrust(update: LspWorkspaceTrustUpdate): Promise<LspWorkspaceTrust>;
-  discoverLspServers(): Promise<LspServerDiscovery[]>;
-  testLspServer(language: LspLanguageId): Promise<LspServerTestResult>;
-  getLspServerStatus(): Promise<LspServerStatus[]>;
   applyCliConfigProfile(input: ApplyCliConfigProfileInput): Promise<CliConfigApplyResult>;
   listSessionLogs(input: SessionLogQuery): Promise<SessionLogPage>;
   /** One row by id, which is how a live notice becomes a row without the event carrying one. */

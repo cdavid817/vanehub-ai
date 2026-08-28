@@ -75,6 +75,15 @@ export interface LspLanguageConfiguration {
 export const lspOverrideTargets = ["executable_file", "install_directory"] as const;
 export type LspOverrideTarget = (typeof lspOverrideTargets)[number];
 
+/** Where VaneHub can fetch a language's server, when it can. */
+export interface LspDistribution {
+  /**
+   * Whether the download is checked against a published digest. Reported so the surface can say
+   * it rather than presenting an unverified download as a verified one.
+   */
+  verified: boolean;
+}
+
 export interface LspLanguageDescriptor {
   language: LspLanguageId;
   server: LspServerKind;
@@ -83,6 +92,9 @@ export interface LspLanguageDescriptor {
   overrideTarget: LspOverrideTarget;
   /** The host runtime the user installs themselves, for the languages that need one. */
   prerequisite: string | null;
+  /** Present when VaneHub can fetch this server. `null` means no install action is offered. */
+  distribution: LspDistribution | null;
+  installed: boolean;
 }
 
 export interface LspConfiguration {

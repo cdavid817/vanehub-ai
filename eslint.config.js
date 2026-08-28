@@ -71,7 +71,11 @@ export default tseslint.config(
   // 禁止新增条目;文件降到 300 行以下后删除该条目,由全局 max-lines 接管。
   // 子树聚合预算在 scripts/architecture/ 里,防止"拆分"退化成复制粘贴。
   ...[
-    ["src/services/tauri-agent-client.ts", 1213],
+    // 1213 -> 1215:合并 `upgrade-session-workspace-evidence-console` 与
+    // `manage-language-server-installation` 后的实测值。两侧各自在这个文件里加了方法(前者的工作区
+    // 检查订阅、后者的 LSP 安装/卸载),各自也都在自己那一侧记过一次上限。数字按合并树实测,不是
+    // 两侧相加——相加会把共有的基线算两遍。
+    ["src/services/tauri-agent-client.ts", 1215],
     ["src/types/agent.ts", 702],
     ["src/main-layout/main-layout.tsx", 528],
     ["src/contracts/agent.ts", 504],

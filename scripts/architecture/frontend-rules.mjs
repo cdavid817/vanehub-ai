@@ -255,8 +255,28 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 证据控制台与本地媒体/LSP,两边都新增了 service 接口 + Tauri 客户端 + Web/mock 客户端这三件套。
 // 三件套是 React 不直接 invoke 的代价,它按能力数量线性增长而不是按代码量——合并只是让两份固定
 // 开销出现在同一个数字里,没有任何一行是复制来的。
+// 上调理由(manage-language-server-installation):+89,全部在生产文件上。其中只有 54 行是新能力，
+// 其余 35 行是两次拆分的固定开销——只搬不抄，两侧都有实测减数对应。
+// 新能力：`tauri-agent-client.ts` +26(install/uninstall 两个方法，加一个把 `Result<_, String>`
+// 命令抛出的裸字符串包成 `Error` 的小函数——不包的话调用方的 `instanceof Error`
+// 分支会把后端给的 reason code 掉成一条通用失败)；`web-lsp-client.ts` +22(两个如实拒绝的
+// 方法加 mock 注册表的 distribution/installed 两个字段)；`lsp-contract.ts` +6(描述符的
+// distribution 归一化。它没有被内联掉：内联后一个既非 null 也非 record 的 distribution
+// 会静默变成"没有发行信息"，而这个模块的整个存在意义就是 fail closed)。
+// 拆分：`lsp-service.ts` +23 / `agent-service.ts` -14——LSP 的 9 个方法从伞型接口里搬进自己的
+// 服务接口，和它已经组合的另外 30 个领域接口一致；`agent-service.ts` 降到 292 行，按
+// eslint.config.js 写明的策略，它在技术债清单里那条 306 行的条目同一个 commit 删掉。
+// `lsp-contract-values.ts` +99 / `lsp-contract.ts` -89(另 +16 是它的 import 块)——强制 fail closed
+// 的值强转帮助函数单独成模块，`lsp-contract.ts` 从 302 降到 227。它本来就不在技术债清单上，
+// 300 行是硬规则；不拆的唯一选项是把上面那个 fail-closed 检查换成 6 行额度。
+//
+// 合并 `upgrade-session-workspace-evidence-console` 后按合并树实测重记为 23119。
+// 这不是又一次上调,而是两条互不相交的能力各自的上调出现在同一棵子树上:上面那些段落分属证据
+// 控制台与本地媒体/LSP,两边都新增了 service 接口 + Tauri 客户端 + Web/mock 客户端这三件套。
+// 三件套是"React 不直接 invoke"这条规则的代价,按能力条数线性增长而不是按代码量——所以数字是
+// 在合并后的树上测出来的,不是把两侧的数相加,后者会把两边共有的基线算两遍。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 23030, owner: "upgrade-session-workspace-evidence-console" },
+  { root: "src/services", budget: 23119, owner: "upgrade-session-workspace-evidence-console" },
 ]);
 
 const STATE_PACKAGES = new Set([

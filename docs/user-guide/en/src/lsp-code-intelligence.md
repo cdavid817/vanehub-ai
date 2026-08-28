@@ -103,18 +103,32 @@ Java is the one language you point at a **directory** rather than an executable,
 Two things have to be in place:
 
 1. **A JDK, version 17 or newer**, with `java` on your `PATH`. Install it however you normally would; VaneHub AI does not install it for you.
-2. **An extracted `jdtls`.** Download the Eclipse JDT Language Server archive, extract it anywhere, and put that directory in the Java card's **Server install directory** field. VaneHub AI does not download it for you yet — that arrives with a later change.
+2. **`jdtls` itself.** Press **Install server** on the Java card and VaneHub AI downloads and unpacks it — or point the **Server install directory** field at a copy you extracted yourself.
+
+#### Letting VaneHub AI install it
+
+**Install server** fetches the Eclipse JDT Language Server over HTTPS from `download.eclipse.org`, unpacks it into VaneHub AI's own application data directory, and reports the result on the card. **Remove server** deletes that copy and nothing else.
+
+Before you press it, the card says the download is **not checksum-verified**, and that is worth understanding rather than dismissing. VaneHub AI does check that the address is on its allow-list, that the connection is HTTPS with no redirect off that list, and that neither the download nor the unpacked archive exceeds a size and time limit. What it does not do is compare the bytes against a digest Eclipse published, because the project does not publish one in a form VaneHub AI can locate for the `latest` archive. So you are trusting Eclipse's own host and your TLS connection to it — the same trust you extend when you download it in a browser, no more and no less. If that is not a trust you want to extend, extract a copy yourself and use the directory field instead; nothing on this page treats one route as more legitimate than the other.
+
+Two more things follow from `latest` rather than a pinned version: what you get changes over time, and there is no upgrade button. Reinstalling replaces what is there.
+
+#### Pointing at your own copy
 
 The directory has to be the one containing `plugins/` and `config_win`, `config_mac`, or `config_linux`. VaneHub AI finds the versioned launcher inside `plugins/` itself, so you never type a version number.
 
-If Java shows as unavailable, the reason says which of three things to fix:
+**A directory you name always wins over the one VaneHub AI installed.** Having both is fine — installing does not retarget you, and removing VaneHub AI's copy does not touch yours.
+
+If Java shows as unavailable, the reason says which of these to fix:
 
 | What it says | What to do |
 | --- | --- |
 | The runtime this server needs is not installed | Install a JDK 17+ and make sure `java` runs from your shell |
-| No server install directory is configured | Fill in the Server install directory field |
+| No server install directory is configured | Press **Install server**, or fill in the Server install directory field |
 | That directory holds no server launcher | You pointed at the wrong level, or the archive did not extract fully |
 | That directory holds more than one server launcher | Two `jdtls` versions are mixed in one directory; extract a clean copy |
+| The download or the archive was refused by a safety limit | The archive was larger than the limit, or contained an entry VaneHub AI will not unpack; install it yourself instead |
+| The download or the unpacking failed | Usually the network or a proxy. Retrying is safe — a failed install leaves nothing behind |
 
 `jdtls` also keeps an index per workspace. VaneHub AI gives each trusted workspace its own directory for that, and deletes it when you revoke trust for the workspace.
 

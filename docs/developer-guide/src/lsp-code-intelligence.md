@@ -10,7 +10,7 @@ The first implementation supports only these server families:
 | --- | --- | --- | --- |
 | Rust | `rust-analyzer` | stdio LSP | nearest `Cargo.toml` |
 | TypeScript/JavaScript | `typescript-language-server` | VaneHub appends `--stdio` | nearest `tsconfig.json`, `jsconfig.json`, or `package.json` |
-| Java | `java` running `jdtls`'s launcher jar | resolved argument template, stdio LSP | nearest `pom.xml`, `build.gradle`, `build.gradle.kts`, or `settings.gradle` |
+| Java | `java` running `jdtls`'s launcher jar (installable by VaneHub AI) | resolved argument template, stdio LSP | nearest `pom.xml`, `build.gradle`, `build.gradle.kts`, or `settings.gradle` |
 
 Install a standard rustup-managed Rust server with:
 
@@ -167,9 +167,21 @@ The per-workspace data directory is derived rather than recorded — there is no
 
 The settings card learns what an override means from a descriptor field, never from the language id. A second interpreter-shaped language must need no frontend change, and `lsp-configuration-section.test.tsx` asserts that with a language that is deliberately not Java.
 
-**Java is not installed for you.** `manage-language-server-installation` is the change that does that; until it lands, the user extracts `jdtls` and points at the directory, which is the same position every other language is in.
+### Managed installation
 
-The foundation also intentionally excludes remote workspaces, downloaded servers (until `manage-language-server-installation` lands — the verified-download capability exists, the language-server consumer does not yet), formatting, completion, rename, code actions, workspace edits, filesystem watching, unsaved buffers, and persistent LSP enrichment. Call hierarchy and type definitions were on that list until `expand-lsp-read-only-methods`; they are read-only, so they moved into scope rather than staying excluded. Type *hierarchy* (`typeHierarchy/supertypes`) is still out. Do not expose a new mutating method merely by adding it to the catalog; it requires a separate OpenSpec change, permission analysis, Plan Mode treatment, protocol limits, and workspace-isolation tests.
+A registry entry may declare a **distribution**: where its server can be fetched from and under what bounds. The declaration is `managed_install`'s own types — `RetrievalPolicy`, `ArtifactIntegrity`, `PlatformArtifact`, `ExtractionLimits` — rather than a second vocabulary that would describe the same download twice and eventually disagree with itself. Java declares one; the other five do not, and a language with no declaration has no install action and unchanged discovery.
+
+Three rules hold this together:
+
+- **Every archive format goes through one guard.** `ExtractionGuard::admit` owns containment and the limits; `extract_zip` and `extract_tar_gz` differ only in how they enumerate entries. Neither may touch the destination except through `admit`. A third adapter that reimplements the checks is a spec violation, not untidiness — the check that matters is `grep` finding one `starts_with(destination)`, not two. The guard also refuses any entry that is not a regular file or a directory, because a link's containment cannot be decided when it is written: it resolves at use, and one pointing inside the destination today points outside it after something else moves.
+- **Discovery precedence is override, then managed install, then unavailable.** Installing must not retarget a user who already named a directory, and uninstall removes only `<app data>/lsp/<language id>/install`. `server_discovery_tests.rs` asserts both directions with both present on disk, which is the only arrangement where a wrong precedence starts a server instead of failing visibly.
+- **The bytes are not verified, and the UI says so before the click.** `ArtifactIntegrity::Unverified` is a declared state rather than an omission, so a distribution that could carry a digest and does not is visible in review. What is enforced is the allow-listed host, HTTPS with no redirect off the list, and download and extraction ceilings.
+
+The install copies out of the guard's directory rather than renaming it: the guard owns that directory through a `TempDir` that removes it on drop, and renaming it away would leave the handle removing a path the install now depends on. A failed copy removes the destination, so an interrupted install still leaves nothing that looks installed.
+
+The frontend takes the install action from `descriptor.distribution`, never from a language id — the same rule the override control follows, asserted the same way, with a language that is deliberately not Java. Web/mock mode rejects rather than simulating: an adapter that reports a successful download with no filesystem behind it is the one surface where the button appears to work and does not.
+
+The foundation also intentionally excludes remote workspaces, version selection and upgrade for managed servers (`latest` is fetched, nothing records what a newer one would be), formatting, completion, rename, code actions, workspace edits, filesystem watching, unsaved buffers, and persistent LSP enrichment. Call hierarchy and type definitions were on that list until `expand-lsp-read-only-methods`; they are read-only, so they moved into scope rather than staying excluded. Type *hierarchy* (`typeHierarchy/supertypes`) is still out. Do not expose a new mutating method merely by adding it to the catalog; it requires a separate OpenSpec change, permission analysis, Plan Mode treatment, protocol limits, and workspace-isolation tests.
 
 LSP does not standardize portable server memory or indexed-file counts, so the status contract must keep these metrics unsupported rather than inventing them.
 
