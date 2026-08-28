@@ -2,17 +2,18 @@ import { useEffect, useMemo, useState } from "react";
 import { Download, Play, ShieldCheck, Square } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { agentService } from "../services/runtime-agent-client";
+import type { AgentRegistryEntry } from "../types/agent";
 import type { EvaluationArena, EvaluationAttempt, EvaluationTask } from "../types/evaluation";
 
-const AGENTS = ["onepiece", "codex-cli"];
 const TERMINAL = new Set(["succeeded", "task_failed", "agent_failed", "timed_out", "stuck", "cancelled", "benchmark_error"]);
 
 export function EvaluationCenter() {
   const { t } = useTranslation();
+  const [agents, setAgents] = useState<AgentRegistryEntry[]>([]);
   const [tasks, setTasks] = useState<EvaluationTask[]>([]);
   const [arenas, setArenas] = useState<EvaluationArena[]>([]);
   const [taskId, setTaskId] = useState("");
-  const [agentIds, setAgentIds] = useState(AGENTS);
+  const [agentIds, setAgentIds] = useState<string[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
   const [running, setRunning] = useState(false);
@@ -20,7 +21,11 @@ export function EvaluationCenter() {
   useEffect(() => {
     async function loadInitial() {
       try {
-        const [catalog, history] = await Promise.all([agentService.listEvaluationTasks(), agentService.listEvaluationArenas()]);
+        const [registry, catalog, history] = await Promise.all([
+          agentService.listAgents(), agentService.listEvaluationTasks(), agentService.listEvaluationArenas(),
+        ]);
+        const available = registry.filter((agent) => agent.availabilityState === "available");
+        setAgents(registry); setAgentIds((available.length > 0 ? available : registry).map((agent) => agent.id));
         setTasks(catalog); setTaskId(catalog[0]?.id ?? ""); setArenas(history);
       } catch { setError(t("evaluation.loadError")); }
     }
@@ -65,7 +70,7 @@ export function EvaluationCenter() {
     <header className="flex flex-wrap items-center gap-3 border-b border-border p-3">
       <div className="min-w-48 flex-1"><h1 className="text-sm font-semibold">{t("evaluation.title")}</h1><p className="text-xs text-muted-foreground">{t("evaluation.description")}</p></div>
       <select aria-label={t("evaluation.task")} className="h-9 rounded-md border border-input bg-background px-2 text-sm" data-testid="evaluation-task" onChange={(event) => setTaskId(event.target.value)} value={taskId}>{tasks.map((task) => <option key={task.id} value={task.id}>{task.id} v{task.version}</option>)}</select>
-      <fieldset className="flex h-9 items-center gap-2 rounded-md border border-input px-2"><legend className="sr-only">{t("evaluation.agents")}</legend>{AGENTS.map((agent) => <label className="flex items-center gap-1 text-xs" key={agent}><input checked={agentIds.includes(agent)} data-testid={`evaluation-agent-${agent}`} onChange={() => setAgentIds((items) => items.includes(agent) ? items.filter((item) => item !== agent) : [...items, agent])} type="checkbox" />{agent}</label>)}</fieldset>
+      <fieldset className="flex min-h-9 flex-wrap items-center gap-2 rounded-md border border-input px-2"><legend className="sr-only">{t("evaluation.agents")}</legend>{agents.map((agent) => <label className="flex items-center gap-1 text-xs" key={agent.id}><input checked={agentIds.includes(agent.id)} data-testid={`evaluation-agent-${agent.id}`} onChange={() => setAgentIds((items) => items.includes(agent.id) ? items.filter((item) => item !== agent.id) : [...items, agent.id])} type="checkbox" />{agent.displayName}</label>)}</fieldset>
       <button className="ucd-button-primary flex h-9 items-center gap-2 rounded-md px-3 text-sm" data-testid="evaluation-run" disabled={!activeTask || running || agentIds.length === 0} onClick={() => void start()} type="button"><Play aria-hidden="true" className="h-4 w-4" />{running ? t("evaluation.running") : t("evaluation.run")}</button>
     </header>
     {error ? <p className="border-b border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive" role="alert">{error}</p> : null}
