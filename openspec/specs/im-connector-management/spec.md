@@ -349,3 +349,44 @@ Native and frontend IM services SHALL exchange the stable connector ids `feishu`
 - **WHEN** the frontend submits `dingtalk` or `wecom` to an IM command
 - **THEN** the native command boundary SHALL deserialize it to the matching connector kind
 
+### Requirement: Feishu binding honors session opt-in
+The Feishu connector SHALL accept pairing and ordinary inbound delivery only for a session whose IM enablement state is on, while connector configuration and health remain independently manageable.
+
+#### Scenario: Pair with an enabled session
+- **WHEN** a valid unexpired Feishu pairing command targets a session whose IM access is enabled
+- **THEN** the connector SHALL consume the code and create or replace the binding according to the existing binding rules
+
+#### Scenario: Pair with a disabled session
+- **WHEN** a Feishu pairing command targets a session whose IM access is disabled
+- **THEN** the connector SHALL reject the pairing without consuming the code, creating a binding, or revealing session metadata
+
+#### Scenario: Manage connector while all sessions are disabled
+- **WHEN** every session has IM access disabled
+- **THEN** the user SHALL still be able to configure, test, enable, disable, and inspect the Feishu connector independently
+
+#### Scenario: Re-enable a previously bound session
+- **WHEN** a user re-enables IM access for a session whose Feishu binding was paused by session opt-out
+- **THEN** the binding SHALL resume only if the connector is healthy
+- **AND** it SHALL remain non-delivering with an explicit connector condition otherwise
+
+### Requirement: Connector-scoped session authorization
+Every built-in IM connector SHALL require explicit enabled access for the target session before pairing or admitting an ordinary inbound message, and access granted to one connector SHALL NOT authorize another connector.
+
+#### Scenario: Pair a non-Feishu connector with enabled access
+- **WHEN** a valid unexpired pairing command from Telegram, DingTalk, WeCom, or personal WeChat targets a session with enabled access for that connector
+- **THEN** the connector SHALL consume the code and create or replace the binding according to the existing binding rules
+
+#### Scenario: Reject pairing without matching connector access
+- **WHEN** a pairing command targets a session whose access is missing, disabled, or enabled only for a different connector
+- **THEN** the connector SHALL reject the pairing without consuming the code, creating a binding, or revealing session metadata
+
+#### Scenario: Reject inbound delivery after access is revoked
+- **WHEN** an ordinary direct message resolves to a binding whose connector-specific session access is disabled
+- **THEN** the message SHALL NOT append a session turn or start Agent work
+- **AND** the connector SHALL return the localized disabled-state response
+
+#### Scenario: Preserve access isolation during connector replacement
+- **WHEN** a session replaces a binding from one connector with another connector
+- **THEN** the new connector SHALL require its own enabled session access
+- **AND** the previous connector's access state SHALL NOT authorize the replacement connector
+

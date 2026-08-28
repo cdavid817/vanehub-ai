@@ -3421,6 +3421,38 @@
         "cli-environment-management",
         "managed-tool-installation"
       ]
+    },
+    {
+      "archivedOn": "2026-08-28",
+      "changeName": "add-session-im-toggle",
+      "path": "openspec/changes/archive/2026-08-28-add-session-im-toggle/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "desktop-runtime-verification",
+        "feishu-session-im-integration",
+        "im-connector-management",
+        "im-session-binding-ui",
+        "multi-agent-group-chat"
+      ]
+    },
+    {
+      "archivedOn": "2026-08-28",
+      "changeName": "expand-session-im-connectors",
+      "path": "openspec/changes/archive/2026-08-28-expand-session-im-connectors/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "desktop-runtime-verification",
+        "im-connector-management",
+        "im-session-binding-ui"
+      ]
     }
   ]
 }

@@ -237,5 +237,7 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-27 | add-lsp-java-jdtls | lsp-server-management, settings-center-ui | `openspec/changes/archive/2026-08-27-add-lsp-java-jdtls/` |
 | 2026-08-27 | expand-lsp-read-only-methods | agent-tool-execution, lsp-code-intelligence, lsp-server-management, settings-center-ui | `openspec/changes/archive/2026-08-27-expand-lsp-read-only-methods/` |
 | 2026-08-27 | extract-managed-tool-installation | cli-environment-management, managed-tool-installation | `openspec/changes/archive/2026-08-27-extract-managed-tool-installation/` |
+| 2026-08-28 | add-session-im-toggle | desktop-runtime-verification, feishu-session-im-integration, im-connector-management, im-session-binding-ui, multi-agent-group-chat | `openspec/changes/archive/2026-08-28-add-session-im-toggle/` |
+| 2026-08-28 | expand-session-im-connectors | desktop-runtime-verification, im-connector-management, im-session-binding-ui | `openspec/changes/archive/2026-08-28-expand-session-im-connectors/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.
