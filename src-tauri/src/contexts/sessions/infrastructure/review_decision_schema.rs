@@ -101,7 +101,7 @@ pub(crate) fn apply_review_file_witness_schema(
 pub(crate) fn repair_missing_review_file_witness(
     connection: &Connection,
 ) -> Result<(), DatabaseError> {
-    // Guarded on the table rather than the column: a database that never got migration 90 has no
+    // Guarded on the table rather than the column: a database that never got migration 93 has no
     // table to alter, and the decision repair above runs first and creates it.
     if !table_exists(connection, "review_file_states")? {
         return Ok(());
@@ -295,7 +295,7 @@ mod tests {
         let connection = reviewed();
         connection
             .execute_batch("DROP TABLE review_file_states;")
-            .expect("simulate a database that never got migration 90");
+            .expect("simulate a database that never got migration 93");
 
         // The decision repair creates the table; this one must not fail trying to alter a table
         // that is not there yet, because the two run in that order at startup.

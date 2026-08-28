@@ -114,6 +114,7 @@ function SettingsRoute() {
     <SettingsShell
       initialNavigationTarget={onePieceRequested ? { agentConfigAgentId: "onepiece" } : null}
       initialPageId={onePieceRequested ? "agent-configurations" : undefined}
+      onOpenSession={(sessionId) => navigate(`/workspace/sessions/${encodeURIComponent(sessionId)}`)}
       onReturn={() => navigate("/workspace")}
     />
   );

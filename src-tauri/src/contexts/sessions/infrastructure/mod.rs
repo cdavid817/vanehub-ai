@@ -1,6 +1,7 @@
 mod chat_profile;
 mod creation_context;
 mod operation_adapter;
+mod personalization_mode_schema;
 mod review_decision_repository;
 mod review_decision_schema;
 mod review_repository;
@@ -39,3 +40,5 @@ pub(crate) use runtime_support::{
     AgentSessionRuntimeAdapter, SessionFileAdapter, SystemSessionClock,
     UnifiedSessionLoggingAdapter, UuidSessionIdentities,
 };
+
+pub(crate) use personalization_mode_schema::apply_schema as apply_personalization_mode_schema;

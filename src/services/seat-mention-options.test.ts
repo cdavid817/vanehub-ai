@@ -11,7 +11,7 @@ const session: Session = {
     { seatId: "seat-2", agentId: "gemini-cli", roleId: null, roleSnapshot: { roleName: "Reviewer", avatar: "🔍", color: "#222222", responsibility: null, agentName: "Gemini", modelFamily: "google", crossFamilyReviewer: false }, leftAt: null },
     { seatId: "seat-3", agentId: "claude-code", roleId: null, roleSnapshot: { roleName: "Former", avatar: "🕰️", color: "#333333", responsibility: null, agentName: "Claude", modelFamily: "anthropic", crossFamilyReviewer: false }, leftAt: "2026-08-10T00:00:00Z" },
   ],
-  interactionMode: "cli", lifecycleState: "idle", folder: null, projectPath: null,
+  interactionMode: "cli", personalizationMode: "standard", lifecycleState: "idle", folder: null, projectPath: null,
   worktreePath: null, worktreeName: null, worktreeBranch: null, remoteWorkspace: null,
   remoteSshConnectionId: null, remoteSshConnectionRevision: null, runtimeSessionId: null,
   categoryId: null, source: { kind: "desktop", connector: null }, pinned: false, archived: false,

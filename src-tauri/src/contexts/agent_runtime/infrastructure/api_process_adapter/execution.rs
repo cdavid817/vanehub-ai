@@ -22,8 +22,9 @@ use super::native_tools::{
     log_image_attachment, resolve_tool_image,
 };
 use super::prompt::{
-    resolve_generation_skill_tools, resolve_generation_tool_catalog,
-    resolve_personalization_settings, resolve_system_prompt_with_settings,
+    propose_remembered_memory, resolve_generation_personalization, resolve_generation_skill_tools,
+    resolve_generation_tool_catalog, resolve_system_prompt_with_settings,
+    GenerationPersonalization,
 };
 use super::{
     failed_non_retryable, failed_retryable, ExecutedToolCall, PendingApprovals, HISTORY_LIMIT,
@@ -31,14 +32,13 @@ use super::{
 };
 use crate::contexts::agent_runtime::application::{
     AgentClockPort, AgentCodeIntelligencePort, AgentCoreInstructionsPort, AgentLoggingPort,
-    AgentMcpToolPort, AgentMemoryPort, AgentPermissionPort, AgentPersonalizationPort,
-    AgentProcessEventSink, AgentRetrievalPort, AgentRuntimeApplicationError, AgentSkillPort,
-    AgentWorkspaceMutationPort, ApiAgentGateway, ApiCredentialPort, ContextAnalysisService,
-    ContextQualityRecorder, ConversationHistoryPort, GenerationProcessEvent,
-    GenerationProcessFailure, GenerationProcessRequest, NativeToolRegistry, ReportedUsageTotals,
-    SkillToolUseProvenance, ToolLifecycleEvent, ToolLifecyclePhase, ToolUseBlock,
-    UtilityDelegationApplicationService, ASK_USER_QUESTION_TOOL_NAME, EXIT_PLAN_MODE_TOOL_NAME,
-    REMEMBER_TOOL_NAME,
+    AgentMcpToolPort, AgentPermissionPort, AgentPersonalizationSnapshotPort, AgentProcessEventSink,
+    AgentRetrievalPort, AgentRuntimeApplicationError, AgentSkillPort, AgentWorkspaceMutationPort,
+    ApiAgentGateway, ApiCredentialPort, ContextAnalysisService, ContextQualityRecorder,
+    ConversationHistoryPort, GenerationProcessEvent, GenerationProcessFailure,
+    GenerationProcessRequest, NativeToolRegistry, ReportedUsageTotals, SkillToolUseProvenance,
+    ToolLifecycleEvent, ToolLifecyclePhase, ToolUseBlock, UtilityDelegationApplicationService,
+    ASK_USER_QUESTION_TOOL_NAME, EXIT_PLAN_MODE_TOOL_NAME, REMEMBER_TOOL_NAME,
 };
 use crate::contexts::agent_runtime::domain::{AutomaticCompactionState, UsageAnchor};
 use crate::contexts::artifacts::application::ArtifactService;
@@ -70,13 +70,12 @@ pub(super) fn execute_with_code_intelligence(
     clock: &dyn AgentClockPort,
     skills: &dyn AgentSkillPort,
     core_instructions: &dyn AgentCoreInstructionsPort,
-    memories: &dyn AgentMemoryPort,
     mcp: &dyn AgentMcpToolPort,
     permissions: &dyn AgentPermissionPort,
     retrieval: &dyn AgentRetrievalPort,
     code_intelligence: &dyn AgentCodeIntelligencePort,
     workspace_mutations: &dyn AgentWorkspaceMutationPort,
-    personalization: &dyn AgentPersonalizationPort,
+    personalization: &dyn AgentPersonalizationSnapshotPort,
     context_quality: Option<&ContextQualityRecorder>,
     utility_delegation: Option<&UtilityDelegationApplicationService>,
     skill_tool_catalog: Option<&dyn SkillToolCatalogPort>,
@@ -100,7 +99,11 @@ pub(super) fn execute_with_code_intelligence(
         Err(failure) => return failure,
     };
     let generation_personalization =
-        resolve_personalization_settings(personalization, logging, clock, request);
+        resolve_generation_personalization(personalization, logging, clock, request);
+    let governed = GenerationPersonalization {
+        snapshot: &generation_personalization,
+        port: personalization,
+    };
     // Built here, and the prompt resolved once, before the round-trip loop below. That is what
     // makes the system prompt byte-identical across every round trip of this generation.
     let selection = RuntimeAgentMemorySelectionAdapter::new(credentials, config);
@@ -109,7 +112,7 @@ pub(super) fn execute_with_code_intelligence(
         core_instructions,
         &generation_personalization,
         skills,
-        memories,
+        personalization,
         &selection,
         logging,
         clock,
@@ -124,13 +127,12 @@ pub(super) fn execute_with_code_intelligence(
             ))
         }
     };
-    // Signal for the tool-assisted memory-extraction gate (`add-personalization-settings` design.md
-    // D5) — seeded from the persisted message history, not from wire-format `turns`, so it needs no
-    // per-provider parsing and no index-alignment with whatever `maybe_compact` later slices off
-    // `turns`. Mutable: this generation's own tool round trips (below) can still flip it from
-    // `false` to `true` before the in-loop `maybe_compact` call — seeding it from `recent` alone
-    // would miss a session's very first tool call if compaction also triggers within that same
-    // generation.
+    // Signal for the tool-assisted extraction sub-policy, seeded from the persisted message
+    // history rather than from wire-format `turns`, so it needs no per-provider parsing and no
+    // index alignment with whatever `maybe_compact` later slices off. Mutable because this
+    // generation's own tool round trips can still flip it before the in-loop `maybe_compact` call:
+    // seeding it from `recent` alone would miss a session's very first tool call when compaction
+    // triggers within that same generation.
     let mut tool_assisted_session = recent.iter().any(|message| !message.tool_use.is_empty());
     let request_timeout = if let Some(profile) = request.endpoint_profile.as_ref() {
         Duration::from_millis(profile.timeout_ms)
@@ -159,6 +161,7 @@ pub(super) fn execute_with_code_intelligence(
         native_tools,
         utility_delegation,
         plan_mode,
+        generation_personalization.memory.read,
     );
     // Declared here, not returned as one value: `_skill_tool_catalog_lease` is an `Arc` held for
     // the rest of the generation, and these three drop in this order at the end of it.
@@ -215,8 +218,7 @@ pub(super) fn execute_with_code_intelligence(
         logging,
         clock,
         request,
-        memories,
-        personalization,
+        governed,
         tool_assisted_session,
         accounting,
         &mut request_sequence,
@@ -603,25 +605,17 @@ pub(super) fn execute_with_code_intelligence(
             {
                 return failed_retryable("Agent generation event handling failed.");
             }
-            let outcome = if tool_use.name == REMEMBER_TOOL_NAME
-                && !resolve_personalization_settings(personalization, logging, clock, request)
-                    .memory_enabled
-            {
-                // Memory master switch off (`add-personalization-settings`) — reject before
-                // dispatching, matching `execute_remember`'s own empty-content rejection shape, so
-                // this never reaches `AgentMemoryPort::save`.
-                ToolExecutionOutcome {
-                    output: "Memory is disabled; nothing was remembered.".to_string(),
-                    is_error: true,
-                }
+            // Handled here rather than in the native-tool dispatch: it is a personalization
+            // operation now, not a filesystem one, and the dispatcher has no snapshot to judge it
+            // against.
+            let outcome = if tool_use.name == REMEMBER_TOOL_NAME {
+                propose_remembered_memory(&input, governed, request)
             } else {
                 execute_tool_call_with_runtime_ports(
                     &tool_use.name,
                     &input,
                     request.session.folder.as_deref(),
                     cancelled.clone(),
-                    agent_id,
-                    memories,
                     mcp,
                     retrieval,
                     code_intelligence,
@@ -663,8 +657,7 @@ pub(super) fn execute_with_code_intelligence(
             logging,
             clock,
             request,
-            memories,
-            personalization,
+            governed,
             tool_assisted_session,
             accounting,
             &mut request_sequence,

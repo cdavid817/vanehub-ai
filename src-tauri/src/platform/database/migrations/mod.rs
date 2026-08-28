@@ -546,32 +546,58 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "im-session-connector-access",
         crate::contexts::communications::infrastructure::apply_session_connector_access_schema,
     )?;
-    // Renumbered above main's ceiling on merge, exactly as the pre-merge note said they would be.
+    // 88-90 rather than the 82-84 this change was written against: 82-86 shipped in v1.1.0 and
+    // v1.2.0 and 87 landed while this branch was in review, all carrying different schema. A
+    // version number that has shipped is not available to be reused. No installation has ever
+    // applied personalization at 82, so renumbering is additive rather than a data migration.
+    apply_transactional_migration(
+        conn,
+        88,
+        "personalization-governance",
+        crate::contexts::personalization::infrastructure::apply_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        89,
+        "session-personalization-mode",
+        crate::contexts::sessions::infrastructure::apply_personalization_mode_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        90,
+        "personalization-last-reconciled",
+        crate::contexts::personalization::infrastructure::apply_reconciliation_schema,
+    )?;
+    // 91-94, moved up from 88-91 on this merge for the same reason the personalization block above
+    // moved: main took 88-90 while this branch was in review. This is the second renumber these
+    // four have had, and it costs nothing because none of them has shipped — a number that has
+    // reached an installation is the one that can never move again.
+    //
     // Each still carries a repair: `apply_migration` is version-gated, and a database another
     // worktree already migrated arrives with the history complete and these tables absent, at which
     // point the gated call never runs. The repair re-asserts the schema rather than leaving a
     // database whose history looks whole while its tables are missing.
     apply_migration(
         conn,
-        88,
+        91,
         "execution-evidence-journal",
         crate::contexts::execution_observability::infrastructure::apply_evidence_schema,
     )?;
     apply_migration(
         conn,
-        89,
+        92,
         "unified-log-query-index",
         crate::contexts::operations::infrastructure::apply_log_query_index_schema,
     )?;
     apply_migration(
         conn,
-        90,
+        93,
         "review-decision-state",
         crate::contexts::sessions::infrastructure::apply_review_decision_schema,
     )?;
     apply_migration(
         conn,
-        91,
+        94,
         "review-file-viewed-witness",
         crate::contexts::sessions::infrastructure::apply_review_file_witness_schema,
     )?;
@@ -698,10 +724,16 @@ pub(super) const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (85, "cli-action-plans"),
     (86, "lsp-language-registry"),
     (87, "im-session-connector-access"),
-    (88, "execution-evidence-journal"),
-    (89, "unified-log-query-index"),
-    (90, "review-decision-state"),
-    (91, "review-file-viewed-witness"),
+    // The CLI lanes this change was racing landed first and shipped, so personalization renumbered
+    // from 82-84 to 87-89. The collision was the predicted one: a colliding migration is silently
+    // skipped and only the name diverges, which is why the sequence below is asserted in tests.
+    (88, "personalization-governance"),
+    (89, "session-personalization-mode"),
+    (90, "personalization-last-reconciled"),
+    (91, "execution-evidence-journal"),
+    (92, "unified-log-query-index"),
+    (93, "review-decision-state"),
+    (94, "review-file-viewed-witness"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {

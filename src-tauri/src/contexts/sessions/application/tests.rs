@@ -4,7 +4,8 @@ use crate::contexts::sessions::domain::{
     CategoryId, CategoryName, FileLineRange, FileReferenceSet, LoopSessionRole, MessageId,
     MessageRole, MessageStatus, RecoveryDecision, RecoveryReasonCode, RecoveryTrigger,
     SessionActivation, SessionAggregate, SessionCategory, SessionId, SessionLifecycle,
-    SessionMessage, SessionOwner, SessionRecoveryReport, SessionSeat, SessionTitle,
+    SessionMessage, SessionOwner, SessionPersonalizationMode, SessionRecoveryReport, SessionSeat,
+    SessionTitle, SessionsDomainError,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -1096,6 +1097,7 @@ fn session_record(
     pinned: bool,
 ) -> SessionRecord {
     SessionRecord {
+        personalization_mode: SessionPersonalizationMode::Standard,
         aggregate: SessionAggregate::rehydrate(
             SessionId::parse(id).expect("session id"),
             SessionTitle::for_creation(Some("Fixture Session")),
@@ -1260,6 +1262,7 @@ fn creation_management_and_category_use_cases_keep_atomic_boundaries() {
     let prepared = fixture
         .service
         .prepare_new_session_creation(NewSessionRequest {
+            personalization_mode: None,
             agent_id: "codex-cli".to_string(),
             seats: Vec::new(),
             interaction_mode: "interactive".to_string(),
@@ -1359,6 +1362,7 @@ fn raw_creation_request_prepares_project_and_worktree_before_persistence() {
     let prepared = fixture
         .service
         .prepare_new_session_creation(NewSessionRequest {
+            personalization_mode: None,
             agent_id: "codex-cli".to_string(),
             seats: Vec::new(),
             interaction_mode: "cli".to_string(),
@@ -1407,6 +1411,7 @@ fn ready_onepiece_creates_a_local_worktree_session_in_api_mode() {
     let prepared = fixture
         .service
         .prepare_new_session_creation(NewSessionRequest {
+            personalization_mode: None,
             agent_id: "onepiece".to_string(),
             seats: Vec::new(),
             interaction_mode: "api".to_string(),
@@ -1449,6 +1454,7 @@ fn remote_creation_binds_profile_without_changing_workspace_snapshot() {
     let prepared = fixture
         .service
         .prepare_new_session_creation(NewSessionRequest {
+            personalization_mode: None,
             agent_id: "codex-cli".to_string(),
             seats: Vec::new(),
             interaction_mode: "cli".to_string(),
@@ -1495,6 +1501,7 @@ fn onepiece_rejects_remote_creation_before_persistence() {
     let prepared = fixture
         .service
         .prepare_new_session_creation(NewSessionRequest {
+            personalization_mode: None,
             agent_id: "onepiece".to_string(),
             seats: Vec::new(),
             interaction_mode: "api".to_string(),
@@ -1600,6 +1607,7 @@ fn failed_creation_records_one_operation_failure_and_diagnostic() {
     let prepared = fixture
         .service
         .prepare_new_session_creation(NewSessionRequest {
+            personalization_mode: None,
             agent_id: "codex-cli".to_string(),
             seats: Vec::new(),
             interaction_mode: "interactive".to_string(),
@@ -2529,4 +2537,231 @@ fn ranged_injection_clamps_to_the_file_and_leaves_whole_file_output_untouched() 
     // An empty file is the degenerate case of the same rule.
     let from_empty = render_reference_block("a.rs", "", Some(range(1, 5)));
     assert!(from_empty.contains("file ends at line 0"));
+}
+
+fn creation_request(
+    mode: Option<SessionPersonalizationMode>,
+    workspace: NewSessionWorkspace,
+) -> NewSessionRequest {
+    NewSessionRequest {
+        personalization_mode: mode,
+        agent_id: "codex-cli".to_string(),
+        seats: Vec::new(),
+        interaction_mode: "interactive".to_string(),
+        title: Some("Session".to_string()),
+        workspace,
+        owner: SessionOwner::desktop(),
+        activation: SessionActivation::Activate,
+    }
+}
+
+fn local_workspace() -> NewSessionWorkspace {
+    NewSessionWorkspace {
+        project_path: Some("D:\\code\\project".to_string()),
+        ..Default::default()
+    }
+}
+
+/// A caller that predates the mode gets the behaviour it had.
+#[test]
+fn a_session_created_without_a_mode_is_standard() {
+    let fixture = fixture();
+
+    let session = fixture
+        .service
+        .prepare_new_session_creation(creation_request(None, local_workspace()))
+        .and_then(|prepared| fixture.service.execute_new_session_creation(prepared))
+        .expect("create");
+
+    assert_eq!(
+        session.personalization_mode,
+        SessionPersonalizationMode::Standard
+    );
+}
+
+#[test]
+fn a_temporary_session_records_the_mode_it_was_created_in() {
+    let fixture = fixture();
+
+    let session = fixture
+        .service
+        .prepare_new_session_creation(creation_request(
+            Some(SessionPersonalizationMode::Temporary),
+            local_workspace(),
+        ))
+        .and_then(|prepared| fixture.service.execute_new_session_creation(prepared))
+        .expect("create");
+
+    assert_eq!(
+        session.personalization_mode,
+        SessionPersonalizationMode::Temporary
+    );
+}
+
+/// Refused at creation rather than degraded at resolution.
+///
+/// A project-only session with nothing to be isolated to would have to fall back to something, and
+/// the only candidate is "read everything global" — the exact interpretation the mode exists to
+/// prevent. Creating it and letting resolution deny memory instead would leave the user with a
+/// session that says it is project-scoped and behaves as though it has no project.
+#[test]
+fn a_project_only_session_without_a_workspace_is_refused_at_creation() {
+    let fixture = fixture();
+
+    let refused = fixture
+        .service
+        .prepare_new_session_creation(creation_request(
+            Some(SessionPersonalizationMode::ProjectOnly),
+            NewSessionWorkspace::default(),
+        ));
+
+    assert!(matches!(
+        refused,
+        Err(SessionsApplicationError::Domain(
+            SessionsDomainError::ProjectOnlySessionRequiresWorkspace
+        ))
+    ));
+}
+
+/// Any one of the three ways a workspace can be named is enough to be isolated to.
+#[test]
+fn a_project_only_session_is_accepted_with_a_folder_a_project_or_a_remote_workspace() {
+    for workspace in [
+        NewSessionWorkspace {
+            folder: Some("D:\\code\\project".to_string()),
+            ..Default::default()
+        },
+        local_workspace(),
+        NewSessionWorkspace {
+            remote_workspace: Some(NewRemoteWorkspace {
+                host: "build-box".to_string(),
+                port: None,
+                user: None,
+                path: "/srv/project".to_string(),
+                display_name: None,
+                ssh_connection_id: None,
+            }),
+            ..Default::default()
+        },
+    ] {
+        let fixture = fixture();
+
+        let session = fixture
+            .service
+            .prepare_new_session_creation(creation_request(
+                Some(SessionPersonalizationMode::ProjectOnly),
+                workspace,
+            ))
+            .and_then(|prepared| fixture.service.execute_new_session_creation(prepared))
+            .expect("create");
+
+        assert_eq!(
+            session.personalization_mode,
+            SessionPersonalizationMode::ProjectOnly
+        );
+    }
+}
+
+/// Every seat in a group chat answers to the same promise.
+///
+/// The mode belongs to the conversation, not to whoever is speaking: a seat added later must not
+/// arrive under different terms, or a user would have to check which Agent replied before knowing
+/// whether the turn was recorded.
+#[test]
+fn adding_a_seat_leaves_the_session_mode_alone() {
+    let fixture = fixture();
+    let mut request = creation_request(
+        Some(SessionPersonalizationMode::Temporary),
+        local_workspace(),
+    );
+    request.seats = vec![active_seat("seat-one", "codex-cli", None)];
+    let session = fixture
+        .service
+        .prepare_new_session_creation(request)
+        .and_then(|prepared| fixture.service.execute_new_session_creation(prepared))
+        .expect("create");
+
+    let updated = fixture
+        .service
+        .update_session_seats(UpdateSessionSeatsRequest {
+            session_id: session.id().to_string(),
+            expected_updated_at: session.updated_at.clone(),
+            seats: vec![
+                active_seat("seat-one", "codex-cli", None),
+                active_seat("seat-two", "claude-code", None),
+            ],
+        })
+        .expect("add a seat");
+
+    assert_eq!(updated.seats.len(), 2);
+    assert_eq!(
+        updated.personalization_mode,
+        SessionPersonalizationMode::Temporary
+    );
+}
+
+/// A background run is still the session's conversation.
+///
+/// Creating one without bringing it to the front changes what the user is looking at, not what the
+/// session retains. Tying the mode to activation would make a run started in the background behave
+/// differently from the same run started in view.
+#[test]
+fn a_session_created_without_being_activated_keeps_its_mode() {
+    let fixture = fixture();
+    let mut request = creation_request(
+        Some(SessionPersonalizationMode::ProjectOnly),
+        local_workspace(),
+    );
+    request.activation = SessionActivation::PreserveActive;
+
+    let session = fixture
+        .service
+        .prepare_new_session_creation(request)
+        .and_then(|prepared| fixture.service.execute_new_session_creation(prepared))
+        .expect("create");
+
+    assert_eq!(
+        session.personalization_mode,
+        SessionPersonalizationMode::ProjectOnly
+    );
+    let stored = fixture.store.sessions.lock().expect("sessions");
+    let reread = stored
+        .get(session.id())
+        .expect("the created session is in the store");
+    assert_eq!(
+        reread.personalization_mode,
+        SessionPersonalizationMode::ProjectOnly
+    );
+}
+
+/// Creating a worktree does not reopen what the session retains.
+///
+/// The worktree is where the work happens; the mode is what the user asked the conversation to
+/// keep. A session created with a worktree keeps the mode it was created in, so a project-only run
+/// in a fresh branch stays project-only rather than widening because the workspace changed shape.
+#[test]
+fn creating_a_session_with_a_worktree_keeps_the_mode_it_was_created_in() {
+    let fixture = fixture();
+
+    let session = fixture
+        .service
+        .prepare_new_session_creation(creation_request(
+            Some(SessionPersonalizationMode::ProjectOnly),
+            NewSessionWorkspace {
+                project_path: Some(r"D:\code\project".to_string()),
+                worktree: Some(NewWorktree {
+                    enabled: true,
+                    name: Some("feature-one".to_string()),
+                }),
+                ..Default::default()
+            },
+        ))
+        .and_then(|prepared| fixture.service.execute_new_session_creation(prepared))
+        .expect("create");
+
+    assert_eq!(
+        session.personalization_mode,
+        SessionPersonalizationMode::ProjectOnly
+    );
+    assert!(session.workspace.worktree_path.is_some());
 }

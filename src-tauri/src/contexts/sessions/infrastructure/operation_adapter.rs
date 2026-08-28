@@ -187,12 +187,14 @@ mod tests {
     use super::*;
     use crate::contexts::sessions::application::{SessionRemoteWorkspace, SessionWorkspace};
     use crate::contexts::sessions::domain::{
-        SessionAggregate, SessionId, SessionLifecycle, SessionOwner, SessionTitle,
+        SessionAggregate, SessionId, SessionLifecycle, SessionOwner, SessionPersonalizationMode,
+        SessionTitle,
     };
 
     #[test]
     fn operation_payload_keeps_the_existing_session_transport_shape() {
         let session = SessionRecord {
+            personalization_mode: SessionPersonalizationMode::Standard,
             aggregate: SessionAggregate::rehydrate(
                 SessionId::parse("session-operation").expect("id"),
                 SessionTitle::for_creation(Some("Operation")),

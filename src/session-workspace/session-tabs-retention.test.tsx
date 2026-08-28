@@ -26,7 +26,7 @@ const session: Session = {
   title: "Retained terminal",
   agentId: "opencode",
   interactionMode: "cli",
-  lifecycleState: "running",
+  personalizationMode: "standard", lifecycleState: "running",
   recoveryStatus: "clean",
   recoveryRevision: 0,
   stateRevision: 0,

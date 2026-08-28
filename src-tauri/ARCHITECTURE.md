@@ -313,9 +313,9 @@ bounded and redacted.
 > change, and renumbered to 010-013 on merge because the CLI-management work had published its own
 > 006-009 first. The archive keeps the old numbers: it is a record of what was proposed and done at
 > the time, not an index of what the file says now. The migrations those decisions describe moved
-> the same way, from 81-84 to 88-91, for the same reason.
+> the same way, from 81-84 to 91-94, for the same reason.
 
-`execution_observability` owns an append-only journal (migration 88) of events the runtime watched, plus a projection derived from it. Producers report their own work through ports in their own vocabulary; translation into journal shape happens in `bootstrap/evidence_bridge.rs` and nowhere else, over a bounded channel with a non-blocking send, so a producer never waits on the journal and a slow journal never becomes a latency spike in the work it is recording.
+`execution_observability` owns an append-only journal (migration 91) of events the runtime watched, plus a projection derived from it. Producers report their own work through ports in their own vocabulary; translation into journal shape happens in `bootstrap/evidence_bridge.rs` and nowhere else, over a bounded channel with a non-blocking send, so a producer never waits on the journal and a slow journal never becomes a latency spike in the work it is recording.
 
 The rule that shapes everything else is that the journal holds only what was observed. Historical `message.toolUse` activity is *not* backfilled into it: a `toolUse` block is what an assistant said it was doing, and once that sits beside events the runtime witnessed, nothing downstream can separate them again — not the fidelity column, which a backfill would have to invent, and not the reader, who has no reason to suspect the question is worth asking. Historical activity is instead projected in the frontend from loaded messages, as its own list, always `inferred`, always partial coverage. Guards in `tests/evidence_bridge_architecture.rs` fail any file that both appends to the journal and reads the chat corpus, and no Tauri command may write evidence at all, since a client assertion is not an observation.
 
@@ -323,7 +323,7 @@ Coverage travels with every answer rather than being fetched separately. Dropped
 
 ### ADR-011: The log index is a rebuildable projection, keyset-paged
 
-`operations` owns a query index (migration 89) over the redacted JSONL files `platform::logging` retains. Nothing in it is a second source of truth: every row is derivable again from the files, which is what lets the schema be shaped for reading rather than for durability.
+`operations` owns a query index (migration 92) over the redacted JSONL files `platform::logging` retains. Nothing in it is a second source of truth: every row is derivable again from the files, which is what lets the schema be shaped for reading rather than for durability.
 
 The index is brought up to date by a repair job started after the window exists, spawned rather than run, and handed to the blocking pool rather than executed on an async worker — synchronous SQLite on a runtime worker parks it for the length of the scan and queues every unrelated command behind it, with no symptom beyond "a few commands were slow once after launch". Progress is a persisted checkpoint keyed by directory generation rather than by path, so a rotated file resumes from zero instead of mid-file into bytes the offset was never written for. Reads happen outside any write transaction, batches commit rows, gaps, and checkpoint together, and every prune is bounded so a tidy-up never holds the write lock across the corpus.
 

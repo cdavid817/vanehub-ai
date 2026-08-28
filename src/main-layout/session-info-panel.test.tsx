@@ -16,7 +16,7 @@ function session(): Session {
     title: "CLI work",
     agentId: "codex-cli",
     interactionMode: "cli",
-    lifecycleState: "running",
+    personalizationMode: "standard", lifecycleState: "running",
     recoveryStatus: "clean",
     recoveryRevision: 0,
     stateRevision: 0,

@@ -34,8 +34,9 @@ use crate::contexts::sessions::domain::{
     normalize_chat_preferences, AccountingUnit, CategoryId, CategoryName, ChatConfigurationRequest,
     FileReference, FileReferenceSet, LoopSessionRole, MeasurementKind, MeasurementQuality,
     MessageId, MessageRole, MessageStatus, SessionActivation, SessionAggregate, SessionCategory,
-    SessionId, SessionLifecycle, SessionMessage, SessionOwner, SessionSeat, SessionTitle,
-    TokenDimensions, TokenOverlap, UsageInteractionKind, UsagePurpose, UsageStatus,
+    SessionId, SessionLifecycle, SessionMessage, SessionOwner, SessionPersonalizationMode,
+    SessionSeat, SessionTitle, TokenDimensions, TokenOverlap, UsageInteractionKind, UsagePurpose,
+    UsageStatus,
 };
 use crate::platform::database::{migrate, NativeDatabase};
 use crate::test_support::TempDirectory;
@@ -47,6 +48,7 @@ use std::sync::{Arc, Barrier, Mutex};
 mod configuration_and_seats;
 mod generation_lifecycle;
 mod legacy_usage_retirement;
+mod personalization_mode;
 mod recovery;
 mod search;
 mod terminal_evidence;
@@ -224,6 +226,7 @@ fn session_record(
     updated_at: &str,
 ) -> SessionRecord {
     SessionRecord {
+        personalization_mode: SessionPersonalizationMode::Standard,
         aggregate: SessionAggregate::rehydrate(
             SessionId::parse(id).expect("session id"),
             SessionTitle::for_creation(Some(title)),

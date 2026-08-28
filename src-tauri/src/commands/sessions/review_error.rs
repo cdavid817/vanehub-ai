@@ -1,4 +1,4 @@
-use crate::commands::error::CommandError;
+use crate::commands::error::{CommandError, CommandErrorCategory};
 use crate::contexts::sessions::application::ReviewApplicationError;
 
 pub(crate) fn map_review_error(error: ReviewApplicationError) -> CommandError {
@@ -17,7 +17,11 @@ pub(crate) fn map_review_error(error: ReviewApplicationError) -> CommandError {
         // frontend matches on it. Which of the three witnesses failed does not cross: the caller's
         // next move is the same for all three, and the distinction is for the message the Review
         // Center renders from state it already has.
-        ReviewApplicationError::StaleWitness(_) => CommandError::conflict("stale_witness"),
+        // `typed` rather than a prefixing constructor: the message is the code and nothing else, so
+        // the frontend matches a value instead of stripping a prefix off a substring.
+        ReviewApplicationError::StaleWitness(_) => {
+            CommandError::typed(CommandErrorCategory::Conflict, "stale_witness")
+        }
         ReviewApplicationError::InvalidActionOutput => {
             CommandError::validation("invalid review action output")
         }

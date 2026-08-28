@@ -21,8 +21,8 @@ use super::infrastructure::{
 use std::sync::Arc;
 
 pub(crate) use super::application::{
-    ActiveGenerationCorrelation, AgentChatConfiguration, AgentFileReference, AgentMemory,
-    AgentMessage, AgentMessageSource, AgentMessageTerminalOutcome, AgentRuntimeApplicationError,
+    ActiveGenerationCorrelation, AgentChatConfiguration, AgentFileReference, AgentMessage,
+    AgentMessageSource, AgentMessageTerminalOutcome, AgentRuntimeApplicationError,
     AgentSessionDetails, AgentTerminalInputRequest, AgentTerminalSession, AgentTerminalSize,
     AgentView, ApiProviderConfig, ChangeSetApplyPort, ChangeSetApplyRecord, ChangeSetFileRecord,
     ChangeSetRecord, ChangeSetStatus, CliDelegationPort, ContinueLoopRequest,
@@ -734,23 +734,6 @@ impl AgentRuntimeApi {
         Ok(generation || manual)
     }
 
-    pub(crate) fn list_all_memories(
-        &self,
-    ) -> Result<Vec<AgentMemory>, AgentRuntimeApplicationError> {
-        self.service.list_all_memories()
-    }
-
-    pub(crate) fn delete_agent_memory(
-        &self,
-        memory_id: &str,
-    ) -> Result<(), AgentRuntimeApplicationError> {
-        self.service.delete_agent_memory(memory_id)
-    }
-
-    pub(crate) fn reset_all_memories(&self) -> Result<(), AgentRuntimeApplicationError> {
-        self.service.reset_all_memories()
-    }
-
     pub(crate) fn workflow(&self) -> Result<WorkflowView, AgentRuntimeApplicationError> {
         self.service.workflow()
     }
@@ -920,22 +903,4 @@ fn bounded_validation_output(stdout: &str, stderr: &str) -> (Option<String>, boo
         ),
         truncated,
     )
-}
-
-/// Boundary `commands::agent_runtime::delete_agent_memory` needs from this facade to delete one
-/// stored memory (`add-onepiece-vector-search` Task 14). A trait — rather than that command
-/// calling the inherent `delete_agent_memory` method directly — so the command's own tests can
-/// substitute a fake instead of constructing a full `AgentRuntimeApi`, which would otherwise
-/// require every one of this facade's concrete application services just to delete one row.
-pub(crate) trait AgentMemoryDeletionGateway: Send + Sync {
-    fn delete_agent_memory(&self, memory_id: &str) -> Result<(), AgentRuntimeApplicationError>;
-}
-
-impl AgentMemoryDeletionGateway for AgentRuntimeApi {
-    fn delete_agent_memory(&self, memory_id: &str) -> Result<(), AgentRuntimeApplicationError> {
-        // Calls the inherent method above, not this trait method — method resolution always
-        // prefers an inherent impl over a trait impl for the same receiver type, so this cannot
-        // recurse.
-        self.delete_agent_memory(memory_id)
-    }
 }

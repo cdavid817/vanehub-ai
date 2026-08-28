@@ -28,6 +28,7 @@ function session(overrides: Partial<Session> = {}): Session {
     createdAt: "2026-08-27T00:00:00.000Z",
     folder: "D:\\code\\vanehub-ai",
     historyRevision: 0,
+    personalizationMode: "standard",
     id: "session-1",
     interactionMode: "cli",
     lifecycleState: "running",

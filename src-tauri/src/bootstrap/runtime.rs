@@ -372,6 +372,29 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     // real `RetrievalApi` cannot exist yet when `RuntimeAgentApiAdapter`'s `recall` tool is wired
     // up — this cell starts empty and is bound once the real one is ready, a few lines down.
     let deferred_retrieval = Arc::new(super::DeferredAgentRetrieval::default());
+    // Personalization is assembled before the agent runtime because the runtime's memory port is a
+    // projection of it. Its own retrieval coordination is deferred for the mirror-image reason:
+    // retrieval is assembled after the runtime, so the real handle cannot exist yet.
+    let deferred_memory_index = Arc::new(super::DeferredRetrievalIndex::default());
+    let data_root = database
+        .db_path
+        .parent()
+        .ok_or_else(|| boxed_message("Application data directory is unavailable.".to_string()))?
+        .to_path_buf();
+    let super::PersonalizationAssembly {
+        api: personalization_api,
+        maintenance: personalization_maintenance,
+        resolver: _personalization_resolver,
+        preview: _personalization_preview,
+    } = super::assemble_personalization(
+        database.clone(),
+        &data_root,
+        desktop_settings_api.clone(),
+        shared_agent_registry.registry.clone(),
+        deferred_memory_index.clone(),
+        Arc::new(crate::contexts::personalization::infrastructure::SystemPersonalizationClock),
+    )
+    .map_err(boxed_message)?;
     let super::AgentRuntimeAssembly {
         api: agent_runtime_api,
         telemetry_lifecycle,
@@ -398,6 +421,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         code_intelligence: code_intelligence_responder,
         workspace_mutations: workspace_mutations.clone(),
         desktop_settings: desktop_settings_api.clone(),
+        personalization: personalization_api.clone(),
         evidence: skill_evolution_evidence_api.projector(),
         execution_evidence: Arc::new(evidence_bridge),
     })
@@ -423,8 +447,18 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         agent_runtime_api.clone(),
         sessions_api.clone(),
         workspace_api.clone(),
+        personalization_api.clone(),
     );
     deferred_retrieval.bind(retrieval_api.clone());
+    // Bound before maintenance is spawned, so the derived rebuild's retrieval reconciliation reaches
+    // a real worker rather than the no-op stand-in.
+    deferred_memory_index.bind(retrieval_api.clone());
+    super::spawn_startup_maintenance(
+        personalization_maintenance,
+        Arc::new(UnifiedLoggingAdapter::active(
+            fallback_log_directory.clone(),
+        )),
+    );
     deferred_retrieval.bind_code(code_retrieval);
     workspace_mutations
         .bind_code_index(code_index_api.clone())
@@ -447,6 +481,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     let execution_retention_database = database.clone();
     let communications_maintenance_database = database.clone();
     app.manage(database.clone());
+    app.manage(personalization_api.clone());
     app.manage(skill_evolution_evidence_api);
     app.manage(super::ScheduledTaskLogDirectory::new(
         fallback_log_directory.clone(),

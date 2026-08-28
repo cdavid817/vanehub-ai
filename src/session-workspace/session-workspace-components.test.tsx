@@ -70,7 +70,7 @@ describe("session workspace components", () => {
       title: "OnePiece session",
       agentId: "onepiece",
       interactionMode: "api",
-      lifecycleState: "idle",
+      personalizationMode: "standard", lifecycleState: "idle",
       recoveryStatus: "clean",
       recoveryRevision: 0,
       stateRevision: 0,
@@ -121,7 +121,7 @@ describe("session workspace components", () => {
     const session: Session = {
       ...cleanRecovery,
       id: "session-shared-cli", title: "Shared CLI session", agentId: "codex-cli", interactionMode: "cli",
-      lifecycleState: "idle", folder: "D:/project", projectPath: "D:/project", worktreePath: null,
+      personalizationMode: "standard", lifecycleState: "idle", folder: "D:/project", projectPath: "D:/project", worktreePath: null,
       worktreeName: null, worktreeBranch: null, remoteWorkspace: null, remoteSshConnectionId: null,
       remoteSshConnectionRevision: null, runtimeSessionId: null, categoryId: null, pinned: false, archived: false,
       createdAt: "2026-08-02T00:00:00.000Z", updatedAt: "2026-08-02T00:00:00.000Z",
@@ -155,7 +155,7 @@ describe("session workspace components", () => {
       const session: Session = {
         ...cleanRecovery,
         id: `session-${agentId}`, title: `${agentId} session`, agentId, interactionMode: "cli",
-        lifecycleState: "idle", folder: null, projectPath: null, worktreePath: null, worktreeName: null,
+        personalizationMode: "standard", lifecycleState: "idle", folder: null, projectPath: null, worktreePath: null, worktreeName: null,
         worktreeBranch: null, remoteWorkspace: null, remoteSshConnectionId: null,
         remoteSshConnectionRevision: null, runtimeSessionId: null, categoryId: null, pinned: false,
         archived: false, createdAt: "2026-08-11T00:00:00.000Z", updatedAt: "2026-08-11T00:00:00.000Z",
@@ -171,7 +171,7 @@ describe("session workspace components", () => {
     const session: Session = {
       ...cleanRecovery,
       id: "session-focus", title: "Focused session", agentId: "onepiece", interactionMode: "api",
-      lifecycleState: "idle", folder: null, projectPath: null, worktreePath: null, worktreeName: null,
+      personalizationMode: "standard", lifecycleState: "idle", folder: null, projectPath: null, worktreePath: null, worktreeName: null,
       worktreeBranch: null, remoteWorkspace: null, remoteSshConnectionId: null,
       remoteSshConnectionRevision: null, runtimeSessionId: null, categoryId: null, pinned: false,
       archived: false, createdAt: "2026-08-02T00:00:00.000Z", updatedAt: "2026-08-02T00:00:00.000Z",

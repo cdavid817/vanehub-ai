@@ -16,7 +16,7 @@ function session(id: string, overrides: Partial<Session> = {}): Session {
     title: id,
     agentId: "claude-code",
     interactionMode: "cli",
-    lifecycleState: "idle",
+    personalizationMode: "standard", lifecycleState: "idle",
     recoveryStatus: "clean",
     recoveryRevision: 0,
     stateRevision: 0,

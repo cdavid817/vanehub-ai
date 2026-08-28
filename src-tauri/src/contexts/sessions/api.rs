@@ -40,12 +40,13 @@ pub(crate) use super::application::{
     SessionEvidencePort, SessionEvidenceSignal, SessionReviewDecision, SessionUsageEvidenceQuality,
     SessionVerificationOutcome,
 };
+pub(crate) use super::domain::SessionsDomainError;
 pub(crate) use super::domain::{
     AccountingUnit, LoopSessionRole, MeasurementKind, MeasurementQuality, RecoveryDecision,
     RecoveryEvidenceReference, RecoveryReasonCode, RecoveryTrigger, SessionActivation,
-    SessionLifecycle, SessionOwner, SessionRecoveryReport, SessionRecoveryStatus, SessionSeat,
-    SessionSeatRoleSnapshot, TokenDimensions, TokenOverlap, UsageInteractionKind, UsagePurpose,
-    UsageStatus,
+    SessionLifecycle, SessionOwner, SessionPersonalizationMode, SessionRecoveryReport,
+    SessionRecoveryStatus, SessionSeat, SessionSeatRoleSnapshot, TokenDimensions, TokenOverlap,
+    UsageInteractionKind, UsagePurpose, UsageStatus,
 };
 use serde_json::Value;
 

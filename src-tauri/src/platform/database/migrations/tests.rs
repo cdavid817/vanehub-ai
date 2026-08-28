@@ -1088,7 +1088,7 @@ fn retire_plan_execution_preserves_history_and_mixed_work_items() {
     );
 }
 
-/// The nine tables versions 88 through 91 are responsible for.
+/// The nine tables versions 91 through 94 are responsible for.
 ///
 /// Named rather than counted. A count still passes when a rename leaves the old table behind and
 /// creates a new one beside it, which is the shape of the mistake this is here to catch.
@@ -1165,7 +1165,7 @@ fn evidence_console_migrations_restore_their_schema_after_a_version_collision() 
 
     let recorded: i64 = connection
         .query_row(
-            "SELECT COUNT(*) FROM schema_migrations WHERE version BETWEEN 88 AND 91",
+            "SELECT COUNT(*) FROM schema_migrations WHERE version BETWEEN 91 AND 94",
             [],
             |row| row.get(0),
         )
