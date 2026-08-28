@@ -236,6 +236,36 @@ fn all_native_tool_records_survive_database_reopen() {
     );
 }
 
+/// Writes the record, waiting out a busy database rather than failing on it.
+///
+/// SQLite serializes writers and the pool gives every connection a five-second busy budget, which
+/// this test's own eight writers never come close to using: unloaded, all two hundred writes finish
+/// in about two seconds. What does exhaust it is the rest of the suite — a few hundred sibling
+/// tests each fsyncing their own database under `synchronous = FULL`, which is a property of the
+/// machine's disk rather than of the repository. Production has one database and one app, so it
+/// never sees that storm.
+///
+/// So a busy database is retried and anything else fails immediately: what this test is here to
+/// prove is that every concurrent write lands, not that no write ever has to wait.
+fn save_waiting_out_contention(
+    repository: &SqliteNativeToolRepository,
+    record: &StoredToolOperation,
+) -> usize {
+    const MAX_ATTEMPTS: usize = 40;
+    for attempt in 1..=MAX_ATTEMPTS {
+        match repository.save_operation(record) {
+            Ok(()) => return attempt,
+            Err(DatabaseError::Database(rusqlite::Error::SqliteFailure(error, _)))
+                if error.code == rusqlite::ErrorCode::DatabaseBusy =>
+            {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Err(error) => panic!("concurrent write: {error}"),
+        }
+    }
+    panic!("a concurrent write never got the database in {MAX_ATTEMPTS} attempts");
+}
+
 #[test]
 fn concurrent_operation_writers_remain_bounded_and_durable() {
     const WRITERS: usize = 8;
@@ -248,19 +278,20 @@ fn concurrent_operation_writers_remain_bounded_and_durable() {
         let barrier = barrier.clone();
         threads.push(std::thread::spawn(move || {
             barrier.wait();
+            let mut attempts = 0;
             for item in 0..OPERATIONS_PER_WRITER {
                 let id = format!("stress-{writer}-{item}");
                 let mut record = operation(StoredToolOperationStatus::Running, 1);
                 record.id = id;
-                repository
-                    .save_operation(&record)
-                    .expect("concurrent write");
+                attempts += save_waiting_out_contention(&repository, &record);
             }
+            attempts
         }));
     }
-    for thread in threads {
-        thread.join().expect("writer thread");
-    }
+    let attempts: usize = threads
+        .into_iter()
+        .map(|thread| thread.join().expect("writer thread"))
+        .sum();
 
     let count: i64 = database
         .connection()
@@ -272,6 +303,14 @@ fn concurrent_operation_writers_remain_bounded_and_durable() {
         )
         .expect("operation count");
     assert_eq!(count, (WRITERS * OPERATIONS_PER_WRITER) as i64);
+    // Every write landing after unlimited waiting would prove nothing about contention being
+    // bounded, so the retries are counted: on an idle machine each write takes one attempt, and a
+    // repository that had started serializing pathologically would blow past this.
+    assert!(
+        attempts <= WRITERS * OPERATIONS_PER_WRITER * 4,
+        "concurrent writes needed {attempts} attempts for {} writes",
+        WRITERS * OPERATIONS_PER_WRITER
+    );
 }
 
 #[test]

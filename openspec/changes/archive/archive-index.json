@@ -3394,6 +3394,23 @@
     },
     {
       "archivedOn": "2026-08-27",
+      "changeName": "add-unified-personalization-governance",
+      "path": "openspec/changes/archive/2026-08-27-add-unified-personalization-governance/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "agent-cross-session-memory",
+        "app-settings",
+        "custom-instructions",
+        "session-management",
+        "unified-personalization-governance"
+      ]
+    },
+    {
+      "archivedOn": "2026-08-27",
       "changeName": "expand-lsp-read-only-methods",
       "path": "openspec/changes/archive/2026-08-27-expand-lsp-read-only-methods/",
       "artifacts": [
@@ -3452,6 +3469,21 @@
         "desktop-runtime-verification",
         "im-connector-management",
         "im-session-binding-ui"
+      ]
+    },
+    {
+      "archivedOn": "2026-08-28",
+      "changeName": "manage-language-server-installation",
+      "path": "openspec/changes/archive/2026-08-28-manage-language-server-installation/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "lsp-server-management",
+        "managed-tool-installation",
+        "settings-center-ui"
       ]
     }
   ]

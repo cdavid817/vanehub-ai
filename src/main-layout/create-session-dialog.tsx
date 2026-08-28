@@ -8,6 +8,8 @@ import { CreateSessionDialogContent } from "./create-session-dialog-content";
 import { canCreateSession, conciseError, defaultSshConnectionDraft, firstMode, resolveCreatedSession, submitCreateSession } from "./create-session-dialog-utils";
 import { defaultSessionAgent, previousSessionAgentStorageKey, selectSessionAgents } from "./create-session-agents";
 import type { WorkspaceMode } from "./create-session-workspace-sections";
+import { modeForWorkspace } from "./session-personalization-mode-selector";
+import type { SessionPersonalizationMode } from "../types/personalization";
 import type { SessionAgentMode } from "./session-agent-mode-selector";
 import type { SessionSeat } from "../types/agent";
 import type { ExpertRole } from "../types/expert-role";
@@ -59,6 +61,8 @@ export function CreateSessionDialog({
   const [titleUserEdited, setTitleUserEdited] = useState(false);
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>("local");
   const [projectPath, setProjectPath] = useState("");
+  const [personalizationMode, setPersonalizationMode] =
+    useState<SessionPersonalizationMode>("standard");
   const [knownProjects, setKnownProjects] = useState<KnownProject[]>([]);
   const [knownRemoteWorkspaces, setKnownRemoteWorkspaces] = useState<KnownRemoteWorkspace[]>([]);
   const [sshConnections, setSshConnections] = useState<SshConnection[]>([]);
@@ -89,6 +93,10 @@ export function CreateSessionDialog({
     setTitle("");
     setTitleUserEdited(false);
     setWorkspaceMode("local");
+    // Reset rather than remembered: this is a privacy choice, and a dialog that silently repeated
+    // the last one would keep making temporary sessions for a user who chose it once, or -- worse
+    // in the other direction -- would not, without either being re-confirmed.
+    setPersonalizationMode("standard");
     setProjectPath("");
     setRemoteHost("");
     setRemotePort("22");
@@ -203,6 +211,11 @@ export function CreateSessionDialog({
 
   if (!open) return null;
   const gitCapable = inspection?.isGit ?? false;
+  const hasWorkspace =
+    workspaceMode === "local" ? projectPath.trim() !== "" : remotePath.trim() !== "";
+  // The store refuses a project-only session with no workspace, so the selection is
+  // corrected here rather than failing at submit against a control the user cannot see.
+  const effectivePersonalizationMode = modeForWorkspace(personalizationMode, hasWorkspace);
   const canSubmit = canCreateSession({
     agentMode,
     multiSeats,
@@ -273,11 +286,15 @@ export function CreateSessionDialog({
           sshConnectionDraft,
           title,
           t,
+          personalizationMode: effectivePersonalizationMode,
           workspaceMode,
           worktreeEnabled,
           worktreeName,
         })
       }
+      hasWorkspace={hasWorkspace}
+      onPersonalizationModeChange={setPersonalizationMode}
+      personalizationMode={effectivePersonalizationMode}
       onTitleChange={(value) => {
         setTitleUserEdited(true);
         setTitle(value);

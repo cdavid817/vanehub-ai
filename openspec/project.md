@@ -64,6 +64,7 @@ This table is the complete map. `src-tauri/src/contexts/` MUST contain exactly t
 | `execution_observability` | Execution runs, spans, timelines, capture policy, and OTLP export settings |
 | `ssh_connections` | SSH connection profiles, host-key trust, credential loading, and the pooled remote runtime |
 | `skill_evolution_evidence` | Evidence envelopes, extraction, sanitization, attribution, feedback state, and encrypted evidence storage |
+| `personalization` | Layered instruction policy, governed memory records and candidates, effective-personalization resolution, and memory maintenance |
 | `work_board` | Work items, their stages and priorities, and idempotent reconciliation of Sessions and Scheduled Tasks into cards |
 | `cli_delegation` | Delegated CLI invocation for Claude Code and Codex: protocol handling, readiness, scheduling, circuit breaking, restart recovery, and the changeset capture/review/seal/apply pipeline |
 | `code_execution` | Sandboxed code runtimes, the runtime catalog, execution workspaces, and readiness |

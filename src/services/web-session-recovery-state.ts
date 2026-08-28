@@ -79,7 +79,7 @@ export function seedWebRecoverySessionForTest(
     title: "Recovered Web session",
     agentId: "onepiece",
     interactionMode: "api",
-    lifecycleState: "failed",
+    personalizationMode: "standard", lifecycleState: "failed",
     recoveryStatus: "clean",
     recoveryRevision: 0,
     stateRevision: 0,
@@ -104,7 +104,7 @@ export function seedWebRecoverySessionForTest(
   setWebActiveSessionId(session.id);
   const recoveryRevision = 1;
   const recovered = updateWebSession(session.id, {
-    lifecycleState: "failed",
+    personalizationMode: "standard", lifecycleState: "failed",
     recoveryStatus: status,
     recoveryRevision,
     stateRevision: session.stateRevision + 1,

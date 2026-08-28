@@ -1,7 +1,7 @@
 use super::dto;
 use crate::contexts::agent_runtime::api::{
-    AgentAvailability, AgentChatConfiguration, AgentFileReference, AgentLifecycle, AgentMemory,
-    AgentMessage, AgentSessionDetails, AgentTerminalInputRequest, AgentTerminalSession,
+    AgentAvailability, AgentChatConfiguration, AgentFileReference, AgentLifecycle, AgentMessage,
+    AgentSessionDetails, AgentTerminalInputRequest, AgentTerminalSession,
     AgentTerminalSize as ApiAgentTerminalSize, AgentView, ApiProviderConfig, InteractionMode,
     LaunchWorkflowResult, OnePieceProviderConfig, OpenAgentTerminalRequest, ReadinessView,
     RecoverSessionResult, RegisterApiAgentInput, ResizeAgentTerminalRequest,
@@ -10,38 +10,11 @@ use crate::contexts::agent_runtime::api::{
 };
 use crate::contexts::agent_runtime::application::{
     AgentTerminalCapability as ApiAgentTerminalCapability,
-    AgentTerminalState as ApiAgentTerminalState, MemorySource,
+    AgentTerminalState as ApiAgentTerminalState,
 };
-use crate::contexts::agent_runtime::domain::MemoryType;
 
 pub(super) fn agents_to_dto(agents: Vec<AgentView>) -> Vec<dto::AgentRegistryEntry> {
     agents.into_iter().map(agent_to_dto).collect()
-}
-
-pub(super) fn agent_memories_to_dto(memories: Vec<AgentMemory>) -> Vec<dto::AgentMemoryEntry> {
-    memories.into_iter().map(agent_memory_to_dto).collect()
-}
-
-fn agent_memory_to_dto(memory: AgentMemory) -> dto::AgentMemoryEntry {
-    dto::AgentMemoryEntry {
-        id: memory.id,
-        agent_id: memory.agent_id,
-        folder: memory.folder,
-        name: memory.name,
-        description: memory.description,
-        memory_type: memory.memory_type.map(|memory_type| match memory_type {
-            MemoryType::User => dto::AgentMemoryType::User,
-            MemoryType::Feedback => dto::AgentMemoryType::Feedback,
-            MemoryType::Project => dto::AgentMemoryType::Project,
-            MemoryType::Reference => dto::AgentMemoryType::Reference,
-        }),
-        content: memory.content,
-        source: match memory.source {
-            MemorySource::Explicit => dto::AgentMemorySource::Explicit,
-            MemorySource::Automatic => dto::AgentMemorySource::Automatic,
-        },
-        created_at: memory.created_at,
-    }
 }
 
 pub(super) fn register_api_agent_request(

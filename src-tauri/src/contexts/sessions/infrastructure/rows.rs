@@ -7,13 +7,14 @@ use crate::contexts::sessions::domain::recovery::{SessionRecoveryMetadata, Sessi
 use crate::contexts::sessions::domain::{
     decode_seats, CategoryId, CategoryName, FileLineRange, FileReference, FileReferenceSet,
     LoopSessionRole, MessageId, MessageRole, MessageStatus, SessionAggregate, SessionCategory,
-    SessionId, SessionLifecycle, SessionMessage, SessionOwner, SessionTitle,
+    SessionId, SessionLifecycle, SessionMessage, SessionOwner, SessionPersonalizationMode,
+    SessionTitle,
 };
 use rusqlite::{Connection, OptionalExtension, Row};
 use serde_json::Value;
 
-pub(super) const SESSION_SELECT: &str = "SELECT id, title, agent_id, interaction_mode, lifecycle_state, folder, project_path, worktree_path, worktree_name, worktree_branch, remote_workspace_host, remote_workspace_port, remote_workspace_user, remote_workspace_path, remote_workspace_display_name, remote_workspace_uri, remote_ssh_connection_id, remote_ssh_connection_revision, runtime_session_id, category_id, source_kind, source_connector, pinned, archived, created_at, updated_at, loop_run_id, loop_iteration_id, loop_role, seats, recovery_status, recovery_revision, state_revision, history_revision, active_execution_run_id, next_message_sequence, COALESCE(origin_kind, 'user'), origin_id FROM sessions";
-pub(super) const SESSION_SEARCH_SELECT: &str = "SELECT sessions.id, sessions.title, sessions.agent_id, sessions.interaction_mode, sessions.lifecycle_state, sessions.folder, sessions.project_path, sessions.worktree_path, sessions.worktree_name, sessions.worktree_branch, sessions.remote_workspace_host, sessions.remote_workspace_port, sessions.remote_workspace_user, sessions.remote_workspace_path, sessions.remote_workspace_display_name, sessions.remote_workspace_uri, sessions.remote_ssh_connection_id, sessions.remote_ssh_connection_revision, sessions.runtime_session_id, sessions.category_id, sessions.source_kind, sessions.source_connector, sessions.pinned, sessions.archived, sessions.created_at, sessions.updated_at, sessions.loop_run_id, sessions.loop_iteration_id, sessions.loop_role, sessions.seats, sessions.recovery_status, sessions.recovery_revision, sessions.state_revision, sessions.history_revision, sessions.active_execution_run_id, sessions.next_message_sequence, COALESCE(sessions.origin_kind, 'user'), sessions.origin_id, message_matches.id, message_matches.content FROM sessions";
+pub(super) const SESSION_SELECT: &str = "SELECT id, title, agent_id, interaction_mode, lifecycle_state, folder, project_path, worktree_path, worktree_name, worktree_branch, remote_workspace_host, remote_workspace_port, remote_workspace_user, remote_workspace_path, remote_workspace_display_name, remote_workspace_uri, remote_ssh_connection_id, remote_ssh_connection_revision, runtime_session_id, category_id, source_kind, source_connector, pinned, archived, created_at, updated_at, loop_run_id, loop_iteration_id, loop_role, seats, recovery_status, recovery_revision, state_revision, history_revision, active_execution_run_id, next_message_sequence, COALESCE(origin_kind, 'user'), origin_id, COALESCE(personalization_mode, 'standard') FROM sessions";
+pub(super) const SESSION_SEARCH_SELECT: &str = "SELECT sessions.id, sessions.title, sessions.agent_id, sessions.interaction_mode, sessions.lifecycle_state, sessions.folder, sessions.project_path, sessions.worktree_path, sessions.worktree_name, sessions.worktree_branch, sessions.remote_workspace_host, sessions.remote_workspace_port, sessions.remote_workspace_user, sessions.remote_workspace_path, sessions.remote_workspace_display_name, sessions.remote_workspace_uri, sessions.remote_ssh_connection_id, sessions.remote_ssh_connection_revision, sessions.runtime_session_id, sessions.category_id, sessions.source_kind, sessions.source_connector, sessions.pinned, sessions.archived, sessions.created_at, sessions.updated_at, sessions.loop_run_id, sessions.loop_iteration_id, sessions.loop_role, sessions.seats, sessions.recovery_status, sessions.recovery_revision, sessions.state_revision, sessions.history_revision, sessions.active_execution_run_id, sessions.next_message_sequence, COALESCE(sessions.origin_kind, 'user'), sessions.origin_id, COALESCE(sessions.personalization_mode, 'standard'), message_matches.id, message_matches.content FROM sessions";
 pub(super) const MESSAGE_SELECT: &str = "SELECT id, session_id, role, status, content, thinking_content, tool_use, rich_blocks, token_input, token_output, metadata, file_references, created_at, updated_at, seat_index, speaker_seat_id, session_sequence, execution_run_id, seat_round_id, parent_execution_run_id FROM messages";
 pub(super) const CATEGORY_SELECT: &str =
     "SELECT id, name, sort_order, created_at, updated_at FROM session_categories";
@@ -58,6 +59,7 @@ pub(super) struct SessionRow {
     next_message_sequence: i64,
     execution_origin_kind: String,
     execution_origin_id: Option<String>,
+    personalization_mode: String,
 }
 
 impl SessionRow {
@@ -101,6 +103,7 @@ impl SessionRow {
             next_message_sequence: row.get(35)?,
             execution_origin_kind: row.get(36)?,
             execution_origin_id: row.get(37)?,
+            personalization_mode: row.get(38)?,
         })
     }
 
@@ -186,6 +189,7 @@ impl SessionRow {
             agent_id: self.agent_id,
             seats,
             interaction_mode: self.interaction_mode,
+            personalization_mode: SessionPersonalizationMode::parse(&self.personalization_mode)?,
             workspace: SessionWorkspace {
                 folder: self.folder,
                 project_path: self.project_path,

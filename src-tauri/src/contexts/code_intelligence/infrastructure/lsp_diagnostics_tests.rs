@@ -165,7 +165,10 @@ fn private_lsp_material_never_reaches_the_unified_log() {
         "private-user",
         "secret-workspace",
     ] {
-        assert!(!raw.contains(secret), "unified LSP log leaked {secret}");
+        assert!(
+            !raw.contains(secret),
+            "unified LSP log leaked a protected value"
+        );
     }
     let allowed_keys = [
         "server",

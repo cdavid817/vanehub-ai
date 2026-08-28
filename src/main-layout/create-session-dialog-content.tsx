@@ -9,6 +9,8 @@ import { Button } from "../components/ui/button";
 import { CreateSessionAgentSection } from "./create-session-agent-section";
 import { CreateSessionSection } from "./create-session-section";
 import { RemoteWorkspaceSection } from "./create-session-remote-workspace-section";
+import { SessionPersonalizationModeSelector } from "./session-personalization-mode-selector";
+import type { SessionPersonalizationMode } from "../types/personalization";
 import {
   LocalWorkspaceSection,
   WorkspaceModeSelector,
@@ -50,7 +52,10 @@ export function CreateSessionDialogContent({
   onInspectPath,
   onSubmit,
   onTitleChange,
+  onPersonalizationModeChange,
   onWorkspaceModeChange,
+  personalizationMode,
+  hasWorkspace,
   projectPath,
   remoteDisplayName,
   remoteHost,
@@ -98,7 +103,10 @@ export function CreateSessionDialogContent({
   onInspectPath: (path: string) => void;
   onSubmit: () => void;
   onTitleChange: (value: string) => void;
+  onPersonalizationModeChange: (mode: SessionPersonalizationMode) => void;
   onWorkspaceModeChange: (mode: WorkspaceMode) => void;
+  personalizationMode: SessionPersonalizationMode;
+  hasWorkspace: boolean;
   projectPath: string;
   remoteDisplayName: string;
   remoteHost: string;
@@ -206,6 +214,14 @@ export function CreateSessionDialogContent({
             remoteDisabled={selectedAgent?.id === "onepiece"}
           />
           {selectedAgent?.id === "onepiece" ? <p className="text-xs text-muted-foreground">{t("onepiece.localOnly")}</p> : null}
+          {/* Beside the workspace it applies to: the mode is a statement about this session's
+              relationship to that workspace, and choosing it anywhere else invites the user to
+              pick one before they know whether there is a workspace at all. */}
+          <SessionPersonalizationModeSelector
+            hasWorkspace={hasWorkspace}
+            mode={personalizationMode}
+            onChange={onPersonalizationModeChange}
+          />
           {workspaceMode === "local" ? (
             <LocalWorkspaceSection
               gitCapable={gitCapable}

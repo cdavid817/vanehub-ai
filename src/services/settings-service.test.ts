@@ -79,6 +79,15 @@ describe("settings-service", () => {
     expect(settings.contextQualityRetentionDays).toBe(30);
   });
 
+  it("keeps a reported personalization revision and refuses an unusable one", () => {
+    // The page echoes this back on save. Accepting a negative or fractional value would send the
+    // native side something no policy revision could equal, turning every save into a conflict.
+    expect(normalizeAppSettings({ personalizationRevision: 12 }).personalizationRevision).toBe(12);
+    for (const unusable of [-1, 1.5, "12", null, undefined, Number.NaN]) {
+      expect(normalizeAppSettings({ personalizationRevision: unusable }).personalizationRevision).toBe(0);
+    }
+  });
+
   it("normalizes custom instructions and memory preference settings", () => {
     const settings = normalizeAppSettings({
       customInstructionsAboutUser: "Works on VaneHub AI.",

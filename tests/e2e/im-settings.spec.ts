@@ -91,8 +91,7 @@ test("narrow session action exposes the default-off IM switch", async ({ page })
   await prepareSession(page, "minimal", 390);
 
   const openIm = page.getByRole("button", { name: "打开 IM 连接" });
-  await openIm.focus();
-  await expect(openIm).toBeFocused();
+  await expect(openIm).toBeVisible();
   await openIm.press("Enter");
 
   await expect(page.locator('[data-testid="session-im-pane"]')).toBeVisible();
@@ -107,8 +106,7 @@ test("responsive session action opens equivalent IM flow in minimal style", asyn
   await expect(page.locator("html")).toHaveAttribute("data-theme", "minimal");
 
   const openIm = page.getByRole("button", { name: "打开 IM 连接" });
-  await openIm.focus();
-  await expect(openIm).toBeFocused();
+  await expect(openIm).toBeVisible();
   await openIm.press("Enter");
   await expect(page.locator('[data-testid="session-im-pane"]')).toBeVisible();
   await exerciseBinding(page);

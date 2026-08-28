@@ -3,8 +3,8 @@ import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { AgentService, SessionStateEvent } from "./agent-service";
+import { tauriPersonalizationClient } from "./tauri-personalization-client";
 import type {
-  AgentMemory,
   AgentRegistryEntry,
   ApiAgentProviderConfig,
   AgentTerminalEvent,
@@ -382,11 +382,6 @@ export const tauriAgentClient: AgentService = {
     return invoke<void>("delete_api_agent", { agentId });
   },
 
-
-  listAllMemories() {
-    return invoke<AgentMemory[]>("list_agent_memories");
-  },
-
   listContextQualityHistory(input: ContextQualityHistoryQuery) {
     return invoke<ContextQualityHistoryPage>("list_context_quality_history", { input })
       .catch((error: unknown) => Promise.reject(normalizeContextQualityError(error)));
@@ -403,14 +398,6 @@ export const tauriAgentClient: AgentService = {
 
   getContextEvidenceManifest(generationId: string) {
     return invoke<ContextEvidenceManifest | null>("get_context_evidence_manifest", { generationId });
-  },
-
-  deleteAgentMemory(memoryId: string) {
-    return invoke<void>("delete_agent_memory", { memoryId });
-  },
-
-  resetAllMemories() {
-    return invoke<void>("reset_agent_memories");
   },
 
   getRetrievalConfiguration() {
@@ -964,6 +951,7 @@ export const tauriAgentClient: AgentService = {
   },
 
   ...tauriCliEnvironmentClient,
+  ...tauriPersonalizationClient,
   ...tauriSessionRecoveryClient,
   ...tauriSessionWorkspaceClient,
   async subscribeSessionEvents(handler) {

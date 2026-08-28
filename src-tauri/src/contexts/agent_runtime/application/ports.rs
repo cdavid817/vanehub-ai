@@ -4,23 +4,26 @@
 //! terminals, operations, clocks, logging, and event publication. Infrastructure implements these
 //! contracts; application services do not depend on Tauri, SQLite, or concrete CLI libraries.
 
+use std::time::SystemTime;
+
+use crate::contexts::agent_runtime::domain::MemoryType;
+
 use super::{
-    AgentChatConfiguration, AgentEvent, AgentFileReference, AgentLog, AgentMemory, AgentMessage,
-    AgentOperation, AgentRuntimeApplicationError, AgentSession, AgentTerminalEvent,
-    AgentTerminalInputRequest, AgentTerminalProcessRequest, AgentTerminalSession,
-    AgentToolCallOutcome, ApiProviderConfig, AuthoritativeContextValue, BoundSkillPrompt,
-    CliProfileSnapshot, CompleteAgentMessage, ContextReinjectionKind,
+    AgentChatConfiguration, AgentEvent, AgentFileReference, AgentLog, AgentMemory, AgentMemoryRef,
+    AgentMessage, AgentOperation, AgentPersonalizationSnapshot, AgentRuntimeApplicationError,
+    AgentSession, AgentTerminalEvent, AgentTerminalInputRequest, AgentTerminalProcessRequest,
+    AgentTerminalSession, AgentToolCallOutcome, ApiProviderConfig, AuthoritativeContextValue,
+    BoundSkillPrompt, CliProfileSnapshot, CompleteAgentMessage, ContextReinjectionKind,
     DurableAgentGenerationMessages, DurableAgentGenerationStart, EffectivePrompt,
     GenerationCancellation, GenerationLease, GenerationProcessEvent, GenerationProcessRequest,
     LocalEndpointVerificationRequest, LocalModelEndpointCandidate, LoopChildRecoveryProjection,
     LoopEvidenceView, LoopGitStateView, LoopIterationView, LoopLog, LoopOperationContext,
     LoopOwnedRecoverySession, LoopRoleGenerationTerminal, LoopRoleSessionRequest, LoopRunView,
     LoopVerificationProcessRequest, LoopVerificationProcessResult, NewAgentMessage,
-    OnePieceDiscoveredModel, OnePieceModelDiscoveryRequest, PersonalizationSettings,
-    RegisterApiAgentInput, ResizeAgentTerminalRequest, SaveLoopVerifierResultRequest,
-    SaveMemoryInput, StartedGenerationProcess, StopAgentTerminalRequest, ToolApprovalDecision,
-    ToolDefinition, ToolUseBlock, UpdateApiAgentInput, WorkflowLaunchOutcome,
-    WorkflowLaunchRequest,
+    OnePieceDiscoveredModel, OnePieceModelDiscoveryRequest, RegisterApiAgentInput,
+    ResizeAgentTerminalRequest, SaveLoopVerifierResultRequest, StartedGenerationProcess,
+    StopAgentTerminalRequest, ToolApprovalDecision, ToolDefinition, ToolUseBlock,
+    UpdateApiAgentInput, WorkflowLaunchOutcome, WorkflowLaunchRequest,
 };
 use crate::contexts::agent_runtime::domain::{
     AgentDefinition, AgentLifecycle, AgentWorkflow, AvailabilityAssessment,
@@ -1175,20 +1178,29 @@ pub(crate) trait AgentMcpToolPort: Send + Sync {
 /// (OnePiece and all CLI-wrapped agents) — `agent_id`/`folder` on `save` remain provenance-only,
 /// no longer a filter, which is why `list`/`list_all_for_agent`/`delete_all_for_agent` collapsed
 /// into unscoped `list_all`/`delete_all`.
+///
+/// Boundary under `add-unified-personalization-governance`: ownership of long-term memory identity,
+/// scope, lifecycle, review, and persistence moves to the `personalization` context behind
+/// `PersonalizationApi`, because "which memories may this generation see" is an authorization
+/// question and `list_all` cannot express one. What stays in `agent_runtime` is timing and
+/// model-shaped work: when OnePiece compaction extracts, when a CLI turn completes, and which
+/// bodies relevance selection asks for. The unscoped reads below are therefore migration-era call
+/// sites, not the intended long-term contract — a new caller must resolve a policy snapshot rather
+/// than add a second unscoped read.
+///
+/// What this boundary deliberately does *not* claim: each CLI-wrapped agent keeps owning its own
+/// internal conversation compaction and its native memory/instruction files (`CLAUDE.md`,
+/// `AGENTS.md`, OpenCode configuration, and equivalents). VaneHub governs the personalization it
+/// injects; it does not read, write, or take responsibility for a CLI's own context machinery.
+/// The pre-governance memory surface, now down to one named maintenance enumeration.
+///
+/// Nothing writes or deletes through it any longer: a runtime proposes, review is the only path to
+/// an active record, and the governed management API owns removal. What is left is the row-store
+/// conversion's read of what the old repository still holds — kept deliberately, because migration
+/// has to be able to enumerate the source it is converting.
 pub(crate) trait AgentMemoryPort: Send + Sync {
-    /// Writes one memory. Saving under a name that already exists replaces that memory rather than
-    /// creating a second one for the same name — the update path the row store could not express.
-    fn save(&self, input: SaveMemoryInput<'_>) -> Result<(), AgentRuntimeApplicationError>;
-
     /// Lists every memory in the shared pool, regardless of which agent or folder produced it.
     fn list_all(&self) -> Result<Vec<AgentMemory>, AgentRuntimeApplicationError>;
-
-    fn delete(&self, memory_id: &str) -> Result<(), AgentRuntimeApplicationError>;
-
-    /// Deletes every memory in the shared pool in one action (`add-personalization-settings`
-    /// design.md D6, scope widened to the whole pool by `add-cli-memory-support`) — used by the
-    /// "reset memory" management action, distinct from `delete`'s single-row removal.
-    fn delete_all(&self) -> Result<(), AgentRuntimeApplicationError>;
 }
 
 /// Independent, on-demand memory extraction for CLI-wrapped agents (`add-cli-memory-support`
@@ -1239,8 +1251,133 @@ pub(crate) trait AgentMemorySelectionPort: Send + Sync {
 /// same way `tooling::skills` owns Skill content — so this port exists purely to bridge across
 /// that context boundary, mirroring `AgentSkillPort`'s existing cross-context pattern rather than
 /// `AgentMemoryPort`'s directly-owned one.
-pub(crate) trait AgentPersonalizationPort: Send + Sync {
-    fn settings(&self) -> Result<PersonalizationSettings, AgentRuntimeApplicationError>;
+///
+/// Boundary under `add-unified-personalization-governance`: the source of truth moves from
+/// `desktop`'s generic `AppSettings` aggregate to the `personalization` context, and the shape
+/// changes from flat host-level values to a per-generation snapshot resolved from stable Agent id,
+/// workspace identity, and session personalization mode. Generic settings stay too coarse for this
+/// job in two ways that matter: a whole-object save lets one field's write clobber an unrelated
+/// field, and a host-level boolean cannot express "this workspace, this Agent, this session".
+/// What one generation knows about itself before personalization is resolved.
+///
+/// Identities and the session's own mode, nothing more. This context does not know what a policy
+/// scope is, and building the request from anything richer would move that decision here.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GenerationPersonalizationContext {
+    pub(crate) agent_id: String,
+    pub(crate) session_id: String,
+    /// The workspace folder this session is working in, as the session records it.
+    pub(crate) folder: Option<String>,
+    /// The mode the session was created in. Applied last and able only to narrow, so no policy,
+    /// override or default can widen a temporary session back into long-term memory.
+    pub(crate) personalization_mode: String,
+}
+
+/// One immutable personalization answer per generation.
+///
+/// Replaces reading flat settings and then listing every memory: both of those were separate
+/// decisions taken at separate moments, and a policy change between them produced a prompt whose
+/// index and whose bodies disagreed. This is asked once and answers everything.
+///
+/// Deliberately returns this context's own types. Personalization owns the policy model, and a port
+/// that handed its types across would make one context's taxonomy a dependency of the other's.
+pub(crate) trait AgentPersonalizationSnapshotPort: Send + Sync {
+    /// Never fails the generation. An unresolvable policy yields a fail-closed snapshot, because an
+    /// answer without personalization is still an answer and refusing to generate is not.
+    fn snapshot(&self, context: GenerationPersonalizationContext) -> AgentPersonalizationSnapshot;
+
+    /// The bodies of memories the snapshot pinned, at the revisions it pinned.
+    ///
+    /// Separate from the snapshot because only the few that survive relevance selection need one,
+    /// and loading every body to build an index would defeat the budgeting the index feeds. A ref
+    /// whose record moved since is simply absent rather than silently newer.
+    fn pinned_bodies(
+        &self,
+        refs: &[AgentMemoryRef],
+    ) -> Result<Vec<AgentMemoryBody>, AgentRuntimeApplicationError>;
+
+    /// Proposes changes to long-term memory. Never applies them.
+    ///
+    /// This is the only write a runtime has. Extraction and the model's own memory tool both come
+    /// through here, and what they produce is a reviewable proposal — there is no argument either
+    /// could pass that would reach an active record, because this boundary has no way to write
+    /// one. A model deciding what the user will remember, with no human in between, is the
+    /// behaviour this replaces.
+    fn propose_memories(
+        &self,
+        submission: AgentCandidateSubmission,
+    ) -> Result<AgentCandidateOutcome, AgentRuntimeApplicationError>;
+}
+
+/// What produced a proposal. Recorded rather than inferred: a reviewer reading a queue needs to
+/// know whether the model said this outright or an extractor inferred it from a compacted turn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AgentProposalOrigin {
+    AutomaticExtraction,
+    ModelTool,
+}
+
+/// One proposed change, in the shape a runtime can express.
+///
+/// `Archive` rather than delete, and every non-create carries the revision the snapshot pinned: a
+/// proposal written against one version of a memory must not silently apply to a different one the
+/// user edited in the meantime.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum AgentMemoryProposal {
+    Create {
+        name: String,
+        description: String,
+        memory_type: Option<MemoryType>,
+        content: String,
+    },
+    Update {
+        target_id: String,
+        expected_revision: u64,
+        description: Option<String>,
+        content: Option<String>,
+    },
+    Archive {
+        target_id: String,
+        expected_revision: u64,
+    },
+}
+
+/// One batch of proposals from one generation.
+///
+/// `eligible` is what this generation was shown, and it travels with the batch so the boundary can
+/// refuse a proposal naming anything else. Without it a model shown three memories could correct
+/// or archive a fourth it had only guessed at.
+#[derive(Debug, Clone)]
+pub(crate) struct AgentCandidateSubmission {
+    pub(crate) proposals: Vec<AgentMemoryProposal>,
+    pub(crate) origin: AgentProposalOrigin,
+    pub(crate) agent_id: String,
+    pub(crate) session_id: String,
+    pub(crate) folder: Option<String>,
+    /// The message this batch was extracted from, when there is one.
+    ///
+    /// Provenance a reviewer needs: "which turn produced this" is the first question a queue entry
+    /// raises, and a proposal that cannot answer it is one a user has to take on trust.
+    pub(crate) source_message_id: Option<String>,
+    pub(crate) eligible: Vec<AgentMemoryRef>,
+}
+
+/// Counts only. What reaches the unified log about a batch of proposals must not be the proposals.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct AgentCandidateOutcome {
+    pub(crate) accepted: usize,
+    pub(crate) rejected: usize,
+}
+
+/// One pinned memory with its text, for the few that reach a prompt.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentMemoryBody {
+    pub(crate) id: String,
+    pub(crate) revision: u64,
+    pub(crate) name: String,
+    pub(crate) memory_type: Option<MemoryType>,
+    pub(crate) content: String,
+    pub(crate) updated_at: Option<SystemTime>,
 }
 
 /// Focused read boundary for context that can be rebuilt after compaction. Implementations return
@@ -1312,11 +1449,6 @@ pub(crate) trait AgentRetrievalPort: Send + Sync {
     /// (`agent-memory-shared-pool`), which is the same pool the recency injection draws from, so
     /// there is no per-agent or per-folder slice for a caller to name.
     fn search(&self, query: &str, limit: usize) -> Result<AgentRetrievalOutcome, String>;
-
-    /// Best-effort wake signal for the background indexing worker after a memory changes —
-    /// called by `execute_remember` after a successful save (Task 14): no write, no wait, and
-    /// failure is harmless — mirrors `RetrievalApi::wake_worker`'s own contract.
-    fn notify_source_changed(&self);
 
     fn code_retrieval(&self) -> Option<&dyn AgentCodeRetrievalPort> {
         None

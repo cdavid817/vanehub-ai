@@ -546,6 +546,28 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "im-session-connector-access",
         crate::contexts::communications::infrastructure::apply_session_connector_access_schema,
     )?;
+    // 88-90 rather than the 82-84 this change was written against: 82-86 shipped in v1.1.0 and
+    // v1.2.0 and 87 landed while this branch was in review, all carrying different schema. A
+    // version number that has shipped is not available to be reused. No installation has ever
+    // applied personalization at 82, so renumbering is additive rather than a data migration.
+    apply_transactional_migration(
+        conn,
+        88,
+        "personalization-governance",
+        crate::contexts::personalization::infrastructure::apply_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        89,
+        "session-personalization-mode",
+        crate::contexts::sessions::infrastructure::apply_personalization_mode_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        90,
+        "personalization-last-reconciled",
+        crate::contexts::personalization::infrastructure::apply_reconciliation_schema,
+    )?;
     repair_missing_stable_participant_schema(conn)?;
     repair_missing_cli_parameter_profile_schema(conn)?;
     // Fail fast when a migration was skipped or the persisted history contains a gap.
@@ -662,6 +684,12 @@ const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (85, "cli-action-plans"),
     (86, "lsp-language-registry"),
     (87, "im-session-connector-access"),
+    // The CLI lanes this change was racing landed first and shipped, so personalization renumbered
+    // from 82-84 to 87-89. The collision was the predicted one: a colliding migration is silently
+    // skipped and only the name diverges, which is why the sequence below is asserted in tests.
+    (88, "personalization-governance"),
+    (89, "session-personalization-mode"),
+    (90, "personalization-last-reconciled"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {

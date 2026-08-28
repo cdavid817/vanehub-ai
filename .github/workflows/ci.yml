@@ -401,10 +401,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - ubuntu-latest
-          - macos-latest
-          - windows-latest
+        include:
+          - os: ubuntu-latest
+            test_threads: 4
+          - os: macos-latest
+            test_threads: 4
+          - os: windows-latest
+            test_threads: 1
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -487,14 +490,15 @@ jobs:
       # Path-list normalization, executable status, argv token preservation, and profile
       # persistence with revision and catalog CAS. No provider is launched, no credential is read,
       # and the only executable involved is the repository's own stub, which is inspected rather
-      # than run. Keep the native test fan-out bounded: each test creates and migrates an isolated
-      # SQLite database, and the Windows hosted runner can otherwise exhaust r2d2's five-second
-      # connection acquisition window while hundreds of migrations start concurrently.
+      # than run. Each test creates and migrates an isolated SQLite database. Windows serializes
+      # that work because even four concurrent migrations can exhaust r2d2's five-second
+      # connection acquisition window on a hosted runner; the other platforms retain bounded
+      # parallelism.
       - name: Native CLI parameter fixtures
-        run: cargo test --workspace platform_fixture_tests -- --test-threads=4
+        run: cargo test --workspace platform_fixture_tests -- --test-threads=${{ matrix.test_threads }}
 
       - name: Native CLI parameter subdomain
-        run: cargo test --workspace cli_parameters -- --test-threads=4
+        run: cargo test --workspace cli_parameters -- --test-threads=${{ matrix.test_threads }}
 
       - name: Install npm dependencies
         run: npm ci

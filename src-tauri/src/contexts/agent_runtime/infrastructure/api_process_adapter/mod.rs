@@ -13,10 +13,10 @@ use super::agent_image::AgentImage;
 use super::SqliteNativeToolRepository;
 use crate::contexts::agent_runtime::application::{
     AgentClockPort, AgentCodeIntelligencePort, AgentCoreInstructionsPort, AgentLoggingPort,
-    AgentMcpToolPort, AgentMemoryPort, AgentPermissionPort, AgentPersonalizationPort,
-    AgentProcessEventSink, AgentProcessGateway, AgentRetrievalPort, AgentRuntimeApplicationError,
-    AgentSkillPort, AgentWorkspaceMutationPort, ApiAgentGateway, ApiCredentialPort,
-    ContextEngineService, ContextQualityRecorder, ConversationHistoryPort, GenerationProcessEvent,
+    AgentMcpToolPort, AgentPermissionPort, AgentPersonalizationSnapshotPort, AgentProcessEventSink,
+    AgentProcessGateway, AgentRetrievalPort, AgentRuntimeApplicationError, AgentSkillPort,
+    AgentWorkspaceMutationPort, ApiAgentGateway, ApiCredentialPort, ContextEngineService,
+    ContextQualityRecorder, ConversationHistoryPort, GenerationProcessEvent,
     GenerationProcessFailure, GenerationProcessRequest, NativeToolRegistry, ProcessStopInitiator,
     StartedGenerationProcess, ToolApprovalDecision, ToolApprovalPort, ToolUseBlock,
     UtilityDelegationApplicationService, WorkflowLaunchOutcome, WorkflowLaunchRequest,
@@ -57,19 +57,22 @@ use super::tools::{
 #[cfg(test)]
 use crate::contexts::agent_runtime::application::{
     ask_user_question_tool_definition, plan_mode_tool_catalog, recall_tool_definition,
-    tool_catalog, AgentChatConfiguration, AgentCodeIntelligenceContext, AgentCodeRetrievalOutcome,
-    AgentDocumentInput, AgentDocumentPositionInput, AgentLog, AgentLogLevel, AgentMemory,
-    AgentMemorySelectionPort, AgentRetrievalOutcome, AgentSkillReadRequest, ApiProviderConfig,
-    BoundSkillPrompt, MemorySource, NativeToolResultEnvelope, NativeToolResultStatus,
-    PersonalizationSettings, SaveMemoryInput, StoredToolOperation, StoredToolOperationStatus,
-    ToolDefinition, ToolLifecyclePhase, ASK_USER_QUESTION_TOOL_NAME, EDIT_TOOL_NAME,
-    EXIT_PLAN_MODE_TOOL_NAME, FILE_TOOL_NAME, FIND_DEFINITION_TOOL_NAME, FIND_REFERENCES_TOOL_NAME,
-    GET_DIAGNOSTICS_TOOL_NAME, GET_HOVER_TOOL_NAME, GLOB_TOOL_NAME, GREP_TOOL_NAME,
-    IMAGE_ARTIFACT_METADATA_KEY, INTERFACE_FORMAT_OPENAI_COMPATIBLE, LIST_SKILLS_TOOL_NAME,
-    LOAD_SKILL_TOOL_NAME, MAX_PLAN_CHARS, MAX_QUESTION_CHARS, MAX_QUESTION_OPTIONS,
-    MAX_QUESTION_OPTION_CHARS, MCP_TOOL_NAME_PREFIX, MIN_QUESTION_OPTIONS, NOTEBOOK_TOOL_NAME,
-    READ_SKILL_RESOURCE_TOOL_NAME, RECALL_TOOL_NAME, REMEMBER_TOOL_NAME, SEARCH_CODE_TOOL_NAME,
-    SHELL_KILL_TOOL_NAME, SHELL_OUTPUT_TOOL_NAME, SHELL_TOOL_NAME, TODO_WRITE_TOOL_NAME,
+    tool_catalog, AgentCandidateOutcome, AgentCandidateSubmission, AgentChatConfiguration,
+    AgentCodeIntelligenceContext, AgentCodeRetrievalOutcome, AgentDocumentInput,
+    AgentDocumentPositionInput, AgentLog, AgentLogLevel, AgentMemory, AgentMemoryAccess,
+    AgentMemoryBody, AgentMemoryDelivery, AgentMemoryPort, AgentMemoryProposal, AgentMemoryRef,
+    AgentMemorySelectionPort, AgentPersonalizationSnapshot, AgentRetrievalOutcome,
+    AgentSkillReadRequest, ApiProviderConfig, BoundSkillPrompt, GenerationPersonalizationContext,
+    MemorySource, NativeToolResultEnvelope, NativeToolResultStatus, StoredToolOperation,
+    StoredToolOperationStatus, ToolDefinition, ToolLifecyclePhase, ASK_USER_QUESTION_TOOL_NAME,
+    EDIT_TOOL_NAME, EXIT_PLAN_MODE_TOOL_NAME, FILE_TOOL_NAME, FIND_DEFINITION_TOOL_NAME,
+    FIND_REFERENCES_TOOL_NAME, GET_DIAGNOSTICS_TOOL_NAME, GET_HOVER_TOOL_NAME, GLOB_TOOL_NAME,
+    GREP_TOOL_NAME, IMAGE_ARTIFACT_METADATA_KEY, INTERFACE_FORMAT_OPENAI_COMPATIBLE,
+    LIST_SKILLS_TOOL_NAME, LOAD_SKILL_TOOL_NAME, MAX_PLAN_CHARS, MAX_QUESTION_CHARS,
+    MAX_QUESTION_OPTIONS, MAX_QUESTION_OPTION_CHARS, MCP_TOOL_NAME_PREFIX, MIN_QUESTION_OPTIONS,
+    NOTEBOOK_TOOL_NAME, READ_SKILL_RESOURCE_TOOL_NAME, RECALL_TOOL_NAME, REMEMBER_TOOL_NAME,
+    SEARCH_CODE_TOOL_NAME, SHELL_KILL_TOOL_NAME, SHELL_OUTPUT_TOOL_NAME, SHELL_TOOL_NAME,
+    TODO_WRITE_TOOL_NAME,
 };
 #[cfg(test)]
 use crate::contexts::agent_runtime::domain::{
@@ -119,14 +122,12 @@ use invocation::{
 pub(crate) use invocation::{context_snapshot_diagnostic, WireFormat};
 #[cfg(test)]
 use native_tools::{
-    artifact_ids, execute_registered_native_tool, execute_remember, execute_tool_call_impl,
-    is_image_read_request, operation_event, parse_optional_non_negative_integer_arg,
-    resolve_tool_image,
+    artifact_ids, execute_registered_native_tool, execute_tool_call_impl, is_image_read_request,
+    operation_event, parse_optional_non_negative_integer_arg, resolve_tool_image,
 };
 #[cfg(test)]
 use prompt::{
-    format_custom_instructions_section, format_memory_section, format_system_prompt,
-    resolve_personalization_settings, resolve_system_prompt_with_settings,
+    format_memory_section, format_system_prompt, resolve_system_prompt_with_settings,
     resolve_tool_catalog_with_code_intelligence,
 };
 #[cfg(test)]
@@ -177,13 +178,12 @@ pub(crate) struct RuntimeAgentApiAdapter {
     clock: Arc<dyn AgentClockPort>,
     skills: Arc<dyn AgentSkillPort>,
     core_instructions: Arc<dyn AgentCoreInstructionsPort>,
-    memories: Arc<dyn AgentMemoryPort>,
     mcp: Arc<dyn AgentMcpToolPort>,
     permissions: Arc<dyn AgentPermissionPort>,
     retrieval: Arc<dyn AgentRetrievalPort>,
     code_intelligence: Arc<dyn AgentCodeIntelligencePort>,
     workspace_mutations: Arc<dyn AgentWorkspaceMutationPort>,
-    personalization: Arc<dyn AgentPersonalizationPort>,
+    personalization: Arc<dyn AgentPersonalizationSnapshotPort>,
     context_quality: Option<Arc<ContextQualityRecorder>>,
     context_engine: Option<Arc<ContextEngineService>>,
     accounting: Option<SessionsApi>,
@@ -221,12 +221,11 @@ impl RuntimeAgentApiAdapter {
         clock: Arc<dyn AgentClockPort>,
         skills: Arc<dyn AgentSkillPort>,
         core_instructions: Arc<dyn AgentCoreInstructionsPort>,
-        memories: Arc<dyn AgentMemoryPort>,
         mcp: Arc<dyn AgentMcpToolPort>,
         permissions: Arc<dyn AgentPermissionPort>,
         retrieval: Arc<dyn AgentRetrievalPort>,
         workspace_mutations: Arc<dyn AgentWorkspaceMutationPort>,
-        personalization: Arc<dyn AgentPersonalizationPort>,
+        personalization: Arc<dyn AgentPersonalizationSnapshotPort>,
     ) -> Self {
         let code_intelligence = Arc::new(super::RuntimeAgentCodeIntelligenceAdapter::new(
             Arc::new(super::UnavailableAgentCodeIntelligenceResponder),
@@ -239,7 +238,6 @@ impl RuntimeAgentApiAdapter {
             clock,
             skills,
             core_instructions,
-            memories,
             mcp,
             permissions,
             retrieval,
@@ -258,13 +256,12 @@ impl RuntimeAgentApiAdapter {
         clock: Arc<dyn AgentClockPort>,
         skills: Arc<dyn AgentSkillPort>,
         core_instructions: Arc<dyn AgentCoreInstructionsPort>,
-        memories: Arc<dyn AgentMemoryPort>,
         mcp: Arc<dyn AgentMcpToolPort>,
         permissions: Arc<dyn AgentPermissionPort>,
         retrieval: Arc<dyn AgentRetrievalPort>,
         code_intelligence: Arc<dyn AgentCodeIntelligencePort>,
         workspace_mutations: Arc<dyn AgentWorkspaceMutationPort>,
-        personalization: Arc<dyn AgentPersonalizationPort>,
+        personalization: Arc<dyn AgentPersonalizationSnapshotPort>,
     ) -> Self {
         Self {
             credentials,
@@ -274,7 +271,6 @@ impl RuntimeAgentApiAdapter {
             clock,
             skills,
             core_instructions,
-            memories,
             mcp,
             permissions,
             retrieval,
@@ -455,7 +451,6 @@ impl AgentProcessGateway for RuntimeAgentApiAdapter {
         let clock = self.clock.clone();
         let skills = self.skills.clone();
         let core_instructions = self.core_instructions.clone();
-        let memories = self.memories.clone();
         let mcp = self.mcp.clone();
         let permissions = self.permissions.clone();
         let retrieval = self.retrieval.clone();
@@ -484,7 +479,6 @@ impl AgentProcessGateway for RuntimeAgentApiAdapter {
                 clock,
                 skills,
                 core_instructions,
-                memories,
                 mcp,
                 permissions,
                 retrieval,
