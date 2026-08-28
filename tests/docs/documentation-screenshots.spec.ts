@@ -46,6 +46,17 @@ function text(locale: Locale, zh: string, en: string) {
 
 async function visit(page: Page, path: string) {
   await page.goto(path, { waitUntil: "domcontentloaded" });
+  const root = page.locator("#root");
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await expect
+      .poll(() => root.getAttribute("data-vanehub-bootstrap"), { timeout: 15_000 })
+      .toMatch(/^(failed|ready)$/);
+    if ((await root.getAttribute("data-vanehub-bootstrap")) === "ready") break;
+    if (attempt === 1) {
+      throw new Error("The documentation surface failed to bootstrap after one recovery reload.");
+    }
+    await page.reload({ waitUntil: "domcontentloaded" });
+  }
   await page.addStyleTag({ content: deterministicCss });
 }
 
