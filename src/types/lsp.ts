@@ -41,20 +41,32 @@ export const lspDocumentSyncModes: readonly ["none", "full", "incremental"] = [
 ];
 export type LspDocumentSyncMode = (typeof lspDocumentSyncModes)[number];
 
+/**
+ * Every code `LspSafeReasonCodeDto` can put on the wire.
+ *
+ * The contract validator refuses an unknown one by throwing, and that throw takes down the whole
+ * configuration query rather than a single card — so a code added natively and forgotten here
+ * turns an actionable "install directory is not set" into "could not load settings".
+ * `lsp-reason-code-parity.test.ts` fails when the two drift.
+ */
 export const lspSafeReasonCodes: readonly [
   "executable_not_found", "override_missing", "override_not_executable",
-  "executable_unavailable", "minimal_project_failed", "spawn_failed",
-  "initialize_failed", "initialize_timed_out", "forced_termination", "cleanup_failed",
-  "invalid_deadline", "restart_exhausted", "protocol_limit", "request_timeout",
-  "cancelled", "untrusted", "unsupported_method", "invalid_configuration",
-  "unsupported_on_this_platform",
+  "unsupported_on_this_platform", "prerequisite_missing", "install_directory_not_set",
+  "launcher_not_found", "ambiguous_install", "executable_unavailable",
+  "install_refused", "install_failed", "install_timed_out", "checksum_mismatch",
+  "minimal_project_failed", "spawn_failed", "initialize_failed", "initialize_timed_out",
+  "forced_termination", "cleanup_failed", "invalid_deadline", "restart_exhausted",
+  "protocol_limit", "request_timeout", "cancelled", "untrusted", "unsupported_method",
+  "invalid_configuration",
 ] = [
   "executable_not_found", "override_missing", "override_not_executable",
-  "executable_unavailable", "minimal_project_failed", "spawn_failed",
-  "initialize_failed", "initialize_timed_out", "forced_termination", "cleanup_failed",
-  "invalid_deadline", "restart_exhausted", "protocol_limit", "request_timeout",
-  "cancelled", "untrusted", "unsupported_method", "invalid_configuration",
-  "unsupported_on_this_platform",
+  "unsupported_on_this_platform", "prerequisite_missing", "install_directory_not_set",
+  "launcher_not_found", "ambiguous_install", "executable_unavailable",
+  "install_refused", "install_failed", "install_timed_out", "checksum_mismatch",
+  "minimal_project_failed", "spawn_failed", "initialize_failed", "initialize_timed_out",
+  "forced_termination", "cleanup_failed", "invalid_deadline", "restart_exhausted",
+  "protocol_limit", "request_timeout", "cancelled", "untrusted", "unsupported_method",
+  "invalid_configuration",
 ];
 export type LspSafeReasonCode = (typeof lspSafeReasonCodes)[number];
 

@@ -85,16 +85,70 @@ pub(crate) struct InterpreterLaunch {
     pub(crate) launcher_prefix: &'static str,
     pub(crate) launcher_suffix: &'static str,
     /// The configuration directory for each platform, relative to the install directory.
-    pub(crate) configuration_directories: &'static [(HostPlatform, &'static str)],
+    pub(crate) configuration_directories: &'static [ConfigurationDirectory],
     pub(crate) arguments: &'static [LaunchArgument],
 }
 
+/// Where a platform's configuration lives inside the install, and its 64-bit ARM counterpart.
+///
+/// The two are separate because the configuration is not architecture-neutral: Eclipse's
+/// `config.ini` names an OSGi launcher fragment built for one architecture, and a fragment for
+/// the wrong one does not attach. Picking by operating system alone starts the server against a
+/// configuration its own publisher ships for a different machine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ConfigurationDirectory {
+    pub(crate) platform: HostPlatform,
+    pub(crate) directory: &'static str,
+    /// Absent where the publisher ships one configuration for the platform. Windows is that case:
+    /// Eclipse ships only an x86_64 launcher fragment for it.
+    pub(crate) aarch64: Option<&'static str>,
+}
+
 impl InterpreterLaunch {
-    pub(crate) fn configuration_directory(&self, platform: HostPlatform) -> Option<&'static str> {
+    /// The candidate configuration directories for this host, most specific first.
+    ///
+    /// More than one because the ARM variant is a preference rather than a requirement: an older
+    /// archive predating it still has to resolve. The caller takes the first that exists.
+    pub(crate) fn configuration_directories_for(
+        &self,
+        platform: HostPlatform,
+        architecture: HostArchitecture,
+    ) -> Vec<&'static str> {
         self.configuration_directories
             .iter()
-            .find(|(declared, _)| *declared == platform)
-            .map(|(_, directory)| *directory)
+            .find(|declared| declared.platform == platform)
+            .map(|declared| match architecture {
+                HostArchitecture::Aarch64 => declared
+                    .aarch64
+                    .into_iter()
+                    .chain(std::iter::once(declared.directory))
+                    .collect(),
+                HostArchitecture::Other => vec![declared.directory],
+            })
+            .unwrap_or_default()
+    }
+}
+
+/// Only the distinction that changes which configuration is correct, not a general CPU model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HostArchitecture {
+    Aarch64,
+    Other,
+}
+
+impl HostArchitecture {
+    /// This process's architecture, standing in for the interpreter's.
+    ///
+    /// The configuration that matters is the one the *JVM* can load, and asking the JVM would mean
+    /// spawning it during discovery -- which discovery deliberately never does. On a machine where
+    /// the two disagree the user still has the install-directory override; on every ordinary one
+    /// they agree, and today's operating-system-only answer is wrong on all of them.
+    pub(crate) const fn current() -> Self {
+        if cfg!(target_arch = "aarch64") {
+            Self::Aarch64
+        } else {
+            Self::Other
+        }
     }
 }
 
@@ -429,9 +483,21 @@ static JDTLS_LAUNCH: InterpreterLaunch = InterpreterLaunch {
     launcher_prefix: "org.eclipse.equinox.launcher_",
     launcher_suffix: ".jar",
     configuration_directories: &[
-        (HostPlatform::Windows, "config_win"),
-        (HostPlatform::Macos, "config_mac"),
-        (HostPlatform::Linux, "config_linux"),
+        ConfigurationDirectory {
+            platform: HostPlatform::Windows,
+            directory: "config_win",
+            aarch64: None,
+        },
+        ConfigurationDirectory {
+            platform: HostPlatform::Macos,
+            directory: "config_mac",
+            aarch64: Some("config_mac_arm"),
+        },
+        ConfigurationDirectory {
+            platform: HostPlatform::Linux,
+            directory: "config_linux",
+            aarch64: Some("config_linux_arm"),
+        },
     ],
     arguments: &[
         LaunchArgument::Literal("-Declipse.application=org.eclipse.jdt.ls.core.id1"),
