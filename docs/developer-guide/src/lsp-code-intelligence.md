@@ -156,7 +156,11 @@ Rust, TypeScript/JavaScript, Go, Python, C/C++, and Java are registered. Adding 
 
 Java did not fit that shape, so the registry gained one. A `LaunchShape` field decides what the other fields mean: under `Executable` — what the first five declare — `executables` names the server and a manual override is an absolute executable file. Under `Interpreter` it names the *interpreter*, the server lives in an argument template, and an override is the install **directory**.
 
-The template's placeholders are enum variants rather than strings, so an unresolved one is a case the compiler knows about instead of a substitution that quietly failed. Three of them are resolved late: the launcher by matching a declared prefix and suffix in one declared directory, the configuration directory by exact platform match, and the data directory from a hash of the canonical workspace root.
+The template's placeholders are enum variants rather than strings, so an unresolved one is a case the compiler knows about instead of a substitution that quietly failed. Three of them are resolved late: the launcher by matching a declared prefix and suffix in one declared directory, the configuration directory by platform *and architecture*, and the data directory from a hash of the canonical workspace root.
+
+**The configuration directory is not architecture-neutral.** Eclipse ships `config_mac` beside `config_mac_arm` and `config_linux` beside `config_linux_arm` because each `config.ini` names an OSGi launcher fragment built for one architecture, and a fragment for the wrong one does not attach. Windows declares no ARM variant because only a `win32.x86_64` fragment is published. Resolution prefers the host architecture's directory and falls back to the platform's when the archive does not ship one, so an older `jdtls` still resolves rather than failing closed on a directory its publisher never created.
+
+The architecture used is **this process's**, standing in for the JVM's. The configuration that actually matters is the one the user's JVM can load, and asking it would mean spawning the JVM during discovery — which discovery deliberately never does, and which `discovery_uses_native_location_without_starting_the_server` pins. Where the two disagree the install-directory override is the escape hatch; where they agree, which is every ordinary machine, the answer is right — and the operating-system-only answer it replaced was wrong on every ARM host.
 
 Two rules are worth stating because their opposites look reasonable:
 
