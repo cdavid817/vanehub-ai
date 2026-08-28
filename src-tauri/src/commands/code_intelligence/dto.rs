@@ -80,6 +80,11 @@ pub(crate) enum LspSafeReasonCodeDto {
     ExecutableUnavailable,
     InstallRefused,
     InstallFailed,
+    // Distinct from `RequestTimeout`, which is about an LSP request. A 50 MB artifact against a
+    // ten-minute budget needs about 85 KB/s sustained, so this is reachable on an ordinary slow
+    // link -- and telling such a user that a "language-server request" timed out describes a
+    // request that was never made.
+    InstallTimedOut,
     ChecksumMismatch,
     MinimalProjectFailed,
     SpawnFailed,

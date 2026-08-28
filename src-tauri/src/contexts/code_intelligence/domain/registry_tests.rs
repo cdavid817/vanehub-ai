@@ -1,7 +1,7 @@
 use super::language_id::{LanguageIdError, LspLanguageId};
 use super::registry::{
-    definition, definition_for_extension, definition_for_server, HostPlatform, LaunchArgument,
-    LANGUAGE_DEFINITIONS,
+    definition, definition_for_extension, definition_for_server, HostArchitecture, HostPlatform,
+    LaunchArgument, LANGUAGE_DEFINITIONS,
 };
 use std::collections::BTreeSet;
 
@@ -322,13 +322,18 @@ fn every_language_declares_a_launch_shape_it_can_actually_use() {
         assert!(!launch.launcher_prefix.is_empty(), "{}", definition.id);
         assert!(!launch.launcher_suffix.is_empty(), "{}", definition.id);
         // A platform the entry claims but declares no configuration directory for would resolve
-        // its template to nothing at launch, on that platform only.
+        // its template to nothing at launch, on that platform only. Both architectures are
+        // checked: declaring only the x86_64 one leaves ARM hosts with no candidate at all.
         for platform in definition.platforms {
-            assert!(
-                launch.configuration_directory(*platform).is_some(),
-                "{} claims a platform with no configuration directory",
-                definition.id
-            );
+            for architecture in [HostArchitecture::Aarch64, HostArchitecture::Other] {
+                assert!(
+                    !launch
+                        .configuration_directories_for(*platform, architecture)
+                        .is_empty(),
+                    "{} claims a platform with no configuration directory for {architecture:?}",
+                    definition.id
+                );
+            }
         }
     }
 }

@@ -129,6 +129,7 @@ If Java shows as unavailable, the reason says which of these to fix:
 | That directory holds more than one server launcher | Two `jdtls` versions are mixed in one directory; extract a clean copy |
 | The download or the archive was refused by a safety limit | The archive was larger than the limit, or contained an entry VaneHub AI will not unpack; install it yourself instead |
 | The download or the unpacking failed | Usually the network or a proxy. Retrying is safe — a failed install leaves nothing behind |
+| The download took longer than its time limit | The archive is around 50 MB and the budget is ten minutes, so a slow or throttled link can run out. Retry, or install it yourself |
 
 `jdtls` also keeps an index per workspace. VaneHub AI gives each trusted workspace its own directory for that, and deletes it when you revoke trust for the workspace.
 

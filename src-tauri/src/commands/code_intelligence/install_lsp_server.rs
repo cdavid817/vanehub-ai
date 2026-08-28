@@ -34,7 +34,7 @@ fn install_reason(error: CodeIntelligenceApiError) -> String {
         CodeIntelligenceApiError::Managed(failure) => match failure {
             ManagedInstallFailure::Refused => LspSafeReasonCodeDto::InstallRefused,
             ManagedInstallFailure::Transfer => LspSafeReasonCodeDto::InstallFailed,
-            ManagedInstallFailure::TimedOut => LspSafeReasonCodeDto::RequestTimeout,
+            ManagedInstallFailure::TimedOut => LspSafeReasonCodeDto::InstallTimedOut,
             ManagedInstallFailure::Cancelled => LspSafeReasonCodeDto::Cancelled,
             ManagedInstallFailure::ChecksumMismatch => LspSafeReasonCodeDto::ChecksumMismatch,
         },
