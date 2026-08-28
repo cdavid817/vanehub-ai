@@ -185,6 +185,8 @@ describe("LspConfigurationSection", () => {
           defaultStartupArguments: [],
           overrideTarget: "install_directory" as const,
           prerequisite: "Erlang/OTP 26 or newer",
+          distribution: null,
+          installed: false,
         }],
       }),
       discoverLspServers: async () => [],

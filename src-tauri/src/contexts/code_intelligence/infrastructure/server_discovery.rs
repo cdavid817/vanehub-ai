@@ -119,6 +119,26 @@ impl ServerDiscovery {
         executable_override: Option<&Path>,
         configured_arguments: Option<&Vec<String>>,
     ) -> ServerDiscoveryResult {
+        self.discover_with_managed_install(
+            language,
+            executable_override,
+            configured_arguments,
+            None,
+        )
+    }
+
+    /// Discovery when the caller knows whether a managed install exists.
+    ///
+    /// An override always wins. The managed install is a fallback, not a replacement: a user who
+    /// pointed at their own copy keeps it, and the managed one stays on disk in case they switch
+    /// back.
+    pub(crate) fn discover_with_managed_install(
+        &self,
+        language: Language,
+        executable_override: Option<&Path>,
+        configured_arguments: Option<&Vec<String>>,
+        managed_install: Option<&Path>,
+    ) -> ServerDiscoveryResult {
         let arguments = resolved_startup_arguments(language, configured_arguments);
         // A language declared for other platforms is unsupported here, which is not the same as
         // supported-but-not-installed. Reporting it as merely undiscovered would send a user
@@ -131,7 +151,8 @@ impl ServerDiscovery {
             );
         }
         if let Some(launch) = language.launch.interpreter() {
-            return self.discover_interpreter(language, arguments, launch, executable_override);
+            let directory = executable_override.or(managed_install);
+            return self.discover_interpreter(language, arguments, launch, directory);
         }
         if let Some(path) = executable_override {
             return discover_override(language, arguments, path);

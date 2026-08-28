@@ -10,6 +10,8 @@
 //! rules that only code can supply, so a user-declared language would be a row the runtime cannot
 //! actually serve.
 
+use crate::contexts::tooling::api::{ArtifactIntegrity, ExtractionLimits, RetrievalPolicy};
+
 use super::language_id::LspLanguageId;
 use std::cmp::Ordering;
 use std::fmt;
@@ -96,6 +98,45 @@ impl InterpreterLaunch {
     }
 }
 
+/// The archive format a published distribution ships in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DistributionFormat {
+    /// No registered language ships a zip today. The adapter behind it is live and tested; this
+    /// is the declaration that selects it, and the first zip-published server removes the
+    /// attribute rather than adding the support.
+    #[expect(
+        dead_code,
+        reason = "no registered language ships a zip distribution yet"
+    )]
+    Zip,
+    TarGz,
+}
+
+/// Where a language's server is published, when VaneHub can fetch it.
+///
+/// The bounds are `managed_install`'s own types rather than a second declaration of the same
+/// three numbers -- that capability enforces them, and a copy here is what would drift.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PublishedDistribution {
+    pub(crate) url: &'static str,
+    pub(crate) policy: RetrievalPolicy,
+    pub(crate) integrity: ArtifactIntegrity,
+    pub(crate) format: DistributionFormat,
+    pub(crate) extraction: ExtractionLimits,
+    /// The directory inside the extracted archive that is the install root, when the archive nests
+    /// everything under one. `None` when the archive's own root is the install root.
+    pub(crate) root_inside_archive: Option<&'static str>,
+}
+
+impl PublishedDistribution {
+    /// Whether the bytes are checked against a published digest. Reported to the surface offering
+    /// the install, because an unverified download is something a user should be told about
+    /// rather than something that hides behind a button.
+    pub(crate) const fn is_verified(&self) -> bool {
+        matches!(self.integrity, ArtifactIntegrity::Sha256(_))
+    }
+}
+
 /// How a language's server is started.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LaunchShape {
@@ -134,6 +175,10 @@ pub(crate) struct LanguageDefinition {
     pub(crate) extensions: &'static [ExtensionMapping],
     pub(crate) fixture_files: &'static [FixtureFile],
     pub(crate) platforms: &'static [HostPlatform],
+    /// Where VaneHub can fetch this server, when it can. `None` for every language whose server
+    /// is one line with a package manager the user already has -- wrapping those would add a
+    /// second way to do something that already works.
+    pub(crate) distribution: Option<PublishedDistribution>,
 }
 
 /// Identity is the language id alone. Two references to the same entry must compare equal without
@@ -208,6 +253,7 @@ pub(crate) const LANGUAGE_DEFINITIONS: &[LanguageDefinition] = &[
             ("src/lib.rs", "pub fn fixture() {}\n"),
         ],
         platforms: EVERY_PLATFORM,
+        distribution: None,
     },
     LanguageDefinition {
         id: "typescript_javascript",
@@ -231,6 +277,7 @@ pub(crate) const LANGUAGE_DEFINITIONS: &[LanguageDefinition] = &[
             ("src/index.ts", "export const fixture = true;\n"),
         ],
         platforms: EVERY_PLATFORM,
+        distribution: None,
     },
     LanguageDefinition {
         id: "go",
@@ -246,6 +293,7 @@ pub(crate) const LANGUAGE_DEFINITIONS: &[LanguageDefinition] = &[
             ("main.go", "package main\n\nfunc main() {}\n"),
         ],
         platforms: EVERY_PLATFORM,
+        distribution: None,
     },
     LanguageDefinition {
         id: "python",
@@ -272,6 +320,7 @@ pub(crate) const LANGUAGE_DEFINITIONS: &[LanguageDefinition] = &[
             ("main.py", "def fixture() -> None:\n    return None\n"),
         ],
         platforms: EVERY_PLATFORM,
+        distribution: None,
     },
     LanguageDefinition {
         id: "cpp",
@@ -300,6 +349,7 @@ pub(crate) const LANGUAGE_DEFINITIONS: &[LanguageDefinition] = &[
             ("main.cpp", "int main() { return 0; }\n"),
         ],
         platforms: EVERY_PLATFORM,
+        distribution: None,
     },
     LanguageDefinition {
         id: "java",
@@ -336,8 +386,36 @@ pub(crate) const LANGUAGE_DEFINITIONS: &[LanguageDefinition] = &[
             ),
         ],
         platforms: EVERY_PLATFORM,
+        distribution: Some(JDTLS_DISTRIBUTION),
     },
 ];
+
+/// Where Eclipse publishes JDT Language Server.
+///
+/// **The bytes are not checksum-verified.** Eclipse publishes a `latest` tarball, and there is no
+/// digest that stays valid across releases: pinning one means the install breaks the next time
+/// they publish, and a checksum that fails for the expected reason teaches a reader to ignore
+/// checksums. What still applies is everything else -- HTTPS, an exact-host allowlist checked on
+/// every redirect hop, a byte ceiling enforced while reading, a deadline, cancellation, and
+/// bounded extraction. The surface offering the install says so before the user clicks.
+static JDTLS_DISTRIBUTION: PublishedDistribution = PublishedDistribution {
+    url: "https://download.eclipse.org/jdtls/snapshots/jdt-language-server-latest.tar.gz",
+    policy: RetrievalPolicy {
+        allowed_hosts: &["download.eclipse.org"],
+        // A real jdtls release is around 60 MB; the ceiling is generous enough not to trip on a
+        // larger one and small enough that a redirected download of something else does not run.
+        max_download_bytes: 256 * 1024 * 1024,
+        download_timeout_seconds: 600,
+    },
+    integrity: ArtifactIntegrity::Unverified,
+    format: DistributionFormat::TarGz,
+    extraction: ExtractionLimits {
+        max_total_bytes: 512 * 1024 * 1024,
+        max_entries: 8_192,
+    },
+    // The tarball unpacks its contents at the archive root rather than under a versioned folder.
+    root_inside_archive: None,
+};
 
 /// How Eclipse JDT Language Server is launched.
 ///

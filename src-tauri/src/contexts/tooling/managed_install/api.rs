@@ -14,7 +14,8 @@ pub(crate) use super::domain::policy::{
 };
 #[allow(unused_imports)]
 pub(crate) use super::infrastructure::extraction::{
-    extract_zip, ExtractedArchive, ExtractionGuard, ExtractionLimits,
+    extract_tar_gz, extract_zip, ArchiveEntryKind, ExtractedArchive, ExtractionGuard,
+    ExtractionLimits,
 };
 #[allow(unused_imports)]
 pub(crate) use super::infrastructure::retriever::{
