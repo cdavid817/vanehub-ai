@@ -17,6 +17,10 @@ pub(crate) struct ProviderOutputFramer {
     #[cfg(test)]
     stderr: Vec<u8>,
     max_buffer_bytes: usize,
+    discarding_stdout: bool,
+    #[cfg(test)]
+    discarding_stderr: bool,
+    discarded_records: usize,
 }
 
 impl ProviderOutputFramer {
@@ -26,7 +30,17 @@ impl ProviderOutputFramer {
             #[cfg(test)]
             stderr: Vec::new(),
             max_buffer_bytes,
+            discarding_stdout: false,
+            #[cfg(test)]
+            discarding_stderr: false,
+            discarded_records: 0,
         }
+    }
+
+    /// How many oversized records this framer has dropped, so the consumer can say so out loud —
+    /// a silent drop would read as "the Agent never said that".
+    pub(crate) fn discarded_records(&self) -> usize {
+        self.discarded_records
     }
 
     pub(crate) fn push(
@@ -34,28 +48,67 @@ impl ProviderOutputFramer {
         stream: ProviderOutputStream,
         chunk: &[u8],
     ) -> Result<Vec<String>, &'static str> {
-        let buffer = match stream {
-            ProviderOutputStream::Stdout => &mut self.stdout,
+        match stream {
+            ProviderOutputStream::Stdout => Self::push_into(
+                &mut self.stdout,
+                &mut self.discarding_stdout,
+                &mut self.discarded_records,
+                self.max_buffer_bytes,
+                chunk,
+            ),
             #[cfg(test)]
-            ProviderOutputStream::Stderr => &mut self.stderr,
-        };
-        if buffer.len().saturating_add(chunk.len()) > self.max_buffer_bytes {
-            buffer.clear();
-            return Err("provider output record exceeds the bounded parser limit");
+            ProviderOutputStream::Stderr => Self::push_into(
+                &mut self.stderr,
+                &mut self.discarding_stderr,
+                &mut self.discarded_records,
+                self.max_buffer_bytes,
+                chunk,
+            ),
         }
-        buffer.extend_from_slice(chunk);
+    }
+
+    /// A record larger than the bound is dropped (through its terminating newline) rather than
+    /// failing the whole generation: one oversized tool result — a CLI reading a lockfile —
+    /// otherwise kills a seat turn that was doing real work. Later records parse normally.
+    fn push_into(
+        buffer: &mut Vec<u8>,
+        discarding: &mut bool,
+        discarded_records: &mut usize,
+        max_buffer_bytes: usize,
+        chunk: &[u8],
+    ) -> Result<Vec<String>, &'static str> {
         let mut lines = Vec::new();
-        while let Some(index) = buffer.iter().position(|byte| *byte == b'\n') {
-            let mut record = buffer.drain(..=index).collect::<Vec<_>>();
-            record.pop();
-            if record.last() == Some(&b'\r') {
-                record.pop();
+        let mut rest = chunk;
+        loop {
+            if *discarding {
+                match rest.iter().position(|byte| *byte == b'\n') {
+                    Some(index) => {
+                        *discarding = false;
+                        rest = &rest[index + 1..];
+                    }
+                    None => return Ok(lines),
+                }
             }
-            lines.push(
-                String::from_utf8(record).map_err(|_| "provider output contains invalid UTF-8")?,
-            );
+            if buffer.len().saturating_add(rest.len()) > max_buffer_bytes {
+                buffer.clear();
+                *discarding = true;
+                *discarded_records += 1;
+                continue;
+            }
+            buffer.extend_from_slice(rest);
+            while let Some(index) = buffer.iter().position(|byte| *byte == b'\n') {
+                let mut record = buffer.drain(..=index).collect::<Vec<_>>();
+                record.pop();
+                if record.last() == Some(&b'\r') {
+                    record.pop();
+                }
+                lines.push(
+                    String::from_utf8(record)
+                        .map_err(|_| "provider output contains invalid UTF-8")?,
+                );
+            }
+            return Ok(lines);
         }
-        Ok(lines)
     }
 
     pub(crate) fn finish(
@@ -91,6 +144,11 @@ impl<R: Read> BoundedProviderLines<R> {
             pending: VecDeque::new(),
             finished: false,
         }
+    }
+
+    /// Oversized records dropped so far; the consumer reports them after the stream ends.
+    pub(crate) fn discarded_records(&self) -> usize {
+        self.framer.discarded_records()
     }
 }
 
@@ -173,9 +231,7 @@ mod framer_tests {
     }
 
     #[test]
-    fn malformed_and_oversized_records_fail_closed() {
-        let mut framer = ProviderOutputFramer::new(4);
-        assert!(framer.push(ProviderOutputStream::Stdout, b"12345").is_err());
+    fn malformed_records_fail_closed() {
         let mut framer = ProviderOutputFramer::new(1024);
         assert!(framer
             .push(ProviderOutputStream::Stdout, &[0xff, b'\n'])
@@ -183,19 +239,56 @@ mod framer_tests {
     }
 
     #[test]
-    fn bounded_line_iterator_preserves_tail_and_classifies_failures() {
+    fn oversized_records_are_dropped_and_later_records_still_parse() {
+        // The oversized record spans several pushes; the record after its newline parses.
+        let mut framer = ProviderOutputFramer::new(4);
+        assert!(framer
+            .push(ProviderOutputStream::Stdout, b"12345")
+            .expect("oversized start")
+            .is_empty());
+        assert!(framer
+            .push(ProviderOutputStream::Stdout, b"67890")
+            .expect("oversized middle")
+            .is_empty());
+        assert_eq!(
+            framer
+                .push(ProviderOutputStream::Stdout, b"x\nok\n")
+                .expect("resumes after the newline"),
+            ["ok"]
+        );
+        assert_eq!(framer.discarded_records(), 1);
+
+        // The terminating newline and the next record arrive in the SAME chunk as the overflow.
+        let mut framer = ProviderOutputFramer::new(8);
+        assert_eq!(
+            framer
+                .push(ProviderOutputStream::Stdout, b"0123456789abcdef\nok\n")
+                .expect("skip within one chunk"),
+            ["ok"]
+        );
+        assert_eq!(framer.discarded_records(), 1);
+    }
+
+    #[test]
+    fn bounded_line_iterator_preserves_tail_and_skips_oversized_records() {
         let lines = BoundedProviderLines::new(&b"one\ntwo"[..], 16)
             .collect::<Result<Vec<_>, _>>()
             .expect("bounded lines");
         assert_eq!(lines, ["one", "two"]);
 
-        let error = BoundedProviderLines::new(&b"oversized"[..], 4)
+        let mut iterator = BoundedProviderLines::new(&b"oversized-record\nok\n"[..], 4);
+        let lines = (&mut iterator)
             .collect::<Result<Vec<_>, _>>()
-            .expect_err("oversized record");
-        assert_eq!(
-            error,
-            "provider output record exceeds the bounded parser limit"
-        );
+            .expect("skips the oversized record");
+        assert_eq!(lines, ["ok"]);
+        assert_eq!(iterator.discarded_records(), 1);
+
+        // An oversized record that never terminates is dropped entirely rather than surfaced as
+        // a truncated tail.
+        let lines = BoundedProviderLines::new(&b"oversized"[..], 4)
+            .collect::<Result<Vec<_>, _>>()
+            .expect("drops the unterminated oversized tail");
+        assert!(lines.is_empty());
     }
 
     #[test]

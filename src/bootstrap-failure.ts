@@ -10,7 +10,7 @@ interface BootstrapFailureOptions {
   root: HTMLElement;
   copy: BootstrapFailureCopy;
   error: unknown;
-  surface: "main" | "floating-assistant";
+  surface: "main" | "floating-assistant" | "region-capture";
   retry: () => void;
   report: (event: ClientLogEvent) => Promise<void>;
 }

@@ -18,11 +18,11 @@ fn definition_null_single_array_and_location_links_share_one_shape() {
     let directory = TempDirectory::new("semantic-definition-shapes");
     let target = directory.write("src/lib.rs", "fn alpha() {}\nfn beta() {}\n");
     let normalizer = normalizer(&directory);
-    assert!(normalizer.definitions(None).locations.is_empty());
+    assert!(normalizer.definitions(None).items.is_empty());
 
     let scalar = normalizer.definitions(Some(GotoDefinitionResponse::Scalar(location(&target, 0))));
     assert_eq!(scalar.total, 1);
-    assert_eq!(scalar.locations[0].file(), "src/lib.rs");
+    assert_eq!(scalar.items[0].file(), "src/lib.rs");
 
     let array = normalizer.definitions(Some(GotoDefinitionResponse::Array(vec![
         location(&target, 0),
@@ -37,7 +37,7 @@ fn definition_null_single_array_and_location_links_share_one_shape() {
         target_selection_range: range(1),
     };
     let linked = normalizer.definitions(Some(GotoDefinitionResponse::Link(vec![link])));
-    assert_eq!(linked.locations[0].range.start_line, 2);
+    assert_eq!(linked.items[0].range.start_line, 2);
 }
 
 #[test]
@@ -54,7 +54,7 @@ fn locations_outside_the_workspace_are_filtered_and_counted() {
 
     assert_eq!(result.total, 1);
     assert_eq!(result.filtered_count, 1);
-    assert_eq!(result.locations[0].file(), "src/lib.rs");
+    assert_eq!(result.items[0].file(), "src/lib.rs");
 }
 
 #[test]
@@ -69,7 +69,7 @@ fn non_file_uri_results_are_rejected_and_counted() {
 
     assert_eq!(result.total, 1);
     assert_eq!(result.filtered_count, 2);
-    assert_eq!(result.locations[0].file(), "src/lib.rs");
+    assert_eq!(result.items[0].file(), "src/lib.rs");
 }
 
 #[test]
@@ -81,7 +81,7 @@ fn oversized_definition_results_preserve_total_and_stop_at_the_hard_cap() {
     let result = normalizer(&directory).definitions(Some(GotoDefinitionResponse::Array(locations)));
 
     assert_eq!(result.total, 100);
-    assert_eq!(result.locations.len(), MAX_DEFINITIONS);
+    assert_eq!(result.items.len(), MAX_DEFINITIONS);
     assert!(result.truncated);
 }
 
@@ -98,10 +98,10 @@ fn references_are_sorted_then_truncated_with_the_accepted_total_preserved() {
     let result = normalizer(&directory).references(locations);
 
     assert_eq!(result.total, 60);
-    assert_eq!(result.locations.len(), MAX_REFERENCES);
+    assert_eq!(result.items.len(), MAX_REFERENCES);
     assert!(result.truncated);
-    assert_eq!(result.locations[0].range.start_line, 1);
-    assert_eq!(result.locations[49].range.start_line, 50);
+    assert_eq!(result.items[0].range.start_line, 1);
+    assert_eq!(result.items[49].range.start_line, 50);
 }
 
 #[test]
@@ -120,7 +120,7 @@ fn location_truncation_changes_only_after_each_exact_cap() {
     let definitions =
         normalizer.definitions(Some(GotoDefinitionResponse::Array(exact_definitions)));
     assert_eq!(definitions.total, MAX_DEFINITIONS);
-    assert_eq!(definitions.locations.len(), MAX_DEFINITIONS);
+    assert_eq!(definitions.items.len(), MAX_DEFINITIONS);
     assert!(!definitions.truncated);
 
     let over_references = (0..=MAX_REFERENCES as u32)
@@ -129,13 +129,10 @@ fn location_truncation_changes_only_after_each_exact_cap() {
         .collect();
     let references = normalizer.references(over_references);
     assert_eq!(references.total, MAX_REFERENCES + 1);
-    assert_eq!(references.locations.len(), MAX_REFERENCES);
+    assert_eq!(references.items.len(), MAX_REFERENCES);
     assert!(references.truncated);
-    assert_eq!(references.locations[0].range.start_line, 1);
-    assert_eq!(
-        references.locations[MAX_REFERENCES - 1].range.start_line,
-        50
-    );
+    assert_eq!(references.items[0].range.start_line, 1);
+    assert_eq!(references.items[MAX_REFERENCES - 1].range.start_line, 50);
 }
 
 #[test]
@@ -145,7 +142,7 @@ fn previews_are_utf8_safe_and_hard_bounded() {
 
     let result = normalizer(&directory)
         .definitions(Some(GotoDefinitionResponse::Scalar(location(&target, 0))));
-    let preview = result.locations[0].preview.as_deref().expect("preview");
+    let preview = result.items[0].preview.as_deref().expect("preview");
 
     assert!(preview.len() <= MAX_PREVIEW_BYTES);
     assert!(preview.is_char_boundary(preview.len()));

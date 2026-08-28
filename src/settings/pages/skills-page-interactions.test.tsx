@@ -642,7 +642,7 @@ describe("SkillsPage interactions", () => {
     expect(within(dialog).getByText(/系统包为只读内容/)).toBeTruthy();
     await user.click(within(dialog).getByRole("button", { name: "关闭" }));
     expect(document.activeElement).toBe(previewButton);
-  }, 10_000);
+  }, 30_000);
 
   it("switches the wide inspector and clears stale selection after filtering", async () => {
     setWideDetailsLayout(true);

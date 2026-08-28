@@ -25,6 +25,8 @@ const CONNECTION_TIMEOUT: Duration = Duration::from_secs(5);
 /// after SQLite reports commit success; physical media destruction remains outside this boundary.
 const SQLITE_SYNCHRONOUS_FULL: i64 = 2;
 
+#[cfg(test)]
+pub(crate) use migrations::expected_migration_versions;
 pub(crate) use migrations::{migrate, table_has_column};
 
 const DATABASE_FILE_NAME: &str = "vanehub.sqlite";
@@ -256,13 +258,13 @@ mod tests {
             .expect("native tool persistence migration");
 
         // Row count rather than maximum version. They agree only while history is dense, so a
-        // branch that reserves a number ahead of an unmerged one will see these diverge. Compared
-        // against the declared list rather than a literal: what is worth asserting is that every
-        // migration this binary declares recorded a row, and a number typed in here only asserts
-        // that somebody remembered to retype it.
+        // branch that reserves a number ahead of an unmerged one will see these diverge.
+        //
+        // Derived from the migration list rather than a literal: a hardcoded count means every new
+        // migration fails this assertion for a reason unrelated to what it is testing.
         assert_eq!(
             migration_count,
-            migrations::EXPECTED_MIGRATIONS.len() as i64
+            i64::try_from(expected_migration_versions().len()).expect("migration count fits")
         );
         assert_eq!(foreign_keys, 1);
         assert_eq!(synchronous, SQLITE_SYNCHRONOUS_FULL);
@@ -325,11 +327,11 @@ mod tests {
             .expect("migration count");
 
         assert_eq!(value, "preserved");
-        // Derived for the same reason as the count above: what a reopen must preserve is every
-        // migration this binary declares, and a literal only preserves somebody retyping it.
+        // Derived, not literal: reopening must replay nothing, and a hardcoded count turns every
+        // future migration into a failure of this test rather than of what it actually asserts.
         assert_eq!(
             migration_count,
-            migrations::EXPECTED_MIGRATIONS.len() as i64
+            i64::try_from(expected_migration_versions().len()).expect("migration count fits")
         );
     }
 

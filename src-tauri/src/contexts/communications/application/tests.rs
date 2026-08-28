@@ -1,14 +1,16 @@
 use super::*;
 use crate::contexts::communications::domain::{
     BindingState, ChatBindingKey, CheckpointKey, ConnectorCheckpoint, ConnectorConfig,
-    ConnectorHealth, ConnectorKind, InboundEventIdentity, NormalizedInbound, PairingIntent,
-    RoutingSettings, SessionBinding,
+    ConnectorHealth, ConnectorKind, ConnectorLifecycle, InboundEventIdentity, NormalizedInbound,
+    PairingIntent, RoutingSettings, SessionBinding, SessionConnectorAccess,
 };
 use async_trait::async_trait;
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Barrier, Mutex};
+use std::thread;
+use std::time::Duration as StdDuration;
 use zeroize::Zeroizing;
 
 #[derive(Default)]
@@ -24,6 +26,8 @@ struct FakeRepository {
     managed_bindings: Mutex<HashMap<(ConnectorKind, String), SessionBinding>>,
     notification_deliveries: Mutex<HashSet<(String, String, ConnectorKind)>>,
     delivery_references: Mutex<HashMap<String, String>>,
+    session_access: Mutex<HashMap<(String, ConnectorKind), SessionConnectorAccess>>,
+    fail_session_access: AtomicBool,
 }
 
 impl CommunicationsRepository for FakeRepository {
@@ -168,6 +172,45 @@ impl CommunicationsRepository for FakeRepository {
             .expect("bindings")
             .get(&(key.connector(), key.external_chat_id().to_string()))
             .cloned())
+    }
+
+    fn session_access(
+        &self,
+        session_id: &str,
+        connector: ConnectorKind,
+    ) -> Result<SessionConnectorAccess, CommunicationsApplicationError> {
+        if self.fail_session_access.load(Ordering::Acquire) {
+            return Err(CommunicationsApplicationError::failure(
+                "communications-repository-failed",
+            ));
+        }
+        Ok(self
+            .session_access
+            .lock()
+            .expect("session access")
+            .get(&(session_id.to_string(), connector))
+            .cloned()
+            .unwrap_or_else(|| SessionConnectorAccess::disabled(session_id, connector)))
+    }
+
+    fn set_session_access(
+        &self,
+        session_id: &str,
+        connector: ConnectorKind,
+        enabled: bool,
+        updated_at: &str,
+    ) -> Result<SessionConnectorAccess, CommunicationsApplicationError> {
+        let access = SessionConnectorAccess {
+            session_id: session_id.to_string(),
+            connector,
+            enabled,
+            updated_at: updated_at.to_string(),
+        };
+        self.session_access
+            .lock()
+            .expect("session access")
+            .insert((session_id.to_string(), connector), access.clone());
+        Ok(access)
     }
 
     fn save_pairing_intent(
@@ -555,7 +598,23 @@ impl CommunicationsTransportPort for FakeTransports {
 #[derive(Default)]
 struct FakeAgents {
     validations: Mutex<Vec<RoutingSettings>>,
-    executions: Mutex<Vec<(String, String)>>,
+    executions: Mutex<Vec<(ConnectorKind, String, String)>>,
+    invalid_mentions: Mutex<Option<Vec<String>>>,
+    execution_gate: Mutex<Option<Arc<ExecutionGate>>>,
+}
+
+struct ExecutionGate {
+    started: Barrier,
+    release: Barrier,
+}
+
+impl ExecutionGate {
+    fn new() -> Self {
+        Self {
+            started: Barrier::new(2),
+            release: Barrier::new(2),
+        }
+    }
 }
 
 impl CommunicationsAgentExecutionPort for FakeAgents {
@@ -574,15 +633,28 @@ impl CommunicationsAgentExecutionPort for FakeAgents {
     fn execute(
         &self,
         request: AgentExecutionRequest,
-    ) -> Result<AgentExecutionResult, CommunicationsApplicationError> {
-        self.executions
+    ) -> Result<AgentExecutionOutcome, CommunicationsApplicationError> {
+        self.executions.lock().expect("executions").push((
+            request.connector,
+            request.session_id,
+            request.text,
+        ));
+        if let Some(gate) = self.execution_gate.lock().expect("execution gate").clone() {
+            gate.started.wait();
+            gate.release.wait();
+        }
+        if let Some(valid_mentions) = self
+            .invalid_mentions
             .lock()
-            .expect("executions")
-            .push((request.session_id, request.text));
-        Ok(AgentExecutionResult {
+            .expect("invalid mentions")
+            .take()
+        {
+            return Ok(AgentExecutionOutcome::InvalidSeat { valid_mentions });
+        }
+        Ok(AgentExecutionOutcome::Reply(AgentExecutionResult {
             reply: "final reply".to_string(),
             message_id: "message-1".to_string(),
-        })
+        }))
     }
 }
 
@@ -688,6 +760,7 @@ fn fixture() -> Fixture {
         pairing_invalid: "The pairing code is invalid or expired.",
         pairing_established: "IM connection established.",
         completion: "The session task has completed.",
+        invalid_seat: "The mentioned seat is unavailable. Valid seats:",
     })
 }
 
@@ -732,6 +805,7 @@ fn simplified_chinese_copy() -> CommunicationsCopy {
         pairing_invalid: "配对码无效或已过期。",
         pairing_established: "IM 连接已建立。",
         completion: "会话任务已完成。",
+        invalid_seat: "提及的席位不可用。可用席位：",
     }
 }
 
@@ -766,6 +840,14 @@ fn inbound_text(text: &str) -> NormalizedInbound {
     }
 }
 
+fn feishu_inbound_text(text: &str) -> NormalizedInbound {
+    NormalizedInbound {
+        connector: ConnectorKind::Feishu,
+        text: text.to_string(),
+        ..inbound(true)
+    }
+}
+
 fn session_binding(session_id: &str, state: BindingState) -> SessionBinding {
     SessionBinding {
         connector: ConnectorKind::Telegram,
@@ -775,6 +857,42 @@ fn session_binding(session_id: &str, state: BindingState) -> SessionBinding {
         created_at: "2026-07-18T10:00:00Z".to_string(),
         updated_at: "2026-07-18T10:00:00Z".to_string(),
     }
+}
+
+fn grant_session_access(fixture: &Fixture, session_id: &str, connector: ConnectorKind) {
+    fixture
+        .repository
+        .session_access
+        .lock()
+        .expect("session access")
+        .insert(
+            (session_id.to_string(), connector),
+            SessionConnectorAccess {
+                session_id: session_id.to_string(),
+                connector,
+                enabled: true,
+                updated_at: "2026-07-18T10:00:00Z".to_string(),
+            },
+        );
+}
+
+fn install_feishu_binding(fixture: &Fixture, state: BindingState, notifications: bool) {
+    fixture
+        .repository
+        .managed_bindings
+        .lock()
+        .expect("bindings")
+        .insert(
+            (ConnectorKind::Feishu, "chat-1".to_string()),
+            SessionBinding {
+                connector: ConnectorKind::Feishu,
+                session_id: "session-1".to_string(),
+                state,
+                completion_notifications: notifications,
+                created_at: "2026-07-18T10:00:00Z".to_string(),
+                updated_at: "2026-07-18T10:00:00Z".to_string(),
+            },
+        );
 }
 
 #[tokio::test]
@@ -1184,6 +1302,7 @@ async fn saved_connector_startup_reports_each_connector_without_first_failure_ab
 #[tokio::test]
 async fn pairing_is_expiring_single_use_and_routes_only_after_binding() {
     let fixture = fixture();
+    grant_session_access(&fixture, "session-1", ConnectorKind::Telegram);
     fixture
         .repository
         .configurations
@@ -1291,8 +1410,384 @@ async fn pairing_is_expiring_single_use_and_routes_only_after_binding() {
 }
 
 #[tokio::test]
+async fn every_connector_requires_its_own_session_access_before_pairing() {
+    let fixture = fixture();
+    for connector in ConnectorKind::ALL {
+        let error = fixture
+            .service
+            .begin_pairing("session-1", connector, false)
+            .await
+            .expect_err("missing access must deny pairing");
+        assert_eq!(error.safe_code(), "im-session-disabled");
+    }
+
+    fixture
+        .service
+        .set_session_access("session-1", ConnectorKind::Feishu, true)
+        .expect("enable only Feishu");
+    let isolated = fixture
+        .service
+        .begin_pairing("session-1", ConnectorKind::Telegram, false)
+        .await
+        .expect_err("Feishu access must not authorize Telegram");
+    assert_eq!(isolated.safe_code(), "im-session-disabled");
+}
+
+#[tokio::test]
+async fn feishu_access_gates_pairing_routing_and_notifications() {
+    let fixture = fixture();
+    fixture
+        .repository
+        .configurations
+        .lock()
+        .expect("configurations")
+        .insert(
+            ConnectorKind::Feishu,
+            ConnectorConfig {
+                kind: ConnectorKind::Feishu,
+                enabled: true,
+                display_name: None,
+                public_config: json!({}),
+                credential_ref: Some("im/feishu/default".to_string()),
+            },
+        );
+    fixture
+        .credentials
+        .store(ConnectorKind::Feishu, "private-token")
+        .expect("credential");
+    fixture
+        .transports
+        .health
+        .lock()
+        .expect("health")
+        .push(ConnectorHealth {
+            kind: ConnectorKind::Feishu,
+            lifecycle: crate::contexts::communications::domain::ConnectorLifecycle::Connected,
+            generation: 1,
+            safe_error_code: None,
+            updated_at: "2026-07-18T10:00:00Z".to_string(),
+        });
+
+    let disabled = fixture
+        .service
+        .begin_pairing("session-1", ConnectorKind::Feishu, false)
+        .await
+        .expect_err("disabled by default");
+    assert_eq!(disabled.safe_code(), "im-session-disabled");
+
+    let enabled = fixture
+        .service
+        .set_session_access("session-1", ConnectorKind::Feishu, true)
+        .expect("enable access");
+    assert!(enabled.enabled);
+    let pairing = fixture
+        .service
+        .begin_pairing("session-1", ConnectorKind::Feishu, false)
+        .await
+        .expect("pairing");
+
+    fixture
+        .service
+        .set_session_access("session-1", ConnectorKind::Feishu, false)
+        .expect("disable before bind");
+    let blocked_bind = fixture
+        .service
+        .route_inbound(feishu_inbound_text(&format!("/bind {}", pairing.code)))
+        .expect_err("binding consumption must be gated");
+    assert_eq!(blocked_bind.safe_code(), "im-session-disabled");
+
+    fixture
+        .service
+        .set_session_access("session-1", ConnectorKind::Feishu, true)
+        .expect("re-enable");
+    assert!(matches!(
+        fixture
+            .service
+            .route_inbound(feishu_inbound_text(&format!("/bind {}", pairing.code)))
+            .expect("bind"),
+        InboundRouteOutcome::SystemReply { .. }
+    ));
+    fixture
+        .service
+        .set_completion_notifications("session-1", true)
+        .expect("notifications");
+
+    fixture
+        .service
+        .set_session_access("session-1", ConnectorKind::Feishu, false)
+        .expect("disable bound session");
+    let blocked_route = fixture
+        .service
+        .route_inbound(feishu_inbound_text("status please"))
+        .expect_err("routing must be gated");
+    assert_eq!(blocked_route.safe_code(), "im-session-disabled");
+    assert!(fixture.agents.executions.lock().expect("agents").is_empty());
+    let blocked_notification = fixture
+        .service
+        .notify_session_completion("session-1", "message-disabled", false)
+        .await
+        .expect_err("notifications must be gated");
+    assert_eq!(blocked_notification.safe_code(), "im-session-disabled");
+    assert!(fixture
+        .transports
+        .actions
+        .lock()
+        .expect("actions")
+        .iter()
+        .all(|action| !action.starts_with("notify:")));
+
+    fixture
+        .service
+        .set_session_access("session-1", ConnectorKind::Feishu, true)
+        .expect("enable bound session");
+    assert!(matches!(
+        fixture
+            .service
+            .route_inbound(feishu_inbound_text("status please"))
+            .expect("route"),
+        InboundRouteOutcome::Reply { session_id, .. } if session_id == "session-1"
+    ));
+    assert!(fixture
+        .service
+        .notify_session_completion("session-1", "message-enabled", false)
+        .await
+        .expect("notification"));
+    assert_eq!(
+        fixture.agents.executions.lock().expect("agents").as_slice(),
+        [(
+            ConnectorKind::Feishu,
+            "session-1".to_string(),
+            "status please".to_string(),
+        )]
+    );
+    *fixture
+        .agents
+        .invalid_mentions
+        .lock()
+        .expect("invalid mentions") = Some(vec!["架构师".to_string(), "实现者".to_string()]);
+    assert_eq!(
+        fixture
+            .service
+            .route_inbound(feishu_inbound_text("@已移除席位 继续"))
+            .expect("safe invalid-seat response"),
+        InboundRouteOutcome::SystemReply {
+            text: "The mentioned seat is unavailable. Valid seats: @架构师, @实现者".to_string(),
+        }
+    );
+}
+
+#[test]
+fn session_access_toggle_preserves_a_manual_binding_pause() {
+    let fixture = fixture();
+    install_feishu_binding(&fixture, BindingState::Active, false);
+    fixture
+        .service
+        .set_session_access("session-1", ConnectorKind::Feishu, true)
+        .expect("enable access");
+    fixture
+        .service
+        .set_binding_paused("session-1", true)
+        .expect("manual pause");
+
+    fixture
+        .service
+        .set_session_access("session-1", ConnectorKind::Feishu, false)
+        .expect("disable access");
+    fixture
+        .service
+        .set_session_access("session-1", ConnectorKind::Feishu, true)
+        .expect("re-enable access");
+
+    let binding = fixture
+        .repository
+        .binding_for_session("session-1")
+        .expect("binding lookup")
+        .expect("binding");
+    assert_eq!(binding.state, BindingState::Paused);
+    assert!(matches!(
+        fixture
+            .service
+            .route_inbound(feishu_inbound_text("status please"))
+            .expect("paused guidance"),
+        InboundRouteOutcome::SystemReply { text } if text.contains("paused")
+    ));
+    assert!(fixture.agents.executions.lock().expect("agents").is_empty());
+}
+
+#[tokio::test]
+async fn feishu_pairing_requires_connected_transport_health() {
+    let fixture = fixture();
+    fixture
+        .repository
+        .configurations
+        .lock()
+        .expect("configurations")
+        .insert(
+            ConnectorKind::Feishu,
+            ConnectorConfig {
+                kind: ConnectorKind::Feishu,
+                enabled: true,
+                display_name: None,
+                public_config: json!({}),
+                credential_ref: Some("im/feishu/default".to_string()),
+            },
+        );
+    fixture
+        .credentials
+        .store(ConnectorKind::Feishu, "private-token")
+        .expect("credential");
+    fixture
+        .service
+        .set_session_access("session-1", ConnectorKind::Feishu, true)
+        .expect("enable access");
+
+    let unavailable = fixture
+        .service
+        .begin_pairing("session-1", ConnectorKind::Feishu, false)
+        .await
+        .expect_err("disconnected transport");
+    assert_eq!(unavailable.safe_code(), "im-connector-not-ready");
+    assert!(fixture
+        .repository
+        .pairing_intents
+        .lock()
+        .expect("pairings")
+        .is_empty());
+
+    fixture
+        .transports
+        .health
+        .lock()
+        .expect("health")
+        .push(ConnectorHealth {
+            kind: ConnectorKind::Feishu,
+            lifecycle: ConnectorLifecycle::Connected,
+            generation: 1,
+            safe_error_code: None,
+            updated_at: "2026-07-18T10:00:00Z".to_string(),
+        });
+    assert!(fixture
+        .service
+        .begin_pairing("session-1", ConnectorKind::Feishu, false)
+        .await
+        .is_ok());
+}
+
+#[tokio::test]
+async fn session_access_repository_failures_deny_pairing_routing_and_notifications() {
+    let fixture = fixture();
+    install_feishu_binding(&fixture, BindingState::Active, true);
+    fixture
+        .repository
+        .session_access
+        .lock()
+        .expect("session access")
+        .insert(
+            ("session-1".to_string(), ConnectorKind::Feishu),
+            SessionConnectorAccess {
+                session_id: "session-1".to_string(),
+                connector: ConnectorKind::Feishu,
+                enabled: true,
+                updated_at: "2026-07-18T10:00:00Z".to_string(),
+            },
+        );
+    fixture
+        .repository
+        .fail_session_access
+        .store(true, Ordering::Release);
+
+    let pairing = fixture
+        .service
+        .begin_pairing("session-1", ConnectorKind::Feishu, false)
+        .await
+        .expect_err("repository failure must deny pairing");
+    assert_eq!(pairing.safe_code(), "communications-repository-failed");
+    let routing = fixture
+        .service
+        .route_inbound(feishu_inbound_text("status please"))
+        .expect_err("repository failure must deny routing");
+    assert_eq!(routing.safe_code(), "communications-repository-failed");
+    let notification = fixture
+        .service
+        .notify_session_completion("session-1", "message-1", false)
+        .await
+        .expect_err("repository failure must suppress notification");
+    assert_eq!(notification.safe_code(), "communications-repository-failed");
+    assert!(fixture.agents.executions.lock().expect("agents").is_empty());
+    assert!(fixture
+        .transports
+        .actions
+        .lock()
+        .expect("actions")
+        .iter()
+        .all(|action| !action.starts_with("notify:")));
+}
+
+#[test]
+fn completed_disable_excludes_subsequent_inbound_during_a_concurrent_turn() {
+    let fixture = fixture();
+    install_feishu_binding(&fixture, BindingState::Active, false);
+    fixture
+        .service
+        .set_session_access("session-1", ConnectorKind::Feishu, true)
+        .expect("enable access");
+    let gate = Arc::new(ExecutionGate::new());
+    *fixture
+        .agents
+        .execution_gate
+        .lock()
+        .expect("execution gate") = Some(gate.clone());
+
+    let inbound_service = fixture.service.clone();
+    let inbound_thread = thread::spawn(move || {
+        inbound_service.route_inbound(feishu_inbound_text("admitted before disable"))
+    });
+    gate.started.wait();
+
+    let disable_service = fixture.service.clone();
+    let (disabled_tx, disabled_rx) = mpsc::channel();
+    let disable_thread = thread::spawn(move || {
+        let result = disable_service.set_session_access("session-1", ConnectorKind::Feishu, false);
+        disabled_tx.send(result).expect("disable result receiver");
+    });
+    assert!(disabled_rx
+        .recv_timeout(StdDuration::from_millis(50))
+        .is_err());
+
+    gate.release.wait();
+    assert!(matches!(
+        inbound_thread
+            .join()
+            .expect("inbound thread")
+            .expect("inbound"),
+        InboundRouteOutcome::Reply { .. }
+    ));
+    assert!(
+        !disabled_rx
+            .recv_timeout(StdDuration::from_secs(1))
+            .expect("disable completion")
+            .expect("disable access")
+            .enabled
+    );
+    disable_thread.join().expect("disable thread");
+    *fixture
+        .agents
+        .execution_gate
+        .lock()
+        .expect("execution gate") = None;
+
+    let blocked = fixture
+        .service
+        .route_inbound(feishu_inbound_text("arrived after disable"))
+        .expect_err("completed disable must exclude subsequent inbound");
+    assert_eq!(blocked.safe_code(), "im-session-disabled");
+    assert_eq!(fixture.agents.executions.lock().expect("agents").len(), 1);
+}
+
+#[tokio::test]
 async fn inbound_status_and_completion_messages_use_injected_locale_copy() {
     let fixture = fixture_with_copy(simplified_chinese_copy());
+    grant_session_access(&fixture, "session-1", ConnectorKind::Telegram);
     fixture
         .repository
         .configurations
@@ -1394,6 +1889,7 @@ async fn inbound_status_and_completion_messages_use_injected_locale_copy() {
 #[test]
 fn stale_session_binding_is_removed_without_agent_execution() {
     let fixture = fixture();
+    grant_session_access(&fixture, "deleted-session", ConnectorKind::Telegram);
     fixture
         .repository
         .managed_bindings
@@ -1448,14 +1944,14 @@ fn paused_and_removed_bindings_block_delivery() {
         .expect("notifications");
     assert!(fixture
         .service
-        .session_binding("session-1")
+        .session_binding("session-1", ConnectorKind::Feishu)
         .expect("snapshot")
         .binding
         .is_some_and(|binding| binding.completion_notifications));
     assert!(fixture.service.remove_binding("session-1").expect("remove"));
     assert!(fixture
         .service
-        .session_binding("session-1")
+        .session_binding("session-1", ConnectorKind::Feishu)
         .expect("snapshot")
         .binding
         .is_none());
@@ -1464,6 +1960,7 @@ fn paused_and_removed_bindings_block_delivery() {
 #[test]
 fn router_uses_dedup_routing_binding_and_agent_ports() {
     let fixture = fixture();
+    grant_session_access(&fixture, "session-1", ConnectorKind::Telegram);
     fixture
         .repository
         .managed_bindings
@@ -1639,6 +2136,7 @@ async fn credential_store_failure_does_not_fall_back_to_plaintext_configuration(
 #[test]
 fn existing_binding_ignores_changed_routing_defaults() {
     let fixture = fixture();
+    grant_session_access(&fixture, "session-existing", ConnectorKind::Telegram);
     fixture
         .repository
         .managed_bindings
@@ -1680,7 +2178,11 @@ fn existing_binding_ignores_changed_routing_defaults() {
             .lock()
             .expect("executions")
             .as_slice(),
-        [("session-existing".to_string(), "status please".to_string())]
+        [(
+            ConnectorKind::Telegram,
+            "session-existing".to_string(),
+            "status please".to_string(),
+        )]
     );
 }
 

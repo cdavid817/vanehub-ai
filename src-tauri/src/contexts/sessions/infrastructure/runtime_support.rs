@@ -379,6 +379,9 @@ fn agent_runtime_error(error: AgentRuntimeApplicationError) -> SessionsApplicati
         AgentRuntimeApplicationError::AgentNotFound(agent_id) => {
             SessionsApplicationError::AgentNotFound(agent_id)
         }
+        AgentRuntimeApplicationError::InvalidSeatMention { .. } => {
+            SessionsApplicationError::Validation("Mentioned seat is unavailable.".to_string())
+        }
         AgentRuntimeApplicationError::SessionNotFound(session_id) => {
             SessionsApplicationError::SessionNotFound(session_id)
         }

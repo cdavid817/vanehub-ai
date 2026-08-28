@@ -316,16 +316,18 @@ fn skill_reliability_migration_upgrades_database_without_api_binding_table() {
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .expect("fixture migration state");
-    // Derived rather than written down. The fixture is "everything this binary migrates, less
-    // version 37", and spelling that as a pair of literals means every future migration fails a
-    // test about Skill reliability -- which reads as a regression in the thing being changed
-    // rather than as arithmetic that moved.
-    let expected_ceiling = EXPECTED_MIGRATIONS
-        .last()
-        .expect("the migration list is never empty")
-        .0;
-    let expected_count = EXPECTED_MIGRATIONS.len() as i64 - 1;
-    assert_eq!(migration_state, (expected_count, expected_ceiling));
+    // The fixture is built one migration short of the full history, so the count trails the list
+    // by one while the maximum version matches it. Both are derived, because hardcoding either
+    // makes every future migration fail this test for an unrelated reason.
+    let full_history = super::expected_migration_versions();
+    let latest = *full_history.last().expect("at least one migration");
+    assert_eq!(
+        migration_state,
+        (
+            i64::try_from(full_history.len()).expect("count fits") - 1,
+            latest
+        )
+    );
 
     migrate(&connection).expect("upgrade migration");
 
@@ -627,6 +629,42 @@ fn session_seat_migration_adds_the_column_and_leaves_existing_rows_readable() {
 /// those (version, name) rows — this guards against both drift in the constant and a
 /// silent version-number collision (the second migration claiming a number is skipped, so
 /// the recorded name would be the first's, not the expected one).
+#[test]
+fn migration_versions_are_unique_and_dense() {
+    // A duplicate number is the failure mode this guards. `apply_migration` is version-gated, so
+    // the *second* claimant is silently skipped -- its table is simply never created, and the
+    // symptom arrives much later as an opaque "no such table" at runtime. Two branches each adding
+    // "the next migration" is all it takes, and every worktree here shares one database file.
+    let versions = expected_migration_versions();
+
+    let mut sorted = versions.clone();
+    sorted.sort_unstable();
+    sorted.dedup();
+    assert_eq!(
+        sorted.len(),
+        versions.len(),
+        "two migrations claim the same version; the second would never run"
+    );
+
+    assert_eq!(
+        versions, sorted,
+        "EXPECTED_MIGRATIONS is not in ascending order"
+    );
+    for (index, version) in versions.iter().enumerate() {
+        let expected = i64::try_from(index).expect("index fits") + 1;
+        assert_eq!(
+            *version, expected,
+            "migration history has a gap at position {index}"
+        );
+    }
+
+    let mut names: Vec<&str> = EXPECTED_MIGRATIONS.iter().map(|(_, name)| *name).collect();
+    let total = names.len();
+    names.sort_unstable();
+    names.dedup();
+    assert_eq!(names.len(), total, "two migrations share a name");
+}
+
 #[test]
 fn migration_sequence_matches_expected() {
     let connection = Connection::open_in_memory().expect("database");
@@ -1050,7 +1088,7 @@ fn retire_plan_execution_preserves_history_and_mixed_work_items() {
     );
 }
 
-/// The nine tables versions 81 through 84 are responsible for.
+/// The nine tables versions 88 through 91 are responsible for.
 ///
 /// Named rather than counted. A count still passes when a rename leaves the old table behind and
 /// creates a new one beside it, which is the shape of the mistake this is here to catch.
@@ -1127,7 +1165,7 @@ fn evidence_console_migrations_restore_their_schema_after_a_version_collision() 
 
     let recorded: i64 = connection
         .query_row(
-            "SELECT COUNT(*) FROM schema_migrations WHERE version BETWEEN 81 AND 84",
+            "SELECT COUNT(*) FROM schema_migrations WHERE version BETWEEN 88 AND 91",
             [],
             |row| row.get(0),
         )
@@ -1238,4 +1276,179 @@ fn the_journal_starts_empty_on_a_database_that_already_holds_chat_history() {
         1,
         "and it must not consume the history either"
     );
+}
+
+/// The upgrade path the `81` collision created.
+///
+/// `add-local-composer-media-tools` and `upgrade-cli-parameter-management` both reserved 81 while
+/// unmerged. The CLI change landed first, so local media moved to 82 -- which means a database that
+/// already carries 81 must gain exactly one migration, and the two schemas must not disturb each
+/// other. A renumber that quietly re-ran or skipped one of them would leave a table missing and
+/// surface much later as an opaque "no such table".
+#[test]
+fn a_database_holding_the_cli_parameter_migration_gains_only_local_media() {
+    let connection = Connection::open_in_memory().expect("in-memory database");
+    migrate(&connection).expect("current schema");
+
+    // Rewind to the state a build from `main` leaves behind: 81 applied, nothing after it seen.
+    // Everything above 81 goes, not just 82: this branch adds the source-aware CLI environment
+    // tables at 83-85, and leaving those rows behind would rewind the history into a gap rather
+    // than to a real earlier state.
+    connection
+        .execute_batch(
+            r#"
+            DELETE FROM schema_migrations WHERE version >= 82;
+            DROP TABLE local_media_profiles;
+            DROP TABLE cli_action_plans;
+            DROP TABLE cli_version_catalogs;
+            DROP TABLE cli_environment_snapshots;
+            DROP TABLE im_session_connector_access;
+            "#,
+        )
+        .expect("pre-82 fixture");
+    let before: (i64, i64) = connection
+        .query_row(
+            "SELECT COUNT(*), MAX(version) FROM schema_migrations",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("fixture state");
+    assert_eq!(before, (81, 81));
+    migrate(&connection).expect("upgrade migration");
+    let after: (i64, i64) = connection
+        .query_row(
+            "SELECT COUNT(*), MAX(version) FROM schema_migrations",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("upgraded state");
+    // Derived: the upgrade replays everything above 81, and hardcoding the total makes every
+    // future migration fail this test for a reason that has nothing to do with the renumber.
+    let history = super::expected_migration_versions();
+    assert_eq!(
+        after,
+        (
+            i64::try_from(history.len()).expect("count fits"),
+            *history.last().expect("at least one migration")
+        )
+    );
+    // The point of the renumber: local-media took 82, and did not displace 81.
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT name FROM schema_migrations WHERE version = 82",
+                [],
+                |row| row.get::<_, String>(0)
+            )
+            .expect("migration 82"),
+        "local-media-profiles"
+    );
+    // Both schemas present, neither overwritten by the other.
+    for table in ["local_media_profiles", "cli_parameter_profiles"] {
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                    params![table],
+                    |row| row.get::<_, i64>(0)
+                )
+                .expect("table lookup"),
+            1,
+            "{table} is missing after the upgrade"
+        );
+    }
+    // Idempotent: a second start applies nothing further.
+    migrate(&connection).expect("second start");
+    let repeated: i64 = connection
+        .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| {
+            row.get(0)
+        })
+        .expect("repeat count");
+    assert_eq!(repeated, i64::try_from(history.len()).expect("count fits"));
+}
+
+/// The other side of the same collision -- the side a renumber is most likely to forget.
+///
+/// A database written by this branch before it merged records `(81, "local-media-profiles")`. On
+/// the merged binary the version gate skips 81, so `cli_parameter_profiles` is never created; 82
+/// re-runs local media's idempotent schema and succeeds; and the history is dense `1..82`, so the
+/// startup check passes and nothing is reported. The damage surfaces at the next managed CLI
+/// launch, which reads that table, and a restart repeats the skip forever.
+#[test]
+fn a_database_holding_the_unmerged_local_media_migration_regains_the_cli_parameter_schema() {
+    let connection = Connection::open_in_memory().expect("in-memory database");
+    migrate(&connection).expect("current schema");
+    // Rewind to the state an unmerged `worktree-ocr` build leaves behind: local media recorded at
+    // 81 under its old number, nothing at 82, and the CLI parameter table never created.
+    connection
+        .execute_batch(
+            r#"
+            DELETE FROM schema_migrations WHERE version >= 82;
+            UPDATE schema_migrations SET name = 'local-media-profiles' WHERE version = 81;
+            DROP TABLE cli_parameter_profiles;
+            DROP TABLE cli_action_plans;
+            DROP TABLE cli_version_catalogs;
+            DROP TABLE cli_environment_snapshots;
+            DROP TABLE im_session_connector_access;
+            "#,
+        )
+        .expect("pre-merge fixture");
+    assert_eq!(
+        table_count(&connection, "cli_parameter_profiles"),
+        0,
+        "the fixture must start without the CLI parameter table"
+    );
+    migrate(&connection).expect("upgrade migration");
+    // Without the reconciliation the CLI parameter table is still missing here, and every
+    // `resolve_launch_parameters` call fails with a repository error nobody can act on.
+    for table in ["cli_parameter_profiles", "local_media_profiles"] {
+        assert_eq!(
+            table_count(&connection, table),
+            1,
+            "{table} is missing after the upgrade"
+        );
+    }
+    // The recorded history is left alone: rewriting another build's rows is how this collision
+    // became dangerous in the first place.
+    let state: (i64, i64) = connection
+        .query_row(
+            "SELECT COUNT(*), MAX(version) FROM schema_migrations",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("upgraded state");
+    let history = super::expected_migration_versions();
+    assert_eq!(
+        state,
+        (
+            i64::try_from(history.len()).expect("count fits"),
+            *history.last().expect("at least one migration")
+        )
+    );
+
+    // Idempotent: a second start neither repeats the repair destructively nor records anything.
+    migrate(&connection).expect("second start");
+    for table in ["cli_parameter_profiles", "local_media_profiles"] {
+        assert_eq!(
+            table_count(&connection, table),
+            1,
+            "{table} vanished on the second start"
+        );
+    }
+    let repeated: i64 = connection
+        .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| {
+            row.get(0)
+        })
+        .expect("repeat count");
+    assert_eq!(repeated, i64::try_from(history.len()).expect("count fits"));
+}
+
+fn table_count(connection: &Connection, table: &str) -> i64 {
+    connection
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+            params![table],
+            |row| row.get::<_, i64>(0),
+        )
+        .expect("table lookup")
 }

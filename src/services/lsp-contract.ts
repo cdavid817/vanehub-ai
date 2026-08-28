@@ -1,22 +1,22 @@
 import {
   lspDiscoveryAvailabilities,
   lspDocumentSyncModes,
-  lspLanguageIds,
+  lspLanguageIdPattern,
+  lspOverrideTargets,
   lspPositionEncodings,
   lspProcessStates,
   lspSafeReasonCodes,
-  lspServerKinds,
   lspServerTestPhases,
   lspServerTestPhaseStatuses,
   type JsonObject,
   type JsonValue,
   type LspConfiguration,
   type LspLanguageConfiguration,
-  type LspLanguageId,
+  type LspLanguageDescriptor,
   type LspNegotiatedCapabilities,
+  type LspNegotiatedMethod,
   type LspSafeReasonCode,
   type LspServerDiscovery,
-  type LspServerKind,
   type LspServerStatus,
   type LspServerTestInput,
   type LspServerTestPhaseResult,
@@ -117,34 +117,58 @@ function initializationOptions(value: unknown): JsonObject {
   return result;
 }
 
-function expectedServer(language: LspLanguageId): LspServerKind {
-  return language === "rust" ? "rust_analyzer" : "typescript_language_server";
+/** The same shape the backend enforces, so a malformed id is refused at both ends. */
+function identifier(value: unknown): string {
+  return typeof value === "string" && lspLanguageIdPattern.test(value)
+    ? value : invalidResponse();
+}
+
+function optionalStringArray(value: unknown, maximum = 32): string[] | null {
+  return value === null ? null : arrayValue(value, maximum).map((item) => requiredString(item));
 }
 
 function normalizeLanguageConfiguration(value: unknown): LspLanguageConfiguration {
   if (!isRecord(value)) return invalidResponse();
   return {
-    language: member(lspLanguageIds, value.language),
+    language: identifier(value.language),
     enabled: booleanValue(value.enabled),
     executableOverride: optionalString(value.executableOverride),
+    startupArguments: optionalStringArray(value.startupArguments),
     initializationOptions: initializationOptions(value.initializationOptions),
   };
 }
 
+function normalizeDescriptor(value: unknown): LspLanguageDescriptor {
+  if (!isRecord(value)) return invalidResponse();
+  return {
+    language: identifier(value.language),
+    server: identifier(value.server),
+    supportedOnHost: booleanValue(value.supportedOnHost),
+    defaultStartupArguments: arrayValue(value.defaultStartupArguments, 32)
+      .map((item) => requiredString(item)),
+    overrideTarget: member(lspOverrideTargets, value.overrideTarget),
+    prerequisite: value.prerequisite === null ? null : requiredString(value.prerequisite),
+  };
+}
+
+function unique(ids: readonly string[]): boolean {
+  return new Set(ids).size === ids.length;
+}
+
 export function normalizeLspConfiguration(value: unknown): LspConfiguration {
   if (!isRecord(value)) return invalidResponse();
-  const languages = arrayValue(value.languages, lspLanguageIds.length)
-    .map(normalizeLanguageConfiguration);
-  if (languages.length !== lspLanguageIds.length
-    || new Set(languages.map((entry) => entry.language)).size !== languages.length) {
+  const languages = arrayValue(value.languages, 64).map(normalizeLanguageConfiguration);
+  const descriptors = arrayValue(value.descriptors, 64).map(normalizeDescriptor);
+  const declared = new Set(descriptors.map((entry) => entry.language));
+  // Configuration for a language the same response does not describe cannot be rendered, so it is
+  // refused here rather than surfacing as a control with no label. The check replaces the fixed
+  // "exactly these two, in this order" rule, which only held while the set was compiled in.
+  if (!unique(languages.map((entry) => entry.language))
+    || !unique(descriptors.map((entry) => entry.language))
+    || languages.some((entry) => !declared.has(entry.language))) {
     return invalidResponse();
   }
-  return {
-    enabled: booleanValue(value.enabled),
-    languages: lspLanguageIds.map((language) => (
-      languages.find((entry) => entry.language === language) ?? invalidResponse()
-    )),
-  };
+  return { enabled: booleanValue(value.enabled), languages, descriptors };
 }
 
 export function normalizeLspWorkspaceTrust(value: unknown): LspWorkspaceTrust {
@@ -178,13 +202,12 @@ function stringArray(value: unknown, maximum = 16): string[] {
 
 function normalizeDiscovery(value: unknown): LspServerDiscovery {
   if (!isRecord(value)) return invalidResponse();
-  const language = member(lspLanguageIds, value.language);
-  const server = member(lspServerKinds, value.server);
+  const language = identifier(value.language);
+  const server = identifier(value.server);
   const availability = member(lspDiscoveryAvailabilities, value.availability);
   const executablePath = optionalString(value.executablePath);
   const reasonCode = optionalReason(value.reasonCode);
-  if (server !== expectedServer(language)
-    || (availability === "available" && (executablePath === null || reasonCode !== null))
+  if ((availability === "available" && (executablePath === null || reasonCode !== null))
     || (availability === "unavailable" && (executablePath !== null || reasonCode === null))) {
     return invalidResponse();
   }
@@ -193,28 +216,30 @@ function normalizeDiscovery(value: unknown): LspServerDiscovery {
 }
 
 export function normalizeLspServerDiscoveries(value: unknown): LspServerDiscovery[] {
-  const records = arrayValue(value, lspLanguageIds.length).map(normalizeDiscovery);
-  if (records.length !== lspLanguageIds.length
-    || new Set(records.map((record) => record.language)).size !== records.length) {
-    return invalidResponse();
-  }
-  return lspLanguageIds.map((language) => (
-    records.find((record) => record.language === language) ?? invalidResponse()
-  ));
+  const records = arrayValue(value, 64).map(normalizeDiscovery);
+  if (!unique(records.map((record) => record.language))) return invalidResponse();
+  return records;
 }
 
 export function normalizeLspServerTestInput(value: unknown): LspServerTestInput {
   if (!isRecord(value)) return invalidResponse();
-  return { language: member(lspLanguageIds, value.language) };
+  return { language: identifier(value.language) };
+}
+
+function normalizeNegotiatedMethod(value: unknown): LspNegotiatedMethod {
+  if (!isRecord(value)) return invalidResponse();
+  return { method: identifier(value.method), supported: booleanValue(value.supported) };
 }
 
 function normalizeCapabilities(value: unknown): LspNegotiatedCapabilities {
   if (!isRecord(value)) return invalidResponse();
+  const methods = arrayValue(value.methods, 64).map(normalizeNegotiatedMethod);
+  // A duplicated method would render twice and let two rows disagree about the same fact.
+  if (!unique(methods.map((entry) => entry.method))) return invalidResponse();
   return {
     positionEncoding: member(lspPositionEncodings, value.positionEncoding),
     documentSync: member(lspDocumentSyncModes, value.documentSync),
-    definition: booleanValue(value.definition), references: booleanValue(value.references),
-    hover: booleanValue(value.hover), diagnostics: booleanValue(value.diagnostics),
+    methods,
   };
 }
 
@@ -232,13 +257,9 @@ function normalizeTestPhase(value: unknown): LspServerTestPhaseResult {
   return { phase: member(lspServerTestPhases, value.phase), status, reasonCode };
 }
 
-export function normalizeLspServerTestResult(
-  value: unknown,
-  language: LspLanguageId,
-): LspServerTestResult {
+export function normalizeLspServerTestResult(value: unknown): LspServerTestResult {
   if (!isRecord(value)) return invalidResponse();
-  const server = member(lspServerKinds, value.server);
-  if (server !== expectedServer(language)) return invalidResponse();
+  const server = identifier(value.server);
   const phases = arrayValue(value.phases, lspServerTestPhases.length).map(normalizeTestPhase);
   if (phases.length !== lspServerTestPhases.length
     || new Set(phases.map((phase) => phase.phase)).size !== phases.length) return invalidResponse();
@@ -253,11 +274,8 @@ export function normalizeLspServerTestResult(
 
 function normalizeServerStatus(value: unknown): LspServerStatus {
   if (!isRecord(value)) return invalidResponse();
-  const language = member(lspLanguageIds, value.language);
-  const server = member(lspServerKinds, value.server);
-  if (server !== expectedServer(language)) return invalidResponse();
   return {
-    language, server, relativeProjectRoot: requiredString(value.relativeProjectRoot),
+    language: identifier(value.language), server: identifier(value.server), relativeProjectRoot: requiredString(value.relativeProjectRoot),
     state: member(lspProcessStates, value.state), restartCount: count(value.restartCount),
     lastResponseAt: optionalTimestamp(value.lastResponseAt),
     diagnosticCount: count(value.diagnosticCount), reasonCode: optionalReason(value.reasonCode),
@@ -270,6 +288,6 @@ export function normalizeLspServerStatuses(value: unknown): LspServerStatus[] {
   const identities = statuses.map((status) => (
     `${status.language}\u0000${status.server}\u0000${status.relativeProjectRoot}`
   ));
-  if (new Set(identities).size !== identities.length) return invalidResponse();
+  if (!unique(identities)) return invalidResponse();
   return statuses;
 }

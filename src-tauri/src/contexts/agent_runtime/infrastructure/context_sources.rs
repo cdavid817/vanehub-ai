@@ -1,8 +1,9 @@
 use crate::contexts::agent_runtime::application::{
-    AgentClockPort, AgentCodeIntelligenceContext, AgentCodeIntelligencePort,
-    AgentCodeIntelligenceStatus, AgentDocumentPositionInput, AgentLog, AgentLogLevel,
-    AgentLoggingPort, AgentRetrievalPort, ContextCandidateSource, ContextEngineClockPort,
-    ContextEngineDiagnostic, ContextEngineDiagnosticPort, ContextSourceResult,
+    AgentCallDirection, AgentCallHierarchyInput, AgentClockPort, AgentCodeIntelligenceContext,
+    AgentCodeIntelligenceOutcome, AgentCodeIntelligencePort, AgentCodeIntelligenceStatus,
+    AgentCodeLocation, AgentDocumentPositionInput, AgentLog, AgentLogLevel, AgentLoggingPort,
+    AgentRetrievalPort, ContextCandidateSource, ContextEngineClockPort, ContextEngineDiagnostic,
+    ContextEngineDiagnosticPort, ContextSourceResult,
 };
 use crate::contexts::agent_runtime::domain::{
     CandidateSignals, ContextCandidate, ContextRange, ContextRequest, ContextSourceKind,
@@ -132,6 +133,15 @@ impl CodeIntelligenceContextSource {
             kind: ContextSourceKind::LspReference,
         }
     }
+
+    /// Incoming calls only. Outgoing calls describe what the referenced symbol needs, which the
+    /// definition source already reaches; callers are the direction that adds something.
+    pub(crate) fn call_relations(code_intelligence: Arc<dyn AgentCodeIntelligencePort>) -> Self {
+        Self {
+            code_intelligence,
+            kind: ContextSourceKind::LspCallRelation,
+        }
+    }
 }
 
 impl ContextCandidateSource for CodeIntelligenceContextSource {
@@ -163,12 +173,39 @@ impl ContextCandidateSource for CodeIntelligenceContextSource {
             line: 0,
             column: 0,
         };
-        let outcome = if self.kind == ContextSourceKind::LspDefinition {
-            self.code_intelligence
-                .find_definition(&context, &input, cancellation)
-        } else {
-            self.code_intelligence
-                .find_references(&context, &input, cancellation)
+        let outcome = match self.kind {
+            ContextSourceKind::LspDefinition => {
+                self.code_intelligence
+                    .find_definition(&context, &input, cancellation)
+            }
+            ContextSourceKind::LspCallRelation => {
+                // Flattened to locations here so relations carry the same provenance definitions
+                // and references already do -- one candidate per caller, at its declaration.
+                let relations = self.code_intelligence.find_call_hierarchy(
+                    &context,
+                    &AgentCallHierarchyInput {
+                        position: input.clone(),
+                        direction: AgentCallDirection::Incoming,
+                    },
+                    cancellation,
+                );
+                AgentCodeIntelligenceOutcome {
+                    metadata: relations.metadata,
+                    value: relations.value.map(|relations| {
+                        relations
+                            .into_iter()
+                            .map(|relation| AgentCodeLocation {
+                                file: relation.symbol.file,
+                                range: relation.symbol.range,
+                                preview: relation.symbol.preview,
+                            })
+                            .collect()
+                    }),
+                }
+            }
+            _ => self
+                .code_intelligence
+                .find_references(&context, &input, cancellation),
         };
         let status = code_intelligence_outcome(outcome.metadata.status);
         let candidates = outcome

@@ -3,12 +3,14 @@ use super::{
     AgentChatConfiguration, AgentMessageSource, GenerationProcessEvent, SeatTurnAssignment,
     SeatTurnStatus, SeatTurnStop, SeatTurnTerminal, SendMessageRequest,
 };
-use crate::contexts::agent_runtime::domain::ChainEndReason;
-use crate::contexts::agent_runtime::domain::InteractionMode;
+use crate::contexts::agent_runtime::domain::{
+    AgentAvailability, AvailabilityAssessment, ChainEndReason, InteractionMode,
+};
 use crate::contexts::execution_observability::api::CapturedTelemetryRecord;
 
 fn terminal(reply: Option<&str>, speaker: &str, depth: usize) -> SeatTurnTerminal {
     SeatTurnTerminal {
+        source: AgentMessageSource::Desktop,
         session_id: "session-1".to_string(),
         message_id: "message-1".to_string(),
         seat_id: "seat-1".to_string(),
@@ -28,6 +30,18 @@ fn seat_leaves(world: &super::tests::FakeWorld, seat_index: usize) {
         Some("2026-08-07T01:00:00+00:00".to_string());
 }
 
+fn agent_becomes_unavailable(world: &super::tests::FakeWorld, agent_id: &str) {
+    let mut agents = world.agents.lock().expect("agents");
+    let agent = agents
+        .iter_mut()
+        .find(|agent| agent.id().as_str() == agent_id)
+        .expect("agent");
+    *agent = agent.clone().with_availability(AvailabilityAssessment::new(
+        AgentAvailability::Unavailable,
+        Some("fixture unavailable".to_string()),
+    ));
+}
+
 /// Rewrites the last seeded row into pre-migration-59 shape: the numeric index, no stable seat id.
 fn make_last_message_legacy(world: &super::tests::FakeWorld, seat_index: usize) {
     let mut messages = world.messages.lock().expect("messages");
@@ -38,6 +52,7 @@ fn make_last_message_legacy(world: &super::tests::FakeWorld, seat_index: usize) 
 
 fn assignment(seat_index: usize, depth: usize) -> SeatTurnAssignment {
     SeatTurnAssignment {
+        source: AgentMessageSource::Desktop,
         seat_id: format!("seat-{}", seat_index + 1),
         seat_index,
         depth,
@@ -266,11 +281,15 @@ fn a_multi_seat_session_is_coordinated() {
 fn the_first_reply_owns_the_first_stable_seat_and_receives_its_briefing() {
     let service = service(seat_turn_world());
     let session = service.require_session("session-1").expect("session");
+    let source = AgentMessageSource::InstantMessage {
+        connector_id: "feishu".to_string(),
+    };
     let (_, ownership, briefing) = service
-        .initial_seat_turn_context(&session, "开始吧")
+        .initial_seat_turn_context(&session, "开始吧", &source)
         .expect("initial context")
         .expect("multi-seat context");
 
+    assert_eq!(ownership.source, source);
     assert_eq!(ownership.seat_id, "seat-1");
     assert_eq!(ownership.seat_index, 0);
     assert_eq!(ownership.seat_mention, "架构师");
@@ -286,7 +305,11 @@ fn a_user_message_is_answered_by_the_seat_it_names() {
     let service = service(seat_turn_world());
     let session = service.require_session("session-1").expect("session");
     let (seat, ownership, briefing) = service
-        .initial_seat_turn_context(&session, "@实现者 按方案写一版")
+        .initial_seat_turn_context(
+            &session,
+            "@实现者 按方案写一版",
+            &AgentMessageSource::Desktop,
+        )
         .expect("initial context")
         .expect("multi-seat context");
 
@@ -308,11 +331,15 @@ fn an_unaddressed_user_message_continues_with_the_seat_that_last_spoke() {
     world.seed_message("代码审查", Some(1), "有两处要改");
     let service = service(world);
     let session = service.require_session("session-1").expect("session");
+    let source = AgentMessageSource::InstantMessage {
+        connector_id: "feishu".to_string(),
+    };
     let (_, ownership, _) = service
-        .initial_seat_turn_context(&session, "继续")
+        .initial_seat_turn_context(&session, "继续", &source)
         .expect("initial context")
         .expect("multi-seat context");
 
+    assert_eq!(ownership.source, source);
     assert_eq!(ownership.seat_id, "seat-2");
     assert_eq!(ownership.seat_mention, "代码审查");
 }
@@ -326,27 +353,58 @@ fn a_thread_attributed_only_by_index_still_names_its_last_speaker() {
     let service = service(world);
     let session = service.require_session("session-1").expect("session");
     let (_, ownership, _) = service
-        .initial_seat_turn_context(&session, "继续")
+        .initial_seat_turn_context(&session, "继续", &AgentMessageSource::Desktop)
         .expect("initial context")
         .expect("multi-seat context");
 
     assert_eq!(ownership.seat_id, "seat-2");
 }
 
-/// A handle nobody answers to any more is a dead letter, not an error: the message still has to be
-/// answered by somebody in the room.
 #[test]
-fn a_user_message_naming_a_departed_seat_falls_back() {
+fn a_user_message_naming_a_departed_seat_is_rejected_with_valid_mentions() {
     let world = seat_turn_world();
     seat_leaves(&world, 2);
     let service = service(world);
     let session = service.require_session("session-1").expect("session");
-    let (_, ownership, _) = service
-        .initial_seat_turn_context(&session, "@实现者 按方案写一版")
-        .expect("initial context")
-        .expect("multi-seat context");
+    let error = service
+        .initial_seat_turn_context(
+            &session,
+            "@实现者 按方案写一版",
+            &AgentMessageSource::Desktop,
+        )
+        .expect_err("departed seat must not reroute");
 
-    assert_eq!(ownership.seat_id, "seat-1");
+    assert_eq!(
+        error,
+        super::AgentRuntimeApplicationError::InvalidSeatMention {
+            valid_mentions: vec![
+                "架构师".to_string(),
+                "代码审查".to_string(),
+                "测试".to_string(),
+            ],
+        }
+    );
+}
+
+#[test]
+fn a_user_message_naming_an_unavailable_seat_is_rejected_with_other_valid_mentions() {
+    let world = seat_turn_world();
+    agent_becomes_unavailable(&world, "gemini-cli");
+    let service = service(world);
+    let session = service.require_session("session-1").expect("session");
+    let error = service
+        .initial_seat_turn_context(
+            &session,
+            "@实现者 按方案写一版",
+            &AgentMessageSource::Desktop,
+        )
+        .expect_err("unavailable seat must not reroute");
+
+    assert!(matches!(
+        error,
+        super::AgentRuntimeApplicationError::InvalidSeatMention { valid_mentions }
+            if valid_mentions == ["架构师", "代码审查", "测试"]
+    ));
 }
 
 /// A seat added mid-session has to act on work it never witnessed, so its first prompt carries the
@@ -415,6 +473,173 @@ fn a_user_message_naming_a_seat_runs_that_seats_agent() {
     let requests = world.generation_requests.lock().expect("requests");
     let request = requests.last().expect("a generation was started");
     assert_eq!(request.agent.id, "gemini-cli");
+}
+
+#[test]
+fn a_feishu_mention_and_handoff_keep_stable_seats_and_im_origin() {
+    let world = seat_turn_world();
+    let service = service(world.clone());
+    let source = AgentMessageSource::InstantMessage {
+        connector_id: "feishu".to_string(),
+    };
+
+    service
+        .send_message(SendMessageRequest {
+            source: source.clone(),
+            session_id: "session-1".to_string(),
+            content: "@实现者 按方案写一版".to_string(),
+            configuration: AgentChatConfiguration {
+                agent_id: "claude-code".to_string(),
+                interaction_mode: InteractionMode::Cli,
+                execution_mode: "inherit".to_string(),
+                provider_id: None,
+                model_id: None,
+                reasoning_depth: None,
+                streaming: true,
+                thinking: false,
+                long_context: false,
+            },
+            file_references: Vec::new(),
+        })
+        .expect("start mentioned Feishu seat");
+
+    let first_request = world.generation_requests.lock().expect("requests")[0].clone();
+    assert_eq!(first_request.agent.id, "gemini-cli");
+    let first_sink = world
+        .generation_sinks
+        .lock()
+        .expect("generation sinks")
+        .get("process-1")
+        .cloned()
+        .expect("first sink");
+    first_sink
+        .handle(GenerationProcessEvent::Token(
+            "@代码审查 请复核".to_string(),
+        ))
+        .expect("handoff reply");
+    first_sink
+        .handle(GenerationProcessEvent::Completed(None))
+        .expect("complete first seat");
+
+    let terminal = service
+        .take_seat_turn_completion("session-1")
+        .expect("take completion")
+        .expect("seat completion");
+    assert_eq!(terminal.source, source);
+    assert_eq!(terminal.seat_id, "seat-3");
+    let next = service
+        .decide_seat_turn(&terminal)
+        .expect("route handoff")
+        .next
+        .into_iter()
+        .next()
+        .expect("next seat");
+    assert_eq!(next.source, source);
+    assert_eq!(next.seat_id, "seat-2");
+    assert_eq!(next.depth, 2);
+    assert_eq!(next.round_id, terminal.round_id);
+
+    service
+        .start_seat_turn("session-1", &next)
+        .expect("start handed-off seat");
+    let requests = world.generation_requests.lock().expect("requests");
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[1].agent.id, "codex-cli");
+    assert!(!requests[1].interactive);
+}
+
+#[test]
+fn a_multi_agent_im_completion_delivers_only_the_terminal_seat_reply() {
+    let world = seat_turn_world();
+    let service = service(world.clone());
+    let started = service
+        .send_message_with_completion(SendMessageRequest {
+            source: AgentMessageSource::InstantMessage {
+                connector_id: "feishu".to_string(),
+            },
+            session_id: "session-1".to_string(),
+            content: "@实现者 按方案写一版".to_string(),
+            configuration: AgentChatConfiguration {
+                agent_id: "claude-code".to_string(),
+                interaction_mode: InteractionMode::Cli,
+                execution_mode: "inherit".to_string(),
+                provider_id: None,
+                model_id: None,
+                reasoning_depth: None,
+                streaming: true,
+                thinking: false,
+                long_context: false,
+            },
+            file_references: Vec::new(),
+        })
+        .expect("start IM round");
+
+    let first_sink = world
+        .generation_sinks
+        .lock()
+        .expect("generation sinks")
+        .get("process-1")
+        .cloned()
+        .expect("first sink");
+    first_sink
+        .handle(GenerationProcessEvent::Token(
+            "@代码审查 请复核".to_string(),
+        ))
+        .expect("handoff reply");
+    first_sink
+        .handle(GenerationProcessEvent::Completed(None))
+        .expect("complete first seat");
+    let first_terminal = service
+        .take_seat_turn_completion("session-1")
+        .expect("take first completion")
+        .expect("first terminal");
+    let next = service
+        .decide_seat_turn(&first_terminal)
+        .expect("route next seat")
+        .next
+        .into_iter()
+        .next()
+        .expect("next seat");
+    service
+        .start_seat_turn("session-1", &next)
+        .expect("start final seat");
+
+    let final_sink = world
+        .generation_sinks
+        .lock()
+        .expect("generation sinks")
+        .get("process-1")
+        .cloned()
+        .expect("final sink");
+    final_sink
+        .handle(GenerationProcessEvent::Token("最终答复".to_string()))
+        .expect("final reply");
+    final_sink
+        .handle(GenerationProcessEvent::Completed(None))
+        .expect("complete final seat");
+    let final_terminal = service
+        .take_seat_turn_completion("session-1")
+        .expect("take final completion")
+        .expect("final terminal");
+    let final_decision = service
+        .decide_seat_turn(&final_terminal)
+        .expect("finish round");
+    assert!(final_decision.next.is_empty());
+    service
+        .complete_seat_round(&final_terminal)
+        .expect("deliver final completion");
+
+    let delivered = started
+        .terminal
+        .recv_timeout(std::time::Duration::ZERO)
+        .expect("terminal-only completion");
+    assert_ne!(delivered.message_id, started.message.id);
+    assert_eq!(delivered.message_id, final_terminal.message_id);
+    assert_eq!(
+        delivered.outcome,
+        super::AgentMessageTerminalOutcome::Completed
+    );
+    assert_eq!(delivered.content.as_deref(), Some("最终答复"));
 }
 
 /// The briefing is the only channel through which an Agent learns who else is in the room and that

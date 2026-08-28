@@ -104,7 +104,7 @@ export function AboutPage() {
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 className="text-lg font-semibold tracking-tight">VaneHub AI</h3>
                   <Badge tone="muted">v{aboutCurrentVersion}</Badge>
-                  <Badge tone="success">{aboutBuildChannel}</Badge>
+                  {aboutBuildChannel === "Preview" ? <Badge tone="success">{aboutBuildChannel}</Badge> : null}
                 </div>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">{t("about.productSummary")}</p>
               </div>
@@ -157,7 +157,15 @@ export function AboutPage() {
                   ) : null}
                 </div>
               </div>
-              {updateError ? <div className="rounded-md border p-3 text-xs ucd-status-warning">{t("about.update.failed", { message: updateError })}</div> : null}
+              {updateError || updateInfo?.phase === "failed" ? (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3 text-xs ucd-status-warning" role="alert">
+                  <span>{t("about.update.failed", { message: updateError ?? updateInfo?.error })}</span>
+                  <Button className="h-7 px-2 text-xs" disabled={checking} onClick={() => void handleCheckUpdates()} size="sm" type="button" variant="outline">
+                    <RefreshCw aria-hidden="true" className={checking ? "h-3.5 w-3.5 animate-spin" : "h-3.5 w-3.5"} />
+                    {t("about.update.check")}
+                  </Button>
+                </div>
+              ) : null}
               {updateInfo?.releaseNotes ? (
                 <p className="line-clamp-4 text-xs leading-5 text-muted-foreground">{updateInfo.releaseNotes}</p>
               ) : null}

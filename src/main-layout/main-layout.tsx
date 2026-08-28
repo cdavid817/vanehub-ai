@@ -324,7 +324,7 @@ export function MainLayout({
                 type="button"
               />
             </div>
-            <section className="flex min-h-0 min-w-0 flex-col border-r border-border/70 bg-background">
+            <section className="ucd-conversation-shell flex min-h-0 min-w-0 flex-col border-l border-r border-border/70 bg-background">
               {loopInspection ? (
                 <div className="flex min-h-11 shrink-0 items-center gap-2 border-b border-border/70 px-3">
                   <button
@@ -406,6 +406,7 @@ export function MainLayout({
               activeSession={displayedSession}
               collapsed={effectiveInfoPanelCollapsed}
               currentSpeakerSeatId={loopInspection || model.turnStatus?.kind !== "agent" ? null : model.turnStatus.seatId ?? null}
+              messages={loopInspection ? [] : model.messages}
               onNavigateToTab={(tab) => {
                 // Focus mode hides the workspace entirely, so a request to show a tab has to leave
                 // it first or the reader clicks a row and nothing appears to happen.

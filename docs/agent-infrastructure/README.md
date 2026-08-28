@@ -11,6 +11,8 @@
 | 多 Agent 系统 | [编排拓扑与角色框架、通信与协调、上下文管理、执行隔离、失败模式与评估](multi-agent-architecture.md) |
 | Agent Skills | [开放规范与文件格式、渐进式披露加载、触发与执行、与 MCP/Prompt 的定位对比](agent-skills-architecture.md) |
 | AI 编码 CLI 参数完全参考 | [五种 CLI 的参数族逐一覆盖，以及宿主向各 CLI 投影参数的映射矩阵](builtin-cli-reference.md) |
+| CLI 参数矩阵 | [由权威注册表生成：每个参数的字面标志、参数槽、启动场景、控件、归属、最低版本与核验状态](cli-parameter-matrix.md) |
+| CLI 参数注册表维护流程 | [官方来源与二进制双查、audit 元数据填写规则、重新生成与验证步骤](cli-parameter-registry-workflow.md) |
 | RAG | [索引与检索管线、语义与关键字检索取舍、混合检索与重排序、评估方法](rag-architecture.md) |
 | Tree-sitter | [GLR 增量解析、语法工具链与 ABI、查询系统、结构化代码切分与 Repo Map](tree-sitter-architecture.md) |
 | OpenSpec | [规范驱动开发的知识模型、变更包工件链、opsx 命令族、Delta 规格合并](openspec-architecture.md) |

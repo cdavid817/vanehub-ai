@@ -29,7 +29,9 @@ pub(crate) use crate::contexts::operations::domain::{
     AgentRun, RunEvent, RunLink, RunOwner, RunRecoveryPolicy, RunRunner, RunRunnerKind,
     RunRunnerRecovery, RunState, RunTrigger,
 };
-pub(crate) use crate::contexts::operations::domain::{OperationKind, OperationTask};
+pub(crate) use crate::contexts::operations::domain::{
+    OperationKind, OperationProgress, OperationTask,
+};
 
 #[derive(Clone)]
 /// Application facade for operation lifecycle and correlation.
@@ -136,6 +138,14 @@ impl OperationsApi {
         line: String,
     ) -> Result<OperationTask, ApplicationError> {
         self.service.append_log(operation_id, line)
+    }
+
+    pub(crate) fn report_progress(
+        &self,
+        operation_id: &str,
+        progress: OperationProgress,
+    ) -> Result<OperationTask, ApplicationError> {
+        self.service.report_progress(operation_id, progress)
     }
 
     pub(crate) fn correlate_execution(

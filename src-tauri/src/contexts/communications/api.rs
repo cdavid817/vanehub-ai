@@ -1,6 +1,7 @@
 use super::application::CommunicationsApplicationService;
 use super::domain::{
     ConnectorConfig, ConnectorKind, NormalizedInbound, RoutingSettings, SessionBinding,
+    SessionConnectorAccess,
 };
 use super::infrastructure::WeChatAuthorizationService;
 use std::sync::Arc;
@@ -187,8 +188,9 @@ impl CommunicationsApi {
     pub(crate) fn session_binding(
         &self,
         session_id: &str,
+        connector: ConnectorKind,
     ) -> Result<SessionBindingSnapshot, CommunicationsApplicationError> {
-        self.service.session_binding(session_id)
+        self.service.session_binding(session_id, connector)
     }
 
     pub(crate) fn set_binding_paused(
@@ -197,6 +199,16 @@ impl CommunicationsApi {
         paused: bool,
     ) -> Result<SessionBinding, CommunicationsApplicationError> {
         self.service.set_binding_paused(session_id, paused)
+    }
+
+    pub(crate) fn set_session_access(
+        &self,
+        session_id: &str,
+        connector: ConnectorKind,
+        enabled: bool,
+    ) -> Result<SessionConnectorAccess, CommunicationsApplicationError> {
+        self.service
+            .set_session_access(session_id, connector, enabled)
     }
 
     pub(crate) fn set_completion_notifications(

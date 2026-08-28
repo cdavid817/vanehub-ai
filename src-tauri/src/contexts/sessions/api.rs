@@ -49,6 +49,16 @@ pub(crate) use super::domain::{
 };
 use serde_json::Value;
 
+pub(crate) fn optional_session_metadata<T>(
+    result: Result<Option<T>, SessionsError>,
+) -> Result<Option<T>, SessionsError> {
+    match result {
+        Ok(value) => Ok(value),
+        Err(SessionsError::SessionNotFound(_) | SessionsError::Validation(_)) => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct SessionsApi {
     service: SessionsApplicationService,

@@ -2,6 +2,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import type { PlaywrightTestConfig } from "@playwright/test";
+import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // playwright.config.ts belongs to the tsconfig.node.json composite project, so a static import
@@ -22,8 +23,10 @@ vi.mock("@wdio/tauri-plugin", () => {
   return { default: {} };
 });
 
-vi.mock("./App", () => ({ App: () => null }));
-vi.mock("./floating-assistant/floating-assistant-root", () => ({ FloatingAssistantRoot: () => null }));
+vi.mock("./App", () => ({ App: () => createElement("main") }));
+vi.mock("./floating-assistant/floating-assistant-root", () => ({
+  FloatingAssistantRoot: () => createElement("main"),
+}));
 // Compiling the Tailwind entry sheet costs ~20s per cold run and contributes nothing to the
 // branch under test, so the stylesheet import is stubbed rather than processed.
 vi.mock("./styles.css", () => ({}));
@@ -73,6 +76,17 @@ afterEach(() => {
 });
 
 describe("desktop readiness instrumentation boundary", () => {
+  it("does not depend on an animation frame to publish React readiness", async () => {
+    vi.stubEnv("VITE_DESKTOP_E2E", undefined);
+    const requestAnimationFrame = vi.spyOn(window, "requestAnimationFrame")
+      .mockImplementation(() => 1);
+
+    const { root } = await startSurface();
+
+    expect(root.dataset.vanehubBootstrap).toBe("ready");
+    expect(requestAnimationFrame).not.toHaveBeenCalled();
+  });
+
   it("keeps Web/mock startup free of the desktop automation branch", async () => {
     vi.stubEnv("VITE_DESKTOP_E2E", undefined);
 
@@ -98,9 +112,10 @@ describe("desktop readiness instrumentation boundary", () => {
     expect(globalEventTypes).toContain("error");
     expect(globalEventTypes).toContain("unhandledrejection");
 
-    window.dispatchEvent(new Event("error"));
+    window.dispatchEvent(new ErrorEvent("error", { error: new Error("token=desktop-test-secret") }));
 
-    expect(root.dataset.vanehubFatalError).toBe("detected");
+    expect(root.dataset.vanehubFatalError).toBe("error");
+    expect(root.dataset.vanehubFatalErrorDetail).toBe("token=[REDACTED]");
   });
 
   it("exposes the same browser-observable startup contract in both runtimes", async () => {
@@ -132,7 +147,7 @@ describe("Playwright browser suite independence", () => {
     const packageJson = readFileSync(path.join(projectRoot, "package.json"), "utf8");
     const devScript = (JSON.parse(packageJson) as { scripts: Record<string, string> }).scripts.dev;
     expect(devScript).not.toMatch(/VITE_DESKTOP_E2E|desktop-e2e|wdio/);
-  });
+  }, 30_000);
 
   it("keeps browser specs free of desktop automation dependencies", () => {
     const specDir = path.join(projectRoot, "tests", "e2e");

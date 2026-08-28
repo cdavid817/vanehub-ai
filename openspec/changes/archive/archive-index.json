@@ -3299,6 +3299,130 @@
       ]
     },
     {
+      "archivedOn": "2026-08-23",
+      "changeName": "upgrade-cli-parameter-management",
+      "path": "openspec/changes/archive/2026-08-23-upgrade-cli-parameter-management/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "cli-parameter-management"
+      ]
+    },
+    {
+      "archivedOn": "2026-08-25",
+      "changeName": "add-local-composer-media-tools",
+      "path": "openspec/changes/archive/2026-08-25-add-local-composer-media-tools/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "app-settings",
+        "application-localization",
+        "chat-experience",
+        "desktop-runtime-verification",
+        "local-extension-management",
+        "local-media-runtime",
+        "native-app-packaging",
+        "native-runtime-architecture",
+        "onepiece-ocr-tool"
+      ]
+    },
+    {
+      "archivedOn": "2026-08-25",
+      "changeName": "add-source-aware-cli-environment-management",
+      "path": "openspec/changes/archive/2026-08-25-add-source-aware-cli-environment-management/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "cli-environment-management",
+        "contract-and-task-foundation",
+        "desktop-runtime-verification",
+        "frontend-runtime-architecture",
+        "native-runtime-architecture",
+        "settings-center-ui",
+        "unified-log-management"
+      ]
+    },
+    {
+      "archivedOn": "2026-08-26",
+      "changeName": "add-lsp-go-python-cpp",
+      "path": "openspec/changes/archive/2026-08-26-add-lsp-go-python-cpp/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "lsp-server-management"
+      ]
+    },
+    {
+      "archivedOn": "2026-08-26",
+      "changeName": "extend-lsp-language-registry",
+      "path": "openspec/changes/archive/2026-08-26-extend-lsp-language-registry/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "lsp-server-management",
+        "settings-center-ui"
+      ]
+    },
+    {
+      "archivedOn": "2026-08-27",
+      "changeName": "add-lsp-java-jdtls",
+      "path": "openspec/changes/archive/2026-08-27-add-lsp-java-jdtls/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "lsp-server-management",
+        "settings-center-ui"
+      ]
+    },
+    {
+      "archivedOn": "2026-08-27",
+      "changeName": "expand-lsp-read-only-methods",
+      "path": "openspec/changes/archive/2026-08-27-expand-lsp-read-only-methods/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "agent-tool-execution",
+        "lsp-code-intelligence",
+        "lsp-server-management",
+        "settings-center-ui"
+      ]
+    },
+    {
+      "archivedOn": "2026-08-27",
+      "changeName": "extract-managed-tool-installation",
+      "path": "openspec/changes/archive/2026-08-27-extract-managed-tool-installation/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "cli-environment-management",
+        "managed-tool-installation"
+      ]
+    },
+    {
       "archivedOn": "2026-08-28",
       "changeName": "upgrade-session-workspace-evidence-console",
       "path": "openspec/changes/archive/2026-08-28-upgrade-session-workspace-evidence-console/",

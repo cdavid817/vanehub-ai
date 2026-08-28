@@ -48,6 +48,13 @@ export function createWebMockOperation(input: {
   terminalStatus: "succeeded" | "failed";
   error: string | null;
   result?: Record<string, unknown> | null;
+  /**
+   * Whether cancelling is offered while this runs. Absent means the operation never said, which is
+   * not the same as "no" -- so a UI that shows a cancel control only for `true` stays honest.
+   */
+  cancellable?: boolean;
+  /** How long the mock stays in `running`. Longer for work that really does take seconds. */
+  settleAfterMs?: number;
 }): OperationTask {
   const timestamp = nowIso();
   const operation: OperationTask = {
@@ -61,6 +68,7 @@ export function createWebMockOperation(input: {
     error: null,
     createdAt: timestamp,
     updatedAt: timestamp,
+    cancellable: input.cancellable,
   };
   registerWebOperation(operation);
   setTimeout(() => {
@@ -94,7 +102,7 @@ export function createWebMockOperation(input: {
         },
       ],
     });
-  }, 900);
+  }, input.settleAfterMs ?? 900);
   return operation;
 }
 

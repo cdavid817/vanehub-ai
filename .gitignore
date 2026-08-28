@@ -38,3 +38,15 @@ CLAUDE.local.md
 # presence — it has been absent during at least one occurrence.
 pnpm-lock.yaml
 yarn.lock
+
+# Byte cache from the local-media Python bridge tests. It sits inside a directory that
+# `tauri.conf.json` bundles recursively, so an accidental commit would ship compiled artefacts
+# that nobody reviewed and that are invalid for any interpreter but the one that wrote them.
+__pycache__/
+*.pyc
+
+# Desktop fixture binaries are built by the layer that uses them, never committed.
+tests/desktop/fixtures/agent-mcp/*.exe
+tests/desktop/fixtures/agent-mcp/*.pdb
+tests/desktop/fixtures/cli/*.exe
+tests/desktop/fixtures/cli/*.pdb

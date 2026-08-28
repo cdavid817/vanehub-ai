@@ -34,10 +34,24 @@ npm install -g typescript-language-server typescript
 
 | 层 | 职责 |
 | --- | --- |
-| `domain/` | 语言/服务端标识、信任、配置、进程状态、能力、版本、规范化位置、诊断与软失败结果 |
+| `domain/` | 语言注册表、校验过的语言 id、信任、配置、进程状态、能力、版本、规范化位置、诊断与软失败结果 |
 | `application/` | 仓库与原生环境端口 |
 | `infrastructure/` | 发现、项目根、进程注册表、JSON-RPC、分帧、initialize 协商、文档租约、诊断、规范化、服务端测试、关闭与统一诊断 |
 | `api.rs` | 唯一的跨上下文代码智能门面 |
+
+### 语言注册表
+
+`domain/registry.rs` 里的 `LANGUAGE_DEFINITIONS` 每种支持的语言一条,形状对齐 `contexts/tooling/cli` 里已有的 `CLI_TOOL_DEFINITIONS`。每条声明语言 id、服务端 id、按偏好排序的候选可执行名、默认启动参数、项目根标记、扩展名到 `languageId` 的映射、平台适用性,以及隔离服务端测试要搭建的最小工程。
+
+标记可以指向候选目录**内部**的一段相对路径,而不必是直接位于其中的文件——C/C++ 就是靠这一点找到 `build/compile_commands.json`,不需要第二套探测机制。标记顺序没有意义:任一标记都能单独标识一个根,且最近的祖先目录胜出,所以"匹配到的是哪一个"不产生任何可观察差异。
+
+条目可以设置 `requires_root_marker`。此时探测会**拒绝**而不是回退到会话工作区根,失败还带有自己的原因码。只有 C/C++ 设了它,因为 `clangd` 没有编译数据库就会假定默认编译参数、然后给出看起来很确定却是错的答案,这比回答"不可用"更糟。边界上这个区分也是刻意的:发现仍然报告 `clangd` 可用——它确实可用,服务不了的是这个工作区。
+
+加一种语言 = 加一条目 + 补五份 locale 文案。没有第二处枚举这个集合:发现、项目根探测、文档准入、服务端测试、配置默认值、命令 DTO 与设置页全部由它派生。`registry_tests.rs` 会让缺任一项数据的条目构建失败,并断言 id 与扩展名在全表唯一——扩展名查找返回首个匹配,被两种语言同时声明会按声明顺序静默路由到错误的服务端。
+
+**不存在 `LanguageFamily` 或 `ServerKind` 枚举**。一种语言就是 `Language = &'static LanguageDefinition`:一个 `Copy` 引用同时携带自己的 id 和服务端 id,两者从类型上不可能失配。`LspLanguageId` 是它的持有式校验形态,只用在值跨越存储或线协议、尚不存在 `'static` 引用的位置。`resolve_language` 把这样的值转回引用;当前构建未注册的 id 返回 `None`——这是**普通分支而非错误**,因为存储层已经不再约束 id 集合。
+
+这张表是编译期的,这是刻意选择:每条目都需要 fixture 工程与根探测规则,只有代码能提供,用户自行声明的语言只会变成运行时服务不了的一行数据。
 
 `agent_runtime` 拥有消费侧的 `AgentCodeIntelligencePort` 与 `AgentWorkspaceMutationPort` 契约。Bootstrap 将这些端口适配到 `CodeIntelligenceApi`;Agent 代码不得导入代码智能基础设施。检索通过其公共 `CodeIndexApi` 独立触达,用于针对性的变更协调。
 
@@ -51,6 +65,8 @@ React settings components
 ```
 
 React 组件不得直接调用 `invoke()`。Web/mock 代码不得导入原生的文件系统或进程适配器,也不得声称启动了真实服务端。
+
+**前端不持有语言集的副本**。`LspLanguageId` 是不透明字符串,`get_lsp_configuration` 携带一份描述符列表,设置页按它逐条渲染卡片。因此契约校验器无法拿"已知集合"去校验语言,它校验的是 id 的形状——与后端同一条 `[a-z0-9_]{1,64}` 规则——并交叉检查每个已配置语言在同一响应里都有描述符。Web/mock 模式没有后端注册表可问,`web-lsp-client.ts` 因此自带一份镜像表;在那里加语言是改数据。
 
 ## 进程与协议生命周期
 
@@ -82,7 +98,7 @@ Agent 坐标与规范化的结果范围是 1 起始的。协议坐标是 0 起�
 
 ## Agent 工具与硬上限
 
-provider 中立的目录在普通与 Plan Mode 生成中按条件暴露四个只读工具:
+provider 中立的目录在普通与 Plan Mode 生成中按条件暴露九个只读工具:
 
 | 工具 | 协议方法或来源 | 约束 |
 | --- | --- | --- |
@@ -90,6 +106,19 @@ provider 中立的目录在普通与 Plan Mode 生成中按条件暴露四个只
 | `find_references` | `textDocument/references` | 50 个接受的位置,确定性顺序 |
 | `get_hover` | `textDocument/hover` | 有界的签名、文档与序列化输出 |
 | `get_diagnostics` | `textDocument/publishDiagnostics` 缓存 | 有界的数量与消息内容 |
+| `find_type_definition` | `textDocument/typeDefinition` | 20 个接受的位置 |
+| `find_implementations` | `textDocument/implementation` | 20 个接受的位置 |
+| `find_workspace_symbols` | `workspace/symbol` | 50 个接受的符号 |
+| `get_document_symbols` | `textDocument/documentSymbol` | 200 个接受的符号,深度 8 |
+| `find_call_hierarchy` | `textDocument/prepareCallHierarchy` 然后 `callHierarchy/incomingCalls` 或 `outgoingCalls` | 50 条关系,每条 20 个调用点,整个交换共用**一个** 10 秒预算 |
+
+**工具只追加,绝不插入。** provider 会缓存工具定义前缀,重排前面的条目会让每个符合条件的会话白白丢掉 prompt cache——而 diff 里看不出这一点,因为所有名字都还在。`the_first_four_code_intelligence_tools_keep_their_declaration_order` 会在前缀被挪动时失败。
+
+调用层级是三个请求包装成一个工具,并且**整体只有一个**截止时间,而不是每一步各用单请求预算。两步各用单请求预算,会让一个慢服务端花掉其他工具两倍的时间,而每个单独请求看上去都还健康。准备阶段解析出多个条目时只跟进第一个,并以 `ready` 加 `call_hierarchy_items_not_followed` 报告;全部跟进会让请求数乘上一个由服务端决定的倍数。
+
+`find_workspace_symbols` 指定了文档但并不以它为范围。路径用来选服务端——也就是选 project root——因为 LSP 里没有"仓库"这个概念,而一个仓库可以装下多个项目。它也是唯一没有文档租约的方法:完全跳过准入,因此可以在不打开任何文件的情况下运行,并且不报告文档版本——它根本没有。
+
+协商能力以 `SemanticMethod::ALL` 上的列表形式承载,本次构建实现的每个方法一条,带 `supported` 标志。"缺席"和 `supported: false` 是两件不同的事:缺席意味着客户端压根没实现这个方法,只有后者是用户换个服务端就能解决的。`SemanticMethod::ALL` 与工具目录同理,只能追加——它的顺序就是设置卡片的渲染顺序。
 
 工作区作用域始终来自当前会话。模型不能选择工作区、根、服务端路径或 URI scheme。只有规范工作区内通过准入的 `file:` 位置能在规范化后留存。
 
@@ -112,13 +141,34 @@ provider 中立的目录在普通与 Plan Mode 生成中按条件暴露四个只
 
 ## 持久化与日志
 
-SQLite 持有默认禁用的主机配置与规范工作区信任记录。可执行文件、固定参数、初始化选项与信任修订共同构成配置指纹,因此陈旧进程无法服务新请求。
+SQLite 持有默认禁用的主机配置与规范工作区信任记录。可执行文件、**解析后的启动参数**、初始化选项与信任修订共同构成配置指纹,因此陈旧进程无法服务新请求。参数**边界**也是指纹的一部分:直接拼接会让 `["ab"]` 与 `["a", "b"]` 哈希相同,于是用户明明改了命令行、服务端却继续照旧运行。
+
+`lsp_language_configurations` 不再约束可以存在哪些语言 id——迁移 86 通过整表重建拆掉了那条 `CHECK`。于是"存储里有一行指向当前构建未注册的语言"是可达状态(降级即可产生)。加载时**跳过该行且原样保留**:拒绝它会让应用因为一种它只是服务不了的语言而无法启动;删除它会让"降级再升级"静默丢掉用户设置。
+
+`startup_arguments_json` 可空,而且这个区分是有意义的:`NULL` 表示"用注册表默认值";JSON 数组(包括空数组)是用户的显式选择。把两者合并会导致用户一清空输入框,`--stdio` 就被从 TypeScript 服务端上抹掉。
 
 生命周期与协议诊断使用统一日志。安全的元数据包括服务端/语言标识、生命周期跃迁、方法类别、时长、计数、重启尝试、超时/取消类别、退出码与安全的工作区标识。绝不持久化原始协议载荷、源码或 hover 内容、诊断消息、stderr、环境变量、可执行文件参数、凭据或私有的绝对路径。
 
 ## 扩展限制
 
-本基础有意排除 Python、Go、Java、C/C++、远程工作区、下载的服务端、格式化、补全、重命名、code action、工作区编辑、调用/类型层级、文件系统监听、未保存缓冲区与持久化的 LSP 增强。不要仅仅通过把一个变更方法加进目录就暴露它;它需要一份单独的 OpenSpec 变更、权限分析、Plan Mode 处理、协议限制与工作区隔离测试。
+已注册 Rust、TypeScript/JavaScript、Go、Python 与 C/C++。加这三种的代价是:五条注册表数据、三个 fixture 工程、五份 locale 文案、一个新的解析器开关——**前端零改动**,这正是注册表要买到的性质。
+
+Java 不适配那个形状,于是注册表长出了一个新的。`LaunchShape` 字段决定其他字段的含义:在 `Executable` 下——前五种语言声明的就是它——`executables` 命名的是服务器本身,手动覆盖是一个绝对路径的可执行文件。在 `Interpreter` 下,它命名的是**解释器**,服务器住在参数模板里,而覆盖填的是安装**目录**。
+
+模板里的占位符是枚举变体而不是字符串,所以未解析的占位符是编译器知道的一个分支,而不是一次悄悄失败的替换。其中三个是延迟解析的:launcher 通过在一个声明的目录里匹配声明的前后缀,配置目录通过平台精确匹配,data 目录通过规范工作区根的哈希。
+
+有两条规则值得写出来,因为它们的反面看起来都很合理:
+
+- **匹配到多个 launcher 是拒绝,不是选择。** 挑最新的会启动一个设置页说不出版本号的服务器。匹配也不递归——往下三层找到的 launcher 不是这条注册表项描述的布局。
+- **用户配置的启动参数追加在模板之后,而不是替换它。** 其他地方配置参数都是替换注册表默认值,因为"清空这个字段"必须有含义。模板不是默认值;一个用户能替换的模板,就是一个能被替换成起不来服务器的模板。
+
+每工作区的 data 目录是**推导**出来的而不是记录下来的——没有一张需要与信任状态保持同步的表,而拿到某个工作区目录的唯一方式是先拿到它的规范根。它在信任被撤销时删除,且在进程停止之后删除,因为运行中的服务器占着它的索引。空闲关停时**不删**:那份索引正是让下次启动变快的东西。
+
+设置卡片从描述符字段学会"覆盖"的含义,绝不从语言 id 判断。第二个 interpreter 形状的语言必须不需要任何前端改动,`lsp-configuration-section.test.tsx` 用一个**故意不是 Java** 的语言来断言这一点。
+
+**Java 不会替你安装。** 那是 `manage-language-server-installation` 这个变更的事;在它落地之前,用户自己解压 `jdtls` 并指向那个目录——和其他所有语言处在同一位置。
+
+本基础同样有意排除远程工作区、下载的服务端(在 `manage-language-server-installation` 落地之前——经校验的下载能力已经存在,只是还没有语言服务器这个使用方)、格式化、补全、重命名、code action、工作区编辑、文件系统监听、未保存缓冲区与持久化的 LSP 增强。调用层级与类型定义在 `expand-lsp-read-only-methods` 之前也在这份排除清单上;它们是只读的,因此移入了范围而不是继续被排除。类型**层级**(`typeHierarchy/supertypes`)仍在范围之外。不要仅仅通过把一个变更方法加进目录就暴露它;它需要一份单独的 OpenSpec 变更、权限分析、Plan Mode 处理、协议限制与工作区隔离测试。
 
 LSP 不标准化可移植的服务端内存或已索引文件数,因此状态契约必须将这些指标保持为不支持,而不是捏造它们。
 
@@ -201,7 +251,7 @@ sequenceDiagram
 
 LSP 是只读基础，安全性由四道闸门共同保证，而不是依赖单一检查：
 
-1. **只读工具目录**：`find_definition`/`find_references`/`get_hover`/`get_diagnostics` 全部只读；服务端到客户端的工作区编辑（`workspace/applyEdit` 等）被这个只读基础直接拒绝。
+1. **只读工具目录**：九个工具全部只读，包括后加的类型定义、实现、符号搜索与调用层级；服务端到客户端的工作区编辑（`workspace/applyEdit` 等）被这个只读基础直接拒绝。
 2. **会话工作区作用域**：工作区始终来自当前会话；只有规范工作区内通过准入的 `file:` 位置能在规范化后留存。
 3. **磁盘为准**：VaneHub 不维护未保存编辑器缓冲区；磁盘内容是权威，Agent 的精确写入会立即使匹配的租约失效。
 4. **隔离测试四阶段**：服务端测试走 `Discovery → Spawn → Initialize → Cleanup` 四阶段，畸形的能力必须失败关闭，且清理仍须运行。
@@ -221,4 +271,7 @@ LSP 运行时的进程管理位于 `code_intelligence/infrastructure/process_reg
 - **帧边界** `lsp_framing.rs` —— Content-Length 硬上限,超限杀进程。
 - **服务器→客户端请求** `lsp_server_requests.rs` —— 处理 `workspace/configuration`、`register/unregister_capabilities`;**`workspace/applyEdit` 被拒**(只读基础)。
 - **诊断日志** `lsp_diagnostics.rs` —— `LspDiagnosticKind`(Lifecycle/Timeout/Cancellation/Crash/Restart/DiagnosticsCount/ProtocolLimit/Shutdown),`record()` 带限频,只记安全元数据(不落 payload/源码/hover/诊断文本/stderr/环境/绝对路径)。
-- **隔离测试** `server_test.rs` —— `ServerTestPhase`(Discovery → Spawn → Initialize → Cleanup),用 `tempfile::TempDir` 跑完整 initialize/initialized/shutdown/exit,64KB stderr 上限、min 100ms 超时。
+- **隔离测试** `server_test.rs` —— `ServerTestPhase`(Discovery → Spawn → Initialize → Cleanup),用 `tempfile::TempDir` 跑完整 initialize/initialized/shutdown/exit,64KB stderr 上限、min 100ms 超时;最小工程的文件来自注册表条目的 `fixture_files`。
+- **语言注册表** `domain/registry.rs` —— `LANGUAGE_DEFINITIONS` 与 `definition()` / `definition_for_extension()` / `definition_for_server()` 三个 `Option` 查找;`Language = &'static LanguageDefinition`。
+- **语言 id** `domain/language_id.rs` —— `LspLanguageId`,`[a-z0-9_]`、最长 64;`new()` 校验外部输入,`trusted()` 只给注册表字面量用(debug assert),该调用点登记在架构测试的审计清单里。
+- **启动参数上限** `domain/configuration.rs` —— `MAX_STARTUP_ARGUMENTS=32`、`MAX_STARTUP_ARGUMENT_BYTES=4KiB`,且拒绝内嵌 NUL(交给进程时会被平台截断或拒绝,那时已无法报告原因)。

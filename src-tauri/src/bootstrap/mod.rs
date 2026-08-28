@@ -4,6 +4,7 @@ mod agent_run_controls;
 mod agent_runtime;
 mod cli;
 mod cli_config;
+mod cli_environment;
 mod cli_parameters;
 mod code_intelligence;
 mod communications;
@@ -15,6 +16,7 @@ pub(crate) use file_evidence::SessionFileEvidence;
 mod evidence_bridge_tests;
 mod execution_observability;
 mod extensions;
+mod local_media;
 mod log_index_bridge;
 #[cfg(test)]
 mod log_index_bridge_tests;
@@ -27,6 +29,7 @@ mod prompt_hooks;
 mod retrieval;
 mod runtime;
 mod scheduled_tasks;
+pub(crate) mod screenshot_capture;
 mod sdk;
 mod session_report;
 mod sessions;
@@ -42,7 +45,8 @@ pub(crate) use agent_runtime::{
 };
 pub(crate) use cli::{assemble_cli_api, start_initial_cli_refresh};
 pub(crate) use cli_config::assemble_cli_config_api;
-pub(crate) use cli_parameters::assemble_cli_parameters_api;
+pub(crate) use cli_environment::assemble_cli_environment_api;
+pub(crate) use cli_parameters::assemble_cli_parameter_apis;
 pub(crate) use code_intelligence::{
     assemble_code_intelligence_api, NativeCodeIntelligenceResponder, WorkspaceMutationFanout,
 };
@@ -58,6 +62,7 @@ pub(crate) use execution_observability::{
     start_execution_retention_job,
 };
 pub(crate) use extensions::assemble_extension_api;
+pub(crate) use local_media::{assemble_local_media_api, worker_bridge_candidates};
 pub(crate) use log_index_bridge::{start_log_index_bridge, LogIndexBridgeWorker};
 pub(crate) use mcp::assemble_mcp_api;
 #[cfg(test)]

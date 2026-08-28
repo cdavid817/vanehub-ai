@@ -120,7 +120,14 @@ describe("trace accessibility", () => {
   it("gives the waterfall a named, focusable container", async () => {
     mount(timeline([span(0)]));
 
-    const list = await screen.findByRole("application", { name: "Execution waterfall" });
+    // The waterfall arrives behind a query, and Testing Library's one-second default is a number
+    // about its own convenience rather than about this load. Under load the wait expired and the
+    // failure read as "the container has no name" when the container was merely not there yet.
+    const list = await screen.findByRole(
+      "application",
+      { name: "Execution waterfall" },
+      { timeout: 5_000 },
+    );
     // One focusable element for the whole list. A virtualized list cannot use tab order, because
     // the rows nobody scrolled to are not in the DOM to be tabbed to.
     expect(list.getAttribute("tabindex")).toBe("0");

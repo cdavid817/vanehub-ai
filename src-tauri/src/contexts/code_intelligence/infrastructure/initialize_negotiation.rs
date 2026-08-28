@@ -1,10 +1,11 @@
 use super::json_rpc_actor::{JsonRpcClient, JsonRpcError};
 use crate::contexts::code_intelligence::domain::models::{
-    DocumentSyncMode, NegotiatedCapabilities, PositionEncoding, SemanticMethod,
+    DocumentSyncMode, NegotiatedCapabilities, NegotiatedMethod, PositionEncoding, SemanticMethod,
 };
 use lsp_types::{
-    HoverProviderCapability, InitializeResult, OneOf, PositionEncodingKind,
-    TextDocumentSyncCapability, TextDocumentSyncKind,
+    CallHierarchyServerCapability, HoverProviderCapability, ImplementationProviderCapability,
+    InitializeResult, OneOf, PositionEncodingKind, ServerCapabilities, TextDocumentSyncCapability,
+    TextDocumentSyncKind, TypeDefinitionProviderCapability,
 };
 use serde_json::{json, Value};
 use thiserror::Error;
@@ -46,6 +47,7 @@ pub(crate) fn build_initialize_params(
             "window": {"workDoneProgress": true},
             "workspace": {
                 "configuration": true,
+                "symbol": {"dynamicRegistration": true},
                 "didChangeConfiguration": {"dynamicRegistration": true},
                 "workspaceFolders": true
             },
@@ -57,7 +59,14 @@ pub(crate) fn build_initialize_params(
                     "didSave": true
                 },
                 "definition": {"dynamicRegistration": true, "linkSupport": true},
+                "typeDefinition": {"dynamicRegistration": true, "linkSupport": true},
+                "implementation": {"dynamicRegistration": true, "linkSupport": true},
                 "references": {"dynamicRegistration": true},
+                "callHierarchy": {"dynamicRegistration": true},
+                "documentSymbol": {
+                    "dynamicRegistration": true,
+                    "hierarchicalDocumentSymbolSupport": true
+                },
                 "hover": {
                     "dynamicRegistration": true,
                     "contentFormat": ["markdown", "plaintext"]
@@ -78,21 +87,70 @@ pub(crate) fn negotiate_initialize_result(
     let result: InitializeResult =
         serde_json::from_value(value).map_err(|_| InitializeNegotiationError::MalformedResult)?;
     let capabilities = result.capabilities;
-    let position_encoding = match capabilities.position_encoding {
+    let position_encoding = match &capabilities.position_encoding {
         None => PositionEncoding::Utf16,
-        Some(encoding) if encoding == PositionEncodingKind::UTF8 => PositionEncoding::Utf8,
-        Some(encoding) if encoding == PositionEncodingKind::UTF16 => PositionEncoding::Utf16,
+        Some(encoding) if *encoding == PositionEncodingKind::UTF8 => PositionEncoding::Utf8,
+        Some(encoding) if *encoding == PositionEncodingKind::UTF16 => PositionEncoding::Utf16,
         Some(_) => return Err(InitializeNegotiationError::UnsupportedPositionEncoding),
     };
-    let document_sync = normalize_sync(capabilities.text_document_sync)?;
+    let document_sync = normalize_sync(capabilities.text_document_sync.clone())?;
     Ok(NegotiatedCapabilities {
         position_encoding,
         document_sync,
-        definition: one_of_enabled(capabilities.definition_provider),
-        references: one_of_enabled(capabilities.references_provider),
-        hover: hover_enabled(capabilities.hover_provider),
-        diagnostics: true,
+        // Built by iterating the client's own method list, so every record covers exactly the
+        // methods this build implements and lists them in one order. A capability the server
+        // advertises for something we do not implement is simply never asked about.
+        methods: SemanticMethod::ALL
+            .iter()
+            .map(|method| NegotiatedMethod {
+                method: *method,
+                supported: advertised(&capabilities, *method),
+            })
+            .collect(),
     })
+}
+
+/// The one place a method is tied to the field the server advertises it in. This match is
+/// exhaustive, so adding a `SemanticMethod` variant without deciding how it is advertised does not
+/// compile — the compiler guarantee that `supports` used to carry lives here now.
+fn advertised(capabilities: &ServerCapabilities, method: SemanticMethod) -> bool {
+    match method {
+        SemanticMethod::Definition => one_of_enabled(capabilities.definition_provider.clone()),
+        SemanticMethod::References => one_of_enabled(capabilities.references_provider.clone()),
+        SemanticMethod::Hover => hover_enabled(capabilities.hover_provider.clone()),
+        // Diagnostics arrive as a server-initiated notification rather than a capability the
+        // server advertises, so there is nothing to read and nothing that can be unsupported.
+        SemanticMethod::Diagnostics => true,
+        // These two carry their own provider types rather than `OneOf`, so they cannot go through
+        // `one_of_enabled`. The shape is otherwise the same: absent or `false` means no.
+        SemanticMethod::TypeDefinition => matches!(
+            &capabilities.type_definition_provider,
+            Some(
+                TypeDefinitionProviderCapability::Options(_)
+                    | TypeDefinitionProviderCapability::Simple(true)
+            )
+        ),
+        SemanticMethod::Implementation => matches!(
+            &capabilities.implementation_provider,
+            Some(
+                ImplementationProviderCapability::Options(_)
+                    | ImplementationProviderCapability::Simple(true)
+            )
+        ),
+        SemanticMethod::WorkspaceSymbols => {
+            one_of_enabled(capabilities.workspace_symbol_provider.clone())
+        }
+        SemanticMethod::DocumentSymbols => {
+            one_of_enabled(capabilities.document_symbol_provider.clone())
+        }
+        SemanticMethod::CallHierarchy => matches!(
+            &capabilities.call_hierarchy_provider,
+            Some(
+                CallHierarchyServerCapability::Options(_)
+                    | CallHierarchyServerCapability::Simple(true)
+            )
+        ),
+    }
 }
 
 fn normalize_sync(

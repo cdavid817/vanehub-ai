@@ -8,6 +8,7 @@ use std::error::Error;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tauri::webview::{PageLoadEvent, PageLoadPayload};
 use tauri::Manager;
 
 const AGENT_TERMINAL_IDLE_TIMEOUT_SECONDS: i64 = 2 * 60 * 60;
@@ -16,6 +17,13 @@ const AGENT_TERMINAL_IDLE_TIMEOUT_SECONDS: i64 = 2 * 60 * 60;
 pub(crate) fn run() {
     // 1. 构建Tauri应用实例，配置各类插件、生命周期、事件、命令
     let builder = tauri::Builder::default()
+        .register_uri_scheme_protocol("vanehub-capture", |context, request| {
+            crate::bootstrap::screenshot_capture::protocol_response(
+                context.app_handle(),
+                context.webview_label(),
+                request.uri().path(),
+            )
+        })
         // 注册弹窗对话框插件（文件选择、提示框、确认框等）
         .plugin(tauri_plugin_dialog::init())
         // External provider/help links are opened by the operating system browser.
@@ -32,6 +40,8 @@ pub(crate) fn run() {
         .plugin(tauri_plugin_wdio::init())
         .plugin(tauri_plugin_wdio_webdriver::init());
     let result = builder
+        // Keep the native window hidden until the static startup document is ready to paint.
+        .on_page_load(show_main_window_after_page_load)
         // 应用初始化完成后的setup回调函数
         .setup(setup)
         // 主窗口事件统一处理器（窗口打开/关闭/缩放/焦点等事件）
@@ -48,6 +58,21 @@ pub(crate) fn run() {
             #[cfg(feature = "desktop-e2e")]
             if matches!(event, tauri::RunEvent::Exit) {
                 let _ = write_desktop_e2e_process_marker("exited");
+            }
+            // Stop the microphone, stop playback, and shut the engine workers down. A recording
+            // left running past exit keeps the OS capture indicator lit, and an orphaned Python
+            // process keeps a model resident in memory.
+            if matches!(event, tauri::RunEvent::Exit) {
+                if let Some(capture) = app.try_state::<
+                    crate::bootstrap::screenshot_capture::ScreenshotCaptureState,
+                >() {
+                    capture.shutdown(app);
+                }
+                if let Some(local_media) =
+                    app.try_state::<crate::contexts::local_media::api::LocalMediaApi>()
+                {
+                    local_media.shutdown();
+                }
             }
             // 判断事件为程序退出事件，且存在遥测生命周期管理实例
             // The evidence bridge drains on a bounded deadline. Evidence describes work that has
@@ -95,6 +120,20 @@ pub(crate) fn run() {
             "runtime.failure",
             &error.to_string(),
         ),
+    }
+}
+
+fn show_main_window_after_page_load(webview: &tauri::Webview, payload: &PageLoadPayload<'_>) {
+    if webview.label() != "main" || payload.event() != PageLoadEvent::Finished {
+        return;
+    }
+    if let Err(error) = webview.window().show() {
+        write_bootstrap_log(
+            &logging::fallback_log_dir(),
+            LogSeverity::Error,
+            "runtime.main-window.show",
+            &error.to_string(),
+        );
     }
 }
 
@@ -192,8 +231,32 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         .unwrap_or_else(|| "zh-CN".to_string());
 
     let operations_api = super::assemble_operations_api(database.clone());
-    let code_intelligence_api =
-        super::assemble_code_intelligence_api(database.clone(), fallback_log_directory.clone());
+    let local_media_api = super::assemble_local_media_api(
+        database.clone(),
+        operations_api.clone(),
+        Arc::new(UnifiedLoggingAdapter::active(
+            fallback_log_directory.clone(),
+        )),
+        database
+            .db_path
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new(".")),
+        &super::worker_bridge_candidates(app.path().resource_dir().ok()),
+    );
+    // Ephemeral media from a previous run -- a recording interrupted by a crash, a staged file the
+    // user never used -- is swept once here rather than accumulating until the disk notices.
+    local_media_api.sweep_stale_media();
+    let code_intelligence_api = super::assemble_code_intelligence_api(
+        database.clone(),
+        fallback_log_directory.clone(),
+        // Beside the database rather than beside the logs: a language server's per-workspace index
+        // is state, and it belongs with the other state this profile owns.
+        database
+            .db_path
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .to_path_buf(),
+    );
     code_intelligence_api.start_maintenance();
     let code_intelligence_responder = Arc::new(super::NativeCodeIntelligenceResponder::new(
         code_intelligence_api.clone(),
@@ -202,8 +265,6 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         code_intelligence_api.clone(),
         Arc::new(evidence_bridge.clone()),
     ));
-    let cli_parameters_api =
-        super::assemble_cli_parameters_api(database.clone(), fallback_log_directory.clone());
     let cli_config_api =
         super::assemble_cli_config_api(database.clone(), fallback_log_directory.clone())
             .map_err(boxed_message)?;
@@ -213,11 +274,22 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         operations_api.clone(),
         fallback_log_directory.clone(),
     );
-    let cli_api = super::assemble_cli_api(
+    let cli_environment_api = super::assemble_cli_environment_api(
         database.clone(),
         operations_api.clone(),
         fallback_log_directory.clone(),
     );
+    // Launch resolution reads the same environment the CLI Management page does, so what the
+    // runtime starts and what the page reports cannot be two different installations.
+    let cli_api = super::assemble_cli_api(cli_environment_api.clone());
+    // Assembled after `cli_api` because compatibility is read from the CLI lifecycle subdomain's
+    // cached detection state rather than from a second detector. Both facades share one service.
+    let (cli_parameter_runtime_api, cli_parameter_settings_api) =
+        super::assemble_cli_parameter_apis(
+            database.clone(),
+            cli_api.clone(),
+            fallback_log_directory.clone(),
+        );
     let sdk_api = super::assemble_sdk_api(
         database.clone(),
         operations_api.clone(),
@@ -264,7 +336,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
             operations: operations_api.clone(),
             workspaces: workspace_api.clone(),
         },
-        cli_parameters_api.clone(),
+        cli_parameter_runtime_api.clone(),
         native_config_reader,
         shared_agent_registry.registry.clone(),
         fallback_log_directory.clone(),
@@ -305,12 +377,13 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         telemetry_lifecycle,
         completion_events,
     } = super::assemble_agent_runtime_api(super::AgentRuntimeDependencies {
+        local_media: local_media_api.clone(),
         database: database.clone(),
         app: app.handle().clone(),
         operations: operations_api.clone(),
         agent_runs: agent_runs_api.clone(),
         cli: cli_api.clone(),
-        cli_parameters: cli_parameters_api.clone(),
+        cli_parameter_runtime: cli_parameter_runtime_api.clone(),
         prompts: prompt_hook_api.clone(),
         skills: skill_api.clone(),
         skill_tools: skill_tool_api.clone(),
@@ -402,12 +475,15 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         .map_err(boxed_message)?;
 
     app.manage(operations_api.clone());
+    app.manage(local_media_api.clone());
+    app.manage(crate::bootstrap::screenshot_capture::ScreenshotCaptureState::default());
     app.manage(agent_runs_api);
     app.manage(agent_run_controls_api);
     app.manage(code_intelligence_api.clone());
     app.manage(cli_api.clone());
+    app.manage(cli_environment_api.clone());
     app.manage(cli_config_api);
-    app.manage(cli_parameters_api);
+    app.manage(cli_parameter_settings_api);
     app.manage(mcp_api);
     app.manage(sdk_api);
     app.manage(extension_api);
@@ -450,6 +526,8 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     ));
     app.manage(execution_evidence_api);
     app.manage(evaluation_api);
+    #[cfg(feature = "desktop-e2e")]
+    app.manage(crate::contexts::communications::infrastructure::FeishuDesktopFixture::default());
     app.manage(communications_api.clone());
     app.manage(wechat_authorization_api);
     app.manage(desktop_settings_api.clone());
@@ -503,7 +581,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         &floating_assistant_api,
         fallback_log_directory.clone(),
     );
-    super::start_initial_cli_refresh(cli_api).map_err(boxed_error)?;
+    super::start_initial_cli_refresh(cli_environment_api.clone()).map_err(boxed_error)?;
     start_communications_maintenance_job(
         communications_api.clone(),
         communications_maintenance_database,

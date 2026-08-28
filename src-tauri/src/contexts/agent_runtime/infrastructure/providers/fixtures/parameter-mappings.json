@@ -5,8 +5,10 @@
     "reasoningDepth": "high",
     "executionMode": "plan",
     "thinking": false,
-    "base": {"chrome": true},
-    "expected": {"chrome": true, "effort": "high", "model": "sonnet"}
+    "expectedOverrides": {
+      "effort": { "state": "value", "value": "high" },
+      "model": { "state": "value", "value": "sonnet" }
+    }
   },
   {
     "agentId": "codex-cli",
@@ -14,8 +16,10 @@
     "reasoningDepth": "max",
     "executionMode": "execute",
     "thinking": false,
-    "base": {"webSearch": true},
-    "expected": {"model": "gpt-5.5", "reasoningEffort": "xhigh", "webSearch": true}
+    "expectedOverrides": {
+      "model": { "state": "value", "value": "gpt-5.5" },
+      "reasoningEffort": { "state": "value", "value": "xhigh" }
+    }
   },
   {
     "agentId": "gemini-cli",
@@ -23,8 +27,9 @@
     "reasoningDepth": "high",
     "executionMode": "inherit",
     "thinking": false,
-    "base": {"sandbox": false},
-    "expected": {"model": "gemini-2.5-flash", "sandbox": false}
+    "expectedOverrides": {
+      "model": { "state": "value", "value": "gemini-2.5-flash" }
+    }
   },
   {
     "agentId": "opencode",
@@ -32,8 +37,9 @@
     "reasoningDepth": null,
     "executionMode": "execute",
     "thinking": true,
-    "base": {},
-    "expected": {"thinking": true}
+    "expectedOverrides": {
+      "thinking": { "state": "value", "value": true }
+    }
   },
   {
     "agentId": "antigravity-cli",
@@ -41,7 +47,8 @@
     "reasoningDepth": "max",
     "executionMode": "plan",
     "thinking": false,
-    "base": {},
-    "expected": {"effort": "high"}
+    "expectedOverrides": {
+      "effort": { "state": "value", "value": "high" }
+    }
   }
 ]

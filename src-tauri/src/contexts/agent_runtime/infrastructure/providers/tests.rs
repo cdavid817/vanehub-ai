@@ -1,8 +1,8 @@
 use super::invocation::ProviderInvocationError;
 use super::{
-    apply_configuration_overrides, apply_policy_template_overrides, build_interactive_invocation,
-    build_invocation, build_invocation_with_role, force_gemini_standard_approval_flag,
-    output_parser_for, ProviderOutputEvent, ProviderPromptDelivery, ProviderReportedUsage,
+    build_interactive_invocation, build_invocation, build_invocation_with_role,
+    message_override_selections, output_parser_for, policy_override_selections,
+    ProviderLaunchSegments, ProviderOutputEvent, ProviderPromptDelivery, ProviderReportedUsage,
     ProviderToolEvent, ProviderToolPhase, ProviderUsageOverlap, POLICY_TEMPLATE_GOVERNED_AGENT_IDS,
 };
 use crate::contexts::agent_runtime::application::{
@@ -93,9 +93,19 @@ struct InvocationFixture {
     executable: String,
     prompt: String,
     runtime_session_id: String,
-    managed_args: Vec<String>,
+    global_args: Vec<String>,
+    invocation_args: Vec<String>,
     expected_args: Vec<String>,
     prompt_delivery: String,
+}
+
+impl InvocationFixture {
+    fn segments(&self) -> ProviderLaunchSegments<'_> {
+        ProviderLaunchSegments {
+            global: &self.global_args,
+            invocation: &self.invocation_args,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -106,8 +116,10 @@ struct ParameterFixture {
     reasoning_depth: Option<String>,
     execution_mode: String,
     thinking: bool,
-    base: BTreeMap<String, Value>,
-    expected: BTreeMap<String, Value>,
+    /// The override map a message contributes, in v2 envelope form. It is deliberately only the
+    /// overrides: the resolver merges them over the saved profile, so a fixture that also carried
+    /// unrelated baseline keys could not distinguish "unchanged" from "overridden to the same".
+    expected_overrides: BTreeMap<String, Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -146,7 +158,7 @@ fn invocation_fixtures_cover_every_stable_provider() {
             fixture.executable.clone(),
             &fixture.prompt,
             Some(&fixture.runtime_session_id),
-            &fixture.managed_args,
+            fixture.segments(),
         )
         .expect("supported provider invocation");
         let expected_delivery = match fixture.prompt_delivery.as_str() {
@@ -238,10 +250,14 @@ fn parameter_mapping_fixtures_cover_every_stable_provider() {
             thinking: fixture.thinking,
             long_context: false,
         };
-        let selections =
-            apply_configuration_overrides(&fixture.agent_id, fixture.base, &configuration);
+        let overrides = message_override_selections(&fixture.agent_id, &configuration);
 
-        assert_eq!(selections, fixture.expected, "{}", fixture.agent_id);
+        assert_eq!(
+            serde_json::to_value(&overrides).expect("encode overrides"),
+            Value::Object(fixture.expected_overrides.into_iter().collect()),
+            "{}",
+            fixture.agent_id
+        );
     }
 }
 
@@ -250,8 +266,7 @@ fn parameter_mapping_fixtures_cover_every_stable_provider() {
 struct PolicyTemplateFixture {
     agent_id: String,
     template: String,
-    base: BTreeMap<String, Value>,
-    expected: BTreeMap<String, Value>,
+    expected_overrides: BTreeMap<String, Value>,
 }
 
 #[test]
@@ -282,11 +297,13 @@ fn policy_template_override_fixtures_cover_every_combination() {
     for fixture in fixtures {
         let template =
             PolicyTemplateName::from_str(&fixture.template).expect("known policy template");
-        let selections = apply_policy_template_overrides(&fixture.agent_id, fixture.base, template);
+        let overrides = policy_override_selections(&fixture.agent_id, template);
         assert_eq!(
-            selections, fixture.expected,
+            serde_json::to_value(&overrides).expect("encode overrides"),
+            Value::Object(fixture.expected_overrides.into_iter().collect()),
             "{} / {}",
-            fixture.agent_id, fixture.template
+            fixture.agent_id,
+            fixture.template
         );
     }
 }
@@ -295,76 +312,194 @@ fn policy_template_override_fixtures_cover_every_combination() {
 fn policy_template_overrides_never_introduce_a_dangerous_flag() {
     for agent_id in POLICY_TEMPLATE_GOVERNED_AGENT_IDS {
         for template in ALL_POLICY_TEMPLATES {
-            let selections = apply_policy_template_overrides(agent_id, BTreeMap::new(), template);
-            for (key, value) in &selections {
-                assert!(
-                    !key.to_lowercase().contains("dangerously"),
-                    "{agent_id} / {template:?} introduced a dangerous key: {key}"
-                );
-                if let Some(text) = value.as_str() {
-                    assert!(
-                        !text.to_lowercase().contains("dangerously"),
-                        "{agent_id} / {template:?} introduced a dangerous value: {text}"
-                    );
-                }
-            }
+            let overrides = policy_override_selections(agent_id, template);
+            let encoded = serde_json::to_value(&overrides).expect("encode overrides");
+            assert!(
+                !encoded.to_string().to_lowercase().contains("dangerously"),
+                "{agent_id} / {template:?} introduced a dangerous projection: {encoded}"
+            );
         }
     }
 }
 
+/// The pre-cutover code appended `--approval-mode default` after rendering, because the v1
+/// renderer omitted any selection whose value was the string `default`. The v2 registry declares
+/// `default` as a real gemini-cli provider value, so the projection alone is sufficient and the
+/// post-render fixup is gone.
 #[test]
-fn gemini_standard_force_emits_approval_mode_default() {
-    let appended = force_gemini_standard_approval_flag(
-        "gemini-cli",
-        PolicyTemplateName::Standard,
-        vec!["--sandbox".to_string()],
-    );
+fn gemini_standard_projects_approval_mode_default_declaratively() {
+    let standard = policy_override_selections("gemini-cli", PolicyTemplateName::Standard);
     assert_eq!(
-        appended,
-        vec![
-            "--sandbox".to_string(),
-            "--approval-mode".to_string(),
-            "default".to_string(),
-        ]
+        serde_json::to_value(&standard).expect("encode"),
+        serde_json::json!({ "approvalMode": { "state": "value", "value": "default" } })
     );
 
-    let replaced = force_gemini_standard_approval_flag(
-        "gemini-cli",
-        PolicyTemplateName::Standard,
-        vec![
-            "--approval-mode".to_string(),
-            "yolo".to_string(),
-            "--sandbox".to_string(),
-        ],
-    );
+    let trusted = policy_override_selections("gemini-cli", PolicyTemplateName::Trusted);
     assert_eq!(
-        replaced,
-        vec![
-            "--sandbox".to_string(),
-            "--approval-mode".to_string(),
-            "default".to_string(),
-        ]
+        serde_json::to_value(&trusted).expect("encode"),
+        serde_json::json!({ "approvalMode": { "state": "value", "value": "yolo" } })
     );
 
-    let untouched_other_template = force_gemini_standard_approval_flag(
-        "gemini-cli",
-        PolicyTemplateName::Trusted,
-        vec!["--approval-mode".to_string(), "yolo".to_string()],
-    );
-    assert_eq!(
-        untouched_other_template,
-        vec!["--approval-mode".to_string(), "yolo".to_string()]
-    );
+    // No other agent gains an approval-mode projection from the standard template.
+    for agent_id in ["claude-code", "codex-cli", "opencode", "antigravity-cli"] {
+        let overrides = policy_override_selections(agent_id, PolicyTemplateName::Standard);
+        assert!(!overrides.contains_key("approvalMode"), "{agent_id}");
+    }
+}
 
-    let untouched_other_agent = force_gemini_standard_approval_flag(
-        "codex-cli",
-        PolicyTemplateName::Standard,
-        vec!["--sandbox".to_string(), "workspace-write".to_string()],
-    );
-    assert_eq!(
-        untouched_other_agent,
-        vec!["--sandbox".to_string(), "workspace-write".to_string()]
-    );
+/// Slot placement for every provider, with both segments non-empty. `--G` stands for a token the
+/// registry declared `global` and `--I` for one it declared `invocation`; the builder never
+/// inspects either spelling, so these prove placement rather than pattern matching.
+#[test]
+fn both_argument_slots_land_in_the_declared_position_for_every_provider() {
+    let global = vec!["--G".to_string()];
+    let invocation = vec!["--I".to_string()];
+    let segments = ProviderLaunchSegments {
+        global: &global,
+        invocation: &invocation,
+    };
+    let expectations: [(&str, Vec<&str>, Vec<&str>); 5] = [
+        (
+            "claude-code",
+            vec![
+                "--G",
+                "--I",
+                "-p",
+                "--output-format",
+                "stream-json",
+                "--include-partial-messages",
+                "--verbose",
+            ],
+            vec![
+                "--G",
+                "--I",
+                "-p",
+                "--output-format",
+                "stream-json",
+                "--include-partial-messages",
+                "--verbose",
+                "--resume",
+                "S",
+            ],
+        ),
+        (
+            "codex-cli",
+            vec!["--G", "exec", "--I", "--json", "-"],
+            vec!["--G", "exec", "resume", "S", "--I", "--json", "-"],
+        ),
+        (
+            "gemini-cli",
+            vec!["--G", "--I", "-o", "stream-json"],
+            vec!["--G", "--I", "--resume", "S", "-o", "stream-json"],
+        ),
+        (
+            "opencode",
+            vec!["--G", "run", "--I", "--format", "json", "p"],
+            vec![
+                "--G",
+                "run",
+                "--I",
+                "--session",
+                "S",
+                "--format",
+                "json",
+                "p",
+            ],
+        ),
+        (
+            "antigravity-cli",
+            vec!["--G", "--I", "-p", "p", "--output-format", "stream-json"],
+            vec![
+                "--G",
+                "--I",
+                "--conversation",
+                "S",
+                "-p",
+                "p",
+                "--output-format",
+                "stream-json",
+            ],
+        ),
+    ];
+    assert_stable_agent_coverage(expectations.iter().map(|(agent_id, _, _)| *agent_id));
+
+    for (agent_id, fresh_args, resume_args) in expectations {
+        let fresh = build_invocation(agent_id, "exe".to_string(), "p", None, segments)
+            .expect("fresh invocation");
+        assert_eq!(fresh.args, fresh_args, "{agent_id} fresh chat");
+        let resume = build_invocation(agent_id, "exe".to_string(), "p", Some("S"), segments)
+            .expect("resume invocation");
+        assert_eq!(resume.args, resume_args, "{agent_id} resume chat");
+    }
+}
+
+#[test]
+fn both_argument_slots_land_in_the_declared_position_for_every_interactive_provider() {
+    let global = vec!["--G".to_string()];
+    let invocation = vec!["--I".to_string()];
+    let segments = ProviderLaunchSegments {
+        global: &global,
+        invocation: &invocation,
+    };
+    let resume_expectations: [(&str, Vec<&str>); 5] = [
+        ("claude-code", vec!["--G", "--I", "--resume", "S"]),
+        ("codex-cli", vec!["--G", "--I", "resume", "S"]),
+        ("gemini-cli", vec!["--G", "--I", "--resume", "S"]),
+        ("opencode", vec!["--G", "--I", "--session", "S"]),
+        ("antigravity-cli", vec!["--G", "--I", "--conversation", "S"]),
+    ];
+    assert_stable_agent_coverage(resume_expectations.iter().map(|(agent_id, _)| *agent_id));
+
+    for (agent_id, resume_args) in resume_expectations {
+        let resume = build_interactive_invocation(agent_id, "exe".to_string(), Some("S"), segments)
+            .expect("resume interactive");
+        assert_eq!(resume.args, resume_args, "{agent_id} resume interactive");
+
+        let fresh = build_interactive_invocation(agent_id, "exe".to_string(), None, segments)
+            .expect("fresh interactive");
+        // Both segments always precede whatever session argument the grammar mints.
+        assert_eq!(
+            &fresh.args[0..2],
+            ["--G", "--I"],
+            "{agent_id} fresh interactive"
+        );
+    }
+}
+
+/// A resolved segment never carries a runtime-owned argument: prompt transport, session identity,
+/// and the structured-output protocol are contributed by the grammar, not by the registry.
+#[test]
+fn runtime_owned_arguments_are_contributed_by_the_grammar_not_the_segments() {
+    let reserved = [
+        "-p",
+        "--output-format",
+        "stream-json",
+        "--json",
+        "-o",
+        "--resume",
+        "--session",
+        "--session-id",
+        "--conversation",
+        "-",
+    ];
+    for agent_id in STABLE_AGENT_IDS {
+        let spec = build_invocation(
+            agent_id,
+            "exe".to_string(),
+            "the prompt",
+            Some("S"),
+            ProviderLaunchSegments::default(),
+        )
+        .expect("invocation");
+        // With both segments empty every remaining token is grammar-owned, and every reserved
+        // token present came from there.
+        assert!(
+            spec.args
+                .iter()
+                .any(|token| reserved.contains(&token.as_str())),
+            "{agent_id} must construct its own runtime-owned arguments"
+        );
+    }
 }
 
 #[test]
@@ -423,7 +558,10 @@ fn interactive_invocations_cover_fresh_and_resume_for_every_stable_provider() {
             agent_id,
             format!("C:/bin/{agent_id}.exe"),
             None,
-            &managed_args,
+            ProviderLaunchSegments {
+                global: &managed_args,
+                invocation: &[],
+            },
         )
         .expect("fresh interactive invocation");
         match agent_id {
@@ -453,7 +591,10 @@ fn interactive_invocations_cover_fresh_and_resume_for_every_stable_provider() {
             agent_id,
             format!("C:/bin/{agent_id}.exe"),
             Some("runtime-1"),
-            &managed_args,
+            ProviderLaunchSegments {
+                global: &managed_args,
+                invocation: &[],
+            },
         )
         .expect("resume interactive invocation");
         assert_eq!(resume.args, resume_args, "{agent_id} resume");
@@ -468,7 +609,7 @@ fn empty_interactive_runtime_session_id_is_treated_as_fresh() {
             agent_id,
             format!("C:/bin/{agent_id}.exe"),
             Some("  "),
-            &[],
+            ProviderLaunchSegments::default(),
         )
         .expect("fresh interactive invocation");
 
@@ -841,7 +982,6 @@ fn opencode_unsafe_step_identity_and_revision_are_not_retained() {
     assert_eq!(usage.source_identity, None);
     assert_eq!(usage.source_revision, None);
 }
-
 #[test]
 fn opencode_all_zero_usage_is_treated_as_absent() {
     let event = output_parser_for("opencode").parse_line(
@@ -898,7 +1038,13 @@ fn provider_delegation_metadata_is_preserved_when_reported() {
 #[test]
 fn unsupported_invocation_is_explicit_and_unknown_output_is_lossless() {
     assert_eq!(
-        build_invocation("unknown", "unknown".to_string(), "prompt", None, &[]),
+        build_invocation(
+            "unknown",
+            "unknown".to_string(),
+            "prompt",
+            None,
+            ProviderLaunchSegments::default()
+        ),
         Err(ProviderInvocationError::UnsupportedAgent(
             "unknown".to_string()
         ))
@@ -1097,7 +1243,7 @@ fn claude_role_briefing_uses_the_native_system_prompt_flag() {
         "claude".to_string(),
         "hello",
         None,
-        &[],
+        ProviderLaunchSegments::default(),
         Some("你是架构师。"),
     )
     .expect("invocation");
@@ -1117,7 +1263,7 @@ fn codex_role_briefing_uses_developer_instructions() {
         "codex".to_string(),
         "hello",
         None,
-        &[],
+        ProviderLaunchSegments::default(),
         Some("你是审查者。"),
     )
     .expect("invocation");
@@ -1136,11 +1282,23 @@ fn codex_role_briefing_uses_developer_instructions() {
 #[test]
 fn no_role_briefing_leaves_the_invocation_untouched() {
     for agent_id in ["claude-code", "codex-cli", "gemini-cli", "opencode"] {
-        let plain = build_invocation(agent_id, agent_id.to_string(), "hello", None, &[])
-            .expect("plain invocation");
-        let with_none =
-            build_invocation_with_role(agent_id, agent_id.to_string(), "hello", None, &[], None)
-                .expect("invocation without a briefing");
+        let plain = build_invocation(
+            agent_id,
+            agent_id.to_string(),
+            "hello",
+            None,
+            ProviderLaunchSegments::default(),
+        )
+        .expect("plain invocation");
+        let with_none = build_invocation_with_role(
+            agent_id,
+            agent_id.to_string(),
+            "hello",
+            None,
+            ProviderLaunchSegments::default(),
+            None,
+        )
+        .expect("invocation without a briefing");
         assert_eq!(
             plain, with_none,
             "{agent_id} must be unchanged without a briefing"
@@ -1158,7 +1316,7 @@ fn agents_without_a_native_channel_report_that_the_briefing_was_not_placed() {
             agent_id.to_string(),
             "hello",
             None,
-            &[],
+            ProviderLaunchSegments::default(),
             Some("角色"),
         )
         .expect("invocation");

@@ -29,6 +29,10 @@ fn operation_contract_keeps_lowercase_enums_and_camel_case_fields() {
         error: None,
         created_at: "2026-01-01T00:00:00Z".to_string(),
         updated_at: "2026-01-01T00:00:00Z".to_string(),
+        phase: None,
+        completed_units: None,
+        total_units: None,
+        cancellable: None,
     })
     .expect("serialize operation");
 
@@ -38,6 +42,45 @@ fn operation_contract_keeps_lowercase_enums_and_camel_case_fields() {
     assert!(value.get("related_entity_id").is_none());
     assert!(value.get("executionRunId").is_none());
     assert!(value.get("traceId").is_none());
+    // An operation that declares no progress serializes exactly as it did before these fields
+    // existed, so every existing non-CLI consumer stays byte-compatible.
+    assert!(value.get("phase").is_none());
+    assert!(value.get("completedUnits").is_none());
+    assert!(value.get("totalUnits").is_none());
+    assert!(value.get("cancellable").is_none());
+}
+
+#[test]
+fn operation_contract_exposes_cli_kind_and_camel_case_progress() {
+    let value = serde_json::to_value(OperationTask {
+        id: "operation-cli-1".to_string(),
+        execution_run_id: None,
+        trace_id: None,
+        kind: OperationKind::Cli,
+        status: OperationStatus::Running,
+        related_entity_id: Some("claude-code".to_string()),
+        message: None,
+        logs: Vec::new(),
+        result: None,
+        error: None,
+        created_at: "2026-01-01T00:00:00Z".to_string(),
+        updated_at: "2026-01-01T00:00:00Z".to_string(),
+        phase: Some("querying-catalog".to_string()),
+        completed_units: Some(1),
+        total_units: Some(3),
+        cancellable: Some(true),
+    })
+    .expect("serialize cli operation");
+
+    assert_eq!(value["kind"], "cli");
+    // Status stays authoritative and unchanged; phase is additive and descriptive.
+    assert_eq!(value["status"], "running");
+    assert_eq!(value["phase"], "querying-catalog");
+    assert_eq!(value["completedUnits"], 1);
+    assert_eq!(value["totalUnits"], 3);
+    assert_eq!(value["cancellable"], true);
+    assert!(value.get("completed_units").is_none());
+    assert!(value.get("total_units").is_none());
 }
 
 #[test]

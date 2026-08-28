@@ -15,6 +15,7 @@
 - [x] 3.1 Validate `prepare-first-stable-release` strictly and validate all main specifications strictly.
 - [x] 3.2 Run all mandatory frontend, coverage-policy, version, contract, build, Rust format, clippy, test, and check commands from `AGENTS.md`.
 - [x] 3.3 Run the UI and native desktop verification commands required for desktop release behavior and record Windows as `PASSED`, `FAILED`, `BLOCKED`, or `NOT RUN`.
+- [x] 3.4 Keep release-version fixtures and the workspace lockfile synchronized so CI documentation builds remain read-only.
 
 ## 4. GitHub Release Readiness
 

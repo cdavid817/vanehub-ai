@@ -5,7 +5,9 @@ import type { AgentWithModelFamily } from "../services/agent-model-family";
 import { addSeat, removeSeat } from "../services/seat-mutation";
 import type { ExpertRole } from "../types/expert-role";
 import type { SessionSeat } from "../types/agent";
+import type { ChatMessage } from "../types/chat";
 import { ParticipantAvatar } from "../components/session-roster-presence";
+import { seatActivity } from "./seat-activity";
 
 /**
  * Shows who is in the session and lets the line-up change while it runs, because the collaboration
@@ -21,6 +23,7 @@ export function SessionSeatsPanel({
   onSeatsChange,
   roles,
   seats,
+  messages = [],
   speakingSeatId = null,
 }: {
   agents: AgentWithModelFamily[];
@@ -29,6 +32,7 @@ export function SessionSeatsPanel({
   onSeatsChange: (seats: SessionSeat[]) => void;
   roles: ExpertRole[];
   seats: SessionSeat[];
+  messages?: ChatMessage[];
   speakingSeatId?: string | null;
 }) {
   const { t } = useTranslation();
@@ -42,6 +46,7 @@ export function SessionSeatsPanel({
           const role = roles.find((candidate) => candidate.id === seat.roleId) ?? null;
           const agent = agents.find((candidate) => candidate.id === seat.agentId) ?? null;
           const speaking = Boolean(seat.seatId && seat.seatId === speakingSeatId);
+          const activity = seatActivity(messages, seat.seatId, speaking);
           return (
             <li
               aria-current={speaking ? "true" : undefined}
@@ -66,9 +71,9 @@ export function SessionSeatsPanel({
                   {seat.roleSnapshot?.agentName ?? agent?.displayName ?? seat.agentId} · {seat.roleSnapshot?.modelFamily ?? agent?.modelFamily ?? "unknown"}
                 </span>
               </span>
-              <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-muted px-2 py-1 text-[10px] text-muted-foreground">
-                <Circle aria-hidden="true" className="h-1.5 w-1.5 fill-current" />
-                {speaking ? t("session.seatSpeaking") : t("session.seatIdle")}
+              <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-muted px-2 py-1 text-[10px] text-muted-foreground" data-seat-activity={activity}>
+                <Circle aria-hidden="true" className={activity === "starting" || activity === "thinking" || activity === "tool" || activity === "streaming" ? "h-1.5 w-1.5 animate-pulse fill-primary text-primary" : "h-1.5 w-1.5 fill-current"} />
+                {t(`session.seatActivity.${activity}`)}
               </span>
               <Button
                 aria-label={t("session.seatLeave")}

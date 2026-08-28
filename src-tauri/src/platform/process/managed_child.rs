@@ -35,13 +35,41 @@ impl ManagedChild {
         Self::spawn_in(executable, args, environment, None)
     }
 
+    /// Spawn with the parent environment discarded.
+    ///
+    /// `spawn`/`spawn_in` add to the inherited environment, which is right for a child that needs
+    /// the user's PATH and proxy settings. It is wrong for one whose whole point is to be offline:
+    /// setting `HTTP_PROXY=""` and hoping every library treats empty as unset is a guess, and
+    /// clearing first is not. `environment` becomes the complete environment of the child.
+    pub(crate) fn spawn_isolated(
+        executable: &str,
+        args: &[String],
+        environment: &BTreeMap<String, String>,
+        current_dir: Option<&std::path::Path>,
+    ) -> Result<Self, ProcessError> {
+        Self::spawn_configured(executable, args, environment, current_dir, true)
+    }
+
     pub(crate) fn spawn_in(
         executable: &str,
         args: &[String],
         environment: &BTreeMap<String, String>,
         current_dir: Option<&std::path::Path>,
     ) -> Result<Self, ProcessError> {
+        Self::spawn_configured(executable, args, environment, current_dir, false)
+    }
+
+    fn spawn_configured(
+        executable: &str,
+        args: &[String],
+        environment: &BTreeMap<String, String>,
+        current_dir: Option<&std::path::Path>,
+        clear_environment: bool,
+    ) -> Result<Self, ProcessError> {
         let mut command = super::std_command(executable)?;
+        if clear_environment {
+            command.env_clear();
+        }
         command
             .args(args)
             .envs(environment)

@@ -17,6 +17,7 @@ import { agentService } from "../services/runtime-agent-client";
 import { seatsFromSession } from "../services/session-seats";
 import type { SessionTabId } from "../session-workspace/session-tab-bar";
 import type { Session } from "../types/agent";
+import type { ChatMessage } from "../types/chat";
 import { SessionSkillsPane } from "./session-skills-pane";
 import { SessionCodeIndexPane } from "./session-code-index-pane";
 import { SessionEvidenceSummary } from "./session-evidence-summary";
@@ -63,6 +64,7 @@ export function SessionInfoPanel({
   activeSession,
   collapsed,
   currentSpeakerSeatId = null,
+  messages = [],
   requestedTab,
   onNavigateToTab,
   onOpenSkillSettings,
@@ -71,6 +73,7 @@ export function SessionInfoPanel({
   activeSession: Session | null;
   collapsed: boolean;
   currentSpeakerSeatId?: string | null;
+  messages?: ChatMessage[];
   requestedTab?: InfoTab | null;
   /** Absent where nothing owns the workspace tabs, in which case the rows are not navigable. */
   onNavigateToTab?: (tab: SessionTabId) => void;
@@ -132,7 +135,7 @@ export function SessionInfoPanel({
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto pr-1">
           {showSessionMembers && activeSession ? (
-            <Pane active={activeTab === "members"} tab="members"><SessionRosterEditor currentSpeakerSeatId={currentSpeakerSeatId} session={activeSession} /></Pane>
+            <Pane active={activeTab === "members"} tab="members"><SessionRosterEditor currentSpeakerSeatId={currentSpeakerSeatId} messages={messages} session={activeSession} /></Pane>
           ) : null}
           <Pane active={activeTab === "basic"} tab="basic">
             {activeSession ? (
