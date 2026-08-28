@@ -50,6 +50,15 @@ pub(crate) trait RemoteSshTransportPort: Send + Sync {
 #[async_trait]
 pub(crate) trait RemoteSshChannelPort: Send + Sync {
     async fn write(&self, content: &[u8]) -> Result<(), RemoteSshError>;
+
+    /// Signals that nothing more will be written, without closing the channel.
+    ///
+    /// Distinct from `close`, and the distinction is the whole reason it exists: a remote program
+    /// reading its whole stdin waits for EOF, and closing instead would tear down the channel
+    /// before it could answer. A PTY session never needs this; a one-shot exec that takes input
+    /// always does.
+    async fn send_eof(&self) -> Result<(), RemoteSshError>;
+
     async fn resize(&self, request: RemotePtyRequest) -> Result<(), RemoteSshError>;
     async fn next_event(&self) -> Result<Option<RemoteSshChannelEvent>, RemoteSshError>;
     async fn close(&self) -> Result<(), RemoteSshError>;

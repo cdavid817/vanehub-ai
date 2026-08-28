@@ -41,10 +41,31 @@ export interface ExecutionRunSummary {
   agentId?: string | null;
 }
 
+/** Decided natively from what a producer asserted, never inferred from the span name. */
+export type ExecutionSpanKind =
+  | "model"
+  | "tool"
+  | "mcp"
+  | "process"
+  | "delegation"
+  | "file"
+  | "network"
+  | "container"
+  | "unknown";
+
+/** One relationship between spans or runs. Identifiers only, never what they point at. */
+export interface ExecutionLink {
+  runId: string;
+  traceId: string;
+  spanId?: string | null;
+  relationship: string;
+}
+
 export interface ExecutionSpanSummary {
   spanId: string;
   parentSpanId?: string | null;
   name: string;
+  kind: ExecutionSpanKind;
   status: ExecutionStatus;
   fidelity: ExecutionFidelity;
   startedAt: string;
@@ -52,6 +73,16 @@ export interface ExecutionSpanSummary {
   durationMs?: number | null;
   errorClassification?: string | null;
   attributes: Record<string, SafeAttribute>;
+  depth: number;
+  /** Absent when a timestamp could not be read — never defaulted to zero. */
+  startOffsetMs?: number;
+  /** Absent while the span is still running. */
+  completedDurationMs?: number;
+  /** Absent when no producer counted one. */
+  attempt?: number;
+  delegated: boolean;
+  criticalPath: boolean;
+  links: ExecutionLink[];
 }
 
 export interface ExecutionEvent {

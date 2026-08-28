@@ -35,6 +35,155 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 合并后下调:上面两条各自按自己那一侧的增量报了上限(19471 / 19581),但同一批上游改动在
 // src/services 里是净减的,合并后实测只有 19234——比两侧的预估、也比它们共同的基线 19414 都低。
 // 上限按实测值收紧,不保留任何一侧凭预估留下的余量。
+// 上调理由(upgrade-session-workspace-evidence-console):新增 hunk 级评审决定这条能力,不是拆分。
+// 之前接受一个 hunk 调的是 review 级的 `setCodeReviewDecision`,等于整份评审被接受;修掉它需要
+// 一个独立的 service 方法、Web/mock 的定点变更实现、以及 Tauri 侧在 Task Group 13 落地持久化前
+// 的带原因码拒绝。同一批改动里 `agent-service.ts` 是净减的——评审方法搬进了新的
+// `code-review-service.ts`,它因此退出 eslint 技术债清单,由全局 300 行规则接管。
+// 上限按实测值 19287 记录,不留余量。
+// 再次上调(同一 change,Task Group 2):证据服务是一条全新能力,不是把既有代码挪个位置。新增的
+// 692 行分成五个聚焦模块——service 接口、可注入的 native transport(含 typed unavailable 绑定)、
+// 序列去重/gap 检测的共享订阅语义、Tauri 客户端、Web/mock 客户端与其确定性 fixture。没有任何一份
+// 是对既有分支的复制:两个适配器实现同一个接口,这是 React 不直接 invoke 的前提;共享订阅语义写在
+// 一处,正是为了让两个运行时不会在订阅行为上漂移。上限按实测值 19979 记录,不留余量。
+// 再次上调(同一 change,Task Group 3.15):证据读取从 typed-unavailable 切到真实原生命令,新增
+// 137 行全部在 `tauri-native-evidence-transport.ts`——真实 invoke/listen 绑定、只放行已注册命令的
+// 白名单、以及把原生错误压成 reasonCode 的映射。它不是 `native-evidence-transport.ts` 的副本:后者
+// 定义 seam 与 typed unavailable 绑定,前者是唯一接触 Tauri API 的实现,拆开正是为了让"哪些命令
+// 已注册"只有一处写法。`tauri-session-workspace-evidence-client.ts` 里订阅改成先挂监听再取
+// watermark,净增几行。上限按实测值 20116 记录,不留余量。
+// 再次上调(同一 change,Task Group 7.9/7.10):Session Shell 是一条全新能力,不是把既有代码挪个
+// 位置。新增的 592 行分成四个聚焦模块——service 接口(定义"离开"与"停止"是两个不同的调用,这正是
+// 标签页切换不再杀掉构建的前提)、两个运行时各自的适配器、以及它们共用的帧对账模块。共用那一份
+// 是刻意的:去重与 gap 检测如果两端各写一份,漂移的恰好是最难看出来的行为——重复交付的帧看起来
+// 像 shell 回显,漏掉的帧看起来像命令少输出了几行。旧的 `session-workspace-shell-frames` 契约是
+// 净改而非净增:它此前描述的 state 取值(connecting/connected/…)与原生注册表实际发布的六个状态
+// 对不上,attachmentId、revision、foregroundProcess 三个字段则根本不存在。上限按实测值 20693
+// 记录,不留余量。
+// 再次上调(同一 change,Task Group 7.11-7.14):+13 是 `runtime-session-shell-client.ts`——两个适配器
+// 的运行时选择器,与 `runtime-agent-client.ts`、`runtime-execution-observability-client.ts` 同一模式。
+// 它必须单独存在:React 侧只能拿到这个绑定,组件里出现 `isTauri` 分支正是 ARCH-FE-002 要拦的东西。
+// 另 +19 是 `SessionShellEvent`:gap 是客户端在序号跳变时算出来的,不是原生发过来的,所以监听器的
+// 事件类型必须比线上通知宽一档。少了这一档,视图看到的帧会紧挨着接上,缺口那段就被当成"本来就
+// 没有输出"。上限按实测值 20725 记录,不留余量。
+// 再次上调(同一 change,Task Group 8.11):Session Log 的 live notice 是一条全新能力。新增 320 行
+// 分成四个聚焦模块,与 Session Shell 同构而非同源——契约在 `src/types/session-log-notice.ts`,不计入
+// 本预算;这里的四份是 seam 与 typed unavailable 绑定、共享的序列语义、两个运行时各自的客户端。
+// 共享那一份仍然是刻意的,而且这里的漂移比 Shell 更难看出来:日志条目本来就是断续到达的,少掉几条
+// 只会让列表短一截,而"短一截"和"这段时间确实没有日志"在界面上长得一模一样。原生 gap 与投递 gap
+// 也必须由同一处区分——前者说桥丢了 receipt,后者说通知没送到这个订阅者,两端各写一份就会把同一次
+// 丢失按两个原因报两遍。上限按实测值 21045 记录,不留余量。
+// 再次上调(同一 change,Task Group 8.12):+65 全部在 web-session-workspace-client.ts,是把 Web/mock
+// 从"总是回答 complete、忽略所有关联过滤"改成能被真实驱动。两件事都不是可选补全:design 的 Web/Mock
+// Runtime 一节要求 mock 能走完 complete/indexing/partial/unavailable 四态,一个永远回答 complete 的
+// mock 会让浏览器构建成为**唯一**看不到不完整覆盖渲染的运行时;而忽略关联过滤的 mock 会让"按 run
+// 过滤"在浏览器里静默返回整个会话——那正好是过滤器最容易被误读成证据的方向。关联键到 context 键的
+// 映射写成显式表而非按名推导:两者是碰巧长得像的两套词汇,推导会在其中一套改名的当天开始静默匹配
+// 不到任何东西。上限按实测值 21110 记录,不留余量。
+// 再次上调(同一 change,Task Group 8.14):+12 是 getSessionLogRecord 在接口与两个适配器上的三处声明。
+// 它必须存在:live notice 只带标识符不带日志行——这是刻意的,否则事件通道会驮着整个语料,而且一行
+// 记录会有两种可能互相矛盾的形状。于是"把这行插进列表"就必须按 id 回取,回取的入口只能在 service
+// 边界上。没有它,8.14 的 insert 分支就只能靠通知里那点字段拼一个假的行,那正是这条设计要避免的第二
+// 种形状。上限按实测值 21122 记录,不留余量。
+// 再次上调(同一 change,Task Group 8.16):+93 是把 live notice 真正接上运行时。两份:
+// tauri-native-session-log-transport.ts 是唯一接触 Tauri API 的实现,持有事件通道名与已注册命令
+// 白名单——通道名与 Rust 侧写错一个字符会产生一个永不触发也永不报错的订阅,这是活视图从内部无法
+// 察觉的唯一失败模式,所以它必须只有一处写法;runtime-session-log-client.ts 是运行时选择器,与
+// runtime-agent-client、runtime-session-shell-client 同一模式,组件里出现 isTauri 分支正是
+// ARCH-FE-002 要拦的东西。两个运行时共用 dispatcher,只有投递方式不同。
+// 上限按实测值 21215 记录,不留余量。
+// 再次上调(同一 change,Task Group 9.1-9.5):+121 净增,全部在 Web/mock 的 trace 夹具。夹具从 client
+// 抽到 web-execution-observability-fixtures.ts 是净移动,真正的新增是两件事:每个 span 补上 kind 与
+// 派生字段(depth/offset/attempt/delegated/criticalPath),以及一条**仍在运行**的 run 加上把它推进到
+// 终态的函数。第二件不是可选的:本设计里有几条规则只在边界的一侧成立——运行中的 span 没有 duration,
+// 有任何 span 未结束的 run 没有关键路径——一个永远停在一侧的夹具让这些规则无法被观察到,浏览器构建
+// 会成为唯一永远看不到"尚不知道"这个状态的运行时,而那恰好是瀑布图最需要诚实呈现的状态。
+// 派生值是手写而非计算:它们是夹具,值是固定的,而一个自己重算的 mock 就是原生派生的第二份实现,
+// 两者可以在都看起来正确的情况下互相矛盾。另含把分页填充搬进夹具模块:client 在 reset 时从夹具重建,
+// 填充留在外面会在第一次 reset 后消失,分页断言随之失败,而失败原因与分页无关。
+// 上限按实测值 21367 记录,不留余量。
+// 再次上调(同一 change,Task Group 9.11):+81 是 runtime-trace-transition-client.ts——trace 转换的
+// 运行时绑定与线上载荷解析。与 runtime-session-log-client 同一模式,同一理由:通道名与 Rust 侧差一个
+// 字符会产生永不触发也永不报错的订阅,这是活视图从内部唯一无法察觉的失败模式,所以它只能有一处写法。
+// 浏览器构建不发任何转换,而且是**故意**不发:一个按定时器发假转换的 mock 会让合并逻辑看起来能用,
+// 而实际上什么都没有转换过。上限按实测值 21448 记录,不留余量。
+// 再次上调(同一 change,Task Group 10.13):+65 是报告 JSON 导出在服务边界两侧的实现——接口方法、
+// Tauri 侧的目录选择与 invoke、Web 侧的 simulated 应答,以及导出结果的 Zod 解析。
+// 值得说明的是为什么这 65 行必须在这里而不能更省:前端**不写文件**。一个用 Blob + download 的实现
+// 只需要三行,但那是一次后端从未校验过路径的文件写入,正是导出规则要挡住的东西。所以目录来自原生
+// 选择器、写入发生在 Rust 侧、文件名由应用层派生,而这条链路在服务边界上就要占三个实现。
+// simulated 是独立状态而非 exported 的变体:浏览器构建无处可写,一个说"已导出"的 demo 会让人去找
+// 一个不存在的文件。上限按实测值 21513 记录,不留余量。
+// 再次上调(同一 change,Task Group 11.11):+50 是工作区检查能力在服务边界上的三处——接口方法、
+// Tauri 侧的 invoke、Web 侧的 simulated 夹具与其类型。
+// 值得说明的是为什么 Web 侧不能省:浏览器构建必须报 `simulated` 而不是 `local`。一个说自己在读
+// 本机的 demo 会让人去找根本不存在的文件,而 `watchMode: "none"` 同理——夹具永远不变,说 native
+// 就是在描述一个不存在的监视器。能力全部 available 是诚实的:夹具里确实有这些东西,真正的缺口
+// 是 provider 名字,不是假装缺少某个前置条件。上限按实测值 21563 记录,不留余量。
+// 再次上调(同一 change,Task Group 12.3):+63 是工作区失效通知在服务边界上的三处——新拆出的
+// `session-workspace-inspection-service.ts`、Tauri 侧的 `listen` 与解析、Web 侧的空订阅。
+// 净增没有 52 行那么少的原因是这次顺带做了一次拆分:`agent-service.ts` 已经顶到 300 行硬规则,
+// 再加一个方法就过线,所以工作区检查那一组方法整体移进了自己的文件。移动本身不增加行数,增加的是
+// 新文件的 import 块与那段说明「为什么这组方法值得单独一个文件」的注释——而下一个方法(12.4 的
+// Quick Open)因此有了明确的去处,不必再在 300 行的边缘上挤。
+// 值得说明的是为什么 Web 侧那个空订阅不能省:浏览器夹具永远不变,任何它发出的通知都是在描述一件
+// 没发生的事;而按定时器造假的通知会让整条失效路由看起来被跑过,实际上没有任何东西真的过期过。
+// 上限按实测值 21626 记录,不留余量。
+// 再次上调(同一 change,Task Group 12.4):+58 是 Quick Open 在服务边界上的四处——接口方法与
+// 它的输入类型、Tauri 侧的 invoke 与 Zod 解析、Web 侧的夹具排名,以及夹具本身那份从
+// `directoryFixtures` 派生出来的扁平列表。
+// 值得说明的是为什么 Web 侧那份不能省、也不能手写成第二份清单:浏览器构建的 Quick Open 必须只能
+// 提供树里真实存在的路径。一份单独维护的搜索夹具迟早会给出一条树里没有的路径,而点开什么都不发生
+// 的结果,比没有结果更糟——读者会以为是应用坏了,而不是以为这是个 demo。
+// 上限按实测值 21684 记录,不留余量。
+// 再次上调(同一 change,Task Group 12.5):+85 是内容搜索在服务边界上的四处——接口的两个方法与
+// 输入类型、Tauri 侧的 invoke 与 Zod 解析、Web 侧的夹具扫描,以及取消。
+// 值得说明的是为什么「取消」必须占一个独立方法而不能折进搜索请求里:取消要在搜索**还没返回**时
+// 到达进程,这正是取消的全部意义。一个带 cancel 标志的搜索请求只会在下一次搜索时才被读到,
+// 而那时上一次扫描已经把整个工作区读完了。
+// 上限按实测值 21769 记录,不留余量。
+// 再次上调(同一 change,Task Group 12.6):+25 是 Files 工具栏需要的两个既有方法的扩展——
+// `openSessionFolder` 多一个可选的子目录参数、Shell 创建多一个可选的起始目录。
+// 两个都做成可选而不是必填,是为了让所有既有调用点保持它原来的含义(工作区根目录);
+// 而不是在服务层再加两个方法,那会让"打开工作区"和"打开工作区的某个子目录"变成两件事,
+// 调用方迟早会挑错那一个。
+// 上限按实测值 21794 记录,不留余量。
+// 再次上调(同一 change,Task Group 12.7):+17 全部在 Web adapter 的 `readSessionFile`——从夹具
+// 自身推导编码与换行,而不是写死两个常量。
+// 值得说明的是为什么不能写死:这两个字段的全部意义就是"内容里看不见、但会改变读者行为"——BOM 会
+// 让 shell 脚本和 JSON 解析器失败,混合换行会把一次普通编辑变成整文件 diff。一个永远返回
+// `utf-8` / `lf` 的元数据行,是一行永远不变、因而永远不告诉任何人任何事的 UI。
+// 上限按实测值 21811 记录,不留余量。
+// 再次上调(同一 change,Task Group 12.11):+27 是"这个文件被记录过什么"这条查询在服务边界上的
+// 三处——接口方法、Tauri 侧的 invoke 与 Zod 解析、Web 侧的固定零回答。
+// 值得说明的是为什么 Web 侧那个不能省、也不能编:浏览器构建没有执行日志,所以每个文件的
+// observations **真的**是 0。一个编出几条记录的夹具,会在界面上放一个通向不存在记录的链接——
+// 那比没有链接更糟,因为读者会以为是应用坏了。
+// 上限按实测值 21838 记录,不留余量。
+// 再次上调(同一 change,Task Group 13.5):+27 是"这个文件读过了吗"这条状态在服务边界上的三处——
+// 接口方法、Tauri 侧的 invoke、Web 侧按文件自身指纹记账的夹具。
+// 值得说明的是为什么 Web 侧那个夹具不能只存一个布尔:见证必须取自文件自身的指纹,而不是 review
+// 快照的指纹。快照指纹覆盖全部变更文件,任何一个文件被写就会变;把 Viewed 挂在它上面,等于
+// agent 动了一个文件就把其余十一个的"已读"全部清掉,于是"8 个文件 · 4 个未读"这类计数在真实
+// 会话里永远在归零,读者没法据此做任何事。夹具照着真实语义实现,才能在桌面侧走偏时先挂掉。
+// 上限按实测值 21865 记录,不留余量。
+// 再次上调(同一 change,Task Group 13.6):+28 全部在 Web adapter——按文件自身指纹算见证的
+// `witnessOf`、每次读取重算的 `summarize`、以及包装返回的 `withSummary`。
+// 值得说明的是为什么夹具要重算而不是存一个计数:计数存下来就是同一个问题的第二份答案,而 marks
+// 和 files 各自会变;两者第一次不同步时,header 就在自信地报错数,并且没有任何东西会说它错了。
+// 上限按实测值 21893 记录,不留余量。
+// 再次上调(同一 change,Task Group 13.7):+31 是标准补丁这条读取在服务边界上的三处——接口方法、
+// Tauri 侧的 invoke、Web 侧带真实文件头与 hunk 头的夹具。
+// 值得说明的是为什么 Web 夹具不能只回显面板上那几行:那几行没有文件头也没有 hunk 头,并且在面板
+// 截断的地方就截断了,读起来对、贴到 git apply 里必然失败。而 Web 构建里没有 git,谁也跑不出这个
+// 失败;夹具照着真实结构渲染,才不会让"可读"和"可应用"的区别恰好在这一侧消失。
+// 上限按实测值 21924 记录,不留余量。
+// 再次上调(同一 change,Task Group 13.10):+4,全部在 Web adapter 的 `withSummary` 里——把每个
+// 文件的 `viewed`、以及本次 review 的 hunk 决定一起投影到返回值上。
+// 值得说明的是为什么这四行不能省:面板只有在读取里拿得到这两样,重新加载后才不会把已记录的决定
+// 全部显示成"未决定"。夹具少投影一样,Web 侧就会长出一个桌面侧没有的行为差异。
+// 上限按实测值 21928 记录,不留余量。
+// 与 main 合并:以下两段是两条独立能力各自的上调记录,数字在合并后按实测重记。
 // 由 `add-local-composer-media-tools` 从 19234 上调 351 行,全部是新增服务边界的固定开销,没有一行
 // 是复制既有分支:
 //   +60  `local-media-service.ts`——接口本身,15 个方法加注释;
@@ -110,6 +259,11 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 了 LspOverrideTarget;`web-lsp-client.ts` 的 mock 注册表多了 Java 这一条,并把两个新字段带进
 // descriptors()。这一条 mock 数据正是让 Web 侧也走 install_directory 分支的原因——否则那个分支
 // 只有桌面侧跑得到。
+// 合并 `upgrade-session-workspace-evidence-console` 后按实测重记为 23030。
+// 这不是第三次上调,而是两条互不相交的能力各自的上调在同一棵子树上相加:上面两大段理由分别属于
+// 证据控制台与本地媒体/LSP,两边都新增了 service 接口 + Tauri 客户端 + Web/mock 客户端这三件套。
+// 三件套是 React 不直接 invoke 的代价,它按能力数量线性增长而不是按代码量——合并只是让两份固定
+// 开销出现在同一个数字里,没有任何一行是复制来的。
 // 上调理由(manage-language-server-installation):+89,全部在生产文件上。其中只有 54 行是新能力，
 // 其余 35 行是两次拆分的固定开销——只搬不抄，两侧都有实测减数对应。
 // 新能力：`tauri-agent-client.ts` +26(install/uninstall 两个方法，加一个把 `Result<_, String>`
@@ -124,8 +278,15 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // `lsp-contract-values.ts` +99 / `lsp-contract.ts` -89(另 +16 是它的 import 块)——强制 fail closed
 // 的值强转帮助函数单独成模块，`lsp-contract.ts` 从 302 降到 227。它本来就不在技术债清单上，
 // 300 行是硬规则；不拆的唯一选项是把上面那个 fail-closed 检查换成 6 行额度。
+//
+// 合并 `upgrade-session-workspace-evidence-console` 后按合并树实测重记,先 23119,再随
+// `add-unified-personalization-governance` 一起并入后重测为 24136。
+// 这不是一次次上调,而是几条互不相交的能力各自的上调落在同一棵子树上:上面那些段落分属证据
+// 控制台、本地媒体/LSP 与个性化治理,每一条都新增了 service 接口 + Tauri 客户端 + Web/mock
+// 客户端这三件套。三件套是"React 不直接 invoke"这条规则的代价,按能力条数线性增长而不是按代码
+// 量——所以每次合并都在合并后的树上重测,不把两侧的数相加,后者会把两边共有的基线算两遍。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 21446, owner: "add-unified-personalization-governance" },
+  { root: "src/services", budget: 24136, owner: "upgrade-session-workspace-evidence-console" },
 ]);
 
 const STATE_PACKAGES = new Set([

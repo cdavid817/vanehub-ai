@@ -6,6 +6,11 @@ import { activateAppLanguage } from "../i18n";
 import { renderWithAppProviders } from "../test/render";
 import { FilesTab } from "./files-tab";
 
+
+function renderFilesTab() {
+  return renderWithAppProviders(<FilesTab sessionId="session-1" />);
+}
+
 const { mockAgentService } = vi.hoisted(() => ({
   mockAgentService: {
     listSessionDirectory: vi.fn(),
@@ -40,7 +45,7 @@ describe("FilesTab", () => {
       return Promise.reject(new Error("Permission denied"));
     });
 
-    const { user } = renderWithAppProviders(<FilesTab sessionId="session-1" />);
+    const { user } = renderFilesTab();
 
     await waitFor(() => {
       expect(screen.getByText("src")).toBeTruthy();
@@ -70,7 +75,7 @@ describe("FilesTab", () => {
       path: "",
     });
 
-    renderWithAppProviders(<FilesTab sessionId="session-1" />);
+    renderFilesTab();
 
     await waitFor(() => expect(screen.getByText("main.rs")).toBeTruthy());
 
@@ -98,7 +103,7 @@ describe("FilesTab", () => {
       return Promise.reject(new Error("Permission denied"));
     });
 
-    const { user } = renderWithAppProviders(<FilesTab sessionId="session-1" />);
+    const { user } = renderFilesTab();
 
     await waitFor(() => {
       expect(screen.getByText("src")).toBeTruthy();

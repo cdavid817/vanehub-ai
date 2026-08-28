@@ -107,6 +107,13 @@ pub(crate) struct FileContent {
     pub(crate) status: &'static str,
     pub(crate) size: u64,
     pub(crate) content: Option<String>,
+    /// `utf-8` or `utf-8-bom`, and absent for anything that is not text.
+    ///
+    /// Absent rather than defaulted: a binary file has no encoding this application established,
+    /// and reporting one would be describing a decode that never happened.
+    pub(crate) encoding: Option<&'static str>,
+    /// `lf`, `crlf`, `mixed`, or `none`. Absent for anything that is not text.
+    pub(crate) newline: Option<&'static str>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -181,6 +188,9 @@ pub(crate) struct SessionLogQuery {
     pub(crate) session_id: String,
     pub(crate) levels: Vec<WorkspaceLogLevel>,
     pub(crate) search: String,
+    /// `None` means every seat. A concrete seat matches only records carrying that correlation;
+    /// a record written without one is not attributed to whichever seat happens to be selected.
+    pub(crate) seat_id: Option<String>,
     pub(crate) cursor: Option<String>,
     pub(crate) limit: Option<usize>,
 }
@@ -213,6 +223,8 @@ pub(crate) struct CreateShellRequest {
     pub(crate) session_id: String,
     pub(crate) rows: u16,
     pub(crate) cols: u16,
+    /// Which participant asked for the shell. `None` in a single-seat session.
+    pub(crate) seat_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -269,7 +281,7 @@ pub(crate) struct ShellSession {
     pub(crate) shell_id: String,
     pub(crate) session_id: String,
     pub(crate) state: &'static str,
-    pub(crate) capability: &'static str,
+    pub(crate) runtime: ShellRuntimeDescriptor,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -292,6 +304,9 @@ pub(crate) struct ShellLog {
     pub(crate) level: WorkspaceLogLevel,
     pub(crate) session_id: String,
     pub(crate) shell_id: String,
+    /// Present only where the caller genuinely knows the owning seat. The registry does not track
+    /// it yet, so a lifecycle log raised from the runtime leaves it absent rather than guessing.
+    pub(crate) seat_id: Option<String>,
     pub(crate) message: String,
 }
-use crate::contexts::workspaces::domain::TerminalDimensions;
+use crate::contexts::workspaces::domain::{ShellRuntimeDescriptor, TerminalDimensions};

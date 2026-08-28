@@ -85,6 +85,14 @@ export function MainLayout({
   const [conversationFocusMode, setConversationFocusMode] = useState(false);
   const [infoPanelCollapsed, setInfoPanelCollapsed] = useState(narrowLayout);
   const [requestedInfoTab, setRequestedInfoTab] = useState<"im" | null>(null);
+  /**
+   * A tab the information panel asked for.
+   *
+   * The nonce is why this is a pair rather than a bare tab: a reader who clicks Changes, walks
+   * back to Chat, and clicks Changes again means it both times, and a request keyed only on the
+   * tab would be a no-op the second time.
+   */
+  const [panelTabRequest, setPanelTabRequest] = useState<{ nonce: number; tab: SessionTabId } | null>(null);
   const [sessionSidebarCollapsed, setSessionSidebarCollapsed] = useState(false);
   const [workspaceTabsCollapsed, setWorkspaceTabsCollapsed] = useState(false);
   const [sessionSidebarWidth, setSessionSidebarWidth] = useState(readSessionSidebarWidth);
@@ -211,9 +219,12 @@ export function MainLayout({
   }
 
   const displayedMessages = loopInspection?.messages ?? model.messages;
+  // Loop inspection wins: it is showing another session's transcript, and a panel row that moved
+  // the tab out from under it would leave the reader looking at this session's workspace beside
+  // that one's messages.
   const requestedWorkspaceTab: SessionTabId | null = loopInspection
     ? loopInspection.target.surface === "usage" ? "chat" : loopInspection.target.surface
-    : slashTabRequest?.tab ?? null;
+    : panelTabRequest?.tab ?? slashTabRequest?.tab ?? null;
   const usesStructuredChat = Boolean(
     displayedSession && (displayedSession.interactionMode === "api" || seatsFromSession(displayedSession).length > 1),
   );
@@ -358,7 +369,7 @@ export function MainLayout({
                     />
                   ) : null}
                   requestedTab={requestedWorkspaceTab}
-                  requestedTabNonce={slashTabRequest?.nonce ?? 0}
+                  requestedTabNonce={(panelTabRequest?.nonce ?? 0) + (slashTabRequest?.nonce ?? 0)}
                   sessionActivationKey={sessionActivationKey}
                   turnStatus={loopInspection ? null : model.turnStatus}
                   visibilityControls={{
@@ -396,6 +407,12 @@ export function MainLayout({
               collapsed={effectiveInfoPanelCollapsed}
               currentSpeakerSeatId={loopInspection || model.turnStatus?.kind !== "agent" ? null : model.turnStatus.seatId ?? null}
               messages={loopInspection ? [] : model.messages}
+              onNavigateToTab={(tab) => {
+                // Focus mode hides the workspace entirely, so a request to show a tab has to leave
+                // it first or the reader clicks a row and nothing appears to happen.
+                if (conversationFocusMode) setConversationFocusMode(false);
+                setPanelTabRequest((current) => ({ nonce: (current?.nonce ?? 0) + 1, tab }));
+              }}
               onOpenImSettings={() => onOpenSettings("im")}
               onOpenSkillSettings={() => onOpenSettings("skills")}
               requestedTab={loopInspection?.target.surface === "usage" ? "usage" : requestedInfoTab}

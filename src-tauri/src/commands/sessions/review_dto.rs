@@ -1,8 +1,11 @@
+use crate::commands::error::CommandError;
+use crate::contexts::sessions::application::{ReviewSummary, ReviewView};
 use crate::contexts::sessions::domain::{
     ReviewAnchor, ReviewAnchorState, ReviewComment, ReviewCommentStatus, ReviewDecision,
-    ReviewFile, ReviewFinding, ReviewFindingSeverity, ReviewSession, ReviewStatus,
+    ReviewFile, ReviewFileViewState, ReviewFinding, ReviewFindingSeverity, ReviewHunkDecision,
+    ReviewStatus,
 };
-use crate::contexts::workspaces::application::{ReviewDiffFile, ReviewRevertReceipt};
+use crate::contexts::workspaces::application::{ReviewDiffFile, ReviewPatch, ReviewRevertReceipt};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Deserialize)]
@@ -45,6 +48,9 @@ pub(crate) struct ReviewAnchorDto {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ReviewFileDto {
+    /// Whether this file's Viewed mark is current. Overlaid by the view conversion, because the
+    /// marks live in a store the aggregate does not carry.
+    viewed: bool,
     path: String,
     previous_path: Option<String>,
     change_type: String,
@@ -90,11 +96,80 @@ pub(crate) struct ReviewSessionDto {
     files: Vec<ReviewFileDto>,
     comments: Vec<ReviewCommentDto>,
     findings: Vec<ReviewFindingDto>,
+    summary: ReviewSummaryDto,
+    hunk_decisions: Vec<ReviewHunkDecisionDto>,
 }
 
-impl From<ReviewSession> for ReviewSessionDto {
-    fn from(review: ReviewSession) -> Self {
-        let files = review.files().iter().cloned().map(Into::into).collect();
+/// One hunk's decision, as the panel needs to render it.
+///
+/// Matched by `hunkFingerprint` on the reading side, so a decision survives an edit to a different
+/// hunk and stops applying to one that changed. The snapshot it was recorded against is not sent:
+/// it is provenance, and a caller that used it to decide what to show would drop every decision
+/// whenever any file in the review moved.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ReviewHunkDecisionDto {
+    relative_path: String,
+    hunk_fingerprint: String,
+    decision: &'static str,
+}
+
+/// The header's four numbers.
+///
+/// `viewedFiles` is the one a caller cannot work out for itself: the marks live in a store the
+/// review does not carry, and whether a mark still applies depends on comparing its witness with
+/// the file's current one. The other three are derivable from the arrays beside them, and are here
+/// anyway so the header reads one shape rather than folding two lists on every render.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ReviewSummaryDto {
+    changed_files: usize,
+    viewed_files: usize,
+    unresolved_comments: usize,
+    unresolved_findings: usize,
+}
+
+impl From<ReviewSummary> for ReviewSummaryDto {
+    fn from(summary: ReviewSummary) -> Self {
+        Self {
+            changed_files: summary.changed_files,
+            viewed_files: summary.viewed_files,
+            unresolved_comments: summary.unresolved_comments,
+            unresolved_findings: summary.unresolved_findings,
+        }
+    }
+}
+
+/// Built from a view and nothing else.
+///
+/// There is deliberately no conversion from a bare `ReviewSession`. One would have to invent a
+/// viewed count, and the only value available to invent is zero — which reads as "you have read
+/// none of these files" rather than as "this path could not find out". Requiring the view means no
+/// caller can produce that sentence by accident.
+impl From<ReviewView> for ReviewSessionDto {
+    fn from(view: ReviewView) -> Self {
+        let hunk_decisions = view
+            .hunk_decisions
+            .into_iter()
+            .map(|recorded| ReviewHunkDecisionDto {
+                relative_path: recorded.path,
+                hunk_fingerprint: recorded.hunk_fingerprint,
+                decision: decision(recorded.decision),
+            })
+            .collect();
+        let review = view.session;
+        let files = review
+            .files()
+            .iter()
+            .cloned()
+            .map(|file| {
+                let viewed = view.viewed_paths.contains(&file.path);
+                ReviewFileDto {
+                    viewed,
+                    ..ReviewFileDto::from(file)
+                }
+            })
+            .collect();
         let comments = review.comments().iter().cloned().map(Into::into).collect();
         let findings = review.findings().iter().cloned().map(Into::into).collect();
         Self {
@@ -111,11 +186,18 @@ impl From<ReviewSession> for ReviewSessionDto {
             files,
             comments,
             findings,
+            summary: view.summary.into(),
+            hunk_decisions,
         }
     }
 }
 
 impl From<ReviewFile> for ReviewFileDto {
+    /// Unviewed unless the view says otherwise.
+    ///
+    /// Safe to default here in a way `viewed_files` was not: the aggregate genuinely holds no mark
+    /// for this file, and the conversion that can see the store overlays every one it finds. A
+    /// count defaulted the same way would have claimed the reviewer had read nothing.
     fn from(file: ReviewFile) -> Self {
         Self {
             path: file.path,
@@ -123,6 +205,7 @@ impl From<ReviewFile> for ReviewFileDto {
             change_type: file.change_type,
             old_hash: file.old_hash,
             new_hash: file.new_hash,
+            viewed: false,
         }
     }
 }
@@ -182,6 +265,77 @@ fn status(value: ReviewStatus) -> &'static str {
     match value {
         ReviewStatus::Active => "active",
         ReviewStatus::Completed => "completed",
+    }
+}
+
+/// The three values the wire carries, refused rather than defaulted.
+///
+/// A decision this binary does not know is not a fourth state to store; it is a caller sending
+/// something else. Defaulting it to `pending` would record "nobody has decided" for a request
+/// somebody deliberately made.
+pub(crate) fn parse_review_decision(value: &str) -> Result<ReviewDecision, CommandError> {
+    match value {
+        "pending" => Ok(ReviewDecision::Pending),
+        "accepted" => Ok(ReviewDecision::Accepted),
+        "changes-requested" => Ok(ReviewDecision::ChangesRequested),
+        _ => Err(CommandError::validation("invalid review decision")),
+    }
+}
+
+/// What was recorded, echoed back so a caller does not have to assume it landed as sent.
+///
+/// `simulated` is false here and true in the Web adapter's fixture. The field exists so a reader
+/// can tell a decision that reached a store from one that lives in a demo's memory — same shape,
+/// different weight, and a UI that could not tell them apart would present both as recorded.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ReviewHunkDecisionReceiptDto {
+    review_id: String,
+    relative_path: String,
+    hunk_fingerprint: String,
+    decision: &'static str,
+    simulated: bool,
+}
+
+impl ReviewHunkDecisionReceiptDto {
+    pub(crate) fn recorded(review_id: String, recorded: ReviewHunkDecision) -> Self {
+        Self {
+            review_id,
+            relative_path: recorded.path,
+            hunk_fingerprint: recorded.hunk_fingerprint,
+            decision: decision(recorded.decision),
+            simulated: false,
+        }
+    }
+}
+
+/// What was recorded about a file being read.
+///
+/// The witness is echoed so a caller can tell a mark that survived a refresh from one that was
+/// re-made: same path, different witness means the file changed and the mark is about the new one.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ReviewFileViewedReceiptDto {
+    review_id: String,
+    relative_path: String,
+    file_witness: String,
+    viewed: bool,
+    /// Absent when the file is not viewed, because there is no moment at which it was.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    viewed_at: Option<String>,
+    simulated: bool,
+}
+
+impl ReviewFileViewedReceiptDto {
+    pub(crate) fn recorded(review_id: String, state: ReviewFileViewState) -> Self {
+        Self {
+            review_id,
+            relative_path: state.path,
+            file_witness: state.file_witness,
+            viewed: state.viewed,
+            viewed_at: state.viewed_at,
+            simulated: false,
+        }
     }
 }
 
@@ -260,6 +414,34 @@ impl From<ReviewDiffFile> for ReviewDiffFileDto {
                         .collect(),
                 })
                 .collect(),
+        }
+    }
+}
+
+/// A patch and the diff it came from.
+///
+/// Two identities, because they answer different questions. `snapshot` says which diff the patch
+/// came from; `fingerprint` is over the patch bytes, so two renders of the same selection can be
+/// recognised as the same copy. A reviewer can hold a patch on a clipboard for as long as they
+/// like, and neither question is answerable from the text alone.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ReviewPatchDto {
+    path: String,
+    snapshot: String,
+    fingerprint: String,
+    hunks: usize,
+    patch: String,
+}
+
+impl From<ReviewPatch> for ReviewPatchDto {
+    fn from(rendered: ReviewPatch) -> Self {
+        Self {
+            path: rendered.path,
+            snapshot: rendered.snapshot,
+            fingerprint: rendered.fingerprint,
+            hunks: rendered.hunks,
+            patch: rendered.patch,
         }
     }
 }

@@ -284,6 +284,15 @@ function sessionWorkspaceDesktop(artifact) {
   });
 }
 
+function sessionShellDesktop(artifact) {
+  return runDesktopLayer({
+    layer: "desktop-session-shell",
+    config: "tests/desktop/wdio.session-shell.conf.mjs",
+    label: "Desktop session shell",
+    artifact,
+  });
+}
+
 function dialogsDesktop(artifact) {
   return runDesktopLayer({
     layer: "desktop-dialogs",
@@ -449,6 +458,7 @@ const fullSuiteLayers = [
   cliTerminalDesktop,
   cliManagementDesktop,
   sessionWorkspaceDesktop,
+  sessionShellDesktop,
   dialogsDesktop,
   settingsPersistenceDesktop,
   agentMcpDesktop,
@@ -471,6 +481,7 @@ async function main() {
   else if (mode === "core-smoke") await coreSmokeDesktop();
   else if (mode === "cli-terminal") await cliTerminalDesktop();
   else if (mode === "session-workspace") await sessionWorkspaceDesktop();
+  else if (mode === "session-shell") await sessionShellDesktop();
   else if (mode === "dialogs") await dialogsDesktop();
   else if (mode === "settings-persistence") await settingsPersistenceDesktop();
   else if (mode === "cli-management") await cliManagementDesktop();

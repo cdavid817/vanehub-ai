@@ -75,6 +75,7 @@ use crate::contexts::execution_observability::api::ExecutionTelemetryPort;
 use crate::contexts::execution_observability::infrastructure::{
     CompositeExecutionTelemetry, ExecutionTelemetryLifecycle, OpenTelemetryExecutionExporter,
     OsObservabilityCredentialAdapter, RandomExecutionIdentity, SqliteExecutionTimelineRepository,
+    TauriTraceTransitionPublisher,
 };
 use crate::contexts::local_media::api::LocalMediaApi;
 use crate::contexts::local_media::domain::LocalMediaEngine;
@@ -142,6 +143,9 @@ pub(crate) struct AgentRuntimeDependencies {
     /// resolve through it, so nothing here reaches the pre-v2 store or the legacy settings rows.
     pub(crate) personalization: PersonalizationApi,
     pub(crate) evidence: RuntimeEvidenceProjector,
+    /// The execution-evidence bridge. Distinct from `evidence` above, which projects skill
+    /// evolution: this one carries run lifecycle references to the execution journal.
+    pub(crate) execution_evidence: Arc<dyn crate::contexts::agent_runtime::api::AgentEvidencePort>,
 }
 
 #[derive(Clone)]
@@ -481,6 +485,7 @@ pub(crate) fn assemble_agent_runtime_api(
     dependencies: AgentRuntimeDependencies,
 ) -> Result<AgentRuntimeAssembly, String> {
     let shared = dependencies.shared_registry;
+    let execution_evidence = dependencies.execution_evidence;
     let unified_logging = shared.unified_logging;
     let diagnostics: Arc<dyn DiagnosticLogPort> = unified_logging.clone();
     let logging = shared.logging;
@@ -496,11 +501,18 @@ pub(crate) fn assemble_agent_runtime_api(
     if let Some(exporter) = log_exporter {
         unified_logging.attach_external_exporter(exporter);
     }
-    let telemetry = Arc::new(CompositeExecutionTelemetry::with_diagnostics(
-        timeline.clone(),
-        exporters,
-        diagnostics.clone(),
-    ));
+    let telemetry = Arc::new(
+        CompositeExecutionTelemetry::with_diagnostics(
+            timeline.clone(),
+            exporters,
+            diagnostics.clone(),
+        )
+        // Announced only after the local store has committed, so a subscriber that refetches on a
+        // notice finds the change it was told about rather than the state before it.
+        .with_transitions(Arc::new(TauriTraceTransitionPublisher::new(
+            dependencies.app.clone(),
+        ))),
+    );
     let telemetry_lifecycle =
         ExecutionTelemetryLifecycle::new(telemetry.clone(), Duration::from_secs(3));
     let accounting = dependencies.sessions.clone();
@@ -738,34 +750,37 @@ pub(crate) fn assemble_agent_runtime_api(
         expert_role_repository.clone(),
         builtin_expert_roles(),
     ));
-    let service = AgentRuntimeApplicationService::new(AgentRuntimeApplicationPorts {
-        registry: registry.clone(),
-        workflows: repository.clone(),
-        sessions: sessions.clone(),
-        cli_profiles: cli_profiles.clone(),
-        prompts: Arc::new(RuntimeEffectivePromptAdapter::new(dependencies.prompts)),
-        processes: processes.clone(),
-        operations: operations.clone(),
-        logging: logging.clone(),
-        clock: clock.clone(),
-        events: events.clone(),
-        generations: Arc::new(InMemoryGenerationCoordinator::default()),
-        execution_ids: execution_ids.clone(),
-        execution_settings: timeline.clone(),
-        telemetry: telemetry.clone(),
-        loop_completions: loop_completions.clone(),
-        seat_completions: seat_completions.clone(),
-        expert_roles: seat_expert_roles,
-        history: sessions.clone(),
-        message_completions: Arc::new(InMemoryAgentMessageTerminalCompletions::default()),
-        api_agents: repository.clone(),
-        api_credentials: api_credentials.clone(),
-        onepiece_model_discovery: Arc::new(HttpOnePieceModelDiscoveryAdapter),
-        tool_approvals: tool_approvals.clone(),
-        memory_extraction: agent_memory_extraction,
-        personalization: agent_personalization,
-        runner_discovery: dependencies.runner_discovery,
-    });
+    let service = AgentRuntimeApplicationService::new(
+        AgentRuntimeApplicationPorts {
+            registry: registry.clone(),
+            workflows: repository.clone(),
+            sessions: sessions.clone(),
+            cli_profiles: cli_profiles.clone(),
+            prompts: Arc::new(RuntimeEffectivePromptAdapter::new(dependencies.prompts)),
+            processes: processes.clone(),
+            operations: operations.clone(),
+            logging: logging.clone(),
+            clock: clock.clone(),
+            events: events.clone(),
+            generations: Arc::new(InMemoryGenerationCoordinator::default()),
+            execution_ids: execution_ids.clone(),
+            execution_settings: timeline.clone(),
+            telemetry: telemetry.clone(),
+            loop_completions: loop_completions.clone(),
+            seat_completions: seat_completions.clone(),
+            expert_roles: seat_expert_roles,
+            history: sessions.clone(),
+            message_completions: Arc::new(InMemoryAgentMessageTerminalCompletions::default()),
+            api_agents: repository.clone(),
+            api_credentials: api_credentials.clone(),
+            onepiece_model_discovery: Arc::new(HttpOnePieceModelDiscoveryAdapter),
+            tool_approvals: tool_approvals.clone(),
+            memory_extraction: agent_memory_extraction,
+            personalization: agent_personalization,
+            runner_discovery: dependencies.runner_discovery,
+        },
+        execution_evidence,
+    );
     let local_discovery = LocalModelDiscoveryService::new(
         Arc::new(HttpLocalModelDiscoveryAdapter),
         operations.clone(),

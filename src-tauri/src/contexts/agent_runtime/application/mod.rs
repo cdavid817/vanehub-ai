@@ -8,6 +8,7 @@ mod context_reinjection;
 #[cfg(test)]
 mod context_reinjection_tests;
 mod error;
+mod evidence;
 mod execution_policy;
 mod existing_tool_registry;
 mod expert_role;
@@ -63,6 +64,11 @@ pub(crate) use context_reinjection::{
     ContextReinjectionService, ReinjectedContextValue,
 };
 pub(crate) use error::AgentRuntimeApplicationError;
+#[cfg(test)]
+pub(crate) use evidence::NoAgentEvidence;
+pub(crate) use evidence::{
+    AgentEvidenceObservation, AgentEvidencePort, AgentEvidenceSignal, AgentRunEvidenceOutcome,
+};
 pub(crate) use execution_policy::{resolve_effective_execution_policy, SessionExecutionMode};
 pub(crate) use existing_tool_registry::{ExistingToolHandler, ExistingToolHandlerRegistry};
 pub(crate) use expert_role::{
@@ -201,7 +207,8 @@ pub(crate) use ports::{
     AgentCodeIntelligenceOutcome, AgentCodeIntelligencePending, AgentCodeIntelligencePort,
     AgentCodeIntelligenceResponderPort, AgentCodeIntelligenceStatus, AgentCodeLocation,
     AgentCodeRange, AgentCodeSymbol, AgentDocumentInput, AgentDocumentPositionInput,
-    AgentWorkspaceMutation, AgentWorkspaceMutationPort, AgentWorkspaceSymbolInput,
+    AgentWorkspaceChangeKind, AgentWorkspaceMutation, AgentWorkspaceMutationPort,
+    AgentWorkspaceSymbolInput,
 };
 pub(crate) use provider::{
     AgentProvider, AgentProviderError, ProviderGenerationInvocationRequest,

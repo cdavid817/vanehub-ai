@@ -117,6 +117,7 @@ pub(crate) struct AgentRunService {
     recovery: Arc<dyn RunOwnerRecoveryPort>,
     cancellation: Arc<dyn RunCancellationPort>,
     lifecycle: Arc<dyn RunLifecycleEventPort>,
+    evidence: Arc<dyn super::OperationsEvidencePort>,
 }
 
 impl AgentRunService {
@@ -124,6 +125,7 @@ impl AgentRunService {
         repository: Arc<dyn AgentRunRepository>,
         clock: Arc<dyn RunClockPort>,
         ids: Arc<dyn OperationIdGenerator>,
+        evidence: Arc<dyn super::OperationsEvidencePort>,
     ) -> Self {
         let defaults = Arc::new(DefaultRunRuntimePorts);
         Self {
@@ -133,8 +135,27 @@ impl AgentRunService {
             recovery: defaults.clone(),
             cancellation: defaults.clone(),
             lifecycle: defaults.clone(),
+            evidence,
         }
         .with_runtime_ports(defaults.clone(), defaults.clone(), defaults)
+    }
+
+    /// A service that records nothing, for tests whose subject is not evidence.
+    ///
+    /// Test-only on purpose. A production assembly that forgot the publisher used to compile, run,
+    /// and record nothing, and the only symptom was a panel reporting that a session did no work.
+    #[cfg(test)]
+    pub(crate) fn new_for_test_without_evidence(
+        repository: Arc<dyn AgentRunRepository>,
+        clock: Arc<dyn RunClockPort>,
+        ids: Arc<dyn OperationIdGenerator>,
+    ) -> Self {
+        Self::new(
+            repository,
+            clock,
+            ids,
+            Arc::new(super::NoOperationsEvidence),
+        )
     }
 
     pub(crate) fn with_runtime_ports(
@@ -212,7 +233,33 @@ impl AgentRunService {
         if let Some(event) = &event {
             let _ = self.lifecycle.record(&run.id, event);
         }
+        self.publish_failure_evidence(&run);
         Ok(run)
+    }
+
+    /// Reports a run that ended in failure, and only that.
+    ///
+    /// A session id is required rather than inferred: `owner_id` means a session only when
+    /// `owner_type` says so, and filing a failure against a guessed session would attribute one
+    /// user's failed run to another's timeline. When the owner is something else, nothing is
+    /// published — an absent record is honest, a misattributed one is not.
+    fn publish_failure_evidence(&self, run: &AgentRun) {
+        if run.state != RunState::Failed || run.owner.owner_type != "session" {
+            return;
+        }
+        self.evidence
+            .try_publish(super::OperationsEvidenceSignal::OperationFailed {
+                session_id: run.owner.owner_id.clone(),
+                operation_id: run.id.clone(),
+                run_id: None,
+                // The run's own stable code, or a generic one. The error text stays in the log
+                // store, which already holds it and already redacts it.
+                reason_code: run
+                    .reason_code
+                    .clone()
+                    .unwrap_or_else(|| "run_failed".to_string()),
+                occurred_at: run.updated_at.clone(),
+            });
     }
 
     pub(crate) fn cancel_tree(

@@ -224,6 +224,68 @@ impl WorkspaceSessionQueryPort for FakeSessionQueries {
         Ok(Some("D:/workspace".to_string()))
     }
 
+    fn resolve_session_directory(
+        &self,
+        session_id: &str,
+        relative: &str,
+    ) -> Result<Option<String>, WorkspaceApplicationError> {
+        self.calls
+            .lock()
+            .expect("calls")
+            .push(format!("query:directory:{session_id}:{relative}"));
+        Ok(Some(format!("D:/workspace/{relative}")))
+    }
+
+    fn search_content(
+        &self,
+        session_id: &str,
+        request: &WorkspaceContentSearchRequest,
+        _cancelled: &Arc<std::sync::atomic::AtomicBool>,
+    ) -> Result<WorkspaceContentSearchResult, WorkspaceApplicationError> {
+        self.calls
+            .lock()
+            .expect("calls")
+            .push(format!("query:content:{session_id}:{}", request.query));
+        Ok(WorkspaceContentSearchResult {
+            coverage: WorkspaceSearchCoverage::complete(),
+            matches: Vec::new(),
+        })
+    }
+
+    fn search_paths(
+        &self,
+        session_id: &str,
+        request: &WorkspacePathSearchRequest,
+    ) -> Result<WorkspacePathSearchResult, WorkspaceApplicationError> {
+        self.calls
+            .lock()
+            .expect("calls")
+            .push(format!("query:paths:{session_id}:{}", request.query));
+        Ok(WorkspacePathSearchResult {
+            coverage: WorkspaceSearchCoverage::complete(),
+            matches: Vec::new(),
+            next_cursor: None,
+        })
+    }
+
+    fn directory_fingerprints(
+        &self,
+        session_id: &str,
+        paths: &[String],
+    ) -> Result<Vec<DirectoryFingerprint>, WorkspaceApplicationError> {
+        self.calls
+            .lock()
+            .expect("calls")
+            .push(format!("query:fingerprints:{session_id}:{}", paths.len()));
+        Ok(paths
+            .iter()
+            .map(|relative_path| DirectoryFingerprint {
+                relative_path: relative_path.clone(),
+                state: DirectoryFingerprintState::Known("stable".to_string()),
+            })
+            .collect())
+    }
+
     fn list_directory(
         &self,
         session_id: &str,
@@ -240,6 +302,18 @@ impl WorkspaceSessionQueryPort for FakeSessionQueries {
             truncated: false,
             next_cursor: None,
         })
+    }
+
+    fn list_directory_page(
+        &self,
+        session_id: &str,
+        path: &str,
+        _cursor: Option<&str>,
+        _limit: usize,
+    ) -> Result<DirectoryListing, WorkspaceApplicationError> {
+        // Delegating rather than answering separately: a fake with two listings could report a
+        // page that disagrees with its own first page, which is a failure the real one cannot have.
+        self.list_directory(session_id, path)
     }
 
     fn list_documents(
@@ -285,6 +359,8 @@ impl WorkspaceSessionQueryPort for FakeSessionQueries {
             .expect("calls")
             .push(format!("query:file:{session_id}:{path}"));
         Ok(FileContent {
+            encoding: Some("utf-8"),
+            newline: Some("lf"),
             path: path.to_string(),
             name: "readme.md".to_string(),
             status: "text",
@@ -589,6 +665,7 @@ fn bounded_workspace_queries_delegate_only_through_the_injected_port() {
         session_id: "session-1".to_string(),
         levels: vec![WorkspaceLogLevel::Info],
         search: "ready".to_string(),
+        seat_id: None,
         cursor: None,
         limit: Some(25),
     };

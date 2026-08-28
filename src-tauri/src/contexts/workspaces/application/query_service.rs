@@ -22,6 +22,14 @@ impl WorkspaceQueryApplicationService {
         self.queries.resolve_session_root(session_id)
     }
 
+    pub(crate) fn resolve_session_directory(
+        &self,
+        session_id: &str,
+        relative: &str,
+    ) -> Result<Option<String>, WorkspaceApplicationError> {
+        self.queries.resolve_session_directory(session_id, relative)
+    }
+
     pub(crate) fn list_directory(
         &self,
         session_id: &str,

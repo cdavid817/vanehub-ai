@@ -33,7 +33,10 @@ globalThis.describe("VaneHub AI desktop session workspace", () => {
 
     const rendered = [];
     for (const name of TABS) {
-      const tab = await globalThis.$(`//*[@role="tablist" and @aria-label="会话工作区"]//*[@role="tab"][normalize-space(.)="${name}"]`);
+      // Matched on `title`, not on the button's text. The text also carries the evidence badge —
+      // a count, a floor, or a placeholder glyph — so an equality match on it finds nothing the
+      // moment a session has work to report, and a `contains` match would find the wrong tab.
+      const tab = await globalThis.$(`//*[@role="tablist" and @aria-label="会话工作区"]//*[@role="tab" and @title="${name}"]`);
       await tab.waitForClickable({ timeout: 20000 });
       await tab.click();
       await globalThis.browser.waitUntil(async () => await tab.getAttribute("aria-selected") === "true", {
@@ -66,6 +69,115 @@ globalThis.describe("VaneHub AI desktop session workspace", () => {
     }
 
     globalThis.console.warn("WORKSPACE_TABS " + JSON.stringify(rendered));
+    await assertNoFatalError(root);
+  });
+
+  globalThis.it("reads terminal history through the native record query", async function () {
+    this.timeout(300000);
+    const root = await bootDesktopUi();
+
+    const terminal = await globalThis.$(
+      '//*[@role="tablist" and @aria-label="会话工作区"]//*[@role="tab" and @title="终端记录"]',
+    );
+    await terminal.waitForClickable({ timeout: 20000 });
+    await terminal.click();
+    const views = await globalThis.$('[role="tablist"][aria-label="执行记录视图"]');
+    await views.waitForExist({ timeout: 20000 });
+
+    // Straight through the registered Tauri command, with no client in the way. A panel that
+    // rendered rows the command cannot produce would be reading a fixture, and on the desktop
+    // runtime that is exactly the confusion this console exists to remove.
+    const nativeCount = async () =>
+      await globalThis.browser.tauri.execute(async ({ core }) => {
+        // Session-wide rather than pinned to one id: the assertion is about the journal not moving,
+        // and reading every session makes an accidental append anywhere visible.
+        const page = await core.invoke("list_execution_records", {
+          scope: {},
+          filters: null,
+          cursor: null,
+          limit: 100,
+        });
+        return page.items.length;
+      });
+
+    const before = await nativeCount();
+    assert.equal(typeof before, "number", "the native record query must answer");
+
+    // Legacy activity is projected from loaded messages and writes nothing. If it appended to the
+    // journal, opening its view would change what the native query returns.
+    const legacy = await globalThis.$('[data-testid="execution-record-view-legacy"]');
+    await legacy.waitForClickable({ timeout: 20000 });
+    await legacy.click();
+    await (await globalThis.$('[data-testid="legacy-source-notice"]')).waitForExist({
+      timeout: 20000,
+    });
+    assert.equal(
+      await nativeCount(),
+      before,
+      "viewing legacy activity changed the native evidence journal",
+    );
+
+    // Hidden means paused, not unmounted: the view the reader chose is still chosen when they
+    // come back, which is the Group 5 retention rule applied to this panel.
+    const report = await globalThis.$(
+      '//*[@role="tablist" and @aria-label="会话工作区"]//*[@role="tab" and @title="报告"]',
+    );
+    await report.waitForClickable({ timeout: 20000 });
+    await report.click();
+    await terminal.click();
+    const stillLegacy = await globalThis.$('[data-testid="legacy-source-notice"]');
+    assert.ok(
+      await stillLegacy.isExisting(),
+      "the terminal history view was reset by a round trip through another tab",
+    );
+
+    await assertNoFatalError(root);
+  });
+
+  globalThis.it("renders the trace waterfall in both visual styles", async function () {
+    this.timeout(300000);
+    const root = await bootDesktopUi();
+
+    const traces = await globalThis.$(
+      '//*[@role="tablist" and @aria-label="会话工作区"]//*[@role="tab" and @title="链路"]',
+    );
+    await traces.waitForClickable({ timeout: 20000 });
+    await traces.click();
+
+    // The waterfall is the panel most likely to become a picture with no text in it, so the
+    // assertion is on its landmarks rather than on it having rendered *something*: a named scroll
+    // container, and the legend and filter groups that name what the colours mean.
+    const landmarks = async () => await globalThis.browser.execute(() => {
+      const panel = globalThis.document.querySelector('[id^="session-tab-panel-"]:not(.hidden)');
+      if (!panel) return null;
+      return {
+        waterfall: panel.querySelectorAll('[role="application"]').length,
+        groups: panel.querySelectorAll('[role="group"]').length,
+        text: panel.innerText.trim().length,
+      };
+    });
+
+    for (const theme of ["futuristic", "minimal"]) {
+      // Driven through the document attribute the settings provider sets, which is what actually
+      // selects the stylesheet. A theme decides how a row looks, never whether it exists.
+      await globalThis.browser.execute((next) => {
+        globalThis.document.documentElement.dataset.theme = next;
+      }, theme);
+      const seen = await globalThis.browser.waitUntil(async () => {
+        const snapshot = await landmarks();
+        return snapshot && snapshot.text > 0 ? snapshot : false;
+      }, {
+        timeout: 30000,
+        timeoutMsg: `The trace panel rendered nothing under the ${theme} style.`,
+      });
+      assert.ok(seen.waterfall >= 1, `no named waterfall container under the ${theme} style`);
+      assert.ok(seen.groups >= 2, `the legend and filter groups are missing under the ${theme} style`);
+      globalThis.console.warn("TRACE_PANEL " + JSON.stringify({ theme, ...seen }));
+    }
+
+    await globalThis.browser.execute(() => {
+      globalThis.document.documentElement.dataset.theme = "futuristic";
+    });
     await assertNoFatalError(root);
   });
 });

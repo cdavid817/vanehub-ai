@@ -48,6 +48,7 @@
 
 - [Permission model](permission-model.md)
 - [Execution observability and Agent evaluation](execution-observability.md)
+- [The session workspace evidence console](session-workspace-console.md)
 - [Persistence and unified logging](persistence-and-logging.md)
 - [Usage statistics](usage-statistics.md)
 

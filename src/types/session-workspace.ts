@@ -53,12 +53,27 @@ export interface FileSearchListing {
 
 export type FileContentStatus = "text" | "binary" | "oversized" | "missing";
 
+/** How a text file was encoded. Two variants, because this application does not transcode. */
+export type FileEncoding = "utf-8" | "utf-8-bom";
+
+/** Which line endings a file uses. `mixed` is the one worth surfacing. */
+export type FileNewlineStyle = "lf" | "crlf" | "mixed" | "none";
+
 export interface FileContent {
   path: string;
   name: string;
   status: FileContentStatus;
   size: number;
   content: string | null;
+  /**
+   * Absent for anything that is not text.
+   *
+   * Absent rather than defaulted: a binary file has no encoding this application established, and
+   * naming one would describe a decode that never happened.
+   */
+  encoding?: FileEncoding;
+  /** Absent for anything that is not text. */
+  newline?: FileNewlineStyle;
 }
 
 export type GitChangeKind =
@@ -129,7 +144,23 @@ export interface SessionLogEntry {
   context: Record<string, string>;
 }
 
-export interface SessionLogQuery {
+/**
+ * The correlations a reader can narrow logs by.
+ *
+ * Every one is absent by default and matches only records that carry it. A record emitted without
+ * a run is not attributed to whichever run happens to be selected — the alternative would make a
+ * filter look like it found evidence of something it merely failed to exclude.
+ */
+export interface SessionLogCorrelationFilters {
+  seatId?: string | null;
+  runId?: string | null;
+  traceId?: string | null;
+  spanId?: string | null;
+  operationId?: string | null;
+  agentId?: string | null;
+}
+
+export interface SessionLogQuery extends SessionLogCorrelationFilters {
   sessionId: string;
   levels: SessionLogLevel[];
   search: string;
@@ -137,7 +168,35 @@ export interface SessionLogQuery {
   limit?: number;
 }
 
-export type SessionLogPage = BoundedResult<SessionLogEntry>;
+/**
+ * How much of the corpus the answer actually covers.
+ *
+ * Carried on the page rather than fetched separately, so a reader cannot end up looking at rows
+ * from one moment and a coverage claim from another. `complete` is the only value that licenses a
+ * conclusion from an absence, which is why the index is careful about giving it.
+ */
+export type SessionLogCoverageState = "complete" | "indexing" | "partial" | "unavailable";
+
+export interface SessionLogCoverage {
+  state: SessionLogCoverageState;
+  oldestAvailableAt?: string;
+  newestAvailableAt?: string;
+  /** The newest record the index has caught up to. Behind `newestAvailableAt` while indexing. */
+  indexedThrough?: string;
+  droppedCount: number;
+  truncated: boolean;
+  /** Stable codes, never prose: a reader groups by them and free text does not group. */
+  reasonCodes: string[];
+}
+
+export interface SessionLogPage extends BoundedResult<SessionLogEntry> {
+  /**
+   * Optional so a runtime that predates it still type-checks. A page without one is read as
+   * `unavailable` rather than as `complete`: a coverage nobody reported must not be the one value
+   * that lets a reader conclude something from an empty list.
+   */
+  coverage?: SessionLogCoverage;
+}
 
 export type SessionLogExportStatus = "exported" | "cancelled" | "unavailable";
 
@@ -146,28 +205,68 @@ export interface SessionLogExportResult {
   path: string | null;
 }
 
-export type ShellConnectionState = "connecting" | "connected" | "disconnected" | "failed";
-export type ShellCapability = "native" | "simulated";
+export type ShellRuntimeKind = "native" | "remote" | "simulated" | "unavailable";
 
-export interface ShellSession {
-  shellId: string;
-  sessionId: string;
-  state: ShellConnectionState;
-  capability: ShellCapability;
+/**
+ * What a Session Shell can actually do, rather than what its label suggests. Capabilities are
+ * carried per variant so a caller cannot offer resize to a simulated shell or reconnect to a PTY:
+ * the previous string union let the UI ask for both and let the native `remote` value cross a
+ * boundary that claimed it could not exist.
+ */
+export type ShellRuntimeDescriptor =
+  | {
+      kind: "native";
+      supportsResize: true;
+      supportsReplay: true;
+      supportsReconnect: false;
+    }
+  | {
+      kind: "remote";
+      connectionId: string;
+      profileRevision: number;
+      supportsResize: true;
+      supportsReplay: true;
+      supportsReconnect: boolean;
+    }
+  | {
+      kind: "simulated";
+      supportsResize: false;
+      supportsReplay: true;
+      supportsReconnect: false;
+    }
+  | {
+      kind: "unavailable";
+      reasonCode: string;
+      remediation?: string;
+    };
+
+/**
+ * Which machine a session's workspace is on, and what can be read there.
+ *
+ * Per-capability rather than one flag, because a remote host with Git but no ripgrep is an
+ * ordinary host: a single flag would either hide the search gap or disable the four things that
+ * work. The Shell needs none of this and stays reachable in every case.
+ */
+export type WorkspaceInspectionProviderId = "local" | "ssh" | "simulated";
+
+export type WorkspaceWatchMode = "native" | "polling" | "event-derived" | "none";
+
+export interface WorkspaceCapabilityState {
+  available: boolean;
+  /** A stable token with a `workspace.capability.reason.*` translation. Never a message. */
+  reasonCode?: string;
+  /** What would fix it, also as a token. "Unavailable" and "install ripgrep" are different facts. */
+  remediation?: string;
 }
 
-export interface CreateShellInput {
-  sessionId: string;
-  rows: number;
-  cols: number;
+export interface WorkspaceInspectionCapabilities {
+  provider: WorkspaceInspectionProviderId;
+  /** Absent for a local workspace, which is what a reader assumes when nothing says otherwise. */
+  targetLabel?: string;
+  listFiles: WorkspaceCapabilityState;
+  readTextFiles: WorkspaceCapabilityState;
+  searchFiles: WorkspaceCapabilityState;
+  gitStatus: WorkspaceCapabilityState;
+  gitDiff: WorkspaceCapabilityState;
+  watchMode: WorkspaceWatchMode;
 }
-
-export interface ResizeShellInput {
-  shellId: string;
-  rows: number;
-  cols: number;
-}
-
-export type ShellEvent =
-  | { type: "output"; shellId: string; sessionId: string; content: string }
-  | { type: "state"; shellId: string; sessionId: string; state: ShellConnectionState; error?: string };

@@ -21,6 +21,8 @@ import zhTW from "../i18n/locales/zh-TW.json";
  */
 function backendReasonCodes(): string[] {
   // Git may materialize the Rust source with CRLF on Windows, while the parser below is line based.
+  // Both patterns anchor on `\n`, so without this the enum is never found and the failure reads as
+  // "the type is missing" on every Windows machine while passing everywhere else.
   const source = readFileSync(
     "src-tauri/src/commands/code_intelligence/dto.rs",
     "utf8",

@@ -1,8 +1,9 @@
+use super::log_receipts::{publish_append_receipt, LogSourceWitness, RedactedLogAppendReceipt};
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::io::{BufRead, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use thiserror::Error;
@@ -26,6 +27,7 @@ const MAINTENANCE_INTERVAL_HOURS: i64 = 1;
 static ACTIVE_LOG_DIR: OnceLock<Mutex<Option<PathBuf>>> = OnceLock::new();
 static LOG_WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 static LAST_MAINTENANCE: OnceLock<Mutex<BTreeMap<PathBuf, DateTime<Utc>>>> = OnceLock::new();
+static ACTIVE_FILE_ID: OnceLock<Mutex<BTreeMap<PathBuf, String>>> = OnceLock::new();
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -36,6 +38,17 @@ pub enum LogLevel {
     Debug,
 }
 
+impl LogLevel {
+    pub(crate) fn token(self) -> &'static str {
+        match self {
+            Self::Error => "error",
+            Self::Warn => "warn",
+            Self::Info => "info",
+            Self::Debug => "debug",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LogEntry {
@@ -44,6 +57,14 @@ pub struct LogEntry {
     pub category: String,
     pub message: String,
     pub context: BTreeMap<String, String>,
+    /// The record's own identity, assigned before the append and written into the line.
+    ///
+    /// Optional on the way in and always present on the way out: a caller has no reason to invent
+    /// one, and every line written from here on carries one so a retry, a restart, and a backfill
+    /// of the same line all present the same id. Lines written before this field existed have
+    /// `None`, and a reader derives a deterministic legacy id from where the line sits instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub record_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -105,14 +126,165 @@ pub fn write_entry(log_dir: &Path, entry: LogEntry) -> Result<(), LogStoreError>
     let log_dir = validate_log_dir(log_dir)?;
     maintain_log_dir(&log_dir, Utc::now())?;
     let path = log_dir.join(LOG_FILE_NAME);
-    let line = serde_json::to_string(&redact_entry(entry))
+    // The id is assigned before the line is serialized, so what lands on disk and what a consumer
+    // is told are the same identity rather than two that have to be matched up afterwards.
+    let mut redacted = redact_entry(entry);
+    let record_id = redacted
+        .record_id
+        .get_or_insert_with(|| uuid::Uuid::new_v4().to_string())
+        .clone();
+    let line = serde_json::to_string(&redacted)
         .map_err(|error| LogStoreError::Storage(error.to_string()))?;
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)
-        .open(path)
+        .open(&path)
         .map_err(|error| LogStoreError::Storage(error.to_string()))?;
-    writeln!(file, "{line}").map_err(|error| LogStoreError::Storage(error.to_string()))
+    // The offset before the write is where this line begins. Read from the handle rather than
+    // computed from a running total, because another process appending to the same file would make
+    // a computed total point somewhere else.
+    let offset = file.seek(SeekFrom::End(0)).unwrap_or_default();
+    writeln!(file, "{line}").map_err(|error| LogStoreError::Storage(error.to_string()))?;
+    // Reading the head to identify the file is cheap but not free, and it only changes when the
+    // file is replaced. Writing at offset 0 is exactly that moment — a fresh file, or the one
+    // rotation just created — so the witness is recomputed there and reused for every append after.
+    let file_id = active_file_id_cached(&path, offset == 0);
+
+    // Published after the append succeeded, and only then. A receipt for a line that is not on disk
+    // would let a consumer index a record no later repair could find a source for.
+    publish_append_receipt(RedactedLogAppendReceipt {
+        record_id,
+        source: LogSourceWitness {
+            directory_generation: directory_generation(&log_dir),
+            file_id,
+            offset,
+        },
+        timestamp: redacted.timestamp,
+        level: redacted.level.token(),
+        category: redacted.category,
+        message: redacted.message,
+        context: redacted.context,
+    });
+    Ok(())
+}
+
+/// A stable name for the directory a corpus lives in.
+///
+/// Used rather than the path itself so a consumer's checkpoints from one directory cannot attach
+/// to sources in another: a directory change replaces the corpus, and rows indexed from the old
+/// one must not let the new one claim to be complete.
+pub(crate) fn directory_generation(log_dir: &Path) -> String {
+    format!("{:016x}", stable_hash(&log_dir.to_string_lossy()))
+}
+
+/// How much of a file's head identifies its generation.
+///
+/// One line is enough and one line is all: the first record of a file written since record ids
+/// existed carries a UUID, so two generations cannot share a head. Reading more would make the
+/// witness depend on content that is still being appended.
+const FILE_WITNESS_BYTES: usize = 4096;
+
+/// A stable name for one file generation.
+///
+/// Two witnesses, because neither alone tells all three cases apart:
+///
+/// - **Rotation** renames the file. Both witnesses are unchanged, so it keeps its identity and the
+///   checkpoint reached in it still means the same bytes. A path-derived name would fail here.
+/// - **Truncation or recreation** reuses the path for different content. The filesystem's id
+///   usually changes; when it is reused, the head does not match, so the generation is new either
+///   way. Resuming the old checkpoint here would read from a position that means nothing now.
+/// - **Two files that coexist** are two sources even if they open with the same bytes. The
+///   filesystem's id separates them; a content-only witness would collapse them, and one file's
+///   history would silently absorb the other's.
+/// - **Appending** changes neither, which is correct: a growing file is the same file.
+///
+/// The path is the last resort, used only when the platform reports no id and the file has no
+/// complete line yet — a file in that state has nothing to index, and it picks up a real identity
+/// as soon as it has a record.
+pub(crate) fn active_file_id(path: &Path) -> String {
+    let file = fs::File::open(path).ok();
+    let filesystem_id = file.as_ref().and_then(file_identity);
+    let head = file.and_then(|file| {
+        let mut reader = std::io::BufReader::with_capacity(FILE_WITNESS_BYTES, file);
+        let mut line = String::new();
+        match reader.read_line(&mut line) {
+            Ok(read) if read > 0 && line.ends_with('\n') => Some(stable_hash(line.trim_end())),
+            _ => None,
+        }
+    });
+    match (filesystem_id, head) {
+        (Some(id), Some(head)) => format!("fs:{id:016x}-{head:016x}"),
+        (Some(id), None) => format!("fs:{id:016x}"),
+        (None, Some(head)) => format!("head:{head:016x}"),
+        (None, None) => format!("path:{:016x}", stable_hash(&path.to_string_lossy())),
+    }
+}
+
+/// The filesystem's own answer to "which file is this", where it has one.
+///
+/// An inode on Unix and a file index on Windows. Both survive a rename, which is what rotation is,
+/// and both differ between files that exist at the same time — the two properties a log source
+/// identity needs and a path cannot provide.
+#[cfg(unix)]
+fn file_identity(file: &fs::File) -> Option<u64> {
+    use std::os::unix::fs::MetadataExt;
+    file.metadata().ok().map(|metadata| metadata.ino())
+}
+
+/// Windows' equivalent, read from the open handle.
+///
+/// `std`'s accessor for this is still unstable, so the platform call is made directly. The volume
+/// serial number joins the file index because an index is only unique within a volume, and a log
+/// directory that moved to another drive would otherwise reuse an identity.
+#[cfg(windows)]
+fn file_identity(file: &fs::File) -> Option<u64> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+    };
+
+    let mut information: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
+    // Safety: the handle is owned by the `File` this borrows and stays open for the call, and the
+    // out-parameter is a fully owned, correctly sized struct.
+    let ok = unsafe { GetFileInformationByHandle(file.as_raw_handle() as _, &mut information) };
+    if ok == 0 {
+        return None;
+    }
+    let index =
+        (u64::from(information.nFileIndexHigh) << 32) | u64::from(information.nFileIndexLow);
+    Some(index ^ (u64::from(information.dwVolumeSerialNumber) << 16))
+}
+
+#[cfg(not(any(unix, windows)))]
+fn file_identity(_file: &fs::File) -> Option<u64> {
+    None
+}
+
+/// The active file's identity, recomputed only when the file was replaced.
+fn active_file_id_cached(path: &Path, replaced: bool) -> String {
+    let cache = ACTIVE_FILE_ID.get_or_init(|| Mutex::new(BTreeMap::new()));
+    if !replaced {
+        if let Some(cached) = cache
+            .lock()
+            .ok()
+            .and_then(|ids| ids.get(path).cloned())
+            .filter(|id| !id.is_empty())
+        {
+            return cached;
+        }
+    }
+    let identity = active_file_id(path);
+    if let Ok(mut ids) = cache.lock() {
+        ids.insert(path.to_path_buf(), identity.clone());
+    }
+    identity
+}
+
+fn stable_hash(value: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    value.hash(&mut hasher);
+    hasher.finish()
 }
 
 pub(crate) fn write_message_raw(
@@ -130,6 +302,7 @@ pub(crate) fn write_message_raw(
             category: category.to_string(),
             message: message.to_string(),
             context,
+            record_id: None,
         },
     )
 }
@@ -367,6 +540,7 @@ pub(crate) fn redact_log_fields(
         category: String::new(),
         message: message.to_string(),
         context,
+        record_id: None,
     });
     (entry.message, entry.context)
 }

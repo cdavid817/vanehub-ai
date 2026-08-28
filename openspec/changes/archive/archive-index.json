@@ -3485,6 +3485,27 @@
         "managed-tool-installation",
         "settings-center-ui"
       ]
+    },
+    {
+      "archivedOn": "2026-08-28",
+      "changeName": "upgrade-session-workspace-evidence-console",
+      "path": "openspec/changes/archive/2026-08-28-upgrade-session-workspace-evidence-console/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "agent-code-review",
+        "agent-execution-observability",
+        "main-layout-ui",
+        "remote-terminal-runtime",
+        "session-log-viewer",
+        "session-project-inspection",
+        "session-workspace-execution-evidence",
+        "unified-log-management",
+        "usage-statistics"
+      ]
     }
   ]
 }

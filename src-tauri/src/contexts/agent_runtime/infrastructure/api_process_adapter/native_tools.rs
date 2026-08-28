@@ -15,10 +15,10 @@ use crate::contexts::agent_runtime::application::{
     AgentClockPort, AgentCodeIntelligencePort, AgentCodeRetrievalOutcome, AgentLog, AgentLogLevel,
     AgentLoggingPort, AgentMcpToolPort, AgentPermissionPort, AgentProcessEventSink,
     AgentRetrievalOutcome, AgentRetrievalPort, AgentSkillPort, AgentSkillReadRequest,
-    AgentWorkspaceMutation, AgentWorkspaceMutationPort, ExistingToolHandler,
-    ExistingToolHandlerRegistry, GenerationProcessEvent, GenerationProcessRequest,
-    NativeToolAuthorizationStatus, NativeToolDispatchRequest, NativeToolDispatcher,
-    NativeToolExecutionContext, NativeToolExecutionMode, NativeToolProgress,
+    AgentWorkspaceChangeKind, AgentWorkspaceMutation, AgentWorkspaceMutationPort,
+    ExistingToolHandler, ExistingToolHandlerRegistry, GenerationProcessEvent,
+    GenerationProcessRequest, NativeToolAuthorizationStatus, NativeToolDispatchRequest,
+    NativeToolDispatcher, NativeToolExecutionContext, NativeToolExecutionMode, NativeToolProgress,
     NativeToolProgressPhase, NativeToolProgressSink, NativeToolRegistry, NativeToolResultEnvelope,
     NativeToolResultStatus, StoredToolOperation, StoredToolOperationStatus, ToolEligibilityContext,
     ToolUseBlock, UtilityDelegationApplicationService, DELEGATE_UTILITY_SKILL_TOOL_NAME,
@@ -1101,9 +1101,22 @@ pub(super) fn execute_tool_call_impl(
                 Ok(limit) => limit,
                 Err(outcome) => return outcome,
             };
+            // Determined before the write, because "did this file exist" is only answerable
+            // before it does. Reading it afterwards would race every other writer on the machine.
+            let existed = Path::new(folder).join(path).exists();
             let outcome = execute_file(operation, path, content, offset, limit, folder);
             if operation == "write" && !outcome.is_error {
-                publish_workspace_mutation(folder, path, workspace_mutations);
+                publish_workspace_mutation(
+                    folder,
+                    path,
+                    session_id.unwrap_or_default(),
+                    if existed {
+                        AgentWorkspaceChangeKind::Modified
+                    } else {
+                        AgentWorkspaceChangeKind::Created
+                    },
+                    workspace_mutations,
+                );
             }
             outcome
         }
@@ -1173,7 +1186,13 @@ pub(super) fn execute_tool_call_impl(
                 folder,
             );
             if !outcome.is_error && operation != "read" {
-                publish_workspace_mutation(folder, path, workspace_mutations);
+                publish_workspace_mutation(
+                    folder,
+                    path,
+                    session_id.unwrap_or_default(),
+                    AgentWorkspaceChangeKind::Modified,
+                    workspace_mutations,
+                );
             }
             outcome
         }
@@ -1199,7 +1218,13 @@ pub(super) fn execute_tool_call_impl(
                 folder,
             );
             if !outcome.is_error {
-                publish_workspace_mutation(folder, path, workspace_mutations);
+                publish_workspace_mutation(
+                    folder,
+                    path,
+                    session_id.unwrap_or_default(),
+                    AgentWorkspaceChangeKind::Modified,
+                    workspace_mutations,
+                );
             }
             outcome
         }
@@ -1213,6 +1238,8 @@ pub(super) fn execute_tool_call_impl(
 fn publish_workspace_mutation(
     workspace_folder: &str,
     relative_path: &str,
+    session_id: &str,
+    change_kind: AgentWorkspaceChangeKind,
     workspace_mutations: Option<&dyn AgentWorkspaceMutationPort>,
 ) {
     let Some(workspace_mutations) = workspace_mutations else {
@@ -1230,6 +1257,8 @@ fn publish_workspace_mutation(
     workspace_mutations.publish(AgentWorkspaceMutation {
         canonical_workspace,
         relative_path: relative_path.to_string_lossy().replace('\\', "/"),
+        session_id: session_id.to_string(),
+        change_kind,
     });
 }
 

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import ReactMarkdown, { defaultUrlTransform, type Components, type UrlTransform } from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
@@ -62,11 +63,32 @@ const urlTransform: UrlTransform = (url, key, node) => {
   return defaultUrlTransform(url);
 };
 
-export function RichMarkdown({ children, className }: { children: string; className?: string }) {
+/**
+ * The one safe Markdown renderer.
+ *
+ * Links open externally with `noreferrer`, images pass through `safeImageSource`, code is
+ * highlighted, math goes through KaTeX, and `mermaid` fences become diagrams. Raw HTML is inert
+ * because `rehype-raw` is deliberately absent — react-markdown does not parse it, so a `<script>`
+ * in a document is text.
+ *
+ * `headingIds` assigns ids by position for callers that already derived an outline from the same
+ * source. By position rather than from the rendered text: the renderer sees children after parsing,
+ * where emphasis and links are already elements, so re-deriving here would be a second parser that
+ * disagrees with the first exactly on headings containing markup.
+ */
+export function RichMarkdown({
+  children,
+  className,
+  headingIds,
+}: {
+  children: string;
+  className?: string;
+  headingIds?: readonly string[];
+}) {
   return (
     <div className={cn("rich-markdown min-w-0 max-w-none wrap-break-word whitespace-normal leading-6 text-inherit", className)}>
       <ReactMarkdown
-        components={components}
+        components={headingIds ? withHeadingIds(components, headingIds) : components}
         rehypePlugins={[rehypeKatex, [rehypeHighlight, { detect: false, ignoreMissing: true }]]}
         remarkPlugins={[remarkGfm, remarkMath]}
         urlTransform={urlTransform}
@@ -75,4 +97,33 @@ export function RichMarkdown({ children, className }: { children: string; classN
       </ReactMarkdown>
     </div>
   );
+}
+
+/**
+ * The same components, with an id on each heading.
+ *
+ * A fresh counter per call, because the renderer walks the document once per render and an id
+ * assigned from a shared count would drift by one on every re-render.
+ */
+function withHeadingIds(base: Components, ids: readonly string[]): Components {
+  let consumed = 0;
+  const decorate = (tag: "h1" | "h2" | "h3" | "h4" | "h5" | "h6") =>
+    function Heading({ children, ...props }: { children?: ReactNode }) {
+      const id = ids[consumed];
+      consumed += 1;
+      const Base = base[tag];
+      const rendered = Base ? <Base {...props}>{children}</Base> : <>{children}</>;
+      // Wrapped rather than passed down: the base components spread their own props onto the
+      // heading, and an id threaded through them would be one more thing each has to remember.
+      return <div id={id}>{rendered}</div>;
+    };
+  return {
+    ...base,
+    h1: decorate("h1"),
+    h2: decorate("h2"),
+    h3: decorate("h3"),
+    h4: decorate("h4"),
+    h5: decorate("h5"),
+    h6: decorate("h6"),
+  };
 }

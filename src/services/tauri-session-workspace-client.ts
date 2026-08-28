@@ -8,16 +8,35 @@ import type {
   FileSearchListing,
   GitDiffResult,
   GitStatusResult,
+  SessionLogEntry,
   SessionLogExportResult,
   SessionLogPage,
-  ShellEvent,
-  ShellSession,
+  WorkspaceInspectionCapabilities,
 } from "../types/session-workspace";
 import type { FolderOpenerAvailability, FolderOpenerPreferences, OpenSessionFolderResult } from "../types/folder-opener";
 import { normalizeFolderOpeners, normalizeFolderOpenerPreferences } from "../contracts/folder-opener";
+import {
+  parseFileEvidenceLinks,
+  parseWorkspaceContentSearchResult,
+  parseWorkspacePathSearchResult,
+  safeParseWorkspaceInvalidationNotice,
+} from "../contracts/session-workspace-inspection";
+
+/**
+ * The native event channel. It has to match `WORKSPACE_INVALIDATION_EVENT` in the Rust publisher
+ * verbatim; a mismatch produces a subscription that never fires and never errors, which on screen
+ * is a workspace that simply never changes.
+ */
+export const WORKSPACE_INVALIDATION_EVENT_CHANNEL = "workspace-invalidation:notice";
 
 type SessionWorkspaceMethods = Pick<
   AgentService,
+  | "getWorkspaceInspectionCapabilities"
+  | "subscribeWorkspaceInvalidation"
+  | "searchWorkspacePaths"
+  | "getFileEvidenceLinks"
+  | "searchWorkspaceContent"
+  | "cancelWorkspaceSearch"
   | "listSessionDirectory"
   | "readSessionFile"
   | "listSessionDocuments"
@@ -25,13 +44,8 @@ type SessionWorkspaceMethods = Pick<
   | "getSessionGitStatus"
   | "getSessionGitDiff"
   | "listSessionLogs"
+  | "getSessionLogRecord"
   | "exportSessionLogs"
-  | "createShell"
-  | "writeShellInput"
-  | "resetShellDirectory"
-  | "resizeShell"
-  | "killShell"
-  | "subscribeShellEvents"
   | "listFolderOpeners"
   | "refreshFolderOpeners"
   | "getFolderOpenerPreferences"
@@ -53,11 +67,51 @@ export const tauriSessionWorkspaceClient: SessionWorkspaceMethods = {
   async saveFolderOpenerPreferences(input) {
     return normalizeFolderOpenerPreferences(await invoke<FolderOpenerPreferences>("save_folder_opener_preferences", { input }));
   },
-  openSessionFolder(sessionId, openerId) {
-    return invoke<OpenSessionFolderResult>("open_session_folder", { sessionId, openerId });
+  openSessionFolder(sessionId, openerId, relativePath) {
+    return invoke<OpenSessionFolderResult>("open_session_folder", {
+      sessionId,
+      openerId,
+      relativePath: relativePath ?? null,
+    });
   },
   async subscribeFolderOpenerEvents(handler) {
     return listen<string>("folder-openers:event", () => handler());
+  },
+  async subscribeWorkspaceInvalidation(handler) {
+    return listen<unknown>(WORKSPACE_INVALIDATION_EVENT_CHANNEL, (event) => {
+      // Dropped rather than thrown. An event handler has no caller to reject to, and one notice
+      // this build cannot read must not tear down the subscription carrying the rest.
+      const notice = safeParseWorkspaceInvalidationNotice(event.payload);
+      if (notice) handler(notice);
+    });
+  },
+  async searchWorkspacePaths(input) {
+    return parseWorkspacePathSearchResult(
+      await invoke("search_workspace_paths", {
+        sessionId: input.sessionId,
+        query: input.query,
+        cursor: input.cursor ?? null,
+        limit: input.limit ?? null,
+      }),
+    );
+  },
+  async searchWorkspaceContent(input) {
+    return parseWorkspaceContentSearchResult(
+      await invoke("search_workspace_content", {
+        sessionId: input.sessionId,
+        query: input.query,
+        searchId: input.searchId,
+        limit: input.limit ?? null,
+      }),
+    );
+  },
+  cancelWorkspaceSearch(searchId) {
+    return invoke<boolean>("cancel_workspace_search", { searchId });
+  },
+  async getFileEvidenceLinks(sessionId, relativePath) {
+    return parseFileEvidenceLinks(
+      await invoke("get_file_evidence_links", { sessionId, relativePath }),
+    );
   },
   listSessionDirectory(sessionId, path = "") {
     return invoke<DirectoryListing>("list_session_directory", { sessionId, path });
@@ -71,6 +125,11 @@ export const tauriSessionWorkspaceClient: SessionWorkspaceMethods = {
   searchSessionFiles(sessionId, query, maxResults) {
     return invoke<FileSearchListing>("search_session_files", { sessionId, query, maxResults });
   },
+  getWorkspaceInspectionCapabilities(sessionId) {
+    return invoke<WorkspaceInspectionCapabilities>("get_workspace_inspection_capabilities", {
+      sessionId,
+    });
+  },
   getSessionGitStatus(sessionId) {
     return invoke<GitStatusResult>("get_session_git_status", { sessionId });
   },
@@ -80,27 +139,10 @@ export const tauriSessionWorkspaceClient: SessionWorkspaceMethods = {
   listSessionLogs(input) {
     return invoke<SessionLogPage>("list_session_logs", { input });
   },
+  getSessionLogRecord(recordId) {
+    return invoke<SessionLogEntry | null>("get_session_log_record", { recordId });
+  },
   exportSessionLogs(input) {
     return invoke<SessionLogExportResult>("export_session_logs", { input });
-  },
-  createShell(input) {
-    return invoke<ShellSession>("shell_create", { input });
-  },
-  async writeShellInput(shellId, content) {
-    await invoke<void>("shell_input", { shellId, content });
-  },
-  async resetShellDirectory(shellId) {
-    await invoke<void>("shell_cd", { shellId });
-  },
-  async resizeShell(input) {
-    await invoke<void>("shell_resize", { input });
-  },
-  async killShell(shellId) {
-    await invoke<void>("shell_kill", { shellId });
-  },
-  async subscribeShellEvents(shellId, handler) {
-    return listen<ShellEvent>("shell:event", (event) => {
-      if (event.payload.shellId === shellId) handler(event.payload);
-    });
   },
 };

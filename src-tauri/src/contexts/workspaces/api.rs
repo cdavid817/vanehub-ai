@@ -1,27 +1,87 @@
 pub(crate) use super::application::{
-    CreateShellRequest, CreatedWorktree, DirectoryListing, DocumentListing, FileContent,
-    FileSearchListing, GitBranchReference, GitDiffFile, GitDiffHunk, GitDiffLine, GitDiffResult,
-    GitDiffSource, GitStatusResult, KnownProject, KnownRemoteWorkspace, ResizeShellRequest,
-    ReviewDiffFile, ReviewRevertReceipt, ReviewRevertRequest, ReviewSnapshot,
-    SessionLogExportResult, SessionLogPage, SessionLogQuery, SessionWorkspaceContext, ShellSession,
+    AttachSessionShellRequest, CreateSessionShellRequest, ResizeSessionShellRequest,
+    SessionShellDescriptor, SessionShellRegistry, ShellAttachSnapshot, ShellAttachmentScope,
+    WriteSessionShellRequest,
+};
+/// Provider-neutral workspace inspection.
+///
+/// Published so bootstrap can assemble the router and a command can ask it questions. The
+/// `WorkspaceTarget` itself is published too, because a caller has to be able to tell a reader
+/// which machine an answer came from — but nothing outside this context can construct one.
+pub(crate) use super::application::{
+    CapabilityState, WorkspaceInspectionCapabilities, WorkspaceInspectionError,
+    WorkspaceInspectionRouter, WorkspacePathSearchRequest, WorkspacePathSearchResult,
+    WorkspaceTarget,
+};
+pub(crate) use super::application::{
+    CreatedWorktree, DirectoryListing, DocumentListing, FileContent, FileSearchListing,
+    GitBranchReference, GitDiffFile, GitDiffHunk, GitDiffLine, GitDiffResult, GitDiffSource,
+    GitStatusResult, KnownProject, KnownRemoteWorkspace, ReviewDiffFile, ReviewPatch,
+    ReviewPatchRequest, ReviewRevertReceipt, ReviewRevertRequest, ReviewSnapshot,
+    SessionLogExportResult, SessionLogQuery, SessionWorkspaceContext,
     WorkspaceApplicationError as WorkspaceError, WorkspaceLogLevel, WorkspaceReviewPort,
 };
-use super::application::{
-    WorkspaceApplicationService, WorkspaceQueryApplicationService, WorkspaceShellApplicationService,
+use super::application::{WorkspaceApplicationService, WorkspaceQueryApplicationService};
+/// Normalized workspace change notices.
+///
+/// The scope and source vocabularies are published because producers outside this context observe
+/// changes — the runtime knows it wrote a file long before any watcher could see it. The dispatcher
+/// is published so bootstrap can assemble it once and hand the same one to every producer.
+pub(crate) use super::application::{
+    WorkspaceChangeObserverPort, WorkspaceInvalidationChange, WorkspaceInvalidationDispatcher,
+    WorkspaceInvalidationScope, WorkspaceInvalidationSource,
+};
+/// Content search, and the registry that lets one be stopped.
+pub(crate) use super::application::{
+    WorkspaceContentSearchRequest, WorkspaceContentSearchResult, WorkspaceSearchCancellation,
+};
+pub(crate) use super::application::{
+    WorkspaceEvidencePort, WorkspaceEvidenceSignal, WorkspaceFileChangeKind,
+    WorkspaceShellCloseReason, WorkspaceShellRuntimeKind,
 };
 pub(crate) use super::domain::{
     ensure_git_worktree_available, ensure_worktree_compatible, ProjectInspection, RemoteWorkspace,
+    ShellRuntimeDescriptor,
 };
+pub(crate) use super::domain::{SessionShellError, ShellId};
 pub(crate) use super::infrastructure::PreparedEvaluationFixture;
+use super::infrastructure::SystemWorkspaceChangeObserver;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+/// Wall-clock milliseconds, for the coalescing window and the observation lifetime.
+///
+/// A clock before the epoch is treated as zero rather than refused: the consequence is one poll
+/// cycle behaving oddly on a machine whose clock is badly wrong, which is not worth failing a file
+/// listing over.
+fn unix_milliseconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as u64)
+        .unwrap_or(0)
+}
 
 #[derive(Clone)]
 pub(crate) struct WorkspaceApi {
     service: WorkspaceApplicationService,
     queries: WorkspaceQueryApplicationService,
-    shell: WorkspaceShellApplicationService,
     review: Arc<dyn WorkspaceReviewPort>,
+    shells: Arc<SessionShellRegistry>,
+    /// Provider-neutral inspection. Shared rather than owned per call because selection is a
+    /// property of the session, not of the caller, and two routers could disagree about it.
+    inspection: Arc<WorkspaceInspectionRouter>,
+    /// Where change notices are buffered, and what remembers which directories are open.
+    ///
+    /// Held here because the reads that populate it come through this API. A separate "subscribe to
+    /// this directory" call would be a second statement of what a console is looking at, and the
+    /// two would disagree the first time one of them was forgotten.
+    invalidation: Arc<WorkspaceInvalidationDispatcher>,
+    /// Which content searches are in flight.
+    ///
+    /// Owned here rather than by the router, because cancelling is a different command from
+    /// searching and both need to reach the same registry.
+    searches: Arc<WorkspaceSearchCancellation>,
 }
 
 impl WorkspaceApi {
@@ -51,15 +111,30 @@ impl WorkspaceApi {
     pub(crate) fn new(
         service: WorkspaceApplicationService,
         queries: WorkspaceQueryApplicationService,
-        shell: WorkspaceShellApplicationService,
         review: Arc<dyn WorkspaceReviewPort>,
+        shells: Arc<SessionShellRegistry>,
+        inspection: Arc<WorkspaceInspectionRouter>,
+        invalidation: Arc<WorkspaceInvalidationDispatcher>,
     ) -> Self {
         Self {
             service,
             queries,
-            shell,
             review,
+            shells,
+            inspection,
+            invalidation,
+            searches: Arc::new(WorkspaceSearchCancellation::default()),
         }
+    }
+
+    /// How a producer elsewhere in the process reports a change it saw.
+    ///
+    /// Handed out as the narrow port rather than as this API, so the runtime's mutation fanout takes
+    /// a dependency on "somewhere to report a change" instead of on workspaces as a whole.
+    pub(crate) fn change_observer(&self) -> Arc<dyn WorkspaceChangeObserverPort> {
+        Arc::new(SystemWorkspaceChangeObserver::new(
+            self.invalidation.clone(),
+        ))
     }
 
     pub(crate) fn create_review_snapshot(
@@ -79,6 +154,13 @@ impl WorkspaceApi {
             .load_review_file(session_id, path, expected_snapshot)
     }
 
+    pub(crate) fn render_review_patch(
+        &self,
+        request: &ReviewPatchRequest,
+    ) -> Result<ReviewPatch, WorkspaceError> {
+        self.review.render_review_patch(request)
+    }
+
     pub(crate) fn revert_review_change(
         &self,
         request: &ReviewRevertRequest,
@@ -95,6 +177,19 @@ impl WorkspaceApi {
         session_id: &str,
     ) -> Result<Option<String>, WorkspaceError> {
         self.queries.resolve_session_root(session_id)
+    }
+
+    /// A directory inside a session's workspace, as an absolute path.
+    ///
+    /// The one place that turns a workspace-relative directory into something an external tool can
+    /// be handed. `None` means the session has no local workspace at all, which is a different
+    /// answer from a path that is not inside one — the second is a refusal.
+    pub(crate) fn resolve_session_directory(
+        &self,
+        session_id: &str,
+        relative: &str,
+    ) -> Result<Option<String>, WorkspaceError> {
+        self.queries.resolve_session_directory(session_id, relative)
     }
 
     pub(crate) fn list_known_remote_workspaces(
@@ -165,7 +260,13 @@ impl WorkspaceApi {
         session_id: &str,
         path: &str,
     ) -> Result<DirectoryListing, WorkspaceError> {
-        self.queries.list_directory(session_id, path)
+        let listing = self.queries.list_directory(session_id, path)?;
+        // Recorded on the way out, and only when the read worked. A directory that could not be
+        // listed is not one a console is showing, and polling it would be spending a stat every
+        // tick to rediscover that.
+        self.invalidation
+            .note_directory_read(session_id, path, unix_milliseconds());
+        Ok(listing)
     }
 
     pub(crate) fn list_session_documents(
@@ -198,6 +299,60 @@ impl WorkspaceApi {
         path: &str,
     ) -> Result<FileContent, WorkspaceError> {
         self.queries.read_text_file(session_id, path)
+    }
+
+    /// Which machine this session's workspace is on, and what can be read there.
+    ///
+    /// Resolved from the registered binding on every call rather than cached: a session can be
+    /// rebound between two reads, and a cached target would keep answering about the host it was
+    /// bound to when the panel opened.
+    pub(crate) fn inspection_target(
+        &self,
+        session_id: &str,
+    ) -> Result<WorkspaceTarget, WorkspaceInspectionError> {
+        self.inspection.target(session_id)
+    }
+
+    pub(crate) async fn inspection_capabilities(
+        &self,
+        session_id: &str,
+    ) -> Result<WorkspaceInspectionCapabilities, WorkspaceInspectionError> {
+        self.inspection.capabilities(session_id).await
+    }
+
+    /// Content search, registered so it can be stopped.
+    ///
+    /// The flag is taken before the search starts and released after it ends, in this one place.
+    /// Registering inside the provider would put the lifetime of the registration inside the thing
+    /// being registered, and a provider that returned early would leave an id running forever.
+    pub(crate) async fn search_workspace_content(
+        &self,
+        session_id: &str,
+        request: WorkspaceContentSearchRequest,
+    ) -> Result<WorkspaceContentSearchResult, WorkspaceInspectionError> {
+        let search_id = request.search_id.clone();
+        let cancelled = self.searches.begin(&search_id);
+        let outcome = self
+            .inspection
+            .search_content(session_id, request, cancelled)
+            .await;
+        self.searches.finish(&search_id);
+        outcome
+    }
+
+    /// Asks a running search to stop, and says whether one was there to ask.
+    pub(crate) fn cancel_workspace_search(&self, search_id: &str) -> bool {
+        self.searches.cancel(search_id)
+    }
+
+    /// Quick Open. Routed through the same seam as every other read, so a remote workspace answers
+    /// for the same reason a local one does.
+    pub(crate) async fn search_workspace_paths(
+        &self,
+        session_id: &str,
+        request: WorkspacePathSearchRequest,
+    ) -> Result<WorkspacePathSearchResult, WorkspaceInspectionError> {
+        self.inspection.search_paths(session_id, request).await
     }
 
     pub(crate) fn get_session_git_status(
@@ -243,24 +398,10 @@ impl WorkspaceApi {
         .map_err(|_| WorkspaceError::Storage("git diff task failed".to_string()))?
     }
 
-    pub(crate) fn list_session_logs(
-        &self,
-        query: &SessionLogQuery,
-    ) -> Result<SessionLogPage, WorkspaceError> {
-        self.queries.list_logs(query)
-    }
-
-    /// Async wrapper for log listing, which reads and filters whole log files.
-    pub(crate) async fn list_session_logs_blocking(
-        &self,
-        query: SessionLogQuery,
-    ) -> Result<SessionLogPage, WorkspaceError> {
-        let api = self.clone();
-        tauri::async_runtime::spawn_blocking(move || api.list_session_logs(&query))
-            .await
-            .map_err(|_| WorkspaceError::Storage("session logs task failed".to_string()))?
-    }
-
+    // The interactive log query moved to the operations-owned index. Nothing here scans log
+    // files for a query any more: a fallback would be a second implementation with different
+    // bounds and different coverage semantics, reached exactly when a reader is least able to
+    // tell which one answered. Export still reads the redacted files, which is what an export is.
     pub(crate) fn export_session_logs(
         &self,
         query: &SessionLogQuery,
@@ -306,34 +447,142 @@ impl WorkspaceApi {
         .map_err(|_| WorkspaceError::Storage("session file search task failed".to_string()))?
     }
 
-    pub(crate) fn create_shell(
-        &self,
-        request: &CreateShellRequest,
-    ) -> Result<ShellSession, WorkspaceError> {
-        self.shell.create_shell(request)
-    }
-
-    pub(crate) fn write_shell_input(
-        &self,
-        shell_id: &str,
-        content: &str,
-    ) -> Result<(), WorkspaceError> {
-        self.shell.write_input(shell_id, content)
-    }
-
-    pub(crate) fn reset_shell_directory(&self, shell_id: &str) -> Result<(), WorkspaceError> {
-        self.shell.reset_directory(shell_id)
-    }
-
-    pub(crate) fn resize_shell(&self, request: &ResizeShellRequest) -> Result<(), WorkspaceError> {
-        self.shell.resize_shell(request)
-    }
-
-    pub(crate) fn kill_shell(&self, shell_id: &str) -> Result<(), WorkspaceError> {
-        self.shell.kill_shell(shell_id)
-    }
-
+    /// Ends every Shell a session owns.
+    ///
+    /// Called on the "this session is done" edge — archive and delete — and on no other. A retained
+    /// Shell outlives its view by design, so nothing else would ever close it: the session it
+    /// belonged to would be gone from the list while its process kept running with no way left to
+    /// reach it.
     pub(crate) fn kill_shells_for_session(&self, session_id: &str) -> Result<(), WorkspaceError> {
-        self.shell.kill_for_session(session_id)
+        for descriptor in self.shells.list(Some(session_id)) {
+            let _ = self.shells.close(&descriptor.shell_id);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn list_session_shells(&self, session_id: &str) -> Vec<SessionShellDescriptor> {
+        self.shells.list(Some(session_id))
+    }
+
+    pub(crate) fn create_session_shell(
+        &self,
+        request: &CreateSessionShellRequest,
+    ) -> Result<SessionShellDescriptor, SessionShellError> {
+        self.shells.create(request)
+    }
+
+    /// Opens a Shell off the main thread.
+    ///
+    /// A PTY spawn is quick and an SSH handshake is not, and a synchronous Tauri command runs where
+    /// the webview runs: the window would stop repainting until the far end answered. The four
+    /// Shell operations that reach the runtime all go through the blocking pool for that reason —
+    /// closing is the worst of them, because it kills a process, waits for it, and joins its reader.
+    pub(crate) async fn create_session_shell_blocking(
+        &self,
+        request: CreateSessionShellRequest,
+    ) -> Result<SessionShellDescriptor, SessionShellError> {
+        self.on_blocking_pool(move |api| api.create_session_shell(&request))
+            .await
+    }
+
+    pub(crate) async fn write_session_shell_blocking(
+        &self,
+        request: WriteSessionShellRequest,
+    ) -> Result<(), SessionShellError> {
+        self.on_blocking_pool(move |api| api.write_session_shell(&request))
+            .await
+    }
+
+    pub(crate) async fn resize_session_shell_blocking(
+        &self,
+        request: ResizeSessionShellRequest,
+    ) -> Result<(), SessionShellError> {
+        self.on_blocking_pool(move |api| api.resize_session_shell(&request))
+            .await
+    }
+
+    pub(crate) async fn close_session_shell_blocking(
+        &self,
+        shell_id: ShellId,
+    ) -> Result<(), SessionShellError> {
+        self.on_blocking_pool(move |api| api.close_session_shell(&shell_id))
+            .await
+    }
+
+    /// A task that could not be scheduled is reported as a runtime failure rather than swallowed:
+    /// the caller has to know its Shell operation did not happen.
+    async fn on_blocking_pool<T, F>(&self, work: F) -> Result<T, SessionShellError>
+    where
+        T: Send + 'static,
+        F: FnOnce(WorkspaceApi) -> Result<T, SessionShellError> + Send + 'static,
+    {
+        let api = self.clone();
+        tauri::async_runtime::spawn_blocking(move || work(api))
+            .await
+            .map_err(|_| SessionShellError::Runtime {
+                reason: crate::contexts::workspaces::domain::shell_reason("shell_task_failed"),
+            })?
+    }
+
+    pub(crate) fn attach_session_shell(
+        &self,
+        request: &AttachSessionShellRequest,
+    ) -> Result<ShellAttachSnapshot, SessionShellError> {
+        self.shells.attach(request)
+    }
+
+    pub(crate) fn detach_session_shell(
+        &self,
+        scope: &ShellAttachmentScope,
+    ) -> Result<(), SessionShellError> {
+        self.shells.detach(scope)
+    }
+
+    pub(crate) fn write_session_shell(
+        &self,
+        request: &WriteSessionShellRequest,
+    ) -> Result<(), SessionShellError> {
+        self.shells.write(request)
+    }
+
+    pub(crate) fn resize_session_shell(
+        &self,
+        request: &ResizeSessionShellRequest,
+    ) -> Result<(), SessionShellError> {
+        self.shells.resize(request)
+    }
+
+    pub(crate) fn rename_session_shell(
+        &self,
+        shell_id: &ShellId,
+        title: &str,
+    ) -> Result<SessionShellDescriptor, SessionShellError> {
+        self.shells.rename(shell_id, title)
+    }
+
+    pub(crate) fn close_session_shell(&self, shell_id: &ShellId) -> Result<(), SessionShellError> {
+        self.shells.close(shell_id)
+    }
+
+    /// How many Shells a session is holding, for the workspace summary.
+    ///
+    /// Owned by the registry rather than counted by the panel: a badge produced by mounting a list
+    /// is a badge that opens what it is describing.
+    pub(crate) fn live_session_shell_count(&self, session_id: &str) -> usize {
+        self.shells.live_count(session_id)
+    }
+
+    /// Reclaims detached, quiet Shells. Bounded per sweep and never a Shell someone is watching.
+    pub(crate) fn sweep_idle_session_shells(&self) -> usize {
+        self.shells.sweep_idle().len()
+    }
+
+    /// Closes every Shell and joins its runtime workers.
+    ///
+    /// Called on the way out rather than left to the process teardown, because a joined worker is
+    /// the difference between a clean exit and a window that has closed while the process is still
+    /// waiting on a thread reading a dead PTY.
+    pub(crate) fn shutdown_session_shells(&self) {
+        self.shells.shutdown();
     }
 }

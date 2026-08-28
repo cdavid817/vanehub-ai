@@ -29,8 +29,8 @@ pub(crate) use recovery::{
 };
 pub(crate) use review::{
     ReviewAnchor, ReviewAnchorState, ReviewComment, ReviewCommentStatus, ReviewDecision,
-    ReviewDomainError, ReviewFile, ReviewFinding, ReviewFindingSeverity, ReviewSession,
-    ReviewStatus,
+    ReviewDomainError, ReviewFile, ReviewFileViewState, ReviewFinding, ReviewFindingSeverity,
+    ReviewHunkDecision, ReviewSession, ReviewStatus,
 };
 pub(crate) use session::{
     LoopSessionRole, SessionActivation, SessionAggregate, SessionLifecycle, SessionOwner,

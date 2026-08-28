@@ -16,16 +16,29 @@ export function SeatSwitcher({
   seats,
   selectedIndex,
 }: {
-  onSelect: (index: number) => void;
+  onSelect: (index: number | null) => void;
   roles: ExpertRole[];
   seats: SessionSeat[];
-  selectedIndex: number;
+  /** Null selects every seat, which is what a newly opened tab shows. */
+  selectedIndex: number | null;
 }) {
   const { t } = useTranslation();
   if (seats.length <= 1) return null;
 
   return (
     <div aria-label={t("session.seatSwitcher")} className="flex flex-wrap gap-1 border-b border-border p-1.5" role="tablist">
+      <button
+        aria-selected={selectedIndex === null}
+        className={cn(
+          "ucd-interactive flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs",
+          selectedIndex === null ? "border-primary bg-[hsl(var(--nav-active-soft))]" : "border-transparent",
+        )}
+        onClick={() => onSelect(null)}
+        role="tab"
+        type="button"
+      >
+        {t("session.seatSwitcher.allSeats")}
+      </button>
       {seats.map((seat, index) => {
         const role = roles.find((candidate) => candidate.id === seat.roleId) ?? null;
         const selected = index === selectedIndex;

@@ -7,11 +7,10 @@ import { activateAppLanguage } from "../i18n";
 import { managedCliAgentIds, type Session } from "../types/agent";
 import type { ChatMessage } from "../types/chat";
 import { agentTerminalInputClassName } from "./agent-terminal-tab";
-import { ReportTab } from "./report-tab";
 import { SessionTabBar } from "./session-tab-bar";
 import { SessionConversationHeader } from "./session-conversation-header";
 import { SessionTabs } from "./session-tabs";
-import { TerminalTab, toolUseCount } from "./terminal-tab";
+import { toolUseCount } from "./terminal-tab";
 
 const message: ChatMessage = {
   id: "message-1",
@@ -40,27 +39,29 @@ describe("session workspace components", () => {
     await activateAppLanguage("en");
   });
   it("renders all tab labels and the terminal badge", () => {
-    const html = renderToStaticMarkup(<SessionTabBar activeTab="chat" badges={{ terminal: 1 }} onActivate={() => undefined} onOpenSettings={() => undefined} session={null} />);
+    const html = renderToStaticMarkup(<SessionTabBar activeTab="chat" badges={{ terminal: { kind: "count", count: 1, tone: "neutral", atLeast: false } }} onActivate={() => undefined} onOpenSettings={() => undefined} session={null} />);
     expect(html).toContain("Workspace");
     expect(html).toContain("Changes");
     expect(html).toContain("Report");
     expect(html).toContain("1");
   });
 
-  it("omits a zero terminal-history badge", () => {
-    const html = renderToStaticMarkup(<SessionTabBar activeTab="chat" badges={{ terminal: 0 }} onActivate={() => undefined} onOpenSettings={() => undefined} session={null} />);
-    expect(html).not.toContain('title="0 entries"');
+  it("omits a badge for a known zero rather than rendering 0", () => {
+    // A known zero is the absence of a badge. "Zero live shells" and "nobody has counted the live
+    // shells" must not look the same, so the count case never carries a zero.
+    const html = renderToStaticMarkup(<SessionTabBar activeTab="chat" badges={{ terminal: { kind: "none" } }} onActivate={() => undefined} onOpenSettings={() => undefined} session={null} />);
+    expect(html).not.toContain('data-badge="terminal-count"');
+    expect(html).not.toContain('data-badge="terminal-unknown"');
   });
 
   it("renders tool execution cards and report values", () => {
     expect(toolUseCount([message])).toBe(1);
-    expect(renderToStaticMarkup(<TerminalTab messages={[message]} partial={false} />)).toContain("read_file");
-    const report = renderToStaticMarkup(<ReportTab messages={[message]} partial={false} />);
-    expect(report).toContain("12");
-    expect(report).toContain("read_file");
-    expect(report).toContain("Message status");
-    expect(report).toContain("Completed");
-    expect(report).toContain("Completion");
+    // Terminal History is no longer server-renderable on its own: it reads the workspace evidence
+    // scope and needs a session id. The tool row it produces is asserted in terminal-tab.test.tsx,
+    // which mounts it with both and switches to the legacy view.
+    // The Report tab left this file with Terminal History and for the same reason: it now reads
+    // the workspace evidence scope and queries the backend, so it cannot be rendered to static
+    // markup on its own. Its sections are asserted in report-tab.test.tsx against a real report.
   });
 
   it("renders API chat instead of an Agent Terminal for OnePiece sessions", () => {
@@ -215,11 +216,11 @@ describe("session workspace components", () => {
       "antigravity-cli",
       "gemini-cli",
     ]);
-    expect(sessionTabsSource).toContain('<AgentTerminalTab active={activeTab === "chat"}');
+    expect(sessionTabsSource).toContain('<AgentTerminalTab isVisible={activeTab === "chat"}');
     expect(source).toContain("requestAnimationFrame");
     expect(source).toContain("fitRef.current?.fit()");
     expect(source).toContain("resizeAgentTerminal");
-    expect(source).toContain("}, [active]);");
+    expect(source).toContain("}, [isVisible]);");
     expect(source).not.toContain("bg-zinc-950");
     // Full-screen TUIs paint 256-color/truecolor backgrounds that no per-class CSS
     // override can catch, so the terminal renders on an opaque dark canvas with a
@@ -237,7 +238,9 @@ describe("session workspace components", () => {
   });
 
   it("keeps the ordinary shell readable for ANSI inverse output", () => {
-    const source = readFileSync(new URL("./shell-tab.tsx", import.meta.url), "utf8");
+    // The terminal is constructed by the surface, which is the component that owns one Shell's
+    // xterm instance; `shell-tab.tsx` above it owns the list and the dialogs.
+    const source = readFileSync(new URL("./shell-surface.tsx", import.meta.url), "utf8");
     const styles = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 
     expect(source).toContain("allowTransparency: false");

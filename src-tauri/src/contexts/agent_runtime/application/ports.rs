@@ -1747,6 +1747,21 @@ pub(crate) trait AgentCodeIntelligenceResponderPort: Send + Sync {
 pub(crate) struct AgentWorkspaceMutation {
     pub(crate) canonical_workspace: PathBuf,
     pub(crate) relative_path: String,
+    /// Whose work changed the file. Carried because a mutation nobody can attribute to a session
+    /// can be counted but never found, and a fanout target that needs the attribution cannot
+    /// recover it from a path.
+    pub(crate) session_id: String,
+    /// What the write is. Distinguished at the call site, where the operation is known: deriving
+    /// it afterwards from whether the file existed would race every other writer on the machine.
+    pub(crate) change_kind: AgentWorkspaceChangeKind,
+}
+
+/// What a successful write did. No `Deleted`: the file tools this runtime exposes write and edit,
+/// and a variant no tool can produce would be a shape a reader expects to see and never will.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AgentWorkspaceChangeKind {
+    Created,
+    Modified,
 }
 
 /// Best-effort, non-blocking signal emitted only after a workspace mutation succeeds.

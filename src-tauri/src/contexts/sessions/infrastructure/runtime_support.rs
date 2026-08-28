@@ -4,9 +4,10 @@ use crate::contexts::operations::api::{
 };
 use crate::contexts::operations::domain::OperationStatus;
 use crate::contexts::sessions::application::{
-    SessionApplicationLog, SessionApplicationLogLevel, SessionClockPort, SessionFileContentPort,
-    SessionIdentityPort, SessionLoggingPort, SessionRuntimePort, SessionTerminalEvidencePort,
-    SessionsApplicationError, UsageStatisticsRange,
+    ReportExportPort, ReportSourceError, ReportSourceResult, SessionApplicationLog,
+    SessionApplicationLogLevel, SessionClockPort, SessionFileContentPort, SessionIdentityPort,
+    SessionLoggingPort, SessionRuntimePort, SessionTerminalEvidencePort, SessionsApplicationError,
+    UsageStatisticsRange,
 };
 use crate::contexts::sessions::domain::evidence::{
     LiveHandleEvidence, OperationTerminalEvidence, OperationTerminalStatus,
@@ -147,6 +148,25 @@ impl SessionFileContentPort for SessionFileAdapter {
         std::fs::write(&path, content)
             .map_err(|error| export_error(self.logging.as_ref(), error))?;
         Ok(path.to_string_lossy().to_string())
+    }
+}
+
+/// The report export, over the same bounded filesystem the session export uses.
+///
+/// Delegating rather than reimplementing is the whole point: `write_export` already refuses a
+/// filename that escapes the picked directory, and a second write path would be a second place
+/// that rule has to be remembered.
+impl ReportExportPort for SessionFileAdapter {
+    fn write_export(
+        &self,
+        destination_directory: &str,
+        filename: &str,
+        content: &str,
+    ) -> ReportSourceResult<String> {
+        SessionFileContentPort::write_export(self, destination_directory, filename, content)
+            // The report's own vocabulary. A sessions error carries a message, and a message
+            // crossing into a report is untranslated text in a document nobody redacted.
+            .map_err(|_| ReportSourceError::Unavailable("report_export_failed"))
     }
 }
 
@@ -407,6 +427,9 @@ fn workspace_error(error: WorkspaceError) -> SessionsApplicationError {
     match error {
         WorkspaceError::Domain(error) => SessionsApplicationError::Validation(error.to_string()),
         WorkspaceError::Validation(message) => SessionsApplicationError::Validation(message),
+        // The code, unwrapped. Sessions has no richer conflict of its own to map onto, and losing
+        // it would turn a matchable refusal into an unexplained validation failure.
+        WorkspaceError::Conflict(code) => SessionsApplicationError::Validation(code.to_string()),
         WorkspaceError::LaunchFailed(message) => SessionsApplicationError::WorkspaceLaunch(message),
         WorkspaceError::SessionNotFound(session_id) => {
             SessionsApplicationError::SessionNotFound(session_id)

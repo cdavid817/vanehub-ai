@@ -16,7 +16,7 @@ use crate::contexts::tooling::prompt_hooks::api::PromptHookError;
 use crate::contexts::tooling::sdk::api::SdkError;
 use crate::contexts::tooling::skill_tools::api::SkillToolApplicationError;
 use crate::contexts::tooling::skills::api::{OverlayError, SkillDomainError, SkillError};
-use crate::contexts::workspaces::api::WorkspaceError;
+use crate::contexts::workspaces::api::{SessionShellError, WorkspaceError};
 use crate::platform::error::InfrastructureError;
 use crate::platform::logging::redact_text;
 use serde::Serialize;
@@ -364,6 +364,10 @@ impl From<WorkspaceError> for CommandError {
         match error {
             WorkspaceError::Domain(error) => Self::validation(error.to_string()),
             WorkspaceError::Validation(message) => Self::validation(message),
+            // The message is the stable reason code and nothing else — `validation` above prefixes
+            // its own, and a prefix in front of a code makes the frontend match a substring rather
+            // than a value.
+            WorkspaceError::Conflict(code) => Self::typed(CommandErrorCategory::Conflict, code),
             WorkspaceError::Repository(message) => command_error_with_default(
                 CommandErrorCategory::Infrastructure,
                 message,
@@ -395,6 +399,46 @@ impl From<WorkspaceError> for CommandError {
                 message: format!(
                     "Verifier session {session_id} cannot perform workspace action: {action}"
                 ),
+            },
+        }
+    }
+}
+
+/// The message is the error's stable token rather than prose.
+///
+/// The frontend has to tell these apart to act on them: a stale attachment is a race the view
+/// recovers from by reattaching, a capacity failure is something the user must act on, and a
+/// disconnect is a state the UI keeps showing alongside the replay it still holds. A sentence would
+/// make each of those a string-matching exercise that breaks on translation.
+impl From<SessionShellError> for CommandError {
+    fn from(error: SessionShellError) -> Self {
+        let message = error.code().to_string();
+        match error {
+            SessionShellError::NotFound => Self {
+                category: CommandErrorCategory::NotFound,
+                message,
+            },
+            SessionShellError::AttachmentStale
+            | SessionShellError::CapacityReached { .. }
+            | SessionShellError::NotAcceptingInput { .. } => Self {
+                category: CommandErrorCategory::Conflict,
+                message,
+            },
+            SessionShellError::PolicyDenied => Self {
+                category: CommandErrorCategory::Unsupported,
+                message,
+            },
+            SessionShellError::WorkspaceUnavailable
+            | SessionShellError::RuntimeUnavailable { .. }
+            | SessionShellError::Runtime { .. } => Self {
+                category: CommandErrorCategory::Unavailable,
+                message,
+            },
+            SessionShellError::InvalidIdentifier { .. }
+            | SessionShellError::InvalidTitle
+            | SessionShellError::SeatRequired => Self {
+                category: CommandErrorCategory::Validation,
+                message,
             },
         }
     }

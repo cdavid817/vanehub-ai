@@ -26,19 +26,8 @@ describe("Web session workspace adapter", () => {
     expect(capped.truncated).toBe(true);
   });
 
-  it("simulates shell I/O and supports cleanup without a native process", async () => {
-    const shell = await webSessionWorkspaceClient.createShell({ sessionId: "session-1", rows: 24, cols: 80 });
-    expect(shell.capability).toBe("simulated");
-    const events: string[] = [];
-    const unsubscribe = await webSessionWorkspaceClient.subscribeShellEvents(shell.shellId, (event) => {
-      if (event.type === "output") events.push(event.content);
-    });
-    await webSessionWorkspaceClient.writeShellInput(shell.shellId, "pwd\r");
-    await webSessionWorkspaceClient.resetShellDirectory(shell.shellId);
-    expect(events.join("\n")).toContain("WEB MOCK");
-    unsubscribe();
-    await webSessionWorkspaceClient.killShell(shell.shellId);
-    await expect(webSessionWorkspaceClient.resizeShell({ shellId: shell.shellId, rows: 30, cols: 100 })).rejects.toThrow("not found");
-  });
 });
+// Shell I/O left this adapter with the one-view service it belonged to. The retained Session Shell
+// mock and its lifecycle are covered by `session-shell-client.test.ts`, against the interface the
+// Shell tab actually uses.
 

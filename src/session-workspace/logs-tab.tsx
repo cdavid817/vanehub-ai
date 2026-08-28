@@ -1,86 +1,121 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Clock3, Download, Search } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   MeasuredVirtualList,
   type MeasuredVirtualListHandle,
 } from "../components/measured-virtual-list";
-import { cn } from "../lib/utils";
 import { agentService } from "../services/runtime-agent-client";
-import type { SessionLogEntry, SessionLogLevel } from "../types/session-workspace";
-import {
-  appendUniqueLogs,
-  isTimestampNewerThanLogs,
-  parseTimestampInput,
-  seekLogsByTimestamp,
-} from "./log-list-utils";
+import { sessionLogNoticeStream } from "../services/runtime-session-log-client";
+import type {
+  SessionLogCorrelationFilters,
+  SessionLogEntry,
+  SessionLogLevel,
+} from "../types/session-workspace";
 import { LogEntryArticle } from "./log-entry-article";
+import {
+  LogsCoverageNotice,
+  LogsScopeChips,
+  type SessionLogCorrelationKey,
+} from "./logs-coverage";
+import { LogsToolbar, LOG_LEVELS } from "./logs-toolbar";
+import { useLogFollow } from "./use-log-follow";
+import { useSessionLogs } from "./use-session-logs";
 import { WorkspaceState } from "./workspace-state";
 import { workspaceErrorKey, type WorkspaceErrorKey } from "./workspace-error";
 
-const logLevels: SessionLogLevel[] = ["error", "warn", "info", "debug"];
-type SeekStatus = "continue" | "invalid" | "not-found" | null;
 type VirtualLogItem =
   | { kind: "entry"; entry: SessionLogEntry }
   | { kind: "load-more" };
 
-export function LogsTab({ sessionId }: { sessionId: string | null }) {
+export function LogsTab({
+  correlation,
+  isVisible = true,
+  seatId = null,
+  sessionId,
+}: {
+  /**
+   * The scope this panel was opened under, chosen somewhere else — a trace, a run, an operation.
+   * Rendered as chips so a narrower list cannot be mistaken for a quieter session.
+   */
+  correlation?: SessionLogCorrelationFilters;
+  /** False while the panel stays mounted behind another tab. */
+  isVisible?: boolean;
+  seatId?: string | null;
+  sessionId: string | null;
+}) {
   const { i18n, t } = useTranslation();
   const listRef = useRef<MeasuredVirtualListHandle>(null);
-  const [levels, setLevels] = useState<SessionLogLevel[]>(logLevels);
+  const [levels, setLevels] = useState<SessionLogLevel[]>(LOG_LEVELS);
   const [searchDraft, setSearchDraft] = useState("");
   const [search, setSearch] = useState("");
   const [timestampDraft, setTimestampDraft] = useState("");
-  const [entries, setEntries] = useState<SessionLogEntry[]>([]);
-  const [cursor, setCursor] = useState<string | null>(null);
-  const [hasMore, setHasMore] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [seeking, setSeeking] = useState(false);
-  const [pendingFocusId, setPendingFocusId] = useState<string | null>(null);
-  const [seekStatus, setSeekStatus] = useState<SeekStatus>(null);
-  const [error, setError] = useState<WorkspaceErrorKey | null>(null);
   const [exportMessage, setExportMessage] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<WorkspaceErrorKey | null>(null);
+  const [cleared, setCleared] = useState<SessionLogCorrelationKey[]>([]);
+  const follow = useLogFollow();
+
+  // The scope as it stands after whatever the reader dropped. Derived rather than stored, so a new
+  // scope arriving from another panel is not silently overridden by an older set of dismissals.
+  const scope = useMemo<SessionLogCorrelationFilters>(() => {
+    const active: SessionLogCorrelationFilters = { seatId, ...correlation };
+    for (const key of cleared) active[key] = null;
+    return active;
+  }, [cleared, correlation, seatId]);
+
+  const logs = useSessionLogs({ isVisible, levels, scope, search, sessionId });
 
   useEffect(() => {
-    let active = true;
-    setEntries([]);
-    setCursor(null);
-    setHasMore(false);
     setExportMessage(null);
-    setSeekStatus(null);
-    setPendingFocusId(null);
-    listRef.current?.scrollToStart();
-    if (!sessionId) return () => { active = false; };
-
-    setLoading(true);
-    setError(null);
-    void agentService.listSessionLogs({ sessionId, levels, search, cursor: null })
-      .then((page) => {
-        if (!active) return;
-        setEntries(page.items);
-        setCursor(page.nextCursor);
-        setHasMore(page.truncated);
-      })
-      .catch((reason: unknown) => {
-        if (active) setError(workspaceErrorKey(reason));
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-
-    return () => { active = false; };
-  }, [levels, search, sessionId]);
+    setExportError(null);
+    setCleared([]);
+  }, [correlation, seatId, sessionId]);
 
   useEffect(() => {
-    if (!pendingFocusId) return;
-    const index = entries.findIndex((entry) => entry.id === pendingFocusId);
+    // A filter change replaces the result set, so the newest edge is the only honest place to be.
+    setExportMessage(null);
+    setExportError(null);
+    listRef.current?.scrollToStart();
+    follow.resumeAtNewest();
+    // `follow` is stable per render but not referentially, and depending on it would re-run this on
+    // every viewport report — which is exactly the automatic movement 8.13 exists to stop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [levels, scope, search, sessionId]);
+
+  useEffect(() => {
+    if (!logs.pendingFocusId) return;
+    const index = logs.entries.findIndex((entry) => entry.id === logs.pendingFocusId);
     if (index >= 0) listRef.current?.scrollToIndex(index, "center");
-  }, [entries, pendingFocusId]);
+  }, [logs.entries, logs.pendingFocusId]);
+
+  // Held in a ref so the subscription below can reach the current handlers without being torn down
+  // and re-established on every render — a resubscribe per render would drop notices in the window
+  // between the two, and nothing downstream could tell that it had.
+  const liveRef = useRef({ applyLiveNotice: logs.applyLiveNotice, notePending: follow.notePending });
+  liveRef.current = { applyLiveNotice: logs.applyLiveNotice, notePending: follow.notePending };
+
+  useEffect(() => {
+    if (!isVisible || !sessionId) return;
+    const release = sessionLogNoticeStream.subscribe({}, (notice) => {
+      void liveRef.current.applyLiveNotice(notice).then((decision) => {
+        // Counted only for rows that were actually added. A notice that was ignored or that
+        // invalidated the page is not a row waiting above the viewport, and offering to jump to it
+        // would send the reader somewhere with nothing new in it.
+        if (decision === "insert") liveRef.current.notePending(1);
+      });
+    });
+    return release;
+  }, [isVisible, sessionId]);
 
   const virtualItems = useMemo<VirtualLogItem[]>(() => [
-    ...entries.map((entry) => ({ kind: "entry" as const, entry })),
-    ...(hasMore ? [{ kind: "load-more" as const }] : []),
-  ], [entries, hasMore]);
+    ...logs.entries.map((entry) => ({ kind: "entry" as const, entry })),
+    ...(logs.hasMore || logs.pageError ? [{ kind: "load-more" as const }] : []),
+  ], [logs.entries, logs.hasMore, logs.pageError]);
+
+  const jumpToLatest = useCallback(() => {
+    listRef.current?.scrollToStart();
+    follow.resumeAtNewest();
+    void logs.refresh();
+  }, [follow, logs]);
 
   function toggleLevel(level: SessionLogLevel) {
     setLevels((current) => current.includes(level)
@@ -88,75 +123,17 @@ export function LogsTab({ sessionId }: { sessionId: string | null }) {
       : [...current, level]);
   }
 
-  async function loadMore() {
-    if (!sessionId || !cursor || loading || seeking) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const page = await agentService.listSessionLogs({ sessionId, levels, search, cursor });
-      setEntries((current) => appendUniqueLogs(current, page.items));
-      setCursor(page.nextCursor);
-      setHasMore(page.truncated);
-    } catch (reason: unknown) {
-      setError(workspaceErrorKey(reason));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function locateTimestamp() {
-    const target = parseTimestampInput(timestampDraft);
-    if (target === null) {
-      setSeekStatus("invalid");
-      return;
-    }
-    if (!sessionId || entries.length === 0 || isTimestampNewerThanLogs(entries, target)) {
-      setSeekStatus("not-found");
-      return;
-    }
-
-    setSeeking(true);
-    setSeekStatus(null);
-    setError(null);
-    try {
-      const result = await seekLogsByTimestamp({
-        entries,
-        hasMore,
-        nextCursor: cursor,
-        targetTimestamp: target,
-        loadPage: (pageCursor) => agentService.listSessionLogs({
-          sessionId,
-          levels,
-          search,
-          cursor: pageCursor,
-        }),
-      });
-      setEntries(result.entries);
-      setCursor(result.nextCursor);
-      setHasMore(result.hasMore);
-      if (result.status === "found") {
-        setPendingFocusId(result.entries[result.matchIndex].id);
-      } else {
-        setSeekStatus(result.status);
-      }
-    } catch (reason: unknown) {
-      setError(workspaceErrorKey(reason));
-    } finally {
-      setSeeking(false);
-    }
-  }
-
   async function exportLogs() {
     if (!sessionId) return;
     try {
-      const result = await agentService.exportSessionLogs({ sessionId, levels, search });
+      const result = await agentService.exportSessionLogs({ sessionId, levels, search, ...scope });
       setExportMessage(result.status === "exported" && result.path
         ? t("sessionTabs.logs.exported", { path: result.path })
         : result.status === "unavailable"
           ? t("sessionTabs.logs.exportUnavailable")
           : null);
     } catch (reason: unknown) {
-      setError(workspaceErrorKey(reason));
+      setExportError(workspaceErrorKey(reason));
     }
   }
 
@@ -164,85 +141,70 @@ export function LogsTab({ sessionId }: { sessionId: string | null }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-2">
-        {logLevels.map((level) => (
-          <button
-            aria-pressed={levels.includes(level)}
-            className={cn(
-              "h-7 rounded border border-border px-2 text-xs uppercase",
-              levels.includes(level) ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground",
-            )}
-            key={level}
-            onClick={() => toggleLevel(level)}
-            type="button"
-          >
-            {t(`sessionTabs.logs.level.${level}`)}
-          </button>
-        ))}
-        <form
-          className="ml-auto flex min-w-48 flex-1 items-center gap-1 sm:max-w-sm"
-          onSubmit={(event) => {
-            event.preventDefault();
-            setSearch(searchDraft.trim());
-          }}
-        >
-          <input
-            aria-label={t("sessionTabs.logs.search")}
-            className="ucd-input h-8 min-w-0 flex-1 rounded px-2 text-sm"
-            onChange={(event) => setSearchDraft(event.target.value)}
-            placeholder={t("sessionTabs.logs.search")}
-            value={searchDraft}
-          />
-          <button className="flex h-8 w-8 items-center justify-center rounded border border-border hover:bg-muted" title={t("sessionTabs.logs.search")} type="submit">
-            <Search className="h-4 w-4" aria-hidden="true" />
-          </button>
-        </form>
-        <form
-          className="flex min-w-64 flex-1 items-center gap-1 sm:max-w-md"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void locateTimestamp();
-          }}
-        >
-          <input
-            aria-label={t("sessionTabs.logs.timestamp")}
-            className="ucd-input h-8 min-w-0 flex-1 rounded px-2 text-sm"
-            onChange={(event) => {
-              setTimestampDraft(event.target.value);
-              setSeekStatus(null);
-            }}
-            type="datetime-local"
-            value={timestampDraft}
-          />
-          <button
-            className="flex h-8 items-center gap-1 rounded border border-border px-2 text-xs hover:bg-muted"
-            disabled={seeking}
-            type="submit"
-          >
-            <Clock3 className="h-3.5 w-3.5" aria-hidden="true" />
-            {seeking ? t("sessionTabs.logs.seeking") : t("sessionTabs.logs.locate")}
-          </button>
-        </form>
-        <button className="flex h-8 items-center gap-1 rounded border border-border px-2 text-xs hover:bg-muted" onClick={() => void exportLogs()} type="button">
-          <Download className="h-3.5 w-3.5" aria-hidden="true" />
-          {t("sessionTabs.logs.export")}
-        </button>
-      </div>
-      {seekStatus ? (
-        <p className={cn("rounded border px-2 py-1 text-xs", seekStatus === "invalid" ? "ucd-status-warning" : "border-border bg-muted text-muted-foreground")} role="status">
-          {t(`sessionTabs.logs.seek.${seekStatus}`)}
+      <LogsToolbar
+        following={follow.following}
+        levels={levels}
+        onExport={() => void exportLogs()}
+        onJumpToLatest={jumpToLatest}
+        onLocate={() => void logs.locateTimestamp(timestampDraft)}
+        onSearchDraftChange={setSearchDraft}
+        onSubmitSearch={() => setSearch(searchDraft.trim())}
+        onTimestampDraftChange={(value) => {
+          setTimestampDraft(value);
+          logs.clearSeekStatus();
+        }}
+        onToggleLevel={toggleLevel}
+        onTogglePause={() => follow.setPaused(!follow.paused)}
+        paused={follow.paused}
+        pendingCount={follow.pendingCount}
+        searchDraft={searchDraft}
+        seeking={logs.seeking}
+        timestampDraft={timestampDraft}
+      />
+      <LogsScopeChips
+        correlation={scope}
+        onClear={(key) => setCleared((current) => current.includes(key) ? current : [...current, key])}
+      />
+      <LogsCoverageNotice coverage={logs.coverage} />
+      {logs.seekStatus ? (
+        <p className={logs.seekStatus === "invalid"
+          ? "ucd-status-warning rounded border px-2 py-1 text-xs"
+          : "rounded border border-border bg-muted px-2 py-1 text-xs text-muted-foreground"} role="status">
+          {t(`sessionTabs.logs.seek.${logs.seekStatus}`)}
         </p>
       ) : null}
       {exportMessage ? <p className="rounded border border-border bg-muted px-2 py-1 text-xs text-muted-foreground">{exportMessage}</p> : null}
-      {error ? (
+      {exportError ? <p className="ucd-status-warning rounded border px-2 py-1 text-xs" role="status">{t(exportError)}</p> : null}
+      {logs.stale ? <p className="ucd-status-warning rounded border px-2 py-1 text-xs" role="status">{t("sessionTabs.logs.stale")}</p> : null}
+      {logs.firstPageInvalidated ? (
+        // Distinct from `stale`, which means a read failed. This means a read succeeded and
+        // something arrived afterwards that the current filters cannot be judged against — the rows
+        // below are correct, and there is known to be at least one more the view could not place.
+        <p className="flex items-center gap-2 rounded border border-border bg-muted px-2 py-1 text-xs text-muted-foreground" role="status">
+          {t("sessionTabs.logs.invalidated")}
+          <button
+            className="h-6 rounded border border-border bg-background px-2 text-xs hover:bg-muted"
+            onClick={() => void logs.refresh()}
+            type="button"
+          >
+            {t("sessionTabs.logs.refresh")}
+          </button>
+        </p>
+      ) : null}
+      {logs.initialError ? (
         <div className="min-h-0 flex-1 rounded-lg border border-border bg-[hsl(var(--panel-muted))]">
-          <WorkspaceState kind="error" message={t(error)} />
+          <WorkspaceState kind="error" message={t(logs.initialError)} />
+          <div className="flex justify-center pb-2">
+            <button className="h-8 rounded border border-border bg-background px-3 text-xs hover:bg-muted" onClick={() => void logs.retryInitial()} type="button">
+              {t("sessionTabs.logs.retry")}
+            </button>
+          </div>
         </div>
-      ) : entries.length === 0 && loading ? (
+      ) : logs.entries.length === 0 && logs.loading ? (
         <div className="min-h-0 flex-1 rounded-lg border border-border bg-[hsl(var(--panel-muted))]">
           <WorkspaceState kind="loading" />
         </div>
-      ) : entries.length === 0 ? (
+      ) : logs.entries.length === 0 ? (
         <div className="min-h-0 flex-1 rounded-lg border border-border bg-[hsl(var(--panel-muted))]">
           <WorkspaceState kind="empty" message={t("sessionTabs.logs.empty")} />
         </div>
@@ -254,26 +216,37 @@ export function LogsTab({ sessionId }: { sessionId: string | null }) {
           getItemKey={(item) => item.kind === "entry" ? item.entry.id : "load-more"}
           itemClassName="px-2 pt-2"
           items={virtualItems}
+          onAtStartChange={follow.noteViewport}
           overscan={10}
           ref={listRef}
           renderItem={(item, index) => item.kind === "entry" ? (
             <LogEntryArticle
               entry={item.entry}
-              focused={item.entry.id === pendingFocusId}
+              focused={item.entry.id === logs.pendingFocusId}
               language={i18n.language}
-              onFocused={() => setPendingFocusId(null)}
+              onFocused={logs.clearPendingFocus}
               position={index + 1}
-              total={entries.length}
+              total={logs.entries.length}
             />
           ) : (
-            <div className="flex justify-center pb-2" role="listitem">
+            <div className="flex flex-col items-center gap-1 pb-2" role="listitem">
+              {/* Inline, at the continuation boundary: the rows above stay readable. */}
+              {logs.pageError ? (
+                <p className="ucd-status-warning rounded border px-2 py-1 text-xs" role="status">
+                  {t("sessionTabs.logs.pageFailed")}
+                </p>
+              ) : null}
               <button
                 className="h-8 rounded border border-border bg-background px-3 text-xs hover:bg-muted"
-                disabled={loading || seeking}
-                onClick={() => void loadMore()}
+                disabled={logs.loading || logs.seeking}
+                onClick={() => void logs.loadMore()}
                 type="button"
               >
-                {loading ? t("sessionTabs.state.loading") : t("sessionTabs.logs.loadMore")}
+                {logs.loading
+                  ? t("sessionTabs.state.loading")
+                  : logs.pageError
+                    ? t("sessionTabs.logs.retry")
+                    : t("sessionTabs.logs.loadMore")}
               </button>
             </div>
           )}

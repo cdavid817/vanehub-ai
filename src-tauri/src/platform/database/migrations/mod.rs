@@ -568,8 +568,46 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "personalization-last-reconciled",
         crate::contexts::personalization::infrastructure::apply_reconciliation_schema,
     )?;
+    // 91-94, moved up from 88-91 on this merge for the same reason the personalization block above
+    // moved: main took 88-90 while this branch was in review. This is the second renumber these
+    // four have had, and it costs nothing because none of them has shipped — a number that has
+    // reached an installation is the one that can never move again.
+    //
+    // Each still carries a repair: `apply_migration` is version-gated, and a database another
+    // worktree already migrated arrives with the history complete and these tables absent, at which
+    // point the gated call never runs. The repair re-asserts the schema rather than leaving a
+    // database whose history looks whole while its tables are missing.
+    apply_migration(
+        conn,
+        91,
+        "execution-evidence-journal",
+        crate::contexts::execution_observability::infrastructure::apply_evidence_schema,
+    )?;
+    apply_migration(
+        conn,
+        92,
+        "unified-log-query-index",
+        crate::contexts::operations::infrastructure::apply_log_query_index_schema,
+    )?;
+    apply_migration(
+        conn,
+        93,
+        "review-decision-state",
+        crate::contexts::sessions::infrastructure::apply_review_decision_schema,
+    )?;
+    apply_migration(
+        conn,
+        94,
+        "review-file-viewed-witness",
+        crate::contexts::sessions::infrastructure::apply_review_file_witness_schema,
+    )?;
     repair_missing_stable_participant_schema(conn)?;
     repair_missing_cli_parameter_profile_schema(conn)?;
+    crate::contexts::execution_observability::infrastructure::repair_missing_evidence_schema(conn)?;
+    crate::contexts::operations::infrastructure::repair_missing_log_query_index_schema(conn)?;
+    crate::contexts::sessions::infrastructure::repair_missing_review_decision_schema(conn)?;
+    crate::contexts::sessions::infrastructure::repair_missing_review_file_witness(conn)?;
+
     // Fail fast when a migration was skipped or the persisted history contains a gap.
     assert_migration_history_is_dense(conn)?;
     Ok(())
@@ -596,7 +634,9 @@ pub(crate) fn expected_migration_versions() -> Vec<i64> {
         .collect()
 }
 
-const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
+// `pub(super)` because `platform::database::mod` derives its own migration-count assertions from
+// this list rather than restating the number; the helper above covers callers outside that module.
+pub(super) const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (1, "initial-schema"),
     (2, "agent-managed-sdk-dependency"),
     (3, "session-management"),
@@ -690,6 +730,10 @@ const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (88, "personalization-governance"),
     (89, "session-personalization-mode"),
     (90, "personalization-last-reconciled"),
+    (91, "execution-evidence-journal"),
+    (92, "unified-log-query-index"),
+    (93, "review-decision-state"),
+    (94, "review-file-viewed-witness"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {

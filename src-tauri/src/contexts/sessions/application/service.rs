@@ -56,6 +56,7 @@ pub(crate) struct SessionApplicationPorts {
 #[derive(Clone)]
 pub(crate) struct SessionsApplicationService {
     ports: SessionApplicationPorts,
+    evidence: Arc<dyn super::SessionEvidencePort>,
 }
 
 #[derive(Clone, Copy)]
@@ -232,8 +233,17 @@ impl SessionsApplicationService {
         Ok(result)
     }
 
-    pub(crate) fn new(ports: SessionApplicationPorts) -> Self {
-        Self { ports }
+    pub(crate) fn new(
+        ports: SessionApplicationPorts,
+        evidence: Arc<dyn super::SessionEvidencePort>,
+    ) -> Self {
+        Self { ports, evidence }
+    }
+
+    /// A service that records nothing, for tests whose subject is not evidence.
+    #[cfg(test)]
+    pub(crate) fn new_for_test_without_evidence(ports: SessionApplicationPorts) -> Self {
+        Self::new(ports, Arc::new(super::NoSessionEvidence))
     }
 
     pub(crate) fn prepare_new_session_creation(
@@ -1175,16 +1185,38 @@ impl SessionsApplicationService {
         record.error = request.error;
         let finished_at = self.ports.clock.now();
         record.updated_at.clone_from(&finished_at);
-        self.ports
-            .transactions
-            .terminalize_generation(&GenerationTerminalRequest {
-                execution_run_id: request.execution_run_id,
-                message: record,
-                terminal_status: request.terminal_status,
-                usage: request.usage,
-                invocation_usage: request.invocation_usage,
-                finished_at,
-            })
+        // Captured before the request is consumed; published after it commits. A pointer to an
+        // observation that was never written would be a reference to nothing.
+        let observed = request.invocation_usage.as_ref().map(|usage| {
+            (
+                usage.observation.invocation_id.clone(),
+                usage_evidence_quality(usage.observation.quality),
+            )
+        });
+        let result =
+            self.ports
+                .transactions
+                .terminalize_generation(&GenerationTerminalRequest {
+                    execution_run_id: request.execution_run_id,
+                    message: record,
+                    terminal_status: request.terminal_status,
+                    usage: request.usage,
+                    invocation_usage: request.invocation_usage,
+                    finished_at: finished_at.clone(),
+                })?;
+        if let Some((invocation_id, quality)) = observed {
+            // The id and how the numbers were arrived at. The token counts stay in sessions, which
+            // owns them; a second copy in the journal would be a second total that can disagree.
+            self.evidence
+                .try_publish(super::SessionEvidenceSignal::UsageObserved {
+                    session_id: session_id.as_str().to_string(),
+                    invocation_id,
+                    run_id: None,
+                    quality,
+                    occurred_at: finished_at,
+                });
+        }
+        Ok(result)
     }
 
     fn generation_message_record(
@@ -1787,6 +1819,17 @@ fn validate_usage(
         ));
     }
     Ok(())
+}
+
+fn usage_evidence_quality(
+    quality: crate::contexts::sessions::domain::MeasurementQuality,
+) -> super::SessionUsageEvidenceQuality {
+    use crate::contexts::sessions::domain::MeasurementQuality;
+    match quality {
+        MeasurementQuality::Reported => super::SessionUsageEvidenceQuality::Reported,
+        MeasurementQuality::ReportedDerived => super::SessionUsageEvidenceQuality::ReportedDerived,
+        MeasurementQuality::Estimated => super::SessionUsageEvidenceQuality::Estimated,
+    }
 }
 
 fn validate_invocation_usage(

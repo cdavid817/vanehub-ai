@@ -1,3 +1,22 @@
+/// Named only where a test double has to write the type down.
+///
+/// The production implementation lives beside the session export it delegates to and reaches the
+/// trait through the application module, so nothing outside this context needs the name.
+#[cfg(test)]
+pub(crate) use super::application::ReportExportPort;
+/// The session-run report: its service, the questions it asks, and the shapes it answers with.
+///
+/// The ports are published alongside the service because bootstrap implements them. That is the
+/// whole arrangement: the sessions context states what a report needs in its own vocabulary, and
+/// the layer that is allowed to know every context supplies the answers.
+pub(crate) use super::application::{
+    AgentReportRow, ChangeSummary, ChangeSummaryPort, CommandReport, ExecutionEvidencePort,
+    ExecutionEvidenceSummary, FailureReportRow, LogFailurePort, LogFailureSummary,
+    ObservabilityTimingPort, ReportClock, ReportCoverage, ReportCoverageState, ReportEvidenceLink,
+    ReportScope, ReportScopeRequest, ReportSectionCoverage, ReportSourceError, ReportSourceResult,
+    ReportUsagePort, ReportUsageSummary, RunOutcomePort, RunOutcomeSummary, SessionRunReport,
+    SessionRunReportService, TimingSummary, ToolReportRow, VerificationReport,
+};
 pub(crate) use super::application::{
     ArchivalPolicy, CategoryRecord, ChatConfigurationValues, CompleteMessageRequest,
     CompletedInvocationAccounting, CreateMessageRequest, DurableGenerationStartRequest,
@@ -17,6 +36,10 @@ pub(crate) use super::application::{
     UsageStatisticsRange, UsageSummaryQuery,
 };
 use super::application::{ReviewApplicationService, SessionsApplicationService};
+pub(crate) use super::application::{
+    SessionEvidencePort, SessionEvidenceSignal, SessionReviewDecision, SessionUsageEvidenceQuality,
+    SessionVerificationOutcome,
+};
 pub(crate) use super::domain::SessionsDomainError;
 pub(crate) use super::domain::{
     AccountingUnit, LoopSessionRole, MeasurementKind, MeasurementQuality, RecoveryDecision,
@@ -140,15 +163,32 @@ impl SessionsApi {
     pub(crate) fn open_review(
         &self,
         session_id: &str,
-    ) -> Result<super::domain::ReviewSession, super::application::ReviewApplicationError> {
-        self.review()?.open(session_id)
+    ) -> Result<super::application::ReviewView, super::application::ReviewApplicationError> {
+        let review = self.review()?;
+        let session = review.open(session_id)?;
+        review.view(session)
     }
 
     pub(crate) fn find_review(
         &self,
         review_id: &str,
-    ) -> Result<super::domain::ReviewSession, super::application::ReviewApplicationError> {
-        self.review()?.find(review_id)
+    ) -> Result<super::application::ReviewView, super::application::ReviewApplicationError> {
+        let review = self.review()?;
+        let session = review.find(review_id)?;
+        review.view(session)
+    }
+
+    /// The session's active review without creating one.
+    ///
+    /// `open_review` snapshots the workspace and writes; this reads. A report needs the read, since
+    /// a session with no review must be reported as having none rather than acquiring one by being
+    /// reported on.
+    pub(crate) fn find_active_review(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<super::domain::ReviewSession>, super::application::ReviewApplicationError>
+    {
+        self.review()?.find_active(session_id)
     }
 
     pub(crate) fn add_review_comment(
@@ -162,16 +202,37 @@ impl SessionsApi {
         &self,
         review_id: &str,
         decision: super::domain::ReviewDecision,
-    ) -> Result<super::domain::ReviewSession, super::application::ReviewApplicationError> {
-        self.review()?.set_decision(review_id, decision)
+    ) -> Result<super::application::ReviewView, super::application::ReviewApplicationError> {
+        let review = self.review()?;
+        let session = review.set_decision(review_id, decision)?;
+        review.view(session)
+    }
+
+    pub(crate) fn set_review_hunk_decision(
+        &self,
+        review_id: &str,
+        request: super::application::SetHunkDecisionRequest,
+    ) -> Result<super::domain::ReviewHunkDecision, super::application::ReviewApplicationError> {
+        self.review()?.set_hunk_decision(review_id, request)
+    }
+
+    pub(crate) fn set_review_file_viewed(
+        &self,
+        review_id: &str,
+        request: super::application::SetFileViewedRequest,
+    ) -> Result<super::domain::ReviewFileViewState, super::application::ReviewApplicationError>
+    {
+        self.review()?.set_file_viewed(review_id, request)
     }
 
     pub(crate) fn resolve_review_comment(
         &self,
         review_id: &str,
         comment_id: &str,
-    ) -> Result<super::domain::ReviewSession, super::application::ReviewApplicationError> {
-        self.review()?.resolve_comment(review_id, comment_id)
+    ) -> Result<super::application::ReviewView, super::application::ReviewApplicationError> {
+        let review = self.review()?;
+        let session = review.resolve_comment(review_id, comment_id)?;
+        review.view(session)
     }
 
     pub(crate) fn select_review_comment(
@@ -179,9 +240,10 @@ impl SessionsApi {
         review_id: &str,
         comment_id: &str,
         selected: bool,
-    ) -> Result<super::domain::ReviewSession, super::application::ReviewApplicationError> {
-        self.review()?
-            .select_comment(review_id, comment_id, selected)
+    ) -> Result<super::application::ReviewView, super::application::ReviewApplicationError> {
+        let review = self.review()?;
+        let session = review.select_comment(review_id, comment_id, selected)?;
+        review.view(session)
     }
 
     pub(crate) fn send_review_feedback(
@@ -206,9 +268,10 @@ impl SessionsApi {
         action: super::application::ReviewAction,
         operation_id: &str,
         findings: Vec<super::application::ReviewActionFindingInput>,
-    ) -> Result<super::domain::ReviewSession, super::application::ReviewApplicationError> {
-        self.review()?
-            .project_action_findings(review_id, action, operation_id, findings)
+    ) -> Result<super::application::ReviewView, super::application::ReviewApplicationError> {
+        let review = self.review()?;
+        let session = review.project_action_findings(review_id, action, operation_id, findings)?;
+        review.view(session)
     }
 
     pub(crate) fn prepare_creation(

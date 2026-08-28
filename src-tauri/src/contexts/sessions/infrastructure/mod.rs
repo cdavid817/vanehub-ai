@@ -2,6 +2,8 @@ mod chat_profile;
 mod creation_context;
 mod operation_adapter;
 mod personalization_mode_schema;
+mod review_decision_repository;
+mod review_decision_schema;
 mod review_repository;
 mod rows;
 mod runtime_support;
@@ -13,6 +15,11 @@ mod usage;
 mod usage_accounting;
 mod usage_accounting_projection;
 
+pub(crate) use review_decision_repository::SqliteReviewDecisionRepository;
+pub(crate) use review_decision_schema::{
+    apply_review_decision_schema, apply_review_file_witness_schema,
+    repair_missing_review_decision_schema, repair_missing_review_file_witness,
+};
 pub(crate) use review_repository::{
     apply_schema as apply_review_schema, SqliteReviewRepository, SystemReviewClock, UuidReviewIds,
 };

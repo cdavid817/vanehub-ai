@@ -1838,7 +1838,7 @@ fn service_with_telemetry_port(
     world: Arc<FakeWorld>,
     telemetry: Arc<dyn ExecutionTelemetryPort>,
 ) -> AgentRuntimeApplicationService {
-    AgentRuntimeApplicationService::new(AgentRuntimeApplicationPorts {
+    AgentRuntimeApplicationService::new_for_test_without_evidence(AgentRuntimeApplicationPorts {
         registry: world.clone(),
         workflows: world.clone(),
         sessions: world.clone(),

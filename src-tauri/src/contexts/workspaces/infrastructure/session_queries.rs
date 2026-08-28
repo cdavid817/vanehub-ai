@@ -1,11 +1,18 @@
 use crate::contexts::workspaces::application::{
-    DirectoryEntry, DirectoryListing, DocumentListing, FileContent, FileSearchListing, GitDiffFile,
-    GitDiffHunk, GitDiffLine, GitDiffResult, GitDiffSource, GitStatusEntry, GitStatusResult,
-    ReviewDiffFile, ReviewDiffHunk, ReviewFileSummary, ReviewRevertReceipt, ReviewRevertRequest,
+    detect_encoding, detect_newline, kind_rank, DirectoryCursor, DirectoryEntry,
+    DirectoryFingerprint, DirectoryFingerprintState, DirectoryListing, DocumentListing,
+    FileContent, FileSearchListing, GitDiffFile, GitDiffHunk, GitDiffLine, GitDiffResult,
+    GitDiffSource, GitStatusEntry, GitStatusResult, ReviewDiffFile, ReviewDiffHunk,
+    ReviewFileSummary, ReviewPatch, ReviewPatchRequest, ReviewRevertReceipt, ReviewRevertRequest,
     ReviewSnapshot, SessionDocument, SessionLogEntry, SessionLogExportResult, SessionLogPage,
     SessionLogQuery, SessionWorkspaceContext, WorkspaceApplicationError as AppError,
-    WorkspaceLogLevel, WorkspaceReviewPort, WorkspaceSessionQueryPort, MAX_REVIEW_DIFF_BYTES,
-    MAX_REVIEW_FILES, MAX_REVIEW_FILE_BYTES,
+    WorkspaceLogLevel, WorkspaceReviewPort, WorkspaceSessionQueryPort, DEFAULT_DIRECTORY_PAGE_SIZE,
+    MAX_FINGERPRINT_PATHS, MAX_REVIEW_DIFF_BYTES, MAX_REVIEW_FILES, MAX_REVIEW_FILE_BYTES,
+    MAX_REVIEW_PATCH_BYTES,
+};
+use crate::contexts::workspaces::application::{
+    WorkspaceContentSearchRequest, WorkspaceContentSearchResult, WorkspacePathSearchRequest,
+    WorkspacePathSearchResult,
 };
 use crate::contexts::workspaces::domain::{CanonicalPathBoundary, WorkspaceRelativePath};
 use crate::platform;
@@ -17,10 +24,17 @@ use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 use tauri::AppHandle;
 use tauri_plugin_dialog::DialogExt;
 
-const DIRECTORY_ENTRY_LIMIT: usize = 500;
+/// How many status entries one answer carries.
+///
+/// Its own constant now that directory listings page. The two were sharing a name and a value
+/// while measuring different things — files in one folder, changed paths across a repository —
+/// and a shared name is how one of them silently acquires the other's bound.
+const GIT_STATUS_ENTRY_LIMIT: usize = 500;
 const DOCUMENT_DEPTH_LIMIT: usize = 6;
 const DOCUMENT_LIMIT: usize = 300;
 const FILE_BYTE_LIMIT: u64 = 1024 * 1024;
@@ -52,8 +66,71 @@ impl WorkspaceSessionQueryPort for SessionWorkspaceQueryAdapter {
             .map(|root| root.map(|path| path.to_string_lossy().to_string()))
     }
 
+    fn resolve_session_directory(
+        &self,
+        session_id: &str,
+        relative: &str,
+    ) -> Result<Option<String>, AppError> {
+        let connection = self.connection()?;
+        let Some(root) = resolve_session_root(&connection, session_id)? else {
+            return Ok(None);
+        };
+        if relative.is_empty() {
+            return Ok(Some(root.to_string_lossy().to_string()));
+        }
+        // The same confinement every other read uses. A second one written for this caller would
+        // be a second boundary, and boundaries written twice disagree.
+        let resolved = resolve_existing_path(&root, relative)?;
+        if !resolved.is_dir() {
+            return Err(AppError::Validation(
+                "Requested workspace path is not a directory.".to_string(),
+            ));
+        }
+        Ok(Some(resolved.to_string_lossy().to_string()))
+    }
+
     fn list_directory(&self, session_id: &str, path: &str) -> Result<DirectoryListing, AppError> {
         list_session_directory(&*self.connection()?, session_id, path)
+    }
+
+    fn list_directory_page(
+        &self,
+        session_id: &str,
+        path: &str,
+        cursor: Option<&str>,
+        limit: usize,
+    ) -> Result<DirectoryListing, AppError> {
+        list_session_directory_page(&*self.connection()?, session_id, path, cursor, limit)
+    }
+
+    fn directory_fingerprints(
+        &self,
+        session_id: &str,
+        paths: &[String],
+    ) -> Result<Vec<DirectoryFingerprint>, AppError> {
+        session_directory_fingerprints(&*self.connection()?, session_id, paths)
+    }
+
+    fn search_paths(
+        &self,
+        session_id: &str,
+        request: &WorkspacePathSearchRequest,
+    ) -> Result<WorkspacePathSearchResult, AppError> {
+        super::path_search::search_session_paths(&*self.connection()?, session_id, request)
+    }
+
+    fn search_content(
+        &self,
+        session_id: &str,
+        request: &WorkspaceContentSearchRequest,
+        cancelled: &Arc<AtomicBool>,
+    ) -> Result<WorkspaceContentSearchResult, AppError> {
+        super::content_search::search_session_content(
+            &*self.connection()?,
+            session_id,
+            request,
+            cancelled,
+        )
     }
 
     fn list_documents(&self, session_id: &str) -> Result<DocumentListing, AppError> {
@@ -127,6 +204,11 @@ impl WorkspaceReviewPort for SessionWorkspaceQueryAdapter {
         let file = load_review_file(&connection, session_id, path, expected_snapshot)?;
         write_review_event(&connection, "diff-loaded", session_id, file.hunks.len());
         Ok(file)
+    }
+
+    fn render_review_patch(&self, request: &ReviewPatchRequest) -> Result<ReviewPatch, AppError> {
+        let connection = self.connection()?;
+        render_review_patch(&connection, request)
     }
 
     fn revert_review_change(
@@ -313,10 +395,18 @@ fn available_context(root: &Path) -> SessionWorkspaceContext {
     )
 }
 
-fn directory_entries_at(
+/// One page of a directory, ordered and cut at the caller's bound.
+///
+/// The whole directory is enumerated and sorted before the cut, which is what makes the order
+/// stable: a page is a window onto a total order rather than whatever the filesystem returned
+/// first. That cost is the same as before - the previous version enumerated everything too and
+/// then threw away all but the first 500.
+fn directory_page_at(
     root: &Path,
     relative: &str,
-) -> Result<(Vec<DirectoryEntry>, bool), AppError> {
+    cursor: Option<&DirectoryCursor>,
+    limit: usize,
+) -> Result<(Vec<DirectoryEntry>, bool, Option<String>), AppError> {
     let directory = if relative.is_empty() {
         root.to_path_buf()
     } else {
@@ -357,15 +447,28 @@ fn directory_entries_at(
         });
     }
     entries.sort_by(|left, right| {
-        let left_rank = if left.kind == "directory" { 0 } else { 1 };
-        let right_rank = if right.kind == "directory" { 0 } else { 1 };
-        left_rank
-            .cmp(&right_rank)
+        kind_rank(left.kind)
+            .cmp(&kind_rank(right.kind))
             .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
     });
-    let truncated = entries.len() > DIRECTORY_ENTRY_LIMIT;
-    entries.truncate(DIRECTORY_ENTRY_LIMIT);
-    Ok((entries, truncated))
+
+    // Resuming happens after the sort, so the key a cursor carries is the key the listing is
+    // ordered by. Filtering before sorting would compare against an order that does not exist
+    // yet and drop entries that belong on the page.
+    if let Some(cursor) = cursor {
+        entries.retain(|entry| cursor.precedes(entry.kind, &entry.name));
+    }
+    let truncated = entries.len() > limit;
+    entries.truncate(limit);
+    // A cursor only when there is more. Issuing one for an exhausted directory would invite a
+    // caller to fetch a page that is always empty, and an empty page reads as a directory that
+    // just emptied itself.
+    let next_cursor = truncated.then(|| {
+        entries
+            .last()
+            .map(|entry| DirectoryCursor::after(relative, entry.kind, &entry.name).encode())
+    });
+    Ok((entries, truncated, next_cursor.flatten()))
 }
 
 pub(crate) fn list_session_directory(
@@ -373,6 +476,32 @@ pub(crate) fn list_session_directory(
     session_id: &str,
     path: &str,
 ) -> Result<DirectoryListing, AppError> {
+    list_session_directory_page(conn, session_id, path, None, DEFAULT_DIRECTORY_PAGE_SIZE)
+}
+
+/// One page, resuming after a cursor.
+///
+/// `list_session_directory` is this with the default bound and no cursor. One implementation, so
+/// the ordering a cursor resumes into is the ordering the first page produced.
+pub(crate) fn list_session_directory_page(
+    conn: &Connection,
+    session_id: &str,
+    path: &str,
+    cursor: Option<&str>,
+    limit: usize,
+) -> Result<DirectoryListing, AppError> {
+    let decoded = match cursor {
+        Some(encoded) => Some(
+            DirectoryCursor::decode(encoded, path)
+                // A cursor for another directory, or one nobody issued. Refused as a validation
+                // failure so the caller starts the listing again rather than receiving a page
+                // from somewhere else.
+                .map_err(|_| {
+                    AppError::Validation("Directory cursor is not valid here.".to_string())
+                })?,
+        ),
+        None => None,
+    };
     let Some(root) = resolve_session_root(conn, session_id)? else {
         return Ok(DirectoryListing {
             context: unavailable_context(),
@@ -382,14 +511,82 @@ pub(crate) fn list_session_directory(
             next_cursor: None,
         });
     };
-    let (items, truncated) = directory_entries_at(&root, path)?;
+    let (items, truncated, next_cursor) = directory_page_at(&root, path, decoded.as_ref(), limit)?;
     Ok(DirectoryListing {
         context: available_context(&root),
         path: path.to_string(),
         items,
         truncated,
-        next_cursor: None,
+        next_cursor,
     })
+}
+
+/// A stat per directory, and no enumeration.
+///
+/// A directory's own modified time moves when an entry is added, removed, or renamed, which is
+/// exactly the set of changes a file tree renders. Reading the directory to compare its contents
+/// would answer the same question by doing the work the answer is supposed to avoid.
+///
+/// Paths are confined the same way every other read is. A poll is still a read, and one that
+/// resolved its own paths would be a second way into the filesystem whose boundary is whatever it
+/// was handed.
+pub(crate) fn session_directory_fingerprints(
+    conn: &Connection,
+    session_id: &str,
+    paths: &[String],
+) -> Result<Vec<DirectoryFingerprint>, AppError> {
+    let Some(root) = resolve_session_root(conn, session_id)? else {
+        // No local root: every directory is unreadable rather than missing. Nothing was removed —
+        // this session simply has nowhere for the poll to look.
+        return Ok(paths
+            .iter()
+            .map(|relative_path| DirectoryFingerprint {
+                relative_path: relative_path.clone(),
+                state: DirectoryFingerprintState::Unreadable,
+            })
+            .collect());
+    };
+    Ok(paths
+        .iter()
+        .take(MAX_FINGERPRINT_PATHS)
+        .map(|relative_path| DirectoryFingerprint {
+            relative_path: relative_path.clone(),
+            state: directory_fingerprint_at(&root, relative_path),
+        })
+        .collect())
+}
+
+fn directory_fingerprint_at(root: &Path, relative: &str) -> DirectoryFingerprintState {
+    let directory = if relative.is_empty() {
+        root.to_path_buf()
+    } else {
+        match resolve_existing_path(root, relative) {
+            Ok(path) => path,
+            // The confined resolution refuses what is not there and what escapes alike. An escape
+            // cannot reach here — the provider classifies those from the request — so what is left
+            // is a directory that is gone, which is itself a change worth reporting.
+            Err(_) => return DirectoryFingerprintState::Missing,
+        }
+    };
+    let Ok(metadata) = fs::metadata(&directory) else {
+        return DirectoryFingerprintState::Missing;
+    };
+    if !metadata.is_dir() {
+        return DirectoryFingerprintState::Missing;
+    }
+    match metadata.modified() {
+        Ok(modified) => match modified.duration_since(std::time::UNIX_EPOCH) {
+            Ok(since_epoch) => {
+                DirectoryFingerprintState::Known(format!("{}", since_epoch.as_nanos()))
+            }
+            // A modified time before the epoch is a clock nobody can compare against. Unreadable
+            // rather than a made-up value, which would compare equal forever.
+            Err(_) => DirectoryFingerprintState::Unreadable,
+        },
+        // Some filesystems do not keep one. Saying so is better than substituting a constant, which
+        // would report "unchanged" for every poll on that volume.
+        Err(_) => DirectoryFingerprintState::Unreadable,
+    }
 }
 
 fn collect_documents(
@@ -486,6 +683,8 @@ fn read_file_at(root: &Path, relative: &str) -> Result<FileContent, AppError> {
             status: "missing",
             size: 0,
             content: None,
+            encoding: None,
+            newline: None,
         });
     }
     let path = resolve_existing_path(root, relative)?;
@@ -506,6 +705,8 @@ fn read_file_at(root: &Path, relative: &str) -> Result<FileContent, AppError> {
             status: "oversized",
             size: metadata.len(),
             content: None,
+            encoding: None,
+            newline: None,
         });
     }
     let bytes = fs::read(&path).map_err(|error| AppError::Storage(error.to_string()))?;
@@ -516,6 +717,8 @@ fn read_file_at(root: &Path, relative: &str) -> Result<FileContent, AppError> {
             status: "binary",
             size: metadata.len(),
             content: None,
+            encoding: None,
+            newline: None,
         });
     }
     match String::from_utf8(bytes) {
@@ -524,6 +727,10 @@ fn read_file_at(root: &Path, relative: &str) -> Result<FileContent, AppError> {
             name,
             status: "text",
             size: metadata.len(),
+            // Classified from the decoded text by the shared detector, so a file reports the same
+            // encoding and line endings whichever machine it is on.
+            encoding: Some(detect_encoding(&content).token()),
+            newline: Some(detect_newline(&content).token()),
             content: Some(content),
         }),
         Err(_) => Ok(FileContent {
@@ -532,6 +739,8 @@ fn read_file_at(root: &Path, relative: &str) -> Result<FileContent, AppError> {
             status: "binary",
             size: metadata.len(),
             content: None,
+            encoding: None,
+            newline: None,
         }),
     }
 }
@@ -576,7 +785,7 @@ fn git_change_kind(value: char) -> String {
     .to_string()
 }
 
-fn parse_git_status(raw: &[u8]) -> (Option<String>, Vec<GitStatusEntry>) {
+pub(super) fn parse_git_status(raw: &[u8]) -> (Option<String>, Vec<GitStatusEntry>) {
     let records = raw
         .split(|value| *value == 0)
         .filter(|record| !record.is_empty())
@@ -749,8 +958,8 @@ pub(crate) fn get_session_git_status(
             next_cursor: None,
         });
     };
-    let truncated = entries.len() > DIRECTORY_ENTRY_LIMIT;
-    entries.truncate(DIRECTORY_ENTRY_LIMIT);
+    let truncated = entries.len() > GIT_STATUS_ENTRY_LIMIT;
+    entries.truncate(GIT_STATUS_ENTRY_LIMIT);
     Ok(GitStatusResult {
         context: available_context(&root),
         is_git: true,
@@ -793,7 +1002,7 @@ fn clean_diff_path(value: &str) -> Option<String> {
     }
 }
 
-fn parse_git_diff(raw: &str, fallback_path: &str) -> Vec<GitDiffFile> {
+pub(super) fn parse_git_diff(raw: &str, fallback_path: &str) -> Vec<GitDiffFile> {
     let mut files = Vec::new();
     let mut current_file: Option<GitDiffFile> = None;
     let mut current_hunk: Option<GitDiffHunk> = None;
@@ -1189,6 +1398,98 @@ fn digest_hex(digest: sha2::Sha256) -> String {
         .collect()
 }
 
+/// The hunks one request selects, and the normalized path they belong to.
+///
+/// Shared by the patch render and the revert, because they answer the same three questions in the
+/// same order — is the snapshot current, does the path resolve, is the hunk selection unambiguous
+/// — and a second copy would drift into two answers for the same request.
+fn select_review_hunks(
+    conn: &Connection,
+    session_id: &str,
+    path: &str,
+    expected_snapshot: &str,
+    hunk_fingerprint: Option<&String>,
+) -> Result<(String, String, ReviewDiffFile, Vec<usize>), AppError> {
+    let current = create_review_snapshot(conn, session_id)?;
+    if current.fingerprint != expected_snapshot {
+        // The same code the hunk-decision path returns, because it is the same fact and the
+        // reviewer's next move is the same: reload and look again.
+        return Err(AppError::Conflict("stale_witness"));
+    }
+    let root = resolve_session_root(conn, session_id)?
+        .ok_or_else(|| AppError::Validation("Session workspace is unavailable.".to_string()))?;
+    let (_candidate, normalized) = resolve_git_path(&root, path)?;
+    let file = load_review_file(conn, session_id, &normalized, &current.fingerprint)?;
+    let selected = file
+        .hunks
+        .iter()
+        .enumerate()
+        .filter(|(_, hunk)| hunk_fingerprint.is_none_or(|expected| &hunk.fingerprint == expected))
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    if selected.is_empty() || (hunk_fingerprint.is_some() && selected.len() != 1) {
+        // Absent and ambiguous are one refusal on purpose: in both cases the request names a hunk
+        // this diff cannot single out, and there is nothing a reviewer does differently about the
+        // two.
+        return Err(AppError::Conflict("review_hunk_unavailable"));
+    }
+    Ok((current.fingerprint, normalized, file, selected))
+}
+
+/// Why this file has no patch to give, or nothing.
+///
+/// Two codes rather than one, because they are two sentences: a binary file has no text to patch
+/// and never will, while an oversized one has a change this application declined to read. A
+/// reviewer does something different about each.
+fn patch_refusal(file: &ReviewDiffFile) -> Option<&'static str> {
+    if file.summary.binary {
+        return Some("patch_unavailable_binary");
+    }
+    if file.summary.oversized {
+        return Some("patch_too_large");
+    }
+    None
+}
+
+fn patch_exceeds_bound(patch: &str) -> bool {
+    patch.len() > MAX_REVIEW_PATCH_BYTES
+}
+
+fn render_review_patch(
+    conn: &Connection,
+    request: &ReviewPatchRequest,
+) -> Result<ReviewPatch, AppError> {
+    let (snapshot, normalized, file, selected) = select_review_hunks(
+        conn,
+        &request.session_id,
+        &request.path,
+        &request.expected_snapshot,
+        request.hunk_fingerprint.as_ref(),
+    )?;
+    // Before rendering, because rendering a patch for content this application never decoded
+    // would produce something confident and wrong rather than something empty.
+    if let Some(code) = patch_refusal(&file) {
+        return Err(AppError::Conflict(code));
+    }
+    let hunks = selected
+        .iter()
+        .map(|index| &file.hunks[*index])
+        .collect::<Vec<_>>();
+    let patch = render_patch(&normalized, &hunks);
+    // Refused rather than truncated. A patch cut short looks exactly like one that applies until
+    // somebody runs it somewhere it matters.
+    if patch_exceeds_bound(&patch) {
+        return Err(AppError::Conflict("patch_too_large"));
+    }
+    Ok(ReviewPatch {
+        fingerprint: crate::contexts::workspaces::application::fingerprint_patch(&patch),
+        patch,
+        hunks: hunks.len(),
+        path: normalized,
+        snapshot,
+    })
+}
+
 fn revert_review_change(
     conn: &Connection,
     request: &ReviewRevertRequest,
@@ -1204,31 +1505,19 @@ fn revert_review_change(
         .get_or_init(|| std::sync::Mutex::new(()))
         .lock()
         .map_err(|_| AppError::Storage("Workspace mutation guard is unavailable.".to_string()))?;
-    let current = create_review_snapshot(conn, &request.session_id)?;
-    if current.fingerprint != request.expected_snapshot {
-        return Err(AppError::Validation(
-            "Review snapshot is stale.".to_string(),
-        ));
-    }
+    let (previous_snapshot, normalized, file, selected_indexes) = select_review_hunks(
+        conn,
+        &request.session_id,
+        &request.path,
+        &request.expected_snapshot,
+        request.hunk_fingerprint.as_ref(),
+    )?;
     let root = resolve_session_root(conn, &request.session_id)?
         .ok_or_else(|| AppError::Validation("Session workspace is unavailable.".to_string()))?;
-    let (_candidate, normalized) = resolve_git_path(&root, &request.path)?;
-    let file = load_review_file(conn, &request.session_id, &normalized, &current.fingerprint)?;
-    let selected = file
-        .hunks
+    let selected = selected_indexes
         .iter()
-        .filter(|hunk| {
-            request
-                .hunk_fingerprint
-                .as_ref()
-                .is_none_or(|expected| &hunk.fingerprint == expected)
-        })
+        .map(|index| &file.hunks[*index])
         .collect::<Vec<_>>();
-    if selected.is_empty() || (request.hunk_fingerprint.is_some() && selected.len() != 1) {
-        return Err(AppError::Validation(
-            "Review hunk is unavailable or ambiguous.".to_string(),
-        ));
-    }
     let patch = render_patch(&normalized, &selected);
     let mut patch_file =
         tempfile::NamedTempFile::new().map_err(|error| AppError::Storage(error.to_string()))?;
@@ -1265,14 +1554,46 @@ fn revert_review_change(
     drop(guard);
     Ok(ReviewRevertReceipt {
         path: normalized,
-        previous_snapshot: current.fingerprint,
+        previous_snapshot,
         resulting_snapshot: resulting.fingerprint,
         reverted_hunks: selected.len(),
     })
 }
 
+/// Renders selected hunks as a unified diff Git will accept.
+///
+/// The two `/dev/null` cases are the reason this is not a format string. A file with no old side
+/// needs `--- /dev/null` and a file with no new side needs `+++ /dev/null`; naming the path on
+/// both sides produces a patch that reads correctly and that `git apply` refuses, which is exactly
+/// the failure a rendering assertion cannot see and `git apply --check` can.
+///
+/// Derived from the hunks rather than from the summary's `change_type`. The summary's `old_hash`
+/// is always absent here, so it cannot distinguish an addition from a modification, and a change
+/// type is a word from `git status` while this has to agree with the diff it is rendering.
 fn render_patch(path: &str, hunks: &[&ReviewDiffHunk]) -> String {
-    let mut patch = format!("diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n");
+    let no_old_side = hunks
+        .iter()
+        .all(|selected| selected.hunk.old_lines == 0 && selected.hunk.old_start == 0);
+    let no_new_side = hunks
+        .iter()
+        .all(|selected| selected.hunk.new_lines == 0 && selected.hunk.new_start == 0);
+    let old_side = if no_old_side {
+        "/dev/null".to_string()
+    } else {
+        format!("a/{path}")
+    };
+    let new_side = if no_new_side {
+        "/dev/null".to_string()
+    } else {
+        format!("b/{path}")
+    };
+    let mut patch = format!("diff --git a/{path} b/{path}\n");
+    if no_old_side {
+        patch.push_str("new file mode 100644\n");
+    } else if no_new_side {
+        patch.push_str("deleted file mode 100644\n");
+    }
+    patch.push_str(&format!("--- {old_side}\n+++ {new_side}\n"));
     for review_hunk in hunks {
         let hunk = &review_hunk.hunk;
         patch.push_str(&hunk.header);
@@ -1324,8 +1645,41 @@ fn filtered_log_entries_tail(
     Ok(filter_log_entries(reader, input))
 }
 
-fn filter_log_entries(reader: impl BufRead, input: &SessionLogQuery) -> Vec<logging::LogEntry> {
+/// Whether one already-parsed redacted record belongs in a filtered result.
+///
+/// Pure, and deliberately so. An export and a preview have to agree about which records are in
+/// scope, and the only way two readers of the same corpus can be guaranteed to agree is if they
+/// call the same function on the same parsed record. A predicate that re-derived the answer from a
+/// query — one reading a file, one reading an index — would drift the first time a filter gained a
+/// field, and the drift would show up as an export quietly containing more or less than the list
+/// the user was looking at when they clicked it.
+pub(crate) fn log_entry_matches(entry: &logging::LogEntry, input: &SessionLogQuery) -> bool {
+    if entry.context.get("sessionId") != Some(&input.session_id) {
+        return false;
+    }
+    if let Some(seat_id) = input.seat_id.as_ref() {
+        if entry.context.get("seatId") != Some(seat_id) {
+            return false;
+        }
+    }
+    if !input.levels.is_empty() && !input.levels.contains(&workspace_log_level(entry.level)) {
+        return false;
+    }
     let search = input.search.trim().to_lowercase();
+    if search.is_empty() {
+        return true;
+    }
+    let searchable = format!(
+        "{} {} {}",
+        entry.category,
+        entry.message,
+        serde_json::to_string(&entry.context).unwrap_or_default()
+    )
+    .to_lowercase();
+    searchable.contains(&search)
+}
+
+fn filter_log_entries(reader: impl BufRead, input: &SessionLogQuery) -> Vec<logging::LogEntry> {
     let mut entries = Vec::new();
     for line in reader.lines() {
         let Ok(line) = line else {
@@ -1334,25 +1688,9 @@ fn filter_log_entries(reader: impl BufRead, input: &SessionLogQuery) -> Vec<logg
         let Ok(entry) = serde_json::from_str::<logging::LogEntry>(&line) else {
             continue;
         };
-        if entry.context.get("sessionId") != Some(&input.session_id) {
-            continue;
+        if log_entry_matches(&entry, input) {
+            entries.push(entry);
         }
-        if !input.levels.is_empty() && !input.levels.contains(&workspace_log_level(entry.level)) {
-            continue;
-        }
-        if !search.is_empty() {
-            let searchable = format!(
-                "{} {} {}",
-                entry.category,
-                entry.message,
-                serde_json::to_string(&entry.context).unwrap_or_default()
-            )
-            .to_lowercase();
-            if !searchable.contains(&search) {
-                continue;
-            }
-        }
-        entries.push(entry);
     }
     entries
 }
@@ -1413,7 +1751,11 @@ fn bounded_filtered_log_entries(
     Ok(entries)
 }
 
-fn all_filtered_log_entries(
+/// Every record an export will write, in the order it will write them.
+///
+/// The one function that decides what an export contains, which is why it is reachable from a test:
+/// the destination picker decides where the file goes, and this decides what goes in it.
+pub(crate) fn all_filtered_log_entries(
     log_dir: &Path,
     input: &SessionLogQuery,
 ) -> Result<Vec<logging::LogEntry>, AppError> {
@@ -1537,6 +1879,385 @@ mod tests {
         assert!(status.success(), "git {:?} failed", args);
     }
 
+    use crate::contexts::workspaces::application::GitDiffLine;
+    use crate::test_support::git_patch_fixture::{GitPatchFixture, PatchCheck};
+
+    fn hunk(
+        header: &str,
+        old_start: usize,
+        old_lines: usize,
+        new_start: usize,
+        new_lines: usize,
+        lines: Vec<(&str, &str)>,
+    ) -> ReviewDiffHunk {
+        ReviewDiffHunk {
+            fingerprint: format!("hunk-{header}"),
+            context_fingerprints: Vec::new(),
+            hunk: GitDiffHunk {
+                header: header.to_string(),
+                old_start,
+                old_lines,
+                new_start,
+                new_lines,
+                lines: lines
+                    .into_iter()
+                    .map(|(kind, content)| GitDiffLine {
+                        kind: kind.to_string(),
+                        content: content.to_string(),
+                        old_line_number: None,
+                        new_line_number: None,
+                    })
+                    .collect(),
+            },
+        }
+    }
+
+    /// The gate 0.8 exists for. A patch that reads correctly and that Git refuses is the failure a
+    /// rendering assertion cannot see, and it is the only failure that matters here: what this
+    /// renderer produces is handed to a reviewer to paste into `git apply`.
+    #[test]
+    fn a_rendered_modification_applies_to_the_repository_it_came_from() {
+        let fixture =
+            GitPatchFixture::committed("render-modification", &[("src/main.rs", "fn main() {}\n")]);
+        let rendered = render_patch(
+            "src/main.rs",
+            &[&hunk(
+                "@@ -1,1 +1,1 @@",
+                1,
+                1,
+                1,
+                1,
+                vec![
+                    ("deletion", "fn main() {}"),
+                    ("addition", "fn main() { work(); }"),
+                ],
+            )],
+        );
+
+        assert_eq!(fixture.apply_check(&rendered), PatchCheck::Applies);
+    }
+
+    #[test]
+    fn a_rendered_addition_names_dev_null_on_the_side_that_has_nothing() {
+        let fixture = GitPatchFixture::committed("render-addition", &[("keep.txt", "keep\n")]);
+        let rendered = render_patch(
+            "added.rs",
+            &[&hunk(
+                "@@ -0,0 +1,1 @@",
+                0,
+                0,
+                1,
+                1,
+                vec![("addition", "fn added() {}")],
+            )],
+        );
+
+        // `--- a/added.rs` would name a file that has no old side, and Git refuses that. The
+        // version of this renderer before 13.7 wrote exactly that, which nothing noticed because
+        // its only caller applied patches in reverse against files that already existed.
+        assert!(rendered.contains("--- /dev/null"));
+        assert!(rendered.contains("new file mode"));
+        assert_eq!(fixture.apply_check(&rendered), PatchCheck::Applies);
+    }
+
+    #[test]
+    fn a_rendered_deletion_names_dev_null_on_the_side_that_has_nothing() {
+        let fixture = GitPatchFixture::committed("render-deletion", &[("gone.txt", "gone\n")]);
+        let rendered = render_patch(
+            "gone.txt",
+            &[&hunk(
+                "@@ -1,1 +0,0 @@",
+                1,
+                1,
+                0,
+                0,
+                vec![("deletion", "gone")],
+            )],
+        );
+
+        assert!(rendered.contains("+++ /dev/null"));
+        assert!(rendered.contains("deleted file mode"));
+        assert_eq!(fixture.apply_check(&rendered), PatchCheck::Applies);
+    }
+
+    #[test]
+    fn a_rendered_patch_for_content_that_moved_on_is_refused_by_git() {
+        let fixture =
+            GitPatchFixture::committed("render-stale", &[("src/main.rs", "fn main() {}\n")]);
+        let rendered = render_patch(
+            "src/main.rs",
+            &[&hunk(
+                "@@ -1,1 +1,1 @@",
+                1,
+                1,
+                1,
+                1,
+                vec![
+                    ("deletion", "fn main() {}"),
+                    ("addition", "fn main() { work(); }"),
+                ],
+            )],
+        );
+        fixture.write("src/main.rs", "fn main() { somebody_else(); }\n");
+
+        // Not a claim about this renderer: a claim that the check can fail. A gate that passed for
+        // every input would let 13.13 pass while proving nothing.
+        assert!(matches!(
+            fixture.apply_check(&rendered),
+            PatchCheck::Refused(_)
+        ));
+    }
+
+    #[test]
+    fn several_hunks_render_into_one_patch_that_applies_as_a_whole() {
+        let fixture = GitPatchFixture::committed(
+            "render-multi-hunk",
+            &[("src/main.rs", "one\ntwo\nthree\nfour\nfive\nsix\nseven\n")],
+        );
+        let rendered = render_patch(
+            "src/main.rs",
+            &[
+                &hunk(
+                    "@@ -1,3 +1,3 @@",
+                    1,
+                    3,
+                    1,
+                    3,
+                    vec![
+                        ("deletion", "one"),
+                        ("addition", "ONE"),
+                        ("context", "two"),
+                        ("context", "three"),
+                    ],
+                ),
+                &hunk(
+                    "@@ -5,3 +5,3 @@",
+                    5,
+                    3,
+                    5,
+                    3,
+                    vec![
+                        ("context", "five"),
+                        ("deletion", "six"),
+                        ("addition", "SIX"),
+                        ("context", "seven"),
+                    ],
+                ),
+            ],
+        );
+
+        // One file header for the file, one header per hunk. A renderer that repeated the file
+        // header per hunk produces something Git reads as two patches for the same file.
+        assert_eq!(rendered.matches("diff --git").count(), 1);
+        assert_eq!(rendered.matches("@@ ").count(), 2);
+        assert_eq!(fixture.apply_check(&rendered), PatchCheck::Applies);
+    }
+
+    fn diff_file(binary: bool, oversized: bool, hunks: Vec<ReviewDiffHunk>) -> ReviewDiffFile {
+        ReviewDiffFile {
+            summary: ReviewFileSummary {
+                path: "src/main.rs".into(),
+                previous_path: None,
+                change_type: "modified".into(),
+                old_hash: None,
+                new_hash: Some("new".into()),
+                binary,
+                oversized,
+            },
+            hunks,
+            truncated: false,
+            accepted_bytes: 0,
+        }
+    }
+
+    fn one_hunk() -> Vec<ReviewDiffHunk> {
+        vec![hunk(
+            "@@ -1,1 +1,1 @@",
+            1,
+            1,
+            1,
+            1,
+            vec![
+                ("deletion", "fn main() {}"),
+                ("addition", "fn main() { work(); }"),
+            ],
+        )]
+    }
+
+    /// The four refusals, at the point they are decided rather than through a session fixture.
+    ///
+    /// Each is a different sentence for the reviewer -- reload it, this file is not text, this
+    /// change is too big to hand over -- so each gets a code rather than one shared "unavailable".
+    #[test]
+    fn a_binary_file_has_no_patch_to_copy() {
+        let file = diff_file(true, false, one_hunk());
+        assert!(file.summary.binary);
+        // Rendering first and refusing after would produce something confident and wrong for
+        // content this application never decoded.
+        assert_eq!(patch_refusal(&file), Some("patch_unavailable_binary"));
+    }
+
+    #[test]
+    fn an_oversized_file_has_no_patch_to_copy() {
+        assert_eq!(
+            patch_refusal(&diff_file(false, true, one_hunk())),
+            Some("patch_too_large")
+        );
+    }
+
+    #[test]
+    fn a_readable_file_has_no_refusal() {
+        assert_eq!(patch_refusal(&diff_file(false, false, one_hunk())), None);
+    }
+
+    #[test]
+    fn a_patch_over_the_bound_is_refused_rather_than_cut_short() {
+        // A patch cut short looks exactly like one that applies, until somebody runs it somewhere
+        // it matters.
+        let oversize = "x".repeat(MAX_REVIEW_PATCH_BYTES + 1);
+        assert!(patch_exceeds_bound(&oversize));
+        assert!(!patch_exceeds_bound(&"x".repeat(MAX_REVIEW_PATCH_BYTES)));
+    }
+
+    /// A session whose workspace is a real repository, and the review snapshot it currently has.
+    ///
+    /// End to end on purpose. The five cases above check the renderer against hand-built hunks;
+    /// these check the whole request path — witness, path resolution, hunk selection, render —
+    /// against a repository Git can be asked about. Between the two lies everything a renderer
+    /// cannot get wrong on its own and a request can.
+    fn reviewed_repository(
+        label: &str,
+    ) -> (GitPatchFixture, TempDirectory, NativeDatabase, String) {
+        let repository = GitPatchFixture::committed(
+            label,
+            &[("src/main.rs", "line-1\nline-2\nline-3\nline-4\nline-5\nline-6\nline-7\nline-8\nline-9\nline-10\nline-11\nline-12\nline-13\nline-14\nline-15\nline-16\nline-17\nline-18\nline-19\nline-20\nline-21\nline-22\nline-23\nline-24\n"), ("keep.txt", "untouched\n")],
+        );
+        // Two edits far enough apart that Git does not fold them into one hunk: three lines of
+        // context on each side would merge changes any closer, and a single-hunk selection cannot
+        // be tested against a diff that only has one.
+        repository.write("src/main.rs", "LINE-1\nline-2\nline-3\nline-4\nline-5\nline-6\nline-7\nline-8\nline-9\nline-10\nline-11\nline-12\nline-13\nline-14\nline-15\nline-16\nline-17\nline-18\nline-19\nLINE-20\nline-21\nline-22\nline-23\nline-24\n");
+
+        let data = TempDirectory::new(&format!("{label}-data"));
+        let database = NativeDatabase::new(data.path().to_path_buf()).expect("database");
+        let connection = database.connection().expect("connection");
+        connection
+            .execute(
+                "INSERT INTO agents(id, display_name, provider, launch_kind) \
+                 VALUES ('review-agent', 'Review Agent', 'test', 'api')",
+                [],
+            )
+            .expect("seed agent");
+        connection
+            .execute(
+                "INSERT INTO sessions \
+                 (id, title, agent_id, interaction_mode, lifecycle_state, project_path, \
+                  pinned, archived, created_at, updated_at) \
+                 VALUES ('session-1', 'Review', 'review-agent', 'api', 'idle', ?1, 0, 0, \
+                         '2026-08-27T00:00:00Z', '2026-08-27T00:00:00Z')",
+                rusqlite::params![repository.root().to_string_lossy().as_ref()],
+            )
+            .expect("seed session");
+        let snapshot = create_review_snapshot(&connection, "session-1")
+            .expect("snapshot")
+            .fingerprint;
+        drop(connection);
+        // The data directory is handed back rather than forgotten: a helper that leaked it would
+        // leave one directory per run of these four cases in the system temp, and this machine has
+        // already been cleaned out by hand once for exactly that shape of leak.
+        (repository, data, database, snapshot)
+    }
+
+    fn patch_for(
+        database: &NativeDatabase,
+        snapshot: &str,
+        hunk: Option<&str>,
+    ) -> Result<ReviewPatch, AppError> {
+        let connection = database.connection().expect("connection");
+        render_review_patch(
+            &connection,
+            &ReviewPatchRequest {
+                session_id: "session-1".into(),
+                path: "src/main.rs".into(),
+                expected_snapshot: snapshot.to_string(),
+                hunk_fingerprint: hunk.map(str::to_string),
+            },
+        )
+    }
+
+    #[test]
+    fn a_whole_file_patch_for_the_current_snapshot_applies() {
+        let (repository, _data, database, snapshot) = reviewed_repository("review-patch-file");
+
+        let rendered = patch_for(&database, &snapshot, None).expect("file patch");
+
+        assert_eq!(rendered.path, "src/main.rs");
+        assert_eq!(rendered.snapshot, snapshot);
+        assert!(!rendered.fingerprint.is_empty());
+        // Against the index, which holds the base this diff was taken from. The working tree
+        // already contains the change, so checking there would ask whether it applies on top of
+        // itself.
+        assert_eq!(
+            repository.apply_check_cached(&rendered.patch),
+            PatchCheck::Applies
+        );
+    }
+
+    #[test]
+    fn a_single_hunk_patch_for_the_current_snapshot_applies() {
+        let (repository, _data, database, snapshot) = reviewed_repository("review-patch-hunk");
+        let whole = patch_for(&database, &snapshot, None).expect("file patch");
+        assert!(
+            whole.hunks > 1,
+            "the fixture must produce more than one hunk"
+        );
+
+        let connection = database.connection().expect("connection");
+        let file = load_review_file(&connection, "session-1", "src/main.rs", &snapshot)
+            .expect("review file");
+        drop(connection);
+        let first = file.hunks[0].fingerprint.clone();
+
+        let rendered = patch_for(&database, &snapshot, Some(&first)).expect("hunk patch");
+
+        // One hunk out of several, and it still applies on its own. A renderer that emitted the
+        // file header once per hunk, or that kept the other hunks' line counts, produces something
+        // that reads correctly and that Git refuses.
+        assert_eq!(rendered.hunks, 1);
+        assert_ne!(rendered.fingerprint, whole.fingerprint);
+        assert_eq!(
+            repository.apply_check_cached(&rendered.patch),
+            PatchCheck::Applies
+        );
+    }
+
+    #[test]
+    fn a_patch_for_a_snapshot_that_moved_is_refused_rather_than_rendered() {
+        let (repository, _data, database, snapshot) = reviewed_repository("review-patch-stale");
+        // Something else wrote to the workspace, so the snapshot the caller holds is no longer the
+        // one the review would produce.
+        repository.write("keep.txt", "changed by somebody else\n");
+
+        let refused = patch_for(&database, &snapshot, None);
+
+        // Fails closed: no patch at all rather than one rendered against a diff the caller has not
+        // seen. Copying an obsolete patch is worse than copying nothing, because it applies
+        // somewhere and produces a change nobody reviewed.
+        assert!(matches!(refused, Err(AppError::Conflict("stale_witness"))));
+    }
+
+    #[test]
+    fn a_patch_for_a_hunk_the_diff_does_not_hold_is_refused() {
+        let (_repository, _data, database, snapshot) =
+            reviewed_repository("review-patch-unknown-hunk");
+
+        let refused = patch_for(&database, &snapshot, Some("a-hunk-that-is-not-there"));
+
+        assert!(matches!(
+            refused,
+            Err(AppError::Conflict("review_hunk_unavailable"))
+        ));
+    }
+
     #[test]
     fn relative_paths_reject_traversal_absolute_and_hidden_components() {
         assert!(validate_relative_path("src/main.rs").is_ok());
@@ -1636,8 +2357,12 @@ mod tests {
         let oversized = fs::File::create(root.join("oversized.txt")).expect("oversized file");
         oversized.set_len(FILE_BYTE_LIMIT + 1).expect("set length");
         let root = root.canonicalize().expect("canonical root");
-        let (entries, truncated) = directory_entries_at(&root, "").expect("listing");
+        let (entries, truncated, next_cursor) =
+            directory_page_at(&root, "", None, DEFAULT_DIRECTORY_PAGE_SIZE).expect("listing");
         assert!(!truncated);
+        // No cursor for a directory that ended. Issuing one would invite a caller to fetch a
+        // page that is always empty, which reads as a directory that just emptied itself.
+        assert_eq!(next_cursor, None);
         assert_eq!(entries[0].name, "AFolder");
         assert!(entries.iter().all(|entry| entry.name != ".hidden"));
         assert_eq!(
@@ -1663,13 +2388,17 @@ mod tests {
     fn directory_and_document_results_are_bounded() {
         let root = temp_dir("bounds");
         fs::create_dir_all(&root).expect("root");
-        for index in 0..=DIRECTORY_ENTRY_LIMIT {
+        for index in 0..=DEFAULT_DIRECTORY_PAGE_SIZE {
             fs::write(root.join(format!("file-{index:04}.txt")), "text").expect("fixture");
         }
         let root = root.canonicalize().expect("canonical root");
-        let (entries, truncated) = directory_entries_at(&root, "").expect("listing");
-        assert_eq!(entries.len(), DIRECTORY_ENTRY_LIMIT);
+        let (entries, truncated, next_cursor) =
+            directory_page_at(&root, "", None, DEFAULT_DIRECTORY_PAGE_SIZE).expect("listing");
+        assert_eq!(entries.len(), DEFAULT_DIRECTORY_PAGE_SIZE);
         assert!(truncated);
+        // A bound that reports itself and offers a way past it. The previous version stopped at
+        // the same place and left the caller with no way to see the rest.
+        assert!(next_cursor.is_some());
         let mut visited = HashSet::new();
         let mut documents = Vec::new();
         assert!(
@@ -1909,6 +2638,69 @@ mod tests {
     }
 
     #[test]
+    fn a_seat_filter_matches_only_records_carrying_that_seat() {
+        let root = temp_dir("logs-seat");
+        fs::create_dir_all(&root).expect("log dir");
+        for (seat, message) in [
+            (Some("seat-planner"), "planner shell connected"),
+            (Some("seat-builder"), "builder shell connected"),
+            (None, "session runtime started"),
+        ] {
+            let mut context = BTreeMap::new();
+            context.insert("sessionId".to_string(), "session-1".to_string());
+            if let Some(seat) = seat {
+                context.insert("seatId".to_string(), seat.to_string());
+            }
+            logging::write_message(
+                &root,
+                logging::LogLevel::Info,
+                "session.shell",
+                message,
+                context,
+            )
+            .expect("seat log");
+        }
+
+        let page = query_logs(
+            &root,
+            &SessionLogQuery {
+                session_id: "session-1".to_string(),
+                levels: vec![],
+                search: String::new(),
+                seat_id: Some("seat-builder".to_string()),
+                cursor: None,
+                limit: None,
+            },
+        )
+        .expect("seat-filtered query");
+
+        // The uncorrelated record is not attributed to whichever seat happens to be selected.
+        assert_eq!(
+            page.items
+                .iter()
+                .map(|entry| entry.message.as_str())
+                .collect::<Vec<_>>(),
+            vec!["builder shell connected"]
+        );
+
+        let all_seats = query_logs(
+            &root,
+            &SessionLogQuery {
+                session_id: "session-1".to_string(),
+                levels: vec![],
+                search: String::new(),
+                seat_id: None,
+                cursor: None,
+                limit: None,
+            },
+        )
+        .expect("all-seat query");
+        assert_eq!(all_seats.items.len(), 3);
+
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
     fn log_query_is_session_scoped_filtered_and_bounded() {
         let root = temp_dir("logs");
         fs::create_dir_all(&root).expect("log dir");
@@ -1954,6 +2746,7 @@ mod tests {
                 session_id: "session-1".to_string(),
                 levels: vec![WorkspaceLogLevel::Info],
                 search: "safe".to_string(),
+                seat_id: None,
                 cursor: None,
                 limit: Some(1),
             },
@@ -1968,6 +2761,7 @@ mod tests {
                 session_id: "session-1".to_string(),
                 levels: vec![WorkspaceLogLevel::Info],
                 search: "safe".to_string(),
+                seat_id: None,
                 cursor: page.next_cursor,
                 limit: Some(1),
             },
@@ -1981,6 +2775,7 @@ mod tests {
                 session_id: "session-1".to_string(),
                 levels: vec![],
                 search: String::new(),
+                seat_id: None,
                 cursor: None,
                 limit: None,
             },
@@ -2027,6 +2822,7 @@ mod tests {
                 session_id: "session-1".to_string(),
                 levels: vec![WorkspaceLogLevel::Info],
                 search: String::new(),
+                seat_id: None,
                 cursor: None,
                 limit: None,
             },

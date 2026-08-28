@@ -139,6 +139,7 @@ import type {
 import type { SkillOverlayReconciliationPreview } from "../types/skill-overlay-reconciliation";
 import { normalizeSkillOverlayError } from "./skill-overlay-error";
 import { tauriSessionWorkspaceClient } from "./tauri-session-workspace-client";
+import { tauriSessionWorkspaceEvidenceClient } from "./tauri-session-workspace-evidence-client";
 import { normalizeTauriSessionUsageSummary, normalizeTauriUsageStatistics } from "./tauri-usage-statistics";
 import { subscribeLoopRunPolling } from "./loop-run-polling";
 import type {
@@ -185,7 +186,7 @@ import {
   normalizeLspWorkspaceTrustUpdate,
 } from "./lsp-contract";
 import { tauriBuiltinToolClient } from "./tauri-builtin-tool-client";
-import type { AddReviewCommentInput, CodeReview, ReviewAction, ReviewComment, ReviewDecision, ReviewDiffFile, ReviewRevertReceipt, RevertReviewChangeInput } from "../types/code-review";
+import type { AddReviewCommentInput, CodeReview, GetReviewPatchInput, ReviewAction, ReviewComment, ReviewDecision, ReviewDiffFile, ReviewFileViewedReceipt, ReviewHunkDecisionReceipt, ReviewPatch, ReviewRevertReceipt, RevertReviewChangeInput, SetReviewFileViewedInput, SetReviewHunkDecisionInput } from "../types/code-review";
 
 function invokeSkillOverlay<TResult>(command: string, input: unknown): Promise<TResult> {
   return invoke<TResult>(command, { input }).catch((error: unknown) =>
@@ -266,8 +267,19 @@ export const tauriAgentClient: AgentService = {
   selectCodeReviewComment(reviewId, commentId, selected) {
     return invoke<CodeReview>("select_code_review_comment", { reviewId, commentId, selected });
   },
+  setCodeReviewHunkDecision(input: SetReviewHunkDecisionInput) {
+    // Its own command, never a fall-back to the review-level mutation. That fall-back is the
+    // defect this method exists to remove: accepting one hunk accepted the whole review.
+    return invoke<ReviewHunkDecisionReceipt>("set_code_review_hunk_decision", { input });
+  },
+  setCodeReviewFileViewed(input: SetReviewFileViewedInput) {
+    return invoke<ReviewFileViewedReceipt>("set_code_review_file_viewed", { input });
+  },
   setCodeReviewDecision(reviewId, decision: ReviewDecision) {
     return invoke<CodeReview>("set_code_review_decision", { reviewId, decision });
+  },
+  getCodeReviewPatch(input: GetReviewPatchInput) {
+    return invoke<ReviewPatch>("get_code_review_patch", { input });
   },
   revertCodeReviewChange(input: RevertReviewChangeInput) {
     return invoke<ReviewRevertReceipt>("revert_code_review_change", { input });
@@ -954,6 +966,7 @@ export const tauriAgentClient: AgentService = {
   ...tauriPersonalizationClient,
   ...tauriSessionRecoveryClient,
   ...tauriSessionWorkspaceClient,
+  ...tauriSessionWorkspaceEvidenceClient,
   async subscribeSessionEvents(handler) {
     return listen<unknown>("session:event", (event) => {
       if (isSessionStateEvent(event.payload)) handler(event.payload);

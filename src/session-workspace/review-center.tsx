@@ -3,12 +3,16 @@ import { useTranslation } from "react-i18next";
 import { agentService } from "../services/runtime-agent-client";
 import type { ReviewAction, ReviewAnchor, ReviewDecision, ReviewDiffHunk } from "../types/code-review";
 import { cn } from "../lib/utils";
+import { signOf } from "./diff-view";
 import { WorkspaceState } from "./workspace-state";
 import { useCodeReview } from "./use-code-review";
 import { useReviewAction } from "./use-review-action";
 import { ApplicationDialog } from "../components/ui/application-dialog";
+import { ReviewFindings } from "./review-findings";
+import { ReviewProgress } from "./review-progress";
+import { useReviewMarks } from "./use-review-marks";
 
-export function ReviewCenter({ sessionId }: { sessionId: string }) {
+export function ReviewCenter({ onShowOperation, sessionId }: { onShowOperation?: (operationId: string) => void; sessionId: string }) {
   const { t } = useTranslation();
   const state = useCodeReview(sessionId);
   const [mode, setMode] = useState<"unified" | "split">("unified");
@@ -19,21 +23,53 @@ export function ReviewCenter({ sessionId }: { sessionId: string }) {
   if (state.loading) return <WorkspaceState kind="loading" />;
   if (!review) return <WorkspaceState kind="error" message={state.error ?? t("sessionTabs.review.error")} />;
   if (review.files.length === 0) return <WorkspaceState kind="empty" message={t("sessionTabs.changes.clean")} />;
-  return <ReviewCenterContent mode={mode} setMode={setMode} draft={draft} setDraft={setDraft} anchor={anchor} setAnchor={setAnchor} receipt={receipt} setReceipt={setReceipt} sessionId={sessionId} state={state} review={review} />;
+  return <ReviewCenterContent mode={mode} setMode={setMode} draft={draft} setDraft={setDraft} anchor={anchor} setAnchor={setAnchor} onShowOperation={onShowOperation} receipt={receipt} setReceipt={setReceipt} sessionId={sessionId} state={state} review={review} />;
 }
 
-function ReviewCenterContent({ mode, setMode, draft, setDraft, anchor, setAnchor, receipt, setReceipt, sessionId, state, review }: { mode: "unified" | "split"; setMode: (value: "unified" | "split") => void; draft: string; setDraft: (value: string) => void; anchor: Omit<ReviewAnchor, "state"> | null; setAnchor: (value: Omit<ReviewAnchor, "state"> | null) => void; receipt: string | null; setReceipt: (value: string | null) => void; sessionId: string; state: ReturnType<typeof useCodeReview>; review: NonNullable<ReturnType<typeof useCodeReview>["review"]> }) {
+function ReviewCenterContent({ mode, setMode, draft, setDraft, anchor, setAnchor, onShowOperation, receipt, setReceipt, sessionId, state, review }: { mode: "unified" | "split"; setMode: (value: "unified" | "split") => void; draft: string; setDraft: (value: string) => void; anchor: Omit<ReviewAnchor, "state"> | null; setAnchor: (value: Omit<ReviewAnchor, "state"> | null) => void; onShowOperation?: (operationId: string) => void; receipt: string | null; setReceipt: (value: string | null) => void; sessionId: string; state: ReturnType<typeof useCodeReview>; review: NonNullable<ReturnType<typeof useCodeReview>["review"]> }) {
   const { t } = useTranslation();
   const actionState = useReviewAction(review.id);
+  const marks = useReviewMarks(review, state.replaceReview);
   const [railOpen, setRailOpen] = useState(true);
   const [pending, setPending] = useState<{ kind: "revert"; hunk?: string } | { kind: "stale-feedback" } | null>(null);
+  const [patchStatus, setPatchStatus] = useState<string | null>(null);
   const selectedIndex = review.files.findIndex((file) => file.path === state.selectedPath);
   const move = (offset: number) => state.setSelectedPath(review.files[(selectedIndex + offset + review.files.length) % review.files.length].path);
-  const copyDiff = () => navigator.clipboard.writeText(state.diff?.hunks.flatMap((hunk) => hunk.lines.map((line) => line.content)).join("\n") ?? "");
+  // What the panel renders, not an apply-ready patch: no file or hunk headers, and truncated
+  // content is copied as truncated. Kept as its own action rather than folded into the one below,
+  // because a reviewer quoting three lines into a message wants exactly these three lines and no
+  // headers around them.
+  // Signs included, because the button copies what is displayed and the sign is now part of that.
+  // Pasting a run of lines with no marker turns a diff into a listing that reads as if every line
+  // were added. The patch button beside this one is the one that owes `git apply` a strict format.
+  const copyDisplayedLines = () => navigator.clipboard.writeText(state.diff?.hunks.flatMap((hunk) => hunk.lines.map((line) => `${signOf(line.kind)}${line.content}`)).join("\n") ?? "");
+  // The witnessed one. Rendered by the backend against the snapshot the reviewer is looking at, so
+  // what lands on the clipboard is something `git apply` accepts rather than something that reads
+  // like it would.
+  const copyStandardPatch = async () => {
+    if (!state.selectedPath) return;
+    setPatchStatus(null);
+    try {
+      const rendered = await agentService.getCodeReviewPatch({
+        sessionId,
+        path: state.selectedPath,
+        expectedSnapshot: review.fingerprint,
+      });
+      await navigator.clipboard.writeText(rendered.patch);
+      setPatchStatus(t("sessionTabs.review.copyStandardPatchDone"));
+    } catch (reason: unknown) {
+      setPatchStatus(t(patchFailureKey(String(reason))));
+    }
+  };
 
   const decide = async (decision: ReviewDecision) => state.replaceReview(
     await agentService.setCodeReviewDecision(review.id, decision),
   );
+  // Hunk acceptance is its own operation. Routing it through `decide` accepted the whole review.
+  const decideHunk = (hunkFingerprint: string, decision: ReviewDecision) => {
+    if (!state.selectedPath) return;
+    void marks.setHunkDecision(state.selectedPath, hunkFingerprint, decision);
+  };
   const submitComment = async () => {
     if (!anchor || !draft.trim()) return;
     await agentService.addCodeReviewComment({ reviewId: review.id, anchor, body: draft });
@@ -69,12 +105,19 @@ function ReviewCenterContent({ mode, setMode, draft, setDraft, anchor, setAnchor
         {review.files.map((file) => <button className={cn("block w-full truncate rounded px-2 py-2 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", state.selectedPath === file.path && "bg-muted text-primary")} key={file.path} onClick={() => state.setSelectedPath(file.path)} type="button">{file.path}</button>)}
       </aside> : null}
       <section className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-[hsl(var(--panel-muted))]">
+        <ReviewProgress
+          onToggleViewed={state.selectedPath ? (next) => void marks.setViewed(state.selectedPath as string, next) : undefined}
+          review={review}
+          selectedPath={state.selectedPath}
+          viewed={marks.isViewed(state.selectedPath ?? "")}
+        />
         <header className="flex flex-wrap items-center gap-2 border-b border-border p-2">
           <button aria-expanded={railOpen} className="rounded border border-border px-2 py-1 text-xs" onClick={() => setRailOpen((value) => !value)} type="button">{t("sessionTabs.review.toggleFiles")}</button>
           <strong className="mr-auto min-w-0 truncate text-sm">{state.selectedPath}</strong>
           <button aria-label={t("sessionTabs.review.previous")} className="rounded border border-border px-2 py-1 text-xs" onClick={() => move(-1)} type="button">←</button>
           <button aria-label={t("sessionTabs.review.next")} className="rounded border border-border px-2 py-1 text-xs" onClick={() => move(1)} type="button">→</button>
-          <button className="rounded border border-border px-2 py-1 text-xs" onClick={() => void copyDiff()} type="button">{t("sessionTabs.review.copy")}</button>
+          <button className="rounded border border-border px-2 py-1 text-xs" onClick={() => void copyDisplayedLines()} type="button">{t("sessionTabs.review.copyDisplayedLines")}</button>
+          <button className="rounded border border-border px-2 py-1 text-xs" onClick={() => void copyStandardPatch()} type="button">{t("sessionTabs.review.copyStandardPatch")}</button>
           <Toggle active={mode === "unified"} label={t("sessionTabs.changes.unified")} onClick={() => setMode("unified")} />
           <Toggle active={mode === "split"} label={t("sessionTabs.changes.split")} onClick={() => setMode("split")} />
           <button className="rounded border border-destructive/50 px-2 py-1 text-xs text-destructive" onClick={() => revert()} type="button">{t("sessionTabs.review.revertFile")}</button>
@@ -84,13 +127,15 @@ function ReviewCenterContent({ mode, setMode, draft, setDraft, anchor, setAnchor
           {state.error ? <p role="alert" className="text-sm text-destructive">{state.error}</p> : null}
           {state.diff?.binary || state.diff?.oversized ? <WorkspaceState kind="unavailable" message={t(state.diff.binary ? "sessionTabs.files.binary" : "sessionTabs.files.oversized")} /> : null}
           {state.diff?.truncated ? <p className="text-xs text-warning">{t("sessionTabs.review.truncated")}</p> : null}
-          {state.diff?.hunks.map((hunk) => <ReviewHunk hunk={hunk} key={hunk.fingerprint} mode={mode} onAccept={() => void decide("accepted")} onAnchor={setAnchor} onRevert={() => revert(hunk.fingerprint)} path={state.selectedPath ?? ""} />)}
+          {marks.error ? <p role="alert" className="text-sm text-destructive">{marks.error}</p> : null}
+          {patchStatus ? <p role="status" className="text-xs text-muted-foreground">{patchStatus}</p> : null}
+          {state.diff?.hunks.map((hunk) => <ReviewHunk decision={marks.decisionFor(state.selectedPath ?? "", hunk.fingerprint)} hunk={hunk} key={hunk.fingerprint} mode={mode} onAnchor={setAnchor} onDecide={(next) => decideHunk(hunk.fingerprint, next)} onRevert={() => revert(hunk.fingerprint)} path={state.selectedPath ?? ""} />)}
         </div>
         <footer className="space-y-2 border-t border-border p-3">
           {receipt ? <p role="status" className="text-xs text-muted-foreground">{receipt}</p> : null}
           {actionState.operation ? <div aria-live="polite" className="rounded border border-border p-2 text-xs"><p>{actionState.operation.message}: {actionState.operation.status}</p>{actionState.operation.logs.map((log) => <pre className="overflow-x-auto whitespace-pre-wrap" key={`${log.timestamp}-${log.line}`}>{log.line}</pre>)}{!["succeeded", "failed", "cancelled"].includes(actionState.operation.status) ? <button className="text-destructive" onClick={() => void actionState.cancel()} type="button">{t("confirmation.cancel")}</button> : null}</div> : null}
           {actionState.error ? <p role="alert" className="text-xs text-destructive">{actionState.error}</p> : null}
-          {review.findings.map((finding) => <p className="rounded border border-border p-2 text-xs" key={finding.id}>{finding.severity}: {finding.title}</p>)}
+          <ReviewFindings findings={review.findings} onShowCode={state.setSelectedPath} onShowOperation={onShowOperation} />
           {review.comments.map((comment) => <div className="flex items-start gap-2 rounded border border-border p-2 text-xs" key={comment.id}><input aria-label={t("sessionTabs.review.selectComment")} checked={comment.selected} onChange={(event) => void agentService.selectCodeReviewComment(review.id, comment.id, event.target.checked).then(state.replaceReview)} type="checkbox" /><p className="min-w-0 flex-1 break-words">{comment.body}</p>{comment.status === "active" ? <button className="text-primary" onClick={() => void agentService.resolveCodeReviewComment(review.id, comment.id).then(state.replaceReview)} type="button">{t("sessionTabs.review.resolve")}</button> : <span>{t("sessionTabs.review.resolved")}</span>}</div>)}
           {anchor ? <textarea aria-label={t("sessionTabs.review.comment")} className="min-h-20 w-full rounded border border-border bg-background p-2 text-sm" maxLength={8192} onChange={(event) => setDraft(event.target.value)} value={draft} /> : null}
           <div className="flex flex-wrap gap-2">
@@ -107,13 +152,34 @@ function ReviewCenterContent({ mode, setMode, draft, setDraft, anchor, setAnchor
   );
 }
 
-function ReviewHunk({ hunk, mode, path, onAccept, onAnchor, onRevert }: { hunk: ReviewDiffHunk; mode: "unified" | "split"; path: string; onAccept: () => void; onAnchor: (anchor: Omit<ReviewAnchor, "state">) => void; onRevert: () => void }) {
+function ReviewHunk({ decision, hunk, mode, path, onAnchor, onDecide, onRevert }: { decision: ReviewDecision; hunk: ReviewDiffHunk; mode: "unified" | "split"; path: string; onAnchor: (anchor: Omit<ReviewAnchor, "state">) => void; onDecide: (decision: ReviewDecision) => void; onRevert: () => void }) {
   const { t } = useTranslation();
   const choose = (index: number) => {
     const line = hunk.lines[index];
     onAnchor({ filePath: path, side: line.kind === "deletion" ? "old" : "new", startLine: line.oldLineNumber ?? line.newLineNumber ?? 1, endLine: line.oldLineNumber ?? line.newLineNumber ?? 1, hunkFingerprint: hunk.fingerprint, contextFingerprint: hunk.contextFingerprints[index] ?? hunk.fingerprint });
   };
-  return <article className="mb-3 min-w-max overflow-hidden rounded border border-border"><div className="flex items-center justify-between gap-2 bg-muted px-2 py-1"><code className="text-xs">{hunk.header}</code><span><button aria-label={t("sessionTabs.review.acceptHunk")} className="mr-2 text-primary" onClick={onAccept} type="button">✓</button><button aria-label={t("sessionTabs.review.revertHunk")} className="text-destructive" onClick={onRevert} type="button">↶</button></span></div>{mode === "unified" ? hunk.lines.map((line, index) => <button className={cn("grid w-full grid-cols-[4rem_4rem_minmax(20rem,1fr)] font-mono text-xs hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring", line.kind === "addition" && "bg-success/10", line.kind === "deletion" && "bg-destructive/10")} key={`${hunk.fingerprint}-${index}`} onClick={() => choose(index)} type="button"><span>{line.oldLineNumber}</span><span>{line.newLineNumber}</span><span className="whitespace-pre text-left">{line.content}</span></button>) : <div className="grid min-w-[48rem] grid-cols-2 divide-x divide-border">{hunk.lines.map((line, index) => <button className={cn("col-span-2 grid grid-cols-2 font-mono text-xs hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring", line.kind === "addition" && "bg-success/10", line.kind === "deletion" && "bg-destructive/10")} key={`${hunk.fingerprint}-split-${index}`} onClick={() => choose(index)} type="button"><span className="grid grid-cols-[4rem_1fr] px-1 text-left"><span>{line.oldLineNumber}</span><span className="whitespace-pre">{line.kind === "addition" ? "" : line.content}</span></span><span className="grid grid-cols-[4rem_1fr] px-1 text-left"><span>{line.newLineNumber}</span><span className="whitespace-pre">{line.kind === "deletion" ? "" : line.content}</span></span></button>)}</div>}</article>;
+  // Three states, not a checkbox. A hunk a reviewer has looked at and asked for changes on is a
+  // different thing from one nobody has reached yet, and a two-state control cannot say which.
+  const decisionLabel = decision === "accepted"
+    ? "sessionTabs.review.hunkAccepted"
+    : decision === "changes-requested"
+      ? "sessionTabs.review.hunkChangesRequested"
+      : "sessionTabs.review.hunkPending";
+  return <article className="mb-3 min-w-max overflow-hidden rounded border border-border" data-decision={decision}><div className="flex items-center justify-between gap-2 bg-muted px-2 py-1"><code className="text-xs">{hunk.header}</code><span className="flex items-center gap-2"><span className="text-xs text-muted-foreground">{t(decisionLabel)}</span><button aria-label={t("sessionTabs.review.acceptHunk")} aria-pressed={decision === "accepted"} className="text-primary" onClick={() => onDecide(decision === "accepted" ? "pending" : "accepted")} type="button">✓</button><button aria-label={t("sessionTabs.review.requestChangesHunk")} aria-pressed={decision === "changes-requested"} className="text-warning" onClick={() => onDecide(decision === "changes-requested" ? "pending" : "changes-requested")} type="button">✎</button><button aria-label={t("sessionTabs.review.revertHunk")} className="text-destructive" onClick={onRevert} type="button">↶</button></span></div>{mode === "unified" ? hunk.lines.map((line, index) => <button className={cn("grid w-full grid-cols-[4rem_4rem_minmax(20rem,1fr)] font-mono text-xs hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring", line.kind === "addition" && "bg-success/10", line.kind === "deletion" && "bg-destructive/10")} key={`${hunk.fingerprint}-${index}`} onClick={() => choose(index)} type="button"><span>{line.oldLineNumber}</span><span>{line.newLineNumber}</span><span className="whitespace-pre text-left">{signOf(line.kind)}{line.content}</span></button>) : <div className="grid min-w-[48rem] grid-cols-2 divide-x divide-border">{hunk.lines.map((line, index) => <button className={cn("col-span-2 grid grid-cols-2 font-mono text-xs hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring", line.kind === "addition" && "bg-success/10", line.kind === "deletion" && "bg-destructive/10")} key={`${hunk.fingerprint}-split-${index}`} onClick={() => choose(index)} type="button"><span className="grid grid-cols-[4rem_1fr] px-1 text-left"><span>{line.oldLineNumber}</span><span className="whitespace-pre">{line.kind === "addition" ? "" : `${signOf(line.kind)}${line.content}`}</span></span><span className="grid grid-cols-[4rem_1fr] px-1 text-left"><span>{line.newLineNumber}</span><span className="whitespace-pre">{line.kind === "deletion" ? "" : `${signOf(line.kind)}${line.content}`}</span></span></button>)}</div>}</article>;
+}
+
+/**
+ * Which sentence to show for a refused patch.
+ *
+ * Four codes because they are four different situations with four different next moves: reload it,
+ * there is nothing to patch, this is too big, or something went wrong that a reviewer cannot fix
+ * from here. One shared "could not copy" would be true of all four and useful for none.
+ */
+function patchFailureKey(reason: string): string {
+  if (reason.includes("stale_witness")) return "sessionTabs.review.copyStandardPatchStale";
+  if (reason.includes("patch_unavailable_binary")) return "sessionTabs.review.copyStandardPatchBinary";
+  if (reason.includes("patch_too_large")) return "sessionTabs.review.copyStandardPatchTooLarge";
+  return "sessionTabs.review.copyStandardPatchFailed";
 }
 
 function Toggle({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {

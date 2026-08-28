@@ -31,6 +31,7 @@ import {
 export { resetWebRetrievalForTest, searchWebCodeIndex } from "./web-code-index-state";
 import { nowIso } from "./web-mock-clock";
 import { webSessionWorkspaceClient } from "./web-session-workspace-client";
+import { webSessionWorkspaceEvidenceService } from "./web-session-workspace-evidence-client";
 import { webLspClient } from "./web-lsp-client";
 import { webBuiltinToolClient } from "./web-builtin-tool-client";
 import { createWebCodeReviewClient } from "./web-code-review-client";
@@ -157,6 +158,7 @@ export const webAgentClient: AgentService = {
   restartAfterDesktopUpdate: webDesktopUpdateClient.restart,
   ...webBuiltinToolClient,
   ...webSessionWorkspaceClient,
+  ...webSessionWorkspaceEvidenceService,
   ...webCodeReviewClient,
   ...webLspClient,
   ...webMissionControlClient,

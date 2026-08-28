@@ -75,6 +75,30 @@ pub(crate) fn run() {
                 }
             }
             // 判断事件为程序退出事件，且存在遥测生命周期管理实例
+            // The evidence bridge drains on a bounded deadline. Evidence describes work that has
+            // already happened, so losing its tail is strictly better than refusing to close.
+            if matches!(event, tauri::RunEvent::Exit) {
+                if let Some(bridge) = app.try_state::<super::EvidenceBridgeShutdown>() {
+                    bridge.shutdown();
+                }
+                // Drains the receipts already queued. Bounded by the queue's own capacity, because
+                // the sender is dropped first and the worker then sees the channel close.
+                if let Some(worker) =
+                    app.try_state::<std::sync::Arc<super::LogIndexBridgeWorker>>()
+                {
+                    worker.shutdown();
+                }
+            }
+            // Retained Shells outlive their views by design, so nothing else closes them. Joining
+            // each runtime's workers here is the difference between a clean exit and a window that
+            // has closed while the process waits on a thread reading a dead PTY.
+            if matches!(event, tauri::RunEvent::Exit) {
+                if let Some(workspaces) =
+                    app.try_state::<crate::contexts::workspaces::api::WorkspaceApi>()
+                {
+                    workspaces.shutdown_session_shells();
+                }
+            }
             if matches!(event, tauri::RunEvent::Exit)
                 && app
                 .try_state::<crate::contexts::execution_observability::infrastructure::ExecutionTelemetryLifecycle>()
@@ -135,8 +159,43 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     let skill_evolution_evidence_api =
         crate::contexts::skill_evolution_evidence::api::SkillEvolutionEvidenceApi::new(
             database.clone(),
-            evidence_logging,
+            evidence_logging.clone(),
         );
+    // Assembled before the producers so each one can be handed the sender it publishes through.
+    // The worker owns the only handle that calls the recorder; producers reach it through their own
+    // port and never learn that a journal is on the other side.
+    let execution_evidence_api = super::assemble_execution_evidence_api(
+        database.clone(),
+        app.handle().clone(),
+        evidence_logging,
+    );
+    let (evidence_bridge, evidence_bridge_worker) =
+        super::start_evidence_bridge(execution_evidence_api.clone());
+    // Installed before anything else logs, so the index sees the startup records too. The sink is
+    // process-wide because `write_entry` is reached from every layer, including the ones that log
+    // while this function is still assembling.
+    let (log_index_bridge, log_index_worker) = super::start_log_index_bridge(
+        std::sync::Arc::new(
+            crate::contexts::operations::infrastructure::SqliteLogIndexRepository::new(
+                database.clone(),
+            ),
+        ),
+        std::sync::Arc::new(
+            crate::contexts::operations::infrastructure::TauriLogNoticePublisher::new(
+                app.handle().clone(),
+            ),
+        ),
+    );
+    crate::platform::log_receipts::set_append_sink(Box::new(log_index_bridge));
+    let session_log_api = super::assemble_session_log_api(
+        database.clone(),
+        app.handle().clone(),
+        fallback_log_directory.clone(),
+    );
+    // Brings the index up to date with whatever the files already hold, off the startup path.
+    // Queries answer with `indexing` coverage until it finishes, which is the honest report: the
+    // rows are real and the set is not yet final.
+    super::start_log_index_repair_job(session_log_api.clone());
     crate::contexts::desktop::infrastructure::install_main_webview_recovery(
         app.handle(),
         fallback_log_directory.clone(),
@@ -204,6 +263,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     ));
     let workspace_mutations = Arc::new(super::WorkspaceMutationFanout::new(
         code_intelligence_api.clone(),
+        Arc::new(evidence_bridge.clone()),
     ));
     let cli_config_api =
         super::assemble_cli_config_api(database.clone(), fallback_log_directory.clone())
@@ -263,6 +323,8 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         database.clone(),
         app.handle().clone(),
         fallback_log_directory.clone(),
+        Arc::new(evidence_bridge.clone()),
+        ssh_connections_api.clone(),
     );
     let native_config_reader = Arc::new(NativeConfigReader::new(Arc::new(
         UnifiedLoggingAdapter::active(fallback_log_directory.clone()),
@@ -278,6 +340,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         native_config_reader,
         shared_agent_registry.registry.clone(),
         fallback_log_directory.clone(),
+        Arc::new(evidence_bridge.clone()),
     );
     let permissions_api = super::assemble_permissions_api(
         database.clone(),
@@ -297,8 +360,11 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
             runners.clone(),
         ),
     );
-    let agent_runs_api =
-        super::assemble_agent_runs_api_with_recovery(database.clone(), runner_recovery);
+    let agent_runs_api = super::assemble_agent_runs_api_with_recovery(
+        database.clone(),
+        runner_recovery,
+        Arc::new(evidence_bridge.clone()),
+    );
     agent_runs_api
         .reconcile_after_restart()
         .map_err(boxed_error)?;
@@ -357,6 +423,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         desktop_settings: desktop_settings_api.clone(),
         personalization: personalization_api.clone(),
         evidence: skill_evolution_evidence_api.projector(),
+        execution_evidence: Arc::new(evidence_bridge),
     })
     .map_err(boxed_message)?;
     super::start_permission_timeout_sweep_job(permissions_api.clone(), agent_runtime_api.clone());
@@ -396,6 +463,9 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     workspace_mutations
         .bind_code_index(code_index_api.clone())
         .map_err(boxed_message)?;
+    workspace_mutations
+        .bind_workspace_changes(workspace_api.change_observer())
+        .map_err(boxed_message)?;
     session_runtime_adapter
         .attach_agent_runtime(agent_runtime_api.clone())
         .map_err(boxed_message)?;
@@ -417,6 +487,9 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         fallback_log_directory.clone(),
     ));
 
+    // Cloned before the move into communications: the file-evidence read side needs its own
+    // handle, and it is assembled after this point.
+    let evidence_link_database = database.clone();
     let communications = super::assemble_communications(super::CommunicationsDependencies {
         app: app.handle().clone(),
         database,
@@ -454,14 +527,39 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     app.manage(skill_tool_api);
     app.manage(prompt_hook_api);
     app.manage(ssh_connections_api);
-    app.manage(workspace_api);
+    super::start_session_shell_idle_job(workspace_api.clone());
+    // Assembled here rather than inside either context: workspaces knows where a file is and
+    // evidence knows what happened to it, and neither should learn the other half.
+    app.manage(super::SessionFileEvidence::new(
+        workspace_api.clone(),
+        super::assemble_file_evidence_links(evidence_link_database),
+    ));
+    app.manage(workspace_api.clone());
     app.manage(sessions_api.clone());
     app.manage(agent_runtime_api.clone());
     app.manage(permissions_api.clone());
     app.manage(retrieval_api);
     app.manage(code_index_api);
     app.manage(telemetry_lifecycle);
-    app.manage(execution_observability_api);
+    app.manage(execution_observability_api.clone());
+    app.manage(super::EvidenceBridgeShutdown::new(evidence_bridge_worker));
+    app.manage(log_index_worker);
+    app.manage(session_log_api.clone());
+    super::start_evidence_maintenance_job(
+        execution_evidence_api.clone(),
+        fallback_log_directory.clone(),
+    );
+    // Assembled here rather than inside any one context: the report reads from five of them,
+    // and the layer allowed to know all five is this one.
+    app.manage(super::assemble_session_run_report(
+        execution_evidence_api.clone(),
+        execution_observability_api.clone(),
+        session_log_api.clone(),
+        sessions_api.clone(),
+        workspace_api.clone(),
+        fallback_log_directory.clone(),
+    ));
+    app.manage(execution_evidence_api);
     app.manage(evaluation_api);
     #[cfg(feature = "desktop-e2e")]
     app.manage(crate::contexts::communications::infrastructure::FeishuDesktopFixture::default());

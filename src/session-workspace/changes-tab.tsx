@@ -6,27 +6,47 @@ import type { GitDiffResult, GitDiffSource, GitStatusEntry } from "../types/sess
 import { cn } from "../lib/utils";
 import { DiffView, type DiffViewMode } from "./diff-view";
 import { gitStatusPresentation } from "./git-status-presentation";
-import { PartialNotice, WorkspaceState } from "./workspace-state";
+import { WorkspaceState } from "./workspace-state";
+import { WorkspaceCoverageNotice } from "./workspace-coverage-notice";
 import { workspaceErrorKey, type WorkspaceErrorKey } from "./workspace-error";
+import { workspaceQueryKeys } from "./workspace-query-keys";
 import { ReviewCenter } from "./review-center";
+import {
+  useWorkspaceCapabilities,
+  WorkspaceCapabilityNotice,
+} from "./workspace-capability-notice";
 
-export function ChangesTab({ sessionId }: { sessionId: string | null }) {
-  if (sessionId && typeof agentService.openCodeReview === "function") return <ReviewCenter sessionId={sessionId} />;
-  return <LegacyChangesTab sessionId={sessionId} />;
+export function ChangesTab({
+  isVisible = true,
+  onShowOperation,
+  sessionId,
+}: {
+  /** False while the panel stays mounted behind another tab. */
+  isVisible?: boolean;
+  /** Absent where nothing owns the evidence scope, in which case finding links are not offered. */
+  onShowOperation?: (operationId: string) => void;
+  sessionId: string | null;
+}) {
+  if (sessionId && typeof agentService.openCodeReview === "function") {
+    return <ReviewCenter onShowOperation={onShowOperation} sessionId={sessionId} />;
+  }
+  return <LegacyChangesTab isVisible={isVisible} sessionId={sessionId} />;
 }
 
-function LegacyChangesTab({ sessionId }: { sessionId: string | null }) {
+function LegacyChangesTab({ isVisible, sessionId }: { isVisible: boolean; sessionId: string | null }) {
   const { t } = useTranslation();
   const [selected, setSelected] = useState<GitStatusEntry | null>(null);
   const [source, setSource] = useState<GitDiffSource>("working");
   const [mode, setMode] = useState<DiffViewMode>("unified");
   const [diff, setDiff] = useState<GitDiffResult | null>(null);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<WorkspaceErrorKey | null>(null);
   const initialized = useRef(false);
+  const { capabilities } = useWorkspaceCapabilities(isVisible ? sessionId : null);
   const statusQuery = useQuery({
-    enabled: Boolean(sessionId),
-    queryKey: ["session-workspace", "git-status", sessionId],
+    // Disabled rather than unmounted while hidden: the status list stays cached and on screen, and
+    // the tab stops re-reading the working tree behind another panel.
+    enabled: Boolean(sessionId) && isVisible,
+    queryKey: workspaceQueryKeys.gitStatus(sessionId ?? ""),
     queryFn: () => agentService.getSessionGitStatus(sessionId ?? ""),
   });
 
@@ -45,19 +65,34 @@ function LegacyChangesTab({ sessionId }: { sessionId: string | null }) {
     if (statusQuery.error) setError(workspaceErrorKey(statusQuery.error));
   }, [statusQuery.data, statusQuery.error]);
 
+  // A query rather than an effect, so a change notice can refresh the diff a reader is looking at.
+  // The imperative version had no key, which meant the only way to see a rewritten hunk was to
+  // click away and back.
+  const diffQuery = useQuery({
+    enabled: Boolean(sessionId) && Boolean(selected) && isVisible,
+    queryKey: workspaceQueryKeys.gitDiff(sessionId ?? "", selected?.path ?? "", source),
+    queryFn: () => agentService.getSessionGitDiff(sessionId ?? "", selected?.path ?? "", source),
+  });
+
   useEffect(() => {
-    if (!sessionId || !selected) { setDiff(null); return; }
-    let cancelled = false; setLoading(true); setError(null);
-    agentService.getSessionGitDiff(sessionId, selected.path, source).then((result) => { if (!cancelled) setDiff(result); })
-      .catch((reason: unknown) => { if (!cancelled) setError(workspaceErrorKey(reason)); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [selected, sessionId, source]);
+    setDiff(diffQuery.data ?? null);
+    if (diffQuery.error) setError(workspaceErrorKey(diffQuery.error));
+  }, [diffQuery.data, diffQuery.error]);
 
   const gitStatus = statusQuery.data;
 
   if (!sessionId) return <WorkspaceState kind="unavailable" />;
-  if ((loading || statusQuery.isLoading) && !gitStatus) return <WorkspaceState kind="loading" />;
+  // Asked before the failure rather than after it: a remote host without Git produces a status
+  // error that reads like a fault in this application, when the fact is that the host has no Git.
+  if (capabilities && !capabilities.gitStatus.available) {
+    return (
+      <WorkspaceCapabilityNotice
+        capability={capabilities.gitStatus}
+        targetLabel={capabilities.targetLabel}
+      />
+    );
+  }
+  if ((statusQuery.isLoading || diffQuery.isLoading) && !gitStatus) return <WorkspaceState kind="loading" />;
   if (error && !gitStatus) return <WorkspaceState kind="error" message={t(error)} />;
   if (gitStatus && !gitStatus.isGit) return <WorkspaceState kind="empty" message={t("sessionTabs.changes.notGit")} />;
   if (gitStatus && gitStatus.items.length === 0) return <WorkspaceState kind="empty" message={t("sessionTabs.changes.clean")} />;
@@ -65,7 +100,9 @@ function LegacyChangesTab({ sessionId }: { sessionId: string | null }) {
   return (
     <div className="grid h-full min-h-0 gap-3 lg:grid-cols-[220px_minmax(0,1fr)]">
       <section className="min-h-0 overflow-y-auto rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-2">
-        {gitStatus?.truncated ? <PartialNotice /> : null}
+        {gitStatus?.truncated ? (
+          <WorkspaceCoverageNotice provider={capabilities?.provider} reason="git-status-bound" />
+        ) : null}
         <p className="mb-2 truncate px-2 text-xs text-muted-foreground">{gitStatus?.branch ?? t("sessionTabs.changes.detached")}</p>
         {gitStatus?.items.map((entry) => (
           <FileRow entry={entry} isSelected={selected?.path === entry.path} key={entry.path} onClick={() => setSelected(entry)} />
@@ -80,8 +117,10 @@ function LegacyChangesTab({ sessionId }: { sessionId: string | null }) {
           </div>
         </div>
         <div className="min-h-0 flex-1 overflow-auto p-3">
-          {diff?.truncated ? <PartialNotice /> : null}
-          <DiffBody diff={diff} error={error} loading={loading} mode={mode} />
+          {diff?.truncated ? (
+            <WorkspaceCoverageNotice provider={capabilities?.provider} reason="git-diff-bound" />
+          ) : null}
+          <DiffBody diff={diff} error={error} loading={diffQuery.isFetching} mode={mode} />
         </div>
       </section>
     </div>

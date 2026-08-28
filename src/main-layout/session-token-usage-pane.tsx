@@ -35,20 +35,32 @@ function EmptyState({ children }: { children: React.ReactNode }) {
   return <p className="p-3 text-center text-xs text-muted-foreground">{children}</p>;
 }
 
-export function SessionTokenUsagePane({ lifecycle, sessionId }: {
+export function SessionTokenUsagePane({ active = true, lifecycle, sessionId }: {
+  /**
+   * Whether this pane is the one on screen.
+   *
+   * Mounted either way — these panes hold local form state, and a reader who typed something,
+   * checked another tab, and came back must find it still there. What stops is the reading: a
+   * hidden pane polling its own service costs a request per pane per session open, for answers
+   * nobody is looking at.
+   *
+   * Mutations are unaffected. React Query runs one to completion regardless of this flag, so a
+   * write that was in flight when the reader switched away still finishes and still invalidates.
+   */
+  active?: boolean;
   lifecycle?: SessionLifecycleState;
   sessionId: string | null;
 }) {
   const { i18n, t } = useTranslation();
   const [detailsOpen, setDetailsOpen] = useState(false);
   const summary = useQuery({
-    enabled: Boolean(sessionId),
+    enabled: active && Boolean(sessionId),
     queryKey: ["token-usage-summary", "session", sessionId],
     queryFn: () => agentService.getTokenUsageSummary({ sessionId: sessionId ?? "", breakdownLimit: 4 }),
     refetchInterval: lifecycle === "running" ? 5000 : false,
   });
   const details = useQuery({
-    enabled: detailsOpen && Boolean(sessionId),
+    enabled: active && detailsOpen && Boolean(sessionId),
     queryKey: ["token-usage-details", sessionId],
     queryFn: () => agentService.getTokenUsageDetails({ sessionId: sessionId ?? "", limit: 10 }),
   });

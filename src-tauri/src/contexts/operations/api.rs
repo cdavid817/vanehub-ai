@@ -3,6 +3,7 @@
 //! Native contexts use this boundary to start and finish operations, append page-visible output,
 //! correlate execution traces, and emit redacted diagnostics without owning the logging storage.
 
+pub(crate) use super::application::{OperationsEvidencePort, OperationsEvidenceSignal};
 use crate::contexts::operations::application::{ApplicationError, OperationService};
 use serde_json::Value;
 use std::sync::atomic::AtomicBool;

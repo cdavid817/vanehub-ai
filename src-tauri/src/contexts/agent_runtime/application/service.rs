@@ -348,12 +348,25 @@ pub(crate) struct AgentRuntimeApplicationPorts {
 #[derive(Clone)]
 pub(crate) struct AgentRuntimeApplicationService {
     pub(super) ports: AgentRuntimeApplicationPorts,
+    /// Separate from `ports` so adding it does not touch the dozens of sites that build that
+    /// struct, and so a build with no evidence bridge assembled keeps the no-op.
+    pub(super) evidence: Arc<dyn super::AgentEvidencePort>,
 }
 
 /// Whether the human who triggered this turn is positioned to answer a question it asks
 /// (`add-agent-user-question` D4). A scheduled run has no human at all. An IM-sourced turn has one,
 /// but they are in a chat connector that cannot render a choice card -- the question would surface
 /// on a desktop surface they are not looking at, so the wait would burn the turn either way.
+/// Maps a terminal execution status to the outcome the producer port speaks. Only terminal
+/// statuses reach here; anything else would be a caller bug rather than an unknown outcome.
+fn tool_evidence_outcome(status: ExecutionStatus) -> super::AgentRunEvidenceOutcome {
+    match status {
+        ExecutionStatus::Succeeded => super::AgentRunEvidenceOutcome::Succeeded,
+        ExecutionStatus::Cancelled => super::AgentRunEvidenceOutcome::Cancelled,
+        _ => super::AgentRunEvidenceOutcome::Failed,
+    }
+}
+
 fn interactive_message_source(source: &super::AgentMessageSource) -> bool {
     matches!(source, super::AgentMessageSource::Desktop)
 }
@@ -430,8 +443,17 @@ fn normalize_api_provider_config(
 }
 
 impl AgentRuntimeApplicationService {
-    pub(crate) fn new(ports: AgentRuntimeApplicationPorts) -> Self {
-        Self { ports }
+    pub(crate) fn new(
+        ports: AgentRuntimeApplicationPorts,
+        evidence: Arc<dyn super::AgentEvidencePort>,
+    ) -> Self {
+        Self { ports, evidence }
+    }
+
+    /// A service that records nothing, for tests whose subject is not evidence.
+    #[cfg(test)]
+    pub(crate) fn new_for_test_without_evidence(ports: AgentRuntimeApplicationPorts) -> Self {
+        Self::new(ports, Arc::new(super::NoAgentEvidence))
     }
 
     pub(crate) fn take_seat_turn_completion(
@@ -2319,6 +2341,18 @@ impl AgentRuntimeApplicationService {
             "start_run",
             self.ports.telemetry.start_run(&run),
         );
+        // Identifiers and a timestamp. The prompt that started this run, the agent's instructions,
+        // and every attribute assembled above stay where they are; none of them is reachable from
+        // the signal's shape.
+        self.evidence
+            .try_publish(super::AgentEvidenceSignal::RunStarted {
+                session_id: session.id.clone(),
+                run_id: root_context.run_id.as_str().to_string(),
+                trace_id: root_context.trace_id.as_str().to_string(),
+                agent_id: Some(agent.id().as_str().to_string()),
+                seat_id: None,
+                occurred_at: started_at.clone(),
+            });
         record_telemetry_result(
             &self.ports,
             &root_context,
@@ -2369,6 +2403,7 @@ impl AgentRuntimeApplicationService {
                         ),
                     );
                     self.finish_execution_root(
+                        &session.id,
                         &root_context,
                         ExecutionStatus::Failed,
                         Some("prompt_compose_failed"),
@@ -2428,6 +2463,7 @@ impl AgentRuntimeApplicationService {
                 Ok(messages) => messages,
                 Err(error) => {
                     self.finish_execution_root(
+                        &session.id,
                         &root_context,
                         ExecutionStatus::Failed,
                         Some("generation_start_persistence_failed"),
@@ -2446,6 +2482,7 @@ impl AgentRuntimeApplicationService {
                     "Generation control reservation failed.",
                 );
                 self.finish_execution_root(
+                    &session.id,
                     &root_context,
                     ExecutionStatus::Failed,
                     Some("generation_control_reservation_failed"),
@@ -2461,6 +2498,7 @@ impl AgentRuntimeApplicationService {
             );
             let _ = self.ports.generations.release(&lease);
             self.finish_execution_root(
+                &session.id,
                 &root_context,
                 ExecutionStatus::Failed,
                 Some("generation_correlation_failed"),
@@ -2935,6 +2973,7 @@ impl AgentRuntimeApplicationService {
         let sink: Arc<dyn AgentProcessEventSink> = Arc::new(GenerationEventHandler::new(
             self.ports.clone(),
             GenerationEventHandlerInput {
+                evidence: self.evidence.clone(),
                 session_id: session.id.clone(),
                 agent_id: agent.id().as_str().to_string(),
                 message_id: assistant.id.clone(),
@@ -3009,6 +3048,7 @@ impl AgentRuntimeApplicationService {
         failure: GenerationFailure,
     ) -> Result<AgentMessage, AgentRuntimeApplicationError> {
         self.finish_execution_root(
+            &session.id,
             execution_context,
             ExecutionStatus::Failed,
             Some("agent_generation_failed"),
@@ -3059,8 +3099,15 @@ impl AgentRuntimeApplicationService {
         Ok(failed)
     }
 
+    /// Takes the session explicitly rather than deriving it from the context.
+    ///
+    /// `ExecutionContext` carries a run and a trace but no session, and a run recorded without one
+    /// cannot be joined to the work a user is looking at. Threading it here is what lets the
+    /// journal close the lifecycle it opened at `start_run` instead of leaving every run
+    /// permanently `incomplete`.
     fn finish_execution_root(
         &self,
+        session_id: &str,
         context: &ExecutionContext,
         status: ExecutionStatus,
         error_classification: Option<&str>,
@@ -3099,6 +3146,23 @@ impl AgentRuntimeApplicationService {
                 error_classification,
             ),
         );
+        self.evidence
+            .try_publish(super::AgentEvidenceSignal::RunFinished {
+                session_id: session_id.to_string(),
+                run_id: context.run_id.as_str().to_string(),
+                trace_id: context.trace_id.as_str().to_string(),
+                agent_id: None,
+                seat_id: None,
+                occurred_at: ended_at,
+                outcome: match status {
+                    ExecutionStatus::Succeeded => super::AgentRunEvidenceOutcome::Succeeded,
+                    ExecutionStatus::Cancelled => super::AgentRunEvidenceOutcome::Cancelled,
+                    _ => super::AgentRunEvidenceOutcome::Failed,
+                },
+                // The runtime does not measure a wall-clock duration here, so none is reported.
+                // Subtracting the two timestamps would invent one.
+                duration_ms: None,
+            });
     }
 
     pub(crate) fn stop_generation(
@@ -3169,6 +3233,7 @@ impl AgentRuntimeApplicationService {
             .and_then(|outcome| outcome.execution_context.as_ref())
         {
             self.finish_execution_root(
+                session_id,
                 execution_context,
                 ExecutionStatus::Cancelled,
                 Some("user_cancelled"),
@@ -3428,6 +3493,8 @@ struct GenerationEventHandler {
     seat_ownership: Option<super::SeatTurnOwnership>,
     prompt_versions: Vec<PromptVersionReference>,
     prompt_started_at: Instant,
+    /// The one publisher for this generation's tool and delegation evidence.
+    evidence: Arc<dyn super::AgentEvidencePort>,
     /// `add-cli-memory-support` — gates the post-completion memory-extraction attempt to
     /// CLI-wrapped agents only (`agent.launch().kind_str() == "cli"` at construction time),
     /// mirroring the same gate the CLI send path already uses for injection.
@@ -3456,6 +3523,7 @@ struct GenerationEventHandlerInput {
     seat_ownership: Option<super::SeatTurnOwnership>,
     prompt_versions: Vec<PromptVersionReference>,
     prompt_started_at: Instant,
+    evidence: Arc<dyn super::AgentEvidencePort>,
     is_cli_kind: bool,
     folder: Option<String>,
     personalization_mode: String,
@@ -3541,6 +3609,7 @@ impl GenerationEventHandler {
             seat_ownership: input.seat_ownership,
             prompt_versions: input.prompt_versions,
             prompt_started_at: input.prompt_started_at,
+            evidence: input.evidence,
             is_cli_kind: input.is_cli_kind,
             folder: input.folder,
             personalization_mode: input.personalization_mode,
@@ -3763,12 +3832,110 @@ impl GenerationEventHandler {
         self.ports
             .sessions
             .append_tool_use(&self.message_id, event.tool_use.clone())?;
+        // After `append_tool_use` commits, never before. The append is the owning state change;
+        // an observation filed ahead of it would survive a failure that rolled the tool call back.
+        //
+        // This is the one place tool evidence is published. Every provider funnels its lifecycle
+        // through this sink, so putting it here instead of in each adapter is what keeps a CLI
+        // tool call and a native one from being reported by two sets of rules.
+        self.publish_tool_evidence(&event, is_new, terminal_status, span_id);
         let _ = self.ports.events.publish(AgentEvent::MessageToolUse {
             session_id: self.session_id.clone(),
             message_id: self.message_id.clone(),
             tool_use: Box::new(event.tool_use),
         });
         Ok(())
+    }
+
+    /// Maps one lifecycle transition to at most one evidence signal.
+    ///
+    /// `is_new` and `terminal_status` come from the same guards the telemetry spans use, so the
+    /// journal sees exactly the transitions the runtime acted on: a re-delivered `Started` for a
+    /// call already tracked publishes nothing, and a call already in `terminal_tool_calls` never
+    /// reaches here at all. That is what makes a duplicate completion callback idempotent without
+    /// the journal needing to de-duplicate it.
+    fn publish_tool_evidence(
+        &self,
+        event: &ToolLifecycleEvent,
+        is_new: bool,
+        terminal_status: Option<ExecutionStatus>,
+        span_id: SpanId,
+    ) {
+        let observation = match event.fidelity {
+            ExecutionFidelity::Native => super::AgentEvidenceObservation::Direct,
+            ExecutionFidelity::Proxied => super::AgentEvidenceObservation::Reported,
+            // Inferred and opaque both mean the runtime did not watch this happen. Reporting them
+            // as anything stronger would present a reconstruction as an observation.
+            _ => super::AgentEvidenceObservation::Reconstructed,
+        };
+        let run_id = self.agent_context.run_id.as_str().to_string();
+        let trace_id = self.agent_context.trace_id.as_str().to_string();
+        let span_id = Some(span_id.as_str().to_string());
+        let seat_id = self
+            .seat_ownership
+            .as_ref()
+            .map(|ownership| ownership.seat_id.clone());
+        let occurred_at = event
+            .provider_timestamp
+            .clone()
+            .unwrap_or_else(|| self.ports.clock.now());
+
+        let signal = match (terminal_status, &event.delegation_id) {
+            (None, _) if !is_new => return,
+            (None, Some(delegation_id)) => super::AgentEvidenceSignal::DelegationStarted {
+                session_id: self.session_id.clone(),
+                run_id,
+                trace_id,
+                span_id,
+                parent_agent_id: Some(self.agent_id.clone()),
+                seat_id,
+                delegation_id: delegation_id.clone(),
+                call_id: event.call_id.clone(),
+                attempt: event.attempt,
+                occurred_at,
+            },
+            (None, None) => super::AgentEvidenceSignal::ToolStarted {
+                session_id: self.session_id.clone(),
+                run_id,
+                trace_id,
+                span_id,
+                agent_id: Some(self.agent_id.clone()),
+                seat_id,
+                call_id: event.call_id.clone(),
+                tool_name: event.tool_use.name.clone(),
+                observation,
+                attempt: event.attempt,
+                occurred_at,
+            },
+            (Some(status), Some(delegation_id)) => super::AgentEvidenceSignal::DelegationFinished {
+                session_id: self.session_id.clone(),
+                run_id,
+                trace_id,
+                span_id,
+                parent_agent_id: Some(self.agent_id.clone()),
+                seat_id,
+                delegation_id: delegation_id.clone(),
+                call_id: event.call_id.clone(),
+                attempt: event.attempt,
+                outcome: tool_evidence_outcome(status),
+                occurred_at,
+            },
+            (Some(status), None) => super::AgentEvidenceSignal::ToolFinished {
+                session_id: self.session_id.clone(),
+                run_id,
+                trace_id,
+                span_id,
+                agent_id: Some(self.agent_id.clone()),
+                seat_id,
+                call_id: event.call_id.clone(),
+                tool_name: event.tool_use.name.clone(),
+                observation,
+                attempt: event.attempt,
+                outcome: tool_evidence_outcome(status),
+                occurred_at,
+            },
+        };
+        self.evidence.try_publish(signal);
     }
 
     fn rich_block(&self, block: serde_json::Value) -> Result<(), AgentRuntimeApplicationError> {

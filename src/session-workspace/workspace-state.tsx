@@ -21,8 +21,3 @@ export function WorkspaceState({
   );
 }
 
-export function PartialNotice() {
-  const { t } = useTranslation();
-  return <p className="rounded border border-border bg-muted px-2 py-1 text-xs text-muted-foreground">{t("sessionTabs.state.partial")}</p>;
-}
-
