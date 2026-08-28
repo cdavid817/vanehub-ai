@@ -209,7 +209,11 @@ fn an_identical_retry_neither_inserts_nor_projects_again() {
 
     assert!(matches!(first, EvidenceAppendOutcome::Appended { .. }));
     let EvidenceAppendOutcome::IdenticalDuplicate { sequence } = second else {
-        panic!("a retry must be reported as an idempotent duplicate, got {second:?}");
+        // Named rather than formatted whole. The outcome carries only a sequence number, so
+        // printing it is harmless — but `{:?}` on a value that reached this code from a producer is
+        // the shape that puts payloads in a panic message once somebody adds a field, and the
+        // variant name is the entire diagnostic here anyway.
+        panic!("a retry must be reported as an idempotent duplicate, got a different variant");
     };
     let EvidenceAppendOutcome::Appended {
         sequence: first_sequence,
