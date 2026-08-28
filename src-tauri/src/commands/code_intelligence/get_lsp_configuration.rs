@@ -10,7 +10,16 @@ pub(crate) fn get_lsp_configuration(
 }
 
 pub(crate) fn execute(api: &CodeIntelligenceApi) -> Result<LspConfigurationDto, String> {
+    let installed = api.installed_languages();
     api.configuration()
         .map(LspConfigurationDto::from)
+        .map(|mut configuration| {
+            // Filled in here rather than in the conversion: whether a server is installed is a
+            // fact about the filesystem, and the conversion from a stored configuration has none.
+            for descriptor in &mut configuration.descriptors {
+                descriptor.installed = installed.contains(&descriptor.language.as_str());
+            }
+            configuration
+        })
         .map_err(|error| error.to_string())
 }

@@ -242,7 +242,7 @@ fn get_lsp_configuration_result_serializes_to_an_exact_object() {
 fn get_lsp_configuration_describes_every_registered_language() {
     // The descriptor list comes from the registry, so asserting a literal here would only restate
     // the registry and would have to be edited whenever it changed. What is worth pinning is the
-    // relationship: one descriptor per registered language, in the same order, each with the four
+    // relationship: one descriptor per registered language, in the same order, each with the
     // fields the settings page renders from.
     let value = serde_json::to_value(LspConfigurationDto::from(LspConfiguration::default()))
         .expect("serialize");
@@ -274,6 +274,19 @@ fn get_lsp_configuration_describes_every_registered_language() {
                 .interpreter()
                 .map(|launch| launch.prerequisite))
         );
+        // The presence of a distribution is what the settings page branches on, and its
+        // `verified` flag is what decides whether the user is warned. A language that declares
+        // none must serialize `null` rather than an object claiming unverified bytes for a
+        // download that cannot happen.
+        assert_eq!(
+            descriptor["distribution"],
+            json!(definition
+                .distribution
+                .map(|distribution| json!({ "verified": distribution.is_verified() })))
+        );
+        // `LspConfiguration::default()` carries no filesystem answer, so nothing is installed --
+        // which is the state the card has to render before the backend has looked.
+        assert_eq!(descriptor["installed"], json!(false));
         // Alphabetical, because `serde_json::Value` keys a map by `BTreeMap` rather than by
         // declaration order.
         assert_eq!(
@@ -284,6 +297,8 @@ fn get_lsp_configuration_describes_every_registered_language() {
                 .collect::<Vec<_>>(),
             vec![
                 "defaultStartupArguments",
+                "distribution",
+                "installed",
                 "language",
                 "overrideTarget",
                 "prerequisite",

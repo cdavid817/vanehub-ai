@@ -18,6 +18,8 @@ export function lspTestDescriptors(): LspLanguageDescriptor[] {
       defaultStartupArguments: [],
       overrideTarget: "executable_file",
       prerequisite: null,
+      distribution: null,
+      installed: false,
     },
     {
       language: "typescript_javascript",
@@ -26,6 +28,8 @@ export function lspTestDescriptors(): LspLanguageDescriptor[] {
       defaultStartupArguments: ["--stdio"],
       overrideTarget: "executable_file",
       prerequisite: null,
+      distribution: null,
+      installed: false,
     },
     {
       language: "java",
@@ -34,6 +38,8 @@ export function lspTestDescriptors(): LspLanguageDescriptor[] {
       defaultStartupArguments: [],
       overrideTarget: "install_directory",
       prerequisite: "Java 17 or newer",
+      distribution: { verified: false },
+      installed: false,
     },
   ];
 }

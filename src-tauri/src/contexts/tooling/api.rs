@@ -9,6 +9,19 @@ pub(crate) use super::cli::api::compare_versions;
 // protocol marker for a runtime that no longer exists would advertise a second one.
 
 #[cfg(test)]
+pub(crate) use super::managed_install::api::RetrievedArtifact;
+/// Managed retrieval and unpacking of a vendor artifact.
+///
+/// `code_intelligence` consumes this to install a language server. Its registry declares a
+/// distribution in these types rather than in a parallel vocabulary, so the bounds a download is
+/// held to are stated once — which means a `domain` module of another context reaches them, and a
+/// `domain` module may only reach a published surface.
+pub(crate) use super::managed_install::api::{
+    extract_tar_gz, extract_zip, ArtifactIntegrity, ArtifactRequest, ExtractionLimits,
+    HttpsArtifactRetriever, ManagedArtifactRetriever, ManagedInstallError, RetrievalPolicy,
+};
+
+#[cfg(test)]
 pub(crate) use super::cli_parameters::api::CliParameterDiagnostic;
 /// CLI launch-parameter resolution. `agent_runtime`, Agent Terminal, and `sessions` consume this
 /// and nothing else from the CLI-parameter subdomain: no repository, no catalog loader, no save,

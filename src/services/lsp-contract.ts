@@ -9,9 +9,9 @@ import {
   lspServerTestPhases,
   lspServerTestPhaseStatuses,
   type JsonObject,
-  type JsonValue,
   type LspConfiguration,
   type LspLanguageConfiguration,
+  type LspDistribution,
   type LspLanguageDescriptor,
   type LspNegotiatedCapabilities,
   type LspNegotiatedMethod,
@@ -24,89 +24,26 @@ import {
   type LspWorkspaceTrust,
   type LspWorkspaceTrustUpdate,
 } from "../types/lsp";
+import {
+  arrayValue,
+  booleanValue,
+  count,
+  invalidResponse,
+  isRecord,
+  member,
+  normalizeJsonObject,
+  optionalString,
+  optionalStringArray,
+  optionalTimestamp,
+  requiredString,
+  stringArray,
+  unique,
+} from "./lsp-contract-values";
 
 const maximumInitializationOptionsBytes = 32 * 1024;
-const maximumJsonDepth = 32;
-const maximumJsonItems = 1024;
-const maximumListItems = 1024;
-const rfc3339Pattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
-
-function invalidResponse(): never {
-  throw new Error("The runtime returned an invalid LSP response.");
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isMember<T extends string>(values: readonly T[], value: unknown): value is T {
-  return typeof value === "string" && values.some((candidate) => candidate === value);
-}
-
-function member<T extends string>(values: readonly T[], value: unknown): T {
-  return isMember(values, value) ? value : invalidResponse();
-}
-
-function requiredString(value: unknown, maximumLength = 4096): string {
-  if (typeof value !== "string" || value.trim() === "" || value.length > maximumLength) {
-    return invalidResponse();
-  }
-  return value;
-}
-
-function optionalString(value: unknown): string | null {
-  return value === null ? null : requiredString(value);
-}
-
-function booleanValue(value: unknown): boolean {
-  return typeof value === "boolean" ? value : invalidResponse();
-}
-
-function count(value: unknown): number {
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
-    return invalidResponse();
-  }
-  return value;
-}
-
-function arrayValue(value: unknown, maximum = maximumListItems): readonly unknown[] {
-  if (!Array.isArray(value) || value.length > maximum) return invalidResponse();
-  return value;
-}
-
-function optionalTimestamp(value: unknown): string | null {
-  if (value === null) return null;
-  const timestamp = requiredString(value, 64);
-  if (!rfc3339Pattern.test(timestamp) || Number.isNaN(Date.parse(timestamp))) {
-    return invalidResponse();
-  }
-  return timestamp;
-}
-
 function optionalReason(value: unknown): LspSafeReasonCode | null {
   if (value === null) return null;
   return member(lspSafeReasonCodes, value);
-}
-
-function normalizeJsonValue(value: unknown, depth: number): JsonValue {
-  if (depth > maximumJsonDepth) return invalidResponse();
-  if (value === null || typeof value === "string" || typeof value === "boolean") return value;
-  if (typeof value === "number") return Number.isFinite(value) ? value : invalidResponse();
-  if (Array.isArray(value)) {
-    if (value.length > maximumJsonItems) return invalidResponse();
-    return value.map((item) => normalizeJsonValue(item, depth + 1));
-  }
-  return normalizeJsonObject(value, depth + 1);
-}
-
-function normalizeJsonObject(value: unknown, depth = 0): JsonObject {
-  if (!isRecord(value) || depth > maximumJsonDepth) return invalidResponse();
-  const entries = Object.entries(value);
-  if (entries.length > maximumJsonItems) return invalidResponse();
-  const normalized: [string, JsonValue][] = entries.map(([key, item]) => [
-    requiredString(key, 256), normalizeJsonValue(item, depth + 1),
-  ]);
-  return Object.fromEntries<JsonValue>(normalized);
 }
 
 function initializationOptions(value: unknown): JsonObject {
@@ -121,10 +58,6 @@ function initializationOptions(value: unknown): JsonObject {
 function identifier(value: unknown): string {
   return typeof value === "string" && lspLanguageIdPattern.test(value)
     ? value : invalidResponse();
-}
-
-function optionalStringArray(value: unknown, maximum = 32): string[] | null {
-  return value === null ? null : arrayValue(value, maximum).map((item) => requiredString(item));
 }
 
 function normalizeLanguageConfiguration(value: unknown): LspLanguageConfiguration {
@@ -148,11 +81,15 @@ function normalizeDescriptor(value: unknown): LspLanguageDescriptor {
       .map((item) => requiredString(item)),
     overrideTarget: member(lspOverrideTargets, value.overrideTarget),
     prerequisite: value.prerequisite === null ? null : requiredString(value.prerequisite),
+    distribution: normalizeDistribution(value.distribution),
+    installed: booleanValue(value.installed),
   };
 }
 
-function unique(ids: readonly string[]): boolean {
-  return new Set(ids).size === ids.length;
+function normalizeDistribution(value: unknown): LspDistribution | null {
+  if (value === null || value === undefined) return null;
+  if (!isRecord(value)) return invalidResponse();
+  return { verified: booleanValue(value.verified) };
 }
 
 export function normalizeLspConfiguration(value: unknown): LspConfiguration {
@@ -194,10 +131,6 @@ export function normalizeLspWorkspaceTrustUpdate(value: unknown): LspWorkspaceTr
     canonicalRoot: requiredString(value.canonicalRoot),
     trusted: booleanValue(value.trusted),
   };
-}
-
-function stringArray(value: unknown, maximum = 16): string[] {
-  return arrayValue(value, maximum).map((item) => requiredString(item, 1024));
 }
 
 function normalizeDiscovery(value: unknown): LspServerDiscovery {
