@@ -73,6 +73,15 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 匹配——与 native 侧同一条规则。迁移只读不写,v1 键原样保留。
 // 旧的 `cli-parameter-catalog.ts`(207 行)此时还删不掉——它只剩两个测试消费者,随 task 10.4
 // 一起下线,届时这条上限应当回落。
+// 上调理由(add-unified-personalization-governance):个性化治理在服务边界上多出的是新能力的固定
+// 开销,没有一行是从别处复制来的:`personalization-service.ts` 是接口本身,
+// `tauri-personalization-client.ts` 是命令的 invoke 映射,剩下的大头在 Web/mock —— 它必须真的
+// 拒绝:版本冲突、reset token 与 scope 不匹配、未知枚举值、缺失的 workspace。一个一律放行的
+// mock 会让页面的冲突分支一次也跑不到,而那正是真实桌面上最先触发的一条。
+// 同一轮里 `agent-memory-service.ts` 与两侧的 `listAllMemories`/无 scope delete/reset 整个删掉,
+// 抵掉了一部分。
+// 与 origin/main 合并后按合并树实测重取:两侧各自在自己的基线上报了上限(20576 / 20327),改的是
+// 不同文件,合并树的真实总数既不是两者之一也不是两者之和。下面这个数字是直接测量得到的。
 // 上调理由(add-source-aware-cli-environment-management):CLI 环境边界从 3 个方法变成 9 个,
 // 因为"准备计划"和"执行计划"必须是两次调用——执行只收计划 ID 与版本号,这样"复核过的版本就是
 // 实际执行的版本"是结构上成立的,而不是靠约定。9 个方法在 Tauri 与 Web/mock 两侧各实现一份,
@@ -116,7 +125,7 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 的值强转帮助函数单独成模块，`lsp-contract.ts` 从 302 降到 227。它本来就不在技术债清单上，
 // 300 行是硬规则；不拆的唯一选项是把上面那个 fail-closed 检查换成 6 行额度。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 20436, owner: "manage-language-server-installation" },
+  { root: "src/services", budget: 21446, owner: "add-unified-personalization-governance" },
 ]);
 
 const STATE_PACKAGES = new Set([

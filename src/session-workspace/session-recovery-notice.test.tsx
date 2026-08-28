@@ -22,7 +22,7 @@ function session(recoveryStatus: Session["recoveryStatus"]): Session {
     title: "Recovered session",
     agentId: "onepiece",
     interactionMode: "api",
-    lifecycleState: "failed",
+    personalizationMode: "standard", lifecycleState: "failed",
     recoveryStatus,
     recoveryRevision: 1,
     stateRevision: 2,

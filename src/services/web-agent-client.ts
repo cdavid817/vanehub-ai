@@ -51,7 +51,7 @@ export {
   setWebLoopPhaseDelayForTest,
   simulateWebLoopRestartForTest,
 } from "./web-loop-state";
-import { webAgentMemoryClient } from "./web-agent-memory-client";
+import { webPersonalizationClient } from "./web-personalization-client";
 
 export { resetWebAgentMemoriesForTest } from "./web-agent-memory-state";
 import { listWebAgentMemories } from "./web-agent-memory-state";
@@ -103,7 +103,7 @@ export function seedWebImSessionForTest(connector: ImSessionConnector): Session 
     title: `IM ${connector}`,
     agentId: "codex-cli",
     interactionMode: "cli",
-    lifecycleState: "idle",
+    personalizationMode: "standard", lifecycleState: "idle",
     recoveryStatus: "clean",
     recoveryRevision: 0,
     stateRevision: 0,
@@ -188,7 +188,7 @@ export const webAgentClient: AgentService = {
     replaceWebSkillMountPaths(listWebSkillMountPaths().filter((path) => path.agentId !== agentId));
   },
 
-  ...webAgentMemoryClient,
+  ...webPersonalizationClient,
 
   async applyCliConfigProfile(input) {
     const supportedAgentId = requireCliConfigAgentId(input.agentId);

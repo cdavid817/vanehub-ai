@@ -56,6 +56,18 @@ impl CommandError {
         }
     }
 
+    /// One category with a message the caller wrote itself.
+    ///
+    /// For errors whose message is a stable code the frontend matches on rather than prose for a
+    /// human. `validation` and `storage` prefix theirs; this one does not, because a prefix in
+    /// front of a code is one more thing every matcher has to strip.
+    pub(crate) fn typed(category: CommandErrorCategory, message: impl Into<String>) -> Self {
+        Self {
+            category,
+            message: message.into(),
+        }
+    }
+
     pub(crate) fn storage(message: impl Into<String>) -> Self {
         Self {
             category: CommandErrorCategory::Infrastructure,
@@ -276,8 +288,7 @@ impl From<AgentRuntimeApplicationError> for CommandError {
             | AgentRuntimeApplicationError::Memory(message)
             | AgentRuntimeApplicationError::Mcp(message)
             | AgentRuntimeApplicationError::Permission(message)
-            | AgentRuntimeApplicationError::ContextQuality(message)
-            | AgentRuntimeApplicationError::Personalization(message) => Self::storage(message),
+            | AgentRuntimeApplicationError::ContextQuality(message) => Self::storage(message),
             AgentRuntimeApplicationError::Credential(message) => Self {
                 category: CommandErrorCategory::Infrastructure,
                 message: format!("credential error: {}", redact_text(&message)),
@@ -304,6 +315,19 @@ impl From<DesktopSettingsError> for CommandError {
                 CommandErrorCategory::Unavailable,
                 message,
                 "native localization failed: ",
+            ),
+            // Its own category so the page can keep the user's draft and offer a reload, which it
+            // cannot decide to do if a conflict looks like a disk failure.
+            DesktopSettingsError::PersonalizationConflict { expected, current } => Self {
+                category: CommandErrorCategory::Conflict,
+                message: format!(
+                    "This setting changed since it was loaded (expected revision {expected}, current {current})."
+                ),
+            },
+            DesktopSettingsError::Personalization(message) => command_error_with_default(
+                CommandErrorCategory::Unavailable,
+                message,
+                "personalization is unavailable: ",
             ),
             DesktopSettingsError::LogDirectory(message)
             | DesktopSettingsError::Startup(message)

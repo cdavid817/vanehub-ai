@@ -10,11 +10,11 @@
 
 Most likely because **no provider is configured for OnePiece**.
 
-Memory extraction for CLI Agents is performed by OnePiece, and with it unconfigured no memories are produced at all. Even if you mainly use Claude Code, you have to configure OnePiece first. See [Personalization](personalization.md#two-prerequisites-you-have-to-know).
+Memory extraction for CLI Agents is performed by OnePiece, and with it unconfigured no memories are produced at all. Even if you mainly use Claude Code, you have to configure OnePiece first. See [Personalization](personalization.md#when-memories-are-extracted).
 
 ## Can one Agent have its own separate memory?
 
-**No.** Memory is currently a host-level shared pool, and what one Agent records is available to the others. If you need isolation, the only option is to turn memory off entirely.
+**Yes, per memory.** Each memory has an audience: every Agent by default, or only the ones you name. Set it when you approve a proposal or from the memory's detail view. See [Personalization](personalization.md#scope-source-and-audience-of-a-single-memory).
 
 ## Can recall search my project code?
 

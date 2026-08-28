@@ -226,8 +226,23 @@ const scenarios: Record<string, (page: Page, locale: Locale) => Promise<Locator>
     return shell;
   },
 
-  "settings-personalization": (page, locale) =>
-    openSettings(page, "personalization", text(locale, "个性化", "Personalization")),
+  "settings-personalization": async (page, locale) => {
+    const shell = await openSettings(
+      page,
+      "personalization",
+      text(locale, "AI 个性化", "AI Personalization"),
+    );
+    // The page opens on Overview; the surrounding chapter is about the instruction fields, so the
+    // capture has to be of the destination the prose describes.
+    await shell.getByTestId("personalization-view-tab-instructions").click();
+    await expect(
+      shell.getByRole("heading", {
+        level: 3,
+        name: text(locale, "自定义指令", "Custom Instructions"),
+      }),
+    ).toBeVisible();
+    return shell;
+  },
 
   "settings-expert-roles": (page, locale) =>
     openSettings(page, "expert-roles", text(locale, "专家角色", "Expert roles")),

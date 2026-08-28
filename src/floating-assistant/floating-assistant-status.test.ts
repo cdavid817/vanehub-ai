@@ -8,7 +8,7 @@ const session: Session = {
   title: "Status",
   agentId: "codex-cli",
   interactionMode: "cli",
-  lifecycleState: "idle",
+  personalizationMode: "standard", lifecycleState: "idle",
   recoveryStatus: "clean",
   recoveryRevision: 0,
   stateRevision: 0,
@@ -54,7 +54,7 @@ describe("floating assistant lifecycle status", () => {
   });
 
   it("preserves the explicit starting lifecycle while a stream is being prepared", () => {
-    expect(resolveFloatingAssistantStatus({ ...session, lifecycleState: "starting" }, [assistant("streaming")]))
+    expect(resolveFloatingAssistantStatus({ ...session, personalizationMode: "standard", lifecycleState: "starting" }, [assistant("streaming")]))
       .toBe("starting");
   });
 });

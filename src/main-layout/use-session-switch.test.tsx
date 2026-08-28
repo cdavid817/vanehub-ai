@@ -17,7 +17,7 @@ function session(id: string, archived = false): Session {
     title: id,
     agentId: "onepiece",
     interactionMode: "api",
-    lifecycleState: "idle",
+    personalizationMode: "standard", lifecycleState: "idle",
     recoveryStatus: "clean",
     recoveryRevision: 0,
     stateRevision: 0,

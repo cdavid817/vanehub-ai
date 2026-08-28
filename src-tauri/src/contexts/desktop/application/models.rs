@@ -45,6 +45,13 @@ impl DesktopLoggingPolicy {
 pub(crate) struct DesktopSettingsView {
     pub(crate) settings: DesktopSettings,
     pub(crate) logging_policy: DesktopLoggingPolicy,
+    /// The revision the personalization fields in `settings` were read at.
+    ///
+    /// `None` while the dedicated policy is unreachable, in which case those fields are whatever
+    /// the legacy rows still hold and no personalization save will be accepted. Carried on the view
+    /// because the settings page has no version of its own, and echoing this back on save is what
+    /// makes its concurrency check real rather than a re-read at write time.
+    pub(crate) personalization_revision: Option<u64>,
 }
 
 impl DesktopSettingsView {
@@ -52,7 +59,13 @@ impl DesktopSettingsView {
         Self {
             settings,
             logging_policy: DesktopLoggingPolicy::native(),
+            personalization_revision: None,
         }
+    }
+
+    pub(crate) fn with_personalization_revision(mut self, revision: u64) -> Self {
+        self.personalization_revision = Some(revision);
+        self
     }
 }
 

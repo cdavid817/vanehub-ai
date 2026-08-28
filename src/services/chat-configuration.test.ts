@@ -8,7 +8,7 @@ const session: Session = {
   title: "Boundary",
   agentId: "gemini-cli",
   interactionMode: "browser",
-  lifecycleState: "idle",
+  personalizationMode: "standard", lifecycleState: "idle",
   recoveryStatus: "clean",
   recoveryRevision: 0,
   stateRevision: 0,

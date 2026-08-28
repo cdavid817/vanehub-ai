@@ -8,10 +8,12 @@ import { SettingsTopBar } from "./settings-topbar";
 export function SettingsShell({
   initialNavigationTarget = null,
   initialPageId = defaultSettingsPageId,
+  onOpenSession,
   onReturn,
 }: {
   initialNavigationTarget?: SettingsNavigationTarget | null;
   initialPageId?: SettingsPageId;
+  onOpenSession?: (sessionId: string) => void;
   onReturn?: () => void;
 }) {
   const [searchParams] = useSearchParams();
@@ -48,6 +50,7 @@ export function SettingsShell({
               isActive: page.id === activePageId,
               navigationTarget: page.id === activePageId ? navigationTarget : null,
               onNavigate: handleSelectPage,
+              onOpenSession,
               onReturn,
               searchTerm: page.id === activePageId ? searchTerm : "",
             };

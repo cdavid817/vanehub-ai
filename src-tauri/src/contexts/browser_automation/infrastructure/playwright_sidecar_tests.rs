@@ -87,7 +87,7 @@ fn real_playwright_worker_bounds_page_operations_handoff_and_artifact_bytes() {
         }),
     );
     if !context.ok {
-        let _ = worker.shutdown(limits.request_timeout);
+        let _ = worker.shutdown(SHUTDOWN_BUDGET);
         return;
     }
     let context_id = context
@@ -191,12 +191,18 @@ fn real_playwright_worker_bounds_page_operations_handoff_and_artifact_bytes() {
         )
         .ok
     );
-    // A real Chromium context can need more than five seconds to release its Windows Job
-    // Object when the full native suite is running many process fixtures concurrently.
-    worker
-        .shutdown(limits.request_timeout)
-        .expect("worker shutdown");
+    // Reaping a real Chromium tree is not a request, so it does not get the request budget. Closing
+    // stdin, waiting out the grace phase, force-killing and then waiting for every child to be
+    // reaped is disk- and scheduler-bound, and under the full native suite -- hundreds of tests,
+    // each with its own process or database fixture -- thirty seconds is not enough. That is a
+    // property of the machine, not of the worker, and the assertion that matters is that the tree
+    // does go away rather than that it goes away quickly.
+    worker.shutdown(SHUTDOWN_BUDGET).expect("worker shutdown");
 }
+
+/// How long a real browser tree gets to disappear. See the call site for why it is not the
+/// request timeout.
+const SHUTDOWN_BUDGET: Duration = Duration::from_secs(120);
 
 fn worker_request(
     worker: &mut PlaywrightSidecarProcess,

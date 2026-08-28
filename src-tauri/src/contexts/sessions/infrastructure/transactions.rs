@@ -769,12 +769,12 @@ fn insert_session(
                 category_id, source_kind, source_connector, pinned, archived,
                 created_at, updated_at, loop_run_id, loop_iteration_id, loop_role, seats,
                 recovery_status, recovery_revision, state_revision, history_revision,
-                active_execution_run_id, next_message_sequence
+                active_execution_run_id, next_message_sequence, personalization_mode
             ) VALUES (
                 ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
                 ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23,
                 ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33,
-                ?34, ?35, ?36
+                ?34, ?35, ?36, ?37
             )
             "#,
             params![
@@ -834,6 +834,7 @@ fn insert_session(
                 session.aggregate.recovery().history_revision() as i64,
                 session.aggregate.recovery().active_execution_run_id(),
                 session.aggregate.recovery().next_message_sequence() as i64,
+                session.personalization_mode.as_str(),
             ],
         )
         .map_err(repository_error)?;

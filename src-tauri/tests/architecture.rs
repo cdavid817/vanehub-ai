@@ -2225,10 +2225,12 @@ const NATIVE_PATH_BUDGETS: &[PathBudget] = &[
     // record builders, and the evidence/logging port doubles — plus the tests interleaved with
     // it. The entry survives the split rather than being deleted: the file is still real, and
     // nothing else bounds its regrowth (this subtree has no registered subtree budget).
-    // Raised by 1 for `provider_thread_id` on the one `SessionSeat` literal this file builds.
+    // Raised by 1 for `provider_thread_id` on the one `SessionSeat` literal this file builds, then
+    // by 3 for `personalization_mode` on the one `SessionRecord` literal, its import, and the
+    // module declaration for the mode's own persistence tests.
     PathBudget {
         path: "src-tauri/src/contexts/sessions/infrastructure/tests.rs",
-        budget: 844,
+        budget: 847,
         owner: "relocate-heavyweight-inline-tests",
     },
     // Lowered from 4,628 by the same change. ~1,600 of what remains is the single `FakeWorld`
@@ -2239,9 +2241,19 @@ const NATIVE_PATH_BUDGETS: &[PathBudget] = &[
     // these per seat, not just accept them: a stub that dropped the write would let both the
     // seat-scoped capture and the discard pass while storing nothing, which is exactly the defect
     // they exist to catch.
+    // Raised to 2,011 by `add-unified-personalization-governance`. `FakeWorld` reads
+    // personalization through the governed snapshot port now, so it carries the translation the
+    // production adapter performs (+75) and a `PreGovernanceSettings` fixture (+45) that keeps
+    // each CLI test stating what it is about — the settings a user had — rather than hand-building
+    // a snapshot per test. Against that, the flat port impl and the fake's write path are gone:
+    // nothing in the runtime writes an active memory any more. A further +14 records the
+    // attribution each proposal batch carried, which is what the per-Agent contract tests assert.
+    // A further +1 is the session mode every `AgentSession` fixture now records, and +14 the
+    // record of what each resolution was asked about — Agent, session, mode and workspace — which
+    // is what makes "no path reaches a provider without resolving" assertable rather than assumed.
     PathBudget {
         path: "src-tauri/src/contexts/agent_runtime/application/tests.rs",
-        budget: 1_903,
+        budget: 2_040,
         owner: "relocate-heavyweight-inline-tests",
     },
     PathBudget {
@@ -2407,6 +2419,16 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // `cli_profile.rs` its duplicate `default` interpretation, both now owned by the tooling
     // resolver.
     //
+    // `add-unified-personalization-governance` moves it again, and neither side's arithmetic
+    // survives the merge: this branch measured 61,601 against a base without the LSP expansion,
+    // `main` measured 61,799 against a base without the governed snapshot. The number below is a
+    // direct measurement of the merged tree.
+    //
+    // What this change adds here is the runtime reading one governed snapshot per generation where
+    // it read three independent global toggles: the snapshot has to be taken, carried and
+    // reported, and the two test fixtures the new call shape needs -- one presenting the
+    // pre-governance fakes through the snapshot port so the existing assembly tests keep their
+    // setup, one answering with a prepared snapshot and recording what it was asked.
     // Two rationales, both true, neither number usable. This branch measured 61,304 after taking
     // `origin/main`'s CLI parameter work; `main` then measured 60,665 after adding the provider
     // output framer's skip-and-resume path. They are increments over different bases against
@@ -2423,7 +2445,7 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // did not have to move.
     SubtreeBudget {
         root: "src-tauri/src/contexts/agent_runtime/infrastructure",
-        budget: 61_799,
+        budget: 62_618,
         owner: "decompose-api-tool-use-loop",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
@@ -2444,7 +2466,15 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // as an opaque "no such table" at startup. Three unmerged branches already claim 81. This makes
     // that collision fail a test instead of a user's launch.
     SubtreeBudget {
+        // Raised from 2,965 by `add-unified-personalization-governance`: migration 84 adds one
+        // registry call, one expected-sequence entry, and the three version assertions that move
+        // with them. Registering a migration anywhere costs those lines here; nothing was copied.
         root: "src-tauri/src/platform/database",
+        // Raised again by `add-unified-personalization-governance` for migrations 87-89: the
+        // personalization schema, the session personalization mode column, and the reconciliation
+        // timestamp. Registering a migration costs a fixed six-line call and one inventory entry, so
+        // this budget moves by that amount per migration -- it bounds this subtree's growth, not the
+        // migration count.
         // Raised from 2,965 to the merged tree's measurement. `add-local-composer-media-tools`
         // adds migration 82 -- five lines of registration and one inventory entry -- plus the two
         // tests for the upgrade paths its renumber created, and the reconciliation one of them
@@ -2463,7 +2493,7 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // is the fixed cost of registering any migration here, so this budget moves by the same
         // amount every time one lands -- it bounds this subtree's own growth, not the migration
         // count.
-        budget: 3_252,
+        budget: 3_280,
         owner: "split-database-migrations",
     },
 ];
@@ -2482,6 +2512,14 @@ const NATIVE_PRODUCTION_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // top and continue with production code below. That discarded 5,966 real production lines
         // and left the subtree that much silent headroom — the opposite of what a ceiling is for.
         //
+        // `add-unified-personalization-governance` raises it again, and as above the merged figure is
+        // measured rather than derived: this branch reached 33,060 without the LSP expansion, `main`
+        // reached 33,742 without the governed snapshot.
+        //
+        // The production growth this change contributes is the snapshot itself -- taken once per
+        // generation, carried through assembly, and reported when it degrades -- plus the two proposal
+        // paths and their translation, which is where "the model suggested this" stops being able to
+        // become "the user keeps this" without a person in between.
         // Both sides then raised it for their own reason. This branch to 33,372, for
         // `local_media_ocr_adapter.rs` -- the OnePiece OCR tool re-pointed at the shared
         // local-media runtime, relocation rather than growth, except that the PaddleOCR runtime it
@@ -2494,7 +2532,7 @@ const NATIVE_PRODUCTION_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // port methods, adapter implementations, and the symbol and call-relation result shapes.
         // The three test doubles that also gained methods are counted by the aggregate above and
         // deliberately not by this one.
-        budget: 33_742,
+        budget: 33_750,
         owner: "decompose-api-tool-use-loop",
     },
 ];
