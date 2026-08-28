@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { activateAppLanguage } from "../../../i18n";
 import { createAgentServiceDouble, renderWithAppProviders } from "../../../test/render";
@@ -26,6 +26,14 @@ function elixir(overrides: Partial<LspLanguageDescriptor> = {}): LspLanguageDesc
 
 function configurationWith(descriptor: LspLanguageDescriptor): LspConfiguration {
   return { enabled: true, languages: [], descriptors: [descriptor] };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
 }
 
 describe("LSP managed installation", () => {
@@ -100,6 +108,43 @@ describe("LSP managed installation", () => {
     const install = screen.getByRole("button", { name: /· 安装服务器$/ });
     expect(install.hasAttribute("disabled")).toBe(false);
     expect(install.textContent).toBe("安装服务器");
+  });
+
+  it("keeps each language's busy state its own while another install is running", async () => {
+    // Two distributed languages, which the registry does not have yet -- and that is the point.
+    // With a single busy slot, starting the second install cleared the first card's state and
+    // re-enabled its button while its download was still going.
+    const elixirGate = deferred<void>();
+    const installLspServer = vi.fn(async (language: string) => {
+      if (language === "elixir") await elixirGate.promise;
+    });
+    const service = createAgentServiceDouble({
+      getLspConfiguration: async () => ({
+        enabled: true,
+        languages: [],
+        descriptors: [elixir(), elixir({ language: "gleam", server: "gleam_lsp" })],
+      }),
+      discoverLspServers: async () => [],
+      installLspServer,
+    });
+    const { user } = renderWithAppProviders(<LspConfigurationSection service={service} />);
+
+    const [elixirInstall, gleamInstall] = await screen.findAllByRole("button", {
+      name: /· 安装服务器$/,
+    });
+    await user.click(elixirInstall!);
+    await user.click(gleamInstall!);
+
+    // Gleam's install resolved immediately; Elixir's is still held open, so its button must stay
+    // disabled and its label must still read as working.
+    await waitFor(() => expect(gleamInstall!.hasAttribute("disabled")).toBe(false));
+    expect(elixirInstall!.hasAttribute("disabled")).toBe(true);
+    expect(elixirInstall!.textContent).toBe("处理中…");
+
+    await act(async () => {
+      elixirGate.resolve();
+    });
+    await waitFor(() => expect(elixirInstall!.hasAttribute("disabled")).toBe(false));
   });
 
   it("offers no managed installation for a language the backend does not distribute", async () => {
