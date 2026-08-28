@@ -24,7 +24,13 @@ const PAGE_SIZE = 25;
  * opening the page grew with everything the user had ever saved. A summary carries no body at all;
  * the detail call exists for the one row a user opens.
  */
-export function MemoryListSection({ service = defaultAgentService }: { service?: AgentService }) {
+export function MemoryListSection({
+  onOpenSession,
+  service = defaultAgentService,
+}: {
+  onOpenSession?: (sessionId: string) => void;
+  service?: AgentService;
+}) {
   const { t, i18n } = useTranslation();
   const [query, setQuery] = useState<MemoryQuery>({ limit: PAGE_SIZE });
   const [pageStack, setPageStack] = useState<(string | undefined)[]>([undefined]);
@@ -155,7 +161,7 @@ export function MemoryListSection({ service = defaultAgentService }: { service?:
         role="region"
       >
         <h4 className="mb-3 text-sm font-semibold">{t("personalization.detail.title")}</h4>
-        <MemoryDetailPanel memoryId={openId} onClose={() => setOpenId(null)} service={service} />
+        <MemoryDetailPanel memoryId={openId} onClose={() => setOpenId(null)} onOpenSession={onOpenSession} service={service} />
       </div>
     </SectionPanel>
   );

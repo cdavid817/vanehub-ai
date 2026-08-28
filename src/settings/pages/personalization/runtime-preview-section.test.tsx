@@ -4,6 +4,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import "../../../i18n";
+import type { AgentService } from "../../../services/agent-service";
 import { createAgentServiceDouble, renderWithAppProviders } from "../../../test/render";
 import type { EffectivePreview } from "../../../types/personalization";
 import { RuntimePreviewSection } from "./runtime-preview-section";
@@ -71,12 +72,82 @@ function renderPreview(overrides: Parameters<typeof createAgentServiceDouble>[0]
   return { ...rendered, previewEffectivePersonalization };
 }
 
+/** The fields this section reads; the rest of a Session is irrelevant here. */
+function sessionShape() {
+  return {
+    id: "ses-0",
+    title: "session",
+    agentId: "synthetic-lab-agent",
+    personalizationMode: "standard" as const,
+    projectPath: null,
+    worktreePath: null,
+  } as unknown as Awaited<ReturnType<AgentService["listSessions"]>>[number];
+}
+
 async function chooseAgent() {
   const select = await screen.findByTestId("personalization-preview-agent");
   await within(select).findByText("Synthetic Lab Agent");
   await userEvent.selectOptions(select, "synthetic-lab-agent");
 }
 
+
+/**
+ * The preview answers two different questions, and the session picker is what separates them:
+ * "what would a session like this use" with nothing selected, and "what is this session using"
+ * with one selected. The second has to take that session's own mode and workspace, or the answer
+ * would describe a session that does not exist.
+ */
+describe("RuntimePreviewSection with a real session", () => {
+  it("resolves under the chosen session's own id, mode and workspace", async () => {
+    const world = renderPreview({
+      listSessions: async () => [
+        {
+          ...sessionShape(),
+          id: "ses-7",
+          title: "临时会话",
+          personalizationMode: "temporary" as const,
+          projectPath: "/code/vanehub",
+        },
+      ],
+    });
+    await chooseAgent();
+    await userEvent.selectOptions(screen.getByTestId("personalization-preview-session"), "ses-7");
+
+    await waitFor(() => {
+      expect(world.previewEffectivePersonalization).toHaveBeenCalledWith({
+        agentId: "synthetic-lab-agent",
+        sessionId: "ses-7",
+        workspaceKey: "ws-1",
+        sessionMode: "temporary",
+      });
+    });
+  });
+
+  it("stops the mode and workspace being edited while a session is selected", async () => {
+    renderPreview({
+      listSessions: async () => [
+        {
+          ...sessionShape(),
+          id: "ses-7",
+          title: "临时会话",
+          personalizationMode: "temporary" as const,
+          projectPath: "/code/vanehub",
+        },
+      ],
+    });
+    await chooseAgent();
+    await userEvent.selectOptions(screen.getByTestId("personalization-preview-session"), "ses-7");
+
+    // Read-only rather than hidden: the values are the answer, and a control that disappeared would
+    // leave the user unsure whether the preview used them at all.
+    await waitFor(() => {
+      expect((screen.getByTestId("personalization-preview-mode") as HTMLSelectElement).disabled).toBe(true);
+    });
+    expect((screen.getByTestId("personalization-preview-workspace") as HTMLSelectElement).disabled).toBe(true);
+    expect((screen.getByTestId("personalization-preview-mode") as HTMLSelectElement).value).toBe("temporary");
+    expect(screen.getByTestId("personalization-preview-session-note")).toBeTruthy();
+  });
+});
 
 describe("RuntimePreviewSection", () => {
   it("resolves nothing until an Agent is chosen", async () => {

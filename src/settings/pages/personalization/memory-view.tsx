@@ -13,15 +13,17 @@ import { MemoryListSection } from "./memory-list-section";
  * above the list because approving something is what puts it there.
  */
 export function PersonalizationMemoryView({
+  onOpenSession,
   service = defaultAgentService,
 }: {
+  onOpenSession?: (sessionId: string) => void;
   service?: AgentService;
 }) {
   return (
     <div className="grid gap-5">
       <AgentMemorySection />
       <CandidateReviewSection service={service} />
-      <MemoryListSection service={service} />
+      <MemoryListSection onOpenSession={onOpenSession} service={service} />
       <PersonalizationMaintenanceSection service={service} />
     </div>
   );

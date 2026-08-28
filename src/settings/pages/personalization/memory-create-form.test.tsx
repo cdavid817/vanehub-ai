@@ -23,6 +23,7 @@ function renderList(overrides: Parameters<typeof createAgentServiceDouble>[0] = 
     sensitivity: "normal" as const,
     revision: 1,
     sourceAgentId: null,
+    sourceSessionId: null,
     createdAt: "2026-02-01T09:00:00Z",
     updatedAt: "2026-02-01T09:00:00Z",
   }));

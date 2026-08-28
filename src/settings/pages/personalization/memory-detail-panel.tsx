@@ -29,10 +29,12 @@ function Row({ children, label }: { children: React.ReactNode; label: string }) 
 export function MemoryDetailPanel({
   memoryId,
   onClose,
+  onOpenSession,
   service,
 }: {
   memoryId: string | null;
   onClose: () => void;
+  onOpenSession?: (sessionId: string) => void;
   service: AgentService;
 }) {
   const { t, i18n } = useTranslation();
@@ -94,7 +96,7 @@ export function MemoryDetailPanel({
       {detail.editing ? (
         <Fields draft={draft} onEdit={detail.edit} saving={detail.isSaving} />
       ) : (
-        <ReadOnly language={i18n.language} record={record} />
+        <ReadOnly language={i18n.language} onOpenSession={onOpenSession} record={record} />
       )}
 
       <div className="flex flex-wrap items-center gap-3">
@@ -133,7 +135,15 @@ export function MemoryDetailPanel({
   );
 }
 
-function ReadOnly({ language, record }: { language: string; record: MemoryDetail }) {
+function ReadOnly({
+  language,
+  onOpenSession,
+  record,
+}: {
+  language: string;
+  onOpenSession?: (sessionId: string) => void;
+  record: MemoryDetail;
+}) {
   const { t } = useTranslation();
   const stamp = (value: string) =>
     formatAppDateTime(value, language, { dateStyle: "medium", timeStyle: "short" });
@@ -182,6 +192,22 @@ function ReadOnly({ language, record }: { language: string; record: MemoryDetail
         <Row label={t("personalization.detail.recordedBy")}>
           {record.sourceAgentId ?? t("personalization.detail.noSourceAgent")}
         </Row>
+        {/* Offered only when there is a session to open and somewhere to open it. A memory outlives
+            the conversation it came from, so the link may lead to a session that has since been
+            deleted -- the workspace answers that with its own not-found route rather than this
+            panel pretending to know in advance. */}
+        {record.sourceSessionId && onOpenSession ? (
+          <Row label={t("personalization.detail.sourceSession")}>
+            <button
+              className="ucd-interactive text-left text-sm underline underline-offset-2"
+              data-testid="personalization-detail-open-session"
+              onClick={() => onOpenSession(record.sourceSessionId as string)}
+              type="button"
+            >
+              {t("personalization.detail.openSourceSession")}
+            </button>
+          </Row>
+        ) : null}
         <Row label={t("personalization.detail.created")}>{stamp(record.createdAt)}</Row>
         <Row label={t("personalization.detail.updated")}>{stamp(record.updatedAt)}</Row>
       </dl>

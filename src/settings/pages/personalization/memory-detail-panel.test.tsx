@@ -30,6 +30,7 @@ function detail(overrides: Partial<MemoryDetail> = {}): MemoryDetail {
     sensitivity: "normal",
     revision: 4,
     sourceAgentId: "onepiece",
+    sourceSessionId: null,
     createdAt: "2026-01-01T09:00:00Z",
     updatedAt: "2026-02-01T09:00:00Z",
     ...overrides,
@@ -53,8 +54,11 @@ function summary(): MemorySummary {
   };
 }
 
-function renderList(overrides: Parameters<typeof createAgentServiceDouble>[0] = {}) {
-  let stored = detail();
+function renderList(
+  overrides: Parameters<typeof createAgentServiceDouble>[0] = {},
+  options: { onOpenSession?: (sessionId: string) => void; record?: MemoryDetail } = {},
+) {
+  let stored = options.record ?? detail();
   const updatePersonalizationMemory = vi.fn(async (input: UpdateMemoryInput) => {
     if (input.expectedRevision !== stored.revision) {
       throw new Error(
@@ -86,7 +90,9 @@ function renderList(overrides: Parameters<typeof createAgentServiceDouble>[0] = 
     deletePersonalizationMemory,
     ...overrides,
   });
-  const rendered = renderWithAppProviders(<MemoryListSection service={service} />);
+  const rendered = renderWithAppProviders(
+    <MemoryListSection onOpenSession={options.onOpenSession} service={service} />,
+  );
   return {
     ...rendered,
     updatePersonalizationMemory,
@@ -230,6 +236,36 @@ describe("MemoryDetailPanel", () => {
     expect((screen.getByTestId("personalization-detail-content") as HTMLTextAreaElement).value).toBe(
       "Worth keeping.",
     );
+  });
+
+  /**
+   * A memory outlives the conversation it was extracted from, and "where did this come from" is the
+   * first question a surprising one raises. The link is offered only when there is both a session
+   * recorded and somewhere to open it.
+   */
+  it("offers the session a memory was recorded in", async () => {
+    const onOpenSession = vi.fn();
+    renderList({}, { onOpenSession, record: detail({ sourceSessionId: "ses-42" }) });
+    await openRow();
+
+    await userEvent.click(await screen.findByTestId("personalization-detail-open-session"));
+
+    expect(onOpenSession).toHaveBeenCalledWith("ses-42");
+  });
+
+  it("offers nothing to open for a memory the user wrote themselves", async () => {
+    renderList({}, { onOpenSession: vi.fn(), record: detail({ sourceSessionId: null }) });
+    await openRow();
+
+    expect(screen.queryByTestId("personalization-detail-open-session")).toBeNull();
+  });
+
+  it("offers nothing to open when the surface cannot navigate", async () => {
+    // The settings shell supplies the route; a caller that has none must not render a dead control.
+    renderList({}, { record: detail({ sourceSessionId: "ses-42" }) });
+    await openRow();
+
+    expect(screen.queryByTestId("personalization-detail-open-session")).toBeNull();
   });
 
   it("forgets one record's edit when another is opened", async () => {

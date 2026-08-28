@@ -256,6 +256,11 @@ pub(crate) struct MemoryDetailView {
     pub(crate) sensitivity: String,
     pub(crate) revision: u64,
     pub(crate) source_agent_id: Option<String>,
+    /// The session this was recorded in, so the detail view can offer to open it. An id, not a
+    /// title: the title is the session's to change, and a stale copy of it here would name
+    /// something that no longer exists under that name. A session that has since been deleted is
+    /// simply not found when the link is followed.
+    pub(crate) source_session_id: Option<String>,
     pub(crate) created_at: String,
     pub(crate) updated_at: String,
 }

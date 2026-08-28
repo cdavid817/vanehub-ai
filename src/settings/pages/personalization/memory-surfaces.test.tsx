@@ -43,6 +43,7 @@ function detail(id: string, content: string): MemoryDetail {
     sensitivity: "normal",
     revision: 1,
     sourceAgentId: null,
+    sourceSessionId: null,
     createdAt: "2026-01-01T09:00:00Z",
     updatedAt: "2026-02-01T09:00:00Z",
   };

@@ -147,6 +147,10 @@ export const webPersonalizationClient: PersonalizationService = {
       sensitivity: "normal",
       revision: 1,
       sourceAgentId: null,
+      // A memory the user wrote in Settings was not recorded in any conversation, so there is no
+      // session to offer. The mock says so rather than inventing one, which is what keeps the
+      // panel's link absent here and present for an extracted memory.
+      sourceSessionId: null,
       createdAt: now,
       updatedAt: now,
     };

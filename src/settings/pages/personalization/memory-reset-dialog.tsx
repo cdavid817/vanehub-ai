@@ -156,6 +156,13 @@ export function MemoryResetDialog({
             </dl>
           )}
 
+          {/* Said before the phrase, not after: there is no undo, and the files are plain markdown
+              a user can copy anywhere. The application deliberately does not export for them --
+              that would be a second copy of their memories it is then responsible for. */}
+          <p className="text-xs text-muted-foreground" data-testid="personalization-reset-backup-hint">
+            {t("personalization.reset.backupHint")}
+          </p>
+
           <label className="flex flex-col gap-1 text-xs font-medium">
             {t("personalization.reset.typeToConfirm", { phrase: RESET_CONFIRMATION_PHRASE })}
             <input

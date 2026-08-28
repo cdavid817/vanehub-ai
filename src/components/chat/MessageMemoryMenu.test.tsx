@@ -28,6 +28,7 @@ function renderMenu(
     sensitivity: "normal" as const,
     revision: 1,
     sourceAgentId: null,
+    sourceSessionId: null,
     createdAt: "2026-02-01T09:00:00Z",
     updatedAt: "2026-02-01T09:00:00Z",
   }));
@@ -165,6 +166,7 @@ describe("MessageMemoryMenu", () => {
       sensitivity: "normal" as const,
       revision: 4,
       sourceAgentId: null,
+      sourceSessionId: null,
       createdAt: "2026-02-01T09:00:00Z",
       updatedAt: "2026-02-01T09:00:00Z",
     }));

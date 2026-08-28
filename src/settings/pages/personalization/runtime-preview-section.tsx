@@ -12,10 +12,10 @@ import { useScopeOptions } from "./use-scope-options";
 const MODES: SessionPersonalizationMode[] = ["standard", "project-only", "temporary"];
 
 /**
- * A resolution needs a session to be about, and this preview is about a hypothetical one.
+ * The id a hypothetical resolution is made under.
  *
- * The id identifies the snapshot rather than selecting anything. Borrowing a real session's would
- * report that session's own mode and workspace instead of the ones chosen here.
+ * Used when no real session is selected. It identifies the snapshot rather than selecting anything,
+ * which is what lets the mode and workspace below be the user's choice rather than some session's.
  */
 const PREVIEW_SESSION_ID = "personalization-runtime-preview";
 
@@ -25,17 +25,49 @@ export function RuntimePreviewSection({ service = defaultAgentService }: { servi
   const [agentId, setAgentId] = useState("");
   const [workspaceKey, setWorkspaceKey] = useState("");
   const [mode, setMode] = useState<SessionPersonalizationMode>("standard");
+  const [sessionId, setSessionId] = useState("");
+
+  const sessionsQuery = useQuery({
+    queryKey: ["personalization", "preview-sessions"] as const,
+    queryFn: () => service.listSessions(),
+  });
+  const sessions = sessionsQuery.data ?? [];
+  const selectedSession = sessions.find((session) => session.id === sessionId) ?? null;
+
+  // A real session's own mode and workspace are what it is actually running under, so choosing one
+  // answers "what is this session using" rather than "what would a session like this use". The two
+  // controls go read-only rather than hidden: the values are the answer, and a control that
+  // vanished would leave the user unsure whether the preview had used them at all.
+  const sessionWorkspaceQuery = useQuery({
+    queryKey: ["personalization", "preview-session-workspace", selectedSession?.id ?? null] as const,
+    queryFn: () =>
+      service.resolvePersonalizationWorkspace({
+        projectPath: selectedSession?.projectPath ?? undefined,
+        worktreePath: selectedSession?.worktreePath ?? undefined,
+      }),
+    enabled: selectedSession !== null,
+  });
+
+  const effectiveMode = selectedSession?.personalizationMode ?? mode;
+  const effectiveWorkspaceKey = selectedSession
+    ? (sessionWorkspaceQuery.data?.workspaceKey ?? undefined)
+    : workspaceKey || undefined;
+  const resolvingSession = selectedSession !== null && sessionWorkspaceQuery.isPending;
 
   const previewQuery = useQuery({
-    queryKey: ["personalization", "runtime-preview", { agentId, workspaceKey, mode }] as const,
+    queryKey: [
+      "personalization",
+      "runtime-preview",
+      { agentId, workspaceKey: effectiveWorkspaceKey ?? "", mode: effectiveMode, sessionId },
+    ] as const,
     queryFn: () =>
       service.previewEffectivePersonalization({
         agentId,
-        sessionId: PREVIEW_SESSION_ID,
-        workspaceKey: workspaceKey || undefined,
-        sessionMode: mode,
+        sessionId: selectedSession?.id ?? PREVIEW_SESSION_ID,
+        workspaceKey: effectiveWorkspaceKey,
+        sessionMode: effectiveMode,
       }),
-    enabled: agentId !== "",
+    enabled: agentId !== "" && !resolvingSession,
   });
 
   return (
@@ -44,7 +76,7 @@ export function RuntimePreviewSection({ service = defaultAgentService }: { servi
       icon={Eye}
       title={t("personalization.runtimePreview.title")}
     >
-      <div className="grid gap-3 sm:grid-cols-3" data-testid="personalization-preview-inputs">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" data-testid="personalization-preview-inputs">
         <label className="flex min-w-0 flex-col gap-1 text-xs font-medium">
           {t("personalization.scope.agent")}
           <select
@@ -66,8 +98,9 @@ export function RuntimePreviewSection({ service = defaultAgentService }: { servi
           <select
             className="ucd-input h-9 rounded-md px-2 text-sm"
             data-testid="personalization-preview-workspace"
+            disabled={selectedSession !== null}
             onChange={(event) => setWorkspaceKey(event.target.value)}
-            value={workspaceKey}
+            value={selectedSession ? (effectiveWorkspaceKey ?? "") : workspaceKey}
           >
             <option value="">{t("personalization.preview.noWorkspace")}</option>
             {workspaces.map((workspace) => (
@@ -78,12 +111,29 @@ export function RuntimePreviewSection({ service = defaultAgentService }: { servi
           </select>
         </label>
         <label className="flex min-w-0 flex-col gap-1 text-xs font-medium">
+          {t("personalization.preview.session")}
+          <select
+            className="ucd-input h-9 rounded-md px-2 text-sm"
+            data-testid="personalization-preview-session"
+            onChange={(event) => setSessionId(event.target.value)}
+            value={sessionId}
+          >
+            <option value="">{t("personalization.preview.hypotheticalSession")}</option>
+            {sessions.map((session) => (
+              <option key={session.id} value={session.id}>
+                {session.title}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex min-w-0 flex-col gap-1 text-xs font-medium">
           {t("personalization.preview.mode")}
           <select
             className="ucd-input h-9 rounded-md px-2 text-sm"
             data-testid="personalization-preview-mode"
+            disabled={selectedSession !== null}
             onChange={(event) => setMode(event.target.value as SessionPersonalizationMode)}
-            value={mode}
+            value={effectiveMode}
           >
             {MODES.map((value) => (
               <option key={value} value={value}>
@@ -93,6 +143,12 @@ export function RuntimePreviewSection({ service = defaultAgentService }: { servi
           </select>
         </label>
       </div>
+
+      {selectedSession ? (
+        <p className="mt-3 text-xs text-muted-foreground" data-testid="personalization-preview-session-note">
+          {t("personalization.preview.sessionFixes")}
+        </p>
+      ) : null}
 
       <div className="mt-4">
         {agentId === "" ? (

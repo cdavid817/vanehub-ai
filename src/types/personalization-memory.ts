@@ -72,6 +72,9 @@ export interface MemoryDetail {
   sensitivity: MemorySensitivity;
   revision: number;
   sourceAgentId: string | null;
+  /** The session it was recorded in, when one was. An id rather than a title: the title belongs to
+   * the session and a copy kept here would name something that has since been renamed. */
+  sourceSessionId: string | null;
   createdAt: string;
   updatedAt: string;
 }

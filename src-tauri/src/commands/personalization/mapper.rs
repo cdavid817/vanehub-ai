@@ -428,6 +428,10 @@ pub(super) fn detail_to_dto(record: MemoryRecord) -> dto::MemoryDetailView {
             .provenance
             .source_agent_id
             .map(|id| id.as_str().to_string()),
+        source_session_id: record
+            .provenance
+            .source_session_id
+            .map(|id| id.as_str().to_string()),
         created_at: record.created_at.to_rfc3339(),
         updated_at: record.updated_at.to_rfc3339(),
     }

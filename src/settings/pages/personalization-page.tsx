@@ -14,7 +14,7 @@ import {
   type PersonalizationView,
 } from "./personalization/view-tabs";
 
-export function PersonalizationPage() {
+export function PersonalizationPage({ onOpenSession }: { onOpenSession?: (sessionId: string) => void }) {
   const { t } = useTranslation();
   const { error } = useSettings();
   const [view, setView] = useState<PersonalizationView>("overview");
@@ -37,7 +37,7 @@ export function PersonalizationPage() {
       >
         {view === "overview" ? <PersonalizationOverviewSection /> : null}
         {view === "instructions" ? <PersonalizationInstructionsView /> : null}
-        {view === "memory" ? <PersonalizationMemoryView /> : null}
+        {view === "memory" ? <PersonalizationMemoryView onOpenSession={onOpenSession} /> : null}
         {view === "runtimePreview" ? <RuntimePreviewSection /> : null}
       </div>
     </div>
