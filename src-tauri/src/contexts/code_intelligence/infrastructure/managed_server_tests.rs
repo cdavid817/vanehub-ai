@@ -156,6 +156,79 @@ fn a_reinstall_replaces_rather_than_merges() {
         .is_file());
 }
 
+/// Serves bytes that are not an archive, so the install fails at extraction.
+struct FailingArchiveRetriever;
+
+impl ManagedArtifactRetriever for FailingArchiveRetriever {
+    fn retrieve(
+        &self,
+        request: ArtifactRequest<'_>,
+        _cancelled: &AtomicBool,
+    ) -> Result<RetrievedArtifact, ManagedInstallError> {
+        let directory = tempfile::tempdir().expect("artifact directory");
+        let path = directory.path().join(request.file_name);
+        std::fs::write(&path, b"not an archive").expect("write fixture");
+        Ok(RetrievedArtifact {
+            path,
+            _directory: directory,
+        })
+    }
+}
+
+#[test]
+fn a_failed_reinstall_leaves_the_working_install_in_place() {
+    let data = tempfile::tempdir().expect("data directory");
+    let installed = install_managed_server(
+        &retriever(jdtls_archive()),
+        data.path(),
+        registry::java(),
+        &never(),
+    )
+    .expect("install");
+
+    let error = install_managed_server(
+        &FailingArchiveRetriever,
+        data.path(),
+        registry::java(),
+        &never(),
+    )
+    .expect_err("the second install fails");
+
+    // Pressing install again and having it fail must not be worse than never pressing it. The
+    // language was working before, and it is still working now.
+    //
+    // This covers the failure *before* the swap -- a bad download or a refused archive. The one
+    // during the copy is not covered: making `fs::copy` fail portably needs a fault-injection seam
+    // this module does not have, so `swap_into_place` narrows that window by construction rather
+    // than under test. Both paths are worth keeping honest about; only one of them is pinned here.
+    assert!(matches!(error, ManagedInstallError::Refused(_)));
+    assert!(installed
+        .join("plugins/org.eclipse.equinox.launcher_1.6.500.jar")
+        .is_file());
+    assert_eq!(
+        managed_install(data.path(), registry::java().id),
+        Some(installed)
+    );
+}
+
+#[test]
+fn a_successful_install_leaves_no_staging_directory_behind() {
+    let data = tempfile::tempdir().expect("data directory");
+    let retriever = retriever(jdtls_archive());
+    install_managed_server(&retriever, data.path(), registry::java(), &never()).expect("install");
+    install_managed_server(&retriever, data.path(), registry::java(), &never()).expect("reinstall");
+
+    // Both the staging copy and the retired one are transient. Left behind, they would double the
+    // disk a language costs and the next reinstall would silently be swapping against stale trees.
+    let language_root = data.path().join("lsp").join(registry::java().id);
+    let remaining: Vec<String> = std::fs::read_dir(&language_root)
+        .expect("language root")
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(remaining, vec!["install".to_owned()]);
+}
+
 #[test]
 fn uninstall_removes_the_managed_directory_and_is_uneventful_when_there_is_none() {
     let data = tempfile::tempdir().expect("data directory");
