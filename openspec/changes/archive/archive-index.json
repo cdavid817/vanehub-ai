@@ -3438,6 +3438,21 @@
         "cli-environment-management",
         "managed-tool-installation"
       ]
+    },
+    {
+      "archivedOn": "2026-08-28",
+      "changeName": "manage-language-server-installation",
+      "path": "openspec/changes/archive/2026-08-28-manage-language-server-installation/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "lsp-server-management",
+        "managed-tool-installation",
+        "settings-center-ui"
+      ]
     }
   ]
 }

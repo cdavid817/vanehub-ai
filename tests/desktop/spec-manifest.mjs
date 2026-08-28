@@ -129,6 +129,20 @@ export const DESKTOP_SPECS = [
   },
 ];
 
+/** Focused provider-specific evaluation specs, outside the broad required/external split. */
+export const AGENT_EVALUATION_SPECS = [
+  {
+    spec: "agent-evaluation.e2e.mjs",
+    modes: ["fixture-opencode", "live-opencode", "live-onepiece"],
+  },
+];
+
+export function agentEvaluationSpecFiles(mode) {
+  return AGENT_EVALUATION_SPECS
+    .filter((entry) => entry.modes.includes(mode))
+    .map((entry) => entry.spec);
+}
+
 /** Spec file names the required gate runs, in manifest order. */
 export function requiredSpecFiles() {
   return DESKTOP_SPECS.filter((entry) => entry.gate === REQUIRED_FIXTURE).map((entry) => entry.spec);

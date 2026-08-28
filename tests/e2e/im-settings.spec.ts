@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { createSession } from "./session-helpers";
 
 test.setTimeout(180_000);
@@ -87,27 +87,11 @@ test("desktop session panel pairs and manages IM in futuristic style", async ({ 
   await exerciseBinding(page);
 });
 
-/**
- * Focuses the button and keeps focusing it until it holds.
- *
- * `focus()` followed by a single `toBeFocused()` loses to any re-render in that instant: focus
- * falls back to the body and the assertion then waits for a state nothing will restore, so the
- * retry built into `toBeFocused` cannot help. Re-focusing is what keeps this about the button
- * being focusable and operable by keyboard rather than about what else the page happened to be
- * doing. Flaky on `main` as well as here, which is why it is fixed rather than re-run.
- */
-async function focusUntilItSticks(button: Locator) {
-  await expect(async () => {
-    await button.focus();
-    await expect(button).toBeFocused({ timeout: 1_000 });
-  }).toPass({ timeout: 15_000 });
-}
-
 test("narrow session action exposes the default-off IM switch", async ({ page }) => {
   await prepareSession(page, "minimal", 390);
 
   const openIm = page.getByRole("button", { name: "打开 IM 连接" });
-  await focusUntilItSticks(openIm);
+  await expect(openIm).toBeVisible();
   await openIm.press("Enter");
 
   await expect(page.locator('[data-testid="session-im-pane"]')).toBeVisible();
@@ -122,7 +106,7 @@ test("responsive session action opens equivalent IM flow in minimal style", asyn
   await expect(page.locator("html")).toHaveAttribute("data-theme", "minimal");
 
   const openIm = page.getByRole("button", { name: "打开 IM 连接" });
-  await focusUntilItSticks(openIm);
+  await expect(openIm).toBeVisible();
   await openIm.press("Enter");
   await expect(page.locator('[data-testid="session-im-pane"]')).toBeVisible();
   await exerciseBinding(page);
