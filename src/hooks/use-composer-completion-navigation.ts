@@ -1,34 +1,40 @@
-import { useEffect, useId, useState, type KeyboardEvent } from "react";
+import { useId, useState, type KeyboardEvent } from "react";
+
+type CompletionSelection = {
+  activeIndex: number | null;
+  identityKey: string;
+};
 
 export function useComposerCompletionNavigation(identities: string[]) {
-  const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const listboxId = useId();
   const identityKey = identities.join("\u0000");
-
-  useEffect(() => {
-    setActiveIndex(null);
-  }, [identityKey]);
+  const [selection, setSelection] = useState<CompletionSelection>({ activeIndex: null, identityKey });
+  const activeIndex = selection.identityKey === identityKey ? selection.activeIndex : null;
 
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>, activate: (index: number) => void) {
     if (event.nativeEvent.isComposing || identities.length === 0) return false;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
-      setActiveIndex((current) => {
-        if (current === null) return 0;
+      setSelection((current) => {
+        const currentIndex = current.identityKey === identityKey ? current.activeIndex : null;
+        if (currentIndex === null) return { activeIndex: 0, identityKey };
         const delta = event.key === "ArrowDown" ? 1 : -1;
-        return Math.min(identities.length - 1, Math.max(0, current + delta));
+        return {
+          activeIndex: Math.min(identities.length - 1, Math.max(0, currentIndex + delta)),
+          identityKey,
+        };
       });
       return true;
     }
     if (event.key === "Escape" && activeIndex !== null) {
       event.preventDefault();
-      setActiveIndex(null);
+      setSelection({ activeIndex: null, identityKey });
       return true;
     }
     if (event.key === "Enter" && !event.shiftKey && activeIndex !== null) {
       event.preventDefault();
       activate(activeIndex);
-      setActiveIndex(null);
+      setSelection({ activeIndex: null, identityKey });
       return true;
     }
     return false;
