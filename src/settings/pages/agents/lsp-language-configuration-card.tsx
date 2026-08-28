@@ -1,10 +1,12 @@
 import { useTranslation } from "react-i18next";
 import { Badge } from "../../../components/ui/badge";
 import type {
+  LspDistribution,
   LspLanguageId,
   LspOverrideTarget,
   LspServerDiscovery,
 } from "../../../types/lsp";
+import { LspInstallControl } from "./lsp-install-control";
 import type { LspLanguageDraft } from "./lsp-configuration-form";
 
 const inputClass = "min-h-9 w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60";
@@ -14,6 +16,7 @@ export function LspLanguageConfigurationCard({
   discovery,
   draft,
   errorKey,
+  install,
   language,
   onChange,
   overrideTarget,
@@ -27,6 +30,14 @@ export function LspLanguageConfigurationCard({
   errorKey?: string;
   language: LspLanguageId;
   onChange: (draft: LspLanguageDraft) => void;
+  install?: {
+    busy: boolean;
+    distribution: LspDistribution;
+    installed: boolean;
+    onInstall: () => void;
+    onUninstall: () => void;
+    reasonCode?: string;
+  };
   overrideTarget: LspOverrideTarget;
   pending: boolean;
   prerequisite: string | null;
@@ -85,6 +96,10 @@ export function LspLanguageConfigurationCard({
           <p className="mt-2 ucd-status-warning">{t(`lspSettings.reason.${discovery.reasonCode}`)}</p>
         ) : null}
       </div>
+
+      {install === undefined ? null : (
+        <LspInstallControl {...install} languageName={languageName} />
+      )}
 
       <label className="mt-4 block text-sm font-medium">
         {overrideLabel}

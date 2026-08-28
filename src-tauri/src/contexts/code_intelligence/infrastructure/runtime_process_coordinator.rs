@@ -17,6 +17,7 @@ use super::runtime_notifications::RuntimeNotificationRouter;
 use super::shutdown_coordinator::{
     ActiveLspProcess, ActiveLspProcessWait, LspShutdownCoordinator, LspShutdownSummary,
 };
+use crate::contexts::code_intelligence::domain::models::Language;
 use crate::contexts::code_intelligence::domain::models::{NegotiatedCapabilities, ProcessState};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -363,6 +364,26 @@ impl RuntimeProcessCoordinator {
             .registry
             .revoke_session(workspace);
         self.apply_stop_actions(actions).await;
+    }
+
+    /// Stops every process serving one language.
+    ///
+    /// Used before removing that language's managed install: on Windows a directory a process
+    /// still holds open simply will not delete, so this is ordering rather than politeness.
+    pub(crate) async fn stop_language(&self, language: Language) {
+        let keys = self
+            .inner
+            .state
+            .lock()
+            .await
+            .registry
+            .keys()
+            .into_iter()
+            .filter(|key| key.language() == language)
+            .collect::<Vec<_>>();
+        for key in keys {
+            self.stop(&key).await;
+        }
     }
 
     pub(crate) async fn configuration_replaced(&self) {
