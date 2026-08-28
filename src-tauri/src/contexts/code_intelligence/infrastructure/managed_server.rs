@@ -7,6 +7,9 @@
 //!   any failure, so the finished directory is moved into place only once extraction returns. An
 //!   interrupted install leaves nothing rather than a directory that fails later at launch with a
 //!   missing launcher.
+//! - **A failed reinstall must leave the working install alone.** The new tree is staged beside the
+//!   live one and swapped in by rename, so the only moment the language has no install is between
+//!   two metadata operations rather than for the length of a copy that can fail halfway.
 //! - **Only VaneHub's own copy is ever removed.** A manual override names a directory the user
 //!   created, and uninstalling a managed install must not touch it.
 
@@ -77,18 +80,70 @@ pub(crate) fn install_managed_server(
         ));
     }
 
-    // Replacing rather than merging: a previous install's leftover files under a new one is how a
-    // stale launcher survives an upgrade and then gets picked by the glob.
-    if destination.exists() {
-        std::fs::remove_dir_all(&destination).map_err(transfer)?;
-    }
     // `TempDir` removes its path on drop, so the finished tree is copied out rather than renamed:
     // a rename would leave the handle pointing at nothing and, across filesystems, fail outright.
-    copy_tree(&source, &destination).inspect_err(|_| {
-        // The half-copied tree would otherwise read as installed.
-        let _ = std::fs::remove_dir_all(&destination);
+    // It is copied *beside* the live install, not over it -- see `swap_into_place`.
+    let staged = parent.join(STAGED_DIRECTORY);
+    if staged.exists() {
+        std::fs::remove_dir_all(&staged).map_err(transfer)?;
+    }
+    copy_tree(&source, &staged).inspect_err(|_| {
+        // The half-copied tree would otherwise be swapped in and read as installed.
+        let _ = std::fs::remove_dir_all(&staged);
     })?;
+    swap_into_place(&staged, &destination, parent)?;
     Ok(destination)
+}
+
+/// The directory a new install is built in before it replaces the live one.
+///
+/// A sibling rather than a temporary directory elsewhere, so the swap is a same-filesystem rename.
+const STAGED_DIRECTORY: &str = "install.incoming";
+
+/// The directory the outgoing install is parked in while the new one is renamed in.
+const RETIRED_DIRECTORY: &str = "install.previous";
+
+/// Replaces the live install with the staged one, keeping the live one until the swap succeeds.
+///
+/// Copying straight over the destination would mean deleting a working install and then spending
+/// the length of a 50 MB copy in a state where a disk-full or permission error leaves the language
+/// with nothing -- a reinstall that fails would be strictly worse than not pressing the button.
+/// Here the only gap is between two renames, and a failed second rename puts the original back.
+///
+/// Replacing rather than merging: a previous install's leftover files under a new one is how a
+/// stale launcher survives an upgrade and then gets picked by the glob.
+fn swap_into_place(
+    staged: &Path,
+    destination: &Path,
+    parent: &Path,
+) -> Result<(), ManagedInstallError> {
+    let retired = parent.join(RETIRED_DIRECTORY);
+    if retired.exists() {
+        std::fs::remove_dir_all(&retired).map_err(transfer)?;
+    }
+    let had_previous = destination.exists();
+    if had_previous {
+        // On Windows this is where a running server stops the operation, and it stops it before
+        // anything has been destroyed.
+        std::fs::rename(destination, &retired)
+            .inspect_err(|_| {
+                let _ = std::fs::remove_dir_all(staged);
+            })
+            .map_err(transfer)?;
+    }
+    if let Err(error) = std::fs::rename(staged, destination) {
+        if had_previous {
+            // Best effort, and the only path that can leave the language uninstalled: the restore
+            // failing means the filesystem refused two renames in a row.
+            let _ = std::fs::rename(&retired, destination);
+        }
+        let _ = std::fs::remove_dir_all(staged);
+        return Err(transfer(error));
+    }
+    // The old install is gone from the live path already; failing to delete it now costs disk
+    // rather than correctness, and the next install removes it.
+    let _ = std::fs::remove_dir_all(&retired);
+    Ok(())
 }
 
 /// Removes only the directory VaneHub created.
