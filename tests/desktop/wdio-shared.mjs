@@ -173,6 +173,10 @@ export async function createDesktopConfig({
     waitforTimeout: 20_000,
     connectionRetryTimeout: 120_000,
     connectionRetryCount: 1,
+    // The embedded Linux driver can briefly release its port while one Tauri application
+    // session exits and the next spec starts. Retry the whole spec after that handoff settles.
+    specFileRetries: 2,
+    specFileRetriesDelay: 5,
     framework: "mocha",
     reporters: ["spec"],
     mochaOpts: { ui: "bdd", timeout: mochaTimeout },

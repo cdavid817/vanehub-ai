@@ -73,7 +73,6 @@ export default tseslint.config(
   ...[
     ["src/services/tauri-agent-client.ts", 1213],
     ["src/types/agent.ts", 702],
-    ["src/services/agent-service.ts", 306],
     ["src/main-layout/main-layout.tsx", 528],
     ["src/contracts/agent.ts", 504],
     ["src/settings/pages/sdk-page.tsx", 396],

@@ -1,10 +1,12 @@
 use crate::contexts::agent_runtime::api::{
     AgentAvailability, AgentChatConfiguration, AgentFileReference, AgentMessageSource,
-    AgentMessageTerminalOutcome, AgentRuntimeApi, InteractionMode, SendMessageRequest,
+    AgentMessageTerminalOutcome, AgentRuntimeApi, AgentRuntimeApplicationError, InteractionMode,
+    SendMessageRequest,
 };
 use crate::contexts::execution_observability::application::AgentExecutionEvidence;
 use crate::contexts::execution_observability::domain::{
-    DISPATCH_AGENT_UNAVAILABLE, DISPATCH_AGENT_UNSUPPORTED, DISPATCH_TERMINAL_DISCONNECTED,
+    DISPATCH_AGENT_UNAVAILABLE, DISPATCH_AGENT_UNSUPPORTED, DISPATCH_CLI_PROFILE_UNAVAILABLE,
+    DISPATCH_GENERATION_UNAVAILABLE, DISPATCH_PROCESS_UNAVAILABLE, DISPATCH_TERMINAL_DISCONNECTED,
 };
 use crate::contexts::sessions::api::{
     NewSessionRequest, NewSessionWorkspace, SessionActivation, SessionOwner, SessionsApi,
@@ -17,8 +19,6 @@ pub(crate) struct EvaluationDispatchRequest {
     pub(crate) task_id: String,
     pub(crate) attempt_id: String,
     pub(crate) agent_id: String,
-    pub(crate) provider_id: Option<String>,
-    pub(crate) model_id: Option<String>,
     pub(crate) prompt: String,
     pub(crate) workspace: String,
     pub(crate) timeout_seconds: u64,
@@ -84,8 +84,11 @@ impl NativeEvaluationAgentAdapter {
                     agent_id: request.agent_id.clone(),
                     interaction_mode: mode,
                     execution_mode: "execute".to_string(),
-                    provider_id: request.provider_id.clone(),
-                    model_id: request.model_id.clone(),
+                    // Evaluation snapshots retain registry provider/model metadata for audit, but
+                    // those display values are not session configuration ids. Let the session
+                    // boundary resolve its canonical provider and model defaults.
+                    provider_id: None,
+                    model_id: None,
                     reasoning_depth: None,
                     streaming: true,
                     thinking: false,
@@ -93,7 +96,7 @@ impl NativeEvaluationAgentAdapter {
                 },
                 file_references: Vec::<AgentFileReference>::new(),
             })
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| safe_runtime_start_error(&error))?;
         let correlation = self
             .agents
             .active_generation_correlation(&session_id)
@@ -167,16 +170,25 @@ impl NativeEvaluationAgentAdapter {
         eligible_mode(
             &agent.id,
             agent.availability,
-            agent.managed_sdk_dependency_id.as_deref(),
             &agent.supported_interaction_modes,
         )
     }
 }
 
+fn safe_runtime_start_error(error: &AgentRuntimeApplicationError) -> String {
+    match error {
+        AgentRuntimeApplicationError::CliProfile(_) => DISPATCH_CLI_PROFILE_UNAVAILABLE,
+        AgentRuntimeApplicationError::Process(_) | AgentRuntimeApplicationError::Provider(_) => {
+            DISPATCH_PROCESS_UNAVAILABLE
+        }
+        _ => DISPATCH_GENERATION_UNAVAILABLE,
+    }
+    .to_string()
+}
+
 fn eligible_mode(
     agent_id: &str,
     availability: AgentAvailability,
-    managed_dependency: Option<&str>,
     supported_modes: &[InteractionMode],
 ) -> Result<InteractionMode, String> {
     if availability != AgentAvailability::Available {
@@ -185,7 +197,7 @@ fn eligible_mode(
     if agent_id == "onepiece" && supported_modes.contains(&InteractionMode::Api) {
         return Ok(InteractionMode::Api);
     }
-    if managed_dependency.is_some() && supported_modes.contains(&InteractionMode::Cli) {
+    if supported_modes.contains(&InteractionMode::Cli) {
         return Ok(InteractionMode::Cli);
     }
     Err(DISPATCH_AGENT_UNSUPPORTED.to_string())
@@ -208,12 +220,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn eligibility_allows_onepiece_and_managed_cli_only() {
+    fn eligibility_allows_onepiece_and_available_cli_agents() {
         assert_eq!(
             eligible_mode(
                 "onepiece",
                 AgentAvailability::Available,
-                None,
                 &[InteractionMode::Api]
             ),
             Ok(InteractionMode::Api)
@@ -222,7 +233,14 @@ mod tests {
             eligible_mode(
                 "codex-cli",
                 AgentAvailability::Available,
-                Some("codex"),
+                &[InteractionMode::Cli]
+            ),
+            Ok(InteractionMode::Cli)
+        );
+        assert_eq!(
+            eligible_mode(
+                "opencode",
+                AgentAvailability::Available,
                 &[InteractionMode::Cli]
             ),
             Ok(InteractionMode::Cli)
@@ -230,7 +248,6 @@ mod tests {
         assert!(eligible_mode(
             "browser-agent",
             AgentAvailability::Available,
-            None,
             &[InteractionMode::Browser]
         )
         .is_err());
@@ -241,12 +258,33 @@ mod tests {
         assert!(eligible_mode(
             "codex-cli",
             AgentAvailability::Unavailable,
-            Some("codex"),
             &[InteractionMode::Cli]
         )
         .is_err());
         assert_eq!(non_negative(-1), None);
         assert_eq!(non_negative(7), Some(7));
         assert_eq!(reported_count(0, 0), None);
+    }
+
+    #[test]
+    fn runtime_start_errors_are_reduced_to_safe_actionable_categories() {
+        assert_eq!(
+            safe_runtime_start_error(&AgentRuntimeApplicationError::CliProfile(
+                "/private/path and token must not survive".into()
+            )),
+            DISPATCH_CLI_PROFILE_UNAVAILABLE
+        );
+        assert_eq!(
+            safe_runtime_start_error(&AgentRuntimeApplicationError::Process(
+                "provider payload must not survive".into()
+            )),
+            DISPATCH_PROCESS_UNAVAILABLE
+        );
+        assert_eq!(
+            safe_runtime_start_error(&AgentRuntimeApplicationError::Generation(
+                "internal detail must not survive".into()
+            )),
+            DISPATCH_GENERATION_UNAVAILABLE
+        );
     }
 }
