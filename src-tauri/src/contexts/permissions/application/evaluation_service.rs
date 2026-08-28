@@ -2,6 +2,8 @@
 //! every decision to the audit trail.
 
 use super::error::PermissionsApplicationError;
+#[cfg(test)]
+use super::ports::PendingGrantIntent;
 use super::ports::{
     AuditDecider, AuditRecord, AuditRepository, DefaultTemplatePort, GrantQuery, GrantRepository,
     PermissionsClockPort, PermissionsIdPort, PrincipalRepository,
@@ -92,7 +94,15 @@ impl EvaluationService {
                 session_id,
                 project_key,
             };
-            match self.grants.find_matching(&query)?.map(|grant| grant.effect) {
+            // Re-checked against the domain rule rather than trusted. The repository decides
+            // precedence in SQL, and this is the one place that can tell a storage-side widening —
+            // a wrong predicate, a stale index, an inactive row leaking through — from an
+            // authorization the user actually granted. A grant that does not apply is dropped, not
+            // honoured, so the failure mode is falling back to the template rather than executing.
+            let effective = self.grants.find_effective_grant(&query)?.filter(|grant| {
+                grant.matches(principal.id(), action, resource, session_id, project_key)
+            });
+            match effective.map(|grant| grant.effect.as_effect()) {
                 Some(effect) => effect,
                 None => {
                     let template_policies = policies_for_template(principal.template());
@@ -123,19 +133,14 @@ impl EvaluationService {
         &self,
         agent_id: &str,
     ) -> Result<Principal, PermissionsApplicationError> {
-        if let Some(principal) = self.principals.find_by_agent_id(agent_id)? {
-            return Ok(principal);
-        }
-        let id = self.ids.next_id("principal");
-        let principal = Principal::new(
-            id,
-            agent_id.to_string(),
+        // One atomic operation rather than read-then-write: two evaluations meeting a new agent at
+        // the same moment would otherwise have one of them lose the unique-`agent_id` insert and
+        // fail closed to Ask, which is a race presenting itself as a policy decision.
+        self.principals.get_or_create(
+            agent_id,
+            &self.ids.next_id("principal"),
             self.default_template.default_template(),
-            None,
-            None,
-        )?;
-        self.principals.create(&principal)?;
-        Ok(principal)
+        )
     }
 
     /// Reports an agent's current policy template without ever writing a principal row as a side
@@ -213,7 +218,9 @@ impl EvaluationService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::contexts::permissions::domain::{Effect, Grant, Scope};
+    use crate::contexts::permissions::domain::{
+        Effect, Grant, GrantActivationState, PersistedEffect, RememberedScope,
+    };
     use std::collections::HashMap;
     use std::sync::Mutex;
 
@@ -230,12 +237,25 @@ mod tests {
             Ok(self.by_agent.lock().unwrap().get(agent_id).cloned())
         }
 
-        fn create(&self, principal: &Principal) -> Result<(), PermissionsApplicationError> {
-            self.by_agent
-                .lock()
-                .unwrap()
-                .insert(principal.agent_id().to_string(), principal.clone());
-            Ok(())
+        fn get_or_create(
+            &self,
+            agent_id: &str,
+            id_hint: &str,
+            default_template: PolicyTemplateName,
+        ) -> Result<Principal, PermissionsApplicationError> {
+            let mut principals = self.by_agent.lock().unwrap();
+            if let Some(principal) = principals.get(agent_id) {
+                return Ok(principal.clone());
+            }
+            let principal = Principal::new(
+                id_hint.to_string(),
+                agent_id.to_string(),
+                default_template,
+                None,
+                None,
+            )?;
+            principals.insert(agent_id.to_string(), principal.clone());
+            Ok(principal)
         }
 
         fn update_template(
@@ -257,7 +277,10 @@ mod tests {
     }
 
     impl GrantRepository for FakeGrants {
-        fn find_matching(
+        /// Ranks in memory the way the SQL does. A fake that returned the first applicable grant
+        /// would hide exactly the defect the real query was changed to remove, so the precedence
+        /// rule is restated here rather than assumed.
+        fn find_effective_grant(
             &self,
             query: &GrantQuery<'_>,
         ) -> Result<Option<Grant>, PermissionsApplicationError> {
@@ -266,7 +289,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .iter()
-                .find(|grant| {
+                .filter(|grant| {
                     grant.matches(
                         query.principal_id,
                         query.action,
@@ -275,11 +298,48 @@ mod tests {
                         query.project_key,
                     )
                 })
+                .max_by_key(|grant| (grant.specificity(), grant.revision))
                 .cloned())
         }
 
-        fn create(&self, grant: &Grant) -> Result<(), PermissionsApplicationError> {
-            self.grants.lock().unwrap().push(grant.clone());
+        fn upsert_pending_grant_intent(
+            &self,
+            intent: &PendingGrantIntent,
+        ) -> Result<Grant, PermissionsApplicationError> {
+            let mut grants = self.grants.lock().unwrap();
+            let existing = grants.iter().position(|grant| grant.key == intent.key);
+            let grant = Grant {
+                id: existing
+                    .map(|index| grants[index].id.clone())
+                    .unwrap_or_else(|| intent.id.clone()),
+                key: intent.key.clone(),
+                effect: intent.effect,
+                revision: existing.map_or(1, |index| grants[index].revision + 1),
+                activation_state: GrantActivationState::PendingDelivery,
+                resolution_id: Some(intent.resolution_id.clone()),
+                created_at: intent.now.clone(),
+                updated_at: intent.now.clone(),
+            };
+            match existing {
+                Some(index) => grants[index] = grant.clone(),
+                None => grants.push(grant.clone()),
+            }
+            Ok(grant)
+        }
+
+        fn activate_grant_for_resolution(
+            &self,
+            resolution_id: &str,
+            now: &str,
+        ) -> Result<(), PermissionsApplicationError> {
+            for grant in self.grants.lock().unwrap().iter_mut() {
+                if grant.resolution_id.as_deref() == Some(resolution_id)
+                    && grant.activation_state == GrantActivationState::PendingDelivery
+                {
+                    grant.activation_state = GrantActivationState::Active;
+                    grant.updated_at = now.to_string();
+                }
+            }
             Ok(())
         }
     }
@@ -429,19 +489,14 @@ mod tests {
         );
         assert_eq!(effect_before, Effect::Ask);
 
-        grants
-            .create(&Grant {
-                id: "grant-1".to_string(),
-                principal_id: "principal-1".to_string(),
-                action: Action::file_write(),
-                resource: crate::contexts::permissions::domain::Resource::file_path("a.txt"),
-                effect: Effect::Allow,
-                scope: Scope::Session,
-                session_id: Some("session-1".to_string()),
-                project_key: None,
-                created_at: "0".to_string(),
-            })
-            .unwrap();
+        grants.grants.lock().unwrap().push(Grant::active_for_test(
+            "grant-1",
+            "principal-1",
+            Action::file_write(),
+            crate::contexts::permissions::domain::Resource::file_path("a.txt"),
+            PersistedEffect::Allow,
+            RememberedScope::Session("session-1".to_string()),
+        ));
 
         let effect_after = service.evaluate(
             "agent-1",

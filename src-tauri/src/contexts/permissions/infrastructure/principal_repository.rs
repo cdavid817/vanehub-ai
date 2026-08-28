@@ -52,30 +52,59 @@ impl PrincipalRepository for SqlitePrincipalRepository {
             .map_err(repository_error)
     }
 
-    fn create(&self, principal: &Principal) -> Result<(), PermissionsApplicationError> {
+    /// Insert-if-absent then read, both on one checked-out connection.
+    ///
+    /// `DO NOTHING` rather than a preceding `SELECT`: the read and the write are not atomic, and
+    /// `agent_id` is unique, so a losing racer would surface a constraint error that evaluation
+    /// then fails closed on — a first-use `Ask` produced by two generations starting together
+    /// rather than by policy. The follow-up read runs on the same connection so it observes either
+    /// this call's insert or the winner's.
+    fn get_or_create(
+        &self,
+        agent_id: &str,
+        id_hint: &str,
+        default_template: PolicyTemplateName,
+    ) -> Result<Principal, PermissionsApplicationError> {
         let now = crate::platform::clock::SystemClock.rfc3339();
-        let budget_config = principal
+        // Built through the domain constructor rather than written as raw column values, so the
+        // row this inserts is one the domain would accept — a first-use principal that skipped
+        // `Principal::new` could carry a delegation parent nothing has enabled yet.
+        let candidate = Principal::new(
+            id_hint.to_string(),
+            agent_id.to_string(),
+            default_template,
+            None,
+            None,
+        )?;
+        let budget_config = candidate
             .budget_config()
             .map(serde_json::to_string)
             .transpose()
             .map_err(repository_error)?;
-        self.database
-            .connection()
-            .map_err(repository_error)?
+        let connection = self.database.connection().map_err(repository_error)?;
+        connection
             .execute(
                 "INSERT INTO agent_principals \
                  (id, agent_id, template_name, parent_principal_id, budget_config, created_at, updated_at) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6) \
+                 ON CONFLICT(agent_id) DO NOTHING",
                 params![
-                    principal.id(),
-                    principal.agent_id(),
-                    principal.template().as_str(),
-                    principal.parent_principal_id(),
+                    candidate.id(),
+                    candidate.agent_id(),
+                    candidate.template().as_str(),
+                    candidate.parent_principal_id(),
                     budget_config,
                     now,
                 ],
             )
-            .map(|_| ())
+            .map_err(repository_error)?;
+        connection
+            .query_row(
+                "SELECT id, agent_id, template_name, parent_principal_id, budget_config \
+                 FROM agent_principals WHERE agent_id = ?1",
+                params![agent_id],
+                Self::from_row,
+            )
             .map_err(repository_error)
     }
 
@@ -122,17 +151,12 @@ mod tests {
     }
 
     #[test]
-    fn create_then_find_by_agent_id_round_trips() {
+    fn get_or_create_then_find_by_agent_id_round_trips() {
         let (repository, _directory) = repository();
-        let principal = Principal::new(
-            "principal-1".to_string(),
-            "agent-1".to_string(),
-            PolicyTemplateName::Trusted,
-            None,
-            None,
-        )
-        .unwrap();
-        repository.create(&principal).unwrap();
+        let created = repository
+            .get_or_create("agent-1", "principal-1", PolicyTemplateName::Trusted)
+            .unwrap();
+        assert_eq!(created.id(), "principal-1");
 
         let found = repository
             .find_by_agent_id("agent-1")
@@ -140,6 +164,27 @@ mod tests {
             .expect("principal should be found");
         assert_eq!(found.id(), "principal-1");
         assert_eq!(found.template(), PolicyTemplateName::Trusted);
+    }
+
+    #[test]
+    fn get_or_create_returns_the_existing_row_and_ignores_the_id_hint() {
+        let (repository, _directory) = repository();
+        repository
+            .get_or_create("agent-1", "principal-1", PolicyTemplateName::Trusted)
+            .unwrap();
+
+        // The hint is only used when this call is the one that inserts. Returning a principal
+        // under the second hint would hand the caller an id no row has.
+        let existing = repository
+            .get_or_create("agent-1", "principal-2", PolicyTemplateName::Readonly)
+            .unwrap();
+
+        assert_eq!(existing.id(), "principal-1");
+        assert_eq!(
+            existing.template(),
+            PolicyTemplateName::Trusted,
+            "get-or-create reassigned an existing principal's template"
+        );
     }
 
     #[test]
@@ -154,15 +199,9 @@ mod tests {
     #[test]
     fn update_template_changes_the_stored_template() {
         let (repository, _directory) = repository();
-        let principal = Principal::new(
-            "principal-1".to_string(),
-            "agent-1".to_string(),
-            PolicyTemplateName::Standard,
-            None,
-            None,
-        )
-        .unwrap();
-        repository.create(&principal).unwrap();
+        repository
+            .get_or_create("agent-1", "principal-1", PolicyTemplateName::Standard)
+            .unwrap();
 
         repository
             .update_template("principal-1", PolicyTemplateName::Readonly)
@@ -177,5 +216,136 @@ mod tests {
         let (repository, _directory) = repository();
         let result = repository.update_template("does-not-exist", PolicyTemplateName::Standard);
         assert!(result.is_err());
+    }
+
+    /// Below the pool ceiling, so a connection-checkout timeout can never be mistaken for the
+    /// write race these tests are about.
+    const RACERS: usize = 8;
+
+    fn principal_rows(repository: &SqlitePrincipalRepository) -> i64 {
+        repository
+            .database
+            .connection()
+            .expect("connection")
+            .query_row(
+                "SELECT COUNT(*) FROM agent_principals WHERE agent_id = 'agent-1'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count principals")
+    }
+
+    /// Why `get_or_create` exists, stated as a test rather than a comment.
+    ///
+    /// The interleaving is pinned rather than raced for. Both barriers matter: the first releases
+    /// every reader together, and the second holds every writer until all of them have already
+    /// answered "absent". A scheduler will not reliably produce that ordering on its own, which is
+    /// why the same test without the second barrier passes on most runs while the defect is still
+    /// there — it is worth being explicit that this is the trap, because a "flaky" concurrency test
+    /// that gets quietly relaxed is how the bug comes back.
+    #[test]
+    fn a_read_then_write_first_use_loses_the_race_it_is_replacing() {
+        let (repository, _directory) = repository();
+        let read_gate = std::sync::Arc::new(std::sync::Barrier::new(RACERS));
+        let write_gate = std::sync::Arc::new(std::sync::Barrier::new(RACERS));
+        let repository = std::sync::Arc::new(repository);
+
+        let outcomes: Vec<bool> = std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..RACERS)
+                .map(|index| {
+                    let repository = repository.clone();
+                    let read_gate = read_gate.clone();
+                    let write_gate = write_gate.clone();
+                    scope.spawn(move || {
+                        read_gate.wait();
+                        let existing = repository
+                            .find_by_agent_id("agent-1")
+                            .expect("read succeeds");
+                        write_gate.wait();
+                        if existing.is_some() {
+                            return true;
+                        }
+                        // The pre-change insert, spelled out here rather than kept as a production
+                        // method nothing calls any more.
+                        repository
+                            .database
+                            .connection()
+                            .expect("connection")
+                            .execute(
+                                "INSERT INTO agent_principals \
+                                 (id, agent_id, template_name, created_at, updated_at) \
+                                 VALUES (?1, 'agent-1', 'standard', '0', '0')",
+                                params![format!("principal-{index}")],
+                            )
+                            .is_ok()
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|handle| handle.join().expect("racer thread"))
+                .collect()
+        });
+
+        let lost = outcomes.iter().filter(|succeeded| !**succeeded).count();
+        assert!(
+            lost > 0,
+            "the read-then-write race did not reproduce, so this test is no longer evidence"
+        );
+        // Exactly one row either way — the unique index held. The damage is the error the losers
+        // saw, which evaluation turns into a fail-closed Ask that policy never asked for.
+        assert_eq!(principal_rows(&repository), 1);
+    }
+
+    /// `permissions-core`'s "Concurrent first evaluation of one agent", against the atomic
+    /// operation that replaces the race above. Same pinned interleaving, no losers.
+    #[test]
+    fn concurrent_first_use_of_one_agent_resolves_to_a_single_principal() {
+        let (repository, _directory) = repository();
+        let read_gate = std::sync::Arc::new(std::sync::Barrier::new(RACERS));
+        let write_gate = std::sync::Arc::new(std::sync::Barrier::new(RACERS));
+        let repository = std::sync::Arc::new(repository);
+
+        let outcomes: Vec<Result<Principal, PermissionsApplicationError>> =
+            std::thread::scope(|scope| {
+                let handles: Vec<_> = (0..RACERS)
+                    .map(|index| {
+                        let repository = repository.clone();
+                        let read_gate = read_gate.clone();
+                        let write_gate = write_gate.clone();
+                        scope.spawn(move || {
+                            read_gate.wait();
+                            let existing = repository.find_by_agent_id("agent-1")?;
+                            write_gate.wait();
+                            let _ = existing;
+                            repository.get_or_create(
+                                "agent-1",
+                                &format!("principal-{index}"),
+                                PolicyTemplateName::Standard,
+                            )
+                        })
+                    })
+                    .collect();
+                handles
+                    .into_iter()
+                    .map(|handle| handle.join().expect("racer thread"))
+                    .collect()
+            });
+
+        let failures: Vec<_> = outcomes.iter().filter(|outcome| outcome.is_err()).collect();
+        assert!(
+            failures.is_empty(),
+            "{} of {RACERS} concurrent first evaluations lost the create race: {:?}",
+            failures.len(),
+            failures
+        );
+        assert_eq!(principal_rows(&repository), 1);
+        // Every caller has to come back with the same principal, not merely "a" principal: the
+        // grants an evaluation reads are keyed by this id.
+        let ids: std::collections::BTreeSet<String> = outcomes
+            .iter()
+            .map(|outcome| outcome.as_ref().expect("checked above").id().to_string())
+            .collect();
+        assert_eq!(ids.len(), 1, "concurrent first use resolved to {ids:?}");
     }
 }

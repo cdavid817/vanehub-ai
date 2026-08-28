@@ -14,6 +14,7 @@ mod ids;
 #[cfg(test)]
 mod migration_equivalence_tests;
 mod principal_repository;
+pub(crate) mod resolution_schema;
 pub(crate) mod schema;
 
 pub(crate) use audit_repository::SqliteAuditRepository;

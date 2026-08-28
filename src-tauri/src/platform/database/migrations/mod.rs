@@ -601,6 +601,15 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "review-file-viewed-witness",
         crate::contexts::sessions::infrastructure::apply_review_file_witness_schema,
     )?;
+    // Transactional rather than `apply_migration`: this one rebuilds a table rather than adding
+    // to one, so a failure partway through has to leave the pre-migration grants intact instead
+    // of a half-copied replacement.
+    apply_transactional_migration(
+        conn,
+        95,
+        "permission-grant-canonical-identity",
+        crate::contexts::permissions::infrastructure::resolution_schema::apply_grant_identity_migration,
+    )?;
     repair_missing_stable_participant_schema(conn)?;
     repair_missing_cli_parameter_profile_schema(conn)?;
     crate::contexts::execution_observability::infrastructure::repair_missing_evidence_schema(conn)?;
@@ -734,6 +743,8 @@ pub(super) const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (92, "unified-log-query-index"),
     (93, "review-decision-state"),
     (94, "review-file-viewed-witness"),
+    // 95 chosen after scanning main and all 26 active changes: none had claimed a numeric version.
+    (95, "permission-grant-canonical-identity"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {

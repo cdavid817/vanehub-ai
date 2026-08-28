@@ -2655,7 +2655,14 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // migrations take 88-90 and push this change's four to 91-94. That is the second renumber
         // for those four and it stays cheap because none of them has shipped; a version that has
         // reached an installation is the one that can never move again.
-        budget: 3_515,
+        //
+        // +11 for migration 95 (`permission-grant-canonical-identity`) from
+        // `fix-permission-decision-atomicity-and-grant-precedence`: the seven-line
+        // `apply_transactional_migration` call, the three-line comment saying why this one is
+        // transactional rather than additive, and its one-line `EXPECTED_MIGRATIONS` entry. The
+        // migration's own SQL lives in `permissions` infrastructure, so only the registration is
+        // counted here — which is the fixed cost of landing any migration in this subtree.
+        budget: 3_526,
         owner: "split-database-migrations",
     },
 ];

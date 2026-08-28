@@ -8,6 +8,6 @@ pub(crate) use error::PermissionsApplicationError;
 pub(crate) use evaluation_service::EvaluationService;
 pub(crate) use ports::{
     AuditDecider, AuditRecord, AuditRepository, ClaudeCodeHookPort, DefaultTemplatePort,
-    GrantQuery, GrantRepository, PendingApprovalEventPort, PermissionsClockPort, PermissionsIdPort,
-    PrincipalRepository,
+    GrantQuery, GrantRepository, PendingApprovalEventPort, PendingGrantIntent,
+    PermissionsClockPort, PermissionsIdPort, PrincipalRepository,
 };
