@@ -19,6 +19,7 @@ use super::protocol::{
     HelperRequest, HelperResponse, RemoteHelperError, HELPER_TIMEOUT_SECONDS, HELPER_VERSION,
     MAX_HELPER_REQUEST_BYTES, MAX_HELPER_RESPONSE_BYTES,
 };
+use crate::contexts::workspaces::application::SearchCancellationToken;
 use async_trait::async_trait;
 use base64::Engine;
 use std::time::Duration;
@@ -87,6 +88,32 @@ pub(crate) async fn exchange(
     revision: i64,
     request: &HelperRequest,
 ) -> Result<HelperResponse, RemoteHelperError> {
+    exchange_cancellable(session, connection_id, revision, request, None).await
+}
+
+/// How often a waiting exchange asks whether it is still wanted.
+///
+/// The token is a polled flag rather than a future, because the thing that sets it is a Tauri
+/// command and the things that read it are blocking walks. Polling here bounds how long a cancelled
+/// exchange keeps a remote process alive; it does not need to be immediate, it needs to be finite.
+/// Twenty-five milliseconds is far below anything a reader perceives and far above anything that
+/// costs measurable CPU.
+const CANCELLATION_POLL: Duration = Duration::from_millis(25);
+
+/// One exchange that can be given up on.
+///
+/// The cancel does not travel to the remote host — there is no second channel to send it on, and
+/// opening one would mean a connection per cancel. What ends the remote process is closing the
+/// channel its stdin and stdout are on, which happens on this path exactly as it does on the timeout
+/// path. Without this, a reader who pressed Escape waited out the full helper timeout while the
+/// remote host kept searching for an answer nobody would read.
+pub(crate) async fn exchange_cancellable(
+    session: &dyn RemoteHelperSession,
+    connection_id: &str,
+    revision: i64,
+    request: &HelperRequest,
+    cancellation: Option<&SearchCancellationToken>,
+) -> Result<HelperResponse, RemoteHelperError> {
     let body = serde_json::to_vec(request).map_err(|_| RemoteHelperError::MalformedResponse)?;
     if body.len() > MAX_HELPER_REQUEST_BYTES {
         // Refused here, not sent. The remote reads its whole stdin into memory, so an oversized
@@ -95,17 +122,35 @@ pub(crate) async fn exchange(
     }
 
     let channel = session.open(connection_id, revision).await?;
-    let outcome = tokio::time::timeout(
-        Duration::from_secs(HELPER_TIMEOUT_SECONDS),
-        round_trip(channel.as_ref(), &body),
-    )
-    .await;
-    // Closed on every path including the timeout: a channel left open holds a remote process and a
-    // pool slot for as long as the connection lives.
+    let outcome = tokio::select! {
+        biased;
+        // First, so a token already signalled when the exchange starts wins over a round trip that
+        // happens to be ready in the same poll.
+        () = wait_for_cancellation(cancellation) => Err(RemoteHelperError::Cancelled),
+        result = tokio::time::timeout(
+            Duration::from_secs(HELPER_TIMEOUT_SECONDS),
+            round_trip(channel.as_ref(), &body),
+        ) => result.map_err(|_| RemoteHelperError::Timeout).and_then(|raw| raw),
+    };
+    // Closed on every path including the timeout and the cancel: a channel left open holds a remote
+    // process and a pool slot for as long as the connection lives.
     let _ = channel.close().await;
 
-    let raw = outcome.map_err(|_| RemoteHelperError::Timeout)??;
-    parse(&raw)
+    parse(&outcome?)
+}
+
+/// Resolves when the token is signalled, and never when there is no token.
+async fn wait_for_cancellation(cancellation: Option<&SearchCancellationToken>) {
+    let Some(token) = cancellation else {
+        std::future::pending::<()>().await;
+        return;
+    };
+    loop {
+        if token.is_cancelled() {
+            return;
+        }
+        tokio::time::sleep(CANCELLATION_POLL).await;
+    }
 }
 
 async fn round_trip(
@@ -168,6 +213,72 @@ fn parse(raw: &[u8]) -> Result<HelperResponse, RemoteHelperError> {
 pub(crate) fn scripted_session(bodies: Vec<String>) -> ScriptedHelperSession {
     ScriptedHelperSession {
         bodies: std::sync::Mutex::new(bodies),
+    }
+}
+
+/// A session whose channel never answers.
+///
+/// For the cases where what matters is what this side does *while* the remote is still thinking: a
+/// cancel that lands mid-flight, and the channel close that ends the remote process. A scripted
+/// answer would complete the round trip before any of that could be observed, and the test would
+/// pass while proving nothing.
+#[cfg(test)]
+pub(crate) fn silent_session() -> SilentHelperSession {
+    SilentHelperSession {
+        closes: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+    }
+}
+
+#[cfg(test)]
+pub(crate) struct SilentHelperSession {
+    closes: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+}
+
+#[cfg(test)]
+impl SilentHelperSession {
+    /// How many channels were closed. A channel left open holds a remote process.
+    pub(crate) fn closes(&self) -> usize {
+        self.closes.load(std::sync::atomic::Ordering::Acquire)
+    }
+}
+
+#[cfg(test)]
+#[async_trait]
+impl RemoteHelperSession for SilentHelperSession {
+    async fn open(
+        &self,
+        _connection_id: &str,
+        _revision: i64,
+    ) -> Result<Box<dyn RemoteHelperChannel>, RemoteHelperError> {
+        Ok(Box::new(SilentHelperChannel {
+            closes: std::sync::Arc::clone(&self.closes),
+        }))
+    }
+}
+
+#[cfg(test)]
+struct SilentHelperChannel {
+    closes: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+}
+
+#[cfg(test)]
+#[async_trait]
+impl RemoteHelperChannel for SilentHelperChannel {
+    async fn write(&self, _bytes: &[u8]) -> Result<(), RemoteHelperError> {
+        Ok(())
+    }
+    async fn send_eof(&self) -> Result<(), RemoteHelperError> {
+        Ok(())
+    }
+    async fn next_event(&self) -> Result<Option<RemoteHelperEvent>, RemoteHelperError> {
+        // Parks rather than returning `None`: returning would end the round trip and the exchange
+        // would finish on its own.
+        std::future::pending().await
+    }
+    async fn close(&self) -> Result<(), RemoteHelperError> {
+        self.closes
+            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        Ok(())
     }
 }
 

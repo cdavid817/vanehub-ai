@@ -22,8 +22,12 @@ const SCORE_PREFIX: u32 = 80;
 const SCORE_SUBSTRING: u32 = 60;
 const SCORE_PATH: u32 = 40;
 
-/// Source and configuration extensions eligible as mention candidates. Kept next to
-/// EXCLUDED_DIRECTORIES so both bounds are adjusted in one place.
+/// Source and configuration extensions eligible as mention candidates.
+///
+/// The directory exclusions this used to sit beside now live in `WorkspaceIgnorePolicy`, shared with
+/// Quick Open, content search and document discovery. What stays here is the extension filter, which
+/// belongs to this surface alone: an `@` offers files a prompt can usefully reference, and widening
+/// it would change what a mention means rather than what a search covers.
 const SOURCE_EXTENSIONS: &[&str] = &[
     // systems
     "rs",

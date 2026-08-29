@@ -15,7 +15,8 @@
 //! sides turn their answers into the same shapes and their refusals into the same meanings.
 
 use super::remote_helper::{
-    scripted_session, RemoteHelperError, RemoteProfileSource, RemoteWorkspaceInspectionProvider,
+    scripted_session, silent_session, RemoteHelperError, RemoteHelperSession, RemoteProfileSource,
+    RemoteWorkspaceInspectionProvider, SilentHelperSession,
 };
 use super::workspace_inspection::LocalWorkspaceInspectionProvider;
 use crate::contexts::workspaces::application::{
@@ -271,6 +272,110 @@ fn remote_subject(body: &str) -> Subject {
         }),
         _directory: None,
     }
+}
+
+/// A remote provider whose host never answers, so a cancel is the only thing that can end the wait.
+fn silent_remote() -> (
+    RemoteWorkspaceInspectionProvider,
+    WorkspaceTarget,
+    Arc<SilentHelperSession>,
+) {
+    let session = Arc::new(silent_session());
+    let provider = RemoteWorkspaceInspectionProvider::new(
+        Arc::new(StaticProfile),
+        Arc::clone(&session) as Arc<dyn RemoteHelperSession>,
+    );
+    let target = WorkspaceTarget::Remote(RemoteWorkspaceTarget {
+        session_id: "session-remote".to_string(),
+        connection_id: "connection-1".to_string(),
+        connection_revision: 7,
+        root: "/work/app".to_string(),
+        display_name: "Remote app".to_string(),
+    });
+    (provider, target, session)
+}
+
+fn content_request() -> WorkspaceContentSearchRequest {
+    WorkspaceContentSearchRequest {
+        query: "needle".to_string(),
+        search_id: "content-1".to_string(),
+        limit: None,
+    }
+}
+
+fn already_cancelled() -> SearchCancellationToken {
+    let token = SearchCancellationToken::new();
+    token.signal(SearchCancellationCause::Cancelled);
+    token
+}
+
+/// Both providers answer a cancel with coverage rather than with a failure.
+///
+/// The remote one is the case worth staging: the local walk polls a flag it already holds, while the
+/// remote one is parked on a round trip and has to give up on it.
+#[test]
+fn a_cancelled_search_reports_cancellation_on_both_sides() {
+    let local = local_subject();
+    let local_result = block(local.provider.search_content(
+        &local.target,
+        content_request(),
+        already_cancelled(),
+    ))
+    .expect("local answer");
+    assert_eq!(local_result.coverage.reason_code, Some("cancelled"));
+
+    let (provider, target, session) = silent_remote();
+    let remote_result =
+        block(provider.search_content(&target, content_request(), already_cancelled()))
+            .expect("remote answer");
+
+    assert_eq!(remote_result.coverage.reason_code, Some("cancelled"));
+    assert!(remote_result.matches.is_empty());
+    // No channel was opened at all: the pre-flight check refuses before connecting. A reader who
+    // cancelled while the request was still being assembled has already stopped waiting, and opening
+    // a channel to answer them spends a remote host's effort on nothing.
+    assert_eq!(session.closes(), 0);
+}
+
+/// A cancel that lands while the host is still thinking ends the exchange and closes the channel.
+///
+/// The defect this replaces: the exchange waited out the full helper timeout — twenty seconds — and
+/// then reported a remote failure, for a search the reader stopped themselves.
+#[test]
+fn a_cancel_that_arrives_mid_flight_ends_the_remote_exchange() {
+    let (provider, target, session) = silent_remote();
+    let token = SearchCancellationToken::new();
+    let signalled = token.clone();
+
+    let answer = block(async move {
+        // Signalled from inside the runtime while the exchange is parked on a channel that never
+        // answers. Nothing here waits on a duration to *prove* the behaviour — the assertion is that
+        // an answer arrives at all, which under the previous code it would not have for 20 seconds.
+        let waiter = tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+            signalled.signal(SearchCancellationCause::Cancelled);
+        });
+        let answer = provider
+            .search_paths(
+                &target,
+                WorkspacePathSearchRequest {
+                    search_id: "quick-open-1".to_string(),
+                    query: "main".to_string(),
+                    cursor: None,
+                    limit: None,
+                },
+                token,
+            )
+            .await;
+        let _ = waiter.await;
+        answer
+    })
+    .expect("an answer rather than a remote failure");
+
+    assert_eq!(answer.coverage.reason_code, Some("cancelled"));
+    // The cancel does not travel to the remote host; closing the channel its stdin and stdout are on
+    // is what ends the process there.
+    assert_eq!(session.closes(), 1);
 }
 
 // ---------------------------------------------------------------------------------------------

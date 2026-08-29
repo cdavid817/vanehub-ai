@@ -63,11 +63,6 @@ pub(crate) use inspection_admission::WorkspaceInspectionAdmission;
 /// without sleeping through one.
 #[cfg(test)]
 pub(crate) use inspection_budget::ManualClock;
-/// Published to tests only.
-///
-/// Production reaches the snapshot through the coverage that carries it, and never names the type;
-/// a test asserting what one inspection spent does name it.
-#[cfg(test)]
 pub(crate) use inspection_budget::WorkspaceInspectionBudgetSnapshot;
 pub(crate) use inspection_budget::{
     MonotonicClockPort, SystemMonotonicClock, WorkspaceInspectionBudget,

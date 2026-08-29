@@ -24,4 +24,6 @@ pub(crate) use remote_provider::RemoteProfileSource;
 pub(crate) use remote_provider::RemoteWorkspaceInspectionProvider;
 pub(crate) use ssh_session::{SshRemoteHelperSession, SshRemoteProfileSource};
 #[cfg(test)]
-pub(crate) use transport::scripted_session;
+pub(crate) use transport::{
+    scripted_session, silent_session, RemoteHelperSession, SilentHelperSession,
+};

@@ -29,11 +29,11 @@
 
 ## 3. Shared recursive ignore policy
 
-- [ ] 3.1 Inventory and consolidate current hard-coded exclusions across path search, content search, document discovery, local adapters, and remote provider flags.
+- [x] 3.1 Inventory and consolidate current hard-coded exclusions across path search, content search, document discovery, local adapters, and remote provider flags.
 - [x] 3.2 Add one `WorkspaceIgnorePolicy` with operation modes for recursive discovery/search versus direct navigation/explicit read.
 - [x] 3.3 Support repository `.gitignore` and `.ignore` rules, negation/order semantics, and bounded default dependency/generated exclusions using one reviewed matcher implementation.
 - [x] 3.4 Preserve explicit direct access to ignored paths subject to existing root/safety/type/size checks; add tests proving ignore is not authorization.
-- [ ] 3.5 Add tests for `.git`, `node_modules`, `target`, `dist`, `build`, `coverage`, `.next`, `.nuxt`, `vendor`, Python caches, custom ignores, negated includes, nested rules, and malformed/unreadable ignore files.
+- [x] 3.5 Add tests for `.git`, `node_modules`, `target`, `dist`, `build`, `coverage`, `.next`, `.nuxt`, `vendor`, Python caches, custom ignores, negated includes, nested rules, and malformed/unreadable ignore files.
 - [x] 3.6 Define and test effective policy identity/version for cursor compatibility without returning sensitive absolute paths or full rules.
 
 ## 4. Local path search bounded selection
@@ -66,11 +66,11 @@
 
 ## 7. Remote inspection parity and cleanup
 
-- [ ] 7.1 Extend remote inspection requests/providers with generation, cancellation, deadline, result/entry/file/byte limits, ignore inputs, and structural count response where supported.
-- [ ] 7.2 Acquire admission before launching remote commands/channels and retain it until remote work is confirmed exited or transferred to an existing bounded cleanup owner.
-- [ ] 7.3 Implement bounded remote cancellation/termination for cancel, supersede, deadline, and caller drop; discard late output/results for stale generations.
-- [ ] 7.4 Map provider-specific truncation, timeout, unreadable, and failure into the common coverage/reason contract without exposing raw remote commands, secrets, or unrestricted paths.
-- [ ] 7.5 Align remote recursive ignore behavior with the shared policy to the extent supported; document any provider limitation as typed partial coverage rather than silent divergence.
+- [x] 7.1 Extend remote inspection requests/providers with generation, cancellation, deadline, result/entry/file/byte limits, ignore inputs, and structural count response where supported.
+- [x] 7.2 Acquire admission before launching remote commands/channels and retain it until remote work is confirmed exited or transferred to an existing bounded cleanup owner.
+- [x] 7.3 Implement bounded remote cancellation/termination for cancel, supersede, deadline, and caller drop; discard late output/results for stale generations.
+- [x] 7.4 Map provider-specific truncation, timeout, unreadable, and failure into the common coverage/reason contract without exposing raw remote commands, secrets, or unrestricted paths.
+- [x] 7.5 Align remote recursive ignore behavior with the shared policy to the extent supported; document any provider limitation as typed partial coverage rather than silent divergence.
 - [ ] 7.6 Add deterministic fake-provider tests for busy admission, supersession, cancel failure, provider timeout, result/byte limits, late stale output, cleanup completion, and local/remote reason parity.
 
 ## 8. Runtime/API and frontend service integration

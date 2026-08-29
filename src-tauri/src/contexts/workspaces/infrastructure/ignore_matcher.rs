@@ -134,11 +134,76 @@ mod tests {
         let fixture = root_with(&[]);
         let matcher = recursive(&fixture);
 
-        for name in ["node_modules", "target", "dist", "coverage", "vendor"] {
+        // Every name in the shared list, read from the list rather than retyped. A test with its own
+        // copy stops covering the entry somebody adds tomorrow, which is the only entry whose
+        // exclusion nobody has checked yet.
+        for name in WorkspaceIgnorePolicy::default_excluded_directories() {
             assert!(matcher.skips(name, name, true), "{name}");
         }
         assert!(!matcher.skips("src", "src", true));
         assert!(!matcher.skips("src/main.rs", "main.rs", false));
+    }
+
+    /// The ecosystems the list is meant to cover, named so a removal is a visible decision.
+    ///
+    /// The loop above proves the list is applied; this proves the list still holds what it was
+    /// written for. Shrinking it would otherwise pass every test in this file and show up as a
+    /// search that suddenly returns build output.
+    #[test]
+    fn the_default_list_still_covers_the_trees_it_was_written_for() {
+        let defaults = WorkspaceIgnorePolicy::default_excluded_directories();
+
+        for name in [
+            "node_modules",
+            "target",
+            "dist",
+            "build",
+            "coverage",
+            ".next",
+            ".nuxt",
+            "vendor",
+            "__pycache__",
+            ".pytest_cache",
+            "venv",
+            "site-packages",
+        ] {
+            assert!(defaults.contains(&name), "{name}");
+        }
+
+        // `.git` is covered by the dot rule rather than by this list, and the dot rule is absolute.
+        assert!(!defaults.contains(&".git"));
+        let fixture = root_with(&[]);
+        assert!(recursive(&fixture).skips(".git", ".git", true));
+
+        // `bin` is deliberately absent: Cargo treats `src/bin` as real source, and a reader looking
+        // for a binary's entry point would find nothing.
+        assert!(!defaults.contains(&"bin"));
+    }
+
+    #[test]
+    fn a_rule_file_this_side_cannot_read_leaves_the_walk_running() {
+        let fixture = TempDirectory::new("ignore-unreadable");
+        // Not valid UTF-8, so no rule can be taken from it. Written as bytes rather than by removing
+        // read permission, because "unreadable" is spelled differently on every platform and a test
+        // that can only stage the condition on one is a test that only runs on one.
+        fs::write(fixture.path().join(".gitignore"), [0xffu8, 0xfe, b'\n']).expect("rule file");
+        let matcher = recursive(&fixture);
+
+        // The walk still runs and the defaults still apply. Refusing to search because a rule file
+        // could not be read would make the application unusable on exactly the repositories most
+        // likely to have a damaged one.
+        assert!(matcher.skips("node_modules", "node_modules", true));
+        assert!(!matcher.skips("src", "src", true));
+    }
+
+    #[test]
+    fn a_rule_path_that_is_not_a_file_is_ignored_rather_than_parsed() {
+        let fixture = TempDirectory::new("ignore-directory");
+        fs::create_dir_all(fixture.path().join(".gitignore")).expect("directory");
+        let matcher = recursive(&fixture);
+
+        assert!(matcher.skips("node_modules", "node_modules", true));
+        assert!(!matcher.skips("src", "src", true));
     }
 
     #[test]

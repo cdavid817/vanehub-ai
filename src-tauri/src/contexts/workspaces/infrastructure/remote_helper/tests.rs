@@ -15,10 +15,12 @@ use super::protocol::{
     MAX_HELPER_RESPONSE_BYTES,
 };
 use super::transport::{
-    exchange, RemoteHelperChannel, RemoteHelperEvent, RemoteHelperSession,
+    exchange, exchange_cancellable, RemoteHelperChannel, RemoteHelperEvent, RemoteHelperSession,
     HELPER_BOOTSTRAP_COMMAND, HELPER_PROGRAM,
 };
-use crate::contexts::workspaces::application::RemoteWorkspaceTarget;
+use crate::contexts::workspaces::application::{
+    RemoteWorkspaceTarget, SearchCancellationCause, SearchCancellationToken,
+};
 use async_trait::async_trait;
 use std::sync::Mutex;
 
@@ -136,6 +138,100 @@ fn probe_response() -> String {
 
 fn block<T>(future: impl std::future::Future<Output = T>) -> T {
     tauri::async_runtime::block_on(future)
+}
+
+/// A channel that never answers, so the exchange is still waiting when the test decides something.
+///
+/// `next_event` parks forever rather than returning `None`: returning would end the round trip and
+/// the exchange would finish on its own, which is the one thing a cancellation test must not allow —
+/// it would pass while proving nothing.
+#[derive(Default)]
+struct SilentChannel {
+    closed: Mutex<bool>,
+}
+
+struct SilentSession(std::sync::Arc<SilentChannel>);
+
+#[async_trait]
+impl RemoteHelperSession for SilentSession {
+    async fn open(
+        &self,
+        _connection_id: &str,
+        _revision: i64,
+    ) -> Result<Box<dyn RemoteHelperChannel>, RemoteHelperError> {
+        Ok(Box::new(SharedSilentChannel(self.0.clone())))
+    }
+}
+
+struct SharedSilentChannel(std::sync::Arc<SilentChannel>);
+
+#[async_trait]
+impl RemoteHelperChannel for SharedSilentChannel {
+    async fn write(&self, _bytes: &[u8]) -> Result<(), RemoteHelperError> {
+        Ok(())
+    }
+    async fn send_eof(&self) -> Result<(), RemoteHelperError> {
+        Ok(())
+    }
+    async fn next_event(&self) -> Result<Option<RemoteHelperEvent>, RemoteHelperError> {
+        std::future::pending().await
+    }
+    async fn close(&self) -> Result<(), RemoteHelperError> {
+        *self.0.closed.lock().expect("closed") = true;
+        Ok(())
+    }
+}
+
+/// The defect this path exists for.
+///
+/// Without it a reader who pressed Escape waited out the full helper timeout — twenty seconds by
+/// default — while the remote host kept searching for an answer nobody would read. The cancel does
+/// not travel to the remote; closing the channel its stdin and stdout are on is what ends the
+/// process there, and that is asserted rather than assumed.
+#[tokio::test]
+async fn a_cancelled_exchange_stops_waiting_and_closes_the_channel() {
+    let channel = std::sync::Arc::new(SilentChannel::default());
+    let session = SilentSession(channel.clone());
+    let token = SearchCancellationToken::new();
+    // Signalled before the exchange starts, so the test does not race the poll interval. What the
+    // interval bounds is how long a cancel takes to land, not whether it lands at all.
+    token.signal(SearchCancellationCause::Cancelled);
+
+    let outcome = exchange_cancellable(
+        &session,
+        "connection-1",
+        1,
+        &HelperRequest::new("/work".to_string(), HelperOperation::Probe),
+        Some(&token),
+    )
+    .await;
+
+    assert_eq!(outcome.err(), Some(RemoteHelperError::Cancelled));
+    assert!(
+        *channel.closed.lock().expect("closed"),
+        "a channel left open holds a remote process for as long as the connection lives"
+    );
+}
+
+/// An exchange nobody cancelled must not be cut short by the mechanism that cancels one.
+#[tokio::test]
+async fn an_exchange_without_a_token_answers_normally() {
+    let channel = std::sync::Arc::new(ScriptedChannel::answering(
+        r#"{"version":1,"ok":true,"result":{}}"#,
+    ));
+    let session = ScriptedSession::new(channel);
+
+    let response = exchange_cancellable(
+        &session,
+        "connection-1",
+        1,
+        &HelperRequest::new("/work".to_string(), HelperOperation::Probe),
+        None,
+    )
+    .await
+    .expect("answer");
+
+    assert!(response.ok);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -491,7 +587,18 @@ fn the_program_is_embedded_and_declares_the_protocol_version() {
     // the walk started skipping a directory by that name, which is a directory to avoid rather
     // than a dependency to have. Enumerating what is imported cannot make that mistake, and it
     // catches a third-party module the substring list never thought to name.
-    const STANDARD_LIBRARY: &[&str] = &["base64", "json", "os", "shutil", "subprocess", "sys"];
+    // `time` is here for `time.monotonic`, which is what the walk's deadline is measured against. A
+    // wall clock would be the wrong instrument on somebody else's machine: NTP moves it, and a
+    // deadline that has not arrived would look like one that passed an hour ago.
+    const STANDARD_LIBRARY: &[&str] = &[
+        "base64",
+        "json",
+        "os",
+        "shutil",
+        "subprocess",
+        "sys",
+        "time",
+    ];
     for line in HELPER_PROGRAM.lines() {
         let trimmed = line.trim();
         let Some(module) = trimmed.strip_prefix("import ") else {

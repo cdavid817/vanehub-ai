@@ -320,6 +320,7 @@ fn a_missing_ripgrep_is_reported_as_the_missing_prerequisite_it_is() {
         HelperOperation::Search {
             query: "needle".to_string(),
             max_results: 20,
+            excluded_directories: Vec::new(),
         },
     ))
     .expect_err("refusal");
@@ -405,7 +406,7 @@ fn the_remote_provider_declares_its_own_target_kind() {
     // One place talks to the helper, and it is the place that revalidates. That is stronger than
     // counting guard calls: a seventh operation added tomorrow cannot reach the host without
     // going through the same check, because there is nowhere else to reach it from.
-    assert_eq!(source.matches("exchange(").count(), 1);
+    assert_eq!(source.matches("exchange_cancellable(").count(), 1);
     assert!(source.contains("let remote = self.remote(target)?.clone();"));
 }
 
