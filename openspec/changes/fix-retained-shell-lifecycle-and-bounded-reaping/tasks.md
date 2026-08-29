@@ -20,7 +20,7 @@
 - [x] 2.1 Replace total and per-session count-then-open checks with one synchronized `ShellCapacityController` that atomically reserves all applicable limits or none.
 - [x] 2.2 Implement a move-only/RAII capacity lease associated with `(shell_id, generation)` and prove release is exactly once across successful terminal close, startup rollback, Reaper completion, duplicate close, and stale completion.
 - [x] 2.3 Reserve capacity before any local spawn or remote channel open. Add fakes that assert the runtime adapter was never called when capacity is exhausted.
-- [ ] 2.4 Insert the Shell/store/replay lifecycle as `Opening` before invoking the runtime and reserve the route identity before a remote worker can emit events.
+- [x] 2.4 Insert the Shell/store/replay lifecycle as `Opening` before invoking the runtime and reserve the route identity before a remote worker can emit events.
 - [x] 2.5 Make input, resize, title/prompt operations return a stable not-running/closing error for non-Running phases while preserving read/diagnostic access where safe.
 - [x] 2.6 Add 100-way deterministic concurrent create tests for the last global slot and last per-session slot; assert no over-admission, no permit leak, and no spawned loser.
 
@@ -37,7 +37,7 @@
 ## 4. Remote startup transaction and route ownership
 
 - [x] 4.1 Implement a remote launch guard that distinguishes the Shell-owned channel from the shared transport lease and owns route reservation, streams, and workers until commit/handoff.
-- [ ] 4.2 Pre-register a generation-qualified remote route before workers publish and make route insertion/replacement reject stale or conflicting generations.
+- [x] 4.2 Pre-register a generation-qualified remote route before workers publish and make route insertion/replacement reject stale or conflicting generations.
 - [x] 4.3 Refactor all remote startup failures to close/reap only the new channel and retain unrelated pooled transport users.
 - [x] 4.4 Add tests for channel-open failure, stream acquisition failure, worker setup failure, route commit failure, early output/exit, and cleanup timeout.
 - [x] 4.5 Add a two-channel shared-transport test proving failure/rollback of one startup does not disconnect or mutate the other Shell.
@@ -67,7 +67,7 @@
 - [x] 7.3 Implement generation-safe compare-and-finalize as one application operation: terminal aggregate state, runtime detach, route removal, replay/store finalization, lease release, and exactly-one event.
 - [x] 7.4 Make stale Reaper completion a no-op with diagnostic evidence; it must not release capacity or remove a current generation.
 - [x] 7.5 Add virtual-time tests for success on later attempt, retry exhaustion, queue full, duplicate completion, shutdown during reaping, and manual retry after automatic exhaustion.
-- [ ] 7.6 Add metrics/log tests for bounded redacted fields and verify no command text, terminal output, credential, host secret, or unrestricted path is emitted.
+- [x] 7.6 Add metrics/log tests for bounded redacted fields and verify no command text, terminal output, credential, host secret, or unrestricted path is emitted.
 
 ## 8. Archive, delete, idle sweep, and shutdown integration
 

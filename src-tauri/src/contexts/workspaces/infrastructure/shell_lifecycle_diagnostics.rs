@@ -13,6 +13,38 @@ use crate::contexts::workspaces::application::ShellLifecycleDiagnosticsPort;
 use crate::platform::logging::{fallback_log_dir, write_message_raw, LogLevel};
 use std::collections::BTreeMap;
 
+/// The fields a stale-completion record carries, and nothing else.
+///
+/// Built as a value so a test can read it. The alternative — asserting on a written log file —
+/// would test the log store, and the property that matters here is what this code *offers* it.
+fn stale_context(
+    shell_id: &str,
+    attempted_generation: u64,
+    current_generation: u64,
+) -> BTreeMap<String, String> {
+    BTreeMap::from([
+        ("shell_id".to_string(), shell_id.to_string()),
+        (
+            "attempted_generation".to_string(),
+            attempted_generation.to_string(),
+        ),
+        (
+            "current_generation".to_string(),
+            current_generation.to_string(),
+        ),
+    ])
+}
+
+fn orphaned_context(shell_id: &str, attempted_generation: u64) -> BTreeMap<String, String> {
+    BTreeMap::from([
+        ("shell_id".to_string(), shell_id.to_string()),
+        (
+            "attempted_generation".to_string(),
+            attempted_generation.to_string(),
+        ),
+    ])
+}
+
 pub(crate) struct UnifiedLogShellDiagnostics;
 
 impl ShellLifecycleDiagnosticsPort for UnifiedLogShellDiagnostics {
@@ -30,17 +62,7 @@ impl ShellLifecycleDiagnosticsPort for UnifiedLogShellDiagnostics {
             LogLevel::Warn,
             "session-shell",
             "reaper completion named a generation that is no longer current",
-            BTreeMap::from([
-                ("shell_id".to_string(), shell_id.to_string()),
-                (
-                    "attempted_generation".to_string(),
-                    attempted_generation.to_string(),
-                ),
-                (
-                    "current_generation".to_string(),
-                    current_generation.to_string(),
-                ),
-            ]),
+            stale_context(shell_id, attempted_generation, current_generation),
         );
     }
 
@@ -50,13 +72,73 @@ impl ShellLifecycleDiagnosticsPort for UnifiedLogShellDiagnostics {
             LogLevel::Warn,
             "session-shell",
             "reaper completion named a shell with no entry",
-            BTreeMap::from([
-                ("shell_id".to_string(), shell_id.to_string()),
-                (
-                    "attempted_generation".to_string(),
-                    attempted_generation.to_string(),
-                ),
-            ]),
+            orphaned_context(shell_id, attempted_generation),
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Bounded, and bounded by name rather than by count alone.
+    ///
+    /// A record whose field set can grow is one somebody adds a path to. Naming the three keys means
+    /// a fourth has to be added here too, which is where a reviewer sees it.
+    #[test]
+    fn a_stale_record_carries_three_named_fields_and_no_others() {
+        let context = stale_context("shell-1", 7, 8);
+
+        assert_eq!(
+            context.keys().cloned().collect::<Vec<_>>(),
+            vec![
+                "attempted_generation".to_string(),
+                "current_generation".to_string(),
+                "shell_id".to_string()
+            ]
+        );
+        assert_eq!(context["shell_id"], "shell-1");
+        assert_eq!(context["attempted_generation"], "7");
+        assert_eq!(context["current_generation"], "8");
+    }
+
+    #[test]
+    fn an_orphaned_record_carries_two_named_fields_and_no_others() {
+        let context = orphaned_context("shell-1", 7);
+
+        assert_eq!(
+            context.keys().cloned().collect::<Vec<_>>(),
+            vec!["attempted_generation".to_string(), "shell_id".to_string()]
+        );
+    }
+
+    /// The values are the identifiers they were given, and the identifiers cannot be anything else.
+    ///
+    /// A shell id is minted by this process and a generation is a counter, so neither can carry a
+    /// command, terminal output, a credential, a hostname, or a path. What this asserts is that
+    /// nothing *derives* a value from something that could — the record is the arguments, unchanged.
+    #[test]
+    fn every_value_is_one_of_the_identifiers_it_was_handed() {
+        let context = stale_context("shell-1", 7, 8);
+
+        for value in context.values() {
+            assert!(
+                ["shell-1", "7", "8"].contains(&value.as_str()),
+                "unexpected value {value}"
+            );
+        }
+    }
+
+    /// A shell id shaped like a path still travels as the id it is, because that is what it is.
+    ///
+    /// The guard against a path reaching a log is not a filter here — it is that the only string
+    /// this record accepts is a `ShellId`, which the id port mints and nothing else constructs.
+    /// Recorded as a test so the next person to widen the signature reads why they should not.
+    #[test]
+    fn the_record_takes_an_identifier_rather_than_free_text() {
+        let context = stale_context("shell-42", 1, 2);
+
+        assert_eq!(context.len(), 3);
+        assert_eq!(context["shell_id"], "shell-42");
     }
 }

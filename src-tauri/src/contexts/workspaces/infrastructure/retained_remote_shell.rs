@@ -366,6 +366,54 @@ impl RoutedShellRuntime {
         }
     }
 
+    /// Claims the id for this generation, or refuses because a newer one already holds it.
+    ///
+    /// Reserved *before* the runtime is invoked. Recording it afterwards left a window in which a
+    /// worker was already publishing while anything addressed by shell id still fell through to the
+    /// local runtime — which for a remote Shell means "not found" for a terminal the user is looking
+    /// at, and a close that reports success for a channel that is still open.
+    ///
+    /// A route for an *older* generation is replaced: that Shell is gone. One for a newer generation
+    /// is never overwritten by a late arrival, and neither is one for the same generation with a
+    /// different runtime — an id belongs to one runtime for one life, and a second claim on it is a
+    /// bug rather than a race to resolve.
+    fn reserve_route(
+        &self,
+        shell_id: &ShellId,
+        generation: ShellGeneration,
+        is_remote: bool,
+    ) -> bool {
+        let mut routes = self.routes();
+        if let Some(existing) = routes.get(shell_id.as_str()) {
+            let conflicting = existing.generation == generation && existing.is_remote != is_remote;
+            if existing.generation > generation || conflicting {
+                return false;
+            }
+        }
+        routes.insert(
+            shell_id.as_str().to_string(),
+            ShellRoute {
+                generation,
+                is_remote,
+            },
+        );
+        true
+    }
+
+    /// Gives the id back, but only if this generation still holds it.
+    ///
+    /// A newer generation may have claimed the id while this open was failing, and removing its
+    /// route would send its writes to the wrong runtime.
+    fn release_route(&self, shell_id: &ShellId, generation: ShellGeneration) {
+        let mut routes = self.routes();
+        if routes
+            .get(shell_id.as_str())
+            .is_some_and(|route| route.generation == generation)
+        {
+            routes.remove(shell_id.as_str());
+        }
+    }
+
     fn route(&self, shell_id: &ShellId) -> Arc<dyn SessionShellRuntimePort> {
         let is_remote = self
             .routes()
@@ -386,29 +434,26 @@ impl SessionShellRuntimePort for RoutedShellRuntime {
         sink: Arc<dyn ShellOutputSink>,
     ) -> Result<ShellRuntimeOpened, SessionShellError> {
         let is_remote = request.remote.is_some();
+        if !self.reserve_route(&request.shell_id, request.generation, is_remote) {
+            // A newer generation already owns this id. Opening anyway would leave a runtime handle
+            // nothing routes to, which is the definition of a resource with no owner.
+            return Err(SessionShellError::Runtime {
+                reason: shell_reason(shell_reason_code::GENERATION_STALE),
+            });
+        }
         let runtime = if is_remote {
             self.remote.clone()
         } else {
             self.local.clone()
         };
-        let opened = runtime.open(request, sink)?;
-        // Recorded only after the open succeeded, so a failed open leaves no route to a Shell that
-        // does not exist. Replacing an entry for an older generation is correct — that Shell is
-        // gone — but an entry for a *newer* one is never overwritten by a late arrival.
-        let mut routes = self.routes();
-        let stale = routes
-            .get(request.shell_id.as_str())
-            .is_some_and(|route| route.generation > request.generation);
-        if !stale {
-            routes.insert(
-                request.shell_id.as_str().to_string(),
-                ShellRoute {
-                    generation: request.generation,
-                    is_remote,
-                },
-            );
+        match runtime.open(request, sink) {
+            Ok(opened) => Ok(opened),
+            Err(error) => {
+                // A failed open must leave no route to a Shell that does not exist.
+                self.release_route(&request.shell_id, request.generation);
+                Err(error)
+            }
         }
-        Ok(opened)
     }
 
     fn write(&self, shell_id: &ShellId, content: &str) -> Result<(), SessionShellError> {

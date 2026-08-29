@@ -9,7 +9,7 @@
 //! one pool so a test can prove that closing one Shell leaves the other alone, which is the whole
 //! point of one-channel-per-Shell and is invisible from a single-Shell test.
 
-use super::retained_remote_shell::RetainedRemoteShellRuntime;
+use super::retained_remote_shell::{RetainedRemoteShellRuntime, RoutedShellRuntime};
 use crate::contexts::workspaces::application::{
     RemoteShellChannel, RemoteShellChannelError, RemoteShellEvent, RemoteShellOpenFailure,
     RemoteShellTransport, SessionShellRuntimePort, ShellOutputSink, ShellRemoteTarget,
@@ -622,4 +622,207 @@ fn a_closed_shell_no_longer_accepts_input() {
         runtime.write(&shell_id("shell-1"), "echo\n"),
         Err(SessionShellError::NotFound)
     ));
+}
+
+/// A runtime that asks the router where a Shell goes *while* it is opening it.
+///
+/// This is the window the pre-registration exists for: a real remote worker starts publishing the
+/// moment the channel is up, which is before `open` has returned. Recording the route afterwards
+/// left everything addressed by shell id falling through to the *local* runtime in that window —
+/// for a remote Shell that is "not found" for a terminal the user is looking at, and a close that
+/// reports success for a channel that is still open.
+struct RoutingProbe {
+    router: Mutex<Option<Arc<RoutedShellRuntime>>>,
+    routed_during_open: Mutex<Option<bool>>,
+    fail: bool,
+}
+
+impl RoutingProbe {
+    fn new(fail: bool) -> Arc<Self> {
+        Arc::new(Self {
+            router: Mutex::new(None),
+            routed_during_open: Mutex::new(None),
+            fail,
+        })
+    }
+}
+
+impl SessionShellRuntimePort for RoutingProbe {
+    fn open(
+        &self,
+        request: &ShellRuntimeOpen,
+        _sink: Arc<dyn ShellOutputSink>,
+    ) -> Result<crate::contexts::workspaces::application::ShellRuntimeOpened, SessionShellError>
+    {
+        // Asked from inside the open, which is exactly what a publishing worker does.
+        let router = self.router.lock().unwrap().clone();
+        let reached_here = router
+            .map(|router| router.write(&request.shell_id, "").is_ok())
+            .unwrap_or(false);
+        *self.routed_during_open.lock().unwrap() = Some(reached_here);
+        if self.fail {
+            return Err(SessionShellError::RuntimeUnavailable {
+                reason: crate::contexts::workspaces::domain::shell_reason(
+                    shell_reason_code::OPEN_SETUP_FAILED,
+                ),
+            });
+        }
+        Ok(
+            crate::contexts::workspaces::application::ShellRuntimeOpened {
+                state: SessionShellState::Running,
+                runtime: crate::contexts::workspaces::domain::ShellRuntimeDescriptor::Native,
+            },
+        )
+    }
+
+    fn write(&self, _shell_id: &ShellId, _content: &str) -> Result<(), SessionShellError> {
+        Ok(())
+    }
+
+    fn resize(
+        &self,
+        _shell_id: &ShellId,
+        _dimensions: TerminalDimensions,
+    ) -> Result<(), SessionShellError> {
+        Ok(())
+    }
+
+    fn close(
+        &self,
+        _shell_id: &ShellId,
+        _generation: ShellGeneration,
+        _budget: ShellCloseBudget,
+    ) -> ShellRuntimeCloseOutcome {
+        ShellRuntimeCloseOutcome::NotHeld
+    }
+
+    fn foreground_process(
+        &self,
+        _shell_id: &ShellId,
+    ) -> crate::contexts::workspaces::domain::ShellForegroundProcessState {
+        crate::contexts::workspaces::domain::ShellForegroundProcessState::Unknown
+    }
+}
+
+/// A local runtime that refuses everything, so a misrouted call is loud rather than plausible.
+struct RefusingLocal;
+
+impl SessionShellRuntimePort for RefusingLocal {
+    fn open(
+        &self,
+        _request: &ShellRuntimeOpen,
+        _sink: Arc<dyn ShellOutputSink>,
+    ) -> Result<crate::contexts::workspaces::application::ShellRuntimeOpened, SessionShellError>
+    {
+        Err(SessionShellError::NotFound)
+    }
+
+    fn write(&self, _shell_id: &ShellId, _content: &str) -> Result<(), SessionShellError> {
+        Err(SessionShellError::NotFound)
+    }
+
+    fn resize(
+        &self,
+        _shell_id: &ShellId,
+        _dimensions: TerminalDimensions,
+    ) -> Result<(), SessionShellError> {
+        Err(SessionShellError::NotFound)
+    }
+
+    fn close(
+        &self,
+        _shell_id: &ShellId,
+        _generation: ShellGeneration,
+        _budget: ShellCloseBudget,
+    ) -> ShellRuntimeCloseOutcome {
+        ShellRuntimeCloseOutcome::NotHeld
+    }
+
+    fn foreground_process(
+        &self,
+        _shell_id: &ShellId,
+    ) -> crate::contexts::workspaces::domain::ShellForegroundProcessState {
+        crate::contexts::workspaces::domain::ShellForegroundProcessState::Unknown
+    }
+}
+
+#[test]
+fn a_remote_route_exists_before_the_runtime_can_publish() {
+    let probe = RoutingProbe::new(false);
+    let router = Arc::new(RoutedShellRuntime::new(
+        Arc::new(RefusingLocal),
+        probe.clone(),
+    ));
+    *probe.router.lock().unwrap() = Some(router.clone());
+
+    router
+        .open(
+            &open_request("shell-1", "connection-1"),
+            Arc::new(RecordingSink::default()),
+        )
+        .expect("open succeeds");
+
+    assert_eq!(
+        *probe.routed_during_open.lock().unwrap(),
+        Some(true),
+        "a call made during the open reached the remote runtime rather than the local one"
+    );
+}
+
+#[test]
+fn a_failed_open_leaves_no_route_behind() {
+    let probe = RoutingProbe::new(true);
+    let router = Arc::new(RoutedShellRuntime::new(
+        Arc::new(RefusingLocal),
+        probe.clone(),
+    ));
+    *probe.router.lock().unwrap() = Some(router.clone());
+
+    router
+        .open(
+            &open_request("shell-1", "connection-1"),
+            Arc::new(RecordingSink::default()),
+        )
+        .expect_err("open fails");
+
+    // Released, because a route to a Shell that does not exist would send the next call for that id
+    // to a runtime holding nothing.
+    assert!(matches!(
+        router.write(
+            &shell_id("shell-1"),
+            "echo
+"
+        ),
+        Err(SessionShellError::NotFound)
+    ));
+}
+
+#[test]
+fn a_newer_generation_keeps_the_id_against_a_late_open() {
+    let probe = RoutingProbe::new(false);
+    let router = Arc::new(RoutedShellRuntime::new(
+        Arc::new(RefusingLocal),
+        probe.clone(),
+    ));
+    let mut newer = open_request("shell-1", "connection-1");
+    newer.generation = FIRST.next();
+    router
+        .open(&newer, Arc::new(RecordingSink::default()))
+        .expect("newer open succeeds");
+
+    // The older generation's open arrives afterwards. Accepting it would leave a runtime handle
+    // nothing routes to, and would send the newer Shell's writes to whichever runtime won last.
+    let late = router.open(
+        &open_request("shell-1", "connection-1"),
+        Arc::new(RecordingSink::default()),
+    );
+
+    assert!(matches!(late, Err(SessionShellError::Runtime { .. })));
+    assert!(router
+        .write(
+            &shell_id("shell-1"),
+            "echo
+"
+        )
+        .is_ok());
 }
