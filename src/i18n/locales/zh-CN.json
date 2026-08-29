@@ -2900,6 +2900,7 @@
   "chat.toolApproval.outcome.resolving": "该请求已有另一个决定正在处理中。",
   "chat.toolApproval.outcome.already_resolved": "该请求已经被决定过了。",
   "chat.toolApproval.outcome.not_found": "该请求已不存在。",
+  "chat.toolApproval.outcome.denied_fail_closed": "该审批在其记录无法保存时超时，因此被拒绝。工具没有运行。",
   "chat.toolApproval.outcome.unknown": "结果不明确。这里没有任何信息可以确认工具已经运行。",
   "chat.toolApproval.riskLevel.L0": "低风险",
   "chat.toolApproval.riskLevel.L1": "中风险",

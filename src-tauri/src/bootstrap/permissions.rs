@@ -129,6 +129,7 @@ pub(crate) fn assemble_approval_resolver(
             agent_runtime,
             permissions.api.clone(),
         )),
+        Arc::new(UnifiedLogDiagnosticsAdapter),
         permissions.clock.clone(),
         permissions.ids.clone(),
     )

@@ -437,6 +437,15 @@ mod tests {
                 generation_id.to_string(),
             ));
         }
+        fn approval_denied_fail_closed(
+            &self,
+            _request_id: &str,
+            _session_id: &str,
+            _generation_id: &str,
+            _reason: &'static str,
+        ) {
+            unreachable!("evaluation never resolves a pending approval")
+        }
     }
 
     /// An audit store that is down too — the case the diagnostic port exists for.
@@ -517,6 +526,15 @@ mod tests {
             _session_id: &str,
             _generation_id: &str,
         ) {
+        }
+        fn approval_denied_fail_closed(
+            &self,
+            _request_id: &str,
+            _session_id: &str,
+            _generation_id: &str,
+            _reason: &'static str,
+        ) {
+            unreachable!("evaluation never resolves a pending approval")
         }
     }
 

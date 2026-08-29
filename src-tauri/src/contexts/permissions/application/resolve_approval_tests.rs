@@ -343,11 +343,43 @@ impl ApprovalDeliveryPort for FakeDelivery {
     }
 }
 
+/// Records what the fail-closed diagnostic was told, so a test can assert on the fields rather
+/// than on a log file.
+#[derive(Default)]
+struct RecordingDiagnostics {
+    denials: Mutex<Vec<(String, String, String, &'static str)>>,
+}
+impl PermissionsDiagnosticsPort for RecordingDiagnostics {
+    fn evaluation_failed_closed(
+        &self,
+        _action: &Action,
+        _reason: &'static str,
+        _session_id: &str,
+        _generation_id: &str,
+    ) {
+    }
+    fn approval_denied_fail_closed(
+        &self,
+        request_id: &str,
+        session_id: &str,
+        generation_id: &str,
+        reason: &'static str,
+    ) {
+        self.denials.lock().unwrap().push((
+            request_id.to_string(),
+            session_id.to_string(),
+            generation_id.to_string(),
+            reason,
+        ));
+    }
+}
+
 struct Fixture {
     use_case: ResolveApprovalUseCase,
     broker: ApprovalBroker,
     resolutions: Arc<FakeResolutions>,
     delivery: Arc<FakeDelivery>,
+    diagnostics: Arc<RecordingDiagnostics>,
     journal: Arc<Journal>,
 }
 
@@ -367,17 +399,20 @@ fn fixture_with(
     );
     let resolutions = Arc::new(resolutions(journal.clone()));
     let delivery = Arc::new(FakeDelivery::new(journal.clone(), behaviour));
+    let diagnostics = Arc::new(RecordingDiagnostics::default());
     Fixture {
         use_case: ResolveApprovalUseCase::new(
             broker.clone(),
             resolutions.clone(),
             delivery.clone(),
+            diagnostics.clone(),
             clock,
             ids,
         ),
         broker,
         resolutions,
         delivery,
+        diagnostics,
         journal,
     }
 }
@@ -443,6 +478,7 @@ fn every_outcome_token_is_stable() {
             state: ApprovalResolutionState::Delivered,
         },
         ResolveOutcome::NotFound,
+        ResolveOutcome::DeniedFailClosed { reason: "" },
     ]
     .map(|outcome| outcome.token());
 
@@ -455,6 +491,7 @@ fn every_outcome_token_is_stable() {
             "resolving",
             "already_resolved",
             "not_found",
+            "denied_fail_closed",
         ]
     );
 }
@@ -482,6 +519,7 @@ fn exactly_one_outcome_reports_that_the_waiter_received_the_decision() {
             state: ApprovalResolutionState::Delivered,
         },
         ResolveOutcome::NotFound,
+        ResolveOutcome::DeniedFailClosed { reason: "" },
     ];
 
     let reached: Vec<&'static str> = outcomes
@@ -734,6 +772,111 @@ fn a_timeout_denial_goes_through_the_same_single_winner_flow() {
     // A timeout never remembers anything: it is the absence of a decision, not one.
     assert!(fixture.resolutions.grant_intents.lock().unwrap().is_empty());
     assert!(!fixture.resolutions.grant_is_active());
+}
+
+/// `permissions-approval`'s "Approval times out while SQLite is unavailable".
+///
+/// The choice here is between "denied, unrecorded" and "waiting, unbounded". A provider blocked
+/// forever on a decision the database cannot accept is the worse of the two, so the denial goes out
+/// with no row behind it — and the diagnostic is then the only evidence it happened.
+#[test]
+fn a_timeout_that_cannot_commit_denies_rather_than_leaving_the_provider_waiting() {
+    let fixture = fixture_with(WaiterBehaviour::Applies, |journal| {
+        FakeResolutions::failing_commits(journal, 1)
+    });
+    let request = pending(&fixture.broker);
+
+    let outcome = fixture
+        .use_case
+        .resolve_timed_out(&request.id)
+        .expect("a timeout never propagates a storage failure to the caller");
+
+    assert_eq!(
+        outcome,
+        ResolveOutcome::DeniedFailClosed {
+            reason: "resolution_storage_unavailable"
+        }
+    );
+    // Nothing durable, no grant intent, and the waiter was released rather than left blocked.
+    assert!(fixture.resolutions.state_of(&request.id).is_none());
+    assert!(fixture.resolutions.grant_intents.lock().unwrap().is_empty());
+    assert!(!fixture.resolutions.grant_is_active());
+    assert_eq!(fixture.delivery.applied.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn the_emergency_denial_emits_ids_and_a_reason_code_and_nothing_else() {
+    let fixture = fixture_with(WaiterBehaviour::Applies, |journal| {
+        FakeResolutions::failing_commits(journal, 1)
+    });
+    let request = pending(&fixture.broker);
+
+    fixture
+        .use_case
+        .resolve_timed_out(&request.id)
+        .expect("timeout resolve");
+
+    let denials = fixture.diagnostics.denials.lock().unwrap();
+    assert_eq!(denials.len(), 1);
+    let (request_id, session_id, generation_id, reason) = &denials[0];
+    assert_eq!(request_id, &request.id);
+    assert_eq!(session_id, "session-1");
+    assert_eq!(generation_id, "generation-1");
+    assert_eq!(*reason, "resolution_storage_unavailable");
+    // The action and the resource are deliberately absent: this line says a denial happened and
+    // could not be recorded, not what was denied. The resource is a user path.
+    let emitted = format!("{request_id}{session_id}{generation_id}{reason}");
+    assert!(!emitted.contains("a.txt"));
+    assert!(!emitted.contains("file.write"));
+}
+
+/// `permissions-approval`'s "a later retry SHALL NOT reinterpret the emergency denial as an
+/// approval".
+#[test]
+fn an_emergency_denial_cannot_be_turned_into_an_approval_afterwards() {
+    let fixture = fixture_with(WaiterBehaviour::Applies, |journal| {
+        FakeResolutions::failing_commits(journal, 1)
+    });
+    let request = pending(&fixture.broker);
+    fixture
+        .use_case
+        .resolve_timed_out(&request.id)
+        .expect("timeout resolve");
+
+    // Storage is healthy again and a human clicks Approve. The waiter was already released with a
+    // denial, so leaving the request on offer would let this "approve" something already refused.
+    let later = fixture
+        .use_case
+        .resolve(&request.id, ApprovalDecision::Approve, Scope::Global)
+        .expect("later resolve");
+
+    assert_eq!(later, ResolveOutcome::NotFound);
+    assert_eq!(fixture.delivery.applied.lock().unwrap().len(), 1);
+    assert!(fixture.resolutions.grant_intents.lock().unwrap().is_empty());
+    assert!(fixture.broker.get_pending(&request.id).is_none());
+}
+
+/// A human decision is not allowed to take the emergency exit.
+///
+/// The timeout has a bounded contract that a storage outage would otherwise violate; a human
+/// clicking Approve has no such deadline, and releasing an unrecorded decision for them would be
+/// the emergency path being used for convenience.
+#[test]
+fn a_human_decision_that_cannot_commit_fails_instead_of_denying_unrecorded() {
+    let fixture = fixture_with(WaiterBehaviour::Applies, |journal| {
+        FakeResolutions::failing_commits(journal, 1)
+    });
+    let request = pending(&fixture.broker);
+
+    let failed = fixture
+        .use_case
+        .resolve(&request.id, ApprovalDecision::Approve, Scope::Session);
+
+    assert!(failed.is_err());
+    assert!(fixture.delivery.applied.lock().unwrap().is_empty());
+    assert!(fixture.diagnostics.denials.lock().unwrap().is_empty());
+    // And the decision is still the user's to make.
+    assert!(fixture.broker.get_pending(&request.id).is_some());
 }
 
 #[test]

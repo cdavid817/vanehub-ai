@@ -2900,6 +2900,7 @@
   "chat.toolApproval.outcome.resolving": "該請求已有另一個決定正在處理中。",
   "chat.toolApproval.outcome.already_resolved": "該請求已經被決定過了。",
   "chat.toolApproval.outcome.not_found": "該請求已不存在。",
+  "chat.toolApproval.outcome.denied_fail_closed": "該審批在其紀錄無法儲存時逾時，因此被拒絕。工具沒有執行。",
   "chat.toolApproval.outcome.unknown": "結果不明確。這裡沒有任何資訊可以確認工具已經執行。",
   "chat.toolApproval.riskLevel.L0": "低風險",
   "chat.toolApproval.riskLevel.L1": "中風險",

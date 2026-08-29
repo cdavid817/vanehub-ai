@@ -44,6 +44,9 @@ export const approvalResolutionOutcomes = [
   "resolving",
   "already_resolved",
   "not_found",
+  /** Storage was unavailable at the approval timeout, so a denial went out with no record behind
+   * it. Terminal, and it can never be reinterpreted as an approval. */
+  "denied_fail_closed",
 ] as const;
 
 export type KnownApprovalResolutionOutcome = (typeof approvalResolutionOutcomes)[number];

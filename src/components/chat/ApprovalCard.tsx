@@ -30,6 +30,7 @@ const outcomeTone: Record<ApprovalResolutionOutcome, "muted" | "default" | "warn
   resolving: "default",
   already_resolved: "muted",
   not_found: "muted",
+  denied_fail_closed: "danger",
   unknown: "warning",
 };
 

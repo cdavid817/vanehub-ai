@@ -19,12 +19,13 @@ describe("approval resolution outcomes", () => {
       "resolving",
       "already_resolved",
       "not_found",
+      "denied_fail_closed",
     ]);
   });
 
   it("maps a token from a newer native build to unknown rather than to a success", () => {
     expect(normalizeApprovalResolutionOutcome("delivered")).toBe("delivered");
-    expect(normalizeApprovalResolutionOutcome("denied_fail_closed")).toBe("unknown");
+    expect(normalizeApprovalResolutionOutcome("emergency_denied")).toBe("unknown");
     expect(normalizeApprovalResolutionOutcome("")).toBe("unknown");
     // The dangerous mistake would be defaulting to the nearest-looking known token.
     expect(normalizeApprovalResolutionOutcome("delivered_late")).toBe("unknown");

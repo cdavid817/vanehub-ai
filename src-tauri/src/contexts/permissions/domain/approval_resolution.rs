@@ -35,6 +35,12 @@ impl ApprovalResolutionId {
     pub(crate) fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// A last-resort id for the emergency denial path, whose own id is derived from a request id
+    /// that cannot be empty. Exists so that path has no `expect()` on an unreachable branch.
+    pub(crate) fn emergency_fallback() -> Self {
+        Self("emergency:unattributed".to_string())
+    }
 }
 
 /// Who decided.

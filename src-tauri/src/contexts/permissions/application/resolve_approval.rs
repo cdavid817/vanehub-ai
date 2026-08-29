@@ -23,7 +23,8 @@ use super::approval_broker::{ApprovalBroker, ApprovalClaim};
 use super::error::PermissionsApplicationError;
 use super::ports::{
     ApprovalResolutionRepository, AuditDecider, AuditRecord, NewApprovalResolution,
-    PendingGrantIntent, PermissionsClockPort, PermissionsIdPort, ResolutionCommit,
+    PendingGrantIntent, PermissionsClockPort, PermissionsDiagnosticsPort, PermissionsIdPort,
+    ResolutionCommit,
 };
 use crate::contexts::permissions::domain::{
     ApprovalDecision, ApprovalDecisionRecord, ApprovalRequest, ApprovalResolution,
@@ -109,6 +110,12 @@ pub(crate) enum ResolveOutcome {
     },
     /// No pending request and no durable resolution.
     NotFound,
+    /// Storage was unavailable and the bounded approval timeout would otherwise have been
+    /// violated, so a denial was released with no row behind it.
+    ///
+    /// Carries no resolution id, because there is no resolution — that is the whole point. It can
+    /// never be reinterpreted as an approval: the next attempt goes through a fresh evaluation.
+    DeniedFailClosed { reason: &'static str },
 }
 
 impl ResolveOutcome {
@@ -121,6 +128,7 @@ impl ResolveOutcome {
             Self::Resolving { .. } => "resolving",
             Self::AlreadyResolved { .. } => "already_resolved",
             Self::NotFound => "not_found",
+            Self::DeniedFailClosed { .. } => "denied_fail_closed",
         }
     }
 
@@ -142,6 +150,7 @@ pub(crate) struct ResolveApprovalUseCase {
     broker: ApprovalBroker,
     resolutions: Arc<dyn ApprovalResolutionRepository>,
     delivery: Arc<dyn ApprovalDeliveryPort>,
+    diagnostics: Arc<dyn PermissionsDiagnosticsPort>,
     clock: Arc<dyn PermissionsClockPort>,
     ids: Arc<dyn PermissionsIdPort>,
 }
@@ -151,6 +160,7 @@ impl ResolveApprovalUseCase {
         broker: ApprovalBroker,
         resolutions: Arc<dyn ApprovalResolutionRepository>,
         delivery: Arc<dyn ApprovalDeliveryPort>,
+        diagnostics: Arc<dyn PermissionsDiagnosticsPort>,
         clock: Arc<dyn PermissionsClockPort>,
         ids: Arc<dyn PermissionsIdPort>,
     ) -> Self {
@@ -158,6 +168,7 @@ impl ResolveApprovalUseCase {
             broker,
             resolutions,
             delivery,
+            diagnostics,
             clock,
             ids,
         }
@@ -230,6 +241,11 @@ impl ResolveApprovalUseCase {
             Err(error) => {
                 // Nothing became durable, so the decision is still the user's to make.
                 self.broker.revert_claim(request_id, resolution_id.as_str());
+                // Except when leaving it unmade would break the bounded approval timeout. Then a
+                // denial goes out with no row behind it, rather than a provider waiting forever.
+                if decider == ResolutionDecider::Timeout {
+                    return Ok(self.deny_fail_closed(&request, &reservation));
+                }
                 return Err(error);
             }
         };
@@ -302,6 +318,43 @@ impl ResolveApprovalUseCase {
         Ok(ResolveOutcome::StaleGeneration {
             resolution_id: resolution_id.as_str().to_string(),
         })
+    }
+
+    /// Releases the waiter with a denial that has no durable record behind it.
+    ///
+    /// Reachable only from the timeout path, and only after the resolution transaction failed. The
+    /// alternative is a provider blocked forever on a decision the database cannot accept, and
+    /// between "denied, unrecorded" and "waiting, unbounded" the first is the one that fails safe.
+    ///
+    /// Three things make it safe rather than merely convenient. It can only ever carry `Deny` —
+    /// `ApprovalDecisionRecord` refuses to build an emergency `Allow`, and nothing here constructs
+    /// one anyway. It writes no grant, so nothing it does can authorize a later attempt. And it
+    /// removes the pending entry rather than reverting it, because the waiter has been released:
+    /// leaving the request on offer would let a human "approve" something that was already denied.
+    fn deny_fail_closed(
+        &self,
+        request: &ApprovalRequest,
+        reservation: &DeliveryReservation,
+    ) -> ResolveOutcome {
+        const REASON: &str = "resolution_storage_unavailable";
+        // A synthetic id so the waiter's own at-most-once guard still applies. It is never stored,
+        // which is exactly why this outcome carries no resolution id back to the caller.
+        let emergency_id = ApprovalResolutionId::parse(format!("emergency:{}", request.id))
+            .unwrap_or_else(|_| {
+                debug_assert!(false, "an approval request id is never empty");
+                ApprovalResolutionId::emergency_fallback()
+            });
+        let _ = self
+            .delivery
+            .deliver(reservation, request, &emergency_id, Effect::Deny);
+        self.broker.discard_pending(&request.id);
+        self.diagnostics.approval_denied_fail_closed(
+            &request.id,
+            &request.session_id,
+            &request.generation_id,
+            REASON,
+        );
+        ResolveOutcome::DeniedFailClosed { reason: REASON }
     }
 
     fn record_failure(

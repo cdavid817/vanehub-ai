@@ -2900,6 +2900,7 @@
   "chat.toolApproval.outcome.resolving": "Another decision for this request is already in progress.",
   "chat.toolApproval.outcome.already_resolved": "This request was already decided.",
   "chat.toolApproval.outcome.not_found": "This request is no longer available.",
+  "chat.toolApproval.outcome.denied_fail_closed": "The approval timed out while its record could not be saved, so it was denied. Nothing ran.",
   "chat.toolApproval.outcome.unknown": "The result is unclear. Nothing here confirms the tool ran.",
   "chat.toolApproval.riskLevel.L0": "Low risk",
   "chat.toolApproval.riskLevel.L1": "Moderate risk",

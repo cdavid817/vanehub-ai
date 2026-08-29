@@ -180,6 +180,15 @@ impl ApprovalBroker {
         }
     }
 
+    /// Removes a pending entry whatever phase it is in.
+    ///
+    /// For the emergency denial path only, which releases the waiter without a durable record.
+    /// Reverting the claim there would leave the request on offer after its waiter was already
+    /// denied, letting a human "approve" something that has been refused.
+    pub(crate) fn discard_pending(&self, request_id: &str) -> bool {
+        self.lock_pending().remove(request_id).is_some()
+    }
+
     /// Drops a committed entry once its delivery has been resolved one way or the other.
     pub(crate) fn release_committed(&self, request_id: &str, resolution_id: &str) -> bool {
         let mut pending = self.lock_pending();

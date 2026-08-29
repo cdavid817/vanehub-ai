@@ -2900,6 +2900,7 @@
   "chat.toolApproval.outcome.resolving": "이 요청에 대한 다른 결정이 이미 진행 중입니다.",
   "chat.toolApproval.outcome.already_resolved": "이 요청은 이미 결정되었습니다.",
   "chat.toolApproval.outcome.not_found": "이 요청은 더 이상 존재하지 않습니다.",
+  "chat.toolApproval.outcome.denied_fail_closed": "이 승인은 기록을 저장할 수 없는 상태에서 시간이 초과되어 거부되었습니다. 아무것도 실행되지 않았습니다.",
   "chat.toolApproval.outcome.unknown": "결과가 불분명합니다. 도구가 실행되었음을 확인할 수 있는 정보는 없습니다.",
   "chat.toolApproval.riskLevel.L0": "낮은 위험",
   "chat.toolApproval.riskLevel.L1": "중간 위험",

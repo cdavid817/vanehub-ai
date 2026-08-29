@@ -2900,6 +2900,7 @@
   "chat.toolApproval.outcome.resolving": "このリクエストには別の決定が処理中です。",
   "chat.toolApproval.outcome.already_resolved": "このリクエストは既に決定済みです。",
   "chat.toolApproval.outcome.not_found": "このリクエストは既に存在しません。",
+  "chat.toolApproval.outcome.denied_fail_closed": "この承認は記録を保存できない状態でタイムアウトしたため拒否されました。何も実行されていません。",
   "chat.toolApproval.outcome.unknown": "結果が不明です。ツールが実行されたことを示す情報はありません。",
   "chat.toolApproval.riskLevel.L0": "低リスク",
   "chat.toolApproval.riskLevel.L1": "中リスク",

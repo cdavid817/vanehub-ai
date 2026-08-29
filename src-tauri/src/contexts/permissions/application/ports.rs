@@ -161,6 +161,21 @@ pub(crate) trait PermissionsDiagnosticsPort: Send + Sync {
         session_id: &str,
         generation_id: &str,
     );
+
+    /// A pending approval was denied without a durable record, because storage was unavailable and
+    /// the bounded approval timeout would otherwise have been violated.
+    ///
+    /// Mandatory, not best-effort in intent: this is the one path that releases a waiter with no
+    /// row behind it, so the log line is the only evidence it happened. It still cannot fail the
+    /// operation — there is nowhere further to fall — but a build that silently dropped it would
+    /// leave a denial nobody can account for.
+    fn approval_denied_fail_closed(
+        &self,
+        request_id: &str,
+        session_id: &str,
+        generation_id: &str,
+        reason: &'static str,
+    );
 }
 
 /// The decision as it is about to become durable, before storage assigns it a state history.

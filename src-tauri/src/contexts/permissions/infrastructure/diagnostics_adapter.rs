@@ -38,4 +38,28 @@ impl PermissionsDiagnosticsPort for UnifiedLogDiagnosticsAdapter {
             ]),
         );
     }
+
+    fn approval_denied_fail_closed(
+        &self,
+        request_id: &str,
+        session_id: &str,
+        generation_id: &str,
+        reason: &'static str,
+    ) {
+        let _ = write_message_raw(
+            &fallback_log_dir(),
+            LogLevel::Error,
+            "permissions",
+            "approval denied fail-closed without a durable resolution",
+            BTreeMap::from([
+                // Ids and a reason code. The action and resource are deliberately absent: this line
+                // exists to say a denial happened and could not be recorded, not to describe what
+                // was denied — the request id is what an operator correlates with.
+                ("request_id".to_string(), request_id.to_string()),
+                ("reason".to_string(), reason.to_string()),
+                ("session_id".to_string(), session_id.to_string()),
+                ("generation_id".to_string(), generation_id.to_string()),
+            ]),
+        );
+    }
 }

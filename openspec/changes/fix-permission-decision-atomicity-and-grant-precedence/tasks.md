@@ -61,7 +61,7 @@
 ## 7. Timeout, evaluation failure, and restart reconciliation
 
 - [x] 7.1 Route timeout sweep through the same claim/resolution use case with `decider = timeout`, preserving the existing bounded timeout and provider continuation semantics.
-- [ ] 7.2 Implement emergency Deny-only delivery for storage outage, with redacted unified diagnostics, no grant, no execution, and no later reinterpretation as Allow.
+- [x] 7.2 Implement emergency Deny-only delivery for storage outage, with redacted unified diagnostics, no grant, no execution, and no later reinterpretation as Allow.
 - [x] 7.3 Replace principal select-then-insert with atomic repository `get_or_create` while preserving read-only `find_by_agent_id` for settings listing.
 - [x] 7.4 Add evaluation-error audit attribution and the unified-log fallback when audit persistence itself is unavailable; verify redaction of resource/tool metadata.
 - [x] 7.5 Add startup reconciliation for committed/delivery-failed rows: mark them aborted/delivery-unknown, keep grant intent inactive, and never create a live pending request or target a new generation.
