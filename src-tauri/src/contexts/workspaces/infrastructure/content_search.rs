@@ -17,21 +17,31 @@
 use super::path_search::walk_workspace_paths;
 use super::session_queries::resolve_session_root;
 use crate::contexts::workspaces::application::{
-    safe_snippet, WorkspaceApplicationError as AppError, WorkspaceContentMatch,
-    WorkspaceContentSearchRequest, WorkspaceContentSearchResult, WorkspaceSearchCoverage,
-    MAX_CONTENT_MATCHES, MAX_SEARCHED_FILE_BYTES,
+    safe_snippet, SearchCancellationCause, SearchCancellationToken,
+    WorkspaceApplicationError as AppError, WorkspaceContentMatch, WorkspaceContentSearchRequest,
+    WorkspaceContentSearchResult, WorkspaceSearchCoverage, MAX_CONTENT_MATCHES,
+    MAX_SEARCHED_FILE_BYTES,
 };
 use rusqlite::Connection;
 use std::fs;
 use std::io::Read;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+
+/// The coverage reason a signalled token carries.
+///
+/// A supersede and an explicit cancel both stop the walk and mean different things to a reader:
+/// one of them is something they did to this search on purpose.
+fn stop_reason(cancellation: &SearchCancellationToken) -> &'static str {
+    cancellation
+        .cause()
+        .unwrap_or(SearchCancellationCause::Cancelled)
+        .reason_code()
+}
 
 pub(crate) fn search_session_content(
     conn: &Connection,
     session_id: &str,
     request: &WorkspaceContentSearchRequest,
-    cancelled: &Arc<AtomicBool>,
+    cancellation: &SearchCancellationToken,
 ) -> Result<WorkspaceContentSearchResult, AppError> {
     let needle = request.query.trim().to_lowercase();
     if needle.is_empty() {
@@ -61,9 +71,9 @@ pub(crate) fn search_session_content(
     let mut matches: Vec<WorkspaceContentMatch> = Vec::new();
     let mut partial = walk_partial;
     for candidate in candidates {
-        if cancelled.load(Ordering::Relaxed) {
+        if cancellation.is_cancelled() {
             return Ok(WorkspaceContentSearchResult {
-                coverage: WorkspaceSearchCoverage::partial("workspace_search_cancelled"),
+                coverage: WorkspaceSearchCoverage::partial(stop_reason(cancellation)),
                 matches,
             });
         }

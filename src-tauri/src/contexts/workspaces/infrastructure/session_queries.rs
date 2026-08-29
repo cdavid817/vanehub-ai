@@ -11,8 +11,8 @@ use crate::contexts::workspaces::application::{
     MAX_REVIEW_PATCH_BYTES,
 };
 use crate::contexts::workspaces::application::{
-    WorkspaceContentSearchRequest, WorkspaceContentSearchResult, WorkspacePathSearchRequest,
-    WorkspacePathSearchResult,
+    SearchCancellationToken, WorkspaceContentSearchRequest, WorkspaceContentSearchResult,
+    WorkspacePathSearchRequest, WorkspacePathSearchResult,
 };
 use crate::contexts::workspaces::domain::{CanonicalPathBoundary, WorkspaceRelativePath};
 use crate::platform;
@@ -24,8 +24,6 @@ use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
 use tauri::AppHandle;
 use tauri_plugin_dialog::DialogExt;
 
@@ -123,13 +121,13 @@ impl WorkspaceSessionQueryPort for SessionWorkspaceQueryAdapter {
         &self,
         session_id: &str,
         request: &WorkspaceContentSearchRequest,
-        cancelled: &Arc<AtomicBool>,
+        cancellation: &SearchCancellationToken,
     ) -> Result<WorkspaceContentSearchResult, AppError> {
         super::content_search::search_session_content(
             &*self.connection()?,
             session_id,
             request,
-            cancelled,
+            cancellation,
         )
     }
 

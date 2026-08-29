@@ -322,21 +322,22 @@ impl WorkspaceApi {
 
     /// Content search, registered so it can be stopped.
     ///
-    /// The flag is taken before the search starts and released after it ends, in this one place.
-    /// Registering inside the provider would put the lifetime of the registration inside the thing
-    /// being registered, and a provider that returned early would leave an id running forever.
+    /// The registration is taken before the search starts, so a cancel arriving in the window
+    /// between the request leaving the frontend and the first directory being read still lands.
+    /// And the guard that owns it stays in *this* future - so an abort releases it and signals the
+    /// worker, and a walk on the blocking pool never touches the registry at all.
     pub(crate) async fn search_workspace_content(
         &self,
         session_id: &str,
         request: WorkspaceContentSearchRequest,
     ) -> Result<WorkspaceContentSearchResult, WorkspaceInspectionError> {
-        let search_id = request.search_id.clone();
-        let cancelled = self.searches.begin(&search_id);
+        let registration = self.searches.begin(&request.search_id);
+        let cancellation = registration.token();
         let outcome = self
             .inspection
-            .search_content(session_id, request, cancelled)
+            .search_content(session_id, request, cancellation)
             .await;
-        self.searches.finish(&search_id);
+        registration.complete();
         outcome
     }
 

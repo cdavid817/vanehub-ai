@@ -22,10 +22,9 @@ use super::models::{
     DirectoryListing, DocumentListing, FileContent, FileSearchListing, GitDiffResult,
     GitDiffSource, GitStatusResult,
 };
+use super::search_cancellation::SearchCancellationToken;
 use async_trait::async_trait;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
 
 /// Which workspace an inspection is about.
 ///
@@ -322,6 +321,9 @@ impl WorkspaceSearchCoverageState {
 pub(crate) struct WorkspaceSearchCoverage {
     pub(crate) state: WorkspaceSearchCoverageState,
     /// Why it is not complete, as a token the frontend translates. Absent when it is.
+    ///
+    /// One primary reason rather than a list. A UI that had to rank several would rank them
+    /// differently from the code that produced them, and a reader only ever acts on one.
     pub(crate) reason_code: Option<&'static str>,
 }
 
@@ -406,14 +408,16 @@ pub(crate) trait WorkspaceInspectionProvider: Send + Sync {
 
     /// Content search: positions inside files, bounded and interruptible.
     ///
-    /// Takes the cancellation flag rather than looking one up. A provider that consulted a registry
+    /// Takes the cancellation token rather than looking one up. A provider that consulted a registry
     /// would be a second place that decides whether a search is still wanted, and the two would
-    /// disagree exactly when a reader cancelled at the wrong moment.
+    /// disagree exactly when a reader cancelled at the wrong moment. It is also the only half of a
+    /// registration a worker is given: the guard that owns the slot stays with the async caller, so
+    /// no walk on the blocking pool can remove a registration — its own or anybody else's.
     async fn search_content(
         &self,
         target: &WorkspaceTarget,
         request: WorkspaceContentSearchRequest,
-        cancelled: Arc<AtomicBool>,
+        cancellation: SearchCancellationToken,
     ) -> Result<WorkspaceContentSearchResult, WorkspaceInspectionError>;
 
     async fn list_documents(

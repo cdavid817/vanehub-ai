@@ -21,15 +21,15 @@ use crate::contexts::workspaces::application::{
     DirectoryEntry, DirectoryFingerprint, DirectoryFingerprintState, DirectoryListing,
     DocumentListing, FileContent, FileSearchListing, FileSearchMatch, GitDiffRequest,
     GitDiffResult, GitDiffSource, GitStatusResult, ListDirectoryRequest, PathSearchCursor,
-    ReadTextFileRequest, RemoteWorkspaceTarget, SessionWorkspaceContext, WorkspaceContentMatch,
-    WorkspaceContentSearchRequest, WorkspaceContentSearchResult, WorkspaceInspectionCapabilities,
-    WorkspaceInspectionError, WorkspaceInspectionProvider, WorkspacePathMatch,
-    WorkspacePathSearchRequest, WorkspacePathSearchResult, WorkspaceSearchCoverage,
-    WorkspaceSearchRequest, WorkspaceTarget, MAX_CONTENT_MATCHES, MAX_FINGERPRINT_PATHS,
+    ReadTextFileRequest, RemoteWorkspaceTarget, SearchCancellationCause, SearchCancellationToken,
+    SessionWorkspaceContext, WorkspaceContentMatch, WorkspaceContentSearchRequest,
+    WorkspaceContentSearchResult, WorkspaceInspectionCapabilities, WorkspaceInspectionError,
+    WorkspaceInspectionProvider, WorkspacePathMatch, WorkspacePathSearchRequest,
+    WorkspacePathSearchResult, WorkspaceSearchCoverage, WorkspaceSearchRequest, WorkspaceTarget,
+    MAX_CONTENT_MATCHES, MAX_FINGERPRINT_PATHS,
 };
 use async_trait::async_trait;
 use base64::Engine;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 /// What a binding looks like right now.
@@ -291,13 +291,19 @@ fn rank_path_candidates(
     }
 }
 
-/// What a cancelled search returns.
+/// What a stopped search returns.
 ///
 /// Partial with a reason rather than an error: nothing went wrong, the reader simply stopped
 /// waiting, and an error would put a failure notice on screen for something they did on purpose.
-fn cancelled_result() -> WorkspaceContentSearchResult {
+///
+/// The cause is carried through rather than flattened, because a reader who typed another
+/// character and a reader who pressed Escape are being told different things.
+fn cancelled_result(cause: Option<SearchCancellationCause>) -> WorkspaceContentSearchResult {
+    let reason = cause
+        .unwrap_or(SearchCancellationCause::Cancelled)
+        .reason_code();
     WorkspaceContentSearchResult {
-        coverage: WorkspaceSearchCoverage::partial("workspace_search_cancelled"),
+        coverage: WorkspaceSearchCoverage::partial(reason),
         matches: Vec::new(),
     }
 }
@@ -532,13 +538,13 @@ impl WorkspaceInspectionProvider for RemoteWorkspaceInspectionProvider {
         &self,
         target: &WorkspaceTarget,
         request: WorkspaceContentSearchRequest,
-        cancelled: Arc<AtomicBool>,
+        cancellation: SearchCancellationToken,
     ) -> Result<WorkspaceContentSearchResult, WorkspaceInspectionError> {
         // Checked before connecting rather than only after. A reader who cancels while the request
         // is still being assembled has already stopped waiting, and opening an SSH channel to
         // answer them would spend a remote host's effort on a result nobody will read.
-        if cancelled.load(Ordering::Relaxed) {
-            return Ok(cancelled_result());
+        if cancellation.is_cancelled() {
+            return Ok(cancelled_result(cancellation.cause()));
         }
         let (_, result) = self
             .call(
@@ -551,8 +557,8 @@ impl WorkspaceInspectionProvider for RemoteWorkspaceInspectionProvider {
             .await?;
         // Checked again afterwards. The round trip is where the waiting actually happens, and a
         // result that arrives for an abandoned search must not be handed back as if it were wanted.
-        if cancelled.load(Ordering::Relaxed) {
-            return Ok(cancelled_result());
+        if cancellation.is_cancelled() {
+            return Ok(cancelled_result(cancellation.cause()));
         }
         let content = result
             .content

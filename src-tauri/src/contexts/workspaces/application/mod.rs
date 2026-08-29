@@ -10,6 +10,7 @@ mod models;
 mod ports;
 mod query_service;
 mod review;
+mod search_cancellation;
 mod service;
 mod session_shell;
 mod session_shell_registry;
@@ -25,8 +26,7 @@ mod text_metadata;
 pub(crate) use content_search::MAX_SNIPPET_CHARS;
 pub(crate) use content_search::{
     safe_snippet, WorkspaceContentMatch, WorkspaceContentSearchRequest,
-    WorkspaceContentSearchResult, WorkspaceSearchCancellation, MAX_CONTENT_MATCHES,
-    MAX_SEARCHED_FILE_BYTES,
+    WorkspaceContentSearchResult, MAX_CONTENT_MATCHES, MAX_SEARCHED_FILE_BYTES,
 };
 pub(crate) use error::WorkspaceApplicationError;
 pub(crate) use evidence::{
@@ -70,6 +70,11 @@ pub(crate) use review::{
     ReviewDiffHunk, ReviewFileSummary, ReviewPatch, ReviewPatchRequest, ReviewRevertReceipt,
     ReviewRevertRequest, ReviewSnapshot, WorkspaceReviewPort, MAX_REVIEW_DIFF_BYTES,
     MAX_REVIEW_FILES, MAX_REVIEW_FILE_BYTES, MAX_REVIEW_PATCH_BYTES,
+};
+/// Generation-safe cancellation. The registry is published so the API can own one; the token is
+/// published because it is what a provider actually polls.
+pub(crate) use search_cancellation::{
+    SearchCancellationCause, SearchCancellationToken, WorkspaceSearchCancellation,
 };
 pub(crate) use service::WorkspaceApplicationService;
 pub(crate) use session_shell::{

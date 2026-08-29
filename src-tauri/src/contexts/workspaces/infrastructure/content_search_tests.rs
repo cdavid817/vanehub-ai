@@ -5,13 +5,14 @@
 //! stand in for.
 
 use super::content_search::search_session_content;
-use crate::contexts::workspaces::application::{WorkspaceContentSearchRequest, MAX_SNIPPET_CHARS};
+use crate::contexts::workspaces::application::{
+    SearchCancellationCause, SearchCancellationToken, WorkspaceContentSearchRequest,
+    MAX_SNIPPET_CHARS,
+};
 use crate::platform::database::NativeDatabase;
 use crate::test_support::TempDirectory;
 use rusqlite::params;
 use std::fs;
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
 
 struct Workspace {
     _directory: TempDirectory,
@@ -33,7 +34,7 @@ struct Hit {
 }
 
 impl Workspace {
-    fn search(&self, query: &str, cancelled: &Arc<AtomicBool>) -> Answer {
+    fn search(&self, query: &str, cancellation: &SearchCancellationToken) -> Answer {
         let connection = self.database.connection().expect("connection");
         let result = search_session_content(
             &connection,
@@ -43,7 +44,7 @@ impl Workspace {
                 search_id: "search-1".to_string(),
                 limit: None,
             },
-            cancelled,
+            cancellation,
         )
         .expect("search");
         Answer {
@@ -63,7 +64,7 @@ impl Workspace {
     }
 
     fn find(&self, query: &str) -> Answer {
-        self.search(query, &Arc::new(AtomicBool::new(false)))
+        self.search(query, &SearchCancellationToken::new())
     }
 }
 
@@ -206,9 +207,10 @@ fn an_empty_query_answers_with_nothing_rather_than_everything() {
 #[test]
 fn a_cancelled_search_stops_and_says_why() {
     let workspace = workspace(&[("a.txt", b"needle\n"), ("b.txt", b"needle\n")]);
-    let cancelled = Arc::new(AtomicBool::new(true));
+    let cancellation = SearchCancellationToken::new();
+    cancellation.signal(SearchCancellationCause::Cancelled);
 
-    let answer = workspace.search("needle", &cancelled);
+    let answer = workspace.search("needle", &cancellation);
 
     // Partial with a reason rather than an error: nothing went wrong, the reader stopped waiting,
     // and an error would put a failure notice on screen for something they did on purpose.

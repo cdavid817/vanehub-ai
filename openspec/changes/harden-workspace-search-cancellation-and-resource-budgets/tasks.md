@@ -9,13 +9,13 @@
 
 ## 1. Generation-safe cancellation primitives
 
-- [ ] 1.1 Add `SearchGeneration`, cancellation cause (`Cancelled`, `Superseded`, owner dropped), token, slot, and RAII `SearchRegistration` in the workspaces application/domain boundary.
-- [ ] 1.2 Make `begin(search_id)` atomically allocate/replace a generation and signal the previous token before returning the new registration.
-- [ ] 1.3 Implement compare-remove by generation plus token identity for explicit complete and Drop; remove the old unconditional id-only finish API after all callers migrate.
-- [ ] 1.4 Keep the guard in the async owner and pass only immutable generation/token clones into blocking or remote workers.
-- [ ] 1.5 Implement precise explicit cancel of the current slot and optional generation-qualified internal cancel; return stable not-found/already-finished semantics.
-- [ ] 1.6 Add concurrency/model tests for A/B interleavings, three generations, conflicting cancel/complete, normal error, panic unwind, future abort, late result, and generation wrap.
-- [ ] 1.7 Add a regression test proving A's Drop/complete cannot remove B and B remains cancellable.
+- [x] 1.1 Add `SearchGeneration`, cancellation cause (`Cancelled`, `Superseded`, owner dropped), token, slot, and RAII `SearchRegistration` in the workspaces application/domain boundary.
+- [x] 1.2 Make `begin(search_id)` atomically allocate/replace a generation and signal the previous token before returning the new registration.
+- [x] 1.3 Implement compare-remove by generation plus token identity for explicit complete and Drop; remove the old unconditional id-only finish API after all callers migrate.
+- [x] 1.4 Keep the guard in the async owner and pass only immutable generation/token clones into blocking or remote workers.
+- [x] 1.5 Implement precise explicit cancel of the current slot and optional generation-qualified internal cancel; return stable not-found/already-finished semantics.
+- [x] 1.6 Add concurrency/model tests for A/B interleavings, three generations, conflicting cancel/complete, normal error, panic unwind, future abort, late result, and generation wrap.
+- [x] 1.7 Add a regression test proving A's Drop/complete cannot remove B and B remains cancellable.
 
 ## 2. Budget, coverage, clock, and admission contracts
 

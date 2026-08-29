@@ -16,15 +16,15 @@ use crate::contexts::workspaces::application::{
     bounded_page_size, CapabilityState, DirectoryFingerprint, DirectoryListing, DocumentListing,
     FileContent, FileSearchListing, GitDiffRequest, GitDiffResult, GitStatusResult,
     ListDirectoryRequest, LocalWorkspaceTarget, ReadTextFileRequest, RemoteWorkspaceTarget,
-    WatchMode, WorkspaceApplicationError as AppError, WorkspaceContentSearchRequest,
-    WorkspaceContentSearchResult, WorkspaceInspectionCapabilities, WorkspaceInspectionError,
-    WorkspaceInspectionProvider, WorkspacePathSearchRequest, WorkspacePathSearchResult,
-    WorkspaceSearchRequest, WorkspaceSessionQueryPort, WorkspaceTarget, WorkspaceTargetResolver,
+    SearchCancellationToken, WatchMode, WorkspaceApplicationError as AppError,
+    WorkspaceContentSearchRequest, WorkspaceContentSearchResult, WorkspaceInspectionCapabilities,
+    WorkspaceInspectionError, WorkspaceInspectionProvider, WorkspacePathSearchRequest,
+    WorkspacePathSearchResult, WorkspaceSearchRequest, WorkspaceSessionQueryPort, WorkspaceTarget,
+    WorkspaceTargetResolver,
 };
 use crate::platform::database::{NativeDatabase, PooledSqlite};
 use async_trait::async_trait;
 use rusqlite::{params, OptionalExtension};
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 /// What the session row says about where its workspace is.
@@ -252,10 +252,10 @@ impl WorkspaceInspectionProvider for LocalWorkspaceInspectionProvider {
         &self,
         target: &WorkspaceTarget,
         request: WorkspaceContentSearchRequest,
-        cancelled: Arc<AtomicBool>,
+        cancellation: SearchCancellationToken,
     ) -> Result<WorkspaceContentSearchResult, WorkspaceInspectionError> {
         let session_id = require_local(target)?.session_id.clone();
-        self.blocking(move |queries| queries.search_content(&session_id, &request, &cancelled))
+        self.blocking(move |queries| queries.search_content(&session_id, &request, &cancellation))
             .await
     }
 
