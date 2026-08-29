@@ -1201,7 +1201,18 @@ const BOUNDED_CONTEXTS: &[&str] = &[
     "permissions",
     "retrieval",
     "sessions",
+    // Added by the four archived skill-evolution changes (target-selection, curator-governance,
+    // generation-agent, orchestration-auto-apply-gate) and by
+    // `add-skill-evolution-system-sessions-and-result-projection`, each of which argued for its
+    // own governed lifecycle: assessment witnesses, Curator decisions, constrained generation,
+    // durable orchestration, and the read-only activity projection are five separate lifecycles
+    // that evidence alone does not own.
+    "skill_evolution_assessment",
+    "skill_evolution_curation",
     "skill_evolution_evidence",
+    "skill_evolution_generation",
+    "skill_evolution_orchestration",
+    "skill_evolution_system_activity",
     "ssh_connections",
     "tooling",
     "web_research",
@@ -2564,9 +2575,10 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     SubtreeBudget {
         root: "src-tauri/src/contexts/agent_runtime/infrastructure",
         // Skill Evolution adds the structured model transport at the existing Agent runtime
-        // boundary; the merged tree is measured because main changed the same subtree independently.
-        budget: 62_647,
-        owner: "sync-main-with-skill-evolution",
+        // boundary; measured on the merged tree because main changed the same subtree
+        // independently, and re-measured at 62,730 once the system-activity boundary landed.
+        budget: 62_730,
+        owner: "add-skill-evolution-system-sessions-and-result-projection",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
     // directory module. The +51 is entirely per-file boilerplate: +29 module headers (the `mod`
@@ -2658,11 +2670,11 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // for those four and it stays cheap because none of them has shipped; a version that has
         // reached an installation is the one that can never move again.
         //
-        // Re-measured on merging the Skill evolution branch, whose sixteen migrations
+        // Re-measured at 3,619 on merging the Skill evolution branch, whose sixteen migrations
         // (renumbered 95-110 on merge, from 88-103) each pay the fixed registration cost here;
         // their table bodies remain in the owning contexts.
-        budget: 3_515,
-        owner: "sync-main-with-skill-evolution",
+        budget: 3_619,
+        owner: "add-skill-evolution-system-sessions-and-result-projection",
     },
 ];
 
@@ -2701,9 +2713,10 @@ const NATIVE_PRODUCTION_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // The three test doubles that also gained methods are counted by the aggregate above and
         // deliberately not by this one.
         // The structured model transport contributes the remaining production-only delta on the
-        // merged tree; its test doubles account for the difference from the aggregate increase.
-        budget: 33_750,
-        owner: "sync-main-with-skill-evolution",
+        // merged tree (measured 33,809); its test doubles account for the difference from the
+        // aggregate increase.
+        budget: 33_809,
+        owner: "add-skill-evolution-system-sessions-and-result-projection",
     },
 ];
 
