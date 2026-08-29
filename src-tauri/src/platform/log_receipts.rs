@@ -68,6 +68,18 @@ pub(crate) fn set_append_sink(sink: Box<dyn RedactedLogAppendSink>) {
     }
 }
 
+/// Uninstalls the sink and returns it, so its own resources can be released.
+///
+/// The consumer behind it owns a thread that ends when every sender is dropped, and the sink is
+/// where the last sender lives. Without this, a shutdown that waited for that thread waited for
+/// something that could not happen: the sink is a `'static` and outlives the wait.
+///
+/// Returned rather than dropped in place, so the caller decides when the drop happens — dropping it
+/// while holding the slot's lock would run a destructor under a lock every logging call takes.
+pub(crate) fn take_append_sink() -> Option<Box<dyn RedactedLogAppendSink>> {
+    sink_slot().lock().ok()?.take()
+}
+
 /// Publishes a receipt, if anything is listening.
 ///
 /// A poisoned lock is treated as "no sink": the log is already written, and panicking here would

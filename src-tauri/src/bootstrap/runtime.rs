@@ -81,8 +81,14 @@ pub(crate) fn run() {
                 if let Some(bridge) = app.try_state::<super::EvidenceBridgeShutdown>() {
                     bridge.shutdown();
                 }
-                // Drains the receipts already queued. Bounded by the queue's own capacity, because
-                // the sender is dropped first and the worker then sees the channel close.
+                // Uninstalled before the wait, and that order is the whole point: the sink holds
+                // the only sender, so a shutdown that waited without releasing it waited for a
+                // channel that could never close. Dropped outside the slot's lock, because the
+                // destructor would otherwise run under a lock every logging call takes.
+                let sink = crate::platform::log_receipts::take_append_sink();
+                drop(sink);
+                // Drains the receipts already queued. Bounded by the queue's own capacity now that
+                // the sender is gone and the worker sees the channel close.
                 if let Some(worker) =
                     app.try_state::<std::sync::Arc<super::LogIndexBridgeWorker>>()
                 {

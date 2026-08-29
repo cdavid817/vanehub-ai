@@ -21,6 +21,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 
 /// How many receipts may wait to be indexed.
 ///
@@ -100,6 +101,12 @@ impl RedactedLogAppendSink for LogIndexBridge {
     }
 }
 
+/// How long a shutdown waits for the worker to drain.
+///
+/// A backstop rather than the mechanism: the sink is uninstalled first, so the ordinary path ends in
+/// microseconds. This exists for the day somebody adds a second sender.
+const SHUTDOWN_GRACE: Duration = Duration::from_millis(500);
+
 /// The consumer half, kept so the worker can be joined at shutdown.
 pub(crate) struct LogIndexBridgeWorker {
     worker: Mutex<Option<JoinHandle<()>>>,
@@ -110,12 +117,27 @@ pub(crate) struct LogIndexBridgeWorker {
 impl LogIndexBridgeWorker {
     /// Waits for the worker to finish the receipts it already holds.
     ///
-    /// Bounded by the queue being closed rather than by a deadline: the sender is dropped first, so
-    /// the worker drains what it has and stops. What it has is at most the queue capacity.
+    /// The caller uninstalls the process-wide sink first, which drops the only sender and lets the
+    /// worker drain and stop. That was always the intent and was never true: the sink is a
+    /// `'static` that nothing released, so the worker's channel never closed and this join could not
+    /// return. A deadline is kept anyway, because "the sender is dropped first" is a property
+    /// somebody can break again, and an unbounded wait on the exit path turns that mistake into an
+    /// application that cannot be closed.
     pub(crate) fn shutdown(&self) {
-        if let Some(worker) = self.worker.lock().ok().and_then(|mut slot| slot.take()) {
-            let _ = worker.join();
+        let Some(worker) = self.worker.lock().ok().and_then(|mut slot| slot.take()) else {
+            return;
+        };
+        let deadline = Instant::now() + SHUTDOWN_GRACE;
+        while !worker.is_finished() {
+            if Instant::now() >= deadline {
+                // Whatever is still queued is lost. A log index is a convenience over files that
+                // are already written, so losing its tail is strictly better than refusing to
+                // close.
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(10));
         }
+        let _ = worker.join();
     }
 
     /// How many receipts the bridge could not index, by reason.
