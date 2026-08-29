@@ -1,7 +1,5 @@
 # Observability
 
-**Status: Implemented — desktop only.**
-
 ## Overview
 
 This answers "what actually happened in that run". The **Traces** tab shows the whole task as a span tree, and the **Logs** tab provides searchable, time-seekable redacted logs.
@@ -69,8 +67,6 @@ Open the session's **Logs** tab:
 
 Logs have four levels: **error / warn / info / debug**.
 
-> **Exporting local logs is not supported in Web preview mode.**
-
 ![A session Logs tab with search, time seeking, and level filtering](assets/screenshots/session-logs-en.png)
 
 ## Collection policy and redaction
@@ -116,9 +112,36 @@ Even when a field name looks harmless, its string value goes through another tok
 
 This is a deliberate privacy design, and the cost is that **you cannot search the logs by a trace id**; the two have to be read separately.
 
+## Mission Control
+
+A trace answers "what happened inside this one run". **Mission Control answers the other question: which runs need you right now.** It is the **Mission Control** entry in the left activity bar.
+
+![The Mission Control overview with summary counts across the top and the attention, active, and recent sections below](assets/screenshots/mission-control-en.png)
+
+The top of the page carries summary counts across seven states:
+
+| Count | What it means |
+| --- | --- |
+| Running | Currently executing |
+| Waiting approval | Halted at a permission gate, waiting for your decision |
+| Waiting user | Halted on a question addressed to you |
+| Retrying | Failed and being retried automatically |
+| Blocked or stuck | Not progressing, with a stated reason |
+| Failed | Ended unsuccessfully |
+| Recently completed | Finished, kept visible for a while |
+
+Below the counts are three bounded sections — **attention**, **active**, and **recent completions**. Each row shows the run and its owner, the Agent, a safe title, its state, elapsed time, workspace, phase, why it needs attention, and its verification summary.
+
+Two behaviours are worth knowing because they are deliberate:
+
+- **A completed run's elapsed time stops.** It is taken from the terminal timestamp, so refreshing the page does not keep the clock running on something that already ended.
+- **Token and cost figures appear only when their provenance is reliable.** With no reported usage, no explicitly classified estimate, or no matching price, Mission Control marks the value unavailable rather than showing zero. A blank here means "not known", not "nothing was spent".
+
+The sections are bounded pages rather than the whole history: the view stays the same size whether you have ten runs or ten thousand. For the detail behind any row — logs, diffs, prompts, tool payloads — open the run itself.
+
 ## Notes and limits
 
-- **Desktop only.** The browser preview does no actual collection.
+- **Desktop only.**
 - **History is cleaned up.** Retention is configurable from 1 to 90 days (default 30), and records past that are deleted; for long-term retention, export them yourself or configure OTLP.
 - **The system does not offer raw content collection.** Correlation identifiers and content collection are independent, and content is not collected by default.
 - **Every node within one run shares one collection policy**; an individual node cannot be relaxed on its own.

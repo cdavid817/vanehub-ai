@@ -1,8 +1,47 @@
 # LSP code intelligence
 
-> **Feature state:** Implemented for the Tauri desktop runtime and local workspaces. Web/mock mode provides deterministic settings and status previews only; it does not inspect files or launch a language server.
-
 Language Server Protocol (LSP) integration lets the native API Agent ask a local language server for definitions, references, hover information, and current diagnostics. It is disabled by default and requires both language enablement and explicit trust for each local workspace.
+
+![The Language server intelligence settings page showing configuration, discovery, startup arguments, and trusted workspaces](assets/screenshots/settings-code-intelligence-en.png)
+
+## What LSP is
+
+Before LSP, every editor that wanted "intelligence" — completion, go-to-definition, error highlighting — had to write a plugin per language. That is the classic **M×N problem**: M editors × N languages = M×N separate implementations. Microsoft proposed LSP in 2016 and turned it into **M+N**:
+
+- Each language implements **one** language server that understands its syntax and type system.
+- Each editor implements **one** LSP client that understands how to talk to any language server.
+
+The two sides speak through one protocol and stay indifferent to each other's internals. VaneHub AI plays the client side — it talks to the language servers you have installed locally, on the Agent's behalf.
+
+**How they communicate**: the transport is usually stdio over a child-process pipe; the message format is JSON-RPC 2.0, each message carrying a `Content-Length` header and a JSON body. Messages come in two kinds — request/response (a question and its answer, such as "where is this symbol defined") and notification (one-way, needing no reply, such as "this file's content changed").
+
+**Lifecycle**: the client starts the server as a child process → sends `initialize` declaring which capabilities it supports → the server replies with its own, completing the handshake → normal work → `shutdown` → `exit` for a graceful close. That **capability negotiation** matters: either side may implement only a subset of the protocol, and the capabilities field is how each learns what the other can do.
+
+### What LSP covers
+
+The protocol itself covers far more than the tools VaneHub AI exposes to an Agent:
+
+| Capability | Method | What it does |
+| --- | --- | --- |
+| Go to definition | `textDocument/definition` | Go to Definition |
+| Find references | `textDocument/references` | Find All References |
+| Hover | `textDocument/hover` | Shows type and documentation |
+| Diagnostics | `textDocument/publishDiagnostics` | Live syntax and type errors (**pushed by the server**) |
+| Completion | `textDocument/completion` | Candidates at the cursor |
+| Rename | `textDocument/rename` | Safe rename across files |
+| Code actions | `textDocument/codeAction` | Quick fixes and refactoring suggestions |
+| Formatting | `textDocument/formatting` | Code formatting |
+| Semantic highlighting | `textDocument/semanticTokens` | More accurate colouring than regex highlighting |
+| Document symbols | `textDocument/documentSymbol` | The file's structure tree |
+
+For document synchronization, the client reports file state to the server with `didOpen`, `didChange`, and `didClose`, and the server maintains a document snapshot for incremental analysis. **VaneHub AI exposes only read-only capabilities to an Agent** — rename, code actions, and formatting all modify files and are not offered. See [Limits and result states](#limits-and-result-states) below.
+
+## Why an Agent needs LSP
+
+- **Precise context extraction** — compared with handing a whole file to the model or grepping for text, LSP returns **semantic** information: every call site of a function, a type's complete definition, symbol resolution across files. That beats AST or regex work, because a language server has done real type checking and cross-module resolution.
+- **Lower risk of hallucinated edits** — an Agent can confirm the blast radius with definition and references before changing code, instead of guessing.
+- **A diagnostic loop** — after an edit, the compiler's or type checker's errors come straight back, closing an edit → verify → correct loop without you running a build by hand.
+- **The cost trade-off** — starting a language server carries real time and memory cost, particularly rust-analyzer's first index of a large workspace. That is exactly why VaneHub AI makes LSP **disabled by default, enabled per language, and trusted per workspace**, rather than spinning up an instance for every session.
 
 ## Supported servers and tools
 
@@ -219,7 +258,7 @@ That is different from an undiscovered executable. The running build registers t
 
 ### The Agent does not receive LSP tools
 
-Confirm that you are using the desktop runtime, the master and matching language switches are enabled, discovery is available, the current canonical local workspace is trusted, and the session file uses a supported language. A remote session or browser preview cannot activate native LSP tools.
+Confirm that you are using the desktop runtime, the master and matching language switches are enabled, discovery is available, the current canonical local workspace is trusted, and the session file uses a supported language. A remote session cannot activate native LSP tools.
 
 ### Results are warming, stale, or truncated
 

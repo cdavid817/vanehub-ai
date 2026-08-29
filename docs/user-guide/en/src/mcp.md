@@ -1,7 +1,5 @@
 # MCP servers: connect external tools to an Agent
 
-**Status: Implemented — real connections are desktop only; Web/mock simulates through the same service and event contracts without connecting to anything.**
-
 ## What MCP is
 
 **MCP (Model Context Protocol) is the standard protocol through which an Agent calls external tools.**
@@ -117,7 +115,6 @@ When one server's cached catalog is malformed or over the limit, **only that ser
 - **The relay covers only Claude Code and Codex CLI**; the other three CLIs need their own configuration and their calls do not reach the execution trace.
 - **Every MCP tool call needs approval**; there is no "trust this server" switch that skips it.
 - **Names are globally unique and format-constrained**, and a duplicate is rejected rather than overwriting.
-- **Web/mock connects to nothing.** It simulates at least one MCP tool call and result through the same event contracts, returns the same `limit_exceeded` code when a shared limit is exceeded, and never claims a process or network connection was started.
 
 ## Related
 

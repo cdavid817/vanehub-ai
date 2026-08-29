@@ -26,7 +26,7 @@
         "patterns": [
           "src-tauri/src/contexts/sessions/infrastructure/transactions.rs",
           "src-tauri/src/platform/database/mod.rs",
-          "src-tauri/src/platform/database/migrations.rs"
+          "src-tauri/src/platform/database/migrations/**.rs"
         ]
       }
     ]

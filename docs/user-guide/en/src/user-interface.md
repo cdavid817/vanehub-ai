@@ -1,9 +1,5 @@
 # User interface
 
-**Status: Implemented — the interface is identical on desktop and in Web/mock; execution-type operations are desktop only.**
-
-VaneHub AI's interface is one React codebase serving two runtimes: the desktop application and the browser preview. **They look the same**, so you cannot tell which runtime you are in by appearance — see [Runtime and feature labels](runtime-labels.md). Anything involving execution (starting a CLI, writing files, connecting over SSH) only really happens on desktop; in the browser preview it is simulated.
-
 This chapter walks the interface feature by feature: what each one is and how to use it.
 
 ## Session management
@@ -213,4 +209,3 @@ On desktop there is a system tray icon: show/hide the main window, with the laun
 
 - Unfamiliar terminology → [Core concepts](core-concepts.md)
 - First time using it → [Create your first session](first-session.md)
-- Desktop versus browser preview → [Runtime and feature labels](runtime-labels.md)

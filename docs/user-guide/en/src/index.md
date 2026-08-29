@@ -52,7 +52,6 @@ In a hurry, chapter 1 is enough; come back to the rest as needed.
 | --- | --- |
 | [Use cases](use-cases.md) | Five end-to-end scenarios, walked from the start |
 | [FAQ](faq.md) | Direct answers to frequent questions |
-| [Runtime and feature labels](runtime-labels.md) | How to read the "desktop only" and "Web/mock only" labels |
 | [Troubleshooting](troubleshooting.md) | Start here when something breaks |
 | [Reporting issues](reporting-issues.md) | Which entry point to use, what the forms need, and how to redact before submitting |
 
@@ -60,11 +59,8 @@ In a hurry, chapter 1 is enough; come back to the rest as needed.
 
 - **Implemented** — a user-visible path is implemented and verified.
 - **Preview** — a service or mock contract exists, but the normal product workflow is incomplete.
-- **Web/mock only** — deterministic browser behavior; no native side effects occurred.
 - **Desktop only** — requires the Tauri runtime and local operating-system access.
 - **Planned** — not yet available.
-
-How to read each label is covered in [Runtime and feature labels](runtime-labels.md).
 
 ## What this guide does not cover
 

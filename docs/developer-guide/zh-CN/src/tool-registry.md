@@ -51,7 +51,7 @@ sequenceDiagram
 ### 循环的终止与边界
 
 - **多轮直到终态** —— 模型返回的响应只要包含 `tool_use`,运行时就执行这些调用并把结果作为新一轮回传;没有工具调用的响应即为该次用户消息的终态响应,等同于一次不带工具的生成。
-- **最大往返约束** —— 每条用户消息有固定最大往返次数 `MAX_TOOL_ROUND_TRIPS=25`(见 `contexts/agent_runtime/infrastructure/api_process_adapter.rs`),超出上限会被显式处理,不会形成无限循环。
+- **最大往返约束** —— 每条用户消息有固定最大往返次数 `MAX_TOOL_ROUND_TRIPS=25`(见 `contexts/agent_runtime/infrastructure/api_process_adapter/mod.rs`),超出上限会被显式处理,不会形成无限循环。
 - **固定目录优先** —— 运行时先在固定原生工具目录中按工具名查找;Skill 工具与 MCP 工具叠加在固定目录之上,不替换它。
 
 ## 接口格式翻译
@@ -90,7 +90,7 @@ sequenceDiagram
 | `todo_write` | 会话级任务列表(整表替换) |
 | `notebook` | Jupyter notebook 读写 |
 
-> 上述为 `tool_catalog()` 的固定原生工具(10 个);加上 Skill 的三个只读工具 `list_skills`/`load_skill`/`read_skill_resource`(见下文 [Skill 提供的工具](#skill-提供的工具)),固定目录共 13 个工具。`recall`、`search_code` 等不在此无条件目录中,按条件另行注入。
+> 上述为 `tool_catalog()` 的固定原生工具;加上 Skill 的三个只读工具 `list_skills`/`load_skill`/`read_skill_resource`(见下文 [Skill 提供的工具](#skill-提供的工具))构成完整固定目录。另有若干工具在 `tool_catalog.rs` 里有常量但属**按条件注入**,不在这个无条件集合中:`recall` 与 `search_code`(取决于检索配置)、`ask_user_question`、`exit_plan_mode`、`delegate_utility_skill`,以及 `find_definition`/`find_references` 等 LSP 工具。一个工具在 `tool_catalog.rs` 中有声明,并不代表模型能看到它。
 
 ### interface_format 翻译
 
@@ -103,7 +103,7 @@ sequenceDiagram
 
 模型返回的响应只要包含 `tool_use`,运行时执行这些调用并把结果作为 `tool_result` 新一轮回传;没有工具调用的响应即为终态响应,等同于一次不带工具的生成。
 
-- **最大往返约束** —— 每条用户消息有固定最大往返次数 `MAX_TOOL_ROUND_TRIPS=25`(见 `contexts/agent_runtime/infrastructure/api_process_adapter.rs`),超出上限会被显式处理,不会形成无限循环。
+- **最大往返约束** —— 每条用户消息有固定最大往返次数 `MAX_TOOL_ROUND_TRIPS=25`(见 `contexts/agent_runtime/infrastructure/api_process_adapter/mod.rs`),超出上限会被显式处理,不会形成无限循环。
 - **固定目录优先** —— 运行时先在固定原生工具目录中按工具名查找;Skill 工具与 MCP 工具叠加在固定目录之上,不替换它。
 
 ### 工具来源与执行边界
@@ -128,4 +128,4 @@ sequenceDiagram
 
 这些记录的是在某个时间点所作的决策,并不作为当前叙述来维护。在此链接是为了让它们可被触达而非沦为孤儿;上面的规范仍然是权威的。
 
-- [Skill Tool Runtime Security](../../../architecture/skill-tool-runtime-security.md) —— 沙箱化 Skill Tool 运行时发布时所记录的依赖审查、验证证据、上线与回滚。
+- [Skill Tool 运行时安全](skill-tool-runtime-security.md) —— 沙箱化 Skill Tool 运行时发布时所记录的依赖审查、验证证据、上线与回滚,审查时间 2026-08-17。

@@ -39,6 +39,5 @@
 
 - [Use cases](use-cases.md)
 - [FAQ](faq.md)
-- [Runtime and feature labels](runtime-labels.md)
 - [Troubleshooting](troubleshooting.md)
 - [Reporting issues](reporting-issues.md)

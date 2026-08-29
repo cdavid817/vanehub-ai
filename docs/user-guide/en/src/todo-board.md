@@ -1,6 +1,6 @@
 # Todo Board: manual work and Agent activity side by side
 
-**Status: Implemented — the interface is identical on desktop and in Web/mock; Web/mock does not use SQLite, and reloading the page clears it.**
+![The Todo Board with its stage columns and work item cards](assets/screenshots/todo-board-en.png)
 
 ## Overview
 
@@ -86,7 +86,6 @@ Restoring returns the item to **the stage and ordering position it had before ar
 
 ## Notes and limits
 
-- **Web/mock does not use SQLite.** Creation, reconciliation, filtering, movement, and archiving all behave, but reloading the page clears everything.
 - **Stages never advance on their own.** A change in source status only updates the source projection on the card; it does not move the card.
 - **Reconciliation is not live sync**; a new source appears at the next board reconciliation.
 - **Archiving is not deleting.** Archived items remain in the Archive view and protect themselves from being recreated by reconciliation.
