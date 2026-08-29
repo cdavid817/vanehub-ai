@@ -73,17 +73,17 @@
 - [x] 9.2 Implement immediate attention eligibility for security, integrity, application failure, regression, breaker, and blocked human review events.
 - [x] 9.3 Implement bounded hourly/daily digest buckets with counts, highest severity, time range, and filtered activity navigation.
 - [x] 9.4 Coordinate notification opening with read cursor only after the referenced timeline item becomes visible.
-- [ ] 9.5 Preserve delivery receipts through catch-up and rebuild and keep all notification actions non-mutating.
+- [x] 9.5 Preserve delivery receipts through catch-up and rebuild and keep all notification actions non-mutating.
 - [x] 9.6 Add deduplication, digest window, urgent bypass, delayed timeline, dismissal, read coordination, privacy, and navigation tests.
 
 ## 10. Shadow-Generation Rebuild
 
-- [ ] 10.1 Implement scoped rebuild records, source snapshots/high-watermarks, budgets, checkpoints, cancellation, and shadow projection generations.
-- [ ] 10.2 Reproject retained sources without model calls, assessments, generation, Curator decisions, Overlay actions, source retries, or notifications.
-- [ ] 10.3 Validate source/event counts, receipt hashes, ordering, envelope hashes, gaps, required tombstones, and dashboard state before activation.
-- [ ] 10.4 Catch up source events committed during rebuild and atomically activate only a complete gap-free generation.
-- [ ] 10.5 Preserve read state and notification receipts by source identity and retain the prior generation through a recovery window.
-- [ ] 10.6 Add corrupted current generation, failed validation, concurrent new events, cancellation, activation crash, notification non-replay, and rollback tests.
+- [x] 10.1 Implement scoped rebuild records, source snapshots/high-watermarks, budgets, checkpoints, cancellation, and shadow projection generations.
+- [x] 10.2 Reproject retained sources without model calls, assessments, generation, Curator decisions, Overlay actions, source retries, or notifications.
+- [x] 10.3 Validate source/event counts, receipt hashes, ordering, envelope hashes, gaps, required tombstones, and dashboard state before activation.
+- [x] 10.4 Catch up source events committed during rebuild and atomically activate only a complete gap-free generation.
+- [x] 10.5 Preserve read state and notification receipts by source identity and retain the prior generation through a recovery window.
+- [x] 10.6 Add corrupted current generation, failed validation, concurrent new events, cancellation, activation crash, notification non-replay, and rollback tests.
 
 ## 11. Safe Activity Export
 

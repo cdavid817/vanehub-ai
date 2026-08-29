@@ -6,6 +6,7 @@ mod projection_batch_repository;
 mod projection_repository;
 mod query_builder;
 mod query_repository;
+mod rebuild_repository;
 mod retention_repository;
 mod safe_identity_repository;
 mod schema;
@@ -21,6 +22,7 @@ pub(crate) use preferences_repository::*;
 pub(crate) use projection_batch_repository::*;
 pub(crate) use projection_repository::*;
 pub(crate) use query_repository::*;
+pub(crate) use rebuild_repository::*;
 pub(crate) use retention_repository::*;
 pub(crate) use schema::{apply_query_schema, apply_schema, apply_source_outbox_schema};
 pub(crate) use source_adapters::*;
@@ -40,6 +42,8 @@ mod projection_batch_repository_tests;
 mod projection_repository_tests;
 #[cfg(test)]
 mod query_repository_tests;
+#[cfg(test)]
+mod rebuild_repository_tests;
 #[cfg(test)]
 mod retention_repository_tests;
 #[cfg(test)]
