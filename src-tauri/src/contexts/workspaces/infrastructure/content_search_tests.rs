@@ -216,6 +216,30 @@ fn a_cancelled_search_stops_and_says_why() {
     assert_eq!(answer.coverage, "partial");
 }
 
+/// What the search retains before it opens anything.
+///
+/// The walk that feeds a content search is the Quick Open walk with an empty query, and an empty
+/// query matches every entry. Every eligible path in the workspace is therefore materialized into
+/// one vector before the first file is read — memory proportional to the workspace, for an answer
+/// bounded at 200 matches. Recorded as it is today so the streaming rewrite has something to
+/// compare against rather than a claim.
+#[test]
+fn characterizes_a_candidate_vector_proportional_to_the_workspace() {
+    let directory = TempDirectory::new("content-search-candidates");
+    let root = directory.path().join("workspace");
+    fs::create_dir_all(&root).expect("root");
+    for index in 0..64 {
+        fs::write(root.join(format!("file_{index}.txt")), b"nothing here\n").expect("file");
+    }
+    fs::write(root.join("hit.txt"), b"needle\n").expect("file");
+
+    let (candidates, partial) = super::path_search::walk_workspace_paths(&root, "").expect("walk");
+
+    // 65 files, one match, and the walk reports nothing was skipped. The vector is the workspace.
+    assert_eq!(candidates.len(), 65);
+    assert_eq!(partial, None);
+}
+
 #[test]
 fn an_excluded_tree_is_never_searched() {
     let workspace = workspace(&[

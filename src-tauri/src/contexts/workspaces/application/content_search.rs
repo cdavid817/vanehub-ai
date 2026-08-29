@@ -192,6 +192,53 @@ mod tests {
         assert!(!second.load(Ordering::Relaxed));
     }
 
+    /// The A/B defect, written down before it is repaired.
+    ///
+    /// A registry keyed by id alone cannot tell whose registration it is removing. A finishes after
+    /// B replaced it, `finish` removes the id unconditionally, and B — which is still running — is
+    /// no longer reachable by a cancel. This test asserts the *current* behaviour so the repair has
+    /// something to invert rather than something to write from scratch.
+    #[test]
+    fn characterizes_an_older_search_removing_its_successors_registration() {
+        let registry = WorkspaceSearchCancellation::default();
+
+        let a = registry.begin("search-1");
+        let b = registry.begin("search-1");
+        assert!(a.load(Ordering::Relaxed), "B supersedes A");
+
+        // A's owning future reaches its own cleanup after B has already registered.
+        registry.finish("search-1");
+
+        // The defect: B is still running and can no longer be stopped.
+        assert!(
+            !registry.cancel("search-1"),
+            "the registry no longer knows about B"
+        );
+        assert!(
+            !b.load(Ordering::Relaxed),
+            "B keeps running with no way left to reach it"
+        );
+    }
+
+    /// The drop half of the same defect.
+    ///
+    /// Nothing signals A's flag when A's owning future is aborted rather than completed: the flag
+    /// only moves when some later `begin` happens to replace it, so an aborted search runs to its
+    /// natural end on the blocking pool.
+    #[test]
+    fn characterizes_an_aborted_owner_leaving_its_worker_running() {
+        let registry = WorkspaceSearchCancellation::default();
+
+        let flag = registry.begin("search-1");
+        // The owning future is dropped. There is no guard, so nothing happens.
+        drop(registry);
+
+        assert!(
+            !flag.load(Ordering::Relaxed),
+            "an aborted owner never signals its worker"
+        );
+    }
+
     #[test]
     fn a_short_line_is_returned_whole_with_a_one_based_column() {
         let (snippet, truncated, column) = safe_snippet("let needle = 1;", 4);
