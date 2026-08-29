@@ -242,5 +242,6 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-28 | expand-session-im-connectors | desktop-runtime-verification, im-connector-management, im-session-binding-ui | `openspec/changes/archive/2026-08-28-expand-session-im-connectors/` |
 | 2026-08-28 | manage-language-server-installation | lsp-server-management, managed-tool-installation, settings-center-ui | `openspec/changes/archive/2026-08-28-manage-language-server-installation/` |
 | 2026-08-28 | upgrade-session-workspace-evidence-console | agent-code-review, agent-execution-observability, main-layout-ui, remote-terminal-runtime, session-log-viewer, session-project-inspection, session-workspace-execution-evidence, unified-log-management, usage-statistics | `openspec/changes/archive/2026-08-28-upgrade-session-workspace-evidence-console/` |
+| 2026-08-29 | restore-documentation-spec-conformance | native-developer-documentation, user-guide-documentation | `openspec/changes/archive/2026-08-29-restore-documentation-spec-conformance/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

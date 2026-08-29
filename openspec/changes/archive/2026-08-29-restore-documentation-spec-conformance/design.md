@@ -55,6 +55,28 @@ Relocating them to a non-published directory would satisfy the letter of that re
 
 `docs/architecture/skill-tool-runtime-security.md` is reachable — both `tool-registry.md` chapters link it — so the reachability check would not object. The existing requirement forbidding "a competing `docs/architecture/` narrative directory" is what it violates. The document becomes a developer-guide chapter in both languages, which resolves the violation and brings the sandboxed Skill Tool runtime's dependency review, rollout, and rollback record into the navigation where a maintainer looks for it.
 
+### Env-gated OnePiece tool capabilities are excluded from the user guides, on the record
+
+The new coverage requirement allows a delivered capability to be excluded only as a stated, reviewable decision, because an unstated omission is indistinguishable from a gap. This is that statement.
+
+`NativeToolFeatureGates::from_lookup` in `agent_runtime/application/native_tools/feature_gates.rs` reads a family of OnePiece tool capabilities from environment variables, every one of them defaulting to off except `artifact_read`:
+
+| Capability | Environment variable | Default |
+| --- | --- | --- |
+| `onepiece-browser-automation` | `VANEHUB_ONEPIECE_BROWSER_ENABLED` | off |
+| `onepiece-web-research` | `VANEHUB_ONEPIECE_WEB_ENABLED` | off |
+| `onepiece-code-execution` | `VANEHUB_ONEPIECE_CODE_EXECUTION_ENABLED` | off |
+| `onepiece-ocr-tool` | `VANEHUB_ONEPIECE_OCR_ENABLED` | off |
+| `onepiece-artifact-publishing` | `VANEHUB_ONEPIECE_ARTIFACT_PUBLISH_ENABLED`, `..._DOWNLOAD_ENABLED` | off |
+| `onepiece-cli-delegation` | `VANEHUB_ONEPIECE_DELEGATION_{ANALYZE,EDIT,APPLY}_ENABLED` | off |
+| `onepiece-subagents` | `VANEHUB_ONEPIECE_SUBAGENT_ENABLED` | off |
+
+**None of them has a control in the application.** A reader cannot turn any of these on from the interface; they are enabled only by setting an environment variable before launch. The sibling requirement in this change — that step-by-step instructions stay limited to user-visible paths a reader can exercise in the installed desktop application — therefore excludes them, and documenting them would mean writing instructions for a control that does not exist.
+
+They are excluded from the **user** guides only. The developer guide continues to document them, which is where a capability with no product UI belongs.
+
+This exclusion lapses the moment any of these gains a user-visible control. The verification for this change re-ran the capability coverage scan with word-boundary matching, after the first pass produced a false positive by matching `mission` inside `permission`; that corrected scan is what surfaced this family.
+
 ## Risks / Trade-offs
 
 **The reachability check can fail a legitimately new document before its link is written.** That is the intended failure mode — the requirement treats an unreferenced document as a defect — but it makes commit order matter. The check runs in `npm run docs:check`, so the feedback arrives before review rather than in CI.
