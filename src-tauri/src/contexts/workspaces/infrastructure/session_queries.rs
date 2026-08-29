@@ -1,3 +1,4 @@
+use super::bounded_selection::BoundedSelection;
 use crate::contexts::workspaces::application::{
     detect_encoding, detect_newline, kind_rank, DirectoryCursor, DirectoryEntry,
     DirectoryFingerprint, DirectoryFingerprintState, DirectoryListing, DocumentListing,
@@ -11,8 +12,9 @@ use crate::contexts::workspaces::application::{
     MAX_REVIEW_PATCH_BYTES,
 };
 use crate::contexts::workspaces::application::{
-    SearchCancellationToken, WorkspaceContentSearchRequest, WorkspaceContentSearchResult,
-    WorkspacePathSearchRequest, WorkspacePathSearchResult,
+    SearchCancellationToken, SystemMonotonicClock, WorkspaceContentSearchRequest,
+    WorkspaceContentSearchResult, WorkspaceInspectionBudget, WorkspaceInspectionBudgetLimits,
+    WorkspaceInspectionBudgetSnapshot, WorkspacePathSearchRequest, WorkspacePathSearchResult,
 };
 use crate::contexts::workspaces::domain::{CanonicalPathBoundary, WorkspaceRelativePath};
 use crate::platform;
@@ -24,6 +26,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tauri::AppHandle;
 use tauri_plugin_dialog::DialogExt;
 
@@ -405,6 +408,68 @@ fn directory_page_at(
     cursor: Option<&DirectoryCursor>,
     limit: usize,
 ) -> Result<(Vec<DirectoryEntry>, bool, Option<String>), AppError> {
+    directory_page_at_within(
+        root,
+        relative,
+        cursor,
+        limit,
+        WorkspaceInspectionBudgetLimits::directory_listing(limit),
+    )
+    .map(|(entries, truncated, next_cursor, _)| (entries, truncated, next_cursor))
+}
+
+/// One entry, carrying the key the listing is ordered by.
+///
+/// Directories first, then case-insensitively by name — the same rank a cursor resumes at, named
+/// once so the two cannot drift apart.
+struct OrderedDirectoryEntry {
+    kind_rank: u8,
+    name_key: String,
+    entry: DirectoryEntry,
+}
+
+impl PartialEq for OrderedDirectoryEntry {
+    fn eq(&self, other: &Self) -> bool {
+        (self.kind_rank, &self.name_key) == (other.kind_rank, &other.name_key)
+    }
+}
+
+impl Eq for OrderedDirectoryEntry {}
+
+impl PartialOrd for OrderedDirectoryEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for OrderedDirectoryEntry {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        (self.kind_rank, self.name_key.as_str()).cmp(&(other.kind_rank, other.name_key.as_str()))
+    }
+}
+
+/// The same page with its budget supplied, and the counters it spent.
+///
+/// The scan is still linear in the directory — without an index there is no way to find the
+/// alphabetically-next page without looking at every name — but the *retention* is not. At most
+/// `limit + 1` entries are held: the page, plus the one that proves another page exists. The
+/// previous version built a vector of every entry, sorted it, and threw away all but the first
+/// five hundred, which on a generated directory is where the memory went.
+fn directory_page_at_within(
+    root: &Path,
+    relative: &str,
+    cursor: Option<&DirectoryCursor>,
+    limit: usize,
+    limits: WorkspaceInspectionBudgetLimits,
+) -> Result<
+    (
+        Vec<DirectoryEntry>,
+        bool,
+        Option<String>,
+        WorkspaceInspectionBudgetSnapshot,
+    ),
+    AppError,
+> {
     let directory = if relative.is_empty() {
         root.to_path_buf()
     } else {
@@ -415,17 +480,48 @@ fn directory_page_at(
             "Requested workspace path is not a directory.".to_string(),
         ));
     }
-    let mut entries = Vec::new();
+    let mut budget = WorkspaceInspectionBudget::new(
+        limits,
+        Arc::new(SystemMonotonicClock::default()),
+        SearchCancellationToken::new(),
+    );
+    // Direct navigation: a reader is looking at exactly this folder, so nothing here hides an entry
+    // a recursive search would have skipped. The dot rule below is the listing's own long-standing
+    // behaviour rather than the ignore policy's.
+    let mut selection: BoundedSelection<OrderedDirectoryEntry> = BoundedSelection::new(limit + 1);
+    budget.try_visit_directory();
     for entry in fs::read_dir(&directory).map_err(|error| AppError::Storage(error.to_string()))? {
+        if !budget.try_visit_entry() {
+            break;
+        }
         let entry = entry.map_err(|error| AppError::Storage(error.to_string()))?;
         let name = entry.file_name().to_string_lossy().to_string();
         if name.starts_with('.') {
             continue;
         }
+        let kind_rank_of = kind_rank(if entry.path().is_dir() {
+            "directory"
+        } else {
+            "file"
+        });
+        let name_key = name.to_lowercase();
+        // Resumed before the metadata read rather than after the sort. A cursor names a position in
+        // this ordering and one entry's place in it does not depend on the rest of the directory,
+        // so the comparison is as valid here as it would be after a full sort — and every entry it
+        // rejects is a `stat` that never happens.
+        if cursor.is_some_and(|cursor| !cursor.precedes_key(kind_rank_of, &name_key)) {
+            continue;
+        }
+        if !budget.try_metadata() {
+            break;
+        }
         let canonical = match entry.path().canonicalize() {
             Ok(value) if value.starts_with(root) => value,
             _ => continue,
         };
+        if !budget.try_metadata() {
+            break;
+        }
         let metadata =
             fs::metadata(&canonical).map_err(|error| AppError::Storage(error.to_string()))?;
         let kind = if metadata.is_dir() {
@@ -433,31 +529,37 @@ fn directory_page_at(
         } else {
             "file"
         };
-        entries.push(DirectoryEntry {
-            name,
-            path: normalized_relative(root, &canonical)?,
-            kind,
-            size: if metadata.is_file() {
-                Some(metadata.len())
-            } else {
-                None
+        let ordered = OrderedDirectoryEntry {
+            kind_rank: kind_rank(kind),
+            name_key: name.to_lowercase(),
+            entry: DirectoryEntry {
+                name,
+                path: normalized_relative(root, &canonical)?,
+                kind,
+                size: if metadata.is_file() {
+                    Some(metadata.len())
+                } else {
+                    None
+                },
             },
-        });
+        };
+        if !selection.offer(ordered, &mut budget) {
+            break;
+        }
     }
-    entries.sort_by(|left, right| {
-        kind_rank(left.kind)
-            .cmp(&kind_rank(right.kind))
-            .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
-    });
 
-    // Resuming happens after the sort, so the key a cursor carries is the key the listing is
-    // ordered by. Filtering before sorting would compare against an order that does not exist
-    // yet and drop entries that belong on the page.
-    if let Some(cursor) = cursor {
-        entries.retain(|entry| cursor.precedes(entry.kind, &entry.name));
+    let selected = selection.into_sorted();
+    // A scan that stopped early has not seen the whole directory, so it cannot claim to have
+    // reached the end of it either.
+    let truncated = selected.len() > limit || budget.is_stopped();
+    let mut entries: Vec<DirectoryEntry> = selected
+        .into_iter()
+        .take(limit)
+        .map(|ordered| ordered.entry)
+        .collect();
+    if entries.len() > limit {
+        entries.truncate(limit);
     }
-    let truncated = entries.len() > limit;
-    entries.truncate(limit);
     // A cursor only when there is more. Issuing one for an exhausted directory would invite a
     // caller to fetch a page that is always empty, and an empty page reads as a directory that
     // just emptied itself.
@@ -466,7 +568,7 @@ fn directory_page_at(
             .last()
             .map(|entry| DirectoryCursor::after(relative, entry.kind, &entry.name).encode())
     });
-    Ok((entries, truncated, next_cursor.flatten()))
+    Ok((entries, truncated, next_cursor.flatten(), budget.snapshot()))
 }
 
 pub(crate) fn list_session_directory(
@@ -2432,6 +2534,123 @@ mod tests {
 
     /// The Documents tab requirement scopes this listing to Markdown and text. Mention
     /// candidate search widened its own bounds; this listing must not have moved with it.
+    /// The memory bound a bounded page selection exists for.
+    ///
+    /// Every entry still has to be looked at — without an index there is no way to find the
+    /// alphabetically-next page without reading every name — but the page is *selected* rather
+    /// than sorted. The previous version built a vector of all of them and threw away all but the
+    /// first five hundred.
+    #[test]
+    fn a_large_directory_retains_only_one_page_plus_the_entry_that_proves_another() {
+        let fixture = TempDirectory::new("directory-page-bound");
+        let root = fixture.path();
+        for index in 0..400 {
+            fs::write(root.join(format!("file-{index:04}.txt")), "text").expect("fixture");
+        }
+        let root = root.canonicalize().expect("canonical root");
+
+        let (entries, truncated, next_cursor, spent) = directory_page_at_within(
+            &root,
+            "",
+            None,
+            10,
+            WorkspaceInspectionBudgetLimits::directory_listing(10),
+        )
+        .expect("listing");
+
+        assert_eq!(entries.len(), 10);
+        assert!(truncated);
+        assert!(next_cursor.is_some());
+        assert_eq!(spent.entries_visited, 400, "every entry is still scanned");
+        assert!(
+            spent.candidates_retained <= 11,
+            "retained {} entries for a ten-entry page",
+            spent.candidates_retained
+        );
+    }
+
+    /// The page a full sort would have produced, from a directory offered worst-first.
+    #[test]
+    fn the_selected_page_is_the_one_the_ordering_defines() {
+        let fixture = TempDirectory::new("directory-page-order");
+        let root = fixture.path();
+        for index in (0..40).rev() {
+            fs::write(root.join(format!("file-{index:02}.txt")), "text").expect("fixture");
+        }
+        fs::create_dir_all(root.join("zzz-folder")).expect("directory");
+        let root = root.canonicalize().expect("canonical root");
+
+        let (entries, _, _) = directory_page_at(&root, "", None, 3).expect("listing");
+
+        // Directories first, then case-insensitively by name — the same rank a cursor resumes at.
+        assert_eq!(
+            entries
+                .into_iter()
+                .map(|entry| entry.name)
+                .collect::<Vec<_>>(),
+            vec![
+                "zzz-folder".to_string(),
+                "file-00.txt".to_string(),
+                "file-01.txt".to_string(),
+            ]
+        );
+    }
+
+    /// Paging over a bounded selection still neither repeats nor skips.
+    #[test]
+    fn consecutive_pages_of_a_large_directory_cover_it_exactly_once() {
+        let fixture = TempDirectory::new("directory-page-walk");
+        let root = fixture.path();
+        for index in 0..25 {
+            fs::write(root.join(format!("file-{index:02}.txt")), "text").expect("fixture");
+        }
+        let root = root.canonicalize().expect("canonical root");
+
+        let mut seen: Vec<String> = Vec::new();
+        let mut cursor: Option<String> = None;
+        for _ in 0..10 {
+            let decoded = cursor
+                .as_deref()
+                .map(|encoded| DirectoryCursor::decode(encoded, "").expect("cursor"));
+            let (entries, _, next) =
+                directory_page_at(&root, "", decoded.as_ref(), 4).expect("listing");
+            seen.extend(entries.into_iter().map(|entry| entry.name));
+            match next {
+                Some(next) => cursor = Some(next),
+                None => break,
+            }
+        }
+
+        let mut expected: Vec<String> = (0..25)
+            .map(|index| format!("file-{index:02}.txt"))
+            .collect();
+        expected.sort();
+        assert_eq!(seen, expected);
+    }
+
+    /// An entry budget that stops the scan must not read as the end of the directory.
+    #[test]
+    fn a_scan_that_stopped_early_never_claims_the_directory_is_exhausted() {
+        let fixture = TempDirectory::new("directory-page-budget");
+        let root = fixture.path();
+        for index in 0..40 {
+            fs::write(root.join(format!("file-{index:02}.txt")), "text").expect("fixture");
+        }
+        let root = root.canonicalize().expect("canonical root");
+
+        let mut limits = WorkspaceInspectionBudgetLimits::directory_listing(100);
+        limits.max_entries_visited = 5;
+        let (entries, truncated, next_cursor, spent) =
+            directory_page_at_within(&root, "", None, 100, limits).expect("listing");
+
+        assert_eq!(spent.entries_visited, 5);
+        assert!(entries.len() < 40);
+        // Fewer entries than the page size and still `truncated`: the scan did not finish, which is
+        // a different fact from a page that filled up.
+        assert!(truncated);
+        assert!(next_cursor.is_some());
+    }
+
     /// The recursive-discovery matcher for a root, as `list_session_documents` builds it.
     fn discovery_ignores(root: &Path) -> super::super::ignore_matcher::WorkspaceIgnoreMatcher {
         super::super::ignore_matcher::WorkspaceIgnoreMatcher::for_root(

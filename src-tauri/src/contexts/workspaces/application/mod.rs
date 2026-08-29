@@ -54,12 +54,9 @@ pub(crate) use inspection_admission::WorkspaceInspectionAdmission;
 /// without sleeping through one.
 #[cfg(test)]
 pub(crate) use inspection_budget::ManualClock;
-/// Published to tests only: the counters a structural assertion reads off a result.
-#[cfg(test)]
-pub(crate) use inspection_budget::WorkspaceInspectionBudgetSnapshot;
 pub(crate) use inspection_budget::{
     MonotonicClockPort, SystemMonotonicClock, WorkspaceInspectionBudget,
-    WorkspaceInspectionBudgetLimits, WorkspaceInspectionReason,
+    WorkspaceInspectionBudgetLimits, WorkspaceInspectionBudgetSnapshot, WorkspaceInspectionReason,
 };
 pub(crate) use inspection_cursor::{
     bounded_page_size, bounded_search_page, kind_rank, DirectoryCursor, PathSearchCursor,

@@ -20,6 +20,7 @@
 //! `limit + 1` candidates answers the same question in memory proportional to the page rather than
 //! to the workspace.
 
+use super::bounded_selection::BoundedSelection;
 use super::ignore_matcher::WorkspaceIgnoreMatcher;
 use super::session_queries::resolve_session_root;
 use crate::contexts::workspaces::application::{
@@ -32,7 +33,7 @@ use crate::contexts::workspaces::application::{
 use crate::contexts::workspaces::domain::CanonicalPathBoundary;
 use rusqlite::Connection;
 use std::cmp::Ordering;
-use std::collections::{BinaryHeap, HashSet, VecDeque};
+use std::collections::{HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -88,62 +89,6 @@ impl PartialOrd for RankedCandidate {
 impl Ord for RankedCandidate {
     fn cmp(&self, other: &Self) -> Ordering {
         self.rank_key().cmp(&other.rank_key())
-    }
-}
-
-/// The best `capacity` candidates seen so far, and nothing else.
-///
-/// A max-heap under an ascending order, so the element on top is the *worst* one kept — exactly the
-/// one a better arrival should displace. Everything worse than that is dropped where it is found,
-/// which is what makes retained memory the page size rather than the workspace.
-struct BoundedSelection {
-    capacity: usize,
-    heap: BinaryHeap<RankedCandidate>,
-}
-
-impl BoundedSelection {
-    fn new(capacity: usize) -> Self {
-        Self {
-            capacity: capacity.max(1),
-            heap: BinaryHeap::new(),
-        }
-    }
-
-    /// Offers a candidate. Returns whether the walk may continue.
-    fn offer(
-        &mut self,
-        candidate: RankedCandidate,
-        budget: &mut WorkspaceInspectionBudget,
-    ) -> bool {
-        if self.heap.len() < self.capacity {
-            if !budget.try_retain_candidate() {
-                return false;
-            }
-            self.heap.push(candidate);
-            return true;
-        }
-        let displaces = self
-            .heap
-            .peek()
-            .is_some_and(|worst| candidate.rank_key() < worst.rank_key());
-        if !displaces {
-            return true;
-        }
-        // Credited before it is charged, so a selection that is merely *replacing* an element never
-        // reads as one that grew. Charging first would stop a full heap at its next improvement.
-        self.heap.pop();
-        budget.release_candidate();
-        if !budget.try_retain_candidate() {
-            return false;
-        }
-        self.heap.push(candidate);
-        true
-    }
-
-    fn into_ranked(self) -> Vec<RankedCandidate> {
-        let mut ranked = self.heap.into_vec();
-        ranked.sort();
-        ranked
     }
 }
 
@@ -207,7 +152,7 @@ pub(super) fn search_session_paths_with(
 
     let selection =
         walk_ranked_candidates(&root, &normalized, cursor.as_ref(), capacity, &mut budget)?;
-    let ranked = selection.into_ranked();
+    let ranked = selection.into_sorted();
 
     let has_more = ranked.len() > limit;
     let mut matches: Vec<WorkspacePathMatch> = Vec::new();
@@ -261,7 +206,7 @@ fn walk_ranked_candidates(
     cursor: Option<&PathSearchCursor>,
     capacity: usize,
     budget: &mut WorkspaceInspectionBudget,
-) -> Result<BoundedSelection, AppError> {
+) -> Result<BoundedSelection<RankedCandidate>, AppError> {
     // Entries are canonicalized before the containment check, so the root must be too: a short
     // (8.3) or symlinked root would otherwise fail every check and return nothing.
     let canonical_root = root

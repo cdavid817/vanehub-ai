@@ -56,7 +56,7 @@
 
 ## 6. Directory pagination and document discovery
 
-- [ ] 6.1 Implement bounded-memory immediate directory page selection retaining at most `limit + 1` selected entries plus fixed traversal state.
+- [x] 6.1 Implement bounded-memory immediate directory page selection retaining at most `limit + 1` selected entries plus fixed traversal state.
 - [ ] 6.2 Add cursor V2 with version, directory/workspace identity, order mode, last key/tie-break, detectable fingerprint/generation, and applicable navigation-policy identity.
 - [ ] 6.3 Return typed invalid/stale cursor results and update page semantics so `has_more`/`truncated` is distinct from incomplete scan coverage.
 - [ ] 6.4 Add frontend-compatible decoding/migration for existing cursor fixtures or intentionally invalidate old cursors with a stable restart behavior.

@@ -1,3 +1,4 @@
+mod bounded_selection;
 mod capture_maintenance;
 mod capture_queue;
 mod command_runs;

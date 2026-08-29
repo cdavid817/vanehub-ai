@@ -209,6 +209,27 @@ impl WorkspaceInspectionBudgetLimits {
             deadline: Duration::from_secs(10),
         }
     }
+
+    /// One page of one immediate directory. No descent, so the depth budget is that directory.
+    ///
+    /// The entry ceiling is deliberately large: this is the operation a reader triggers by clicking
+    /// a folder, and a directory of two hundred thousand entries is one they should still be able
+    /// to open a page of. What changed is that the page is *selected* rather than sorted, so a
+    /// number that large costs a scan rather than a vector.
+    pub(crate) fn directory_listing(page_size: usize) -> Self {
+        Self {
+            max_directories_visited: 1,
+            max_entries_visited: 200_000,
+            max_files_opened: 0,
+            max_bytes_read: 0,
+            max_metadata_operations: 400_000,
+            // The page, plus the one entry that proves another page exists.
+            max_retained_candidates: page_size as u64 + 1,
+            max_results: page_size as u64,
+            max_depth: 0,
+            deadline: Duration::from_secs(10),
+        }
+    }
 }
 
 /// What one inspection actually spent.
@@ -867,6 +888,7 @@ mod tests {
         for profile in [
             WorkspaceInspectionBudgetLimits::content_search(),
             WorkspaceInspectionBudgetLimits::path_search(),
+            WorkspaceInspectionBudgetLimits::directory_listing(500),
         ] {
             assert!(profile.max_entries_visited > 0);
             assert!(profile.max_directories_visited > 0);
