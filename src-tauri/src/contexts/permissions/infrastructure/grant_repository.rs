@@ -628,30 +628,44 @@ mod tests {
     #[test]
     fn a_hundred_concurrent_remembers_of_one_key_leave_one_authoritative_row() {
         let (repository, _directory) = repository();
-        let writers = 100;
-        // Released together, but the pool is what actually serializes them; the barrier only makes
-        // sure none of them has finished before the last one starts.
+        let remembers = 100;
+        // Eight concurrent writers sharing the 100 remembers, not 100 threads.
+        //
+        // The property is that concurrent upserts on one canonical key converge to one row with a
+        // monotonic revision, and eight simultaneous writers on one key is genuine contention for
+        // that. A hundred threads additionally requires the connection pool to hand out a hundred
+        // simultaneous connections, which it will not: it holds twelve and times a checkout out
+        // after five seconds. Under load that made this test fail on pool exhaustion — a fact about
+        // r2d2, not about the upsert — while passing every time it was run alone, which is the
+        // worst possible shape for a concurrency assertion.
+        let writers = 8;
         let gate = std::sync::Arc::new(std::sync::Barrier::new(writers));
         let repository = std::sync::Arc::new(repository);
 
         std::thread::scope(|scope| {
-            for index in 0..writers {
+            for writer in 0..writers {
                 let repository = repository.clone();
                 let gate = gate.clone();
                 scope.spawn(move || {
                     gate.wait();
-                    repository
-                        .upsert_pending_grant_intent(&intent(
-                            &format!("grant-{index}"),
-                            RememberedScope::Global,
-                            if index % 2 == 0 {
-                                PersistedEffect::Allow
-                            } else {
-                                PersistedEffect::Deny
-                            },
-                            &format!("res-{index}"),
-                        ))
-                        .expect("every writer commits a value for the key");
+                    for index in (writer..remembers).step_by(writers) {
+                        repository
+                            .upsert_pending_grant_intent(&intent(
+                                &format!("grant-{index}"),
+                                RememberedScope::Global,
+                                if index % 2 == 0 {
+                                    PersistedEffect::Allow
+                                } else {
+                                    PersistedEffect::Deny
+                                },
+                                &format!("res-{index}"),
+                            ))
+                            .unwrap_or_else(|error| {
+                                panic!(
+                                    "remember {index} did not commit a value for the key: {error}"
+                                )
+                            });
+                    }
                 });
             }
         });
@@ -668,7 +682,7 @@ mod tests {
             )
             .expect("the surviving row");
         assert_eq!(
-            stored.0, writers as i64,
+            stored.0, remembers as i64,
             "the revision did not advance once per distinct remember"
         );
         assert_eq!(stored.1, "pending_delivery");

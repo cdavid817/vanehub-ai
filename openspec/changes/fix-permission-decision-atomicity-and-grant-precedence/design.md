@@ -264,3 +264,55 @@ Commands obtain an assembled `ResolveApprovalUseCase`, map DTOs, invoke it, and 
 ## Open Questions
 
 None. Exact migration number and existing active-change merge conflicts are implementation-time facts and must be resolved before code changes.
+
+## Implementation notes
+
+Recorded during implementation, for review and for whoever archives this.
+
+### Decisions that differ from the plan above
+
+**Grant writes are not on the application port.** Task 1.3 asked for `upsert_pending_grant_intent`
+and `activate_grant_for_resolution` alongside `find_effective_grant` on `GrantRepository`. They are
+not there. Every grant write now happens inside the resolution transaction that authorises it, so a
+port method able to write a grant on its own connection would be a way to create authority with no
+decision behind it. The append semantics the task targeted are gone — `GrantRepository::create` was
+deleted — and the two operations exist as `SqliteGrantRepository` methods plus the free functions
+the transaction calls. The port is read-only.
+
+**The reservation is a liveness answer, not a lease.** `agent_runtime` publishes
+`has_live_tool_approval_waiter`, which answers one boolean. It does not hold the generation open.
+The window between reserving and delivering is therefore real: a generation that ends inside it
+produces `delivery_failed` rather than `stale`. Both are fail-closed and neither activates a grant,
+so the difference is one of attribution, not of safety. A true lease would need `agent_runtime` to
+expose a handle, which is the cross-context coupling this design set out to avoid.
+
+**Migration 95 was chosen after scanning `main` and all 26 active changes.** None had claimed a
+numeric version. The `src-tauri/src/platform/database` subtree budget moved by 11 for the
+registration and the `src/services` budget by 150 for the Web/mock resolution simulation; both are
+recorded at their entries with the distribution.
+
+### Residual risks
+
+- **Deduplication changes effective permissions.** Where a database holds several rows for one
+  canonical key, the row that applies after upgrade may not be the one an unordered query happened
+  to return before. That is the correction, but it is a live behaviour change for existing users
+  and the migration tests are the only place it is visible.
+- **A crash between delivery and its acknowledgement leaves a grant inactive that the user believes
+  they granted.** Reconciliation marks the resolution `aborted_by_restart` and the next attempt
+  re-asks. Chosen over guessing that delivery happened; the cost is a repeated prompt.
+- **The emergency denial has no durable record by construction.** Its unified-log line is the only
+  evidence, so a build that dropped that write would leave a denial nobody can account for. It
+  cannot produce `Allow` and writes no grant, but it is the one path whose audit trail is a log
+  file rather than a table.
+- **`call_id_hash` is FNV-1a, not a cryptographic digest.** It exists so the provider's raw call id
+  never reaches the ledger, not to resist an adversary; correlation is its only purpose.
+- **The ledger still stores normalized `action` and `resource`.** That matches the pre-existing
+  `approval_audit` retention rather than adding a new class of stored data, but it means a resource
+  path is retained in one more table.
+
+### Not done
+
+- **10.5 desktop permission/Claude hook flows.** The repository has no desktop layer dedicated to
+  permissions; the closest coverage is `test:desktop:smoke` (startup, IPC, navigation), which
+  exercises command registration but not an approval round trip. Not run, and not inferred.
+- Platform results are Windows-only. macOS and Linux are NOT RUN.
