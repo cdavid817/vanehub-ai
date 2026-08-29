@@ -12,6 +12,9 @@ mod query_service;
 mod review;
 mod service;
 mod session_shell;
+mod session_shell_capacity;
+mod session_shell_close;
+mod session_shell_reaper;
 mod session_shell_registry;
 mod session_shell_store;
 mod text_metadata;
@@ -78,6 +81,9 @@ pub(crate) use session_shell::{
     SessionShellWorkspace, SessionShellWorkspacePort, ShellAttachSnapshot, ShellAttachmentScope,
     ShellCapacities, ShellClockPort, ShellIdPort, ShellOutputSink, ShellRemoteTarget,
     ShellRuntimeOpen, ShellRuntimeOpened, WriteSessionShellRequest,
+};
+pub(crate) use session_shell_close::{
+    SessionShellCleanupReport, SessionShellCloseResult, ShellRuntimeCloseOutcome,
 };
 pub(crate) use session_shell_registry::SessionShellRegistry;
 pub(crate) use session_shell_store::ShellStore;

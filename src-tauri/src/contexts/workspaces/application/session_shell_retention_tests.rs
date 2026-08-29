@@ -80,7 +80,7 @@ fn work_in_one_session_never_disturbs_another_sessions_shells() {
         })
         .expect("other session shell")
         .shell_id;
-    harness.registry.close(&other).expect("close the other one");
+    assert!(harness.registry.close(&other).disposition.is_settled());
 
     assert_eq!(harness.registry.live_count(SESSION), 1);
     assert_eq!(harness.registry.live_count("session-other"), 0);
@@ -107,7 +107,7 @@ fn work_in_one_session_never_disturbs_another_sessions_shells() {
 fn opening_and_closing_a_retained_shell_reaches_the_evidence_journal() {
     let harness = harness();
     let shell_id = create(&harness, None).expect("create");
-    harness.registry.close(&shell_id).expect("close");
+    assert!(harness.registry.close(&shell_id).disposition.is_settled());
 
     let signals = harness.evidence.0.lock().expect("evidence");
     assert!(matches!(
@@ -135,7 +135,9 @@ fn a_reclaimed_shell_is_reported_as_reclaimed_rather_than_as_a_user_close() {
     let idle = create(&harness, None).expect("create");
     harness.advance_past_the_idle_window();
 
-    assert_eq!(harness.registry.sweep_idle(), vec![idle]);
+    let report = harness.registry.sweep_idle();
+    assert_eq!(report.requested(), 1);
+    assert_eq!(report.entries()[0].shell_id, idle);
 
     let signals = harness.evidence.0.lock().expect("evidence");
     assert!(matches!(

@@ -3,24 +3,43 @@
 //! Every operation here reads or writes the store and then talks to the runtime, in that order and
 //! never with the store's lock still held. A registry that held its map across a PTY open would
 //! stall every other Shell in the application behind one slow SSH handshake.
+//!
+//! Two orderings in this file are load-bearing and neither is obvious.
+//!
+//! **Starting up.** Capacity is reserved, then the Shell is registered as `Opening`, and only then
+//! does the runtime get invoked. Registering last — which reads as the safer order, since a failed
+//! open then leaves nothing behind — is what loses the first line of output of an `echo && exit`:
+//! the runtime's reader publishes into a store that has never heard of the Shell. Registering first
+//! and rolling back on failure keeps both properties.
+//!
+//! **Shutting down.** The Shell keeps its entry, its replay, its route, and its capacity until the
+//! runtime *confirms* the process is gone. Marking it closed and removing the entry first is what
+//! produces a Shell the UI reports as terminated, the registry cannot find, and the operating
+//! system is still running.
 
 use super::evidence::{
     WorkspaceEvidencePort, WorkspaceEvidenceSignal, WorkspaceShellCloseReason,
     WorkspaceShellRuntimeKind,
 };
-use super::session_shell::ShellOutputSink;
 use super::session_shell::{
     AttachSessionShellRequest, CreateSessionShellRequest, ResizeSessionShellRequest,
     SessionShellDescriptor, SessionShellRuntimePort, SessionShellWorkspacePort,
     ShellAttachSnapshot, ShellAttachmentScope, ShellCapacities, ShellClockPort, ShellIdPort,
     ShellRuntimeOpen, WriteSessionShellRequest,
 };
+use super::session_shell_capacity::ShellCapacityController;
+use super::session_shell_close::{
+    SessionShellCleanupReport, SessionShellCloseResult, ShellRuntimeCloseOutcome,
+};
+use super::session_shell_reaper::{ShellReaperLimits, ShellReaperQueue, ShellReaperRejection};
 use super::session_shell_store::{ShellEntry, ShellStore};
 use crate::contexts::workspaces::domain::{
-    SessionShellError, SessionShellState, ShellAttachmentId, ShellCapacityScope, ShellId,
-    ShellReplayBuffer, ShellRuntimeDescriptor, ShellTitle, TerminalDimensions,
+    shell_reason, shell_reason_code, SessionShellError, SessionShellState, ShellAttachmentId,
+    ShellCloseBudget, ShellGeneration, ShellId, ShellReasonCode, ShellReplayBuffer,
+    ShellRuntimeDescriptor, ShellTitle, TerminalDimensions,
 };
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// How long a detached, quiet Shell is kept before it is reclaimed.
@@ -44,7 +63,12 @@ pub(crate) struct SessionShellRegistry {
     workspaces: Arc<dyn SessionShellWorkspacePort>,
     ids: Arc<dyn ShellIdPort>,
     clock: Arc<dyn ShellClockPort>,
-    capacities: ShellCapacities,
+    capacity: Arc<ShellCapacityController>,
+    reaper: Arc<ShellReaperQueue>,
+    budget: ShellCloseBudget,
+    /// Monotonic across the process. Opaque rather than per-identity, because Shell ids are never
+    /// reused and what needs telling apart is two *lives*, not two names.
+    generations: AtomicU64,
     /// Where an opened or closed Shell is reported.
     ///
     /// A retained Shell is work a session did, and the console counts it. Without this the Shell
@@ -75,10 +99,35 @@ impl SessionShellRegistry {
             workspaces,
             ids,
             clock,
-            capacities,
+            capacity: Arc::new(ShellCapacityController::new(capacities)),
+            reaper: Arc::new(ShellReaperQueue::new(ShellReaperLimits::default())),
+            budget: ShellCloseBudget::default(),
+            generations: AtomicU64::new(0),
             evidence,
             gates: Mutex::new(BTreeMap::new()),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_close_budget(mut self, budget: ShellCloseBudget) -> Self {
+        self.budget = budget;
+        self
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_reaper_limits(mut self, limits: ShellReaperLimits) -> Self {
+        self.reaper = Arc::new(ShellReaperQueue::new(limits));
+        self
+    }
+
+    #[cfg(test)]
+    pub(crate) fn capacity(&self) -> Arc<ShellCapacityController> {
+        self.capacity.clone()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn reaper_depth(&self) -> usize {
+        self.reaper.depth()
     }
 
     pub(crate) fn store(&self) -> Arc<ShellStore> {
@@ -129,56 +178,72 @@ impl SessionShellRegistry {
             }
         }
 
-        if self.store.count(None) >= self.capacities.total {
-            return Err(SessionShellError::CapacityReached {
-                scope: ShellCapacityScope::Application,
-            });
-        }
-        if self.store.count(Some(&request.session_id)) >= self.capacities.per_session {
-            return Err(SessionShellError::CapacityReached {
-                scope: ShellCapacityScope::Session,
-            });
-        }
-
         let shell_id = ShellId::parse(self.ids.next_shell_id())?;
+        let generation = ShellGeneration::new(self.generations.fetch_add(1, Ordering::SeqCst) + 1);
+        // Reserved before anything external exists. The count-then-open version of this let every
+        // concurrent request see the same free slot and start a process against it.
+        let lease = self
+            .capacity
+            .reserve(&request.session_id, &shell_id, generation)?;
+
         let title = match &request.title {
             Some(title) => title.clone(),
             None => ShellTitle::parse(format!(
                 "Shell {}",
-                self.store.count(Some(&request.session_id)) + 1
+                self.capacity.active_for_session(&request.session_id)
             ))?,
         };
-        let open = ShellRuntimeOpen {
-            shell_id: shell_id.clone(),
-            session_id: request.session_id.clone(),
-            root: workspace.root.clone(),
-            dimensions: TerminalDimensions::bounded(request.rows, request.cols),
-            remote: workspace.remote.clone(),
-        };
-        // Opened before the entry exists, so a failed open leaves nothing behind. An entry written
-        // first would be a Shell the registry lists, the user can attach to, and nothing is running.
-        let opened = self.runtime.open(&open, self.store.clone())?;
         let now = self.clock.now();
         let descriptor = SessionShellDescriptor {
-            shell_id,
+            shell_id: shell_id.clone(),
+            generation,
             session_id: request.session_id.clone(),
             seat_id: request.seat_id.clone(),
             title,
-            runtime: opened.runtime,
-            state: opened.state,
+            runtime: ShellRuntimeDescriptor::Native,
+            state: SessionShellState::Opening,
             created_at: now.clone(),
             last_activity_at: now,
             revision: 1,
             foreground_process:
                 crate::contexts::workspaces::domain::ShellForegroundProcessState::Unknown,
         };
+        // Registered before the runtime is invoked, so the reader thread's first byte lands in a
+        // Shell that already exists. `Opening` is not writable, so the window this opens is a Shell
+        // a view can see and cannot type into — which is the honest description of it.
         self.store.insert(ShellEntry {
             descriptor: descriptor.clone(),
             replay: ShellReplayBuffer::default(),
             attachment: None,
             request_id: request.request_id.clone(),
             last_activity_millis: self.clock.elapsed_millis(),
+            capacity: Some(lease),
+            close_attempts: 0,
         });
+
+        let open = ShellRuntimeOpen {
+            shell_id: shell_id.clone(),
+            generation,
+            session_id: request.session_id.clone(),
+            root: workspace.root.clone(),
+            dimensions: TerminalDimensions::bounded(request.rows, request.cols),
+            remote: workspace.remote.clone(),
+        };
+        let opened = match self.runtime.open(&open, self.store.clone()) {
+            Ok(opened) => opened,
+            Err(error) => {
+                self.roll_back_startup(&shell_id, generation);
+                return Err(error);
+            }
+        };
+        // Conditional, and that is the fix. A Shell that echoed and exited before this line has
+        // already reached a terminal state, and writing `Running` over it would leave a dead
+        // process reported as live, with nothing left to end it.
+        self.store
+            .transition(&shell_id, generation, opened.state.clone());
+        self.store
+            .set_runtime(&shell_id, generation, opened.runtime.clone());
+        let descriptor = self.store.descriptor(&shell_id).unwrap_or(descriptor);
         // Reported after the entry exists, so nothing is announced that a reader could then fail to
         // find. `local` and `remote` are the whole vocabulary: a hostname would make this a
         // location record.
@@ -196,6 +261,23 @@ impl SessionShellRegistry {
         Ok(descriptor)
     }
 
+    /// Undoes a startup that acquired the registration but not the runtime.
+    ///
+    /// The runtime's own guard has already ended whatever it managed to acquire; what is left here
+    /// is the registration and the slot. Nothing is published: no `ShellOpened` was reported for
+    /// this Shell, so a `ShellClosed` would be an ending for something that never began.
+    fn roll_back_startup(&self, shell_id: &ShellId, generation: ShellGeneration) {
+        let rolled_back = self.store.finalize(
+            shell_id,
+            generation,
+            SessionShellState::Failed {
+                reason: shell_reason(shell_reason_code::OPEN_SETUP_FAILED),
+            },
+        );
+        // Dropping the entry drops the lease, which is what returns the slot.
+        drop(rolled_back);
+    }
+
     fn gate(&self, identity: &CreateIdentity) -> Arc<Mutex<()>> {
         let mut gates = match self.gates.lock() {
             Ok(guard) => guard,
@@ -203,7 +285,7 @@ impl SessionShellRegistry {
         };
         // Bounded by the same ceiling as the shells themselves plus whatever is in flight; a gate
         // is one empty mutex, and the map is pruned when it outgrows the Shell capacity.
-        if gates.len() > self.capacities.total * 2 {
+        if gates.len() > self.capacity.capacities().total * 2 {
             gates.retain(|_, gate| Arc::strong_count(gate) > 1);
         }
         gates.entry(identity.clone()).or_default().clone()
@@ -291,12 +373,13 @@ impl SessionShellRegistry {
         self.store.rename(shell_id, ShellTitle::parse(title)?)
     }
 
-    /// Closing a Shell the registry does not hold is a success.
+    /// Ends a Shell, and says what that achieved.
     ///
-    /// A close that failed on an unknown Shell would make cleanup unreliable exactly where it
-    /// matters: a caller retrying after a partial failure has no way to tell "already gone" from
-    /// "still there and refused".
-    pub(crate) fn close(&self, shell_id: &ShellId) -> Result<(), SessionShellError> {
+    /// Closing a Shell the registry does not hold is `AlreadyTerminal` rather than an error: a
+    /// caller retrying after a partial failure has no way to tell "already gone" from "still there
+    /// and refused", and making the first case an error makes cleanup unreliable exactly where it
+    /// matters.
+    pub(crate) fn close(&self, shell_id: &ShellId) -> SessionShellCloseResult {
         self.close_with(shell_id, WorkspaceShellCloseReason::ExplicitClose)
     }
 
@@ -308,45 +391,259 @@ impl SessionShellRegistry {
     fn close_with(
         &self,
         shell_id: &ShellId,
-        reason: WorkspaceShellCloseReason,
-    ) -> Result<(), SessionShellError> {
+        origin: WorkspaceShellCloseReason,
+    ) -> SessionShellCloseResult {
         let Some(descriptor) = self.store.descriptor(shell_id) else {
-            return Ok(());
+            // Nothing to end and no generation to name. Reported as settled, because a caller
+            // retrying a cleanup has to be able to stop.
+            return SessionShellCloseResult::already_terminal(
+                shell_id.clone(),
+                ShellGeneration::new(0),
+                SessionShellState::Closed,
+            );
         };
-        // Announced before the entry goes, because a subscriber that learns nothing keeps showing a
-        // live view of a process that has ended.
-        self.store.on_state(shell_id, SessionShellState::Closed);
-        if let Some(mut entry) = self.store.remove(shell_id) {
-            entry.replay.release();
+        let generation = descriptor.generation;
+        let Some(attempt) = self.store.begin_close_attempt(shell_id, generation) else {
+            return SessionShellCloseResult::already_terminal(
+                shell_id.clone(),
+                generation,
+                descriptor.state,
+            );
+        };
+        // An ended Shell keeps its entry, its replay and — until the runtime says otherwise — its
+        // workers, so closing it is a real operation. Its state stays `Exited`: the process ended
+        // by itself, and overwriting that with `Closing` would lose how it ended.
+        if !descriptor.state.has_ended() {
+            self.store
+                .transition(shell_id, generation, SessionShellState::Closing);
         }
-        let result = self.runtime.close(shell_id);
+        let outcome = self.runtime.close(shell_id, generation, self.budget);
+        self.settle(&descriptor, origin, attempt, outcome)
+    }
+
+    /// Turns one runtime outcome into the Shell's next state, and finalizes when it can.
+    fn settle(
+        &self,
+        descriptor: &SessionShellDescriptor,
+        origin: WorkspaceShellCloseReason,
+        attempt: u32,
+        outcome: ShellRuntimeCloseOutcome,
+    ) -> SessionShellCloseResult {
+        let shell_id = &descriptor.shell_id;
+        let generation = descriptor.generation;
+        match outcome {
+            ShellRuntimeCloseOutcome::Confirmed | ShellRuntimeCloseOutcome::NotHeld => {
+                self.finalize(shell_id, generation, origin);
+                SessionShellCloseResult::confirmed(
+                    shell_id.clone(),
+                    generation,
+                    SessionShellState::Closed,
+                    attempt,
+                )
+            }
+            ShellRuntimeCloseOutcome::Retained { reason, retryable } => {
+                self.hand_to_reaper(descriptor, origin, attempt, reason, retryable)
+            }
+        }
+    }
+
+    /// Moves an unconfirmed close onto the Reaper, or records why it could not be moved.
+    ///
+    /// A full queue is not a reason to drop anything. Nothing was ever taken out of an owner to
+    /// offer it, so refusing the handoff leaves the runtime holding exactly what it held before,
+    /// and the Shell stays `CloseFailed` — addressable, capacity still charged, retryable by hand.
+    fn hand_to_reaper(
+        &self,
+        descriptor: &SessionShellDescriptor,
+        origin: WorkspaceShellCloseReason,
+        attempt: u32,
+        reason: ShellReasonCode,
+        retryable: bool,
+    ) -> SessionShellCloseResult {
+        let shell_id = &descriptor.shell_id;
+        let generation = descriptor.generation;
+        let queued = retryable
+            && matches!(
+                self.reaper.offer(
+                    shell_id,
+                    generation,
+                    &descriptor.session_id,
+                    origin,
+                    attempt,
+                    self.clock.elapsed_millis(),
+                ),
+                Ok(()) | Err(ShellReaperRejection::AlreadyQueued)
+            );
+        if queued {
+            self.store
+                .transition(shell_id, generation, SessionShellState::Reaping);
+            return SessionShellCloseResult::reaping(shell_id.clone(), generation, reason, attempt);
+        }
+        let recorded = if retryable {
+            shell_reason(shell_reason_code::REAPER_CAPACITY_EXHAUSTED)
+        } else {
+            reason.clone()
+        };
+        self.store.transition(
+            shell_id,
+            generation,
+            SessionShellState::CloseFailed {
+                reason: recorded.clone(),
+                retryable,
+            },
+        );
+        SessionShellCloseResult::failed(
+            shell_id.clone(),
+            generation,
+            recorded,
+            retryable,
+            attempt,
+            true,
+        )
+    }
+
+    /// The one place a Shell becomes terminal.
+    ///
+    /// Ordering matters and is the whole method: the terminal state is written and published while
+    /// the entry still exists, the entry is then given up, dropping it releases the capacity lease,
+    /// and only then is the ending reported to the evidence journal. Publishing before the compare
+    /// would announce the end of a Shell a newer generation had already replaced.
+    fn finalize(
+        &self,
+        shell_id: &ShellId,
+        generation: ShellGeneration,
+        origin: WorkspaceShellCloseReason,
+    ) {
+        self.reaper.forget(shell_id);
+        let Some(entry) = self
+            .store
+            .finalize(shell_id, generation, SessionShellState::Closed)
+        else {
+            // A newer generation, or an already-finalized one. Publishing anything here would be
+            // an ending attributed to whatever now answers to this id.
+            return;
+        };
+        let descriptor = entry.descriptor.clone();
+        drop(entry);
         self.evidence
             .try_publish(WorkspaceEvidenceSignal::ShellClosed {
                 session_id: descriptor.session_id,
                 shell_id: shell_id.as_str().to_string(),
                 seat_id: descriptor.seat_id,
-                reason,
+                reason: origin,
                 occurred_at: self.clock.now(),
             });
-        result
+    }
+
+    /// Makes one more bounded attempt at each Shell whose cleanup is due, and returns what happened.
+    ///
+    /// Driven by whoever already runs a periodic sweep rather than by threads of its own: the
+    /// number of attempts in flight is then the drain limit, which is a number somebody chose,
+    /// rather than the number of stuck shells, which is not.
+    pub(crate) fn advance_reaper(&self) -> SessionShellCleanupReport {
+        let mut report = SessionShellCleanupReport::default();
+        for item in self.reaper.drain_due(self.clock.elapsed_millis()) {
+            let Some(descriptor) = self.store.descriptor(&item.shell_id) else {
+                continue;
+            };
+            if descriptor.generation != item.generation {
+                // A completion for a superseded attempt. Dropped with no effect: releasing here
+                // would return a slot the current generation is using.
+                continue;
+            }
+            let outcome = self
+                .runtime
+                .close(&item.shell_id, item.generation, self.budget);
+            if outcome.is_released() {
+                self.finalize(&item.shell_id, item.generation, item.origin);
+                report.push(SessionShellCloseResult::confirmed(
+                    item.shell_id.clone(),
+                    item.generation,
+                    SessionShellState::Closed,
+                    item.attempts,
+                ));
+                continue;
+            }
+            let ShellRuntimeCloseOutcome::Retained { reason, retryable } = outcome else {
+                continue;
+            };
+            let attempts = item.attempts;
+            if self
+                .reaper
+                .requeue(item.clone(), self.clock.elapsed_millis())
+            {
+                report.push(SessionShellCloseResult::reaping(
+                    item.shell_id.clone(),
+                    item.generation,
+                    reason,
+                    attempts,
+                ));
+                continue;
+            }
+            // Out of automatic attempts. Left `CloseFailed` with its ownership intact rather than
+            // forgotten, because the alternative is a live process nobody is accountable for.
+            self.store.transition(
+                &item.shell_id,
+                item.generation,
+                SessionShellState::CloseFailed {
+                    reason: reason.clone(),
+                    retryable,
+                },
+            );
+            report.push(SessionShellCloseResult::failed(
+                item.shell_id.clone(),
+                item.generation,
+                reason,
+                retryable,
+                attempts,
+                true,
+            ));
+        }
+        report
     }
 
     /// Reclaims detached, quiet Shells. Bounded per sweep and never a Shell someone is watching.
-    pub(crate) fn sweep_idle(&self) -> Vec<ShellId> {
-        let candidates = self
+    ///
+    /// A Shell that could not be confirmed closed is reported as reaping or failed rather than
+    /// counted as reclaimed: counting it would make the sweep's own figures the first place the
+    /// application lies about a process it did not end.
+    pub(crate) fn sweep_idle(&self) -> SessionShellCleanupReport {
+        let mut report = self.advance_reaper();
+        for shell_id in self
             .store
-            .idle_candidates(SHELL_IDLE_MILLIS, SHELL_IDLE_SWEEP_LIMIT);
-        for shell_id in &candidates {
-            let _ = self.close_with(shell_id, WorkspaceShellCloseReason::IdleCleanup);
+            .idle_candidates(SHELL_IDLE_MILLIS, SHELL_IDLE_SWEEP_LIMIT)
+        {
+            report.push(self.close_with(&shell_id, WorkspaceShellCloseReason::IdleCleanup));
         }
-        candidates
+        report
     }
 
-    /// Closes everything at shutdown, joining each runtime's workers through `close`.
-    pub(crate) fn shutdown(&self) {
+    /// Closes everything at shutdown, inside one global finite budget.
+    ///
+    /// Every Shell gets its bounded attempt, then the Reaper is advanced once for whatever is left.
+    /// What remains after that is reported rather than waited on: an exit path that blocks until
+    /// every child dies is an application that cannot be closed.
+    pub(crate) fn shutdown(&self) -> SessionShellCleanupReport {
+        let mut report = SessionShellCleanupReport::default();
         for shell_id in self.store.all_shell_ids() {
-            let _ = self.close_with(&shell_id, WorkspaceShellCloseReason::Shutdown);
+            report.push(self.close_with(&shell_id, WorkspaceShellCloseReason::Shutdown));
         }
+        for result in self.advance_reaper().entries() {
+            report.push(result.clone());
+        }
+        report
+    }
+
+    /// Ends every Shell a session owns, and reports each one.
+    pub(crate) fn close_for_session(&self, session_id: &str) -> SessionShellCleanupReport {
+        let mut report = SessionShellCleanupReport::default();
+        for descriptor in self.store.descriptors(Some(session_id)) {
+            report.push(self.close_with(
+                &descriptor.shell_id,
+                WorkspaceShellCloseReason::ExplicitClose,
+            ));
+        }
+        report
     }
 
     /// The Shells a session is showing, for the workspace summary. Owned here because the count is

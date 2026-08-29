@@ -96,7 +96,22 @@ pub(crate) fn run() {
                 if let Some(workspaces) =
                     app.try_state::<crate::contexts::workspaces::api::WorkspaceApi>()
                 {
-                    workspaces.shutdown_session_shells();
+                    let report = workspaces.shutdown_session_shells();
+                    // Residual cleanup is recorded rather than waited on. Blocking here until every
+                    // child died would make an unkillable process into an application that cannot
+                    // be closed; logging nothing would make it into a leak nobody can see.
+                    if !report.is_complete() {
+                        write_bootstrap_log(
+                            &logging::fallback_log_dir(),
+                            LogSeverity::Warn,
+                            "workspaces.shell_shutdown",
+                            &format!(
+                                "{} of {} retained shells were still unconfirmed at the shutdown deadline",
+                                report.reaping() + report.failed(),
+                                report.requested()
+                            ),
+                        );
+                    }
                 }
             }
             if matches!(event, tauri::RunEvent::Exit)

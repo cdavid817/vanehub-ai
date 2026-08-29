@@ -9,10 +9,11 @@ use super::session_shell::{
     SessionShellDescriptor, SessionShellNotice, SessionShellNoticePort, ShellClockPort,
     ShellOutputSink,
 };
+use super::session_shell_capacity::ShellCapacityLease;
 use crate::contexts::workspaces::domain::{
     SessionShellError, SessionShellState, ShellAttachmentId, ShellCreateRequestId,
-    ShellForegroundProcessState, ShellId, ShellReplayBuffer, ShellReplaySnapshot, ShellStream,
-    ShellTitle,
+    ShellForegroundProcessState, ShellGeneration, ShellId, ShellReplayBuffer, ShellReplaySnapshot,
+    ShellRuntimeDescriptor, ShellStream, ShellTitle,
 };
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
@@ -27,6 +28,15 @@ pub(crate) struct ShellEntry {
     pub(crate) request_id: Option<ShellCreateRequestId>,
     /// Monotonic milliseconds at the last activity, for idle arithmetic a clock change cannot move.
     pub(crate) last_activity_millis: u64,
+    /// The slot this Shell occupies, held here for the whole of its life.
+    ///
+    /// Living in the entry rather than in the runtime is what ties the slot to the *Shell* instead
+    /// of to the process: a Shell that is closing, reaping, or failed to close still consumes
+    /// capacity, because its process still exists. The lease is released when the entry is dropped,
+    /// which happens only at confirmed terminal cleanup.
+    pub(crate) capacity: Option<ShellCapacityLease>,
+    /// How many bounded close attempts this Shell has had, including the command-path one.
+    pub(crate) close_attempts: u32,
 }
 
 /// Everything the registry and the runtime worker share.
@@ -190,6 +200,24 @@ impl ShellStore {
         }
     }
 
+    /// Records which runtime committed ownership, once it has.
+    ///
+    /// Pre-registration has to guess a descriptor before the runtime answers, and the runtime is
+    /// the only thing that knows whether a remote channel actually reconnects. Guessing that at
+    /// registration time and never correcting it would tell a view a remote Shell is local.
+    pub(crate) fn set_runtime(
+        &self,
+        shell_id: &ShellId,
+        generation: ShellGeneration,
+        runtime: ShellRuntimeDescriptor,
+    ) {
+        if let Some(entry) = self.lock().get_mut(shell_id) {
+            if entry.descriptor.generation == generation {
+                entry.descriptor.runtime = runtime;
+            }
+        }
+    }
+
     pub(crate) fn touch(&self, shell_id: &ShellId) {
         let now = self.clock.now();
         let millis = self.clock.elapsed_millis();
@@ -232,6 +260,118 @@ impl ShellStore {
     pub(crate) fn all_shell_ids(&self) -> Vec<ShellId> {
         self.lock().keys().cloned().collect()
     }
+
+    /// Which life of this id the store currently holds.
+    pub(crate) fn generation(&self, shell_id: &ShellId) -> Option<ShellGeneration> {
+        self.lock()
+            .get(shell_id)
+            .map(|entry| entry.descriptor.generation)
+    }
+
+    /// Moves a Shell along its lifecycle, if the move is legal for that generation.
+    ///
+    /// The single writer for state. Everything that used to be "set the state and publish" goes
+    /// through here, because the three ways that goes wrong — a stale generation, an illegal
+    /// transition, and a second terminal publication — are each invisible at the call site and
+    /// obvious in one table. Answers whether the move happened, so a caller that needs to know it
+    /// lost a race is told rather than left to re-read and guess.
+    pub(crate) fn transition(
+        &self,
+        shell_id: &ShellId,
+        generation: ShellGeneration,
+        state: SessionShellState,
+    ) -> bool {
+        let occurred_at = self.clock.now();
+        let published = {
+            let mut shells = self.lock();
+            let Some(entry) = shells.get_mut(shell_id) else {
+                return false;
+            };
+            if entry.descriptor.generation != generation
+                || !entry.descriptor.state.may_transition_to(&state)
+            {
+                return false;
+            }
+            entry.descriptor.state = state.clone();
+            entry.descriptor.revision = entry.descriptor.revision.saturating_add(1);
+            entry.descriptor.last_activity_at = occurred_at.clone();
+            (
+                entry.descriptor.session_id.clone(),
+                entry.descriptor.revision,
+            )
+        };
+        self.notices.publish(SessionShellNotice::State {
+            shell_id: shell_id.clone(),
+            generation,
+            session_id: published.0,
+            state,
+            revision: published.1,
+            occurred_at,
+        });
+        true
+    }
+
+    /// Records that another bounded close attempt has begun, and returns which one it is.
+    ///
+    /// Counted in the store rather than at the caller so that a command-path attempt and a Reaper
+    /// attempt share one sequence: two counters would let a Shell exhaust neither budget while
+    /// being tried indefinitely.
+    pub(crate) fn begin_close_attempt(
+        &self,
+        shell_id: &ShellId,
+        generation: ShellGeneration,
+    ) -> Option<u32> {
+        let mut shells = self.lock();
+        let entry = shells.get_mut(shell_id)?;
+        if entry.descriptor.generation != generation {
+            return None;
+        }
+        entry.close_attempts = entry.close_attempts.saturating_add(1);
+        Some(entry.close_attempts)
+    }
+
+    /// Writes the terminal state, publishes it once, and gives up the entry — in that order.
+    ///
+    /// One operation rather than three calls, because the ordering is the invariant. Removing the
+    /// entry first would publish a terminal state nobody could then look up; publishing before the
+    /// compare would announce the end of a Shell that a newer generation had already replaced. The
+    /// returned entry carries the capacity lease, so dropping it is what returns the slot.
+    pub(crate) fn finalize(
+        &self,
+        shell_id: &ShellId,
+        generation: ShellGeneration,
+        terminal: SessionShellState,
+    ) -> Option<ShellEntry> {
+        let occurred_at = self.clock.now();
+        let published = {
+            let mut shells = self.lock();
+            let entry = shells.get_mut(shell_id)?;
+            if entry.descriptor.generation != generation {
+                return None;
+            }
+            if !entry.descriptor.state.may_transition_to(&terminal) {
+                return None;
+            }
+            entry.descriptor.state = terminal.clone();
+            entry.descriptor.revision = entry.descriptor.revision.saturating_add(1);
+            entry.descriptor.last_activity_at = occurred_at.clone();
+            (
+                entry.descriptor.session_id.clone(),
+                entry.descriptor.revision,
+            )
+        };
+        self.notices.publish(SessionShellNotice::State {
+            shell_id: shell_id.clone(),
+            generation,
+            session_id: published.0,
+            state: terminal,
+            revision: published.1,
+            occurred_at,
+        });
+        let mut entry = self.lock().remove(shell_id)?;
+        entry.replay.release();
+        Some(entry)
+    }
 }
 
 impl ShellOutputSink for ShellStore {
@@ -240,7 +380,18 @@ impl ShellOutputSink for ShellStore {
     /// The retained buffer is the durable half and the notice is the hint. A notice published
     /// before the frame was stored could reach a subscriber that then attaches and does not find
     /// it — and the subscriber would read that as a gap, which is a lie about lost output.
-    fn on_output(&self, shell_id: &ShellId, stream: ShellStream, bytes: &[u8]) {
+    ///
+    /// Output for a superseded generation is dropped rather than appended. A reader thread whose
+    /// close timed out is still reading a live PTY, and its bytes belong to a Shell the user has
+    /// already dismissed — appending them to whatever now holds that id would put one shell's
+    /// output in another shell's scrollback.
+    fn on_output(
+        &self,
+        shell_id: &ShellId,
+        generation: ShellGeneration,
+        stream: ShellStream,
+        bytes: &[u8],
+    ) {
         let occurred_at = self.clock.now();
         let millis = self.clock.elapsed_millis();
         let published = {
@@ -248,6 +399,9 @@ impl ShellOutputSink for ShellStore {
             let Some(entry) = shells.get_mut(shell_id) else {
                 return;
             };
+            if entry.descriptor.generation != generation {
+                return;
+            }
             entry.descriptor.last_activity_at = occurred_at.clone();
             entry.last_activity_millis = millis;
             entry
@@ -264,34 +418,7 @@ impl ShellOutputSink for ShellStore {
         }
     }
 
-    fn on_state(&self, shell_id: &ShellId, state: SessionShellState) {
-        let occurred_at = self.clock.now();
-        let published = {
-            let mut shells = self.lock();
-            let Some(entry) = shells.get_mut(shell_id) else {
-                return;
-            };
-            // A Shell that already ended does not end again. Two terminal states would publish two
-            // closings for one Shell, and a reader counting them would see work that never happened.
-            if entry.descriptor.state == state || entry.descriptor.state.has_ended() {
-                return;
-            }
-            entry.descriptor.state = state.clone();
-            entry.descriptor.revision = entry.descriptor.revision.saturating_add(1);
-            entry.descriptor.last_activity_at = occurred_at.clone();
-            Some((
-                entry.descriptor.session_id.clone(),
-                entry.descriptor.revision,
-            ))
-        };
-        if let Some((session_id, revision)) = published {
-            self.notices.publish(SessionShellNotice::State {
-                shell_id: shell_id.clone(),
-                session_id,
-                state,
-                revision,
-                occurred_at,
-            });
-        }
+    fn on_state(&self, shell_id: &ShellId, generation: ShellGeneration, state: SessionShellState) {
+        self.transition(shell_id, generation, state);
     }
 }

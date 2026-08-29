@@ -1,7 +1,7 @@
 pub(crate) use super::application::{
     AttachSessionShellRequest, CreateSessionShellRequest, ResizeSessionShellRequest,
-    SessionShellDescriptor, SessionShellRegistry, ShellAttachSnapshot, ShellAttachmentScope,
-    WriteSessionShellRequest,
+    SessionShellCleanupReport, SessionShellCloseResult, SessionShellDescriptor,
+    SessionShellRegistry, ShellAttachSnapshot, ShellAttachmentScope, WriteSessionShellRequest,
 };
 /// Provider-neutral workspace inspection.
 ///
@@ -453,11 +453,20 @@ impl WorkspaceApi {
     /// Shell outlives its view by design, so nothing else would ever close it: the session it
     /// belonged to would be gone from the list while its process kept running with no way left to
     /// reach it.
+    /// Strict by default: a session whose Shells are not all confirmed gone is not a session that
+    /// finished archiving. Reporting success here would delete the last thing that could reach the
+    /// process still running behind it.
     pub(crate) fn kill_shells_for_session(&self, session_id: &str) -> Result<(), WorkspaceError> {
-        for descriptor in self.shells.list(Some(session_id)) {
-            let _ = self.shells.close(&descriptor.shell_id);
+        let report = self.shells.close_for_session(session_id);
+        if report.is_complete() {
+            return Ok(());
         }
-        Ok(())
+        Err(WorkspaceError::Storage(format!(
+            "{}: {} of {} shells unconfirmed",
+            crate::contexts::workspaces::domain::shell_reason_code::SESSION_CLEANUP_INCOMPLETE,
+            report.reaping() + report.failed(),
+            report.requested()
+        )))
     }
 
     pub(crate) fn list_session_shells(&self, session_id: &str) -> Vec<SessionShellDescriptor> {
@@ -504,8 +513,8 @@ impl WorkspaceApi {
     pub(crate) async fn close_session_shell_blocking(
         &self,
         shell_id: ShellId,
-    ) -> Result<(), SessionShellError> {
-        self.on_blocking_pool(move |api| api.close_session_shell(&shell_id))
+    ) -> Result<SessionShellCloseResult, SessionShellError> {
+        self.on_blocking_pool(move |api| Ok(api.close_session_shell(&shell_id)))
             .await
     }
 
@@ -560,7 +569,11 @@ impl WorkspaceApi {
         self.shells.rename(shell_id, title)
     }
 
-    pub(crate) fn close_session_shell(&self, shell_id: &ShellId) -> Result<(), SessionShellError> {
+    /// Ends a Shell and reports what that achieved.
+    ///
+    /// Returns a value rather than `Result<(), _>` because three of the four outcomes are not
+    /// errors and only two of them mean the process is gone.
+    pub(crate) fn close_session_shell(&self, shell_id: &ShellId) -> SessionShellCloseResult {
         self.shells.close(shell_id)
     }
 
@@ -572,17 +585,22 @@ impl WorkspaceApi {
         self.shells.live_count(session_id)
     }
 
-    /// Reclaims detached, quiet Shells. Bounded per sweep and never a Shell someone is watching.
-    pub(crate) fn sweep_idle_session_shells(&self) -> usize {
-        self.shells.sweep_idle().len()
+    /// Reclaims detached, quiet Shells and advances outstanding cleanup.
+    ///
+    /// Bounded per sweep and never a Shell someone is watching. The report distinguishes a Shell
+    /// that was confirmed gone from one that is still being reaped; counting the second as
+    /// reclaimed would make the sweep's own figures the first place this application lies about a
+    /// process it did not end.
+    pub(crate) fn sweep_idle_session_shells(&self) -> SessionShellCleanupReport {
+        self.shells.sweep_idle()
     }
 
-    /// Closes every Shell and joins its runtime workers.
+    /// Closes every Shell within one global finite budget and reports what is left.
     ///
-    /// Called on the way out rather than left to the process teardown, because a joined worker is
-    /// the difference between a clean exit and a window that has closed while the process is still
-    /// waiting on a thread reading a dead PTY.
-    pub(crate) fn shutdown_session_shells(&self) {
-        self.shells.shutdown();
+    /// Called on the way out rather than left to the process teardown. It never waits without a
+    /// ceiling: an exit path that blocks until every child dies is an application that cannot be
+    /// closed, and that is a worse failure than a residual process reported honestly.
+    pub(crate) fn shutdown_session_shells(&self) -> SessionShellCleanupReport {
+        self.shells.shutdown()
     }
 }
