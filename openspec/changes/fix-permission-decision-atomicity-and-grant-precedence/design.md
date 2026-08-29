@@ -312,7 +312,14 @@ recorded at their entries with the distribution.
 
 ### Not done
 
-- **10.5 desktop permission/Claude hook flows.** The repository has no desktop layer dedicated to
-  permissions; the closest coverage is `test:desktop:smoke` (startup, IPC, navigation), which
-  exercises command registration but not an approval round trip. Not run, and not inferred.
+- **10.5 desktop permission/Claude hook flows: BLOCKED on this host.** The repository has no
+  desktop layer dedicated to permissions; the closest coverage is `test:desktop:smoke`, which
+  exercises startup, IPC and command registration but not an approval round trip. It was attempted:
+  `npm run test:desktop:build` succeeded (14m33s, `vanehub-ai.exe` produced), and
+  `npm run test:desktop:smoke` then reached spec 3 of 25 in roughly ninety minutes before it was
+  stopped. `domain-automation.e2e.mjs` and `domain-cli-tooling.e2e.mjs` both failed repeatedly with
+  `WebDriverError: Script execution timed out` on an element lookup and exhausted their retries.
+  Neither spec touches permissions, and no baseline run was taken, so this is recorded as blocked
+  rather than as a pass, a failure, or a regression — there is not enough evidence to call it any
+  of those.
 - Platform results are Windows-only. macOS and Linux are NOT RUN.
