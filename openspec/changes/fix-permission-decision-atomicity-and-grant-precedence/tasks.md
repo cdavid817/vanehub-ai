@@ -90,4 +90,4 @@
 - [x] 10.3 Run the full validation command set from `AGENTS.md`: `npm run lint:ci`, `npm run test`, `npm run build`, Cargo fmt/check/clippy/panic-check/test, and `openspec validate --specs --strict`.
 - [x] 10.4 Run `openspec validate fix-permission-decision-atomicity-and-grant-precedence --strict` after all task/spec edits.
 - [ ] 10.5 Run applicable desktop permission/Claude hook flows with fixed fixtures, record each actually tested operating system as PASSED/FAILED/BLOCKED/NOT RUN, and do not infer untested platform results.
-- [ ] 10.6 Compare the final implementation against every requirement and scenario, leave any unmet task unchecked, and document residual risk before archive.
+- [x] 10.6 Compare the final implementation against every requirement and scenario, leave any unmet task unchecked, and document residual risk before archive.
