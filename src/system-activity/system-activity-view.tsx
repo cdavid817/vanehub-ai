@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import { formatAppDateTime } from "../i18n/format";
 import { formatActivityUnreadBadge } from "./activity-badge";
 import type { ActivityNavigator } from "./activity-navigation";
 import type { ActivitySeverity } from "./activity-contracts";
@@ -18,7 +19,7 @@ const severityOptions: readonly ActivitySeverity[] = ["info", "warning", "error"
  * navigation, filtering, read-state, preferences, rebuild, or export.
  */
 export function SystemActivityView({ onNavigate = () => undefined }: SystemActivityViewProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const model = useSystemActivity();
   const selected = model.sessions.find((session) => session.sessionId === model.selectedSessionId);
   const effectiveRead = model.readState
@@ -145,6 +146,7 @@ export function SystemActivityView({ onNavigate = () => undefined }: SystemActiv
               <SystemActivityTimelineItem
                 entry={entry}
                 key={entry.envelope.eventId}
+                language={i18n.language}
                 onNavigate={onNavigate}
                 t={t}
                 unread={entry.sequence > effectiveRead}
@@ -165,7 +167,7 @@ export function SystemActivityView({ onNavigate = () => undefined }: SystemActiv
             {model.dashboard.map((summary) => (
               <dl className="mt-2 text-xs text-muted-foreground" key={summary.materializationKind}>
                 <dt className="font-mono">{summary.materializationKind}</dt>
-                <dd>{t("systemActivity.view.updatedAt", { time: new Date(summary.updatedAtMs).toLocaleString() })}</dd>
+                <dd>{t("systemActivity.view.updatedAt", { time: formatAppDateTime(summary.updatedAtMs, i18n.language, { dateStyle: "medium", timeStyle: "short" }) })}</dd>
               </dl>
             ))}
           </section>
@@ -176,7 +178,10 @@ export function SystemActivityView({ onNavigate = () => undefined }: SystemActiv
             <p className="mt-1">
               {model.health.lastCompletedAtMs
                 ? t("systemActivity.view.lastProjected", {
-                    time: new Date(model.health.lastCompletedAtMs).toLocaleString(),
+                    time: formatAppDateTime(model.health.lastCompletedAtMs, i18n.language, {
+                      dateStyle: "medium",
+                      timeStyle: "short",
+                    }),
                   })
                 : t("systemActivity.view.neverProjected")}
             </p>

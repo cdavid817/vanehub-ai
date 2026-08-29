@@ -1,5 +1,6 @@
 import type { SystemActivityService, SystemActivityRebuild } from "./system-activity-service";
 import {
+  ensureWebSystemActivitySeed,
   refreshUnread,
   requireReadState,
   scopeKey,
@@ -9,6 +10,7 @@ import {
 
 export const webSystemActivityClient: SystemActivityService = {
   async listSystemActivitySessions() {
+    ensureWebSystemActivitySeed();
     return [...state.sessions.values()].map((session) => ({ ...session }));
   },
   async querySystemActivityTimeline(query) {

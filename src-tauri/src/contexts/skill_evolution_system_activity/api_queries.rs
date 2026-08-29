@@ -7,7 +7,7 @@ use super::api::SkillEvolutionSystemActivityApi;
 use super::api::{enum_value, invalid, map_error, parse_scope, storage, to_value};
 use crate::contexts::skill_evolution_system_activity::{domain::*, infrastructure::*};
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields, default)]
 pub(crate) struct ActivityTimelineQueryInput {
     pub(crate) session_id: String,
@@ -23,26 +23,6 @@ pub(crate) struct ActivityTimelineQueryInput {
     pub(crate) search_text: Option<String>,
     pub(crate) cursor: Option<String>,
     pub(crate) page_size: Option<u16>,
-}
-
-impl Default for ActivityTimelineQueryInput {
-    fn default() -> Self {
-        Self {
-            session_id: String::new(),
-            committed_from_ms: None,
-            committed_to_ms: None,
-            severities: Vec::new(),
-            source_domains: Vec::new(),
-            statuses: Vec::new(),
-            skill_id: None,
-            run_id: None,
-            curator_states: Vec::new(),
-            attention_kinds: Vec::new(),
-            search_text: None,
-            cursor: None,
-            page_size: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Deserialize)]

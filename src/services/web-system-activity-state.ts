@@ -31,6 +31,55 @@ export const webSystemActivityState: WebActivityState = {
   counter: 0,
 };
 
+/**
+ * E2E seeding channel, mirroring `web-settings-client`'s localStorage usage: the browser test
+ * writes simulated committed events before load, and the mock projects them on first access.
+ * Malformed input is ignored — the mock never fabricates from partial data.
+ */
+function loadSeedFromStorage(): void {
+  if (typeof localStorage === "undefined") return;
+  let raw: string | null;
+  try {
+    raw = localStorage.getItem("vanehub.webSystemActivitySeed");
+  } catch {
+    return;
+  }
+  if (!raw) return;
+  try {
+    const events = JSON.parse(raw) as Array<{
+      scopeKind: ActivityScopeKind;
+      canonicalScopeId: string;
+      eventCode: string;
+      severity?: SystemActivityEnvelope["severity"];
+    }>;
+    if (!Array.isArray(events)) return;
+    for (const event of events) {
+      if (
+        (event.scopeKind === "global" || event.scopeKind === "workspace")
+        && typeof event.canonicalScopeId === "string"
+        && typeof event.eventCode === "string"
+      ) {
+        seedWebSystemActivityEventForTest(
+          event.scopeKind,
+          event.canonicalScopeId,
+          event.eventCode,
+          event.severity ?? "info",
+        );
+      }
+    }
+  } catch {
+    // Ignored: a broken seed must never break the mock runtime.
+  }
+}
+
+let seedLoaded = false;
+
+export function ensureWebSystemActivitySeed(): void {
+  if (seedLoaded) return;
+  seedLoaded = true;
+  loadSeedFromStorage();
+}
+
 export function resetWebSystemActivityForTest(): void {
   webSystemActivityState.sessions.clear();
   webSystemActivityState.entries.clear();

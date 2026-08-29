@@ -54,7 +54,7 @@ fn migration_history_includes_curator_foundation() {
 
     let name: String = connection
         .query_row(
-            "SELECT name FROM schema_migrations WHERE version = 90",
+            "SELECT name FROM schema_migrations WHERE version = 97",
             [],
             |row| row.get(0),
         )
@@ -67,13 +67,13 @@ fn migration_reapplies_after_only_its_history_marker_is_rolled_back() {
     let connection = Connection::open_in_memory().expect("database");
     crate::platform::database::migrate(&connection).expect("initial migrate");
     connection
-        .execute("DELETE FROM schema_migrations WHERE version = 90", [])
+        .execute("DELETE FROM schema_migrations WHERE version = 97", [])
         .expect("roll back marker");
 
     crate::platform::database::migrate(&connection).expect("idempotent reapply");
     let count: i64 = connection
         .query_row(
-            "SELECT COUNT(*) FROM schema_migrations WHERE version = 90
+            "SELECT COUNT(*) FROM schema_migrations WHERE version = 97
              AND name = 'skill-evolution-curator-foundation'",
             [],
             |row| row.get(0),

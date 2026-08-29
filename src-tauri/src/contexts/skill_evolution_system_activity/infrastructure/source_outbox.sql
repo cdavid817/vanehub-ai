@@ -89,7 +89,7 @@ END;
 
 CREATE TRIGGER IF NOT EXISTS evolution_runs_activity_insert
 AFTER INSERT ON evolution_runs BEGIN
-  INSERT INTO evolution_orchestration_activity_outbox
+  INSERT OR IGNORE INTO evolution_orchestration_activity_outbox
     (outbox_id,source_domain,source_kind,source_id,source_revision,event_kind,
      committed_at_ms,source_integrity_witness)
   VALUES ('run:' || NEW.run_id || ':' || NEW.revision,'orchestration','run',NEW.run_id,
@@ -98,7 +98,7 @@ END;
 CREATE TRIGGER IF NOT EXISTS evolution_runs_activity_update
 AFTER UPDATE OF status, revision ON evolution_runs
 WHEN NEW.revision > OLD.revision BEGIN
-  INSERT INTO evolution_orchestration_activity_outbox
+  INSERT OR IGNORE INTO evolution_orchestration_activity_outbox
     (outbox_id,source_domain,source_kind,source_id,source_revision,event_kind,
      committed_at_ms,source_integrity_witness)
   VALUES ('run:' || NEW.run_id || ':' || NEW.revision,'orchestration','run',NEW.run_id,
@@ -106,7 +106,7 @@ WHEN NEW.revision > OLD.revision BEGIN
 END;
 CREATE TRIGGER IF NOT EXISTS evolution_run_stages_activity_insert
 AFTER INSERT ON evolution_run_stages BEGIN
-  INSERT INTO evolution_orchestration_activity_outbox
+  INSERT OR IGNORE INTO evolution_orchestration_activity_outbox
     (outbox_id,source_domain,source_kind,source_id,source_revision,event_kind,
      committed_at_ms,source_integrity_witness)
   VALUES ('stage:' || NEW.stage_id || ':' || NEW.revision,'orchestration','stage',NEW.stage_id,
@@ -116,7 +116,7 @@ END;
 CREATE TRIGGER IF NOT EXISTS evolution_run_stages_activity_update
 AFTER UPDATE OF status, revision ON evolution_run_stages
 WHEN NEW.revision > OLD.revision BEGIN
-  INSERT INTO evolution_orchestration_activity_outbox
+  INSERT OR IGNORE INTO evolution_orchestration_activity_outbox
     (outbox_id,source_domain,source_kind,source_id,source_revision,event_kind,
      committed_at_ms,source_integrity_witness)
   VALUES ('stage:' || NEW.stage_id || ':' || NEW.revision,'orchestration','stage',NEW.stage_id,
@@ -125,7 +125,7 @@ WHEN NEW.revision > OLD.revision BEGIN
 END;
 CREATE TRIGGER IF NOT EXISTS evolution_auto_eligibility_activity_insert
 AFTER INSERT ON evolution_auto_eligibility BEGIN
-  INSERT INTO evolution_orchestration_activity_outbox
+  INSERT OR IGNORE INTO evolution_orchestration_activity_outbox
     (outbox_id,source_domain,source_kind,source_id,source_revision,event_kind,
      committed_at_ms,source_integrity_witness)
   VALUES ('eligibility:' || NEW.eligibility_id || ':' || NEW.revision,
@@ -134,7 +134,7 @@ AFTER INSERT ON evolution_auto_eligibility BEGIN
 END;
 CREATE TRIGGER IF NOT EXISTS evolution_auto_applications_activity_insert
 AFTER INSERT ON evolution_auto_applications BEGIN
-  INSERT INTO evolution_orchestration_activity_outbox
+  INSERT OR IGNORE INTO evolution_orchestration_activity_outbox
     (outbox_id,source_domain,source_kind,source_id,source_revision,event_kind,
      committed_at_ms,source_integrity_witness)
   VALUES ('automatic-application:' || NEW.application_id,'automatic_application','application',
@@ -142,7 +142,7 @@ AFTER INSERT ON evolution_auto_applications BEGIN
 END;
 CREATE TRIGGER IF NOT EXISTS evolution_auto_probations_activity_insert
 AFTER INSERT ON evolution_auto_probations BEGIN
-  INSERT INTO evolution_orchestration_activity_outbox
+  INSERT OR IGNORE INTO evolution_orchestration_activity_outbox
     (outbox_id,source_domain,source_kind,source_id,source_revision,event_kind,
      committed_at_ms,source_integrity_witness)
   VALUES ('probation:' || NEW.probation_id || ':' || NEW.revision,'probation','probation',
@@ -152,7 +152,7 @@ END;
 CREATE TRIGGER IF NOT EXISTS evolution_auto_probations_activity_update
 AFTER UPDATE OF status, revision ON evolution_auto_probations
 WHEN NEW.revision > OLD.revision BEGIN
-  INSERT INTO evolution_orchestration_activity_outbox
+  INSERT OR IGNORE INTO evolution_orchestration_activity_outbox
     (outbox_id,source_domain,source_kind,source_id,source_revision,event_kind,
      committed_at_ms,source_integrity_witness)
   VALUES ('probation:' || NEW.probation_id || ':' || NEW.revision,'probation','probation',
@@ -161,7 +161,7 @@ WHEN NEW.revision > OLD.revision BEGIN
 END;
 CREATE TRIGGER IF NOT EXISTS evolution_auto_breakers_activity_insert
 AFTER INSERT ON evolution_auto_breakers BEGIN
-  INSERT INTO evolution_orchestration_activity_outbox
+  INSERT OR IGNORE INTO evolution_orchestration_activity_outbox
     (outbox_id,source_domain,source_kind,source_id,source_revision,event_kind,
      committed_at_ms,source_integrity_witness)
   VALUES ('breaker:' || NEW.breaker_id || ':' || NEW.revision,'breaker','breaker',NEW.breaker_id,
@@ -170,7 +170,7 @@ END;
 CREATE TRIGGER IF NOT EXISTS evolution_auto_breakers_activity_update
 AFTER UPDATE OF status, revision ON evolution_auto_breakers
 WHEN NEW.revision > OLD.revision BEGIN
-  INSERT INTO evolution_orchestration_activity_outbox
+  INSERT OR IGNORE INTO evolution_orchestration_activity_outbox
     (outbox_id,source_domain,source_kind,source_id,source_revision,event_kind,
      committed_at_ms,source_integrity_witness)
   VALUES ('breaker:' || NEW.breaker_id || ':' || NEW.revision,'breaker','breaker',NEW.breaker_id,
@@ -179,7 +179,7 @@ END;
 
 CREATE TRIGGER IF NOT EXISTS evolution_signals_activity_insert
 AFTER INSERT ON evolution_signals BEGIN
-  INSERT INTO evolution_evidence_activity_outbox
+  INSERT OR IGNORE INTO evolution_evidence_activity_outbox
     (outbox_id,source_domain,source_kind,source_id,source_revision,event_kind,
      committed_at_ms,source_integrity_witness)
   VALUES ('signal:' || NEW.signal_id || ':' || NEW.extractor_version,'evidence','signal',NEW.signal_id,
@@ -188,7 +188,7 @@ AFTER INSERT ON evolution_signals BEGIN
 END;
 CREATE TRIGGER IF NOT EXISTS evolution_candidate_seeds_activity_insert
 AFTER INSERT ON evolution_candidate_seeds BEGIN
-  INSERT INTO evolution_evidence_activity_outbox
+  INSERT OR IGNORE INTO evolution_evidence_activity_outbox
     (outbox_id,source_domain,source_kind,source_id,source_revision,event_kind,
      committed_at_ms,source_integrity_witness)
   VALUES ('seed:' || NEW.seed_id || ':' || NEW.signal_set_revision,'evidence','seed',NEW.seed_id,
@@ -198,7 +198,7 @@ END;
 CREATE TRIGGER IF NOT EXISTS evolution_candidate_seeds_activity_update
 AFTER UPDATE OF readiness, signal_set_revision ON evolution_candidate_seeds
 WHEN NEW.signal_set_revision > OLD.signal_set_revision BEGIN
-  INSERT INTO evolution_evidence_activity_outbox
+  INSERT OR IGNORE INTO evolution_evidence_activity_outbox
     (outbox_id,source_domain,source_kind,source_id,source_revision,event_kind,
      committed_at_ms,source_integrity_witness)
   VALUES ('seed:' || NEW.seed_id || ':' || NEW.signal_set_revision,'evidence','seed',NEW.seed_id,
@@ -208,7 +208,7 @@ END;
 
 CREATE TRIGGER IF NOT EXISTS evolution_assessment_attempts_activity_insert
 AFTER INSERT ON evolution_assessment_attempts BEGIN
-  INSERT INTO evolution_assessment_activity_outbox
+  INSERT OR IGNORE INTO evolution_assessment_activity_outbox
     (outbox_id,source_domain,source_kind,source_id,source_revision,event_kind,
      committed_at_ms,source_integrity_witness)
   VALUES ('assessment:' || NEW.attempt_id || ':initial','assessment','attempt',NEW.attempt_id,
@@ -217,7 +217,7 @@ END;
 CREATE TRIGGER IF NOT EXISTS evolution_assessment_attempts_activity_update
 AFTER UPDATE OF status ON evolution_assessment_attempts
 WHEN NEW.status <> OLD.status BEGIN
-  INSERT INTO evolution_assessment_activity_outbox
+  INSERT OR IGNORE INTO evolution_assessment_activity_outbox
     (outbox_id,source_domain,source_kind,source_id,source_revision,event_kind,
      committed_at_ms,source_integrity_witness)
   VALUES ('assessment:' || NEW.attempt_id || ':' || NEW.status,'assessment','attempt',NEW.attempt_id,
@@ -226,7 +226,7 @@ END;
 
 CREATE TRIGGER IF NOT EXISTS evolution_generation_jobs_activity_insert
 AFTER INSERT ON evolution_generation_jobs BEGIN
-  INSERT INTO evolution_generation_activity_outbox
+  INSERT OR IGNORE INTO evolution_generation_activity_outbox
     (outbox_id,source_domain,source_kind,source_id,source_revision,event_kind,
      committed_at_ms,source_integrity_witness)
   VALUES ('generation-job:' || NEW.job_id || ':' || NEW.revision,'generation','job',NEW.job_id,
@@ -235,7 +235,7 @@ END;
 CREATE TRIGGER IF NOT EXISTS evolution_generation_jobs_activity_update
 AFTER UPDATE OF status, revision ON evolution_generation_jobs
 WHEN NEW.revision > OLD.revision BEGIN
-  INSERT INTO evolution_generation_activity_outbox
+  INSERT OR IGNORE INTO evolution_generation_activity_outbox
     (outbox_id,source_domain,source_kind,source_id,source_revision,event_kind,
      committed_at_ms,source_integrity_witness)
   VALUES ('generation-job:' || NEW.job_id || ':' || NEW.revision,'generation','job',NEW.job_id,
@@ -243,7 +243,7 @@ WHEN NEW.revision > OLD.revision BEGIN
 END;
 CREATE TRIGGER IF NOT EXISTS evolution_evidence_dossiers_activity_insert
 AFTER INSERT ON evolution_evidence_dossiers BEGIN
-  INSERT INTO evolution_generation_activity_outbox
+  INSERT OR IGNORE INTO evolution_generation_activity_outbox
     (outbox_id,source_domain,source_kind,source_id,source_revision,event_kind,
      committed_at_ms,source_integrity_witness)
   VALUES ('dossier:' || NEW.dossier_id || ':' || NEW.revision,'generation','dossier',NEW.dossier_id,
@@ -251,7 +251,7 @@ AFTER INSERT ON evolution_evidence_dossiers BEGIN
 END;
 CREATE TRIGGER IF NOT EXISTS evolution_generated_skill_activity_insert
 AFTER INSERT ON evolution_generated_skill_quarantine BEGIN
-  INSERT INTO evolution_generation_activity_outbox
+  INSERT OR IGNORE INTO evolution_generation_activity_outbox
     (outbox_id,source_domain,source_kind,source_id,source_revision,event_kind,
      committed_at_ms,source_integrity_witness)
   VALUES ('skill-creation:' || NEW.proposal_id || ':' || NEW.revision,'skill_creation','proposal',
@@ -260,7 +260,7 @@ END;
 CREATE TRIGGER IF NOT EXISTS evolution_generated_skill_activity_update
 AFTER UPDATE OF status, revision ON evolution_generated_skill_quarantine
 WHEN NEW.revision > OLD.revision BEGIN
-  INSERT INTO evolution_generation_activity_outbox
+  INSERT OR IGNORE INTO evolution_generation_activity_outbox
     (outbox_id,source_domain,source_kind,source_id,source_revision,event_kind,
      committed_at_ms,source_integrity_witness)
   VALUES ('skill-creation:' || NEW.proposal_id || ':' || NEW.revision,'skill_creation','proposal',

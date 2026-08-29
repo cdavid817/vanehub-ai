@@ -1,4 +1,5 @@
 import type { TFunction } from "i18next";
+import { formatAppDateTime } from "../i18n/format";
 import type { SystemActivityTimelineEntry } from "../services/system-activity-service";
 import type { ActivityEventCode, ActivitySeverity, ActivityStatus } from "./activity-contracts";
 import type { ActivityNavigator } from "./activity-navigation";
@@ -14,6 +15,7 @@ interface SystemActivityTimelineItemProps {
   entry: SystemActivityTimelineEntry;
   unread: boolean;
   t: TFunction;
+  language: string;
   onNavigate: ActivityNavigator;
 }
 
@@ -29,7 +31,7 @@ const severityTone: Record<ActivitySeverity, string> = {
  * the registry, safe structured payload, and a navigation-only link. Nothing here can mutate
  * evolution state.
  */
-export function SystemActivityTimelineItem({ entry, unread, t, onNavigate }: SystemActivityTimelineItemProps) {
+export function SystemActivityTimelineItem({ entry, unread, t, language, onNavigate }: SystemActivityTimelineItemProps) {
   const { envelope } = entry;
   const presentation =
     activityEventPresentation[envelope.eventCode as ActivityEventCode] ?? null;
@@ -60,7 +62,7 @@ export function SystemActivityTimelineItem({ entry, unread, t, onNavigate }: Sys
       <p className="mt-1 truncate text-xs text-muted-foreground">
         {statusKey ? t(statusKey.titleKey) : envelope.status}
         {" · "}
-        {new Date(envelope.committedAtMs).toLocaleString()}
+        {formatAppDateTime(envelope.committedAtMs, language, { dateStyle: "medium", timeStyle: "short" })}
         {" · "}
         <span className="font-mono">{envelope.eventCode}</span>
       </p>
