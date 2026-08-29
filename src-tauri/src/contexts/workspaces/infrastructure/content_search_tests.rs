@@ -566,3 +566,68 @@ fn a_budget_summary_carries_counts_and_no_paths() {
     assert!(spent.metadata_operations > 0);
     assert_eq!(spent.results_emitted, 1);
 }
+
+#[test]
+fn a_repository_ignore_rule_keeps_a_tree_out_of_the_search() {
+    let workspace = workspace(&[
+        (".gitignore", b"generated/\n"),
+        ("generated/output.txt", b"needle\n"),
+        ("src/main.rs", b"needle\n"),
+    ]);
+
+    let answer = workspace.find("needle");
+
+    // A team that has already written down which directories are generated should not have to
+    // write it a second time for search to believe them.
+    assert_eq!(
+        answer
+            .hits
+            .iter()
+            .map(|hit| hit.path.as_str())
+            .collect::<Vec<_>>(),
+        vec!["src/main.rs"]
+    );
+}
+
+#[test]
+fn a_repository_negation_brings_a_default_excluded_tree_back() {
+    let workspace = workspace(&[
+        (".gitignore", b"!vendor/\n"),
+        ("vendor/lib/thing.txt", b"needle\n"),
+        ("node_modules/pkg/index.js", b"needle\n"),
+    ]);
+
+    let answer = workspace.find("needle");
+
+    // An explicit `!` is a team saying they do want this tree searched. `node_modules` said nothing,
+    // so the default still applies to it.
+    assert_eq!(
+        answer
+            .hits
+            .iter()
+            .map(|hit| hit.path.as_str())
+            .collect::<Vec<_>>(),
+        vec!["vendor/lib/thing.txt"]
+    );
+}
+
+#[test]
+fn the_generated_output_directories_the_old_list_missed_are_skipped_too() {
+    let workspace = workspace(&[
+        (".next/static/chunk.js", b"needle\n"),
+        (".nuxt/dist/app.js", b"needle\n"),
+        ("src/main.rs", b"needle\n"),
+    ]);
+
+    // `.next` and `.nuxt` were in none of the three exclusion lists this policy replaces; they are
+    // covered here by the dot rule as well as by the default set, and both are the same answer.
+    assert_eq!(
+        workspace
+            .find("needle")
+            .hits
+            .iter()
+            .map(|hit| hit.path.as_str())
+            .collect::<Vec<_>>(),
+        vec!["src/main.rs"]
+    );
+}

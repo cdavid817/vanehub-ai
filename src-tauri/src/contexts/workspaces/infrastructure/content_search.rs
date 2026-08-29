@@ -21,12 +21,13 @@
 //! chunk before it is read. That is what makes a search over a generated tree stop and say so,
 //! rather than run until the reader closes the window.
 
+use super::ignore_matcher::WorkspaceIgnoreMatcher;
 use crate::contexts::workspaces::application::{
     safe_snippet, MonotonicClockPort, SearchCancellationToken, SystemMonotonicClock,
     WorkspaceApplicationError as AppError, WorkspaceContentMatch, WorkspaceContentSearchRequest,
-    WorkspaceContentSearchResult, WorkspaceInspectionBudget, WorkspaceInspectionBudgetLimits,
-    WorkspaceInspectionReason, WorkspaceSearchCoverage, MAX_CONTENT_MATCHES,
-    MAX_SEARCHED_FILE_BYTES,
+    WorkspaceContentSearchResult, WorkspaceIgnorePolicy, WorkspaceInspectionBudget,
+    WorkspaceInspectionBudgetLimits, WorkspaceInspectionReason, WorkspaceSearchCoverage,
+    MAX_CONTENT_MATCHES, MAX_SEARCHED_FILE_BYTES,
 };
 use crate::contexts::workspaces::domain::CanonicalPathBoundary;
 use rusqlite::Connection;
@@ -43,29 +44,6 @@ use std::sync::Arc;
 /// long after they had moved on. 64 KiB is sixteen checkpoints across the per-file ceiling, which
 /// is frequent enough to feel immediate and coarse enough not to matter to throughput.
 const READ_CHUNK_BYTES: usize = 64 * 1024;
-
-/// Trees skipped because a reader searching their own code is not asking about them.
-///
-/// The same list Quick Open uses, and identical to it deliberately: two traversals with their own
-/// exclusion lists would let a file be findable by name and not by content, which reads as the
-/// search being broken for that one file.
-const EXCLUDED_DIRECTORIES: &[&str] = &[
-    "node_modules",
-    "bower_components",
-    "jspm_packages",
-    "vendor",
-    "dist",
-    "build",
-    "out",
-    "target",
-    "obj",
-    "__pycache__",
-    "venv",
-    "site-packages",
-    "coverage",
-    "pods",
-    "deriveddata",
-];
 
 pub(crate) fn search_session_content(
     conn: &Connection,
@@ -157,6 +135,11 @@ fn stream_search(
         .map_err(|error| AppError::Storage(error.to_string()))?;
     let root = canonical_root.as_path();
     let boundary = CanonicalPathBoundary::new(root);
+    // The same policy Quick Open walks under. Two traversals with their own exclusion lists would
+    // let a file be findable by name and not by content, which reads as the search being broken
+    // for that one file.
+    let ignores =
+        WorkspaceIgnoreMatcher::for_root(root, WorkspaceIgnorePolicy::recursive_discovery());
     let mut matches: Vec<WorkspaceContentMatch> = Vec::new();
     let mut queue: VecDeque<(PathBuf, u32)> = VecDeque::from([(root.to_path_buf(), 0u32)]);
     let mut visited: HashSet<PathBuf> = HashSet::from([root.to_path_buf()]);
@@ -180,9 +163,6 @@ fn stream_search(
                 break;
             }
             let name = entry.file_name().to_string_lossy().to_string();
-            if name.starts_with('.') {
-                continue;
-            }
             if !budget.try_metadata() {
                 break;
             }
@@ -195,8 +175,15 @@ fn stream_search(
             if !budget.try_metadata() {
                 break;
             }
-            if canonical.is_dir() {
-                if is_excluded_directory(&name) || !visited.insert(canonical.clone()) {
+            let is_directory = canonical.is_dir();
+            let Ok(relative) = boundary.relative(&canonical) else {
+                continue;
+            };
+            if ignores.skips(&relative, &name, is_directory) {
+                continue;
+            }
+            if is_directory {
+                if !visited.insert(canonical.clone()) {
                     continue;
                 }
                 if depth + 1 > DEPTH_LIMIT {
@@ -211,9 +198,6 @@ fn stream_search(
                 queue.push_back((canonical, depth + 1));
                 continue;
             }
-            let Ok(relative) = boundary.relative(&canonical) else {
-                continue;
-            };
             match read_bounded(&canonical, budget) {
                 Ok(Some(content)) => scan(&content, needle, &relative, budget, &mut matches),
                 // Binary, oversized, or unreadable. Skipped rather than reported per file: a result
@@ -246,10 +230,6 @@ fn stream_search(
 /// Mirrors the budget's depth ceiling so the branch above can refuse one subtree without consuming
 /// the shared depth accounting for the entries beside it.
 const DEPTH_LIMIT: u32 = 10;
-
-fn is_excluded_directory(name: &str) -> bool {
-    EXCLUDED_DIRECTORIES.contains(&name.to_ascii_lowercase().as_str())
-}
 
 /// The file's text, or nothing when it is not text this can search.
 ///

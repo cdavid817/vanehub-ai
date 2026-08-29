@@ -1,7 +1,8 @@
+use super::ignore_matcher::WorkspaceIgnoreMatcher;
 use super::session_queries::resolve_session_root;
 use crate::contexts::workspaces::application::{
     FileSearchListing, FileSearchMatch, SessionWorkspaceContext,
-    WorkspaceApplicationError as AppError,
+    WorkspaceApplicationError as AppError, WorkspaceIgnorePolicy,
 };
 use crate::contexts::workspaces::domain::CanonicalPathBoundary;
 use rusqlite::Connection;
@@ -20,27 +21,6 @@ const SCORE_EXACT: u32 = 100;
 const SCORE_PREFIX: u32 = 80;
 const SCORE_SUBSTRING: u32 = 60;
 const SCORE_PATH: u32 = 40;
-
-/// Vendored and generated trees skipped for mention candidates so the result budget is
-/// spent on first-party files. Deliberately absent: `bin`, because Cargo treats `src/bin`
-/// as real source. The Documents tab traversal does not consult this list.
-const EXCLUDED_DIRECTORIES: &[&str] = &[
-    "node_modules",
-    "bower_components",
-    "jspm_packages",
-    "vendor",
-    "dist",
-    "build",
-    "out",
-    "target",
-    "obj",
-    "__pycache__",
-    "venv",
-    "site-packages",
-    "coverage",
-    "pods",
-    "deriveddata",
-];
 
 /// Source and configuration extensions eligible as mention candidates. Kept next to
 /// EXCLUDED_DIRECTORIES so both bounds are adjusted in one place.
@@ -178,6 +158,10 @@ fn walk_candidates(
         .map_err(|error| AppError::Storage(error.to_string()))?;
     let root = canonical_root.as_path();
     let boundary = CanonicalPathBoundary::new(root);
+    // The same policy Quick Open, content search and the Documents tab walk under. Four lists that
+    // drifted apart is how a file becomes findable in one box and invisible in the next.
+    let ignores =
+        WorkspaceIgnoreMatcher::for_root(root, WorkspaceIgnorePolicy::recursive_discovery());
     let mut queue = VecDeque::from([(root.to_path_buf(), 0usize)]);
     let mut visited: HashSet<PathBuf> = HashSet::from([root.to_path_buf()]);
     let mut scored: Vec<ScoredMatch> = Vec::new();
@@ -195,17 +179,18 @@ fn walk_candidates(
         };
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().to_string();
-            if name.starts_with('.') {
-                continue;
-            }
             let canonical = match entry.path().canonicalize() {
                 Ok(value) if value.starts_with(root) => value,
                 _ => continue,
             };
-            if canonical.is_dir() {
-                if is_excluded_directory(&name) {
-                    continue;
-                }
+            let is_directory = canonical.is_dir();
+            let relative = boundary.relative(&canonical).map_err(|_| {
+                AppError::Validation("Path resolves outside the session root.".to_string())
+            })?;
+            if ignores.skips(&relative, &name, is_directory) {
+                continue;
+            }
+            if is_directory {
                 if depth + 1 > SEARCH_DEPTH_LIMIT {
                     truncated = true;
                     continue;
@@ -223,9 +208,6 @@ fn walk_candidates(
                 truncated = true;
                 break;
             }
-            let relative = boundary.relative(&canonical).map_err(|_| {
-                AppError::Validation("Path resolves outside the session root.".to_string())
-            })?;
             let Some(score) = score_candidate(query, &name, &relative) else {
                 continue;
             };
@@ -274,10 +256,6 @@ fn walk_candidates(
             .collect(),
         truncated,
     ))
-}
-
-fn is_excluded_directory(name: &str) -> bool {
-    EXCLUDED_DIRECTORIES.contains(&name.to_ascii_lowercase().as_str())
 }
 
 fn is_eligible_file(path: &Path) -> bool {

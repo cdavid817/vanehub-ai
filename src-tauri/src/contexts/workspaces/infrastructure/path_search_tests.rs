@@ -503,3 +503,46 @@ fn a_path_search_never_opens_a_file() {
     assert_eq!(spent.files_opened, 0);
     assert_eq!(spent.bytes_read, 0);
 }
+
+#[test]
+fn quick_open_and_content_search_skip_the_same_trees() {
+    let fixture = TempDirectory::new("quick-open-ignores");
+    let root = fixture.path().join("workspace");
+    fs::create_dir_all(&root).expect("root");
+    fs::write(root.join(".gitignore"), "generated/\n").expect("rule file");
+    for name in [
+        "generated/main.rs",
+        "node_modules/mainlib/index.js",
+        "src/main.rs",
+    ] {
+        let path = root.join(name);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("parent");
+        }
+        fs::write(&path, "x").expect("file");
+    }
+    let database = NativeDatabase::new(fixture.path().join("data")).expect("database");
+    let connection = database.connection().expect("connection");
+    connection
+        .execute(
+            "INSERT INTO sessions \
+             (id, title, agent_id, interaction_mode, lifecycle_state, folder, pinned, archived, \
+              created_at, updated_at) \
+             VALUES ('session-1', 'Quick Open', 'codex-cli', 'cli', 'idle', ?1, 0, 0, \
+                     '2026-08-26T10:00:00Z', '2026-08-26T10:00:00Z')",
+            params![root.to_string_lossy().as_ref()],
+        )
+        .expect("insert session");
+    drop(connection);
+    let workspace = Workspace {
+        _directory: fixture,
+        database,
+    };
+
+    // The whole reason for one policy: a workspace should not appear to have a different shape
+    // depending on which box a reader types into.
+    assert_eq!(
+        workspace.search("main", None, Some(10)).paths,
+        vec!["src/main.rs".to_string()]
+    );
+}

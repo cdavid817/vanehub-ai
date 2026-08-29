@@ -20,12 +20,14 @@
 //! `limit + 1` candidates answers the same question in memory proportional to the page rather than
 //! to the workspace.
 
+use super::ignore_matcher::WorkspaceIgnoreMatcher;
 use super::session_queries::resolve_session_root;
 use crate::contexts::workspaces::application::{
     bounded_search_page, MonotonicClockPort, PathSearchCursor, SearchCancellationToken,
-    SystemMonotonicClock, WorkspaceApplicationError as AppError, WorkspaceInspectionBudget,
-    WorkspaceInspectionBudgetLimits, WorkspaceInspectionReason, WorkspacePathMatch,
-    WorkspacePathSearchRequest, WorkspacePathSearchResult, WorkspaceSearchCoverage,
+    SystemMonotonicClock, WorkspaceApplicationError as AppError, WorkspaceIgnorePolicy,
+    WorkspaceInspectionBudget, WorkspaceInspectionBudgetLimits, WorkspaceInspectionReason,
+    WorkspacePathMatch, WorkspacePathSearchRequest, WorkspacePathSearchResult,
+    WorkspaceSearchCoverage,
 };
 use crate::contexts::workspaces::domain::CanonicalPathBoundary;
 use rusqlite::Connection;
@@ -43,28 +45,6 @@ const SCORE_EXACT_NAME: u32 = 100;
 const SCORE_NAME_PREFIX: u32 = 80;
 const SCORE_NAME_SUBSTRING: u32 = 60;
 const SCORE_PATH_SUBSTRING: u32 = 40;
-
-/// Trees skipped because a reader is never trying to reach them by name.
-///
-/// The same list the mention search uses. `bin` is deliberately absent: Cargo treats `src/bin` as
-/// real source, and a reader looking for a binary's entry point would find nothing.
-const EXCLUDED_DIRECTORIES: &[&str] = &[
-    "node_modules",
-    "bower_components",
-    "jspm_packages",
-    "vendor",
-    "dist",
-    "build",
-    "out",
-    "target",
-    "obj",
-    "__pycache__",
-    "venv",
-    "site-packages",
-    "coverage",
-    "pods",
-    "deriveddata",
-];
 
 /// One entry the walk found, with the key the ordering compares.
 ///
@@ -289,6 +269,8 @@ fn walk_ranked_candidates(
         .map_err(|error| AppError::Storage(error.to_string()))?;
     let root = canonical_root.as_path();
     let boundary = CanonicalPathBoundary::new(root);
+    let ignores =
+        WorkspaceIgnoreMatcher::for_root(root, WorkspaceIgnorePolicy::recursive_discovery());
     let mut queue: VecDeque<(PathBuf, u32)> = VecDeque::from([(root.to_path_buf(), 0u32)]);
     let mut visited: HashSet<PathBuf> = HashSet::from([root.to_path_buf()]);
     let mut selection = BoundedSelection::new(capacity);
@@ -312,9 +294,6 @@ fn walk_ranked_candidates(
                 break;
             }
             let name = entry.file_name().to_string_lossy().to_string();
-            if name.starts_with('.') {
-                continue;
-            }
             if !budget.try_metadata() {
                 break;
             }
@@ -331,10 +310,10 @@ fn walk_ranked_candidates(
             let Ok(relative) = boundary.relative(&canonical) else {
                 continue;
             };
+            if ignores.skips(&relative, &name, is_directory) {
+                continue;
+            }
             if is_directory {
-                if is_excluded_directory(&name) {
-                    continue;
-                }
                 if depth + 1 > SEARCH_DEPTH_LIMIT {
                     // A per-branch refusal, not a reason to abandon the walk: the entries beside
                     // this one are still in scope, and the coverage records the omission.
@@ -375,10 +354,6 @@ fn walk_ranked_candidates(
         }
     }
     Ok(selection)
-}
-
-fn is_excluded_directory(name: &str) -> bool {
-    EXCLUDED_DIRECTORIES.contains(&name.to_ascii_lowercase().as_str())
 }
 
 /// How well a candidate answers the query. `None` excludes it.

@@ -591,6 +591,7 @@ fn collect_documents(
     root: &Path,
     directory: &Path,
     depth: usize,
+    ignores: &super::ignore_matcher::WorkspaceIgnoreMatcher,
     visited: &mut HashSet<PathBuf>,
     documents: &mut Vec<SessionDocument>,
 ) -> Result<bool, AppError> {
@@ -609,15 +610,22 @@ fn collect_documents(
     {
         let entry = entry.map_err(|error| AppError::Storage(error.to_string()))?;
         let name = entry.file_name().to_string_lossy().to_string();
-        if name.starts_with('.') {
-            continue;
-        }
         let canonical = match entry.path().canonicalize() {
             Ok(value) if value.starts_with(root) => value,
             _ => continue,
         };
-        if canonical.is_dir() {
-            truncated |= collect_documents(root, &canonical, depth + 1, visited, documents)?;
+        let is_directory = canonical.is_dir();
+        let relative = normalized_relative(root, &canonical)?;
+        // The Documents tab used to descend into every dependency tree in the workspace, so a
+        // vendored README outranked the project's own. It now walks under the same policy as every
+        // other recursive discovery, which is also the only reason the two can agree about what a
+        // workspace contains.
+        if ignores.skips(&relative, &name, is_directory) {
+            continue;
+        }
+        if is_directory {
+            truncated |=
+                collect_documents(root, &canonical, depth + 1, ignores, visited, documents)?;
         } else {
             let extension = canonical
                 .extension()
@@ -632,7 +640,7 @@ fn collect_documents(
             if let Some(kind) = kind {
                 documents.push(SessionDocument {
                     name,
-                    path: normalized_relative(root, &canonical)?,
+                    path: relative,
                     kind,
                 });
                 if documents.len() >= DOCUMENT_LIMIT {
@@ -658,7 +666,18 @@ pub(crate) fn list_session_documents(
         });
     };
     let mut documents = Vec::new();
-    let truncated = collect_documents(&root, &root, 0, &mut HashSet::new(), &mut documents)?;
+    let ignores = super::ignore_matcher::WorkspaceIgnoreMatcher::for_root(
+        &root,
+        crate::contexts::workspaces::application::WorkspaceIgnorePolicy::recursive_discovery(),
+    );
+    let truncated = collect_documents(
+        &root,
+        &root,
+        0,
+        &ignores,
+        &mut HashSet::new(),
+        &mut documents,
+    )?;
     documents.sort_by_key(|document| document.path.to_lowercase());
     Ok(DocumentListing {
         context: available_context(&root),
@@ -2399,8 +2418,13 @@ mod tests {
         assert!(next_cursor.is_some());
         let mut visited = HashSet::new();
         let mut documents = Vec::new();
+        let ignores = super::super::ignore_matcher::WorkspaceIgnoreMatcher::for_root(
+            &root,
+            crate::contexts::workspaces::application::WorkspaceIgnorePolicy::recursive_discovery(),
+        );
         assert!(
-            collect_documents(&root, &root, 0, &mut visited, &mut documents).expect("documents")
+            collect_documents(&root, &root, 0, &ignores, &mut visited, &mut documents)
+                .expect("documents")
         );
         assert_eq!(documents.len(), DOCUMENT_LIMIT);
         fs::remove_dir_all(root).expect("cleanup");
@@ -2408,6 +2432,14 @@ mod tests {
 
     /// The Documents tab requirement scopes this listing to Markdown and text. Mention
     /// candidate search widened its own bounds; this listing must not have moved with it.
+    /// The recursive-discovery matcher for a root, as `list_session_documents` builds it.
+    fn discovery_ignores(root: &Path) -> super::super::ignore_matcher::WorkspaceIgnoreMatcher {
+        super::super::ignore_matcher::WorkspaceIgnoreMatcher::for_root(
+            root,
+            crate::contexts::workspaces::application::WorkspaceIgnorePolicy::recursive_discovery(),
+        )
+    }
+
     #[test]
     fn document_discovery_still_admits_only_markdown_and_text() {
         let fixture = TempDirectory::new("documents-scope");
@@ -2424,7 +2456,15 @@ mod tests {
         }
         let root = root.canonicalize().expect("canonical root");
         let mut documents = Vec::new();
-        collect_documents(&root, &root, 0, &mut HashSet::new(), &mut documents).expect("documents");
+        collect_documents(
+            &root,
+            &root,
+            0,
+            &discovery_ignores(&root),
+            &mut HashSet::new(),
+            &mut documents,
+        )
+        .expect("documents");
         let mut names: Vec<String> = documents
             .into_iter()
             .map(|document| document.name)
@@ -2433,23 +2473,90 @@ mod tests {
         assert_eq!(names, vec!["notes.markdown", "notes.md", "notes.txt"]);
     }
 
-    /// Vendored trees stay visible to the Documents tab; only mention search excludes them.
+    /// Dependency trees are no longer discovered by default.
+    ///
+    /// They used to be: the Documents tab was the one recursive walk with no exclusions at all, so
+    /// a vendored README outranked the project's own and the tab disagreed with every other
+    /// surface about what the workspace contained.
     #[test]
-    fn document_discovery_still_descends_into_dependency_directories() {
+    fn document_discovery_skips_dependency_directories_by_default() {
         let fixture = TempDirectory::new("documents-vendored");
         let root = fixture.path();
         fs::create_dir_all(root.join("node_modules/pkg")).expect("vendored directory");
         fs::write(root.join("node_modules/pkg/readme.md"), "fixture").expect("fixture file");
+        fs::write(root.join("readme.md"), "fixture").expect("fixture file");
         let root = root.canonicalize().expect("canonical root");
         let mut documents = Vec::new();
-        collect_documents(&root, &root, 0, &mut HashSet::new(), &mut documents).expect("documents");
+        collect_documents(
+            &root,
+            &root,
+            0,
+            &discovery_ignores(&root),
+            &mut HashSet::new(),
+            &mut documents,
+        )
+        .expect("documents");
         assert_eq!(
             documents
                 .into_iter()
                 .map(|document| document.path)
                 .collect::<Vec<_>>(),
-            vec!["node_modules/pkg/readme.md".to_string()]
+            vec!["readme.md".to_string()]
         );
+    }
+
+    /// A repository that says it wants a tree searched gets it searched.
+    #[test]
+    fn document_discovery_honours_a_repository_negation() {
+        let fixture = TempDirectory::new("documents-negation");
+        let root = fixture.path();
+        fs::write(root.join(".gitignore"), "!vendor/\n").expect("rule file");
+        fs::create_dir_all(root.join("vendor/pkg")).expect("vendored directory");
+        fs::write(root.join("vendor/pkg/readme.md"), "fixture").expect("fixture file");
+        let root = root.canonicalize().expect("canonical root");
+        let mut documents = Vec::new();
+        collect_documents(
+            &root,
+            &root,
+            0,
+            &discovery_ignores(&root),
+            &mut HashSet::new(),
+            &mut documents,
+        )
+        .expect("documents");
+        assert_eq!(
+            documents
+                .into_iter()
+                .map(|document| document.path)
+                .collect::<Vec<_>>(),
+            vec!["vendor/pkg/readme.md".to_string()]
+        );
+    }
+
+    /// Ignore is a discovery rule, not an access-control decision.
+    #[test]
+    fn an_ignored_directory_is_still_listed_and_read_when_it_is_asked_for() {
+        let fixture = TempDirectory::new("documents-direct");
+        let root = fixture.path();
+        fs::create_dir_all(root.join("node_modules/pkg")).expect("vendored directory");
+        fs::write(root.join("node_modules/pkg/readme.md"), "vendored text").expect("fixture file");
+        let root = root.canonicalize().expect("canonical root");
+
+        let (entries, _, _) =
+            directory_page_at(&root, "node_modules/pkg", None, 10).expect("listing");
+        let file = read_file_at(&root, "node_modules/pkg/readme.md").expect("read");
+
+        // A reader who navigated here has said exactly what they want. Refusing it because a
+        // recursive walk would have skipped it would answer a different question, and the root,
+        // type and size rules that actually protect something are unchanged.
+        assert_eq!(
+            entries
+                .into_iter()
+                .map(|entry| entry.name)
+                .collect::<Vec<_>>(),
+            vec!["readme.md".to_string()]
+        );
+        assert_eq!(file.content.as_deref(), Some("vendored text"));
     }
 
     #[cfg(unix)]

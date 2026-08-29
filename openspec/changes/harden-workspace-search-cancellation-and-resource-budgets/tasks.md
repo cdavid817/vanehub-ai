@@ -30,11 +30,11 @@
 ## 3. Shared recursive ignore policy
 
 - [ ] 3.1 Inventory and consolidate current hard-coded exclusions across path search, content search, document discovery, local adapters, and remote provider flags.
-- [ ] 3.2 Add one `WorkspaceIgnorePolicy` with operation modes for recursive discovery/search versus direct navigation/explicit read.
-- [ ] 3.3 Support repository `.gitignore` and `.ignore` rules, negation/order semantics, and bounded default dependency/generated exclusions using one reviewed matcher implementation.
-- [ ] 3.4 Preserve explicit direct access to ignored paths subject to existing root/safety/type/size checks; add tests proving ignore is not authorization.
+- [x] 3.2 Add one `WorkspaceIgnorePolicy` with operation modes for recursive discovery/search versus direct navigation/explicit read.
+- [x] 3.3 Support repository `.gitignore` and `.ignore` rules, negation/order semantics, and bounded default dependency/generated exclusions using one reviewed matcher implementation.
+- [x] 3.4 Preserve explicit direct access to ignored paths subject to existing root/safety/type/size checks; add tests proving ignore is not authorization.
 - [ ] 3.5 Add tests for `.git`, `node_modules`, `target`, `dist`, `build`, `coverage`, `.next`, `.nuxt`, `vendor`, Python caches, custom ignores, negated includes, nested rules, and malformed/unreadable ignore files.
-- [ ] 3.6 Define and test effective policy identity/version for cursor compatibility without returning sensitive absolute paths or full rules.
+- [x] 3.6 Define and test effective policy identity/version for cursor compatibility without returning sensitive absolute paths or full rules.
 
 ## 4. Local path search bounded selection
 

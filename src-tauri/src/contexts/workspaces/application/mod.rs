@@ -1,6 +1,7 @@
 mod content_search;
 mod error;
 mod evidence;
+mod ignore_policy;
 mod inspection;
 mod inspection_admission;
 mod inspection_budget;
@@ -35,6 +36,10 @@ pub(crate) use evidence::{
     WorkspaceEvidencePort, WorkspaceEvidenceSignal, WorkspaceFileChangeKind,
     WorkspaceShellCloseReason, WorkspaceShellRuntimeKind,
 };
+/// What a recursive walk is looking for, and what it is not. One policy for Quick Open, content
+/// search, mention candidates and document discovery, because a file findable by name and not by
+/// content reads as the search being broken for that one file.
+pub(crate) use ignore_policy::WorkspaceIgnorePolicy;
 pub(crate) use inspection::{
     CapabilityState, DirectoryFingerprint, DirectoryFingerprintState, GitDiffRequest,
     ListDirectoryRequest, LocalWorkspaceTarget, ReadTextFileRequest, RemoteWorkspaceTarget,
