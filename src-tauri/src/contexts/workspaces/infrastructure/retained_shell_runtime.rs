@@ -30,7 +30,7 @@ use crate::platform::filesystem::normalize_windows_extended_length_path;
 use portable_pty::{native_pty_system, Child, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -78,6 +78,9 @@ pub(crate) struct RetainedLocalShellRuntime {
     observations: CloseObservations,
     /// Where a startup rollback that could not confirm cleanup is recorded.
     diagnostics: Arc<dyn ShellLifecycleDiagnosticsPort>,
+    /// How a local terminal is acquired. A seam, so the failures between spawning a child and
+    /// owning its streams can be staged rather than only reasoned about.
+    pty: Arc<dyn LocalPtyFactory>,
 }
 
 impl RetainedLocalShellRuntime {
@@ -87,6 +90,7 @@ impl RetainedLocalShellRuntime {
             clock: Arc::new(MonotonicDeadlineClock::default()),
             observations: CloseObservations::default(),
             diagnostics,
+            pty: Arc::new(PortablePtyFactory),
         }
     }
 }
@@ -136,6 +140,7 @@ impl RetainedLocalShellRuntime {
             clock,
             observations: CloseObservations::default(),
             diagnostics: Arc::new(DiscardedDiagnostics),
+            pty: Arc::new(PortablePtyFactory),
         }
     }
 
@@ -150,6 +155,22 @@ impl RetainedLocalShellRuntime {
             clock: Arc::new(MonotonicDeadlineClock::default()),
             observations: CloseObservations::default(),
             diagnostics: Arc::new(DiscardedDiagnostics),
+            pty: Arc::new(PortablePtyFactory),
+        }
+    }
+
+    /// A runtime whose terminal acquisition is staged by the test.
+    #[cfg(test)]
+    pub(super) fn with_pty(
+        pty: Arc<dyn LocalPtyFactory>,
+        diagnostics: Arc<dyn ShellLifecycleDiagnosticsPort>,
+    ) -> Self {
+        Self {
+            shells: Mutex::new(HashMap::new()),
+            clock: Arc::new(MonotonicDeadlineClock::default()),
+            observations: CloseObservations::default(),
+            diagnostics,
+            pty,
         }
     }
 
@@ -301,6 +322,12 @@ struct LocalLaunchGuard {
     workers: Vec<Arc<ShellWorker>>,
     closing: Arc<AtomicBool>,
     committed: bool,
+    /// Whether the rollback confirmed the child had ended.
+    ///
+    /// `true` until a rollback says otherwise, because a guard that never acquired anything has
+    /// nothing outstanding — and a `false` default would report every clean startup as one that
+    /// left something behind.
+    cleanup_confirmed: bool,
     /// Which Shell this startup is for, so a rollback that could not confirm can name it.
     shell_id: String,
     generation: ShellGeneration,
@@ -320,6 +347,7 @@ impl LocalLaunchGuard {
             workers: Vec::new(),
             closing: Arc::new(AtomicBool::new(false)),
             committed: false,
+            cleanup_confirmed: true,
             shell_id,
             generation,
             diagnostics,
@@ -350,22 +378,28 @@ impl LocalLaunchGuard {
     /// Consuming, so a guard cannot be rolled back twice: `Drop` sees `committed` and returns.
     /// `true` means nothing is left running.
     fn roll_back(mut self) -> bool {
-        let confirmed = self.terminate_acquired();
+        self.terminate_acquired();
         // Disarms `Drop`. The work is done and the outcome has been reported; running it again on
         // the way out would signal a child that is either already gone or already recorded.
         self.committed = true;
-        confirmed
+        self.cleanup_confirmed
     }
 
     /// The termination itself, shared by the explicit rollback and the `Drop` backstop.
-    fn terminate_acquired(&mut self) -> bool {
+    ///
+    /// Records its answer in `cleanup_confirmed` rather than returning it, because one of its two
+    /// callers is a destructor with nobody to answer. A returned value there could only be
+    /// discarded, and a discarded lifecycle result is how a child ends up with no owner and no
+    /// trace — the exact shape this whole change exists to remove.
+    fn terminate_acquired(&mut self) {
         self.closing.store(true, Ordering::SeqCst);
         // Input first: a shell that has just been started and immediately loses stdin usually ends
         // by itself, which is a cleaner ending than a kill and costs one dropped handle.
         self.writer.take();
         let Some(process) = self.process.take() else {
             // Nothing was acquired, so nothing is left running.
-            return true;
+            self.cleanup_confirmed = true;
+            return;
         };
         let clock = MonotonicDeadlineClock::default();
         let observations = CloseObservations::default();
@@ -385,9 +419,10 @@ impl LocalLaunchGuard {
                 self.generation.value(),
                 shell_reason_code::STARTUP_CLEANUP_PENDING,
             );
-            return false;
+            self.cleanup_confirmed = false;
+            return;
         }
-        true
+        self.cleanup_confirmed = true;
     }
 }
 
@@ -404,8 +439,100 @@ impl Drop for LocalLaunchGuard {
         }
         // The backstop, for the paths that do not roll back explicitly — a panic, or a future
         // branch somebody adds without one. The ordinary failure goes through `roll_back`, which
-        // does the same work and returns what it found.
-        let _ = self.terminate_acquired();
+        // does the same work and reads the answer it left behind. Nothing is discarded here: an
+        // unconfirmed cleanup has already been reported by the time this returns.
+        self.terminate_acquired();
+    }
+}
+
+/// Acquiring a local terminal, one step at a time.
+///
+/// Stepwise rather than all-at-once, and that is the whole reason it exists. The failure this shape
+/// makes reachable is the one that matters: the child is spawned and *then* the reader cannot be
+/// cloned, so a live process exists with nothing owning it yet. A factory that returned a finished
+/// terminal could not express that, and a fake built on one would prove only the happy path.
+///
+/// Each method is called once, in the order declared, and each is the next one's precondition.
+pub(super) trait LocalPtySession: Send {
+    /// Starts the shell. From here something is running.
+    fn spawn(&mut self, root: &Path) -> Result<Arc<dyn ShellProcessHandle>, SessionShellError>;
+    fn reader(&mut self) -> Result<Box<dyn Read + Send>, SessionShellError>;
+    fn writer(&mut self) -> Result<Box<dyn Write + Send>, SessionShellError>;
+    /// Hands over the master, which is what a resize goes through.
+    fn master(&mut self) -> Result<Arc<dyn ShellPtyHandle>, SessionShellError>;
+}
+
+pub(super) trait LocalPtyFactory: Send + Sync {
+    fn open(
+        &self,
+        dimensions: TerminalDimensions,
+    ) -> Result<Box<dyn LocalPtySession>, SessionShellError>;
+}
+
+/// The real one, over `portable-pty`.
+struct PortablePtyFactory;
+
+impl LocalPtyFactory for PortablePtyFactory {
+    fn open(
+        &self,
+        dimensions: TerminalDimensions,
+    ) -> Result<Box<dyn LocalPtySession>, SessionShellError> {
+        let pair = native_pty_system()
+            .openpty(terminal_size(dimensions))
+            .map_err(|_| unavailable("shell_pty_unavailable"))?;
+        Ok(Box::new(PortablePtySession {
+            slave: Some(pair.slave),
+            master: Some(pair.master),
+        }))
+    }
+}
+
+struct PortablePtySession {
+    slave: Option<Box<dyn portable_pty::SlavePty + Send>>,
+    master: Option<Box<dyn portable_pty::MasterPty + Send>>,
+}
+
+impl LocalPtySession for PortablePtySession {
+    fn spawn(&mut self, root: &Path) -> Result<Arc<dyn ShellProcessHandle>, SessionShellError> {
+        let Some(slave) = self.slave.take() else {
+            return Err(unavailable("shell_process_launch_failed"));
+        };
+        let mut command = CommandBuilder::new(default_shell());
+        command.cwd(root);
+        let child = slave
+            .spawn_command(command)
+            .map_err(|_| unavailable("shell_process_launch_failed"))?;
+        // Dropped as soon as the child holds it. A slave kept open here would stop the master's
+        // reader ever seeing EOF, so a shell that exited would look like one still running.
+        drop(slave);
+        let killer = child.clone_killer();
+        Ok(Arc::new(PortablePtyProcess {
+            child: Mutex::new(child),
+            killer: Mutex::new(killer),
+        }))
+    }
+
+    fn reader(&mut self) -> Result<Box<dyn Read + Send>, SessionShellError> {
+        self.master
+            .as_ref()
+            .ok_or_else(|| unavailable("shell_reader_unavailable"))?
+            .try_clone_reader()
+            .map_err(|_| unavailable("shell_reader_unavailable"))
+    }
+
+    fn writer(&mut self) -> Result<Box<dyn Write + Send>, SessionShellError> {
+        self.master
+            .as_ref()
+            .ok_or_else(|| unavailable("shell_writer_unavailable"))?
+            .take_writer()
+            .map_err(|_| unavailable("shell_writer_unavailable"))
+    }
+
+    fn master(&mut self) -> Result<Arc<dyn ShellPtyHandle>, SessionShellError> {
+        let Some(master) = self.master.take() else {
+            return Err(unavailable("shell_pty_unavailable"));
+        };
+        Ok(Arc::new(PortablePtyMaster(Mutex::new(master))))
     }
 }
 
@@ -418,33 +545,12 @@ impl RetainedLocalShellRuntime {
         guard: &mut LocalLaunchGuard,
     ) -> Result<Box<dyn Read + Send>, SessionShellError> {
         let root = PathBuf::from(normalize_windows_extended_length_path(&request.root));
-        let pair = native_pty_system()
-            .openpty(terminal_size(request.dimensions))
-            .map_err(|_| unavailable("shell_pty_unavailable"))?;
-        let mut command = CommandBuilder::new(default_shell());
-        command.cwd(&root);
-        let child = pair
-            .slave
-            .spawn_command(command)
-            .map_err(|_| unavailable("shell_process_launch_failed"))?;
-        drop(pair.slave);
-        // From here the guard owns the child. Every `?` below unwinds through its `Drop`.
-        let killer = child.clone_killer();
-        guard.process = Some(Arc::new(PortablePtyProcess {
-            child: Mutex::new(child),
-            killer: Mutex::new(killer),
-        }));
-
-        let reader = pair
-            .master
-            .try_clone_reader()
-            .map_err(|_| unavailable("shell_reader_unavailable"))?;
-        let writer = pair
-            .master
-            .take_writer()
-            .map_err(|_| unavailable("shell_writer_unavailable"))?;
-        guard.writer = Some(writer);
-        guard.master = Some(Arc::new(PortablePtyMaster(Mutex::new(pair.master))));
+        let mut session = self.pty.open(request.dimensions)?;
+        // From here the guard owns the child. Every `?` below unwinds through its rollback.
+        guard.process = Some(session.spawn(&root)?);
+        let reader = session.reader()?;
+        guard.writer = Some(session.writer()?);
+        guard.master = Some(session.master()?);
         Ok(reader)
     }
 

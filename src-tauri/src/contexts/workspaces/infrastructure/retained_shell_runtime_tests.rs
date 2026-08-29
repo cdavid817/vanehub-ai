@@ -2,16 +2,18 @@ use super::retained_remote_shell::RoutedShellRuntime;
 use super::retained_shell_process::{
     ShellDeadlineClock, ShellProcessError, ShellProcessHandle, ShellPtyHandle, ShellWorker,
 };
-use super::retained_shell_runtime::RetainedLocalShellRuntime;
+use super::retained_shell_runtime::{LocalPtyFactory, LocalPtySession, RetainedLocalShellRuntime};
 use crate::contexts::workspaces::application::{
-    SessionShellRuntimePort, ShellOutputSink, ShellRemoteTarget, ShellRuntimeCloseOutcome,
-    ShellRuntimeOpen, ShellRuntimeOpened,
+    SessionShellRuntimePort, ShellLifecycleDiagnosticsPort, ShellOutputSink, ShellRemoteTarget,
+    ShellRuntimeCloseOutcome, ShellRuntimeOpen, ShellRuntimeOpened,
 };
 use crate::contexts::workspaces::domain::{
-    SessionShellError, SessionShellState, ShellCloseBudget, ShellForegroundProcessState,
-    ShellGeneration, ShellId, ShellRuntimeDescriptor, ShellStream, TerminalDimensions,
+    shell_reason, SessionShellError, SessionShellState, ShellCloseBudget,
+    ShellForegroundProcessState, ShellGeneration, ShellId, ShellRuntimeDescriptor, ShellStream,
+    TerminalDimensions,
 };
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::path::Path;
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -683,4 +685,208 @@ fn a_worker_that_panics_still_reports_itself_complete() {
         std::thread::sleep(Duration::from_millis(2));
     }
     panic!("the worker never reported completion");
+}
+
+// ---------------------------------------------------------------------------------------------
+// Startup acquisition
+// ---------------------------------------------------------------------------------------------
+
+/// Where a staged startup gives up.
+///
+/// Named steps rather than an index, because the interesting property is *which* resources are
+/// already owned when it fails — and an index says nothing about that to a reader.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StartupStep {
+    OpenPty,
+    Spawn,
+    Reader,
+    Writer,
+    Master,
+    Nothing,
+}
+
+/// A terminal this side never really opened.
+///
+/// The child is a fake that reports itself already gone, so a rollback confirms immediately and the
+/// test is about ownership rather than about how long a kill takes.
+struct StagedPtyFactory {
+    fail_at: StartupStep,
+    spawned: Arc<AtomicUsize>,
+}
+
+impl LocalPtyFactory for StagedPtyFactory {
+    fn open(
+        &self,
+        _dimensions: TerminalDimensions,
+    ) -> Result<Box<dyn LocalPtySession>, SessionShellError> {
+        if self.fail_at == StartupStep::OpenPty {
+            return Err(SessionShellError::RuntimeUnavailable {
+                reason: shell_reason("shell_pty_unavailable"),
+            });
+        }
+        Ok(Box::new(StagedPtySession {
+            fail_at: self.fail_at,
+            spawned: self.spawned.clone(),
+        }))
+    }
+}
+
+struct StagedPtySession {
+    fail_at: StartupStep,
+    spawned: Arc<AtomicUsize>,
+}
+
+impl LocalPtySession for StagedPtySession {
+    fn spawn(&mut self, _root: &Path) -> Result<Arc<dyn ShellProcessHandle>, SessionShellError> {
+        if self.fail_at == StartupStep::Spawn {
+            return Err(SessionShellError::RuntimeUnavailable {
+                reason: shell_reason("shell_process_launch_failed"),
+            });
+        }
+        self.spawned.fetch_add(1, Ordering::SeqCst);
+        Ok(Arc::new(FakeProcess::exits_after(0)))
+    }
+
+    fn reader(&mut self) -> Result<Box<dyn std::io::Read + Send>, SessionShellError> {
+        if self.fail_at == StartupStep::Reader {
+            return Err(SessionShellError::RuntimeUnavailable {
+                reason: shell_reason("shell_reader_unavailable"),
+            });
+        }
+        Ok(Box::new(std::io::empty()))
+    }
+
+    fn writer(&mut self) -> Result<Box<dyn std::io::Write + Send>, SessionShellError> {
+        if self.fail_at == StartupStep::Writer {
+            return Err(SessionShellError::RuntimeUnavailable {
+                reason: shell_reason("shell_writer_unavailable"),
+            });
+        }
+        Ok(Box::new(std::io::sink()))
+    }
+
+    fn master(&mut self) -> Result<Arc<dyn ShellPtyHandle>, SessionShellError> {
+        if self.fail_at == StartupStep::Master {
+            return Err(SessionShellError::RuntimeUnavailable {
+                reason: shell_reason("shell_pty_unavailable"),
+            });
+        }
+        Ok(Arc::new(FakeMaster))
+    }
+}
+
+fn staged_runtime(fail_at: StartupStep) -> (RetainedLocalShellRuntime, Arc<AtomicUsize>) {
+    let spawned = Arc::new(AtomicUsize::new(0));
+    let runtime = RetainedLocalShellRuntime::with_pty(
+        Arc::new(StagedPtyFactory {
+            fail_at,
+            spawned: spawned.clone(),
+        }),
+        Arc::new(RecordingStartupDiagnostics::default()),
+    );
+    (runtime, spawned)
+}
+
+fn local_open(id: &str) -> ShellRuntimeOpen {
+    ShellRuntimeOpen {
+        shell_id: shell(id),
+        generation: ShellGeneration::new(1),
+        session_id: "session-1".to_string(),
+        root: ".".to_string(),
+        dimensions: TerminalDimensions::bounded(24, 80),
+        remote: None,
+    }
+}
+
+/// Each acquisition failure is its own code, and none of them leaves a Shell behind.
+///
+/// One code per step because a reader acting on "startup failed" can do nothing, while "the PTY is
+/// unavailable" and "the shell could not be started" point at different problems on their machine.
+#[test]
+fn every_startup_step_reports_its_own_failure_and_keeps_nothing() {
+    let expected = [
+        (StartupStep::OpenPty, "shell_pty_unavailable"),
+        (StartupStep::Spawn, "shell_process_launch_failed"),
+        (StartupStep::Reader, "shell_reader_unavailable"),
+        (StartupStep::Writer, "shell_writer_unavailable"),
+        (StartupStep::Master, "shell_pty_unavailable"),
+    ];
+
+    for (step, reason) in expected {
+        let (runtime, _) = staged_runtime(step);
+
+        let error = runtime
+            .open(&local_open("shell-1"), Arc::new(SilentSink))
+            .expect_err("startup fails");
+
+        assert_eq!(error.code(), "shell_runtime_unavailable", "{step:?}");
+        assert!(
+            format!("{error:?}").contains(reason),
+            "{step:?} did not carry {reason}"
+        );
+        // Nothing is registered, so a later close finds nothing to close rather than a handle to a
+        // terminal that was never finished.
+        assert_eq!(
+            runtime.close(&shell("shell-1"), ShellGeneration::new(1), budget()),
+            ShellRuntimeCloseOutcome::NotHeld,
+            "{step:?}"
+        );
+    }
+}
+
+/// A failure after the child exists still ends the child.
+///
+/// This is the case the stepwise seam exists for. Failing at `OpenPty` proves nothing — nothing was
+/// running — while failing at the reader means a live process exists that only the guard knows
+/// about.
+#[test]
+fn a_failure_after_the_child_exists_still_rolls_the_child_back() {
+    for step in [
+        StartupStep::Reader,
+        StartupStep::Writer,
+        StartupStep::Master,
+    ] {
+        let (runtime, spawned) = staged_runtime(step);
+
+        runtime
+            .open(&local_open("shell-1"), Arc::new(SilentSink))
+            .expect_err("startup fails");
+
+        assert_eq!(spawned.load(Ordering::SeqCst), 1, "{step:?}");
+    }
+}
+
+/// A startup that never spawned anything reports no rollback, because there was nothing to roll.
+#[test]
+fn a_startup_that_never_spawned_reports_no_unconfirmed_cleanup() {
+    let diagnostics = Arc::new(RecordingStartupDiagnostics::default());
+    let runtime = RetainedLocalShellRuntime::with_pty(
+        Arc::new(StagedPtyFactory {
+            fail_at: StartupStep::OpenPty,
+            spawned: Arc::new(AtomicUsize::new(0)),
+        }),
+        diagnostics.clone(),
+    );
+
+    runtime
+        .open(&local_open("shell-1"), Arc::new(SilentSink))
+        .expect_err("startup fails");
+
+    // An unconfirmed-cleanup record here would tell an operator a child outlived its startup when
+    // no child was ever created.
+    assert_eq!(diagnostics.rollbacks.load(Ordering::SeqCst), 0);
+}
+
+/// Records only that a rollback could not confirm, which is all these cases need to distinguish.
+#[derive(Default)]
+struct RecordingStartupDiagnostics {
+    rollbacks: AtomicUsize,
+}
+
+impl ShellLifecycleDiagnosticsPort for RecordingStartupDiagnostics {
+    fn stale_reaper_completion(&self, _shell_id: &str, _attempted: u64, _current: u64) {}
+    fn orphaned_reaper_completion(&self, _shell_id: &str, _attempted: u64) {}
+    fn startup_rollback_unconfirmed(&self, _shell_id: &str, _generation: u64, _reason: &str) {
+        self.rollbacks.fetch_add(1, Ordering::SeqCst);
+    }
 }
