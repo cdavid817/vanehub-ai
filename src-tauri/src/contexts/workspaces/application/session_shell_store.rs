@@ -189,6 +189,14 @@ impl ShellStore {
         let entry = shells
             .get_mut(shell_id)
             .ok_or(SessionShellError::NotFound)?;
+        // Refused where the entry is being torn down. The frontend disables the control, but the
+        // frontend is not the enforcement layer: a rename racing a close would write a title onto an
+        // entry that is about to be finalized, and the write would look like it worked.
+        if !entry.descriptor.state.accepts_metadata_change() {
+            return Err(SessionShellError::NotAcceptingInput {
+                state: entry.descriptor.state.token(),
+            });
+        }
         entry.descriptor.title = title;
         entry.descriptor.revision = entry.descriptor.revision.saturating_add(1);
         Ok(entry.descriptor.clone())

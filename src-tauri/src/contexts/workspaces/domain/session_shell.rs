@@ -262,11 +262,25 @@ impl SessionShellState {
     /// Whether the runtime can still accept input. A view uses this to decide whether to bind a
     /// keyboard, and it is deliberately narrower than "the Shell still exists".
     ///
-    /// `Opening` is excluded even though the Shell is addressable there. A write accepted before
-    /// the runtime committed ownership would have nowhere to go, and answering it with success
-    /// would tell the caller a keystroke was delivered to a process that may not exist yet.
+    /// `Running` alone. Every other state is either before the runtime committed ownership or after
+    /// it gave it up, and a write accepted in either has nowhere to go — answering it with success
+    /// would tell the caller a keystroke reached a process that may not exist.
+    ///
+    /// `Starting` used to be allowed here and is not produced by the registry at all: the store
+    /// registers as `Opening`. Permitting a state nothing reaches is dead permissiveness that reads
+    /// as a deliberate exception, and the next state added beside it inherits the exception.
     pub(crate) fn accepts_input(&self) -> bool {
-        matches!(self, Self::Starting | Self::Running)
+        matches!(self, Self::Running)
+    }
+
+    /// Whether the registry entry still accepts a change to its own fields.
+    ///
+    /// Wider than `accepts_input`, and deliberately: renaming touches a string in this process and
+    /// reaches no runtime, so an ended Shell whose transcript a reader is keeping can still be
+    /// relabelled. What it refuses is a Shell being torn down — the entry is on its way out, and a
+    /// title written onto it is a change nobody will see again.
+    pub(crate) fn accepts_metadata_change(&self) -> bool {
+        !self.is_cleanup_pending() && !self.is_terminal()
     }
 
     /// Whether the registry should still hold it. An exited Shell stays until it is closed or the

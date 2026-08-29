@@ -596,6 +596,50 @@ fn renaming_changes_the_title_and_nothing_else() {
     );
 }
 
+/// A rename racing a close writes a title onto an entry that is about to be finalized.
+///
+/// The frontend disables the control, but the frontend is not the enforcement layer: the click that
+/// lands one tick before the close is a real ordering, and the write would look like it worked.
+#[test]
+fn renaming_is_refused_while_the_shell_is_being_torn_down() {
+    let harness = harness();
+    let shell_id = create(&harness, None).expect("create");
+    harness.runtime.retain_on_close(true);
+    harness.registry.close(&shell_id);
+
+    let refused = harness
+        .registry
+        .rename(&shell_id, "build")
+        .expect_err("reaping");
+
+    assert_eq!(refused.code(), "shell_not_accepting_input");
+    assert_eq!(
+        harness.store.descriptor(&shell_id).expect("held").state,
+        SessionShellState::Reaping
+    );
+}
+
+/// An ended Shell is still a tab a reader is keeping, and relabelling it reaches no runtime.
+#[test]
+fn renaming_an_ended_shell_is_allowed_because_it_touches_nothing_external() {
+    let harness = harness();
+    let shell_id = create(&harness, None).expect("create");
+    let generation = harness
+        .store
+        .descriptor(&shell_id)
+        .expect("descriptor")
+        .generation;
+    harness.store.transition(
+        &shell_id,
+        generation,
+        SessionShellState::Exited { code: Some(0) },
+    );
+
+    let after = harness.registry.rename(&shell_id, "kept").expect("rename");
+
+    assert_eq!(after.title, ShellTitle::parse("kept").expect("title"));
+}
+
 /// A caller retrying after a partial failure has no way to tell "already gone" from "still there
 /// and refused", so closing what is not there succeeds.
 #[test]

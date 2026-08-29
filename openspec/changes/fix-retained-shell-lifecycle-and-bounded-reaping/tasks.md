@@ -21,7 +21,7 @@
 - [x] 2.2 Implement a move-only/RAII capacity lease associated with `(shell_id, generation)` and prove release is exactly once across successful terminal close, startup rollback, Reaper completion, duplicate close, and stale completion.
 - [x] 2.3 Reserve capacity before any local spawn or remote channel open. Add fakes that assert the runtime adapter was never called when capacity is exhausted.
 - [ ] 2.4 Insert the Shell/store/replay lifecycle as `Opening` before invoking the runtime and reserve the route identity before a remote worker can emit events.
-- [ ] 2.5 Make input, resize, title/prompt operations return a stable not-running/closing error for non-Running phases while preserving read/diagnostic access where safe.
+- [x] 2.5 Make input, resize, title/prompt operations return a stable not-running/closing error for non-Running phases while preserving read/diagnostic access where safe.
 - [x] 2.6 Add 100-way deterministic concurrent create tests for the last global slot and last per-session slot; assert no over-admission, no permit leak, and no spawned loser.
 
 ## 3. Local startup transaction and event ordering
