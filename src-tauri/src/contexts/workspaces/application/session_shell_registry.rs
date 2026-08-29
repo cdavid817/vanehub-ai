@@ -49,6 +49,19 @@ pub(crate) const SHELL_IDLE_MILLIS: u64 = 30 * 60 * 1000;
 /// How many Shells one idle sweep may close, so a sweep cannot become a long stall.
 pub(crate) const SHELL_IDLE_SWEEP_LIMIT: usize = 4;
 
+/// Whether a failed startup left something that may still be running.
+///
+/// The runtime says so with one reason code rather than a second error variant: a caller of `create`
+/// sees a failed open either way, and what differs is what this side must keep hold of. Read as a
+/// code so a runtime with no cleanup to report cannot accidentally claim one.
+fn startup_cleanup_pending(error: &SessionShellError) -> bool {
+    matches!(
+        error,
+        SessionShellError::Runtime { reason } | SessionShellError::RuntimeUnavailable { reason }
+            if reason.as_str() == shell_reason_code::STARTUP_CLEANUP_PENDING
+    )
+}
+
 /// What two concurrent creates have to agree on to be the same request.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum CreateIdentity {
@@ -250,7 +263,7 @@ impl SessionShellRegistry {
         let opened = match self.runtime.open(&open, self.store.clone()) {
             Ok(opened) => opened,
             Err(error) => {
-                self.roll_back_startup(&shell_id, generation);
+                self.roll_back_startup(&shell_id, generation, &request.session_id, &error);
                 return Err(error);
             }
         };
@@ -281,10 +294,48 @@ impl SessionShellRegistry {
 
     /// Undoes a startup that acquired the registration but not the runtime.
     ///
-    /// The runtime's own guard has already ended whatever it managed to acquire; what is left here
-    /// is the registration and the slot. Nothing is published: no `ShellOpened` was reported for
-    /// this Shell, so a `ShellClosed` would be an ending for something that never began.
-    fn roll_back_startup(&self, shell_id: &ShellId, generation: ShellGeneration) {
+    /// Two endings, and the difference is whether a process may still be out there. When the
+    /// runtime's guard confirmed cleanup, what is left is the registration and the slot, and both
+    /// go. Nothing is published: no `ShellOpened` was reported for this Shell, so a `ShellClosed`
+    /// would be an ending for something that never began.
+    ///
+    /// When it could not confirm, finalizing would be the same defect this change exists for, one
+    /// step earlier: the slot returns while a child is still alive, and the next create is admitted
+    /// against a ceiling that is already full. The Shell stays `Reaping` with its lease, and the
+    /// Reaper owns what is left.
+    fn roll_back_startup(
+        &self,
+        shell_id: &ShellId,
+        generation: ShellGeneration,
+        session_id: &str,
+        error: &SessionShellError,
+    ) {
+        if startup_cleanup_pending(error) {
+            let queued = matches!(
+                self.reaper.offer(
+                    shell_id,
+                    generation,
+                    session_id,
+                    WorkspaceShellCloseReason::ExplicitClose,
+                    1,
+                    self.clock.elapsed_millis(),
+                ),
+                Ok(()) | Err(ShellReaperRejection::AlreadyQueued)
+            );
+            // `Reaping` when the Reaper took it, `CloseFailed` when its queue was full. Either way
+            // the entry and its lease stay: a full queue means nothing was moved out of an owner, so
+            // the runtime is holding exactly what it held before.
+            let state = if queued {
+                SessionShellState::Reaping
+            } else {
+                SessionShellState::CloseFailed {
+                    reason: shell_reason(shell_reason_code::REAPER_CAPACITY_EXHAUSTED),
+                    retryable: true,
+                }
+            };
+            self.store.transition(shell_id, generation, state);
+            return;
+        }
         let rolled_back = self.store.finalize(
             shell_id,
             generation,

@@ -270,6 +270,19 @@ impl ShellPtyHandle for PortablePtyMaster {
 /// Either one used to return through a `?` that had no idea a child was running. Now the child is
 /// inside the guard from the moment it exists, and a guard that falls out of scope without being
 /// committed terminates what it holds.
+/// Runs the guard's rollback now and says which failure the caller is looking at.
+///
+/// Dropping the guard would do the same cleanup and report the same error either way, which is what
+/// hid the distinction. What the caller needs is whether anything may still be running: a startup
+/// that cleaned up after itself is a slot to return, and one that could not is a slot to keep and a
+/// child to hand to the Reaper.
+fn rollback_error(guard: LocalLaunchGuard, error: SessionShellError) -> SessionShellError {
+    if guard.roll_back() {
+        return error;
+    }
+    runtime_error(shell_reason_code::STARTUP_CLEANUP_PENDING)
+}
+
 /// Swallows what it is told, for tests whose subject is elsewhere.
 #[cfg(test)]
 pub(super) struct DiscardedDiagnostics;
@@ -331,23 +344,28 @@ impl LocalLaunchGuard {
     }
 }
 
-impl Drop for LocalLaunchGuard {
-    /// Ends what the failed startup started.
+impl LocalLaunchGuard {
+    /// Ends what the failed startup started, and says whether it confirmed.
     ///
-    /// Bounded like every other termination here, and best-effort by construction: a child that
-    /// outlives this window has still been signalled, and the caller reports a startup whose
-    /// cleanup is pending rather than a startup that quietly leaked. Silence would be the one
-    /// unacceptable outcome, and it is the one this replaces.
-    fn drop(&mut self) {
-        if self.committed {
-            return;
-        }
+    /// Consuming, so a guard cannot be rolled back twice: `Drop` sees `committed` and returns.
+    /// `true` means nothing is left running.
+    fn roll_back(mut self) -> bool {
+        let confirmed = self.terminate_acquired();
+        // Disarms `Drop`. The work is done and the outcome has been reported; running it again on
+        // the way out would signal a child that is either already gone or already recorded.
+        self.committed = true;
+        confirmed
+    }
+
+    /// The termination itself, shared by the explicit rollback and the `Drop` backstop.
+    fn terminate_acquired(&mut self) -> bool {
         self.closing.store(true, Ordering::SeqCst);
         // Input first: a shell that has just been started and immediately loses stdin usually ends
         // by itself, which is a cleaner ending than a kill and costs one dropped handle.
         self.writer.take();
         let Some(process) = self.process.take() else {
-            return;
+            // Nothing was acquired, so nothing is left running.
+            return true;
         };
         let clock = MonotonicDeadlineClock::default();
         let observations = CloseObservations::default();
@@ -360,15 +378,34 @@ impl Drop for LocalLaunchGuard {
         );
         // Recorded rather than discarded. The rollback is best-effort by construction — blocking
         // here would hold the create path open on a child refusing to die — and the outcome is the
-        // only evidence that a child outlived its own startup. Silence would be the one
-        // unacceptable ending, and it is the one this replaces.
+        // only evidence that a child outlived its own startup.
         if !outcome.is_released() {
             self.diagnostics.startup_rollback_unconfirmed(
                 &self.shell_id,
                 self.generation.value(),
                 shell_reason_code::STARTUP_CLEANUP_PENDING,
             );
+            return false;
         }
+        true
+    }
+}
+
+impl Drop for LocalLaunchGuard {
+    /// Ends what the failed startup started.
+    ///
+    /// Bounded like every other termination here, and best-effort by construction: a child that
+    /// outlives this window has still been signalled, and the caller reports a startup whose
+    /// cleanup is pending rather than a startup that quietly leaked. Silence would be the one
+    /// unacceptable outcome, and it is the one this replaces.
+    fn drop(&mut self) {
+        if self.committed {
+            return;
+        }
+        // The backstop, for the paths that do not roll back explicitly — a panic, or a future
+        // branch somebody adds without one. The ordinary failure goes through `roll_back`, which
+        // does the same work and returns what it found.
+        let _ = self.terminate_acquired();
     }
 }
 
@@ -491,8 +528,16 @@ impl SessionShellRuntimePort for RetainedLocalShellRuntime {
             request.generation,
             self.diagnostics.clone(),
         );
-        let reader = self.launch(request, &mut guard)?;
-        self.start_workers(request, sink, reader, &mut guard)?;
+        // Rolled back explicitly rather than by unwinding, because the *caller* has to know which
+        // of the two failures this was. A `?` here would pick the error before the guard ran, and
+        // the registry would finalize a Shell whose child may still be alive — returning its slot
+        // while the process holds a thread, which is the defect one step earlier.
+        if let Err(error) = self
+            .launch(request, &mut guard)
+            .and_then(|reader| self.start_workers(request, sink, reader, &mut guard))
+        {
+            return Err(rollback_error(guard, error));
+        }
         let Some(shell) = guard.commit(request.generation) else {
             return Err(unavailable("shell_open_setup_failed"));
         };

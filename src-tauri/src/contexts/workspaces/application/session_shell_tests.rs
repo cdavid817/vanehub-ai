@@ -89,6 +89,11 @@ pub(super) struct FakeRuntime {
     resized: Mutex<Vec<(ShellId, TerminalDimensions)>>,
     foreground: Mutex<ShellForegroundProcessState>,
     fail_open: Mutex<bool>,
+    /// When set, an open fails *and* says its rollback could not confirm the child had ended.
+    ///
+    /// The two failures look identical to a caller and are opposite for this side: one returns a
+    /// slot, the other must keep it because a process may still hold a thread.
+    fail_open_unconfirmed: Mutex<bool>,
     sinks: Mutex<Vec<Arc<dyn ShellOutputSink>>>,
     generations: Mutex<std::collections::BTreeMap<ShellId, ShellGeneration>>,
     /// `Some(retryable)` while the fake is pretending to own a child that will not die.
@@ -145,6 +150,13 @@ impl SessionShellRuntimePort for FakeRuntime {
         request: &ShellRuntimeOpen,
         sink: Arc<dyn ShellOutputSink>,
     ) -> Result<ShellRuntimeOpened, SessionShellError> {
+        if *self.fail_open_unconfirmed.lock().expect("fail") {
+            return Err(SessionShellError::Runtime {
+                reason: crate::contexts::workspaces::domain::shell_reason(
+                    crate::contexts::workspaces::domain::shell_reason_code::STARTUP_CLEANUP_PENDING,
+                ),
+            });
+        }
         if *self.fail_open.lock().expect("fail") {
             return Err(SessionShellError::RuntimeUnavailable {
                 reason: crate::contexts::workspaces::domain::shell_reason("pty_unavailable"),
@@ -642,6 +654,47 @@ fn renaming_changes_the_title_and_nothing_else() {
             .code(),
         "shell_invalid_title"
     );
+}
+
+/// A startup whose cleanup could not be confirmed keeps its slot and goes to the Reaper.
+///
+/// The same defect as an unconfirmed close, one step earlier. Finalizing here returns the slot while
+/// a child may still hold a thread, and the next create is then admitted against a ceiling that is
+/// already full — with no Shell anywhere for the process that is using it.
+#[test]
+fn a_startup_that_could_not_confirm_cleanup_is_retained_and_still_charged() {
+    let harness = harness();
+    *harness.runtime.fail_open_unconfirmed.lock().expect("fail") = true;
+
+    let error = create(&harness, None).expect_err("open fails");
+
+    assert_eq!(error.code(), "shell_runtime_error");
+    let shells = harness.registry.list(None);
+    let descriptor = shells.first().expect("the Shell is still addressable");
+    assert_eq!(descriptor.state, SessionShellState::Reaping);
+    assert!(descriptor.state.is_cleanup_pending());
+    assert_eq!(
+        harness.registry.capacity().active(),
+        1,
+        "the slot stays charged while a child may still be running"
+    );
+    assert_eq!(harness.registry.reaper_depth(), 1);
+    // Nothing was published: no `ShellOpened` was reported, so a `ShellClosed` would be an ending
+    // for something that never began.
+    assert!(harness.evidence.0.lock().expect("evidence").is_empty());
+}
+
+/// A startup that confirmed its own cleanup gives the slot back, as it always did.
+#[test]
+fn a_startup_that_cleaned_up_after_itself_returns_its_slot() {
+    let harness = harness();
+    *harness.runtime.fail_open.lock().expect("fail") = true;
+
+    create(&harness, None).expect_err("open fails");
+
+    assert!(harness.registry.list(None).is_empty());
+    assert_eq!(harness.registry.capacity().active(), 0);
+    assert_eq!(harness.registry.reaper_depth(), 0);
 }
 
 /// A rename racing a close writes a title onto an entry that is about to be finalized.

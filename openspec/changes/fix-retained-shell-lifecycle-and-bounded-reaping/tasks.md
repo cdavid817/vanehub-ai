@@ -27,11 +27,11 @@
 ## 3. Local startup transaction and event ordering
 
 - [x] 3.1 Implement a local launch guard that owns child/killer, PTY handles, reader/writer, worker controls, event gate/buffer, and capacity handoff from the first successful acquisition.
-- [ ] 3.2 Refactor every local startup `?`/early-return path so the guard either confirms cleanup or transfers the complete resource set to the Reaper; no branch may merely drop or forget a live child/worker.
+- [x] 3.2 Refactor every local startup `?`/early-return path so the guard either confirms cleanup or transfers the complete resource set to the Reaper; no branch may merely drop or forget a live child/worker.
 - [x] 3.3 Gate worker publication until the `Opening` Shell has an installed sink, or implement a bounded ordered startup buffer. Document which pattern is chosen and why.
 - [ ] 3.4 Make early output, early natural exit, child spawn failure, reader acquisition failure, writer acquisition failure, worker creation failure, and registry commit failure deterministic in fakes.
 - [x] 3.5 Add tests proving an `echo-and-exit` equivalent retains first output and one terminal event and is never overwritten by a later Running transition.
-- [ ] 3.6 Add startup cleanup timeout tests proving a non-terminating partially launched child becomes a retained `Reaping` Shell and continues consuming its capacity lease.
+- [x] 3.6 Add startup cleanup timeout tests proving a non-terminating partially launched child becomes a retained `Reaping` Shell and continues consuming its capacity lease.
 - [x] 3.7 Ensure startup guards, workers, and fake resources contain no production `unwrap()`/`expect()` and emit only redacted unified diagnostics.
 
 ## 4. Remote startup transaction and route ownership
