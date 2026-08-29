@@ -66,6 +66,7 @@ const SURFACES: readonly SearchSurface[] = [
     arrange: (rows) => {
       vi.spyOn(agentService, "cancelWorkspaceSearch").mockResolvedValue(true);
       return vi.spyOn(agentService, "searchWorkspaceContent").mockResolvedValue({
+        generation: 1,
         coverage: { state: "complete" },
         matches: rows.map((path, index) => ({
           column: 1,

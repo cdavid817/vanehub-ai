@@ -189,7 +189,8 @@ describe("a content search at its match bound", () => {
   it("renders every match it was handed and says the walk was cut", async () => {
     const matches = Array.from({ length: 200 }, (_, index) => contentMatch(index));
     searchContent.mockResolvedValue({
-      coverage: { state: "partial", reasonCode: "match_limit" },
+      generation: 1,
+      coverage: { state: "partial", reasonCode: "result_budget_exhausted" },
       matches,
     } satisfies WorkspaceContentSearchResult);
 
@@ -199,7 +200,13 @@ describe("a content search at its match bound", () => {
     fireEvent.change(screen.getByRole("combobox"), { target: { value: "value" } });
 
     await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(200), { timeout: 4000 });
-    expect(screen.getByText("Part of this workspace was not searched.")).toBeTruthy();
+    // The reason as well as the state. "Part of this workspace was not searched" tells a reader
+    // there is more; only the reason tells them whether narrowing the query would find it.
+    expect(
+      screen.getByText(
+        "Part of this workspace was not searched. Stopped at the maximum number of results.",
+      ),
+    ).toBeTruthy();
   });
 
   it("distinguishes a search that was cut from one that found nothing", async () => {

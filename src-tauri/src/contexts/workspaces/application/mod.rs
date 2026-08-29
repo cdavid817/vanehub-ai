@@ -32,8 +32,9 @@ mod text_metadata;
 #[cfg(test)]
 pub(crate) use content_search::MAX_SNIPPET_CHARS;
 pub(crate) use content_search::{
-    safe_snippet, WorkspaceContentMatch, WorkspaceContentSearchRequest,
-    WorkspaceContentSearchResult, MAX_CONTENT_MATCHES, MAX_SEARCHED_FILE_BYTES,
+    deliver as deliver_content_search, safe_snippet, WorkspaceContentMatch,
+    WorkspaceContentSearchDelivery, WorkspaceContentSearchRequest, WorkspaceContentSearchResult,
+    MAX_CONTENT_MATCHES, MAX_SEARCHED_FILE_BYTES,
 };
 pub(crate) use error::WorkspaceApplicationError;
 pub(crate) use evidence::{

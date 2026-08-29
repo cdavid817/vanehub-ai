@@ -54,6 +54,34 @@ export interface WorkspacePathMatch {
 export interface WorkspaceSearchCoverage {
   state: "complete" | "partial" | "unavailable";
   reasonCode?: string;
+  /**
+   * What the inspection spent, when it was accounted.
+   *
+   * Absent means "not accounted", never "spent nothing": a remote provider counts on the other
+   * machine and a fixture counts nothing at all, and zeroes here would claim a scan that never
+   * happened.
+   */
+  budget?: WorkspaceInspectionBudget;
+}
+
+/**
+ * What one inspection actually spent.
+ *
+ * Counters rather than limits. A reader is being told why an answer stopped, and "read 1 MB" is
+ * something they can weigh against the workspace in front of them; the configured ceiling that
+ * produced it is the build's business, not theirs.
+ */
+export interface WorkspaceInspectionBudget {
+  directoriesVisited: number;
+  entriesVisited: number;
+  filesOpened: number;
+  bytesRead: number;
+  metadataOperations: number;
+  candidatesRetained: number;
+  resultsEmitted: number;
+  maxDepthReached: number;
+  /** Entries that were eligible and could not be read. */
+  unreadableEntries: number;
 }
 
 export interface WorkspacePathSearchResult {
@@ -96,6 +124,17 @@ export interface WorkspaceContentMatch {
 }
 
 export interface WorkspaceContentSearchResult {
+  /**
+   * Which registration under the search id answered.
+   *
+   * Carried so a caller can drop an answer older than the one it already applied. Two requests can
+   * be in flight at once and arrival order is not issue order, so "the last response wins" is the
+   * rule that puts a stale result over a fresh one.
+   *
+   * Monotonic across the process rather than restarting per search id; comparing two generations for
+   * the same id is the only thing it is for.
+   */
+  generation: number;
   coverage: WorkspaceSearchCoverage;
   matches: WorkspaceContentMatch[];
 }

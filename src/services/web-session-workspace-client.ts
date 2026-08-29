@@ -1,5 +1,6 @@
 import type { AgentService } from "./agent-service";
 import { rankFileCandidates } from "./file-search-ranking";
+import { cancelWebWorkspaceSearch, runWebWorkspaceSearch } from "./web-workspace-search-mock";
 import {
   availableContext,
   diffFixture,
@@ -103,37 +104,24 @@ export const webSessionWorkspaceClient: SessionWorkspaceMethods = {
   },
   /**
    * Scanned from the same file fixtures the preview renders, so a result the browser build offers
-   * is a result it can then open. Coverage is `complete` because the fixture really is all of it.
+   * is a result it can then open.
+   *
+   * Routed through the simulation rather than scanned inline, so this adapter stops early for the
+   * same reasons the native one does. A mock that only ever answered `complete` would let a panel be
+   * written as though a search cannot give up, and the first time one did the panel would report "no
+   * matches" about a workspace it never finished reading.
    */
   async searchWorkspaceContent(input) {
-    const needle = input.query.trim().toLowerCase();
-    if (!needle) return { coverage: { state: "complete" as const }, matches: [] };
-    const matches = Object.entries(fileFixtures)
-      .flatMap(([path, content]) =>
-        content.split("\n").flatMap((line, index) => {
-          const column = line.toLowerCase().indexOf(needle);
-          if (column < 0) return [];
-          return [
-            {
-              path,
-              line: index + 1,
-              column: column + 1,
-              snippet: line,
-              snippetTruncated: false,
-            },
-          ];
-        }),
-      )
-      .slice(0, input.limit ?? 200);
-    return { coverage: { state: "complete" as const }, matches };
+    return runWebWorkspaceSearch(input, fileFixtures);
   },
   /**
-   * Nothing to cancel: the fixture scan is synchronous and has already finished by the time a
-   * reader could press anything. `false` is the honest answer, and it is the same answer the
-   * desktop build gives for a search that completed first.
+   * Stops a running search, and says whether one was there to stop.
+   *
+   * `false` means "nothing to stop", not "you did something wrong" — the same answer the desktop
+   * build gives for a search that completed first.
    */
-  async cancelWorkspaceSearch() {
-    return false;
+  async cancelWorkspaceSearch(searchId) {
+    return cancelWebWorkspaceSearch(searchId);
   },
   /**
    * Nothing is retained, and saying so is the honest answer.

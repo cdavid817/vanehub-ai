@@ -9,7 +9,7 @@
 //! bounded walk on this side finishes on its own. Adding a cancellation token would be adding a
 //! mechanism for stopping something that stops anyway.
 
-use super::dto;
+use super::{dto, mapper};
 use crate::contexts::workspaces::api::{WorkspaceApi, WorkspacePathSearchRequest};
 use tauri::State;
 
@@ -47,10 +47,7 @@ pub(super) async fn search_paths(
         })?;
 
     Ok(dto::WorkspacePathSearchDto {
-        coverage: dto::WorkspaceSearchCoverageDto {
-            state: result.coverage.state.token().to_string(),
-            reason_code: result.coverage.reason_code.map(str::to_string),
-        },
+        coverage: mapper::coverage_to_dto(result.coverage),
         matches: result
             .matches
             .into_iter()

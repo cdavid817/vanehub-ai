@@ -1,3 +1,10 @@
+/// Content search, the registry that lets one be stopped, and the ceiling on how many inspections
+/// run at once.
+pub(crate) use super::application::{
+    deliver_content_search, WorkspaceContentSearchDelivery, WorkspaceContentSearchRequest,
+    WorkspaceContentSearchResult, WorkspaceInspectionAdmission, WorkspaceInspectionReason,
+    WorkspaceSearchCancellation, WorkspaceSearchCoverage,
+};
 pub(crate) use super::application::{
     AttachSessionShellRequest, CreateSessionShellRequest, ResizeSessionShellRequest,
     SessionShellCleanupReport, SessionShellCloseResult, SessionShellDescriptor,
@@ -30,12 +37,6 @@ use super::application::{WorkspaceApplicationService, WorkspaceQueryApplicationS
 pub(crate) use super::application::{
     WorkspaceChangeObserverPort, WorkspaceInvalidationChange, WorkspaceInvalidationDispatcher,
     WorkspaceInvalidationScope, WorkspaceInvalidationSource,
-};
-/// Content search, the registry that lets one be stopped, and the ceiling on how many inspections
-/// run at once.
-pub(crate) use super::application::{
-    WorkspaceContentSearchRequest, WorkspaceContentSearchResult, WorkspaceInspectionAdmission,
-    WorkspaceInspectionReason, WorkspaceSearchCancellation, WorkspaceSearchCoverage,
 };
 pub(crate) use super::application::{
     WorkspaceEvidencePort, WorkspaceEvidenceSignal, WorkspaceFileChangeKind,
@@ -345,26 +346,39 @@ impl WorkspaceApi {
         &self,
         session_id: &str,
         request: WorkspaceContentSearchRequest,
-    ) -> Result<WorkspaceContentSearchResult, WorkspaceInspectionError> {
+    ) -> Result<WorkspaceContentSearchDelivery, WorkspaceInspectionError> {
+        // Registered before admission is awaited, not after. Admission is a semaphore and the wait
+        // is unbounded in principle, so a cancel arriving during it would otherwise find no slot and
+        // report that nothing was running — for a request the reader can see is in progress.
+        let registration = self.searches.begin(&request.search_id);
+        let generation = registration.generation().value();
+
         let Ok(_permit) = self.admission.acquire(session_id).await else {
             // Busy is an answer, not an error: no blocking task was queued and no remote process
             // was launched, and telling a reader the system is busy is more honest than starting
             // hidden work whose result they will never see.
-            return Ok(WorkspaceContentSearchResult {
-                coverage: WorkspaceSearchCoverage::stopped(
-                    WorkspaceInspectionReason::InspectionBusy,
-                ),
-                matches: Vec::new(),
+            registration.complete();
+            return Ok(WorkspaceContentSearchDelivery {
+                generation,
+                result: WorkspaceContentSearchResult {
+                    coverage: WorkspaceSearchCoverage::stopped(
+                        WorkspaceInspectionReason::InspectionBusy,
+                    ),
+                    matches: Vec::new(),
+                },
             });
         };
-        let registration = self.searches.begin(&request.search_id);
         let cancellation = registration.token();
         let outcome = self
             .inspection
             .search_content(session_id, request, cancellation)
             .await;
+
+        // Decided before the guard is released, because releasing it removes the slot the decision
+        // compares against.
+        let delivery = outcome.map(|result| deliver_content_search(&registration, result));
         registration.complete();
-        outcome
+        delivery
     }
 
     /// Asks a running search to stop, and says whether one was there to ask.

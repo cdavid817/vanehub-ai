@@ -21,7 +21,7 @@ function hit(overrides: Partial<WorkspaceContentMatch> = {}): WorkspaceContentMa
 }
 
 function result(overrides: Partial<WorkspaceContentSearchResult> = {}): WorkspaceContentSearchResult {
-  return { coverage: { state: "complete" }, matches: [], ...overrides };
+  return { generation: 1, coverage: { state: "complete" }, matches: [], ...overrides };
 }
 
 let search: ReturnType<typeof vi.spyOn>;
@@ -95,21 +95,42 @@ describe("ContentSearchPanel", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it("cancels the previous search before starting the next", async () => {
+  it("keeps one search id for the panel so a keystroke supersedes rather than races", async () => {
     // Still running when the next keystroke arrives, which is the whole point: an answered search
-    // needs no cancelling.
+    // needs no stopping.
     search.mockImplementation(() => new Promise<WorkspaceContentSearchResult>(() => {}));
     open();
     await type("need");
     await waitFor(() => expect(search).toHaveBeenCalledTimes(1));
-    const first = search.mock.calls[0]?.[0] as { searchId: string };
 
     await type("needle");
     await waitFor(() => expect(search).toHaveBeenCalledTimes(2));
 
-    // By name, so the still-running scan actually stops. Dropping the answer would be enough for a
-    // path search and is not enough here: this one reads every file in the workspace.
-    expect(cancel).toHaveBeenCalledWith(first.searchId);
+    // One id, reused. Registering under an id already in flight is what stops the previous scan, and
+    // it happens under the registry's own lock — so there is no window where two scans are running
+    // and neither has been told to stop. A fresh id per keystroke would make every scan look
+    // independent, and the only thing ending the old one would be a cancel racing the new request.
+    const first = search.mock.calls[0]?.[0] as { searchId: string };
+    const second = search.mock.calls[1]?.[0] as { searchId: string };
+    expect(first.searchId).toBeTruthy();
+    expect(second.searchId).toBe(first.searchId);
+  });
+
+  it("drops an answer older than the one already on screen", async () => {
+    // Two scans in flight and the older one returns second. Nothing in arrival order says which
+    // query an answer was for, so a panel that took the last response would replace a fresh result
+    // with a stale one and leave nothing on screen to say it had.
+    search.mockResolvedValueOnce(result({ generation: 7, matches: [hit({ path: "fresh.rs" })] }));
+    open();
+    await type("needle");
+    await waitFor(() => expect(screen.getByText(/fresh\.rs/)).toBeTruthy());
+
+    search.mockResolvedValueOnce(result({ generation: 3, matches: [hit({ path: "stale.rs" })] }));
+    await type("needles");
+    await waitFor(() => expect(search).toHaveBeenCalledTimes(2));
+
+    expect(screen.queryByText(/stale\.rs/)).toBeNull();
+    expect(screen.getByText(/fresh\.rs/)).toBeTruthy();
   });
 
   it("says when part of the workspace was not searched", async () => {

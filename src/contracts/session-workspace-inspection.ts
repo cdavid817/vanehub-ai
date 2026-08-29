@@ -34,11 +34,37 @@ export function parseWorkspaceInspectionCapabilities(value: unknown): WorkspaceI
  * nobody recognises would otherwise fall through to "refresh nothing", which on screen is
  * indistinguishable from a workspace where nothing happened.
  */
+export const workspaceInspectionBudgetSchema = z.object({
+  directoriesVisited: z.number().int().nonnegative(),
+  entriesVisited: z.number().int().nonnegative(),
+  filesOpened: z.number().int().nonnegative(),
+  bytesRead: z.number().int().nonnegative(),
+  metadataOperations: z.number().int().nonnegative(),
+  candidatesRetained: z.number().int().nonnegative(),
+  resultsEmitted: z.number().int().nonnegative(),
+  maxDepthReached: z.number().int().nonnegative(),
+  unreadableEntries: z.number().int().nonnegative(),
+});
+
+/**
+ * One coverage schema for both searches.
+ *
+ * A reader comparing a Quick Open notice with a content search notice is entitled to read the same
+ * word as the same fact, and two copies of this shape is how the two stop meaning the same thing.
+ *
+ * `reasonCode` stays an open string rather than an enum of the codes this build knows. A native
+ * build newer than this frontend would otherwise fail the whole parse over one unrecognised token,
+ * turning a result with a slightly unfamiliar footnote into no result at all; the wording layer
+ * already falls back for a code it cannot name.
+ */
+export const workspaceSearchCoverageSchema = z.object({
+  state: z.enum(["complete", "partial", "unavailable"]),
+  reasonCode: z.string().optional(),
+  budget: workspaceInspectionBudgetSchema.optional(),
+});
+
 export const workspacePathSearchResultSchema = z.object({
-  coverage: z.object({
-    state: z.enum(["complete", "partial", "unavailable"]),
-    reasonCode: z.string().optional(),
-  }),
+  coverage: workspaceSearchCoverageSchema,
   matches: z.array(
     z.object({
       name: z.string(),
@@ -54,10 +80,11 @@ export function parseWorkspacePathSearchResult(value: unknown): WorkspacePathSea
 }
 
 export const workspaceContentSearchResultSchema = z.object({
-  coverage: z.object({
-    state: z.enum(["complete", "partial", "unavailable"]),
-    reasonCode: z.string().optional(),
-  }),
+  // Required, not optional-with-a-default. A build that stopped sending it would leave every answer
+  // looking equally fresh, and the stale-result rule downstream would silently stop rejecting
+  // anything — the exact failure it exists to prevent, with nothing on screen to show for it.
+  generation: z.number().int().nonnegative(),
+  coverage: workspaceSearchCoverageSchema,
   matches: z.array(
     z.object({
       path: z.string(),

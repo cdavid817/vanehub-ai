@@ -335,6 +335,12 @@ pub(crate) struct WorkspacePathSearchDto {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WorkspaceContentSearchDto {
+    /// Which registration under the search id answered.
+    ///
+    /// Carried so the frontend can drop an answer that is older than the one already on screen. Two
+    /// requests can be in flight at once and arrival order is not issue order, so "the last response
+    /// wins" is the rule that puts a stale result over a fresh one.
+    pub(crate) generation: u64,
     pub(crate) coverage: WorkspaceSearchCoverageDto,
     pub(crate) matches: Vec<WorkspaceContentMatchDto>,
 }
@@ -380,6 +386,33 @@ pub(crate) struct WorkspaceSearchCoverageDto {
     /// Why it is not complete, as a token the frontend translates. Absent when it is.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) reason_code: Option<String>,
+    /// What the inspection spent, when it was accounted.
+    ///
+    /// Absent means "not accounted", never "spent nothing". A remote provider counts on the other
+    /// machine and a fixture counts nothing at all, and zeroes here would claim a scan that never
+    /// happened.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) budget: Option<WorkspaceInspectionBudgetDto>,
+}
+
+/// What one inspection actually spent.
+///
+/// Counters rather than limits. A reader is being told why an answer stopped, and "read 1 MB" is
+/// something they can weigh against the workspace they are looking at; the configured ceiling that
+/// produced it is this build's business.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WorkspaceInspectionBudgetDto {
+    pub(crate) directories_visited: u64,
+    pub(crate) entries_visited: u64,
+    pub(crate) files_opened: u64,
+    pub(crate) bytes_read: u64,
+    pub(crate) metadata_operations: u64,
+    pub(crate) candidates_retained: u64,
+    pub(crate) results_emitted: u64,
+    pub(crate) max_depth_reached: u32,
+    /// Entries that were eligible and could not be read.
+    pub(crate) unreadable_entries: u64,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]

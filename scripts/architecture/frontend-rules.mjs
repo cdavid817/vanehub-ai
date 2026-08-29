@@ -307,8 +307,20 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 合并后重测:两条改动落在同一棵子树上。合并树实测 24393(基线 24136,+257)。
 // 这一次它恰好等于两侧增量之和(150+107),因为两条改的是互不相交的文件——不要把这当成
 // "可以相加"的先例:相加会把两边共有的基线算两遍,只是这次没有共有的部分。
+// 上调理由(harden-workspace-search-cancellation-and-resource-budgets,Task 8.5):
+// Web/mock 的内容搜索原本只有一条同步扫描,永远返回 complete。它不是"没实现取消",而是让取消、
+// 被取代、准入拒绝、预算耗尽这四件事在浏览器侧完全不可观察——面板会被写成"搜索不会中途放弃",
+// 而 desktop 侧一旦中途放弃,面板就会把"我们没找完"说成"这里没有"。所以新增的
+// `web-workspace-search-mock.ts` 不是把既有分支复制一遍:它是这四个停止条件第一次在这一侧存在。
+// 计数器是模拟的(数的是 fixture 字节,不是磁盘读),但答案的形状——哪个 reason code 配哪个
+// coverage state——与 native 适配器逐字对齐,这正是同一个面板能同时写给两个运行时的前提。
+// 上限按合并后实测值 24609 记录(基线 24393,+216),不留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 24393, owner: "upgrade-session-workspace-evidence-console" },
+  {
+    root: "src/services",
+    budget: 24609,
+    owner: "harden-workspace-search-cancellation-and-resource-budgets",
+  },
 ]);
 
 const STATE_PACKAGES = new Set([
