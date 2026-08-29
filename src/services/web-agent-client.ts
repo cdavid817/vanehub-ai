@@ -19,6 +19,7 @@ import { webSkillEvidenceClient } from "./web-skill-evidence-client";
 import { webSkillAssessmentClient } from "./web-skill-assessment-client";
 import { webSkillGenerationClient } from "./web-skill-generation-client";
 import { webSkillEvolutionOrchestrationClient } from "./web-skill-evolution-orchestration-client";
+import { webSystemActivityClient } from "./web-system-activity-client";
 import { webSkillCuratorClient } from "../adapters/web-skill-curator-client";
 import { webAgentRegistryClient } from "./web-agent-registry-client";
 
@@ -142,6 +143,7 @@ const webCodeReviewClient = createWebCodeReviewClient(webSessionWorkspaceClient)
 export const webAgentClient: AgentService = {
   ...webSkillCuratorClient,
   ...webSkillEvolutionOrchestrationClient,
+  ...webSystemActivityClient,
   ...webEvaluationClient,
   ...webPromptHookClient,
   ...webApiAgentClient,

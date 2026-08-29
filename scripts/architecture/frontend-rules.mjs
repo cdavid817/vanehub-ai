@@ -305,8 +305,13 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 本次合并 Skill Evolution 分支后按合并树实测重记为 25835:上面各段理由分属 Skill
 // Evolution(assessment/Curator/generation/orchestration 与聊天反馈授权)与 main 侧的证据
 // 控制台、本地媒体/LSP、个性化治理,互不相交,仍按惯例在合并树上重测而不是相加。
+// 上调理由(add-skill-evolution-system-sessions-and-result-projection):+680,System Activity
+// 服务边界的三件套——类型合约与接口(system-activity-service)、Tauri 调用适配
+// (tauri-system-activity-client)与显式 provenance 的 Web/mock 状态与实现
+// (web-system-activity-state / -client)。React 仍只依赖服务边界,按当前树实测精确到 26515,
+// 不预留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 25835, owner: "sync-main-with-skill-evolution" },
+  { root: "src/services", budget: 26515, owner: "add-skill-evolution-system-sessions-and-result-projection" },
 ]);
 
 const STATE_PACKAGES = new Set([

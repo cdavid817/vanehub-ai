@@ -20,6 +20,7 @@ pub(crate) mod skill_evolution_curation;
 pub(crate) mod skill_evolution_evidence;
 pub(crate) mod skill_evolution_generation;
 pub(crate) mod skill_evolution_orchestration;
+pub(crate) mod skill_evolution_system_activity;
 pub(crate) mod ssh_connections;
 mod supplemental_registry;
 pub(crate) mod tooling;

@@ -12,6 +12,7 @@ import {
 } from "./tauri-chat-feedback";
 import type { AgentService, SessionStateEvent } from "./agent-service";
 import { tauriPersonalizationClient } from "./tauri-personalization-client";
+import { tauriSystemActivityClient } from "./tauri-system-activity-client";
 import type {
   AgentRegistryEntry,
   ApiAgentProviderConfig,
@@ -961,6 +962,7 @@ export const tauriAgentClient: AgentService = { ...tauriSkillCuratorClient,
 
   ...tauriCliEnvironmentClient,
   ...tauriPersonalizationClient,
+  ...tauriSystemActivityClient,
   ...tauriSessionRecoveryClient,
   ...tauriSessionWorkspaceClient,
   ...tauriSessionWorkspaceEvidenceClient,

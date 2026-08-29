@@ -24,6 +24,22 @@ pub(crate) enum EvolutionSourceDomain {
 }
 
 impl EvolutionSourceDomain {
+    /// Every bounded projection source domain, for health reporting.
+    pub(crate) const ALL: &'static [Self] = &[
+        Self::Orchestration,
+        Self::Evidence,
+        Self::Assessment,
+        Self::Generation,
+        Self::Curator,
+        Self::Overlay,
+        Self::AutomaticApplication,
+        Self::Probation,
+        Self::Breaker,
+        Self::SkillCreation,
+        Self::Recovery,
+        Self::Retention,
+    ];
+
     pub(crate) const fn as_str(self) -> &'static str {
         match self {
             Self::Orchestration => "orchestration",

@@ -520,6 +520,11 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     app.manage(skill_evolution_assessment_api);
     app.manage(skill_evolution_generation_api);
     app.manage(skill_evolution_curation_api);
+    app.manage(
+        crate::contexts::skill_evolution_system_activity::api::SkillEvolutionSystemActivityApi::new(
+            database.clone(),
+        ),
+    );
     app.manage(super::ScheduledTaskLogDirectory::new(
         fallback_log_directory.clone(),
     ));
