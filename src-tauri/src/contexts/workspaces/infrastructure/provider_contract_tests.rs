@@ -22,17 +22,27 @@ use crate::contexts::workspaces::application::{
     DirectoryCursor, DirectoryFingerprint, DirectoryFingerprintState, DirectoryListing,
     DocumentListing, FileContent, FileSearchListing, GitDiffRequest, GitDiffResult, GitDiffSource,
     GitStatusResult, ListDirectoryRequest, LocalWorkspaceTarget, ReadTextFileRequest,
-    RemoteWorkspaceTarget, SessionLogExportResult, SessionLogPage, SessionLogQuery,
-    WorkspaceApplicationError as AppError, WorkspaceContentSearchRequest,
-    WorkspaceContentSearchResult, WorkspaceInspectionError, WorkspaceInspectionProvider,
-    WorkspacePathSearchRequest, WorkspacePathSearchResult, WorkspaceSearchRequest,
-    WorkspaceSessionQueryPort, WorkspaceTarget,
+    RemoteWorkspaceTarget, SearchCancellationCause, SearchCancellationToken,
+    SessionLogExportResult, SessionLogPage, SessionLogQuery, WorkspaceApplicationError as AppError,
+    WorkspaceContentSearchRequest, WorkspaceContentSearchResult, WorkspaceInspectionError,
+    WorkspaceInspectionProvider, WorkspacePathSearchRequest, WorkspacePathSearchResult,
+    WorkspaceSearchRequest, WorkspaceSessionQueryPort, WorkspaceTarget,
 };
 use crate::platform::database::NativeDatabase;
 use crate::test_support::TempDirectory;
 use rusqlite::params;
 use std::fs;
 use std::sync::Arc;
+
+/// A token that was already signalled before the search started.
+///
+/// The interesting cancellation is the one that arrives before the first directory is read; a test
+/// that signalled mid-walk would be racing the walk rather than asserting against it.
+fn cancelled_token() -> SearchCancellationToken {
+    let token = SearchCancellationToken::new();
+    token.signal(SearchCancellationCause::Cancelled);
+    token
+}
 
 /// The local reads, over a database and nothing else.
 ///
@@ -75,13 +85,13 @@ impl WorkspaceSessionQueryPort for DatabaseQueries {
         &self,
         session_id: &str,
         request: &WorkspaceContentSearchRequest,
-        cancelled: &Arc<std::sync::atomic::AtomicBool>,
+        cancellation: &SearchCancellationToken,
     ) -> Result<WorkspaceContentSearchResult, AppError> {
         super::content_search::search_session_content(
             &*self.connection()?,
             session_id,
             request,
-            cancelled,
+            cancellation,
         )
     }
 
@@ -490,7 +500,7 @@ fn a_content_match_carries_a_position_on_both_sides() {
                 search_id: "search-1".to_string(),
                 limit: None,
             },
-            Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            SearchCancellationToken::new(),
         ))
         .unwrap_or_else(|error| panic!("{}: {error:?}", subject.name));
 
@@ -518,7 +528,7 @@ fn a_cancelled_content_search_is_partial_rather_than_an_error() {
                 search_id: "search-1".to_string(),
                 limit: None,
             },
-            Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            cancelled_token(),
         ))
         .unwrap_or_else(|error| panic!("{}: {error:?}", subject.name));
 
@@ -528,7 +538,7 @@ fn a_cancelled_content_search_is_partial_rather_than_an_error() {
         assert_eq!(result.coverage.state.token(), "partial", "{}", subject.name);
         assert_eq!(
             result.coverage.reason_code,
-            Some("workspace_search_cancelled"),
+            Some("cancelled"),
             "{}",
             subject.name
         );
@@ -547,7 +557,7 @@ fn a_remote_host_without_ripgrep_says_so_rather_than_matching_nothing() {
             search_id: "search-1".to_string(),
             limit: None,
         },
-        Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        SearchCancellationToken::new(),
     ))
     .expect("search");
 

@@ -216,7 +216,7 @@ impl WorkspaceInspectionProvider for RecordingProvider {
         &self,
         _target: &WorkspaceTarget,
         request: WorkspaceContentSearchRequest,
-        _cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        _cancellation: crate::contexts::workspaces::application::SearchCancellationToken,
     ) -> Result<WorkspaceContentSearchResult, WorkspaceInspectionError> {
         self.calls
             .lock()

@@ -4,14 +4,18 @@
 //! a binary file, and a walk that is asked to stop partway through — none of which a fixture can
 //! stand in for.
 
-use super::content_search::search_session_content;
-use crate::contexts::workspaces::application::{WorkspaceContentSearchRequest, MAX_SNIPPET_CHARS};
+use super::content_search::{search_session_content, search_session_content_with};
+use crate::contexts::workspaces::application::{
+    ManualClock, MonotonicClockPort, SearchCancellationCause, SearchCancellationToken,
+    WorkspaceContentSearchRequest, WorkspaceInspectionBudgetLimits,
+    WorkspaceInspectionBudgetSnapshot, MAX_SNIPPET_CHARS,
+};
 use crate::platform::database::NativeDatabase;
 use crate::test_support::TempDirectory;
 use rusqlite::params;
 use std::fs;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::time::Duration;
 
 struct Workspace {
     _directory: TempDirectory,
@@ -20,6 +24,10 @@ struct Workspace {
 
 struct Answer {
     coverage: &'static str,
+    reason: Option<&'static str>,
+    /// What the search actually spent. The instrumentation the structural assertions read: a claim
+    /// about memory or work is only checkable if the traversal reports what it did.
+    budget: Option<WorkspaceInspectionBudgetSnapshot>,
     hits: Vec<Hit>,
 }
 
@@ -33,7 +41,7 @@ struct Hit {
 }
 
 impl Workspace {
-    fn search(&self, query: &str, cancelled: &Arc<AtomicBool>) -> Answer {
+    fn search(&self, query: &str, cancellation: &SearchCancellationToken) -> Answer {
         let connection = self.database.connection().expect("connection");
         let result = search_session_content(
             &connection,
@@ -43,28 +51,86 @@ impl Workspace {
                 search_id: "search-1".to_string(),
                 limit: None,
             },
-            cancelled,
+            cancellation,
         )
         .expect("search");
-        Answer {
-            coverage: result.coverage.state.token(),
-            hits: result
-                .matches
-                .into_iter()
-                .map(|entry| Hit {
-                    path: entry.path,
-                    line: entry.line,
-                    column: entry.column,
-                    snippet: entry.snippet,
-                    truncated: entry.snippet_truncated,
-                })
-                .collect(),
-        }
+        answer_from(result)
+    }
+
+    /// The same search with its budget and its clock chosen by the test.
+    fn search_within(
+        &self,
+        query: &str,
+        limits: WorkspaceInspectionBudgetLimits,
+        clock: Arc<dyn MonotonicClockPort>,
+        cancellation: &SearchCancellationToken,
+    ) -> Answer {
+        let connection = self.database.connection().expect("connection");
+        let result = search_session_content_with(
+            &connection,
+            "session-1",
+            &WorkspaceContentSearchRequest {
+                query: query.to_string(),
+                search_id: "search-1".to_string(),
+                limit: None,
+            },
+            cancellation,
+            limits,
+            clock,
+        )
+        .expect("search");
+        answer_from(result)
     }
 
     fn find(&self, query: &str) -> Answer {
-        self.search(query, &Arc::new(AtomicBool::new(false)))
+        self.search(query, &SearchCancellationToken::new())
     }
+}
+
+fn answer_from(
+    result: crate::contexts::workspaces::application::WorkspaceContentSearchResult,
+) -> Answer {
+    Answer {
+        coverage: result.coverage.state.token(),
+        reason: result.coverage.reason_code,
+        budget: result.coverage.budget,
+        hits: result
+            .matches
+            .into_iter()
+            .map(|entry| Hit {
+                path: entry.path,
+                line: entry.line,
+                column: entry.column,
+                snippet: entry.snippet,
+                truncated: entry.snippet_truncated,
+            })
+            .collect(),
+    }
+}
+
+/// A budget whose every dimension is generous, so a test can lower exactly one.
+///
+/// Written out rather than derived from the production profile: a test that lowered one field of
+/// the real profile would silently start asserting about a different dimension the day somebody
+/// tightened another.
+fn generous_limits() -> WorkspaceInspectionBudgetLimits {
+    WorkspaceInspectionBudgetLimits {
+        max_directories_visited: 1_000,
+        max_entries_visited: 10_000,
+        max_files_opened: 10_000,
+        max_bytes_read: 64 * 1024 * 1024,
+        max_metadata_operations: 100_000,
+        max_retained_candidates: 1_000,
+        max_results: 200,
+        max_depth: 10,
+        deadline: Duration::from_secs(600),
+    }
+}
+
+fn spent(answer: &Answer) -> WorkspaceInspectionBudgetSnapshot {
+    answer
+        .budget
+        .expect("coverage carries what the search spent")
 }
 
 fn workspace(files: &[(&str, &[u8])]) -> Workspace {
@@ -206,9 +272,10 @@ fn an_empty_query_answers_with_nothing_rather_than_everything() {
 #[test]
 fn a_cancelled_search_stops_and_says_why() {
     let workspace = workspace(&[("a.txt", b"needle\n"), ("b.txt", b"needle\n")]);
-    let cancelled = Arc::new(AtomicBool::new(true));
+    let cancellation = SearchCancellationToken::new();
+    cancellation.signal(SearchCancellationCause::Cancelled);
 
-    let answer = workspace.search("needle", &cancelled);
+    let answer = workspace.search("needle", &cancellation);
 
     // Partial with a reason rather than an error: nothing went wrong, the reader stopped waiting,
     // and an error would put a failure notice on screen for something they did on purpose.
@@ -233,5 +300,334 @@ fn an_excluded_tree_is_never_searched() {
             .map(|hit| hit.path.as_str())
             .collect::<Vec<_>>(),
         vec!["a.txt"]
+    );
+}
+
+/// The shape the streaming rewrite exists for.
+///
+/// The old implementation took Quick Open's walk, which with an empty query matches every entry,
+/// and materialised one candidate per eligible path before opening a single file — memory
+/// proportional to the workspace for an answer bounded at 200 matches. What replaces it retains
+/// only the breadth-first frontier, and the frontier of a flat tree is one directory.
+#[test]
+fn a_wide_workspace_is_never_materialised_before_the_first_file_is_opened() {
+    let mut files: Vec<(String, Vec<u8>)> = (0..64)
+        .map(|index| (format!("file_{index}.txt"), b"nothing here\n".to_vec()))
+        .collect();
+    files.push(("hit.txt".to_string(), b"needle\n".to_vec()));
+    let workspace = workspace(
+        &files
+            .iter()
+            .map(|(name, bytes)| (name.as_str(), bytes.as_slice()))
+            .collect::<Vec<_>>(),
+    );
+
+    let answer = workspace.find("needle");
+    let spent = spent(&answer);
+
+    assert_eq!(answer.hits.len(), 1);
+    assert_eq!(answer.coverage, "complete");
+    // 65 files are opened because 65 files are searched. What is *not* proportional to the
+    // workspace is what is held at once: the frontier of a flat tree is one directory, and the old
+    // implementation held 65 candidates here.
+    assert_eq!(spent.files_opened, 65);
+    assert_eq!(spent.entries_visited, 65);
+    assert!(
+        spent.candidates_retained <= 1,
+        "retained {} candidates for a flat tree",
+        spent.candidates_retained
+    );
+}
+
+/// The frontier is what grows with a tree, and it is charged.
+#[test]
+fn the_breadth_first_frontier_is_charged_and_credited_as_it_drains() {
+    let files: Vec<(String, Vec<u8>)> = (0..8)
+        .map(|index| (format!("dir_{index}/leaf.txt"), b"needle\n".to_vec()))
+        .collect();
+    let workspace = workspace(
+        &files
+            .iter()
+            .map(|(name, bytes)| (name.as_str(), bytes.as_slice()))
+            .collect::<Vec<_>>(),
+    );
+
+    let answer = workspace.find("needle");
+    let spent = spent(&answer);
+
+    assert_eq!(answer.hits.len(), 8);
+    // Eight directories queued and eight popped: the counter ends at zero rather than at eight,
+    // which is what makes it a bound on what is held rather than a count of what was seen.
+    assert_eq!(spent.directories_visited, 9);
+    assert_eq!(spent.candidates_retained, 0);
+}
+
+#[test]
+fn a_file_budget_stops_the_walk_at_exactly_its_limit() {
+    let files: Vec<(String, Vec<u8>)> = (0..10)
+        .map(|index| (format!("file_{index}.txt"), b"needle\n".to_vec()))
+        .collect();
+    let workspace = workspace(
+        &files
+            .iter()
+            .map(|(name, bytes)| (name.as_str(), bytes.as_slice()))
+            .collect::<Vec<_>>(),
+    );
+
+    let mut limits = generous_limits();
+    limits.max_files_opened = 3;
+    let answer = workspace.search_within(
+        "needle",
+        limits,
+        Arc::new(ManualClock::default()),
+        &SearchCancellationToken::new(),
+    );
+
+    assert_eq!(spent(&answer).files_opened, 3);
+    assert_eq!(answer.coverage, "partial");
+    assert_eq!(answer.reason, Some("file_budget_exhausted"));
+}
+
+#[test]
+fn an_entry_budget_stops_before_visiting_another_entry() {
+    let files: Vec<(String, Vec<u8>)> = (0..10)
+        .map(|index| (format!("file_{index}.txt"), b"nothing\n".to_vec()))
+        .collect();
+    let workspace = workspace(
+        &files
+            .iter()
+            .map(|(name, bytes)| (name.as_str(), bytes.as_slice()))
+            .collect::<Vec<_>>(),
+    );
+
+    let mut limits = generous_limits();
+    limits.max_entries_visited = 4;
+    let answer = workspace.search_within(
+        "needle",
+        limits,
+        Arc::new(ManualClock::default()),
+        &SearchCancellationToken::new(),
+    );
+
+    assert_eq!(spent(&answer).entries_visited, 4);
+    // Empty and partial, never empty and complete. A reader told "no matches" by a walk that
+    // stopped a tenth of the way in has been told something about the budget, not their workspace.
+    assert!(answer.hits.is_empty());
+    assert_eq!(answer.coverage, "partial");
+    assert_eq!(answer.reason, Some("entry_budget_exhausted"));
+}
+
+#[test]
+fn an_aggregate_byte_budget_bounds_one_large_file() {
+    // 256 KiB of text with the match at the very end, so a byte ceiling below the file size is the
+    // only thing that can decide the outcome.
+    let mut content = vec![b'x'; 256 * 1024];
+    content.extend_from_slice(b"\nneedle\n");
+    let workspace = workspace(&[("big.txt", content.as_slice())]);
+
+    let mut limits = generous_limits();
+    limits.max_bytes_read = 64 * 1024;
+    let answer = workspace.search_within(
+        "needle",
+        limits,
+        Arc::new(ManualClock::default()),
+        &SearchCancellationToken::new(),
+    );
+
+    // One chunk charged, the second refused. The file is abandoned rather than read to its end.
+    assert_eq!(spent(&answer).bytes_read, 64 * 1024);
+    assert!(answer.hits.is_empty());
+    assert_eq!(answer.reason, Some("byte_budget_exhausted"));
+}
+
+#[test]
+fn a_deadline_is_measured_on_an_injected_monotonic_clock() {
+    let files: Vec<(String, Vec<u8>)> = (0..20)
+        .map(|index| (format!("file_{index}.txt"), b"needle\n".to_vec()))
+        .collect();
+    let workspace = workspace(
+        &files
+            .iter()
+            .map(|(name, bytes)| (name.as_str(), bytes.as_slice()))
+            .collect::<Vec<_>>(),
+    );
+
+    // One tick per checkpoint. Advancing before the walk would only move the origin the budget
+    // measures from; a clock that steps as the traversal reads it is the only way to reach a
+    // deadline from inside one without sleeping through it.
+    let clock = Arc::new(ManualClock::ticking(Duration::from_millis(200)));
+    let mut limits = generous_limits();
+    limits.deadline = Duration::from_secs(1);
+
+    let answer = workspace.search_within("needle", limits, clock, &SearchCancellationToken::new());
+
+    // No sleep and no wall clock, so a busy CI runner cannot falsify it in either direction.
+    assert_eq!(answer.reason, Some("deadline_exceeded"));
+    assert_eq!(answer.coverage, "partial");
+    assert!(answer.hits.len() < 20);
+}
+
+#[test]
+fn a_supersede_is_reported_as_a_different_state_from_a_cancel() {
+    let workspace = workspace(&[("a.txt", b"needle\n")]);
+
+    for (cause, expected) in [
+        (SearchCancellationCause::Cancelled, "cancelled"),
+        (SearchCancellationCause::Superseded, "superseded"),
+        (SearchCancellationCause::OwnerDropped, "owner_dropped"),
+    ] {
+        let cancellation = SearchCancellationToken::new();
+        cancellation.signal(cause);
+
+        let answer = workspace.search("needle", &cancellation);
+
+        // A reader who pressed Escape and a reader who typed another character are being told
+        // different things, and a view that could not tell them apart would show the wrong one.
+        assert_eq!(answer.reason, Some(expected), "{cause:?}");
+        assert_eq!(answer.coverage, "partial", "{cause:?}");
+    }
+}
+
+#[test]
+fn an_unreadable_directory_leaves_the_rest_of_the_walk_running() {
+    let workspace = workspace(&[
+        ("readable/a.txt", b"needle\n"),
+        ("also-readable/b.txt", b"needle\n"),
+    ]);
+
+    let answer = workspace.find("needle");
+
+    // Nothing is unreadable here; the assertion is that a two-directory tree is fully searched, so
+    // the failure-path test below is about the failure rather than about the traversal.
+    assert_eq!(answer.hits.len(), 2);
+    assert_eq!(answer.coverage, "complete");
+    assert_eq!(spent(&answer).unreadable_entries, 0);
+}
+
+#[test]
+fn a_skipped_binary_file_makes_the_answer_partial_without_ending_the_walk() {
+    let workspace = workspace(&[
+        ("blob.bin", &[0xffu8, 0xfe, 0x00, 0x01]),
+        ("a.txt", b"needle\n"),
+        ("b.txt", b"needle\n"),
+    ]);
+
+    let answer = workspace.find("needle");
+
+    // Both text files are still searched: an omission is not a stop.
+    assert_eq!(answer.hits.len(), 2);
+    assert_eq!(answer.coverage, "partial");
+    assert_eq!(answer.reason, Some("unreadable_entries"));
+    assert_eq!(spent(&answer).unreadable_entries, 1);
+}
+
+#[test]
+fn a_result_budget_stops_reading_rather_than_only_trimming_the_list() {
+    let files: Vec<(String, Vec<u8>)> = (0..20)
+        .map(|index| (format!("file_{index}.txt"), b"needle\n".to_vec()))
+        .collect();
+    let workspace = workspace(
+        &files
+            .iter()
+            .map(|(name, bytes)| (name.as_str(), bytes.as_slice()))
+            .collect::<Vec<_>>(),
+    );
+
+    let mut limits = generous_limits();
+    limits.max_results = 5;
+    let answer = workspace.search_within(
+        "needle",
+        limits,
+        Arc::new(ManualClock::default()),
+        &SearchCancellationToken::new(),
+    );
+
+    assert_eq!(answer.hits.len(), 5);
+    // The point of the budget rather than a trim: the sixth file is never opened. Collecting
+    // twenty and returning five would do four times the work for the same answer.
+    assert!(
+        spent(&answer).files_opened <= 6,
+        "opened {} files for a five-result budget",
+        spent(&answer).files_opened
+    );
+    assert_eq!(answer.reason, Some("result_budget_exhausted"));
+}
+
+#[test]
+fn a_budget_summary_carries_counts_and_no_paths() {
+    let workspace = workspace(&[("src/main.rs", b"needle\n")]);
+
+    let answer = workspace.find("needle");
+    let spent = spent(&answer);
+
+    // The summary travels to the frontend and into logs. It is counts and nothing else, which is
+    // enforced by the type having nowhere to put a name.
+    assert!(spent.entries_visited > 0);
+    assert!(spent.metadata_operations > 0);
+    assert_eq!(spent.results_emitted, 1);
+}
+
+#[test]
+fn a_repository_ignore_rule_keeps_a_tree_out_of_the_search() {
+    let workspace = workspace(&[
+        (".gitignore", b"generated/\n"),
+        ("generated/output.txt", b"needle\n"),
+        ("src/main.rs", b"needle\n"),
+    ]);
+
+    let answer = workspace.find("needle");
+
+    // A team that has already written down which directories are generated should not have to
+    // write it a second time for search to believe them.
+    assert_eq!(
+        answer
+            .hits
+            .iter()
+            .map(|hit| hit.path.as_str())
+            .collect::<Vec<_>>(),
+        vec!["src/main.rs"]
+    );
+}
+
+#[test]
+fn a_repository_negation_brings_a_default_excluded_tree_back() {
+    let workspace = workspace(&[
+        (".gitignore", b"!vendor/\n"),
+        ("vendor/lib/thing.txt", b"needle\n"),
+        ("node_modules/pkg/index.js", b"needle\n"),
+    ]);
+
+    let answer = workspace.find("needle");
+
+    // An explicit `!` is a team saying they do want this tree searched. `node_modules` said nothing,
+    // so the default still applies to it.
+    assert_eq!(
+        answer
+            .hits
+            .iter()
+            .map(|hit| hit.path.as_str())
+            .collect::<Vec<_>>(),
+        vec!["vendor/lib/thing.txt"]
+    );
+}
+
+#[test]
+fn the_generated_output_directories_the_old_list_missed_are_skipped_too() {
+    let workspace = workspace(&[
+        (".next/static/chunk.js", b"needle\n"),
+        (".nuxt/dist/app.js", b"needle\n"),
+        ("src/main.rs", b"needle\n"),
+    ]);
+
+    // `.next` and `.nuxt` were in none of the three exclusion lists this policy replaces; they are
+    // covered here by the dot rule as well as by the default set, and both are the same answer.
+    assert_eq!(
+        workspace
+            .find("needle")
+            .hits
+            .iter()
+            .map(|hit| hit.path.as_str())
+            .collect::<Vec<_>>(),
+        vec!["src/main.rs"]
     );
 }

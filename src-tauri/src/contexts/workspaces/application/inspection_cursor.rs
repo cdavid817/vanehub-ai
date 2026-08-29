@@ -52,8 +52,16 @@ impl DirectoryCursor {
     /// the last one on the previous page; including it would repeat a row, which reads to a user as
     /// a duplicate file rather than as a paging bug.
     pub(crate) fn precedes(&self, kind: &str, name: &str) -> bool {
-        let candidate = (kind_rank(kind), name.to_lowercase());
-        candidate > (self.kind_rank, self.name_key.clone())
+        self.precedes_key(kind_rank(kind), &name.to_lowercase())
+    }
+
+    /// The same question asked with the key already built.
+    ///
+    /// A listing that resumes before it stats an entry has the rank and the lowered name in hand
+    /// and nothing else; making it construct a `&str` kind just to have this function take it apart
+    /// again would be ceremony around a `u8`.
+    pub(crate) fn precedes_key(&self, kind_rank: u8, name_key: &str) -> bool {
+        (kind_rank, name_key) > (self.kind_rank, self.name_key.as_str())
     }
 
     /// Opaque on the wire.

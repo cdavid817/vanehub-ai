@@ -4,12 +4,19 @@
 //! depths on a filesystem, and a fixture asserting its own layout would prove nothing about the
 //! walk that produces it.
 
-use super::path_search::{normalize_query, path_match_score, search_session_paths};
-use crate::contexts::workspaces::application::WorkspacePathSearchRequest;
+use super::path_search::{
+    normalize_query, path_match_score, search_session_paths, search_session_paths_with,
+};
+use crate::contexts::workspaces::application::{
+    ManualClock, MonotonicClockPort, WorkspaceInspectionBudgetLimits,
+    WorkspaceInspectionBudgetSnapshot, WorkspacePathSearchRequest,
+};
 use crate::platform::database::NativeDatabase;
 use crate::test_support::TempDirectory;
 use rusqlite::params;
 use std::fs;
+use std::sync::Arc;
+use std::time::Duration;
 
 struct Workspace {
     _directory: TempDirectory,
@@ -19,30 +26,64 @@ struct Workspace {
 impl Workspace {
     fn search(&self, query: &str, cursor: Option<String>, limit: Option<usize>) -> SearchAnswer {
         let connection = self.database.connection().expect("connection");
-        let result = search_session_paths(
-            &connection,
-            "session-1",
-            &WorkspacePathSearchRequest {
-                query: query.to_string(),
-                cursor,
-                limit,
-            },
+        answer_from(
+            search_session_paths(
+                &connection,
+                "session-1",
+                &WorkspacePathSearchRequest {
+                    query: query.to_string(),
+                    cursor,
+                    limit,
+                },
+            )
+            .expect("search"),
         )
-        .expect("search");
-        SearchAnswer {
-            paths: result
-                .matches
-                .iter()
-                .map(|entry| entry.path.clone())
-                .collect(),
-            kinds: result
-                .matches
-                .iter()
-                .map(|entry| entry.kind.to_string())
-                .collect(),
-            coverage: result.coverage.state.token(),
-            next_cursor: result.next_cursor,
-        }
+    }
+
+    /// The same search with its budget and its clock chosen by the test.
+    fn search_within(
+        &self,
+        query: &str,
+        limit: Option<usize>,
+        limits: WorkspaceInspectionBudgetLimits,
+        clock: Arc<dyn MonotonicClockPort>,
+    ) -> SearchAnswer {
+        let connection = self.database.connection().expect("connection");
+        answer_from(
+            search_session_paths_with(
+                &connection,
+                "session-1",
+                &WorkspacePathSearchRequest {
+                    query: query.to_string(),
+                    cursor: None,
+                    limit,
+                },
+                limits,
+                clock,
+            )
+            .expect("search"),
+        )
+    }
+}
+
+fn answer_from(
+    result: crate::contexts::workspaces::application::WorkspacePathSearchResult,
+) -> SearchAnswer {
+    SearchAnswer {
+        paths: result
+            .matches
+            .iter()
+            .map(|entry| entry.path.clone())
+            .collect(),
+        kinds: result
+            .matches
+            .iter()
+            .map(|entry| entry.kind.to_string())
+            .collect(),
+        coverage: result.coverage.state.token(),
+        reason: result.coverage.reason_code,
+        budget: result.coverage.budget,
+        next_cursor: result.next_cursor,
     }
 }
 
@@ -50,7 +91,32 @@ struct SearchAnswer {
     paths: Vec<String>,
     kinds: Vec<String>,
     coverage: &'static str,
+    reason: Option<&'static str>,
+    /// What the search spent. The instrumentation the memory bound is read from: a claim about
+    /// retained candidates is only checkable if the traversal reports how many it held.
+    budget: Option<WorkspaceInspectionBudgetSnapshot>,
     next_cursor: Option<String>,
+}
+
+fn spent(answer: &SearchAnswer) -> WorkspaceInspectionBudgetSnapshot {
+    answer
+        .budget
+        .expect("coverage carries what the search spent")
+}
+
+/// A budget whose every dimension is generous, so a test can lower exactly one.
+fn generous_limits() -> WorkspaceInspectionBudgetLimits {
+    WorkspaceInspectionBudgetLimits {
+        max_directories_visited: 1_000,
+        max_entries_visited: 100_000,
+        max_files_opened: 0,
+        max_bytes_read: 0,
+        max_metadata_operations: 400_000,
+        max_retained_candidates: 10_000,
+        max_results: 50,
+        max_depth: 10,
+        deadline: Duration::from_secs(600),
+    }
 }
 
 fn workspace(files: &[&str], directories: &[&str]) -> Workspace {
@@ -279,4 +345,204 @@ fn scoring_is_the_same_function_both_providers_use() {
     assert_eq!(path_match_score("zzz", "main.rs", "src/main.rs"), None);
     // An empty query browses, so everything qualifies.
     assert_eq!(path_match_score("", "main.rs", "src/main.rs"), Some(0));
+}
+
+/// The bound the bounded selection exists for.
+///
+/// Every one of these files matches, so a full sort would retain all 400 before returning five.
+/// What is kept instead is the page plus the one entry that proves another page follows.
+#[test]
+fn a_workspace_full_of_matches_retains_only_one_page_of_them() {
+    let names: Vec<String> = (0..400)
+        .map(|index| format!("main_{index:03}.rs"))
+        .collect();
+    let workspace = workspace(&names.iter().map(String::as_str).collect::<Vec<_>>(), &[]);
+
+    let answer = workspace.search("main", None, Some(5));
+    let spent = spent(&answer);
+
+    assert_eq!(answer.paths.len(), 5);
+    assert_eq!(spent.entries_visited, 400, "every entry is still visited");
+    assert!(
+        spent.candidates_retained <= 6,
+        "retained {} candidates for a five-entry page",
+        spent.candidates_retained
+    );
+}
+
+/// Visiting is not the same as keeping, and both are counted.
+#[test]
+fn every_visited_entry_is_charged_even_when_nothing_matches() {
+    let names: Vec<String> = (0..50)
+        .map(|index| format!("other_{index:02}.rs"))
+        .collect();
+    let workspace = workspace(&names.iter().map(String::as_str).collect::<Vec<_>>(), &[]);
+
+    let answer = workspace.search("zzzz-no-such-name", None, Some(10));
+    let spent = spent(&answer);
+
+    assert!(answer.paths.is_empty());
+    // Fifty entries examined for zero results. A result cap never sees this work, which is why the
+    // entry budget is the one that matters on a tree that matches nothing.
+    assert_eq!(spent.entries_visited, 50);
+    assert_eq!(spent.candidates_retained, 0);
+    // Nothing was omitted, so an empty answer here really does mean no matches.
+    assert_eq!(answer.coverage, "complete");
+}
+
+#[test]
+fn the_page_is_the_same_one_a_full_sort_would_have_produced() {
+    // Interleaved so the best matches are neither first nor last in walk order: a selection that
+    // simply kept the first `limit` arrivals would pass a test where they happened to be adjacent.
+    let workspace = workspace(
+        &[
+            "zzz/deep/main.rs",
+            "aaa.rs",
+            "main.rs",
+            "zzz/mainly.rs",
+            "bbb/domain.rs",
+        ],
+        &["zzz", "zzz/deep", "bbb"],
+    );
+
+    let answer = workspace.search("main", None, Some(3));
+
+    // All three are name-prefix matches, so the depth tie break decides: shallowest first. The
+    // point is that walk order does not — the best entries arrive second, third and fourth, and a
+    // selection that kept the first three arrivals would have returned a different page.
+    assert_eq!(
+        answer.paths,
+        vec![
+            "main.rs".to_string(),
+            "zzz/mainly.rs".to_string(),
+            "zzz/deep/main.rs".to_string(),
+        ]
+    );
+}
+
+#[test]
+fn equal_sort_keys_break_deterministically_on_the_path() {
+    // Same score, same depth. Only the path key separates them, and it has to be the same
+    // separation on every run or paging would repeat or skip an entry.
+    let workspace = workspace(&["b/main.rs", "a/main.rs", "c/main.rs"], &["a", "b", "c"]);
+
+    let first = workspace.search("main.rs", None, Some(3));
+    let second = workspace.search("main.rs", None, Some(3));
+
+    assert_eq!(
+        first.paths,
+        vec![
+            "a/main.rs".to_string(),
+            "b/main.rs".to_string(),
+            "c/main.rs".to_string(),
+        ]
+    );
+    assert_eq!(first.paths, second.paths);
+}
+
+#[test]
+fn an_entry_budget_stops_the_walk_and_says_which_one_did() {
+    let names: Vec<String> = (0..40).map(|index| format!("main_{index:02}.rs")).collect();
+    let workspace = workspace(&names.iter().map(String::as_str).collect::<Vec<_>>(), &[]);
+
+    let mut limits = generous_limits();
+    limits.max_entries_visited = 7;
+    let answer =
+        workspace.search_within("main", Some(50), limits, Arc::new(ManualClock::default()));
+
+    assert_eq!(spent(&answer).entries_visited, 7);
+    assert_eq!(answer.coverage, "partial");
+    assert_eq!(answer.reason, Some("entry_budget_exhausted"));
+}
+
+#[test]
+fn a_deadline_is_measured_on_an_injected_monotonic_clock() {
+    let names: Vec<String> = (0..40).map(|index| format!("main_{index:02}.rs")).collect();
+    let workspace = workspace(&names.iter().map(String::as_str).collect::<Vec<_>>(), &[]);
+
+    let mut limits = generous_limits();
+    limits.deadline = Duration::from_secs(1);
+    // One tick per checkpoint, so the deadline is reached by counting rather than by waiting.
+    let answer = workspace.search_within(
+        "main",
+        Some(50),
+        limits,
+        Arc::new(ManualClock::ticking(Duration::from_millis(200))),
+    );
+
+    assert_eq!(answer.reason, Some("deadline_exceeded"));
+    assert_eq!(answer.coverage, "partial");
+}
+
+#[test]
+fn a_tree_deeper_than_the_limit_is_partial_rather_than_silently_short() {
+    let mut relative = String::new();
+    for _ in 0..13 {
+        relative.push_str("level/");
+    }
+    relative.push_str("buried-main.rs");
+    let workspace = workspace(&[&relative, "shallow-main.rs"], &[]);
+
+    let answer = workspace.search("main", None, Some(10));
+
+    assert!(answer.paths.contains(&"shallow-main.rs".to_string()));
+    assert!(!answer.paths.contains(&relative));
+    // The entries beside the refused branch are still searched; only the branch is omitted.
+    assert_eq!(answer.coverage, "partial");
+    assert_eq!(answer.reason, Some("depth_budget_exhausted"));
+}
+
+#[test]
+fn a_path_search_never_opens_a_file() {
+    let workspace = workspace(&["main.rs", "other.rs"], &[]);
+
+    let spent = spent(&workspace.search("main", None, Some(10)));
+
+    // Zero, not "few". A path search that opened a file has done something it was not asked to,
+    // and the budget is where that is a testable statement rather than a convention.
+    assert_eq!(spent.files_opened, 0);
+    assert_eq!(spent.bytes_read, 0);
+}
+
+#[test]
+fn quick_open_and_content_search_skip_the_same_trees() {
+    let fixture = TempDirectory::new("quick-open-ignores");
+    let root = fixture.path().join("workspace");
+    fs::create_dir_all(&root).expect("root");
+    fs::write(root.join(".gitignore"), "generated/\n").expect("rule file");
+    for name in [
+        "generated/main.rs",
+        "node_modules/mainlib/index.js",
+        "src/main.rs",
+    ] {
+        let path = root.join(name);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("parent");
+        }
+        fs::write(&path, "x").expect("file");
+    }
+    let database = NativeDatabase::new(fixture.path().join("data")).expect("database");
+    let connection = database.connection().expect("connection");
+    connection
+        .execute(
+            "INSERT INTO sessions \
+             (id, title, agent_id, interaction_mode, lifecycle_state, folder, pinned, archived, \
+              created_at, updated_at) \
+             VALUES ('session-1', 'Quick Open', 'codex-cli', 'cli', 'idle', ?1, 0, 0, \
+                     '2026-08-26T10:00:00Z', '2026-08-26T10:00:00Z')",
+            params![root.to_string_lossy().as_ref()],
+        )
+        .expect("insert session");
+    drop(connection);
+    let workspace = Workspace {
+        _directory: fixture,
+        database,
+    };
+
+    // The whole reason for one policy: a workspace should not appear to have a different shape
+    // depending on which box a reader types into.
+    assert_eq!(
+        workspace.search("main", None, Some(10)).paths,
+        vec!["src/main.rs".to_string()]
+    );
 }

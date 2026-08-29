@@ -1,3 +1,4 @@
+mod bounded_selection;
 mod capture_maintenance;
 mod capture_queue;
 mod command_runs;
@@ -8,6 +9,7 @@ mod content_search_tests;
 mod evaluation_fixture;
 mod filesystem;
 mod git;
+mod ignore_matcher;
 mod output_search;
 mod path_search;
 #[cfg(test)]

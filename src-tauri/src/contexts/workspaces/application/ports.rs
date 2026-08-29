@@ -2,6 +2,7 @@ use super::content_search::{WorkspaceContentSearchRequest, WorkspaceContentSearc
 use super::inspection::{
     DirectoryFingerprint, WorkspacePathSearchRequest, WorkspacePathSearchResult,
 };
+use super::search_cancellation::SearchCancellationToken;
 use super::{
     DirectoryListing, DocumentListing, FileContent, FileSearchListing, GitBranchReference,
     GitDiffResult, GitDiffSource, GitStatusResult, KnownProject, KnownRemoteWorkspace,
@@ -11,8 +12,6 @@ use super::{
 use crate::contexts::workspaces::domain::{
     ProjectInspection, ProjectPath, RemoteWorkspace, WorktreeName,
 };
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
 
 pub(crate) trait WorkspaceHistoryRepository: Send + Sync {
     fn list_projects(&self) -> Result<Vec<KnownProject>, WorkspaceApplicationError>;
@@ -162,12 +161,12 @@ pub(crate) trait WorkspaceSessionQueryPort: Send + Sync {
         request: &WorkspacePathSearchRequest,
     ) -> Result<WorkspacePathSearchResult, WorkspaceApplicationError>;
 
-    /// Content search over the confined walk, polling the flag it is given.
+    /// Content search over the confined walk, polling the token it is given.
     fn search_content(
         &self,
         session_id: &str,
         request: &WorkspaceContentSearchRequest,
-        cancelled: &Arc<AtomicBool>,
+        cancellation: &SearchCancellationToken,
     ) -> Result<WorkspaceContentSearchResult, WorkspaceApplicationError>;
 
     fn list_documents(

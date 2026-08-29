@@ -18,14 +18,14 @@
 
 use super::content_search::{WorkspaceContentSearchRequest, WorkspaceContentSearchResult};
 use super::error::WorkspaceApplicationError;
+use super::inspection_budget::{WorkspaceInspectionBudgetSnapshot, WorkspaceInspectionReason};
 use super::models::{
     DirectoryListing, DocumentListing, FileContent, FileSearchListing, GitDiffResult,
     GitDiffSource, GitStatusResult,
 };
+use super::search_cancellation::SearchCancellationToken;
 use async_trait::async_trait;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
 
 /// Which workspace an inspection is about.
 ///
@@ -322,7 +322,16 @@ impl WorkspaceSearchCoverageState {
 pub(crate) struct WorkspaceSearchCoverage {
     pub(crate) state: WorkspaceSearchCoverageState,
     /// Why it is not complete, as a token the frontend translates. Absent when it is.
+    ///
+    /// One primary reason rather than a list. A UI that had to rank several would rank them
+    /// differently from the code that produced them, and a reader only ever acts on one.
     pub(crate) reason_code: Option<&'static str>,
+    /// What the inspection actually spent, when it was accounted.
+    ///
+    /// Absent means "not accounted", never "spent nothing": a remote provider counts on the other
+    /// machine and a fixture counts nothing at all, and a zero here would claim a scan that never
+    /// happened.
+    pub(crate) budget: Option<WorkspaceInspectionBudgetSnapshot>,
 }
 
 impl WorkspaceSearchCoverage {
@@ -330,6 +339,7 @@ impl WorkspaceSearchCoverage {
         Self {
             state: WorkspaceSearchCoverageState::Complete,
             reason_code: None,
+            budget: None,
         }
     }
 
@@ -337,6 +347,7 @@ impl WorkspaceSearchCoverage {
         Self {
             state: WorkspaceSearchCoverageState::Partial,
             reason_code: Some(reason_code),
+            budget: None,
         }
     }
 
@@ -344,7 +355,32 @@ impl WorkspaceSearchCoverage {
         Self {
             state: WorkspaceSearchCoverageState::Unavailable,
             reason_code: Some(reason_code),
+            budget: None,
         }
+    }
+
+    /// Coverage for a stop reason, with the state that reason implies.
+    ///
+    /// The mapping lives on the reason rather than at each call site. A provider that decided for
+    /// itself whether `inspection_busy` was partial or unavailable would be a second opinion, and
+    /// the two would differ exactly where a reader needs them not to.
+    pub(crate) fn stopped(reason: WorkspaceInspectionReason) -> Self {
+        let state = if reason.is_unavailable() {
+            WorkspaceSearchCoverageState::Unavailable
+        } else {
+            WorkspaceSearchCoverageState::Partial
+        };
+        Self {
+            state,
+            reason_code: Some(reason.code()),
+            budget: None,
+        }
+    }
+
+    /// Attaches what the inspection spent.
+    pub(crate) fn with_budget(mut self, budget: WorkspaceInspectionBudgetSnapshot) -> Self {
+        self.budget = Some(budget);
+        self
     }
 }
 
@@ -406,14 +442,16 @@ pub(crate) trait WorkspaceInspectionProvider: Send + Sync {
 
     /// Content search: positions inside files, bounded and interruptible.
     ///
-    /// Takes the cancellation flag rather than looking one up. A provider that consulted a registry
+    /// Takes the cancellation token rather than looking one up. A provider that consulted a registry
     /// would be a second place that decides whether a search is still wanted, and the two would
-    /// disagree exactly when a reader cancelled at the wrong moment.
+    /// disagree exactly when a reader cancelled at the wrong moment. It is also the only half of a
+    /// registration a worker is given: the guard that owns the slot stays with the async caller, so
+    /// no walk on the blocking pool can remove a registration — its own or anybody else's.
     async fn search_content(
         &self,
         target: &WorkspaceTarget,
         request: WorkspaceContentSearchRequest,
-        cancelled: Arc<AtomicBool>,
+        cancellation: SearchCancellationToken,
     ) -> Result<WorkspaceContentSearchResult, WorkspaceInspectionError>;
 
     async fn list_documents(

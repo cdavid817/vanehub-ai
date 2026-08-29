@@ -11,10 +11,6 @@
 //! be made to agree about. A reader who gets different matches from the same query depending on
 //! which machine the workspace is on has been handed a puzzle rather than a feature.
 
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
-
 /// How many matches one search returns.
 pub(crate) const MAX_CONTENT_MATCHES: usize = 200;
 
@@ -64,60 +60,6 @@ pub(crate) struct WorkspaceContentSearchResult {
     pub(crate) matches: Vec<WorkspaceContentMatch>,
 }
 
-/// Which searches have been asked to stop.
-///
-/// A registry rather than a token passed down, because the thing that cancels a search is a
-/// different command from the one running it: by the time a reader presses Escape, the search is
-/// already inside a walk on the blocking pool, and the only way to reach it is a flag it polls.
-///
-/// Entries are removed when their search ends, and a cancel for a search that already finished is
-/// silently accepted — the caller cannot know which happened first, and refusing would make an
-/// ordinary race look like an error.
-#[derive(Default)]
-pub(crate) struct WorkspaceSearchCancellation {
-    running: Mutex<HashMap<String, Arc<AtomicBool>>>,
-}
-
-impl WorkspaceSearchCancellation {
-    /// Registers a search and hands back the flag it should poll.
-    ///
-    /// Registering *before* the work starts is what makes a cancel that arrives immediately still
-    /// land: a flag created when the walk begins would miss every cancel sent in the window
-    /// between the request leaving the frontend and the first directory being read.
-    pub(crate) fn begin(&self, search_id: &str) -> Arc<AtomicBool> {
-        let flag = Arc::new(AtomicBool::new(false));
-        if let Ok(mut running) = self.running.lock() {
-            // Replacing an id already in flight cancels the old one. A caller reusing an id has
-            // superseded its own search, and leaving both running would spend a machine's effort on
-            // an answer nobody will read.
-            if let Some(previous) = running.insert(search_id.to_string(), flag.clone()) {
-                previous.store(true, Ordering::Relaxed);
-            }
-        }
-        flag
-    }
-
-    pub(crate) fn finish(&self, search_id: &str) {
-        if let Ok(mut running) = self.running.lock() {
-            running.remove(search_id);
-        }
-    }
-
-    /// Asks a search to stop. Returns whether one was running under that id.
-    pub(crate) fn cancel(&self, search_id: &str) -> bool {
-        let Ok(running) = self.running.lock() else {
-            return false;
-        };
-        match running.get(search_id) {
-            Some(flag) => {
-                flag.store(true, Ordering::Relaxed);
-                true
-            }
-            None => false,
-        }
-    }
-}
-
 /// A bounded, control-free slice of a line, and where the match starts in it.
 ///
 /// Control characters are removed rather than escaped. They are not content a reader is searching
@@ -158,39 +100,6 @@ pub(crate) fn safe_snippet(line: &str, match_start_chars: usize) -> (String, boo
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_cancel_reaches_a_search_that_registered_first() {
-        let registry = WorkspaceSearchCancellation::default();
-        let flag = registry.begin("search-1");
-
-        assert!(registry.cancel("search-1"));
-        assert!(flag.load(Ordering::Relaxed));
-    }
-
-    #[test]
-    fn a_cancel_for_a_search_that_already_ended_is_accepted_quietly() {
-        let registry = WorkspaceSearchCancellation::default();
-        registry.begin("search-1");
-        registry.finish("search-1");
-
-        // False means "there was nothing to stop", not "you did something wrong". A caller cannot
-        // know whether their cancel beat the search's own completion, and turning that ordinary
-        // race into an error would put a failure on screen for a keystroke that worked.
-        assert!(!registry.cancel("search-1"));
-    }
-
-    #[test]
-    fn reusing_an_id_cancels_the_search_it_replaces() {
-        let registry = WorkspaceSearchCancellation::default();
-        let first = registry.begin("search-1");
-        let second = registry.begin("search-1");
-
-        // A caller reusing an id has superseded its own search. Leaving both running would spend a
-        // machine's effort producing an answer nobody will read.
-        assert!(first.load(Ordering::Relaxed));
-        assert!(!second.load(Ordering::Relaxed));
-    }
 
     #[test]
     fn a_short_line_is_returned_whole_with_a_one_based_column() {

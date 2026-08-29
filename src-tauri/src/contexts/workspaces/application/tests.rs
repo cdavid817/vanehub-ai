@@ -240,7 +240,7 @@ impl WorkspaceSessionQueryPort for FakeSessionQueries {
         &self,
         session_id: &str,
         request: &WorkspaceContentSearchRequest,
-        _cancelled: &Arc<std::sync::atomic::AtomicBool>,
+        _cancellation: &super::search_cancellation::SearchCancellationToken,
     ) -> Result<WorkspaceContentSearchResult, WorkspaceApplicationError> {
         self.calls
             .lock()

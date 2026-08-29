@@ -117,7 +117,7 @@ impl WorkspaceInspectionProvider for ScriptedProvider {
         &self,
         _target: &WorkspaceTarget,
         _request: WorkspaceContentSearchRequest,
-        _cancelled: Arc<std::sync::atomic::AtomicBool>,
+        _cancellation: crate::contexts::workspaces::application::SearchCancellationToken,
     ) -> Result<WorkspaceContentSearchResult, WorkspaceInspectionError> {
         panic!("a poll must not search")
     }
