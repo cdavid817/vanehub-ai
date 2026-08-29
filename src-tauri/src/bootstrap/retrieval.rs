@@ -1,7 +1,7 @@
 //! 检索上下文的装配根与后台索引 worker。
 //!
 //! `retrieval` 与 `agent_runtime` 的**唯一**交汇点在本文件，且是双向的：`retrieval` 需要一个
-//! embedding 端点和一份记忆快照（`AgentRuntimeEmbeddingEndpoint`/`AgentMemoryIndexSource`），
+//! embedding 端点和一份记忆快照（`AgentRuntimeEmbeddingEndpoint`/`GovernedMemoryIndexSource`），
 //! `agent_runtime` 的 `recall` 工具反过来需要检索能力（`DeferredAgentRetrieval`，Task 13）。两个
 //! 上下文因此都不 import 对方，跨界只发生在组合根里（设计文档 §4.3）。
 //!
@@ -11,12 +11,12 @@
 
 use crate::contexts::agent_runtime::api::AgentRuntimeApi;
 use crate::contexts::agent_runtime::application::{
-    AgentCodeRetrievalHit, AgentCodeRetrievalOutcome, AgentCodeRetrievalPort, AgentMemoryPort,
-    AgentRetrievalHit, AgentRetrievalOutcome, AgentRetrievalPort,
+    AgentCodeRetrievalHit, AgentCodeRetrievalOutcome, AgentCodeRetrievalPort, AgentRetrievalHit,
+    AgentRetrievalOutcome, AgentRetrievalPort,
 };
-use crate::contexts::agent_runtime::infrastructure::FileAgentMemoryStore;
 use crate::contexts::operations::api::{DiagnosticLog, DiagnosticLogPort, LogSeverity};
 use crate::contexts::operations::infrastructure::UnifiedLoggingAdapter;
+use crate::contexts::personalization::api::PersonalizationApi;
 use crate::contexts::retrieval::api::{
     CodeIndexApi, CodeIndexMutationBatch, CodeIndexMutationQueue, RetrievalApi,
     RetrievalWorkerSignal,
@@ -108,6 +108,7 @@ pub(crate) fn assemble_retrieval(
     agent_runtime: AgentRuntimeApi,
     sessions: SessionsApi,
     workspaces: WorkspaceApi,
+    personalization: PersonalizationApi,
 ) -> RetrievalAssembly {
     let documents: Arc<dyn RetrievalDocumentRepository> =
         Arc::new(SqliteRetrievalDocumentRepository::new(database.clone()));
@@ -115,12 +116,9 @@ pub(crate) fn assemble_retrieval(
     let configuration: Arc<dyn RetrievalConfigurationRepository> = Arc::new(
         SqliteRetrievalConfigurationRepository::new(database.clone()),
     );
-    let source: Arc<dyn IndexSourcePort> = Arc::new(AgentMemoryIndexSource {
-        memories: database
-            .db_path
-            .parent()
-            .and_then(|data_root| FileAgentMemoryStore::new(data_root).ok()),
-    });
+    // The governed store, not the pre-v2 directory. Once migration completes the v1 files are gone,
+    // so a source still reading them would index an empty pool and quietly stop answering recalls.
+    let source: Arc<dyn IndexSourcePort> = Arc::new(GovernedMemoryIndexSource { personalization });
     let endpoint: Arc<dyn EmbeddingEndpointPort> =
         Arc::new(AgentRuntimeEmbeddingEndpoint { agent_runtime });
     let embeddings: Arc<dyn EmbeddingPort> = Arc::new(ConfiguredProfileEmbeddingAdapter {
@@ -878,51 +876,51 @@ fn error_category(error: &RetrievalError) -> &'static str {
 /// snapshot is not a safe stand-in: reconciliation treats anything missing from it as deleted, so
 /// a failed store would silently wipe every indexed memory instead of leaving the index intact
 /// until the directory is reachable again.
-struct AgentMemoryIndexSource {
-    memories: Option<FileAgentMemoryStore>,
+struct GovernedMemoryIndexSource {
+    personalization: PersonalizationApi,
 }
 
-impl AgentMemoryIndexSource {
-    fn store(&self) -> Result<&FileAgentMemoryStore, RetrievalError> {
-        self.memories
-            .as_ref()
-            .ok_or_else(|| RetrievalError::Storage("Memory directory is unavailable.".to_string()))
-    }
-}
-
-impl IndexSourcePort for AgentMemoryIndexSource {
-    /// The directory scan is the authoritative snapshot, so a memory file added or removed outside
-    /// the application converges on the next reconcile with no user action.
+impl IndexSourcePort for GovernedMemoryIndexSource {
+    /// The governed store is the authoritative snapshot, so a memory added or removed outside the
+    /// application converges on the next reconcile with no user action.
+    ///
+    /// Empty while migration has not finished, which is the point: indexing a half-migrated store
+    /// would leave documents for memories that are about to be rewritten, and the reconcile that
+    /// runs once it *is* finished removes anything that no longer exists — including every row
+    /// keyed on a pre-v2 path.
     fn snapshot(&self) -> Result<Vec<IndexSourceRecord>, RetrievalError> {
         let memories = self
-            .store()?
-            .list_all()
+            .personalization
+            .compatibility_memories()
             .map_err(|error| RetrievalError::Storage(error.to_string()))?;
         Ok(memories.into_iter().map(index_source_record).collect())
     }
 
-    /// Hits resolve by reading the memory file. One whose file is gone is simply absent, which is
-    /// what stops a deleted memory being surfaced from a surviving index row.
+    /// Hits resolve by reading the named records. One whose record is gone is simply absent, which
+    /// is what stops a deleted memory being surfaced from a surviving index row.
     fn fetch(&self, source_ids: &[String]) -> Result<Vec<IndexSourceRecord>, RetrievalError> {
         let memories = self
-            .store()?
-            .list_by_paths(source_ids)
+            .personalization
+            .compatibility_memories_by_handle(source_ids)
             .map_err(|error| RetrievalError::Storage(error.to_string()))?;
         Ok(memories.into_iter().map(index_source_record).collect())
     }
 }
 
 fn index_source_record(
-    memory: crate::contexts::agent_runtime::application::AgentMemory,
+    memory: crate::contexts::personalization::api::CompatibilityMemory,
 ) -> IndexSourceRecord {
     IndexSourceRecord {
-        source_id: memory.id,
-        agent_id: memory.agent_id,
-        // 无工作区文件夹用空串哨兵，与 `agent_memories.folder` 的列约定一致；检索侧的 scope
-        // 也这样映射，两侧不一致就永远搜不到。
-        folder: memory.folder.unwrap_or_default(),
+        // The v2 file name, which is what the compatibility view hands out as a handle everywhere
+        // else. Keying on anything else would make a hit unresolvable.
+        source_id: memory.file_name,
+        agent_id: memory.source_agent_id.unwrap_or_default(),
+        // 无工作区文件夹用空串哨兵，与检索侧 scope 的映射一致；两侧不一致就永远搜不到。
+        folder: memory.source_workspace.unwrap_or_default(),
         content: memory.content,
-        created_at: memory.created_at,
+        created_at: memory
+            .created_at
+            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
     }
 }
 
@@ -1024,12 +1022,6 @@ impl AgentRetrievalPort for DeferredAgentRetrieval {
             .search(query, limit)
             .map(project_search_outcome)
             .map_err(|error| error.to_string())
-    }
-
-    fn notify_source_changed(&self) {
-        if let Some(retrieval) = self.bound.get() {
-            retrieval.wake_worker();
-        }
     }
 
     fn code_retrieval(&self) -> Option<&dyn AgentCodeRetrievalPort> {

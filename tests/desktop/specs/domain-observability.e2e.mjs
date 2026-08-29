@@ -322,6 +322,7 @@ globalThis.describe("VaneHub AI desktop domain observability", () => {
       // `SessionBindingView` is dto.rs:46-51.
       const empty = await invoke(({ core }, id) => core.invoke("get_im_session_binding", {
         sessionId: id,
+        connector: "feishu",
       }), session.id);
       assert.equal(empty.binding, null, "a session with no pairing reported a binding");
       assert.equal(empty.pendingConnector, null, "a session with no pairing reported a pending connector");
@@ -426,6 +427,7 @@ globalThis.describe("VaneHub AI desktop domain observability", () => {
 
       const pending = await invoke(({ core }, id) => core.invoke("get_im_session_binding", {
         sessionId: id,
+        connector: "feishu",
       }), session.id);
       assert.equal(pending.pendingConnector, connected.descriptor.kind,
         "the started intent is not visible on the session");
@@ -440,6 +442,7 @@ globalThis.describe("VaneHub AI desktop domain observability", () => {
       assert.equal(cancelled, true, "the started pairing intent could not be cancelled");
       const cleared = await invoke(({ core }, id) => core.invoke("get_im_session_binding", {
         sessionId: id,
+        connector: "feishu",
       }), session.id);
       assert.equal(cleared.pendingConnector, null, "the cancelled intent is still pending");
     } finally {

@@ -251,11 +251,24 @@ impl OperationIdGenerator for UuidRunIds {
         uuid::Uuid::now_v7().to_string()
     }
 }
-pub(crate) fn persistent_run_service(database: NativeDatabase) -> AgentRunService {
+pub(crate) fn persistent_run_service(
+    database: NativeDatabase,
+    evidence: Arc<dyn crate::contexts::operations::api::OperationsEvidencePort>,
+) -> AgentRunService {
     AgentRunService::new(
         Arc::new(SqliteRunRepository::new(database)),
         Arc::new(Rfc3339RunClock),
         Arc::new(UuidRunIds),
+        evidence,
+    )
+}
+
+/// A run service that records nothing, for tests whose subject is not evidence.
+#[cfg(test)]
+pub(crate) fn persistent_run_service_for_test(database: NativeDatabase) -> AgentRunService {
+    persistent_run_service(
+        database,
+        Arc::new(crate::contexts::operations::application::NoOperationsEvidence),
     )
 }
 
@@ -279,7 +292,7 @@ mod tests {
     fn snapshots_events_and_restart_reconciliation_survive_reopen() {
         let directory = TempDirectory::new("canonical-runs");
         let database = NativeDatabase::new(directory.path().to_path_buf()).expect("database");
-        let service = persistent_run_service(database.clone());
+        let service = persistent_run_service_for_test(database.clone());
         let run = service
             .create(CreateAgentRun {
                 id: None,
@@ -325,7 +338,7 @@ mod tests {
         drop(service);
         drop(database);
         let reopened = NativeDatabase::new(directory.path().to_path_buf()).expect("reopen");
-        let service = persistent_run_service(reopened.clone());
+        let service = persistent_run_service_for_test(reopened.clone());
         assert_eq!(service.reconcile_after_restart().expect("reconcile"), 1);
         assert_eq!(service.get(&run.id).expect("run").state, RunState::Failed);
         assert_eq!(

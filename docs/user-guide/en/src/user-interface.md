@@ -155,7 +155,7 @@ When you reopen a session after a crash or an abnormal exit, a **recovery banner
 | **Agent Configurations** | Provider, endpoint, and model per Agent, including OnePiece — see [Tools and extensions](tooling.md#agent-configurations) |
 | **Agent Policies** | Permission policy and approval templates — see [Permission approvals](permissions.md) |
 | **Expert Roles** | Role fields, responsibilities, and review policy — see [Expert roles](expert-roles.md) |
-| **Personalization** | Custom instructions and cross-session memory — see [Personalization](personalization.md) |
+| **AI Personalization** | Overview, Instructions, Memory, and Runtime Preview — see [Personalization](personalization.md) |
 | **Skills** | Skill installation and binding — see [Manage Skills](skill-management.md) |
 | **Prompt Hooks** | Hook management — see [Prompt Hooks](prompt-hooks.md) |
 | **IM Connectors** | IM connector configuration — see [Remote and IM](remote-and-im.md#im-connectors) |

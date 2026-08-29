@@ -99,16 +99,6 @@ pub(crate) trait RetrievalDocumentRepository: Send + Sync {
         self.list_indexed_source_ids(source_kind)
     }
 
-    fn delete_by_source_scoped(
-        &self,
-        source_kind: SourceKind,
-        scope: &RetrievalScope,
-        source_id: &str,
-    ) -> Result<(), RetrievalError> {
-        require_legacy_global_scope(source_kind, scope)?;
-        self.delete_by_source(source_kind, source_id)
-    }
-
     fn claim_pending_batch_scoped(
         &self,
         source_kind: SourceKind,

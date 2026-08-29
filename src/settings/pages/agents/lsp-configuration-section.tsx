@@ -23,15 +23,23 @@ function ConfigurationEditor({
   configuration,
   discoveries,
   discoveryPending,
+  onInstall,
   onRefreshDiscovery,
   onSave,
+  onUninstall,
+  installBusy,
+  installReasons,
   pending,
 }: {
   configuration: LspConfiguration;
   discoveries: Awaited<ReturnType<AgentService["discoverLspServers"]>>;
   discoveryPending: boolean;
+  installBusy: ReadonlySet<string>;
+  installReasons: Record<string, string>;
+  onInstall: (language: string) => void;
   onRefreshDiscovery: () => void;
   onSave: (configuration: LspConfiguration) => void;
+  onUninstall: (language: string) => void;
   pending: boolean;
 }) {
   const { t } = useTranslation();
@@ -86,6 +94,14 @@ function ConfigurationEditor({
             draft={draft.languages[descriptor.language]}
             errorKey={errors[descriptor.language]}
             key={descriptor.language}
+            install={descriptor.distribution === null ? undefined : {
+              busy: installBusy.has(descriptor.language),
+              distribution: descriptor.distribution,
+              installed: descriptor.installed,
+              onInstall: () => onInstall(descriptor.language),
+              onUninstall: () => onUninstall(descriptor.language),
+              reasonCode: installReasons[descriptor.language],
+            }}
             language={descriptor.language}
             overrideTarget={descriptor.overrideTarget}
             prerequisite={descriptor.prerequisite}
@@ -132,6 +148,37 @@ export function LspConfigurationSection({ service = defaultAgentService }: { ser
       ]);
     },
   });
+  // A set rather than one language: a single slot means starting a second install clears the
+  // first card's busy state and re-enables its button while its download is still running. Only
+  // one language declares a distribution today, so nothing exercises that yet — which is exactly
+  // why it has to be right now, since the point of the descriptor is that the second language
+  // needs no change here.
+  const [installBusy, setInstallBusy] = useState<ReadonlySet<string>>(new Set());
+  const [installReasons, setInstallReasons] = useState<Record<string, string>>({});
+  const runInstall = async (language: string, action: (language: string) => Promise<void>) => {
+    setInstallBusy((current) => new Set(current).add(language));
+    setInstallReasons((current) => ({ ...current, [language]: "" }));
+    try {
+      await action(language);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: lspConfigurationQueryKey }),
+        queryClient.invalidateQueries({ queryKey: lspDiscoveryQueryKey }),
+      ]);
+    } catch (error) {
+      // The backend returns a closed reason code; anything else is rendered through the same
+      // fallback the card already uses for an unlocalized code.
+      const reason = error instanceof Error ? error.message : "install_failed";
+      setInstallReasons((current) => ({ ...current, [language]: reason }));
+    } finally {
+      // Cleared on every path: an action left stuck in "working" reads as an install still
+      // running when nothing is.
+      setInstallBusy((current) => {
+        const remaining = new Set(current);
+        remaining.delete(language);
+        return remaining;
+      });
+    }
+  };
   const loading = configurationQuery.isLoading || discoveryQuery.isLoading;
   const loadError = configurationQuery.error ?? discoveryQuery.error;
 
@@ -153,8 +200,12 @@ export function LspConfigurationSection({ service = defaultAgentService }: { ser
           configuration={configurationQuery.data}
           discoveries={discoveryQuery.data ?? []}
           discoveryPending={discoveryQuery.isFetching}
+          installBusy={installBusy}
+          installReasons={installReasons}
+          onInstall={(language) => { void runInstall(language, service.installLspServer); }}
           onRefreshDiscovery={() => { void discoveryQuery.refetch(); }}
           onSave={(configuration) => saveMutation.mutate(configuration)}
+          onUninstall={(language) => { void runInstall(language, service.uninstallLspServer); }}
           pending={saveMutation.isPending}
         />
       ) : null}

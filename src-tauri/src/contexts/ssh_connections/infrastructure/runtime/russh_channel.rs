@@ -101,6 +101,13 @@ impl RemoteSshChannelPort for RusshChannel {
             .map_err(|_| RemoteSshError::ChannelFailed)
     }
 
+    async fn send_eof(&self) -> Result<(), RemoteSshError> {
+        self.writer
+            .eof()
+            .await
+            .map_err(|_| RemoteSshError::ChannelFailed)
+    }
+
     async fn resize(&self, request: RemotePtyRequest) -> Result<(), RemoteSshError> {
         self.writer
             .window_change(request.columns, request.rows, 0, 0)

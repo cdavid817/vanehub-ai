@@ -41,6 +41,7 @@ flowchart TB
     SAS[skill_evolution_system_activity]
     SEG[skill_evolution_generation]
     SEO[skill_evolution_orchestration]
+    PZ[personalization]
   end
 
   subgraph Track["Planning and tracking"]
@@ -114,6 +115,7 @@ The diagram only draws **call direction** between contexts, not specific command
 | `skill_evolution_system_activity` | Read-only Skill Evolution activity sessions, canonical result projection, read state, preferences, rebuilds, retention, and exports | [Skill evolution evidence](skill-evolution-evidence.md) |
 | `skill_evolution_generation` | Privacy-safe evidence dossiers, constrained structured generation, local rendering and validation, quarantined proposals, and Curator handoff | [Skill evolution evidence](skill-evolution-evidence.md) |
 | `skill_evolution_orchestration` | Durable Skill Evolution triggers, idle gating, governed runs, automatic-application policy, recovery, rate limits, probation, circuit breakers, and safe notifications | [Skill evolution evidence](skill-evolution-evidence.md) |
+| `personalization` | Layered instruction policy, governed memory records and candidates, effective-personalization resolution, and memory maintenance | [Cross-session memory](cross-session-memory.md) |
 
 ### Planning and tracking
 

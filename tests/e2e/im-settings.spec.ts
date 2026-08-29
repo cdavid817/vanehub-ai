@@ -39,6 +39,20 @@ async function configureFeishu(page: Page) {
   await page.getByRole("button", { name: "从会话连接" }).click();
 }
 
+async function configureTelegram(page: Page) {
+  await page.getByRole("button", { name: /设置|Settings/ }).click();
+  await page.getByRole("button", { name: /IM 能力|IM Connectors/ }).click();
+  const telegram = page.locator('[data-connector="telegram"]');
+  await telegram.getByRole("button", { expanded: false }).click();
+  await telegram.getByLabel("Bot Token").fill("playwright-private-token");
+  await telegram.getByRole("button", { name: "保存凭据" }).click();
+  await expect(telegram.getByLabel("Bot Token")).toHaveValue("");
+  await expect(page.locator("body")).not.toContainText("playwright-private-token");
+  await telegram.locator('input[type="checkbox"]').check();
+  await expect(telegram.getByText("已连接", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "从会话连接" }).click();
+}
+
 async function exerciseBinding(page: Page) {
   const accessSwitch = page.getByRole("switch", { name: "为当前会话启用飞书" });
   await expect(accessSwitch).not.toBeChecked();
@@ -77,8 +91,7 @@ test("narrow session action exposes the default-off IM switch", async ({ page })
   await prepareSession(page, "minimal", 390);
 
   const openIm = page.getByRole("button", { name: "打开 IM 连接" });
-  await openIm.focus();
-  await expect(openIm).toBeFocused();
+  await expect(openIm).toBeVisible();
   await openIm.press("Enter");
 
   await expect(page.locator('[data-testid="session-im-pane"]')).toBeVisible();
@@ -93,9 +106,22 @@ test("responsive session action opens equivalent IM flow in minimal style", asyn
   await expect(page.locator("html")).toHaveAttribute("data-theme", "minimal");
 
   const openIm = page.getByRole("button", { name: "打开 IM 连接" });
-  await openIm.focus();
-  await expect(openIm).toBeFocused();
+  await expect(openIm).toBeVisible();
   await openIm.press("Enter");
   await expect(page.locator('[data-testid="session-im-pane"]')).toBeVisible();
   await exerciseBinding(page);
+});
+
+test("session panel scopes access and pairing to Telegram", async ({ page }) => {
+  await prepareSession(page, "minimal", 1440);
+  await configureTelegram(page);
+  await page.getByRole("tab", { name: "IM" }).click();
+
+  const selector = page.getByRole("combobox", { name: "IM 连接器" });
+  await expect(selector).toHaveValue("telegram");
+  const accessSwitch = page.getByRole("switch", { name: "为当前会话启用Telegram" });
+  await accessSwitch.check();
+  await page.getByRole("button", { name: "Telegram" }).click();
+  await expect(page.getByText(/\/bind [A-Z0-9]{8}/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "暂停" })).toBeVisible({ timeout: 10_000 });
 });

@@ -189,7 +189,7 @@ mod tests {
             "operation-password",
             "spoofed",
         ] {
-            assert!(!raw.contains(secret), "redaction leaked {secret}");
+            assert!(!raw.contains(secret), "redaction leaked a protected value");
         }
     }
 
@@ -251,10 +251,10 @@ mod tests {
             "private.json",
             "private.env",
         ] {
-            assert!(!jsonl.contains(secret), "JSONL leaked {secret}");
+            assert!(!jsonl.contains(secret), "JSONL leaked a protected value");
             assert!(
                 !external_rendered.contains(secret),
-                "export leaked {secret}"
+                "export leaked a protected value"
             );
         }
     }

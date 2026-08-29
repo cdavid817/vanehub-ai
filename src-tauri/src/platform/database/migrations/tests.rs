@@ -1088,6 +1088,196 @@ fn retire_plan_execution_preserves_history_and_mixed_work_items() {
     );
 }
 
+/// The nine tables versions 91 through 94 are responsible for.
+///
+/// Named rather than counted. A count still passes when a rename leaves the old table behind and
+/// creates a new one beside it, which is the shape of the mistake this is here to catch.
+const EVIDENCE_CONSOLE_TABLES: &[&str] = &[
+    "execution_evidence_records",
+    "execution_evidence_events",
+    "execution_evidence_coverage",
+    "unified_log_query_index",
+    "unified_log_source_checkpoints",
+    "unified_log_index_gaps",
+    "unified_log_index_repair_state",
+    "review_hunk_decisions",
+    "review_file_states",
+];
+
+fn table_exists(connection: &Connection, name: &str) -> bool {
+    connection
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+            [name],
+            |row| row.get::<_, i64>(0),
+        )
+        .expect("table lookup")
+        > 0
+}
+
+fn missing_evidence_console_tables(connection: &Connection) -> Vec<&'static str> {
+    EVIDENCE_CONSOLE_TABLES
+        .iter()
+        .copied()
+        .filter(|name| !table_exists(connection, name))
+        .collect()
+}
+
+#[test]
+fn evidence_console_migrations_restore_their_schema_after_a_version_collision() {
+    let connection = Connection::open_in_memory().expect("in-memory database");
+    migrate(&connection).expect("current schema");
+    assert_eq!(
+        missing_evidence_console_tables(&connection),
+        Vec::<&str>::new(),
+        "a fresh migration must create all of them"
+    );
+
+    connection
+        .execute(
+            "INSERT INTO agents (id, display_name, provider, launch_kind) \
+             VALUES ('agent-1', 'Agent', 'Test', 'api')",
+            [],
+        )
+        .expect("pre-existing agent");
+    connection
+        .execute(
+            "INSERT INTO sessions (id, title, agent_id, interaction_mode, lifecycle_state, \
+             created_at, updated_at) VALUES ('upgrade-session', 'Upgrade', 'agent-1', 'chat', \
+             'idle', '2026-08-27T00:00:00Z', '2026-08-27T00:00:00Z')",
+            [],
+        )
+        .expect("pre-existing session");
+
+    // Not hypothetical. Every one of 81 through 84 is taken on `main` by an unrelated migration, so
+    // a shared application database migrated by another worktree arrives in exactly this state:
+    // history complete, schema absent, and `apply_migration` version-gated against running again.
+    for table in EVIDENCE_CONSOLE_TABLES {
+        connection
+            .execute_batch(&format!("DROP TABLE IF EXISTS {table};"))
+            .expect("drop table");
+    }
+    assert_eq!(
+        missing_evidence_console_tables(&connection).len(),
+        EVIDENCE_CONSOLE_TABLES.len(),
+        "the fixture must actually remove them, or the repair below proves nothing"
+    );
+
+    let recorded: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM schema_migrations WHERE version BETWEEN 91 AND 94",
+            [],
+            |row| row.get(0),
+        )
+        .expect("migration history");
+    assert_eq!(recorded, 4, "history is intact; only the schema is gone");
+
+    migrate(&connection).expect("upgrade an already-versioned database");
+
+    assert_eq!(
+        missing_evidence_console_tables(&connection),
+        Vec::<&str>::new(),
+        "each of the four carries a repair, so a skipped migration is not a permanent hole"
+    );
+    // Additive: the repair re-asserts a schema, it does not rebuild a database.
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT COUNT(*) FROM sessions WHERE id = 'upgrade-session'",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .expect("preserved session"),
+        1
+    );
+}
+
+#[test]
+fn evidence_console_repairs_leave_recorded_rows_alone() {
+    let connection = Connection::open_in_memory().expect("in-memory database");
+    migrate(&connection).expect("current schema");
+    connection
+        .execute(
+            "INSERT INTO unified_log_source_checkpoints (source_file_id, directory_generation, \
+             next_offset, updated_at) VALUES ('file-1', 'gen-1', 4096, '2026-08-27T00:00:00Z')",
+            [],
+        )
+        .expect("checkpoint");
+
+    // Idempotency is the property a repair needs *after* it has already run once. A repair that
+    // recreated its tables would silently reset every checkpoint on the next startup, and the only
+    // symptom would be a log index reindexing from zero for no stated reason.
+    migrate(&connection).expect("second migrate over a complete database");
+
+    let checkpoint: (String, i64) = connection
+        .query_row(
+            "SELECT directory_generation, next_offset FROM unified_log_source_checkpoints \
+             WHERE source_file_id = 'file-1'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("surviving checkpoint");
+    assert_eq!(checkpoint, ("gen-1".to_string(), 4096));
+}
+
+#[test]
+fn the_journal_starts_empty_on_a_database_that_already_holds_chat_history() {
+    let connection = Connection::open_in_memory().expect("in-memory database");
+    migrate(&connection).expect("current schema");
+    connection
+        .execute(
+            "INSERT INTO agents (id, display_name, provider, launch_kind) \
+             VALUES ('agent-1', 'Agent', 'Test', 'api')",
+            [],
+        )
+        .expect("agent");
+    connection
+        .execute(
+            "INSERT INTO sessions (id, title, agent_id, interaction_mode, lifecycle_state, \
+             created_at, updated_at) VALUES ('historical', 'Old work', 'agent-1', 'chat', 'idle', \
+             '2026-08-01T00:00:00Z', '2026-08-01T00:00:00Z')",
+            [],
+        )
+        .expect("historical session");
+    connection
+        .execute(
+            "INSERT INTO messages (id, session_id, role, content, tool_use, created_at, \
+             updated_at) VALUES ('message-1', 'historical', 'assistant', 'ran the tests', \
+             '[{\"id\":\"tool-1\",\"name\":\"Bash\",\"status\":\"completed\"}]', \
+             '2026-08-01T00:00:00Z', '2026-08-01T00:00:00Z')",
+            [],
+        )
+        .expect("historical toolUse message");
+
+    // The upgrade an existing installation actually performs.
+    migrate(&connection).expect("re-migrate");
+
+    // Empty is the correct answer, and it is the one that looks like a bug. A console showing
+    // nothing for a session with visible history is what makes backfill tempting, and backfilling
+    // is what would make the journal unable to distinguish what the runtime watched from what an
+    // assistant said it was doing. The history is shown — projected, separately, as `inferred` —
+    // and it is not written down.
+    let recorded: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM execution_evidence_records",
+            [],
+            |row| row.get(0),
+        )
+        .expect("journal count");
+    assert_eq!(recorded, 0, "migration must not mint evidence from history");
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT COUNT(*) FROM messages WHERE id = 'message-1'",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .expect("message count"),
+        1,
+        "and it must not consume the history either"
+    );
+}
+
 /// The upgrade path the `81` collision created.
 ///
 /// `add-local-composer-media-tools` and `upgrade-cli-parameter-management` both reserved 81 while
@@ -1252,6 +1442,7 @@ fn a_database_holding_the_unmerged_local_media_migration_regains_the_cli_paramet
         .expect("repeat count");
     assert_eq!(repeated, i64::try_from(history.len()).expect("count fits"));
 }
+
 fn table_count(connection: &Connection, table: &str) -> i64 {
     connection
         .query_row(

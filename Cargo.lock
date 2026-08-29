@@ -8019,7 +8019,7 @@ dependencies = [
 
 [[package]]
 name = "vanehub-ai"
-version = "1.2.0"
+version = "1.3.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -8061,6 +8061,7 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "syn 3.0.3",
+ "tar",
  "tauri",
  "tauri-build",
  "tauri-plugin-autostart",

@@ -1,18 +1,8 @@
-use super::review_dto::ReviewSessionDto;
+use super::review_dto::{parse_review_decision, ReviewSessionDto};
 use super::review_error::map_review_error;
 use crate::commands::error::CommandError;
 use crate::contexts::sessions::api::SessionsApi;
-use crate::contexts::sessions::domain::ReviewDecision;
 use tauri::State;
-
-fn parse_review_decision(decision: &str) -> Result<ReviewDecision, CommandError> {
-    match decision {
-        "pending" => Ok(ReviewDecision::Pending),
-        "accepted" => Ok(ReviewDecision::Accepted),
-        "changes-requested" => Ok(ReviewDecision::ChangesRequested),
-        _ => Err(CommandError::validation("invalid review decision")),
-    }
-}
 
 #[tauri::command]
 pub(crate) fn set_code_review_decision(

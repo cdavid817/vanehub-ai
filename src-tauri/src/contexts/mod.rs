@@ -13,6 +13,11 @@ pub(crate) mod goals;
 pub(crate) mod local_media;
 pub(crate) mod operations;
 pub(crate) mod permissions;
+// Built bottom-up by `add-unified-personalization-governance`: the domain compiles and is tested
+// before any repository, command, or runtime adapter consumes it. The allow comes off in the task
+// group that wires `PersonalizationApi` into the composition root.
+#[allow(dead_code, unused_imports)]
+pub(crate) mod personalization;
 pub(crate) mod retrieval;
 pub(crate) mod sessions;
 // Assessment remains dormant until its queue and repository are wired during the evolution rollout.

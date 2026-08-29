@@ -41,6 +41,7 @@ flowchart TB
     SAS[skill_evolution_system_activity]
     SEG[skill_evolution_generation]
     SEO[skill_evolution_orchestration]
+    PZ[personalization]
   end
 
   subgraph Track["规划与追踪"]
@@ -114,6 +115,7 @@ flowchart TB
 | `skill_evolution_system_activity` | 只读 Skill 演进活动会话、规范结果投影、已读状态、偏好、重建、保留与导出 | [Skill 演进证据](skill-evolution-evidence.md) |
 | `skill_evolution_generation` | 隐私安全的证据档案、受约束的结构化生成、本地渲染与验证、隔离提案及 Curator 交接 | [Skill 演进证据](skill-evolution-evidence.md) |
 | `skill_evolution_orchestration` | 持久化 Skill 演进触发器、空闲门禁、受治理运行、自动应用策略、恢复、速率限制、观察期、断路器与安全通知 | [Skill 演进证据](skill-evolution-evidence.md) |
+| `personalization` | 分层指令策略、受治理的记忆记录与候选、有效个性化解析,以及记忆维护 | [跨会话记忆](cross-session-memory.md) |
 
 ### 规划与追踪
 

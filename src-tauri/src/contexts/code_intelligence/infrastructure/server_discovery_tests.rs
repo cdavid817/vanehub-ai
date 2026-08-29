@@ -1,8 +1,10 @@
 use super::server_discovery::{
-    locate_in_directories, resolved_startup_arguments, DiscoveryAvailability, DiscoveryReason,
-    NativeExecutableLocationPort, ServerDiscovery, SystemNativeExecutableLocator,
+    locate_in_directories, resolve_configuration_directory, resolved_startup_arguments,
+    DiscoveryAvailability, DiscoveryReason, NativeExecutableLocationPort, ServerDiscovery,
+    SystemNativeExecutableLocator,
 };
 use crate::contexts::code_intelligence::domain::registry;
+use crate::contexts::code_intelligence::domain::registry::{HostArchitecture, HostPlatform};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -299,6 +301,128 @@ fn a_launcher_outside_the_declared_directory_is_not_found() {
             .reason(),
         Some(DiscoveryReason::LauncherNotFound)
     );
+}
+
+#[test]
+fn a_managed_install_is_used_when_the_user_set_no_override() {
+    let discovery = java_discovery(Some(fixture_executable("java")));
+    let managed = fixture_install(&["org.eclipse.equinox.launcher_1.7.0.jar"]);
+
+    let result =
+        discovery.discover_with_managed_install(registry::java(), None, None, Some(&managed));
+
+    assert_eq!(result.availability(), DiscoveryAvailability::Available);
+    assert!(result
+        .resolved_launcher()
+        .is_some_and(|path| path.starts_with(&managed)));
+}
+
+#[test]
+fn an_override_wins_over_a_managed_install_that_also_exists() {
+    let discovery = java_discovery(Some(fixture_executable("java")));
+    let managed = fixture_install(&["org.eclipse.equinox.launcher_1.7.0.jar"]);
+    let chosen = fixture_install(&["org.eclipse.equinox.launcher_1.6.500.jar"]);
+
+    let result = discovery.discover_with_managed_install(
+        registry::java(),
+        Some(&chosen),
+        None,
+        Some(&managed),
+    );
+
+    // Installing through VaneHub must not silently retarget a user who already pointed somewhere.
+    // Both are on disk here, so a wrong precedence would start a server rather than fail visibly.
+    assert!(result
+        .resolved_launcher()
+        .is_some_and(|path| path.starts_with(&chosen)));
+}
+
+/// The Java entry's declaration, checked directly rather than through the host's own answer --
+/// a test that only asked about the current machine would pass on x86_64 while ARM stayed broken.
+#[test]
+fn every_platform_that_publishes_an_arm_configuration_declares_it() {
+    let launch = registry::java()
+        .launch
+        .interpreter()
+        .expect("java launches through an interpreter");
+
+    // Eclipse ships config_mac_arm and config_linux_arm beside the x86_64 ones because their
+    // config.ini names an OSGi launcher fragment per architecture. Windows has no ARM variant to
+    // declare: only a win32.x86_64 fragment is published.
+    assert_eq!(
+        launch.configuration_directories_for(HostPlatform::Macos, HostArchitecture::Aarch64),
+        vec!["config_mac_arm", "config_mac"]
+    );
+    assert_eq!(
+        launch.configuration_directories_for(HostPlatform::Linux, HostArchitecture::Aarch64),
+        vec!["config_linux_arm", "config_linux"]
+    );
+    assert_eq!(
+        launch.configuration_directories_for(HostPlatform::Windows, HostArchitecture::Aarch64),
+        vec!["config_win"]
+    );
+}
+
+#[test]
+fn an_x86_64_host_is_never_offered_the_arm_configuration() {
+    let launch = registry::java()
+        .launch
+        .interpreter()
+        .expect("java launches through an interpreter");
+
+    for platform in [
+        HostPlatform::Windows,
+        HostPlatform::Macos,
+        HostPlatform::Linux,
+    ] {
+        let candidates = launch.configuration_directories_for(platform, HostArchitecture::Other);
+        assert_eq!(candidates.len(), 1, "{platform:?}");
+        assert!(
+            !candidates[0].ends_with("_arm"),
+            "{platform:?}: {candidates:?}"
+        );
+    }
+}
+
+#[test]
+fn the_architecture_configuration_is_preferred_when_the_archive_ships_one() {
+    let install = fixture_install(&["org.eclipse.equinox.launcher_1.8.0.jar"]);
+    let arm = install.join(format!("{}_arm", config_directory_name()));
+    std::fs::create_dir_all(&arm).expect("arm config directory");
+
+    let resolved = resolve_configuration_directory(
+        &install,
+        registry::java()
+            .launch
+            .interpreter()
+            .expect("java launches through an interpreter"),
+    );
+
+    // On a platform with no ARM variant the base directory is still the right answer, so the
+    // assertion follows the declaration rather than assuming every host has two.
+    let expected = if cfg!(target_arch = "aarch64") && !cfg!(windows) {
+        arm
+    } else {
+        install.join(config_directory_name())
+    };
+    assert_eq!(resolved, Some(expected));
+}
+
+#[test]
+fn an_archive_without_the_arm_configuration_still_resolves_the_one_it_has() {
+    // What an older jdtls looks like: the platform directory exists, the _arm one never did.
+    // Failing closed here would break an install that works, so the shipped directory wins.
+    let install = fixture_install(&["org.eclipse.equinox.launcher_1.8.0.jar"]);
+
+    let resolved = resolve_configuration_directory(
+        &install,
+        registry::java()
+            .launch
+            .interpreter()
+            .expect("java launches through an interpreter"),
+    );
+
+    assert_eq!(resolved, Some(install.join(config_directory_name())));
 }
 
 fn fixture_executable(name: &str) -> PathBuf {

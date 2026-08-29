@@ -41,7 +41,7 @@ function session(overrides: Partial<Session> = {}): Session {
     title: "Interrupted",
     agentId: "onepiece",
     interactionMode: "api",
-    lifecycleState: "failed",
+    personalizationMode: "standard", lifecycleState: "failed",
     recoveryStatus: "action_required",
     recoveryRevision: 1,
     stateRevision: 2,

@@ -1,18 +1,19 @@
 use super::managed_mcp_relay::InvocationScopedMcpRelayAdapter;
+use super::personalization_bridge::GovernedPersonalizationAdapter;
 use crate::contexts::agent_runtime::api::{AgentRuntimeApi, AgentRuntimeApiServices};
 use crate::contexts::agent_runtime::application::{
     web_native_tool_handlers, AgentClockPort, AgentCodeIntelligenceResponderPort, AgentLoggingPort,
-    AgentMemoryPort, AgentRetrievalPort, AgentRunner, AgentRuntimeApplicationPorts,
-    AgentRuntimeApplicationService, AgentTerminalApplicationPorts, AgentTerminalApplicationService,
-    AgentWorkspaceMutationPort, ApiAgentGateway, ApiCredentialPort,
-    ApplyDelegationChangesNativeToolHandler, ArtifactNativeToolHandler, BrowserHandoffControlPort,
-    BrowserNativeToolHandler, CodeExecutionNativeToolHandler, ContextEngineService,
-    ContextManifestQueryService, ContextQualityQueryService, ContextQualityRecorder,
-    DelegateCliNativeToolHandler, ExpertRoleApplicationPorts, ExpertRoleApplicationService,
-    LocalModelDiscoveryService, LoopApplicationPorts, LoopApplicationService,
-    LoopControlApplicationPorts, LoopControlApplicationService, LoopOperationObserver,
-    LoopOrchestratorApplicationService, LoopOrchestratorPorts, LoopProgressApplicationService,
-    LoopRecoveryApplicationPorts, LoopRecoveryApplicationService, LoopVerificationApplicationPorts,
+    AgentRetrievalPort, AgentRunner, AgentRuntimeApplicationPorts, AgentRuntimeApplicationService,
+    AgentTerminalApplicationPorts, AgentTerminalApplicationService, AgentWorkspaceMutationPort,
+    ApiAgentGateway, ApiCredentialPort, ApplyDelegationChangesNativeToolHandler,
+    ArtifactNativeToolHandler, BrowserHandoffControlPort, BrowserNativeToolHandler,
+    CodeExecutionNativeToolHandler, ContextEngineService, ContextManifestQueryService,
+    ContextQualityQueryService, ContextQualityRecorder, DelegateCliNativeToolHandler,
+    ExpertRoleApplicationPorts, ExpertRoleApplicationService, LocalModelDiscoveryService,
+    LoopApplicationPorts, LoopApplicationService, LoopControlApplicationPorts,
+    LoopControlApplicationService, LoopOperationObserver, LoopOrchestratorApplicationService,
+    LoopOrchestratorPorts, LoopProgressApplicationService, LoopRecoveryApplicationPorts,
+    LoopRecoveryApplicationService, LoopVerificationApplicationPorts,
     LoopVerificationApplicationService, LoopVerifierApplicationPorts,
     LoopVerifierApplicationService, LoopWorkerApplicationPorts, LoopWorkerApplicationService,
     ManualNativeToolService, NativeToolDispatcher, NativeToolHandler,
@@ -23,30 +24,29 @@ use crate::contexts::agent_runtime::application::{
 };
 use crate::contexts::agent_runtime::infrastructure::LocalMediaOcrAdapter;
 use crate::contexts::agent_runtime::infrastructure::{
-    builtin_expert_roles, migrate_memory_rows, AgentRuntimeLoggingAdapter,
-    AgentRuntimeOperationAdapter, BuiltinAwareExpertRoleRepository, CodeIntelligenceContextSource,
-    CompositeAgentProcessGateway, CredentialAwareAgentRegistry, ExplicitReferenceContextSource,
-    FileAgentMemoryStore, HttpLocalModelDiscoveryAdapter, HttpOnePieceModelDiscoveryAdapter,
-    HttpStructuredModelTransport, InMemoryAgentMessageTerminalCompletions,
-    InMemoryGenerationCoordinator, InMemoryLoopExecutionCoordinator,
-    InMemoryLoopRoleGenerationCompletions, InMemorySeatTurnCompletions, LocalRunner,
-    ManualNativeToolAuthorityAdapter, ManualNativeToolControl, ManualNativeToolOperationAdapter,
-    MonotonicContextEngineClock, NativeAgentCoreInstructionsAdapter, NativeLoopScheduler,
-    NativeSeatTurnCoordinator, NativeSkillToolExecutionAdapter,
-    NativeSkillToolExecutionDependencies, NativeSubagentExecutor, NativeUtilityChildExecutor,
-    OsApiCredentialAdapter, PermissionsPortAdapter, PortablePtyAgentTerminalRuntime,
-    RetrievalContextSource, RunnerRegistry, RuntimeAgentApiAdapter,
-    RuntimeAgentAvailabilityAdapter, RuntimeAgentCliProfileAdapter, RuntimeAgentMcpToolAdapter,
-    RuntimeAgentMemoryExtractionAdapter, RuntimeAgentPersonalizationAdapter,
-    RuntimeAgentProcessAdapter, RuntimeAgentSkillAdapter, RuntimeEffectivePromptAdapter,
+    builtin_expert_roles, AgentRuntimeLoggingAdapter, AgentRuntimeOperationAdapter,
+    BuiltinAwareExpertRoleRepository, CodeIntelligenceContextSource, CompositeAgentProcessGateway,
+    CredentialAwareAgentRegistry, ExplicitReferenceContextSource, HttpLocalModelDiscoveryAdapter,
+    HttpOnePieceModelDiscoveryAdapter, HttpStructuredModelTransport,
+    InMemoryAgentMessageTerminalCompletions, InMemoryGenerationCoordinator,
+    InMemoryLoopExecutionCoordinator, InMemoryLoopRoleGenerationCompletions,
+    InMemorySeatTurnCompletions, LocalRunner, ManualNativeToolAuthorityAdapter,
+    ManualNativeToolControl, ManualNativeToolOperationAdapter, MonotonicContextEngineClock,
+    NativeAgentCoreInstructionsAdapter, NativeLoopScheduler, NativeSeatTurnCoordinator,
+    NativeSkillToolExecutionAdapter, NativeSkillToolExecutionDependencies, NativeSubagentExecutor,
+    NativeUtilityChildExecutor, OsApiCredentialAdapter, PermissionsPortAdapter,
+    PortablePtyAgentTerminalRuntime, RetrievalContextSource, RunnerRegistry,
+    RuntimeAgentApiAdapter, RuntimeAgentAvailabilityAdapter, RuntimeAgentCliProfileAdapter,
+    RuntimeAgentMcpToolAdapter, RuntimeAgentMemoryExtractionAdapter, RuntimeAgentProcessAdapter,
+    RuntimeAgentSkillAdapter, RuntimeEffectivePromptAdapter,
     RuntimeLoopVerificationEvidenceAdapter, RuntimeProcessEvidenceDependencies,
     RuntimeUtilityLifecycleProjector, SessionsAgentRuntimeAdapter, SkillToolPermissionAdapter,
-    SqliteAgentMemoryRepository, SqliteAgentRuntimeRepository, SqliteContextManifestRepository,
-    SqliteContextQualityRepository, SqliteExpertRoleRepository, SqliteLoopRepository,
-    SqliteNativeToolRepository, SshRunner, StructuredLoopVerificationProcess, SubagentRuntime,
-    SystemAgentRuntimeClock, SystemExpertRoleClock, TauriAgentRuntimeEventAdapter,
-    TerminalExecutionObservability, UnavailableNativeToolPort, UnifiedContextEngineDiagnostics,
-    UuidExpertRoleIds, WorkspaceLoopProjectAdapter,
+    SqliteAgentRuntimeRepository, SqliteContextManifestRepository, SqliteContextQualityRepository,
+    SqliteExpertRoleRepository, SqliteLoopRepository, SqliteNativeToolRepository, SshRunner,
+    StructuredLoopVerificationProcess, SubagentRuntime, SystemAgentRuntimeClock,
+    SystemExpertRoleClock, TauriAgentRuntimeEventAdapter, TerminalExecutionObservability,
+    UnavailableNativeToolPort, UnifiedContextEngineDiagnostics, UuidExpertRoleIds,
+    WorkspaceLoopProjectAdapter,
 };
 use crate::contexts::artifacts::application::{ArtifactBlobStorePolicy, ArtifactService};
 use crate::contexts::artifacts::infrastructure::{
@@ -77,6 +77,7 @@ use crate::contexts::execution_observability::api::ExecutionTelemetryPort;
 use crate::contexts::execution_observability::infrastructure::{
     CompositeExecutionTelemetry, ExecutionTelemetryLifecycle, OpenTelemetryExecutionExporter,
     OsObservabilityCredentialAdapter, RandomExecutionIdentity, SqliteExecutionTimelineRepository,
+    TauriTraceTransitionPublisher,
 };
 use crate::contexts::local_media::api::LocalMediaApi;
 use crate::contexts::local_media::domain::LocalMediaEngine;
@@ -86,6 +87,7 @@ use crate::contexts::operations::api::{
 };
 use crate::contexts::operations::infrastructure::UnifiedLoggingAdapter;
 use crate::contexts::permissions::api::PermissionsApi;
+use crate::contexts::personalization::api::PersonalizationApi;
 use crate::contexts::sessions::api::SessionsApi;
 use crate::contexts::skill_evolution_evidence::application::RuntimeEvidenceProjector;
 use crate::contexts::ssh_connections::api::SshConnectionsApi;
@@ -139,7 +141,13 @@ pub(crate) struct AgentRuntimeDependencies {
     pub(crate) code_intelligence: Arc<dyn AgentCodeIntelligenceResponderPort>,
     pub(crate) workspace_mutations: Arc<dyn AgentWorkspaceMutationPort>,
     pub(crate) desktop_settings: DesktopSettingsApi,
+    /// The governed personalization boundary. Both the memory port and the instruction settings
+    /// resolve through it, so nothing here reaches the pre-v2 store or the legacy settings rows.
+    pub(crate) personalization: PersonalizationApi,
     pub(crate) evidence: RuntimeEvidenceProjector,
+    /// The execution-evidence bridge. Distinct from `evidence` above, which projects skill
+    /// evolution: this one carries run lifecycle references to the execution journal.
+    pub(crate) execution_evidence: Arc<dyn crate::contexts::agent_runtime::api::AgentEvidencePort>,
 }
 
 #[derive(Clone)]
@@ -475,87 +483,11 @@ fn available_browser_sidecar(app: &AppHandle) -> Option<PathBuf> {
     })
 }
 
-/// Converts stored memory rows into memory files once, on a background thread
-/// (`migrate-agent-memory-to-file-store`).
-///
-/// Off the startup path because the row count is unbounded and a slow conversion must never delay
-/// the window. Every failure mode — no data root, an unwritable directory, an unreadable table, an
-/// unconvertible row — is logged and dropped rather than propagated: the rows are left intact, so
-/// the worst outcome is that the directory stays empty and the next launch retries.
-///
-/// The index's presence is the "already initialized" marker. Keying on it rather than on file
-/// absence is what stops a user's deletion of every memory from being undone on the next launch.
-fn spawn_memory_directory_migration(
-    database: NativeDatabase,
-    memories: Arc<SqliteAgentMemoryRepository>,
-    diagnostics: Arc<dyn DiagnosticLogPort>,
-) {
-    std::thread::spawn(move || {
-        let report = |severity: LogSeverity, message: String, context: BTreeMap<String, String>| {
-            let _ = diagnostics.write_diagnostic(DiagnosticLog {
-                severity,
-                category: "agent-runtime.memory.migration".to_string(),
-                message,
-                context,
-            });
-        };
-
-        let Some(data_root) = database.db_path.parent() else {
-            report(
-                LogSeverity::Warn,
-                "Application data directory is unavailable; memory migration skipped.".to_string(),
-                BTreeMap::new(),
-            );
-            return;
-        };
-        let store = match FileAgentMemoryStore::new(data_root) {
-            Ok(store) => store,
-            Err(error) => {
-                report(
-                    LogSeverity::Warn,
-                    format!("Memory directory is unavailable; migration skipped: {error}"),
-                    BTreeMap::new(),
-                );
-                return;
-            }
-        };
-        if store.has_index() {
-            return;
-        }
-        let rows = match memories.list_all() {
-            Ok(rows) => rows,
-            Err(error) => {
-                report(
-                    LogSeverity::Warn,
-                    format!("Stored memories could not be read; migration skipped: {error}"),
-                    BTreeMap::new(),
-                );
-                return;
-            }
-        };
-        match migrate_memory_rows(&store, &rows) {
-            Ok(outcome) => report(
-                LogSeverity::Info,
-                "Memory rows converted to memory files.".to_string(),
-                BTreeMap::from([
-                    ("migrated".to_string(), outcome.migrated.to_string()),
-                    ("skipped".to_string(), outcome.skipped.to_string()),
-                    ("failed".to_string(), outcome.failed.to_string()),
-                ]),
-            ),
-            Err(error) => report(
-                LogSeverity::Warn,
-                format!("Memory migration did not complete: {error}"),
-                BTreeMap::new(),
-            ),
-        }
-    });
-}
-
 pub(crate) fn assemble_agent_runtime_api(
     dependencies: AgentRuntimeDependencies,
 ) -> Result<AgentRuntimeAssembly, String> {
     let shared = dependencies.shared_registry;
+    let execution_evidence = dependencies.execution_evidence;
     let unified_logging = shared.unified_logging;
     let diagnostics: Arc<dyn DiagnosticLogPort> = unified_logging.clone();
     let logging = shared.logging;
@@ -576,11 +508,18 @@ pub(crate) fn assemble_agent_runtime_api(
     if let Some(exporter) = log_exporter {
         unified_logging.attach_external_exporter(exporter);
     }
-    let telemetry = Arc::new(CompositeExecutionTelemetry::with_diagnostics(
-        timeline.clone(),
-        exporters,
-        diagnostics.clone(),
-    ));
+    let telemetry = Arc::new(
+        CompositeExecutionTelemetry::with_diagnostics(
+            timeline.clone(),
+            exporters,
+            diagnostics.clone(),
+        )
+        // Announced only after the local store has committed, so a subscriber that refetches on a
+        // notice finds the change it was told about rather than the state before it.
+        .with_transitions(Arc::new(TauriTraceTransitionPublisher::new(
+            dependencies.app.clone(),
+        ))),
+    );
     let telemetry_lifecycle =
         ExecutionTelemetryLifecycle::new(telemetry.clone(), Duration::from_secs(3));
     let accounting = dependencies.sessions.clone();
@@ -621,28 +560,12 @@ pub(crate) fn assemble_agent_runtime_api(
         dependencies.skills.clone(),
         dependencies.evidence.clone(),
     ));
-    // The directory store is the memory write and read path; the row repository survives only as
-    // the migration source until `agent_memories` is dropped a release from now. Failing assembly
-    // here is safe rather than harsh: the memory directory sits beside the SQLite database, so a
-    // filesystem that cannot hold one has already failed the other.
-    let memory_root = dependencies
-        .database
-        .db_path
-        .parent()
-        .ok_or_else(|| "Application data directory is unavailable.".to_owned())?;
-    let agent_memories = Arc::new(
-        FileAgentMemoryStore::new(memory_root)
-            .map_err(|error| format!("Memory directory is unavailable: {error}"))?,
-    );
-    spawn_memory_directory_migration(
-        dependencies.database.clone(),
-        Arc::new(SqliteAgentMemoryRepository::new(
-            dependencies.database.clone(),
-        )),
-        diagnostics.clone(),
-    );
     let agent_mcp_tools = Arc::new(RuntimeAgentMcpToolAdapter::new(dependencies.mcp));
-    let agent_personalization = Arc::new(RuntimeAgentPersonalizationAdapter::new(
+    // Read-through to the dedicated policy rather than to the legacy settings rows: from the moment
+    // migration completes the policy is the source of truth, and two sources would drift as soon as
+    // either was edited.
+    let agent_personalization = Arc::new(GovernedPersonalizationAdapter::new(
+        dependencies.personalization.clone(),
         dependencies.desktop_settings,
     ));
     let agent_memory_extraction = Arc::new(RuntimeAgentMemoryExtractionAdapter::new(
@@ -752,7 +675,6 @@ pub(crate) fn assemble_agent_runtime_api(
             clock.clone(),
             agent_skills,
             Arc::new(NativeAgentCoreInstructionsAdapter),
-            agent_memories.clone(),
             agent_mcp_tools,
             agent_permissions.clone(),
             dependencies.retrieval,
@@ -835,35 +757,37 @@ pub(crate) fn assemble_agent_runtime_api(
         expert_role_repository.clone(),
         builtin_expert_roles(),
     ));
-    let service = AgentRuntimeApplicationService::new(AgentRuntimeApplicationPorts {
-        registry: registry.clone(),
-        workflows: repository.clone(),
-        sessions: sessions.clone(),
-        cli_profiles: cli_profiles.clone(),
-        prompts: Arc::new(RuntimeEffectivePromptAdapter::new(dependencies.prompts)),
-        processes: processes.clone(),
-        operations: operations.clone(),
-        logging: logging.clone(),
-        clock: clock.clone(),
-        events: events.clone(),
-        generations: Arc::new(InMemoryGenerationCoordinator::default()),
-        execution_ids: execution_ids.clone(),
-        execution_settings: timeline.clone(),
-        telemetry: telemetry.clone(),
-        loop_completions: loop_completions.clone(),
-        seat_completions: seat_completions.clone(),
-        expert_roles: seat_expert_roles,
-        history: sessions.clone(),
-        message_completions: Arc::new(InMemoryAgentMessageTerminalCompletions::default()),
-        api_agents: repository.clone(),
-        api_credentials: api_credentials.clone(),
-        onepiece_model_discovery: Arc::new(HttpOnePieceModelDiscoveryAdapter),
-        tool_approvals: tool_approvals.clone(),
-        memories: agent_memories,
-        memory_extraction: agent_memory_extraction,
-        personalization: agent_personalization,
-        runner_discovery: dependencies.runner_discovery,
-    });
+    let service = AgentRuntimeApplicationService::new(
+        AgentRuntimeApplicationPorts {
+            registry: registry.clone(),
+            workflows: repository.clone(),
+            sessions: sessions.clone(),
+            cli_profiles: cli_profiles.clone(),
+            prompts: Arc::new(RuntimeEffectivePromptAdapter::new(dependencies.prompts)),
+            processes: processes.clone(),
+            operations: operations.clone(),
+            logging: logging.clone(),
+            clock: clock.clone(),
+            events: events.clone(),
+            generations: Arc::new(InMemoryGenerationCoordinator::default()),
+            execution_ids: execution_ids.clone(),
+            execution_settings: timeline.clone(),
+            telemetry: telemetry.clone(),
+            loop_completions: loop_completions.clone(),
+            seat_completions: seat_completions.clone(),
+            expert_roles: seat_expert_roles,
+            history: sessions.clone(),
+            message_completions: Arc::new(InMemoryAgentMessageTerminalCompletions::default()),
+            api_agents: repository.clone(),
+            api_credentials: api_credentials.clone(),
+            onepiece_model_discovery: Arc::new(HttpOnePieceModelDiscoveryAdapter),
+            tool_approvals: tool_approvals.clone(),
+            memory_extraction: agent_memory_extraction,
+            personalization: agent_personalization,
+            runner_discovery: dependencies.runner_discovery,
+        },
+        execution_evidence,
+    );
     let local_discovery = LocalModelDiscoveryService::new(
         Arc::new(HttpLocalModelDiscoveryAdapter),
         operations.clone(),

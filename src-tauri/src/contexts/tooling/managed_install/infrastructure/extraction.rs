@@ -17,13 +17,6 @@ use crate::platform::logging::redact_text;
 /// What an archive may expand to. Declared by the contributor for the same reason the download
 /// ceiling is: an archive's compressed size says nothing about its expanded size.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the archive kind ships tested and without a caller; add-lsp-java-jdtls is the consumer"
-    )
-)]
 pub(crate) struct ExtractionLimits {
     pub(crate) max_total_bytes: u64,
     pub(crate) max_entries: usize,
@@ -35,15 +28,20 @@ impl ExtractionLimits {
     }
 }
 
+/// What an archive says an entry is.
+///
+/// Classified by the format adapter and decided by the guard, so a new adapter cannot forget that
+/// links are refused -- it has to say what each entry is before it learns where to write it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ArchiveEntryKind {
+    File,
+    Directory,
+    /// Anything else the format can express: symbolic links, hard links, devices, fifos.
+    Other,
+}
+
 /// A directory this process created and will remove unless extraction completes.
 #[derive(Debug)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the archive kind ships tested and without a caller; add-lsp-java-jdtls is the consumer"
-    )
-)]
 pub(crate) struct ExtractedArchive {
     pub(crate) directory: tempfile::TempDir,
 }
@@ -53,13 +51,6 @@ pub(crate) struct ExtractedArchive {
 /// Holds the destination so a failure anywhere removes everything already written: a partially
 /// unpacked tool is worse than none, because it looks installed.
 #[derive(Debug)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the archive kind ships tested and without a caller; add-lsp-java-jdtls is the consumer"
-    )
-)]
 pub(crate) struct ExtractionGuard {
     destination: tempfile::TempDir,
     limits: ExtractionLimits,
@@ -86,9 +77,15 @@ impl ExtractionGuard {
         })
     }
 
+    /// Where entries land. Reached by the tests rather than by an adapter -- an adapter is
+    /// handed each entry's path by `admit` and never needs the root, which is what keeps the
+    /// containment decision in one place.
     #[cfg_attr(
         not(test),
-        expect(dead_code, reason = "reached by the format adapter a consumer adds")
+        expect(
+            dead_code,
+            reason = "an adapter is given each path by admit and never needs the root"
+        )
     )]
     pub(crate) fn destination(&self) -> &Path {
         self.destination.path()
@@ -98,7 +95,19 @@ impl ExtractionGuard {
     ///
     /// The path is resolved against the destination and then checked to still be inside it, which
     /// is the only check that catches a name that normalizes its way out.
-    pub(crate) fn admit(&mut self, entry_name: &str) -> Result<PathBuf, ManagedInstallError> {
+    pub(crate) fn admit(
+        &mut self,
+        entry_name: &str,
+        kind: ArchiveEntryKind,
+    ) -> Result<PathBuf, ManagedInstallError> {
+        // Refused rather than recreated, and refused regardless of where the link points. A
+        // link's containment cannot be decided when it is written: it resolves at use, so one
+        // pointing inside the destination today points outside it after something else moves.
+        if kind == ArchiveEntryKind::Other {
+            return Err(ManagedInstallError::Refused(
+                "the archive contains an entry that is neither a file nor a directory".to_string(),
+            ));
+        }
         self.written_entries += 1;
         if self.written_entries > self.limits.max_entries {
             return Err(ManagedInstallError::Refused(format!(
@@ -191,13 +200,6 @@ impl ExtractionGuard {
 /// Zip because it needs no dependency this build does not already carry. A format that does --
 /// `tar.gz` is the obvious next one -- is a new adapter plus a dependency decision, and both
 /// belong to the change that has a consumer for them rather than to this one.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the archive kind ships tested and without a caller; add-lsp-java-jdtls is the consumer"
-    )
-)]
 pub(crate) fn extract_zip(
     archive: &Path,
     limits: ExtractionLimits,
@@ -215,15 +217,63 @@ pub(crate) fn extract_zip(
         // `name()` is the archive's own string. It is what the guard resolves, and the guard is
         // what decides whether it may be written -- this loop never joins it to a path itself.
         let name = entry.name().to_owned();
-        if name.ends_with('/') {
-            // A directory entry carries no bytes, but it still counts against the entry limit and
-            // still has to be inside the destination.
-            let path = guard.admit(&name)?;
+        // Zip carries the unix mode in the external attributes; `is_symlink` is how the crate
+        // reads it. A directory entry carries no bytes but still counts against the entry limit
+        // and still has to be inside the destination.
+        let kind = if entry.is_symlink() {
+            ArchiveEntryKind::Other
+        } else if name.ends_with('/') {
+            ArchiveEntryKind::Directory
+        } else {
+            ArchiveEntryKind::File
+        };
+        let path = guard.admit(&name, kind)?;
+        if kind == ArchiveEntryKind::Directory {
             std::fs::create_dir_all(&path)
                 .map_err(|error| ManagedInstallError::Transfer(redact_text(&error.to_string())))?;
             continue;
         }
-        let path = guard.admit(&name)?;
+        guard.write_entry(&path, &mut entry)?;
+    }
+    Ok(guard.finish())
+}
+
+/// Unpacks a verified `tar.gz` archive.
+///
+/// The second format, and deliberately the same shape as the first: it classifies each entry and
+/// then asks the guard where it may go. It never joins a path to the destination itself, which is
+/// what keeps the containment check in one place rather than in each adapter.
+pub(crate) fn extract_tar_gz(
+    archive: &Path,
+    limits: ExtractionLimits,
+) -> Result<ExtractedArchive, ManagedInstallError> {
+    let file = std::fs::File::open(archive)
+        .map_err(|error| ManagedInstallError::Transfer(redact_text(&error.to_string())))?;
+    let mut tar = tar::Archive::new(flate2::read::GzDecoder::new(file));
+    let entries = tar
+        .entries()
+        .map_err(|error| ManagedInstallError::Refused(redact_text(&error.to_string())))?;
+    let mut guard = ExtractionGuard::new(limits)?;
+
+    for entry in entries {
+        let mut entry =
+            entry.map_err(|error| ManagedInstallError::Refused(redact_text(&error.to_string())))?;
+        let name = entry
+            .path()
+            .map_err(|error| ManagedInstallError::Refused(redact_text(&error.to_string())))?
+            .to_string_lossy()
+            .into_owned();
+        let kind = match entry.header().entry_type() {
+            tar::EntryType::Regular | tar::EntryType::Continuous => ArchiveEntryKind::File,
+            tar::EntryType::Directory => ArchiveEntryKind::Directory,
+            _ => ArchiveEntryKind::Other,
+        };
+        let path = guard.admit(&name, kind)?;
+        if kind == ArchiveEntryKind::Directory {
+            std::fs::create_dir_all(&path)
+                .map_err(|error| ManagedInstallError::Transfer(redact_text(&error.to_string())))?;
+            continue;
+        }
         guard.write_entry(&path, &mut entry)?;
     }
     Ok(guard.finish())

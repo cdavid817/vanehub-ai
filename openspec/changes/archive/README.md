@@ -238,9 +238,14 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-26 | extend-lsp-language-registry | lsp-server-management, settings-center-ui | `openspec/changes/archive/2026-08-26-extend-lsp-language-registry/` |
 | 2026-08-27 | add-lsp-java-jdtls | lsp-server-management, settings-center-ui | `openspec/changes/archive/2026-08-27-add-lsp-java-jdtls/` |
 | 2026-08-27 | add-skill-evolution-curator-governance | notification-system, settings-skill-management-ui, skill-evolution-curation, skill-management | `openspec/changes/archive/2026-08-27-add-skill-evolution-curator-governance/` |
+| 2026-08-27 | add-unified-personalization-governance | agent-cross-session-memory, app-settings, custom-instructions, session-management, unified-personalization-governance | `openspec/changes/archive/2026-08-27-add-unified-personalization-governance/` |
 | 2026-08-27 | expand-lsp-read-only-methods | agent-tool-execution, lsp-code-intelligence, lsp-server-management, settings-center-ui | `openspec/changes/archive/2026-08-27-expand-lsp-read-only-methods/` |
 | 2026-08-27 | extract-managed-tool-installation | cli-environment-management, managed-tool-installation | `openspec/changes/archive/2026-08-27-extract-managed-tool-installation/` |
+| 2026-08-28 | add-session-im-toggle | desktop-runtime-verification, feishu-session-im-integration, im-connector-management, im-session-binding-ui, multi-agent-group-chat | `openspec/changes/archive/2026-08-28-add-session-im-toggle/` |
 | 2026-08-28 | add-skill-evolution-generation-agent-and-evidence-dossiers | notification-system, settings-skill-management-ui, skill-evolution-generation, skill-management | `openspec/changes/archive/2026-08-28-add-skill-evolution-generation-agent-and-evidence-dossiers/` |
 | 2026-08-28 | add-skill-evolution-orchestration-and-auto-apply-gate | chat-experience, desktop-background-lifecycle, notification-system, settings-skill-management-ui, skill-evolution-orchestration, skill-management | `openspec/changes/archive/2026-08-28-add-skill-evolution-orchestration-and-auto-apply-gate/` |
+| 2026-08-28 | expand-session-im-connectors | desktop-runtime-verification, im-connector-management, im-session-binding-ui | `openspec/changes/archive/2026-08-28-expand-session-im-connectors/` |
+| 2026-08-28 | manage-language-server-installation | lsp-server-management, managed-tool-installation, settings-center-ui | `openspec/changes/archive/2026-08-28-manage-language-server-installation/` |
+| 2026-08-28 | upgrade-session-workspace-evidence-console | agent-code-review, agent-execution-observability, main-layout-ui, remote-terminal-runtime, session-log-viewer, session-project-inspection, session-workspace-execution-evidence, unified-log-management, usage-statistics | `openspec/changes/archive/2026-08-28-upgrade-session-workspace-evidence-console/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

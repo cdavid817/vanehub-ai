@@ -90,6 +90,12 @@ fn is_test_source(relative: &str) -> bool {
         || file_name.ends_with("_tests.rs")
         || normalized.starts_with("tests/")
         || normalized.contains("/tests/")
+        // `lib.rs` declares `test_support` under `#[cfg(test)]`, so everything beneath it is test
+        // code a per-file visitor cannot recognise as such — the same blind spot the comment at
+        // the ARCH-NATIVE-004 call site describes. Without this, a fixture that spawns `git` to
+        // check whether a generated patch applies reads as production process construction.
+        || normalized == "test_support.rs"
+        || normalized.starts_with("test_support/")
 }
 
 #[test]
@@ -100,6 +106,8 @@ fn test_sources_are_recognized_as_files_and_as_directories() {
         "contexts/agent_runtime/application/tests/message_dispatch.rs",
         "contexts/sessions/infrastructure/tests/recovery.rs",
         "tests/architecture.rs",
+        "test_support.rs",
+        "test_support/git_patch_fixture.rs",
     ] {
         assert!(
             is_test_source(relative),
@@ -114,6 +122,9 @@ fn test_sources_are_recognized_as_files_and_as_directories() {
         "contexts/sessions/infrastructure/sqlite_repository.rs",
         "contexts/agent_runtime/application/service.rs",
         "contexts/agent_runtime/application/contest.rs",
+        // Not any path containing the words. A production module named for the support it gives
+        // to testing would still be production, and would still have to use the shared adapters.
+        "contexts/tooling/test_support_catalog.rs",
     ] {
         assert!(
             !is_test_source(relative),
@@ -1161,6 +1172,82 @@ fn native_context_dependencies_point_inward() {
     );
 }
 
+/// Every bounded context that may exist. The context map is closed by project standard, so a new
+/// directory here is a design decision that has to be argued in a proposal rather than a side
+/// effect of needing somewhere to put a new type. Read projections that span existing owners —
+/// the execution-evidence journal, the log query index, the session-run report — belong to the
+/// context that already owns their lifecycle, not to a new one.
+const BOUNDED_CONTEXTS: &[&str] = &[
+    "agent_runtime",
+    "artifacts",
+    "browser_automation",
+    "cli_delegation",
+    "code_execution",
+    "code_intelligence",
+    "communications",
+    "desktop",
+    "execution_observability",
+    "goals",
+    // Added by `add-local-composer-media-tools`, which argued for it: OCR, STT, and TTS run on
+    // locally installed engines with their own lifecycle, and no existing context owns that.
+    // Recorded here on merge rather than by relaxing the rule — the point of the list is that
+    // growing the context map is a decision somebody wrote down.
+    "local_media",
+    "operations",
+    // Added by `add-unified-personalization-governance`, which argued for it: scoped instructions,
+    // reviewed memory, and per-session limits are one governed lifecycle, and it previously lived
+    // split across agent_runtime and sessions with neither owning the policy.
+    "personalization",
+    "permissions",
+    "retrieval",
+    "sessions",
+    "skill_evolution_evidence",
+    "ssh_connections",
+    "tooling",
+    "web_research",
+    "work_board",
+    "workspaces",
+];
+
+#[test]
+fn the_bounded_context_map_stays_closed() {
+    let contexts_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("contexts");
+    let mut present = BTreeSet::new();
+    for entry in fs::read_dir(&contexts_root).expect("read the contexts directory") {
+        let entry = entry.expect("read a contexts directory entry");
+        if entry
+            .file_type()
+            .expect("stat a contexts directory entry")
+            .is_dir()
+        {
+            present.insert(entry.file_name().to_string_lossy().into_owned());
+        }
+    }
+
+    let expected = BOUNDED_CONTEXTS
+        .iter()
+        .map(|context| (*context).to_string())
+        .collect::<BTreeSet<_>>();
+    let added = present.difference(&expected).cloned().collect::<Vec<_>>();
+    let removed = expected.difference(&present).cloned().collect::<Vec<_>>();
+
+    assert!(
+        added.is_empty(),
+        "new bounded context directories are not allowed without a proposal that argues the \
+         context map should grow: {}. Repair: put the behaviour in the context that already owns \
+         its lifecycle and reach it through that context's published `api` module.",
+        added.join(", ")
+    );
+    assert!(
+        removed.is_empty(),
+        "bounded contexts disappeared from the source tree but are still listed here: {}. \
+         Repair: update BOUNDED_CONTEXTS in the same commit that removes the context.",
+        removed.join(", ")
+    );
+}
+
 #[test]
 fn detector_reports_framework_and_private_context_dependencies_with_lines() {
     let source = r#"
@@ -1776,6 +1863,13 @@ fn runtime_processes_and_append_logs_use_shared_adapters() {
             .expect("relative source path")
             .to_string_lossy()
             .replace('\\', "/");
+        // The visitor exempts `#[cfg(test)]` modules, but it parses one file at a time and so
+        // cannot see the `#[cfg(test)] mod` declaration that gates a whole test file from its
+        // parent. Without the shared predicate a fixture that appends to a log file reads as
+        // production I/O — the exact drift `is_test_source` exists to stop.
+        if is_test_source(&relative) {
+            continue;
+        }
         let source = fs::read_to_string(&path).expect("read native Rust source");
         for usage in runtime_io_uses(&source).expect("parse native Rust source") {
             let allowed = match usage.kind {
@@ -1818,6 +1912,14 @@ mod tests {
 
     assert_eq!(uses.len(), 3);
     assert!(uses.iter().all(|usage| usage.line <= 4));
+
+    // The detector cannot see the `#[cfg(test)] mod` that gates a whole test file, because it
+    // parses one file at a time. A fixture that appends to a log file — which is how a log
+    // reader is tested at all — must therefore be excluded by path, not by attribute.
+    assert!(
+        is_test_source("contexts/operations/infrastructure/log_source_identity_tests.rs"),
+        "ARCH-NATIVE-004 would report a test fixture as production I/O"
+    );
 }
 
 #[test]
@@ -2214,10 +2316,17 @@ const NATIVE_PATH_BUDGETS: &[PathBudget] = &[
     // The other residual `split-api-adapter-modules` left above 1,000 lines: 43 native tool
     // implementations, the largest of which is `execute_tool_call_impl`'s 266-line dispatch.
     // Every other module the split produced is small enough for the subtree budget alone.
+    //
+    // Raised from 1,478 by `upgrade-session-workspace-evidence-console` (4.6). A workspace
+    // mutation now carries the session that made it and whether the write created or modified the
+    // file, because the evidence fanout cannot recover either afterwards: a path does not name a
+    // session, and "did this file exist" is only answerable before the write. The three call sites
+    // each gained the two arguments and one of them the existence check. No branch was duplicated;
+    // the growth is the two facts themselves.
     PathBudget {
         path:
             "src-tauri/src/contexts/agent_runtime/infrastructure/api_process_adapter/native_tools.rs",
-        budget: 1_478,
+        budget: 1_507,
         owner: "split-api-adapter-modules",
     },
     // Lowered from 5,110 by `relocate-heavyweight-inline-tests`, which split seven subject
@@ -2225,10 +2334,12 @@ const NATIVE_PATH_BUDGETS: &[PathBudget] = &[
     // record builders, and the evidence/logging port doubles — plus the tests interleaved with
     // it. The entry survives the split rather than being deleted: the file is still real, and
     // nothing else bounds its regrowth (this subtree has no registered subtree budget).
-    // Raised by 1 for `provider_thread_id` on the one `SessionSeat` literal this file builds.
+    // Raised by 1 for `provider_thread_id` on the one `SessionSeat` literal this file builds, then
+    // by 3 for `personalization_mode` on the one `SessionRecord` literal, its import, and the
+    // module declaration for the mode's own persistence tests.
     PathBudget {
         path: "src-tauri/src/contexts/sessions/infrastructure/tests.rs",
-        budget: 844,
+        budget: 847,
         owner: "relocate-heavyweight-inline-tests",
     },
     // Lowered from 4,628 by the same change. ~1,600 of what remains is the single `FakeWorld`
@@ -2239,9 +2350,19 @@ const NATIVE_PATH_BUDGETS: &[PathBudget] = &[
     // these per seat, not just accept them: a stub that dropped the write would let both the
     // seat-scoped capture and the discard pass while storing nothing, which is exactly the defect
     // they exist to catch.
+    // Raised to 2,011 by `add-unified-personalization-governance`. `FakeWorld` reads
+    // personalization through the governed snapshot port now, so it carries the translation the
+    // production adapter performs (+75) and a `PreGovernanceSettings` fixture (+45) that keeps
+    // each CLI test stating what it is about — the settings a user had — rather than hand-building
+    // a snapshot per test. Against that, the flat port impl and the fake's write path are gone:
+    // nothing in the runtime writes an active memory any more. A further +14 records the
+    // attribution each proposal batch carried, which is what the per-Agent contract tests assert.
+    // A further +1 is the session mode every `AgentSession` fixture now records, and +14 the
+    // record of what each resolution was asked about — Agent, session, mode and workspace — which
+    // is what makes "no path reaches a provider without resolving" assertable rather than assumed.
     PathBudget {
         path: "src-tauri/src/contexts/agent_runtime/application/tests.rs",
-        budget: 1_903,
+        budget: 2_040,
         owner: "relocate-heavyweight-inline-tests",
     },
     PathBudget {
@@ -2407,6 +2528,16 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // `cli_profile.rs` its duplicate `default` interpretation, both now owned by the tooling
     // resolver.
     //
+    // `add-unified-personalization-governance` moves it again, and neither side's arithmetic
+    // survives the merge: this branch measured 61,601 against a base without the LSP expansion,
+    // `main` measured 61,799 against a base without the governed snapshot. The number below is a
+    // direct measurement of the merged tree.
+    //
+    // What this change adds here is the runtime reading one governed snapshot per generation where
+    // it read three independent global toggles: the snapshot has to be taken, carried and
+    // reported, and the two test fixtures the new call shape needs -- one presenting the
+    // pre-governance fakes through the snapshot port so the existing assembly tests keep their
+    // setup, one answering with a prepared snapshot and recording what it was asked.
     // Two rationales, both true, neither number usable. This branch measured 61,304 after taking
     // `origin/main`'s CLI parameter work; `main` then measured 60,665 after adding the provider
     // output framer's skip-and-resume path. They are increments over different bases against
@@ -2421,11 +2552,20 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // remove. What was removable was removed in the same commit: `execute_code_intelligence_tool`
     // moved out of `native_tools.rs` into its own module, which is why the per-path budget below
     // did not have to move.
+    // Raised from 61,799 to the merged tree's measurement on merging
+    // `upgrade-session-workspace-evidence-console`. The +23 is the evidence a tool call now reports
+    // about itself as it runs; both branches touched this subtree and neither duplicated the
+    // other's code, so the number is measured here rather than summed from two branch-local ones.
+    // Re-measured on each subsequent merge, most recently at 62,647:
+    // `add-unified-personalization-governance` moved agent memory behind the governed store, and
+    // the CodeQL logging and transport fixes added eight lines. Same rule every time: measured on
+    // the merged tree, because each branch had already recorded its own increment against a
+    // baseline the other also carries, so summing them counts that baseline twice.
     SubtreeBudget {
         root: "src-tauri/src/contexts/agent_runtime/infrastructure",
         // Skill Evolution adds the structured model transport at the existing Agent runtime
         // boundary; the merged tree is measured because main changed the same subtree independently.
-        budget: 61_866,
+        budget: 62_647,
         owner: "sync-main-with-skill-evolution",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
@@ -2434,6 +2574,38 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // doc and imports), +28 for rustfmt wrapping 14 `pub(super) fn` signatures that now exceed
     // 100 columns, less 5 for the `mod tests { … }` wrapper disappearing and 1 blank separator.
     // No migration body was duplicated — every one of them moved byte-identically.
+    //
+    // Raised from 2,965 by +23 for `upgrade-session-workspace-evidence-console`. Migration 83's
+    // registration, repair call, and history entry are 8 of those, and the collision note above 81
+    // is net +4 now that main has landed 81 through 86 and the comment names the versions this
+    // branch renumbers past on merge instead of guessing how many claim them. No migration body
+    // lives here — the schema is in the context that owns the review aggregate.
+    //
+    // The remaining +11 replaced three hardcoded migration counts with the declared list. Those
+    // literals had to be retyped by every change that added a migration, in three tests that are
+    // about neither migrations nor counting — one of them is nominally about Skill reliability —
+    // so the failure always arrived looking like a regression in whatever was being changed. Two
+    // of the three were found only by a full `cargo test`, which is the argument for the change:
+    // grep does not find a number, and the third one is always in the file you did not open.
+    //
+    // Raised again from 2,988 by +8 for migration 84, which adds the per-file witness Viewed marks
+    // are keyed on: 6 lines of registration, 1 repair call, 1 history entry. Same shape as 83, and
+    // the schema again lives in the context that owns the review.
+    //
+    // Raised from 2,996 by +133, of which 131 are the upgrade fixture for versions 81 through 84
+    // and 2 are migration 82's repair call and its comment correction. The fixture is a test and
+    // could have gone anywhere; it lives here because the thing it exercises is `migrate` itself —
+    // drop all nine tables, leave `schema_migrations` intact, migrate again, and require every one
+    // back. Splitting it into the four owning contexts would give four tests that each prove their
+    // own repair runs and none that proves the sequence recovers, which is the failure mode: the
+    // one migration whose repair was missing was invisible precisely because its own schema
+    // function was already idempotent.
+    //
+    // Raised from 3,129 by +58 for the no-backfill migration test: a database holding a `toolUse`
+    // message is upgraded and the journal is required to come out empty. It sits beside `migrate`
+    // for the same reason the fixture above does — the claim is about what running the migrations
+    // does to an existing installation, and there is no context that owns "the journal was not
+    // filled from somebody else's table".
     // Raised from 2,965 by +64 for `add-source-aware-cli-environment-management`: +24 registering
     // migrations 82-84 for `cli_environment_snapshots`, `cli_version_catalogs`, and
     // `cli_action_plans` (the schema bodies live in the owning context, not here), and +40 for
@@ -2446,7 +2618,15 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // as an opaque "no such table" at startup. Three unmerged branches already claim 81. This makes
     // that collision fail a test instead of a user's launch.
     SubtreeBudget {
+        // Raised from 2,965 by `add-unified-personalization-governance`: migration 84 adds one
+        // registry call, one expected-sequence entry, and the three version assertions that move
+        // with them. Registering a migration anywhere costs those lines here; nothing was copied.
         root: "src-tauri/src/platform/database",
+        // Raised again by `add-unified-personalization-governance` for migrations 87-89: the
+        // personalization schema, the session personalization mode column, and the reconciliation
+        // timestamp. Registering a migration costs a fixed six-line call and one inventory entry, so
+        // this budget moves by that amount per migration -- it bounds this subtree's growth, not the
+        // migration count.
         // Raised from 2,965 to the merged tree's measurement. `add-local-composer-media-tools`
         // adds migration 82 -- five lines of registration and one inventory entry -- plus the two
         // tests for the upgrade paths its renumber created, and the reconciliation one of them
@@ -2465,27 +2645,24 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // is the fixed cost of registering any migration here, so this budget moves by the same
         // amount every time one lands -- it bounds this subtree's own growth, not the migration
         // count.
-        // Raised on the merged tree for `add-skill-evolution-generation-agent-and-evidence-dossiers`:
-        // migrations 88-94 add assessment, curation, generation policy, immutable job/stage/model/tool evidence,
-        // quarantine/export records, and their forward-only governance columns. The increase is the
-        // seven migration registrations required to keep old databases upgradeable.
-        // Raised again for `add-skill-evolution-orchestration-and-auto-apply-gate`: migration 95
-        // registers the orchestration schema and compatibility range. The merged value is a direct
-        // measurement because both branches changed this subtree from different bases.
-        // +7 registers migration 96 for durable five-second single-use preflight witnesses; the
-        // table body remains in the owning orchestration context.
-        // +7 registers migration 97 for Curator system-policy authorization provenance; its table
-        // body remains in the owning Curator context.
-        // +7 registers migration 98 for normalized automatic-application failure windows; its
-        // table body remains in the owning orchestration context.
-        // +7 registers migration 99 for Curator rollback-review candidates; its table body remains
-        // in the owning Curator context.
-        // +7 registers migration 100 for explicit probation baseline-threshold evidence; its
-        // column migration remains in the owning orchestration context.
-        // +7 registers migration 101 for durable deduplicated orchestration notifications; its
-        // table body remains in the owning orchestration context.
-        budget: 3_350,
-        owner: "add-skill-evolution-orchestration-and-auto-apply-gate",
+        //
+        // Raised from 3,252 to the merged tree's measurement on merging
+        // `upgrade-session-workspace-evidence-console`, which registers four more migrations here
+        // (renumbered 91-94 on merge) and adds the two fixtures for them: the four-way version
+        // collision, and the check that a database holding chat history comes out with an empty
+        // journal. Measured on the merged tree rather than summed -- both branches raised this
+        // number for their own migrations and neither copied the other's.
+        //
+        // Re-measured at 3,515 on merging `add-unified-personalization-governance`, whose three
+        // migrations take 88-90 and push this change's four to 91-94. That is the second renumber
+        // for those four and it stays cheap because none of them has shipped; a version that has
+        // reached an installation is the one that can never move again.
+        //
+        // Re-measured on merging the Skill evolution branch, whose sixteen migrations
+        // (renumbered 95-110 on merge, from 88-103) each pay the fixed registration cost here;
+        // their table bodies remain in the owning contexts.
+        budget: 3_515,
+        owner: "sync-main-with-skill-evolution",
     },
 ];
 
@@ -2503,6 +2680,14 @@ const NATIVE_PRODUCTION_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // top and continue with production code below. That discarded 5,966 real production lines
         // and left the subtree that much silent headroom — the opposite of what a ceiling is for.
         //
+        // `add-unified-personalization-governance` raises it again, and as above the merged figure is
+        // measured rather than derived: this branch reached 33,060 without the LSP expansion, `main`
+        // reached 33,742 without the governed snapshot.
+        //
+        // The production growth this change contributes is the snapshot itself -- taken once per
+        // generation, carried through assembly, and reported when it degrades -- plus the two proposal
+        // paths and their translation, which is where "the model suggested this" stops being able to
+        // become "the user keeps this" without a person in between.
         // Both sides then raised it for their own reason. This branch to 33,372, for
         // `local_media_ocr_adapter.rs` -- the OnePiece OCR tool re-pointed at the shared
         // local-media runtime, relocation rather than growth, except that the PaddleOCR runtime it
@@ -2517,7 +2702,7 @@ const NATIVE_PRODUCTION_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // deliberately not by this one.
         // The structured model transport contributes the remaining production-only delta on the
         // merged tree; its test doubles account for the difference from the aggregate increase.
-        budget: 33_773,
+        budget: 33_750,
         owner: "sync-main-with-skill-evolution",
     },
 ];

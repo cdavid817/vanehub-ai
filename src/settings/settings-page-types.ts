@@ -37,6 +37,10 @@ export interface SettingsPageContext {
   navigationTarget: SettingsNavigationTarget | null;
   onNavigate: (pageId: SettingsPageId, target?: SettingsNavigationTarget) => void;
   onReturn?: () => void;
+  /** Opens one session in the workspace. Separate from `onReturn` because returning is about
+   * leaving settings and this is about arriving somewhere specific; a caller that has no route to
+   * a session simply does not pass it, and the surfaces that offer the link hide it. */
+  onOpenSession?: (sessionId: string) => void;
   /**
    * False while the page is mounted but hidden. Visited pages stay mounted so their state survives
    * tab switches, which means background work has to be gated on this rather than on mount.

@@ -547,89 +547,153 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "im-session-connector-access",
         crate::contexts::communications::infrastructure::apply_session_connector_access_schema,
     )?;
+    // 88-90 rather than the 82-84 this change was written against: 82-86 shipped in v1.1.0 and
+    // v1.2.0 and 87 landed while this branch was in review, all carrying different schema. A
+    // version number that has shipped is not available to be reused. No installation has ever
+    // applied personalization at 82, so renumbering is additive rather than a data migration.
     apply_transactional_migration(
         conn,
         88,
+        "personalization-governance",
+        crate::contexts::personalization::infrastructure::apply_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        89,
+        "session-personalization-mode",
+        crate::contexts::sessions::infrastructure::apply_personalization_mode_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        90,
+        "personalization-last-reconciled",
+        crate::contexts::personalization::infrastructure::apply_reconciliation_schema,
+    )?;
+    // 91-94, moved up from 88-91 on this merge for the same reason the personalization block above
+    // moved: main took 88-90 while this branch was in review. This is the second renumber these
+    // four have had, and it costs nothing because none of them has shipped — a number that has
+    // reached an installation is the one that can never move again.
+    //
+    // Each still carries a repair: `apply_migration` is version-gated, and a database another
+    // worktree already migrated arrives with the history complete and these tables absent, at which
+    // point the gated call never runs. The repair re-asserts the schema rather than leaving a
+    // database whose history looks whole while its tables are missing.
+    apply_migration(
+        conn,
+        91,
+        "execution-evidence-journal",
+        crate::contexts::execution_observability::infrastructure::apply_evidence_schema,
+    )?;
+    apply_migration(
+        conn,
+        92,
+        "unified-log-query-index",
+        crate::contexts::operations::infrastructure::apply_log_query_index_schema,
+    )?;
+    apply_migration(
+        conn,
+        93,
+        "review-decision-state",
+        crate::contexts::sessions::infrastructure::apply_review_decision_schema,
+    )?;
+    apply_migration(
+        conn,
+        94,
+        "review-file-viewed-witness",
+        crate::contexts::sessions::infrastructure::apply_review_file_witness_schema,
+    )?;
+    // 95-110, moved up from 88-103 on this merge: main shipped 88-94 (personalization governance
+    // and the evidence/log/review block above) in v1.3.0 while this branch was in review, and a
+    // version number that has shipped can never be reused. None of these sixteen has reached an
+    // installation, so the renumber is additive rather than a data migration.
+    apply_transactional_migration(
+        conn,
+        95,
         "skill-evolution-assessment-foundation",
         crate::contexts::skill_evolution_assessment::infrastructure::apply_schema,
     )?;
     apply_transactional_migration(
         conn,
-        89,
+        96,
         "skill-evolution-system-activity-foundation",
         crate::contexts::skill_evolution_system_activity::infrastructure::apply_schema,
     )?;
     apply_transactional_migration(
         conn,
-        90,
+        97,
         "skill-evolution-curator-foundation",
         crate::contexts::skill_evolution_curation::infrastructure::apply_schema,
     )?;
     apply_transactional_migration(
         conn,
-        91,
+        98,
         "skill-evolution-generation-foundation",
         crate::contexts::skill_evolution_generation::infrastructure::apply_schema,
     )?;
     apply_transactional_migration(
         conn,
-        92,
+        99,
         "skill-evolution-generation-policy-payload",
         crate::contexts::skill_evolution_generation::infrastructure::apply_policy_payload_schema,
     )?;
     apply_transactional_migration(
         conn,
-        93,
+        100,
         "skill-evolution-generation-tool-receipt-names",
         crate::contexts::skill_evolution_generation::infrastructure::apply_tool_receipt_names_schema,
     )?;
     apply_transactional_migration(
         conn,
-        94,
+        101,
         "skill-evolution-generation-governance-tombstones",
         crate::contexts::skill_evolution_generation::infrastructure::apply_governance_tombstone_schema,
     )?;
     apply_transactional_migration(
         conn,
-        95,
+        102,
         "skill-evolution-orchestration-foundation",
         crate::contexts::skill_evolution_orchestration::infrastructure::apply_schema,
     )?;
     apply_transactional_migration(
         conn,
-        96,
+        103,
         "skill-evolution-automatic-preflight-witnesses",
         crate::contexts::skill_evolution_orchestration::infrastructure::apply_preflight_schema,
     )?;
     apply_transactional_migration(
         conn,
-        97,
+        104,
         "skill-evolution-curator-system-policy-authorization",
         crate::contexts::skill_evolution_curation::infrastructure::apply_system_policy_authorization_schema,
     )?;
     apply_transactional_migration(
         conn,
-        98,
+        105,
         "skill-evolution-automatic-breaker-failures",
         crate::contexts::skill_evolution_orchestration::infrastructure::apply_breaker_failure_schema,
     )?;
     apply_transactional_migration(
         conn,
-        99,
+        106,
         "skill-evolution-curator-rollback-candidates",
         crate::contexts::skill_evolution_curation::infrastructure::apply_rollback_candidate_schema,
     )?;
     apply_transactional_migration(
         conn,
-        100,
+        107,
         "skill-evolution-probation-baseline-threshold",
         crate::contexts::skill_evolution_orchestration::infrastructure::apply_probation_baseline_schema,
     )?;
-    apply_transactional_migration(conn, 101, "skill-evolution-notify", apply_notifications)?;
-    apply_transactional_migration(conn, 102, "skill-evolution-source-outboxes", apply_outboxes)?;
-    apply_transactional_migration(conn, 103, "skill-activity-query", apply_activity_query)?;
+    apply_transactional_migration(conn, 108, "skill-evolution-notify", apply_notifications)?;
+    apply_transactional_migration(conn, 109, "skill-evolution-source-outboxes", apply_outboxes)?;
+    apply_transactional_migration(conn, 110, "skill-activity-query", apply_activity_query)?;
     repair_missing_stable_participant_schema(conn)?;
     repair_missing_cli_parameter_profile_schema(conn)?;
+    crate::contexts::execution_observability::infrastructure::repair_missing_evidence_schema(conn)?;
+    crate::contexts::operations::infrastructure::repair_missing_log_query_index_schema(conn)?;
+    crate::contexts::sessions::infrastructure::repair_missing_review_decision_schema(conn)?;
+    crate::contexts::sessions::infrastructure::repair_missing_review_file_witness(conn)?;
+
     // Fail fast when a migration was skipped or the persisted history contains a gap.
     assert_migration_history_is_dense(conn)?;
     Ok(())
@@ -656,7 +720,9 @@ pub(crate) fn expected_migration_versions() -> Vec<i64> {
         .collect()
 }
 
-const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
+// `pub(super)` because `platform::database::mod` derives its own migration-count assertions from
+// this list rather than restating the number; the helper above covers callers outside that module.
+pub(super) const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (1, "initial-schema"),
     (2, "agent-managed-sdk-dependency"),
     (3, "session-management"),
@@ -744,22 +810,34 @@ const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (85, "cli-action-plans"),
     (86, "lsp-language-registry"),
     (87, "im-session-connector-access"),
-    (88, "skill-evolution-assessment-foundation"),
-    (89, "skill-evolution-system-activity-foundation"),
-    (90, "skill-evolution-curator-foundation"),
-    (91, "skill-evolution-generation-foundation"),
-    (92, "skill-evolution-generation-policy-payload"),
-    (93, "skill-evolution-generation-tool-receipt-names"),
-    (94, "skill-evolution-generation-governance-tombstones"),
-    (95, "skill-evolution-orchestration-foundation"),
-    (96, "skill-evolution-automatic-preflight-witnesses"),
-    (97, "skill-evolution-curator-system-policy-authorization"),
-    (98, "skill-evolution-automatic-breaker-failures"),
-    (99, "skill-evolution-curator-rollback-candidates"),
-    (100, "skill-evolution-probation-baseline-threshold"),
-    (101, "skill-evolution-notify"),
-    (102, "skill-evolution-source-outboxes"),
-    (103, "skill-activity-query"),
+    // The CLI lanes this change was racing landed first and shipped, so personalization renumbered
+    // from 82-84 to 87-89. The collision was the predicted one: a colliding migration is silently
+    // skipped and only the name diverges, which is why the sequence below is asserted in tests.
+    (88, "personalization-governance"),
+    (89, "session-personalization-mode"),
+    (90, "personalization-last-reconciled"),
+    (91, "execution-evidence-journal"),
+    (92, "unified-log-query-index"),
+    (93, "review-decision-state"),
+    (94, "review-file-viewed-witness"),
+    // Skill evolution moved up from 88-103: main shipped 88-94 in v1.3.0 while this branch was in
+    // review, and a shipped number can never be reused.
+    (95, "skill-evolution-assessment-foundation"),
+    (96, "skill-evolution-system-activity-foundation"),
+    (97, "skill-evolution-curator-foundation"),
+    (98, "skill-evolution-generation-foundation"),
+    (99, "skill-evolution-generation-policy-payload"),
+    (100, "skill-evolution-generation-tool-receipt-names"),
+    (101, "skill-evolution-generation-governance-tombstones"),
+    (102, "skill-evolution-orchestration-foundation"),
+    (103, "skill-evolution-automatic-preflight-witnesses"),
+    (104, "skill-evolution-curator-system-policy-authorization"),
+    (105, "skill-evolution-automatic-breaker-failures"),
+    (106, "skill-evolution-curator-rollback-candidates"),
+    (107, "skill-evolution-probation-baseline-threshold"),
+    (108, "skill-evolution-notify"),
+    (109, "skill-evolution-source-outboxes"),
+    (110, "skill-activity-query"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {

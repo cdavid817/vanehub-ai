@@ -139,6 +139,7 @@ function SettingsRoute() {
     <SettingsShell
       initialNavigationTarget={navigationTarget}
       initialPageId={onePieceRequested ? "agent-configurations" : curatorRequested || generationRequested || evolutionRequested || overlayRequested ? "skills" : undefined}
+      onOpenSession={(sessionId) => navigate(`/workspace/sessions/${encodeURIComponent(sessionId)}`)}
       onReturn={() => navigate("/workspace")}
     />
   );

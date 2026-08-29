@@ -14,6 +14,11 @@ async function openEvaluation(page: Page, theme: Theme, width: number) {
 
 test("runs, compares, filters, inspects, and exports the complete mock benchmark", async ({ page }) => {
   await openEvaluation(page, "futuristic", 1440);
+  for (const agentId of ["claude-code", "opencode", "codex-cli", "gemini-cli", "antigravity-cli", "onepiece"]) {
+    await page.getByTestId(`evaluation-agent-${agentId}`).uncheck();
+  }
+  await page.getByTestId("evaluation-agent-onepiece").check();
+  await page.getByTestId("evaluation-agent-codex-cli").check();
   await page.getByRole("button", { name: "Run arena" }).click();
   await expect(page.getByText("Passed", { exact: true })).toBeVisible();
   await expect(page.getByText("Task failed", { exact: true })).toBeVisible();

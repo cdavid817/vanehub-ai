@@ -15,10 +15,12 @@ import { normalizeDisplayPath } from "../lib/session-path";
 import { cn } from "../lib/utils";
 import { agentService } from "../services/runtime-agent-client";
 import { seatsFromSession } from "../services/session-seats";
+import type { SessionTabId } from "../session-workspace/session-tab-bar";
 import type { Session } from "../types/agent";
 import type { ChatMessage } from "../types/chat";
 import { SessionSkillsPane } from "./session-skills-pane";
 import { SessionCodeIndexPane } from "./session-code-index-pane";
+import { SessionEvidenceSummary } from "./session-evidence-summary";
 import { SessionRosterEditor } from "./session-roster-editor";
 import { SessionImPane } from "./session-im-pane";
 import { SessionTokenUsagePane } from "./session-token-usage-pane";
@@ -64,6 +66,7 @@ export function SessionInfoPanel({
   currentSpeakerSeatId = null,
   messages = [],
   requestedTab,
+  onNavigateToTab,
   onOpenSkillSettings,
   onOpenImSettings,
 }: {
@@ -72,6 +75,8 @@ export function SessionInfoPanel({
   currentSpeakerSeatId?: string | null;
   messages?: ChatMessage[];
   requestedTab?: InfoTab | null;
+  /** Absent where nothing owns the workspace tabs, in which case the rows are not navigable. */
+  onNavigateToTab?: (tab: SessionTabId) => void;
   onOpenSkillSettings?: () => void;
   onOpenImSettings?: () => void;
 }) {
@@ -134,6 +139,7 @@ export function SessionInfoPanel({
           ) : null}
           <Pane active={activeTab === "basic"} tab="basic">
             {activeSession ? (
+            <>
             <dl className="ucd-muted-panel grid gap-2 rounded-lg p-3">
               <Field icon={<Bot className="h-3.5 w-3.5 text-primary" />} label={t("layout.info.session")} value={activeSession?.title ?? t("layout.noSession")} />
               <Field icon={<Sparkles className="h-3.5 w-3.5 text-primary" />} label={t("layout.info.cli")} value={<span className="flex min-w-0 items-center gap-2"><span className={cn("flex h-6 w-6 shrink-0 items-center justify-center rounded border", identity.tone)}><AgentBrandIcon agentId={activeSession?.agentId} className="h-3.5 w-3.5" /></span><span className="truncate">{activeSession ? identity.label : t("layout.startChat")}</span></span>} />
@@ -145,6 +151,14 @@ export function SessionInfoPanel({
                 value={workspaceDisplayPath ? normalizeDisplayPath(workspaceDisplayPath) : t("layout.info.workspaceUnavailable")}
               />
             </dl>
+            <SessionEvidenceSummary
+              active={activeTab === "basic"}
+              onNavigateToTab={onNavigateToTab}
+              // Usage is a pane in this panel rather than a workspace tab, so its row stays here.
+              onShowUsage={() => setActiveTab("usage")}
+              sessionId={sessionId}
+            />
+            </>
             ) : (
               // Every field rendered its own "no session selected" placeholder, so an empty
               // panel repeated the same sentence five times.
@@ -155,14 +169,14 @@ export function SessionInfoPanel({
               </div>
             )}
           </Pane>
-          <Pane active={activeTab === "usage"} tab="usage"><SessionTokenUsagePane lifecycle={activeSession?.lifecycleState} sessionId={sessionId} /></Pane>
+          <Pane active={activeTab === "usage"} tab="usage"><SessionTokenUsagePane active={activeTab === "usage"} lifecycle={activeSession?.lifecycleState} sessionId={sessionId} /></Pane>
           <Pane active={activeTab === "skills"} tab="skills">
-            <SessionSkillsPane activeSession={activeSession} onOpenSkillSettings={onOpenSkillSettings} />
+            <SessionSkillsPane active={activeTab === "skills"} activeSession={activeSession} onOpenSkillSettings={onOpenSkillSettings} />
           </Pane>
           <Pane active={activeTab === "im"} tab="im">
-            <SessionImPane onOpenSettings={onOpenImSettings} sessionId={sessionId} />
+            <SessionImPane active={activeTab === "im"} onOpenSettings={onOpenImSettings} sessionId={sessionId} />
           </Pane>
-          {showCodeIndex && workspacePath ? <Pane active={activeTab === "codeIndex"} tab="codeIndex"><SessionCodeIndexPane workspacePath={workspacePath} /></Pane> : null}
+          {showCodeIndex && workspacePath ? <Pane active={activeTab === "codeIndex"} tab="codeIndex"><SessionCodeIndexPane active={activeTab === "codeIndex"} workspacePath={workspacePath} /></Pane> : null}
         </div>
       </div>
     </aside>

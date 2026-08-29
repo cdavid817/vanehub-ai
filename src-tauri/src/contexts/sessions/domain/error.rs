@@ -16,6 +16,8 @@ pub(crate) enum SessionsDomainError {
     ConnectorRequired,
     ConnectorCannotActivate,
     InvalidLoopRole(String),
+    UnknownPersonalizationMode(String),
+    ProjectOnlySessionRequiresWorkspace,
     ArchivedSession {
         session_id: String,
         action: ArchivedSessionAction,
@@ -64,6 +66,13 @@ impl fmt::Display for SessionsDomainError {
                 formatter.write_str("Connector-owned sessions cannot replace the active session.")
             }
             Self::InvalidLoopRole(role) => write!(formatter, "Unsupported Loop role: {role}"),
+            Self::UnknownPersonalizationMode(mode) => {
+                write!(formatter, "Unsupported session personalization mode: {mode}")
+            }
+            Self::ProjectOnlySessionRequiresWorkspace => write!(
+                formatter,
+                "A project-only session needs a workspace to be isolated to."
+            ),
             Self::ArchivedSession { session_id, action } => match action {
                 ArchivedSessionAction::Activate => {
                     write!(formatter, "Cannot switch to archived session: {session_id}")

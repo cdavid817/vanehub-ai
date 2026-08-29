@@ -3439,6 +3439,23 @@
     },
     {
       "archivedOn": "2026-08-27",
+      "changeName": "add-unified-personalization-governance",
+      "path": "openspec/changes/archive/2026-08-27-add-unified-personalization-governance/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "agent-cross-session-memory",
+        "app-settings",
+        "custom-instructions",
+        "session-management",
+        "unified-personalization-governance"
+      ]
+    },
+    {
+      "archivedOn": "2026-08-27",
       "changeName": "expand-lsp-read-only-methods",
       "path": "openspec/changes/archive/2026-08-27-expand-lsp-read-only-methods/",
       "artifacts": [
@@ -3465,6 +3482,23 @@
       "capabilities": [
         "cli-environment-management",
         "managed-tool-installation"
+      ]
+    },
+    {
+      "archivedOn": "2026-08-28",
+      "changeName": "add-session-im-toggle",
+      "path": "openspec/changes/archive/2026-08-28-add-session-im-toggle/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "desktop-runtime-verification",
+        "feishu-session-im-integration",
+        "im-connector-management",
+        "im-session-binding-ui",
+        "multi-agent-group-chat"
       ]
     },
     {
@@ -3499,6 +3533,57 @@
         "settings-skill-management-ui",
         "skill-evolution-orchestration",
         "skill-management"
+      ]
+    },
+    {
+      "archivedOn": "2026-08-28",
+      "changeName": "expand-session-im-connectors",
+      "path": "openspec/changes/archive/2026-08-28-expand-session-im-connectors/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "desktop-runtime-verification",
+        "im-connector-management",
+        "im-session-binding-ui"
+      ]
+    },
+    {
+      "archivedOn": "2026-08-28",
+      "changeName": "manage-language-server-installation",
+      "path": "openspec/changes/archive/2026-08-28-manage-language-server-installation/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "lsp-server-management",
+        "managed-tool-installation",
+        "settings-center-ui"
+      ]
+    },
+    {
+      "archivedOn": "2026-08-28",
+      "changeName": "upgrade-session-workspace-evidence-console",
+      "path": "openspec/changes/archive/2026-08-28-upgrade-session-workspace-evidence-console/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "agent-code-review",
+        "agent-execution-observability",
+        "main-layout-ui",
+        "remote-terminal-runtime",
+        "session-log-viewer",
+        "session-project-inspection",
+        "session-workspace-execution-evidence",
+        "unified-log-management",
+        "usage-statistics"
       ]
     }
   ]

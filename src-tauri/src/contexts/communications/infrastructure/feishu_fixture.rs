@@ -1,6 +1,8 @@
 use super::transports::normalize_fixture;
 use crate::contexts::communications::api::{CommunicationsApi, InboundRouteOutcome};
-use crate::contexts::communications::domain::{split_text, ConnectorKind, NormalizedInbound};
+use crate::contexts::communications::domain::{
+    builtin_descriptors, split_text, ConnectorKind, NormalizedInbound,
+};
 use crate::platform::database::NativeDatabase;
 use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -30,6 +32,8 @@ pub(crate) struct FeishuFixtureSetupResult {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct FeishuFixtureEvent {
+    #[serde(default)]
+    pub(crate) connector: Option<ConnectorKind>,
     pub(crate) event_id: String,
     pub(crate) text: String,
     #[serde(default = "default_direct")]
@@ -112,11 +116,12 @@ impl FeishuDesktopFixture {
         &self,
         database: &NativeDatabase,
         session_id: &str,
+        connector: ConnectorKind,
     ) -> Result<FeishuFixtureSetupResult, FeishuFixtureError> {
         Self::require_activation()?;
         self.connect().map_err(storage)?;
         let now = chrono::Utc::now().to_rfc3339();
-        let chat_hash = Sha256::digest(FIXTURE_CHAT_ID.as_bytes())
+        let chat_hash = Sha256::digest(fixture_chat_id(connector).as_bytes())
             .iter()
             .map(|byte| format!("{byte:02x}"))
             .collect::<String>();
@@ -140,9 +145,9 @@ impl FeishuDesktopFixture {
         connection
             .execute(
                 "INSERT INTO im_session_connector_access \
-                 (session_id, connector, enabled, updated_at) VALUES (?1, 'feishu', 1, ?2) \
-                 ON CONFLICT(session_id, connector) DO UPDATE SET enabled = 1, updated_at = ?2",
-                params![session_id, now],
+                 (session_id, connector, enabled, updated_at) VALUES (?1, ?2, 1, ?3) \
+                 ON CONFLICT(session_id, connector) DO UPDATE SET enabled = 1, updated_at = ?3",
+                params![session_id, connector.as_str(), now],
             )
             .map_err(|_| storage("feishu-im-fixture-access-write-failed"))?;
         connection
@@ -150,15 +155,15 @@ impl FeishuDesktopFixture {
                 "INSERT INTO im_session_bindings \
                  (connector, external_chat_hash, session_id, state, completion_notifications, \
                   delivery_credential_ref, created_at, updated_at) \
-                 VALUES ('feishu', ?1, ?2, 'active', 0, NULL, ?3, ?3) \
+                 VALUES (?1, ?2, ?3, 'active', 0, NULL, ?4, ?4) \
                  ON CONFLICT(connector, external_chat_hash) DO UPDATE SET \
-                  session_id = ?2, state = 'active', updated_at = ?3",
-                params![chat_hash, session_id, now],
+                  session_id = ?3, state = 'active', updated_at = ?4",
+                params![connector.as_str(), chat_hash, session_id, now],
             )
             .map_err(|_| storage("feishu-im-fixture-binding-write-failed"))?;
         Ok(FeishuFixtureSetupResult {
             ready: true,
-            connector: ConnectorKind::Feishu,
+            connector,
         })
     }
 
@@ -188,10 +193,11 @@ impl FeishuDesktopFixture {
             Err(error) => return Err(FeishuFixtureError::Validation(error.to_string())),
         };
         let api = api.clone();
+        let inbound_connector = inbound.connector;
         let event_id = inbound.event_id.clone();
         let claimed = tauri::async_runtime::spawn_blocking({
             let api = api.clone();
-            move || api.claim_inbound(ConnectorKind::Feishu, &event_id)
+            move || api.claim_inbound(inbound_connector, &event_id)
         })
         .await
         .map_err(|_| storage("feishu-im-fixture-claim-task-failed"))?
@@ -203,12 +209,14 @@ impl FeishuDesktopFixture {
             .await
             .map_err(|_| storage("feishu-im-fixture-route-task-failed"))?;
         match outcome {
-            Ok(InboundRouteOutcome::Reply { text, .. }) => self.record(
-                "delivered",
-                false,
-                split_text(&text, FEISHU_MAX_OUTBOUND_CHARS).len(),
-                None,
-            ),
+            Ok(InboundRouteOutcome::Reply { text, .. }) => {
+                let limit = builtin_descriptors()
+                    .into_iter()
+                    .find(|descriptor| descriptor.kind == inbound_connector)
+                    .map(|descriptor| descriptor.max_outbound_chars)
+                    .unwrap_or(FEISHU_MAX_OUTBOUND_CHARS);
+                self.record("delivered", false, split_text(&text, limit).len(), None)
+            }
             Ok(InboundRouteOutcome::SystemReply { .. }) => {
                 self.record("system-reply", false, 1, None)
             }
@@ -227,6 +235,21 @@ impl FeishuDesktopFixture {
             return Err("fixture-disconnected");
         }
         drop(transport);
+        let connector = event.connector.unwrap_or(ConnectorKind::Feishu);
+        if connector != ConnectorKind::Feishu {
+            if event.malformed {
+                return Err("fixture-event-invalid");
+            }
+            return Ok(NormalizedInbound {
+                connector,
+                event_id: event.event_id,
+                chat_id: fixture_chat_id(connector).to_string(),
+                sender_id: fixture_sender_id(connector).to_string(),
+                text: event.text,
+                direct: event.direct,
+                reply_context: None,
+            });
+        }
         let mut payload: Value =
             serde_json::from_str(RECORDED_DIRECT_TEXT).map_err(|_| "fixture-recording-invalid")?;
         payload["header"]["event_id"] = json!(event.event_id);
@@ -317,6 +340,26 @@ fn default_direct() -> bool {
     true
 }
 
+fn fixture_chat_id(connector: ConnectorKind) -> &'static str {
+    match connector {
+        ConnectorKind::Feishu => FIXTURE_CHAT_ID,
+        ConnectorKind::Telegram => "desktop-e2e-telegram-chat-v1",
+        ConnectorKind::DingTalk => "desktop-e2e-dingtalk-chat-v1",
+        ConnectorKind::WeCom => "desktop-e2e-wecom-chat-v1",
+        ConnectorKind::WeChat => "desktop-e2e-weixin-chat-v1",
+    }
+}
+
+fn fixture_sender_id(connector: ConnectorKind) -> &'static str {
+    match connector {
+        ConnectorKind::Feishu => FIXTURE_SENDER_ID,
+        ConnectorKind::Telegram => "desktop-e2e-telegram-sender-v1",
+        ConnectorKind::DingTalk => "desktop-e2e-dingtalk-sender-v1",
+        ConnectorKind::WeCom => "desktop-e2e-wecom-sender-v1",
+        ConnectorKind::WeChat => "desktop-e2e-weixin-sender-v1",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -327,6 +370,7 @@ mod tests {
         fixture.connect().unwrap();
         let inbound = fixture
             .normalize(FeishuFixtureEvent {
+                connector: None,
                 event_id: "fixture-event-1".to_string(),
                 text: "fixture text".to_string(),
                 direct: true,
@@ -340,7 +384,21 @@ mod tests {
         assert_eq!(inbound.text, "fixture text");
         assert!(inbound.direct);
 
+        let telegram = fixture
+            .normalize(FeishuFixtureEvent {
+                connector: Some(ConnectorKind::Telegram),
+                event_id: "fixture-telegram-1".to_string(),
+                text: "telegram fixture text".to_string(),
+                direct: true,
+                malformed: false,
+            })
+            .unwrap();
+        assert_eq!(telegram.connector, ConnectorKind::Telegram);
+        assert_eq!(telegram.chat_id, fixture_chat_id(ConnectorKind::Telegram));
+        assert_eq!(telegram.text, "telegram fixture text");
+
         let malformed = fixture.normalize(FeishuFixtureEvent {
+            connector: None,
             event_id: "fixture-malformed-1".to_string(),
             text: "not retained".to_string(),
             direct: true,
@@ -355,6 +413,7 @@ mod tests {
         assert_eq!(
             fixture
                 .normalize(FeishuFixtureEvent {
+                    connector: None,
                     event_id: "private-event".to_string(),
                     text: "private text".to_string(),
                     direct: true,

@@ -1682,7 +1682,10 @@ mod terminal_event_tests {
             "api-key",
             "secret argument",
         ] {
-            assert!(!message.contains(secret), "diagnostic leaked {secret}");
+            assert!(
+                !message.contains(secret),
+                "diagnostic leaked a protected value"
+            );
         }
     }
 

@@ -267,6 +267,7 @@ test("every native UI layer is wired, disjoint, and reachable on its own", async
   const { scripts } = JSON.parse(await readFile("package.json", "utf8"));
   const layers = [
     ["session-workspace", "sessionWorkspaceDesktop"],
+    ["session-shell", "sessionShellDesktop"],
     ["dialogs", "dialogsDesktop"],
     ["scheduled-tasks", "scheduledTasksDesktop"],
     ["settings-persistence", "settingsPersistenceDesktop"],

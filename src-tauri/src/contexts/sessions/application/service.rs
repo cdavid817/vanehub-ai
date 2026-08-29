@@ -23,7 +23,8 @@ use crate::contexts::sessions::domain::{
     normalize_chat_preferences, restore_chat_preferences, CategoryId, CategoryName, FileLineRange,
     FileReference, FileReferenceSet, MessageId, MessageRole, MessageStatus, SessionActivation,
     SessionAggregate, SessionCategory, SessionId, SessionLifecycle, SessionMessage, SessionOwner,
-    SessionSeat, SessionSeatRoleSnapshot, SessionTitle, UsageStatus,
+    SessionPersonalizationMode, SessionSeat, SessionSeatRoleSnapshot, SessionTitle,
+    SessionsDomainError, UsageStatus,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -55,6 +56,7 @@ pub(crate) struct SessionApplicationPorts {
 #[derive(Clone)]
 pub(crate) struct SessionsApplicationService {
     ports: SessionApplicationPorts,
+    evidence: Arc<dyn super::SessionEvidencePort>,
 }
 
 #[derive(Clone, Copy)]
@@ -231,14 +233,37 @@ impl SessionsApplicationService {
         Ok(result)
     }
 
-    pub(crate) fn new(ports: SessionApplicationPorts) -> Self {
-        Self { ports }
+    pub(crate) fn new(
+        ports: SessionApplicationPorts,
+        evidence: Arc<dyn super::SessionEvidencePort>,
+    ) -> Self {
+        Self { ports, evidence }
+    }
+
+    /// A service that records nothing, for tests whose subject is not evidence.
+    #[cfg(test)]
+    pub(crate) fn new_for_test_without_evidence(ports: SessionApplicationPorts) -> Self {
+        Self::new(ports, Arc::new(super::NoSessionEvidence))
     }
 
     pub(crate) fn prepare_new_session_creation(
         &self,
         request: NewSessionRequest,
     ) -> Result<PreparedNewSessionCreation, SessionsApplicationError> {
+        // Refused before the creation operation starts, not after it. A project-only session with
+        // nothing to be isolated to would have to fall back to something, and the only candidate is
+        // "read everything global" — the exact interpretation the mode exists to prevent. Starting
+        // an operation and then failing it would also leave the user with a failed task to dismiss
+        // for a request that was never answerable.
+        if request
+            .personalization_mode
+            .is_some_and(SessionPersonalizationMode::requires_workspace)
+            && !new_workspace_is_resolvable(&request.workspace)
+        {
+            return Err(SessionsApplicationError::Domain(
+                SessionsDomainError::ProjectOnlySessionRequiresWorkspace,
+            ));
+        }
         let related_entity_id = request
             .workspace
             .remote_workspace
@@ -285,6 +310,10 @@ impl SessionsApplicationService {
             seats: Vec::new(),
             interaction_mode: request.interaction_mode,
             title: Some(format!("Loop {}", role.as_str())),
+            // A Loop worker inherits nothing here because it has no user to inherit from. Task 8.4
+            // gives it the parent session's mode; until then it is standard, which is what it was
+            // before this column existed.
+            personalization_mode: SessionPersonalizationMode::Standard,
             workspace: SessionWorkspace {
                 folder: Some(request.worktree_path.clone()),
                 project_path: Some(request.project_path),
@@ -359,11 +388,21 @@ impl SessionsApplicationService {
             .eligibility
             .ensure_agent_supports(&request.agent_id, &request.interaction_mode)?;
         let workspace = self.prepare_new_session_workspace(&request.workspace)?;
+        let personalization_mode = request.personalization_mode.unwrap_or_default();
+        // Refused at creation rather than degraded at resolution. A project-only session with
+        // nothing to be isolated to would have to fall back to something, and the only candidate
+        // is "read everything global" — the exact interpretation the mode exists to prevent.
+        if personalization_mode.requires_workspace() && !workspace_is_resolvable(&workspace) {
+            return Err(SessionsApplicationError::Domain(
+                SessionsDomainError::ProjectOnlySessionRequiresWorkspace,
+            ));
+        }
         self.create_session_record(CreateSessionRequest {
             agent_id: request.agent_id,
             seats: request.seats,
             interaction_mode: request.interaction_mode,
             title: request.title,
+            personalization_mode,
             workspace,
             owner: request.owner,
             activation: request.activation,
@@ -529,6 +568,7 @@ impl SessionsApplicationService {
             agent_id: primary_agent_id,
             seats,
             interaction_mode: request.interaction_mode,
+            personalization_mode: request.personalization_mode,
             workspace: request.workspace,
             runtime_session_id: None,
             execution_origin_kind: "user".to_string(),
@@ -1145,16 +1185,38 @@ impl SessionsApplicationService {
         record.error = request.error;
         let finished_at = self.ports.clock.now();
         record.updated_at.clone_from(&finished_at);
-        self.ports
-            .transactions
-            .terminalize_generation(&GenerationTerminalRequest {
-                execution_run_id: request.execution_run_id,
-                message: record,
-                terminal_status: request.terminal_status,
-                usage: request.usage,
-                invocation_usage: request.invocation_usage,
-                finished_at,
-            })
+        // Captured before the request is consumed; published after it commits. A pointer to an
+        // observation that was never written would be a reference to nothing.
+        let observed = request.invocation_usage.as_ref().map(|usage| {
+            (
+                usage.observation.invocation_id.clone(),
+                usage_evidence_quality(usage.observation.quality),
+            )
+        });
+        let result =
+            self.ports
+                .transactions
+                .terminalize_generation(&GenerationTerminalRequest {
+                    execution_run_id: request.execution_run_id,
+                    message: record,
+                    terminal_status: request.terminal_status,
+                    usage: request.usage,
+                    invocation_usage: request.invocation_usage,
+                    finished_at: finished_at.clone(),
+                })?;
+        if let Some((invocation_id, quality)) = observed {
+            // The id and how the numbers were arrived at. The token counts stay in sessions, which
+            // owns them; a second copy in the journal would be a second total that can disagree.
+            self.evidence
+                .try_publish(super::SessionEvidenceSignal::UsageObserved {
+                    session_id: session_id.as_str().to_string(),
+                    invocation_id,
+                    run_id: None,
+                    quality,
+                    occurred_at: finished_at,
+                });
+        }
+        Ok(result)
     }
 
     fn generation_message_record(
@@ -1759,6 +1821,17 @@ fn validate_usage(
     Ok(())
 }
 
+fn usage_evidence_quality(
+    quality: crate::contexts::sessions::domain::MeasurementQuality,
+) -> super::SessionUsageEvidenceQuality {
+    use crate::contexts::sessions::domain::MeasurementQuality;
+    match quality {
+        MeasurementQuality::Reported => super::SessionUsageEvidenceQuality::Reported,
+        MeasurementQuality::ReportedDerived => super::SessionUsageEvidenceQuality::ReportedDerived,
+        MeasurementQuality::Estimated => super::SessionUsageEvidenceQuality::Estimated,
+    }
+}
+
 fn validate_invocation_usage(
     usage: Option<&super::CompletedInvocationAccounting>,
     message_id: &MessageId,
@@ -2050,4 +2123,21 @@ fn markdown_code_block(language: &str, content: &str) -> String {
         "```"
     };
     format!("{fence}{language}\n{content}\n{fence}\n")
+}
+
+/// The same question against a creation request, before normalization has run.
+fn new_workspace_is_resolvable(workspace: &NewSessionWorkspace) -> bool {
+    workspace.folder.is_some()
+        || workspace.project_path.is_some()
+        || workspace.remote_workspace.is_some()
+}
+
+/// Whether a workspace names somewhere a memory could be scoped to.
+///
+/// Any one of the three is enough: a local folder, a project path, or a remote workspace. What is
+/// refused is a session with none of them, which has no identity to isolate to at all.
+fn workspace_is_resolvable(workspace: &SessionWorkspace) -> bool {
+    workspace.folder.is_some()
+        || workspace.project_path.is_some()
+        || workspace.remote_workspace.is_some()
 }

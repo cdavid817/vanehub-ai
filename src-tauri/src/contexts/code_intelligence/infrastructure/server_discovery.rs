@@ -1,5 +1,7 @@
 use crate::contexts::code_intelligence::domain::models::Language;
-use crate::contexts::code_intelligence::domain::registry::{HostPlatform, InterpreterLaunch};
+use crate::contexts::code_intelligence::domain::registry::{
+    HostArchitecture, HostPlatform, InterpreterLaunch,
+};
 #[cfg(windows)]
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -119,6 +121,26 @@ impl ServerDiscovery {
         executable_override: Option<&Path>,
         configured_arguments: Option<&Vec<String>>,
     ) -> ServerDiscoveryResult {
+        self.discover_with_managed_install(
+            language,
+            executable_override,
+            configured_arguments,
+            None,
+        )
+    }
+
+    /// Discovery when the caller knows whether a managed install exists.
+    ///
+    /// An override always wins. The managed install is a fallback, not a replacement: a user who
+    /// pointed at their own copy keeps it, and the managed one stays on disk in case they switch
+    /// back.
+    pub(crate) fn discover_with_managed_install(
+        &self,
+        language: Language,
+        executable_override: Option<&Path>,
+        configured_arguments: Option<&Vec<String>>,
+        managed_install: Option<&Path>,
+    ) -> ServerDiscoveryResult {
         let arguments = resolved_startup_arguments(language, configured_arguments);
         // A language declared for other platforms is unsupported here, which is not the same as
         // supported-but-not-installed. Reporting it as merely undiscovered would send a user
@@ -131,7 +153,8 @@ impl ServerDiscovery {
             );
         }
         if let Some(launch) = language.launch.interpreter() {
-            return self.discover_interpreter(language, arguments, launch, executable_override);
+            let directory = executable_override.or(managed_install);
+            return self.discover_interpreter(language, arguments, launch, directory);
         }
         if let Some(path) = executable_override {
             return discover_override(language, arguments, path);
@@ -221,13 +244,27 @@ pub(super) fn resolve_launcher(
 
 /// The configuration directory this host's launch needs, or `None` when the entry declares none
 /// for this platform.
+/// The configuration directory to launch with, preferring the host architecture's.
+///
+/// Existence decides between the candidates rather than the declaration alone: an archive that
+/// predates the ARM variant still resolves to the one it does ship, instead of failing closed on a
+/// directory the publisher never put there. Falling back to the last candidate when none exists
+/// keeps the failure where it was -- a missing configuration is reported by the caller, not here.
 pub(crate) fn resolve_configuration_directory(
     install_directory: &Path,
     launch: &InterpreterLaunch,
 ) -> Option<PathBuf> {
-    launch
-        .configuration_directory(HostPlatform::current())
-        .map(|relative| install_directory.join(relative))
+    let candidates =
+        launch.configuration_directories_for(HostPlatform::current(), HostArchitecture::current());
+    let mut resolved = None;
+    for relative in candidates {
+        let candidate = install_directory.join(relative);
+        if candidate.is_dir() {
+            return Some(candidate);
+        }
+        resolved = Some(candidate);
+    }
+    resolved
 }
 
 #[derive(Debug, Default)]

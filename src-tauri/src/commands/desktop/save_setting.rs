@@ -9,9 +9,10 @@ pub(crate) fn save_setting(
     api: State<'_, DesktopSettingsApi>,
     input: dto::SaveSettingInput,
 ) -> Result<dto::AppSettings, CommandError> {
+    let expected_revision = input.expected_personalization_revision;
     let (key, value) = mapper::setting_input(input)?;
     let settings = api
-        .save_setting(&key, &value)
+        .save_setting(&key, &value, expected_revision)
         .map(mapper::settings_to_dto)
         .map_err(map_command_error)?;
     emit_settings_changed(&app, key)?;

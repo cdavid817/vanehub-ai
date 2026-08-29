@@ -1,3 +1,4 @@
+use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 
 pub(crate) const MAX_REVIEW_FILES: usize = 1_000;
@@ -93,6 +94,90 @@ impl ReviewAnchor {
     }
 }
 
+/// Whether a reviewer has read one file, and what it looked like when they did.
+///
+/// `file_witness` is what the mark is about; `snapshot_fingerprint` records which review snapshot
+/// they were looking at, which is worth keeping and is not what decides whether the mark still
+/// applies. `viewed_at` is present exactly when `viewed` is true: a time for something that is
+/// not true is not a smaller truth, it is a wrong one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ReviewFileViewState {
+    pub(crate) path: String,
+    pub(crate) snapshot_fingerprint: String,
+    pub(crate) file_witness: String,
+    pub(crate) viewed: bool,
+    pub(crate) viewed_at: Option<String>,
+}
+
+impl ReviewFileViewState {
+    pub(crate) fn try_new(
+        path: String,
+        snapshot_fingerprint: String,
+        file_witness: String,
+        viewed: bool,
+        viewed_at: Option<String>,
+    ) -> Result<Self, ReviewDomainError> {
+        validate_relative_path(&path)?;
+        validate_required(&snapshot_fingerprint, "snapshot fingerprint")?;
+        validate_required(&file_witness, "file witness")?;
+        match (viewed, viewed_at.as_deref()) {
+            (true, Some(at)) => validate_required(at, "viewed time")?,
+            (false, None) => {}
+            // Refused rather than corrected. Dropping the time silently would let a caller believe
+            // it recorded one, and inventing one would put a moment on a thing that never happened.
+            _ => return Err(ReviewDomainError::Required("viewed time")),
+        }
+        Ok(Self {
+            path,
+            snapshot_fingerprint,
+            file_witness,
+            viewed,
+            viewed_at,
+        })
+    }
+}
+
+/// A decision about one hunk, and the diff it was made about.
+///
+/// Not part of `ReviewSession`. The aggregate is loaded and rewritten whole, so a hunk decision
+/// living inside it would mean every hunk anybody marks rewrites the review row, its files, its
+/// comments, and its findings — and the independence this type exists to express would hold only
+/// as long as nobody looked closely.
+///
+/// `snapshot_fingerprint` is the diff the decision is about. A decision without it is a claim
+/// about a hunk that may no longer exist, rendered beside a diff that has moved on, with nothing
+/// to say the two disagree.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ReviewHunkDecision {
+    pub(crate) path: String,
+    pub(crate) hunk_fingerprint: String,
+    pub(crate) snapshot_fingerprint: String,
+    pub(crate) decision: ReviewDecision,
+    pub(crate) decided_at: String,
+}
+
+impl ReviewHunkDecision {
+    pub(crate) fn try_new(
+        path: String,
+        hunk_fingerprint: String,
+        snapshot_fingerprint: String,
+        decision: ReviewDecision,
+        decided_at: String,
+    ) -> Result<Self, ReviewDomainError> {
+        validate_relative_path(&path)?;
+        validate_required(&hunk_fingerprint, "hunk fingerprint")?;
+        validate_required(&snapshot_fingerprint, "snapshot fingerprint")?;
+        validate_required(&decided_at, "decision time")?;
+        Ok(Self {
+            path,
+            hunk_fingerprint,
+            snapshot_fingerprint,
+            decision,
+            decided_at,
+        })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ReviewFile {
     pub(crate) path: String,
@@ -103,6 +188,36 @@ pub(crate) struct ReviewFile {
 }
 
 impl ReviewFile {
+    /// What has to stay the same for a Viewed mark on this file to still mean something.
+    ///
+    /// Derived from the file rather than from the review, because the review's own fingerprint
+    /// covers every changed file: witnessing Viewed to it would clear every mark whenever an agent
+    /// wrote to any one file, and a progress count that resets on unrelated work is a count nobody
+    /// can act on.
+    ///
+    /// All five fields, not just the content hash. A file that went from modified to deleted is
+    /// not the file that was read, and neither is one that was renamed into place — both keep the
+    /// same `new_hash` and neither is what the reviewer looked at.
+    pub(crate) fn witness(&self) -> String {
+        let mut digest = Sha256::new();
+        for part in [
+            self.path.as_str(),
+            self.previous_path.as_deref().unwrap_or(""),
+            self.change_type.as_str(),
+            self.old_hash.as_deref().unwrap_or(""),
+            self.new_hash.as_deref().unwrap_or(""),
+        ] {
+            // Length-prefixed so two different field lists cannot fold into one digest.
+            digest.update(part.len().to_le_bytes());
+            digest.update(part.as_bytes());
+        }
+        digest
+            .finalize()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect()
+    }
+
     pub(crate) fn try_new(
         path: String,
         previous_path: Option<String>,

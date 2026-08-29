@@ -6,9 +6,10 @@ use crate::contexts::sessions::api::{
     CategoryRecord, ChatConfigurationValues, MessageRecord, NewRemoteWorkspace, NewSessionRequest,
     NewSessionWorkspace, NewWorktree, SessionActivation, SessionChatConfiguration,
     SessionCreationOperation, SessionExportFormat, SessionExportResult, SessionLifecycle,
-    SessionOwner, SessionRecord, SessionRecoveryReport as DomainSessionRecoveryReport,
-    SessionRecoveryStatus, SessionRecoverySummary, SessionSearchMatchKind, SessionSearchResult,
-    SessionSeat, SessionSeatRoleSnapshot, SessionUsageStatistics, SessionsError,
+    SessionOwner, SessionPersonalizationMode, SessionRecord,
+    SessionRecoveryReport as DomainSessionRecoveryReport, SessionRecoveryStatus,
+    SessionRecoverySummary, SessionSearchMatchKind, SessionSearchResult, SessionSeat,
+    SessionSeatRoleSnapshot, SessionUsageStatistics, SessionsDomainError, SessionsError,
     UsageStatisticsRange,
 };
 use crate::contexts::skill_evolution_evidence::api::FeedbackSummary;
@@ -40,8 +41,12 @@ pub(super) fn recovery_summary_to_dto(
     })
 }
 
-pub(super) fn creation_request(input: dto::CreateSessionInput) -> NewSessionRequest {
-    NewSessionRequest {
+/// Rejected here rather than defaulted, for the same reason the domain refuses an unknown mode:
+/// a value this build cannot interpret is not safely readable as the most permissive one.
+pub(super) fn creation_request(
+    input: dto::CreateSessionInput,
+) -> Result<NewSessionRequest, SessionsDomainError> {
+    Ok(NewSessionRequest {
         agent_id: input.agent_id,
         seats: input
             .seats
@@ -58,6 +63,10 @@ pub(super) fn creation_request(input: dto::CreateSessionInput) -> NewSessionRequ
             .collect(),
         interaction_mode: input.interaction_mode.as_str().to_string(),
         title: input.title,
+        personalization_mode: match input.personalization_mode.as_deref() {
+            None => None,
+            Some(value) => Some(SessionPersonalizationMode::parse(value)?),
+        },
         workspace: NewSessionWorkspace {
             folder: input.folder,
             project_path: input.project_path,
@@ -76,7 +85,7 @@ pub(super) fn creation_request(input: dto::CreateSessionInput) -> NewSessionRequ
         },
         owner: SessionOwner::desktop(),
         activation: SessionActivation::Activate,
-    }
+    })
 }
 
 pub(super) fn creation_operation_to_dto(operation: &SessionCreationOperation) -> OperationTask {
@@ -105,6 +114,7 @@ pub(super) fn session_to_dto(session: SessionRecord) -> Result<dto::Session, Ses
         id: session.id().to_string(),
         title: session.aggregate.title().as_str().to_string(),
         agent_id: session.agent_id,
+        personalization_mode: session.personalization_mode.as_str().to_string(),
         seats: session
             .seats
             .into_iter()
@@ -903,12 +913,13 @@ mod tests {
     };
     use crate::contexts::sessions::domain::{
         FileReference, FileReferenceSet, MessageId, MessageRole, MessageStatus, SessionAggregate,
-        SessionId, SessionMessage, SessionTitle,
+        SessionId, SessionMessage, SessionPersonalizationMode, SessionTitle,
     };
 
     #[test]
     fn session_mapping_preserves_the_existing_camel_case_contract() {
         let record = SessionRecord {
+            personalization_mode: SessionPersonalizationMode::Standard,
             aggregate: SessionAggregate::rehydrate(
                 SessionId::parse("session-1").expect("session id"),
                 SessionTitle::for_creation(Some("Fixture")),
@@ -968,7 +979,7 @@ mod tests {
         }))
         .expect("deserialize input");
 
-        let request = creation_request(input);
+        let request = creation_request(input).expect("creation request");
 
         assert_eq!(request.interaction_mode, "cli");
         assert_eq!(request.owner, SessionOwner::desktop());

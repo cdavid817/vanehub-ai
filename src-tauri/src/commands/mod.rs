@@ -11,6 +11,7 @@ pub(crate) mod goals;
 pub(crate) mod local_media;
 pub(crate) mod operations;
 pub(crate) mod permissions;
+pub(crate) mod personalization;
 mod registry;
 pub(crate) mod retrieval;
 pub(crate) mod sessions;

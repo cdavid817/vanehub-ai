@@ -10,6 +10,8 @@
 //! rules that only code can supply, so a user-declared language would be a row the runtime cannot
 //! actually serve.
 
+use crate::contexts::tooling::api::{ArtifactIntegrity, ExtractionLimits, RetrievalPolicy};
+
 use super::language_id::LspLanguageId;
 use std::cmp::Ordering;
 use std::fmt;
@@ -83,16 +85,109 @@ pub(crate) struct InterpreterLaunch {
     pub(crate) launcher_prefix: &'static str,
     pub(crate) launcher_suffix: &'static str,
     /// The configuration directory for each platform, relative to the install directory.
-    pub(crate) configuration_directories: &'static [(HostPlatform, &'static str)],
+    pub(crate) configuration_directories: &'static [ConfigurationDirectory],
     pub(crate) arguments: &'static [LaunchArgument],
 }
 
+/// Where a platform's configuration lives inside the install, and its 64-bit ARM counterpart.
+///
+/// The two are separate because the configuration is not architecture-neutral: Eclipse's
+/// `config.ini` names an OSGi launcher fragment built for one architecture, and a fragment for
+/// the wrong one does not attach. Picking by operating system alone starts the server against a
+/// configuration its own publisher ships for a different machine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ConfigurationDirectory {
+    pub(crate) platform: HostPlatform,
+    pub(crate) directory: &'static str,
+    /// Absent where the publisher ships one configuration for the platform. Windows is that case:
+    /// Eclipse ships only an x86_64 launcher fragment for it.
+    pub(crate) aarch64: Option<&'static str>,
+}
+
 impl InterpreterLaunch {
-    pub(crate) fn configuration_directory(&self, platform: HostPlatform) -> Option<&'static str> {
+    /// The candidate configuration directories for this host, most specific first.
+    ///
+    /// More than one because the ARM variant is a preference rather than a requirement: an older
+    /// archive predating it still has to resolve. The caller takes the first that exists.
+    pub(crate) fn configuration_directories_for(
+        &self,
+        platform: HostPlatform,
+        architecture: HostArchitecture,
+    ) -> Vec<&'static str> {
         self.configuration_directories
             .iter()
-            .find(|(declared, _)| *declared == platform)
-            .map(|(_, directory)| *directory)
+            .find(|declared| declared.platform == platform)
+            .map(|declared| match architecture {
+                HostArchitecture::Aarch64 => declared
+                    .aarch64
+                    .into_iter()
+                    .chain(std::iter::once(declared.directory))
+                    .collect(),
+                HostArchitecture::Other => vec![declared.directory],
+            })
+            .unwrap_or_default()
+    }
+}
+
+/// Only the distinction that changes which configuration is correct, not a general CPU model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HostArchitecture {
+    Aarch64,
+    Other,
+}
+
+impl HostArchitecture {
+    /// This process's architecture, standing in for the interpreter's.
+    ///
+    /// The configuration that matters is the one the *JVM* can load, and asking the JVM would mean
+    /// spawning it during discovery -- which discovery deliberately never does. On a machine where
+    /// the two disagree the user still has the install-directory override; on every ordinary one
+    /// they agree, and today's operating-system-only answer is wrong on all of them.
+    pub(crate) const fn current() -> Self {
+        if cfg!(target_arch = "aarch64") {
+            Self::Aarch64
+        } else {
+            Self::Other
+        }
+    }
+}
+
+/// The archive format a published distribution ships in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DistributionFormat {
+    /// No registered language ships a zip today. The adapter behind it is live and tested; this
+    /// is the declaration that selects it, and the first zip-published server removes the
+    /// attribute rather than adding the support.
+    #[expect(
+        dead_code,
+        reason = "no registered language ships a zip distribution yet"
+    )]
+    Zip,
+    TarGz,
+}
+
+/// Where a language's server is published, when VaneHub can fetch it.
+///
+/// The bounds are `managed_install`'s own types rather than a second declaration of the same
+/// three numbers -- that capability enforces them, and a copy here is what would drift.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PublishedDistribution {
+    pub(crate) url: &'static str,
+    pub(crate) policy: RetrievalPolicy,
+    pub(crate) integrity: ArtifactIntegrity,
+    pub(crate) format: DistributionFormat,
+    pub(crate) extraction: ExtractionLimits,
+    /// The directory inside the extracted archive that is the install root, when the archive nests
+    /// everything under one. `None` when the archive's own root is the install root.
+    pub(crate) root_inside_archive: Option<&'static str>,
+}
+
+impl PublishedDistribution {
+    /// Whether the bytes are checked against a published digest. Reported to the surface offering
+    /// the install, because an unverified download is something a user should be told about
+    /// rather than something that hides behind a button.
+    pub(crate) const fn is_verified(&self) -> bool {
+        matches!(self.integrity, ArtifactIntegrity::Sha256(_))
     }
 }
 
@@ -134,6 +229,10 @@ pub(crate) struct LanguageDefinition {
     pub(crate) extensions: &'static [ExtensionMapping],
     pub(crate) fixture_files: &'static [FixtureFile],
     pub(crate) platforms: &'static [HostPlatform],
+    /// Where VaneHub can fetch this server, when it can. `None` for every language whose server
+    /// is one line with a package manager the user already has -- wrapping those would add a
+    /// second way to do something that already works.
+    pub(crate) distribution: Option<PublishedDistribution>,
 }
 
 /// Identity is the language id alone. Two references to the same entry must compare equal without
@@ -208,6 +307,7 @@ pub(crate) const LANGUAGE_DEFINITIONS: &[LanguageDefinition] = &[
             ("src/lib.rs", "pub fn fixture() {}\n"),
         ],
         platforms: EVERY_PLATFORM,
+        distribution: None,
     },
     LanguageDefinition {
         id: "typescript_javascript",
@@ -231,6 +331,7 @@ pub(crate) const LANGUAGE_DEFINITIONS: &[LanguageDefinition] = &[
             ("src/index.ts", "export const fixture = true;\n"),
         ],
         platforms: EVERY_PLATFORM,
+        distribution: None,
     },
     LanguageDefinition {
         id: "go",
@@ -246,6 +347,7 @@ pub(crate) const LANGUAGE_DEFINITIONS: &[LanguageDefinition] = &[
             ("main.go", "package main\n\nfunc main() {}\n"),
         ],
         platforms: EVERY_PLATFORM,
+        distribution: None,
     },
     LanguageDefinition {
         id: "python",
@@ -272,6 +374,7 @@ pub(crate) const LANGUAGE_DEFINITIONS: &[LanguageDefinition] = &[
             ("main.py", "def fixture() -> None:\n    return None\n"),
         ],
         platforms: EVERY_PLATFORM,
+        distribution: None,
     },
     LanguageDefinition {
         id: "cpp",
@@ -300,6 +403,7 @@ pub(crate) const LANGUAGE_DEFINITIONS: &[LanguageDefinition] = &[
             ("main.cpp", "int main() { return 0; }\n"),
         ],
         platforms: EVERY_PLATFORM,
+        distribution: None,
     },
     LanguageDefinition {
         id: "java",
@@ -336,8 +440,36 @@ pub(crate) const LANGUAGE_DEFINITIONS: &[LanguageDefinition] = &[
             ),
         ],
         platforms: EVERY_PLATFORM,
+        distribution: Some(JDTLS_DISTRIBUTION),
     },
 ];
+
+/// Where Eclipse publishes JDT Language Server.
+///
+/// **The bytes are not checksum-verified.** Eclipse publishes a `latest` tarball, and there is no
+/// digest that stays valid across releases: pinning one means the install breaks the next time
+/// they publish, and a checksum that fails for the expected reason teaches a reader to ignore
+/// checksums. What still applies is everything else -- HTTPS, an exact-host allowlist checked on
+/// every redirect hop, a byte ceiling enforced while reading, a deadline, cancellation, and
+/// bounded extraction. The surface offering the install says so before the user clicks.
+static JDTLS_DISTRIBUTION: PublishedDistribution = PublishedDistribution {
+    url: "https://download.eclipse.org/jdtls/snapshots/jdt-language-server-latest.tar.gz",
+    policy: RetrievalPolicy {
+        allowed_hosts: &["download.eclipse.org"],
+        // A real jdtls release is around 60 MB; the ceiling is generous enough not to trip on a
+        // larger one and small enough that a redirected download of something else does not run.
+        max_download_bytes: 256 * 1024 * 1024,
+        download_timeout_seconds: 600,
+    },
+    integrity: ArtifactIntegrity::Unverified,
+    format: DistributionFormat::TarGz,
+    extraction: ExtractionLimits {
+        max_total_bytes: 512 * 1024 * 1024,
+        max_entries: 8_192,
+    },
+    // The tarball unpacks its contents at the archive root rather than under a versioned folder.
+    root_inside_archive: None,
+};
 
 /// How Eclipse JDT Language Server is launched.
 ///
@@ -351,9 +483,21 @@ static JDTLS_LAUNCH: InterpreterLaunch = InterpreterLaunch {
     launcher_prefix: "org.eclipse.equinox.launcher_",
     launcher_suffix: ".jar",
     configuration_directories: &[
-        (HostPlatform::Windows, "config_win"),
-        (HostPlatform::Macos, "config_mac"),
-        (HostPlatform::Linux, "config_linux"),
+        ConfigurationDirectory {
+            platform: HostPlatform::Windows,
+            directory: "config_win",
+            aarch64: None,
+        },
+        ConfigurationDirectory {
+            platform: HostPlatform::Macos,
+            directory: "config_mac",
+            aarch64: Some("config_mac_arm"),
+        },
+        ConfigurationDirectory {
+            platform: HostPlatform::Linux,
+            directory: "config_linux",
+            aarch64: Some("config_linux_arm"),
+        },
     ],
     arguments: &[
         LaunchArgument::Literal("-Declipse.application=org.eclipse.jdt.ls.core.id1"),

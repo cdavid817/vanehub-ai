@@ -11,6 +11,15 @@ pub(crate) enum DesktopSettingsApplicationError {
     NativeLocale(String),
     Directory(String),
     ClientLogging(String),
+    /// A personalization save was rejected because the screen it came from was rendered from an
+    /// older revision. Typed rather than folded into `Repository` because the caller's correct
+    /// response is entirely different: keep the draft, show the stored value, let the user decide.
+    PersonalizationConflict {
+        expected: u64,
+        current: u64,
+    },
+    /// The dedicated personalization policy could not be read or written.
+    Personalization(String),
 }
 
 impl fmt::Display for DesktopSettingsApplicationError {
@@ -24,6 +33,13 @@ impl fmt::Display for DesktopSettingsApplicationError {
             Self::NativeLocale(message) => write!(formatter, "native locale error: {message}"),
             Self::Directory(message) => write!(formatter, "directory action error: {message}"),
             Self::ClientLogging(message) => write!(formatter, "client logging error: {message}"),
+            Self::PersonalizationConflict { expected, current } => write!(
+                formatter,
+                "personalization changed since it was loaded (expected revision {expected}, current {current})"
+            ),
+            Self::Personalization(message) => {
+                write!(formatter, "personalization policy error: {message}")
+            }
         }
     }
 }

@@ -20,7 +20,18 @@ export function renderWithAppProviders(
   const rendered = render(
     <TestProviders queryClient={queryClient}>{ui}</TestProviders>,
   );
-  return { ...rendered, queryClient, user: userEvent.setup() };
+  return {
+    ...rendered,
+    // Re-wrapped rather than passed through. Testing Library's `rerender` replaces the whole tree
+    // with what it is given, so a bare element would drop the providers and change the root type —
+    // which React reconciles by unmounting everything. Every ref and piece of state below would
+    // reset, and a test checking what a component remembers across a prop change would be watching
+    // a brand new component instead.
+    rerender: (next: ReactElement) =>
+      rendered.rerender(<TestProviders queryClient={queryClient}>{next}</TestProviders>),
+    queryClient,
+    user: userEvent.setup(),
+  };
 }
 
 export function createAgentServiceDouble(overrides: Partial<AgentService>): AgentService {

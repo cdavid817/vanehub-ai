@@ -1,130 +1,107 @@
-import { useEffect, useRef, useState } from "react";
-import { Terminal as XtermTerminal } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
-import "@xterm/xterm/css/xterm.css";
+import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { agentService } from "../services/runtime-agent-client";
-import type { ShellConnectionState } from "../types/session-workspace";
-import { createTerminalTheme } from "./terminal-theme";
+import type { SessionShellDescriptor } from "../types/session-workspace-shell-frames";
+import { ShellCloseDialog, ShellRenameDialog } from "./shell-dialogs";
+import { ShellStrip } from "./shell-strip";
+import { ShellSurface } from "./shell-surface";
+import { useSessionShells } from "./use-session-shells";
 import { WorkspaceState } from "./workspace-state";
-import { workspaceErrorKey, type WorkspaceErrorKey } from "./workspace-error";
-import { retainAsyncCleanup } from "../lib/async-cleanup";
+import type { WorkspaceErrorKey } from "./workspace-error";
 
-export function ShellTab({ active, sessionId }: { active: boolean; sessionId: string | null }) {
+type ShellDialogRequest = { kind: "close" | "rename"; shellId: string } | null;
+
+/**
+ * The Shell tab, over a registry of retained Shells.
+ *
+ * Hiding this tab detaches its view; it does not end anything. That asymmetry is the whole
+ * capability: a build survives a tab switch, a session switch, and a remount, and stops only when
+ * the user says Close and confirms it.
+ *
+ * Every Shell keeps its own surface mounted so its scrollback survives selection. Only the selected
+ * one holds an attachment, because a Shell has one current attachment and the others would be
+ * displacing each other on every click.
+ */
+export function ShellTab({
+  isVisible,
+  seatId = null,
+  sessionId,
+}: {
+  isVisible: boolean;
+  seatId?: string | null;
+  sessionId: string | null;
+}) {
   const { t } = useTranslation();
-  const hostRef = useRef<HTMLDivElement>(null);
-  const terminalRef = useRef<XtermTerminal | null>(null);
-  const fitRef = useRef<FitAddon | null>(null);
-  const shellIdRef = useRef<string | null>(null);
-  const activeRef = useRef(active);
-  const [state, setState] = useState<ShellConnectionState>("connecting");
-  const [simulated, setSimulated] = useState(false);
-  const [error, setError] = useState<WorkspaceErrorKey | null>(null);
+  const shells = useSessionShells(sessionId, seatId, isVisible);
+  const [dialog, setDialog] = useState<ShellDialogRequest>(null);
+  const [surfaceError, setSurfaceError] = useState<WorkspaceErrorKey | null>(null);
 
-  useEffect(() => { activeRef.current = active; }, [active]);
-
-  useEffect(() => {
-    if (!sessionId || !hostRef.current) return;
-    const targetSessionId = sessionId;
-    let disposed = false;
-    let unsubscribe: (() => void) | null = null;
-    const terminal = new XtermTerminal({
-      allowTransparency: false,
-      convertEol: true,
-      cursorBlink: true,
-      fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
-      fontSize: 13,
-      theme: createTerminalTheme(),
-    });
-    const fit = new FitAddon();
-    terminal.loadAddon(fit); terminal.open(hostRef.current); fit.fit();
-    terminalRef.current = terminal; fitRef.current = fit;
-    const inputDisposable = terminal.onData((content) => {
-      const shellId = shellIdRef.current;
-      if (shellId) void agentService.writeShellInput(shellId, content);
-    });
-    const resizeObserver = new ResizeObserver(() => {
-      if (!activeRef.current) return;
-      fit.fit();
-      const shellId = shellIdRef.current;
-      if (shellId) void agentService.resizeShell({ shellId, rows: terminal.rows, cols: terminal.cols });
-    });
-    resizeObserver.observe(hostRef.current);
-    const themeObserver = new MutationObserver(() => {
-      terminal.options.theme = createTerminalTheme();
-    });
-    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
-
-    let outputBuffer = "";
-    let outputFrame = 0;
-    const flushOutput = () => {
-      outputFrame = 0;
-      if (outputBuffer.length === 0) return;
-      terminal.write(outputBuffer);
-      outputBuffer = "";
-    };
-
-    async function connect() {
-      try {
-        setState("connecting");
-        const shell = await agentService.createShell({ sessionId: targetSessionId, rows: terminal.rows, cols: terminal.cols });
-        if (disposed) { await agentService.killShell(shell.shellId); return; }
-        shellIdRef.current = shell.shellId; setState(shell.state); setSimulated(shell.capability === "simulated");
-        if (shell.capability === "simulated") terminal.writeln(t("sessionTabs.shell.simulatedBanner"));
-        const nextUnsubscribe = await agentService.subscribeShellEvents(shell.shellId, (event) => {
-          if (disposed) return;
-          if (event.type === "output") {
-            // PTY backends emit many small chunks under burst output (a build log); writing
-            // each synchronously stalls the main thread. Coalesce chunks and write once per
-            // animation frame.
-            outputBuffer += event.content;
-            if (outputFrame === 0) outputFrame = requestAnimationFrame(flushOutput);
-          } else {
-            flushOutput();
-            setState(event.state);
-            if (event.state === "disconnected" || event.state === "failed") shellIdRef.current = null;
-            if (event.error) setError(workspaceErrorKey(event.error));
-          }
-        });
-        unsubscribe = retainAsyncCleanup(disposed, nextUnsubscribe);
-      } catch (reason) {
-        if (!disposed) { setState("failed"); setError(workspaceErrorKey(reason)); }
-      }
-    }
-    void connect();
-    return () => {
-      disposed = true; resizeObserver.disconnect(); themeObserver.disconnect(); inputDisposable.dispose(); unsubscribe?.(); terminal.dispose();
-      if (outputFrame !== 0) cancelAnimationFrame(outputFrame);
-      const shellId = shellIdRef.current; shellIdRef.current = null;
-      if (shellId) void agentService.killShell(shellId);
-      terminalRef.current = null; fitRef.current = null;
-    };
-  }, [sessionId, t]);
-
-  useEffect(() => {
-    if (!active) return;
-    const frame = requestAnimationFrame(() => {
-      fitRef.current?.fit();
-      const terminal = terminalRef.current; const shellId = shellIdRef.current;
-      if (terminal && shellId) void agentService.resizeShell({ shellId, rows: terminal.rows, cols: terminal.cols });
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [active]);
+  const applyDescriptor = shells.applyDescriptor;
+  const onDescriptor = useCallback(
+    (descriptor: SessionShellDescriptor) => applyDescriptor(descriptor),
+    [applyDescriptor],
+  );
+  const onError = useCallback((error: WorkspaceErrorKey) => setSurfaceError(error), []);
 
   if (!sessionId) return <WorkspaceState kind="unavailable" />;
+
+  const dialogShell = dialog
+    ? (shells.shells.find((shell) => shell.shellId === dialog.shellId) ?? null)
+    : null;
+  const error = shells.error ?? surfaceError;
+
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-[hsl(var(--panel-muted))]">
-      <div className="flex items-center gap-2 border-b border-border p-2 text-xs">
-        <span className="rounded-full border border-border px-2 py-1">{t(`sessionTabs.shell.state.${state}`)}</span>
-        {simulated ? <span className="rounded-full bg-muted px-2 py-1 text-muted-foreground">{t("sessionTabs.shell.simulated")}</span> : null}
-        <div className="ml-auto flex gap-1">
-          <button className="h-7 rounded border border-border px-2 hover:bg-muted" disabled={!shellIdRef.current} onClick={() => { const shellId = shellIdRef.current; if (shellId) void agentService.resetShellDirectory(shellId); }} type="button">{t("sessionTabs.shell.cd")}</button>
-          <button className="h-7 rounded border border-border px-2 hover:bg-muted" onClick={() => terminalRef.current?.clear()} type="button">{t("sessionTabs.shell.clear")}</button>
-          <button className="h-7 rounded border border-border px-2 hover:bg-muted" disabled={state !== "connected"} onClick={() => { const shellId = shellIdRef.current; if (!shellId) return; shellIdRef.current = null; setState("disconnected"); void agentService.killShell(shellId); }} type="button">{t("sessionTabs.shell.disconnect")}</button>
+      <ShellStrip
+        activeShellId={shells.activeShellId}
+        onAdd={() => void shells.addShell()}
+        onClose={(shellId) => setDialog({ kind: "close", shellId })}
+        onRename={(shellId) => setDialog({ kind: "rename", shellId })}
+        onSelect={shells.selectShell}
+        shells={shells.shells}
+      />
+      {dialogShell && dialog?.kind === "close" ? (
+        <ShellCloseDialog
+          onCancel={() => setDialog(null)}
+          onConfirm={() => {
+            setDialog(null);
+            void shells.closeShell(dialogShell.shellId);
+          }}
+          shell={dialogShell}
+        />
+      ) : null}
+      {dialogShell && dialog?.kind === "rename" ? (
+        <ShellRenameDialog
+          onCancel={() => setDialog(null)}
+          onSubmit={(title) => {
+            setDialog(null);
+            void shells.renameShell(dialogShell.shellId, title);
+          }}
+          shell={dialogShell}
+        />
+      ) : null}
+      {error ? (
+        <div className="p-2">
+          <WorkspaceState kind="error" message={t(error)} />
         </div>
-      </div>
-      {error ? <div className="p-2"><WorkspaceState kind="error" message={t(error)} /></div> : null}
-      <div aria-label={t("sessionTabs.shell.terminal")} className="ucd-shell-terminal min-h-0 flex-1 p-2" ref={hostRef} />
+      ) : null}
+      {shells.shells.length === 0 ? (
+        <div className="p-2">
+          <WorkspaceState kind="empty" message={t("sessionTabs.shell.empty")} />
+        </div>
+      ) : null}
+      {shells.shells.map((shell) => (
+        <div
+          className={shell.shellId === shells.activeShellId ? "flex min-h-0 flex-1" : "hidden"}
+          key={shell.shellId}
+        >
+          <ShellSurface
+            descriptor={shell}
+            isVisible={isVisible && shell.shellId === shells.activeShellId}
+            onDescriptor={onDescriptor}
+            onError={onError}
+          />
+        </div>
+      ))}
     </div>
   );
 }
