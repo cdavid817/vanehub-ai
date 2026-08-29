@@ -70,7 +70,7 @@ flowchart TD
 - **Vitest**：单元/组件测试，覆盖纯契约与可见的组件行为。覆盖率门槛由 `coverage-policy.json` 强制——前端 `minimumLines = 45.2%`。
 - **Playwright e2e**：仅覆盖浏览器 Web/mock 运行时；通过它并不代表 Tauri 桌面运行时也通过了。
 - **Rust 原生测试**：覆盖领域不变量、应用端口编排、持久化/迁移、命令映射、进程安全与生命周期行为。整体覆盖率门槛 `minimumLines = 67%`，另有三个 `criticalGroups` 各要求 `minimumLines = 80%`：
-  - `sqlite-transactions`：`sessions/infrastructure/transactions.rs`、`platform/database/mod.rs`、`platform/database/migrations.rs`；
+  - `sqlite-transactions`：`sessions/infrastructure/transactions.rs`、`platform/database/mod.rs`、`platform/database/migrations/**.rs`；
   - `agent-startup-and-terminal-control`：`agent_runtime/application/terminal_service.rs`；
   - `mcp-routing`：`tooling/mcp/infrastructure/relay.rs`。
 - **Desktop Smoke**：插桩桌面产物通过 `desktop-e2e` Cargo feature 与 `src-tauri/tauri.desktop-e2e.conf.json` 启用仅测试可用的 WebDriver 插件与权限；正常打包命令不包含该 feature。它会构建并启动当前操作系统的带埋点 Tauri 产物,等待真实 React WebView,调用真实 Rust 后端 `get_settings` 命令,执行一次稳定导航,并请求干净关闭。本地结果仅适用于当前平台,不得外推。

@@ -314,6 +314,9 @@ const scenarios: Record<string, (page: Page, locale: Locale) => Promise<Locator>
   "settings-about": (page, locale) =>
     openSettings(page, "about", text(locale, "关于 VaneHub AI", "About VaneHub AI")),
 
+  "settings-local-media": (page, locale) =>
+    openSettings(page, "local-media", text(locale, "本地媒体", "Local Media")),
+
   /** A globally configured connector reaching "connected" before session binding. */
   "im-connected": async (page, locale) => {
     await createSession(page, locale);

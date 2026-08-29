@@ -70,7 +70,7 @@ What each tier covers:
 - **Vitest** — unit and component tests over pure contracts and visible component behavior. The coverage gate is enforced by `coverage-policy.json`, with a frontend `minimumLines` of 45.2%.
 - **Playwright e2e** — covers the browser Web/mock runtime only. Passing it does not claim the Tauri desktop runtime passed.
 - **Rust native tests** — cover domain invariants, application port orchestration, persistence and migrations, command mapping, process safety, and lifecycle behavior. The overall gate is `minimumLines = 67%`, with three `criticalGroups` each requiring `minimumLines = 80%`:
-  - `sqlite-transactions`: `sessions/infrastructure/transactions.rs`, `platform/database/mod.rs`, `platform/database/migrations.rs`
+  - `sqlite-transactions`: `sessions/infrastructure/transactions.rs`, `platform/database/mod.rs`, `platform/database/migrations/**.rs`
   - `agent-startup-and-terminal-control`: `agent_runtime/application/terminal_service.rs`
   - `mcp-routing`: `tooling/mcp/infrastructure/relay.rs`
 - **Desktop Smoke** — an instrumented desktop artifact enables test-only WebDriver plugins and permissions through the `desktop-e2e` Cargo feature and `src-tauri/tauri.desktop-e2e.conf.json`, which normal packaging commands never include. It builds and launches the instrumented Tauri artifact for the current operating system, waits for the real React WebView, invokes the real Rust-backed `get_settings` command, performs a stable navigation, and requests a clean shutdown. Local results apply to the current platform only and must not be extrapolated.
