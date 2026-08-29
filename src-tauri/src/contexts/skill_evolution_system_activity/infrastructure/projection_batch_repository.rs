@@ -262,6 +262,7 @@ fn map_store_error(error: ActivityProjectionRepositoryError) -> ActivityProjecti
         ActivityProjectionRepositoryError::InvalidInput => {
             ActivityProjectionStoreError::InvalidInput
         }
-        ActivityProjectionRepositoryError::Storage => ActivityProjectionStoreError::Storage,
+        ActivityProjectionRepositoryError::Storage
+        | ActivityProjectionRepositoryError::Cancelled => ActivityProjectionStoreError::Storage,
     }
 }

@@ -279,6 +279,8 @@ pub(crate) enum ActivityProjectionRepositoryError {
     InvalidInput,
     #[error("projection receipt conflicts with committed identity")]
     ReceiptCollision,
+    #[error("projection work was cancelled before completion")]
+    Cancelled,
     #[error("projection repository storage failed")]
     Storage,
 }

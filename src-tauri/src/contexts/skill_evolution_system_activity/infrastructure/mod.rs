@@ -1,4 +1,5 @@
 mod dashboard_repository;
+mod export_repository;
 mod notification_read_repository;
 mod notification_repository;
 mod preferences_repository;
@@ -17,6 +18,7 @@ mod timeline_repository;
 mod unread_repository;
 
 pub(crate) use dashboard_repository::*;
+pub(crate) use export_repository::*;
 pub(crate) use notification_repository::*;
 pub(crate) use preferences_repository::*;
 pub(crate) use projection_batch_repository::*;
@@ -32,6 +34,8 @@ pub(crate) use unread_repository::*;
 
 #[cfg(test)]
 mod dashboard_repository_tests;
+#[cfg(test)]
+mod export_repository_tests;
 #[cfg(test)]
 mod notification_repository_tests;
 #[cfg(test)]

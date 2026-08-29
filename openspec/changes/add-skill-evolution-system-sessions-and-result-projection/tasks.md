@@ -87,10 +87,10 @@
 
 ## 11. Safe Activity Export
 
-- [ ] 11.1 Implement deterministic JSON export of allowed canonical envelopes and localized Markdown export with manifest metadata.
-- [ ] 11.2 Bind exports to system session, active generation, filters, range, limits, completeness, redaction, and content hash.
+- [x] 11.1 Implement deterministic JSON export of allowed canonical envelopes and localized Markdown export with manifest metadata.
+- [x] 11.2 Bind exports to system session, active generation, filters, range, limits, completeness, redaction, and content hash.
 - [ ] 11.3 Use the normal user-selected export boundary and disclose that exported files are outside automatic retention.
-- [ ] 11.4 Prevent exports from following navigation links or including dossiers, evidence, diffs, drafts, Overlay content, or source records.
+- [x] 11.4 Prevent exports from following navigation links or including dossiers, evidence, diffs, drafts, Overlay content, or source records.
 - [ ] 11.5 Add cancellation, path boundary, size/item limit, filter parity, deterministic hash, localization, and sensitive-data tests.
 
 ## 12. Service Boundaries and Session Integration

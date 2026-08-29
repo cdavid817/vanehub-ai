@@ -126,6 +126,7 @@ fn map_error(error: ActivityProjectionRepositoryError) -> ActivityTargetProjecti
         }
         ActivityProjectionRepositoryError::LeaseHeld
         | ActivityProjectionRepositoryError::Conflict
-        | ActivityProjectionRepositoryError::Storage => ActivityTargetProjectionError::Storage,
+        | ActivityProjectionRepositoryError::Storage
+        | ActivityProjectionRepositoryError::Cancelled => ActivityTargetProjectionError::Storage,
     }
 }
