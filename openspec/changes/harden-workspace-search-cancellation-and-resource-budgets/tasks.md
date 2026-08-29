@@ -5,7 +5,7 @@
 - [x] 0.3 Run `openspec validate harden-workspace-search-cancellation-and-resource-budgets --strict`; fix change artifacts before code if current main/active changes conflict.
 - [x] 0.4 Add deterministic characterization for the A/B same-id interleaving where A's finish removes B, and for abort/drop leaving a running worker or stale registration.
 - [ ] 0.5 Add instrumented characterization showing current full candidate collection/full directory sort, work performed beyond result count, dependency-directory traversal, and blocking work launched without per-workspace admission.
-- [ ] 0.6 Inventory current limits and reason codes. Preserve or tighten them through explicit requirements; do not raise limits or increase concurrency merely to retain old completion behavior.
+- [x] 0.6 Inventory current limits and reason codes. Preserve or tighten them through explicit requirements; do not raise limits or increase concurrency merely to retain old completion behavior.
 
 ## 1. Generation-safe cancellation primitives
 
@@ -19,12 +19,12 @@
 
 ## 2. Budget, coverage, clock, and admission contracts
 
-- [ ] 2.1 Define finite `WorkspaceInspectionBudgetLimits`, tracker/snapshot, stop reasons, and one consume/checkpoint API for directories, entries, files, bytes, metadata/canonicalization, candidates, results, depth, deadline, and cancellation.
-- [ ] 2.2 Use an injected monotonic clock/deadline for process-local work and deterministic virtual/fake time in tests; do not use wall-clock rollback-sensitive TTL logic.
+- [x] 2.1 Define finite `WorkspaceInspectionBudgetLimits`, tracker/snapshot, stop reasons, and one consume/checkpoint API for directories, entries, files, bytes, metadata/canonicalization, candidates, results, depth, deadline, and cancellation.
+- [x] 2.2 Use an injected monotonic clock/deadline for process-local work and deterministic virtual/fake time in tests; do not use wall-clock rollback-sensitive TTL logic.
 - [ ] 2.3 Standardize `Complete`, `Partial`, `Unavailable`, stable primary reason codes, bounded counter summary, and unknown-code compatibility across Rust DTOs and TypeScript.
 - [ ] 2.4 Define `WorkspaceInspectionAdmission` with finite global/per-workspace active limits and finite queue/wait policy; acquire before `spawn_blocking` or remote launch.
 - [ ] 2.5 Ensure admission stays held until the actual worker exits after caller cancellation/abort, not merely until the async caller drops its response future.
-- [ ] 2.6 Add exact-boundary tests for every budget dimension, off-by-one behavior, combined stop reasons, admission busy, permit leak, and structural redaction.
+- [x] 2.6 Add exact-boundary tests for every budget dimension, off-by-one behavior, combined stop reasons, admission busy, permit leak, and structural redaction.
 - [ ] 2.7 Assemble clock, budget profiles, admission, and cancellation registry in bootstrap/application services rather than Tauri commands.
 
 ## 3. Shared recursive ignore policy
@@ -47,10 +47,10 @@
 
 ## 5. Local streaming content search
 
-- [ ] 5.1 Remove the whole-workspace candidate-file vector and implement one streaming traversal/open/read/match pipeline.
-- [ ] 5.2 Consume entry/metadata/file/byte/result budgets at the exact operation boundaries and check cancellation/deadline before directories, entry batches, file opens, read chunks, result append, and return serialization.
-- [ ] 5.3 Preserve current binary detection, file-size handling, snippet/result behavior, and case-sensitivity semantics; do not mix the separate Unicode-offset or handle-confinement scope into this change.
-- [ ] 5.4 Ensure one growing/large file cannot exceed aggregate byte budget or delay cancellation beyond the configured chunk-checkpoint bound.
+- [x] 5.1 Remove the whole-workspace candidate-file vector and implement one streaming traversal/open/read/match pipeline.
+- [x] 5.2 Consume entry/metadata/file/byte/result budgets at the exact operation boundaries and check cancellation/deadline before directories, entry batches, file opens, read chunks, result append, and return serialization.
+- [x] 5.3 Preserve current binary detection, file-size handling, snippet/result behavior, and case-sensitivity semantics; do not mix the separate Unicode-offset or handle-confinement scope into this change.
+- [x] 5.4 Ensure one growing/large file cannot exceed aggregate byte budget or delay cancellation beyond the configured chunk-checkpoint bound.
 - [ ] 5.5 Add instrumented tests proving no full candidate list, bounded current-file/chunk memory, exact byte/file/result caps, partial coverage on unreadable/skipped content, and stale-generation result suppression.
 - [ ] 5.6 Add error/fault tests for directory read failure, metadata failure, open failure, mid-read failure, invalid UTF-8/binary content, cancellation during read, and serialization after supersession.
 

@@ -24,9 +24,9 @@ use crate::contexts::workspaces::application::{
     ReadTextFileRequest, RemoteWorkspaceTarget, SearchCancellationCause, SearchCancellationToken,
     SessionWorkspaceContext, WorkspaceContentMatch, WorkspaceContentSearchRequest,
     WorkspaceContentSearchResult, WorkspaceInspectionCapabilities, WorkspaceInspectionError,
-    WorkspaceInspectionProvider, WorkspacePathMatch, WorkspacePathSearchRequest,
-    WorkspacePathSearchResult, WorkspaceSearchCoverage, WorkspaceSearchRequest, WorkspaceTarget,
-    MAX_CONTENT_MATCHES, MAX_FINGERPRINT_PATHS,
+    WorkspaceInspectionProvider, WorkspaceInspectionReason, WorkspacePathMatch,
+    WorkspacePathSearchRequest, WorkspacePathSearchResult, WorkspaceSearchCoverage,
+    WorkspaceSearchRequest, WorkspaceTarget, MAX_CONTENT_MATCHES, MAX_FINGERPRINT_PATHS,
 };
 use async_trait::async_trait;
 use base64::Engine;
@@ -282,7 +282,7 @@ fn rank_path_candidates(
         // A walk that stopped at its bound left part of the workspace unexamined, which is a
         // different fact from "more matches follow" and one that paging can never fix.
         coverage: if truncated {
-            WorkspaceSearchCoverage::partial("workspace_search_scan_limit")
+            WorkspaceSearchCoverage::stopped(WorkspaceInspectionReason::EntryBudgetExhausted)
         } else {
             WorkspaceSearchCoverage::complete()
         },
@@ -299,11 +299,14 @@ fn rank_path_candidates(
 /// The cause is carried through rather than flattened, because a reader who typed another
 /// character and a reader who pressed Escape are being told different things.
 fn cancelled_result(cause: Option<SearchCancellationCause>) -> WorkspaceContentSearchResult {
-    let reason = cause
-        .unwrap_or(SearchCancellationCause::Cancelled)
-        .reason_code();
+    // The same three reasons the local walk reports, from the same mapping. A reader who cancels a
+    // search on a remote workspace is being told what happened to their search, not which machine
+    // it was running on.
+    let reason = WorkspaceInspectionReason::from_cancellation(
+        cause.unwrap_or(SearchCancellationCause::Cancelled),
+    );
     WorkspaceContentSearchResult {
-        coverage: WorkspaceSearchCoverage::partial(reason),
+        coverage: WorkspaceSearchCoverage::stopped(reason),
         matches: Vec::new(),
     }
 }
@@ -320,7 +323,7 @@ fn content_matches(value: HelperContentMatches) -> WorkspaceContentSearchResult 
     }
     WorkspaceContentSearchResult {
         coverage: if value.truncated {
-            WorkspaceSearchCoverage::partial("workspace_search_match_limit")
+            WorkspaceSearchCoverage::stopped(WorkspaceInspectionReason::ResultBudgetExhausted)
         } else {
             WorkspaceSearchCoverage::complete()
         },

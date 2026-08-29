@@ -2,6 +2,8 @@ mod content_search;
 mod error;
 mod evidence;
 mod inspection;
+mod inspection_admission;
+mod inspection_budget;
 mod inspection_cursor;
 mod inspection_router;
 mod invalidation;
@@ -40,6 +42,19 @@ pub(crate) use inspection::{
     WorkspaceInspectionProvider, WorkspacePathMatch, WorkspacePathSearchRequest,
     WorkspacePathSearchResult, WorkspaceSearchCoverage, WorkspaceSearchRequest, WorkspaceTarget,
     WorkspaceTargetResolver, MAX_FINGERPRINT_PATHS,
+};
+/// How many inspections run at once, and the shared work accounting they run under.
+pub(crate) use inspection_admission::WorkspaceInspectionAdmission;
+/// Published to tests only: a clock that moves when a test moves it, so a deadline can be proved
+/// without sleeping through one.
+#[cfg(test)]
+pub(crate) use inspection_budget::ManualClock;
+/// Published to tests only: the counters a structural assertion reads off a result.
+#[cfg(test)]
+pub(crate) use inspection_budget::WorkspaceInspectionBudgetSnapshot;
+pub(crate) use inspection_budget::{
+    MonotonicClockPort, SystemMonotonicClock, WorkspaceInspectionBudget,
+    WorkspaceInspectionBudgetLimits, WorkspaceInspectionReason,
 };
 pub(crate) use inspection_cursor::{
     bounded_page_size, bounded_search_page, kind_rank, DirectoryCursor, PathSearchCursor,

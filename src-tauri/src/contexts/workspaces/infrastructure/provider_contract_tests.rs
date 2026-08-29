@@ -538,7 +538,7 @@ fn a_cancelled_content_search_is_partial_rather_than_an_error() {
         assert_eq!(result.coverage.state.token(), "partial", "{}", subject.name);
         assert_eq!(
             result.coverage.reason_code,
-            Some("workspace_search_cancelled"),
+            Some("cancelled"),
             "{}",
             subject.name
         );

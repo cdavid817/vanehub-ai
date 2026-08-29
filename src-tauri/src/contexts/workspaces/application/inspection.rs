@@ -18,6 +18,7 @@
 
 use super::content_search::{WorkspaceContentSearchRequest, WorkspaceContentSearchResult};
 use super::error::WorkspaceApplicationError;
+use super::inspection_budget::{WorkspaceInspectionBudgetSnapshot, WorkspaceInspectionReason};
 use super::models::{
     DirectoryListing, DocumentListing, FileContent, FileSearchListing, GitDiffResult,
     GitDiffSource, GitStatusResult,
@@ -325,6 +326,12 @@ pub(crate) struct WorkspaceSearchCoverage {
     /// One primary reason rather than a list. A UI that had to rank several would rank them
     /// differently from the code that produced them, and a reader only ever acts on one.
     pub(crate) reason_code: Option<&'static str>,
+    /// What the inspection actually spent, when it was accounted.
+    ///
+    /// Absent means "not accounted", never "spent nothing": a remote provider counts on the other
+    /// machine and a fixture counts nothing at all, and a zero here would claim a scan that never
+    /// happened.
+    pub(crate) budget: Option<WorkspaceInspectionBudgetSnapshot>,
 }
 
 impl WorkspaceSearchCoverage {
@@ -332,6 +339,7 @@ impl WorkspaceSearchCoverage {
         Self {
             state: WorkspaceSearchCoverageState::Complete,
             reason_code: None,
+            budget: None,
         }
     }
 
@@ -339,6 +347,7 @@ impl WorkspaceSearchCoverage {
         Self {
             state: WorkspaceSearchCoverageState::Partial,
             reason_code: Some(reason_code),
+            budget: None,
         }
     }
 
@@ -346,7 +355,32 @@ impl WorkspaceSearchCoverage {
         Self {
             state: WorkspaceSearchCoverageState::Unavailable,
             reason_code: Some(reason_code),
+            budget: None,
         }
+    }
+
+    /// Coverage for a stop reason, with the state that reason implies.
+    ///
+    /// The mapping lives on the reason rather than at each call site. A provider that decided for
+    /// itself whether `inspection_busy` was partial or unavailable would be a second opinion, and
+    /// the two would differ exactly where a reader needs them not to.
+    pub(crate) fn stopped(reason: WorkspaceInspectionReason) -> Self {
+        let state = if reason.is_unavailable() {
+            WorkspaceSearchCoverageState::Unavailable
+        } else {
+            WorkspaceSearchCoverageState::Partial
+        };
+        Self {
+            state,
+            reason_code: Some(reason.code()),
+            budget: None,
+        }
+    }
+
+    /// Attaches what the inspection spent.
+    pub(crate) fn with_budget(mut self, budget: WorkspaceInspectionBudgetSnapshot) -> Self {
+        self.budget = Some(budget);
+        self
     }
 }
 

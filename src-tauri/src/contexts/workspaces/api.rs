@@ -31,9 +31,11 @@ pub(crate) use super::application::{
     WorkspaceChangeObserverPort, WorkspaceInvalidationChange, WorkspaceInvalidationDispatcher,
     WorkspaceInvalidationScope, WorkspaceInvalidationSource,
 };
-/// Content search, and the registry that lets one be stopped.
+/// Content search, the registry that lets one be stopped, and the ceiling on how many inspections
+/// run at once.
 pub(crate) use super::application::{
-    WorkspaceContentSearchRequest, WorkspaceContentSearchResult, WorkspaceSearchCancellation,
+    WorkspaceContentSearchRequest, WorkspaceContentSearchResult, WorkspaceInspectionAdmission,
+    WorkspaceInspectionReason, WorkspaceSearchCancellation, WorkspaceSearchCoverage,
 };
 pub(crate) use super::application::{
     WorkspaceEvidencePort, WorkspaceEvidenceSignal, WorkspaceFileChangeKind,
@@ -82,6 +84,12 @@ pub(crate) struct WorkspaceApi {
     /// Owned here rather than by the router, because cancelling is a different command from
     /// searching and both need to reach the same registry.
     searches: Arc<WorkspaceSearchCancellation>,
+    /// How many inspections may run at once, globally and per workspace.
+    ///
+    /// Held here rather than inside a provider, because the point of a ceiling is to refuse
+    /// *before* a blocking task or an SSH channel exists. A provider that admitted itself would be
+    /// deciding after the cost had already been paid.
+    admission: Arc<WorkspaceInspectionAdmission>,
 }
 
 impl WorkspaceApi {
@@ -124,6 +132,7 @@ impl WorkspaceApi {
             inspection,
             invalidation,
             searches: Arc::new(WorkspaceSearchCancellation::default()),
+            admission: Arc::new(WorkspaceInspectionAdmission::default()),
         }
     }
 
@@ -320,17 +329,34 @@ impl WorkspaceApi {
         self.inspection.capabilities(session_id).await
     }
 
-    /// Content search, registered so it can be stopped.
+    /// Content search, admitted and registered so it can be stopped.
     ///
-    /// The registration is taken before the search starts, so a cancel arriving in the window
-    /// between the request leaving the frontend and the first directory being read still lands.
-    /// And the guard that owns it stays in *this* future - so an abort releases it and signals the
-    /// worker, and a walk on the blocking pool never touches the registry at all.
+    /// Three things happen here and nowhere else. Admission is acquired before any blocking or
+    /// remote work exists, so a burst is refused rather than queued. The registration is taken
+    /// before the search starts, so a cancel arriving in the window between the request leaving
+    /// the frontend and the first directory being read still lands. And the guard that owns the
+    /// registration stays in *this* future - so an abort releases it and signals the worker, and a
+    /// walk on the blocking pool never touches the registry at all.
+    ///
+    /// The permit is held for as long as this future is, and the provider's future is awaited
+    /// inside it, so the ceiling counts work that is actually running rather than callers that are
+    /// still interested in the answer.
     pub(crate) async fn search_workspace_content(
         &self,
         session_id: &str,
         request: WorkspaceContentSearchRequest,
     ) -> Result<WorkspaceContentSearchResult, WorkspaceInspectionError> {
+        let Ok(_permit) = self.admission.acquire(session_id).await else {
+            // Busy is an answer, not an error: no blocking task was queued and no remote process
+            // was launched, and telling a reader the system is busy is more honest than starting
+            // hidden work whose result they will never see.
+            return Ok(WorkspaceContentSearchResult {
+                coverage: WorkspaceSearchCoverage::stopped(
+                    WorkspaceInspectionReason::InspectionBusy,
+                ),
+                matches: Vec::new(),
+            });
+        };
         let registration = self.searches.begin(&request.search_id);
         let cancellation = registration.token();
         let outcome = self

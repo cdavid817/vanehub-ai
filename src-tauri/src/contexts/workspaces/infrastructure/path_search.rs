@@ -17,8 +17,8 @@
 use super::session_queries::resolve_session_root;
 use crate::contexts::workspaces::application::{
     bounded_search_page, PathSearchCursor, WorkspaceApplicationError as AppError,
-    WorkspacePathMatch, WorkspacePathSearchRequest, WorkspacePathSearchResult,
-    WorkspaceSearchCoverage,
+    WorkspaceInspectionReason, WorkspacePathMatch, WorkspacePathSearchRequest,
+    WorkspacePathSearchResult, WorkspaceSearchCoverage,
 };
 use crate::contexts::workspaces::domain::CanonicalPathBoundary;
 use rusqlite::Connection;
@@ -98,7 +98,9 @@ pub(crate) fn search_session_paths(
     };
     let Some(root) = resolve_session_root(conn, session_id)? else {
         return Ok(WorkspacePathSearchResult {
-            coverage: WorkspaceSearchCoverage::unavailable("workspace_search_root_unavailable"),
+            coverage: WorkspaceSearchCoverage::stopped(
+                WorkspaceInspectionReason::ProviderUnavailable,
+            ),
             matches: Vec::new(),
             next_cursor: None,
         });
@@ -135,7 +137,7 @@ pub(crate) fn search_session_paths(
 
     Ok(WorkspacePathSearchResult {
         coverage: match partial_reason {
-            Some(reason) => WorkspaceSearchCoverage::partial(reason),
+            Some(reason) => WorkspaceSearchCoverage::stopped(reason),
             None => WorkspaceSearchCoverage::complete(),
         },
         matches: page
@@ -166,7 +168,7 @@ pub(crate) fn normalize_query(query: &str) -> String {
 pub(crate) fn walk_workspace_paths(
     root: &Path,
     query: &str,
-) -> Result<(Vec<Candidate>, Option<&'static str>), AppError> {
+) -> Result<(Vec<Candidate>, Option<WorkspaceInspectionReason>), AppError> {
     // Entries are canonicalized before the containment check, so the root must be too: a short
     // (8.3) or symlinked root would otherwise fail every check and return nothing.
     let canonical_root = root
@@ -178,7 +180,7 @@ pub(crate) fn walk_workspace_paths(
     let mut visited: HashSet<PathBuf> = HashSet::from([root.to_path_buf()]);
     let mut candidates: Vec<Candidate> = Vec::new();
     let mut scanned = 0usize;
-    let mut partial: Option<&'static str> = None;
+    let mut partial: Option<WorkspaceInspectionReason> = None;
 
     while let Some((directory, depth)) = queue.pop_front() {
         let entries = match fs::read_dir(&directory) {
@@ -187,7 +189,7 @@ pub(crate) fn walk_workspace_paths(
             // quirk that must not fail the whole search — but it does make the answer partial.
             Err(error) if depth == 0 => return Err(AppError::Storage(error.to_string())),
             Err(_) => {
-                partial.get_or_insert("workspace_search_directory_unreadable");
+                partial.get_or_insert(WorkspaceInspectionReason::UnreadableEntries);
                 continue;
             }
         };
@@ -205,7 +207,7 @@ pub(crate) fn walk_workspace_paths(
             let is_directory = canonical.is_dir();
             scanned += 1;
             if scanned > SEARCH_SCAN_LIMIT {
-                partial.get_or_insert("workspace_search_scan_limit");
+                partial.get_or_insert(WorkspaceInspectionReason::EntryBudgetExhausted);
                 break;
             }
             let Ok(relative) = boundary.relative(&canonical) else {
@@ -216,13 +218,13 @@ pub(crate) fn walk_workspace_paths(
                     continue;
                 }
                 if depth + 1 > SEARCH_DEPTH_LIMIT {
-                    partial.get_or_insert("workspace_search_depth_limit");
+                    partial.get_or_insert(WorkspaceInspectionReason::DepthBudgetExhausted);
                 } else if visited.insert(canonical.clone()) {
                     queue.push_back((canonical.clone(), depth + 1));
                 }
             }
             if candidates.len() >= MATCH_COLLECTION_LIMIT {
-                partial.get_or_insert("workspace_search_match_limit");
+                partial.get_or_insert(WorkspaceInspectionReason::CandidateBudgetExhausted);
                 continue;
             }
             if let Some(score) = path_match_score(query, &name, &relative) {
@@ -236,7 +238,7 @@ pub(crate) fn walk_workspace_paths(
             }
         }
         if scanned > SEARCH_SCAN_LIMIT {
-            partial.get_or_insert("workspace_search_scan_limit");
+            partial.get_or_insert(WorkspaceInspectionReason::EntryBudgetExhausted);
             break;
         }
     }

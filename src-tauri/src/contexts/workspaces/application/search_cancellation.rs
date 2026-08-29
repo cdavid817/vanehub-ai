@@ -48,17 +48,6 @@ pub(crate) enum SearchCancellationCause {
 }
 
 impl SearchCancellationCause {
-    /// The stable token a coverage reason carries.
-    pub(crate) fn reason_code(self) -> &'static str {
-        match self {
-            // Unchanged from the id-only registry, because the frontend already reads it and a
-            // rename here would silently turn a translated notice into a raw code.
-            Self::Cancelled => "workspace_search_cancelled",
-            Self::Superseded => "workspace_search_superseded",
-            Self::OwnerDropped => "workspace_search_owner_dropped",
-        }
-    }
-
     fn code(self) -> u8 {
         match self {
             Self::Cancelled => 1,
