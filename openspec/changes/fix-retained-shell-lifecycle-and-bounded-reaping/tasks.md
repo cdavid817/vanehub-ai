@@ -84,7 +84,7 @@
 - [x] 9.2 Update the Tauri adapter/event mapping without adding component-level `invoke()` calls or exposing native error strings.
 - [ ] 9.3 Implement deterministic Web/mock capacity, startup, fast-exit, reaping, failure, retry, terminal finalization, and stale-generation behavior with no native process claims.
 - [ ] 9.4 Update Shell/terminal UI so intermediate cleanup keeps the Shell identifiable, blocks unsafe Running-only operations, retains output, and reconciles event/pull state.
-- [ ] 9.5 Update archive/delete UI to display cleanup-in-progress/failure and avoid removing the session from UI before strict finalization succeeds.
+- [x] 9.5 Update archive/delete UI to display cleanup-in-progress/failure and avoid removing the session from UI before strict finalization succeeds.
 - [x] 9.6 Add every new lifecycle/reason/cleanup string to all registered locales and pass key/interpolation parity tests.
 - [ ] 9.7 Add frontend unit/component tests for fast terminal event reconciliation, close Reaping → Closed, CloseFailed retry, duplicate event, stale generation, Web capacity rejection, and incomplete session delete.
 
