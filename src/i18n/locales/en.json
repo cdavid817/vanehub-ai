@@ -2573,6 +2573,7 @@
   "layout.help": "Help",
   "layout.activityBar.label": "Workspace navigation",
   "layout.activityBar.sessions": "Sessions",
+  "layout.activityBar.systemActivity": "System Activity",
   "layout.activityBar.expandSessions": "Expand sessions",
   "layout.activityBar.collapseSessions": "Collapse sessions",
   "layout.activityBar.loops": "Loops",

@@ -7,6 +7,7 @@ import { SessionTabs } from "../session-workspace/session-tabs";
 import { ApiSessionComposer } from "../session-workspace/api-session-composer";
 import type { SessionTabId } from "../session-workspace/session-tab-bar";
 import { agentService } from "../services/runtime-agent-client";
+import { useSystemActivityUnread } from "../system-activity/use-system-activity-badge";
 import type { Session } from "../types/agent";
 import type { ChatMessage } from "../types/chat";
 import type { LoopInspectionTarget } from "../types/loop";
@@ -42,6 +43,8 @@ const loadGoalCenter: LazyFeatureLoader<Record<string, never>> = () => import(".
   .then((module) => ({ default: module.GoalCenter }));
 const loadEvaluationCenter: LazyFeatureLoader<Record<string, never>> = () => import("../evaluation-center/evaluation-center")
   .then((module) => ({ default: module.EvaluationCenter }));
+const loadSystemActivity: LazyFeatureLoader<Record<string, never>> = () => import("../system-activity/system-activity-view")
+  .then((module) => ({ default: module.SystemActivityView }));
 type MissionControlProps = { onNavigate?: (target: import("../types/mission-control").MissionControlNavigationTarget) => void };
 const loadMissionControl: LazyFeatureLoader<MissionControlProps> = () => import("../mission-control/mission-control")
   .then((module) => ({ default: module.MissionControl }));
@@ -103,6 +106,8 @@ export function MainLayout({
   const [goalCenterVisited, setGoalCenterVisited] = useState(false);
   const [evaluationCenterVisited, setEvaluationCenterVisited] = useState(false);
   const [missionControlVisited, setMissionControlVisited] = useState(false);
+  const [systemActivityVisited, setSystemActivityVisited] = useState(false);
+  const systemActivityUnread = useSystemActivityUnread(destination);
   // Nonce, not just the tab id: requesting the same tab twice in a row (e.g. `/logs` again after
   // the user manually switched back to chat) must still re-trigger `SessionTabs`' activation effect.
   const [slashTabRequest, setSlashTabRequest] = useState<SlashTabRequest | null>(null);
@@ -146,6 +151,7 @@ export function MainLayout({
     if (destination === "goals") setGoalCenterVisited(true);
     if (destination === "evaluations") setEvaluationCenterVisited(true);
     if (destination === "mission-control") setMissionControlVisited(true);
+    if (destination === "system-activity") setSystemActivityVisited(true);
   }, [destination]);
 
   // The URL and the backend's active session are two claims about the same thing.
@@ -268,6 +274,8 @@ export function MainLayout({
             onGoals={() => goTo({ destination: "goals" })}
             onEvaluations={() => goTo({ destination: "evaluations" })}
             onMissionControl={() => goTo({ destination: "mission-control" })}
+            onSystemActivity={() => goTo({ destination: "system-activity" })}
+            systemActivityUnread={systemActivityUnread}
             onSessions={() => {
               if (destination !== "sessions") goTo({ destination: "sessions" });
               else if (conversationFocusMode) setConversationFocusMode(false);
@@ -440,6 +448,9 @@ export function MainLayout({
               if (target.kind === "review") setSlashTabRequest((current) => ({ tab: "changes", nonce: (current?.nonce ?? 0) + 1 }));
               goTo({ destination: "sessions", sessionId: target.sessionId ?? target.id });
             } }} loader={loadMissionControl} /> : null}
+          </section>
+          <section aria-label={t("layout.activityBar.systemActivity")} className={cn("min-h-0 min-w-0 flex-1 p-2", destination === "system-activity" ? "flex" : "hidden")} id="system-activity">
+            {systemActivityVisited ? <LazyFeature className="h-full min-h-0 flex-1" componentProps={{}} loader={loadSystemActivity} /> : null}
           </section>
           <section
             aria-label={t("layout.activityBar.loops")}

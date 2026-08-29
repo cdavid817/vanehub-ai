@@ -1,4 +1,4 @@
-import { BarChart3, CalendarClock, CircleHelp, Columns3, MessagesSquare, Radar, Repeat2, Settings, Target } from "lucide-react";
+import { Activity, BarChart3, CalendarClock, CircleHelp, Columns3, MessagesSquare, Radar, Repeat2, Settings, Target } from "lucide-react";
 import { cn } from "../lib/utils";
 
 export interface WorkspaceActivityBarLabels {
@@ -12,12 +12,13 @@ export interface WorkspaceActivityBarLabels {
   goals: string;
   evaluations: string;
   missionControl: string;
+  systemActivity: string;
   settings: string;
   help: string;
 }
 
 interface WorkspaceActivityBarProps {
-  activeDestination: "sessions" | "loops" | "work-board" | "goals" | "evaluations" | "mission-control";
+  activeDestination: "sessions" | "loops" | "work-board" | "goals" | "evaluations" | "mission-control" | "system-activity";
   labels: WorkspaceActivityBarLabels;
   onOpenSettings: () => void;
   onHelp: () => void;
@@ -28,6 +29,9 @@ interface WorkspaceActivityBarProps {
   onGoals: () => void;
   onEvaluations: () => void;
   onMissionControl: () => void;
+  onSystemActivity: () => void;
+  /** Total unread system-activity items; renders as a badge on the entry. */
+  systemActivityUnread: number;
   sessionSidebarExpanded: boolean;
 }
 
@@ -44,6 +48,7 @@ export function workspaceActivityBarLabels(t: (key: string) => string): Workspac
     goals: t("layout.activityBar.goals"),
     evaluations: t("layout.activityBar.evaluations"),
     missionControl: t("layout.activityBar.missionControl"),
+    systemActivity: t("layout.activityBar.systemActivity"),
     settings: t("layout.activityBar.settings"),
     help: t("layout.activityBar.help"),
   };
@@ -64,6 +69,8 @@ export function WorkspaceActivityBar({
   onGoals,
   onEvaluations,
   onMissionControl,
+  onSystemActivity,
+  systemActivityUnread,
   sessionSidebarExpanded,
 }: WorkspaceActivityBarProps) {
   const sessionsLabel = sessionSidebarExpanded ? labels.collapseSessions : labels.expandSessions;
@@ -95,6 +102,14 @@ export function WorkspaceActivityBar({
         <button aria-controls="work-board" aria-label={labels.todoBoard} className={cn(activityButtonClass, activeDestination === "work-board" && "border-primary bg-[hsl(var(--nav-active-soft))] text-primary")} onClick={onWorkBoard} title={labels.todoBoard} type="button"><Columns3 aria-hidden="true" className="h-5 w-5" /></button>
         <button aria-controls="goal-center" aria-label={labels.goals} className={cn(activityButtonClass, activeDestination === "goals" && "border-primary bg-[hsl(var(--nav-active-soft))] text-primary")} onClick={onGoals} title={labels.goals} type="button"><Target aria-hidden="true" className="h-5 w-5" /></button>
         <button aria-controls="evaluation-center" aria-label={labels.evaluations} className={cn(activityButtonClass, activeDestination === "evaluations" && "border-primary bg-[hsl(var(--nav-active-soft))] text-primary")} onClick={onEvaluations} title={labels.evaluations} type="button"><BarChart3 aria-hidden="true" className="h-5 w-5" /></button>
+        <button aria-controls="system-activity" aria-label={labels.systemActivity} className={cn(activityButtonClass, "relative", activeDestination === "system-activity" && "border-primary bg-[hsl(var(--nav-active-soft))] text-primary")} onClick={onSystemActivity} title={labels.systemActivity} type="button">
+          <Activity aria-hidden="true" className="h-5 w-5" />
+          {systemActivityUnread > 0 ? (
+            <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-primary px-1 text-center text-[9px] leading-4 text-primary-foreground" data-testid="system-activity-bar-badge">
+              {systemActivityUnread > 99 ? "99+" : systemActivityUnread}
+            </span>
+          ) : null}
+        </button>
         <button aria-controls="mission-control" aria-label={labels.missionControl} className={cn(activityButtonClass, activeDestination === "mission-control" && "border-primary bg-[hsl(var(--nav-active-soft))] text-primary")} onClick={onMissionControl} title={labels.missionControl} type="button"><Radar aria-hidden="true" className="h-5 w-5" /></button>
       </div>
       {/* Scheduled tasks opens a dialog rather than switching destination, so it sits apart from

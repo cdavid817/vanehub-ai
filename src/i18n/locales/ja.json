@@ -2573,6 +2573,7 @@
   "layout.help": "ヘルプ",
   "layout.activityBar.label": "ワークスペースのナビゲーション",
   "layout.activityBar.sessions": "セッション",
+  "layout.activityBar.systemActivity": "システムアクティビティ",
   "layout.activityBar.expandSessions": "セッションを拡張する",
   "layout.activityBar.collapseSessions": "セッションを折りたたむ",
   "layout.activityBar.loops": "ループ",

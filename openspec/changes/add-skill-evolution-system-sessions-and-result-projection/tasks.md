@@ -89,28 +89,28 @@
 
 - [x] 11.1 Implement deterministic JSON export of allowed canonical envelopes and localized Markdown export with manifest metadata.
 - [x] 11.2 Bind exports to system session, active generation, filters, range, limits, completeness, redaction, and content hash.
-- [ ] 11.3 Use the normal user-selected export boundary and disclose that exported files are outside automatic retention.
+- [x] 11.3 Use the normal user-selected export boundary and disclose that exported files are outside automatic retention.
 - [x] 11.4 Prevent exports from following navigation links or including dossiers, evidence, diffs, drafts, Overlay content, or source records.
-- [ ] 11.5 Add cancellation, path boundary, size/item limit, filter parity, deterministic hash, localization, and sensitive-data tests.
+- [x] 11.5 Add cancellation, path boundary, size/item limit, filter parity, deterministic hash, localization, and sensitive-data tests.
 
 ## 12. Service Boundaries and Session Integration
 
-- [ ] 12.1 Add discriminated system-session collections without changing interactive Session entity invariants or active workflow selection.
-- [ ] 12.2 Reject create, rename, pin, archive, category, delete, send, stop, terminal, provider-resume, and chat-configuration commands for system sessions.
-- [ ] 12.3 Keep ordinary Agent-session counts, search, archival, categories, deletion, discovery, and recovery separate from system activity.
-- [ ] 12.4 Add typed timeline, filter, search, read-state, health, preference, rebuild, export, and dashboard contracts to `agent-service.ts`.
-- [ ] 12.5 Add Rust/Tauri commands with typed errors and isolate all native invocations in Tauri frontend adapters.
-- [ ] 12.6 Implement Web/mock sessions, timelines, lag/gaps, read state, preferences, rebuild, digests, dashboard, and export with explicit in-memory provenance.
-- [ ] 12.7 Add adapter contracts and mutation-refusal, active-workflow isolation, bulk-delete, ordinary-search exclusion, and Web parity tests.
+- [x] 12.1 Add discriminated system-session collections without changing interactive Session entity invariants or active workflow selection.
+- [x] 12.2 Reject create, rename, pin, archive, category, delete, send, stop, terminal, provider-resume, and chat-configuration commands for system sessions.
+- [x] 12.3 Keep ordinary Agent-session counts, search, archival, categories, deletion, discovery, and recovery separate from system activity.
+- [x] 12.4 Add typed timeline, filter, search, read-state, health, preference, rebuild, export, and dashboard contracts to `agent-service.ts`.
+- [x] 12.5 Add Rust/Tauri commands with typed errors and isolate all native invocations in Tauri frontend adapters.
+- [x] 12.6 Implement Web/mock sessions, timelines, lag/gaps, read state, preferences, rebuild, digests, dashboard, and export with explicit in-memory provenance.
+- [x] 12.7 Add adapter contracts and mutation-refusal, active-workflow isolation, bulk-delete, ordinary-search exclusion, and Web parity tests.
 
 ## 13. System Activity UI
 
-- [ ] 13.1 Add a distinct System Activity navigation group for global/workspace sessions with unread and attention badges.
-- [ ] 13.2 Implement `SystemActivityView` separately from interactive chat so composer and Agent lifecycle hooks never mount.
-- [ ] 13.3 Add timeline virtualization, filtering/search, read state, structured items, safe navigation, lag/gap banners, empty/loading/error states, and export.
-- [ ] 13.4 Add Skill Evolution dashboard projection summaries with freshness/completeness and links to scoped activity.
-- [ ] 13.5 Add preferences, per-domain health, rebuild progress/validation, retention, and export controls.
-- [ ] 13.6 Keep production modules below 300 lines and add responsive, dark-theme, keyboard, focus, screen-reader, locale-switch, and Web/mock tests.
+- [x] 13.1 Add a distinct System Activity navigation group for global/workspace sessions with unread and attention badges.
+- [x] 13.2 Implement `SystemActivityView` separately from interactive chat so composer and Agent lifecycle hooks never mount.
+- [x] 13.3 Add timeline virtualization, filtering/search, read state, structured items, safe navigation, lag/gap banners, empty/loading/error states, and export.
+- [x] 13.4 Add Skill Evolution dashboard projection summaries with freshness/completeness and links to scoped activity.
+- [x] 13.5 Add preferences, per-domain health, rebuild progress/validation, retention, and export controls.
+- [x] 13.6 Keep production modules below 300 lines and add responsive, dark-theme, keyboard, focus, screen-reader, locale-switch, and Web/mock tests.
 
 ## 14. Full Verification
 

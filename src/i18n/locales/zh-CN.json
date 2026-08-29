@@ -2573,6 +2573,7 @@
   "layout.help": "帮助",
   "layout.activityBar.label": "工作区导航",
   "layout.activityBar.sessions": "会话",
+  "layout.activityBar.systemActivity": "系统活动",
   "layout.activityBar.expandSessions": "展开会话栏",
   "layout.activityBar.collapseSessions": "折叠会话栏",
   "layout.activityBar.loops": "循环工程",

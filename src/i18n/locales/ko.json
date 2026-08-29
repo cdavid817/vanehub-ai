@@ -2573,6 +2573,7 @@
   "layout.help": "도움말",
   "layout.activityBar.label": "작업공간 탐색",
   "layout.activityBar.sessions": "세션",
+  "layout.activityBar.systemActivity": "시스템 활동",
   "layout.activityBar.expandSessions": "세션 확장",
   "layout.activityBar.collapseSessions": "세션 축소",
   "layout.activityBar.loops": "루프",
