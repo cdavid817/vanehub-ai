@@ -3,7 +3,7 @@
 - [x] 0.1 Read `AGENTS.md`, `openspec/project.md`, the current `session-shell`, `remote-terminal-runtime`, and `runtime-performance-governance` specs, and every active change touching Shell state, PTY, SSH, operations, session deletion, or runtime shutdown.
 - [x] 0.2 Produce a current fact map covering local open/close, remote open/close, routed runtime, store/replay registration, capacity checks, natural exit, idle sweep, archive/delete, shutdown, frontend service/adapters, and desktop tests.
 - [x] 0.3 Run `openspec validate fix-retained-shell-lifecycle-and-bounded-reaping --strict`; correct the change artifacts before production code if repository evolution created a conflict.
-- [ ] 0.4 Add characterization tests that demonstrate the current failure modes without weakening existing behavior: partial-start ownership, fast output/exit before store registration, concurrent capacity over-admission, remove-before-close, route loss after remote close failure, and unbounded fake wait/join.
+- [x] 0.4 Add characterization tests that demonstrate the current failure modes without weakening existing behavior: partial-start ownership, fast output/exit before store registration, concurrent capacity over-admission, remove-before-close, route loss after remote close failure, and unbounded fake wait/join.
 - [x] 0.5 Record current configured total/per-session/local/remote limits and close/idle/shutdown timing constants. Do not raise them as part of the fix unless a separate requirement and evidence justify it.
 
 ## 1. Domain lifecycle and typed contracts
