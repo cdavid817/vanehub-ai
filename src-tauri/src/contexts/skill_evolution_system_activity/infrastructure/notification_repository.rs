@@ -37,6 +37,61 @@ impl ActivityNotificationDeliveryPort for SqliteActivityProjectionRepository<'_>
 }
 
 impl SqliteActivityProjectionRepository<'_> {
+    /// Claims every digest bucket whose window has closed and has not been delivered, marking it
+    /// delivered in the same transaction so catch-up or a second caller never emits it twice.
+    pub(crate) fn claim_due_digest_notifications(
+        &self,
+        now_ms: i64,
+    ) -> Result<Vec<ActivityDigestNotification>, ActivityProjectionRepositoryError> {
+        if now_ms < 0 {
+            return Err(ActivityProjectionRepositoryError::InvalidInput);
+        }
+        let transaction = self.connection.unchecked_transaction()?;
+        let due = {
+            let mut statement = transaction.prepare(
+                "SELECT bucket_id,scope_kind,canonical_scope_id,cadence,window_started_at_ms,
+                        window_ends_at_ms,counts_json,highest_severity
+                 FROM evolution_activity_digest_buckets
+                 WHERE window_ends_at_ms<=?1 AND delivered_at_ms IS NULL
+                 ORDER BY window_ends_at_ms,bucket_id",
+            )?;
+            let rows = statement.query_map([now_ms], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, i64>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, String>(7)?,
+                ))
+            })?;
+            rows.collect::<Result<Vec<_>, _>>()?
+        };
+        let mut notifications = Vec::with_capacity(due.len());
+        for (bucket_id, scope_kind, scope_id, cadence, started, ends, counts_json, severity) in due
+        {
+            transaction.execute(
+                "UPDATE evolution_activity_digest_buckets SET delivered_at_ms=?1
+                 WHERE bucket_id=?2",
+                params![now_ms, bucket_id],
+            )?;
+            notifications.push(ActivityDigestNotification {
+                scope_kind: parse_enum(&scope_kind)?,
+                canonical_scope_id: scope_id,
+                cadence: parse_enum(&cadence)?,
+                window_started_at_ms: started,
+                window_ends_at_ms: ends,
+                counts_by_event_code: serde_json::from_str(&counts_json)
+                    .map_err(|_| ActivityProjectionRepositoryError::Storage)?,
+                highest_severity: parse_severity(&severity)?,
+            });
+        }
+        transaction.commit()?;
+        Ok(notifications)
+    }
+
     fn plan(
         &self,
         envelope: &EvolutionActivityEnvelopeV1,
@@ -159,6 +214,12 @@ fn higher_severity(left: ActivitySeverity, right: ActivitySeverity) -> ActivityS
 }
 
 fn parse_severity(value: &str) -> Result<ActivitySeverity, ActivityProjectionRepositoryError> {
+    parse_enum(value)
+}
+
+fn parse_enum<T: serde::de::DeserializeOwned>(
+    value: &str,
+) -> Result<T, ActivityProjectionRepositoryError> {
     serde_json::from_value(serde_json::Value::String(value.into()))
         .map_err(|_| ActivityProjectionRepositoryError::Storage)
 }

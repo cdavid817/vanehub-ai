@@ -126,7 +126,6 @@ windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_Security"
 libc = "0.2"
 proc-macro2 = { version = "1", features = ["span-locations"] }
 syn = { version = "3", features = ["full", "visit"] }
-unicode-normalization = "0.1"
 
 # Deliberately empty of the panic-shortcut lints. `[lints]` has no target selectivity, and CI runs
 # `cargo clippy --all-targets -- -D warnings`, so putting `unwrap_used`/`expect_used` here would

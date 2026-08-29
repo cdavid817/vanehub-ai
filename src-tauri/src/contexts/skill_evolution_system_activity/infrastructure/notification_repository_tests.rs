@@ -125,6 +125,68 @@ fn routine_events_share_a_bounded_digest_while_urgent_event_bypasses_it() {
 }
 
 #[test]
+fn closed_digest_window_is_claimed_once_with_counts_range_and_severity() {
+    let connection = Connection::open_in_memory().expect("database");
+    apply_schema(&connection).expect("schema");
+    let repository = SqliteActivityProjectionRepository::new(&connection);
+    let mut preferences = default_preferences();
+    preferences.digest_cadence = ActivityDigestCadence::Hourly;
+    repository
+        .update_preferences(&preferences, 1)
+        .expect("digest preferences");
+    persist(
+        &repository,
+        vec![
+            event(
+                1,
+                ActivityEventCode::RunCompleted,
+                ActivitySeverity::Info,
+                ActivityAttentionKind::None,
+            ),
+            event(
+                2,
+                ActivityEventCode::CuratorQueued,
+                ActivitySeverity::Warning,
+                ActivityAttentionKind::None,
+            ),
+        ],
+    );
+    let adapter = SqliteActivityTargetDeliveryAdapter::new(&repository, &repository);
+    let projector = ActivityTargetProjector::new(&adapter);
+    for event_id in ["event-1", "event-2"] {
+        projector.project(event_id, 3_700_000).expect("projection");
+    }
+
+    // Window [3_600_000, 7_200_000) has not closed yet: nothing is due.
+    assert_eq!(
+        repository
+            .claim_due_digest_notifications(7_199_999)
+            .expect("early claim"),
+        Vec::new()
+    );
+    let claimed = repository
+        .claim_due_digest_notifications(7_200_000)
+        .expect("claim");
+    assert_eq!(claimed.len(), 1);
+    let digest = &claimed[0];
+    assert_eq!(
+        (digest.window_started_at_ms, digest.window_ends_at_ms),
+        (3_600_000, 7_200_000)
+    );
+    assert_eq!(digest.cadence, ActivityDigestCadence::Hourly);
+    assert_eq!(digest.highest_severity, ActivitySeverity::Warning);
+    assert_eq!(digest.counts_by_event_code.get("run_completed"), Some(&1));
+    assert_eq!(digest.counts_by_event_code.get("curator_queued"), Some(&1));
+    // A second claim — a restart or catch-up replay — must not deliver the same window again.
+    assert_eq!(
+        repository
+            .claim_due_digest_notifications(7_200_001)
+            .expect("replayed claim"),
+        Vec::new()
+    );
+}
+
+#[test]
 fn dismissal_changes_only_notification_presentation_state() {
     let connection = Connection::open_in_memory().expect("database");
     apply_schema(&connection).expect("schema");

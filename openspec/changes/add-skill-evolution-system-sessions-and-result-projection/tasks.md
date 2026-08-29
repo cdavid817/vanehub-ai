@@ -69,12 +69,12 @@
 
 ## 9. Notifications and Digests
 
-- [ ] 9.1 Derive notification requests from canonical envelopes with independent target receipts and threshold policy.
-- [ ] 9.2 Implement immediate attention eligibility for security, integrity, application failure, regression, breaker, and blocked human review events.
-- [ ] 9.3 Implement bounded hourly/daily digest buckets with counts, highest severity, time range, and filtered activity navigation.
-- [ ] 9.4 Coordinate notification opening with read cursor only after the referenced timeline item becomes visible.
+- [x] 9.1 Derive notification requests from canonical envelopes with independent target receipts and threshold policy.
+- [x] 9.2 Implement immediate attention eligibility for security, integrity, application failure, regression, breaker, and blocked human review events.
+- [x] 9.3 Implement bounded hourly/daily digest buckets with counts, highest severity, time range, and filtered activity navigation.
+- [x] 9.4 Coordinate notification opening with read cursor only after the referenced timeline item becomes visible.
 - [ ] 9.5 Preserve delivery receipts through catch-up and rebuild and keep all notification actions non-mutating.
-- [ ] 9.6 Add deduplication, digest window, urgent bypass, delayed timeline, dismissal, read coordination, privacy, and navigation tests.
+- [x] 9.6 Add deduplication, digest window, urgent bypass, delayed timeline, dismissal, read coordination, privacy, and navigation tests.
 
 ## 10. Shadow-Generation Rebuild
 
