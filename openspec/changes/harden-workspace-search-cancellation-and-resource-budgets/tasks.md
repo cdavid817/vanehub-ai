@@ -90,7 +90,7 @@
 - [ ] 9.2 Add performance gates proving candidate/page memory bounds, exact budget stops, cancellation checkpoint bounds, and global/per-workspace admission limits on large synthetic trees.
 - [ ] 9.3 Add/update architecture fitness tests proving workspaces application owns ports/policy, infrastructure owns filesystem/provider calls, runtime acquires admission through public service APIs, and commands/components do not coordinate workers.
 - [x] 9.4 Update developer documentation with generation-safe cancellation, budget semantics, coverage/reason codes, ignore modes, directory cursor V2, admission/backpressure, local/remote parity, and limitations without an index/snapshot.
-- [ ] 9.5 Review logs, DTOs, fixtures, and metrics for raw file content, search secrets, unrestricted absolute paths, remote command bodies, or unbounded error lists; enforce redaction and bounded summaries.
+- [x] 9.5 Review logs, DTOs, fixtures, and metrics for raw file content, search secrets, unrestricted absolute paths, remote command bodies, or unbounded error lists; enforce redaction and bounded summaries.
 - [ ] 9.6 Remove duplicated old limit/ignore/cancel implementations only after all local, remote, and Web callers use the shared contracts.
 
 ## 10. Verification

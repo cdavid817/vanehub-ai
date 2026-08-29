@@ -573,6 +573,14 @@ impl From<SshRuntimeError> for CommandError {
     }
 }
 
+/// An infrastructure message with its category inferred and its private paths removed.
+///
+/// The redaction is here rather than at each arm because the messages that reach it are the ones
+/// nobody wrote deliberately: an OS error, a repository failure, a launch that did not happen. Today
+/// they carry no path — a `std::io::Error` reports the OS message and not the file it was about —
+/// but that is a property of the standard library rather than of this code, and the first
+/// `format!("... {path}")` somebody adds would ship an absolute path to a UI that then puts it on
+/// screen and into a bug report.
 fn command_error_with_default(
     fallback_category: CommandErrorCategory,
     message: String,
@@ -590,7 +598,9 @@ fn command_error_with_default(
     } else {
         format!("{default_prefix}{message}")
     };
-    CommandError { category, message }
+    // Prefixed first, then redacted: the prefix is this side's own vocabulary and a redactor that
+    // ran before it would have to be told to leave it alone.
+    CommandError::redacted(category, message)
 }
 
 fn command_error_has_prefix(message: &str) -> bool {
@@ -1270,5 +1280,60 @@ mod tests {
         );
         assert_eq!(domain.message(), "communications-domain-invalid");
         assert_eq!(domain.category(), CommandErrorCategory::Validation);
+    }
+}
+
+#[cfg(test)]
+mod redaction_tests {
+    use super::*;
+
+    /// An infrastructure failure must not carry a private path to the frontend.
+    ///
+    /// Today the messages that reach this path are OS strings with no file in them, which is a
+    /// property of `std::io::Error` rather than of this code. The first `format!("... {path}")`
+    /// somebody adds would otherwise ship an absolute path to a surface that puts it on screen and
+    /// into a bug report.
+    #[test]
+    fn an_infrastructure_message_loses_its_private_paths() {
+        let error = CommandError::from(WorkspaceError::Storage(
+            r"could not read C:\Users\someone\project\secret.txt".to_string(),
+        ));
+
+        assert_eq!(error.category, CommandErrorCategory::Infrastructure);
+        assert!(!error.message.contains("someone"), "{}", error.message);
+        assert!(
+            error.message.contains("[REDACTED_PATH]"),
+            "{}",
+            error.message
+        );
+        // The prefix is this side's own vocabulary and survives, so the category is still readable
+        // from the message a caller logs.
+        assert!(
+            error.message.starts_with("storage error: "),
+            "{}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn a_message_without_a_path_is_left_alone() {
+        let error = CommandError::from(WorkspaceError::Storage(
+            "The system cannot find the file specified. (os error 2)".to_string(),
+        ));
+
+        // Redaction that rewrote ordinary text would make every infrastructure failure unreadable,
+        // which is how a redactor stops being used.
+        assert!(error.message.contains("os error 2"), "{}", error.message);
+    }
+
+    /// A validation message is the caller's own words back. Redacting it would blank a relative
+    /// path the caller supplied in the request it is being told about.
+    #[test]
+    fn a_validation_message_is_returned_as_written() {
+        let error = CommandError::from(WorkspaceError::Validation(
+            "Referenced file is not readable text: src/main.rs".to_string(),
+        ));
+
+        assert!(error.message.contains("src/main.rs"), "{}", error.message);
     }
 }
