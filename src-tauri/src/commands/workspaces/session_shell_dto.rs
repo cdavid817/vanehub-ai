@@ -8,8 +8,8 @@ use super::dto::ShellRuntimeDescriptor;
 use super::mapper::shell_runtime_to_dto;
 use crate::contexts::workspaces::api::{
     AttachSessionShellRequest, CreateSessionShellRequest, ResizeSessionShellRequest,
-    SessionShellDescriptor, SessionShellError, ShellAttachSnapshot, ShellAttachmentScope, ShellId,
-    WriteSessionShellRequest,
+    SessionShellCloseResult, SessionShellDescriptor, SessionShellError, ShellAttachSnapshot,
+    ShellAttachmentScope, ShellId, WriteSessionShellRequest,
 };
 use crate::contexts::workspaces::domain::{
     ShellAttachmentId, ShellCreateRequestId, ShellOutputFrame, ShellReplayGap, ShellTitle,
@@ -20,6 +20,9 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SessionShell {
     pub(crate) shell_id: String,
+    /// Which life of this Shell id the descriptor describes. A view uses it to discard an event
+    /// belonging to a Shell it has already replaced.
+    pub(crate) generation: u64,
     pub(crate) session_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) seat_id: Option<String>,
@@ -38,6 +41,27 @@ pub(crate) struct SessionShell {
     /// `unknown` is a value, not a missing field. A view that received nothing here would have to
     /// invent an answer, and the one it would invent is "nothing is running".
     pub(crate) foreground_process: &'static str,
+}
+
+/// What a close attempt achieved.
+///
+/// Four dispositions rather than a boolean, because "the call returned" and "the process is gone"
+/// are different facts and the UI has to be able to say which one it has.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ShellCloseOutcome {
+    pub(crate) shell_id: String,
+    pub(crate) generation: u64,
+    pub(crate) disposition: &'static str,
+    /// Present only for a settled disposition. An unsettled close has no final state because
+    /// nothing final was observed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) final_state: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) reason: Option<String>,
+    pub(crate) retryable: bool,
+    pub(crate) attempt: u32,
+    pub(crate) cleanup_deadline_reached: bool,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -203,9 +227,23 @@ fn blank_to_none(value: Option<String>) -> Option<String> {
     value.filter(|value| !value.trim().is_empty())
 }
 
+pub(super) fn close_result_to_dto(result: SessionShellCloseResult) -> ShellCloseOutcome {
+    ShellCloseOutcome {
+        shell_id: result.shell_id.as_str().to_string(),
+        generation: result.generation.value(),
+        disposition: result.disposition.token(),
+        final_state: result.final_state.as_ref().map(|state| state.token()),
+        reason: result.reason.map(|reason| reason.as_str().to_string()),
+        retryable: result.retryable,
+        attempt: result.attempt,
+        cleanup_deadline_reached: result.cleanup_deadline_reached,
+    }
+}
+
 pub(super) fn descriptor_to_dto(descriptor: SessionShellDescriptor) -> SessionShell {
     SessionShell {
         shell_id: descriptor.shell_id.as_str().to_string(),
+        generation: descriptor.generation.value(),
         session_id: descriptor.session_id,
         seat_id: descriptor.seat_id,
         title: descriptor.title.as_str().to_string(),
@@ -264,6 +302,7 @@ mod tests {
     fn descriptor(state: SessionShellState) -> SessionShellDescriptor {
         SessionShellDescriptor {
             shell_id: ShellId::parse("shell-1").expect("shell id"),
+            generation: crate::contexts::workspaces::domain::ShellGeneration::new(1),
             session_id: "session-1".to_string(),
             seat_id: None,
             title: ShellTitle::parse("Shell 1").expect("title"),

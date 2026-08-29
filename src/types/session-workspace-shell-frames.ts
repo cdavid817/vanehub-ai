@@ -16,11 +16,56 @@ export type ShellStream = "pty" | "stdout" | "stderr" | "system";
  */
 export type SessionShellState =
   | "starting"
+  /** Registered and addressable, but the runtime has not committed ownership. Not writable. */
+  | "opening"
   | "running"
+  /** Close was asked for and one bounded attempt is under way. Not terminal. */
+  | "closing"
+  /** A close attempt ran out of time; cleanup continues under retained ownership. Not terminal. */
+  | "reaping"
+  /** Cleanup failed with a reason and the resources are still owned. Not terminal. */
+  | "close_failed"
   | "exited"
   | "disconnected"
   | "failed"
   | "closed";
+
+/**
+ * The three states in which a Shell has been asked to end and has not.
+ *
+ * A view needs this predicate rather than `state !== "closed"`, because the difference it protects
+ * is the one the user acts on: the tab is still there, the process may still be running, and
+ * removing it from the list would take away the only way to retry.
+ */
+export function isShellCleanupPending(state: SessionShellState): boolean {
+  return state === "closing" || state === "reaping" || state === "close_failed";
+}
+
+/**
+ * What a close attempt achieved.
+ *
+ * Four values rather than a resolved promise, because "the call returned" and "the process is gone"
+ * are different facts. `reaping` and `closeFailed` both resolve successfully and both mean a
+ * process may still exist.
+ */
+export type ShellCloseDisposition = "closed" | "reaping" | "close_failed" | "already_terminal";
+
+export interface ShellCloseOutcome {
+  shellId: string;
+  generation: number;
+  disposition: ShellCloseDisposition;
+  /** Present only for a settled disposition; an unsettled close observed nothing final. */
+  finalState?: SessionShellState;
+  reason?: string;
+  retryable: boolean;
+  attempt: number;
+  cleanupDeadlineReached: boolean;
+}
+
+/** Whether the Shell can be considered finished with. Not "the call did not throw". */
+export function isCloseSettled(disposition: ShellCloseDisposition): boolean {
+  return disposition === "closed" || disposition === "already_terminal";
+}
 
 /**
  * Whether something is running in the foreground. Three values, not two: `unknown` is what an
@@ -47,6 +92,11 @@ export interface ShellReplayGap {
 
 export interface SessionShellDescriptor {
   shellId: string;
+  /**
+   * Which life of this Shell id the descriptor describes. Compared against an arriving notice so a
+   * completion for a Shell this view has already replaced is discarded rather than applied.
+   */
+  generation: number;
   sessionId: string;
   seatId?: string;
   title: string;
@@ -83,6 +133,7 @@ export interface ShellAttachSnapshot {
 /** A state change published while a view is attached. */
 export interface SessionShellStateNotice {
   shellId: string;
+  generation: number;
   sessionId: string;
   state: SessionShellState;
   reason?: string;

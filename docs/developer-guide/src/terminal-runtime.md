@@ -74,6 +74,93 @@ A background task calls `cleanup_idle_agent_terminals` every 60s; an Agent Termi
 
 Remote terminals go through a remote PTY requested over an SSH session using the **russh** crate, entirely different from local `portable-pty` openpty: `channel_open_session` → `request_pty(true, "xterm-256color", cols, rows, 0, 0, &[])` → `request_shell(true)`. The remote shell transport pool has its own independent capacity and idle limits (`remote_terminal_limits.rs`).
 
+## Retained Session Shells: ownership, admission, and bounded cleanup
+
+A retained Session Shell is a different lifecycle from the Agent Terminal above: it outlives the
+view that opened it, so nothing but an explicit close ends it. That makes ownership the whole
+design. Everything below exists because an operating-system process cannot join a transaction.
+
+### Generation
+
+Every worker event, route entry, retained handle, capacity lease, close attempt, and Reaper item
+carries `(shell_id, generation)`. Shell ids are UUIDs and never reused, so the generation is not
+there to tell two *names* apart — it is there to tell two *lives* apart. A reader thread, a route
+entry, and a Reaper attempt can each outlive the Shell they were created for, and a completion that
+arrives without a generation cannot be told from one that is still current.
+
+### Startup order
+
+```text
+reserve capacity atomically → register the Shell as `Opening` → invoke the runtime under a launch
+guard → transition `Opening → Running` only if no terminal event won first
+```
+
+Registering *after* the runtime returns reads as the safer order — a failed open then leaves nothing
+behind — and it is what loses the first line of an `echo && exit`: the reader publishes into a store
+that has never heard of the Shell. Registering first and rolling back on failure keeps both
+properties. An `Opening` Shell is addressable and deliberately not writable.
+
+`LocalShellLaunchGuard` owns the child, the PTY handles, the writer, and the workers from the first
+successful acquisition, so every `?` in the startup path unwinds through a bounded termination
+rather than returning past a live process. `RemoteShellLaunchGuard` owns only the new channel: the
+pooled SSH transport belongs to the pool and may be carrying other Shells.
+
+### Admission
+
+`ShellCapacityController` reserves the application ceiling and the per-session ceiling together, or
+neither. The move-only `ShellCapacityLease` it returns lives in the store entry for the whole life
+of the Shell, so a Shell that is `Closing`, `Reaping`, or `CloseFailed` still occupies its slot —
+its process still exists, and releasing the slot early would recreate the overcommit.
+
+### Close
+
+`SessionShellRuntimePort::close` returns `ShellRuntimeCloseOutcome`, not `Result<(), _>`. Every way
+a close can go wrong leaves the adapter still owning a child or a channel, so "it failed" and "it is
+still mine" are the same fact — and a `Result` invites `let _ = close(..)`, which drops the last
+reference to a live process.
+
+The local sequence, under an injected monotonic `ShellCloseBudget`:
+
+```text
+stop input (drop the writer) → observe → terminate → observe → force → observe → complete workers
+```
+
+No stage waits without a ceiling. A worker is joined only once it has reported itself complete;
+`ShellWorker` sets that flag from a drop guard, so a panicking worker reports completion too.
+
+### States and dispositions
+
+| State | Meaning |
+| --- | --- |
+| `Opening` | Registered, runtime has not committed. Not writable. |
+| `Closing` | One bounded attempt in progress. Not terminal. |
+| `Reaping` | The attempt ran out; the Reaper owns the continuation. Not terminal. |
+| `CloseFailed` | Cleanup failed with a reason; handles still owned here. Not terminal. |
+| `Closed` | The only state meaning every owned resource was confirmed gone. |
+
+`ShellCloseDisposition` mirrors this at the API boundary: `ClosedConfirmed`, `Reaping`,
+`CloseFailed`, `AlreadyTerminal`. Only the first and last are settled.
+
+### Reaper
+
+`ShellReaperQueue` is a bounded queue of work *identities*, drained a fixed number at a time by the
+existing idle sweep. It holds no handles: the runtime that failed to close a Shell has not let go of
+it, so a handle here would be a second owner of the same child. That is what makes a full queue safe
+to refuse — nothing was moved out of an owner, so the refusal drops nothing, and the Shell stays
+`CloseFailed` and retryable by hand.
+
+### Session cleanup
+
+Archive, delete, idle sweep, and shutdown consume `SessionShellCleanupReport`, which keeps every
+Shell's identity and disposition rather than a pass/fail. `is_complete()` is the predicate before
+finalizing, and it is not "no errors were returned": `Reaping` is not an error and still means a
+process is alive. Shutdown records residual resources and returns; it never waits without a ceiling.
+
+### What this does not guarantee
+
+Cleanup is guaranteed for the child process VaneHub owns. A descendant that deliberately escapes the
+process group is not covered, and this is not a normative guarantee of the design.
+
 ## Terminal output capture
 
 The Agent Terminal keeps only an in-memory bounded transcript (1MB); persistent Terminal capture goes through the `workspaces` capture service — the two are separate.

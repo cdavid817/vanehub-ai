@@ -18,6 +18,7 @@ mod remote_helper;
 mod remote_terminal_logging;
 mod remote_terminal_schema;
 mod retained_remote_shell;
+mod retained_shell_process;
 mod retained_shell_runtime;
 #[cfg(test)]
 mod retained_shell_runtime_tests;

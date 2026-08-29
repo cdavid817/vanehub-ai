@@ -295,8 +295,20 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 上才暴露。`permissions.ts` +15 与 `tauri-permissions-client.ts` +8 是契约与未知值降级
 // (新版 native 返回本前端不认识的 token 时必须降级成"结果不明",而不是"已交付")。
 // 剩余 +12 是三处 import 块随类型增加的行。没有任何一行是从别处复制来的。
+// 上调理由(fix-retained-shell-lifecycle-and-bounded-reaping):24136 → 24243,+107,没有一行是复制来的。
+// +68 是新文件 `web-session-shell-state.ts`。它不是新增能力,是搬出来的:`web-session-shell-client.ts`
+// 加上四个新的 close 分支后到 315 行,而 300 行是硬规则。搬走的是 `MockShell`、mock 选项和帧淘汰
+// 逻辑,原文件对应减少了约 40 行,净开销是每个新文件都要付的 import 块与文档注释。
+// +39 分布在三件套上,全部是"关闭到底做成了什么"这一个事实第一次有地方可放:`session-shell-service.ts`
+// 把 `closeSessionShell` 的返回类型从 `void` 换成 `ShellCloseOutcome` 并写明为什么 resolve 不等于
+// 进程已经没了;`tauri-session-shell-client.ts` 解析那个响应而不是丢掉它;`web-session-shell-client.ts`
+// 用一个计数器模拟"这次关不掉、下次能关掉",这是浏览器里没有别的办法造出来的状态。
+// 这条不是"又加了一个能力的三件套",而是既有能力的返回类型从一个不能承载事实的形状换成能承载的。
+// 合并后重测:两条改动落在同一棵子树上。合并树实测 24393(基线 24136,+257)。
+// 这一次它恰好等于两侧增量之和(150+107),因为两条改的是互不相交的文件——不要把这当成
+// "可以相加"的先例:相加会把两边共有的基线算两遍,只是这次没有共有的部分。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 24286, owner: "upgrade-session-workspace-evidence-console" },
+  { root: "src/services", budget: 24393, owner: "upgrade-session-workspace-evidence-console" },
 ]);
 
 const STATE_PACKAGES = new Set([

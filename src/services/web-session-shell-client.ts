@@ -1,10 +1,9 @@
 import type {
   SessionShellDescriptor,
   SessionShellNotice,
+  ShellCloseOutcome,
   ShellOutputFrame,
-  ShellReplayGap,
 } from "../types/session-workspace-shell-frames";
-import { SHELL_RETAINED_OUTPUT_BYTES } from "../types/session-workspace-shell-frames";
 import { onceDetach } from "./session-shell-frames";
 import type {
   AttachSessionShellInput,
@@ -16,27 +15,14 @@ import type {
   ShellAttachmentScope,
   WriteSessionShellInput,
 } from "./session-shell-service";
+import type { MockShell, WebSessionShellOptions } from "./web-session-shell-state";
+import { evictRetainedFrames } from "./web-session-shell-state";
 
-/**
- * How much retained output the mock keeps per Shell, in characters.
- *
- * Far below the native byte bound on purpose: a browser demo that had to produce a megabyte of
- * output before a gap appeared would never show one, and the gap marker is behaviour the mock
- * exists to exercise. The native bound is re-exported alongside it so a view that explains an
- * eviction reads one number rather than inventing its own.
- */
-export const MOCK_SHELL_RETAINED_CHARACTERS = 4096;
-
-export { SHELL_RETAINED_OUTPUT_BYTES };
-
-interface MockShell {
-  descriptor: SessionShellDescriptor;
-  frames: ShellOutputFrame[];
-  gap: ShellReplayGap | null;
-  attachmentId: string | null;
-  requestId: string | null;
-  nextSequence: number;
-}
+export type { WebSessionShellOptions } from "./web-session-shell-state";
+export {
+  MOCK_SHELL_RETAINED_CHARACTERS,
+  SHELL_RETAINED_OUTPUT_BYTES,
+} from "./web-session-shell-state";
 
 /**
  * A deterministic multi-Shell mock.
@@ -46,7 +32,11 @@ interface MockShell {
  * `Date.now()` would make its own tests flaky and would let a component that depends on ordering
  * pass here and fail on the desktop.
  */
-export function createWebSessionShellClient(): SessionShellService {
+export function createWebSessionShellClient(
+  options: WebSessionShellOptions = {},
+): SessionShellService {
+  const perSessionCapacity = options.perSessionCapacity ?? Number.POSITIVE_INFINITY;
+  const closeAttemptsBeforeConfirming = options.closeAttemptsBeforeConfirming ?? 0;
   const shells = new Map<string, MockShell>();
   const listeners = new Map<string, (event: SessionShellEvent) => void>();
   let counter = 0;
@@ -70,24 +60,8 @@ export function createWebSessionShellClient(): SessionShellService {
     };
     shell.frames.push(frame);
     shell.descriptor = { ...shell.descriptor, lastActivityAt: frame.occurredAt };
-    evict(shell);
+    evictRetainedFrames(shell);
     publish(shell, { type: "output", sessionId: shell.descriptor.sessionId, ...frame });
-  }
-
-  /** Drops whole frames from the oldest end and records one contiguous gap, as the native buffer
-   * does — a reader that saw two gaps could not tell which side of which it was looking at. */
-  function evict(shell: MockShell): void {
-    let retained = shell.frames.reduce((total, frame) => total + frame.data.length, 0);
-    while (retained > MOCK_SHELL_RETAINED_CHARACTERS && shell.frames.length > 1) {
-      const dropped = shell.frames.shift();
-      if (!dropped) break;
-      retained -= dropped.data.length;
-      shell.gap = {
-        fromSequence: shell.gap?.fromSequence ?? dropped.sequence,
-        toSequence: dropped.sequence,
-        reason: "shell_replay_evicted",
-      };
-    }
   }
 
   function require_(shellId: string): MockShell {
@@ -115,6 +89,7 @@ export function createWebSessionShellClient(): SessionShellService {
     publish(shell, {
       type: "state",
       shellId: shell.descriptor.shellId,
+      generation: shell.descriptor.generation,
       sessionId: shell.descriptor.sessionId,
       state,
       revision: shell.descriptor.revision,
@@ -142,11 +117,20 @@ export function createWebSessionShellClient(): SessionShellService {
       );
       if (existing) return existing.descriptor;
 
+      // Refused before anything is created, mirroring a controller that reserves before it spawns.
+      const live = [...shells.values()].filter(
+        (shell) => shell.descriptor.sessionId === input.sessionId,
+      ).length;
+      if (live >= perSessionCapacity) throw new Error("shell_session_capacity_reached");
+
       const shellId = nextId("shell");
       const createdAt = timestampAt(counter);
       const shell: MockShell = {
         descriptor: {
           shellId,
+          // Counts up with the id, so a stale-generation test names a number it chose rather than
+          // reaching into an implementation detail.
+          generation: counter,
           sessionId: input.sessionId,
           seatId: input.seatId,
           title: input.title ?? `Shell ${shells.size + 1}`,
@@ -171,6 +155,7 @@ export function createWebSessionShellClient(): SessionShellService {
         attachmentId: null,
         requestId: input.requestId ?? null,
         nextSequence: 1,
+        closeAttempts: 0,
       };
       shells.set(shellId, shell);
       emitOutput(shell, `${input.sessionId} $ `);
@@ -238,14 +223,53 @@ export function createWebSessionShellClient(): SessionShellService {
       return shell.descriptor;
     },
 
-    async closeSessionShell(shellId: string): Promise<void> {
+    async closeSessionShell(shellId: string): Promise<ShellCloseOutcome> {
       const shell = shells.get(shellId);
-      // Closing a Shell that is already gone is a success, so a retry after a partial failure has
-      // the same result as the first attempt.
-      if (!shell) return;
+      // Closing a Shell that is already gone is settled, so a retry after a partial failure has the
+      // same result as the first attempt. Reported as `already_terminal` rather than as a confirmed
+      // close: this call ended nothing.
+      if (!shell) {
+        return {
+          shellId,
+          generation: 0,
+          disposition: "already_terminal",
+          finalState: "closed",
+          retryable: false,
+          attempt: 0,
+          cleanupDeadlineReached: false,
+        };
+      }
+      shell.closeAttempts += 1;
+      const attempt = shell.closeAttempts;
+      const generation = shell.descriptor.generation;
+      if (attempt <= closeAttemptsBeforeConfirming) {
+        // Unconfirmed. The Shell keeps its entry, its transcript, and its listener, because the
+        // simulated process is still there — and taking those away is what removes the user's only
+        // way to retry.
+        const unconfirmed = options.unconfirmedCloseFails ? "close_failed" : "reaping";
+        setState(shell, unconfirmed);
+        return {
+          shellId,
+          generation,
+          disposition: unconfirmed,
+          reason: "shell_close_deadline_reached",
+          retryable: true,
+          attempt,
+          cleanupDeadlineReached: true,
+        };
+      }
       setState(shell, "closed");
       shells.delete(shellId);
       listeners.delete(shellId);
+      return {
+        shellId,
+        generation,
+        disposition: "closed",
+        finalState: "closed",
+        retryable: false,
+        attempt,
+        cleanupDeadlineReached: false,
+      };
     },
   };
 }

@@ -3700,6 +3700,127 @@ fn no_external_input_reaches_the_trusted_identifier_constructor() {
 }
 
 #[test]
+fn the_retained_shell_lifecycle_never_waits_without_a_ceiling() {
+    // [ARCH-NATIVE-012] A regression guard, not a style rule, and the regression is specific:
+    // closing a Shell used to remove its registry entry, kill the child, then call `child.wait()`
+    // and `JoinHandle::join()` — both unbounded — while discarding every kill, wait and join result
+    // with `let _ =`. On a child that ignored the kill, the window closed and the process stayed,
+    // and the entry that could have retried it was already gone.
+    //
+    // Each forbidden shape reintroduces one half of that, and each is a single line that looks
+    // harmless at its own call site.
+    //
+    // Matched on the trimmed line rather than on a multi-line pattern, because a regex anchored on
+    // a newline reads differently on a CRLF checkout than on the file that was just written — and
+    // that failure is silent, which is worse than the drift it would be guarding against.
+    const FORBIDDEN: &[(&str, &str)] = &[
+        (
+            ".join()",
+            "an unbounded thread join; use `ShellWorker::try_join`, which joins only a worker that \
+             has already reported itself complete",
+        ),
+        (
+            ".wait()",
+            "an unbounded child wait; observe termination through `ShellProcessHandle::try_reap` \
+             inside a `ShellCloseBudget`",
+        ),
+        (
+            "let _ = ",
+            "a discarded lifecycle result; map it into a `ShellRuntimeCloseOutcome` or a \
+             `SessionShellCloseResult`",
+        ),
+    ];
+    // The one file that is allowed to hold a `JoinHandle::join()` is the one that owns the seam:
+    // `ShellWorker::try_join` joins a thread that has already set its completion flag, which is the
+    // only join in the subsystem that is bounded by construction. It is exempted by name rather
+    // than by an inline escape hatch, and the exemption is paid for by the assertion below.
+    const WORKER_SEAM: &str =
+        "src-tauri/src/contexts/workspaces/infrastructure/retained_shell_process.rs";
+    let lifecycle = [
+        "src-tauri/src/contexts/workspaces/infrastructure/retained_shell_runtime.rs",
+        WORKER_SEAM,
+        "src-tauri/src/contexts/workspaces/infrastructure/retained_remote_shell.rs",
+        "src-tauri/src/contexts/workspaces/application/session_shell_registry.rs",
+        "src-tauri/src/contexts/workspaces/application/session_shell_store.rs",
+    ];
+    let mut violations = Vec::new();
+
+    for (relative, source) in production_native_sources() {
+        if !lifecycle.contains(&relative.as_str()) {
+            continue;
+        }
+        for (index, line) in source.lines().enumerate() {
+            let trimmed = line.trim();
+            // Prose about the rule is not a breach of it, and this rule is worth explaining in the
+            // files it governs.
+            if trimmed.starts_with("//") {
+                continue;
+            }
+            for (shape, repair) in FORBIDDEN {
+                if relative == WORKER_SEAM && *shape == ".join()" {
+                    continue;
+                }
+                if trimmed.contains(shape) {
+                    violations.push(format!(
+                        "[ARCH-NATIVE-012] {relative}:{}: `{shape}` is {repair}",
+                        index + 1
+                    ));
+                }
+            }
+        }
+    }
+
+    violations.sort();
+    assert!(violations.is_empty(), "{}", violations.join("\n"));
+
+    // What makes the exemption above safe. Remove the guard and the seam becomes the unbounded join
+    // every other file is forbidden from writing, with the exemption still in place.
+    let seam = fs::read_to_string(project_root().join(WORKER_SEAM)).expect("read the worker seam");
+    let guarded = seam
+        .split("fn try_join")
+        .nth(1)
+        .expect("the worker seam still defines try_join");
+    assert!(
+        guarded
+            .split("handle.join()")
+            .next()
+            .is_some_and(|before| before.contains("if !self.is_complete()")),
+        "[ARCH-NATIVE-012] `ShellWorker::try_join` joins without first checking the completion \
+         flag, which makes it the unbounded join the rest of the subsystem is forbidden to write"
+    );
+}
+
+/// A Tauri command translates a Shell close; it does not decide one.
+///
+/// If the command starts naming lifecycle states, budgets, or the reaper, the lifecycle has two
+/// authorities and the transport layer is one of them.
+#[test]
+fn the_shell_commands_translate_rather_than_orchestrate_cleanup() {
+    let source = fs::read_to_string(
+        project_root().join("src-tauri/src/commands/workspaces/session_shell.rs"),
+    )
+    .expect("read the session shell commands");
+    let mut violations = Vec::new();
+
+    for forbidden in [
+        "Reaping",
+        "CloseFailed",
+        "ShellCloseBudget",
+        "ShellGeneration",
+        "reaper",
+    ] {
+        if source.contains(forbidden) {
+            violations.push(format!(
+                "[ARCH-NATIVE-012] the close command names `{forbidden}`; lifecycle decisions \
+                 belong to the workspaces application layer"
+            ));
+        }
+    }
+
+    assert!(violations.is_empty(), "{}", violations.join("\n"));
+}
+
+#[test]
 fn command_adapters_cannot_construct_identifiers_without_validating_them() {
     // Visibility is the real guard; this fails with a readable message rather than a privacy error
     // if someone widens it.

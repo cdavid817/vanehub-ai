@@ -229,6 +229,7 @@ enum TauriShellNotice {
     #[serde(rename_all = "camelCase")]
     State {
         shell_id: String,
+        generation: u64,
         session_id: String,
         state: &'static str,
         /// Present only for the states that carry one. A reason on a running Shell would be a
@@ -257,12 +258,14 @@ impl From<SessionShellNotice> for TauriShellNotice {
             },
             SessionShellNotice::State {
                 shell_id,
+                generation,
                 session_id,
                 state,
                 revision,
                 occurred_at,
             } => Self::State {
                 shell_id: shell_id.as_str().to_string(),
+                generation: generation.value(),
                 session_id,
                 state: state.token(),
                 reason: state.reason().map(str::to_string),
@@ -350,7 +353,7 @@ mod tests {
 
     use super::*;
     use crate::contexts::workspaces::domain::{
-        shell_reason, SessionShellState, ShellId, ShellOutputFrame, ShellStream,
+        shell_reason, SessionShellState, ShellGeneration, ShellId, ShellOutputFrame, ShellStream,
     };
 
     #[test]
@@ -386,6 +389,7 @@ mod tests {
     fn a_state_notice_carries_the_fact_its_state_actually_has() {
         let exited = TauriShellNotice::from(SessionShellNotice::State {
             shell_id: ShellId::parse("shell-1").expect("shell id"),
+            generation: ShellGeneration::new(1),
             session_id: "session-1".to_string(),
             state: SessionShellState::Exited { code: Some(130) },
             revision: 3,
@@ -393,6 +397,7 @@ mod tests {
         });
         let disconnected = TauriShellNotice::from(SessionShellNotice::State {
             shell_id: ShellId::parse("shell-1").expect("shell id"),
+            generation: ShellGeneration::new(1),
             session_id: "session-1".to_string(),
             state: SessionShellState::Disconnected {
                 reason: shell_reason("shell_remote_channel_lost"),
@@ -403,6 +408,7 @@ mod tests {
 
         let exited = serde_json::to_value(exited).expect("exited");
         let disconnected = serde_json::to_value(disconnected).expect("disconnected");
+        assert_eq!(exited["generation"], 1);
         assert_eq!(exited["state"], "exited");
         assert_eq!(exited["exitCode"], 130);
         assert_eq!(exited["reason"], serde_json::Value::Null);
