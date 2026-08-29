@@ -456,17 +456,17 @@ impl WorkspaceApi {
     /// Strict by default: a session whose Shells are not all confirmed gone is not a session that
     /// finished archiving. Reporting success here would delete the last thing that could reach the
     /// process still running behind it.
+    ///
+    /// A `Conflict` rather than a storage failure, because the code is what a caller matches on and
+    /// the retry is a real one: the Shells and the session are both still addressable, and the same
+    /// call made again finishes the job once cleanup confirms.
     pub(crate) fn kill_shells_for_session(&self, session_id: &str) -> Result<(), WorkspaceError> {
-        let report = self.shells.close_for_session(session_id);
-        if report.is_complete() {
+        if self.shells.close_for_session(session_id).is_complete() {
             return Ok(());
         }
-        Err(WorkspaceError::Storage(format!(
-            "{}: {} of {} shells unconfirmed",
+        Err(WorkspaceError::Conflict(
             crate::contexts::workspaces::domain::shell_reason_code::SESSION_CLEANUP_INCOMPLETE,
-            report.reaping() + report.failed(),
-            report.requested()
-        )))
+        ))
     }
 
     pub(crate) fn list_session_shells(&self, session_id: &str) -> Vec<SessionShellDescriptor> {
