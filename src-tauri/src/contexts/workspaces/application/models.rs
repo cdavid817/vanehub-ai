@@ -90,8 +90,15 @@ pub(crate) struct SessionDocument {
 pub(crate) struct DocumentListing {
     pub(crate) context: SessionWorkspaceContext,
     pub(crate) items: Vec<SessionDocument>,
+    /// Whether the document limit was reached, so more documents exist than are listed.
     pub(crate) truncated: bool,
     pub(crate) next_cursor: Option<String>,
+    /// How much of the project the walk actually reached.
+    ///
+    /// Separate from `truncated`, and for the same reason it is separate on a directory listing: one
+    /// says the list was cut at its own ceiling, the other says the walk never got to part of the
+    /// tree. A reader shown only the first reads a stopped walk as a project with fewer documents.
+    pub(crate) coverage: super::inspection::WorkspaceSearchCoverage,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

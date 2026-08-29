@@ -48,6 +48,14 @@ export interface SessionDocument {
 
 export interface DocumentListing extends BoundedResult<SessionDocument> {
   context: SessionWorkspaceContext;
+  /**
+   * How much of the project the discovery walk actually reached.
+   *
+   * Separate from `truncated`, which only says the document limit was hit. A walk stopped by its own
+   * budget reached less of the project than one that filled the list, and a reader shown only the
+   * first reads the second as a project with fewer documents in it.
+   */
+  coverage: WorkspaceSearchCoverage;
 }
 
 export interface FileSearchMatch {

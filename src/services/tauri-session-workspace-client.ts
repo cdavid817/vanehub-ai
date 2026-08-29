@@ -90,6 +90,7 @@ export const tauriSessionWorkspaceClient: SessionWorkspaceMethods = {
       await invoke("search_workspace_paths", {
         sessionId: input.sessionId,
         query: input.query,
+        searchId: input.searchId,
         cursor: input.cursor ?? null,
         limit: input.limit ?? null,
       }),
@@ -124,8 +125,8 @@ export const tauriSessionWorkspaceClient: SessionWorkspaceMethods = {
   readSessionFile(sessionId, path) {
     return invoke<FileContent>("read_session_file", { sessionId, path });
   },
-  listSessionDocuments(sessionId) {
-    return invoke<DocumentListing>("list_session_documents", { sessionId });
+  listSessionDocuments(sessionId, searchId) {
+    return invoke<DocumentListing>("list_session_documents", { sessionId, searchId });
   },
   searchSessionFiles(sessionId, query, maxResults) {
     return invoke<FileSearchListing>("search_session_files", { sessionId, query, maxResults });

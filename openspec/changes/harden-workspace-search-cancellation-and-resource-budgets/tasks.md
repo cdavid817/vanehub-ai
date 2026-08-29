@@ -21,9 +21,9 @@
 
 - [x] 2.1 Define finite `WorkspaceInspectionBudgetLimits`, tracker/snapshot, stop reasons, and one consume/checkpoint API for directories, entries, files, bytes, metadata/canonicalization, candidates, results, depth, deadline, and cancellation.
 - [x] 2.2 Use an injected monotonic clock/deadline for process-local work and deterministic virtual/fake time in tests; do not use wall-clock rollback-sensitive TTL logic.
-- [ ] 2.3 Standardize `Complete`, `Partial`, `Unavailable`, stable primary reason codes, bounded counter summary, and unknown-code compatibility across Rust DTOs and TypeScript.
-- [ ] 2.4 Define `WorkspaceInspectionAdmission` with finite global/per-workspace active limits and finite queue/wait policy; acquire before `spawn_blocking` or remote launch.
-- [ ] 2.5 Ensure admission stays held until the actual worker exits after caller cancellation/abort, not merely until the async caller drops its response future.
+- [x] 2.3 Standardize `Complete`, `Partial`, `Unavailable`, stable primary reason codes, bounded counter summary, and unknown-code compatibility across Rust DTOs and TypeScript.
+- [x] 2.4 Define `WorkspaceInspectionAdmission` with finite global/per-workspace active limits and finite queue/wait policy; acquire before `spawn_blocking` or remote launch.
+- [x] 2.5 Ensure admission stays held until the actual worker exits after caller cancellation/abort, not merely until the async caller drops its response future.
 - [x] 2.6 Add exact-boundary tests for every budget dimension, off-by-one behavior, combined stop reasons, admission busy, permit leak, and structural redaction.
 - [ ] 2.7 Assemble clock, budget profiles, admission, and cancellation registry in bootstrap/application services rather than Tauri commands.
 
@@ -60,9 +60,9 @@
 - [x] 6.2 Add cursor V2 with version, directory/workspace identity, order mode, last key/tie-break, detectable fingerprint/generation, and applicable navigation-policy identity.
 - [x] 6.3 Return typed invalid/stale cursor results and update page semantics so `has_more`/`truncated` is distinct from incomplete scan coverage.
 - [x] 6.4 Add frontend-compatible decoding/migration for existing cursor fixtures or intentionally invalidate old cursors with a stable restart behavior.
-- [ ] 6.5 Refactor document discovery to the shared recursive ignore and budget pipeline and remove tests that require default descent into dependency/generated trees.
+- [x] 6.5 Refactor document discovery to the shared recursive ignore and budget pipeline and remove tests that require default descent into dependency/generated trees.
 - [x] 6.6 Add tests for very large immediate directories, duplicate names/tie-breaks, directory mutation between pages, wrong-directory/order cursor, malformed cursor, entry/deadline limit, and restart-with-replacement behavior.
-- [ ] 6.7 Add document discovery tests for defaults, ignore negation, explicit direct navigation, unreadable trees, metadata/snippet byte budgets, cancellation, and complete/partial semantics.
+- [x] 6.7 Add document discovery tests for defaults, ignore negation, explicit direct navigation, unreadable trees, metadata/snippet byte budgets, cancellation, and complete/partial semantics.
 
 ## 7. Remote inspection parity and cleanup
 
@@ -75,7 +75,7 @@
 
 ## 8. Runtime/API and frontend service integration
 
-- [ ] 8.1 Refactor runtime/API search entry points so admission and RAII registration surround blocking/remote work and commands remain DTO-only adapters.
+- [x] 8.1 Refactor runtime/API search entry points so admission and RAII registration surround blocking/remote work and commands remain DTO-only adapters.
 - [x] 8.2 Prevent stale result delivery by comparing request generation before application-store/event/frontend update.
 - [x] 8.3 Extend the frontend workspace service with generation, coverage, reason, bounded budget summary, and cursor V2 types while preserving existing result fields.
 - [x] 8.4 Update the Tauri adapter only; React components/hooks must not add direct `invoke()` calls.

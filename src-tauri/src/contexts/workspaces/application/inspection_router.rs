@@ -125,9 +125,12 @@ impl WorkspaceInspectionRouter {
     pub(crate) async fn list_documents(
         &self,
         session_id: &str,
+        cancellation: SearchCancellationToken,
     ) -> Result<DocumentListing, WorkspaceInspectionError> {
         let target = self.target(session_id)?;
-        self.provider(&target)?.list_documents(&target).await
+        self.provider(&target)?
+            .list_documents(&target, cancellation)
+            .await
     }
 
     pub(crate) async fn read_text_file(
@@ -163,13 +166,17 @@ impl WorkspaceInspectionRouter {
             .await
     }
 
+    /// Quick Open, with the token the caller will use to stop it.
     pub(crate) async fn search_paths(
         &self,
         session_id: &str,
         request: WorkspacePathSearchRequest,
+        cancellation: SearchCancellationToken,
     ) -> Result<WorkspacePathSearchResult, WorkspaceInspectionError> {
         let target = self.target(session_id)?;
-        self.provider(&target)?.search_paths(&target, request).await
+        self.provider(&target)?
+            .search_paths(&target, request, cancellation)
+            .await
     }
 
     pub(crate) async fn git_status(

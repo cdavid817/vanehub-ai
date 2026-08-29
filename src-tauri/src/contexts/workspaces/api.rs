@@ -6,20 +6,20 @@ pub(crate) use super::application::{
     WorkspaceContentSearchResult, WorkspaceInspectionAdmission, WorkspaceInspectionReason,
     WorkspaceSearchCancellation, WorkspaceSearchCoverage,
 };
-pub(crate) use super::application::{
-    AttachSessionShellRequest, CreateSessionShellRequest, ResizeSessionShellRequest,
-    SessionShellCleanupReport, SessionShellCloseResult, SessionShellDescriptor,
-    SessionShellRegistry, ShellAttachSnapshot, ShellAttachmentScope, WriteSessionShellRequest,
-};
 /// Provider-neutral workspace inspection.
 ///
 /// Published so bootstrap can assemble the router and a command can ask it questions. The
 /// `WorkspaceTarget` itself is published too, because a caller has to be able to tell a reader
 /// which machine an answer came from — but nothing outside this context can construct one.
 pub(crate) use super::application::{
-    CapabilityState, WorkspaceInspectionCapabilities, WorkspaceInspectionError,
-    WorkspaceInspectionRouter, WorkspacePathSearchRequest, WorkspacePathSearchResult,
-    WorkspaceTarget,
+    deliver_path_search, CapabilityState, WorkspaceInspectionCapabilities,
+    WorkspaceInspectionError, WorkspaceInspectionRouter, WorkspacePathSearchDelivery,
+    WorkspacePathSearchRequest, WorkspacePathSearchResult, WorkspaceTarget,
+};
+pub(crate) use super::application::{
+    AttachSessionShellRequest, CreateSessionShellRequest, ResizeSessionShellRequest,
+    SessionShellCleanupReport, SessionShellCloseResult, SessionShellDescriptor,
+    SessionShellRegistry, ShellAttachSnapshot, ShellAttachmentScope, WriteSessionShellRequest,
 };
 pub(crate) use super::application::{
     CreatedWorktree, DirectoryListing, DocumentListing, FileContent, FileSearchListing,
@@ -286,11 +286,39 @@ impl WorkspaceApi {
         Ok(listing)
     }
 
-    pub(crate) fn list_session_documents(
+    /// Every Markdown and text file in the project, as a recursive walk.
+    ///
+    /// Admission is acquired before the walk and held until it exits, and the walk polls the
+    /// registration's token. It is a recursive traversal of an entire project on a blocking thread,
+    /// which is the shape of work the ceiling exists for — and until now it was the one such walk
+    /// that could start any number of times with nothing to stop it.
+    pub(crate) async fn list_session_documents(
         &self,
-        session_id: &str,
+        session_id: String,
+        search_id: String,
     ) -> Result<DocumentListing, WorkspaceError> {
-        self.queries.list_documents(session_id)
+        let registration = self.searches.begin(&search_id);
+        let Ok(_permit) = self.admission.acquire(&session_id).await else {
+            registration.complete();
+            return Ok(DocumentListing {
+                context: SessionWorkspaceContext::available(None),
+                items: Vec::new(),
+                truncated: false,
+                next_cursor: None,
+                coverage: WorkspaceSearchCoverage::stopped(
+                    WorkspaceInspectionReason::InspectionBusy,
+                ),
+            });
+        };
+        let api = self.clone();
+        let cancellation = registration.token();
+        let outcome = tauri::async_runtime::spawn_blocking(move || {
+            api.queries.list_documents(&session_id, &cancellation)
+        })
+        .await
+        .map_err(|_| WorkspaceError::Storage("session documents task failed".to_string()))?;
+        registration.complete();
+        outcome
     }
 
     pub(crate) fn search_session_files(
@@ -399,8 +427,38 @@ impl WorkspaceApi {
         &self,
         session_id: &str,
         request: WorkspacePathSearchRequest,
-    ) -> Result<WorkspacePathSearchResult, WorkspaceInspectionError> {
-        self.inspection.search_paths(session_id, request).await
+    ) -> Result<WorkspacePathSearchDelivery, WorkspaceInspectionError> {
+        // The same order content search uses, for the same two reasons. Registered before admission
+        // is awaited, so a cancel arriving during the wait has a slot to land on; admission acquired
+        // before the walk, so a refusal costs nothing rather than being decided after a blocking
+        // thread is already committed. Quick Open is cheaper than a content search but it is still a
+        // filesystem walk, and a reader holding a key down starts one per repeat.
+        let registration = self.searches.begin(&request.search_id);
+        let generation = registration.generation().value();
+
+        let Ok(_permit) = self.admission.acquire(session_id).await else {
+            registration.complete();
+            return Ok(WorkspacePathSearchDelivery {
+                generation,
+                result: WorkspacePathSearchResult {
+                    coverage: WorkspaceSearchCoverage::stopped(
+                        WorkspaceInspectionReason::InspectionBusy,
+                    ),
+                    matches: Vec::new(),
+                    next_cursor: None,
+                },
+            });
+        };
+        let outcome = self
+            .inspection
+            .search_paths(session_id, request, registration.token())
+            .await;
+
+        // Decided before the guard is released, because releasing it removes the slot the decision
+        // compares against.
+        let delivery = outcome.map(|result| deliver_path_search(&registration, result));
+        registration.complete();
+        delivery
     }
 
     pub(crate) fn get_session_git_status(

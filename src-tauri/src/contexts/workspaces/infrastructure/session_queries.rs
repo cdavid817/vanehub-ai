@@ -12,11 +12,11 @@ use crate::contexts::workspaces::application::{
     MAX_REVIEW_PATCH_BYTES,
 };
 use crate::contexts::workspaces::application::{
-    workspace_identity, DirectoryOrder, DirectoryPageScope, SearchCancellationToken,
-    SystemMonotonicClock, WorkspaceContentSearchRequest, WorkspaceContentSearchResult,
-    WorkspaceIgnorePolicy, WorkspaceInspectionBudget, WorkspaceInspectionBudgetLimits,
-    WorkspaceInspectionReason, WorkspacePathSearchRequest, WorkspacePathSearchResult,
-    WorkspaceSearchCoverage,
+    workspace_identity, DirectoryOrder, DirectoryPageScope, MonotonicClockPort,
+    SearchCancellationToken, SystemMonotonicClock, WorkspaceContentSearchRequest,
+    WorkspaceContentSearchResult, WorkspaceIgnorePolicy, WorkspaceInspectionBudget,
+    WorkspaceInspectionBudgetLimits, WorkspaceInspectionReason, WorkspacePathSearchRequest,
+    WorkspacePathSearchResult, WorkspaceSearchCoverage,
 };
 use crate::contexts::workspaces::domain::{CanonicalPathBoundary, WorkspaceRelativePath};
 use crate::platform;
@@ -118,8 +118,14 @@ impl WorkspaceSessionQueryPort for SessionWorkspaceQueryAdapter {
         &self,
         session_id: &str,
         request: &WorkspacePathSearchRequest,
+        cancellation: &SearchCancellationToken,
     ) -> Result<WorkspacePathSearchResult, AppError> {
-        super::path_search::search_session_paths(&*self.connection()?, session_id, request)
+        super::path_search::search_session_paths(
+            &*self.connection()?,
+            session_id,
+            request,
+            cancellation,
+        )
     }
 
     fn search_content(
@@ -136,8 +142,12 @@ impl WorkspaceSessionQueryPort for SessionWorkspaceQueryAdapter {
         )
     }
 
-    fn list_documents(&self, session_id: &str) -> Result<DocumentListing, AppError> {
-        list_session_documents(&*self.connection()?, session_id)
+    fn list_documents(
+        &self,
+        session_id: &str,
+        cancellation: &SearchCancellationToken,
+    ) -> Result<DocumentListing, AppError> {
+        list_session_documents(&*self.connection()?, session_id, cancellation)
     }
 
     fn search_files(
@@ -748,6 +758,10 @@ fn directory_fingerprint_at(root: &Path, relative: &str) -> DirectoryFingerprint
     }
 }
 
+/// One level of the document walk, charged against the shared budget.
+///
+/// `depth` is carried rather than derived because the budget's depth gate is asked before the
+/// descent, and asking it after would mean the level that broke the limit had already been read.
 fn collect_documents(
     root: &Path,
     directory: &Path,
@@ -755,8 +769,15 @@ fn collect_documents(
     ignores: &super::ignore_matcher::WorkspaceIgnoreMatcher,
     visited: &mut HashSet<PathBuf>,
     documents: &mut Vec<SessionDocument>,
+    budget: &mut WorkspaceInspectionBudget,
 ) -> Result<bool, AppError> {
-    if depth > DOCUMENT_DEPTH_LIMIT || documents.len() >= DOCUMENT_LIMIT {
+    if !budget.try_descend(depth as u32) || !budget.try_visit_directory() {
+        return Ok(true);
+    }
+    if documents.len() >= DOCUMENT_LIMIT {
+        return Ok(true);
+    }
+    if !budget.try_metadata() {
         return Ok(true);
     }
     let canonical_directory = directory
@@ -769,11 +790,23 @@ fn collect_documents(
     for entry in
         fs::read_dir(&canonical_directory).map_err(|error| AppError::Storage(error.to_string()))?
     {
+        if !budget.try_visit_entry() {
+            return Ok(true);
+        }
         let entry = entry.map_err(|error| AppError::Storage(error.to_string()))?;
         let name = entry.file_name().to_string_lossy().to_string();
+        if !budget.try_metadata() {
+            return Ok(true);
+        }
         let canonical = match entry.path().canonicalize() {
             Ok(value) if value.starts_with(root) => value,
-            _ => continue,
+            // Something eligible that could not be resolved. Noted rather than silently skipped:
+            // a walk that dropped entries and still said `complete` is how a reader concludes a
+            // document is not in their project.
+            _ => {
+                budget.note_omission(WorkspaceInspectionReason::UnreadableEntries);
+                continue;
+            }
         };
         let is_directory = canonical.is_dir();
         let relative = normalized_relative(root, &canonical)?;
@@ -785,8 +818,15 @@ fn collect_documents(
             continue;
         }
         if is_directory {
-            truncated |=
-                collect_documents(root, &canonical, depth + 1, ignores, visited, documents)?;
+            truncated |= collect_documents(
+                root,
+                &canonical,
+                depth + 1,
+                ignores,
+                visited,
+                documents,
+                budget,
+            )?;
         } else {
             let extension = canonical
                 .extension()
@@ -804,6 +844,9 @@ fn collect_documents(
                     path: relative,
                     kind,
                 });
+                // Charged so the counters reflect what was produced, and so a caller reading the
+                // snapshot sees the same number the list holds.
+                budget.try_emit_result();
                 if documents.len() >= DOCUMENT_LIMIT {
                     truncated = true;
                     break;
@@ -817,6 +860,27 @@ fn collect_documents(
 pub(crate) fn list_session_documents(
     conn: &Connection,
     session_id: &str,
+    cancellation: &SearchCancellationToken,
+) -> Result<DocumentListing, AppError> {
+    list_session_documents_with(
+        conn,
+        session_id,
+        WorkspaceInspectionBudgetLimits::document_discovery(),
+        Arc::new(SystemMonotonicClock::default()),
+        cancellation.clone(),
+    )
+}
+
+/// The same walk with its budget and its clock chosen by the caller.
+///
+/// The seam exists for tests and for nothing else. A budget dimension is only worth having if a test
+/// can drive the traversal into it.
+pub(super) fn list_session_documents_with(
+    conn: &Connection,
+    session_id: &str,
+    limits: WorkspaceInspectionBudgetLimits,
+    clock: Arc<dyn MonotonicClockPort>,
+    cancellation: SearchCancellationToken,
 ) -> Result<DocumentListing, AppError> {
     let Some(root) = resolve_session_root(conn, session_id)? else {
         return Ok(DocumentListing {
@@ -824,13 +888,17 @@ pub(crate) fn list_session_documents(
             items: Vec::new(),
             truncated: false,
             next_cursor: None,
+            coverage: WorkspaceSearchCoverage::stopped(
+                WorkspaceInspectionReason::ProviderUnavailable,
+            ),
         });
     };
     let mut documents = Vec::new();
     let ignores = super::ignore_matcher::WorkspaceIgnoreMatcher::for_root(
         &root,
-        crate::contexts::workspaces::application::WorkspaceIgnorePolicy::recursive_discovery(),
+        WorkspaceIgnorePolicy::recursive_discovery(),
     );
+    let mut budget = WorkspaceInspectionBudget::new(limits, clock, cancellation);
     let truncated = collect_documents(
         &root,
         &root,
@@ -838,13 +906,22 @@ pub(crate) fn list_session_documents(
         &ignores,
         &mut HashSet::new(),
         &mut documents,
+        &mut budget,
     )?;
     documents.sort_by_key(|document| document.path.to_lowercase());
+    // An omission counts as much as a stop. A subtree the walk declined and continued past is still
+    // something a reader was not shown, and reporting complete is how somebody concludes a document
+    // is not in their project.
+    let coverage = match budget.incomplete_reason() {
+        Some(reason) => WorkspaceSearchCoverage::stopped(reason),
+        None => WorkspaceSearchCoverage::complete(),
+    };
     Ok(DocumentListing {
         context: available_context(&root),
         items: documents,
         truncated,
         next_cursor: None,
+        coverage: coverage.with_budget(budget.snapshot()),
     })
 }
 
@@ -2583,10 +2660,16 @@ mod tests {
             &root,
             crate::contexts::workspaces::application::WorkspaceIgnorePolicy::recursive_discovery(),
         );
-        assert!(
-            collect_documents(&root, &root, 0, &ignores, &mut visited, &mut documents)
-                .expect("documents")
-        );
+        assert!(collect_documents(
+            &root,
+            &root,
+            0,
+            &ignores,
+            &mut visited,
+            &mut documents,
+            &mut open_budget(),
+        )
+        .expect("documents"));
         assert_eq!(documents.len(), DOCUMENT_LIMIT);
         fs::remove_dir_all(root).expect("cleanup");
     }
@@ -2745,6 +2828,18 @@ mod tests {
         assert_eq!(page.next_cursor, None);
     }
 
+    /// A budget wide enough that nothing here stops on it.
+    ///
+    /// The document tests are about the ignore policy and the file kinds, not about the ceilings; a
+    /// budget they could hit would make them fail for a reason they are not testing.
+    fn open_budget() -> WorkspaceInspectionBudget {
+        WorkspaceInspectionBudget::new(
+            WorkspaceInspectionBudgetLimits::document_discovery(),
+            Arc::new(SystemMonotonicClock::default()),
+            SearchCancellationToken::new(),
+        )
+    }
+
     /// A session whose workspace is `root`, and a connection that can be asked about it.
     fn session_at(root: &Path, data: &Path) -> (NativeDatabase, String) {
         let database = NativeDatabase::new(data.to_path_buf()).expect("database");
@@ -2874,6 +2969,173 @@ mod tests {
         );
     }
 
+    /// A document walk that ran out of time says so rather than reporting a short project.
+    #[test]
+    fn a_document_walk_that_reached_its_deadline_reports_the_deadline() {
+        let fixture = TempDirectory::new("documents-deadline");
+        let root = fixture.path().join("workspace");
+        fs::create_dir_all(&root).expect("workspace");
+        for index in 0..5 {
+            fs::write(root.join(format!("note-{index}.md")), "# note").expect("fixture");
+        }
+        let root = root.canonicalize().expect("canonical root");
+        let (database, session) = session_at(&root, &fixture.path().join("data"));
+        let connection = database.connection().expect("connection");
+
+        // Zero rather than a small duration against a real clock: a deadline proved by sleeping is
+        // proved on the machine that ran it and nowhere else.
+        let mut limits = WorkspaceInspectionBudgetLimits::document_discovery();
+        limits.deadline = std::time::Duration::ZERO;
+        let listing = list_session_documents_with(
+            &connection,
+            &session,
+            limits,
+            Arc::new(SystemMonotonicClock::default()),
+            SearchCancellationToken::new(),
+        )
+        .expect("documents");
+
+        // The list is short and says why. Before this it was short and said nothing, which reads as
+        // a project that simply has fewer documents in it.
+        assert_eq!(listing.coverage.reason_code, Some("deadline_exceeded"));
+        assert!(listing.items.len() < 5);
+    }
+
+    /// A cancel reaches the walk rather than being observed after it finished.
+    #[test]
+    fn a_cancelled_document_walk_reports_the_cancellation() {
+        let fixture = TempDirectory::new("documents-cancelled");
+        let root = fixture.path().join("workspace");
+        fs::create_dir_all(&root).expect("workspace");
+        fs::write(root.join("note.md"), "# note").expect("fixture");
+        let root = root.canonicalize().expect("canonical root");
+        let (database, session) = session_at(&root, &fixture.path().join("data"));
+        let connection = database.connection().expect("connection");
+
+        // Signalled before the walk starts. A test that signalled mid-walk would be racing the walk
+        // rather than asserting against it.
+        let cancellation = SearchCancellationToken::new();
+        cancellation
+            .signal(crate::contexts::workspaces::application::SearchCancellationCause::Cancelled);
+        let listing = list_session_documents_with(
+            &connection,
+            &session,
+            WorkspaceInspectionBudgetLimits::document_discovery(),
+            Arc::new(SystemMonotonicClock::default()),
+            cancellation,
+        )
+        .expect("documents");
+
+        assert_eq!(listing.coverage.reason_code, Some("cancelled"));
+    }
+
+    /// The counters are what let a reader weigh a stopped walk against the project in front of them.
+    #[test]
+    fn a_complete_document_walk_accounts_what_it_visited() {
+        let fixture = TempDirectory::new("documents-accounted");
+        let root = fixture.path().join("workspace");
+        fs::create_dir_all(root.join("docs")).expect("workspace");
+        fs::write(root.join("readme.md"), "# readme").expect("fixture");
+        fs::write(root.join("docs/design.md"), "# design").expect("fixture");
+        fs::write(root.join("main.rs"), "fn main() {}").expect("fixture");
+        let root = root.canonicalize().expect("canonical root");
+        let (database, session) = session_at(&root, &fixture.path().join("data"));
+        let connection = database.connection().expect("connection");
+
+        let listing =
+            list_session_documents(&connection, &session, &SearchCancellationToken::new())
+                .expect("documents");
+
+        assert_eq!(listing.coverage.reason_code, None);
+        let spent = listing.coverage.budget.expect("accounted");
+        // Two directories: the root and `docs`. Counted because a walk that visited a tree and
+        // reported nothing about it cannot be told apart from one that never entered.
+        assert_eq!(spent.directories_visited, 2);
+        assert_eq!(spent.results_emitted, 2);
+        // No file is opened by discovery, and zero is the only statement of that a test can catch.
+        assert_eq!(spent.files_opened, 0);
+        assert_eq!(spent.bytes_read, 0);
+    }
+
+    /// A metadata ceiling stops the walk and is reported, rather than shortening the list quietly.
+    #[test]
+    fn a_document_walk_that_ran_out_of_metadata_calls_reports_it() {
+        let fixture = TempDirectory::new("documents-metadata");
+        let root = fixture.path().join("workspace");
+        fs::create_dir_all(&root).expect("workspace");
+        for index in 0..10 {
+            fs::write(root.join(format!("note-{index}.md")), "# note").expect("fixture");
+        }
+        let root = root.canonicalize().expect("canonical root");
+        let (database, session) = session_at(&root, &fixture.path().join("data"));
+        let connection = database.connection().expect("connection");
+
+        let mut limits = WorkspaceInspectionBudgetLimits::document_discovery();
+        // Two: one for the root directory itself and one entry. Small enough that the walk stops
+        // part way with certainty rather than depending on how many files the fixture happens to
+        // have.
+        limits.max_metadata_operations = 2;
+        let listing = list_session_documents_with(
+            &connection,
+            &session,
+            limits,
+            Arc::new(SystemMonotonicClock::default()),
+            SearchCancellationToken::new(),
+        )
+        .expect("documents");
+
+        assert_eq!(
+            listing.coverage.reason_code,
+            Some("metadata_budget_exhausted")
+        );
+        assert!(listing.items.len() < 10);
+    }
+
+    /// An entry that cannot be resolved is noted, not silently dropped.
+    ///
+    /// A symlink out of the root is the reliable way to produce one: the walk resolves it, sees it
+    /// leave the workspace, and declines it. Whether this platform permits creating one is checked
+    /// rather than assumed — on Windows it needs a privilege a CI account may not have — so the test
+    /// asserts nothing when it cannot stage the condition.
+    #[test]
+    fn a_document_walk_notes_an_entry_it_could_not_follow() {
+        #[cfg(unix)]
+        use std::os::unix::fs::symlink as symlink_file;
+        #[cfg(windows)]
+        use std::os::windows::fs::symlink_file;
+
+        let fixture = TempDirectory::new("documents-unreadable");
+        let root = fixture.path().join("workspace");
+        let outside = fixture.path().join("outside");
+        fs::create_dir_all(&root).expect("workspace");
+        fs::create_dir_all(&outside).expect("outside");
+        fs::write(outside.join("secret.md"), "# secret").expect("secret");
+        fs::write(root.join("note.md"), "# note").expect("fixture");
+        if symlink_file(outside.join("secret.md"), root.join("escape.md")).is_err() {
+            return;
+        }
+        let root = root.canonicalize().expect("canonical root");
+        let (database, session) = session_at(&root, &fixture.path().join("data"));
+        let connection = database.connection().expect("connection");
+
+        let listing =
+            list_session_documents(&connection, &session, &SearchCancellationToken::new())
+                .expect("documents");
+
+        // The escaping entry is not in the list, and the coverage says something was skipped. A walk
+        // that dropped it and still claimed complete is how a reader concludes a document is not in
+        // their project.
+        assert_eq!(
+            listing
+                .items
+                .iter()
+                .map(|document| document.path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["note.md"]
+        );
+        assert_eq!(listing.coverage.reason_code, Some("unreadable_entries"));
+    }
+
     /// The recursive-discovery matcher for a root, as `list_session_documents` builds it.
     fn discovery_ignores(root: &Path) -> super::super::ignore_matcher::WorkspaceIgnoreMatcher {
         super::super::ignore_matcher::WorkspaceIgnoreMatcher::for_root(
@@ -2905,6 +3167,7 @@ mod tests {
             &discovery_ignores(&root),
             &mut HashSet::new(),
             &mut documents,
+            &mut open_budget(),
         )
         .expect("documents");
         let mut names: Vec<String> = documents
@@ -2936,6 +3199,7 @@ mod tests {
             &discovery_ignores(&root),
             &mut HashSet::new(),
             &mut documents,
+            &mut open_budget(),
         )
         .expect("documents");
         assert_eq!(
@@ -2964,6 +3228,7 @@ mod tests {
             &discovery_ignores(&root),
             &mut HashSet::new(),
             &mut documents,
+            &mut open_budget(),
         )
         .expect("documents");
         assert_eq!(

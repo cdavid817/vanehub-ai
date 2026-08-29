@@ -218,6 +218,7 @@ describe("a workspace on a host that cannot answer", () => {
     });
     vi.spyOn(agentService, "listSessionDocuments").mockResolvedValue({
       context: CONTEXT,
+      coverage: { state: "complete" },
       items: [],
       nextCursor: null,
       truncated: false,

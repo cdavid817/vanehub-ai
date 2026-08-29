@@ -50,12 +50,12 @@ pub(crate) use ignore_policy::WorkspaceIgnorePolicy;
 #[cfg(test)]
 pub(crate) use inspection::WorkspaceSearchCoverageState;
 pub(crate) use inspection::{
-    CapabilityState, DirectoryFingerprint, DirectoryFingerprintState, GitDiffRequest,
-    ListDirectoryRequest, LocalWorkspaceTarget, ReadTextFileRequest, RemoteWorkspaceTarget,
-    WatchMode, WorkspaceInspectionCapabilities, WorkspaceInspectionError,
-    WorkspaceInspectionProvider, WorkspacePathMatch, WorkspacePathSearchRequest,
-    WorkspacePathSearchResult, WorkspaceSearchCoverage, WorkspaceSearchRequest, WorkspaceTarget,
-    WorkspaceTargetResolver, MAX_FINGERPRINT_PATHS,
+    deliver_path_search, CapabilityState, DirectoryFingerprint, DirectoryFingerprintState,
+    GitDiffRequest, ListDirectoryRequest, LocalWorkspaceTarget, ReadTextFileRequest,
+    RemoteWorkspaceTarget, WatchMode, WorkspaceInspectionCapabilities, WorkspaceInspectionError,
+    WorkspaceInspectionProvider, WorkspacePathMatch, WorkspacePathSearchDelivery,
+    WorkspacePathSearchRequest, WorkspacePathSearchResult, WorkspaceSearchCoverage,
+    WorkspaceSearchRequest, WorkspaceTarget, WorkspaceTargetResolver, MAX_FINGERPRINT_PATHS,
 };
 /// How many inspections run at once, and the shared work accounting they run under.
 pub(crate) use inspection_admission::WorkspaceInspectionAdmission;

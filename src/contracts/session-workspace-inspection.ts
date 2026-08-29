@@ -64,6 +64,7 @@ export const workspaceSearchCoverageSchema = z.object({
 });
 
 export const workspacePathSearchResultSchema = z.object({
+  generation: z.number().int().nonnegative(),
   coverage: workspaceSearchCoverageSchema,
   matches: z.array(
     z.object({

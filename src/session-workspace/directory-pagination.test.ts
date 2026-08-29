@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type { DirectoryEntry, DirectoryListing } from "../types/session-workspace";
 import type { WorkspaceSearchCoverage } from "../types/session-workspace-inspection";
-import { collectDirectoryPages, MAX_DIRECTORY_PAGES } from "./directory-pagination";
+import {
+  collectDirectoryPages,
+  MAX_DIRECTORY_PAGES,
+  type DirectoryPageFetcher,
+} from "./directory-pagination";
 
 const CONTEXT = { availability: "available" as const, rootName: "project", reason: null };
 
@@ -20,7 +24,7 @@ function page(
 describe("collecting a directory across pages", () => {
   it("follows the cursor to the end of the folder", async () => {
     const fetchPage = vi
-      .fn<[string | null], Promise<DirectoryListing>>()
+      .fn<DirectoryPageFetcher>()
       .mockResolvedValueOnce(page([entry("a")], "c1"))
       .mockResolvedValueOnce(page([entry("b")]));
 
@@ -37,7 +41,7 @@ describe("collecting a directory across pages", () => {
     // A generated directory can hold hundreds of thousands of entries, and following it to the end
     // would put all of them in a tree nobody can read.
     const fetchPage = vi
-      .fn<[string | null], Promise<DirectoryListing>>()
+      .fn<DirectoryPageFetcher>()
       .mockImplementation((cursor) => Promise.resolve(page([entry(`e${cursor ?? "0"}`)], "more")));
 
     const listing = await collectDirectoryPages(fetchPage);
@@ -51,7 +55,7 @@ describe("collecting a directory across pages", () => {
     // no longer names the same position — appending there drops or repeats rows with nothing on
     // screen to say so.
     const fetchPage = vi
-      .fn<[string | null], Promise<DirectoryListing>>()
+      .fn<DirectoryPageFetcher>()
       .mockResolvedValueOnce(page([entry("a")], "c1"))
       .mockResolvedValueOnce(page([], null, { state: "unavailable", reasonCode: "stale_cursor" }))
       .mockResolvedValueOnce(page([entry("a2")], "c2"))
@@ -67,7 +71,7 @@ describe("collecting a directory across pages", () => {
 
   it("gives up after one restart rather than spinning against a folder being written to", async () => {
     const fetchPage = vi
-      .fn<[string | null], Promise<DirectoryListing>>()
+      .fn<DirectoryPageFetcher>()
       .mockImplementation((cursor) =>
         Promise.resolve(
           cursor === null
@@ -92,7 +96,7 @@ describe("collecting a directory across pages", () => {
     // Nothing was resumed, so there is no cursor to blame. Asking again would put the identical
     // question and get the identical answer.
     const fetchPage = vi
-      .fn<[string | null], Promise<DirectoryListing>>()
+      .fn<DirectoryPageFetcher>()
       .mockResolvedValue(page([], null, { state: "unavailable", reasonCode: "invalid_cursor" }));
 
     const listing = await collectDirectoryPages(fetchPage);
@@ -105,7 +109,7 @@ describe("collecting a directory across pages", () => {
     // A budget stop is not a paging problem and restarting would not help: the scan would spend the
     // same budget over the same prefix and stop in the same place.
     const fetchPage = vi
-      .fn<[string | null], Promise<DirectoryListing>>()
+      .fn<DirectoryPageFetcher>()
       .mockResolvedValue(page([entry("a")], null, {
         state: "partial",
         reasonCode: "entry_budget_exhausted",

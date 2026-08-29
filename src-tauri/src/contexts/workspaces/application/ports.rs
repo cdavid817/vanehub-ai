@@ -159,6 +159,7 @@ pub(crate) trait WorkspaceSessionQueryPort: Send + Sync {
         &self,
         session_id: &str,
         request: &WorkspacePathSearchRequest,
+        cancellation: &SearchCancellationToken,
     ) -> Result<WorkspacePathSearchResult, WorkspaceApplicationError>;
 
     /// Content search over the confined walk, polling the token it is given.
@@ -172,6 +173,7 @@ pub(crate) trait WorkspaceSessionQueryPort: Send + Sync {
     fn list_documents(
         &self,
         session_id: &str,
+        cancellation: &SearchCancellationToken,
     ) -> Result<DocumentListing, WorkspaceApplicationError>;
 
     fn search_files(

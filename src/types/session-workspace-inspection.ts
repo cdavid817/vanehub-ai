@@ -85,6 +85,13 @@ export interface WorkspaceInspectionBudget {
 }
 
 export interface WorkspacePathSearchResult {
+  /**
+   * Which registration under the search id answered.
+   *
+   * Compared by the caller so a page older than the one already on screen is dropped rather than
+   * written over it. Two requests can be in flight and arrival order is not issue order.
+   */
+  generation: number;
   coverage: WorkspaceSearchCoverage;
   matches: WorkspacePathMatch[];
   /** Absent on the last page, never an empty string. */

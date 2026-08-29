@@ -153,6 +153,7 @@ describe("a path search at its result bound", () => {
   it("offers the next page when the search minted a cursor", async () => {
     const matches = Array.from({ length: 50 }, (_, index) => pathMatch(`src/file-${index}.rs`));
     searchPaths.mockResolvedValue({
+      generation: 1,
       coverage: { state: "complete" },
       matches,
       nextCursor: "cursor-2",
@@ -166,7 +167,7 @@ describe("a path search at its result bound", () => {
 
   it("offers no next page for a full result set that happens to end there", async () => {
     const matches = Array.from({ length: 50 }, (_, index) => pathMatch(`src/file-${index}.rs`));
-    searchPaths.mockResolvedValue({ coverage: { state: "complete" }, matches });
+    searchPaths.mockResolvedValue({ generation: 1, coverage: { state: "complete" }, matches });
 
     openQuickOpen();
 
@@ -178,7 +179,8 @@ describe("a path search at its result bound", () => {
 
   it("keeps a cursor and a coverage gap as two separate sentences", async () => {
     searchPaths.mockResolvedValue({
-      coverage: { state: "partial", reasonCode: "scan_limit" },
+      generation: 1,
+      coverage: { state: "partial", reasonCode: "entry_budget_exhausted" },
       matches: [pathMatch("src/main.rs")],
       nextCursor: "cursor-2",
     });

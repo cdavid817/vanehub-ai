@@ -96,6 +96,7 @@ pub(crate) fn search_session_paths(
     conn: &Connection,
     session_id: &str,
     request: &WorkspacePathSearchRequest,
+    cancellation: &SearchCancellationToken,
 ) -> Result<WorkspacePathSearchResult, AppError> {
     search_session_paths_with(
         conn,
@@ -103,6 +104,7 @@ pub(crate) fn search_session_paths(
         request,
         WorkspaceInspectionBudgetLimits::path_search(),
         Arc::new(SystemMonotonicClock::default()),
+        cancellation.clone(),
     )
 }
 
@@ -116,18 +118,26 @@ pub(super) fn search_session_paths_with(
     request: &WorkspacePathSearchRequest,
     limits: WorkspaceInspectionBudgetLimits,
     clock: Arc<dyn MonotonicClockPort>,
+    cancellation: SearchCancellationToken,
 ) -> Result<WorkspacePathSearchResult, AppError> {
     let normalized = normalize_query(&request.query);
     let cursor = match request.cursor.as_deref() {
-        Some(encoded) => Some(
-            PathSearchCursor::decode(encoded, &normalized)
-                // A cursor for another query resumes at a rank this ordering never produced. Refused
-                // as a validation failure so the caller starts the search again rather than
-                // receiving a page from the middle of a different result set.
-                .map_err(|_| {
-                    AppError::Validation("Search cursor is not valid here.".to_string())
-                })?,
-        ),
+        Some(encoded) => match PathSearchCursor::decode(encoded, &normalized) {
+            Ok(cursor) => Some(cursor),
+            // A cursor for another query resumes at a rank this ordering never produced. Answered
+            // rather than raised: an error leaves the caller unable to tell "start this search
+            // again" from "this workspace is unreachable", and only the first is something it can
+            // act on. The empty page carries the reason so it can act on it.
+            Err(_) => {
+                return Ok(WorkspacePathSearchResult {
+                    coverage: WorkspaceSearchCoverage::stopped(
+                        WorkspaceInspectionReason::InvalidCursor,
+                    ),
+                    matches: Vec::new(),
+                    next_cursor: None,
+                })
+            }
+        },
         None => None,
     };
     let Some(root) = resolve_session_root(conn, session_id)? else {
@@ -148,7 +158,7 @@ pub(super) fn search_session_paths_with(
     // something it has to take the implementation's word for.
     limits.max_retained_candidates = limits.max_retained_candidates.min(capacity as u64);
     limits.max_results = limits.max_results.min(limit as u64);
-    let mut budget = WorkspaceInspectionBudget::new(limits, clock, SearchCancellationToken::new());
+    let mut budget = WorkspaceInspectionBudget::new(limits, clock, cancellation);
 
     let selection =
         walk_ranked_candidates(&root, &normalized, cursor.as_ref(), capacity, &mut budget)?;

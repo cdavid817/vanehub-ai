@@ -321,10 +321,22 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 前缀上,静默丢行或重复行。新增的 `web-workspace-directory-mock.ts` 让两种拒绝(invalid /
 // stale)在这一侧第一次存在,且与 native 的判定顺序逐条对齐。
 // 上限按实测值 24746 记录(+137),不留余量。
+// 同一 change 第三次上调(Task 8.1):Quick Open 此前既不申请准入、也不注册世代——它同样走
+// `spawn_blocking`,按住一个键就是每次重复一条阻塞线程,而阻塞池对此没有意见。补上之后 Web 侧要
+// 有对等物,于是这一轮拆成三份:`web-workspace-search-registry.ts` 是两种搜索共用的世代/取消/
+// 准入状态(共用是刻意的:native 只有一个注册表,两份计数器会让 Quick Open 与内容搜索在浏览器里
+// 看着并发、在桌面端互相取代),`web-workspace-search-mock.ts` 只留内容搜索,
+// `web-workspace-path-search-mock.ts` 是路径搜索及其唯一能真正踩到的拒绝(游标绑定查询)。
+// 拆分本身是平移,净增是三个模块各自的 import 块与那条"为什么注册表必须共用"的说明。
+// 上限按实测值 24930 记录(+184),不留余量。
+// 同一 change 第四次上调(Task 6.5):文档发现补上预算与 coverage,service 边界因此多两处——
+// `listSessionDocuments` 多一个 searchId 参数(它同样是整个项目的递归遍历,重复调用应当取代而不是
+// 再起一个),Web 侧多一条 `coverage: complete` 的诚实声明。+14 行,全部是这两处。
+// 上限按实测值 24944 记录,不留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
   {
     root: "src/services",
-    budget: 24746,
+    budget: 24944,
     owner: "harden-workspace-search-cancellation-and-resource-budgets",
   },
 ]);

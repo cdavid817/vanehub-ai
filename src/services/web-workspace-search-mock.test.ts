@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { runWebWorkspaceSearch } from "./web-workspace-search-mock";
 import {
   cancelWebWorkspaceSearch,
   configureWebWorkspaceSearch,
   resetWebWorkspaceSearch,
-  runWebWorkspaceSearch,
-} from "./web-workspace-search-mock";
+} from "./web-workspace-search-registry";
 
 const files = {
   "a.ts": "const needle = 1;\nconst other = 2;",

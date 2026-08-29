@@ -4,6 +4,16 @@ import type {
   WorkspaceInspectionBudget,
   WorkspaceSearchCoverage,
 } from "../types/session-workspace-inspection";
+import {
+  claimWebSearchGeneration,
+  enterWebSearch,
+  leaveWebSearch,
+  releaseWebSearchGeneration,
+  webSearchAdmissionExhausted,
+  webSearchGenerationIsCancelled,
+  webSearchGenerationIsCurrent,
+  webWorkspaceSearchLimits,
+} from "./web-workspace-search-registry";
 
 /**
  * The browser build's content search, with the same stopping conditions as the desktop one.
@@ -18,62 +28,6 @@ import type {
  * shape of the answer is the shape the native adapter produces, including which reason code goes
  * with which coverage state.
  */
-
-/** Simulated ceilings. Generous enough that the ordinary fixture search is genuinely complete. */
-export interface WebWorkspaceSearchLimits {
-  maxFiles: number;
-  maxBytes: number;
-  maxResults: number;
-  /** How many searches may run at once before one is refused. */
-  maxConcurrent: number;
-}
-
-const DEFAULT_LIMITS: WebWorkspaceSearchLimits = {
-  maxFiles: 64,
-  maxBytes: 1024 * 1024,
-  maxResults: 200,
-  maxConcurrent: 2,
-};
-
-let limits: WebWorkspaceSearchLimits = { ...DEFAULT_LIMITS };
-let nextGeneration = 1;
-let inFlight = 0;
-/** Which generation currently answers for a search id. */
-const currentGeneration = new Map<string, number>();
-/** Generations an explicit cancel has reached. */
-const cancelledGenerations = new Set<number>();
-
-/**
- * Narrows the simulated ceilings so a caller can reach one.
- *
- * Exists because the alternative is fixtures large enough to exhaust a realistic budget, and a
- * megabyte of invented file content in the repository would make every unrelated fixture read
- * slower to no purpose.
- */
-export function configureWebWorkspaceSearch(next: Partial<WebWorkspaceSearchLimits>): void {
-  limits = { ...limits, ...next };
-}
-
-export function resetWebWorkspaceSearch(): void {
-  limits = { ...DEFAULT_LIMITS };
-  nextGeneration = 1;
-  inFlight = 0;
-  currentGeneration.clear();
-  cancelledGenerations.clear();
-}
-
-/**
- * Asks a running search to stop, and says whether one was there to ask.
- *
- * `false` means "nothing to stop", not "you did something wrong". A caller cannot know whether their
- * cancel beat the search's own completion, and the desktop build answers the same way.
- */
-export function cancelWebWorkspaceSearch(searchId: string): boolean {
-  const generation = currentGeneration.get(searchId);
-  if (generation === undefined) return false;
-  cancelledGenerations.add(generation);
-  return true;
-}
 
 const NO_WORK: WorkspaceInspectionBudget = {
   directoriesVisited: 0,
@@ -111,28 +65,24 @@ export async function runWebWorkspaceSearch(
   input: WebWorkspaceSearchInput,
   files: Record<string, string>,
 ): Promise<WorkspaceContentSearchResult> {
-  const generation = nextGeneration++;
-  // Registered before admission is checked, so a cancel arriving while the request is refused still
-  // has a slot to land on. Installing it also supersedes whatever held the id.
-  currentGeneration.set(input.searchId, generation);
+  // Claimed before admission is checked, so a cancel arriving while the request is refused still
+  // has a slot to land on. Claiming it also supersedes whatever held the id.
+  const generation = claimWebSearchGeneration(input.searchId);
 
-  if (inFlight >= limits.maxConcurrent) {
+  if (webSearchAdmissionExhausted()) {
     // Busy is an answer, not an error. Nothing was scanned, so nothing is claimed about the
     // workspace — `unavailable` rather than `partial` says exactly that.
-    currentGeneration.delete(input.searchId);
+    releaseWebSearchGeneration(input.searchId, generation);
     return unavailable(generation, "inspection_busy");
   }
 
-  inFlight += 1;
+  enterWebSearch();
   try {
     const scan = await scanFixtures(input, files, generation);
     return deliver(generation, input.searchId, scan);
   } finally {
-    inFlight -= 1;
-    if (currentGeneration.get(input.searchId) === generation) {
-      currentGeneration.delete(input.searchId);
-    }
-    cancelledGenerations.delete(generation);
+    leaveWebSearch();
+    releaseWebSearchGeneration(input.searchId, generation);
   }
 }
 
@@ -144,7 +94,7 @@ export async function runWebWorkspaceSearch(
  * retyped. The two adapters agreeing here is the only reason a panel can be written once.
  */
 function deliver(generation: number, searchId: string, scan: Scan): WorkspaceContentSearchResult {
-  if (currentGeneration.get(searchId) !== generation) {
+  if (!webSearchGenerationIsCurrent(searchId, generation)) {
     return {
       generation,
       coverage: { state: "partial", reasonCode: "superseded", budget: scan.budget },
@@ -182,6 +132,7 @@ async function scanFixtures(
   // is read: reporting a spend here would be inventing work to explain an answer that cost none.
   if (!needle) return { matches: [], budget };
 
+  const limits = webWorkspaceSearchLimits();
   const maxResults = Math.max(1, Math.min(input.limit ?? limits.maxResults, limits.maxResults));
   const matches: WorkspaceContentMatch[] = [];
 
@@ -191,8 +142,10 @@ async function scanFixtures(
     // Before the work rather than after, so a cancel issued while this was queued is observed before
     // another file is opened.
     await Promise.resolve();
-    if (cancelledGenerations.has(generation)) return { matches, budget, reasonCode: "cancelled" };
-    if (currentGeneration.get(input.searchId) !== generation) {
+    if (webSearchGenerationIsCancelled(generation)) {
+      return { matches, budget, reasonCode: "cancelled" };
+    }
+    if (!webSearchGenerationIsCurrent(input.searchId, generation)) {
       return { matches, budget, reasonCode: "superseded" };
     }
 
@@ -226,3 +179,16 @@ async function scanFixtures(
 
   return { matches, budget };
 }
+
+/**
+ * One page of a simulated path search.
+ *
+ * Shares the generation counter and the admission ceiling with content search, because the native
+ * side shares one registry and one admission policy between them. A mock with two independent
+ * counters would let a Quick Open and a content search look concurrent here and refuse each other
+ * on the desktop, which is the kind of difference a panel is written against without noticing.
+ *
+ * The cursor is an offset into the fixture, bound to the query. A cursor applied to a different
+ * query names a rank that ordering never produced, and that is the one refusal Quick Open can
+ * actually hit — so it is the one this simulates.
+ */

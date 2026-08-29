@@ -8,7 +8,7 @@ use super::path_search::{
     normalize_query, path_match_score, search_session_paths, search_session_paths_with,
 };
 use crate::contexts::workspaces::application::{
-    ManualClock, MonotonicClockPort, WorkspaceInspectionBudgetLimits,
+    ManualClock, MonotonicClockPort, SearchCancellationToken, WorkspaceInspectionBudgetLimits,
     WorkspaceInspectionBudgetSnapshot, WorkspacePathSearchRequest,
 };
 use crate::platform::database::NativeDatabase;
@@ -32,9 +32,11 @@ impl Workspace {
                 "session-1",
                 &WorkspacePathSearchRequest {
                     query: query.to_string(),
+                    search_id: "quick-open-1".to_string(),
                     cursor,
                     limit,
                 },
+                &SearchCancellationToken::new(),
             )
             .expect("search"),
         )
@@ -55,11 +57,13 @@ impl Workspace {
                 "session-1",
                 &WorkspacePathSearchRequest {
                     query: query.to_string(),
+                    search_id: "quick-open-1".to_string(),
                     cursor: None,
                     limit,
                 },
                 limits,
                 clock,
+                SearchCancellationToken::new(),
             )
             .expect("search"),
         )
@@ -266,15 +270,22 @@ fn a_cursor_from_another_query_is_refused() {
         &connection,
         "session-1",
         &WorkspacePathSearchRequest {
+            search_id: "quick-open-1".to_string(),
             // A different query ranks the same files differently, so this cursor names a position
             // the new ordering never produced.
             query: "rs".to_string(),
             cursor: Some(cursor),
             limit: Some(1),
         },
+        &SearchCancellationToken::new(),
     );
 
-    assert!(refusal.is_err());
+    let refusal = refusal.expect("a refusal is an answer, not a failure");
+    // An empty page carrying the reason. An error would leave the caller unable to tell "start this
+    // search again" from "this workspace is unreachable", and only the first is actionable.
+    assert!(refusal.matches.is_empty());
+    assert_eq!(refusal.next_cursor, None);
+    assert_eq!(refusal.coverage.reason_code, Some("invalid_cursor"));
 }
 
 #[test]

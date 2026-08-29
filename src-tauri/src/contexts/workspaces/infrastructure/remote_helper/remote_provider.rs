@@ -551,10 +551,37 @@ impl WorkspaceInspectionProvider for RemoteWorkspaceInspectionProvider {
         &self,
         target: &WorkspaceTarget,
         request: WorkspacePathSearchRequest,
+        cancellation: SearchCancellationToken,
     ) -> Result<WorkspacePathSearchResult, WorkspaceInspectionError> {
+        // Checked before the helper is launched. A cancel that arrived while the request was queued
+        // for admission has already been signalled, and starting a remote process for it would put
+        // work on somebody else's machine for an answer nobody is waiting for.
+        if let Some(cause) = cancellation.cause() {
+            return Ok(WorkspacePathSearchResult {
+                coverage: WorkspaceSearchCoverage::stopped(
+                    WorkspaceInspectionReason::from_cancellation(cause),
+                ),
+                matches: Vec::new(),
+                next_cursor: None,
+            });
+        }
         let normalized = normalize_query(&request.query);
         let cursor = match request.cursor.as_deref() {
-            Some(encoded) => Some(PathSearchCursor::decode(encoded, &normalized)?),
+            Some(encoded) => match PathSearchCursor::decode(encoded, &normalized) {
+                Ok(cursor) => Some(cursor),
+                // A refusal, not a failure — the same answer the local provider gives. A panel
+                // written against one adapter has to restart correctly against the other, and an
+                // error carries no page for it to restart from.
+                Err(_) => {
+                    return Ok(WorkspacePathSearchResult {
+                        coverage: WorkspaceSearchCoverage::stopped(
+                            WorkspaceInspectionReason::InvalidCursor,
+                        ),
+                        matches: Vec::new(),
+                        next_cursor: None,
+                    })
+                }
+            },
             None => None,
         };
         let (_, result) = self
@@ -620,6 +647,7 @@ impl WorkspaceInspectionProvider for RemoteWorkspaceInspectionProvider {
     async fn list_documents(
         &self,
         target: &WorkspaceTarget,
+        _cancellation: SearchCancellationToken,
     ) -> Result<DocumentListing, WorkspaceInspectionError> {
         // Not offered yet, and refused rather than answered with an empty list: an empty document
         // list is a claim that the workspace has no documents, which is a different statement from

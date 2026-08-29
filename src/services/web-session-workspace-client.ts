@@ -1,6 +1,8 @@
 import type { AgentService } from "./agent-service";
 import { rankFileCandidates } from "./file-search-ranking";
-import { cancelWebWorkspaceSearch, runWebWorkspaceSearch } from "./web-workspace-search-mock";
+import { runWebPathSearch } from "./web-workspace-path-search-mock";
+import { runWebWorkspaceSearch } from "./web-workspace-search-mock";
+import { cancelWebWorkspaceSearch } from "./web-workspace-search-registry";
 import { pageWebDirectory } from "./web-workspace-directory-mock";
 import {
   availableContext,
@@ -97,11 +99,7 @@ export const webSessionWorkspaceClient: SessionWorkspaceMethods = {
    * honest gap in this build is the provider, not a scan that stopped early.
    */
   async searchWorkspacePaths(input) {
-    const needle = input.query.trim().toLowerCase();
-    const matches = pathSearchFixture
-      .filter((entry) => !needle || entry.path.toLowerCase().includes(needle))
-      .slice(0, input.limit ?? 25);
-    return { coverage: { state: "complete" as const }, matches };
+    return runWebPathSearch(input, pathSearchFixture);
   },
   /**
    * Scanned from the same file fixtures the preview renders, so a result the browser build offers
@@ -166,7 +164,14 @@ export const webSessionWorkspaceClient: SessionWorkspaceMethods = {
     };
   },
   async listSessionDocuments() {
-    return { context: availableContext, items: documentFixtures, truncated: false, nextCursor: null };
+    return {
+      context: availableContext,
+      items: documentFixtures,
+      truncated: false,
+      nextCursor: null,
+      // The fixture is the whole set and all of it was read.
+      coverage: { state: "complete" as const },
+    };
   },
   async searchSessionFiles(_sessionId, query, maxResults = 8) {
     const items = rankFileCandidates(query, searchFixtures, maxResults);

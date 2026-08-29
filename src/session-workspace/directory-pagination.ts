@@ -1,5 +1,5 @@
 import type { DirectoryEntry, DirectoryListing } from "../types/session-workspace";
-import type { WorkspaceSearchCoverage } from "../types/session-workspace-inspection";
+import { isCursorRefusal } from "./search-coverage";
 
 /**
  * How many pages one directory is followed for.
@@ -19,13 +19,6 @@ export const MAX_DIRECTORY_PAGES = 4;
  * least a fact the reader can act on.
  */
 export const MAX_DIRECTORY_RESTARTS = 1;
-
-const CURSOR_REFUSALS = new Set(["invalid_cursor", "stale_cursor"]);
-
-/** Whether a page came back because its cursor no longer applies. */
-export function isCursorRefusal(coverage: WorkspaceSearchCoverage | undefined): boolean {
-  return Boolean(coverage?.reasonCode && CURSOR_REFUSALS.has(coverage.reasonCode));
-}
 
 export type DirectoryPageFetcher = (cursor: string | null) => Promise<DirectoryListing>;
 

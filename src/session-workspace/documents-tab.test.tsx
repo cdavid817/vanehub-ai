@@ -41,6 +41,7 @@ beforeEach(() => {
   });
   listDocuments = vi.spyOn(agentService, "listSessionDocuments").mockResolvedValue({
     context: CONTEXT,
+    coverage: { state: "complete" },
     items: [document("README.md"), document("docs/design.md")],
     truncated: false,
     nextCursor: null,

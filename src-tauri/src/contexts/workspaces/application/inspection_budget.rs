@@ -224,6 +224,31 @@ impl WorkspaceInspectionBudgetLimits {
         }
     }
 
+    /// Recursive document discovery, which reads names and extensions rather than contents.
+    ///
+    /// Narrower than Quick Open on depth and results because it is answering a different question:
+    /// Quick Open is a search a reader drove with a query, this is a standing list of a project's
+    /// documents. Six levels and three hundred documents are the bounds the tab already had; what
+    /// they gain here is a deadline, a cancellation gate, and counters — so a walk that stops says
+    /// which wall it hit instead of returning a short list that looks like the whole project.
+    ///
+    /// No file is opened, so the file and byte budgets are zero. A discovery walk that read a file
+    /// has done something it was not asked to, and zero is the only statement of that a test can
+    /// catch.
+    pub(crate) fn document_discovery() -> Self {
+        Self {
+            max_directories_visited: 20_000,
+            max_entries_visited: 20_000,
+            max_files_opened: 0,
+            max_bytes_read: 0,
+            max_metadata_operations: 60_000,
+            max_retained_candidates: 300,
+            max_results: 300,
+            max_depth: 6,
+            deadline: Duration::from_secs(10),
+        }
+    }
+
     /// One page of one immediate directory. No descent, so the depth budget is that directory.
     ///
     /// The entry ceiling is deliberately large: this is the operation a reader triggers by clicking

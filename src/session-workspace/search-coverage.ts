@@ -65,3 +65,16 @@ export function emptyResultKey(coverage: WorkspaceSearchCoverage | null | undefi
     ? "sessionTabs.files.contentSearch.emptyUnavailable"
     : "sessionTabs.files.contentSearch.emptyPartial";
 }
+
+/**
+ * The two reasons that mean "the token you resumed with no longer applies".
+ *
+ * Kept together because a caller acts on both the same way — stop paging, start again — while the
+ * wording a reader sees stays different: one of them means somebody changed the folder.
+ */
+const cursorRefusals = new Set(["invalid_cursor", "stale_cursor"]);
+
+/** Whether a page came back because its cursor no longer applies. */
+export function isCursorRefusal(coverage: WorkspaceSearchCoverage | null | undefined): boolean {
+  return Boolean(coverage?.reasonCode && cursorRefusals.has(coverage.reasonCode));
+}

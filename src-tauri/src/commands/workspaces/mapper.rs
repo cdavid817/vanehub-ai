@@ -80,6 +80,7 @@ pub(super) fn document_listing_to_dto(listing: DocumentListing) -> dto::Document
             .collect(),
         truncated: listing.truncated,
         next_cursor: listing.next_cursor,
+        coverage: coverage_to_dto(listing.coverage),
     }
 }
 

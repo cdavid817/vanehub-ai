@@ -242,9 +242,10 @@ impl WorkspaceInspectionProvider for LocalWorkspaceInspectionProvider {
         &self,
         target: &WorkspaceTarget,
         request: WorkspacePathSearchRequest,
+        cancellation: SearchCancellationToken,
     ) -> Result<WorkspacePathSearchResult, WorkspaceInspectionError> {
         let session_id = require_local(target)?.session_id.clone();
-        self.blocking(move |queries| queries.search_paths(&session_id, &request))
+        self.blocking(move |queries| queries.search_paths(&session_id, &request, &cancellation))
             .await
     }
 
@@ -262,9 +263,10 @@ impl WorkspaceInspectionProvider for LocalWorkspaceInspectionProvider {
     async fn list_documents(
         &self,
         target: &WorkspaceTarget,
+        cancellation: SearchCancellationToken,
     ) -> Result<DocumentListing, WorkspaceInspectionError> {
         let session_id = require_local(target)?.session_id.clone();
-        self.blocking(move |queries| queries.list_documents(&session_id))
+        self.blocking(move |queries| queries.list_documents(&session_id, &cancellation))
             .await
     }
 

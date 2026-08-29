@@ -31,6 +31,14 @@ export interface WorkspaceContentSearchInput {
 export interface WorkspacePathSearchInput {
   sessionId: string;
   query: string;
+  /**
+   * Chosen by the caller and reused for every keystroke from the same panel.
+   *
+   * Reusing it is what makes the newest request supersede the ones it replaced, under the native
+   * registry's own lock. A fresh id per keystroke would leave every walk looking independent, and a
+   * held-down key would put one blocking thread per repeat behind answers nobody is waiting for.
+   */
+  searchId: string;
   /** From a previous page. A cursor issued for another query is refused rather than applied. */
   cursor?: string;
   limit?: number;
@@ -118,7 +126,14 @@ export interface SessionWorkspaceInspectionService {
     limit?: number,
   ): Promise<DirectoryListing>;
   readSessionFile(sessionId: string, path: string): Promise<FileContent>;
-  listSessionDocuments(sessionId: string): Promise<DocumentListing>;
+  /**
+   * Every Markdown and text file in the project, as a recursive walk.
+   *
+   * The search id is the caller's, and reused across calls from the same panel, for the same reason
+   * the searches take one: this is a full-project traversal on a blocking thread, and a panel that
+   * re-asks while one is running should replace it rather than start a second.
+   */
+  listSessionDocuments(sessionId: string, searchId: string): Promise<DocumentListing>;
   searchSessionFiles(sessionId: string, query: string, maxResults?: number): Promise<FileSearchListing>;
   getSessionGitStatus(sessionId: string): Promise<GitStatusResult>;
   getSessionGitDiff(sessionId: string, path: string, source: GitDiffSource): Promise<GitDiffResult>;

@@ -278,6 +278,13 @@ pub(crate) struct WorkspaceSearchRequest {
 pub(crate) struct WorkspacePathSearchRequest {
     /// What the reader typed. Empty is a valid query: it browses rather than searches.
     pub(crate) query: String,
+    /// Issued by the caller, and reused for every keystroke from the same panel.
+    ///
+    /// A path search is cheaper than a content search but it is still a filesystem walk on a
+    /// blocking thread, and a reader holding a key down starts one per repeat. Registering under a
+    /// stable id is what makes the newest of those cancel the ones it replaced, under the registry's
+    /// own lock — rather than leaving a trail of walks whose answers nobody is waiting for.
+    pub(crate) search_id: String,
     pub(crate) cursor: Option<String>,
     pub(crate) limit: Option<usize>,
 }
@@ -391,6 +398,44 @@ pub(crate) struct WorkspacePathSearchResult {
     pub(crate) next_cursor: Option<String>,
 }
 
+/// A path search answer together with the registration that produced it.
+///
+/// The same shape content search delivers, for the same reason: a provider is handed a query and
+/// returns what it found, and whether that answer is still wanted is a fact about the registry that
+/// is only knowable when it comes back.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct WorkspacePathSearchDelivery {
+    /// Which registration under the search id produced this.
+    pub(crate) generation: u64,
+    pub(crate) result: WorkspacePathSearchResult,
+}
+
+/// What a finished path search is allowed to hand back.
+///
+/// A superseded page loses its matches *and* its cursor. The cursor is the part that would do real
+/// damage: it names a rank in an ordering derived from a query the reader has already retyped, so a
+/// caller that kept it would page the new query's result list from a position the new ordering never
+/// produced.
+pub(crate) fn deliver_path_search(
+    registration: &super::search_cancellation::SearchRegistration,
+    result: WorkspacePathSearchResult,
+) -> WorkspacePathSearchDelivery {
+    WorkspacePathSearchDelivery {
+        generation: registration.generation().value(),
+        result: if registration.is_current() {
+            result
+        } else {
+            WorkspacePathSearchResult {
+                coverage: WorkspaceSearchCoverage::stopped(
+                    super::inspection_budget::WorkspaceInspectionReason::Superseded,
+                ),
+                matches: Vec::new(),
+                next_cursor: None,
+            }
+        },
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct GitDiffRequest {
     pub(crate) path: String,
@@ -457,6 +502,7 @@ pub(crate) trait WorkspaceInspectionProvider: Send + Sync {
     async fn list_documents(
         &self,
         target: &WorkspaceTarget,
+        cancellation: SearchCancellationToken,
     ) -> Result<DocumentListing, WorkspaceInspectionError>;
 
     async fn read_text_file(
@@ -481,6 +527,7 @@ pub(crate) trait WorkspaceInspectionProvider: Send + Sync {
         &self,
         target: &WorkspaceTarget,
         request: WorkspacePathSearchRequest,
+        cancellation: SearchCancellationToken,
     ) -> Result<WorkspacePathSearchResult, WorkspaceInspectionError>;
 
     async fn git_status(

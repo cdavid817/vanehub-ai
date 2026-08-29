@@ -99,8 +99,14 @@ impl WorkspaceSessionQueryPort for DatabaseQueries {
         &self,
         session_id: &str,
         request: &WorkspacePathSearchRequest,
+        cancellation: &SearchCancellationToken,
     ) -> Result<WorkspacePathSearchResult, AppError> {
-        super::path_search::search_session_paths(&*self.connection()?, session_id, request)
+        super::path_search::search_session_paths(
+            &*self.connection()?,
+            session_id,
+            request,
+            cancellation,
+        )
     }
 
     fn directory_fingerprints(
@@ -131,8 +137,16 @@ impl WorkspaceSessionQueryPort for DatabaseQueries {
         )
     }
 
-    fn list_documents(&self, session_id: &str) -> Result<DocumentListing, AppError> {
-        super::session_queries::list_session_documents(&*self.connection()?, session_id)
+    fn list_documents(
+        &self,
+        session_id: &str,
+        cancellation: &SearchCancellationToken,
+    ) -> Result<DocumentListing, AppError> {
+        super::session_queries::list_session_documents(
+            &*self.connection()?,
+            session_id,
+            cancellation,
+        )
     }
 
     fn search_files(
@@ -580,10 +594,12 @@ fn a_path_search_ranks_and_labels_identically_on_both_sides() {
         let result = block(subject.provider.search_paths(
             &subject.target,
             WorkspacePathSearchRequest {
+                search_id: "quick-open-1".to_string(),
                 query: "main".to_string(),
                 cursor: None,
                 limit: None,
             },
+            SearchCancellationToken::new(),
         ))
         .unwrap_or_else(|error| panic!("{}: {error:?}", subject.name));
 
@@ -621,10 +637,12 @@ fn a_path_search_offers_directories_on_both_sides() {
         let result = block(subject.provider.search_paths(
             &subject.target,
             WorkspacePathSearchRequest {
+                search_id: "quick-open-1".to_string(),
                 query: "src".to_string(),
                 cursor: None,
                 limit: None,
             },
+            SearchCancellationToken::new(),
         ))
         .unwrap_or_else(|error| panic!("{}: {error:?}", subject.name));
 
@@ -644,10 +662,12 @@ fn a_search_cursor_from_another_query_is_refused_on_both_sides() {
         let first = block(subject.provider.search_paths(
             &subject.target,
             WorkspacePathSearchRequest {
+                search_id: "quick-open-1".to_string(),
                 query: "".to_string(),
                 cursor: None,
                 limit: Some(1),
             },
+            SearchCancellationToken::new(),
         ))
         .unwrap_or_else(|error| panic!("{}: {error:?}", subject.name));
         let Some(cursor) = first.next_cursor else {
@@ -657,14 +677,23 @@ fn a_search_cursor_from_another_query_is_refused_on_both_sides() {
         let refusal = block(subject.provider.search_paths(
             &subject.target,
             WorkspacePathSearchRequest {
+                search_id: "quick-open-1".to_string(),
                 // The same file ranks differently under a different query, so this cursor names a
                 // position the new ordering never produced.
                 query: "main".to_string(),
                 cursor: Some(cursor),
                 limit: Some(1),
             },
+            SearchCancellationToken::new(),
         ));
-        assert!(refusal.is_err(), "{}", subject.name);
+        let refusal = refusal.unwrap_or_else(|error| panic!("{}: {error:?}", subject.name));
+        assert!(refusal.matches.is_empty(), "{}", subject.name);
+        assert_eq!(
+            refusal.coverage.reason_code,
+            Some("invalid_cursor"),
+            "{}",
+            subject.name
+        );
     }
 }
 

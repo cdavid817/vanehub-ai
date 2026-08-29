@@ -81,6 +81,9 @@ pub(crate) struct DocumentListing {
     pub(crate) items: Vec<SessionDocument>,
     pub(crate) truncated: bool,
     pub(crate) next_cursor: Option<String>,
+    /// How much of the project the walk actually reached. Separate from `truncated`, which only
+    /// says the document limit was hit.
+    pub(crate) coverage: WorkspaceSearchCoverageDto,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -328,6 +331,9 @@ pub(crate) struct WorkspaceInspectionCapabilitiesDto {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WorkspacePathSearchDto {
+    /// Which registration under the search id answered. Compared by the caller so a page older than
+    /// the one already on screen is dropped rather than written over it.
+    pub(crate) generation: u64,
     pub(crate) coverage: WorkspaceSearchCoverageDto,
     pub(crate) matches: Vec<WorkspacePathMatchDto>,
     /// Absent when this page is the last one, never an empty string.
