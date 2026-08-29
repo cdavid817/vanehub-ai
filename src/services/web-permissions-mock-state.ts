@@ -1,4 +1,4 @@
-import type { PendingApprovalEntry, PolicyTemplateName, RiskLevel } from "../types/permissions";
+import type { ApprovalScope, PendingApprovalEntry, PolicyTemplateName, RiskLevel } from "../types/permissions";
 
 export interface MockPendingApproval {
   sessionId: string;
@@ -20,6 +20,52 @@ export interface MockPendingApproval {
  */
 export const webPendingApprovals = new Map<string, MockPendingApproval>();
 export const webPrincipalTemplates = new Map<string, PolicyTemplateName>();
+
+/**
+ * The mock's stand-in for the native resolution ledger.
+ *
+ * Web/mock does not execute anything, but it has to reproduce the *shape* of resolving: one request
+ * gets one immutable resolution, a second resolve reports that one rather than making another, and
+ * a remembered grant is not visible until its delivery is acknowledged. Those are the rules the UI
+ * is written against, so a mock that answered "true, done" to everything would let a duplicate-click
+ * or stale-state bug pass every Web-mode test and appear only on the desktop client.
+ */
+export interface MockApprovalResolution {
+  resolutionId: string;
+  effect: "allow" | "deny";
+  scope: ApprovalScope;
+  state: "committed" | "delivered" | "delivery_failed" | "stale";
+  /** Simulated remembered grant, inactive until the delivery is acknowledged. */
+  grant: { active: boolean } | null;
+}
+
+export const webApprovalResolutions = new Map<string, MockApprovalResolution>();
+
+/** Request ids currently claimed by an in-flight resolve, keyed to their resolution id. */
+export const webApprovalClaims = new Map<string, string>();
+
+let webResolutionSequence = 0;
+
+export function nextWebResolutionId(): string {
+  webResolutionSequence += 1;
+  return `web-resolution-${webResolutionSequence}`;
+}
+
+/**
+ * Makes the next resolve of `requestId` behave as though its waiter had already ended, or as though
+ * delivery failed after the decision was durable.
+ *
+ * Injected rather than raced for: both outcomes are ones a user can meet and neither can be
+ * produced on demand by clicking, so without this the UI states for them would have no test.
+ */
+export const webApprovalDeliveryFaults = new Map<string, "stale" | "delivery_failed">();
+
+export function resetWebApprovalResolutionsForTest(): void {
+  webApprovalResolutions.clear();
+  webApprovalClaims.clear();
+  webApprovalDeliveryFaults.clear();
+  webResolutionSequence = 0;
+}
 
 const webPendingApprovalSubscribers = new Set<(event: PendingApprovalEntry) => void>();
 

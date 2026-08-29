@@ -285,8 +285,18 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 控制台、本地媒体/LSP 与个性化治理,每一条都新增了 service 接口 + Tauri 客户端 + Web/mock
 // 客户端这三件套。三件套是"React 不直接 invoke"这条规则的代价,按能力条数线性增长而不是按代码
 // 量——所以每次合并都在合并后的树上重测,不把两侧的数相加,后者会把两边共有的基线算两遍。
+// 上调理由(fix-permission-decision-atomicity-and-grant-precedence):+150。
+// `resolvePendingApproval` 的返回从 `boolean` 变成六态 typed outcome,因为原来的布尔把四种实质
+// 不同的结果压成一个值:已交付、已持久化但未送达、被别人决定了、请求不存在——调用方无法把"工具
+// 真的运行了"从另外三种里分出来,而这正是 UI 必须区分的东西。
+// 分布:`web-permissions-client.ts` +70 与 `web-permissions-mock-state.ts` +45 是 Web/mock 侧的
+// claim/commit/ack 模拟。它不是装饰:Web/mock 是"React 不直接 invoke"这条规则的另一半,一个对
+// 每次调用都答"成功"的 mock 会让重复点击和过期状态的 bug 通过全部 Web 模式测试,只在桌面客户端
+// 上才暴露。`permissions.ts` +15 与 `tauri-permissions-client.ts` +8 是契约与未知值降级
+// (新版 native 返回本前端不认识的 token 时必须降级成"结果不明",而不是"已交付")。
+// 剩余 +12 是三处 import 块随类型增加的行。没有任何一行是从别处复制来的。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 24136, owner: "upgrade-session-workspace-evidence-console" },
+  { root: "src/services", budget: 24286, owner: "upgrade-session-workspace-evidence-console" },
 ]);
 
 const STATE_PACKAGES = new Set([

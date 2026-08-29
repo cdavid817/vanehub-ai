@@ -414,6 +414,86 @@ fn skill_provenance() -> SkillApprovalProvenance {
     }
 }
 
+/// The command returns these tokens verbatim and the frontend switches on them, so they are a
+/// published contract in a place a type checker cannot see across.
+///
+/// The matching TypeScript list is `approvalResolutionOutcomes` in `src/types/permissions.ts`,
+/// whose `normalizeApprovalResolutionOutcome` maps anything else to `unknown` — so a token added
+/// here without adding it there degrades to "the result is unclear" rather than to a wrong claim
+/// about whether the tool ran. This test exists so renaming one is a deliberate act.
+#[test]
+fn every_outcome_token_is_stable() {
+    let tokens = [
+        ResolveOutcome::Delivered {
+            resolution_id: String::new(),
+            effect: Effect::Allow,
+        },
+        ResolveOutcome::StaleGeneration {
+            resolution_id: String::new(),
+        },
+        ResolveOutcome::DeliveryFailed {
+            resolution_id: String::new(),
+            error_code: "",
+        },
+        ResolveOutcome::Resolving {
+            resolution_id: String::new(),
+        },
+        ResolveOutcome::AlreadyResolved {
+            resolution_id: String::new(),
+            state: ApprovalResolutionState::Delivered,
+        },
+        ResolveOutcome::NotFound,
+    ]
+    .map(|outcome| outcome.token());
+
+    assert_eq!(
+        tokens,
+        [
+            "delivered",
+            "stale",
+            "delivery_failed",
+            "resolving",
+            "already_resolved",
+            "not_found",
+        ]
+    );
+}
+
+/// Only one token may read as "the tool ran".
+#[test]
+fn exactly_one_outcome_reports_that_the_waiter_received_the_decision() {
+    let outcomes = [
+        ResolveOutcome::Delivered {
+            resolution_id: String::new(),
+            effect: Effect::Allow,
+        },
+        ResolveOutcome::StaleGeneration {
+            resolution_id: String::new(),
+        },
+        ResolveOutcome::DeliveryFailed {
+            resolution_id: String::new(),
+            error_code: "",
+        },
+        ResolveOutcome::Resolving {
+            resolution_id: String::new(),
+        },
+        ResolveOutcome::AlreadyResolved {
+            resolution_id: String::new(),
+            state: ApprovalResolutionState::Delivered,
+        },
+        ResolveOutcome::NotFound,
+    ];
+
+    let reached: Vec<&'static str> = outcomes
+        .iter()
+        .filter(|outcome| outcome.reached_the_waiter())
+        .map(ResolveOutcome::token)
+        .collect();
+    // `already_resolved` in particular must not count: a retry that finds an existing delivered
+    // resolution did not itself deliver anything, and this call cannot know what the first one did.
+    assert_eq!(reached, ["delivered"]);
+}
+
 /// `permissions-approval`'s "Allow delivery is commit-before-effect".
 ///
 /// The single most important assertion in this file. Not "the grant exists afterwards" — that is

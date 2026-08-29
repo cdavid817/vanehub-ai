@@ -55,7 +55,7 @@
 - [x] 6.2 Define the consuming `ApprovalDeliveryPort` in `permissions` and implement a native-Agent adapter over the published `agent_runtime` API.
 - [ ] 6.3 Refactor the Claude hook wait registry to support reservation, immutable resolution-id delivery, duplicate acknowledgement, stale waiter detection, and cancellation without introducing a second decision engine.
 - [x] 6.4 Add a routed delivery adapter selected from the request's stable channel and assemble it only in bootstrap.
-- [ ] 6.5 Reduce `resolve_pending_approval` and related commands to DTO validation/mapping plus one use-case call; add command serialization and stable error-code tests.
+- [x] 6.5 Reduce `resolve_pending_approval` and related commands to DTO validation/mapping plus one use-case call; add command serialization and stable error-code tests.
 - [x] 6.6 Add tests proving no adapter can observe Allow before the commit port returns success and that duplicate `resolution_id` delivery cannot resume native or hook work twice.
 
 ## 7. Timeout, evaluation failure, and restart reconciliation
@@ -69,19 +69,19 @@
 
 ## 8. Frontend service, Web/mock, UI, and i18n
 
-- [ ] 8.1 Extend the frontend permission service with typed resolving/delivery outcomes while preserving the existing action/resource/effect and pending-list contracts.
-- [ ] 8.2 Update the Tauri adapter and event mapping without adding direct `invoke()` calls to React components.
-- [ ] 8.3 Implement deterministic Web/mock claim, commit, delivery acknowledgement, duplicate resolve, pending grant activation, stale resolution, and failure simulation with no native side effects.
-- [ ] 8.4 Update Approval UI state so one request disables conflicting controls while resolving, reconciles by pull after ambiguous failure, and presents stale/delivery-failed states without claiming execution occurred.
-- [ ] 8.5 Add all new user-visible strings to every registered locale and pass i18n key/interpolation parity tests.
-- [ ] 8.6 Add frontend unit/component tests for double-click suppression, event/pull reconciliation, Web duplicate resolve, retry after ambiguous response, and inactive grant behavior.
+- [x] 8.1 Extend the frontend permission service with typed resolving/delivery outcomes while preserving the existing action/resource/effect and pending-list contracts.
+- [x] 8.2 Update the Tauri adapter and event mapping without adding direct `invoke()` calls to React components.
+- [x] 8.3 Implement deterministic Web/mock claim, commit, delivery acknowledgement, duplicate resolve, pending grant activation, stale resolution, and failure simulation with no native side effects.
+- [x] 8.4 Update Approval UI state so one request disables conflicting controls while resolving, reconciles by pull after ambiguous failure, and presents stale/delivery-failed states without claiming execution occurred.
+- [x] 8.5 Add all new user-visible strings to every registered locale and pass i18n key/interpolation parity tests.
+- [x] 8.6 Add frontend unit/component tests for double-click suppression, event/pull reconciliation, Web duplicate resolve, retry after ambiguous response, and inactive grant behavior.
 
 ## 9. Architecture, documentation, and cleanup
 
-- [ ] 9.1 Add or update architecture fitness tests proving commands contain no SQL/external-effect orchestration, permissions does not import agent-runtime private modules, and infrastructure implements application-owned ports.
-- [ ] 9.2 Update permission developer documentation with canonical grant precedence, resolution transaction, reservation/commit/delivery sequence, acknowledgement-gated grant activation, emergency Deny, and restart semantics.
+- [x] 9.1 Add or update architecture fitness tests proving commands contain no SQL/external-effect orchestration, permissions does not import agent-runtime private modules, and infrastructure implements application-owned ports.
+- [x] 9.2 Update permission developer documentation with canonical grant precedence, resolution transaction, reservation/commit/delivery sequence, acknowledgement-gated grant activation, emergency Deny, and restart semantics.
 - [x] 9.3 Remove obsolete separate `GrantRepository::create` plus `AuditRepository::append` finalization paths only after all callers and compatibility tests use the atomic port.
-- [ ] 9.4 Review logs, DTOs, SQLite rows, snapshots, and test fixtures for raw command bodies, secrets, credentials, unrestricted paths, or provider payloads and remove any new leakage.
+- [x] 9.4 Review logs, DTOs, SQLite rows, snapshots, and test fixtures for raw command bodies, secrets, credentials, unrestricted paths, or provider payloads and remove any new leakage.
 
 ## 10. Verification
 

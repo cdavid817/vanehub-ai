@@ -1697,6 +1697,105 @@ fn lsp_and_retrieval_communicate_only_through_owned_ports_and_public_apis() {
     );
 }
 
+/// Whether a `permissions` source line reaches into `agent_runtime` at all.
+///
+/// Nothing inside the context may, including its published `api`. The delivery adapter that needs
+/// both lives in bootstrap, satisfying a port `permissions` declared — which is what keeps the
+/// dependency pointing from the composition root inward, rather than from one context into another.
+fn permissions_reaches_agent_runtime(segments: &[String]) -> bool {
+    matches!(segments.first().map(String::as_str), Some("crate"))
+        && segments.get(1).map(String::as_str) == Some("contexts")
+        && segments.get(2).map(String::as_str) == Some("agent_runtime")
+}
+
+/// Whether a bootstrap line reaches past `agent_runtime`'s published surface.
+fn bootstrap_bypasses_agent_runtime_api(segments: &[String]) -> bool {
+    permissions_reaches_agent_runtime(segments)
+        && !matches!(
+            segments.get(3).map(String::as_str),
+            Some("api") | Some("application")
+        )
+}
+
+/// `fix-permission-decision-atomicity-and-grant-precedence` group 9.1.
+///
+/// The change made resolving an approval span two contexts: `permissions` decides, `agent_runtime`
+/// holds the waiter. The safe shape for that is one narrow published contract consumed by an
+/// adapter in the composition root — and the unsafe shape, which this pins shut, is `permissions`
+/// growing its own import of another context's generation internals in order to check a waiter.
+#[test]
+fn permissions_reaches_agent_runtime_only_through_the_bootstrap_delivery_adapter() {
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let permissions_root = source_root.join("contexts/permissions");
+    let mut violations = Vec::new();
+
+    for path in rust_files(&permissions_root).expect("enumerate permissions context") {
+        let source = fs::read_to_string(&path).expect("read permissions source");
+        let relative = path
+            .strip_prefix(&source_root)
+            .expect("relative permissions path");
+        for (line, segments) in path_dependencies(&source).expect("parse permissions source") {
+            if permissions_reaches_agent_runtime(&segments) {
+                violations.push(format!(
+                    "{}:{line}: {}",
+                    relative.display(),
+                    segments.join("::")
+                ));
+            }
+        }
+    }
+
+    let bridge_path = source_root.join("bootstrap/permissions.rs");
+    let bridge = fs::read_to_string(&bridge_path).expect("read permissions composition root");
+    let bridge_dependencies =
+        path_dependencies(&bridge).expect("parse permissions composition root");
+    for required in [
+        "crate::contexts::agent_runtime::api::AgentRuntimeApi",
+        "crate::contexts::permissions::application::ApprovalDeliveryPort",
+    ] {
+        assert!(
+            bridge_dependencies
+                .iter()
+                .any(|(_, segments)| segments.join("::") == required),
+            "the composition root must retain the reviewed delivery boundary `{required}`"
+        );
+    }
+    for (line, segments) in bridge_dependencies {
+        if bootstrap_bypasses_agent_runtime_api(&segments) {
+            violations.push(format!(
+                "bootstrap/permissions.rs:{line}: {}",
+                segments.join("::")
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "approval delivery must cross contexts only through a published API in bootstrap:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn the_permissions_delivery_detector_rejects_a_direct_context_import() {
+    assert!(permissions_reaches_agent_runtime(&path_segments(
+        "crate::contexts::agent_runtime::api::AgentRuntimeApi"
+    )));
+    assert!(permissions_reaches_agent_runtime(&path_segments(
+        "crate::contexts::agent_runtime::infrastructure::RuntimeAgentApiAdapter"
+    )));
+    assert!(!permissions_reaches_agent_runtime(&path_segments(
+        "crate::contexts::permissions::domain::Grant"
+    )));
+    // Bootstrap may hold the published surface and nothing beneath it.
+    assert!(!bootstrap_bypasses_agent_runtime_api(&path_segments(
+        "crate::contexts::agent_runtime::api::AgentRuntimeApi"
+    )));
+    assert!(bootstrap_bypasses_agent_runtime_api(&path_segments(
+        "crate::contexts::agent_runtime::infrastructure::RuntimeAgentApiAdapter"
+    )));
+}
+
 #[test]
 fn lsp_architecture_detectors_reject_direct_boundary_bypasses() {
     assert!(forbidden_lsp_retrieval_context_link(

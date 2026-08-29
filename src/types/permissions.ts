@@ -29,6 +29,43 @@ export interface PendingApprovalEntry {
   createdAt: string;
 }
 
+/**
+ * What resolving one approval did.
+ *
+ * Six outcomes rather than a boolean, because the user is shown something different for each and
+ * only one of them means the tool actually ran. `delivery_failed` in particular is not a failure of
+ * the decision — the decision is durable — it is a failure to tell anyone about it, and telling a
+ * user "that didn't work, try again" would invite a second decision for a request that has one.
+ */
+export const approvalResolutionOutcomes = [
+  "delivered",
+  "stale",
+  "delivery_failed",
+  "resolving",
+  "already_resolved",
+  "not_found",
+] as const;
+
+export type KnownApprovalResolutionOutcome = (typeof approvalResolutionOutcomes)[number];
+
+/**
+ * `unknown` covers a native build newer than this frontend. It is a member rather than a fallback
+ * to `delivered` or `delivery_failed` on purpose: both of those assert something about whether the
+ * tool ran, and an outcome this build cannot name is exactly the case where that is not known.
+ */
+export type ApprovalResolutionOutcome = KnownApprovalResolutionOutcome | "unknown";
+
+export function normalizeApprovalResolutionOutcome(value: string): ApprovalResolutionOutcome {
+  return (approvalResolutionOutcomes as readonly string[]).includes(value)
+    ? (value as KnownApprovalResolutionOutcome)
+    : "unknown";
+}
+
+/** Whether this outcome means the request still has controls a user could act on. */
+export function approvalIsUnresolved(outcome: ApprovalResolutionOutcome): boolean {
+  return outcome === "resolving" || outcome === "unknown";
+}
+
 export interface PrincipalEntry {
   agentId: string;
   template: PolicyTemplateName;
