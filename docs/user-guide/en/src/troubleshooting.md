@@ -2,12 +2,6 @@
 
 Find your symptom below. Most problems are not bugs — they are an unmet precondition.
 
-## First, confirm which runtime you are in
-
-**This is the easiest thing to misjudge.** If you opened VaneHub AI in a browser, then: CLIs are not detected, processes are not started, settings are not saved, and files are not changed — **even when the interface reports success**.
-
-How to tell, and the full capability table, are in [Runtime and feature labels](runtime-labels.md).
-
 Unless noted otherwise, everything below assumes desktop.
 
 ## CLI issues
@@ -159,11 +153,37 @@ A once-daily task with the application closed for three days makes up one run on
 
 ### I cannot find logs by trace id
 
-**Logs deliberately contain no execution identifiers**, which is a privacy design. Line the two up by **time**.
+**A log entry carries `runId`, `traceId`, and `spanId` in its context when the source supplies them**, so correlating by identifier does work. When a search finds nothing, the usual reason is that the entry came from a source that had no identifier to attach, not that identifiers are stripped.
+
+What logs deliberately exclude is **content**, not identifiers: raw prompts, Agent output, source code, diagnostic text, stderr, environment variables, credentials, and private absolute paths never reach the log file. If you were searching for a fragment of output rather than an id, that is why it is not there — line the two up by **time** instead.
 
 ### Some nodes in a trace do not expand
 
 That is **Opaque** fidelity — the internal behavior of an external CLI is a black box. The system keeps only the boundary node and does not invent children. For a fully expandable call chain, use OnePiece.
+
+## Reading the log files
+
+Besides the **Logs** tab in the interface (see [Observability](observability.md)), you can read the log files on disk directly.
+
+### Where the logs are
+
+Logs are written by default to a `logs/` subdirectory of the application data directory. The active log file is always named `vanehub.log`, rotates daily, and archives into `logs/archive/`, retained for 30 days by default. The per-platform defaults, under the application identifier `ai.vanehub.app`:
+
+| Platform | Default log directory |
+| --- | --- |
+| Windows | `%APPDATA%\ai.vanehub.app\logs` |
+| macOS | `~/Library/Application Support/ai.vanehub.app/logs` |
+| Linux | `~/.local/share/ai.vanehub.app/logs` |
+
+### Changing the log directory
+
+**Settings → Basic configuration** lets you change the **log directory**, and the **data directory** alongside it. The new directory is populated after a restart.
+
+### Log content and redaction
+
+Logs carry four levels: **error / warn / info / debug**. Redaction happens before the disk write — provider keys, Bearer tokens, private paths, and command arguments are replaced with a redaction marker. That is why a log is sometimes thin for a particular investigation; you can temporarily switch the collection policy to **redacted content** under **Settings → Execution observability**. Collection policies and retention are covered in [Observability](observability.md).
+
+> **Logs and traces are separate stores that can still be correlated by identifier**: logs deliberately carry no raw payloads (prompts, Agent output, source, stderr, credentials, private absolute paths), but they do carry `runId`, `traceId`, and `spanId` in an entry's context when the source supplies them.
 
 ## Development
 

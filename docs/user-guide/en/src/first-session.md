@@ -1,7 +1,5 @@
 # Create your first session
 
-**Status: Implemented — desktop and Web/mock with different side effects.**
-
 A session is VaneHub AI's basic unit of work: it binds one workspace and one or more Agents, and carries the conversation, the terminal, file changes, and execution tracing.
 
 ## Create
@@ -91,12 +89,6 @@ Three cases where preview is unavailable are stated rather than shown as a blank
 **Run state** in the info panel on the right has five values: **Idle**, **Starting**, **Running**, **Failed**, **Stopped**.
 
 The info panel also shows the **CLI tool**, the **model for this session**, the **workspace**, and this session's **token usage** (input / output / cache read / cache write / total). With no model configured it shows "No model configured".
-
-## Desktop versus browser preview
-
-**Desktop:** the project path is a real directory, Agent execution uses the CLIs you installed, and messages and terminal output are written to the local SQLite database.
-
-**Web/mock:** the same interface runs on synthetic state and a simulated terminal. It **starts no local process, changes no files, and writes no database.** It is useful for seeing what the interface looks like; it is not evidence of execution.
 
 ## When creation fails
 

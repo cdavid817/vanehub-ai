@@ -1,7 +1,5 @@
 # Loop Engineering: let the Agent iterate until it gets there
 
-**Status: Implemented — desktop only.**
-
 ## What Loop Engineering is
 
 **It is a change–verify–decide loop machine, driven by the runtime.**

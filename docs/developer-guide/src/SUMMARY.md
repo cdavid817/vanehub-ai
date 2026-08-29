@@ -60,3 +60,4 @@
 # Reference
 
 - [Native API reference](native-api-reference.md)
+- [Skill Tool runtime security](skill-tool-runtime-security.md)

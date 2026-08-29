@@ -3506,6 +3506,20 @@
         "unified-log-management",
         "usage-statistics"
       ]
+    },
+    {
+      "archivedOn": "2026-08-29",
+      "changeName": "restore-documentation-spec-conformance",
+      "path": "openspec/changes/archive/2026-08-29-restore-documentation-spec-conformance/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "native-developer-documentation",
+        "user-guide-documentation"
+      ]
     }
   ]
 }

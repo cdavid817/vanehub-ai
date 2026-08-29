@@ -204,7 +204,91 @@ Useful focused native checks include:
 ```bash
 cargo test --manifest-path src-tauri/Cargo.toml --lib contexts::code_intelligence
 cargo test --manifest-path src-tauri/Cargo.toml --test architecture
-cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+cargo clippy --workspace --all-targets -- -D warnings
 ```
 
 Frontend adapter, component, and Web/mock behavior are covered by Vitest; the documented settings flow is covered by the LSP Playwright scenario. Run the repository-wide validation commands from `AGENTS.md` before submission.
+
+## Process state machine and request sequence
+
+`ProcessState` is the finite state machine of a single server process. `absent` is both the initial and terminal state; `starting` means the child has been spawned but the `initialize` handshake has not finished; `ready` means the handshake completed, which does not imply background indexing has finished; `stopping` is the draining stop path; and `backoff` and `failed` are the bounded recovery paths after an unexpected exit. The state machine's parameters come from `LifecyclePolicy` defaults.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Absent
+    Absent --> Starting: tool request / warm-up
+    Starting --> Initializing: child spawned
+    Initializing --> Ready: initialize + initialized handshake complete
+    Initializing --> Backoff: unexpected exit / timeout
+    Starting --> Backoff: spawn failed
+    Ready --> Stopping: idle_timeout=600s / configuration replaced / trust revoked / app shutdown
+    Backoff --> Starting: restart budget not exhausted<br/>initial_backoff=1s, doubling to max_backoff=30s
+    Backoff --> Failed: restart_budget=3 exhausted
+    Failed --> Starting: after cooldown=300s<br/>a fresh budget is issued
+    Stopping --> Absent: shutdown/exit completed<br/>or force-terminated at the global deadline
+    Ready --> Backoff: unexpected exit
+```
+
+- `restart_budget = 3`, `initial_backoff = 1s`, `max_backoff = 30s`, `cooldown = 300s`, `idle_timeout = 600s`.
+- A `ready` process with no active request and no document lease is shut down after ten minutes.
+- Once the restart budget is exhausted the process enters `failed` and cannot reach `starting` again until the `cooldown` path issues a fresh budget.
+- Configuration replacement and trust revocation both use the same draining `stopping` path.
+
+The end-to-end sequence of one `find_definition` looks like this. Document leases, protocol coordinate conversion, and the bounded request deadline are the three parts worth attention.
+
+```mermaid
+sequenceDiagram
+    participant Tool as Agent tool call
+    participant API as CodeIntelligenceApi
+    participant Reg as Process registry
+    participant Proc as LSP server process
+    participant Lease as Document lease
+    Tool->>API: find_definition(canonical path, 1-based position)
+    API->>Reg: acquire(session root + project root + server type + configuration fingerprint)
+    alt Process is Absent
+        Reg->>Proc: spawn(stdin/stdout)
+        Reg->>Proc: initialize negotiation
+        Proc-->>Reg: initialize result + capabilities
+        Reg->>Proc: initialized notification
+    end
+    Reg->>Lease: didOpen(normalized path, first request)
+    API->>API: 1-based → 0-based<br/>using the negotiated encoding (UTF-16 fallback)
+    API->>Proc: JSON-RPC request_with_control<br/>textDocument/definition, 10s deadline
+    Proc-->>API: Location[] or empty
+    API->>API: normalize / filter by workspace<br/>keeping only admitted file: locations
+    API-->>Tool: QueryOutcome<br/>ready / warming / timeout / unavailable / failed
+    Note over Tool,API: ready plus empty is the one successful no-result state<br/>optional failures soften into an outcome and never interrupt the generation
+```
+
+- **Coordinate conversion** — Agent coordinates and result ranges are 1-based while protocol coordinates are 0-based. The encoding follows the `initialize` negotiation result, falling back to UTF-16.
+- **Request deadline** — `request_with_control` puts a 10s deadline on a single JSON-RPC request, and a timeout is classified as a `timeout` soft failure rather than thrown at the Agent.
+- **Workspace filtering** — returned locations are normalized and then filtered against the current session's workspace. The model cannot choose the workspace, the root, the server path, or the URI scheme.
+
+## Why this is safe
+
+LSP is a read-only foundation, and its safety comes from four gates together rather than any single check:
+
+1. **A read-only tool catalog** — all nine tools are read-only, including the later type-definition, implementation, symbol-search, and call-hierarchy additions. Server-to-client workspace edits such as `workspace/applyEdit` are refused outright by this read-only foundation.
+2. **Session workspace scoping** — the workspace always comes from the current session, and only admitted `file:` locations inside the canonical workspace survive normalization.
+3. **Disk is authoritative** — VaneHub AI maintains no unsaved editor buffer. Disk content is authoritative, and an Agent's precise write immediately invalidates the matching lease.
+4. **Four-phase isolated testing** — a server test runs `Discovery → Spawn → Initialize → Cleanup`, a malformed capability must fail closed, and cleanup still has to run.
+
+The authoritative definitions of the process, protocol, and permission boundaries live in the relevant specs under `openspec/specs/`, with the owning layer in `src-tauri/src/contexts/code_intelligence/`.
+
+## Key types and constants
+
+LSP runtime process management lives in `code_intelligence/infrastructure/process_registry.rs`, with the protocol layer in `initialize_negotiation.rs`, `json_rpc_actor.rs`, and `lsp_framing.rs`:
+
+- **`ProcessState`** — `Absent`, `Starting`, `Initializing`, `Ready`, `Stopping`, `Backoff`, `Failed`, with `is_warming()` covering Starting and Initializing and `is_terminal()` covering Failed.
+- **`LifecyclePolicy` defaults** — `restart_budget = 3`, `initial_backoff = 1s`, `max_backoff = 30s` (exponential doubling), `cooldown = 300s`, and `idle_timeout = 600s`, which shuts down a Ready process after ten minutes with no request and no lease.
+- **Capability negotiation** in `initialize_negotiation.rs` — `initialize_and_notify()` sends `initialize` then `initialized`; `build_initialize_params()` declares position encoding (defaulting to UTF-16), `workDoneProgress`, configuration, and definition, references, hover, and `publishDiagnostics`; `negotiate_initialize_result()` selects the encoding and normalizes the sync mode (None, Full, or Incremental). When a server does not support a method the request is **not sent** and the outcome is unavailable.
+- **Position conversion** — `PositionConverter.agent_to_lsp` converts 1-based Agent coordinates to 0-based LSP coordinates using the negotiated encoding, and an out-of-range position becomes `invalid_position` without a request being sent.
+- **Request control** — `JsonRpcRequestControl::standard` applies a 10s deadline per request plus a 250ms cleanup grace. Timeout and cancellation are distinguished, `ActorCommand::Cancel` sends `$/cancelRequest`, and out-of-order responses are matched by id.
+- **Diagnostics cache** — `DiagnosticsCache` caches per document version, and `get_diagnostics` waits through `diagnostics.wait_for_current(uri, version, Ready, 9s)`, distinguishing ready, stale, timeout, and unavailable. Related locations with external URIs are filtered out.
+- **Frame boundaries** — `lsp_framing.rs` enforces a hard `Content-Length` ceiling and kills the process when it is exceeded.
+- **Server-to-client requests** — `lsp_server_requests.rs` handles `workspace/configuration` and capability register and unregister. **`workspace/applyEdit` is refused**, because the foundation is read-only.
+- **Diagnostic logging** — `lsp_diagnostics.rs` defines `LspDiagnosticKind` (Lifecycle, Timeout, Cancellation, Crash, Restart, DiagnosticsCount, ProtocolLimit, Shutdown), and `record()` is rate-limited and records safe metadata only, never persisting payloads, source, hover text, diagnostic text, stderr, environment, or absolute paths.
+- **Isolated testing** — `server_test.rs` defines `ServerTestPhase` (Discovery → Spawn → Initialize → Cleanup) and runs a full initialize / initialized / shutdown / exit against a `tempfile::TempDir`, with a 64KB stderr ceiling and a minimum 100ms timeout. The minimal project's files come from the registry entry's `fixture_files`.
+- **The language registry** — `domain/registry.rs` holds `LANGUAGE_DEFINITIONS` and the three `Option` lookups `definition()`, `definition_for_extension()`, and `definition_for_server()`, with `Language = &'static LanguageDefinition`.
+- **Language ids** — `domain/language_id.rs` defines `LspLanguageId`, restricted to `[a-z0-9_]` and at most 64 characters. `new()` validates external input, while `trusted()` is for registry literals only (guarded by a debug assertion) and its call site is registered in the architecture test's audit list.
+- **Startup argument limits** — `domain/configuration.rs` sets `MAX_STARTUP_ARGUMENTS = 32` and `MAX_STARTUP_ARGUMENT_BYTES = 4KiB`, and rejects embedded NUL bytes, because the platform would otherwise truncate or reject them at hand-off when the reason can no longer be reported.

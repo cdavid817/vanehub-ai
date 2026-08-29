@@ -8,8 +8,52 @@ import {
   hasDocumentedSymbol,
   normalizeHeadingId,
   unclosableEmphasis,
+  unreachableDocuments,
   validateNativeBoundaryContent,
 } from "./validate-docs.mjs";
+
+const reachabilityGraph = {
+  "SUMMARY.md": ["chapter.md"],
+  "chapter.md": ["nested.md"],
+  "nested.md": [],
+  "orphan.md": [],
+  "island-a.md": ["island-b.md"],
+  "island-b.md": ["island-a.md"],
+};
+const reachabilityLinks = (file) => reachabilityGraph[file] ?? [];
+
+test("treats a document the roots reach transitively as reachable", () => {
+  assert.deepEqual(
+    unreachableDocuments(["SUMMARY.md"], ["chapter.md", "nested.md"], reachabilityLinks),
+    [],
+  );
+});
+
+test("reports a document no root reaches", () => {
+  assert.deepEqual(
+    unreachableDocuments(["SUMMARY.md"], ["chapter.md", "orphan.md"], reachabilityLinks),
+    ["orphan.md"],
+  );
+});
+
+test("reports both halves of a pair that only links to itself", () => {
+  assert.deepEqual(
+    unreachableDocuments(["SUMMARY.md"], ["island-a.md", "island-b.md"], reachabilityLinks),
+    ["island-a.md", "island-b.md"],
+  );
+});
+
+test("does not report a root itself, even when nothing links to it", () => {
+  assert.deepEqual(unreachableDocuments(["SUMMARY.md"], ["SUMMARY.md"], reachabilityLinks), []);
+});
+
+test("terminates on a cycle that a root does reach", () => {
+  const cyclic = (file) => ({ ...reachabilityGraph, "SUMMARY.md": ["island-a.md"] })[file] ?? [];
+  assert.deepEqual(
+    unreachableDocuments(["SUMMARY.md"], ["island-a.md", "island-b.md"], cyclic),
+    [],
+  );
+});
 
 const boundary = {
   path: "src/example.rs",

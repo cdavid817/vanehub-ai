@@ -1,7 +1,5 @@
 # Permission approvals
 
-**Status: Implemented — desktop only.**
-
 ## Overview
 
 When an Agent wants to run a command, write a file, call a tool, or write a memory, the operation passes through a gate first. When the verdict is "ask", execution pauses and an approval appears; your decision can be remembered by scope so you are not interrupted repeatedly.
@@ -80,7 +78,7 @@ The other three CLIs each have their own mechanism — OpenCode uses environment
 
 ## Notes and limits
 
-- **Desktop only.** The browser preview has no actual interception capability.
+- **Desktop only.**
 - **Templates are action-level and do not distinguish paths or command content.** There is no way to configure a rule like "may only write files under `src/`".
 - **Each CLI's own confirmation mechanism still exists.** VaneHub AI's gate is an additional layer; it does not replace a CLI's own sandbox or confirmation logic.
 - **Desktop is authoritative for approval state.** On reload the interface actively fetches the pending-approval list and reconciles, rather than depending on events not being lost.

@@ -4,6 +4,41 @@ A multi-Agent session composes several Agents into one shared thread. The design
 
 The authoritative requirements — seat assignment, mid-session seat changes, turn routing, and presence — live in [openspec/specs/multi-agent-group-chat](../../../openspec/specs/multi-agent-group-chat/spec.md). This chapter explains how they are met and where. For the user-facing workflow, see the user guide.
 
+## Why Multi-Agent at all
+
+A single Agent hits a ceiling on complex work in three ways: **context overload**, where one Agent plans, executes, and verifies from a bloated prompt with diluted attention; **capability coupling**, where a generalist Agent cannot reach expert level on every subtask; and **no fault isolation**, where a single point of failure takes the whole chain down. A multi-Agent system addresses these through **role specialization** and **fault isolation**.
+
+### Single-Agent versus Multi-Agent
+
+| Dimension | Single Agent | Multi-Agent |
+| --- | --- | --- |
+| Context management | One prompt carries every responsibility and bloats easily | Each Agent's context is independent, with clear responsibility boundaries |
+| Capability depth | Generalist | Prompt, model, and tool set can be tailored per subtask |
+| Parallelism | Inherently serial | Fan-out can run in parallel, shortening overall latency |
+| Fault isolation | A single point of failure affects everything | Failures are isolated to one Agent or branch |
+| Debuggability | Logic is centralized and simpler | Needs additional observability through traces and logs |
+| Cost | Low per-call cost | More calls and more turns raise both tokens and latency |
+| Failure recovery | Usually a whole retry | The failing sub-step can be retried or degraded on its own |
+
+### Common misconceptions
+
+- **That Multi-Agent always beats single-Agent** — coordination overhead and consistency problems can cancel out the gains of specialization, and on simple tasks a single Agent is usually faster and cheaper.
+- **That more Agents is better** — each added Agent grows the communication paths and potential failure points non-linearly.
+- **That Multi-Agent substitutes for good prompt design** — with a well-designed single-Agent prompt, many tasks that look like they need several Agents do not.
+
+### Choosing an approach
+
+| Situation | Recommendation |
+| --- | --- |
+| Simple task with a low latency budget | Single Agent |
+| Complex task with fixed steps | Single Agent plus a structured, step-by-step prompt |
+| Task decomposable into independent subtasks | Multi-Agent (parallel) |
+| Quality needs iterative improvement | Multi-Agent (reviewer) |
+| Multiple perspectives need arguing out | Multi-Agent (debate) |
+| The system will keep gaining new capabilities | Multi-Agent (hierarchical or supervisor) |
+
+VaneHub AI's Multi-Agent group chat uses the **Swarm (peer handoff)** model — no central dispatcher, with seats routing autonomously between themselves through `@` handoffs. See [Seats, not positions](#seats-not-positions) and [Handoff parsing](#handoff-parsing) below.
+
 ## Seats, not positions
 
 A multi-Agent session is composed of **seats**. Each seat pairs one expert role with one Agent, so a role is reusable across sessions and an Agent may play different roles in different sessions. Seat identity is stable and not derived from array position, so seats can be added to and removed from a running session while preserving identity and history for every participant that has joined. A newly added seat becomes routable from the next turn and receives the preceding thread within its context budget.
@@ -289,14 +324,28 @@ The recommendation this chapter records is to stay with handoff and take three s
 2. **Small protocol additions, worth doing.** `MAX_MENTIONS_PER_REPLY=2` executes serially, but
    there is no join semantics — no "when both are done, come back to me". A lightweight
    return-to-sender rule (a dispatched seat that names nobody hands the turn back to whoever
-   dispatched it) is a one-line routing extension that stays decentralized. The other gap is
-   e2e coverage of the paused → human-decides → round-resumes half of the `@用户 handoff` path.
+   dispatched it) is a one-line routing extension that stays decentralized. The paused →
+   human-decides → round-resumes half of the `@用户 handoff` path was the other gap here, and
+   `domain-multi-agent-human-decision.e2e.mjs` closed it; join semantics remain open.
 3. **Only on real evidence, consider a supervisor.** The trigger should be observed failures of
    the protocol — chains repeatedly spinning into the depth limit, humans constantly rescuing
    rounds by hand, or genuinely parallel task shapes (multi-repository research). That is an
    architecture change, not a new role: it starts with an OpenSpec proposal revising the
    no-dispatch-control requirement, and must answer what happens to a round when the
    orchestrator itself fails.
+
+## Runtime shapes of a seat's Agent
+
+A seat in a group chat can be bound to a built-in CLI Agent or to the OnePiece native Agent. Their runtime shapes differ, but both are covered by the same seat, handoff, and briefing mechanisms:
+
+| Dimension | Built-in CLI Agent seat | OnePiece native Agent seat |
+| --- | --- | --- |
+| How it starts | Through the Agent Terminal as a PTY child process, with VaneHub AI starting and managing the CLI process | Calls the provider over HTTP inside the application, starting no external process |
+| Context delivery | `Resume` or `Inject` mode, keeping recent turns within a character budget | The same `Resume` and `Inject` mechanism, with the system prompt assembled through `AgentSkillPort` and the context engine |
+| Observability | The CLI's internals are a black box, so traces stop at the boundary (opaque fidelity) | Native fidelity, with tool calls expandable layer by layer in a trace |
+| Model-family determination | `claude-code` → Anthropic, `codex-cli` → OpenAI, `gemini-cli` and `antigravity-cli` → Google, `opencode` → Unknown | Determined by the provider of its active Profile |
+
+The seat briefing (`build_seat_briefing`) treats both shapes identically: before speaking, every seat receives the same roster — handles, role names, Agent names, model families, responsibilities, and instructions — and the responsibility field is mandatory. Handoff parsing (`parse_handoff_mentions`) is likewise uniform, keyed only on a line-leading `@` mention in the reply text, and does not branch on Agent shape. **Web/mock verifies the interface, seat changes, and `@` completion only, and starts no CLI** — real Agent replies and automatic handoff require the Tauri desktop runtime.
 
 ## Index of main code locations
 

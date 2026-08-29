@@ -107,12 +107,6 @@ Each node carries a **fidelity** annotation stating how much the record can be t
 
 What happens inside an external CLI is a black box, so only the boundary nodes are kept and **no child nodes are invented**. See [Observability and logs](observability.md).
 
-## Web/mock preview
-
-**The same interface also runs in a browser**, backed by deterministic mock data. It is good for looking at the interface, but it **starts no process, writes no database, and touches no filesystem**.
-
-Any operation labeled **Web/mock only** is not evidence that anything really happened on your machine. See [Runtime and feature labels](runtime-labels.md).
-
 ## Looking for implementation detail?
 
 This guide only covers how to use the product. For **why** these mechanisms are designed the way they are and how they work internally, see the [VaneHub AI Developer Guide](../../../developer-guide/src/index.md) — it is written for developers and contributors and points at the code.

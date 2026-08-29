@@ -1,7 +1,5 @@
 # Install and authenticate a CLI
 
-**Status: Implemented — desktop setup.**
-
 VaneHub AI **drives CLIs you have already installed**. **Each vendor's subscription login (OAuth) is always completed by the CLI itself** — VaneHub AI never does it for you, and never asks for your subscription account password.
 
 But **"configuring a third-party model" is a separate matter** — if you want a given CLI to call a compatible endpoint like DeepSeek or OpenRouter, you can configure and apply that under **Settings → Agent configurations**, without hand-editing any file. See [Quick Start → Authenticate / configure a model](quick-start.md#15-authenticate--configure-a-model) for how the two divide.
@@ -194,12 +192,6 @@ If an Agent asks you to sign in during a session, complete authentication in tha
 ## CLI launch parameters
 
 Each CLI's own command-line parameters and how to configure launch parameters inside VaneHub AI are collected under [Tools and extensions → CLI parameters](tooling.md#cli-parameters). OnePiece has no CLI and therefore no launch parameters; its equivalent configuration lives under [Agent configurations](tooling.md#agent-configurations).
-
-## Web preview
-
-**Status: Web/mock only.** The browser preview shows deterministic availability and execution fixtures. It **neither detects nor authenticates local CLIs**. Seeing "Installed" does not mean anything is installed on your machine.
-
-See [Runtime and feature labels](runtime-labels.md) for how to tell which runtime you are in.
 
 ## Next
 

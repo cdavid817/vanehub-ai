@@ -1,7 +1,5 @@
 # Quick Start
 
-**Status: Implemented — desktop.**
-
 Five minutes from nothing to your first Agent run. If a CLI is already installed, start at step 2.
 
 ## 1. Prepare a CLI
@@ -114,4 +112,3 @@ Write your task in the input box on the **Workspace** tab. **Enter sends, Shift+
 
 - **Credentials from a vendor subscription login always stay in each CLI's own storage.** VaneHub AI never takes custody of them, and never asks you for your subscription account password.
 - **A third-party API key you enter in Agent configurations is held by VaneHub AI**, stored in the operating system's credential service, never written to SQLite; the UI only ever echoes back "configured."
-- **The browser preview (Web/mock) executes no local commands.** The interface looks operable, but it starts no process and writes no database. See [Runtime and feature labels](runtime-labels.md) for how to tell which runtime you are in.

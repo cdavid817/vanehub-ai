@@ -77,7 +77,7 @@ stateDiagram-v2
 
 - `EMBEDDING_BATCH_SIZE=32` —— 后台嵌入批量大小;
 - `MAX_EMBEDDING_ATTEMPTS=5` —— 单条最多重试次数;
-- `RETRY_BACKOFF_SECONDS` —— 重试退避间隔;
+- `RETRY_BACKOFF_SECONDS=[1, 4, 15, 60, 300]` —— 每次重试的退避间隔;
 - `RECONCILE_POLL_INTERVAL_SECONDS=300` —— worker 轮询待嵌入队列的间隔。
 
 ### 模型一致性

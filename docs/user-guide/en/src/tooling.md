@@ -1,7 +1,5 @@
 # Tools and extensions
 
-**Status: Implemented — desktop only.**
-
 ## Overview
 
 MCP servers, prompt hooks, local extensions, plugin integrations, SDK dependencies, CLI management and parameters, and Agent configurations are all configured centrally in the settings center and then handed to each Agent, rather than being configured separately inside every CLI.
@@ -141,8 +139,6 @@ Parameters carry these annotations:
 **Saving and concurrency**: the page remembers the revision it opened. If the same profile changed elsewhere, saving is refused with a prompt to reload rather than silently overwriting the other change. **Discard draft** returns to the last saved state and **Restore inherited values** clears every parameter for that CLI back to inherited. Switching CLIs does not lose a draft.
 
 **Repairing older data**: on upgrade, a historical value that cannot be read unambiguously is quarantined — it is neither sent nor deleted. The page says so, and re-selecting it repairs it.
-
-**Web preview limits**: the browser Web/mock adapter has no CLI to detect, so every CLI reports "not installed" and it never claims a version. It can demonstrate editing and previewing, but it launches nothing.
 
 **When changes take effect**: parameters are read at the **next launch**. Conversations and terminals that are already running are unaffected, and saving does not interrupt them.
 

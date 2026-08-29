@@ -101,9 +101,10 @@ Loop 不会陷入无意义循环。每轮迭代记录目标状态指纹(`LoopObj
 - `LoopRunPhase::Preparing` —— 初始化
 - `LoopRunPhase::Acting` —— Worker 执行
 - `LoopRunPhase::Verifying` —— 证据采集
+- `LoopRunPhase::Deciding` —— 证据采集之后的判定
 - `LoopRunPhase::Finalizing` —— 终态收尾
 
-`Deciding` 不是独立 `LoopRunPhase`,而是 `Verifying` 之后的判定动作,其结果由 `LoopDecisionOutcome` 枚举表示:
+`Deciding` 阶段的判定结果由 `LoopDecisionOutcome` 枚举表示:
 
 - `LoopDecisionOutcome::Failed` —— 终止失败
 - `LoopDecisionOutcome::Cancelled` —— 取消
@@ -134,11 +135,15 @@ Loop 不会陷入无意义循环。每轮迭代记录目标状态指纹(`LoopObj
 
 ### 迭代限制
 
-`LoopLimits` 定义三项硬限制:
+`LoopLimits` 共五个字段,在构造时校验:
 
-- `max_iterations` —— 迭代次数硬上限 `20`,达到即以 `MaxIterations` 终止
-- `max_consecutive_no_progress` —— 连续无进展轮数上限,达到即以 `NoProgress` 终止失败
-- 时间预算 —— 超限以 `TimeBudget` 终止
+| 字段 | 类型 | 含义 |
+| --- | --- | --- |
+| `max_iterations` | `u16` | 迭代次数上限,仅接受 `1..=20` 区间;达到即以 `MaxIterations` 终止 |
+| `step_timeout_seconds` | `u64` | 单步时间预算 |
+| `total_timeout_seconds` | `u64` | 整轮时间预算,超限以 `TimeBudget` 终止 |
+| `max_consecutive_runtime_errors` | `u16` | 连续运行时错误上限 |
+| `max_consecutive_no_progress` | `u16` | 连续无进展轮数上限,达到即以 `NoProgress` 终止失败 |
 
 ### Worker/Verifier 信任契约
 

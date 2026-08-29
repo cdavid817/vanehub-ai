@@ -203,7 +203,7 @@ LSP 不标准化可移植的服务端内存或已索引文件数,因此状态契
 ```bash
 cargo test --manifest-path src-tauri/Cargo.toml --lib contexts::code_intelligence
 cargo test --manifest-path src-tauri/Cargo.toml --test architecture
-cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+cargo clippy --workspace --all-targets -- -D warnings
 ```
 
 前端适配器、组件与 Web/mock 行为由 Vitest 覆盖;文档化的设置流程由 LSP Playwright 场景覆盖。提交前请运行 `AGENTS.md` 中的仓库级验证命令。

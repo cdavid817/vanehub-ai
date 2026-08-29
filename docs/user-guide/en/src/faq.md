@@ -66,12 +66,6 @@ The interface explains: a run missed because the application was closed is **mad
 
 **Only Claude Code and Codex CLI go through the relay today.** Gemini CLI, OpenCode, and Antigravity CLI need their own configuration, and their MCP calls do not appear in the execution trace.
 
-## Is opening it in a browser the same as the desktop application?
-
-The interface is the same; **the capabilities are not**. The browser preview (Web/mock) uses deterministic mock data and **starts no process, writes no database, and touches no filesystem**.
-
-See [Runtime and feature labels](runtime-labels.md) for how to tell.
-
 ## Which languages does the interface support?
 
 Five: Simplified Chinese, English, Traditional Chinese, Japanese, and Korean. Switch under **Settings → Basic Configuration**.
