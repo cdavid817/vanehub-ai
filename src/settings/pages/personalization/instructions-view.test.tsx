@@ -93,6 +93,11 @@ describe("PersonalizationInstructionsView", () => {
     renderView({ getPersonalizationPolicy });
 
     await screen.findByTestId("personalization-scope-kind");
+    // The initial global read is scheduled asynchronously; clearing before it fires would let it
+    // land after the clear and read as a violation of the incomplete-scope rule below.
+    await waitFor(() => {
+      expect(getPersonalizationPolicy).toHaveBeenCalled();
+    });
     getPersonalizationPolicy.mockClear();
     await userEvent.selectOptions(screen.getByTestId("personalization-scope-kind"), "workspace-agent");
 
