@@ -1,4 +1,5 @@
 use super::evidence::{WorkspaceEvidencePort, WorkspaceEvidenceSignal};
+use super::ports::ShellLifecycleDiagnosticsPort;
 use super::session_shell::{
     AttachSessionShellRequest, CreateSessionShellRequest, ResizeSessionShellRequest,
     SessionShellNotice, SessionShellNoticePort, SessionShellRuntimePort, SessionShellWorkspace,
@@ -7,7 +8,7 @@ use super::session_shell::{
 };
 use super::session_shell_close::{ShellCloseDisposition, ShellRuntimeCloseOutcome};
 use super::session_shell_reaper::ShellReaperLimits;
-use super::session_shell_registry::SessionShellRegistry;
+use super::session_shell_registry::{SessionShellPorts, SessionShellRegistry};
 use super::session_shell_store::ShellStore;
 use crate::contexts::workspaces::domain::{
     SessionShellError, SessionShellState, ShellCapacityScope, ShellCloseBudget,
@@ -268,9 +269,42 @@ impl SessionShellWorkspacePort for FakeWorkspaces {
     }
 }
 
+/// Records the lifecycle no-ops rather than writing them.
+///
+/// A no-op that is not observable is indistinguishable from one that never happened, which is the
+/// whole reason the port exists — so the double has to record, not swallow.
+#[derive(Default)]
+pub(super) struct RecordingShellDiagnostics {
+    pub(super) stale: Mutex<Vec<(String, u64, u64)>>,
+    pub(super) orphaned: Mutex<Vec<(String, u64)>>,
+}
+
+impl ShellLifecycleDiagnosticsPort for RecordingShellDiagnostics {
+    fn stale_reaper_completion(
+        &self,
+        shell_id: &str,
+        attempted_generation: u64,
+        current_generation: u64,
+    ) {
+        self.stale.lock().expect("stale").push((
+            shell_id.to_string(),
+            attempted_generation,
+            current_generation,
+        ));
+    }
+
+    fn orphaned_reaper_completion(&self, shell_id: &str, attempted_generation: u64) {
+        self.orphaned
+            .lock()
+            .expect("orphaned")
+            .push((shell_id.to_string(), attempted_generation));
+    }
+}
+
 pub(super) struct Harness {
     pub(super) registry: Arc<SessionShellRegistry>,
     pub(super) evidence: Arc<RecordingEvidence>,
+    pub(super) diagnostics: Arc<RecordingShellDiagnostics>,
     pub(super) runtime: Arc<FakeRuntime>,
     clock: Arc<FakeClock>,
     notices: Arc<RecordingNotices>,
@@ -291,15 +325,19 @@ fn harness_tuned(
     let store = Arc::new(ShellStore::new(notices.clone(), clock.clone()));
     let runtime = Arc::new(FakeRuntime::default());
     let evidence = Arc::new(RecordingEvidence::default());
+    let diagnostics = Arc::new(RecordingShellDiagnostics::default());
     let registry = Arc::new(
         SessionShellRegistry::new(
             store.clone(),
-            runtime.clone(),
-            Arc::new(workspaces),
-            Arc::new(SequentialIds::default()),
-            clock.clone(),
+            SessionShellPorts {
+                runtime: runtime.clone(),
+                workspaces: Arc::new(workspaces),
+                ids: Arc::new(SequentialIds::default()),
+                clock: clock.clone(),
+                evidence: evidence.clone(),
+                diagnostics: diagnostics.clone(),
+            },
             capacities,
-            evidence.clone(),
         )
         // Every stage is one virtual tick: the fake runtime answers immediately, so the point of
         // the budget here is that one exists, not how long it is.
@@ -310,6 +348,7 @@ fn harness_tuned(
         registry,
         runtime,
         evidence,
+        diagnostics,
         clock,
         notices,
         store,
@@ -1033,6 +1072,140 @@ fn the_reaper_finalizes_a_shell_whose_close_timed_out() {
         .filter(|signal| matches!(signal, WorkspaceEvidenceSignal::ShellClosed { .. }))
         .count();
     assert_eq!(closings, 1, "exactly one ending is published");
+}
+
+/// A completion for a generation that has been replaced must change nothing — and say so.
+///
+/// The dangerous half is capacity: releasing here returns a slot the *current* generation is using,
+/// and the next create would then be admitted against a ceiling that is already full. The other half
+/// is that a correct no-op leaves nothing behind, so if this path ever fires for a reason nobody
+/// predicted there is no way to find out. Both halves are asserted.
+#[test]
+fn a_stale_reaper_completion_changes_nothing_and_is_recorded() {
+    let harness = harness_tuned(
+        FakeWorkspaces::default(),
+        ShellCapacities::default(),
+        ShellReaperLimits {
+            initial_backoff_millis: 0,
+            ..ShellReaperLimits::default()
+        },
+    );
+    let shell_id = create(&harness, None).expect("create");
+    harness.runtime.retain_on_close(true);
+    harness.registry.close(&shell_id);
+    let queued_generation = harness
+        .store
+        .descriptor(&shell_id)
+        .expect("held")
+        .generation;
+
+    // The Shell is replaced under the same id while the old attempt is still queued. Only the
+    // registry mints generations, so the store is driven directly to stage the race.
+    let newer = queued_generation.next();
+    harness.store.replace_generation_for_test(&shell_id, newer);
+
+    let report = harness.registry.advance_reaper();
+
+    assert_eq!(report.requested(), 0, "nothing was reported for a no-op");
+    assert_eq!(
+        harness.registry.capacity().releases(),
+        0,
+        "releasing would return a slot the current generation is using"
+    );
+    assert_eq!(
+        harness
+            .store
+            .descriptor(&shell_id)
+            .expect("held")
+            .generation,
+        newer,
+        "the current generation is untouched"
+    );
+    assert_eq!(
+        *harness.diagnostics.stale.lock().expect("stale"),
+        vec![(
+            shell_id.as_str().to_string(),
+            queued_generation.value(),
+            newer.value()
+        )]
+    );
+}
+
+/// A queue item can outlive the Shell it names. Nothing to finalize, no slot to return, and — until
+/// now — no trace that a work item survived its own subject.
+#[test]
+fn a_reaper_completion_for_a_shell_with_no_entry_is_recorded() {
+    let harness = harness_tuned(
+        FakeWorkspaces::default(),
+        ShellCapacities::default(),
+        ShellReaperLimits {
+            initial_backoff_millis: 0,
+            ..ShellReaperLimits::default()
+        },
+    );
+    let shell_id = create(&harness, None).expect("create");
+    harness.runtime.retain_on_close(true);
+    harness.registry.close(&shell_id);
+    let generation = harness
+        .store
+        .descriptor(&shell_id)
+        .expect("held")
+        .generation;
+
+    harness.store.remove_for_test(&shell_id);
+    let report = harness.registry.advance_reaper();
+
+    assert_eq!(report.requested(), 0);
+    assert_eq!(
+        *harness.diagnostics.orphaned.lock().expect("orphaned"),
+        vec![(shell_id.as_str().to_string(), generation.value())]
+    );
+}
+
+/// Automatic attempts run out, and what is left is a Shell a person can act on.
+///
+/// Not forgotten and not silently retried forever: `CloseFailed` with its ownership intact, still
+/// charged for its slot, because the alternative is a live process nobody is accountable for.
+#[test]
+fn automatic_attempts_run_out_and_leave_a_shell_a_person_can_retry() {
+    let harness = harness_tuned(
+        FakeWorkspaces::default(),
+        ShellCapacities::default(),
+        ShellReaperLimits {
+            initial_backoff_millis: 0,
+            max_attempts: 2,
+            ..ShellReaperLimits::default()
+        },
+    );
+    let shell_id = create(&harness, None).expect("create");
+    harness.runtime.retain_on_close(true);
+    harness.registry.close(&shell_id);
+
+    // Drained until the queue gives up. Virtual time, not sleeping: the backoff is zero and every
+    // attempt is one call.
+    let mut reports = 0;
+    for _ in 0..4 {
+        reports += harness.registry.advance_reaper().requested();
+    }
+
+    let descriptor = harness.store.descriptor(&shell_id).expect("still held");
+    assert!(
+        matches!(descriptor.state, SessionShellState::CloseFailed { .. }),
+        "{:?}",
+        descriptor.state
+    );
+    assert!(reports > 0);
+    assert_eq!(harness.registry.capacity().active(), 1, "still charged");
+    assert_eq!(harness.registry.reaper_depth(), 0, "no longer queued");
+
+    // And the manual retry after exhaustion works: the child finally dies and the next close
+    // confirms it. A Shell left `CloseFailed` that could not be retried would be a permanent row.
+    *harness.runtime.retain_close.lock().expect("retain") = None;
+    let retried = harness.registry.close(&shell_id);
+
+    assert_eq!(retried.disposition, ShellCloseDisposition::ClosedConfirmed);
+    assert!(harness.store.descriptor(&shell_id).is_none());
+    assert_eq!(harness.registry.capacity().releases(), 1);
 }
 
 /// A full queue refuses the handoff. Nothing was moved out of an owner to offer it, so the refusal

@@ -21,6 +21,7 @@ use super::evidence::{
     WorkspaceEvidencePort, WorkspaceEvidenceSignal, WorkspaceShellCloseReason,
     WorkspaceShellRuntimeKind,
 };
+use super::ports::ShellLifecycleDiagnosticsPort;
 use super::session_shell::{
     AttachSessionShellRequest, CreateSessionShellRequest, ResizeSessionShellRequest,
     SessionShellDescriptor, SessionShellRuntimePort, SessionShellWorkspacePort,
@@ -75,6 +76,12 @@ pub(crate) struct SessionShellRegistry {
     /// figures would go quiet the moment the tab stopped using the older one-view service — which
     /// would read as "this session opened no shells" rather than as a missing wire.
     evidence: Arc<dyn WorkspaceEvidencePort>,
+    /// Where a lifecycle no-op is recorded.
+    ///
+    /// Required rather than optional. The two events it carries are invisible by construction, and
+    /// an optional port is one production can be assembled without — which would restore exactly the
+    /// silence this exists to remove, with nothing to notice it.
+    diagnostics: Arc<dyn ShellLifecycleDiagnosticsPort>,
     /// One gate per in-flight create identity.
     ///
     /// Held across the runtime open — which is exactly why it is not the store's lock. Two threads
@@ -83,27 +90,38 @@ pub(crate) struct SessionShellRegistry {
     gates: Mutex<BTreeMap<CreateIdentity, Arc<Mutex<()>>>>,
 }
 
+/// Everything the registry talks to that is not itself.
+///
+/// Grouped rather than passed one by one. Seven collaborators is where the argument-count rule bites,
+/// and the alternative to grouping is dropping one — which in this set means dropping the one whose
+/// absence is silent. Every field here is a seam an assembly has to fill deliberately.
+pub(crate) struct SessionShellPorts {
+    pub(crate) runtime: Arc<dyn SessionShellRuntimePort>,
+    pub(crate) workspaces: Arc<dyn SessionShellWorkspacePort>,
+    pub(crate) ids: Arc<dyn ShellIdPort>,
+    pub(crate) clock: Arc<dyn ShellClockPort>,
+    pub(crate) evidence: Arc<dyn WorkspaceEvidencePort>,
+    pub(crate) diagnostics: Arc<dyn ShellLifecycleDiagnosticsPort>,
+}
+
 impl SessionShellRegistry {
     pub(crate) fn new(
         store: Arc<ShellStore>,
-        runtime: Arc<dyn SessionShellRuntimePort>,
-        workspaces: Arc<dyn SessionShellWorkspacePort>,
-        ids: Arc<dyn ShellIdPort>,
-        clock: Arc<dyn ShellClockPort>,
+        ports: SessionShellPorts,
         capacities: ShellCapacities,
-        evidence: Arc<dyn WorkspaceEvidencePort>,
     ) -> Self {
         Self {
             store,
-            runtime,
-            workspaces,
-            ids,
-            clock,
+            runtime: ports.runtime,
+            workspaces: ports.workspaces,
+            ids: ports.ids,
+            clock: ports.clock,
             capacity: Arc::new(ShellCapacityController::new(capacities)),
             reaper: Arc::new(ShellReaperQueue::new(ShellReaperLimits::default())),
             budget: ShellCloseBudget::default(),
             generations: AtomicU64::new(0),
-            evidence,
+            evidence: ports.evidence,
+            diagnostics: ports.diagnostics,
             gates: Mutex::new(BTreeMap::new()),
         }
     }
@@ -544,11 +562,22 @@ impl SessionShellRegistry {
         let mut report = SessionShellCleanupReport::default();
         for item in self.reaper.drain_due(self.clock.elapsed_millis()) {
             let Some(descriptor) = self.store.descriptor(&item.shell_id) else {
+                // The entry is gone, so there is nothing to finalize and no slot to return. Recorded
+                // because a queue item outliving its Shell is not a case anybody designed for.
+                self.diagnostics
+                    .orphaned_reaper_completion(item.shell_id.as_str(), item.generation.value());
                 continue;
             };
             if descriptor.generation != item.generation {
                 // A completion for a superseded attempt. Dropped with no effect: releasing here
-                // would return a slot the current generation is using.
+                // would return a slot the current generation is using. Recorded, because a correct
+                // no-op leaves nothing behind — and if this ever fires for a reason nobody
+                // predicted, this line is the only thing that will say so.
+                self.diagnostics.stale_reaper_completion(
+                    item.shell_id.as_str(),
+                    item.generation.value(),
+                    descriptor.generation.value(),
+                );
                 continue;
             }
             let outcome = self

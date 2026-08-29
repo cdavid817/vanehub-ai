@@ -87,9 +87,9 @@ pub(crate) use models::{
     ShellWorkspace, ShellWorkspacePolicy, WorkspaceLogLevel,
 };
 pub(crate) use ports::{
-    ProjectDirectorySelectionPort, WorkspaceClockPort, WorkspaceFilesystemPort, WorkspaceGitPort,
-    WorkspaceHistoryRepository, WorkspaceSessionQueryPort, WorkspaceShellContextPort,
-    WorkspaceShellLogPort,
+    ProjectDirectorySelectionPort, ShellLifecycleDiagnosticsPort, WorkspaceClockPort,
+    WorkspaceFilesystemPort, WorkspaceGitPort, WorkspaceHistoryRepository,
+    WorkspaceSessionQueryPort, WorkspaceShellContextPort, WorkspaceShellLogPort,
 };
 pub(crate) use query_service::WorkspaceQueryApplicationService;
 pub(crate) use review::{
@@ -114,7 +114,7 @@ pub(crate) use session_shell::{
 pub(crate) use session_shell_close::{
     SessionShellCleanupReport, SessionShellCloseResult, ShellRuntimeCloseOutcome,
 };
-pub(crate) use session_shell_registry::SessionShellRegistry;
+pub(crate) use session_shell_registry::{SessionShellPorts, SessionShellRegistry};
 pub(crate) use session_shell_remote::{
     RemoteShellChannel, RemoteShellChannelError, RemoteShellEvent, RemoteShellOpenFailure,
     RemoteShellTransport,

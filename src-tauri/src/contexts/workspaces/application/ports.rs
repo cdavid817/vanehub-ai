@@ -222,6 +222,30 @@ pub(crate) trait WorkspaceShellContextPort: Send + Sync {
     ) -> Result<ShellWorkspace, WorkspaceApplicationError>;
 }
 
+/// Where a Shell lifecycle event that nothing else records goes.
+///
+/// The events this exists for are the ones that are, by construction, invisible: a Reaper completion
+/// for a generation that has been replaced, and one for a Shell whose entry is gone. Both are
+/// correctly *no-ops* — releasing capacity there would return a slot the current generation is
+/// using — and a no-op leaves no trace at all. If the stale path ever fires for a reason nobody
+/// predicted, this line is the only thing that will say so.
+///
+/// Identifiers and counts only. Nothing here may carry a command, terminal output, a host, or a
+/// path: this is a diagnostic about the application's own bookkeeping, and the Shell it names is one
+/// whose contents are exactly what must not travel.
+pub(crate) trait ShellLifecycleDiagnosticsPort: Send + Sync {
+    /// A Reaper attempt whose generation is no longer the current one.
+    fn stale_reaper_completion(
+        &self,
+        shell_id: &str,
+        attempted_generation: u64,
+        current_generation: u64,
+    );
+
+    /// A Reaper attempt for a Shell that no longer has an entry.
+    fn orphaned_reaper_completion(&self, shell_id: &str, attempted_generation: u64);
+}
+
 /// Where a remote terminal's own diagnostics go.
 ///
 /// The only shell-shaped port left here. Its Session Shell counterparts went with the one-view

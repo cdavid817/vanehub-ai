@@ -65,8 +65,8 @@
 - [x] 7.1 Implement a bounded Reaper queue/worker model with explicit queue capacity, active-attempt limit, per-attempt deadline, backoff, maximum automatic attempts, and structural metrics.
 - [x] 7.2 Ensure each Reaper item retains every handle/control and the capacity lease required to continue cleanup. Queue-full behavior must keep ownership in registry/runtime and return a typed failure.
 - [x] 7.3 Implement generation-safe compare-and-finalize as one application operation: terminal aggregate state, runtime detach, route removal, replay/store finalization, lease release, and exactly-one event.
-- [ ] 7.4 Make stale Reaper completion a no-op with diagnostic evidence; it must not release capacity or remove a current generation.
-- [ ] 7.5 Add virtual-time tests for success on later attempt, retry exhaustion, queue full, duplicate completion, shutdown during reaping, and manual retry after automatic exhaustion.
+- [x] 7.4 Make stale Reaper completion a no-op with diagnostic evidence; it must not release capacity or remove a current generation.
+- [x] 7.5 Add virtual-time tests for success on later attempt, retry exhaustion, queue full, duplicate completion, shutdown during reaping, and manual retry after automatic exhaustion.
 - [ ] 7.6 Add metrics/log tests for bounded redacted fields and verify no command text, terminal output, credential, host secret, or unrestricted path is emitted.
 
 ## 8. Archive, delete, idle sweep, and shutdown integration

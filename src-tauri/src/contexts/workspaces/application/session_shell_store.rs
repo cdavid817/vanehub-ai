@@ -71,6 +71,32 @@ impl ShellStore {
         self.lock().insert(entry.descriptor.shell_id.clone(), entry);
     }
 
+    /// Replaces an entry's generation without going through a create.
+    ///
+    /// Only the registry mints generations, so a test staging "this Shell was replaced while an old
+    /// attempt was still queued" has no other way to reach that state — and it is the state the
+    /// stale-completion guard exists for.
+    #[cfg(test)]
+    pub(crate) fn replace_generation_for_test(
+        &self,
+        shell_id: &ShellId,
+        generation: crate::contexts::workspaces::domain::ShellGeneration,
+    ) {
+        let mut shells = self.lock();
+        if let Some(entry) = shells.get_mut(shell_id) {
+            entry.descriptor.generation = generation;
+        }
+    }
+
+    /// Drops an entry outright, as nothing in production does.
+    ///
+    /// Production finalizes; this exists to stage a queue item that outlived its Shell, which is the
+    /// other half of what the stale guard has to survive.
+    #[cfg(test)]
+    pub(crate) fn remove_for_test(&self, shell_id: &ShellId) {
+        self.lock().remove(shell_id);
+    }
+
     pub(crate) fn remove(&self, shell_id: &ShellId) -> Option<ShellEntry> {
         self.lock().remove(shell_id)
     }

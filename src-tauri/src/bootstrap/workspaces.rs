@@ -3,8 +3,9 @@ use crate::contexts::operations::infrastructure::UnifiedLoggingAdapter;
 use crate::contexts::ssh_connections::api::SshConnectionsApi;
 use crate::contexts::workspaces::api::WorkspaceApi;
 use crate::contexts::workspaces::application::{
-    SessionShellRegistry, ShellCapacities, ShellStore, WorkspaceApplicationService,
-    WorkspaceInspectionRouter, WorkspaceInvalidationDispatcher, WorkspaceQueryApplicationService,
+    SessionShellPorts, SessionShellRegistry, ShellCapacities, ShellStore,
+    WorkspaceApplicationService, WorkspaceInspectionRouter, WorkspaceInvalidationDispatcher,
+    WorkspaceQueryApplicationService,
 };
 use crate::contexts::workspaces::infrastructure::{
     LocalWorkspaceInspectionProvider, RemoteWorkspaceInspectionProvider, RetainedLocalShellRuntime,
@@ -12,8 +13,8 @@ use crate::contexts::workspaces::infrastructure::{
     SessionWorkspaceTargetResolver, SqliteSessionShellWorkspace, SqliteShellWorkspaceAdapter,
     SqliteWorkspaceHistoryRepository, SshRemoteHelperSession, SshRemoteProfileSource,
     SshShellTransport, SystemShellClock, SystemWorkspaceClock, TauriProjectDirectorySelection,
-    TauriSessionShellNotices, TauriWorkspaceInvalidationNotices, UuidShellIds,
-    WorkspaceFilesystemAdapter, WorkspaceGitAdapter, WorkspaceInvalidationPoller,
+    TauriSessionShellNotices, TauriWorkspaceInvalidationNotices, UnifiedLogShellDiagnostics,
+    UuidShellIds, WorkspaceFilesystemAdapter, WorkspaceGitAdapter, WorkspaceInvalidationPoller,
 };
 use crate::platform::database::NativeDatabase;
 use std::path::PathBuf;
@@ -195,11 +196,14 @@ fn assemble_session_shell_registry(
     ));
     Arc::new(SessionShellRegistry::new(
         store,
-        runtime,
-        Arc::new(SqliteSessionShellWorkspace::new(database, shell_workspaces)),
-        Arc::new(UuidShellIds),
-        clock,
+        SessionShellPorts {
+            runtime,
+            workspaces: Arc::new(SqliteSessionShellWorkspace::new(database, shell_workspaces)),
+            ids: Arc::new(UuidShellIds),
+            clock,
+            evidence,
+            diagnostics: Arc::new(UnifiedLogShellDiagnostics),
+        },
         ShellCapacities::default(),
-        evidence,
     ))
 }

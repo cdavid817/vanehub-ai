@@ -34,6 +34,7 @@ mod session_log_export_tests;
 mod session_queries;
 mod session_search;
 mod session_shell_workspace;
+mod shell_lifecycle_diagnostics;
 mod sqlite_repository;
 mod ssh_shell_transport;
 mod workspace_inspection;
@@ -62,6 +63,7 @@ pub(crate) use runtime_support::SystemWorkspaceClock;
 pub(crate) use selection::TauriProjectDirectorySelection;
 pub(crate) use session_queries::SessionWorkspaceQueryAdapter;
 pub(crate) use session_shell_workspace::SqliteShellWorkspaceAdapter;
+pub(crate) use shell_lifecycle_diagnostics::UnifiedLogShellDiagnostics;
 pub(crate) use sqlite_repository::SqliteWorkspaceHistoryRepository;
 pub(crate) use ssh_shell_transport::SshShellTransport;
 pub(crate) use workspace_inspection::{
