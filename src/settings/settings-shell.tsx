@@ -26,8 +26,10 @@ export function SettingsShell({
   const activePage = useMemo(() => getSettingsPage(activePageId), [activePageId]);
 
   useEffect(() => {
-    if (requestedPage && settingsPages.some((page) => page.id === requestedPage)) handleSelectPage(requestedPage as SettingsPageId);
-  }, [requestedPage]);
+    if (requestedPage && requestedPage !== activePageId && settingsPages.some((page) => page.id === requestedPage)) {
+      handleSelectPage(requestedPage as SettingsPageId);
+    }
+  }, [activePageId, requestedPage]);
 
   function handleSelectPage(pageId: SettingsPageId, target?: SettingsNavigationTarget) {
     setVisitedPages((current) => new Set(current).add(pageId));

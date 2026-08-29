@@ -323,8 +323,17 @@ globalThis.describe("VaneHub AI desktop domain observability", () => {
       const empty = await invoke(({ core }, id) => core.invoke("get_im_session_binding", {
         sessionId: id,
       }), session.id);
-      assert.deepEqual(empty, { binding: null, pendingConnector: null },
-        "a session with no pairing reported a binding");
+      assert.equal(empty.binding, null, "a session with no pairing reported a binding");
+      assert.equal(empty.pendingConnector, null, "a session with no pairing reported a pending connector");
+      assert.deepEqual(empty.access, {
+        sessionId: session.id,
+        // The read model always projects the default Feishu access policy until a connector is
+        // explicitly paired; the Telegram credential borrowed elsewhere in this spec must not
+        // silently change that session-level default.
+        connector: "feishu",
+        enabled: false,
+        updatedAt: "1970-01-01T00:00:00Z",
+      }, "an unpaired session did not expose the disabled default access policy");
 
       // src-tauri/src/commands/communications/begin_im_pairing.rs:7-11 -- `session_id`,
       // `connector`, `replace_existing`. An unknown session is rejected before anything else.

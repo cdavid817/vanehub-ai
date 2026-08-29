@@ -101,8 +101,29 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 了 LspOverrideTarget;`web-lsp-client.ts` 的 mock 注册表多了 Java 这一条,并把两个新字段带进
 // descriptors()。这一条 mock 数据正是让 Web 侧也走 install_directory 分支的原因——否则那个分支
 // 只有桌面侧跑得到。
+// 上调理由(add-skill-evolution-generation-agent-and-evidence-dossiers):Skill Evolution
+// 的 assessment、Curator 与 generation 能力需要共用 AgentService 边界，并分别提供
+// Tauri/Web 适配器。增量是三个已规范化上下文的类型合约与最小运行时实现；
+// React 层因此仍不依赖 native invoke，且每个生产模块仍受 300 行上限约束。
+// 上调理由(add-skill-evolution-orchestration-and-auto-apply-gate):可复用纠正授权
+// 需要新增一组 ChatMessagingService 合约以及 Tauri/Web 对等适配。新增的
+// 74 行是授权见证映射、显式撤销和 Web 确定性模拟；原有大客户端中的
+// 反馈分支已移出而非复制，React 仍只依赖服务边界。
+// 合并 origin/main 后按合并树重新实测：上游的 CLI、本地媒体与 LSP 边界和本地
+// Skill Evolution 边界修改了不同文件，因此不能沿用任一分支的单边预算。
+// 上调理由(add-skill-evolution-orchestration-and-auto-apply-gate):新增 629 行生产服务边界，
+// 是编排策略、十类触发计数、idle/run/stage/checkpoint、资格、应用、观察期、断路器与通知的
+// 类型合约，以及同接口的 Tauri 调用和 Web 页面内模拟。两端适配器均由 AgentService 统一挂载，
+// React 未直接调用 native；Web 模拟不会复用 Tauri 分支，也没有复制既有业务实现。按当前树实测
+// 从 21,403 调整到 22,032，不预留后续余量。UI 安全检查视图随后为同一资格投影增加
+// 4 行只读合约：确定性草稿来源和最终预检状态；不含草稿正文、修正内容或 diff。
+// 因而按当前树精确调整到 22,036，仍不预留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 20347, owner: "add-lsp-java-jdtls" },
+  {
+    root: "src/services",
+    budget: 22036,
+    owner: "add-skill-evolution-orchestration-and-auto-apply-gate",
+  },
 ]);
 
 const STATE_PACKAGES = new Set([

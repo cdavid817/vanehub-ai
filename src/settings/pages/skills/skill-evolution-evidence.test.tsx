@@ -74,7 +74,7 @@ describe("SkillEvolutionEvidence", () => {
     const user = userEvent.setup();
     renderEvidence();
     expect(await screen.findByText("演进证据")).toBeTruthy();
-    expect(screen.getByText(/不会选择目标或修改 Skill/)).toBeTruthy();
+    expect(screen.getByText(/脱敏证据保持只读/)).toBeTruthy();
     expect((await screen.findAllByText("correlated")).length).toBeGreaterThan(0);
     await user.click(screen.getByRole("button", { name: "查看谱系" }));
     expect(await screen.findByRole("region", { name: "候选种子谱系" })).toBeTruthy();

@@ -17,6 +17,7 @@ export function MessageFeedbackControls({
   const { confirm, confirmationDialog } = useConfirmation();
   const [feedback, setFeedback] = useState(initialFeedback);
   const [correction, setCorrection] = useState(initialFeedback?.correctionNote ?? "");
+  const [authorizeReusableGuidance, setAuthorizeReusableGuidance] = useState(false);
   const [editing, setEditing] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -24,9 +25,14 @@ export function MessageFeedbackControls({
   useEffect(() => {
     setFeedback(initialFeedback);
     setCorrection(initialFeedback?.correctionNote ?? "");
+    setAuthorizeReusableGuidance(false);
   }, [initialFeedback]);
 
-  const persist = async (state: MessageFeedbackState | null, correctionNote?: string) => {
+  const persist = async (
+    state: MessageFeedbackState | null,
+    correctionNote?: string,
+    authorize = false,
+  ) => {
     if (
       feedback?.state && state !== feedback.state
       && !(await confirm({ title: t("chat.feedback.replaceConfirm") }))
@@ -41,10 +47,34 @@ export function MessageFeedbackControls({
         expectedRevision: feedback?.revision ?? 0,
         state,
         ...(correctionNote ? { correctionNote } : {}),
+        ...(authorize ? { authorizeReusableGuidance: true } : {}),
       });
       setFeedback(saved);
       setCorrection(saved.correctionNote ?? "");
       setEditing(false);
+      setAuthorizeReusableGuidance(false);
+    } catch (cause) {
+      const text = cause instanceof Error ? cause.message : String(cause);
+      setError(text.includes("feedback-conflict") ? t("chat.feedback.conflict") : t("chat.feedback.saveFailed"));
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const revokeAuthorization = async () => {
+    if (!(await confirm({ title: t("chat.feedback.authorizationRevokeConfirm") }))) return;
+    setPending(true);
+    setError(null);
+    try {
+      await agentService.revokeReusableGuidanceAuthorization({
+        messageId,
+        expectedFeedbackRevision: feedback?.revision ?? 0,
+      });
+      if (feedback) {
+        const revoked = { ...feedback };
+        delete revoked.reusableGuidanceAuthorization;
+        setFeedback(revoked);
+      }
     } catch (cause) {
       const text = cause instanceof Error ? cause.message : String(cause);
       setError(text.includes("feedback-conflict") ? t("chat.feedback.conflict") : t("chat.feedback.saveFailed"));
@@ -79,15 +109,27 @@ export function MessageFeedbackControls({
       {editing ? (
         <form className="mt-2 grid gap-2" onSubmit={(event) => {
           event.preventDefault();
-          if (correction.trim()) void persist("corrected", correction.trim());
+          if (correction.trim()) {
+            void persist("corrected", correction.trim(), authorizeReusableGuidance);
+          }
         }}>
           <label className="text-xs font-medium" htmlFor={`feedback-correction-${messageId}`}>{t("chat.feedback.correctionLabel")}</label>
           <textarea autoFocus className="min-h-20 resize-y rounded-md border border-input bg-background px-2 py-1.5 text-xs" id={`feedback-correction-${messageId}`} maxLength={1_000} onChange={(event) => setCorrection(event.target.value)} placeholder={t("chat.feedback.correctionPlaceholder")} value={correction} />
+          <label className="flex items-start gap-2 rounded-md border border-border/70 bg-muted/30 p-2 text-xs">
+            <input checked={authorizeReusableGuidance} className="mt-0.5 h-4 w-4 accent-primary" onChange={(event) => setAuthorizeReusableGuidance(event.target.checked)} type="checkbox" />
+            <span><span className="block font-medium">{t("chat.feedback.authorizationLabel")}</span><span className="mt-0.5 block text-muted-foreground">{t("chat.feedback.authorizationDisclosure")}</span></span>
+          </label>
           <div className="flex justify-end gap-2">
             <button className="h-7 rounded px-2 text-xs hover:bg-muted" disabled={pending} onClick={() => setEditing(false)} type="button">{t("chat.feedback.cancel")}</button>
             <button className="h-7 rounded bg-primary px-2 text-xs text-primary-foreground disabled:opacity-50" disabled={pending || !correction.trim()} type="submit">{pending ? t("chat.feedback.saving") : t("chat.feedback.save")}</button>
           </div>
         </form>
+      ) : null}
+      {feedback?.reusableGuidanceAuthorization && !editing ? (
+        <div className="mt-2 flex items-center justify-between gap-2 rounded-md bg-primary/5 px-2 py-1.5 text-xs">
+          <span className="text-muted-foreground">{t("chat.feedback.authorizationActive")}</span>
+          <button className="font-medium text-destructive hover:underline" disabled={pending} onClick={() => void revokeAuthorization()} type="button">{t("chat.feedback.authorizationRevoke")}</button>
+        </div>
       ) : null}
       {error ? <p className="mt-1 text-xs text-destructive" role="alert">{error} {t("chat.feedback.retry")}</p> : null}
     </div>

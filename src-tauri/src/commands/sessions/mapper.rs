@@ -384,6 +384,14 @@ pub(super) fn messages_to_dto_with_feedback(
                         .map(|state| format!("{state:?}").to_lowercase()),
                     revision: summary.revision,
                     correction_note: summary.sanitized_note.clone(),
+                    reusable_guidance_authorization: summary
+                        .reusable_guidance_authorization
+                        .as_ref()
+                        .map(|authorization| dto::ReusableGuidanceAuthorization {
+                            authorization_id: authorization.authorization_id.clone(),
+                            feedback_revision: authorization.feedback_revision,
+                            disclosure_version: authorization.disclosure_version.clone(),
+                        }),
                 });
             message
         })

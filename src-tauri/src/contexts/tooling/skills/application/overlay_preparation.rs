@@ -80,10 +80,24 @@ pub(crate) fn prepare_overlay_mutation(
     apply_mutation(input, &mut next_document)?;
     validate_mutation_limits(&next_document, input.limits)?;
     let replay = replay_tentative(input, &next_document);
+    let current_replay = replay_current(input);
     let conflicts = replay_conflicts(&replay);
-    let diff = build_overlay_diff(
+    let base_to_current = build_overlay_diff(
+        input.base,
+        &current_replay,
+        input.limits.maximum_instruction_characters,
+    );
+    let base_to_proposed = build_overlay_diff(
         input.base,
         &replay,
+        input.limits.maximum_instruction_characters,
+    );
+    let current_to_proposed = build_bounded_diff(
+        current_replay.effective().effective_hash(),
+        replay.effective().effective_hash(),
+        current_replay.effective().instructions(),
+        replay.effective().instructions(),
+        "current-to-proposed-effective-instructions",
         input.limits.maximum_instruction_characters,
     );
     enforce_effective_instruction_limit(&replay, input.limits)?;
@@ -91,7 +105,10 @@ pub(crate) fn prepare_overlay_mutation(
         witnesses: input.request.witnesses.clone(),
         tentative_revision: next_document.revision(),
         scan,
-        diff,
+        base_to_current,
+        current_to_proposed,
+        diff: base_to_proposed.clone(),
+        base_to_proposed,
         conflicts_truncated: conflicts.len() > MAXIMUM_DIFF_HUNKS,
         conflicts: conflicts.into_iter().take(MAXIMUM_DIFF_HUNKS).collect(),
         can_commit: replay
@@ -487,6 +504,28 @@ fn replay_tentative(
     )
 }
 
+fn replay_current(input: &OverlayPreparationInput<'_>) -> OverlayScopeReplay {
+    let documents = input
+        .applicable
+        .iter()
+        .filter(|snapshot| {
+            snapshot.document.canonical_skill_id == input.request.canonical_skill_id
+                && snapshot
+                    .document
+                    .trust()
+                    .is_trusted_for_revision(snapshot.document.revision())
+        })
+        .map(|snapshot| OverlayScopeReplayInput::verified(&snapshot.document))
+        .collect::<Vec<_>>();
+    replay_overlay_scope_chain(
+        &input.base.instructions,
+        &input.base.resources,
+        &documents,
+        input.active_workspace,
+        MAXIMUM_SHADOW_SUMMARIES,
+    )
+}
+
 pub(crate) fn replay_conflicts(replay: &OverlayScopeReplay) -> Vec<OverlayConflictSummary> {
     replay
         .scope_results()
@@ -732,6 +771,16 @@ mod tests {
         assert_eq!(prepared.preview.tentative_revision, 1);
         assert!(prepared.preview.can_commit);
         assert_eq!(prepared.preview.diff.hunks.len(), 1);
+        assert!(prepared.preview.base_to_current.hunks.is_empty());
+        assert_eq!(
+            prepared.preview.current_to_proposed.base_hash,
+            prepared.preview.base_to_current.effective_hash
+        );
+        assert_eq!(
+            prepared.preview.current_to_proposed.effective_hash,
+            prepared.preview.base_to_proposed.effective_hash
+        );
+        assert!(prepared.preview.diff == prepared.preview.base_to_proposed);
         assert!(prepared.payload_additions.is_empty());
     }
 

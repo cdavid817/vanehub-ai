@@ -8,22 +8,45 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
 use zeroize::Zeroizing;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OverlayGuidanceSafety {
+    pub(crate) passed: bool,
+    pub(crate) scanner_version: String,
+    pub(crate) reason_codes: Vec<String>,
+}
+
+pub(crate) fn scan_overlay_guidance(value: &str) -> OverlayGuidanceSafety {
+    let scan = crate::contexts::tooling::skills::domain::scan_overlay_text(value);
+    OverlayGuidanceSafety {
+        passed: scan.passed(),
+        scanner_version: scan.scanner_version().to_string(),
+        reason_codes: scan
+            .safe_rule_ids()
+            .into_iter()
+            .map(str::to_string)
+            .collect(),
+    }
+}
+
 pub(crate) use crate::contexts::tooling::skills::application::{
-    OverlayApplicationError as OverlayError, OverlayDetail, OverlayHistoryPage,
-    OverlayHistoryQuery, OverlayImportRequest, OverlayImportReview, OverlayKey,
+    EffectiveSkill, OverlayApplicationError as OverlayError, OverlayDetail, OverlayDiff,
+    OverlayGovernedMutationOutcome, OverlayGovernedMutationRequest, OverlayHistoryEntry,
+    OverlayHistoryPage, OverlayHistoryQuery, OverlayImportRequest, OverlayImportReview, OverlayKey,
     OverlayMutationOutcome, OverlayMutationRequest, OverlayPreview, OverlayPromotionRequest,
-    OverlayReconciliationPreview, OverlayReconciliationRequest, OverlaySummary, SkillAccessRefusal,
-    SkillAgentKind, SkillAgentMountPath, SkillApplicationError as SkillError, SkillBackupEntry,
-    SkillCreateRequest, SkillDelegationSummary, SkillDiscoveryRequest, SkillDiscoveryResult,
-    SkillDriftReport, SkillFailure, SkillImportRequest, SkillListResult, SkillLoadOutcome,
-    SkillLoadRequest, SkillMountMigrationReport, SkillOverview, SkillPreview, SkillPromptForAgent,
-    SkillRecord, SkillResourceEntry, SkillResourceIndex, SkillResourceReadOutcome,
-    SkillResourceReadRequest, SkillScopeQuery, SkillShadowSummary, SkillSyncResult,
-    SkillUpdateRequest, UtilitySkillResolutionOutcome,
+    OverlayReconciliationPreview, OverlayReconciliationRequest, OverlayScopeStatus, OverlaySummary,
+    SkillAccessRefusal, SkillAgentKind, SkillAgentMountPath, SkillApplicationError as SkillError,
+    SkillBackupEntry, SkillCreateRequest, SkillDelegationSummary, SkillDiscoveryRequest,
+    SkillDiscoveryResult, SkillDriftReport, SkillFailure, SkillImportRequest, SkillListResult,
+    SkillLoadOutcome, SkillLoadRequest, SkillMountMigrationReport, SkillOverview, SkillPreview,
+    SkillPromptForAgent, SkillRecord, SkillResourceEntry, SkillResourceIndex,
+    SkillResourceReadOutcome, SkillResourceReadRequest, SkillScopeQuery, SkillShadowSummary,
+    SkillSyncResult, SkillUpdateRequest, UtilitySkillResolutionOutcome,
 };
+pub(crate) use crate::contexts::tooling::skills::application::{OverlayMutation, OverlayWitnesses};
 pub(crate) use crate::contexts::tooling::skills::application::{
     SkillConfigurableState, SkillConfigurationOverview,
 };
+pub(crate) use crate::contexts::tooling::skills::domain::{OverlayScope, OverlayTrustState};
 pub(crate) use crate::contexts::tooling::skills::domain::{
     SkillAvailability, SkillConfigDrift, SkillConfigField, SkillConfigFieldType, SkillConfigGroup,
     SkillConfigPresentation, SkillConfigProperty, SkillConfigProvenance, SkillConfigReadiness,
@@ -39,6 +62,74 @@ pub(crate) use crate::contexts::tooling::skills::infrastructure::{
     SkillConfigCleanupState, SkillConfigurationError, SkillConfigurationRequest,
     SkillConfigurationSaveResult, StoredSkillConfiguration,
 };
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct EffectiveSkillCatalogShadow {
+    pub(crate) skill_id: String,
+    pub(crate) revision: String,
+    pub(crate) availability: SkillAvailability,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct EffectiveSkillCatalogEntry {
+    pub(crate) skill_id: String,
+    pub(crate) name: String,
+    pub(crate) description: String,
+    pub(crate) category: String,
+    pub(crate) revision: String,
+    pub(crate) layer: SkillLayer,
+    pub(crate) availability: SkillAvailability,
+    pub(crate) trust: SkillTrust,
+    pub(crate) skill_type: SkillType,
+    pub(crate) capabilities: Vec<String>,
+    pub(crate) declared_tools: Vec<String>,
+    pub(crate) shadowed: Vec<EffectiveSkillCatalogShadow>,
+}
+
+pub(crate) fn project_effective_skill_catalog(
+    skills: &[EffectiveSkill],
+) -> Vec<EffectiveSkillCatalogEntry> {
+    skills
+        .iter()
+        .map(|skill| {
+            let package = &skill.effective;
+            EffectiveSkillCatalogEntry {
+                skill_id: package.metadata.id.as_str().to_string(),
+                name: package.metadata.name.clone(),
+                description: package.metadata.description.clone(),
+                category: package.metadata.category.clone(),
+                revision: package.revision.clone(),
+                layer: package.layer,
+                availability: package.availability,
+                trust: package.trust,
+                skill_type: package.metadata.skill_type,
+                capabilities: sorted_unique(package.metadata.triggers.clone()),
+                declared_tools: sorted_unique(
+                    package
+                        .metadata
+                        .delegation
+                        .raw()
+                        .map_or_else(Vec::new, |declaration| declaration.tools.clone()),
+                ),
+                shadowed: skill
+                    .shadowed
+                    .iter()
+                    .map(|shadowed| EffectiveSkillCatalogShadow {
+                        skill_id: shadowed.metadata.id.as_str().to_string(),
+                        revision: shadowed.revision.clone(),
+                        availability: shadowed.availability,
+                    })
+                    .collect(),
+            }
+        })
+        .collect()
+}
+
+fn sorted_unique(mut values: Vec<String>) -> Vec<String> {
+    values.sort();
+    values.dedup();
+    values
+}
 
 #[derive(Clone)]
 pub(crate) struct SkillApi {
@@ -169,6 +260,22 @@ impl SkillApi {
         query: &OverlayHistoryQuery,
     ) -> Result<OverlayHistoryPage, SkillError> {
         self.overlays()?.history(key, workspace, query)
+    }
+
+    pub(crate) fn overlay_history_by_application(
+        &self,
+        key: &OverlayKey,
+        application_id: &str,
+    ) -> Result<Option<OverlayHistoryEntry>, SkillError> {
+        self.overlays()?.history_by_application(key, application_id)
+    }
+
+    pub(crate) fn governed_overlay_mutation(
+        &self,
+        request: &OverlayGovernedMutationRequest,
+        workspace: Option<&str>,
+    ) -> Result<OverlayGovernedMutationOutcome, SkillError> {
+        self.overlays()?.commit_governed(request, workspace)
     }
 
     pub(crate) fn import_overlay(

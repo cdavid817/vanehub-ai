@@ -6,7 +6,7 @@ const LEGACY_V1_FIXTURE: &str = include_str!("../tests/fixtures/database/legacy-
 const CURRENT_V20_DATA_FIXTURE: &str =
     include_str!("../tests/fixtures/database/current-v20-data.sql");
 
-/// Contiguous through 81. Migration 53 reconciles Plan execution and workspace code indexing,
+/// Contiguous through 102. Migration 53 reconciles Plan execution and workspace code indexing,
 /// migrations 54-58 add Loop, recovery, and LSP foundations, migration 59 introduces stable
 /// shared-session participant identity, migration 60 adds effective Skill reconciliation, and
 /// migration 61 resets legacy session execution preferences and governed CLI security selections;
@@ -25,7 +25,9 @@ const CURRENT_V20_DATA_FIXTURE: &str =
 /// the local-media engine profile, migrations 83-85 add the source-aware CLI environment
 /// tables, and migration 86 rebuilds the LSP language configuration table so the supported
 /// language set no longer lives in a storage CHECK constraint. Migration 87 adds per-session IM
-/// connector access. Derived from the migration list rather than hardcoded.
+/// connector access. Migrations 88-95 add Skill evolution assessment, system activity, Curator,
+/// generation, orchestration persistence, single-use automatic preflight witnesses, and Curator
+/// system-policy authorization. Derived from the migration list rather than hardcoded.
 ///
 /// A literal upper bound here means every new migration breaks this file for a reason that has
 /// nothing to do with the fixture under test, and neither the compiler nor clippy catches it --

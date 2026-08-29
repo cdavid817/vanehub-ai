@@ -34,9 +34,9 @@ export async function bootDesktopUi() {
   await globalThis.browser.tauri.execute(({ core }) => core.invoke("save_setting", {
     input: { key: "applicationLanguage", value: "zh-CN" },
   }));
-  // Settle on a control this suite actually drives, and match its rendered text rather than an
-  // aria-label: an icon button's label never reaches innerText, so labels make a poor ready signal.
-  await globalThis.browser.waitUntil(async () => (await createSessionButton()).isExisting(), {
+  // The startup activity is intentionally not assumed. The activity bar is common to every
+  // workspace surface, so it is the stable readiness signal each layer can navigate from.
+  await globalThis.browser.waitUntil(async () => (await scheduledTasksButton()).isExisting(), {
     timeout: 30000,
     timeoutMsg: "The UI did not settle on the pinned language.",
   });
@@ -50,9 +50,45 @@ export async function createWorkspaceFolder(prefix) {
   return folder;
 }
 
-export const createSessionButton = () => globalThis.$('//button[normalize-space(.)="新建"]');
+export async function createSessionButton() {
+  const create = await globalThis.$('//button[normalize-space(.)="新建"]');
+  if (await create.isDisplayed()) return create;
+  const sessions = await globalThis.$('button[aria-controls="workspace-session-sidebar"]');
+  await sessions.waitForClickable({ timeout: 30000 });
+  await sessions.click();
+  await create.waitForDisplayed({ timeout: 30000 });
+  return create;
+}
+
+export const scheduledTasksButton = () => globalThis.$('button[aria-haspopup="dialog"][aria-label="定时任务"]');
 export const dialog = () => globalThis.$('[role="dialog"]');
 export const dialogButton = (label) => globalThis.$(`//*[@role="dialog"]//button[normalize-space(.)="${label}"]`);
+
+export async function dialogField(label) {
+  const fieldLabel = await globalThis.$(`//*[@role="dialog"]//label[normalize-space(.)="${label}"]`);
+  await fieldLabel.waitForExist({ timeout: 20000 });
+  const id = await fieldLabel.getAttribute("for");
+  if (!id) throw new Error(`Dialog field has no associated control: ${label}`);
+  return globalThis.$(`[id="${id}"]`);
+}
+
+export async function selectDialogOption(label, value) {
+  const select = await dialogField(label);
+  const id = await select.getAttribute("id");
+  await globalThis.browser.execute((controlId, selectedValue) => {
+    const control = globalThis.document.getElementById(controlId);
+    if (!(control instanceof globalThis.HTMLSelectElement)) throw new Error(`Not a select: ${controlId}`);
+    const setter = Object.getOwnPropertyDescriptor(globalThis.HTMLSelectElement.prototype, "value")?.set;
+    setter?.call(control, selectedValue);
+    control.dispatchEvent(new globalThis.Event("input", { bubbles: true }));
+    control.dispatchEvent(new globalThis.Event("change", { bubbles: true }));
+  }, id, value);
+  await globalThis.browser.waitUntil(async () => (await select.getValue()) === value, {
+    timeout: 10000,
+    timeoutMsg: `${label} did not select ${value}.`,
+  });
+  return select;
+}
 
 export async function activeElementInsideDialog() {
   return globalThis.browser.execute(() => {

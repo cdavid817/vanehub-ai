@@ -40,6 +40,7 @@ mod seat_turn;
 #[cfg(test)]
 mod seat_turn_tests;
 mod service;
+mod structured_model_evaluation;
 mod terminal_service;
 mod tool_catalog;
 mod utility_delegation;
@@ -212,6 +213,11 @@ pub(crate) use runner::{
 };
 pub(crate) use seat_turn::{SeatTurnAssignment, SeatTurnStop};
 pub(crate) use service::{AgentRuntimeApplicationPorts, AgentRuntimeApplicationService};
+pub(crate) use structured_model_evaluation::{
+    StructuredModelEvaluationError, StructuredModelEvaluationRequest,
+    StructuredModelEvaluationResult, StructuredModelEvaluationService, StructuredModelPurpose,
+    StructuredModelTransport, StructuredModelTransportRequest,
+};
 pub(crate) use terminal_service::{AgentTerminalApplicationPorts, AgentTerminalApplicationService};
 pub(crate) use tool_catalog::{
     ask_user_question_tool_definition, code_intelligence_tool_definitions,

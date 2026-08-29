@@ -173,9 +173,12 @@ fn every_tauri_command_is_registered_exactly_once() {
             );
             segments.push(function.sig.ident.to_string());
             let handler = format!("crate::commands::{}", segments.join("::"));
+            let registration_count = registry
+                .lines()
+                .filter(|line| line.trim().trim_end_matches(',') == handler)
+                .count();
             assert_eq!(
-                registry.matches(&handler).count(),
-                1,
+                registration_count, 1,
                 "Tauri command registration must contain {handler} exactly once"
             );
         }

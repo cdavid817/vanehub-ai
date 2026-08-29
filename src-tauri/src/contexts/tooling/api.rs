@@ -20,3 +20,9 @@ pub(crate) use super::cli_parameters::api::{
     CliLaunchExecutionContext, CliLaunchScope, CliParameterRuntimeApi, CliParameterSelection,
     CliParameterSelectionMap, CliParameterValue, ResolveCliLaunchParametersInput,
 };
+#[cfg(test)]
+pub(crate) use super::skills::api::EffectiveSkillCatalogShadow;
+pub(crate) use super::skills::api::{
+    project_effective_skill_catalog, EffectiveSkill, EffectiveSkillCatalogEntry, SkillAvailability,
+    SkillLayer, SkillTrust, SkillType,
+};

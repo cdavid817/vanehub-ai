@@ -2423,8 +2423,10 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // did not have to move.
     SubtreeBudget {
         root: "src-tauri/src/contexts/agent_runtime/infrastructure",
-        budget: 61_799,
-        owner: "decompose-api-tool-use-loop",
+        // Skill Evolution adds the structured model transport at the existing Agent runtime
+        // boundary; the merged tree is measured because main changed the same subtree independently.
+        budget: 61_866,
+        owner: "sync-main-with-skill-evolution",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
     // directory module. The +51 is entirely per-file boilerplate: +29 module headers (the `mod`
@@ -2463,8 +2465,27 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // is the fixed cost of registering any migration here, so this budget moves by the same
         // amount every time one lands -- it bounds this subtree's own growth, not the migration
         // count.
-        budget: 3_252,
-        owner: "split-database-migrations",
+        // Raised on the merged tree for `add-skill-evolution-generation-agent-and-evidence-dossiers`:
+        // migrations 88-94 add assessment, curation, generation policy, immutable job/stage/model/tool evidence,
+        // quarantine/export records, and their forward-only governance columns. The increase is the
+        // seven migration registrations required to keep old databases upgradeable.
+        // Raised again for `add-skill-evolution-orchestration-and-auto-apply-gate`: migration 95
+        // registers the orchestration schema and compatibility range. The merged value is a direct
+        // measurement because both branches changed this subtree from different bases.
+        // +7 registers migration 96 for durable five-second single-use preflight witnesses; the
+        // table body remains in the owning orchestration context.
+        // +7 registers migration 97 for Curator system-policy authorization provenance; its table
+        // body remains in the owning Curator context.
+        // +7 registers migration 98 for normalized automatic-application failure windows; its
+        // table body remains in the owning orchestration context.
+        // +7 registers migration 99 for Curator rollback-review candidates; its table body remains
+        // in the owning Curator context.
+        // +7 registers migration 100 for explicit probation baseline-threshold evidence; its
+        // column migration remains in the owning orchestration context.
+        // +7 registers migration 101 for durable deduplicated orchestration notifications; its
+        // table body remains in the owning orchestration context.
+        budget: 3_350,
+        owner: "add-skill-evolution-orchestration-and-auto-apply-gate",
     },
 ];
 
@@ -2494,8 +2515,10 @@ const NATIVE_PRODUCTION_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // port methods, adapter implementations, and the symbol and call-relation result shapes.
         // The three test doubles that also gained methods are counted by the aggregate above and
         // deliberately not by this one.
-        budget: 33_742,
-        owner: "decompose-api-tool-use-loop",
+        // The structured model transport contributes the remaining production-only delta on the
+        // merged tree; its test doubles account for the difference from the aggregate increase.
+        budget: 33_773,
+        owner: "sync-main-with-skill-evolution",
     },
 ];
 

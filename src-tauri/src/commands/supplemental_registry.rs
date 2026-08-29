@@ -2,9 +2,52 @@ pub(super) fn invoke_handler(
 ) -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
         crate::commands::skill_evolution_evidence::save_message_feedback::save_message_feedback,
+        crate::commands::skill_evolution_evidence::revoke_reusable_guidance_authorization::revoke_reusable_guidance_authorization,
         crate::commands::skill_evolution_evidence::query_evidence::query_skill_evolution_evidence,
         crate::commands::skill_evolution_evidence::query_evidence::get_skill_evolution_seed_lineage,
         crate::commands::skill_evolution_evidence::purge_evidence::purge_skill_evolution_evidence,
+        crate::commands::skill_evolution_assessment::query_skill_evolution_assessments,
+        crate::commands::skill_evolution_assessment::get_skill_evolution_assessment,
+        crate::commands::skill_evolution_assessment::get_skill_evolution_assessment_policy,
+        crate::commands::skill_evolution_assessment::update_skill_evolution_assessment_consent,
+        crate::commands::skill_evolution_assessment::schedule_skill_evolution_reassessment,
+        crate::commands::skill_evolution_generation::get_skill_evolution_generation_policy,
+        crate::commands::skill_evolution_generation::update_skill_evolution_generation_policy,
+        crate::commands::skill_evolution_generation::query_skill_evolution_generation_jobs,
+        crate::commands::skill_evolution_generation::get_skill_evolution_generation_job,
+        crate::commands::skill_evolution_generation::cancel_skill_evolution_generation_job,
+        crate::commands::skill_evolution_generation::regenerate_skill_evolution_generation_job,
+        crate::commands::skill_evolution_generation::get_skill_evolution_generation_dossier_section,
+        crate::commands::skill_evolution_generation::get_skill_evolution_generation_provenance,
+        crate::commands::skill_evolution_generation::query_skill_evolution_generation_quarantine,
+        crate::commands::skill_evolution_generation::handoff_skill_evolution_generation_package,
+        crate::commands::skill_evolution_generation::export_skill_evolution_generation_dossier,
+        crate::commands::skill_evolution_orchestration::get_skill_evolution_scheduler_overview,
+        crate::commands::skill_evolution_orchestration::get_skill_evolution_policy,
+        crate::commands::skill_evolution_orchestration::update_skill_evolution_policy,
+        crate::commands::skill_evolution_orchestration::list_skill_evolution_runs,
+        crate::commands::skill_evolution_orchestration::get_skill_evolution_run,
+        crate::commands::skill_evolution_orchestration::list_skill_evolution_eligibility,
+        crate::commands::skill_evolution_orchestration::list_skill_evolution_applications,
+        crate::commands::skill_evolution_orchestration::list_skill_evolution_probations,
+        crate::commands::skill_evolution_orchestration::list_skill_evolution_breakers,
+        crate::commands::skill_evolution_orchestration::request_skill_evolution_run,
+        crate::commands::skill_evolution_orchestration::cancel_skill_evolution_run,
+        crate::commands::skill_evolution_orchestration::acknowledge_skill_evolution_breaker,
+        crate::commands::skill_evolution_orchestration::dispatch_skill_evolution_notifications,
+        crate::commands::skill_evolution_curation::query_skill_curator_queue,
+        crate::commands::skill_evolution_curation::get_skill_curator_candidate,
+        crate::commands::skill_evolution_curation::query_skill_curator_audit,
+        crate::commands::skill_evolution_curation::get_skill_curator_policy,
+        crate::commands::skill_evolution_curation::dispatch_skill_curator_notifications,
+        crate::commands::skill_evolution_curation::update_skill_curator_policy,
+        crate::commands::skill_evolution_curation::save_skill_curator_draft,
+        crate::commands::skill_evolution_curation::preview_skill_curator_candidate,
+        crate::commands::skill_evolution_curation::approve_skill_curator_candidate,
+        crate::commands::skill_evolution_curation::reject_skill_curator_candidate,
+        crate::commands::skill_evolution_curation::defer_skill_curator_candidate,
+        crate::commands::skill_evolution_curation::resume_skill_curator_candidate,
+        crate::commands::skill_evolution_curation::retry_skill_curator_application,
         crate::commands::sessions::get_token_usage_details::get_token_usage_details,
         crate::commands::sessions::get_token_usage_summary::get_token_usage_summary,
         crate::commands::sessions::scheduled_tasks::list_scheduled_task_runs,
@@ -99,9 +142,52 @@ pub(super) fn is_command(command: &str) -> bool {
     matches!(
         command,
         "save_message_feedback"
+            | "revoke_reusable_guidance_authorization"
             | "query_skill_evolution_evidence"
             | "get_skill_evolution_seed_lineage"
             | "purge_skill_evolution_evidence"
+            | "query_skill_evolution_assessments"
+            | "get_skill_evolution_assessment"
+            | "get_skill_evolution_assessment_policy"
+            | "update_skill_evolution_assessment_consent"
+            | "schedule_skill_evolution_reassessment"
+            | "get_skill_evolution_generation_policy"
+            | "update_skill_evolution_generation_policy"
+            | "query_skill_evolution_generation_jobs"
+            | "get_skill_evolution_generation_job"
+            | "cancel_skill_evolution_generation_job"
+            | "regenerate_skill_evolution_generation_job"
+            | "get_skill_evolution_generation_dossier_section"
+            | "get_skill_evolution_generation_provenance"
+            | "query_skill_evolution_generation_quarantine"
+            | "handoff_skill_evolution_generation_package"
+            | "export_skill_evolution_generation_dossier"
+            | "get_skill_evolution_scheduler_overview"
+            | "get_skill_evolution_policy"
+            | "update_skill_evolution_policy"
+            | "list_skill_evolution_runs"
+            | "get_skill_evolution_run"
+            | "list_skill_evolution_eligibility"
+            | "list_skill_evolution_applications"
+            | "list_skill_evolution_probations"
+            | "list_skill_evolution_breakers"
+            | "request_skill_evolution_run"
+            | "cancel_skill_evolution_run"
+            | "acknowledge_skill_evolution_breaker"
+            | "dispatch_skill_evolution_notifications"
+            | "query_skill_curator_queue"
+            | "get_skill_curator_candidate"
+            | "query_skill_curator_audit"
+            | "get_skill_curator_policy"
+            | "dispatch_skill_curator_notifications"
+            | "update_skill_curator_policy"
+            | "save_skill_curator_draft"
+            | "preview_skill_curator_candidate"
+            | "approve_skill_curator_candidate"
+            | "reject_skill_curator_candidate"
+            | "defer_skill_curator_candidate"
+            | "resume_skill_curator_candidate"
+            | "retry_skill_curator_application"
             | "get_token_usage_details"
             | "get_token_usage_summary"
             | "list_scheduled_task_runs"

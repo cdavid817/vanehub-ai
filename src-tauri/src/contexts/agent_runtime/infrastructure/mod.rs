@@ -88,6 +88,7 @@ mod skill_tool_execution_adapter;
 mod skill_tool_permission_adapter;
 mod sqlite_repository;
 mod ssh_runner;
+mod structured_model_transport;
 mod subagent;
 mod subagent_worktree;
 mod terminal_observability;
@@ -198,6 +199,7 @@ pub(crate) use skill_tool_execution_adapter::{
 pub(crate) use skill_tool_permission_adapter::SkillToolPermissionAdapter;
 pub(crate) use sqlite_repository::SqliteAgentRuntimeRepository;
 pub(crate) use ssh_runner::SshRunner;
+pub(crate) use structured_model_transport::HttpStructuredModelTransport;
 pub(crate) use subagent::{NativeSubagentExecutor, SubagentRuntime};
 pub(crate) use terminal_observability::TerminalExecutionObservability;
 pub(crate) use terminal_process::PortablePtyAgentTerminalRuntime;

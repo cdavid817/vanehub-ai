@@ -17,8 +17,9 @@ use crate::contexts::agent_runtime::application::{
     LoopVerifierApplicationService, LoopWorkerApplicationPorts, LoopWorkerApplicationService,
     ManualNativeToolService, NativeToolDispatcher, NativeToolHandler,
     NativeToolReadinessReasonCode, NativeToolRegistry, OcrNativeToolHandler,
-    OnePieceToolFeatureGates, RunnerDiscoveryPort, SubagentNativeToolHandler,
-    UtilityDelegationApplicationPorts, UtilityDelegationApplicationService,
+    OnePieceToolFeatureGates, RunnerDiscoveryPort, StructuredModelEvaluationService,
+    SubagentNativeToolHandler, UtilityDelegationApplicationPorts,
+    UtilityDelegationApplicationService,
 };
 use crate::contexts::agent_runtime::infrastructure::LocalMediaOcrAdapter;
 use crate::contexts::agent_runtime::infrastructure::{
@@ -26,26 +27,26 @@ use crate::contexts::agent_runtime::infrastructure::{
     AgentRuntimeOperationAdapter, BuiltinAwareExpertRoleRepository, CodeIntelligenceContextSource,
     CompositeAgentProcessGateway, CredentialAwareAgentRegistry, ExplicitReferenceContextSource,
     FileAgentMemoryStore, HttpLocalModelDiscoveryAdapter, HttpOnePieceModelDiscoveryAdapter,
-    InMemoryAgentMessageTerminalCompletions, InMemoryGenerationCoordinator,
-    InMemoryLoopExecutionCoordinator, InMemoryLoopRoleGenerationCompletions,
-    InMemorySeatTurnCompletions, LocalRunner, ManualNativeToolAuthorityAdapter,
-    ManualNativeToolControl, ManualNativeToolOperationAdapter, MonotonicContextEngineClock,
-    NativeAgentCoreInstructionsAdapter, NativeLoopScheduler, NativeSeatTurnCoordinator,
-    NativeSkillToolExecutionAdapter, NativeSkillToolExecutionDependencies, NativeSubagentExecutor,
-    NativeUtilityChildExecutor, OsApiCredentialAdapter, PermissionsPortAdapter,
-    PortablePtyAgentTerminalRuntime, RetrievalContextSource, RunnerRegistry,
-    RuntimeAgentApiAdapter, RuntimeAgentAvailabilityAdapter, RuntimeAgentCliProfileAdapter,
-    RuntimeAgentMcpToolAdapter, RuntimeAgentMemoryExtractionAdapter,
-    RuntimeAgentPersonalizationAdapter, RuntimeAgentProcessAdapter, RuntimeAgentSkillAdapter,
-    RuntimeEffectivePromptAdapter, RuntimeLoopVerificationEvidenceAdapter,
-    RuntimeProcessEvidenceDependencies, RuntimeUtilityLifecycleProjector,
-    SessionsAgentRuntimeAdapter, SkillToolPermissionAdapter, SqliteAgentMemoryRepository,
-    SqliteAgentRuntimeRepository, SqliteContextManifestRepository, SqliteContextQualityRepository,
-    SqliteExpertRoleRepository, SqliteLoopRepository, SqliteNativeToolRepository, SshRunner,
-    StructuredLoopVerificationProcess, SubagentRuntime, SystemAgentRuntimeClock,
-    SystemExpertRoleClock, TauriAgentRuntimeEventAdapter, TerminalExecutionObservability,
-    UnavailableNativeToolPort, UnifiedContextEngineDiagnostics, UuidExpertRoleIds,
-    WorkspaceLoopProjectAdapter,
+    HttpStructuredModelTransport, InMemoryAgentMessageTerminalCompletions,
+    InMemoryGenerationCoordinator, InMemoryLoopExecutionCoordinator,
+    InMemoryLoopRoleGenerationCompletions, InMemorySeatTurnCompletions, LocalRunner,
+    ManualNativeToolAuthorityAdapter, ManualNativeToolControl, ManualNativeToolOperationAdapter,
+    MonotonicContextEngineClock, NativeAgentCoreInstructionsAdapter, NativeLoopScheduler,
+    NativeSeatTurnCoordinator, NativeSkillToolExecutionAdapter,
+    NativeSkillToolExecutionDependencies, NativeSubagentExecutor, NativeUtilityChildExecutor,
+    OsApiCredentialAdapter, PermissionsPortAdapter, PortablePtyAgentTerminalRuntime,
+    RetrievalContextSource, RunnerRegistry, RuntimeAgentApiAdapter,
+    RuntimeAgentAvailabilityAdapter, RuntimeAgentCliProfileAdapter, RuntimeAgentMcpToolAdapter,
+    RuntimeAgentMemoryExtractionAdapter, RuntimeAgentPersonalizationAdapter,
+    RuntimeAgentProcessAdapter, RuntimeAgentSkillAdapter, RuntimeEffectivePromptAdapter,
+    RuntimeLoopVerificationEvidenceAdapter, RuntimeProcessEvidenceDependencies,
+    RuntimeUtilityLifecycleProjector, SessionsAgentRuntimeAdapter, SkillToolPermissionAdapter,
+    SqliteAgentMemoryRepository, SqliteAgentRuntimeRepository, SqliteContextManifestRepository,
+    SqliteContextQualityRepository, SqliteExpertRoleRepository, SqliteLoopRepository,
+    SqliteNativeToolRepository, SshRunner, StructuredLoopVerificationProcess, SubagentRuntime,
+    SystemAgentRuntimeClock, SystemExpertRoleClock, TauriAgentRuntimeEventAdapter,
+    TerminalExecutionObservability, UnavailableNativeToolPort, UnifiedContextEngineDiagnostics,
+    UuidExpertRoleIds, WorkspaceLoopProjectAdapter,
 };
 use crate::contexts::artifacts::application::{ArtifactBlobStorePolicy, ArtifactService};
 use crate::contexts::artifacts::infrastructure::{
@@ -562,6 +563,11 @@ pub(crate) fn assemble_agent_runtime_api(
     let repository = shared.repository;
     let api_credentials = shared.api_credentials;
     let registry = shared.registry;
+    let structured_evaluation = StructuredModelEvaluationService::new(
+        repository.clone(),
+        api_credentials.clone(),
+        Arc::new(HttpStructuredModelTransport),
+    );
     let execution_ids = Arc::new(RandomExecutionIdentity);
     let timeline = Arc::new(SqliteExecutionTimelineRepository::new(
         dependencies.database.clone(),
@@ -965,6 +971,7 @@ pub(crate) fn assemble_agent_runtime_api(
             browser_handoff,
             manual_native_tools,
             local_discovery,
+            structured_evaluation,
         }),
         telemetry_lifecycle,
         completion_events: events,

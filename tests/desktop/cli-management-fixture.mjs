@@ -1,4 +1,4 @@
-import { chmod, mkdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, copyFile, link, mkdir, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -226,6 +226,19 @@ export async function createCliManagementFixture({ root, platform = process.plat
     directories[entry.role] = directory;
   }
 
+  // The scripts use `env node`, but exposing Node's entire host directory also exposed a real
+  // `/usr/bin/codex` on Linux. Keep only the runner executable in an isolated directory so every
+  // managed CLI and package-manager probe still comes from this fixture.
+  const runtimeDir = path.join(fixtureRoot, "runtime");
+  await mkdir(runtimeDir, { recursive: true });
+  const runtimeNode = path.join(runtimeDir, path.basename(process.execPath));
+  try {
+    await link(process.execPath, runtimeNode);
+  } catch {
+    await copyFile(process.execPath, runtimeNode);
+  }
+  if (process.platform !== "win32") await chmod(runtimeNode, 0o755);
+
   const versionFiles = {};
   for (const [tool, version] of Object.entries(INITIAL_VERSIONS)) {
     const file = path.join(versionsDir, `${tool}.txt`);
@@ -324,6 +337,7 @@ function describe(fixtureRoot, layout, platform) {
     Object.keys(INITIAL_VERSIONS).map((tool) => [tool, path.join(fixtureRoot, "versions", `${tool}.txt`)]),
   );
   const pathEntries = layout.directories.map((entry) => directories[entry.role]);
+  const runtimeDir = path.join(fixtureRoot, "runtime");
   const home = fixtureHome(fixtureRoot);
   return {
     root: fixtureRoot,
@@ -339,7 +353,7 @@ function describe(fixtureRoot, layout, platform) {
      * installation. The runtime still needs `node` to run the fakes themselves, which is why that
      * one directory stays.
      */
-    pathValue: [...pathEntries, path.dirname(process.execPath)].join(path.delimiter),
+    pathValue: [...pathEntries, runtimeDir].join(path.delimiter),
     pathext: layout.pathext.join(";"),
     /**
      * The home-shaped variables the discovery adapter reads for known locations.

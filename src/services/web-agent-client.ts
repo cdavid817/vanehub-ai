@@ -16,9 +16,14 @@ import { webScheduledTaskClient } from "./web-scheduled-task-client";
 import { webContextQualityClient } from "./web-context-quality-client";
 import { webSkillGovernanceClient } from "./web-skill-governance-client";
 import { webSkillEvidenceClient } from "./web-skill-evidence-client";
+import { webSkillAssessmentClient } from "./web-skill-assessment-client";
+import { webSkillGenerationClient } from "./web-skill-generation-client";
+import { webSkillEvolutionOrchestrationClient } from "./web-skill-evolution-orchestration-client";
+import { webSkillCuratorClient } from "../adapters/web-skill-curator-client";
 import { webAgentRegistryClient } from "./web-agent-registry-client";
 
 export { resetWebEvidenceForTest } from "./web-skill-evidence-client";
+export { resetWebSkillCuratorForTest } from "../adapters/web-skill-curator-client";
 import {
   findWebCliConfigProfile,
   requireCliConfigAgentId,
@@ -134,6 +139,8 @@ export function seedWebImSessionForTest(connector: ImSessionConnector): Session 
 const webCodeReviewClient = createWebCodeReviewClient(webSessionWorkspaceClient);
 
 export const webAgentClient: AgentService = {
+  ...webSkillCuratorClient,
+  ...webSkillEvolutionOrchestrationClient,
   ...webEvaluationClient,
   ...webPromptHookClient,
   ...webApiAgentClient,
@@ -148,6 +155,8 @@ export const webAgentClient: AgentService = {
   ...webContextQualityClient,
   ...webSkillGovernanceClient,
   ...webSkillEvidenceClient,
+  ...webSkillAssessmentClient,
+  ...webSkillGenerationClient,
   ...webAgentRegistryClient,
   getDesktopUpdateSnapshot: webDesktopUpdateClient.getSnapshot,
   getDesktopUpdatePreferences: webDesktopUpdateClient.getPreferences,

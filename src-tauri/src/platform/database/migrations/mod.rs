@@ -3,6 +3,7 @@ mod inline_schema;
 mod tests;
 
 use super::DatabaseError;
+use crate::contexts::{apply_activity_query, apply_notifications, apply_outboxes};
 use inline_schema::{
     apply_agent_sdk_dependency_migration, apply_app_settings_migration,
     apply_chat_messages_migration, apply_cli_environment_details_migration,
@@ -546,6 +547,87 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "im-session-connector-access",
         crate::contexts::communications::infrastructure::apply_session_connector_access_schema,
     )?;
+    apply_transactional_migration(
+        conn,
+        88,
+        "skill-evolution-assessment-foundation",
+        crate::contexts::skill_evolution_assessment::infrastructure::apply_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        89,
+        "skill-evolution-system-activity-foundation",
+        crate::contexts::skill_evolution_system_activity::infrastructure::apply_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        90,
+        "skill-evolution-curator-foundation",
+        crate::contexts::skill_evolution_curation::infrastructure::apply_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        91,
+        "skill-evolution-generation-foundation",
+        crate::contexts::skill_evolution_generation::infrastructure::apply_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        92,
+        "skill-evolution-generation-policy-payload",
+        crate::contexts::skill_evolution_generation::infrastructure::apply_policy_payload_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        93,
+        "skill-evolution-generation-tool-receipt-names",
+        crate::contexts::skill_evolution_generation::infrastructure::apply_tool_receipt_names_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        94,
+        "skill-evolution-generation-governance-tombstones",
+        crate::contexts::skill_evolution_generation::infrastructure::apply_governance_tombstone_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        95,
+        "skill-evolution-orchestration-foundation",
+        crate::contexts::skill_evolution_orchestration::infrastructure::apply_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        96,
+        "skill-evolution-automatic-preflight-witnesses",
+        crate::contexts::skill_evolution_orchestration::infrastructure::apply_preflight_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        97,
+        "skill-evolution-curator-system-policy-authorization",
+        crate::contexts::skill_evolution_curation::infrastructure::apply_system_policy_authorization_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        98,
+        "skill-evolution-automatic-breaker-failures",
+        crate::contexts::skill_evolution_orchestration::infrastructure::apply_breaker_failure_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        99,
+        "skill-evolution-curator-rollback-candidates",
+        crate::contexts::skill_evolution_curation::infrastructure::apply_rollback_candidate_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        100,
+        "skill-evolution-probation-baseline-threshold",
+        crate::contexts::skill_evolution_orchestration::infrastructure::apply_probation_baseline_schema,
+    )?;
+    apply_transactional_migration(conn, 101, "skill-evolution-notify", apply_notifications)?;
+    apply_transactional_migration(conn, 102, "skill-evolution-source-outboxes", apply_outboxes)?;
+    apply_transactional_migration(conn, 103, "skill-activity-query", apply_activity_query)?;
     repair_missing_stable_participant_schema(conn)?;
     repair_missing_cli_parameter_profile_schema(conn)?;
     // Fail fast when a migration was skipped or the persisted history contains a gap.
@@ -662,6 +744,22 @@ const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (85, "cli-action-plans"),
     (86, "lsp-language-registry"),
     (87, "im-session-connector-access"),
+    (88, "skill-evolution-assessment-foundation"),
+    (89, "skill-evolution-system-activity-foundation"),
+    (90, "skill-evolution-curator-foundation"),
+    (91, "skill-evolution-generation-foundation"),
+    (92, "skill-evolution-generation-policy-payload"),
+    (93, "skill-evolution-generation-tool-receipt-names"),
+    (94, "skill-evolution-generation-governance-tombstones"),
+    (95, "skill-evolution-orchestration-foundation"),
+    (96, "skill-evolution-automatic-preflight-witnesses"),
+    (97, "skill-evolution-curator-system-policy-authorization"),
+    (98, "skill-evolution-automatic-breaker-failures"),
+    (99, "skill-evolution-curator-rollback-candidates"),
+    (100, "skill-evolution-probation-baseline-threshold"),
+    (101, "skill-evolution-notify"),
+    (102, "skill-evolution-source-outboxes"),
+    (103, "skill-activity-query"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {

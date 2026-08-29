@@ -7,10 +7,11 @@ use super::application::{EvidencePipeline, PipelineHealthSnapshot, RuntimeEviden
 use super::domain::canonical_workspace_scope;
 use super::domain::FeedbackState;
 use super::infrastructure::{
-    EvidenceIngestionProcessor, EvidenceOverview, EvidencePageRequest, EvidencePurgeOutcome,
-    EvidencePurgeRequest, EvidencePurgeScope, EvidenceQueryScope, EvidenceRepositoryError,
-    EvidenceSeedLineage, FeedbackTransitionError, SaveFeedbackRequest, SavedFeedback,
-    SqliteEvolutionEvidenceRepository, StoredFeedbackSummary,
+    AuthorizedCorrectionGuidance, EvidenceIngestionProcessor, EvidenceOverview,
+    EvidencePageRequest, EvidencePurgeOutcome, EvidencePurgeRequest, EvidencePurgeScope,
+    EvidenceQueryScope, EvidenceRepositoryError, EvidenceSeedLineage, FeedbackTransitionError,
+    RevokeReusableGuidanceAuthorizationRequest, RevokedReusableGuidanceAuthorization,
+    SaveFeedbackRequest, SavedFeedback, SqliteEvolutionEvidenceRepository, StoredFeedbackSummary,
 };
 use crate::contexts::operations::api::{DiagnosticLog, DiagnosticLogPort, LogSeverity};
 use crate::platform::credentials::OsCredentialStore;
@@ -70,6 +71,26 @@ impl SkillEvolutionEvidenceApi {
             .as_deref()
             .ok_or(FeedbackTransitionError::Storage)?;
         self.repository.save_feedback(request, key)
+    }
+
+    pub(crate) fn revoke_reusable_guidance_authorization(
+        &self,
+        request: &RevokeReusableGuidanceAuthorizationRequest,
+    ) -> Result<RevokedReusableGuidanceAuthorization, FeedbackTransitionError> {
+        let key = self
+            .installation_key
+            .as_deref()
+            .ok_or(FeedbackTransitionError::Storage)?;
+        self.repository
+            .revoke_reusable_guidance_authorization(request, key)
+    }
+
+    pub(crate) fn authorized_correction_guidance(
+        &self,
+        authorization_id: &str,
+    ) -> Result<Option<AuthorizedCorrectionGuidance>, FeedbackTransitionError> {
+        self.repository
+            .authorized_correction_guidance(authorization_id)
     }
 
     pub(crate) fn feedback_for_messages(

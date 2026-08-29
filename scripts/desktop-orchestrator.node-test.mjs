@@ -208,6 +208,7 @@ async function collectEvidenceNames(directory) {
 test("each desktop layer owns a disjoint spec directory and its own wdio configuration", async () => {
   const orchestrator = await readFile("scripts/test-desktop.mjs", "utf8");
   const smoke = await readFile("tests/desktop/wdio.conf.mjs", "utf8");
+  const shared = await readFile("tests/desktop/wdio-shared.mjs", "utf8");
   const cliTerminal = await readFile("tests/desktop/wdio.cli-terminal.conf.mjs", "utf8");
 
   // The CLI layer stays runnable on demand; the narrow CI gate selects only the core contract.
@@ -216,6 +217,11 @@ test("each desktop layer owns a disjoint spec directory and its own wdio configu
   assert.match(orchestrator, /const layers = runFullSuite \? fullSuiteLayers : \[coreSmokeDesktop\]/);
   assert.match(smoke, /specDirectory: "specs"/);
   assert.match(cliTerminal, /specDirectory: "specs-cli-terminal"/);
+  assert.match(shared, /specFileRetries: 2/);
+  assert.match(shared, /specFileRetriesDelay: 5/);
+  assert.match(shared, /const waitForEmbeddedDriverShutdown = createEmbeddedDriverShutdownWaiter\(embeddedDriverPort\)/);
+  assert.match(shared, /onWorkerStart: waitForEmbeddedDriverShutdown/);
+  assert.match(shared, /await delay\(EMBEDDED_DRIVER_PROCESS_REAP_MS\)/);
 });
 
 test("the live Skill layer is explicitly runnable without joining the deterministic full suite", async () => {
@@ -262,6 +268,7 @@ test("every native UI layer is wired, disjoint, and reachable on its own", async
   const layers = [
     ["session-workspace", "sessionWorkspaceDesktop"],
     ["dialogs", "dialogsDesktop"],
+    ["scheduled-tasks", "scheduledTasksDesktop"],
     ["settings-persistence", "settingsPersistenceDesktop"],
     ["cli-management", "cliManagementDesktop"],
     ["agent-mcp", "agentMcpDesktop"],

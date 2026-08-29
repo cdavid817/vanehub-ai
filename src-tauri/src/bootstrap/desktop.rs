@@ -17,6 +17,7 @@ use crate::contexts::desktop::infrastructure::{
 };
 use crate::contexts::operations::application::{DiagnosticLog, DiagnosticLogPort, LogSeverity};
 use crate::contexts::operations::infrastructure::UnifiedLoggingAdapter;
+use crate::contexts::skill_evolution_orchestration::infrastructure::EvolutionBackgroundLifecycle;
 use crate::platform::database::NativeDatabase;
 use async_trait::async_trait;
 use std::collections::BTreeMap;
@@ -83,28 +84,35 @@ pub(crate) fn assemble_floating_assistant_api(
     )
 }
 
+pub(crate) struct DesktopLifecycleDependencies<'a> {
+    pub(crate) app: AppHandle,
+    pub(crate) language: &'a str,
+    pub(crate) agents: AgentRuntimeApi,
+    pub(crate) communications: CommunicationsApi,
+    pub(crate) code_intelligence: CodeIntelligenceApi,
+    pub(crate) evolution_background: EvolutionBackgroundLifecycle,
+    pub(crate) locale_bridge: DesktopLocaleBridge,
+    pub(crate) fallback_log_directory: PathBuf,
+}
+
 pub(crate) fn assemble_desktop_lifecycle_api(
-    app: AppHandle,
-    language: &str,
-    agents: AgentRuntimeApi,
-    communications: CommunicationsApi,
-    code_intelligence: CodeIntelligenceApi,
-    locale_bridge: DesktopLocaleBridge,
-    fallback_log_directory: PathBuf,
+    dependencies: DesktopLifecycleDependencies<'_>,
 ) -> Result<DesktopLifecycleApi, String> {
-    let logging: Arc<dyn DiagnosticLogPort> =
-        Arc::new(UnifiedLoggingAdapter::active(fallback_log_directory));
+    let logging: Arc<dyn DiagnosticLogPort> = Arc::new(UnifiedLoggingAdapter::active(
+        dependencies.fallback_log_directory,
+    ));
     let lifecycle = Arc::new(TauriDesktopLifecycleAdapter::new(
-        app,
-        language,
+        dependencies.app,
+        dependencies.language,
         Arc::new(RuntimeShutdownAdapter {
-            agents,
-            communications,
-            code_intelligence,
+            agents: dependencies.agents,
+            communications: dependencies.communications,
+            code_intelligence: dependencies.code_intelligence,
+            evolution_background: dependencies.evolution_background,
         }),
         logging,
     ));
-    locale_bridge.attach(lifecycle.clone())?;
+    dependencies.locale_bridge.attach(lifecycle.clone())?;
     Ok(DesktopLifecycleApi::new(
         DesktopLifecycleApplicationService::new(lifecycle),
     ))
@@ -133,11 +141,13 @@ struct RuntimeShutdownAdapter {
     agents: AgentRuntimeApi,
     communications: CommunicationsApi,
     code_intelligence: CodeIntelligenceApi,
+    evolution_background: EvolutionBackgroundLifecycle,
 }
 
 #[async_trait]
 impl DesktopShutdownPort for RuntimeShutdownAdapter {
     async fn shutdown(&self, deadline: Instant) -> Result<(), String> {
+        self.evolution_background.shutdown()?;
         // Runs before the fallible shutdowns below so a failure there cannot leave background
         // command trees behind (`add-background-shell-execution`).
         self.agents.reap_all_background_commands();

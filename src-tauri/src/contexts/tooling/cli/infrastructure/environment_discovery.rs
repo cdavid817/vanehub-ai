@@ -44,16 +44,21 @@ impl CliDiscoveryPort for SystemCliDiscovery {
                 Some(priority),
             ));
         }
-        let remaining = budget.max_candidates.saturating_sub(installations.len());
-        for path in known_location_candidates(executable_names, remaining) {
-            if cancellation.is_cancelled() {
-                break;
+        // Deterministic desktop layers provide every executable under one owned fixture root.
+        // Known-location probing would otherwise reintroduce a developer's `/usr/bin/codex` even
+        // after PATH isolation. Release builds intentionally ignore this test-only boundary.
+        if fixture_discovery_root().is_none() {
+            let remaining = budget.max_candidates.saturating_sub(installations.len());
+            for path in known_location_candidates(executable_names, remaining) {
+                if cancellation.is_cancelled() {
+                    break;
+                }
+                installations.push(build_installation(
+                    &path,
+                    CliEnvironmentOrigin::KnownLocation,
+                    None,
+                ));
             }
-            installations.push(build_installation(
-                &path,
-                CliEnvironmentOrigin::KnownLocation,
-                None,
-            ));
         }
         Ok(installations)
     }
@@ -61,6 +66,18 @@ impl CliDiscoveryPort for SystemCliDiscovery {
     fn environment_fingerprint(&self) -> Result<String, CliEnvironmentError> {
         Ok(environment_fingerprint())
     }
+}
+
+#[cfg(debug_assertions)]
+fn fixture_discovery_root() -> Option<PathBuf> {
+    std::env::var_os("VANEHUB_CLI_FIXTURE_ROOT")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+}
+
+#[cfg(not(debug_assertions))]
+fn fixture_discovery_root() -> Option<PathBuf> {
+    None
 }
 
 /// Filenames a bare command can resolve to on this platform.

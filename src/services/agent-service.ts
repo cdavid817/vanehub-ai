@@ -1,12 +1,10 @@
 import type { Session } from "../types/agent";
-
 export interface EvidenceQueryInput {
   workspace?: string;
   skillId?: string;
   limit?: number;
   cursor?: string;
 }
-
 export interface EvidenceSignalSummary {
   signalId: string;
   sourceKind: string;
@@ -25,7 +23,6 @@ export interface EvidenceSignalSummary {
   associationTruncatedCount: number;
   sourceLinkTruncatedCount: number;
 }
-
 export interface EvidenceSeedSummary {
   seedId: string;
   category: string;
@@ -144,6 +141,9 @@ import type { SessionQueryService } from "./session-query-service";
 import type { SessionRecoveryService } from "./session-recovery-service";
 import type { CodeIndexService } from "./code-index-service";
 import type { SkillEvidenceService, SkillGovernanceService } from "./skill-governance-service";
+import type { SkillAssessmentService } from "./skill-assessment-service";
+import type { SkillCuratorService } from "./skill-curator-service";
+import type { SkillGenerationService } from "./skill-generation-service";
 import type { ContextQualityService, ScheduledTaskService } from "./scheduled-task-service";
 import type { AddReviewCommentInput, CodeReview, ReviewAction, ReviewComment, ReviewDecision, ReviewDiffFile, ReviewRevertReceipt, RevertReviewChangeInput } from "../types/code-review";
 
@@ -163,7 +163,7 @@ export interface AgentService extends
   ContextQualityService,
   AgentRegistryService,
   SkillGovernanceService,
-  SkillEvidenceService,
+  SkillEvidenceService, SkillAssessmentService, SkillCuratorService, SkillGenerationService,
   SkillCatalogService,
   SkillBindingService,
   SkillOverlayService,

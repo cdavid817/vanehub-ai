@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { chmod, copyFile, mkdir, mkdtemp, stat } from "node:fs/promises";
+import { chmod, copyFile, link, mkdir, mkdtemp, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -49,6 +49,27 @@ export async function prepareCliFixture() {
  */
 export const MANAGED_AGENT_EXECUTABLES = ["claude", "codex", "gemini", "opencode", "agy"];
 
+const SUPPORT_EXECUTABLES = process.platform === "win32"
+  ? ["git.exe", "node.exe"]
+  : ["git", "node"];
+
+async function preserveSupportExecutable(source, target) {
+  try {
+    await stat(target);
+    return;
+  } catch {
+    // The per-run support directory has not retained this executable yet.
+  }
+  try {
+    await link(source, target);
+  } catch {
+    // A hard link can cross neither filesystems nor some Windows policy boundaries. Copying keeps
+    // the fixture portable while still exposing only this allowlisted executable from the host.
+    await copyFile(source, target);
+  }
+  if (process.platform !== "win32") await chmod(target, 0o755);
+}
+
 /**
  * `PATH` with the fixture directory first and every competing Agent installation removed.
  *
@@ -65,15 +86,32 @@ export async function pathWithoutCompetingAgents(fixtureDir, inherited = process
   const windows = process.platform === "win32";
   const suffixes = windows ? [".cmd", ".exe", ".bat", ".ps1", ""] : [""];
   const kept = [];
+  const supportDir = `${fixtureDir}-support`;
+  let retainedSupport = false;
   for (const entry of inherited.split(path.delimiter)) {
     if (!entry) continue;
     const holdsAgent = await Promise.all(
       MANAGED_AGENT_EXECUTABLES.flatMap((name) => suffixes.map((suffix) =>
         stat(path.join(entry, `${name}${suffix}`)).then(() => true, () => false))),
     );
-    if (!holdsAgent.includes(true)) kept.push(entry);
+    if (!holdsAgent.includes(true)) {
+      kept.push(entry);
+      continue;
+    }
+
+    // A package-managed host may put Agent launchers beside foundational tools. Dropping the
+    // whole directory removed `/usr/bin/git` and `/usr/bin/node` on Linux when Codex was installed
+    // there, so native Git/MCP checks failed even though Agent isolation itself worked. Retain only
+    // the explicit support allowlist in a run-scoped directory; no managed Agent can leak through.
+    await mkdir(supportDir, { recursive: true });
+    for (const executable of SUPPORT_EXECUTABLES) {
+      const source = path.join(entry, executable);
+      if (!await stat(source).then(() => true, () => false)) continue;
+      await preserveSupportExecutable(source, path.join(supportDir, executable));
+      retainedSupport = true;
+    }
   }
-  return [fixtureDir, ...kept].join(path.delimiter);
+  return [fixtureDir, ...(retainedSupport ? [supportDir] : []), ...kept].join(path.delimiter);
 }
 
 /**
