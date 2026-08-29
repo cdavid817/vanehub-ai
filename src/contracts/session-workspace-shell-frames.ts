@@ -4,12 +4,41 @@ export const shellStreamSchema = z.enum(["pty", "stdout", "stderr", "system"]);
 
 export const sessionShellStateSchema = z.enum([
   "starting",
+  "opening",
   "running",
+  "closing",
+  "reaping",
+  "close_failed",
   "exited",
   "disconnected",
   "failed",
   "closed",
 ]);
+
+export const shellCloseDispositionSchema = z.enum([
+  "closed",
+  "reaping",
+  "close_failed",
+  "already_terminal",
+]);
+
+/**
+ * What one close attempt achieved.
+ *
+ * `finalState` is optional at the schema level for the same reason it is optional in the domain: an
+ * unsettled close observed nothing final, and defaulting it here would manufacture the exact claim
+ * the disposition exists to withhold.
+ */
+export const shellCloseOutcomeSchema = z.object({
+  shellId: z.string().min(1),
+  generation: z.number().int().nonnegative(),
+  disposition: shellCloseDispositionSchema,
+  finalState: sessionShellStateSchema.optional(),
+  reason: z.string().nullish().transform((value) => value ?? undefined),
+  retryable: z.boolean(),
+  attempt: z.number().int().nonnegative(),
+  cleanupDeadlineReached: z.boolean(),
+});
 
 export const shellForegroundProcessStateSchema = z.enum(["present", "absent", "unknown"]);
 
@@ -34,6 +63,7 @@ export const shellReplayGapSchema = z.object({
  */
 export const sessionShellDescriptorSchema = z.object({
   shellId: z.string().min(1),
+  generation: z.number().int().nonnegative(),
   sessionId: z.string().min(1),
   seatId: z.string().min(1).optional(),
   title: z.string(),
@@ -57,6 +87,7 @@ export const shellAttachSnapshotSchema = z.object({
 
 export const sessionShellStateNoticeSchema = z.object({
   shellId: z.string().min(1),
+  generation: z.number().int().nonnegative(),
   sessionId: z.string().min(1),
   state: sessionShellStateSchema,
   reason: z.string().nullish(),

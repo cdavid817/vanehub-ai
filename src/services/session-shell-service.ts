@@ -2,6 +2,7 @@ import type {
   SessionShellDescriptor,
   SessionShellNotice,
   ShellAttachSnapshot,
+  ShellCloseOutcome,
   ShellReplayGap,
 } from "../types/session-workspace-shell-frames";
 
@@ -101,6 +102,12 @@ export interface SessionShellService {
 
   renameSessionShell(input: { shellId: string; title: string }): Promise<SessionShellDescriptor>;
 
-  /** Ends the process. The only call that does. */
-  closeSessionShell(shellId: string): Promise<void>;
+  /**
+   * Ends the process. The only call that does, and the only one whose result is not a formality.
+   *
+   * Resolving is not the same as the process being gone: `reaping` and `close_failed` both resolve.
+   * A caller that removes the Shell from its list on resolution alone takes away the only handle
+   * the user has left on a process that is still running.
+   */
+  closeSessionShell(shellId: string): Promise<ShellCloseOutcome>;
 }

@@ -21,6 +21,7 @@ function outputNotice(sequence: number, data: string, shellId = "shell-1"): Sess
 function descriptorPayload(shellId: string): Record<string, unknown> {
   return {
     shellId,
+    generation: 1,
     sessionId: "session-1",
     title: "Shell 1",
     runtime: { kind: "native", supportsResize: true, supportsReplay: true, supportsReconnect: false },
@@ -312,10 +313,92 @@ describe("web session shell client", () => {
     await attachment.detach();
     expect(await client.listSessionShells("session-1")).toHaveLength(1);
 
-    await client.closeSessionShell(shell.shellId);
+    expect((await client.closeSessionShell(shell.shellId)).disposition).toBe("closed");
     expect(await client.listSessionShells("session-1")).toHaveLength(0);
-    // Closing a shell that is already gone is a success, so a retry after a partial failure has
-    // the same result as the first attempt.
-    await expect(client.closeSessionShell(shell.shellId)).resolves.toBeUndefined();
+    // Closing a shell that is already gone is settled, so a retry after a partial failure has the
+    // same result as the first attempt. It reports `already_terminal` rather than a confirmed
+    // close, because that call ended nothing.
+    const repeated = await client.closeSessionShell(shell.shellId);
+    expect(repeated.disposition).toBe("already_terminal");
+    expect(repeated.retryable).toBe(false);
+  });
+
+  it("keeps a shell whose cleanup did not confirm, and closes it on a later attempt", async () => {
+    const client = createWebSessionShellClient({ closeAttemptsBeforeConfirming: 1 });
+    const shell = await shellFor(client);
+
+    const first = await client.closeSessionShell(shell.shellId);
+
+    expect(first.disposition).toBe("reaping");
+    expect(first.retryable).toBe(true);
+    expect(first.cleanupDeadlineReached).toBe(true);
+    // Still listed and still addressable: the simulated process is still there, and removing it
+    // would take away the only way to retry.
+    const [pending] = await client.listSessionShells("session-1");
+    expect(pending.state).toBe("reaping");
+
+    const second = await client.closeSessionShell(shell.shellId);
+    expect(second.disposition).toBe("closed");
+    // One attempt sequence shared by both, not two competing ones.
+    expect(second.attempt).toBe(2);
+    expect(await client.listSessionShells("session-1")).toHaveLength(0);
+  });
+
+  it("reports a failed cleanup as retryable rather than as a close", async () => {
+    const client = createWebSessionShellClient({
+      closeAttemptsBeforeConfirming: 1,
+      unconfirmedCloseFails: true,
+    });
+    const shell = await shellFor(client);
+
+    const outcome = await client.closeSessionShell(shell.shellId);
+
+    expect(outcome.disposition).toBe("close_failed");
+    expect(outcome.finalState).toBeUndefined();
+    expect(outcome.reason).toBe("shell_close_deadline_reached");
+    const [pending] = await client.listSessionShells("session-1");
+    expect(pending.state).toBe("close_failed");
+  });
+
+  it("refuses input to a shell that is cleaning up", async () => {
+    const client = createWebSessionShellClient({ closeAttemptsBeforeConfirming: 1 });
+    const shell = await shellFor(client);
+    const attachment = await client.attachSessionShell({ shellId: shell.shellId }, () => {});
+    await client.closeSessionShell(shell.shellId);
+
+    await expect(
+      client.writeSessionShell({
+        shellId: shell.shellId,
+        attachmentId: attachment.attachmentId,
+        content: "ls\n",
+      }),
+    ).rejects.toThrow("shell_not_accepting_input");
+  });
+
+  it("refuses a create once the session capacity is taken", async () => {
+    const client = createWebSessionShellClient({ perSessionCapacity: 1 });
+    await client.createSessionShell({ sessionId: "session-1", rows: 24, cols: 80, requestId: "a" });
+
+    await expect(
+      client.createSessionShell({ sessionId: "session-1", rows: 24, cols: 80, requestId: "b" }),
+    ).rejects.toThrow("shell_session_capacity_reached");
+  });
+
+  it("gives each shell its own generation, so a stale notice is identifiable", async () => {
+    const client = createWebSessionShellClient();
+    const first = await client.createSessionShell({
+      sessionId: "session-1",
+      rows: 24,
+      cols: 80,
+      requestId: "a",
+    });
+    const second = await client.createSessionShell({
+      sessionId: "session-1",
+      rows: 24,
+      cols: 80,
+      requestId: "b",
+    });
+
+    expect(second.generation).toBeGreaterThan(first.generation);
   });
 });

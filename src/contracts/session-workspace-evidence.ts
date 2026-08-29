@@ -12,6 +12,7 @@ import type {
   SessionShellDescriptor,
   SessionShellNotice,
   ShellAttachSnapshot,
+  ShellCloseOutcome,
   ShellOutputFrame,
 } from "../types/session-workspace-shell-frames";
 import {
@@ -32,6 +33,7 @@ import {
   sessionShellDescriptorSchema,
   sessionShellNoticeSchema,
   shellAttachSnapshotSchema,
+  shellCloseOutcomeSchema,
   shellOutputFrameSchema,
 } from "./session-workspace-shell-frames";
 import { normalizeShellRuntimeDescriptor } from "./session-workspace";
@@ -85,6 +87,10 @@ export function parseSessionRunReportExport(value: unknown): SessionRunReportExp
 
 export function parseShellOutputFrame(value: unknown): ShellOutputFrame {
   return shellOutputFrameSchema.parse(value);
+}
+
+export function parseShellCloseOutcome(value: unknown): ShellCloseOutcome {
+  return shellCloseOutcomeSchema.parse(value);
 }
 
 export function parseSessionShellDescriptor(value: unknown): SessionShellDescriptor {
