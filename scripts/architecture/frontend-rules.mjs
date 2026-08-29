@@ -285,8 +285,17 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 控制台、本地媒体/LSP 与个性化治理,每一条都新增了 service 接口 + Tauri 客户端 + Web/mock
 // 客户端这三件套。三件套是"React 不直接 invoke"这条规则的代价,按能力条数线性增长而不是按代码
 // 量——所以每次合并都在合并后的树上重测,不把两侧的数相加,后者会把两边共有的基线算两遍。
+// 上调理由(fix-retained-shell-lifecycle-and-bounded-reaping):24136 → 24243,+107,没有一行是复制来的。
+// +68 是新文件 `web-session-shell-state.ts`。它不是新增能力,是搬出来的:`web-session-shell-client.ts`
+// 加上四个新的 close 分支后到 315 行,而 300 行是硬规则。搬走的是 `MockShell`、mock 选项和帧淘汰
+// 逻辑,原文件对应减少了约 40 行,净开销是每个新文件都要付的 import 块与文档注释。
+// +39 分布在三件套上,全部是"关闭到底做成了什么"这一个事实第一次有地方可放:`session-shell-service.ts`
+// 把 `closeSessionShell` 的返回类型从 `void` 换成 `ShellCloseOutcome` 并写明为什么 resolve 不等于
+// 进程已经没了;`tauri-session-shell-client.ts` 解析那个响应而不是丢掉它;`web-session-shell-client.ts`
+// 用一个计数器模拟"这次关不掉、下次能关掉",这是浏览器里没有别的办法造出来的状态。
+// 这条不是"又加了一个能力的三件套",而是既有能力的返回类型从一个不能承载事实的形状换成能承载的。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 24136, owner: "upgrade-session-workspace-evidence-console" },
+  { root: "src/services", budget: 24243, owner: "upgrade-session-workspace-evidence-console" },
 ]);
 
 const STATE_PACKAGES = new Set([

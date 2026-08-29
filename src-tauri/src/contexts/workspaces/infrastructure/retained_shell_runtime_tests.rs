@@ -452,6 +452,48 @@ fn a_child_that_has_already_exited_is_confirmed_without_being_signalled() {
     );
 }
 
+/// A shell that notices its stdin closed and finishes on its own, inside the graceful window. The
+/// stage exists for exactly this: signalling here would replace an orderly exit with a killed one
+/// for the same result.
+#[test]
+fn a_child_that_finishes_after_input_closes_is_never_signalled() {
+    let runtime = RetainedLocalShellRuntime::with_clock(Arc::new(VirtualClock::default()));
+    // Three observations fit inside the graceful window; this one ends on the third.
+    let process = Arc::new(FakeProcess::exits_after(3));
+    let shell_id = install(
+        &runtime,
+        "shell-1",
+        process.clone(),
+        vec![finished_worker()],
+    );
+
+    let outcome = runtime.close(&shell_id, ShellGeneration::new(1), budget());
+
+    assert_eq!(outcome, ShellRuntimeCloseOutcome::Confirmed);
+    assert_eq!(process.terminations.load(Ordering::SeqCst), 0);
+}
+
+/// A shell that ignores the first termination request and goes on the second. Two stages rather
+/// than one, because a platform whose only primitive is forceful still has to be asked twice before
+/// the close gives up on it.
+#[test]
+fn a_child_that_survives_the_first_request_is_confirmed_after_the_force_stage() {
+    let runtime = RetainedLocalShellRuntime::with_clock(Arc::new(VirtualClock::default()));
+    let process = Arc::new(FakeProcess::exits_after(8));
+    let shell_id = install(
+        &runtime,
+        "shell-1",
+        process.clone(),
+        vec![finished_worker()],
+    );
+
+    let outcome = runtime.close(&shell_id, ShellGeneration::new(1), budget());
+
+    assert_eq!(outcome, ShellRuntimeCloseOutcome::Confirmed);
+    assert_eq!(process.terminations.load(Ordering::SeqCst), 2);
+    assert!(!runtime.holds(&shell_id));
+}
+
 /// The ordinary case: the shell ignores the closed input, is terminated, and is then reaped.
 #[test]
 fn a_child_that_needs_terminating_is_terminated_and_then_confirmed() {

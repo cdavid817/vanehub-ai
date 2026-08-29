@@ -873,6 +873,59 @@ fn concurrent_creates_never_exceed_the_session_ceiling() {
     assert_eq!(harness.registry.list(None).len(), 3);
 }
 
+/// The same race for the last *application* slot rather than the last session slot. Two sessions
+/// competing is a different code path from one session competing with itself, and the count-then-open
+/// version let both through.
+#[test]
+fn concurrent_creates_never_exceed_the_application_ceiling() {
+    let harness = harness_with(
+        FakeWorkspaces::default(),
+        ShellCapacities {
+            per_session: 8,
+            total: 2,
+        },
+    );
+    let barrier = Arc::new(std::sync::Barrier::new(100));
+    let threads = (0..100)
+        .map(|index| {
+            let registry = harness.registry.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                registry
+                    .create(&CreateSessionShellRequest {
+                        // A different session per thread, so nothing but the application ceiling
+                        // can refuse them.
+                        session_id: format!("session-{index}"),
+                        seat_id: None,
+                        rows: 24,
+                        cols: 80,
+                        request_id: Some(
+                            ShellCreateRequestId::parse(format!("request-{index}"))
+                                .expect("request id"),
+                        ),
+                        title: None,
+                        working_directory: None,
+                    })
+                    .map_err(|error| error.code())
+            })
+        })
+        .collect::<Vec<_>>();
+    let outcomes = threads
+        .into_iter()
+        .map(|thread| thread.join().expect("join"))
+        .collect::<Vec<_>>();
+
+    assert_eq!(outcomes.iter().filter(|result| result.is_ok()).count(), 2);
+    assert!(outcomes
+        .iter()
+        .filter_map(|result| result.as_ref().err())
+        .all(|code| *code == "shell_application_capacity_reached"));
+    // No permit leaked and no loser spawned: the runtime saw exactly the winners.
+    assert_eq!(harness.runtime.opened.lock().expect("opened").len(), 2);
+    assert_eq!(harness.registry.capacity().active(), 2);
+}
+
 /// The defect in one test. A close that cannot confirm termination must not report `Closed`, must
 /// not remove the Shell, and must not give the slot back — because the process is still running.
 #[test]
@@ -1043,6 +1096,64 @@ fn session_cleanup_reports_every_shell_rather_than_a_pass_or_fail() {
     assert!(retry.is_complete());
     assert_eq!(retry.closed_confirmed(), 1);
     assert_eq!(harness.registry.capacity().active(), 0);
+}
+
+/// A sweep that counted an unconfirmed Shell as reclaimed would make its own figures the first
+/// place this application lies about a process it did not end.
+#[test]
+fn an_idle_sweep_reports_a_shell_it_could_not_confirm_as_reaping() {
+    let harness = harness_tuned(
+        FakeWorkspaces::default(),
+        ShellCapacities::default(),
+        ShellReaperLimits {
+            initial_backoff_millis: 0,
+            ..ShellReaperLimits::default()
+        },
+    );
+    let shell_id = create(&harness, None).expect("create");
+    harness.runtime.retain_on_close(true);
+    harness.advance_past_the_idle_window();
+
+    let report = harness.registry.sweep_idle();
+
+    assert_eq!(report.requested(), 1);
+    assert_eq!(report.closed_confirmed(), 0);
+    assert_eq!(report.reaping(), 1);
+    assert!(!report.is_complete());
+    // Still held, still charged, still reachable — and the sweep did not block waiting for it.
+    assert_eq!(
+        harness.store.descriptor(&shell_id).expect("held").state,
+        SessionShellState::Reaping
+    );
+    assert_eq!(harness.registry.capacity().active(), 1);
+}
+
+/// Shutdown records what it could not end rather than waiting for it. An exit path that blocked
+/// until every child died would be an application that cannot be closed.
+#[test]
+fn shutdown_reports_residual_shells_instead_of_waiting_for_them() {
+    let harness = harness_tuned(
+        FakeWorkspaces::default(),
+        ShellCapacities::default(),
+        ShellReaperLimits {
+            initial_backoff_millis: 0,
+            ..ShellReaperLimits::default()
+        },
+    );
+    create(&harness, Some("request-1")).expect("first");
+    let stuck = create(&harness, Some("request-2")).expect("second");
+    harness.runtime.retain_on_close(true);
+
+    let report = harness.registry.shutdown();
+
+    // Two bounded attempts plus one Reaper pass over the same Shell; the residual is reported, not
+    // waited on, and it is named so a later diagnosis can find it.
+    assert!(!report.is_complete());
+    assert!(report
+        .unconfirmed()
+        .iter()
+        .any(|entry| entry.shell_id == stuck));
+    assert!(harness.store.descriptor(&stuck).is_some());
 }
 
 /// Input during `Opening` and during `Closing` is refused rather than accepted and lost.

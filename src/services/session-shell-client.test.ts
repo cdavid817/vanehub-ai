@@ -144,6 +144,54 @@ describe("shell frame dispatcher", () => {
 });
 
 describe("tauri session shell client", () => {
+  it("reads what a close achieved instead of assuming it succeeded", async () => {
+    const { transport } = recordingTransport({
+      close_session_shell: {
+        shellId: "shell-1",
+        generation: 7,
+        disposition: "reaping",
+        reason: "shell_close_deadline_reached",
+        retryable: true,
+        attempt: 1,
+        cleanupDeadlineReached: true,
+      },
+    });
+    const client = createTauriSessionShellClient(transport);
+
+    const outcome = await client.closeSessionShell("shell-1");
+
+    // Discarding this is the defect: the command returned without an error and the process is
+    // still running.
+    expect(outcome.disposition).toBe("reaping");
+    expect(outcome.generation).toBe(7);
+    expect(outcome.retryable).toBe(true);
+    expect(outcome.finalState).toBeUndefined();
+  });
+
+  it("accepts a confirmed close that omits the optional reason", async () => {
+    const { transport } = recordingTransport({
+      close_session_shell: {
+        shellId: "shell-1",
+        generation: 2,
+        disposition: "closed",
+        finalState: "closed",
+        reason: null,
+        retryable: false,
+        attempt: 1,
+        cleanupDeadlineReached: false,
+      },
+    });
+    const client = createTauriSessionShellClient(transport);
+
+    const outcome = await client.closeSessionShell("shell-1");
+
+    // Tauri sends `null` where the native side omitted the field; a reader that had to handle both
+    // would eventually check only one.
+    expect(outcome.reason).toBeUndefined();
+    expect(outcome.disposition).toBe("closed");
+    expect(outcome.finalState).toBe("closed");
+  });
+
   it("registers the listener before it attaches", async () => {
     const { transport, calls, subscribed } = recordingTransport();
     const client = createTauriSessionShellClient(transport);
