@@ -196,7 +196,10 @@ mod tests {
         ApprovalBroker, DefaultTemplatePort, EvaluationService, PendingApprovalEventPort,
         PermissionsApplicationError,
     };
-    use crate::contexts::permissions::domain::{ApprovalRequest, PolicyTemplateName};
+    use crate::contexts::permissions::domain::{
+        ApprovalRequest, ApprovalResolutionId, PolicyTemplateName,
+    };
+    use crate::contexts::permissions::infrastructure::HookDelivery;
     use crate::contexts::permissions::infrastructure::{
         PermissionsSystemClock, PermissionsUuidIdGenerator, SqliteAuditRepository,
         SqliteGrantRepository, SqlitePrincipalRepository, UnifiedLogDiagnosticsAdapter,
@@ -416,7 +419,14 @@ mod tests {
         }
         let pending_id = pending_id.expect("a pending approval should have been created");
 
-        assert!(permissions.resolve_hook_wait(&pending_id, Effect::Allow));
+        assert_eq!(
+            permissions.deliver_hook_resolution(
+                &pending_id,
+                &ApprovalResolutionId::parse("res-1").expect("id"),
+                Effect::Allow,
+            ),
+            HookDelivery::Applied
+        );
 
         let response = in_flight.await.expect("join");
         let body: serde_json::Value = response.json().await.expect("json body");
@@ -460,7 +470,14 @@ mod tests {
 
         // Simulates what `start_permission_timeout_sweep_job` does once a pending approval times
         // out: deliver a Deny through this same registry, independent of any human decision.
-        assert!(permissions.resolve_hook_wait(&pending_id, Effect::Deny));
+        assert_eq!(
+            permissions.deliver_hook_resolution(
+                &pending_id,
+                &ApprovalResolutionId::parse("res-timeout").expect("id"),
+                Effect::Deny,
+            ),
+            HookDelivery::Applied
+        );
 
         let response = in_flight.await.expect("join");
         let body: serde_json::Value = response.json().await.expect("json body");

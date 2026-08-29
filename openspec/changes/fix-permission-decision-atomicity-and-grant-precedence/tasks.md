@@ -53,7 +53,7 @@
 
 - [x] 6.1 Add the narrow published `agent_runtime::api` contract needed to reserve one current tool-approval waiter and deliver one immutable resolution idempotently; do not expose generation repositories or private workflow state.
 - [x] 6.2 Define the consuming `ApprovalDeliveryPort` in `permissions` and implement a native-Agent adapter over the published `agent_runtime` API.
-- [ ] 6.3 Refactor the Claude hook wait registry to support reservation, immutable resolution-id delivery, duplicate acknowledgement, stale waiter detection, and cancellation without introducing a second decision engine.
+- [x] 6.3 Refactor the Claude hook wait registry to support reservation, immutable resolution-id delivery, duplicate acknowledgement, stale waiter detection, and cancellation without introducing a second decision engine.
 - [x] 6.4 Add a routed delivery adapter selected from the request's stable channel and assemble it only in bootstrap.
 - [x] 6.5 Reduce `resolve_pending_approval` and related commands to DTO validation/mapping plus one use-case call; add command serialization and stable error-code tests.
 - [x] 6.6 Add tests proving no adapter can observe Allow before the commit port returns success and that duplicate `resolution_id` delivery cannot resume native or hook work twice.

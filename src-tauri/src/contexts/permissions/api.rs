@@ -4,13 +4,14 @@
 //! reaching into `permissions`' application services or repositories directly.
 
 use super::application::{ApprovalBroker, ClaudeCodeHookPort, EvaluationService};
-use super::infrastructure::HookWaitRegistry;
+use super::infrastructure::{HookDelivery, HookWaitRegistry};
 use std::sync::Arc;
 
 pub(crate) use super::application::{PermissionsApplicationError, ResolveApprovalUseCase};
 pub(crate) use super::domain::{
-    Action, ApprovalDecision, ApprovalRequest, Effect, PolicyTemplateName, Principal, Resource,
-    RiskLevel, Scope, SkillApprovalInvalidation, SkillApprovalProvenance, CLAUDE_CODE_AGENT_ID,
+    Action, ApprovalDecision, ApprovalRequest, ApprovalResolutionId, Effect, PolicyTemplateName,
+    Principal, Resource, RiskLevel, Scope, SkillApprovalInvalidation, SkillApprovalProvenance,
+    CLAUDE_CODE_AGENT_ID,
 };
 
 #[derive(Clone)]
@@ -188,15 +189,25 @@ impl PermissionsApi {
         self.approvals.expired_pending_ids()
     }
 
-    /// Delivers a resolution to the Claude Code hook bridge's own waiting HTTP request, if
-    /// `request_id` was raised through that channel (`claude-code-permission-hook`). Returns
-    /// `false` harmlessly for a request raised through any other channel, or one already
-    /// resolved — callers are expected to try every registered delivery channel unconditionally
-    /// and combine the results, not branch on which one applies (`resolve_pending_approval`'s
-    /// zero-branching command-adapter rule).
-    pub(crate) fn resolve_hook_wait(&self, request_id: &str, effect: Effect) -> bool {
-        self.hook_waits.resolve(request_id, effect)
+    /// Delivers one immutable resolution to the Claude Code hook bridge's own waiting HTTP request,
+    /// if `request_id` was raised through that channel (`claude-code-permission-hook`).
+    ///
+    /// `WaiterGone` for a request raised through any other channel — callers try every registered
+    /// delivery channel unconditionally and combine the results rather than branching on which one
+    /// applies (`resolve_pending_approval`'s zero-branching command-adapter rule), so asking the
+    /// wrong one is a harmless answer rather than an error.
+    pub(crate) fn deliver_hook_resolution(
+        &self,
+        request_id: &str,
+        resolution_id: &ApprovalResolutionId,
+        effect: Effect,
+    ) -> HookDelivery {
+        self.hook_waits.deliver(request_id, resolution_id, effect)
     }
+
+    // Cancellation is `HookWaitRegistry::cancel`, and it is deliberately not surfaced here yet:
+    // nothing in the resolution flow cancels a hook wait, and a facade method with no caller is a
+    // boundary widened on speculation.
 }
 
 #[cfg(test)]

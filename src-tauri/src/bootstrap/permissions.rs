@@ -1,15 +1,17 @@
 use crate::contexts::agent_runtime::api::AgentRuntimeApi;
 use crate::contexts::agent_runtime::application::ToolApprovalDecision;
 use crate::contexts::desktop::api::DesktopSettingsApi;
-use crate::contexts::permissions::api::{Effect, PermissionsApi, PermissionsApplicationError};
+use crate::contexts::permissions::api::{
+    ApprovalResolutionId, Effect, PermissionsApi, PermissionsApplicationError,
+};
 use crate::contexts::permissions::application::{
     ApprovalBroker, ApprovalDeliveryPort, ApprovalResolutionRepository, ClaudeCodeHookPort,
     DeliveryAcknowledgement, DeliveryReservation, EvaluationService, PermissionsClockPort,
     ResolveApprovalUseCase,
 };
-use crate::contexts::permissions::domain::{ApprovalRequest, ApprovalResolutionId};
+use crate::contexts::permissions::domain::ApprovalRequest;
 use crate::contexts::permissions::infrastructure::{
-    start_hook_bridge_server, ClaudeCodeHookAdapter, DesktopDefaultTemplateAdapter,
+    start_hook_bridge_server, ClaudeCodeHookAdapter, DesktopDefaultTemplateAdapter, HookDelivery,
     HookWaitRegistry, PermissionsSystemClock, PermissionsUuidIdGenerator,
     SqliteApprovalResolutionRepository, SqliteAuditRepository, SqliteGrantRepository,
     SqlitePrincipalRepository, TauriPendingApprovalEventAdapter, UnifiedLogDiagnosticsAdapter,
@@ -238,15 +240,22 @@ impl ApprovalDeliveryPort for RoutedApprovalDelivery {
                 self.lock_applied().remove(resolution_id.as_str());
                 PermissionsApplicationError::infrastructure("agent_runtime", error.to_string())
             })?;
-        let hook = self.permissions.resolve_hook_wait(&request.id, effect);
+        let hook = self
+            .permissions
+            .deliver_hook_resolution(&request.id, resolution_id, effect);
 
-        if native || hook {
-            Ok(DeliveryAcknowledgement::Applied)
-        } else {
-            // Reserved a moment ago and gone now. The decision stays durable and the grant stays
-            // inactive; nothing was executed.
-            self.lock_applied().remove(resolution_id.as_str());
-            Ok(DeliveryAcknowledgement::WaiterGone)
+        match (native, hook) {
+            (true, _) | (_, HookDelivery::Applied) => Ok(DeliveryAcknowledgement::Applied),
+            // The hook registry keeps its own at-most-once record per resolution id, so a retry it
+            // recognises is an acknowledgement rather than a vanished waiter. Reporting the latter
+            // would record a delivery failure for something that was in fact delivered.
+            (_, HookDelivery::AlreadyApplied) => Ok(DeliveryAcknowledgement::AlreadyApplied),
+            (false, HookDelivery::WaiterGone) => {
+                // Reserved a moment ago and gone now. The decision stays durable and the grant
+                // stays inactive; nothing was executed.
+                self.lock_applied().remove(resolution_id.as_str());
+                Ok(DeliveryAcknowledgement::WaiterGone)
+            }
         }
     }
 }

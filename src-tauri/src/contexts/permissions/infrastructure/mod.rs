@@ -27,7 +27,7 @@ pub(crate) use diagnostics_adapter::UnifiedLogDiagnosticsAdapter;
 pub(crate) use event_adapter::TauriPendingApprovalEventAdapter;
 pub(crate) use grant_repository::SqliteGrantRepository;
 pub(crate) use hook_bridge_server::start_hook_bridge_server;
-pub(crate) use hook_bridge_wait_registry::HookWaitRegistry;
+pub(crate) use hook_bridge_wait_registry::{HookDelivery, HookWaitRegistry};
 pub(crate) use ids::PermissionsUuidIdGenerator;
 pub(crate) use principal_repository::SqlitePrincipalRepository;
 pub(crate) use resolution_repository::SqliteApprovalResolutionRepository;
