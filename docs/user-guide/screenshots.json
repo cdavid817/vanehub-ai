@@ -479,6 +479,22 @@
       "runtime": "web-mock",
       "featureState": "delivered",
       "path": "zh-CN/src/assets/screenshots/mission-control-zh-CN.png"
+    },
+    {
+      "id": "settings-local-media-en",
+      "scenario": "settings-local-media",
+      "locale": "en",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "en/src/assets/screenshots/settings-local-media-en.png"
+    },
+    {
+      "id": "settings-local-media-zh-CN",
+      "scenario": "settings-local-media",
+      "locale": "zh-CN",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "zh-CN/src/assets/screenshots/settings-local-media-zh-CN.png"
     }
   ]
 }

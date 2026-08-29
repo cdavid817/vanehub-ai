@@ -20,7 +20,7 @@ The session list on the left supports three display modes: **list / by category 
 
 ### Activity bar navigation
 
-The activity bar to the left of the session list switches between the main destinations: **Sessions / Loops / Goal Center / Todo Board / Agent evaluation / Scheduled tasks / Settings / Help**.
+The activity bar to the left of the session list switches between the main destinations: **Sessions / Loops / Goal Center / Todo Board / Evaluations / Mission Control / Scheduled tasks / Settings / Help**.
 
 ## Agent types
 
@@ -137,7 +137,7 @@ When you reopen a session after a crash or an abnormal exit, a **recovery banner
 
 ## Settings center
 
-**Settings** in the activity bar opens the settings center: navigation on the left, the configuration page on the right. There are 18 settings pages:
+**Settings** in the activity bar opens the settings center: navigation on the left, the configuration page on the right. There are 21 settings pages:
 
 | Settings page | What it holds |
 | --- | --- |
@@ -146,7 +146,7 @@ When you reopen a session after a crash or an abnormal exit, a **recovery banner
 | **CLI Parameters** | Launch flags per CLI Agent — see [Tools and extensions](tooling.md#cli-parameters) |
 | **SDK Dependencies** | Version management for the managed SDKs — see [Tools and extensions](tooling.md#sdk-dependencies) |
 | **Extension Capabilities** | Installing and enabling local multimodal capabilities — see [Tools and extensions](tooling.md#extension-capabilities) |
-| **Plugin Integration** | Built-in product integrations and readiness checks — see [Plugin integration](plugin-integration.md) |
+| **Plugin Integrations** | Built-in product integrations and readiness checks — see [Plugin integration](plugin-integration.md) |
 | **MCP Servers** | MCP server configuration and per-Agent binding — see [MCP servers](mcp.md) |
 | **Agent Configurations** | Provider, endpoint, and model per Agent, including OnePiece — see [Tools and extensions](tooling.md#agent-configurations) |
 | **Agent Policies** | Permission policy and approval templates — see [Permission approvals](permissions.md) |
@@ -158,7 +158,10 @@ When you reopen a session after a crash or an abnormal exit, a **recovery banner
 | **SSH Connections** | Saved SSH connections — see [Remote and IM](remote-and-im.md#ssh-remote-workspace) |
 | **Execution Observability** | Execution tracing and log collection policy — see [Observability](observability.md) |
 | **Usage Statistics** | Token usage statistics — see [Scheduled and usage](automation.md) |
+| **Code Intelligence** | Language server enablement, discovery, and workspace trust — see [LSP code intelligence](lsp-code-intelligence.md) |
+| **Local Media** | Local OCR, speech recognition, and speech synthesis engines — see [Local media](local-media.md) |
 | **About** | Version, update check, changelog, and repository links — see [Application updates](app-updates.md) |
+| **Documentation** | Renders the bundled product documentation in your interface language |
 
 ### Basic configuration
 
