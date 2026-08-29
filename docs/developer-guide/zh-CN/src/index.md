@@ -96,6 +96,7 @@
 | [桌面端发布验证](../../../desktop-release-verification.md) | 一次桌面端发布在发布前必须逐平台通过的验证流程 |
 | [运行时性能预算](../../../runtime-performance-budgets.md) | 已声明的运行时预算,以及针对它们的回归如何被报告 |
 | [CLI Agent 全局配置](../../../cli-agent-global-configuration.md) | VaneHub AI 如何写入各 CLI 自己的全局配置,以及测试如何隔离它 |
+| [统一工作台 UI 重构基线](../../../ui-redesign/baseline.md) | `redesign-unified-workbench-ui` 的里程碑 0 "改动前"证据:校验命令结果、已知缺陷、已确认的运行时架构事实,以及截图与 Fixture 引用 |
 
 ### Provider SDK
 

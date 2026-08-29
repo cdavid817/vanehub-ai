@@ -1,0 +1,1218 @@
+{
+  "meta": {
+    "capturedAt": "2026-08-29T20:32:31.211Z",
+    "locale": "zh-CN",
+    "theme": "minimal",
+    "widths": [
+      1600,
+      1280,
+      1024,
+      768,
+      640
+    ],
+    "viewportHeight": 900,
+    "metricsViewport": {
+      "width": 1280,
+      "height": 900
+    }
+  },
+  "results": [
+    {
+      "name": "sessions-list",
+      "status": "ok",
+      "error": null,
+      "note": null,
+      "screenshots": [
+        {
+          "width": 1600,
+          "file": "docs/ui-redesign/screenshots/baseline/sessions-list-1600.png",
+          "bytes": 52023
+        },
+        {
+          "width": 1280,
+          "file": "docs/ui-redesign/screenshots/baseline/sessions-list-1280.png",
+          "bytes": 50216
+        },
+        {
+          "width": 1024,
+          "file": "docs/ui-redesign/screenshots/baseline/sessions-list-1024.png",
+          "bytes": 46421
+        },
+        {
+          "width": 768,
+          "file": "docs/ui-redesign/screenshots/baseline/sessions-list-768.png",
+          "bytes": 45115
+        },
+        {
+          "width": 640,
+          "file": "docs/ui-redesign/screenshots/baseline/sessions-list-640.png",
+          "bytes": 35699
+        }
+      ],
+      "active": {
+        "domNodeCount": 309,
+        "resourceEntryCount": 422,
+        "intervalsNet": 1,
+        "observersCreated": 0,
+        "listenersNet": 154,
+        "raw": {
+          "intervalsStarted": 1,
+          "intervalsCleared": 0,
+          "resizeObserversCreated": 0,
+          "intersectionObserversCreated": 0,
+          "listenersAdded": 160,
+          "listenersRemoved": 6
+        }
+      },
+      "after": {
+        "domNodeCount": 379,
+        "resourceEntryCount": 431,
+        "intervalsNet": 1,
+        "observersCreated": 0,
+        "listenersNet": 160,
+        "raw": {
+          "intervalsStarted": 1,
+          "intervalsCleared": 0,
+          "resizeObserversCreated": 0,
+          "intersectionObserversCreated": 0,
+          "listenersAdded": 167,
+          "listenersRemoved": 7
+        }
+      }
+    },
+    {
+      "name": "session-chat",
+      "status": "ok",
+      "error": null,
+      "note": null,
+      "screenshots": [
+        {
+          "width": 1600,
+          "file": "docs/ui-redesign/screenshots/baseline/session-chat-1600.png",
+          "bytes": 57598
+        },
+        {
+          "width": 1280,
+          "file": "docs/ui-redesign/screenshots/baseline/session-chat-1280.png",
+          "bytes": 56477
+        },
+        {
+          "width": 1024,
+          "file": "docs/ui-redesign/screenshots/baseline/session-chat-1024.png",
+          "bytes": 53533
+        },
+        {
+          "width": 768,
+          "file": "docs/ui-redesign/screenshots/baseline/session-chat-768.png",
+          "bytes": 50352
+        },
+        {
+          "width": 640,
+          "file": "docs/ui-redesign/screenshots/baseline/session-chat-640.png",
+          "bytes": 50442
+        }
+      ],
+      "active": {
+        "domNodeCount": 603,
+        "resourceEntryCount": 432,
+        "intervalsNet": -4,
+        "observersCreated": 4,
+        "listenersNet": 185,
+        "raw": {
+          "intervalsStarted": 1,
+          "intervalsCleared": 5,
+          "resizeObserversCreated": 2,
+          "intersectionObserversCreated": 2,
+          "listenersAdded": 245,
+          "listenersRemoved": 60
+        }
+      },
+      "after": {
+        "domNodeCount": 654,
+        "resourceEntryCount": 442,
+        "intervalsNet": -4,
+        "observersCreated": 4,
+        "listenersNet": 185,
+        "raw": {
+          "intervalsStarted": 1,
+          "intervalsCleared": 5,
+          "resizeObserversCreated": 2,
+          "intersectionObserversCreated": 2,
+          "listenersAdded": 245,
+          "listenersRemoved": 60
+        }
+      }
+    },
+    {
+      "name": "session-changes",
+      "status": "ok",
+      "error": null,
+      "note": null,
+      "screenshots": [
+        {
+          "width": 1600,
+          "file": "docs/ui-redesign/screenshots/baseline/session-changes-1600.png",
+          "bytes": 64940
+        },
+        {
+          "width": 1280,
+          "file": "docs/ui-redesign/screenshots/baseline/session-changes-1280.png",
+          "bytes": 63033
+        },
+        {
+          "width": 1024,
+          "file": "docs/ui-redesign/screenshots/baseline/session-changes-1024.png",
+          "bytes": 60653
+        },
+        {
+          "width": 768,
+          "file": "docs/ui-redesign/screenshots/baseline/session-changes-768.png",
+          "bytes": 56053
+        },
+        {
+          "width": 640,
+          "file": "docs/ui-redesign/screenshots/baseline/session-changes-640.png",
+          "bytes": 57547
+        }
+      ],
+      "active": {
+        "domNodeCount": 642,
+        "resourceEntryCount": 442,
+        "intervalsNet": -4,
+        "observersCreated": 4,
+        "listenersNet": 186,
+        "raw": {
+          "intervalsStarted": 1,
+          "intervalsCleared": 5,
+          "resizeObserversCreated": 2,
+          "intersectionObserversCreated": 2,
+          "listenersAdded": 246,
+          "listenersRemoved": 60
+        }
+      },
+      "after": {
+        "domNodeCount": 642,
+        "resourceEntryCount": 442,
+        "intervalsNet": -4,
+        "observersCreated": 4,
+        "listenersNet": 186,
+        "raw": {
+          "intervalsStarted": 1,
+          "intervalsCleared": 5,
+          "resizeObserversCreated": 2,
+          "intersectionObserversCreated": 2,
+          "listenersAdded": 246,
+          "listenersRemoved": 60
+        }
+      }
+    },
+    {
+      "name": "session-documents",
+      "status": "ok",
+      "error": null,
+      "note": null,
+      "screenshots": [
+        {
+          "width": 1600,
+          "file": "docs/ui-redesign/screenshots/baseline/session-documents-1600.png",
+          "bytes": 55794
+        },
+        {
+          "width": 1280,
+          "file": "docs/ui-redesign/screenshots/baseline/session-documents-1280.png",
+          "bytes": 54149
+        },
+        {
+          "width": 1024,
+          "file": "docs/ui-redesign/screenshots/baseline/session-documents-1024.png",
+          "bytes": 51934
+        },
+        {
+          "width": 768,
+          "file": "docs/ui-redesign/screenshots/baseline/session-documents-768.png",
+          "bytes": 50108
+        },
+        {
+          "width": 640,
+          "file": "docs/ui-redesign/screenshots/baseline/session-documents-640.png",
+          "bytes": 50109
+        }
+      ],
+      "active": {
+        "domNodeCount": 682,
+        "resourceEntryCount": 456,
+        "intervalsNet": -4,
+        "observersCreated": 4,
+        "listenersNet": 188,
+        "raw": {
+          "intervalsStarted": 1,
+          "intervalsCleared": 5,
+          "resizeObserversCreated": 2,
+          "intersectionObserversCreated": 2,
+          "listenersAdded": 248,
+          "listenersRemoved": 60
+        }
+      },
+      "after": {
+        "domNodeCount": 682,
+        "resourceEntryCount": 456,
+        "intervalsNet": -4,
+        "observersCreated": 4,
+        "listenersNet": 188,
+        "raw": {
+          "intervalsStarted": 1,
+          "intervalsCleared": 5,
+          "resizeObserversCreated": 2,
+          "intersectionObserversCreated": 2,
+          "listenersAdded": 248,
+          "listenersRemoved": 60
+        }
+      }
+    },
+    {
+      "name": "session-files",
+      "status": "ok",
+      "error": null,
+      "note": null,
+      "screenshots": [
+        {
+          "width": 1600,
+          "file": "docs/ui-redesign/screenshots/baseline/session-files-1600.png",
+          "bytes": 57812
+        },
+        {
+          "width": 1280,
+          "file": "docs/ui-redesign/screenshots/baseline/session-files-1280.png",
+          "bytes": 57087
+        },
+        {
+          "width": 1024,
+          "file": "docs/ui-redesign/screenshots/baseline/session-files-1024.png",
+          "bytes": 55325
+        },
+        {
+          "width": 768,
+          "file": "docs/ui-redesign/screenshots/baseline/session-files-768.png",
+          "bytes": 50879
+        },
+        {
+          "width": 640,
+          "file": "docs/ui-redesign/screenshots/baseline/session-files-640.png",
+          "bytes": 50577
+        }
+      ],
+      "active": {
+        "domNodeCount": 770,
+        "resourceEntryCount": 468,
+        "intervalsNet": -4,
+        "observersCreated": 4,
+        "listenersNet": 189,
+        "raw": {
+          "intervalsStarted": 1,
+          "intervalsCleared": 5,
+          "resizeObserversCreated": 2,
+          "intersectionObserversCreated": 2,
+          "listenersAdded": 249,
+          "listenersRemoved": 60
+        }
+      },
+      "after": {
+        "domNodeCount": 770,
+        "resourceEntryCount": 468,
+        "intervalsNet": -4,
+        "observersCreated": 4,
+        "listenersNet": 189,
+        "raw": {
+          "intervalsStarted": 1,
+          "intervalsCleared": 5,
+          "resizeObserversCreated": 2,
+          "intersectionObserversCreated": 2,
+          "listenersAdded": 249,
+          "listenersRemoved": 60
+        }
+      }
+    },
+    {
+      "name": "session-terminal",
+      "status": "ok",
+      "error": null,
+      "note": null,
+      "screenshots": [
+        {
+          "width": 1600,
+          "file": "docs/ui-redesign/screenshots/baseline/session-terminal-1600.png",
+          "bytes": 76467
+        },
+        {
+          "width": 1280,
+          "file": "docs/ui-redesign/screenshots/baseline/session-terminal-1280.png",
+          "bytes": 74315
+        },
+        {
+          "width": 1024,
+          "file": "docs/ui-redesign/screenshots/baseline/session-terminal-1024.png",
+          "bytes": 71611
+        },
+        {
+          "width": 768,
+          "file": "docs/ui-redesign/screenshots/baseline/session-terminal-768.png",
+          "bytes": 67905
+        },
+        {
+          "width": 640,
+          "file": "docs/ui-redesign/screenshots/baseline/session-terminal-640.png",
+          "bytes": 67591
+        }
+      ],
+      "active": {
+        "domNodeCount": 851,
+        "resourceEntryCount": 487,
+        "intervalsNet": -4,
+        "observersCreated": 8,
+        "listenersNet": 194,
+        "raw": {
+          "intervalsStarted": 1,
+          "intervalsCleared": 5,
+          "resizeObserversCreated": 6,
+          "intersectionObserversCreated": 2,
+          "listenersAdded": 257,
+          "listenersRemoved": 63
+        }
+      },
+      "after": {
+        "domNodeCount": 800,
+        "resourceEntryCount": 487,
+        "intervalsNet": -4,
+        "observersCreated": 8,
+        "listenersNet": 194,
+        "raw": {
+          "intervalsStarted": 1,
+          "intervalsCleared": 5,
+          "resizeObserversCreated": 6,
+          "intersectionObserversCreated": 2,
+          "listenersAdded": 257,
+          "listenersRemoved": 63
+        }
+      }
+    },
+    {
+      "name": "session-shell",
+      "status": "ok",
+      "error": null,
+      "note": null,
+      "screenshots": [
+        {
+          "width": 1600,
+          "file": "docs/ui-redesign/screenshots/baseline/session-shell-1600.png",
+          "bytes": 47193
+        },
+        {
+          "width": 1280,
+          "file": "docs/ui-redesign/screenshots/baseline/session-shell-1280.png",
+          "bytes": 46100
+        },
+        {
+          "width": 1024,
+          "file": "docs/ui-redesign/screenshots/baseline/session-shell-1024.png",
+          "bytes": 43695
+        },
+        {
+          "width": 768,
+          "file": "docs/ui-redesign/screenshots/baseline/session-shell-768.png",
+          "bytes": 40766
+        },
+        {
+          "width": 640,
+          "file": "docs/ui-redesign/screenshots/baseline/session-shell-640.png",
+          "bytes": 41164
+        }
+      ],
+      "active": {
+        "domNodeCount": 885,
+        "resourceEntryCount": 493,
+        "intervalsNet": -9,
+        "observersCreated": 12,
+        "listenersNet": 210,
+        "raw": {
+          "intervalsStarted": 1,
+          "intervalsCleared": 10,
+          "resizeObserversCreated": 8,
+          "intersectionObserversCreated": 4,
+          "listenersAdded": 324,
+          "listenersRemoved": 114
+        }
+      },
+      "after": {
+        "domNodeCount": 885,
+        "resourceEntryCount": 493,
+        "intervalsNet": -9,
+        "observersCreated": 12,
+        "listenersNet": 210,
+        "raw": {
+          "intervalsStarted": 1,
+          "intervalsCleared": 10,
+          "resizeObserversCreated": 8,
+          "intersectionObserversCreated": 4,
+          "listenersAdded": 324,
+          "listenersRemoved": 114
+        }
+      }
+    },
+    {
+      "name": "session-logs",
+      "status": "ok",
+      "error": null,
+      "note": null,
+      "screenshots": [
+        {
+          "width": 1600,
+          "file": "docs/ui-redesign/screenshots/baseline/session-logs-1600.png",
+          "bytes": 78579
+        },
+        {
+          "width": 1280,
+          "file": "docs/ui-redesign/screenshots/baseline/session-logs-1280.png",
+          "bytes": 76516
+        },
+        {
+          "width": 1024,
+          "file": "docs/ui-redesign/screenshots/baseline/session-logs-1024.png",
+          "bytes": 73577
+        },
+        {
+          "width": 768,
+          "file": "docs/ui-redesign/screenshots/baseline/session-logs-768.png",
+          "bytes": 68455
+        },
+        {
+          "width": 640,
+          "file": "docs/ui-redesign/screenshots/baseline/session-logs-640.png",
+          "bytes": 59063
+        }
+      ],
+      "active": {
+        "domNodeCount": 1027,
+        "resourceEntryCount": 507,
+        "intervalsNet": -9,
+        "observersCreated": 16,
+        "listenersNet": 217,
+        "raw": {
+          "intervalsStarted": 1,
+          "intervalsCleared": 10,
+          "resizeObserversCreated": 12,
+          "intersectionObserversCreated": 4,
+          "listenersAdded": 334,
+          "listenersRemoved": 117
+        }
+      },
+      "after": {
+        "domNodeCount": 915,
+        "resourceEntryCount": 507,
+        "intervalsNet": -9,
+        "observersCreated": 16,
+        "listenersNet": 217,
+        "raw": {
+          "intervalsStarted": 1,
+          "intervalsCleared": 10,
+          "resizeObserversCreated": 12,
+          "intersectionObserversCreated": 4,
+          "listenersAdded": 334,
+          "listenersRemoved": 117
+        }
+      }
+    },
+    {
+      "name": "session-traces",
+      "status": "ok",
+      "error": null,
+      "note": null,
+      "screenshots": [
+        {
+          "width": 1600,
+          "file": "docs/ui-redesign/screenshots/baseline/session-traces-1600.png",
+          "bytes": 43873
+        },
+        {
+          "width": 1280,
+          "file": "docs/ui-redesign/screenshots/baseline/session-traces-1280.png",
+          "bytes": 93163
+        },
+        {
+          "width": 1024,
+          "file": "docs/ui-redesign/screenshots/baseline/session-traces-1024.png",
+          "bytes": 91740
+        },
+        {
+          "width": 768,
+          "file": "docs/ui-redesign/screenshots/baseline/session-traces-768.png",
+          "bytes": 75712
+        },
+        {
+          "width": 640,
+          "file": "docs/ui-redesign/screenshots/baseline/session-traces-640.png",
+          "bytes": 67519
+        }
+      ],
+      "active": {
+        "domNodeCount": 1157,
+        "resourceEntryCount": 527,
+        "intervalsNet": -9,
+        "observersCreated": 22,
+        "listenersNet": 221,
+        "raw": {
+          "intervalsStarted": 1,
+          "intervalsCleared": 10,
+          "resizeObserversCreated": 18,
+          "intersectionObserversCreated": 4,
+          "listenersAdded": 341,
+          "listenersRemoved": 120
+        }
+      },
+      "after": {
+        "domNodeCount": 1136,
+        "resourceEntryCount": 527,
+        "intervalsNet": -9,
+        "observersCreated": 22,
+        "listenersNet": 221,
+        "raw": {
+          "intervalsStarted": 1,
+          "intervalsCleared": 10,
+          "resizeObserversCreated": 18,
+          "intersectionObserversCreated": 4,
+          "listenersAdded": 341,
+          "listenersRemoved": 120
+        }
+      }
+    },
+    {
+      "name": "session-report",
+      "status": "ok",
+      "error": null,
+      "note": null,
+      "screenshots": [
+        {
+          "width": 1600,
+          "file": "docs/ui-redesign/screenshots/baseline/session-report-1600.png",
+          "bytes": 93990
+        },
+        {
+          "width": 1280,
+          "file": "docs/ui-redesign/screenshots/baseline/session-report-1280.png",
+          "bytes": 92419
+        },
+        {
+          "width": 1024,
+          "file": "docs/ui-redesign/screenshots/baseline/session-report-1024.png",
+          "bytes": 89253
+        },
+        {
+          "width": 768,
+          "file": "docs/ui-redesign/screenshots/baseline/session-report-768.png",
+          "bytes": 81246
+        },
+        {
+          "width": 640,
+          "file": "docs/ui-redesign/screenshots/baseline/session-report-640.png",
+          "bytes": 64167
+        }
+      ],
+      "active": {
+        "domNodeCount": 1336,
+        "resourceEntryCount": 534,
+        "intervalsNet": -9,
+        "observersCreated": 22,
+        "listenersNet": 222,
+        "raw": {
+          "intervalsStarted": 1,
+          "intervalsCleared": 10,
+          "resizeObserversCreated": 18,
+          "intersectionObserversCreated": 4,
+          "listenersAdded": 342,
+          "listenersRemoved": 120
+        }
+      },
+      "after": {
+        "domNodeCount": 1336,
+        "resourceEntryCount": 534,
+        "intervalsNet": -9,
+        "observersCreated": 22,
+        "listenersNet": 222,
+        "raw": {
+          "intervalsStarted": 1,
+          "intervalsCleared": 10,
+          "resizeObserversCreated": 18,
+          "intersectionObserversCreated": 4,
+          "listenersAdded": 342,
+          "listenersRemoved": 120
+        }
+      }
+    },
+    {
+      "name": "information-panel",
+      "status": "ok",
+      "error": null,
+      "note": null,
+      "screenshots": [
+        {
+          "width": 1600,
+          "file": "docs/ui-redesign/screenshots/baseline/information-panel-1600.png",
+          "bytes": 75378
+        },
+        {
+          "width": 1280,
+          "file": "docs/ui-redesign/screenshots/baseline/information-panel-1280.png",
+          "bytes": 72236
+        },
+        {
+          "width": 1024,
+          "file": "docs/ui-redesign/screenshots/baseline/information-panel-1024.png",
+          "bytes": 68026
+        },
+        {
+          "width": 768,
+          "file": "docs/ui-redesign/screenshots/baseline/information-panel-768.png",
+          "bytes": 66777
+        },
+        {
+          "width": 640,
+          "file": "docs/ui-redesign/screenshots/baseline/information-panel-640.png",
+          "bytes": 55754
+        }
+      ],
+      "active": {
+        "domNodeCount": 1336,
+        "resourceEntryCount": 534,
+        "intervalsNet": -11,
+        "observersCreated": 22,
+        "listenersNet": 219,
+        "raw": {
+          "intervalsStarted": 1,
+          "intervalsCleared": 12,
+          "resizeObserversCreated": 18,
+          "intersectionObserversCreated": 4,
+          "listenersAdded": 349,
+          "listenersRemoved": 130
+        }
+      },
+      "after": {
+        "domNodeCount": 1336,
+        "resourceEntryCount": 534,
+        "intervalsNet": -11,
+        "observersCreated": 22,
+        "listenersNet": 219,
+        "raw": {
+          "intervalsStarted": 1,
+          "intervalsCleared": 12,
+          "resizeObserversCreated": 18,
+          "intersectionObserversCreated": 4,
+          "listenersAdded": 351,
+          "listenersRemoved": 132
+        }
+      }
+    },
+    {
+      "name": "scheduled-tasks",
+      "status": "ok",
+      "error": null,
+      "note": null,
+      "screenshots": [
+        {
+          "width": 1600,
+          "file": "docs/ui-redesign/screenshots/baseline/scheduled-tasks-1600.png",
+          "bytes": 31565
+        },
+        {
+          "width": 1280,
+          "file": "docs/ui-redesign/screenshots/baseline/scheduled-tasks-1280.png",
+          "bytes": 31747
+        },
+        {
+          "width": 1024,
+          "file": "docs/ui-redesign/screenshots/baseline/scheduled-tasks-1024.png",
+          "bytes": 31743
+        },
+        {
+          "width": 768,
+          "file": "docs/ui-redesign/screenshots/baseline/scheduled-tasks-768.png",
+          "bytes": 32046
+        },
+        {
+          "width": 640,
+          "file": "docs/ui-redesign/screenshots/baseline/scheduled-tasks-640.png",
+          "bytes": 30966
+        }
+      ],
+      "active": {
+        "domNodeCount": 1401,
+        "resourceEntryCount": 534,
+        "intervalsNet": -13,
+        "observersCreated": 22,
+        "listenersNet": 236,
+        "raw": {
+          "intervalsStarted": 1,
+          "intervalsCleared": 14,
+          "resizeObserversCreated": 18,
+          "intersectionObserversCreated": 4,
+          "listenersAdded": 373,
+          "listenersRemoved": 137
+        }
+      },
+      "after": {
+        "domNodeCount": 1336,
+        "resourceEntryCount": 534,
+        "intervalsNet": -13,
+        "observersCreated": 22,
+        "listenersNet": 235,
+        "raw": {
+          "intervalsStarted": 1,
+          "intervalsCleared": 14,
+          "resizeObserversCreated": 18,
+          "intersectionObserversCreated": 4,
+          "listenersAdded": 373,
+          "listenersRemoved": 138
+        }
+      }
+    },
+    {
+      "name": "work-board",
+      "status": "ok",
+      "error": null,
+      "note": null,
+      "screenshots": [
+        {
+          "width": 1600,
+          "file": "docs/ui-redesign/screenshots/baseline/work-board-1600.png",
+          "bytes": 38126
+        },
+        {
+          "width": 1280,
+          "file": "docs/ui-redesign/screenshots/baseline/work-board-1280.png",
+          "bytes": 34389
+        },
+        {
+          "width": 1024,
+          "file": "docs/ui-redesign/screenshots/baseline/work-board-1024.png",
+          "bytes": 33554
+        },
+        {
+          "width": 768,
+          "file": "docs/ui-redesign/screenshots/baseline/work-board-768.png",
+          "bytes": 31699
+        },
+        {
+          "width": 640,
+          "file": "docs/ui-redesign/screenshots/baseline/work-board-640.png",
+          "bytes": 29739
+        }
+      ],
+      "active": {
+        "domNodeCount": 1329,
+        "resourceEntryCount": 534,
+        "intervalsNet": -13,
+        "observersCreated": 22,
+        "listenersNet": 236,
+        "raw": {
+          "intervalsStarted": 1,
+          "intervalsCleared": 14,
+          "resizeObserversCreated": 18,
+          "intersectionObserversCreated": 4,
+          "listenersAdded": 374,
+          "listenersRemoved": 138
+        }
+      },
+      "after": {
+        "domNodeCount": 1336,
+        "resourceEntryCount": 534,
+        "intervalsNet": -13,
+        "observersCreated": 22,
+        "listenersNet": 236,
+        "raw": {
+          "intervalsStarted": 1,
+          "intervalsCleared": 14,
+          "resizeObserversCreated": 18,
+          "intersectionObserversCreated": 4,
+          "listenersAdded": 374,
+          "listenersRemoved": 138
+        }
+      }
+    },
+    {
+      "name": "goals",
+      "status": "ok",
+      "error": null,
+      "note": null,
+      "screenshots": [
+        {
+          "width": 1600,
+          "file": "docs/ui-redesign/screenshots/baseline/goals-1600.png",
+          "bytes": 38233
+        },
+        {
+          "width": 1280,
+          "file": "docs/ui-redesign/screenshots/baseline/goals-1280.png",
+          "bytes": 36797
+        },
+        {
+          "width": 1024,
+          "file": "docs/ui-redesign/screenshots/baseline/goals-1024.png",
+          "bytes": 36083
+        },
+        {
+          "width": 768,
+          "file": "docs/ui-redesign/screenshots/baseline/goals-768.png",
+          "bytes": 34642
+        },
+        {
+          "width": 640,
+          "file": "docs/ui-redesign/screenshots/baseline/goals-640.png",
+          "bytes": 33900
+        }
+      ],
+      "active": {
+        "domNodeCount": 1390,
+        "resourceEntryCount": 543,
+        "intervalsNet": -13,
+        "observersCreated": 22,
+        "listenersNet": 243,
+        "raw": {
+          "intervalsStarted": 1,
+          "intervalsCleared": 14,
+          "resizeObserversCreated": 18,
+          "intersectionObserversCreated": 4,
+          "listenersAdded": 381,
+          "listenersRemoved": 138
+        }
+      },
+      "after": {
+        "domNodeCount": 1397,
+        "resourceEntryCount": 543,
+        "intervalsNet": -13,
+        "observersCreated": 22,
+        "listenersNet": 243,
+        "raw": {
+          "intervalsStarted": 1,
+          "intervalsCleared": 14,
+          "resizeObserversCreated": 18,
+          "intersectionObserversCreated": 4,
+          "listenersAdded": 381,
+          "listenersRemoved": 138
+        }
+      }
+    },
+    {
+      "name": "mission-control",
+      "status": "ok",
+      "error": null,
+      "note": null,
+      "screenshots": [
+        {
+          "width": 1600,
+          "file": "docs/ui-redesign/screenshots/baseline/mission-control-1600.png",
+          "bytes": 74007
+        },
+        {
+          "width": 1280,
+          "file": "docs/ui-redesign/screenshots/baseline/mission-control-1280.png",
+          "bytes": 71162
+        },
+        {
+          "width": 1024,
+          "file": "docs/ui-redesign/screenshots/baseline/mission-control-1024.png",
+          "bytes": 70295
+        },
+        {
+          "width": 768,
+          "file": "docs/ui-redesign/screenshots/baseline/mission-control-768.png",
+          "bytes": 63300
+        },
+        {
+          "width": 640,
+          "file": "docs/ui-redesign/screenshots/baseline/mission-control-640.png",
+          "bytes": 61552
+        }
+      ],
+      "active": {
+        "domNodeCount": 1600,
+        "resourceEntryCount": 544,
+        "intervalsNet": -12,
+        "observersCreated": 22,
+        "listenersNet": 251,
+        "raw": {
+          "intervalsStarted": 3,
+          "intervalsCleared": 15,
+          "resizeObserversCreated": 18,
+          "intersectionObserversCreated": 4,
+          "listenersAdded": 391,
+          "listenersRemoved": 140
+        }
+      },
+      "after": {
+        "domNodeCount": 1607,
+        "resourceEntryCount": 544,
+        "intervalsNet": -12,
+        "observersCreated": 22,
+        "listenersNet": 251,
+        "raw": {
+          "intervalsStarted": 3,
+          "intervalsCleared": 15,
+          "resizeObserversCreated": 18,
+          "intersectionObserversCreated": 4,
+          "listenersAdded": 391,
+          "listenersRemoved": 140
+        }
+      }
+    },
+    {
+      "name": "loop-center",
+      "status": "ok",
+      "error": null,
+      "note": "Web/mock default empty state; the 4-step creation wizard was not driven for this baseline.",
+      "screenshots": [
+        {
+          "width": 1600,
+          "file": "docs/ui-redesign/screenshots/baseline/loop-center-1600.png",
+          "bytes": 34325
+        },
+        {
+          "width": 1280,
+          "file": "docs/ui-redesign/screenshots/baseline/loop-center-1280.png",
+          "bytes": 32836
+        },
+        {
+          "width": 1024,
+          "file": "docs/ui-redesign/screenshots/baseline/loop-center-1024.png",
+          "bytes": 32109
+        },
+        {
+          "width": 768,
+          "file": "docs/ui-redesign/screenshots/baseline/loop-center-768.png",
+          "bytes": 23217
+        },
+        {
+          "width": 640,
+          "file": "docs/ui-redesign/screenshots/baseline/loop-center-640.png",
+          "bytes": 22474
+        }
+      ],
+      "active": {
+        "domNodeCount": 1665,
+        "resourceEntryCount": 563,
+        "intervalsNet": -12,
+        "observersCreated": 22,
+        "listenersNet": 252,
+        "raw": {
+          "intervalsStarted": 3,
+          "intervalsCleared": 15,
+          "resizeObserversCreated": 18,
+          "intersectionObserversCreated": 4,
+          "listenersAdded": 392,
+          "listenersRemoved": 140
+        }
+      },
+      "after": {
+        "domNodeCount": 1672,
+        "resourceEntryCount": 563,
+        "intervalsNet": -12,
+        "observersCreated": 22,
+        "listenersNet": 252,
+        "raw": {
+          "intervalsStarted": 3,
+          "intervalsCleared": 15,
+          "resizeObserversCreated": 18,
+          "intersectionObserversCreated": 4,
+          "listenersAdded": 392,
+          "listenersRemoved": 140
+        }
+      }
+    },
+    {
+      "name": "evaluation",
+      "status": "ok",
+      "error": null,
+      "note": null,
+      "screenshots": [
+        {
+          "width": 1600,
+          "file": "docs/ui-redesign/screenshots/baseline/evaluation-1600.png",
+          "bytes": 58447
+        },
+        {
+          "width": 1280,
+          "file": "docs/ui-redesign/screenshots/baseline/evaluation-1280.png",
+          "bytes": 55871
+        },
+        {
+          "width": 1024,
+          "file": "docs/ui-redesign/screenshots/baseline/evaluation-1024.png",
+          "bytes": 55459
+        },
+        {
+          "width": 768,
+          "file": "docs/ui-redesign/screenshots/baseline/evaluation-768.png",
+          "bytes": 55149
+        },
+        {
+          "width": 640,
+          "file": "docs/ui-redesign/screenshots/baseline/evaluation-640.png",
+          "bytes": 54074
+        }
+      ],
+      "active": {
+        "domNodeCount": 1806,
+        "resourceEntryCount": 564,
+        "intervalsNet": -12,
+        "observersCreated": 22,
+        "listenersNet": 261,
+        "raw": {
+          "intervalsStarted": 3,
+          "intervalsCleared": 15,
+          "resizeObserversCreated": 18,
+          "intersectionObserversCreated": 4,
+          "listenersAdded": 401,
+          "listenersRemoved": 140
+        }
+      },
+      "after": {
+        "domNodeCount": 650,
+        "resourceEntryCount": 572,
+        "intervalsNet": -15,
+        "observersCreated": 22,
+        "listenersNet": 198,
+        "raw": {
+          "intervalsStarted": 3,
+          "intervalsCleared": 18,
+          "resizeObserversCreated": 18,
+          "intersectionObserversCreated": 4,
+          "listenersAdded": 421,
+          "listenersRemoved": 223
+        }
+      }
+    },
+    {
+      "name": "settings-basic",
+      "status": "ok",
+      "error": null,
+      "note": null,
+      "screenshots": [
+        {
+          "width": 1600,
+          "file": "docs/ui-redesign/screenshots/baseline/settings-basic-1600.png",
+          "bytes": 82760
+        },
+        {
+          "width": 1280,
+          "file": "docs/ui-redesign/screenshots/baseline/settings-basic-1280.png",
+          "bytes": 80397
+        },
+        {
+          "width": 1024,
+          "file": "docs/ui-redesign/screenshots/baseline/settings-basic-1024.png",
+          "bytes": 79150
+        },
+        {
+          "width": 768,
+          "file": "docs/ui-redesign/screenshots/baseline/settings-basic-768.png",
+          "bytes": 56146
+        },
+        {
+          "width": 640,
+          "file": "docs/ui-redesign/screenshots/baseline/settings-basic-640.png",
+          "bytes": 53847
+        }
+      ],
+      "active": {
+        "domNodeCount": 650,
+        "resourceEntryCount": 572,
+        "intervalsNet": -15,
+        "observersCreated": 22,
+        "listenersNet": 198,
+        "raw": {
+          "intervalsStarted": 3,
+          "intervalsCleared": 18,
+          "resizeObserversCreated": 18,
+          "intersectionObserversCreated": 4,
+          "listenersAdded": 421,
+          "listenersRemoved": 223
+        }
+      },
+      "after": {
+        "domNodeCount": 1024,
+        "resourceEntryCount": 589,
+        "intervalsNet": -15,
+        "observersCreated": 22,
+        "listenersNet": 206,
+        "raw": {
+          "intervalsStarted": 3,
+          "intervalsCleared": 18,
+          "resizeObserversCreated": 18,
+          "intersectionObserversCreated": 4,
+          "listenersAdded": 429,
+          "listenersRemoved": 223
+        }
+      }
+    },
+    {
+      "name": "settings-providers",
+      "status": "ok",
+      "error": null,
+      "note": null,
+      "screenshots": [
+        {
+          "width": 1600,
+          "file": "docs/ui-redesign/screenshots/baseline/settings-providers-1600.png",
+          "bytes": 130573
+        },
+        {
+          "width": 1280,
+          "file": "docs/ui-redesign/screenshots/baseline/settings-providers-1280.png",
+          "bytes": 126941
+        },
+        {
+          "width": 1024,
+          "file": "docs/ui-redesign/screenshots/baseline/settings-providers-1024.png",
+          "bytes": 100547
+        },
+        {
+          "width": 768,
+          "file": "docs/ui-redesign/screenshots/baseline/settings-providers-768.png",
+          "bytes": 71440
+        },
+        {
+          "width": 640,
+          "file": "docs/ui-redesign/screenshots/baseline/settings-providers-640.png",
+          "bytes": 64938
+        }
+      ],
+      "active": {
+        "domNodeCount": 1024,
+        "resourceEntryCount": 589,
+        "intervalsNet": -15,
+        "observersCreated": 22,
+        "listenersNet": 206,
+        "raw": {
+          "intervalsStarted": 3,
+          "intervalsCleared": 18,
+          "resizeObserversCreated": 18,
+          "intersectionObserversCreated": 4,
+          "listenersAdded": 429,
+          "listenersRemoved": 223
+        }
+      },
+      "after": {
+        "domNodeCount": 514,
+        "resourceEntryCount": 589,
+        "intervalsNet": -18,
+        "observersCreated": 26,
+        "listenersNet": 231,
+        "raw": {
+          "intervalsStarted": 3,
+          "intervalsCleared": 21,
+          "resizeObserversCreated": 20,
+          "intersectionObserversCreated": 6,
+          "listenersAdded": 502,
+          "listenersRemoved": 271
+        }
+      }
+    }
+  ]
+}

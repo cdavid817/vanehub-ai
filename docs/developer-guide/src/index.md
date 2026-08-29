@@ -96,6 +96,7 @@ These live outside the guide's chapter list but are part of the repository's doc
 | [Desktop release verification](../../desktop-release-verification.md) | The per-platform verification procedure a desktop release must pass before publication |
 | [Runtime performance budgets](../../runtime-performance-budgets.md) | The declared runtime budgets and how a regression against them is reported |
 | [CLI Agent global configuration](../../cli-agent-global-configuration.md) | How VaneHub AI writes each CLI's own global configuration, and how tests isolate it |
+| [Unified workbench UI redesign baseline](../../ui-redesign/baseline.md) | The Milestone 0 "before" evidence for `redesign-unified-workbench-ui`: verification command results, pre-existing defects, confirmed runtime architecture facts, and screenshot/fixture references |
 
 ### Provider SDK
 

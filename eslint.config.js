@@ -38,6 +38,23 @@ export default tseslint.config(
     },
   },
   {
+    // This one script also contains Playwright `page.evaluate()`/`addInitScript()` callbacks that
+    // execute in a browser page, not in this file's own Node process — they need browser globals
+    // the rest of scripts/**/*.mjs correctly has no reason to declare.
+    files: ["scripts/ui-redesign/capture-baseline.mjs"],
+    languageOptions: {
+      globals: {
+        window: "readonly",
+        document: "readonly",
+        performance: "readonly",
+        EventTarget: "readonly",
+        localStorage: "readonly",
+        HTMLElement: "readonly",
+        setTimeout: "readonly",
+      },
+    },
+  },
+  {
     files: ["**/*.{ts,tsx}"],
     plugins: {
       "react-hooks": reactHooks,
