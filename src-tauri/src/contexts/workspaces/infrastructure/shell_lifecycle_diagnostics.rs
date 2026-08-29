@@ -45,6 +45,16 @@ fn orphaned_context(shell_id: &str, attempted_generation: u64) -> BTreeMap<Strin
     ])
 }
 
+fn rollback_context(shell_id: &str, generation: u64, reason: &str) -> BTreeMap<String, String> {
+    BTreeMap::from([
+        ("shell_id".to_string(), shell_id.to_string()),
+        ("generation".to_string(), generation.to_string()),
+        // A reason code from the fixed lifecycle vocabulary, never a platform error string: those
+        // quote paths and command lines.
+        ("reason".to_string(), reason.to_string()),
+    ])
+}
+
 pub(crate) struct UnifiedLogShellDiagnostics;
 
 impl ShellLifecycleDiagnosticsPort for UnifiedLogShellDiagnostics {
@@ -66,6 +76,16 @@ impl ShellLifecycleDiagnosticsPort for UnifiedLogShellDiagnostics {
         );
     }
 
+    fn startup_rollback_unconfirmed(&self, shell_id: &str, generation: u64, reason: &str) {
+        let _ = write_message_raw(
+            &fallback_log_dir(),
+            LogLevel::Warn,
+            "session-shell",
+            "startup rollback could not confirm the child had ended",
+            rollback_context(shell_id, generation, reason),
+        );
+    }
+
     fn orphaned_reaper_completion(&self, shell_id: &str, attempted_generation: u64) {
         let _ = write_message_raw(
             &fallback_log_dir(),
@@ -80,6 +100,7 @@ impl ShellLifecycleDiagnosticsPort for UnifiedLogShellDiagnostics {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::contexts::workspaces::domain::shell_reason_code;
 
     /// Bounded, and bounded by name rather than by count alone.
     ///
@@ -134,6 +155,23 @@ mod tests {
     /// The guard against a path reaching a log is not a filter here — it is that the only string
     /// this record accepts is a `ShellId`, which the id port mints and nothing else constructs.
     /// Recorded as a test so the next person to widen the signature reads why they should not.
+    #[test]
+    fn a_rollback_record_carries_three_named_fields_and_a_reason_code() {
+        let context = rollback_context("shell-1", 3, shell_reason_code::STARTUP_CLEANUP_PENDING);
+
+        assert_eq!(
+            context.keys().cloned().collect::<Vec<_>>(),
+            vec![
+                "generation".to_string(),
+                "reason".to_string(),
+                "shell_id".to_string()
+            ]
+        );
+        // A code from the fixed vocabulary, never a platform error string: those quote paths and
+        // command lines, which is exactly what must not reach a log from a Shell.
+        assert_eq!(context["reason"], "shell_startup_cleanup_pending");
+    }
+
     #[test]
     fn the_record_takes_an_identifier_rather_than_free_text() {
         let context = stale_context("shell-42", 1, 2);

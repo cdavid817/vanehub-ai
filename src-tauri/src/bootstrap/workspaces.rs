@@ -189,7 +189,9 @@ fn assemble_session_shell_registry(
         clock.clone(),
     ));
     let runtime = Arc::new(RoutedShellRuntime::new(
-        Arc::new(RetainedLocalShellRuntime::default()),
+        Arc::new(RetainedLocalShellRuntime::new(Arc::new(
+            UnifiedLogShellDiagnostics,
+        ))),
         Arc::new(RetainedRemoteShellRuntime::new(Arc::new(
             SshShellTransport::new(ssh),
         ))),

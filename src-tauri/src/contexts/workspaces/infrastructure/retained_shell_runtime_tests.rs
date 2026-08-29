@@ -398,7 +398,7 @@ fn an_unconfirmed_remote_close_keeps_its_route() {
 /// outlive its process, and failing on that would make cleanup unreliable exactly where it matters.
 #[test]
 fn closing_an_unknown_local_shell_reports_nothing_held() {
-    let runtime = RetainedLocalShellRuntime::default();
+    let runtime = RetainedLocalShellRuntime::for_test();
 
     let outcome = runtime.close(
         &shell("shell-missing"),
@@ -418,7 +418,7 @@ fn closing_an_unknown_local_shell_reports_nothing_held() {
 /// parsing output to invent a fact.
 #[test]
 fn a_local_runtime_refuses_a_remote_open_rather_than_opening_here() {
-    let runtime = RetainedLocalShellRuntime::default();
+    let runtime = RetainedLocalShellRuntime::for_test();
 
     let error = runtime
         .open(&open_request("shell-1", true), Arc::new(SilentSink))

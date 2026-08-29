@@ -277,6 +277,7 @@ impl SessionShellWorkspacePort for FakeWorkspaces {
 pub(super) struct RecordingShellDiagnostics {
     pub(super) stale: Mutex<Vec<(String, u64, u64)>>,
     pub(super) orphaned: Mutex<Vec<(String, u64)>>,
+    pub(super) rollbacks: Mutex<Vec<(String, u64, String)>>,
 }
 
 impl ShellLifecycleDiagnosticsPort for RecordingShellDiagnostics {
@@ -290,6 +291,14 @@ impl ShellLifecycleDiagnosticsPort for RecordingShellDiagnostics {
             shell_id.to_string(),
             attempted_generation,
             current_generation,
+        ));
+    }
+
+    fn startup_rollback_unconfirmed(&self, shell_id: &str, generation: u64, reason: &str) {
+        self.rollbacks.lock().expect("rollbacks").push((
+            shell_id.to_string(),
+            generation,
+            reason.to_string(),
         ));
     }
 

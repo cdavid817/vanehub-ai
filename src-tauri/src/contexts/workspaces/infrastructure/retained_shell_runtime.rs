@@ -18,11 +18,11 @@ use super::retained_shell_process::{
     ShellProcessError, ShellProcessHandle, ShellPtyHandle, ShellWorker,
 };
 use crate::contexts::workspaces::application::{
-    SessionShellRuntimePort, ShellOutputSink, ShellRuntimeCloseOutcome, ShellRuntimeOpen,
-    ShellRuntimeOpened,
+    SessionShellRuntimePort, ShellLifecycleDiagnosticsPort, ShellOutputSink,
+    ShellRuntimeCloseOutcome, ShellRuntimeOpen, ShellRuntimeOpened,
 };
 use crate::contexts::workspaces::domain::{
-    shell_reason, SessionShellError, SessionShellState, ShellCloseBudget,
+    shell_reason, shell_reason_code, SessionShellError, SessionShellState, ShellCloseBudget,
     ShellForegroundProcessState, ShellGeneration, ShellId, ShellRuntimeDescriptor, ShellStream,
     TerminalDimensions,
 };
@@ -76,14 +76,17 @@ pub(crate) struct RetainedLocalShellRuntime {
     shells: Mutex<HashMap<String, RetainedShell>>,
     clock: Arc<dyn ShellDeadlineClock>,
     observations: CloseObservations,
+    /// Where a startup rollback that could not confirm cleanup is recorded.
+    diagnostics: Arc<dyn ShellLifecycleDiagnosticsPort>,
 }
 
-impl Default for RetainedLocalShellRuntime {
-    fn default() -> Self {
+impl RetainedLocalShellRuntime {
+    pub(crate) fn new(diagnostics: Arc<dyn ShellLifecycleDiagnosticsPort>) -> Self {
         Self {
             shells: Mutex::new(HashMap::new()),
             clock: Arc::new(MonotonicDeadlineClock::default()),
             observations: CloseObservations::default(),
+            diagnostics,
         }
     }
 }
@@ -132,6 +135,21 @@ impl RetainedLocalShellRuntime {
             shells: Mutex::new(HashMap::new()),
             clock,
             observations: CloseObservations::default(),
+            diagnostics: Arc::new(DiscardedDiagnostics),
+        }
+    }
+
+    /// A diagnostics sink for the tests that are not about diagnostics.
+    ///
+    /// The recording double lives with the application tests; these exercise a real PTY, and what
+    /// they need from this port is that it exists rather than what it received.
+    #[cfg(test)]
+    pub(super) fn for_test() -> Self {
+        Self {
+            shells: Mutex::new(HashMap::new()),
+            clock: Arc::new(MonotonicDeadlineClock::default()),
+            observations: CloseObservations::default(),
+            diagnostics: Arc::new(DiscardedDiagnostics),
         }
     }
 
@@ -252,6 +270,17 @@ impl ShellPtyHandle for PortablePtyMaster {
 /// Either one used to return through a `?` that had no idea a child was running. Now the child is
 /// inside the guard from the moment it exists, and a guard that falls out of scope without being
 /// committed terminates what it holds.
+/// Swallows what it is told, for tests whose subject is elsewhere.
+#[cfg(test)]
+pub(super) struct DiscardedDiagnostics;
+
+#[cfg(test)]
+impl ShellLifecycleDiagnosticsPort for DiscardedDiagnostics {
+    fn stale_reaper_completion(&self, _shell_id: &str, _attempted: u64, _current: u64) {}
+    fn orphaned_reaper_completion(&self, _shell_id: &str, _attempted: u64) {}
+    fn startup_rollback_unconfirmed(&self, _shell_id: &str, _generation: u64, _reason: &str) {}
+}
+
 struct LocalLaunchGuard {
     process: Option<Arc<dyn ShellProcessHandle>>,
     master: Option<Arc<dyn ShellPtyHandle>>,
@@ -259,10 +288,18 @@ struct LocalLaunchGuard {
     workers: Vec<Arc<ShellWorker>>,
     closing: Arc<AtomicBool>,
     committed: bool,
+    /// Which Shell this startup is for, so a rollback that could not confirm can name it.
+    shell_id: String,
+    generation: ShellGeneration,
+    diagnostics: Arc<dyn ShellLifecycleDiagnosticsPort>,
 }
 
 impl LocalLaunchGuard {
-    fn new() -> Self {
+    fn new(
+        shell_id: String,
+        generation: ShellGeneration,
+        diagnostics: Arc<dyn ShellLifecycleDiagnosticsPort>,
+    ) -> Self {
         Self {
             process: None,
             master: None,
@@ -270,6 +307,9 @@ impl LocalLaunchGuard {
             workers: Vec::new(),
             closing: Arc::new(AtomicBool::new(false)),
             committed: false,
+            shell_id,
+            generation,
+            diagnostics,
         }
     }
 
@@ -311,13 +351,24 @@ impl Drop for LocalLaunchGuard {
         };
         let clock = MonotonicDeadlineClock::default();
         let observations = CloseObservations::default();
-        let _outcome = close_process_bounded(
+        let outcome = close_process_bounded(
             process.as_ref(),
             &self.workers,
             ShellCloseBudget::default(),
             &clock,
             &observations,
         );
+        // Recorded rather than discarded. The rollback is best-effort by construction — blocking
+        // here would hold the create path open on a child refusing to die — and the outcome is the
+        // only evidence that a child outlived its own startup. Silence would be the one
+        // unacceptable ending, and it is the one this replaces.
+        if !outcome.is_released() {
+            self.diagnostics.startup_rollback_unconfirmed(
+                &self.shell_id,
+                self.generation.value(),
+                shell_reason_code::STARTUP_CLEANUP_PENDING,
+            );
+        }
     }
 }
 
@@ -435,7 +486,11 @@ impl SessionShellRuntimePort for RetainedLocalShellRuntime {
         if request.remote.is_some() {
             return Err(unavailable("shell_remote_not_supported_locally"));
         }
-        let mut guard = LocalLaunchGuard::new();
+        let mut guard = LocalLaunchGuard::new(
+            request.shell_id.as_str().to_string(),
+            request.generation,
+            self.diagnostics.clone(),
+        );
         let reader = self.launch(request, &mut guard)?;
         self.start_workers(request, sink, reader, &mut guard)?;
         let Some(shell) = guard.commit(request.generation) else {

@@ -244,6 +244,15 @@ pub(crate) trait ShellLifecycleDiagnosticsPort: Send + Sync {
 
     /// A Reaper attempt for a Shell that no longer has an entry.
     fn orphaned_reaper_completion(&self, shell_id: &str, attempted_generation: u64);
+
+    /// A startup that acquired a child and could not confirm it was gone when it rolled back.
+    ///
+    /// The guard signals whatever it acquired and gives up at its deadline, which is the right
+    /// bound — a rollback that blocked would hold the create path open on a child refusing to die.
+    /// What it cannot do is return a value: it runs in `Drop`, on the unwinding path of a startup
+    /// that is already failing. Without this the outcome is discarded, and a child that outlived
+    /// its own startup leaves no trace anywhere.
+    fn startup_rollback_unconfirmed(&self, shell_id: &str, generation: u64, reason: &str);
 }
 
 /// Where a remote terminal's own diagnostics go.
