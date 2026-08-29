@@ -12,9 +12,22 @@
 //! A cursor also carries the directory it was issued for and is refused anywhere else. Without
 //! that, a cursor from one folder silently continues another: the resume key is just a name, it
 //! compares fine, and the reader gets a page of entries from a directory they are not looking at.
+//!
+//! It carries four more things for the same reason, and they are the difference between v1 and v2:
+//! which workspace it came from, which ordering produced it, which navigation policy decided what
+//! the page contains, and what the directory looked like when the page was issued. Each of those can
+//! change between two pages, and every one of them changes what "resume after this entry" means. A
+//! cursor that omitted them would still decode, still compare, and still return a page — a page
+//! assembled under rules that no longer hold, with nothing in it to say so.
+//!
+//! The two ways a cursor can fail are kept apart. `Invalid` is "this token is not for this listing",
+//! and the only sensible response is to start again. `Stale` is "it was for this listing, and the
+//! listing has moved on" — also a restart, but one a reader can be told the reason for, because it
+//! means somebody or something changed the folder while they were reading it.
 
 use super::inspection::WorkspaceInspectionError;
 use base64::Engine;
+use sha2::{Digest, Sha256};
 
 /// How many entries a page holds when the caller does not say.
 pub(crate) const DEFAULT_DIRECTORY_PAGE_SIZE: usize = 500;
@@ -26,11 +39,145 @@ pub(crate) const DEFAULT_DIRECTORY_PAGE_SIZE: usize = 500;
 /// response held in memory on both sides of the wire.
 pub(crate) const MAX_DIRECTORY_PAGE_SIZE: usize = 1000;
 
+/// The cursor format this build issues.
+///
+/// Named in the token rather than inferred from its shape. A build that changed what a cursor
+/// carries and left the version alone would decode an old one into the wrong fields and page from
+/// wherever the misreading landed — a wrong answer that looks exactly like a right one.
+const DIRECTORY_CURSOR_VERSION: &str = "v2";
+
+/// The separator between a cursor's fields. A unit separator rather than a printable character,
+/// because every printable one is a character a file can legally be called.
+const FIELD: char = '\u{1f}';
+
+/// How many fields a v2 directory cursor has. The last is the name key, which is taken whole.
+const DIRECTORY_CURSOR_FIELDS: usize = 8;
+
+/// Why a cursor was not used.
+///
+/// Two answers rather than one, because the difference is actionable. `Invalid` means the token does
+/// not belong to this listing at all — forged, from another folder, or from a build that wrote it
+/// differently. `Stale` means it did belong here and the directory has changed since, which is worth
+/// saying out loud: the page about to be shown is not a continuation of the one being read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CursorRefusal {
+    Invalid,
+    Stale,
+}
+
+impl CursorRefusal {
+    /// The stable token the frontend translates.
+    pub(crate) fn code(self) -> &'static str {
+        match self {
+            Self::Invalid => "invalid_cursor",
+            Self::Stale => "stale_cursor",
+        }
+    }
+}
+
+impl From<CursorRefusal> for WorkspaceInspectionError {
+    /// Both collapse where a caller has no way to receive a page instead of an error.
+    ///
+    /// Lossy on purpose and only at that boundary: what such a caller can act on is "start again",
+    /// which is right for either. A caller that can receive a page gets the refusal itself.
+    fn from(_: CursorRefusal) -> Self {
+        Self::InvalidCursor
+    }
+}
+
+/// How a listing is ordered.
+///
+/// One mode today, named anyway. A cursor resumes at a position in an ordering, so a build that
+/// added "by size" and resumed a `kind-name` cursor into it would page from a place that ordering
+/// never produced. Naming it means such a cursor is refused instead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DirectoryOrder {
+    /// Directories first, then case-insensitively by name.
+    KindThenName,
+}
+
+impl DirectoryOrder {
+    pub(crate) fn token(self) -> &'static str {
+        match self {
+            Self::KindThenName => "kind-name",
+        }
+    }
+
+    fn parse(token: &str) -> Option<Self> {
+        match token {
+            "kind-name" => Some(Self::KindThenName),
+            _ => None,
+        }
+    }
+}
+
+/// Everything a cursor is only valid within.
+///
+/// Built by the listing that issues a page and rebuilt by the listing that resumes it. Comparing two
+/// of these field by field is what makes each mismatch its own answer, rather than a single "cursor
+/// rejected" that leaves a reader guessing which rule they broke.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DirectoryPageScope {
+    /// Which workspace, as an opaque identity rather than a path.
+    pub(crate) workspace: String,
+    /// The directory this page is of, relative to the root.
+    pub(crate) path: String,
+    pub(crate) order: DirectoryOrder,
+    /// Which navigation policy decided what the page contains.
+    pub(crate) policy: String,
+    /// What the directory looked like when the page was issued.
+    ///
+    /// `None` where the provider cannot detect a change at all — a remote host this build cannot
+    /// ask, a volume with no directory mtime. Carried as an absence rather than a constant, because
+    /// a constant compares equal forever and would report "unchanged" about a directory nobody
+    /// looked at.
+    pub(crate) fingerprint: Option<String>,
+}
+
+impl DirectoryPageScope {
+    /// Whether a cursor issued under `self` names the same listing as `other`.
+    fn matches_identity(&self, other: &Self) -> bool {
+        self.workspace == other.workspace
+            && self.path == other.path
+            && self.order == other.order
+            && self.policy == other.policy
+            // A provider that gained or lost change detection between two pages is a different
+            // provider answering, not a changed directory.
+            && self.fingerprint.is_some() == other.fingerprint.is_some()
+    }
+}
+
+/// An opaque, stable name for one workspace.
+///
+/// Hashed rather than carried. The cursor travels to a client, and a local root or an SSH target in
+/// it would put this machine's directory layout — or a hostname and a username — somewhere a reader
+/// can copy it out of, for a field whose only use is equality.
+///
+/// Takes the location as text so a local root and a remote target reach it the same way. The two
+/// must not collide, which they cannot: a remote name carries its scheme.
+pub(crate) fn workspace_identity(location: &str) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut digest = Sha256::new();
+    digest.update(location.as_bytes());
+    // Sixteen hex characters. This is compared against another identity computed the same way in
+    // the same process, so it is a name rather than a security boundary.
+    digest
+        .finalize()
+        .iter()
+        .take(8)
+        .flat_map(|byte| {
+            [
+                HEX[usize::from(byte >> 4)] as char,
+                HEX[usize::from(byte & 0x0f)] as char,
+            ]
+        })
+        .collect()
+}
+
 /// Where a listing resumes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DirectoryCursor {
-    /// The directory this cursor was issued for, relative to the root.
-    pub(crate) path: String,
+    pub(crate) scope: DirectoryPageScope,
     /// 0 for a directory, 1 for a file — the first half of the ordering key.
     pub(crate) kind_rank: u8,
     /// The lowercased name, which is what the ordering compares.
@@ -38,9 +185,9 @@ pub(crate) struct DirectoryCursor {
 }
 
 impl DirectoryCursor {
-    pub(crate) fn after(path: &str, kind: &str, name: &str) -> Self {
+    pub(crate) fn after(scope: DirectoryPageScope, kind: &str, name: &str) -> Self {
         Self {
-            path: path.to_string(),
+            scope,
             kind_rank: kind_rank(kind),
             name_key: name.to_lowercase(),
         }
@@ -70,46 +217,62 @@ impl DirectoryCursor {
     /// this side issued, and a constructed one is a request to start reading from somewhere nobody
     /// paged to.
     pub(crate) fn encode(&self) -> String {
-        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(format!(
-            "{}\u{1f}{}\u{1f}{}",
-            self.kind_rank, self.name_key, self.path
-        ))
+        // The name key goes last so it can contain anything the decoder does not have to split on.
+        let payload = [
+            DIRECTORY_CURSOR_VERSION,
+            &self.scope.workspace,
+            &self.scope.path,
+            self.scope.order.token(),
+            &self.scope.policy,
+            self.scope.fingerprint.as_deref().unwrap_or(""),
+            &self.kind_rank.to_string(),
+            &self.name_key,
+        ]
+        .join(&FIELD.to_string());
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(payload)
     }
 
-    /// Decodes a cursor, or refuses it.
+    /// Decodes a cursor, or says which way it does not apply.
     ///
-    /// The expected directory is required rather than read out of the cursor, so a mismatch is a
-    /// refusal instead of a silent redirection to whatever the cursor names.
+    /// The expected scope is supplied rather than read out of the cursor, so a mismatch is a refusal
+    /// instead of a silent redirection to whatever the cursor names.
     pub(crate) fn decode(
         encoded: &str,
-        expected_path: &str,
-    ) -> Result<Self, WorkspaceInspectionError> {
+        expected: &DirectoryPageScope,
+    ) -> Result<Self, CursorRefusal> {
         let raw = base64::engine::general_purpose::URL_SAFE_NO_PAD
             .decode(encoded)
-            .map_err(|_| WorkspaceInspectionError::InvalidCursor)?;
-        let text = String::from_utf8(raw).map_err(|_| WorkspaceInspectionError::InvalidCursor)?;
-        let mut parts = text.splitn(3, '\u{1f}');
-        let kind_rank = parts
-            .next()
-            .and_then(|value| value.parse::<u8>().ok())
-            .ok_or(WorkspaceInspectionError::InvalidCursor)?;
-        let name_key = parts
-            .next()
-            .ok_or(WorkspaceInspectionError::InvalidCursor)?
-            .to_string();
-        let path = parts
-            .next()
-            .ok_or(WorkspaceInspectionError::InvalidCursor)?
-            .to_string();
-        if path != expected_path {
-            // A cursor from another directory would resume this one at a name that happens to
-            // compare, and hand back a page of entries from a folder the reader is not looking at.
-            return Err(WorkspaceInspectionError::InvalidCursor);
+            .map_err(|_| CursorRefusal::Invalid)?;
+        let text = String::from_utf8(raw).map_err(|_| CursorRefusal::Invalid)?;
+        let parts: Vec<&str> = text.splitn(DIRECTORY_CURSOR_FIELDS, FIELD).collect();
+        if parts.len() != DIRECTORY_CURSOR_FIELDS || parts[0] != DIRECTORY_CURSOR_VERSION {
+            // Every v1 cursor lands here. Refused rather than migrated: a v1 token names no
+            // workspace, no ordering and no policy, so migrating it would mean assuming all three,
+            // and the assumption is wrong exactly when it matters.
+            return Err(CursorRefusal::Invalid);
+        }
+        let order = DirectoryOrder::parse(parts[3]).ok_or(CursorRefusal::Invalid)?;
+        let kind_rank = parts[6].parse::<u8>().map_err(|_| CursorRefusal::Invalid)?;
+        let scope = DirectoryPageScope {
+            workspace: parts[1].to_string(),
+            path: parts[2].to_string(),
+            order,
+            policy: parts[4].to_string(),
+            fingerprint: (!parts[5].is_empty()).then(|| parts[5].to_string()),
+        };
+        if !scope.matches_identity(expected) {
+            return Err(CursorRefusal::Invalid);
+        }
+        if scope.fingerprint != expected.fingerprint {
+            // It was issued for this listing and the listing has moved on. Appending a page built
+            // from a different set of entries would drop or repeat rows silently; the reader is told
+            // to start again instead.
+            return Err(CursorRefusal::Stale);
         }
         Ok(Self {
-            path,
+            scope,
             kind_rank,
-            name_key,
+            name_key: parts[7].to_string(),
         })
     }
 }
@@ -241,10 +404,20 @@ pub(crate) fn bounded_page_size(limit: Option<usize>) -> usize {
 mod tests {
     use super::*;
 
+    fn scope(path: &str) -> DirectoryPageScope {
+        DirectoryPageScope {
+            workspace: "workspace-a".to_string(),
+            path: path.to_string(),
+            order: DirectoryOrder::KindThenName,
+            policy: "v1:direct".to_string(),
+            fingerprint: Some("1000".to_string()),
+        }
+    }
+
     #[test]
     fn a_cursor_round_trips_through_its_encoding() {
-        let cursor = DirectoryCursor::after("src", "file", "Main.rs");
-        let decoded = DirectoryCursor::decode(&cursor.encode(), "src").expect("decode");
+        let cursor = DirectoryCursor::after(scope("src"), "file", "Main.rs");
+        let decoded = DirectoryCursor::decode(&cursor.encode(), &scope("src")).expect("decode");
 
         assert_eq!(decoded, cursor);
         // Lowercased, because that is what the ordering compares. Storing the original name would
@@ -253,25 +426,155 @@ mod tests {
     }
 
     #[test]
+    fn a_name_containing_the_field_separator_survives_the_round_trip() {
+        // The separator is a control character, so this is a file nobody has. It is here because the
+        // decoder splits on a fixed count and the name key is taken whole — a name that ate the
+        // split would resume the listing at a key that is not the one the page ended on, which is a
+        // wrong page rather than a rejected one.
+        let cursor = DirectoryCursor::after(scope("src"), "file", "od\u{1f}d.rs");
+
+        let decoded = DirectoryCursor::decode(&cursor.encode(), &scope("src")).expect("decode");
+
+        assert_eq!(decoded.name_key, "od\u{1f}d.rs");
+    }
+
+    #[test]
     fn a_cursor_from_another_directory_is_refused() {
-        let cursor = DirectoryCursor::after("src", "file", "main.rs").encode();
+        let cursor = DirectoryCursor::after(scope("src"), "file", "main.rs").encode();
 
         // The name compares perfectly well against another directory's entries, which is exactly
         // why the directory has to be checked rather than trusted.
-        assert!(DirectoryCursor::decode(&cursor, "docs").is_err());
-        assert!(DirectoryCursor::decode(&cursor, "").is_err());
+        assert_eq!(
+            DirectoryCursor::decode(&cursor, &scope("docs")),
+            Err(CursorRefusal::Invalid)
+        );
+        assert_eq!(
+            DirectoryCursor::decode(&cursor, &scope("")),
+            Err(CursorRefusal::Invalid)
+        );
+    }
+
+    #[test]
+    fn a_cursor_from_another_workspace_is_refused() {
+        let cursor = DirectoryCursor::after(scope("src"), "file", "main.rs").encode();
+        let elsewhere = DirectoryPageScope {
+            workspace: "workspace-b".to_string(),
+            ..scope("src")
+        };
+
+        // Two sessions can both have a `src`, and a relative path does not name which machine or
+        // which project it is on. Without this the page would come from the other one.
+        assert_eq!(
+            DirectoryCursor::decode(&cursor, &elsewhere),
+            Err(CursorRefusal::Invalid)
+        );
+    }
+
+    #[test]
+    fn a_cursor_from_another_policy_is_refused() {
+        let cursor = DirectoryCursor::after(scope("src"), "file", "main.rs").encode();
+        let other_policy = DirectoryPageScope {
+            policy: "v1:recursive".to_string(),
+            ..scope("src")
+        };
+
+        // A page assembled while dependency directories were hidden cannot be continued by one that
+        // shows them: the resume key names a position in a listing the second page does not have.
+        assert_eq!(
+            DirectoryCursor::decode(&cursor, &other_policy),
+            Err(CursorRefusal::Invalid)
+        );
+    }
+
+    #[test]
+    fn a_directory_that_changed_between_pages_is_stale_rather_than_invalid() {
+        let cursor = DirectoryCursor::after(scope("src"), "file", "main.rs").encode();
+        let changed = DirectoryPageScope {
+            fingerprint: Some("2000".to_string()),
+            ..scope("src")
+        };
+
+        // Its own answer, because the reader can be told why: somebody changed the folder while
+        // they were reading it. Reported as `Invalid` it would look like a bug in the application.
+        assert_eq!(
+            DirectoryCursor::decode(&cursor, &changed),
+            Err(CursorRefusal::Stale)
+        );
+        assert_eq!(CursorRefusal::Stale.code(), "stale_cursor");
+        assert_eq!(CursorRefusal::Invalid.code(), "invalid_cursor");
+    }
+
+    #[test]
+    fn a_provider_that_cannot_detect_change_still_pages() {
+        let blind = DirectoryPageScope {
+            fingerprint: None,
+            ..scope("src")
+        };
+        let cursor = DirectoryCursor::after(blind.clone(), "file", "main.rs").encode();
+
+        // A real limit rather than a failure: a host that cannot report a directory's fingerprint
+        // would otherwise be unable to page at all. Refusing every cursor there would be safer only
+        // in the sense that nothing works.
+        assert!(DirectoryCursor::decode(&cursor, &blind).is_ok());
+        // But it must not be readable as "unchanged" by a listing that can see the fingerprint.
+        assert_eq!(
+            DirectoryCursor::decode(&cursor, &scope("src")),
+            Err(CursorRefusal::Invalid)
+        );
     }
 
     #[test]
     fn a_cursor_nobody_issued_is_refused_rather_than_guessed_at() {
         for forged in ["", "not-base64!", "YWJj"] {
-            assert!(DirectoryCursor::decode(forged, "src").is_err(), "{forged}");
+            assert_eq!(
+                DirectoryCursor::decode(forged, &scope("src")),
+                Err(CursorRefusal::Invalid),
+                "{forged}"
+            );
         }
     }
 
     #[test]
+    fn a_cursor_from_an_ordering_this_build_does_not_have_is_refused() {
+        // Hand-built, because there is one ordering today and no way to encode another through the
+        // public constructor. That is exactly why the field exists: a build that adds "by size"
+        // would otherwise resume a `kind-name` cursor into an ordering that never produced it, and
+        // page from a position nothing in the new listing occupies.
+        let payload = [
+            "v2",
+            "workspace-a",
+            "src",
+            "by-size",
+            "v1:direct",
+            "1000",
+            "1",
+            "main.rs",
+        ]
+        .join("\u{1f}");
+        let forged = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(payload);
+
+        assert_eq!(
+            DirectoryCursor::decode(&forged, &scope("src")),
+            Err(CursorRefusal::Invalid)
+        );
+    }
+
+    #[test]
+    fn a_cursor_from_the_previous_format_is_refused_rather_than_reinterpreted() {
+        // What v1 encoded: rank, name key, path — and nothing about the workspace, the ordering or
+        // the policy. Reading it as a v2 cursor would fill those three from whatever happened to be
+        // in the adjacent fields, and page from wherever that landed.
+        let v1 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode("1\u{1f}main.rs\u{1f}src");
+
+        assert_eq!(
+            DirectoryCursor::decode(&v1, &scope("src")),
+            Err(CursorRefusal::Invalid)
+        );
+    }
+
+    #[test]
     fn a_directory_sorts_before_a_file_with_an_earlier_name() {
-        let after_directory = DirectoryCursor::after("", "directory", "zebra");
+        let after_directory = DirectoryCursor::after(scope(""), "directory", "zebra");
 
         // The whole reason the rank is in the key: resuming after a name alone would put a file
         // called `alpha` before a directory called `zebra`, which is not the order the listing has.
@@ -281,7 +584,7 @@ mod tests {
 
     #[test]
     fn an_entry_equal_to_the_cursor_belongs_to_the_page_before() {
-        let cursor = DirectoryCursor::after("", "file", "readme.md");
+        let cursor = DirectoryCursor::after(scope(""), "file", "readme.md");
 
         // Including it would repeat a row, which reads to a user as a duplicate file rather than
         // as a paging bug.

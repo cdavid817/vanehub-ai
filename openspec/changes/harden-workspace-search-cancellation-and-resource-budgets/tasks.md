@@ -57,11 +57,11 @@
 ## 6. Directory pagination and document discovery
 
 - [x] 6.1 Implement bounded-memory immediate directory page selection retaining at most `limit + 1` selected entries plus fixed traversal state.
-- [ ] 6.2 Add cursor V2 with version, directory/workspace identity, order mode, last key/tie-break, detectable fingerprint/generation, and applicable navigation-policy identity.
-- [ ] 6.3 Return typed invalid/stale cursor results and update page semantics so `has_more`/`truncated` is distinct from incomplete scan coverage.
-- [ ] 6.4 Add frontend-compatible decoding/migration for existing cursor fixtures or intentionally invalidate old cursors with a stable restart behavior.
+- [x] 6.2 Add cursor V2 with version, directory/workspace identity, order mode, last key/tie-break, detectable fingerprint/generation, and applicable navigation-policy identity.
+- [x] 6.3 Return typed invalid/stale cursor results and update page semantics so `has_more`/`truncated` is distinct from incomplete scan coverage.
+- [x] 6.4 Add frontend-compatible decoding/migration for existing cursor fixtures or intentionally invalidate old cursors with a stable restart behavior.
 - [ ] 6.5 Refactor document discovery to the shared recursive ignore and budget pipeline and remove tests that require default descent into dependency/generated trees.
-- [ ] 6.6 Add tests for very large immediate directories, duplicate names/tie-breaks, directory mutation between pages, wrong-directory/order cursor, malformed cursor, entry/deadline limit, and restart-with-replacement behavior.
+- [x] 6.6 Add tests for very large immediate directories, duplicate names/tie-breaks, directory mutation between pages, wrong-directory/order cursor, malformed cursor, entry/deadline limit, and restart-with-replacement behavior.
 - [ ] 6.7 Add document discovery tests for defaults, ignore negation, explicit direct navigation, unreadable trees, metadata/snippet byte budgets, cancellation, and complete/partial semantics.
 
 ## 7. Remote inspection parity and cleanup
@@ -80,7 +80,7 @@
 - [x] 8.3 Extend the frontend workspace service with generation, coverage, reason, bounded budget summary, and cursor V2 types while preserving existing result fields.
 - [x] 8.4 Update the Tauri adapter only; React components/hooks must not add direct `invoke()` calls.
 - [ ] 8.5 Implement deterministic Web/mock cancellation, supersession, budget consumption, ignore fixtures, busy admission, cursor stale/invalid behavior, and structural counters without native-scan claims.
-- [ ] 8.6 Update search/document/directory UI to distinguish empty Complete from empty Partial/Unavailable, show localized reason, ignore stale generations, and restart pagination on stale cursor.
+- [x] 8.6 Update search/document/directory UI to distinguish empty Complete from empty Partial/Unavailable, show localized reason, ignore stale generations, and restart pagination on stale cursor.
 - [x] 8.7 Add all new reason/coverage/cursor messages to every registered locale and pass key/interpolation parity tests.
 - [ ] 8.8 Add frontend unit/component tests for rapid query replacement, explicit cancel, unmount/abort, stale result, busy state, each budget notice, Web parity, and stale-directory pagination restart.
 

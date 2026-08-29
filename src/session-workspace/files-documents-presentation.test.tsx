@@ -97,6 +97,7 @@ beforeAll(async () => {
 beforeEach(() => {
   vi.spyOn(agentService, "listSessionDirectory").mockResolvedValue({
     context: CONTEXT,
+    coverage: { state: "complete" },
     items: [],
     nextCursor: null,
     path: "",

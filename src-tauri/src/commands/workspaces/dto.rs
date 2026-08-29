@@ -54,8 +54,16 @@ pub(crate) struct DirectoryListing {
     pub(crate) context: SessionWorkspaceContext,
     pub(crate) path: String,
     pub(crate) items: Vec<DirectoryEntry>,
+    /// Whether another page follows. Nothing more than that.
     pub(crate) truncated: bool,
     pub(crate) next_cursor: Option<String>,
+    /// How much of the directory the scan actually saw.
+    ///
+    /// Separate from `truncated`, because one says "ask for the next page" and the other says "some
+    /// of this folder was never examined, and paging will not reach it". This is also where a
+    /// refused cursor arrives: `invalid_cursor` for a token that does not belong to this listing,
+    /// `stale_cursor` for one that did until the directory changed.
+    pub(crate) coverage: WorkspaceSearchCoverageDto,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]

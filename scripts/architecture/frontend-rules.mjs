@@ -315,10 +315,16 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 计数器是模拟的(数的是 fixture 字节,不是磁盘读),但答案的形状——哪个 reason code 配哪个
 // coverage state——与 native 适配器逐字对齐,这正是同一个面板能同时写给两个运行时的前提。
 // 上限按合并后实测值 24609 记录(基线 24393,+216),不留余量。
+// 同一 change 第二次上调(Task 6.4 / 8.5):目录分页同样只有一条"一次返回全部、永不发游标"的
+// mock。它不是"少实现了一个分页",而是让游标被拒这件事在浏览器侧不可观察——文件树会被写成
+// "listing 不会被拒",而 desktop 侧一旦发生 stale_cursor,树就会把变化后的下一页接在变化前的
+// 前缀上,静默丢行或重复行。新增的 `web-workspace-directory-mock.ts` 让两种拒绝(invalid /
+// stale)在这一侧第一次存在,且与 native 的判定顺序逐条对齐。
+// 上限按实测值 24746 记录(+137),不留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
   {
     root: "src/services",
-    budget: 24609,
+    budget: 24746,
     owner: "harden-workspace-search-cancellation-and-resource-budgets",
   },
 ]);

@@ -41,7 +41,15 @@ function entries(count: number, prefix = "file"): DirectoryEntry[] {
 }
 
 function listing(overrides: Partial<DirectoryListing> = {}): DirectoryListing {
-  return { context: CONTEXT, items: [], nextCursor: null, path: "", truncated: false, ...overrides };
+  return {
+    context: CONTEXT,
+    coverage: { state: "complete" },
+    items: [],
+    nextCursor: null,
+    path: "",
+    truncated: false,
+    ...overrides,
+  };
 }
 
 function pathMatch(path: string): WorkspacePathMatch {

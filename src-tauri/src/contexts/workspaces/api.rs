@@ -1,5 +1,6 @@
 /// Content search, the registry that lets one be stopped, and the ceiling on how many inspections
 /// run at once.
+pub(crate) use super::application::bounded_page_size;
 pub(crate) use super::application::{
     deliver_content_search, WorkspaceContentSearchDelivery, WorkspaceContentSearchRequest,
     WorkspaceContentSearchResult, WorkspaceInspectionAdmission, WorkspaceInspectionReason,
@@ -265,15 +266,21 @@ impl WorkspaceApi {
             .create_guarded_loop_worktree(project_path, name, base_branch)
     }
 
-    pub(crate) fn list_session_directory(
+    /// One page of a directory, and the note that somebody is looking at it.
+    ///
+    /// The note is recorded on the way out and only when the read worked, for every page rather
+    /// than only the first. A directory that could not be listed is not one a console is showing,
+    /// and polling it would spend a stat every tick to rediscover that.
+    pub(crate) fn list_session_directory_page(
         &self,
         session_id: &str,
         path: &str,
+        cursor: Option<&str>,
+        limit: usize,
     ) -> Result<DirectoryListing, WorkspaceError> {
-        let listing = self.queries.list_directory(session_id, path)?;
-        // Recorded on the way out, and only when the read worked. A directory that could not be
-        // listed is not one a console is showing, and polling it would be spending a stat every
-        // tick to rediscover that.
+        let listing = self
+            .queries
+            .list_directory_page(session_id, path, cursor, limit)?;
         self.invalidation
             .note_directory_read(session_id, path, unix_milliseconds());
         Ok(listing)
@@ -462,15 +469,37 @@ impl WorkspaceApi {
     }
 
     /// Async wrapper for directory listing, which walks the filesystem synchronously.
+    ///
+    /// Admission is acquired before the blocking task is spawned and held until it returns. A
+    /// listing is a filesystem walk on a pool with a fixed number of threads, and a console with
+    /// twenty folders open would otherwise queue twenty of them behind whatever else is reading the
+    /// same disk — with nothing anywhere to say the system had run out of capacity.
     pub(crate) async fn list_session_directory_blocking(
         &self,
         session_id: String,
         path: String,
+        cursor: Option<String>,
+        limit: Option<usize>,
     ) -> Result<DirectoryListing, WorkspaceError> {
+        let Ok(_permit) = self.admission.acquire(&session_id).await else {
+            return Ok(DirectoryListing {
+                context: SessionWorkspaceContext::available(None),
+                path,
+                items: Vec::new(),
+                truncated: false,
+                next_cursor: None,
+                coverage: WorkspaceSearchCoverage::stopped(
+                    WorkspaceInspectionReason::InspectionBusy,
+                ),
+            });
+        };
         let api = self.clone();
-        tauri::async_runtime::spawn_blocking(move || api.list_session_directory(&session_id, &path))
-            .await
-            .map_err(|_| WorkspaceError::Storage("session directory task failed".to_string()))?
+        let limit = bounded_page_size(limit);
+        tauri::async_runtime::spawn_blocking(move || {
+            api.list_session_directory_page(&session_id, &path, cursor.as_deref(), limit)
+        })
+        .await
+        .map_err(|_| WorkspaceError::Storage("session directory task failed".to_string()))?
     }
 
     /// Async wrapper for mention candidate search, which walks the filesystem synchronously.

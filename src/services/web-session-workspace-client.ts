@@ -1,6 +1,7 @@
 import type { AgentService } from "./agent-service";
 import { rankFileCandidates } from "./file-search-ranking";
 import { cancelWebWorkspaceSearch, runWebWorkspaceSearch } from "./web-workspace-search-mock";
+import { pageWebDirectory } from "./web-workspace-directory-mock";
 import {
   availableContext,
   diffFixture,
@@ -133,14 +134,14 @@ export const webSessionWorkspaceClient: SessionWorkspaceMethods = {
   async getFileEvidenceLinks() {
     return { observations: 0, runIds: [], commandIds: [], truncated: false };
   },
-  async listSessionDirectory(_sessionId, path = "") {
-    return {
-      context: availableContext,
+  async listSessionDirectory(_sessionId, path = "", cursor = null, limit) {
+    return pageWebDirectory(
+      availableContext,
       path,
-      items: directoryFixtures[path] ?? [],
-      truncated: false,
-      nextCursor: null,
-    };
+      directoryFixtures[path] ?? [],
+      cursor,
+      limit ?? sessionWorkspaceLimits.directoryEntries,
+    );
   },
   async readSessionFile(_sessionId, path): Promise<FileContent> {
     const content = fileFixtures[path];

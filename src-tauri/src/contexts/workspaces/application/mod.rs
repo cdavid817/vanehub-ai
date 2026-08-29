@@ -45,6 +45,10 @@ pub(crate) use evidence::{
 /// search, mention candidates and document discovery, because a file findable by name and not by
 /// content reads as the search being broken for that one file.
 pub(crate) use ignore_policy::WorkspaceIgnorePolicy;
+/// Published to tests only: production reads the state through the coverage it belongs to and never
+/// names the enum, while a test asserting which of the three a refusal produced does.
+#[cfg(test)]
+pub(crate) use inspection::WorkspaceSearchCoverageState;
 pub(crate) use inspection::{
     CapabilityState, DirectoryFingerprint, DirectoryFingerprintState, GitDiffRequest,
     ListDirectoryRequest, LocalWorkspaceTarget, ReadTextFileRequest, RemoteWorkspaceTarget,
@@ -59,13 +63,19 @@ pub(crate) use inspection_admission::WorkspaceInspectionAdmission;
 /// without sleeping through one.
 #[cfg(test)]
 pub(crate) use inspection_budget::ManualClock;
+/// Published to tests only.
+///
+/// Production reaches the snapshot through the coverage that carries it, and never names the type;
+/// a test asserting what one inspection spent does name it.
+#[cfg(test)]
+pub(crate) use inspection_budget::WorkspaceInspectionBudgetSnapshot;
 pub(crate) use inspection_budget::{
     MonotonicClockPort, SystemMonotonicClock, WorkspaceInspectionBudget,
-    WorkspaceInspectionBudgetLimits, WorkspaceInspectionBudgetSnapshot, WorkspaceInspectionReason,
+    WorkspaceInspectionBudgetLimits, WorkspaceInspectionReason,
 };
 pub(crate) use inspection_cursor::{
-    bounded_page_size, bounded_search_page, kind_rank, DirectoryCursor, PathSearchCursor,
-    DEFAULT_DIRECTORY_PAGE_SIZE,
+    bounded_page_size, bounded_search_page, kind_rank, workspace_identity, DirectoryCursor,
+    DirectoryOrder, DirectoryPageScope, PathSearchCursor, DEFAULT_DIRECTORY_PAGE_SIZE,
 };
 pub(crate) use inspection_router::WorkspaceInspectionRouter;
 pub(crate) use invalidation::{

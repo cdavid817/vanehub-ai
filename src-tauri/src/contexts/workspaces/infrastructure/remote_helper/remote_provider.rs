@@ -17,16 +17,18 @@ use super::protocol::{
 };
 use super::transport::{exchange, RemoteHelperSession};
 use crate::contexts::workspaces::application::{
-    bounded_page_size, bounded_search_page, detect_encoding, detect_newline, DirectoryCursor,
-    DirectoryEntry, DirectoryFingerprint, DirectoryFingerprintState, DirectoryListing,
-    DocumentListing, FileContent, FileSearchListing, FileSearchMatch, GitDiffRequest,
-    GitDiffResult, GitDiffSource, GitStatusResult, ListDirectoryRequest, PathSearchCursor,
-    ReadTextFileRequest, RemoteWorkspaceTarget, SearchCancellationCause, SearchCancellationToken,
+    bounded_page_size, bounded_search_page, detect_encoding, detect_newline, workspace_identity,
+    DirectoryCursor, DirectoryEntry, DirectoryFingerprint, DirectoryFingerprintState,
+    DirectoryListing, DirectoryOrder, DirectoryPageScope, DocumentListing, FileContent,
+    FileSearchListing, FileSearchMatch, GitDiffRequest, GitDiffResult, GitDiffSource,
+    GitStatusResult, ListDirectoryRequest, PathSearchCursor, ReadTextFileRequest,
+    RemoteWorkspaceTarget, SearchCancellationCause, SearchCancellationToken,
     SessionWorkspaceContext, WorkspaceContentMatch, WorkspaceContentSearchRequest,
-    WorkspaceContentSearchResult, WorkspaceInspectionCapabilities, WorkspaceInspectionError,
-    WorkspaceInspectionProvider, WorkspaceInspectionReason, WorkspacePathMatch,
-    WorkspacePathSearchRequest, WorkspacePathSearchResult, WorkspaceSearchCoverage,
-    WorkspaceSearchRequest, WorkspaceTarget, MAX_CONTENT_MATCHES, MAX_FINGERPRINT_PATHS,
+    WorkspaceContentSearchResult, WorkspaceIgnorePolicy, WorkspaceInspectionCapabilities,
+    WorkspaceInspectionError, WorkspaceInspectionProvider, WorkspaceInspectionReason,
+    WorkspacePathMatch, WorkspacePathSearchRequest, WorkspacePathSearchResult,
+    WorkspaceSearchCoverage, WorkspaceSearchRequest, WorkspaceTarget, MAX_CONTENT_MATCHES,
+    MAX_FINGERPRINT_PATHS,
 };
 use async_trait::async_trait;
 use base64::Engine;
@@ -359,6 +361,24 @@ fn fingerprints(values: Vec<HelperFingerprint>) -> Vec<DirectoryFingerprint> {
         .collect()
 }
 
+/// What a cursor issued for a remote listing is only valid within.
+///
+/// The fingerprint is absent, and that is a stated limitation rather than an oversight. The helper
+/// protocol does not report one, so this side genuinely cannot tell whether the remote directory
+/// changed between two pages. Carrying a placeholder would compare equal on every request and
+/// report "unchanged" about something nobody observed; the absence says the detection is not available
+/// here, and the cursor rules refuse to treat a page from a provider that *can* detect change as
+/// interchangeable with one that cannot.
+fn remote_page_scope(remote: &RemoteWorkspaceTarget, path: &str) -> DirectoryPageScope {
+    DirectoryPageScope {
+        workspace: workspace_identity(&format!("ssh:{}:{}", remote.connection_id, remote.root)),
+        path: path.to_string(),
+        order: DirectoryOrder::KindThenName,
+        policy: WorkspaceIgnorePolicy::direct_navigation().identity(),
+        fingerprint: None,
+    }
+}
+
 fn listing(remote: &RemoteWorkspaceTarget, value: HelperListing) -> DirectoryListing {
     let path = value.path;
     let items: Vec<DirectoryEntry> = value.entries.into_iter().map(entry).collect();
@@ -366,9 +386,10 @@ fn listing(remote: &RemoteWorkspaceTarget, value: HelperListing) -> DirectoryLis
     // one directory-binding rule, and a remote host that cannot issue a resume point for a
     // directory it was not asked about.
     let next_cursor = value.truncated.then(|| {
-        items
-            .last()
-            .map(|entry| DirectoryCursor::after(&path, entry.kind, &entry.name).encode())
+        items.last().map(|entry| {
+            DirectoryCursor::after(remote_page_scope(remote, &path), entry.kind, &entry.name)
+                .encode()
+        })
     });
     DirectoryListing {
         context: context(remote),
@@ -376,6 +397,11 @@ fn listing(remote: &RemoteWorkspaceTarget, value: HelperListing) -> DirectoryLis
         items,
         truncated: value.truncated,
         next_cursor: next_cursor.flatten(),
+        // The helper reports a page, not a scan. It has no budget counters to send back, so there is
+        // nothing here that could distinguish "read the whole directory" from "stopped early" —
+        // claiming complete is the honest reading of a protocol that has no way to say otherwise,
+        // and the truncation flag it does send is carried separately above.
+        coverage: WorkspaceSearchCoverage::complete(),
     }
 }
 
@@ -456,7 +482,27 @@ impl WorkspaceInspectionProvider for RemoteWorkspaceInspectionProvider {
         // directory binding is this side's rule; sending it whole would put both on a machine
         // that has no reason to know either.
         let cursor = match request.cursor.as_deref() {
-            Some(encoded) => Some(DirectoryCursor::decode(encoded, &request.path)?),
+            Some(encoded) => {
+                let remote = self.remote(target)?;
+                let scope = remote_page_scope(remote, &request.path);
+                match DirectoryCursor::decode(encoded, &scope) {
+                    Ok(cursor) => Some(cursor),
+                    // A refusal, not a failure — the same answer the local provider gives, because
+                    // a panel written against one adapter has to work against the other. An error
+                    // here would leave the caller unable to tell "start again from the top" from
+                    // "this host is unreachable", and only one of those is worth retrying.
+                    Err(refusal) => {
+                        return Ok(DirectoryListing {
+                            context: context(remote),
+                            path: request.path,
+                            items: Vec::new(),
+                            truncated: false,
+                            next_cursor: None,
+                            coverage: WorkspaceSearchCoverage::stopped(refusal.into()),
+                        })
+                    }
+                }
+            }
             None => None,
         };
         let (remote, result) = self

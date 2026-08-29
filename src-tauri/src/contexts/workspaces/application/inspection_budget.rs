@@ -55,6 +55,20 @@ pub(crate) enum WorkspaceInspectionReason {
     StaleCursor,
 }
 
+impl From<super::inspection_cursor::CursorRefusal> for WorkspaceInspectionReason {
+    /// The two cursor refusals, as the reasons a listing reports them.
+    ///
+    /// Kept apart all the way to the reader. Both mean "start the listing again", but only one of
+    /// them means somebody changed the folder — and being told that is the difference between an
+    /// application that looks broken and one that is telling you what happened.
+    fn from(refusal: super::inspection_cursor::CursorRefusal) -> Self {
+        match refusal {
+            super::inspection_cursor::CursorRefusal::Invalid => Self::InvalidCursor,
+            super::inspection_cursor::CursorRefusal::Stale => Self::StaleCursor,
+        }
+    }
+}
+
 impl WorkspaceInspectionReason {
     /// Which reason a signalled cancellation token carries.
     ///

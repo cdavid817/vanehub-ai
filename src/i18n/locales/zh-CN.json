@@ -4769,6 +4769,7 @@
   "sessionTabs.documents.mode.source": "源码",
   "sessionTabs.documents.openChanges": "在 Changes 中打开",
   "sessionTabs.coverage.directory-page": "此文件夹的条目多于一页。",
+  "sessionTabs.coverage.directory-incomplete": "该文件夹有一部分无法列出。",
   "sessionTabs.coverage.document-walk": "文档搜索在上限处停止,可能有遗漏。",
   "sessionTabs.coverage.git-status-bound": "变更的路径比此列表显示的更多。",
   "sessionTabs.coverage.git-diff-bound": "此差异在大小上限处被截断,实际改动更大。",

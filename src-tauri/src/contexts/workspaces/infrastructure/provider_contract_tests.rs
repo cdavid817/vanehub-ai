@@ -19,14 +19,14 @@ use super::remote_helper::{
 };
 use super::workspace_inspection::LocalWorkspaceInspectionProvider;
 use crate::contexts::workspaces::application::{
-    DirectoryCursor, DirectoryFingerprint, DirectoryFingerprintState, DirectoryListing,
-    DocumentListing, FileContent, FileSearchListing, GitDiffRequest, GitDiffResult, GitDiffSource,
-    GitStatusResult, ListDirectoryRequest, LocalWorkspaceTarget, ReadTextFileRequest,
-    RemoteWorkspaceTarget, SearchCancellationCause, SearchCancellationToken,
-    SessionLogExportResult, SessionLogPage, SessionLogQuery, WorkspaceApplicationError as AppError,
-    WorkspaceContentSearchRequest, WorkspaceContentSearchResult, WorkspaceInspectionError,
-    WorkspaceInspectionProvider, WorkspacePathSearchRequest, WorkspacePathSearchResult,
-    WorkspaceSearchRequest, WorkspaceSessionQueryPort, WorkspaceTarget,
+    DirectoryFingerprint, DirectoryFingerprintState, DirectoryListing, DocumentListing,
+    FileContent, FileSearchListing, GitDiffRequest, GitDiffResult, GitDiffSource, GitStatusResult,
+    ListDirectoryRequest, LocalWorkspaceTarget, ReadTextFileRequest, RemoteWorkspaceTarget,
+    SearchCancellationCause, SearchCancellationToken, SessionLogExportResult, SessionLogPage,
+    SessionLogQuery, WorkspaceApplicationError as AppError, WorkspaceContentSearchRequest,
+    WorkspaceContentSearchResult, WorkspaceInspectionError, WorkspaceInspectionProvider,
+    WorkspacePathSearchRequest, WorkspacePathSearchResult, WorkspaceSearchRequest,
+    WorkspaceSessionQueryPort, WorkspaceTarget,
 };
 use crate::platform::database::NativeDatabase;
 use crate::test_support::TempDirectory;
@@ -927,7 +927,7 @@ fn a_cursor_from_another_directory_is_refused() {
     .expect("root page");
     let cursor = root_page.next_cursor.expect("a cursor for the root");
 
-    let error = block(subject.provider.list_directory(
+    let refused = block(subject.provider.list_directory(
         &subject.target,
         ListDirectoryRequest {
             path: "src".to_string(),
@@ -935,16 +935,17 @@ fn a_cursor_from_another_directory_is_refused() {
             limit: Some(10),
         },
     ))
-    .expect_err("a cursor from the root does not continue src");
+    .expect("a refusal is an answer, not a failure");
 
-    // `NotFound` rather than a page: the local reads report a rejected cursor as a validation
-    // refusal, which the provider classifies as a path that is not there rather than an escape.
-    assert!(
-        matches!(
-            error,
-            WorkspaceInspectionError::NotFound | WorkspaceInspectionError::InvalidCursor
-        ),
-        "{error:?}"
+    // An empty page carrying the reason, rather than an error. An error leaves a caller unable to
+    // tell "start this listing again" from "this workspace is unreachable", and only one of those
+    // is worth retrying. `Unavailable` because nothing was examined — not one entry was read.
+    assert!(refused.items.is_empty());
+    assert!(!refused.truncated);
+    assert_eq!(refused.coverage.reason_code, Some("invalid_cursor"));
+    assert_eq!(
+        refused.coverage.state,
+        crate::contexts::workspaces::application::WorkspaceSearchCoverageState::Unavailable
     );
 }
 
@@ -965,7 +966,33 @@ fn the_remote_cursor_is_minted_from_the_page_it_ends() {
 
     assert!(page.truncated);
     let cursor = page.next_cursor.expect("a cursor");
-    // It decodes for the directory that was asked for, and only that one.
-    assert!(DirectoryCursor::decode(&cursor, "").is_ok());
-    assert!(DirectoryCursor::decode(&cursor, "src").is_err());
+
+    // It is accepted for the directory it was issued for. What the resumed page contains is the
+    // scripted helper's business rather than this provider's — the fake answers the same listing to
+    // every request — so the assertion here is that the cursor was not refused.
+    let second = block(subject.provider.list_directory(
+        &subject.target,
+        ListDirectoryRequest {
+            path: String::new(),
+            cursor: Some(cursor.clone()),
+            limit: Some(2),
+        },
+    ))
+    .expect("second page");
+    assert_eq!(second.coverage.reason_code, None);
+
+    // And is refused anywhere else — as an answer rather than an error, on both providers. A name
+    // compares perfectly well against another directory's entries, which is exactly why the
+    // directory has to be checked rather than trusted.
+    let elsewhere = block(subject.provider.list_directory(
+        &subject.target,
+        ListDirectoryRequest {
+            path: "src".to_string(),
+            cursor: Some(cursor),
+            limit: Some(2),
+        },
+    ))
+    .expect("a refusal is an answer");
+    assert!(elsewhere.items.is_empty());
+    assert_eq!(elsewhere.coverage.reason_code, Some("invalid_cursor"));
 }

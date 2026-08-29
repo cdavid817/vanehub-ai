@@ -4769,6 +4769,7 @@
   "sessionTabs.documents.mode.source": "Source",
   "sessionTabs.documents.openChanges": "Open in Changes",
   "sessionTabs.coverage.directory-page": "This folder has more entries than one page.",
+  "sessionTabs.coverage.directory-incomplete": "Part of this folder could not be listed.",
   "sessionTabs.coverage.document-walk": "The document search stopped at its limit, so some may be missing.",
   "sessionTabs.coverage.git-status-bound": "More paths have changed than this list shows.",
   "sessionTabs.coverage.git-diff-bound": "This diff was cut at its size limit, so the real change is larger.",

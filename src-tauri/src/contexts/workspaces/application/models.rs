@@ -68,8 +68,15 @@ pub(crate) struct DirectoryListing {
     pub(crate) context: SessionWorkspaceContext,
     pub(crate) path: String,
     pub(crate) items: Vec<DirectoryEntry>,
+    /// Whether another page follows. Nothing more than that.
     pub(crate) truncated: bool,
     pub(crate) next_cursor: Option<String>,
+    /// How much of the directory the scan actually saw.
+    ///
+    /// Separate from `truncated`, and the separation is the point: one says "ask for the next page",
+    /// the other says "some of this folder was never examined, and paging will not reach it". A
+    /// reader who was shown only the first reads a stopped scan as the end of the directory.
+    pub(crate) coverage: super::inspection::WorkspaceSearchCoverage,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

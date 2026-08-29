@@ -103,7 +103,20 @@ export interface SessionWorkspaceInspectionService {
    * because there is nowhere to supply one.
    */
   getFileEvidenceLinks(sessionId: string, relativePath: string): Promise<FileEvidenceLinks>;
-  listSessionDirectory(sessionId: string, path?: string): Promise<DirectoryListing>;
+  /**
+   * One page of a directory.
+   *
+   * The cursor is optional and absent means "from the start", which every first request is. A cursor
+   * that no longer applies comes back as a page carrying `invalid_cursor` or `stale_cursor` on its
+   * coverage rather than as a rejection — a caller has to be able to tell "start this listing again"
+   * from "this workspace is unreachable", and only one of those is worth retrying.
+   */
+  listSessionDirectory(
+    sessionId: string,
+    path?: string,
+    cursor?: string | null,
+    limit?: number,
+  ): Promise<DirectoryListing>;
   readSessionFile(sessionId: string, path: string): Promise<FileContent>;
   listSessionDocuments(sessionId: string): Promise<DocumentListing>;
   searchSessionFiles(sessionId: string, query: string, maxResults?: number): Promise<FileSearchListing>;

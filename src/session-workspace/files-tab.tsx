@@ -116,7 +116,13 @@ export function FilesTab({
           selectedPath={selectedPath}
           sessionId={sessionId}
         />
-        {tree.truncated ? (
+        {tree.incompleteReason ? (
+          <WorkspaceCoverageNotice
+            provider={capabilities?.provider}
+            reason="directory-incomplete"
+            reasonCode={tree.incompleteReason}
+          />
+        ) : tree.truncated ? (
           <WorkspaceCoverageNotice provider={capabilities?.provider} reason="directory-page" />
         ) : null}
         {error ? <p className="mb-2 rounded border border-border bg-muted px-2 py-1 text-xs text-muted-foreground" role="alert">{t(error)}</p> : null}

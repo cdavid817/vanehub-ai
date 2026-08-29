@@ -12,9 +12,11 @@ use crate::contexts::workspaces::application::{
     MAX_REVIEW_PATCH_BYTES,
 };
 use crate::contexts::workspaces::application::{
-    SearchCancellationToken, SystemMonotonicClock, WorkspaceContentSearchRequest,
-    WorkspaceContentSearchResult, WorkspaceInspectionBudget, WorkspaceInspectionBudgetLimits,
-    WorkspaceInspectionBudgetSnapshot, WorkspacePathSearchRequest, WorkspacePathSearchResult,
+    workspace_identity, DirectoryOrder, DirectoryPageScope, SearchCancellationToken,
+    SystemMonotonicClock, WorkspaceContentSearchRequest, WorkspaceContentSearchResult,
+    WorkspaceIgnorePolicy, WorkspaceInspectionBudget, WorkspaceInspectionBudgetLimits,
+    WorkspaceInspectionReason, WorkspacePathSearchRequest, WorkspacePathSearchResult,
+    WorkspaceSearchCoverage,
 };
 use crate::contexts::workspaces::domain::{CanonicalPathBoundary, WorkspaceRelativePath};
 use crate::platform;
@@ -407,7 +409,7 @@ fn directory_page_at(
     relative: &str,
     cursor: Option<&DirectoryCursor>,
     limit: usize,
-) -> Result<(Vec<DirectoryEntry>, bool, Option<String>), AppError> {
+) -> Result<DirectoryPage, AppError> {
     directory_page_at_within(
         root,
         relative,
@@ -415,7 +417,44 @@ fn directory_page_at(
         limit,
         WorkspaceInspectionBudgetLimits::directory_listing(limit),
     )
-    .map(|(entries, truncated, next_cursor, _)| (entries, truncated, next_cursor))
+}
+
+/// One page of a directory, and what the scan that produced it saw.
+///
+/// `truncated` and `coverage` answer different questions and are kept apart because a reader acts on
+/// them differently. `truncated` means another page follows and asking for it is worth doing.
+/// `coverage` means the scan did not see the whole directory, and no amount of paging will fix that.
+/// Collapsed into one flag — which is what this used to be — a stopped scan asks the reader to page
+/// forward for entries it never selected, and the page they get back is empty.
+struct DirectoryPage {
+    entries: Vec<DirectoryEntry>,
+    truncated: bool,
+    next_cursor: Option<String>,
+    coverage: WorkspaceSearchCoverage,
+}
+
+/// What a cursor issued for this listing is only valid within.
+///
+/// The fingerprint is taken before the scan rather than after. A directory that changes while the
+/// page is being built is a directory whose next page cannot continue this one, and reading the
+/// fingerprint afterwards would record the state the change left behind — which compares equal on
+/// the next request and hides exactly the case this exists to catch.
+fn directory_page_scope(root: &Path, relative: &str) -> DirectoryPageScope {
+    DirectoryPageScope {
+        workspace: workspace_identity(&root.to_string_lossy()),
+        path: relative.to_string(),
+        order: DirectoryOrder::KindThenName,
+        // Direct navigation: a reader is looking at exactly this folder, so nothing here hides an
+        // entry a recursive search would have skipped.
+        policy: WorkspaceIgnorePolicy::direct_navigation().identity(),
+        fingerprint: match directory_fingerprint_at(root, relative) {
+            DirectoryFingerprintState::Known(value) => Some(value),
+            // Gone, or on a volume that keeps no directory mtime. Absent rather than a placeholder,
+            // because a placeholder compares equal forever and would report "unchanged" about a
+            // directory nothing can actually observe.
+            DirectoryFingerprintState::Missing | DirectoryFingerprintState::Unreadable => None,
+        },
+    }
 }
 
 /// One entry, carrying the key the listing is ordered by.
@@ -461,15 +500,7 @@ fn directory_page_at_within(
     cursor: Option<&DirectoryCursor>,
     limit: usize,
     limits: WorkspaceInspectionBudgetLimits,
-) -> Result<
-    (
-        Vec<DirectoryEntry>,
-        bool,
-        Option<String>,
-        WorkspaceInspectionBudgetSnapshot,
-    ),
-    AppError,
-> {
+) -> Result<DirectoryPage, AppError> {
     let directory = if relative.is_empty() {
         root.to_path_buf()
     } else {
@@ -549,9 +580,9 @@ fn directory_page_at_within(
     }
 
     let selected = selection.into_sorted();
-    // A scan that stopped early has not seen the whole directory, so it cannot claim to have
-    // reached the end of it either.
-    let truncated = selected.len() > limit || budget.is_stopped();
+    // Only "another page follows". A scan that stopped early is a separate fact and travels as
+    // coverage below: paging forward cannot recover an entry the scan never looked at.
+    let truncated = selected.len() > limit;
     let mut entries: Vec<DirectoryEntry> = selected
         .into_iter()
         .take(limit)
@@ -564,11 +595,25 @@ fn directory_page_at_within(
     // caller to fetch a page that is always empty, and an empty page reads as a directory that
     // just emptied itself.
     let next_cursor = truncated.then(|| {
-        entries
-            .last()
-            .map(|entry| DirectoryCursor::after(relative, entry.kind, &entry.name).encode())
+        entries.last().map(|entry| {
+            DirectoryCursor::after(
+                directory_page_scope(root, relative),
+                entry.kind,
+                &entry.name,
+            )
+            .encode()
+        })
     });
-    Ok((entries, truncated, next_cursor.flatten(), budget.snapshot()))
+    let coverage = match budget.incomplete_reason() {
+        Some(reason) => WorkspaceSearchCoverage::stopped(reason),
+        None => WorkspaceSearchCoverage::complete(),
+    };
+    Ok(DirectoryPage {
+        entries,
+        truncated,
+        next_cursor: next_cursor.flatten(),
+        coverage: coverage.with_budget(budget.snapshot()),
+    })
 }
 
 pub(crate) fn list_session_directory(
@@ -590,18 +635,6 @@ pub(crate) fn list_session_directory_page(
     cursor: Option<&str>,
     limit: usize,
 ) -> Result<DirectoryListing, AppError> {
-    let decoded = match cursor {
-        Some(encoded) => Some(
-            DirectoryCursor::decode(encoded, path)
-                // A cursor for another directory, or one nobody issued. Refused as a validation
-                // failure so the caller starts the listing again rather than receiving a page
-                // from somewhere else.
-                .map_err(|_| {
-                    AppError::Validation("Directory cursor is not valid here.".to_string())
-                })?,
-        ),
-        None => None,
-    };
     let Some(root) = resolve_session_root(conn, session_id)? else {
         return Ok(DirectoryListing {
             context: unavailable_context(),
@@ -609,15 +642,41 @@ pub(crate) fn list_session_directory_page(
             items: Vec::new(),
             truncated: false,
             next_cursor: None,
+            coverage: WorkspaceSearchCoverage::stopped(
+                WorkspaceInspectionReason::ProviderUnavailable,
+            ),
         });
     };
-    let (items, truncated, next_cursor) = directory_page_at(&root, path, decoded.as_ref(), limit)?;
+    // Resolved before the cursor is read, because a cursor names the workspace it came from and the
+    // state the directory was in — neither of which is knowable without the root.
+    let scope = directory_page_scope(&root, path);
+    let decoded = match cursor {
+        Some(encoded) => match DirectoryCursor::decode(encoded, &scope) {
+            Ok(cursor) => Some(cursor),
+            // A refusal is an answer, not a failure. An error would leave the caller with no page
+            // and no way to tell "start again from the top" from "this workspace is unreachable";
+            // an empty first page with the reason on it says exactly what happened and what to do.
+            Err(refusal) => {
+                return Ok(DirectoryListing {
+                    context: available_context(&root),
+                    path: path.to_string(),
+                    items: Vec::new(),
+                    truncated: false,
+                    next_cursor: None,
+                    coverage: WorkspaceSearchCoverage::stopped(refusal.into()),
+                })
+            }
+        },
+        None => None,
+    };
+    let page = directory_page_at(&root, path, decoded.as_ref(), limit)?;
     Ok(DirectoryListing {
         context: available_context(&root),
         path: path.to_string(),
-        items,
-        truncated,
-        next_cursor,
+        items: page.entries,
+        truncated: page.truncated,
+        next_cursor: page.next_cursor,
+        coverage: page.coverage,
     })
 }
 
@@ -2476,14 +2535,14 @@ mod tests {
         let oversized = fs::File::create(root.join("oversized.txt")).expect("oversized file");
         oversized.set_len(FILE_BYTE_LIMIT + 1).expect("set length");
         let root = root.canonicalize().expect("canonical root");
-        let (entries, truncated, next_cursor) =
+        let page =
             directory_page_at(&root, "", None, DEFAULT_DIRECTORY_PAGE_SIZE).expect("listing");
-        assert!(!truncated);
+        assert!(!page.truncated);
         // No cursor for a directory that ended. Issuing one would invite a caller to fetch a
         // page that is always empty, which reads as a directory that just emptied itself.
-        assert_eq!(next_cursor, None);
-        assert_eq!(entries[0].name, "AFolder");
-        assert!(entries.iter().all(|entry| entry.name != ".hidden"));
+        assert_eq!(page.next_cursor, None);
+        assert_eq!(page.entries[0].name, "AFolder");
+        assert!(page.entries.iter().all(|entry| entry.name != ".hidden"));
         assert_eq!(
             read_file_at(&root, "z-text.txt").expect("read").status,
             "text"
@@ -2511,13 +2570,13 @@ mod tests {
             fs::write(root.join(format!("file-{index:04}.txt")), "text").expect("fixture");
         }
         let root = root.canonicalize().expect("canonical root");
-        let (entries, truncated, next_cursor) =
+        let page =
             directory_page_at(&root, "", None, DEFAULT_DIRECTORY_PAGE_SIZE).expect("listing");
-        assert_eq!(entries.len(), DEFAULT_DIRECTORY_PAGE_SIZE);
-        assert!(truncated);
+        assert_eq!(page.entries.len(), DEFAULT_DIRECTORY_PAGE_SIZE);
+        assert!(page.truncated);
         // A bound that reports itself and offers a way past it. The previous version stopped at
         // the same place and left the caller with no way to see the rest.
-        assert!(next_cursor.is_some());
+        assert!(page.next_cursor.is_some());
         let mut visited = HashSet::new();
         let mut documents = Vec::new();
         let ignores = super::super::ignore_matcher::WorkspaceIgnoreMatcher::for_root(
@@ -2549,7 +2608,7 @@ mod tests {
         }
         let root = root.canonicalize().expect("canonical root");
 
-        let (entries, truncated, next_cursor, spent) = directory_page_at_within(
+        let page = directory_page_at_within(
             &root,
             "",
             None,
@@ -2558,9 +2617,10 @@ mod tests {
         )
         .expect("listing");
 
-        assert_eq!(entries.len(), 10);
-        assert!(truncated);
-        assert!(next_cursor.is_some());
+        assert_eq!(page.entries.len(), 10);
+        assert!(page.truncated);
+        assert!(page.next_cursor.is_some());
+        let spent = page.coverage.budget.expect("accounted");
         assert_eq!(spent.entries_visited, 400, "every entry is still scanned");
         assert!(
             spent.candidates_retained <= 11,
@@ -2580,11 +2640,11 @@ mod tests {
         fs::create_dir_all(root.join("zzz-folder")).expect("directory");
         let root = root.canonicalize().expect("canonical root");
 
-        let (entries, _, _) = directory_page_at(&root, "", None, 3).expect("listing");
+        let page = directory_page_at(&root, "", None, 3).expect("listing");
 
         // Directories first, then case-insensitively by name — the same rank a cursor resumes at.
         assert_eq!(
-            entries
+            page.entries
                 .into_iter()
                 .map(|entry| entry.name)
                 .collect::<Vec<_>>(),
@@ -2609,13 +2669,13 @@ mod tests {
         let mut seen: Vec<String> = Vec::new();
         let mut cursor: Option<String> = None;
         for _ in 0..10 {
+            let scope = directory_page_scope(&root, "");
             let decoded = cursor
                 .as_deref()
-                .map(|encoded| DirectoryCursor::decode(encoded, "").expect("cursor"));
-            let (entries, _, next) =
-                directory_page_at(&root, "", decoded.as_ref(), 4).expect("listing");
-            seen.extend(entries.into_iter().map(|entry| entry.name));
-            match next {
+                .map(|encoded| DirectoryCursor::decode(encoded, &scope).expect("cursor"));
+            let page = directory_page_at(&root, "", decoded.as_ref(), 4).expect("listing");
+            seen.extend(page.entries.into_iter().map(|entry| entry.name));
+            match page.next_cursor {
                 Some(next) => cursor = Some(next),
                 None => break,
             }
@@ -2640,15 +2700,178 @@ mod tests {
 
         let mut limits = WorkspaceInspectionBudgetLimits::directory_listing(100);
         limits.max_entries_visited = 5;
-        let (entries, truncated, next_cursor, spent) =
-            directory_page_at_within(&root, "", None, 100, limits).expect("listing");
+        let page = directory_page_at_within(&root, "", None, 100, limits).expect("listing");
 
-        assert_eq!(spent.entries_visited, 5);
-        assert!(entries.len() < 40);
-        // Fewer entries than the page size and still `truncated`: the scan did not finish, which is
-        // a different fact from a page that filled up.
-        assert!(truncated);
-        assert!(next_cursor.is_some());
+        assert_eq!(
+            page.coverage
+                .budget
+                .as_ref()
+                .expect("accounted")
+                .entries_visited,
+            5
+        );
+        assert!(page.entries.len() < 40);
+        // Not `truncated`, and that is the point of separating the two. `truncated` promises another
+        // page; a scan stopped by its entry budget has no next page to offer, because resuming would
+        // recharge the same budget over the same prefix and stop in the same place. What it has is a
+        // coverage state saying the directory was not read to the end — which no amount of paging
+        // fixes, and which the old single flag could not express.
+        assert!(!page.truncated);
+        assert_eq!(page.next_cursor, None);
+        assert_eq!(page.coverage.reason_code, Some("entry_budget_exhausted"));
+    }
+
+    /// A listing that ran out of time says so rather than reporting a short folder.
+    #[test]
+    fn a_listing_that_reached_its_deadline_reports_the_deadline() {
+        let fixture = TempDirectory::new("directory-page-deadline");
+        let root = fixture.path();
+        for index in 0..10 {
+            fs::write(root.join(format!("file-{index}.txt")), "text").expect("fixture");
+        }
+        let root = root.canonicalize().expect("canonical root");
+
+        // Zero rather than a small duration measured against a real clock. A deadline proved by
+        // sleeping is proved on the machine that ran it and nowhere else; zero trips at the first
+        // checkpoint on every machine, which is the same code path a real expiry takes.
+        let mut limits = WorkspaceInspectionBudgetLimits::directory_listing(100);
+        limits.deadline = std::time::Duration::ZERO;
+        let page = directory_page_at_within(&root, "", None, 100, limits).expect("listing");
+
+        assert_eq!(page.coverage.reason_code, Some("deadline_exceeded"));
+        // And it does not offer a next page. Resuming would spend the same expired deadline over
+        // the same prefix and stop in the same place.
+        assert!(!page.truncated);
+        assert_eq!(page.next_cursor, None);
+    }
+
+    /// A session whose workspace is `root`, and a connection that can be asked about it.
+    fn session_at(root: &Path, data: &Path) -> (NativeDatabase, String) {
+        let database = NativeDatabase::new(data.to_path_buf()).expect("database");
+        let connection = database.connection().expect("connection");
+        connection
+            .execute(
+                "INSERT INTO sessions                  (id, title, agent_id, interaction_mode, lifecycle_state, folder, pinned,                   archived, created_at, updated_at)                  VALUES ('session-paging', 'Paging', 'codex-cli', 'cli', 'idle', ?1, 0, 0,                          '2026-08-28T10:00:00Z', '2026-08-28T10:00:00Z')",
+                params![root.to_string_lossy().as_ref()],
+            )
+            .expect("insert session");
+        drop(connection);
+        (database, "session-paging".to_string())
+    }
+
+    /// The scenario the fingerprint is in the cursor for.
+    ///
+    /// The directory is not actually mutated here, and deliberately not: a real mutation would have
+    /// to move a filesystem timestamp, and whether it does within one test's runtime depends on the
+    /// volume's timestamp granularity. That is a coin flip dressed as a test. Rebuilding the cursor
+    /// under a different fingerprint exercises the same decode, the same comparison and the same
+    /// answer, every time.
+    #[test]
+    fn a_cursor_issued_before_the_directory_changed_restarts_rather_than_appends() {
+        let fixture = TempDirectory::new("paging-stale");
+        let root = fixture.path().join("workspace");
+        fs::create_dir_all(&root).expect("workspace");
+        for index in 0..6 {
+            fs::write(root.join(format!("file-{index}.txt")), "text").expect("fixture");
+        }
+        let root = root.canonicalize().expect("canonical root");
+        let (database, session) = session_at(&root, &fixture.path().join("data"));
+        let connection = database.connection().expect("connection");
+
+        let first =
+            list_session_directory_page(&connection, &session, "", None, 2).expect("first page");
+        assert!(first.truncated);
+        assert_eq!(first.coverage.reason_code, None);
+
+        // The same resume point, issued when the directory looked different.
+        let issued = DirectoryCursor::decode(
+            first.next_cursor.as_deref().expect("a cursor"),
+            &directory_page_scope(&root, ""),
+        )
+        .expect("the fresh cursor decodes");
+        let stale = DirectoryCursor::after(
+            DirectoryPageScope {
+                fingerprint: Some("an-older-state".to_string()),
+                ..issued.scope
+            },
+            "file",
+            &issued.name_key,
+        )
+        .encode();
+
+        let resumed = list_session_directory_page(&connection, &session, "", Some(&stale), 2)
+            .expect("a refusal is an answer");
+
+        // Nothing appended. Continuing here would drop or repeat rows with nothing on screen to say
+        // so, and a reader would read a listing that is quietly missing a file.
+        assert!(resumed.items.is_empty());
+        assert!(!resumed.truncated);
+        assert_eq!(resumed.next_cursor, None);
+        assert_eq!(resumed.coverage.reason_code, Some("stale_cursor"));
+
+        // And the restart works: asking without a cursor is the whole recovery.
+        let restarted =
+            list_session_directory_page(&connection, &session, "", None, 2).expect("restart");
+        assert_eq!(restarted.items, first.items);
+    }
+
+    #[test]
+    fn a_cursor_nobody_issued_is_refused_by_the_listing_rather_than_applied() {
+        let fixture = TempDirectory::new("paging-forged");
+        let root = fixture.path().join("workspace");
+        fs::create_dir_all(&root).expect("workspace");
+        fs::write(root.join("only.txt"), "text").expect("fixture");
+        let root = root.canonicalize().expect("canonical root");
+        let (database, session) = session_at(&root, &fixture.path().join("data"));
+        let connection = database.connection().expect("connection");
+
+        let refused =
+            list_session_directory_page(&connection, &session, "", Some("not-a-cursor"), 2)
+                .expect("a refusal is an answer");
+
+        // `invalid_cursor` rather than `stale_cursor`: nothing about this token says it was ever
+        // issued for this directory, and telling a reader the folder changed would be inventing an
+        // event to explain a token somebody made up.
+        assert!(refused.items.is_empty());
+        assert_eq!(refused.coverage.reason_code, Some("invalid_cursor"));
+    }
+
+    /// Two entries whose names differ only in case still page exactly once each.
+    #[test]
+    fn names_that_tie_on_case_are_still_ordered_and_paged_exactly_once() {
+        let fixture = TempDirectory::new("paging-ties");
+        let root = fixture.path().join("workspace");
+        fs::create_dir_all(&root).expect("workspace");
+        for name in ["Alpha.txt", "beta.txt", "Gamma.txt", "delta.txt"] {
+            fs::write(root.join(name), "text").expect("fixture");
+        }
+        let root = root.canonicalize().expect("canonical root");
+        let (database, session) = session_at(&root, &fixture.path().join("data"));
+        let connection = database.connection().expect("connection");
+
+        let mut seen: Vec<String> = Vec::new();
+        let mut cursor: Option<String> = None;
+        for _ in 0..6 {
+            let page = list_session_directory_page(&connection, &session, "", cursor.as_deref(), 1)
+                .expect("page");
+            seen.extend(page.items.into_iter().map(|entry| entry.name));
+            match page.next_cursor {
+                Some(next) => cursor = Some(next),
+                None => break,
+            }
+        }
+
+        // The ordering is case-insensitive, so this is the order a reader sees — and each name
+        // appears once, which is what a keyset cursor over a case-folded key has to guarantee.
+        assert_eq!(
+            seen,
+            vec![
+                "Alpha.txt".to_string(),
+                "beta.txt".to_string(),
+                "delta.txt".to_string(),
+                "Gamma.txt".to_string(),
+            ]
+        );
     }
 
     /// The recursive-discovery matcher for a root, as `list_session_documents` builds it.
@@ -2761,8 +2984,8 @@ mod tests {
         fs::write(root.join("node_modules/pkg/readme.md"), "vendored text").expect("fixture file");
         let root = root.canonicalize().expect("canonical root");
 
-        let (entries, _, _) =
-            directory_page_at(&root, "node_modules/pkg", None, 10).expect("listing");
+        let page = directory_page_at(&root, "node_modules/pkg", None, 10).expect("listing");
+        let entries = page.entries;
         let file = read_file_at(&root, "node_modules/pkg/readme.md").expect("read");
 
         // A reader who navigated here has said exactly what they want. Refusing it because a

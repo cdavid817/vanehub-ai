@@ -62,6 +62,7 @@ pub(super) fn directory_listing_to_dto(listing: DirectoryListing) -> dto::Direct
             .collect(),
         truncated: listing.truncated,
         next_cursor: listing.next_cursor,
+        coverage: coverage_to_dto(listing.coverage),
     }
 }
 
@@ -247,6 +248,33 @@ pub(super) fn shell_runtime_to_dto(runtime: ShellRuntimeDescriptor) -> dto::Shel
     }
 }
 
+/// Coverage, as the frontend receives it.
+///
+/// One mapper for both searches rather than a copy in each command. The two agreeing is the whole
+/// contract — a reader comparing a Quick Open notice with a content search notice is entitled to
+/// read the same word as the same fact — and two copies is how they stop agreeing.
+pub(super) fn coverage_to_dto(
+    coverage: WorkspaceSearchCoverage,
+) -> dto::WorkspaceSearchCoverageDto {
+    dto::WorkspaceSearchCoverageDto {
+        state: coverage.state.token().to_string(),
+        reason_code: coverage.reason_code.map(str::to_string),
+        budget: coverage
+            .budget
+            .map(|budget| dto::WorkspaceInspectionBudgetDto {
+                directories_visited: budget.directories_visited,
+                entries_visited: budget.entries_visited,
+                files_opened: budget.files_opened,
+                bytes_read: budget.bytes_read,
+                metadata_operations: budget.metadata_operations,
+                candidates_retained: budget.candidates_retained,
+                results_emitted: budget.results_emitted,
+                max_depth_reached: budget.max_depth_reached,
+                unreadable_entries: budget.unreadable_entries,
+            }),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -319,6 +347,7 @@ mod tests {
             items: Vec::new(),
             truncated: false,
             next_cursor: None,
+            coverage: WorkspaceSearchCoverage::complete(),
         });
         let file = file_content_to_dto(FileContent {
             path: "README.md".to_string(),
@@ -449,32 +478,5 @@ mod tests {
             serde_json::to_value(bare).expect("bare unavailable descriptor"),
             json!({ "kind": "unavailable", "reasonCode": "shell_not_found" })
         );
-    }
-}
-
-/// Coverage, as the frontend receives it.
-///
-/// One mapper for both searches rather than a copy in each command. The two agreeing is the whole
-/// contract — a reader comparing a Quick Open notice with a content search notice is entitled to
-/// read the same word as the same fact — and two copies is how they stop agreeing.
-pub(super) fn coverage_to_dto(
-    coverage: WorkspaceSearchCoverage,
-) -> dto::WorkspaceSearchCoverageDto {
-    dto::WorkspaceSearchCoverageDto {
-        state: coverage.state.token().to_string(),
-        reason_code: coverage.reason_code.map(str::to_string),
-        budget: coverage
-            .budget
-            .map(|budget| dto::WorkspaceInspectionBudgetDto {
-                directories_visited: budget.directories_visited,
-                entries_visited: budget.entries_visited,
-                files_opened: budget.files_opened,
-                bytes_read: budget.bytes_read,
-                metadata_operations: budget.metadata_operations,
-                candidates_retained: budget.candidates_retained,
-                results_emitted: budget.results_emitted,
-                max_depth_reached: budget.max_depth_reached,
-                unreadable_entries: budget.unreadable_entries,
-            }),
     }
 }

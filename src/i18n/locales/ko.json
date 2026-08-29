@@ -4769,6 +4769,7 @@
   "sessionTabs.documents.mode.source": "소스",
   "sessionTabs.documents.openChanges": "Changes에서 열기",
   "sessionTabs.coverage.directory-page": "이 폴더의 항목이 한 페이지보다 많습니다.",
+  "sessionTabs.coverage.directory-incomplete": "이 폴더의 일부를 나열할 수 없습니다.",
   "sessionTabs.coverage.document-walk": "문서 검색이 한도에서 중단되어 일부가 누락되었을 수 있습니다.",
   "sessionTabs.coverage.git-status-bound": "이 목록에 표시된 것보다 더 많은 경로가 변경되었습니다.",
   "sessionTabs.coverage.git-diff-bound": "이 diff는 크기 한도에서 잘렸으므로 실제 변경은 더 큽니다.",

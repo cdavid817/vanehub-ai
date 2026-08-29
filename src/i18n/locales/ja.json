@@ -4769,6 +4769,7 @@
   "sessionTabs.documents.mode.source": "ソース",
   "sessionTabs.documents.openChanges": "Changes で開く",
   "sessionTabs.coverage.directory-page": "このフォルダーの項目は 1 ページに収まりません。",
+  "sessionTabs.coverage.directory-incomplete": "このフォルダーの一部を一覧できませんでした。",
   "sessionTabs.coverage.document-walk": "ドキュメント検索が上限で停止したため、一部が欠けている可能性があります。",
   "sessionTabs.coverage.git-status-bound": "この一覧に表示されているより多くのパスが変更されています。",
   "sessionTabs.coverage.git-diff-bound": "この差分はサイズ上限で切り詰められており、実際の変更はより大きなものです。",

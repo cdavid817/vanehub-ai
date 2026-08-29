@@ -301,6 +301,7 @@ impl WorkspaceSessionQueryPort for FakeSessionQueries {
             items: Vec::new(),
             truncated: false,
             next_cursor: None,
+            coverage: WorkspaceSearchCoverage::complete(),
         })
     }
 
