@@ -114,11 +114,11 @@
 
 ## 14. Full Verification
 
-- [ ] 14.1 Add E2E flows for lazy system-session creation, separate listing/selection, no composer, timeline delivery, unread, search/filter, navigation, and export.
-- [ ] 14.2 Add E2E flows for lag, source gap, startup catch-up, preferences, digest, source purge, shadow rebuild, failed rebuild, and notification non-replay.
-- [ ] 14.3 Run privacy, event-registry, projection idempotency, ordering, gap, retention, rebuild, localization, read-state, export, and mutation-refusal corpora.
-- [ ] 14.4 Run `npm run lint:ci`, `npm run test`, `npm run test:coverage`, `npm run coverage:policy:test`, `npm run version:unit:test`, and `npm run contracts:check`.
-- [ ] 14.5 Run `npm run build` and `npx playwright test` for System Activity, dashboard, notifications, rebuild, and desktop/Web separation.
+- [x] 14.1 Add E2E flows for lazy system-session creation, separate listing/selection, no composer, timeline delivery, unread, search/filter, navigation, and export.
+- [x] 14.2 Add E2E flows for lag, source gap, startup catch-up, preferences, digest, source purge, shadow rebuild, failed rebuild, and notification non-replay.
+- [x] 14.3 Run privacy, event-registry, projection idempotency, ordering, gap, retention, rebuild, localization, read-state, export, and mutation-refusal corpora.
+- [x] 14.4 Run `npm run lint:ci`, `npm run test`, `npm run test:coverage`, `npm run coverage:policy:test`, `npm run version:unit:test`, and `npm run contracts:check`.
+- [x] 14.5 Run `npm run build` and `npx playwright test` for System Activity, dashboard, notifications, rebuild, and desktop/Web separation.
 - [ ] 14.6 Run `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`, `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`, `cargo test --manifest-path src-tauri/Cargo.toml`, and `cargo check --manifest-path src-tauri/Cargo.toml`.
-- [ ] 14.7 Run `openspec validate add-skill-evolution-system-sessions-and-result-projection --strict`, `openspec validate --specs --strict`, and repository documentation checks.
+- [x] 14.7 Run `openspec validate add-skill-evolution-system-sessions-and-result-projection --strict`, `openspec validate --specs --strict`, and repository documentation checks.
 - [ ] 14.8 Verify projector-disabled, database-unavailable, source-gap, corrupted generation, notification failure, export failure, shutdown, and rollback scenarios leave all Agent and evolution source systems operational.

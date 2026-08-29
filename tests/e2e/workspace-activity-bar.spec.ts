@@ -238,6 +238,8 @@ test.describe("workspace activity bar", () => {
     await page.keyboard.press("Tab");
     await expect(page.getByRole("button", { name: "Agent 评测" })).toBeFocused();
     await page.keyboard.press("Tab");
+    await expect(page.getByRole("button", { name: "系统活动" })).toBeFocused();
+    await page.keyboard.press("Tab");
     await expect(page.getByRole("button", { name: "任务控制台" })).toBeFocused();
     await page.keyboard.press("Tab");
     await expect(scheduledTasks).toBeFocused();

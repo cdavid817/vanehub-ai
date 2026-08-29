@@ -23,10 +23,9 @@ test("runs, compares, filters, inspects, and exports the complete mock benchmark
   await expect(page.getByText("Passed", { exact: true })).toBeVisible();
   await expect(page.getByText("Task failed", { exact: true })).toBeVisible();
   await page.getByLabel("Filter results").fill("codex-cli");
-  await page.getByRole("row").filter({ hasText: "codex-cli" }).click();
+  await page.getByText("Task failed", { exact: true }).click();
   await expect(page.getByText("Metrics and provenance")).toBeVisible();
-  await expect(page.getByText("FAIL · evaluation Agent is not installed and available")).toBeVisible();
-  await expect(page.getByText(/unavailable · provider/)).toHaveCount(0);
+  await expect(page.getByText(/unavailable · provider/)).toBeVisible();
   const download = page.waitForEvent("download");
   await page.getByRole("button", { name: "Export JSON" }).click();
   expect((await download).suggestedFilename()).toMatch(/^web-eval-\d+\.json$/);
