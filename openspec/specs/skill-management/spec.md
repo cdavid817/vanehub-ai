@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change add-skill-management-settings. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Dual Skill scopes
 The system SHALL preserve `global` and `workspace` as management and binding scopes while resolving runtime Skill definitions from the `user` and `project` layers respectively, together with lower-priority `registry` and `system` layers. Scope-specific enabled state, Agent bindings, drift state, and deletion intent SHALL remain isolated.
 
@@ -460,3 +462,108 @@ The atomic synchronization record SHALL represent the state after successful rep
 - **WHEN** only a subset of detected drift issues can be repaired
 - **THEN** the committed drift snapshot SHALL retain only issues that remain observable after the committed repairs
 - **AND** successful repairs and remaining failures SHALL be distinguishable in the synchronization result
+
+### Requirement: Skill evolution assessment service boundary
+The Skill management service SHALL provide workspace- and Skill-scoped assessment summary, detail, history, and policy-status operations through matching desktop/Tauri and Web runtime adapters. React components MUST NOT invoke native commands directly.
+
+#### Scenario: Desktop assessment query
+- **WHEN** the desktop UI requests an assessment through the Skill service
+- **THEN** the Tauri adapter invokes the native assessment command and returns sanitized typed models
+
+#### Scenario: Web assessment query
+- **WHEN** the Web UI requests the same assessment operation
+- **THEN** the Web adapter returns behaviorally equivalent mock or backend data with the same status and error semantics
+
+### Requirement: Safe reassessment request
+The Skill management service SHALL allow a user to request reassessment of an existing candidate seed without editing evidence, selecting a target manually, changing a Skill, or bypassing quality gates.
+
+#### Scenario: Reassess changed evidence
+- **WHEN** the current assessment witness is stale and the user requests reassessment
+- **THEN** the service schedules a new immutable attempt and returns its status
+
+#### Scenario: Reassess unchanged evidence
+- **WHEN** an identical complete witness already has a current result
+- **THEN** the service returns that result without creating duplicate history
+
+### Requirement: Model evaluation policy service
+The Skill management service SHALL expose whether optional model evaluation is disabled, unavailable, or enabled and SHALL require an explicit versioned consent update before enabling external evaluation.
+
+#### Scenario: Enable model evaluation
+- **WHEN** the user confirms the disclosed sanitized outbound data classes
+- **THEN** the service records consent version and enables model consultation for future assessments
+
+#### Scenario: Disable model evaluation
+- **WHEN** the user disables model evaluation
+- **THEN** subsequent assessments use deterministic behavior without affecting Agent availability or launch state
+
+### Requirement: Curator service boundary
+The Skill management service SHALL expose scoped Curator queue, candidate detail, audit history, policy, draft revision, preview, defer, resume, reject, approve, and retry operations through matching desktop/Tauri and Web runtime adapters. React components MUST NOT invoke native commands directly.
+
+#### Scenario: Desktop Curator action
+- **WHEN** the desktop UI performs a Curator action through the Skill service
+- **THEN** the Tauri adapter invokes the native command and returns typed state, conflict, validation, or application results
+
+#### Scenario: Web Curator action
+- **WHEN** the Web UI performs the same action
+- **THEN** the Web adapter returns behaviorally equivalent mock or backend results with matching version and error semantics
+
+### Requirement: Conflict-safe Curator commands
+Every mutating Curator service operation SHALL require the expected candidate version and all action-specific witnesses and SHALL return the current safe state on a stale conflict.
+
+#### Scenario: Two review surfaces mutate one candidate
+- **WHEN** one surface advances the candidate before the second submits its action
+- **THEN** the second receives a stale conflict and cannot overwrite the first decision
+
+### Requirement: Bounded Curator payloads
+Curator service responses SHALL return sanitized, paginated, size-bounded summaries, diffs, draft data, and audit events and SHALL exclude raw prompts, terminal output, credentials, provider payloads, and rejected unsafe content.
+
+#### Scenario: Diff exceeds response limit
+- **WHEN** an effective diff exceeds the service response budget
+- **THEN** the service returns a paginated or truncated representation with explicit completeness metadata and does not weaken approval requirements
+
+### Requirement: Evolution orchestration service boundary
+The Skill management service SHALL expose scheduler status, runs, stages, checkpoints, policy, consent, allowlist, eligibility, application, probation, breaker, manual-run, cancellation, and breaker-acknowledgement operations through matching Tauri and Web adapters. React components MUST NOT invoke native commands directly.
+
+#### Scenario: Desktop manual run
+- **WHEN** the desktop UI requests a manual run through the Skill service
+- **THEN** the Tauri adapter schedules it through the native orchestrator and returns typed status
+
+#### Scenario: Web orchestration query
+- **WHEN** Web UI requests orchestration state
+- **THEN** the Web adapter returns behaviorally equivalent page-active mock state with explicit mock provenance
+
+### Requirement: Conflict-safe orchestration policy
+Policy, consent, allowlist, cancellation, and breaker operations SHALL require current version witnesses and SHALL return stable conflict or health reasons without weakening safety state.
+
+#### Scenario: Stale policy update
+- **WHEN** two settings surfaces update orchestration policy concurrently
+- **THEN** the stale operation fails and returns the current policy without overwriting it
+
+### Requirement: Skill generation service boundary
+The Skill management service SHALL expose generation consent, request, job, stage, dossier, export, attempt, draft, validation, cancellation, regeneration, quarantine, and Curator-handoff operations through matching desktop/Tauri and Web adapters. React components MUST NOT invoke native commands directly.
+
+#### Scenario: Desktop generation request
+- **WHEN** the desktop UI requests generation through the Skill service
+- **THEN** the Tauri adapter invokes the native generation boundary and returns typed job status
+
+#### Scenario: Web generation request
+- **WHEN** Web/mock UI submits the same operation
+- **THEN** the Web adapter returns equivalent simulated stages and explicit mock provenance without calling a local provider
+
+### Requirement: Conflict-safe generated Skill creation
+Installation of an approved quarantined new Skill SHALL use the existing Skill creation transaction with expected proposal, workspace, catalog, scope, and candidate-id witnesses. It SHALL reject collisions and stale state without partially creating files, registry rows, or bindings.
+
+#### Scenario: Approved proposal creates a Skill
+- **WHEN** current Curator approval and all creation witnesses are valid
+- **THEN** the service creates one User or Project Skill with generation provenance and returns its canonical identity
+
+#### Scenario: Creation transaction fails
+- **WHEN** the source directory or registry commit cannot complete atomically
+- **THEN** the system restores the prior catalog state and leaves the proposal unapplied
+
+### Requirement: Bounded generation payloads
+Generation service responses and exports SHALL be sanitized, size bounded, paginated where needed, and explicit about truncation and completeness. They MUST exclude raw model prompts, provider payloads, unsafe rejected content, and prohibited source data.
+
+#### Scenario: Dossier response is large
+- **WHEN** a dossier exceeds one response page
+- **THEN** the service returns stable section pagination without silently omitting evidence completeness markers
