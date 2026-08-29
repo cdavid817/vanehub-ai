@@ -359,6 +359,70 @@ mod tests {
         assert!(failed.get("exitCode").is_none());
     }
 
+    /// A failed close says whether trying again would work, and nothing else does.
+    ///
+    /// The flag is also on the close result, but only the caller that made the attempt holds one. A
+    /// view rebuilding its list from `listSessionShells` has descriptors and nothing else, and
+    /// without this it has to guess — offering a retry that can never work, or withholding one that
+    /// would.
+    #[test]
+    fn only_a_failed_close_answers_whether_a_retry_would_work() {
+        let retryable = serde_json::to_value(descriptor_to_dto(descriptor(
+            SessionShellState::CloseFailed {
+                reason: shell_reason("shell_terminate_failed"),
+                retryable: true,
+            },
+        )))
+        .expect("retryable");
+        let permanent = serde_json::to_value(descriptor_to_dto(descriptor(
+            SessionShellState::CloseFailed {
+                reason: shell_reason("shell_terminate_failed"),
+                retryable: false,
+            },
+        )))
+        .expect("permanent");
+        let running =
+            serde_json::to_value(descriptor_to_dto(descriptor(SessionShellState::Running)))
+                .expect("running");
+
+        assert_eq!(retryable["retryable"], true);
+        // `false` travels, because "we tried and it will not work" is an answer.
+        assert_eq!(permanent["retryable"], false);
+        // Absent, not `false`. A Shell nobody has tried to close has not answered the question, and
+        // a `false` here would tell a view that a retry is pointless for one that might close on
+        // the first press.
+        assert!(running.get("retryable").is_none());
+    }
+
+    /// Every intermediate state survives the wire as itself.
+    ///
+    /// The three on the way out are the ones that matter: a view that received any of them as
+    /// `closed` would remove the Shell from its list and take away the only handle the user has left
+    /// on a process that is still running.
+    #[test]
+    fn every_lifecycle_state_keeps_its_own_token() {
+        let expected = [
+            (SessionShellState::Opening, "opening"),
+            (SessionShellState::Running, "running"),
+            (SessionShellState::Closing, "closing"),
+            (SessionShellState::Reaping, "reaping"),
+            (
+                SessionShellState::CloseFailed {
+                    reason: shell_reason("shell_terminate_failed"),
+                    retryable: true,
+                },
+                "close_failed",
+            ),
+            (SessionShellState::Exited { code: Some(0) }, "exited"),
+            (SessionShellState::Closed, "closed"),
+        ];
+
+        for (state, token) in expected {
+            let dto = serde_json::to_value(descriptor_to_dto(descriptor(state))).expect("state");
+            assert_eq!(dto["state"], token);
+        }
+    }
+
     /// Every replay frame names its Shell. The registry stores frames per Shell and does not repeat
     /// the id, but a view merging replay with live frames keys on it, and a frame that arrived
     /// without one would have to inherit the id of whatever request it came back on.

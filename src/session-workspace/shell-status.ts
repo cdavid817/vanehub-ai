@@ -3,6 +3,7 @@ import type {
   ShellForegroundProcessState,
 } from "../types/session-workspace-shell-frames";
 import { isShellCleanupPending } from "../types/session-workspace-shell-frames";
+import { shellReasonKey } from "./shell-reason";
 
 /** The locale key for a retained Shell's state. Kept apart from the legacy connection-state keys,
  * which describe a different lifecycle with overlapping words. */
@@ -53,12 +54,24 @@ export function closeWarningFor(foreground: ShellForegroundProcessState): CloseW
   return "none";
 }
 
-/** The suffix a finished Shell shows next to its state, when the runtime reported one. */
-export function shellEndingDetail(descriptor: SessionShellDescriptor): string | null {
+/**
+ * What a Shell shows next to its state, when the runtime reported something.
+ *
+ * Two shapes rather than one string, because an exit code is a number to display and a reason is a
+ * code to translate. Returning the reason as text put `shell_close_deadline_reached` on the strip:
+ * a token this application defined, in front of a reader who has no way to know what it means.
+ *
+ * A code this build has no wording for returns nothing at all. The state is rendered beside it and
+ * is still true; an identifier is worse than the silence it would replace.
+ */
+export type ShellEndingDetail = { exitCode: number } | { reasonKey: string } | null;
+
+export function shellEndingDetail(descriptor: SessionShellDescriptor): ShellEndingDetail {
   if (descriptor.state === "exited" && descriptor.exitCode !== undefined) {
-    return String(descriptor.exitCode);
+    return { exitCode: descriptor.exitCode };
   }
-  return descriptor.reason ?? null;
+  const reasonKey = shellReasonKey(descriptor.reason);
+  return reasonKey ? { reasonKey } : null;
 }
 
 /**

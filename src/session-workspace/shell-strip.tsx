@@ -112,7 +112,7 @@ function ActiveShellDetail({
       </span>
       {ending ? (
         <span className="rounded-full border border-border px-2 py-1 text-muted-foreground">
-          {ending}
+          {"exitCode" in ending ? String(ending.exitCode) : t(ending.reasonKey)}
         </span>
       ) : null}
     </>

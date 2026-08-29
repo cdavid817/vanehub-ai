@@ -13,7 +13,7 @@
 - [x] 1.3 Centralize legal transitions in the workspaces domain/application layer and add tests preventing Running after early terminal exit, terminal-to-running regression, duplicate terminal publication, and stale-generation mutation.
 - [x] 1.4 Define typed `SessionShellCloseResult`, reason codes, retryability, attempt metadata, cleanup-deadline state, and `SessionShellCleanupReport` without leaking platform error text across the service boundary.
 - [x] 1.5 Define application-owned ports for capacity reservation, retained runtime open/close, Reaper handoff/status, and generation-safe terminal finalization. Infrastructure implements these ports; commands do not orchestrate them.
-- [ ] 1.6 Add serialization/compatibility tests for native DTOs and frontend TypeScript types, including unknown/new reason-code fallback.
+- [x] 1.6 Add serialization/compatibility tests for native DTOs and frontend TypeScript types, including unknown/new reason-code fallback.
 
 ## 2. Atomic capacity admission and pre-registration
 
