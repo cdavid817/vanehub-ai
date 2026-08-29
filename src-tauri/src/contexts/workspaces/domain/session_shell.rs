@@ -239,6 +239,18 @@ impl SessionShellState {
         }
     }
 
+    /// Whether a failed cleanup is worth trying again, for the one state that carries the answer.
+    ///
+    /// `None` everywhere else, and deliberately not `Some(false)`: a Shell that has not failed a
+    /// close has not answered this question, and reporting `false` would tell a view that a retry is
+    /// pointless for a Shell nobody has tried to close.
+    pub(crate) fn close_retryable(&self) -> Option<bool> {
+        match self {
+            Self::CloseFailed { retryable, .. } => Some(*retryable),
+            _ => None,
+        }
+    }
+
     /// The process exit code, when the runtime reported one.
     pub(crate) fn exit_code(&self) -> Option<i32> {
         match self {

@@ -2182,6 +2182,7 @@
   "sessionTabs.shell.renameTitle": "Shell name",
   "sessionTabs.shell.save": "Save",
   "sessionTabs.shell.close": "Close",
+  "sessionTabs.shell.retryClose": "Retry close",
   "sessionTabs.shell.closeTitle": "Close {{title}}?",
   "sessionTabs.shell.closeConfirm": "Close shell",
   "sessionTabs.shell.closeCancel": "Cancel",

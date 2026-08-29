@@ -2182,6 +2182,7 @@
   "sessionTabs.shell.renameTitle": "シェル名",
   "sessionTabs.shell.save": "保存",
   "sessionTabs.shell.close": "閉じる",
+  "sessionTabs.shell.retryClose": "終了を再試行",
   "sessionTabs.shell.closeTitle": "{{title}} を閉じますか？",
   "sessionTabs.shell.closeConfirm": "シェルを閉じる",
   "sessionTabs.shell.closeCancel": "キャンセル",

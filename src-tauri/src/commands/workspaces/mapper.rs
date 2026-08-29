@@ -372,7 +372,11 @@ mod tests {
                 "path": "src",
                 "items": [],
                 "truncated": false,
-                "nextCursor": null
+                "nextCursor": null,
+                // Alongside `truncated` rather than folded into it. One says another page follows,
+                // the other says part of the folder was never examined, and a reader shown only the
+                // first reads a stopped scan as the end of the directory.
+                "coverage": {"state": "complete"}
             })
         );
         assert_eq!(

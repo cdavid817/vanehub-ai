@@ -333,10 +333,16 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // `listSessionDocuments` 多一个 searchId 参数(它同样是整个项目的递归遍历,重复调用应当取代而不是
 // 再起一个),Web 侧多一条 `coverage: complete` 的诚实声明。+14 行,全部是这两处。
 // 上限按实测值 24944 记录,不留余量。
+// 上调理由(fix-retained-shell-lifecycle-and-bounded-reaping,Task 9.3):Web/mock 此前直接创建成
+// `running`,启动阶段在浏览器侧根本不存在——面板会被写成"新建的 Shell 立刻可写",而 desktop 侧
+// 在 `opening` 阶段是拒绝输入的。补上 `opening`→`running` 的提交、回滚为 `failed`、以及"命令在任何
+// 视图 attach 之前就输出并退出"这三种情形,是让这三件事第一次可观察,不是复制既有分支。
+// 同时把三处 close outcome 字面量抽成构造函数(client 因此从 302 行回到 300 以内),这部分是净移动。
+// 上限按实测值 25041 记录(+97),不留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
   {
     root: "src/services",
-    budget: 24944,
+    budget: 25041,
     owner: "harden-workspace-search-cancellation-and-resource-budgets",
   },
 ]);

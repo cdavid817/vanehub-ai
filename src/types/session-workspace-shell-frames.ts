@@ -68,6 +68,50 @@ export function isCloseSettled(disposition: ShellCloseDisposition): boolean {
 }
 
 /**
+ * What one session-wide cleanup achieved, as a view can state it.
+ *
+ * Archiving and deleting a session end every Shell it owns, and both refuse when any of them is not
+ * confirmed gone. The refusal arrives as one stable code, which tells a reader that something is
+ * still winding down and nothing about *what* — so the only thing they can do with it is try again
+ * and hope. This is that same fact with the Shells named, assembled from the list the view can
+ * already ask for.
+ *
+ * Derived rather than sent. A report crossing from the workspaces context into the sessions one
+ * would be a workspaces type in the sessions contract, for a summary the frontend can compute from
+ * a call it already makes.
+ */
+export interface SessionShellCleanupReport {
+  sessionId: string;
+  /** The Shells that have been asked to end and have not. Empty when cleanup is complete. */
+  pending: SessionShellDescriptor[];
+  /**
+   * Whether trying again is worth offering.
+   *
+   * True while anything is still `closing` or `reaping` — those are attempts in progress. A Shell
+   * that reported `close_failed` is only retryable if it said so, and one that did not means the
+   * next press would produce the same refusal.
+   */
+  retryable: boolean;
+}
+
+/** The Shells blocking a session-wide cleanup, and whether retrying is honest. */
+export function sessionShellCleanupReport(
+  sessionId: string,
+  shells: readonly SessionShellDescriptor[],
+): SessionShellCleanupReport {
+  const pending = shells.filter(
+    (shell) => shell.sessionId === sessionId && isShellCleanupPending(shell.state),
+  );
+  return {
+    sessionId,
+    pending,
+    // `close_failed` without a retryable flag is a wall, not a wait. Offering a retry there would
+    // invite the reader to press again for an answer nothing is going to give.
+    retryable: pending.some((shell) => shell.state !== "close_failed"),
+  };
+}
+
+/**
  * Whether something is running in the foreground. Three values, not two: `unknown` is what an
  * opaque runtime honestly reports, and rendering it as `absent` would let a close confirmation say
  * "nothing is running" about a shell midway through a deploy.
@@ -105,6 +149,13 @@ export interface SessionShellDescriptor {
   /** Present only for the states that carry one. */
   reason?: string;
   exitCode?: number;
+  /**
+   * Whether a failed cleanup is worth trying again. Present only for `close_failed`.
+   *
+   * Absent rather than `false` everywhere else: a Shell nobody has tried to close has not answered
+   * this question, and reporting `false` would tell a view that a retry is pointless.
+   */
+  retryable?: boolean;
   createdAt: string;
   lastActivityAt: string;
   /**

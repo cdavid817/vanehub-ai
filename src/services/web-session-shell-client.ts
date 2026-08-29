@@ -16,7 +16,12 @@ import type {
   WriteSessionShellInput,
 } from "./session-shell-service";
 import type { MockShell, WebSessionShellOptions } from "./web-session-shell-state";
-import { evictRetainedFrames } from "./web-session-shell-state";
+import {
+  alreadyTerminalClose,
+  confirmedClose,
+  evictRetainedFrames,
+  unconfirmedClose,
+} from "./web-session-shell-state";
 
 export type { WebSessionShellOptions } from "./web-session-shell-state";
 export {
@@ -73,7 +78,10 @@ export function createWebSessionShellClient(
   function authorize(scope: ShellAttachmentScope): MockShell {
     const shell = require_(scope.shellId);
     if (shell.attachmentId !== scope.attachmentId) throw new Error("shell_attachment_stale");
-    if (shell.descriptor.state !== "starting" && shell.descriptor.state !== "running") {
+    // `running` alone, which is what the native store allows. `opening` is addressable and not
+    // writable: a keystroke accepted there would race the handoff that decides whether the Shell
+    // exists at all, and answering it with success would say it reached a process.
+    if (shell.descriptor.state !== "running") {
       throw new Error("shell_not_accepting_input");
     }
     return shell;
@@ -142,7 +150,10 @@ export function createWebSessionShellClient(
             supportsReplay: true,
             supportsReconnect: false,
           },
-          state: "running",
+          // `opening` when startup is deferred: registered and addressable, runtime not yet
+          // committed. The default stays `running`, which is what a mock with no process to wait
+          // for honestly is.
+          state: options.deferStartupUntilAttach ? "opening" : "running",
           createdAt,
           lastActivityAt: createdAt,
           revision: 1,
@@ -158,6 +169,14 @@ export function createWebSessionShellClient(
         closeAttempts: 0,
       };
       shells.set(shellId, shell);
+      if (options.fastExit) {
+        // Before anything can attach. A view that only rendered live frames would show an empty
+        // terminal for a Shell that had already said everything it was going to say.
+        emitOutput(shell, options.fastExit.output);
+        shell.descriptor = { ...shell.descriptor, exitCode: options.fastExit.exitCode };
+        setState(shell, "exited");
+        return shell.descriptor;
+      }
       emitOutput(shell, `${input.sessionId} $ `);
       return shell.descriptor;
     },
@@ -172,6 +191,17 @@ export function createWebSessionShellClient(
       // must not lock the Shell out of reach.
       shell.attachmentId = attachmentId;
       listeners.set(input.shellId, listener);
+      // Committed here rather than on a timer. Attaching is the one call in the mock's world that
+      // maps to "something is watching this Shell now", and a timer would be a second clock every
+      // test waiting on it would race.
+      if (shell.descriptor.state === "opening") {
+        if (options.startupFailureReason) {
+          shell.descriptor = { ...shell.descriptor, reason: options.startupFailureReason };
+          setState(shell, "failed");
+        } else {
+          setState(shell, "running");
+        }
+      }
       const after = input.afterSequence ?? 0;
       const replay = shell.frames.filter((frame) => frame.sequence > after);
       return {
@@ -228,17 +258,7 @@ export function createWebSessionShellClient(
       // Closing a Shell that is already gone is settled, so a retry after a partial failure has the
       // same result as the first attempt. Reported as `already_terminal` rather than as a confirmed
       // close: this call ended nothing.
-      if (!shell) {
-        return {
-          shellId,
-          generation: 0,
-          disposition: "already_terminal",
-          finalState: "closed",
-          retryable: false,
-          attempt: 0,
-          cleanupDeadlineReached: false,
-        };
-      }
+      if (!shell) return alreadyTerminalClose(shellId);
       shell.closeAttempts += 1;
       const attempt = shell.closeAttempts;
       const generation = shell.descriptor.generation;
@@ -247,29 +267,19 @@ export function createWebSessionShellClient(
         // simulated process is still there — and taking those away is what removes the user's only
         // way to retry.
         const unconfirmed = options.unconfirmedCloseFails ? "close_failed" : "reaping";
+        if (unconfirmed === "close_failed") {
+          // Carried on the descriptor as well as in the outcome. A view rebuilding its list from
+          // `listSessionShells` has no outcome to read, and without the flag it cannot tell whether
+          // offering a retry would be honest.
+          shell.descriptor = { ...shell.descriptor, retryable: true };
+        }
         setState(shell, unconfirmed);
-        return {
-          shellId,
-          generation,
-          disposition: unconfirmed,
-          reason: "shell_close_deadline_reached",
-          retryable: true,
-          attempt,
-          cleanupDeadlineReached: true,
-        };
+        return unconfirmedClose(shellId, generation, unconfirmed, attempt);
       }
       setState(shell, "closed");
       shells.delete(shellId);
       listeners.delete(shellId);
-      return {
-        shellId,
-        generation,
-        disposition: "closed",
-        finalState: "closed",
-        retryable: false,
-        attempt,
-        cleanupDeadlineReached: false,
-      };
+      return confirmedClose(shellId, generation, attempt);
     },
   };
 }

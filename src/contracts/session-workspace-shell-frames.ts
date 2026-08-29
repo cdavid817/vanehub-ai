@@ -71,6 +71,9 @@ export const sessionShellDescriptorSchema = z.object({
   state: sessionShellStateSchema,
   reason: z.string().optional(),
   exitCode: z.number().int().optional(),
+  // Absent rather than defaulted: a Shell nobody has tried to close has not answered this question,
+  // and a `false` would tell a view that a retry is pointless.
+  retryable: z.boolean().optional(),
   createdAt: z.string(),
   lastActivityAt: z.string(),
   revision: z.number().int().nonnegative(),

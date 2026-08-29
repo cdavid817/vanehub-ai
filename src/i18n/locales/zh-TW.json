@@ -2182,6 +2182,7 @@
   "sessionTabs.shell.renameTitle": "Shell 名稱",
   "sessionTabs.shell.save": "儲存",
   "sessionTabs.shell.close": "關閉",
+  "sessionTabs.shell.retryClose": "重試關閉",
   "sessionTabs.shell.closeTitle": "關閉 {{title}}？",
   "sessionTabs.shell.closeConfirm": "關閉 Shell",
   "sessionTabs.shell.closeCancel": "取消",

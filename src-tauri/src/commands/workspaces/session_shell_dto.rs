@@ -35,6 +35,15 @@ pub(crate) struct SessionShell {
     pub(crate) reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) exit_code: Option<i32>,
+    /// Whether a failed cleanup is worth trying again. Present only for `close_failed`.
+    ///
+    /// Carried on the descriptor and not only on the close result, because the two answer for
+    /// different moments: the result describes the attempt a caller just made, and the descriptor is
+    /// what a view rebuilding its list from `listSessionShells` has. Without it that view can see
+    /// that cleanup failed and cannot tell whether offering a retry would be honest — so it either
+    /// offers one that will never work, or withholds one that would.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) retryable: Option<bool>,
     pub(crate) created_at: String,
     pub(crate) last_activity_at: String,
     pub(crate) revision: u64,
@@ -251,6 +260,7 @@ pub(super) fn descriptor_to_dto(descriptor: SessionShellDescriptor) -> SessionSh
         state: descriptor.state.token(),
         reason: descriptor.state.reason().map(str::to_string),
         exit_code: descriptor.state.exit_code(),
+        retryable: descriptor.state.close_retryable(),
         created_at: descriptor.created_at,
         last_activity_at: descriptor.last_activity_at,
         revision: descriptor.revision,

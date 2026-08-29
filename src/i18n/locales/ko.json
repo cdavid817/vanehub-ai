@@ -2182,6 +2182,7 @@
   "sessionTabs.shell.renameTitle": "셸 이름",
   "sessionTabs.shell.save": "저장",
   "sessionTabs.shell.close": "닫기",
+  "sessionTabs.shell.retryClose": "닫기 재시도",
   "sessionTabs.shell.closeTitle": "{{title}}을(를) 닫을까요?",
   "sessionTabs.shell.closeConfirm": "셸 닫기",
   "sessionTabs.shell.closeCancel": "취소",
