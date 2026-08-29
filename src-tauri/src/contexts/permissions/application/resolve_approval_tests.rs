@@ -119,6 +119,7 @@ struct FakeResolutions {
     journal: Arc<Journal>,
     rows: Mutex<Vec<(ApprovalResolution, bool)>>,
     fail_commits: Mutex<usize>,
+    fail_acknowledgements: Mutex<usize>,
     grant_active: Mutex<bool>,
     grant_intents: Mutex<Vec<PendingGrantIntent>>,
 }
@@ -129,6 +130,7 @@ impl FakeResolutions {
             journal,
             rows: Mutex::new(Vec::new()),
             fail_commits: Mutex::new(0),
+            fail_acknowledgements: Mutex::new(0),
             grant_active: Mutex::new(false),
             grant_intents: Mutex::new(Vec::new()),
         }
@@ -137,6 +139,12 @@ impl FakeResolutions {
     fn failing_commits(journal: Arc<Journal>, times: usize) -> Self {
         let repository = Self::new(journal);
         *repository.fail_commits.lock().unwrap() = times;
+        repository
+    }
+
+    fn failing_acknowledgements(journal: Arc<Journal>, times: usize) -> Self {
+        let repository = Self::new(journal);
+        *repository.fail_acknowledgements.lock().unwrap() = times;
         repository
     }
 
@@ -244,6 +252,16 @@ impl ApprovalResolutionRepository for FakeResolutions {
         id: &ApprovalResolutionId,
         _now: &str,
     ) -> Result<ApprovalResolution, PermissionsApplicationError> {
+        let mut remaining = self.fail_acknowledgements.lock().unwrap();
+        if *remaining > 0 {
+            *remaining -= 1;
+            return Err(PermissionsApplicationError::infrastructure(
+                "sqlite",
+                "acknowledgement update failed".to_string(),
+            ));
+        }
+        drop(remaining);
+
         let mut rows = self.rows.lock().unwrap();
         let (row, has_grant) = rows
             .iter_mut()
@@ -282,6 +300,8 @@ enum WaiterBehaviour {
     VanishesBeforeDelivery,
     /// The transport itself failed.
     Errors,
+    /// The runtime could not answer whether a waiter exists. Not the same as "there is none".
+    ReservationErrors,
 }
 
 struct FakeDelivery {
@@ -308,6 +328,12 @@ impl ApprovalDeliveryPort for FakeDelivery {
         if self.behaviour == WaiterBehaviour::AlreadyGone {
             return Ok(None);
         }
+        if self.behaviour == WaiterBehaviour::ReservationErrors {
+            return Err(PermissionsApplicationError::infrastructure(
+                "agent_runtime",
+                "generation lookup failed".to_string(),
+            ));
+        }
         self.journal.push(Event::Reserved);
         Ok(Some(DeliveryReservation {
             token: "reservation-1".to_string(),
@@ -329,7 +355,9 @@ impl ApprovalDeliveryPort for FakeDelivery {
                 "waiter transport failed".to_string(),
             )),
             WaiterBehaviour::VanishesBeforeDelivery => Ok(DeliveryAcknowledgement::WaiterGone),
-            WaiterBehaviour::AlreadyGone | WaiterBehaviour::Applies => {
+            WaiterBehaviour::ReservationErrors
+            | WaiterBehaviour::AlreadyGone
+            | WaiterBehaviour::Applies => {
                 let mut applied = self.applied.lock().unwrap();
                 // Exactly what a real waiter must do: one resolution id resumes execution once,
                 // and a retry of the same id is acknowledged without resuming anything.
@@ -901,6 +929,100 @@ fn a_timeout_racing_a_human_approval_cannot_produce_a_second_decision() {
         }
     );
     assert_eq!(fixture.delivery.applied.lock().unwrap().len(), 1);
+}
+
+/// A reservation that errors is not a stale waiter — it is not knowing whether there is one.
+///
+/// So nothing is committed and the claim goes back: guessing "stale" would record a decision that
+/// was never made about a generation that may well still be waiting.
+#[test]
+fn a_reservation_that_errors_commits_nothing_and_leaves_the_decision_open() {
+    let fixture = fixture(WaiterBehaviour::ReservationErrors);
+    let request = pending(&fixture.broker);
+
+    let failed = fixture
+        .use_case
+        .resolve(&request.id, ApprovalDecision::Approve, Scope::Session);
+
+    assert!(failed.is_err());
+    assert!(fixture.journal.events().is_empty());
+    assert_eq!(fixture.resolutions.state_of(&request.id), None);
+    assert!(fixture.broker.get_pending(&request.id).is_some());
+    // And a retry once the runtime answers again completes normally.
+    let fixture_ok = fixture;
+    assert!(fixture_ok
+        .use_case
+        .resolve(&request.id, ApprovalDecision::Approve, Scope::Session)
+        .is_err());
+}
+
+/// `permissions-approval`'s "activation is retried idempotently if the final SQLite update
+/// initially failed".
+///
+/// The waiter applied the decision, so the tool ran. Reporting an error for that would tell the
+/// user their approval failed when it did not — the exact confusion the typed outcome exists to
+/// remove. The cost is a grant that stays inactive until reconciliation retries it, which is the
+/// least-privilege side to land on.
+#[test]
+fn an_acknowledgement_that_cannot_be_recorded_still_reports_the_tool_as_run() {
+    let fixture = fixture_with(WaiterBehaviour::Applies, |journal| {
+        FakeResolutions::failing_acknowledgements(journal, 1)
+    });
+    let request = pending(&fixture.broker);
+
+    let outcome = fixture
+        .use_case
+        .resolve(&request.id, ApprovalDecision::Approve, Scope::Session)
+        .expect("a recorded-acknowledgement failure is not the caller's problem");
+
+    assert!(outcome.reached_the_waiter());
+    assert_eq!(fixture.delivery.applied.lock().unwrap().len(), 1);
+    // The grant is written but not visible, because nothing recorded that it may be.
+    assert_eq!(fixture.resolutions.grant_intents.lock().unwrap().len(), 1);
+    assert!(!fixture.resolutions.grant_is_active());
+    assert_eq!(
+        fixture.resolutions.state_of(&request.id),
+        Some(ApprovalResolutionState::Committed),
+        "the ledger must still show the delivery as unrecorded so reconciliation can retry it"
+    );
+}
+
+/// `permissions-approval`'s "cancellation racing human approval".
+#[test]
+fn a_cancelled_request_cannot_be_approved_by_a_click_already_in_flight() {
+    let fixture = fixture(WaiterBehaviour::Applies);
+    let request = fixture
+        .broker
+        .create_skill_pending(
+            skill_provenance(),
+            Action::file_write(),
+            Resource::file_path("src/lib.rs"),
+            "session-1",
+            "generation-1",
+            "call-1",
+            "project-1",
+        )
+        .expect("create skill pending");
+    // The Skill was disabled underneath the card while the user was reading it.
+    fixture
+        .broker
+        .invalidate_skill_pending(
+            &request.id,
+            "sha256:witness",
+            crate::contexts::permissions::domain::SkillApprovalInvalidation::Disabled,
+        )
+        .expect("invalidation removes the request");
+
+    let outcome = fixture
+        .use_case
+        .resolve(&request.id, ApprovalDecision::Approve, Scope::Once)
+        .expect("resolve");
+
+    // Not found rather than delivered: there is nothing to claim and no durable resolution, so the
+    // late click cannot release a Skill whose revision was withdrawn.
+    assert_eq!(outcome, ResolveOutcome::NotFound);
+    assert!(fixture.journal.events().is_empty());
+    assert!(fixture.delivery.applied.lock().unwrap().is_empty());
 }
 
 #[test]

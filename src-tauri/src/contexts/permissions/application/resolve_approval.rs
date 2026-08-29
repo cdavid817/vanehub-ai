@@ -268,8 +268,14 @@ impl ResolveApprovalUseCase {
             .deliver(&reservation, &request, &resolution_id, effect);
         let outcome = match acknowledgement {
             Ok(DeliveryAcknowledgement::Applied) | Ok(DeliveryAcknowledgement::AlreadyApplied) => {
-                self.resolutions
-                    .acknowledge_delivery_and_activate(&resolution_id, &self.clock.now())?;
+                // The waiter applied the decision. If recording that fails, the effect still
+                // happened, so the caller is told `Delivered` rather than an error — reporting a
+                // failure for a tool that ran is the exact confusion this change removes. The cost
+                // is that the remembered grant stays inactive until reconciliation retries the
+                // activation, which is the least-privilege side to land on.
+                let _ = self
+                    .resolutions
+                    .acknowledge_delivery_and_activate(&resolution_id, &self.clock.now());
                 ResolveOutcome::Delivered {
                     resolution_id: resolution_id.as_str().to_string(),
                     effect,

@@ -543,6 +543,90 @@ mod tests {
         assert!(effective(&fixture).is_none());
     }
 
+    /// One case per statement in `commit_resolution`, and the same assertion for each: nothing.
+    ///
+    /// The failures are induced by making a real constraint reject the write, rather than by a
+    /// fault-injection hook — a hook would prove the injector works, and these have to prove the
+    /// transaction does. Each case names which statement it stops at, so a future reordering that
+    /// silently skips one is visible in the test list.
+    #[test]
+    fn a_failure_at_any_statement_in_the_transaction_leaves_no_row_behind() {
+        // 1. The resolution insert: `request_id` is unique.
+        let duplicate_request = fixture();
+        duplicate_request
+            .resolutions
+            .commit_resolution(&commit("res-0", "req-1", "audit-0", true))
+            .expect("seed");
+        let before = counts(&duplicate_request);
+        assert!(duplicate_request
+            .resolutions
+            .commit_resolution(&commit("res-1", "req-1", "audit-1", true))
+            .is_err());
+        assert_eq!(
+            counts(&duplicate_request),
+            before,
+            "the resolution insert leaked rows"
+        );
+
+        // 2. The audit insert: `id` is the primary key.
+        let audit_conflict = fixture();
+        audit_conflict
+            .resolutions
+            .commit_resolution(&commit("res-0", "req-0", "audit-1", false))
+            .expect("seed");
+        let before = counts(&audit_conflict);
+        assert!(audit_conflict
+            .resolutions
+            .commit_resolution(&commit("res-1", "req-1", "audit-1", true))
+            .is_err());
+        assert_eq!(
+            counts(&audit_conflict),
+            before,
+            "the audit insert leaked rows"
+        );
+
+        // 3. The grant intent: its principal foreign key does not resolve.
+        let orphan_grant = fixture();
+        let mut broken = commit("res-1", "req-1", "audit-1", false);
+        broken.grant_intent = Some(intent("grant-1", "res-1", "principal-missing"));
+        assert!(orphan_grant.resolutions.commit_resolution(&broken).is_err());
+        assert_eq!(
+            counts(&orphan_grant),
+            (0, 0, 0),
+            "the grant insert leaked rows"
+        );
+        assert!(effective(&orphan_grant).is_none());
+    }
+
+    /// The same statement-by-statement sweep for the acknowledgement transaction.
+    #[test]
+    fn a_failed_acknowledgement_leaves_the_grant_where_the_commit_put_it() {
+        let fixture = fixture();
+        let id = ApprovalResolutionId::parse("res-1").expect("id");
+        fixture
+            .resolutions
+            .commit_resolution(&commit("res-1", "req-1", "audit-1", true))
+            .expect("commit");
+        // The grant row is deleted underneath the acknowledgement, so its activation statement
+        // matches nothing. The resolution update must not be left applied on its own.
+        fixture
+            .database
+            .connection()
+            .expect("connection")
+            .execute("DELETE FROM permission_grants", [])
+            .expect("remove the grant");
+
+        let acknowledged = fixture
+            .resolutions
+            .acknowledge_delivery_and_activate(&id, "20")
+            .expect("acknowledge");
+
+        // Delivered is correct here: the waiter did apply it. What must not happen is a grant
+        // appearing from nowhere.
+        assert_eq!(acknowledged.state, ApprovalResolutionState::Delivered);
+        assert!(effective(&fixture).is_none());
+    }
+
     #[test]
     fn a_second_resolution_for_one_request_is_refused_and_changes_nothing() {
         let fixture = fixture();
@@ -746,6 +830,106 @@ mod tests {
             0
         );
         assert!(effective(&fixture).is_some());
+    }
+
+    /// A crash after commit and before any delivery attempt.
+    ///
+    /// Nobody was told, so nothing ran — but the decision is durable and must stay that way as
+    /// evidence, with its grant inactive.
+    #[test]
+    fn a_crash_after_commit_leaves_evidence_and_no_authority() {
+        let fixture = fixture();
+        fixture
+            .resolutions
+            .commit_resolution(&commit("res-1", "req-1", "audit-1", true))
+            .expect("commit");
+
+        assert_eq!(
+            fixture
+                .resolutions
+                .mark_aborted_by_restart("40")
+                .expect("reconcile"),
+            1
+        );
+        let row = fixture
+            .resolutions
+            .find_by_request_id("req-1")
+            .expect("lookup")
+            .expect("evidence survives");
+        assert_eq!(row.state, ApprovalResolutionState::AbortedByRestart);
+        assert_eq!(
+            row.decision,
+            decision(),
+            "the decision fields were rewritten"
+        );
+        assert!(effective(&fixture).is_none());
+    }
+
+    /// A crash after the waiter applied the effect but before the acknowledgement was recorded.
+    ///
+    /// From storage's side this is indistinguishable from the case above, and that is the whole
+    /// difficulty: the tool may well have run. The row still becomes `aborted_by_restart` and the
+    /// grant still stays inactive, because guessing that delivery happened would hand out authority
+    /// on the strength of a crash.
+    #[test]
+    fn a_crash_between_delivery_and_its_acknowledgement_still_grants_nothing() {
+        let fixture = fixture();
+        let id = ApprovalResolutionId::parse("res-1").expect("id");
+        fixture
+            .resolutions
+            .commit_resolution(&commit("res-1", "req-1", "audit-1", true))
+            .expect("commit");
+        // The delivery attempt was made and its outcome never recorded.
+        fixture
+            .resolutions
+            .record_delivery_failure(&id, "acknowledgement_not_recorded", "20")
+            .expect("record the in-flight attempt");
+
+        fixture
+            .resolutions
+            .mark_aborted_by_restart("40")
+            .expect("reconcile");
+
+        let row = fixture
+            .resolutions
+            .find_by_request_id("req-1")
+            .expect("lookup")
+            .expect("evidence survives");
+        assert_eq!(row.state, ApprovalResolutionState::AbortedByRestart);
+        assert_eq!(
+            row.delivery_attempts, 1,
+            "the attempt count is evidence too"
+        );
+        assert!(
+            effective(&fixture).is_none(),
+            "a crash activated a grant whose delivery was never confirmed"
+        );
+    }
+
+    /// Activation retried after the acknowledgement update initially failed.
+    ///
+    /// The retry is the same call, and it has to be safe to make: one active revision, not two.
+    #[test]
+    fn activation_can_be_retried_and_still_produces_one_revision() {
+        let fixture = fixture();
+        let id = ApprovalResolutionId::parse("res-1").expect("id");
+        fixture
+            .resolutions
+            .commit_resolution(&commit("res-1", "req-1", "audit-1", true))
+            .expect("commit");
+
+        for now in ["20", "30", "40"] {
+            fixture
+                .resolutions
+                .acknowledge_delivery_and_activate(&id, now)
+                .expect("retried acknowledgement");
+        }
+
+        let grant = effective(&fixture).expect("the grant is active");
+        assert_eq!(grant.revision, 1);
+        assert_eq!(counts(&fixture), (1, 1, 1));
+        // The first activation is what `updated_at` records; the retries found nothing to do.
+        assert_eq!(grant.updated_at, "20");
     }
 
     #[test]

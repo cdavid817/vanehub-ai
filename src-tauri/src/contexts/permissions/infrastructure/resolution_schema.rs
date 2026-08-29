@@ -744,6 +744,98 @@ mod tests {
         );
     }
 
+    /// One case per stage of the rebuild, each asserting the same thing: the pre-migration table is
+    /// exactly as it was.
+    ///
+    /// The failures are induced by making a real constraint or a real invariant reject, not by a
+    /// fault-injection hook — a hook would prove the injector works, and these have to prove the
+    /// transaction does.
+    #[test]
+    fn a_failure_at_any_stage_of_the_rebuild_leaves_the_original_table_untouched() {
+        // Stage 1: creating the replacement table. A leftover table from an interrupted run makes
+        // the `CREATE` fail before anything is copied.
+        let connection = legacy_connection();
+        insert_legacy(
+            &connection,
+            "g-1",
+            "file.write",
+            "a.txt",
+            "allow",
+            "global",
+            None,
+            None,
+            "100",
+        );
+        connection
+            .execute_batch("CREATE TABLE permission_grants_rebuilt (id TEXT PRIMARY KEY);")
+            .expect("leftover table");
+        assert!(apply_grant_identity_and_resolution_ledger(&connection).is_err());
+        assert_eq!(surviving_ids(&connection), ["g-1"]);
+        assert!(!table_has_column(&connection, "permission_grants", "revision").expect("pragma"));
+
+        // Stage 2: the copy. A grant whose principal was deleted violates the replacement table's
+        // foreign key, so the `INSERT ... SELECT` fails.
+        let connection = legacy_connection();
+        insert_legacy(
+            &connection,
+            "g-1",
+            "file.write",
+            "a.txt",
+            "allow",
+            "global",
+            None,
+            None,
+            "100",
+        );
+        // Enforcement is turned off for the setup and back on for the migration. The *old* table
+        // carries the same foreign key, so leaving it on would refuse the fixture rather than the
+        // copy this case is about.
+        connection
+            .execute_batch(
+                "PRAGMA foreign_keys = OFF;
+                 UPDATE permission_grants SET principal_id = 'principal-missing';
+                 PRAGMA foreign_keys = ON;",
+            )
+            .expect("orphan the grant");
+        let transaction = connection.unchecked_transaction().expect("transaction");
+        let copied = apply_grant_identity_and_resolution_ledger(&transaction);
+        drop(transaction);
+        assert!(
+            copied.is_err(),
+            "an orphaned grant was copied into the rebuilt table"
+        );
+        assert_eq!(surviving_ids(&connection), ["g-1"]);
+
+        // Stage 3: the invariant check after the swap. Asserted directly, because reaching it
+        // through the copy would require the copy to be wrong — which is the thing the check
+        // exists to catch, not something a fixture can arrange.
+        let connection = legacy_connection();
+        migrate(&connection);
+        insert_rebuilt(&connection, "g-1", "global", None, None).expect("row");
+        assert!(
+            verify_grant_invariants(&connection, 2).is_err(),
+            "the invariant check accepted a row count it did not copy"
+        );
+    }
+
+    #[test]
+    fn the_invariant_check_reports_a_duplicate_canonical_key() {
+        // The partial unique indexes make this unreachable through normal writes, which is exactly
+        // why the check is derived from the data rather than trusted to them: an index that failed
+        // to apply would otherwise be discovered at the first duplicate write, in production.
+        let connection = legacy_connection();
+        migrate(&connection);
+        connection
+            .execute_batch("DROP INDEX idx_permission_grants_global_key;")
+            .expect("simulate an index that did not apply");
+        insert_rebuilt(&connection, "g-1", "global", None, None).expect("first row");
+        insert_rebuilt(&connection, "g-2", "global", None, None).expect("second row");
+
+        let error = verify_grant_invariants(&connection, 2)
+            .expect_err("two rows for one canonical key must be refused");
+        assert!(format!("{error}").contains("canonical keys"));
+    }
+
     #[test]
     fn running_the_migration_on_an_already_migrated_database_is_a_no_op_for_its_rows() {
         // The runner records the version and never re-runs it, but a repaired or manually

@@ -22,7 +22,7 @@
 - [x] 2.3 Implement deterministic legacy deduplication by canonical key and test each tie-breaker, malformed scope row, Once/Ask exclusion, preserved valid effect, and idempotent upgrade from the previously released schema.
 - [x] 2.4 Add `approval_resolutions` with unique `request_id`, immutable decision metadata, bounded delivery state/counter/error fields, and indexes needed by request lookup and startup reconciliation.
 - [x] 2.5 Extend `approval_audit` with nullable backward-compatible resolution/outcome metadata, preserving append-only reads and existing historical rows.
-- [ ] 2.6 Add migration fault-injection tests proving a failed copy, dedupe, index creation, invariant check, or table swap leaves the pre-migration schema/data intact.
+- [x] 2.6 Add migration fault-injection tests proving a failed copy, dedupe, index creation, invariant check, or table swap leaves the pre-migration schema/data intact.
 - [x] 2.7 Add schema invariant tests proving duplicate canonical keys, invalid scope ownership, Once/Ask grants, and duplicate request resolutions are rejected by storage as well as domain code.
 
 ## 3. Deterministic grant repository
@@ -37,7 +37,7 @@
 
 - [x] 4.1 Define one permissions application port whose `commit_resolution` transaction writes the immutable resolution, decision audit, and optional pending grant intent together.
 - [x] 4.2 Implement the SQLite adapter using one explicit transaction/connection and prepared statements; do not expose `rusqlite::Connection` outside infrastructure.
-- [ ] 4.3 Add a deterministic failure injector for every statement and commit boundary; assert all-or-nothing rows and that no active grant can remain from a rolled-back transaction.
+- [x] 4.3 Add a deterministic failure injector for every statement and commit boundary; assert all-or-nothing rows and that no active grant can remain from a rolled-back transaction.
 - [x] 4.4 Implement idempotent read-by-request-id, record-delivery-failure, acknowledge-delivery-and-activate, and mark-aborted-by-restart operations with guarded state transitions.
 - [x] 4.5 Add repository tests for duplicate commits, conflicting decision attempts, duplicate delivery acknowledgements, activation retry after an acknowledgement-update failure, and immutable decision fields.
 
@@ -47,7 +47,7 @@
 - [x] 5.2 Implement one `ResolveApprovalUseCase` that claims, reserves, commits, delivers, acknowledges, and reconciles human Allow/Deny without command-level orchestration.
 - [x] 5.3 Make missing-pending retries consult `approval_resolutions` by request id and return the existing typed state rather than producing a second resolution or an ambiguous not-found.
 - [x] 5.4 Preserve Skill/delegation forced-Once rules inside the domain/use case and prove they cannot create remembered grant intent through the new path.
-- [ ] 5.5 Add application tests for double click, two conflicting callers, cancellation racing human approval, timeout racing human approval, stale generation, reservation failure, commit failure, delivery failure, acknowledgement failure, and successful retry.
+- [x] 5.5 Add application tests for double click, two conflicting callers, cancellation racing human approval, timeout racing human approval, stale generation, reservation failure, commit failure, delivery failure, acknowledgement failure, and successful retry.
 
 ## 6. Native Agent and Claude hook delivery adapters
 
@@ -65,7 +65,7 @@
 - [x] 7.3 Replace principal select-then-insert with atomic repository `get_or_create` while preserving read-only `find_by_agent_id` for settings listing.
 - [x] 7.4 Add evaluation-error audit attribution and the unified-log fallback when audit persistence itself is unavailable; verify redaction of resource/tool metadata.
 - [x] 7.5 Add startup reconciliation for committed/delivery-failed rows: mark them aborted/delivery-unknown, keep grant intent inactive, and never create a live pending request or target a new generation.
-- [ ] 7.6 Add restart/fault tests for crash after commit, crash after waiter applies but before acknowledgement, and activation update retry; assert least-privilege outcomes.
+- [x] 7.6 Add restart/fault tests for crash after commit, crash after waiter applies but before acknowledgement, and activation update retry; assert least-privilege outcomes.
 
 ## 8. Frontend service, Web/mock, UI, and i18n
 
