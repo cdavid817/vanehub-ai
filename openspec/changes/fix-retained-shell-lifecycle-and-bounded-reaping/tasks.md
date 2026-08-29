@@ -36,11 +36,11 @@
 
 ## 4. Remote startup transaction and route ownership
 
-- [ ] 4.1 Implement a remote launch guard that distinguishes the Shell-owned channel from the shared transport lease and owns route reservation, streams, and workers until commit/handoff.
+- [x] 4.1 Implement a remote launch guard that distinguishes the Shell-owned channel from the shared transport lease and owns route reservation, streams, and workers until commit/handoff.
 - [ ] 4.2 Pre-register a generation-qualified remote route before workers publish and make route insertion/replacement reject stale or conflicting generations.
-- [ ] 4.3 Refactor all remote startup failures to close/reap only the new channel and retain unrelated pooled transport users.
-- [ ] 4.4 Add tests for channel-open failure, stream acquisition failure, worker setup failure, route commit failure, early output/exit, and cleanup timeout.
-- [ ] 4.5 Add a two-channel shared-transport test proving failure/rollback of one startup does not disconnect or mutate the other Shell.
+- [x] 4.3 Refactor all remote startup failures to close/reap only the new channel and retain unrelated pooled transport users.
+- [x] 4.4 Add tests for channel-open failure, stream acquisition failure, worker setup failure, route commit failure, early output/exit, and cleanup timeout.
+- [x] 4.5 Add a two-channel shared-transport test proving failure/rollback of one startup does not disconnect or mutate the other Shell.
 
 ## 5. Bounded local close
 
@@ -54,11 +54,11 @@
 
 ## 6. Bounded remote close and routed runtime
 
-- [ ] 6.1 Implement a finite remote close budget covering input stop, EOF/channel close, worker cancellation/drain, and completion observation.
+- [x] 6.1 Implement a finite remote close budget covering input stop, EOF/channel close, worker cancellation/drain, and completion observation.
 - [x] 6.2 Remove unconditional routed-runtime route deletion. Delete a route only through terminal finalization for the matching generation.
 - [x] 6.3 Make repeated close of Closing/Reaping/CloseFailed remote Shells return/reconcile the existing operation and continue routing to the same remote runtime.
-- [ ] 6.4 Add remote fake tests for close success, channel timeout, close error, blocked reader/writer, transport failure, stale route completion, and retry after CloseFailed.
-- [ ] 6.5 Add shared-transport tests proving one channel close/reap does not close another and transport-wide failure produces independent generation-safe outcomes.
+- [x] 6.4 Add remote fake tests for close success, channel timeout, close error, blocked reader/writer, transport failure, stale route completion, and retry after CloseFailed.
+- [x] 6.5 Add shared-transport tests proving one channel close/reap does not close another and transport-wide failure produces independent generation-safe outcomes.
 
 ## 7. Retained bounded Reaper and terminal finalization
 

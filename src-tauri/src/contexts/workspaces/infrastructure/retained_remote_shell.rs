@@ -8,10 +8,8 @@
 //! which is what keeps a Shell from acquiring one, tuning one, or outliving one.
 
 use super::retained_shell_process::ShellWorker;
-use crate::contexts::ssh_connections::api::{
-    SshConnectionsApi, SshExecutionChannel, SshExecutionChannelEvent,
-};
 use crate::contexts::workspaces::application::{
+    RemoteShellChannel, RemoteShellEvent, RemoteShellOpenFailure, RemoteShellTransport,
     SessionShellRuntimePort, ShellOutputSink, ShellRuntimeCloseOutcome, ShellRuntimeOpen,
     ShellRuntimeOpened,
 };
@@ -26,20 +24,20 @@ use std::sync::{Arc, Mutex};
 
 struct RemoteShell {
     generation: ShellGeneration,
-    channel: Arc<SshExecutionChannel>,
+    channel: Arc<dyn RemoteShellChannel>,
     closing: Arc<AtomicBool>,
     worker: Arc<ShellWorker>,
 }
 
 pub(crate) struct RetainedRemoteShellRuntime {
-    ssh: SshConnectionsApi,
+    transport: Arc<dyn RemoteShellTransport>,
     shells: Mutex<HashMap<String, RemoteShell>>,
 }
 
 impl RetainedRemoteShellRuntime {
-    pub(crate) fn new(ssh: SshConnectionsApi) -> Self {
+    pub(crate) fn new(transport: Arc<dyn RemoteShellTransport>) -> Self {
         Self {
-            ssh,
+            transport,
             shells: Mutex::new(HashMap::new()),
         }
     }
@@ -51,7 +49,10 @@ impl RetainedRemoteShellRuntime {
         }
     }
 
-    fn channel(&self, shell_id: &ShellId) -> Result<Arc<SshExecutionChannel>, SessionShellError> {
+    fn channel(
+        &self,
+        shell_id: &ShellId,
+    ) -> Result<Arc<dyn RemoteShellChannel>, SessionShellError> {
         self.lock()
             .get(shell_id.as_str())
             .map(|shell| shell.channel.clone())
@@ -71,7 +72,7 @@ fn unavailable(reason: &str) -> SessionShellError {
 /// and may be carrying other Shells, so a failed startup that dropped the connection would take
 /// unrelated terminals down with it. Ending one channel is the whole extent of this rollback.
 struct RemoteShellLaunchGuard {
-    channel: Option<Arc<SshExecutionChannel>>,
+    channel: Option<Arc<dyn RemoteShellChannel>>,
     closing: Arc<AtomicBool>,
 }
 
@@ -130,16 +131,20 @@ impl SessionShellRuntimePort for RetainedRemoteShellRuntime {
         };
         // The revision is checked by `acquire_execution`, which refuses a stale one. A Shell opened
         // against a profile the user has since edited would connect somewhere they did not choose.
-        let lease = tauri::async_runtime::block_on(
-            self.ssh
-                .acquire_execution(&remote.connection_id, remote.profile_revision),
-        )
-        .map_err(|_| unavailable("shell_remote_connection_unavailable"))?;
-        let channel = tauri::async_runtime::block_on(
-            lease.open_pty(request.dimensions.cols(), request.dimensions.rows()),
-        )
-        .map_err(|_| unavailable("shell_remote_channel_unavailable"))?;
-        let channel = Arc::new(channel);
+        let channel = tauri::async_runtime::block_on(self.transport.open_channel(
+            &remote.connection_id,
+            remote.profile_revision,
+            request.dimensions.cols(),
+            request.dimensions.rows(),
+        ))
+        .map_err(|failure| match failure {
+            RemoteShellOpenFailure::ConnectionUnavailable => {
+                unavailable("shell_remote_connection_unavailable")
+            }
+            RemoteShellOpenFailure::ChannelUnavailable => {
+                unavailable("shell_remote_channel_unavailable")
+            }
+        })?;
 
         let closing = Arc::new(AtomicBool::new(false));
         let reader_channel = channel.clone();
@@ -159,43 +164,23 @@ impl SessionShellRuntimePort for RetainedRemoteShellRuntime {
             move || {
                 loop {
                     match tauri::async_runtime::block_on(reader_channel.next_event()) {
-                        Ok(Some(SshExecutionChannelEvent::Output(bytes)))
-                        | Ok(Some(SshExecutionChannelEvent::ExtendedOutput {
-                            content: bytes,
-                            ..
-                        })) => {
-                            // One merged stream from the reader's point of view: an SSH PTY
-                            // interleaves them, and labelling either separately would claim a
-                            // separation nobody made.
+                        Ok(Some(RemoteShellEvent::Output(bytes))) => {
                             sink.on_output(&reader_shell, generation, ShellStream::Pty, &bytes);
                         }
-                        Ok(Some(SshExecutionChannelEvent::ExitStatus(code))) => {
+                        Ok(Some(RemoteShellEvent::Exited { code })) => {
                             if !reader_closing.load(Ordering::SeqCst) {
                                 sink.on_state(
                                     &reader_shell,
                                     generation,
-                                    SessionShellState::Exited {
-                                        code: Some(code as i32),
-                                    },
+                                    SessionShellState::Exited { code },
                                 );
                             }
                             break;
                         }
-                        Ok(Some(SshExecutionChannelEvent::ExitSignal(_))) => {
-                            // Killed by a signal. The runtime saw it end and did not see a code,
-                            // so the code stays absent rather than becoming a zero that would
-                            // read as a clean exit.
-                            if !reader_closing.load(Ordering::SeqCst) {
-                                sink.on_state(
-                                    &reader_shell,
-                                    generation,
-                                    SessionShellState::Exited { code: None },
-                                );
-                            }
-                            break;
-                        }
-                        Ok(Some(SshExecutionChannelEvent::Eof)) => continue,
-                        Ok(Some(SshExecutionChannelEvent::Closed)) | Ok(None) => {
+                        // A remote program can close its output while the channel stays open and
+                        // the user keeps typing. Ending here would tear down a live Shell.
+                        Ok(Some(RemoteShellEvent::Eof)) => continue,
+                        Ok(None) => {
                             if !reader_closing.load(Ordering::SeqCst) {
                                 sink.on_state(
                                     &reader_shell,

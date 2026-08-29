@@ -20,6 +20,7 @@ mod session_shell_capacity;
 mod session_shell_close;
 mod session_shell_reaper;
 mod session_shell_registry;
+mod session_shell_remote;
 mod session_shell_store;
 mod text_metadata;
 
@@ -108,6 +109,10 @@ pub(crate) use session_shell_close::{
     SessionShellCleanupReport, SessionShellCloseResult, ShellRuntimeCloseOutcome,
 };
 pub(crate) use session_shell_registry::SessionShellRegistry;
+pub(crate) use session_shell_remote::{
+    RemoteShellChannel, RemoteShellChannelError, RemoteShellEvent, RemoteShellOpenFailure,
+    RemoteShellTransport,
+};
 pub(crate) use session_shell_store::ShellStore;
 pub(crate) use text_metadata::{detect_encoding, detect_newline};
 

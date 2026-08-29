@@ -11,7 +11,7 @@ use crate::contexts::workspaces::infrastructure::{
     RetainedRemoteShellRuntime, RoutedShellRuntime, SessionWorkspaceQueryAdapter,
     SessionWorkspaceTargetResolver, SqliteSessionShellWorkspace, SqliteShellWorkspaceAdapter,
     SqliteWorkspaceHistoryRepository, SshRemoteHelperSession, SshRemoteProfileSource,
-    SystemShellClock, SystemWorkspaceClock, TauriProjectDirectorySelection,
+    SshShellTransport, SystemShellClock, SystemWorkspaceClock, TauriProjectDirectorySelection,
     TauriSessionShellNotices, TauriWorkspaceInvalidationNotices, UuidShellIds,
     WorkspaceFilesystemAdapter, WorkspaceGitAdapter, WorkspaceInvalidationPoller,
 };
@@ -189,7 +189,9 @@ fn assemble_session_shell_registry(
     ));
     let runtime = Arc::new(RoutedShellRuntime::new(
         Arc::new(RetainedLocalShellRuntime::default()),
-        Arc::new(RetainedRemoteShellRuntime::new(ssh)),
+        Arc::new(RetainedRemoteShellRuntime::new(Arc::new(
+            SshShellTransport::new(ssh),
+        ))),
     ));
     Arc::new(SessionShellRegistry::new(
         store,
