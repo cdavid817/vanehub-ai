@@ -4,7 +4,7 @@
 - [x] 0.2 Map current local/remote directory listing, path search, content search, document discovery, cancellation registry, runtime/API `spawn_blocking`, frontend services/adapters, coverage types, cursor format, ignore rules, and tests.
 - [x] 0.3 Run `openspec validate harden-workspace-search-cancellation-and-resource-budgets --strict`; fix change artifacts before code if current main/active changes conflict.
 - [x] 0.4 Add deterministic characterization for the A/B same-id interleaving where A's finish removes B, and for abort/drop leaving a running worker or stale registration.
-- [ ] 0.5 Add instrumented characterization showing current full candidate collection/full directory sort, work performed beyond result count, dependency-directory traversal, and blocking work launched without per-workspace admission.
+- [x] 0.5 Add instrumented characterization showing current full candidate collection/full directory sort, work performed beyond result count, dependency-directory traversal, and blocking work launched without per-workspace admission.
 - [x] 0.6 Inventory current limits and reason codes. Preserve or tighten them through explicit requirements; do not raise limits or increase concurrency merely to retain old completion behavior.
 
 ## 1. Generation-safe cancellation primitives
