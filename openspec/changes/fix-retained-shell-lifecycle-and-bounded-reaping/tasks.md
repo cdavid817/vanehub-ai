@@ -50,7 +50,7 @@
 - [x] 5.4 Preserve and map kill, try-wait, reap, PTY-close, and worker-completion failures into typed outcomes instead of discarding them.
 - [x] 5.5 Keep the runtime entry in the retained ownership map while Closing/Reaping/CloseFailed; remove it only through generation-safe terminal finalization.
 - [x] 5.6 Add deterministic fake-child tests for already exited, graceful exit, terminate-needed, force-needed, kill failure, `try_wait` error, never-exits, worker-never-completes, and duplicate close.
-- [ ] 5.7 Add platform-focused tests for the actual portable-pty implementation on every available CI OS and report unsupported descendant-tree guarantees explicitly.
+- [x] 5.7 Add platform-focused tests for the actual portable-pty implementation on every available CI OS and report unsupported descendant-tree guarantees explicitly.
 
 ## 6. Bounded remote close and routed runtime
 

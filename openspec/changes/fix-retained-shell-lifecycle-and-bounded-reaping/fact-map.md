@@ -100,8 +100,16 @@ unkillable process into an application that cannot be closed.
 - **Granular local startup failures.** Reader, writer, and worker acquisition failures cannot be
   staged: the runtime reaches `native_pty_system()` directly, so there is no seam a fake can occupy.
   The registry-level failures (open fails, open fails with cleanup pending) are staged and tested.
-- **`portable-pty` per-platform behaviour.** The close sequence is tested against fakes and against a
-  real PTY on the host that runs the suite. Descendant-process trees are not guaranteed on any
-  platform, and no test claims they are.
+- **`portable-pty` per-platform behaviour.** `a_real_terminal_closes_within_its_budget_on_this_platform`
+  spawns a real shell through the real factory and requires the close to confirm inside the shipped
+  budget. It is not marked for one platform: it runs wherever the suite runs, and CI reports Windows,
+  macOS and Linux separately rather than letting one stand in for the others. It is also the test
+  that catches the release ordering — every fake master in the suite drops when the test drops it, so
+  the ordering that matters on a pseudoconsole is invisible to them.
+- **Descendant processes, on every platform.** Closing a Shell ends the child this code spawned. A
+  grandchild that outlived its parent — a background job, a detached server, a process group the
+  platform does not tear down — is not something this runtime claims to reap, and no test pretends
+  otherwise. Windows job objects and POSIX process groups are different mechanisms with different
+  failure modes, and a guarantee that only holds on one of them is worse than no guarantee.
 - **Desktop-layer coverage.** Not run in this environment; results must be reported per platform
   rather than inferred.

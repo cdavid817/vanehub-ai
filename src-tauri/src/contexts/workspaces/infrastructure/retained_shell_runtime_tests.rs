@@ -948,3 +948,68 @@ fn the_terminal_is_released_before_the_workers_are_awaited() {
     );
     assert!(!runtime.holds(&shell_id));
 }
+
+/// The close sequence against the real `portable-pty` implementation on whichever OS runs this.
+///
+/// Every other close test here drives a fake process and a fake terminal, which is what makes them
+/// deterministic — and is exactly why they could not catch the defect above: a fake master drops
+/// when the test drops it, so the ordering that matters on a pseudoconsole is invisible to them.
+/// This one spawns a real shell through the real factory and requires the close to *confirm*.
+///
+/// It is not marked for one platform. It runs wherever the suite runs, and the platform it proves
+/// something about is the platform that ran it — CI reports Windows, macOS and Linux separately
+/// rather than one of them standing in for the others.
+///
+/// **Descendant processes are not covered, on any platform.** Closing a Shell ends the child this
+/// code spawned. A grandchild that outlived its parent — a background job, a detached server, a
+/// process group the platform does not tear down — is not something this runtime claims to reap,
+/// and no assertion below pretends otherwise. Windows job objects and POSIX process groups would
+/// each be a different mechanism with different failure modes, and inventing a guarantee here that
+/// only holds on one of them is worse than the absence of one.
+#[test]
+fn a_real_terminal_closes_within_its_budget_on_this_platform() {
+    let runtime = RetainedLocalShellRuntime::new(Arc::new(SilentDiagnostics));
+    let root = std::env::temp_dir();
+    let request = ShellRuntimeOpen {
+        shell_id: shell("shell-real-1"),
+        generation: ShellGeneration::new(1),
+        session_id: "session-real".to_string(),
+        root: root.to_string_lossy().to_string(),
+        dimensions: TerminalDimensions::bounded(24, 80),
+        remote: None,
+    };
+
+    let opened = match runtime.open(&request, Arc::new(SilentSink)) {
+        Ok(opened) => opened,
+        // A machine with no usable terminal is a machine this cannot be run on, and saying so is
+        // more useful than a green tick that proves nothing. It is not a skip that hides a failure:
+        // every path below has already been exercised against fakes.
+        Err(error) => panic!("no terminal on this host: {error:?}"),
+    };
+    assert!(matches!(
+        opened.state,
+        SessionShellState::Running | SessionShellState::Exited { .. }
+    ));
+
+    // The production budget, not a test one: what is being asserted is that a real shell on this
+    // platform fits inside the bound the product ships with.
+    let outcome = runtime.close(
+        &request.shell_id,
+        ShellGeneration::new(1),
+        ShellCloseBudget::default(),
+    );
+
+    assert!(
+        matches!(outcome, ShellRuntimeCloseOutcome::Confirmed),
+        "a real close did not confirm inside the shipped budget: {outcome:?}"
+    );
+    assert!(!runtime.holds(&request.shell_id));
+}
+
+struct SilentDiagnostics;
+
+impl ShellLifecycleDiagnosticsPort for SilentDiagnostics {
+    fn stale_reaper_completion(&self, _shell_id: &str, _attempted: u64, _current: u64) {}
+    fn startup_rollback_unconfirmed(&self, _shell_id: &str, _generation: u64, _reason: &str) {}
+    fn orphaned_reaper_completion(&self, _shell_id: &str, _attempted: u64) {}
+}
