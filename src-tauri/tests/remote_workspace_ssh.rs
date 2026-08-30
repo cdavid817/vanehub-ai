@@ -286,7 +286,13 @@ fn the_helper_program_refuses_to_fingerprint_a_path_that_leaves_the_root() {
 ///
 /// The helper returns candidates and the client ranks them, so what has to be proved here is the
 /// walk: that it descends, that it offers directories as well as files, that it confines, and that
-/// it skips the trees nobody is trying to reach by name.
+/// it skips the trees the *request* named.
+///
+/// The exclusions travel in the request rather than living in the helper. The helper used to hold
+/// its own copy of the list and the copy had fallen behind, so a workspace appeared to have a
+/// different shape depending on which machine it was on. The list below is deliberately one entry
+/// rather than the eighteen the shared policy holds: restating the policy here would be a third
+/// copy, and what this test is for is whether the helper honours what it was sent.
 #[test]
 fn the_helper_program_walks_paths_without_ranking_them() {
     let Some(interpreter) = python() else {
@@ -304,7 +310,8 @@ fn the_helper_program_walks_paths_without_ranking_them() {
     let answer = run_helper(
         interpreter,
         &root,
-        r#"{"kind":"searchPaths","query":"main","limit":100}"#,
+        r#"{"kind":"searchPaths","query":"main","limit":100,
+            "excludedDirectories":["node_modules"]}"#,
     );
     let entries = answer["result"]["paths"]["entries"]
         .as_array()
@@ -318,7 +325,8 @@ fn the_helper_program_walks_paths_without_ranking_them() {
     // Descends into subdirectories: the file it is looking for is one level down.
     assert!(paths.contains(&"src/main.rs"), "{answer}");
     // A reader is never trying to reach a vendored tree by name, and the budget spent there is
-    // budget not spent on their own files.
+    // budget not spent on their own files. Skipped because the request said so — a helper with its
+    // own list would skip it here and disagree with this side the first time either list moved.
     assert!(
         !paths.iter().any(|path| path.starts_with("node_modules")),
         "{answer}"
@@ -330,7 +338,8 @@ fn the_helper_program_walks_paths_without_ranking_them() {
     let directories = run_helper(
         interpreter,
         &root,
-        r#"{"kind":"searchPaths","query":"src","limit":100}"#,
+        r#"{"kind":"searchPaths","query":"src","limit":100,
+            "excludedDirectories":["node_modules"]}"#,
     );
     let kinds: Vec<(&str, &str)> = directories["result"]["paths"]["entries"]
         .as_array()
