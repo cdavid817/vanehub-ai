@@ -3846,3 +3846,205 @@ fn command_adapters_cannot_construct_identifiers_without_validating_them() {
         offenders.join(", ")
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// Workspace inspection: who owns the walk, the policy, and the admission
+// ---------------------------------------------------------------------------------------------
+
+/// Every source file under one directory, with its inline test module removed.
+fn production_sources_under(relative_dir: &str) -> Vec<(String, String)> {
+    let root = project_root().join(relative_dir);
+    let mut sources = Vec::new();
+    let Ok(entries) = fs::read_dir(&root) else {
+        return sources;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|value| value.to_str()) != Some("rs") {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        // A file whose whole purpose is tests, and the inline module inside a file that is not.
+        if name.ends_with("_tests.rs") || name == "tests.rs" {
+            continue;
+        }
+        let source = fs::read_to_string(&path).expect("read a workspaces source");
+        let production = source
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap_or(&source)
+            .to_string();
+        sources.push((format!("{relative_dir}/{name}"), production));
+    }
+    sources
+}
+
+/// The application layer decides what a walk may spend; it never walks.
+///
+/// The two are easy to confuse because both are "the search". Keeping the filesystem out of the
+/// application layer is what makes a budget testable without a disk and a policy readable without
+/// a workspace — and the first `fs::read_dir` there would put a second walk beside the one the
+/// providers own, with its own bounds and its own idea of what to skip.
+#[test]
+fn the_workspaces_application_layer_never_touches_the_filesystem() {
+    const FORBIDDEN: &[(&str, &str)] = &[
+        (
+            "std::fs",
+            "the filesystem belongs to a provider in infrastructure",
+        ),
+        (
+            "fs::read_dir",
+            "directory enumeration belongs to a provider",
+        ),
+        ("File::open", "opening a file belongs to a provider"),
+        (
+            "native_pty_system",
+            "acquiring a terminal belongs to a provider",
+        ),
+        (
+            "std::process::Command",
+            "starting a process belongs to a provider",
+        ),
+    ];
+    let mut violations = Vec::new();
+
+    for (relative, source) in
+        production_sources_under("src-tauri/src/contexts/workspaces/application")
+    {
+        for line in source.lines() {
+            let trimmed = line.trim();
+            // Prose about the rule is not a breach of it, and this rule is worth explaining where
+            // it applies.
+            if trimmed.starts_with("//") || trimmed.starts_with("///") {
+                continue;
+            }
+            for (shape, reason) in FORBIDDEN {
+                if trimmed.contains(shape) {
+                    violations.push(format!(
+                        "[ARCH-NATIVE-001] {relative}: `{shape}` — {reason}"
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(violations.is_empty(), "{}", violations.join("\n"));
+}
+
+/// One place decides whether an inspection may start.
+///
+/// Admission exists to refuse *before* a blocking task or a remote process exists. A second caller
+/// would be a second such decision, and the one that is wrong is always the one that acquired after
+/// the cost had already been paid. Pinned to the published API rather than counted, because the
+/// number of entry points is meant to grow.
+#[test]
+fn inspection_admission_is_acquired_only_by_the_published_workspace_api() {
+    let mut holders = Vec::new();
+
+    for (relative, source) in production_native_sources() {
+        if !relative.starts_with("src-tauri/src/contexts/workspaces/") {
+            continue;
+        }
+        // The admission type's own file implements it; every other file would be using it.
+        if relative.ends_with("application/inspection_admission.rs") {
+            continue;
+        }
+        if source.contains("admission.acquire") {
+            holders.push(relative);
+        }
+    }
+
+    assert_eq!(
+        holders,
+        vec!["src-tauri/src/contexts/workspaces/api.rs".to_string()],
+        "admission is acquired outside the published workspace API"
+    );
+}
+
+/// The search commands carry DTOs; they do not run a search.
+///
+/// A command that names a token, a budget, or a registration is a second place deciding when work
+/// starts and stops — and the transport layer is the worst place for that, because it is the one
+/// layer with no way to observe what it started.
+#[test]
+fn the_search_commands_translate_rather_than_orchestrate() {
+    const COMMANDS: &[&str] = &[
+        "src-tauri/src/commands/workspaces/search_workspace_content.rs",
+        "src-tauri/src/commands/workspaces/search_workspace_paths.rs",
+        "src-tauri/src/commands/workspaces/list_session_directory.rs",
+        "src-tauri/src/commands/workspaces/list_session_documents.rs",
+    ];
+    const FORBIDDEN: &[&str] = &[
+        "WorkspaceInspectionAdmission",
+        "SearchCancellationToken",
+        "SearchRegistration",
+        "WorkspaceInspectionBudget",
+        "DirectoryCursor",
+        "spawn_blocking",
+    ];
+    let mut violations = Vec::new();
+
+    for relative in COMMANDS {
+        let source = fs::read_to_string(project_root().join(relative))
+            .unwrap_or_else(|_| panic!("read {relative}"));
+        let production = source.split("#[cfg(test)]").next().unwrap_or(&source);
+        for forbidden in FORBIDDEN {
+            if production.contains(forbidden) {
+                violations.push(format!(
+                    "[ARCH-NATIVE-002] {relative} names `{forbidden}`; deciding when inspection \
+                     work starts belongs to the workspaces application layer"
+                ));
+            }
+        }
+    }
+
+    assert!(violations.is_empty(), "{}", violations.join("\n"));
+}
+
+/// One list of directories a workspace search skips.
+///
+/// Three walks each had their own copy and a fourth had none, so a file was findable by name and
+/// not by content. The remote helper had a fifth copy that had already fallen three entries behind,
+/// which is what a second list does: it does not disagree loudly, it disagrees about the entries
+/// nobody added to it.
+///
+/// Scoped to this context and to the helper it ships. Other subsystems name `node_modules` for
+/// unrelated reasons — locating a bundled CLI, bounding a Skills scan — and folding them in would
+/// make this rule about the string rather than about who decides what a workspace search covers.
+#[test]
+fn the_default_workspace_exclusions_have_exactly_one_owner() {
+    const OWNER: &str = "src-tauri/src/contexts/workspaces/application/ignore_policy.rs";
+    let mut holders = Vec::new();
+
+    for (relative, source) in production_native_sources() {
+        if relative == OWNER || !relative.starts_with("src-tauri/src/contexts/workspaces/") {
+            continue;
+        }
+        let production = source.split("#[cfg(test)]").next().unwrap_or(&source);
+        // One representative name rather than the whole list: a second copy that omitted this one
+        // would be a copy nobody would call a copy.
+        if production.contains("\"node_modules\"") {
+            holders.push(relative);
+        }
+    }
+
+    // The helper is a Python script this binary ships and sends; it held the copy that drifted.
+    let helper = fs::read_to_string(
+        project_root()
+            .join("src-tauri/src/contexts/workspaces/infrastructure/remote_helper/helper.py"),
+    )
+    .expect("read the remote helper");
+    assert!(
+        !helper.contains("\"node_modules\""),
+        "the remote helper restates the exclusion list; it receives it in the request so the two \
+         sides cannot drift"
+    );
+
+    assert!(
+        holders.is_empty(),
+        "the default exclusion list is restated in {holders:?}; it belongs to {OWNER} and travels \
+         to the remote helper in the request"
+    );
+}
