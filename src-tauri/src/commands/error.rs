@@ -1300,18 +1300,22 @@ mod redaction_tests {
         ));
 
         assert_eq!(error.category, CommandErrorCategory::Infrastructure);
-        assert!(!error.message.contains("someone"), "{}", error.message);
+        // The failure messages name what went wrong and never quote the value. A test that echoed
+        // the message would put the very thing under test into the CI log on the one run where the
+        // redaction did not work — which is the run whose log gets pasted into an issue.
+        assert!(
+            !error.message.contains("someone"),
+            "redaction left a path component in the message"
+        );
         assert!(
             error.message.contains("[REDACTED_PATH]"),
-            "{}",
-            error.message
+            "redaction produced no placeholder"
         );
         // The prefix is this side's own vocabulary and survives, so the category is still readable
         // from the message a caller logs.
         assert!(
             error.message.starts_with("storage error: "),
-            "{}",
-            error.message
+            "redaction removed this side's own category prefix"
         );
     }
 
@@ -1323,7 +1327,10 @@ mod redaction_tests {
 
         // Redaction that rewrote ordinary text would make every infrastructure failure unreadable,
         // which is how a redactor stops being used.
-        assert!(error.message.contains("os error 2"), "{}", error.message);
+        assert!(
+            error.message.contains("os error 2"),
+            "redaction rewrote a message that contains no path"
+        );
     }
 
     /// A validation message is the caller's own words back. Redacting it would blank a relative
@@ -1334,6 +1341,9 @@ mod redaction_tests {
             "Referenced file is not readable text: src/main.rs".to_string(),
         ));
 
-        assert!(error.message.contains("src/main.rs"), "{}", error.message);
+        assert!(
+            error.message.contains("src/main.rs"),
+            "a validation message lost the relative path the caller supplied"
+        );
     }
 }
