@@ -16,11 +16,11 @@ use crate::contexts::workspaces::application::{
     bounded_page_size, CapabilityState, DirectoryFingerprint, DirectoryListing, DocumentListing,
     FileContent, FileSearchListing, GitDiffRequest, GitDiffResult, GitStatusResult,
     ListDirectoryRequest, LocalWorkspaceTarget, ReadTextFileRequest, RemoteWorkspaceTarget,
-    SearchCancellationToken, WatchMode, WorkspaceApplicationError as AppError,
-    WorkspaceContentSearchRequest, WorkspaceContentSearchResult, WorkspaceInspectionCapabilities,
-    WorkspaceInspectionError, WorkspaceInspectionExecution, WorkspaceInspectionProvider,
-    WorkspacePathSearchRequest, WorkspacePathSearchResult, WorkspaceSearchRequest,
-    WorkspaceSessionQueryPort, WorkspaceTarget, WorkspaceTargetResolver,
+    WatchMode, WorkspaceApplicationError as AppError, WorkspaceContentSearchRequest,
+    WorkspaceContentSearchResult, WorkspaceInspectionCapabilities, WorkspaceInspectionError,
+    WorkspaceInspectionExecution, WorkspaceInspectionProvider, WorkspacePathSearchRequest,
+    WorkspacePathSearchResult, WorkspaceSearchRequest, WorkspaceSessionQueryPort, WorkspaceTarget,
+    WorkspaceTargetResolver,
 };
 use crate::platform::database::{NativeDatabase, PooledSqlite};
 use async_trait::async_trait;
@@ -253,20 +253,20 @@ impl WorkspaceInspectionProvider for LocalWorkspaceInspectionProvider {
         &self,
         target: &WorkspaceTarget,
         request: WorkspaceContentSearchRequest,
-        cancellation: SearchCancellationToken,
+        execution: WorkspaceInspectionExecution,
     ) -> Result<WorkspaceContentSearchResult, WorkspaceInspectionError> {
         let session_id = require_local(target)?.session_id.clone();
-        self.blocking(move |queries| queries.search_content(&session_id, &request, &cancellation))
+        self.blocking(move |queries| queries.search_content(&session_id, &request, &execution))
             .await
     }
 
     async fn list_documents(
         &self,
         target: &WorkspaceTarget,
-        cancellation: SearchCancellationToken,
+        execution: WorkspaceInspectionExecution,
     ) -> Result<DocumentListing, WorkspaceInspectionError> {
         let session_id = require_local(target)?.session_id.clone();
-        self.blocking(move |queries| queries.list_documents(&session_id, &cancellation))
+        self.blocking(move |queries| queries.list_documents(&session_id, &execution))
             .await
     }
 

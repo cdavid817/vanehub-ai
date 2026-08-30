@@ -319,9 +319,13 @@ impl WorkspaceApi {
             });
         };
         let api = self.clone();
-        let cancellation = registration.token();
+        let execution = WorkspaceInspectionExecution::document_discovery(
+            registration.generation(),
+            registration.token(),
+            Arc::clone(&self.clock),
+        );
         let outcome = tauri::async_runtime::spawn_blocking(move || {
-            api.queries.list_documents(&session_id, &cancellation)
+            api.queries.list_documents(&session_id, &execution)
         })
         .await
         .map_err(|_| WorkspaceError::Storage("session documents task failed".to_string()))?;
@@ -411,10 +415,14 @@ impl WorkspaceApi {
                 },
             });
         };
-        let cancellation = registration.token();
+        let execution = WorkspaceInspectionExecution::content_search(
+            registration.generation(),
+            registration.token(),
+            Arc::clone(&self.clock),
+        );
         let outcome = self
             .inspection
-            .search_content(session_id, request, cancellation)
+            .search_content(session_id, request, execution)
             .await;
 
         // Decided before the guard is released, because releasing it removes the slot the decision

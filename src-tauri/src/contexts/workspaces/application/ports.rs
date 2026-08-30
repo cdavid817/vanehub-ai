@@ -3,7 +3,6 @@ use super::inspection::{
     DirectoryFingerprint, WorkspacePathSearchRequest, WorkspacePathSearchResult,
 };
 use super::inspection_execution::WorkspaceInspectionExecution;
-use super::search_cancellation::SearchCancellationToken;
 use super::{
     DirectoryListing, DocumentListing, FileContent, FileSearchListing, GitBranchReference,
     GitDiffResult, GitDiffSource, GitStatusResult, KnownProject, KnownRemoteWorkspace,
@@ -167,18 +166,18 @@ pub(crate) trait WorkspaceSessionQueryPort: Send + Sync {
         execution: &WorkspaceInspectionExecution,
     ) -> Result<WorkspacePathSearchResult, WorkspaceApplicationError>;
 
-    /// Content search over the confined walk, polling the token it is given.
+    /// Content search over the confined walk, under the context it is given.
     fn search_content(
         &self,
         session_id: &str,
         request: &WorkspaceContentSearchRequest,
-        cancellation: &SearchCancellationToken,
+        execution: &WorkspaceInspectionExecution,
     ) -> Result<WorkspaceContentSearchResult, WorkspaceApplicationError>;
 
     fn list_documents(
         &self,
         session_id: &str,
-        cancellation: &SearchCancellationToken,
+        execution: &WorkspaceInspectionExecution,
     ) -> Result<DocumentListing, WorkspaceApplicationError>;
 
     fn search_files(

@@ -24,7 +24,6 @@ use super::models::{
     DirectoryListing, DocumentListing, FileContent, FileSearchListing, GitDiffResult,
     GitDiffSource, GitStatusResult,
 };
-use super::search_cancellation::SearchCancellationToken;
 use async_trait::async_trait;
 use std::path::PathBuf;
 
@@ -497,13 +496,13 @@ pub(crate) trait WorkspaceInspectionProvider: Send + Sync {
         &self,
         target: &WorkspaceTarget,
         request: WorkspaceContentSearchRequest,
-        cancellation: SearchCancellationToken,
+        execution: WorkspaceInspectionExecution,
     ) -> Result<WorkspaceContentSearchResult, WorkspaceInspectionError>;
 
     async fn list_documents(
         &self,
         target: &WorkspaceTarget,
-        cancellation: SearchCancellationToken,
+        execution: WorkspaceInspectionExecution,
     ) -> Result<DocumentListing, WorkspaceInspectionError>;
 
     async fn read_text_file(

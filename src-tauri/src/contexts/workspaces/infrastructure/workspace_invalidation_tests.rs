@@ -7,7 +7,6 @@
 use super::workspace_invalidation::{
     SystemWorkspaceChangeObserver, TauriInvalidationNotice, WorkspaceInvalidationPoller,
 };
-use crate::contexts::workspaces::application::SearchCancellationToken;
 use crate::contexts::workspaces::application::{
     CapabilityState, DirectoryFingerprint, DirectoryFingerprintState, DirectoryListing,
     DocumentListing, FileContent, FileSearchListing, GitDiffRequest, GitDiffResult,
@@ -118,7 +117,7 @@ impl WorkspaceInspectionProvider for ScriptedProvider {
         &self,
         _target: &WorkspaceTarget,
         _request: WorkspaceContentSearchRequest,
-        _cancellation: crate::contexts::workspaces::application::SearchCancellationToken,
+        _execution: crate::contexts::workspaces::application::WorkspaceInspectionExecution,
     ) -> Result<WorkspaceContentSearchResult, WorkspaceInspectionError> {
         panic!("a poll must not search")
     }
@@ -143,7 +142,7 @@ impl WorkspaceInspectionProvider for ScriptedProvider {
     async fn list_documents(
         &self,
         _target: &WorkspaceTarget,
-        _cancellation: SearchCancellationToken,
+        _execution: crate::contexts::workspaces::application::WorkspaceInspectionExecution,
     ) -> Result<DocumentListing, WorkspaceInspectionError> {
         panic!("a poll must not read documents")
     }

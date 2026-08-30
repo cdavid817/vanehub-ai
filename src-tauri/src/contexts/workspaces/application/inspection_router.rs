@@ -23,7 +23,6 @@ use super::models::{
     DirectoryListing, DocumentListing, FileContent, FileSearchListing, GitDiffResult,
     GitStatusResult,
 };
-use super::search_cancellation::SearchCancellationToken;
 use std::sync::Arc;
 
 pub(crate) struct WorkspaceInspectionRouter {
@@ -126,11 +125,11 @@ impl WorkspaceInspectionRouter {
     pub(crate) async fn list_documents(
         &self,
         session_id: &str,
-        cancellation: SearchCancellationToken,
+        execution: WorkspaceInspectionExecution,
     ) -> Result<DocumentListing, WorkspaceInspectionError> {
         let target = self.target(session_id)?;
         self.provider(&target)?
-            .list_documents(&target, cancellation)
+            .list_documents(&target, execution)
             .await
     }
 
@@ -154,16 +153,16 @@ impl WorkspaceInspectionRouter {
         self.provider(&target)?.search(&target, request).await
     }
 
-    /// Content search, with the token the caller will use to stop it.
+    /// Content search, with the context the walk runs under.
     pub(crate) async fn search_content(
         &self,
         session_id: &str,
         request: WorkspaceContentSearchRequest,
-        cancellation: SearchCancellationToken,
+        execution: WorkspaceInspectionExecution,
     ) -> Result<WorkspaceContentSearchResult, WorkspaceInspectionError> {
         let target = self.target(session_id)?;
         self.provider(&target)?
-            .search_content(&target, request, cancellation)
+            .search_content(&target, request, execution)
             .await
     }
 

@@ -24,11 +24,11 @@ use crate::contexts::workspaces::application::{
     FileContent, FileSearchListing, GitDiffRequest, GitDiffResult, GitDiffSource, GitStatusResult,
     ListDirectoryRequest, LocalWorkspaceTarget, ReadTextFileRequest, RemoteWorkspaceTarget,
     SearchCancellationCause, SearchCancellationToken, SessionLogExportResult, SessionLogPage,
-    SessionLogQuery, WorkspaceApplicationError as AppError, WorkspaceContentSearchRequest,
-    WorkspaceContentSearchResult, WorkspaceInspectionError, WorkspaceInspectionExecution,
-    WorkspaceInspectionProvider, WorkspacePathSearchRequest, WorkspacePathSearchResult,
-    WorkspaceSearchCancellation, WorkspaceSearchRequest, WorkspaceSessionQueryPort,
-    WorkspaceTarget,
+    SessionLogQuery, SystemMonotonicClock, WorkspaceApplicationError as AppError,
+    WorkspaceContentSearchRequest, WorkspaceContentSearchResult, WorkspaceInspectionError,
+    WorkspaceInspectionExecution, WorkspaceInspectionProvider, WorkspacePathSearchRequest,
+    WorkspacePathSearchResult, WorkspaceSearchCancellation, WorkspaceSearchRequest,
+    WorkspaceSessionQueryPort, WorkspaceTarget,
 };
 use crate::platform::database::NativeDatabase;
 use crate::test_support::TempDirectory;
@@ -86,7 +86,12 @@ impl WorkspaceSessionQueryPort for DatabaseQueries {
     }
 
     fn list_directory(&self, session_id: &str, path: &str) -> Result<DirectoryListing, AppError> {
-        super::session_queries::list_session_directory(&*self.connection()?, session_id, path)
+        super::session_queries::list_session_directory(
+            &*self.connection()?,
+            session_id,
+            path,
+            Arc::new(SystemMonotonicClock::default()),
+        )
     }
 
     fn resolve_session_directory(
@@ -103,13 +108,13 @@ impl WorkspaceSessionQueryPort for DatabaseQueries {
         &self,
         session_id: &str,
         request: &WorkspaceContentSearchRequest,
-        cancellation: &SearchCancellationToken,
+        execution: &WorkspaceInspectionExecution,
     ) -> Result<WorkspaceContentSearchResult, AppError> {
         super::content_search::search_session_content(
             &*self.connection()?,
             session_id,
             request,
-            cancellation,
+            execution,
         )
     }
 
@@ -152,19 +157,16 @@ impl WorkspaceSessionQueryPort for DatabaseQueries {
             path,
             cursor,
             limit,
+            Arc::new(SystemMonotonicClock::default()),
         )
     }
 
     fn list_documents(
         &self,
         session_id: &str,
-        cancellation: &SearchCancellationToken,
+        execution: &WorkspaceInspectionExecution,
     ) -> Result<DocumentListing, AppError> {
-        super::session_queries::list_session_documents(
-            &*self.connection()?,
-            session_id,
-            cancellation,
-        )
+        super::session_queries::list_session_documents(&*self.connection()?, session_id, execution)
     }
 
     fn search_files(
@@ -320,10 +322,21 @@ fn content_request() -> WorkspaceContentSearchRequest {
     }
 }
 
-fn already_cancelled() -> SearchCancellationToken {
-    let token = SearchCancellationToken::new();
-    token.signal(SearchCancellationCause::Cancelled);
-    token
+fn already_cancelled() -> WorkspaceInspectionExecution {
+    content_search_execution(cancelled_token())
+}
+
+/// A content-search context carrying the token the test wants to drive.
+fn content_search_execution(token: SearchCancellationToken) -> WorkspaceInspectionExecution {
+    let registry = Arc::new(WorkspaceSearchCancellation::default());
+    let registration = registry.begin("search-1");
+    let execution = WorkspaceInspectionExecution::content_search(
+        registration.generation(),
+        token,
+        Arc::new(SystemMonotonicClock::default()),
+    );
+    registration.complete();
+    execution
 }
 
 /// Both providers answer a cancel with coverage rather than with a failure.
@@ -636,7 +649,7 @@ fn a_content_match_carries_a_position_on_both_sides() {
                 search_id: "search-1".to_string(),
                 limit: None,
             },
-            SearchCancellationToken::new(),
+            content_search_execution(SearchCancellationToken::new()),
         ))
         .unwrap_or_else(|error| panic!("{}: {error:?}", subject.name));
 
@@ -664,7 +677,7 @@ fn a_cancelled_content_search_is_partial_rather_than_an_error() {
                 search_id: "search-1".to_string(),
                 limit: None,
             },
-            cancelled_token(),
+            content_search_execution(cancelled_token()),
         ))
         .unwrap_or_else(|error| panic!("{}: {error:?}", subject.name));
 
@@ -693,7 +706,7 @@ fn a_remote_host_without_ripgrep_says_so_rather_than_matching_nothing() {
             search_id: "search-1".to_string(),
             limit: None,
         },
-        SearchCancellationToken::new(),
+        content_search_execution(SearchCancellationToken::new()),
     ))
     .expect("search");
 

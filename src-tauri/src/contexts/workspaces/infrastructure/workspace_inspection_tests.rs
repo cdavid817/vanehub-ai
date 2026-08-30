@@ -10,7 +10,6 @@
 //! and the bounds nowhere new.
 
 use super::workspace_inspection::SessionWorkspaceTargetResolver;
-use crate::contexts::workspaces::application::SearchCancellationToken;
 use crate::contexts::workspaces::application::{
     CapabilityState, DirectoryFingerprint, DirectoryListing, DocumentListing, FileContent,
     FileSearchListing, GitDiffRequest, GitDiffResult, GitStatusResult, ListDirectoryRequest,
@@ -217,7 +216,7 @@ impl WorkspaceInspectionProvider for RecordingProvider {
         &self,
         _target: &WorkspaceTarget,
         request: WorkspaceContentSearchRequest,
-        _cancellation: crate::contexts::workspaces::application::SearchCancellationToken,
+        _execution: crate::contexts::workspaces::application::WorkspaceInspectionExecution,
     ) -> Result<WorkspaceContentSearchResult, WorkspaceInspectionError> {
         self.calls
             .lock()
@@ -273,7 +272,7 @@ impl WorkspaceInspectionProvider for RecordingProvider {
     async fn list_documents(
         &self,
         _target: &WorkspaceTarget,
-        _cancellation: SearchCancellationToken,
+        _execution: crate::contexts::workspaces::application::WorkspaceInspectionExecution,
     ) -> Result<DocumentListing, WorkspaceInspectionError> {
         Err(WorkspaceInspectionError::NotFound)
     }

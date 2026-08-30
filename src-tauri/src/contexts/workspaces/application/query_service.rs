@@ -1,4 +1,4 @@
-use super::search_cancellation::SearchCancellationToken;
+use super::inspection_execution::WorkspaceInspectionExecution;
 use super::{
     DirectoryListing, DocumentListing, FileContent, FileSearchListing, GitDiffResult,
     GitDiffSource, GitStatusResult, SessionLogExportResult, SessionLogPage, SessionLogQuery,
@@ -59,9 +59,9 @@ impl WorkspaceQueryApplicationService {
     pub(crate) fn list_documents(
         &self,
         session_id: &str,
-        cancellation: &SearchCancellationToken,
+        execution: &WorkspaceInspectionExecution,
     ) -> Result<DocumentListing, WorkspaceApplicationError> {
-        self.queries.list_documents(session_id, cancellation)
+        self.queries.list_documents(session_id, execution)
     }
 
     pub(crate) fn search_files(

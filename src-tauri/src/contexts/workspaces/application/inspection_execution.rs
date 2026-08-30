@@ -12,9 +12,10 @@
 //! different ones, which is exactly what a test proving "an ignored tree is never searched" needs to
 //! do from the other side.
 //!
-//! Content search and document discovery still take a bare token. They have no cursor, so nothing in
-//! them binds a policy identity, and nothing in them reads a generation — giving them a context
-//! would be a change with no behaviour behind it.
+//! Every inspection that can be superseded takes one of these. A directory page does not: it has no
+//! search id, so there is no second request under the same name for it to be replaced by, and giving
+//! it a generation would be inventing an identity so that a field could be filled in. It takes the
+//! clock alone.
 
 use super::ignore_policy::WorkspaceIgnorePolicy;
 use super::inspection_budget::{
@@ -63,6 +64,38 @@ impl WorkspaceInspectionExecution {
             generation,
             cancellation,
             limits: WorkspaceInspectionBudgetLimits::path_search(),
+            clock,
+            ignore: WorkspaceIgnorePolicy::recursive_discovery(),
+        }
+    }
+
+    /// The context a content search runs under.
+    pub(crate) fn content_search(
+        generation: SearchGeneration,
+        cancellation: SearchCancellationToken,
+        clock: Arc<dyn MonotonicClockPort>,
+    ) -> Self {
+        Self {
+            operation: WorkspaceInspectionOperation::ContentSearch,
+            generation,
+            cancellation,
+            limits: WorkspaceInspectionBudgetLimits::content_search(),
+            clock,
+            ignore: WorkspaceIgnorePolicy::recursive_discovery(),
+        }
+    }
+
+    /// The context a Documents-tab walk runs under.
+    pub(crate) fn document_discovery(
+        generation: SearchGeneration,
+        cancellation: SearchCancellationToken,
+        clock: Arc<dyn MonotonicClockPort>,
+    ) -> Self {
+        Self {
+            operation: WorkspaceInspectionOperation::DocumentDiscovery,
+            generation,
+            cancellation,
+            limits: WorkspaceInspectionBudgetLimits::document_discovery(),
             clock,
             ignore: WorkspaceIgnorePolicy::recursive_discovery(),
         }
@@ -117,6 +150,14 @@ impl WorkspaceInspectionExecution {
         self.limits
     }
 
+    /// The clock this walk measures against.
+    ///
+    /// Handed out for the two walks whose budget is still built by their own helper. Those helpers
+    /// exist as test seams and take limits and a clock directly; the context is what decides which.
+    pub(crate) fn clock(&self) -> Arc<dyn MonotonicClockPort> {
+        Arc::clone(&self.clock)
+    }
+
     /// A fresh tracker for this walk.
     ///
     /// Built here rather than held, because a budget is spent and a context is not: two walks under
@@ -127,6 +168,16 @@ impl WorkspaceInspectionExecution {
             Arc::clone(&self.clock),
             self.cancellation.clone(),
         )
+    }
+
+    /// The same context with the result cap applied, and nothing else narrowed.
+    ///
+    /// Deliberately not `bounded_to_page`: a streaming search's retained-candidate budget is its
+    /// breadth-first frontier, not its result list. Narrowing that to the page size would stop the
+    /// walk at the first wide directory and call it a budget exhaustion.
+    pub(crate) fn bounded_to_results(mut self, limit: usize) -> Self {
+        self.limits.max_results = self.limits.max_results.min(limit as u64);
+        self
     }
 
     /// The same context with the page bounds applied.

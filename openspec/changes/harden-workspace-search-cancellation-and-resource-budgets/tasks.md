@@ -25,7 +25,7 @@
 - [x] 2.4 Define `WorkspaceInspectionAdmission` with finite global/per-workspace active limits and finite queue/wait policy; acquire before `spawn_blocking` or remote launch.
 - [x] 2.5 Ensure admission stays held until the actual worker exits after caller cancellation/abort, not merely until the async caller drops its response future.
 - [x] 2.6 Add exact-boundary tests for every budget dimension, off-by-one behavior, combined stop reasons, admission busy, permit leak, and structural redaction.
-- [ ] 2.7 Assemble clock, budget profiles, admission, and cancellation registry in bootstrap/application services rather than Tauri commands.
+- [x] 2.7 Assemble clock, budget profiles, admission, and cancellation registry in bootstrap/application services rather than Tauri commands.
 
 ## 3. Shared recursive ignore policy
 

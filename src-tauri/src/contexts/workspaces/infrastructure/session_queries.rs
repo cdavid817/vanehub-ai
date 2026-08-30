@@ -13,9 +13,9 @@ use crate::contexts::workspaces::application::{
 };
 use crate::contexts::workspaces::application::{
     workspace_identity, DirectoryOrder, DirectoryPageScope, MonotonicClockPort,
-    SearchCancellationToken, SystemMonotonicClock, WorkspaceContentSearchRequest,
-    WorkspaceContentSearchResult, WorkspaceIgnorePolicy, WorkspaceInspectionBudget,
-    WorkspaceInspectionBudgetLimits, WorkspaceInspectionExecution, WorkspaceInspectionReason,
+    SearchCancellationToken, WorkspaceContentSearchRequest, WorkspaceContentSearchResult,
+    WorkspaceIgnorePolicy, WorkspaceInspectionBudget, WorkspaceInspectionBudgetLimits,
+    WorkspaceInspectionExecution, WorkspaceInspectionOperation, WorkspaceInspectionReason,
     WorkspacePathSearchRequest, WorkspacePathSearchResult, WorkspaceSearchCoverage,
 };
 use crate::contexts::workspaces::domain::{CanonicalPathBoundary, WorkspaceRelativePath};
@@ -49,11 +49,30 @@ const LOG_QUERY_BYTE_LIMIT: u64 = 1024 * 1024;
 pub(crate) struct SessionWorkspaceQueryAdapter {
     database: NativeDatabase,
     app: AppHandle,
+    /// The clock a directory page measures its deadline against.
+    ///
+    /// A field rather than a `SystemMonotonicClock::default()` at the bottom of the walk. A listing
+    /// is not cancellable and carries no generation — there is no second request under the same name
+    /// for it to be replaced by — so it takes no execution context; the clock is the only part of one
+    /// that applies, and it comes from the same place every other inspection's does.
+    clock: Arc<dyn MonotonicClockPort>,
 }
 
 impl SessionWorkspaceQueryAdapter {
-    pub(crate) fn new(database: NativeDatabase, app: AppHandle) -> Self {
-        Self { database, app }
+    pub(crate) fn new(
+        database: NativeDatabase,
+        app: AppHandle,
+        clock: Arc<dyn MonotonicClockPort>,
+    ) -> Self {
+        Self {
+            database,
+            app,
+            clock,
+        }
+    }
+
+    fn clock(&self) -> Arc<dyn MonotonicClockPort> {
+        Arc::clone(&self.clock)
     }
 
     fn connection(&self) -> Result<PooledSqlite, AppError> {
@@ -93,7 +112,7 @@ impl WorkspaceSessionQueryPort for SessionWorkspaceQueryAdapter {
     }
 
     fn list_directory(&self, session_id: &str, path: &str) -> Result<DirectoryListing, AppError> {
-        list_session_directory(&*self.connection()?, session_id, path)
+        list_session_directory(&*self.connection()?, session_id, path, self.clock())
     }
 
     fn list_directory_page(
@@ -103,7 +122,14 @@ impl WorkspaceSessionQueryPort for SessionWorkspaceQueryAdapter {
         cursor: Option<&str>,
         limit: usize,
     ) -> Result<DirectoryListing, AppError> {
-        list_session_directory_page(&*self.connection()?, session_id, path, cursor, limit)
+        list_session_directory_page(
+            &*self.connection()?,
+            session_id,
+            path,
+            cursor,
+            limit,
+            self.clock(),
+        )
     }
 
     fn directory_fingerprints(
@@ -132,22 +158,22 @@ impl WorkspaceSessionQueryPort for SessionWorkspaceQueryAdapter {
         &self,
         session_id: &str,
         request: &WorkspaceContentSearchRequest,
-        cancellation: &SearchCancellationToken,
+        execution: &WorkspaceInspectionExecution,
     ) -> Result<WorkspaceContentSearchResult, AppError> {
         super::content_search::search_session_content(
             &*self.connection()?,
             session_id,
             request,
-            cancellation,
+            execution,
         )
     }
 
     fn list_documents(
         &self,
         session_id: &str,
-        cancellation: &SearchCancellationToken,
+        execution: &WorkspaceInspectionExecution,
     ) -> Result<DocumentListing, AppError> {
-        list_session_documents(&*self.connection()?, session_id, cancellation)
+        list_session_documents(&*self.connection()?, session_id, execution)
     }
 
     fn search_files(
@@ -408,27 +434,6 @@ fn available_context(root: &Path) -> SessionWorkspaceContext {
     )
 }
 
-/// One page of a directory, ordered and cut at the caller's bound.
-///
-/// The whole directory is enumerated and sorted before the cut, which is what makes the order
-/// stable: a page is a window onto a total order rather than whatever the filesystem returned
-/// first. That cost is the same as before - the previous version enumerated everything too and
-/// then threw away all but the first 500.
-fn directory_page_at(
-    root: &Path,
-    relative: &str,
-    cursor: Option<&DirectoryCursor>,
-    limit: usize,
-) -> Result<DirectoryPage, AppError> {
-    directory_page_at_within(
-        root,
-        relative,
-        cursor,
-        limit,
-        WorkspaceInspectionBudgetLimits::directory_listing(limit),
-    )
-}
-
 /// One page of a directory, and what the scan that produced it saw.
 ///
 /// `truncated` and `coverage` answer different questions and are kept apart because a reader acts on
@@ -510,6 +515,7 @@ fn directory_page_at_within(
     cursor: Option<&DirectoryCursor>,
     limit: usize,
     limits: WorkspaceInspectionBudgetLimits,
+    clock: Arc<dyn MonotonicClockPort>,
 ) -> Result<DirectoryPage, AppError> {
     let directory = if relative.is_empty() {
         root.to_path_buf()
@@ -521,11 +527,9 @@ fn directory_page_at_within(
             "Requested workspace path is not a directory.".to_string(),
         ));
     }
-    let mut budget = WorkspaceInspectionBudget::new(
-        limits,
-        Arc::new(SystemMonotonicClock::default()),
-        SearchCancellationToken::new(),
-    );
+    // A token nothing signals. A listing has no search id, so nothing can cancel or supersede it;
+    // the budget still wants one, and an unsignalled token is what "not cancellable" looks like.
+    let mut budget = WorkspaceInspectionBudget::new(limits, clock, SearchCancellationToken::new());
     // Direct navigation: a reader is looking at exactly this folder, so nothing here hides an entry
     // a recursive search would have skipped. The dot rule below is the listing's own long-standing
     // behaviour rather than the ignore policy's.
@@ -630,8 +634,16 @@ pub(crate) fn list_session_directory(
     conn: &Connection,
     session_id: &str,
     path: &str,
+    clock: Arc<dyn MonotonicClockPort>,
 ) -> Result<DirectoryListing, AppError> {
-    list_session_directory_page(conn, session_id, path, None, DEFAULT_DIRECTORY_PAGE_SIZE)
+    list_session_directory_page(
+        conn,
+        session_id,
+        path,
+        None,
+        DEFAULT_DIRECTORY_PAGE_SIZE,
+        clock,
+    )
 }
 
 /// One page, resuming after a cursor.
@@ -644,6 +656,7 @@ pub(crate) fn list_session_directory_page(
     path: &str,
     cursor: Option<&str>,
     limit: usize,
+    clock: Arc<dyn MonotonicClockPort>,
 ) -> Result<DirectoryListing, AppError> {
     let Some(root) = resolve_session_root(conn, session_id)? else {
         return Ok(DirectoryListing {
@@ -679,7 +692,14 @@ pub(crate) fn list_session_directory_page(
         },
         None => None,
     };
-    let page = directory_page_at(&root, path, decoded.as_ref(), limit)?;
+    let page = directory_page_at_within(
+        &root,
+        path,
+        decoded.as_ref(),
+        limit,
+        WorkspaceInspectionBudgetLimits::directory_listing(limit),
+        clock,
+    )?;
     Ok(DirectoryListing {
         context: available_context(&root),
         path: path.to_string(),
@@ -860,14 +880,21 @@ fn collect_documents(
 pub(crate) fn list_session_documents(
     conn: &Connection,
     session_id: &str,
-    cancellation: &SearchCancellationToken,
+    execution: &WorkspaceInspectionExecution,
 ) -> Result<DocumentListing, AppError> {
+    // The same guard the two searches carry: a profile chosen for another walk changes what the
+    // answer covers without changing how the answer looks.
+    if execution.operation() != WorkspaceInspectionOperation::DocumentDiscovery {
+        return Err(AppError::Conflict(
+            "workspace_inspection_operation_mismatch",
+        ));
+    }
     list_session_documents_with(
         conn,
         session_id,
-        WorkspaceInspectionBudgetLimits::document_discovery(),
-        Arc::new(SystemMonotonicClock::default()),
-        cancellation.clone(),
+        execution.limits(),
+        execution.clock(),
+        execution.cancellation().clone(),
     )
 }
 
@@ -2112,10 +2139,90 @@ pub(crate) fn export_session_logs(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::contexts::workspaces::application::{ManualClock, SystemMonotonicClock};
     use crate::test_support::TempDirectory;
     use rusqlite::params;
     use std::process::Command;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    /// One page under limits the test chose and a system clock it does not care about.
+    fn page_within(
+        root: &Path,
+        relative: &str,
+        cursor: Option<&DirectoryCursor>,
+        limit: usize,
+        limits: WorkspaceInspectionBudgetLimits,
+    ) -> Result<DirectoryPage, AppError> {
+        directory_page_at_within(
+            root,
+            relative,
+            cursor,
+            limit,
+            limits,
+            Arc::new(SystemMonotonicClock::default()),
+        )
+    }
+
+    /// A document-discovery context nobody intends to cancel.
+    fn documents_execution(
+    ) -> crate::contexts::workspaces::application::WorkspaceInspectionExecution {
+        use crate::contexts::workspaces::application::{
+            WorkspaceInspectionExecution, WorkspaceSearchCancellation,
+        };
+
+        let registry = Arc::new(WorkspaceSearchCancellation::default());
+        let registration = registry.begin("documents-1");
+        let execution = WorkspaceInspectionExecution::document_discovery(
+            registration.generation(),
+            registration.token(),
+            Arc::new(SystemMonotonicClock::default()),
+        );
+        registration.complete();
+        execution
+    }
+
+    /// One listing page under a system clock, for the same reason.
+    fn session_directory_page(
+        conn: &Connection,
+        session_id: &str,
+        path: &str,
+        cursor: Option<&str>,
+        limit: usize,
+    ) -> Result<DirectoryListing, AppError> {
+        list_session_directory_page(
+            conn,
+            session_id,
+            path,
+            cursor,
+            limit,
+            Arc::new(SystemMonotonicClock::default()),
+        )
+    }
+
+    /// One page of a directory, ordered and cut at the caller's bound.
+    ///
+    /// The whole directory is enumerated and sorted before the cut, which is what makes the order
+    /// stable: a page is a window onto a total order rather than whatever the filesystem returned
+    /// first. That cost is the same as before - the previous version enumerated everything too and
+    /// then threw away all but the first 500.
+    ///
+    /// Test-only: production reaches `directory_page_at_within` with the clock the adapter was built
+    /// with, so there is no path where a walk quietly constructs its own.
+    fn directory_page_at(
+        root: &Path,
+        relative: &str,
+        cursor: Option<&DirectoryCursor>,
+        limit: usize,
+    ) -> Result<DirectoryPage, AppError> {
+        directory_page_at_within(
+            root,
+            relative,
+            cursor,
+            limit,
+            WorkspaceInspectionBudgetLimits::directory_listing(limit),
+            Arc::new(SystemMonotonicClock::default()),
+        )
+    }
 
     fn temp_dir(label: &str) -> PathBuf {
         let suffix = SystemTime::now()
@@ -2691,7 +2798,7 @@ mod tests {
         }
         let root = root.canonicalize().expect("canonical root");
 
-        let page = directory_page_at_within(
+        let page = page_within(
             &root,
             "",
             None,
@@ -2783,7 +2890,7 @@ mod tests {
 
         let mut limits = WorkspaceInspectionBudgetLimits::directory_listing(100);
         limits.max_entries_visited = 5;
-        let page = directory_page_at_within(&root, "", None, 100, limits).expect("listing");
+        let page = page_within(&root, "", None, 100, limits).expect("listing");
 
         assert_eq!(
             page.coverage
@@ -2819,13 +2926,43 @@ mod tests {
         // checkpoint on every machine, which is the same code path a real expiry takes.
         let mut limits = WorkspaceInspectionBudgetLimits::directory_listing(100);
         limits.deadline = std::time::Duration::ZERO;
-        let page = directory_page_at_within(&root, "", None, 100, limits).expect("listing");
+        let page = page_within(&root, "", None, 100, limits).expect("listing");
 
         assert_eq!(page.coverage.reason_code, Some("deadline_exceeded"));
         // And it does not offer a next page. Resuming would spend the same expired deadline over
         // the same prefix and stop in the same place.
         assert!(!page.truncated);
         assert_eq!(page.next_cursor, None);
+    }
+
+    /// The listing measures against the clock it was handed, not one it made.
+    ///
+    /// The zero-duration test above passes either way: an expired deadline trips at the first
+    /// checkpoint whichever clock reports it. This one only passes if the injected clock is the one
+    /// being read — a system clock would not spend a second walking ten files.
+    #[test]
+    fn a_listing_measures_its_deadline_on_the_clock_it_was_given() {
+        let fixture = TempDirectory::new("directory-page-clock");
+        let root = fixture.path();
+        for index in 0..10 {
+            fs::write(root.join(format!("file-{index}.txt")), "text").expect("fixture");
+        }
+        let root = root.canonicalize().expect("canonical root");
+
+        let mut limits = WorkspaceInspectionBudgetLimits::directory_listing(100);
+        limits.deadline = std::time::Duration::from_secs(1);
+        let page = directory_page_at_within(
+            &root,
+            "",
+            None,
+            100,
+            limits,
+            // One tick per reading, so the deadline is reached by counting rather than by waiting.
+            Arc::new(ManualClock::ticking(std::time::Duration::from_millis(400))),
+        )
+        .expect("listing");
+
+        assert_eq!(page.coverage.reason_code, Some("deadline_exceeded"));
     }
 
     /// A budget wide enough that nothing here stops on it.
@@ -2873,8 +3010,7 @@ mod tests {
         let (database, session) = session_at(&root, &fixture.path().join("data"));
         let connection = database.connection().expect("connection");
 
-        let first =
-            list_session_directory_page(&connection, &session, "", None, 2).expect("first page");
+        let first = session_directory_page(&connection, &session, "", None, 2).expect("first page");
         assert!(first.truncated);
         assert_eq!(first.coverage.reason_code, None);
 
@@ -2894,7 +3030,7 @@ mod tests {
         )
         .encode();
 
-        let resumed = list_session_directory_page(&connection, &session, "", Some(&stale), 2)
+        let resumed = session_directory_page(&connection, &session, "", Some(&stale), 2)
             .expect("a refusal is an answer");
 
         // Nothing appended. Continuing here would drop or repeat rows with nothing on screen to say
@@ -2906,7 +3042,7 @@ mod tests {
 
         // And the restart works: asking without a cursor is the whole recovery.
         let restarted =
-            list_session_directory_page(&connection, &session, "", None, 2).expect("restart");
+            session_directory_page(&connection, &session, "", None, 2).expect("restart");
         assert_eq!(restarted.items, first.items);
     }
 
@@ -2920,9 +3056,8 @@ mod tests {
         let (database, session) = session_at(&root, &fixture.path().join("data"));
         let connection = database.connection().expect("connection");
 
-        let refused =
-            list_session_directory_page(&connection, &session, "", Some("not-a-cursor"), 2)
-                .expect("a refusal is an answer");
+        let refused = session_directory_page(&connection, &session, "", Some("not-a-cursor"), 2)
+            .expect("a refusal is an answer");
 
         // `invalid_cursor` rather than `stale_cursor`: nothing about this token says it was ever
         // issued for this directory, and telling a reader the folder changed would be inventing an
@@ -2947,7 +3082,7 @@ mod tests {
         let mut seen: Vec<String> = Vec::new();
         let mut cursor: Option<String> = None;
         for _ in 0..6 {
-            let page = list_session_directory_page(&connection, &session, "", cursor.as_deref(), 1)
+            let page = session_directory_page(&connection, &session, "", cursor.as_deref(), 1)
                 .expect("page");
             seen.extend(page.items.into_iter().map(|entry| entry.name));
             match page.next_cursor {
@@ -3042,9 +3177,8 @@ mod tests {
         let (database, session) = session_at(&root, &fixture.path().join("data"));
         let connection = database.connection().expect("connection");
 
-        let listing =
-            list_session_documents(&connection, &session, &SearchCancellationToken::new())
-                .expect("documents");
+        let listing = list_session_documents(&connection, &session, &documents_execution())
+            .expect("documents");
 
         assert_eq!(listing.coverage.reason_code, None);
         let spent = listing.coverage.budget.expect("accounted");
@@ -3118,9 +3252,8 @@ mod tests {
         let (database, session) = session_at(&root, &fixture.path().join("data"));
         let connection = database.connection().expect("connection");
 
-        let listing =
-            list_session_documents(&connection, &session, &SearchCancellationToken::new())
-                .expect("documents");
+        let listing = list_session_documents(&connection, &session, &documents_execution())
+            .expect("documents");
 
         // The escaping entry is not in the list, and the coverage says something was skipped. A walk
         // that dropped it and still claimed complete is how a reader concludes a document is not in

@@ -240,7 +240,7 @@ impl WorkspaceSessionQueryPort for FakeSessionQueries {
         &self,
         session_id: &str,
         request: &WorkspaceContentSearchRequest,
-        _cancellation: &super::search_cancellation::SearchCancellationToken,
+        _execution: &super::inspection_execution::WorkspaceInspectionExecution,
     ) -> Result<WorkspaceContentSearchResult, WorkspaceApplicationError> {
         self.calls
             .lock()
@@ -321,7 +321,7 @@ impl WorkspaceSessionQueryPort for FakeSessionQueries {
     fn list_documents(
         &self,
         session_id: &str,
-        _cancellation: &SearchCancellationToken,
+        _execution: &WorkspaceInspectionExecution,
     ) -> Result<DocumentListing, WorkspaceApplicationError> {
         self.calls
             .lock()
@@ -681,8 +681,15 @@ fn bounded_workspace_queries_delegate_only_through_the_injected_port() {
             .path,
         "src"
     );
+    let registry = Arc::new(super::search_cancellation::WorkspaceSearchCancellation::default());
+    let registration = registry.begin("documents-1");
+    let execution = super::inspection_execution::WorkspaceInspectionExecution::document_discovery(
+        registration.generation(),
+        registration.token(),
+        Arc::new(super::inspection_budget::SystemMonotonicClock::default()),
+    );
     service
-        .list_documents("session-1", &SearchCancellationToken::new())
+        .list_documents("session-1", &execution)
         .expect("documents");
     assert_eq!(
         service

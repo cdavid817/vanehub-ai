@@ -4,11 +4,12 @@
 //! a binary file, and a walk that is asked to stop partway through — none of which a fixture can
 //! stand in for.
 
-use super::content_search::{search_session_content, search_session_content_with};
+use super::content_search::search_session_content;
 use crate::contexts::workspaces::application::{
     ManualClock, MonotonicClockPort, SearchCancellationCause, SearchCancellationToken,
     WorkspaceContentSearchRequest, WorkspaceInspectionBudgetLimits,
-    WorkspaceInspectionBudgetSnapshot, MAX_SNIPPET_CHARS,
+    WorkspaceInspectionBudgetSnapshot, WorkspaceInspectionExecution, WorkspaceSearchCancellation,
+    MAX_SNIPPET_CHARS,
 };
 use crate::platform::database::NativeDatabase;
 use crate::test_support::TempDirectory;
@@ -20,6 +21,22 @@ use std::time::Duration;
 struct Workspace {
     _directory: TempDirectory,
     database: NativeDatabase,
+}
+
+/// A content-search context carrying the token and the clock the test wants to drive.
+///
+/// The generation comes from a real registration: a hand-made one would let a test assert against a
+/// number nothing issued.
+fn content_search_execution(
+    token: SearchCancellationToken,
+    clock: Arc<dyn MonotonicClockPort>,
+) -> WorkspaceInspectionExecution {
+    let registry = Arc::new(WorkspaceSearchCancellation::default());
+    let registration = registry.begin("search-1");
+    let execution =
+        WorkspaceInspectionExecution::content_search(registration.generation(), token, clock);
+    registration.complete();
+    execution
 }
 
 struct Answer {
@@ -51,7 +68,7 @@ impl Workspace {
                 search_id: "search-1".to_string(),
                 limit: None,
             },
-            cancellation,
+            &content_search_execution(cancellation.clone(), Arc::new(ManualClock::default())),
         )
         .expect("search");
         answer_from(result)
@@ -66,7 +83,7 @@ impl Workspace {
         cancellation: &SearchCancellationToken,
     ) -> Answer {
         let connection = self.database.connection().expect("connection");
-        let result = search_session_content_with(
+        let result = search_session_content(
             &connection,
             "session-1",
             &WorkspaceContentSearchRequest {
@@ -74,9 +91,7 @@ impl Workspace {
                 search_id: "search-1".to_string(),
                 limit: None,
             },
-            cancellation,
-            limits,
-            clock,
+            &content_search_execution(cancellation.clone(), clock).with_limits(limits),
         )
         .expect("search");
         answer_from(result)
@@ -630,4 +645,44 @@ fn the_generated_output_directories_the_old_list_missed_are_skipped_too() {
             .collect::<Vec<_>>(),
         vec!["src/main.rs"]
     );
+}
+
+/// A context built for another walk is refused rather than obeyed.
+///
+/// A path-search profile applied here opens a different number of files and calls itself complete or
+/// partial accordingly. Nothing in the answer would say the wrong budget was used, which is what
+/// makes the mislabelling worth refusing rather than tolerating.
+#[test]
+fn a_context_built_for_another_operation_is_refused() {
+    let workspace = workspace(&[(
+        "a.txt", b"needle
+",
+    )]);
+    let connection = workspace.database.connection().expect("connection");
+    let execution = content_search_execution(
+        SearchCancellationToken::new(),
+        Arc::new(ManualClock::default()),
+    );
+
+    let refused = search_session_content(
+        &connection,
+        "session-1",
+        &WorkspaceContentSearchRequest {
+            query: "needle".to_string(),
+            search_id: "search-1".to_string(),
+            limit: None,
+        },
+        &execution.with_operation(
+            crate::contexts::workspaces::application::WorkspaceInspectionOperation::PathSearch,
+        ),
+    );
+
+    assert!(matches!(
+        refused,
+        Err(
+            crate::contexts::workspaces::application::WorkspaceApplicationError::Conflict(
+                "workspace_inspection_operation_mismatch"
+            )
+        )
+    ));
 }

@@ -23,11 +23,11 @@
 
 use super::ignore_matcher::WorkspaceIgnoreMatcher;
 use crate::contexts::workspaces::application::{
-    safe_snippet, MonotonicClockPort, SearchCancellationToken, SystemMonotonicClock,
-    WorkspaceApplicationError as AppError, WorkspaceContentMatch, WorkspaceContentSearchRequest,
-    WorkspaceContentSearchResult, WorkspaceIgnorePolicy, WorkspaceInspectionBudget,
-    WorkspaceInspectionBudgetLimits, WorkspaceInspectionReason, WorkspaceSearchCoverage,
-    MAX_CONTENT_MATCHES, MAX_SEARCHED_FILE_BYTES,
+    safe_snippet, WorkspaceApplicationError as AppError, WorkspaceContentMatch,
+    WorkspaceContentSearchRequest, WorkspaceContentSearchResult, WorkspaceIgnorePolicy,
+    WorkspaceInspectionBudget, WorkspaceInspectionExecution, WorkspaceInspectionOperation,
+    WorkspaceInspectionReason, WorkspaceSearchCoverage, MAX_CONTENT_MATCHES,
+    MAX_SEARCHED_FILE_BYTES,
 };
 use crate::contexts::workspaces::domain::CanonicalPathBoundary;
 use rusqlite::Connection;
@@ -35,7 +35,6 @@ use std::collections::{HashSet, VecDeque};
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 /// How much of a file is read per checkpoint.
 ///
@@ -45,35 +44,25 @@ use std::sync::Arc;
 /// is frequent enough to feel immediate and coarse enough not to matter to throughput.
 const READ_CHUNK_BYTES: usize = 64 * 1024;
 
+/// Content search, under the context its caller built.
+///
+/// The generation, the token, the limits, the clock and the ignore rules travel together because
+/// they are all properties of the same walk. Passed separately, a caller can supply four of the five
+/// and still compile, and the one it left out is a bound nothing enforces.
 pub(crate) fn search_session_content(
     conn: &Connection,
     session_id: &str,
     request: &WorkspaceContentSearchRequest,
-    cancellation: &SearchCancellationToken,
+    execution: &WorkspaceInspectionExecution,
 ) -> Result<WorkspaceContentSearchResult, AppError> {
-    search_session_content_with(
-        conn,
-        session_id,
-        request,
-        cancellation,
-        WorkspaceInspectionBudgetLimits::content_search(),
-        Arc::new(SystemMonotonicClock::default()),
-    )
-}
-
-/// The same search with its limits and its clock supplied.
-///
-/// The seam exists for tests and for nothing else. A budget dimension is only worth having if a
-/// test can drive the traversal into it, and a deadline is only worth having if one can be reached
-/// without waiting twenty seconds for it.
-pub(super) fn search_session_content_with(
-    conn: &Connection,
-    session_id: &str,
-    request: &WorkspaceContentSearchRequest,
-    cancellation: &SearchCancellationToken,
-    limits: WorkspaceInspectionBudgetLimits,
-    clock: Arc<dyn MonotonicClockPort>,
-) -> Result<WorkspaceContentSearchResult, AppError> {
+    // A context built for another operation carries another operation's budget profile. Refused
+    // rather than trusted: the wrong profile is invisible in the answer, which simply looks like a
+    // workspace larger or smaller than it is.
+    if execution.operation() != WorkspaceInspectionOperation::ContentSearch {
+        return Err(AppError::Conflict(
+            "workspace_inspection_operation_mismatch",
+        ));
+    }
     let needle = request.query.trim().to_lowercase();
     if needle.is_empty() {
         // An empty content query would match every line of every file. Refused as an answer rather
@@ -97,13 +86,11 @@ pub(super) fn search_session_content_with(
         .limit
         .unwrap_or(MAX_CONTENT_MATCHES)
         .clamp(1, MAX_CONTENT_MATCHES);
-    let mut limits = limits;
     // A caller asking for fewer matches is asking for less work, not merely a shorter list. Leaving
     // the result budget at its ceiling would keep opening files after the answer was complete.
-    limits.max_results = limits.max_results.min(limit as u64);
-    let mut budget = WorkspaceInspectionBudget::new(limits, clock, cancellation.clone());
+    let mut budget = execution.clone().bounded_to_results(limit).budget();
 
-    let matches = stream_search(&root, &needle, &mut budget)?;
+    let matches = stream_search(&root, &needle, execution.ignore(), &mut budget)?;
 
     // An omission counts as much as a stop: something the walk skipped and continued past is
     // still something a reader was not shown, and reporting complete is how somebody concludes a
@@ -126,6 +113,7 @@ pub(super) fn search_session_content_with(
 fn stream_search(
     root: &Path,
     needle: &str,
+    ignore: WorkspaceIgnorePolicy,
     budget: &mut WorkspaceInspectionBudget,
 ) -> Result<Vec<WorkspaceContentMatch>, AppError> {
     // Entries are canonicalized before the containment check, so the root must be too: a short
@@ -138,8 +126,7 @@ fn stream_search(
     // The same policy Quick Open walks under. Two traversals with their own exclusion lists would
     // let a file be findable by name and not by content, which reads as the search being broken
     // for that one file.
-    let ignores =
-        WorkspaceIgnoreMatcher::for_root(root, WorkspaceIgnorePolicy::recursive_discovery());
+    let ignores = WorkspaceIgnoreMatcher::for_root(root, ignore);
     let mut matches: Vec<WorkspaceContentMatch> = Vec::new();
     let mut queue: VecDeque<(PathBuf, u32)> = VecDeque::from([(root.to_path_buf(), 0u32)]);
     let mut visited: HashSet<PathBuf> = HashSet::from([root.to_path_buf()]);

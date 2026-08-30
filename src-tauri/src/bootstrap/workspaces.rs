@@ -3,7 +3,7 @@ use crate::contexts::operations::infrastructure::UnifiedLoggingAdapter;
 use crate::contexts::ssh_connections::api::SshConnectionsApi;
 use crate::contexts::workspaces::api::WorkspaceApi;
 use crate::contexts::workspaces::application::{
-    SessionShellPorts, SessionShellRegistry, ShellCapacities, ShellStore,
+    SessionShellPorts, SessionShellRegistry, ShellCapacities, ShellStore, SystemMonotonicClock,
     WorkspaceApplicationService, WorkspaceInspectionRouter, WorkspaceInvalidationDispatcher,
     WorkspaceQueryApplicationService,
 };
@@ -31,9 +31,13 @@ pub(crate) fn assemble_workspace_api(
 ) -> WorkspaceApi {
     let logging: Arc<dyn DiagnosticLogPort> =
         Arc::new(UnifiedLoggingAdapter::active(fallback_log_directory));
+    // The clock every bounded workspace read measures against, chosen once here. A walk that
+    // reached for `Instant::now` itself could not be handed a different one, which is what makes a
+    // deadline provable only by waiting one out.
     let review_adapter = Arc::new(SessionWorkspaceQueryAdapter::new(
         database.clone(),
         app.clone(),
+        Arc::new(SystemMonotonicClock::default()),
     ));
     let queries = WorkspaceQueryApplicationService::new(review_adapter.clone());
     // Selection lives in one router rather than at each call site: the provider follows from the

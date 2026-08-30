@@ -743,8 +743,12 @@ impl WorkspaceInspectionProvider for RemoteWorkspaceInspectionProvider {
         &self,
         target: &WorkspaceTarget,
         request: WorkspaceContentSearchRequest,
-        cancellation: SearchCancellationToken,
+        execution: WorkspaceInspectionExecution,
     ) -> Result<WorkspaceContentSearchResult, WorkspaceInspectionError> {
+        // The helper walks with its own limits on the far machine, so what this provider takes from
+        // the context is the token. Reading the local budget here would report counts for work this
+        // machine did not do.
+        let cancellation = execution.cancellation().clone();
         // Checked before connecting rather than only after. A reader who cancels while the request
         // is still being assembled has already stopped waiting, and opening an SSH channel to
         // answer them would spend a remote host's effort on a result nobody will read.
@@ -787,7 +791,7 @@ impl WorkspaceInspectionProvider for RemoteWorkspaceInspectionProvider {
     async fn list_documents(
         &self,
         target: &WorkspaceTarget,
-        _cancellation: SearchCancellationToken,
+        _execution: WorkspaceInspectionExecution,
     ) -> Result<DocumentListing, WorkspaceInspectionError> {
         // Not offered yet, and refused rather than answered with an empty list: an empty document
         // list is a claim that the workspace has no documents, which is a different statement from
