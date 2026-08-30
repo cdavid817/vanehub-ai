@@ -6,7 +6,7 @@ import "../i18n";
 import { NotificationProvider } from "../notifications/notification-provider";
 import type { Session } from "../types/agent";
 import { useWorkspaceSessionRoute } from "./use-workspace-session-route";
-import type { WorkspaceLocation } from "./workspace-route";
+import type { WorkbenchLocation } from "./workbench-route";
 
 afterEach(cleanup);
 
@@ -41,7 +41,7 @@ function session(id: string, overrides: Partial<Session> = {}): Session {
   };
 }
 
-function location(overrides: Partial<WorkspaceLocation> = {}): WorkspaceLocation {
+function sessionsLocation(overrides: Partial<Extract<WorkbenchLocation, { destination: "sessions" }>> = {}): WorkbenchLocation {
   return { creatingSession: false, destination: "sessions", sessionId: null, ...overrides };
 }
 
@@ -64,7 +64,7 @@ const defaults = {
 describe("useWorkspaceSessionRoute", () => {
   it("adopts the backend's active session into an addressless route", () => {
     const onNavigate = vi.fn();
-    renderRoute({ ...defaults, activeSessionId: "session-1", location: location(), onNavigate });
+    renderRoute({ ...defaults, activeSessionId: "session-1", location: sessionsLocation(), onNavigate });
 
     expect(onNavigate).toHaveBeenCalledWith(
       { creatingSession: false, destination: "sessions", sessionId: "session-1" },
@@ -78,7 +78,7 @@ describe("useWorkspaceSessionRoute", () => {
     renderRoute({
       ...defaults,
       activeSessionId: "session-1",
-      location: location({ sessionId: "session-2" }),
+      location: sessionsLocation({ sessionId: "session-2" }),
       sessions: [session("session-1"), target],
       switchSession,
     });
@@ -92,7 +92,7 @@ describe("useWorkspaceSessionRoute", () => {
     renderRoute({
       ...defaults,
       activeSessionId: "session-1",
-      location: location({ sessionId: "session-1" }),
+      location: sessionsLocation({ sessionId: "session-1" }),
       onNavigate,
       sessions: [session("session-1")],
       switchSession,
@@ -105,7 +105,7 @@ describe("useWorkspaceSessionRoute", () => {
   /** A deep link arrives before the session list does; bouncing then would be wrong. */
   it("waits for the session list before declaring a route session missing", () => {
     const onNavigate = vi.fn();
-    renderRoute({ ...defaults, location: location({ sessionId: "session-missing" }), onNavigate });
+    renderRoute({ ...defaults, location: sessionsLocation({ sessionId: "session-missing" }), onNavigate });
 
     expect(onNavigate).not.toHaveBeenCalled();
   });
@@ -114,7 +114,7 @@ describe("useWorkspaceSessionRoute", () => {
     const onNavigate = vi.fn();
     renderRoute({
       ...defaults,
-      location: location({ sessionId: "session-missing" }),
+      location: sessionsLocation({ sessionId: "session-missing" }),
       onNavigate,
       sessions: [session("session-1")],
     });
@@ -127,11 +127,16 @@ describe("useWorkspaceSessionRoute", () => {
 
   it("stays out of the way on other destinations and while creating", () => {
     const onNavigate = vi.fn();
-    renderRoute({ ...defaults, activeSessionId: "session-1", location: location({ destination: "loops" }), onNavigate });
+    renderRoute({
+      ...defaults,
+      activeSessionId: "session-1",
+      location: { destination: "runs", section: "attention", runId: undefined },
+      onNavigate,
+    });
     expect(onNavigate).not.toHaveBeenCalled();
 
     cleanup();
-    renderRoute({ ...defaults, activeSessionId: "session-1", location: location({ creatingSession: true }), onNavigate });
+    renderRoute({ ...defaults, activeSessionId: "session-1", location: sessionsLocation({ creatingSession: true }), onNavigate });
     expect(onNavigate).not.toHaveBeenCalled();
   });
 });

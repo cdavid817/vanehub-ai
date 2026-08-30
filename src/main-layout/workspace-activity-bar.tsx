@@ -1,33 +1,30 @@
-import { BarChart3, CalendarClock, CircleHelp, Columns3, MessagesSquare, Radar, Repeat2, Settings, Target } from "lucide-react";
+import { BarChart3, CircleHelp, Columns3, FolderKanban, MessagesSquare, Radar, Settings } from "lucide-react";
 import { cn } from "../lib/utils";
+import type { WorkbenchDestination } from "./workbench-route";
 
 export interface WorkspaceActivityBarLabels {
   navigation: string;
   sessions: string;
   expandSessions: string;
   collapseSessions: string;
-  loops: string;
-  scheduledTasks: string;
-  todoBoard: string;
-  goals: string;
-  evaluations: string;
-  missionControl: string;
+  projects: string;
+  runs: string;
+  plan: string;
+  quality: string;
   settings: string;
   help: string;
 }
 
 interface WorkspaceActivityBarProps {
-  activeDestination: "sessions" | "loops" | "work-board" | "goals" | "evaluations" | "mission-control";
+  activeDestination: WorkbenchDestination;
   labels: WorkspaceActivityBarLabels;
   onOpenSettings: () => void;
   onHelp: () => void;
-  onLoops: () => void;
   onSessions: () => void;
-  onScheduledTasks: () => void;
-  onWorkBoard: () => void;
-  onGoals: () => void;
-  onEvaluations: () => void;
-  onMissionControl: () => void;
+  onProjects: () => void;
+  onRuns: () => void;
+  onPlan: () => void;
+  onQuality: () => void;
   sessionSidebarExpanded: boolean;
 }
 
@@ -38,12 +35,10 @@ export function workspaceActivityBarLabels(t: (key: string) => string): Workspac
     sessions: t("layout.activityBar.sessions"),
     expandSessions: t("layout.activityBar.expandSessions"),
     collapseSessions: t("layout.activityBar.collapseSessions"),
-    loops: t("layout.activityBar.loops"),
-    scheduledTasks: t("layout.activityBar.scheduledTasks"),
-    todoBoard: t("layout.activityBar.todoBoard"),
-    goals: t("layout.activityBar.goals"),
-    evaluations: t("layout.activityBar.evaluations"),
-    missionControl: t("layout.activityBar.missionControl"),
+    projects: t("layout.activityBar.projects"),
+    runs: t("layout.activityBar.runs"),
+    plan: t("layout.activityBar.plan"),
+    quality: t("layout.activityBar.quality"),
     settings: t("layout.activityBar.settings"),
     help: t("layout.activityBar.help"),
   };
@@ -52,18 +47,28 @@ export function workspaceActivityBarLabels(t: (key: string) => string): Workspac
 const activityButtonClass =
   "ucd-interactive flex h-10 w-10 items-center justify-center rounded-md border border-transparent text-muted-foreground outline-hidden focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background";
 
+function destinationClass(active: boolean) {
+  return cn(activityButtonClass, active && "border-primary bg-[hsl(var(--nav-active-soft))] text-primary");
+}
+
+/**
+ * design.md Decision 1: five stable business domains, replacing the previous nine-entry bar
+ * (sessions/loops/work-board/goals/evaluations/mission-control/scheduled-tasks/settings/help).
+ * Loops, Schedules, Board, Goals, Evaluation, and Mission Control are reachable through each
+ * domain's own secondary navigation instead of a dedicated primary entry — see
+ * `WorkspaceActivityBar`'s "Open Loops/Scheduled tasks from activity bar" scenarios in
+ * `specs/main-layout-ui/spec.md`.
+ */
 export function WorkspaceActivityBar({
   activeDestination,
   labels,
   onOpenSettings,
   onHelp,
-  onLoops,
   onSessions,
-  onScheduledTasks,
-  onWorkBoard,
-  onGoals,
-  onEvaluations,
-  onMissionControl,
+  onProjects,
+  onRuns,
+  onPlan,
+  onQuality,
   sessionSidebarExpanded,
 }: WorkspaceActivityBarProps) {
   const sessionsLabel = sessionSidebarExpanded ? labels.collapseSessions : labels.expandSessions;
@@ -75,37 +80,28 @@ export function WorkspaceActivityBar({
           aria-controls="workspace-session-sidebar"
           aria-expanded={sessionSidebarExpanded}
           aria-label={sessionsLabel}
-          className={cn(activityButtonClass, activeDestination === "sessions" && "border-primary bg-[hsl(var(--nav-active-soft))] text-primary")}
+          className={destinationClass(activeDestination === "sessions")}
           onClick={onSessions}
           title={sessionsLabel}
           type="button"
         >
           <MessagesSquare aria-hidden="true" className="h-5 w-5" />
         </button>
-        <button
-          aria-controls="loop-center"
-          aria-label={labels.loops}
-          className={cn(activityButtonClass, activeDestination === "loops" && "border-primary bg-[hsl(var(--nav-active-soft))] text-primary")}
-          onClick={onLoops}
-          title={labels.loops}
-          type="button"
-        >
-          <Repeat2 aria-hidden="true" className="h-5 w-5" />
+        <button aria-controls="workbench-route-outlet" aria-label={labels.projects} className={destinationClass(activeDestination === "projects")} onClick={onProjects} title={labels.projects} type="button">
+          <FolderKanban aria-hidden="true" className="h-5 w-5" />
         </button>
-        <button aria-controls="work-board" aria-label={labels.todoBoard} className={cn(activityButtonClass, activeDestination === "work-board" && "border-primary bg-[hsl(var(--nav-active-soft))] text-primary")} onClick={onWorkBoard} title={labels.todoBoard} type="button"><Columns3 aria-hidden="true" className="h-5 w-5" /></button>
-        <button aria-controls="goal-center" aria-label={labels.goals} className={cn(activityButtonClass, activeDestination === "goals" && "border-primary bg-[hsl(var(--nav-active-soft))] text-primary")} onClick={onGoals} title={labels.goals} type="button"><Target aria-hidden="true" className="h-5 w-5" /></button>
-        <button aria-controls="evaluation-center" aria-label={labels.evaluations} className={cn(activityButtonClass, activeDestination === "evaluations" && "border-primary bg-[hsl(var(--nav-active-soft))] text-primary")} onClick={onEvaluations} title={labels.evaluations} type="button"><BarChart3 aria-hidden="true" className="h-5 w-5" /></button>
-        <button aria-controls="mission-control" aria-label={labels.missionControl} className={cn(activityButtonClass, activeDestination === "mission-control" && "border-primary bg-[hsl(var(--nav-active-soft))] text-primary")} onClick={onMissionControl} title={labels.missionControl} type="button"><Radar aria-hidden="true" className="h-5 w-5" /></button>
-      </div>
-      {/* Scheduled tasks opens a dialog rather than switching destination, so it sits apart from
-          the four entries that do change what fills the workspace. */}
-      <div className="mt-1 flex flex-col items-center gap-1 border-t border-border pt-2" data-activity-group="tools">
-        <button aria-haspopup="dialog" aria-label={labels.scheduledTasks} className={activityButtonClass} onClick={onScheduledTasks} title={labels.scheduledTasks} type="button">
-          <CalendarClock aria-hidden="true" className="h-5 w-5" />
+        <button aria-controls="workbench-route-outlet" aria-label={labels.runs} className={destinationClass(activeDestination === "runs")} onClick={onRuns} title={labels.runs} type="button">
+          <Radar aria-hidden="true" className="h-5 w-5" />
+        </button>
+        <button aria-controls="workbench-route-outlet" aria-label={labels.plan} className={destinationClass(activeDestination === "plan")} onClick={onPlan} title={labels.plan} type="button">
+          <Columns3 aria-hidden="true" className="h-5 w-5" />
+        </button>
+        <button aria-controls="workbench-route-outlet" aria-label={labels.quality} className={destinationClass(activeDestination === "quality")} onClick={onQuality} title={labels.quality} type="button">
+          <BarChart3 aria-hidden="true" className="h-5 w-5" />
         </button>
       </div>
       <div className="mt-auto flex flex-col items-center gap-1" data-activity-group="utility">
-        <button aria-label={labels.settings} className={activityButtonClass} data-testid="desktop-smoke-settings" onClick={() => onOpenSettings()} title={labels.settings} type="button">
+        <button aria-label={labels.settings} className={activityButtonClass} data-testid="desktop-smoke-settings" onClick={onOpenSettings} title={labels.settings} type="button">
           <Settings aria-hidden="true" className="h-5 w-5" />
         </button>
         <button aria-label={labels.help} className={activityButtonClass} onClick={onHelp} title={labels.help} type="button">

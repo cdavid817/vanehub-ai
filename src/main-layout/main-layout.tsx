@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { ArrowLeft } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { LazyFeature, type LazyFeatureLoader } from "../components/lazy-feature";
 import { NotificationHost, useNotifications } from "../notifications/notification-provider";
 import { SessionTabs } from "../session-workspace/session-tabs";
 import { ApiSessionComposer } from "../session-workspace/api-session-composer";
@@ -10,20 +9,24 @@ import { agentService } from "../services/runtime-agent-client";
 import type { Session } from "../types/agent";
 import type { ChatMessage } from "../types/chat";
 import type { LoopInspectionTarget } from "../types/loop";
+import type { MissionControlNavigationTarget } from "../types/mission-control";
 import { CreateCategoryDialog } from "./create-category-dialog";
 import { CreateSessionDialog } from "./create-session-dialog";
+import { PlanDestination } from "./plan-destination";
+import { ProjectsDestination } from "./projects-destination";
+import { QualityDestination } from "./quality-destination";
+import { RunsDestination } from "./runs-destination";
 import { SessionContextPanel, type ContextPanelState } from "./session-context-panel";
 import { SessionInfoPanel } from "./session-info-panel";
 import { SessionSidebar } from "./session-sidebar";
 import { nextSlashTabRequestState, type SlashTabRequest } from "./slash-tab-request";
-import { ScheduledTasksDialog } from "./scheduled-tasks-dialog";
 import { TopBar } from "./top-bar";
 import { useMainLayoutModel } from "./use-main-layout-model";
 import { useWorkspaceSessionRoute } from "./use-workspace-session-route";
 import { workspaceActivityBarLabels, WorkspaceActivityBar } from "./workspace-activity-bar";
 import { cn } from "../lib/utils";
 import type { SettingsPageId } from "../settings/settings-pages";
-import type { WorkspaceLocation } from "./workspace-route";
+import type { WorkbenchLocation } from "./workbench-route";
 import { seatsFromSession } from "../services/session-seats";
 import { SessionNotices } from "../session-workspace/session-notices";
 import { useSessionRuntimeRecovery } from "./use-session-runtime-recovery";
@@ -33,18 +36,6 @@ const sessionSidebarWidthStorageKey = "vanehub.session-sidebar.width.v1";
 const minSessionSidebarWidth = 232;
 const maxSessionSidebarWidth = 420;
 const defaultSessionSidebarWidth = 232;
-type LoopCenterProps = { onInspect?: (target: LoopInspectionTarget) => void };
-const loadLoopCenter: LazyFeatureLoader<LoopCenterProps> = () => import("../loop-center/loop-center")
-  .then((module) => ({ default: module.LoopCenter }));
-const loadWorkBoard: LazyFeatureLoader<Record<string, never>> = () => import("../work-board/work-board")
-  .then((module) => ({ default: module.WorkBoard }));
-const loadGoalCenter: LazyFeatureLoader<Record<string, never>> = () => import("../goal-center/goal-center")
-  .then((module) => ({ default: module.GoalCenter }));
-const loadEvaluationCenter: LazyFeatureLoader<Record<string, never>> = () => import("../evaluation-center/evaluation-center")
-  .then((module) => ({ default: module.EvaluationCenter }));
-type MissionControlProps = { onNavigate?: (target: import("../types/mission-control").MissionControlNavigationTarget) => void };
-const loadMissionControl: LazyFeatureLoader<MissionControlProps> = () => import("../mission-control/mission-control")
-  .then((module) => ({ default: module.MissionControl }));
 
 export function clampSessionSidebarWidth(width: number) {
   return Math.min(maxSessionSidebarWidth, Math.max(minSessionSidebarWidth, Math.round(width)));
@@ -68,16 +59,23 @@ export function MainLayout({
   onNavigate,
   onOpenSettings,
 }: {
-  location: WorkspaceLocation;
+  location: WorkbenchLocation;
   onOpenSettings: (pageId?: SettingsPageId) => void;
   onConfigureOnePiece?: () => void;
-  onNavigate: (next: WorkspaceLocation, options?: { replace?: boolean }) => void;
+  onNavigate: (next: WorkbenchLocation, options?: { replace?: boolean }) => void;
 }) {
   const model = useMainLayoutModel();
   const destination = location.destination;
   const { activeSessionId, archivedSessions, sessions, switchSession } = model;
-  const goTo = (next: Partial<WorkspaceLocation>, options?: { replace?: boolean }) =>
-    onNavigate({ ...location, ...next }, options);
+  // Sessions is not a peer of the other four domains — it is the entire session workspace
+  // apparatus below, so it gets its own navigation helper that only ever targets its own shape
+  // rather than a generic partial-merge across a discriminated union (design.md Decision 1).
+  const goToSessions = (next: Partial<Extract<WorkbenchLocation, { destination: "sessions" }>>, options?: { replace?: boolean }) => {
+    const base: Extract<WorkbenchLocation, { destination: "sessions" }> = location.destination === "sessions"
+      ? location
+      : { destination: "sessions", sessionId: null, creatingSession: false };
+    onNavigate({ ...base, ...next }, options);
+  };
   const { t } = useTranslation();
   const { notify } = useNotifications();
   const narrowLayout = useMediaQuery("(max-width: 900px)");
@@ -97,12 +95,6 @@ export function MainLayout({
   const [workspaceTabsCollapsed, setWorkspaceTabsCollapsed] = useState(false);
   const [sessionSidebarWidth, setSessionSidebarWidth] = useState(readSessionSidebarWidth);
   const [contextPanel, setContextPanel] = useState<ContextPanelState | null>(null);
-  const [scheduledTasksOpen, setScheduledTasksOpen] = useState(false);
-  const [loopCenterVisited, setLoopCenterVisited] = useState(false);
-  const [workBoardVisited, setWorkBoardVisited] = useState(false);
-  const [goalCenterVisited, setGoalCenterVisited] = useState(false);
-  const [evaluationCenterVisited, setEvaluationCenterVisited] = useState(false);
-  const [missionControlVisited, setMissionControlVisited] = useState(false);
   // Nonce, not just the tab id: requesting the same tab twice in a row (e.g. `/logs` again after
   // the user manually switched back to chat) must still re-trigger `SessionTabs`' activation effect.
   const [slashTabRequest, setSlashTabRequest] = useState<SlashTabRequest | null>(null);
@@ -137,16 +129,6 @@ export function MainLayout({
       localStorage.setItem(sessionSidebarWidthStorageKey, String(sessionSidebarWidth));
     }
   }, [sessionSidebarWidth]);
-
-  // Visited flags gate the hidden-but-mounted destinations. Deriving them from the destination
-  // rather than from click handlers is what makes a deep link render content instead of nothing.
-  useEffect(() => {
-    if (destination === "loops") setLoopCenterVisited(true);
-    if (destination === "work-board") setWorkBoardVisited(true);
-    if (destination === "goals") setGoalCenterVisited(true);
-    if (destination === "evaluations") setEvaluationCenterVisited(true);
-    if (destination === "mission-control") setMissionControlVisited(true);
-  }, [destination]);
 
   // The URL and the backend's active session are two claims about the same thing.
   useWorkspaceSessionRoute({ activeSessionId, archivedSessions, location, onNavigate, sessions, switchSession });
@@ -207,7 +189,7 @@ export function MainLayout({
       setLoopInspection({ messages, session, target });
       setSessionActivationKey((value) => value + 1);
       if (target.surface === "usage") setInfoPanelCollapsed(false);
-      goTo({ destination: "sessions", sessionId: target.sessionId, creatingSession: false });
+      goToSessions({ sessionId: target.sessionId, creatingSession: false });
     } catch (reason: unknown) {
       notify({
         type: "error",
@@ -216,6 +198,11 @@ export function MainLayout({
         scope: { kind: "session", sessionId: target.sessionId },
       });
     }
+  }
+
+  function navigateFromMissionControl(target: MissionControlNavigationTarget) {
+    if (target.kind === "review") setSlashTabRequest((current) => ({ tab: "changes", nonce: (current?.nonce ?? 0) + 1 }));
+    goToSessions({ sessionId: target.sessionId ?? target.id, creatingSession: false });
   }
 
   const displayedMessages = loopInspection?.messages ?? model.messages;
@@ -232,9 +219,9 @@ export function MainLayout({
     <ApiSessionComposer
       model={model}
       navigation={{
-        // No visited-flag bookkeeping here: those are derived from `destination` above, which is
-        // what lets a deep link render content. A command is just another way to change it.
-        openDestination: (target) => goTo({ destination: target }),
+        // No visited-flag bookkeeping here: destinations no longer use one. A command is just
+        // another way to change the route, and it already names the exact section it wants.
+        openDestination: (target) => onNavigate(target),
         openSessionTab: (tab) => setSlashTabRequest((current) => ({ tab, nonce: (current?.nonce ?? 0) + 1 })),
       }}
     />
@@ -250,7 +237,7 @@ export function MainLayout({
           onSearch={() => {
             // Search lives in the session sidebar, so the top bar entry has to reveal it before
             // it can hand over focus.
-            goTo({ destination: "sessions" });
+            goToSessions({});
             setConversationFocusMode(false);
             setSessionSidebarCollapsed(false);
             setSearchFocusToken((token) => token + 1);
@@ -261,15 +248,13 @@ export function MainLayout({
             activeDestination={destination}
             labels={workspaceActivityBarLabels(t)}
             onHelp={() => onOpenSettings("help")}
-            onOpenSettings={onOpenSettings}
-            onLoops={() => goTo({ destination: "loops" })}
-            onScheduledTasks={() => setScheduledTasksOpen(true)}
-            onWorkBoard={() => goTo({ destination: "work-board" })}
-            onGoals={() => goTo({ destination: "goals" })}
-            onEvaluations={() => goTo({ destination: "evaluations" })}
-            onMissionControl={() => goTo({ destination: "mission-control" })}
+            onOpenSettings={() => onOpenSettings()}
+            onPlan={() => onNavigate({ destination: "plan", section: "board", viewId: undefined, workItemId: undefined })}
+            onProjects={() => onNavigate({ destination: "projects", projectId: undefined })}
+            onQuality={() => onNavigate({ destination: "quality", section: "evaluations", experimentId: undefined, comparisonIds: undefined })}
+            onRuns={() => onNavigate({ destination: "runs", section: "attention", runId: undefined })}
             onSessions={() => {
-              if (destination !== "sessions") goTo({ destination: "sessions" });
+              if (destination !== "sessions") goToSessions({});
               else if (conversationFocusMode) setConversationFocusMode(false);
               else setSessionSidebarCollapsed((collapsed) => !collapsed);
             }}
@@ -304,13 +289,13 @@ export function MainLayout({
                 onAssignCategory={model.assignCategory}
                 onBatchDelete={model.deleteSessions}
                 onContextMenu={openContextMenu}
-                onNew={() => goTo({ destination: "sessions", creatingSession: true })}
+                onNew={() => goToSessions({ creatingSession: true })}
                 onSearchChange={model.setSessionSearchQuery}
                 onSelect={(session) => {
                   setContextPanel(null);
                   setLoopInspection(null);
                   // The reconciliation effect performs the switch; navigating is what records it.
-                  goTo({ destination: "sessions", sessionId: session.id, creatingSession: false });
+                  goToSessions({ sessionId: session.id, creatingSession: false });
                 }}
                 searchQuery={model.sessionSearchQuery}
                 searchResults={model.sessionSearchResults}
@@ -333,7 +318,7 @@ export function MainLayout({
                     onClick={() => {
                       // Navigate before clearing the inspected loop session so the session-route
                       // reconciler never observes that hidden role session as a normal deep link.
-                      goTo({ destination: "loops" });
+                      onNavigate({ destination: "runs", section: "loops", definitionId: undefined, loopRunId: undefined });
                       setLoopInspection(null);
                     }}
                     title={t("loops.inspection.back")}
@@ -418,42 +403,22 @@ export function MainLayout({
               requestedTab={loopInspection?.target.surface === "usage" ? "usage" : requestedInfoTab}
             />
           </div>
-          <section
-            aria-label={t("layout.activityBar.todoBoard")}
-            className={cn("min-h-0 min-w-0 flex-1 p-2", destination === "work-board" ? "flex" : "hidden")}
-            id="work-board"
-          >
-            {workBoardVisited ? <LazyFeature className="h-full min-h-0 flex-1" componentProps={{}} loader={loadWorkBoard} /> : null}
-          </section>
-          <section
-            aria-label={t("layout.activityBar.goals")}
-            className={cn("min-h-0 min-w-0 flex-1 p-2", destination === "goals" ? "flex" : "hidden")}
-            id="goal-center"
-          >
-            {goalCenterVisited ? <LazyFeature className="h-full min-h-0 flex-1" componentProps={{}} loader={loadGoalCenter} /> : null}
-          </section>
-          <section aria-label={t("layout.activityBar.evaluations")} className={cn("min-h-0 min-w-0 flex-1 p-2", destination === "evaluations" ? "flex" : "hidden")} id="evaluation-center">
-            {evaluationCenterVisited ? <LazyFeature className="h-full min-h-0 flex-1" componentProps={{}} loader={loadEvaluationCenter} /> : null}
-          </section>
-          <section aria-label={t("layout.activityBar.missionControl")} className={cn("min-h-0 min-w-0 flex-1 p-2", destination === "mission-control" ? "flex" : "hidden")} id="mission-control">
-            {missionControlVisited ? <LazyFeature className="h-full min-h-0 flex-1" componentProps={{ onNavigate: (target) => {
-              if (target.kind === "review") setSlashTabRequest((current) => ({ tab: "changes", nonce: (current?.nonce ?? 0) + 1 }));
-              goTo({ destination: "sessions", sessionId: target.sessionId ?? target.id });
-            } }} loader={loadMissionControl} /> : null}
-          </section>
-          <section
-            aria-label={t("layout.activityBar.loops")}
-            className={cn("min-h-0 min-w-0 flex-1 p-2", destination === "loops" ? "flex" : "hidden")}
-            id="loop-center"
-          >
-            {loopCenterVisited ? (
-              <LazyFeature
-                className="h-full min-h-0 flex-1"
-                componentProps={{ onInspect: inspectLoopSession }}
-                loader={loadLoopCenter}
+          <div className={cn("min-h-0 min-w-0 flex-1", destination === "sessions" ? "hidden" : "flex")} id="workbench-route-outlet">
+            {location.destination === "projects" ? <ProjectsDestination /> : null}
+            {location.destination === "runs" ? (
+              <RunsDestination
+                agents={model.agents}
+                location={location}
+                onInspectLoop={inspectLoopSession}
+                onMissionControlNavigate={navigateFromMissionControl}
+                onSectionChange={(section) => onNavigate({ destination: "runs", ...section })}
               />
             ) : null}
-          </section>
+            {location.destination === "plan" ? (
+              <PlanDestination location={location} onSectionChange={(section) => onNavigate({ destination: "plan", ...section })} />
+            ) : null}
+            {location.destination === "quality" ? <QualityDestination /> : null}
+          </div>
           <div
             aria-hidden="true"
             className="pointer-events-none absolute inset-x-0 bottom-0 z-30 h-px bg-border"
@@ -478,16 +443,15 @@ export function MainLayout({
       />
       <CreateSessionDialog
         agents={model.agents}
-        onClose={() => goTo({ creatingSession: false })}
-        onConfigureOnePiece={() => { goTo({ creatingSession: false }); (onConfigureOnePiece ?? onOpenSettings)(); }}
+        onClose={() => goToSessions({ creatingSession: false })}
+        onConfigureOnePiece={() => { goToSessions({ creatingSession: false }); (onConfigureOnePiece ?? onOpenSettings)(); }}
         onCreated={(session) => {
           setLoopInspection(null);
           model.sessionCreated(session);
-          goTo({ destination: "sessions", sessionId: session.id, creatingSession: false }, { replace: true });
+          goToSessions({ sessionId: session.id, creatingSession: false }, { replace: true });
         }}
-        open={location.creatingSession}
+        open={location.destination === "sessions" && location.creatingSession}
       />
-      <ScheduledTasksDialog agents={model.agents} onClose={() => setScheduledTasksOpen(false)} open={scheduledTasksOpen} />
       {categoryDialogSession ? (
         <CreateCategoryDialog
           onClose={() => setCategoryDialogSession(null)}

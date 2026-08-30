@@ -1,16 +1,9 @@
 import type { Session, SessionExportFormat } from "../../types/agent";
 import type { ChatConfig, SessionExecutionMode } from "../../types/chat";
 import type { SessionTabId } from "../../session-workspace/session-tab-bar";
-import type { WorkspaceDestination } from "../../main-layout/workspace-route";
+import type { WorkbenchLocation } from "../../main-layout/workbench-route";
 
 export type SlashCommandCategory = "session" | "runtime" | "navigation" | "info";
-
-/**
- * Aliased rather than redeclared: a second copy of this union would silently drift the day a
- * destination is renamed, and the navigation commands would keep compiling while pointing at a
- * route that no longer exists.
- */
-export type SlashCommandDestination = WorkspaceDestination;
 
 /**
  * Facts a command needs for its availability decision that do not live on the session row.
@@ -38,7 +31,12 @@ export type CommandOutcome =
   | { kind: "output"; output: CommandOutput };
 
 export interface SlashCommandNavigation {
-  openDestination: (destination: SlashCommandDestination) => void;
+  /**
+   * Takes a full location rather than a bare destination id: `/loops` means "the Loops section
+   * of Runs" specifically, not just "the Runs domain at whatever its default section is" — a
+   * command that only named the domain would silently lose that precision.
+   */
+  openDestination: (location: WorkbenchLocation) => void;
   openSessionTab: (tab: SessionTabId) => void;
 }
 

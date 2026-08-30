@@ -22,11 +22,15 @@ const byName = (name: string): SlashCommand => {
 };
 
 describe("navigation commands", () => {
-  it("/todo and /loops switch destination", async () => {
-    for (const [name, destination] of [["todo", "work-board"], ["loops", "loops"]] as const) {
+  it("/todo and /loops switch to their exact section, not just their domain's default", async () => {
+    const cases = [
+      ["todo", { destination: "plan", section: "board", viewId: undefined, workItemId: undefined }],
+      ["loops", { destination: "runs", section: "loops", definitionId: undefined, loopRunId: undefined }],
+    ] as const;
+    for (const [name, location] of cases) {
       const { ctx, navigate } = context();
       await byName(name).run(ctx, []);
-      expect(navigate.openDestination).toHaveBeenCalledWith(destination);
+      expect(navigate.openDestination).toHaveBeenCalledWith(location);
     }
   });
 

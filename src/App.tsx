@@ -3,12 +3,12 @@ import { ErrorBoundary } from "react-error-boundary";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router";
 import { MainLayout } from "./main-layout/main-layout";
 import {
-  parseWorkspaceLocation,
-  recallWorkspacePath,
-  rememberWorkspaceLocation,
-  workspacePath,
-  type WorkspaceLocation,
-} from "./main-layout/workspace-route";
+  parseWorkbenchLocation,
+  recallWorkbenchPath,
+  rememberWorkbenchLocation,
+  workbenchPath,
+  type WorkbenchLocation,
+} from "./main-layout/workbench-route";
 import { SettingsShell } from "./settings/settings-shell";
 import { SettingsProvider } from "./settings/settings-provider";
 import { ThemeProvider } from "./theme/theme-provider";
@@ -49,14 +49,17 @@ function RouteErrorFallback({ error }: { error: unknown }) {
 function WorkspaceRoute() {
   const navigate = useNavigate();
   const location = useLocation();
-  const workspaceLocation = useMemo(() => parseWorkspaceLocation(location.pathname), [location.pathname]);
+  const workspaceLocation = useMemo(
+    () => parseWorkbenchLocation(location.pathname, new URLSearchParams(location.search)),
+    [location.pathname, location.search],
+  );
 
-  useEffect(() => rememberWorkspaceLocation(workspaceLocation), [workspaceLocation]);
+  useEffect(() => rememberWorkbenchLocation(workspaceLocation), [workspaceLocation]);
 
   // Takes a whole location so it depends only on `navigate`. An inline arrow closing over the
   // current location would change every render and re-fire the layout's reconciliation effect.
   const navigateWorkspace = useCallback(
-    (next: WorkspaceLocation, options?: { replace?: boolean }) => navigate(workspacePath(next), options),
+    (next: WorkbenchLocation, options?: { replace?: boolean }) => navigate(workbenchPath(next), options),
     [navigate],
   );
 
@@ -78,8 +81,8 @@ function AppRoutes() {
     let cleanup: (() => void) | undefined;
     void floatingAssistantService.subscribeEvents((event) => {
       if (event.kind !== "main-action") return;
-      if (event.action === "new-session") navigate(workspacePath({ destination: "sessions", creatingSession: true }));
-      else if (event.action === "current-session") navigate(recallWorkspacePath());
+      if (event.action === "new-session") navigate(workbenchPath({ destination: "sessions", sessionId: null, creatingSession: true }));
+      else if (event.action === "current-session") navigate(recallWorkbenchPath());
       else navigate("/settings");
     }).then((unsubscribe) => {
       if (active) cleanup = unsubscribe;
@@ -102,7 +105,7 @@ function AppRoutes() {
 
 /** Resumes where the previous session stopped instead of always landing on an empty workspace. */
 function LaunchRedirect() {
-  return <Navigate replace to={recallWorkspacePath()} />;
+  return <Navigate replace to={recallWorkbenchPath()} />;
 }
 
 function SettingsRoute() {

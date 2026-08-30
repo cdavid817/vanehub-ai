@@ -2,13 +2,13 @@ import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useNotifications } from "../notifications/notification-provider";
 import type { Session } from "../types/agent";
-import type { WorkspaceLocation } from "./workspace-route";
+import type { WorkbenchLocation } from "./workbench-route";
 
 interface WorkspaceSessionRouteOptions {
   activeSessionId: string | null;
   archivedSessions: Session[];
-  location: WorkspaceLocation;
-  onNavigate: (next: WorkspaceLocation, options?: { replace?: boolean }) => void;
+  location: WorkbenchLocation;
+  onNavigate: (next: WorkbenchLocation, options?: { replace?: boolean }) => void;
   sessions: Session[];
   switchSession: (session: Session) => void;
 }
@@ -37,15 +37,19 @@ export function useWorkspaceSessionRoute({
   // previous active session when the backend rejects it, which would otherwise retry forever.
   const attemptedRef = useRef<string | null>(null);
 
-  const { creatingSession, destination, sessionId } = location;
+  // `sessionId`/`creatingSession` only exist on the `sessions` variant of the discriminated
+  // union — narrowed here once rather than at every read below.
+  const isSessionsRoute = location.destination === "sessions";
+  const creatingSession = isSessionsRoute && location.creatingSession;
+  const sessionId = isSessionsRoute ? location.sessionId : null;
   const listsLoaded = sessions.length > 0 || archivedSessions.length > 0;
   const routeSessionKnown = sessionId !== null
     && (sessions.some((session) => session.id === sessionId)
       || archivedSessions.some((session) => session.id === sessionId));
 
   useEffect(() => {
-    if (destination !== "sessions" || creatingSession) return;
-    const base: WorkspaceLocation = { creatingSession: false, destination: "sessions", sessionId: null };
+    if (!isSessionsRoute || creatingSession) return;
+    const base: WorkbenchLocation = { creatingSession: false, destination: "sessions", sessionId: null };
 
     if (!sessionId) {
       attemptedRef.current = null;
@@ -75,7 +79,7 @@ export function useWorkspaceSessionRoute({
     });
     onNavigate(base, { replace: true });
   }, [
-    activeSessionId, creatingSession, destination, listsLoaded, notify, onNavigate,
+    activeSessionId, creatingSession, isSessionsRoute, listsLoaded, notify, onNavigate,
     routeSessionKnown, sessionId, switchSession, t,
   ]);
 }

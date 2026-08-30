@@ -1,21 +1,22 @@
 import { isOnePieceSession } from "./command-availability";
+import type { WorkbenchLocation } from "../../main-layout/workbench-route";
 import type { SessionTabId } from "../../session-workspace/session-tab-bar";
-import type { SlashCommand, SlashCommandDestination } from "./types";
+import type { SlashCommand } from "./types";
 
 const TAB_COMMANDS: SessionTabId[] = [
   "logs", "files", "changes", "documents", "terminal", "shell", "traces", "report",
 ];
 
-const DESTINATION_COMMANDS: Array<{ name: string; destination: SlashCommandDestination }> = [
-  { name: "todo", destination: "work-board" },
-  { name: "loops", destination: "loops" },
+const DESTINATION_COMMANDS: Array<{ name: string; location: WorkbenchLocation }> = [
+  { name: "todo", location: { destination: "plan", section: "board", viewId: undefined, workItemId: undefined } },
+  { name: "loops", location: { destination: "runs", section: "loops", definitionId: undefined, loopRunId: undefined } },
 ];
 
 export const NAVIGATION_COMMANDS: SlashCommand[] = [
-  ...DESTINATION_COMMANDS.map(({ name, destination }): SlashCommand => ({
+  ...DESTINATION_COMMANDS.map(({ name, location }): SlashCommand => ({
     name, category: "navigation", appliesTo: isOnePieceSession,
     run: async (context) => {
-      context.navigate.openDestination(destination);
+      context.navigate.openDestination(location);
       return { kind: "handled" };
     },
   })),

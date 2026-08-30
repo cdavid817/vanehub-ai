@@ -23,11 +23,27 @@ describe("frontend feature module boundaries", () => {
     expect(viteConfig).toContain('"./src/settings/pages/agent-configurations-page.tsx"');
   });
 
-  it("keeps Loop Center and non-default session tabs behind dynamic imports", () => {
+  it("keeps every non-Sessions domain's heavy content and non-default session tabs behind dynamic imports", () => {
+    // Moved out of main-layout.tsx into per-domain destination components (redesign-unified-
+    // workbench-ui section 4/5) — main-layout.tsx no longer imports any of these at all now that
+    // Runs/Plan/Quality render through RunsDestination/PlanDestination/QualityDestination.
+    const runsDestination = read("main-layout/runs-destination.tsx");
+    const planDestination = read("main-layout/plan-destination.tsx");
+    const qualityDestination = read("main-layout/quality-destination.tsx");
     const mainLayout = read("main-layout/main-layout.tsx");
     const sessionTabs = read("session-workspace/session-tabs.tsx");
-    expect(mainLayout).toContain('import("../loop-center/loop-center")');
-    expect(mainLayout).not.toContain('from "../loop-center/loop-center"');
+    expect(runsDestination).toContain('import("../loop-center/loop-center")');
+    expect(runsDestination).toContain('import("../mission-control/mission-control")');
+    expect(runsDestination).toContain('import("./scheduled-tasks-panel")');
+    expect(runsDestination).not.toMatch(/from "(\.\.\/loop-center\/loop-center|\.\.\/mission-control\/mission-control|\.\/scheduled-tasks-panel)"/);
+    expect(planDestination).toContain('import("../work-board/work-board")');
+    expect(planDestination).toContain('import("../goal-center/goal-center")');
+    expect(planDestination).not.toMatch(/from "(\.\.\/work-board\/work-board|\.\.\/goal-center\/goal-center)"/);
+    expect(qualityDestination).toContain('import("../evaluation-center/evaluation-center")');
+    expect(qualityDestination).not.toContain('from "../evaluation-center/evaluation-center"');
+    for (const heavyModule of ["loop-center/loop-center", "mission-control/mission-control", "work-board/work-board", "goal-center/goal-center", "evaluation-center/evaluation-center"]) {
+      expect(mainLayout).not.toContain(`"../${heavyModule}"`);
+    }
     expect(sessionTabs).toContain('import("./logs-tab")');
     expect(sessionTabs).toContain('import("./report-tab")');
     expect(sessionTabs).not.toContain('from "./logs-tab"');
