@@ -5126,5 +5126,14 @@
   "cliParameters.list.addDirectory": "디렉터리 선택",
   "cliParameters.list.remove": "{{entry}} 제거",
   "cliParameters.list.moveUp": "{{entry}} 위로",
-  "cliParameters.list.moveDown": "{{entry}} 아래로"
+  "cliParameters.list.moveDown": "{{entry}} 아래로",
+  "workbenchUi.async.loading": "로딩 중",
+  "workbenchUi.async.refreshing": "새로고침 중",
+  "workbenchUi.async.stale": "저장된 데이터를 표시하고 있습니다",
+  "workbenchUi.mutation.pending": "저장 중...",
+  "workbenchUi.mutation.dismiss": "닫기",
+  "workbenchUi.evidence.unavailable": "사용할 수 없음",
+  "workbenchUi.evidence.restricted": "권한 없음",
+  "workbenchUi.evidence.copy": "링크 복사",
+  "workbenchUi.evidence.copied": "링크가 복사되었습니다"
 }

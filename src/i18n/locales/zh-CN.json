@@ -5126,5 +5126,14 @@
   "cliParameters.list.addDirectory": "选择目录",
   "cliParameters.list.remove": "移除 {{entry}}",
   "cliParameters.list.moveUp": "将 {{entry}} 上移",
-  "cliParameters.list.moveDown": "将 {{entry}} 下移"
+  "cliParameters.list.moveDown": "将 {{entry}} 下移",
+  "workbenchUi.async.loading": "加载中",
+  "workbenchUi.async.refreshing": "刷新中",
+  "workbenchUi.async.stale": "当前显示的是缓存数据",
+  "workbenchUi.mutation.pending": "保存中...",
+  "workbenchUi.mutation.dismiss": "关闭",
+  "workbenchUi.evidence.unavailable": "不可用",
+  "workbenchUi.evidence.restricted": "无权限",
+  "workbenchUi.evidence.copy": "复制链接",
+  "workbenchUi.evidence.copied": "链接已复制"
 }

@@ -5126,5 +5126,14 @@
   "cliParameters.list.addDirectory": "Choose directory",
   "cliParameters.list.remove": "Remove {{entry}}",
   "cliParameters.list.moveUp": "Move {{entry}} earlier",
-  "cliParameters.list.moveDown": "Move {{entry}} later"
+  "cliParameters.list.moveDown": "Move {{entry}} later",
+  "workbenchUi.async.loading": "Loading",
+  "workbenchUi.async.refreshing": "Refreshing",
+  "workbenchUi.async.stale": "Showing saved data",
+  "workbenchUi.mutation.pending": "Saving...",
+  "workbenchUi.mutation.dismiss": "Dismiss",
+  "workbenchUi.evidence.unavailable": "Not available",
+  "workbenchUi.evidence.restricted": "Restricted",
+  "workbenchUi.evidence.copy": "Copy link",
+  "workbenchUi.evidence.copied": "Link copied"
 }

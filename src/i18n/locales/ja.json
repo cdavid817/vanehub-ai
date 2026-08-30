@@ -5126,5 +5126,14 @@
   "cliParameters.list.addDirectory": "ディレクトリを選択",
   "cliParameters.list.remove": "{{entry}} を削除",
   "cliParameters.list.moveUp": "{{entry}} を前へ",
-  "cliParameters.list.moveDown": "{{entry}} を後ろへ"
+  "cliParameters.list.moveDown": "{{entry}} を後ろへ",
+  "workbenchUi.async.loading": "読み込み中",
+  "workbenchUi.async.refreshing": "更新中",
+  "workbenchUi.async.stale": "保存済みのデータを表示しています",
+  "workbenchUi.mutation.pending": "保存中...",
+  "workbenchUi.mutation.dismiss": "閉じる",
+  "workbenchUi.evidence.unavailable": "利用できません",
+  "workbenchUi.evidence.restricted": "権限がありません",
+  "workbenchUi.evidence.copy": "リンクをコピー",
+  "workbenchUi.evidence.copied": "リンクをコピーしました"
 }
