@@ -310,16 +310,37 @@ recorded at their entries with the distribution.
   `approval_audit` retention rather than adding a new class of stored data, but it means a resource
   path is retained in one more table.
 
+### Desktop verification
+
+The repository has no desktop layer dedicated to permissions. What exists is `test:desktop:smoke`,
+whose twenty-five specs include the surfaces an approval actually crosses: `domain-prompt-hooks`
+(the Claude hook registration and its command path), `ui-chat` (where an approval card is shown and
+answered), `ui-settings` (where a grant is reviewed and revoked), `ui-workspace`, and
+`domain-automation`.
+
+**Windows: PASSED for every one of those specs.** Twenty-four of twenty-five passed overall. The
+single failure is `domain-observability.e2e.mjs › guards the IM session binding surface when nothing
+is paired`, which asserts that an unpaired session reports no IM binding. Nothing under
+`contexts/communications` changed on this branch — `git diff bece2e3c..HEAD -- src-tauri/src/contexts/communications`
+is empty — and the same run logged `database is locked` during teardown, which points at the shared
+user database. **No baseline was taken**, so that spec is recorded as FAILED and unattributed rather
+than as a known-good failure.
+
+An earlier attempt on this host was recorded as blocked: `domain-automation.e2e.mjs` and
+`domain-cli-tooling.e2e.mjs` had both exhausted their retries with `WebDriverError: Script execution
+timed out`. Both passed on the run above. The difference was machine load, not code, which is why
+the earlier attempt was not recorded as a failure.
+
+| Behaviour | Windows | macOS | Linux |
+| --- | --- | --- | --- |
+| Claude hook registration and command path | PASSED | NOT RUN | NOT RUN |
+| Approval shown and answered in chat | PASSED | NOT RUN | NOT RUN |
+| Grant review and revocation in settings | PASSED | NOT RUN | NOT RUN |
+
 ### Not done
 
-- **10.5 desktop permission/Claude hook flows: BLOCKED on this host.** The repository has no
-  desktop layer dedicated to permissions; the closest coverage is `test:desktop:smoke`, which
-  exercises startup, IPC and command registration but not an approval round trip. It was attempted:
-  `npm run test:desktop:build` succeeded (14m33s, `vanehub-ai.exe` produced), and
-  `npm run test:desktop:smoke` then reached spec 3 of 25 in roughly ninety minutes before it was
-  stopped. `domain-automation.e2e.mjs` and `domain-cli-tooling.e2e.mjs` both failed repeatedly with
-  `WebDriverError: Script execution timed out` on an element lookup and exhausted their retries.
-  Neither spec touches permissions, and no baseline run was taken, so this is recorded as blocked
-  rather than as a pass, a failure, or a regression — there is not enough evidence to call it any
-  of those.
+- **No desktop spec drives an approval round trip end to end.** The specs above cross the surfaces
+  an approval uses; none of them stages a provider request, answers it, and asserts the ledger row.
+  The round trip is covered by the Rust and component suites, and adding a desktop layer for it is
+  a change of its own rather than a line in this one.
 - Platform results are Windows-only. macOS and Linux are NOT RUN.
