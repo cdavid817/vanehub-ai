@@ -505,7 +505,8 @@ body.floating-assistant-surface {
   opacity: 1;
 }
 .ucd-activity-bar {
-  border-right: 1px solid hsl(var(--panel-border));
+  /* No border-right of its own: `AppShell` (src/ui/app-shell) now wraps the activity rail slot in
+     one, and this used to stack a second, slightly different-toned line beside it. */
   background: hsl(var(--panel-muted));
 }
 

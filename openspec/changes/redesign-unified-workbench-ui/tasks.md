@@ -89,7 +89,7 @@
 
 ## 5. AppShell, pane composition, and lifecycle coordinator
 
-- [ ] 5.1 Extract the top bar, activity rail, route outlet, notification host, and global attention summary into the new AppShell.
+- [ ] 5.1 Extract the top bar, activity rail, route outlet, notification host, and global attention summary into the new AppShell. — `main-layout.tsx` now composes `src/ui/app-shell/AppShell` (TopBar → `topBar`, `WorkspaceActivityBar` → `activityRail`, the Sessions/route-outlet frame → `children`); the previously-doubled `.ucd-activity-bar` border is also gone (it stacked with `AppShell`'s own, in two slightly different tokens). `NotificationHost` moved into the `topBar` slot too — verified zero-risk before moving it: it renders through a `fixed inset-x-2 top-12 z-60` viewport that never participates in a parent's layout, so its position in the tree has no visual effect. **Not done:** `GlobalAttentionSummary` — this is a new concept with no existing implementation anywhere in the repo (confirmed by search), not something to extract; it needs a real design for what cross-domain "needs attention" data it aggregates (most naturally Runs/Mission Control's own attention data, not yet wired to anything shell-level) before it can be built, and building a placeholder for it now would be exactly the fabricated-facet pattern this change's own instructions forbid.
 - [ ] 5.2 Replace the fixed session grid with the shared DestinationLayout and SplitPane model.
 - [ ] 5.3 Implement container-width observation and the wide, standard, compact, and narrow composition algorithm.
 - [ ] 5.4 Define and test the minimum readable width for Session Work, Run detail, Loop timeline, Board, Evaluation table, and Settings content.
@@ -105,7 +105,7 @@
 - [ ] 5.14 Limit `keepAlive: always` to documented exceptions and add tests explaining each exception.
 - [ ] 5.15 Implement bounded refresh-on-focus and reconnect reconciliation for update-heavy destinations.
 - [ ] 5.16 Verify that unmounting a page does not cancel service-owned Agent, Loop, evaluation, or scheduled execution.
-- [ ] 5.17 Delete obsolete visited-state booleans once every destination is registry and route driven.
+- [x] 5.17 Delete obsolete visited-state booleans once every destination is registry and route driven. — Landed with 4.3 (commit `b3ba029a`): `loopCenterVisited`/`workBoardVisited`/`goalCenterVisited`/`evaluationCenterVisited`/`missionControlVisited` and their setter effect are deleted, not deprecated — every non-Sessions destination is route-driven now, so there was nothing left for them to gate.
 
 ## 6. Global Command Center
 

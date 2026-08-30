@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type MouseEvent, type PointerEvent as Reac
 import { ArrowLeft } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { NotificationHost, useNotifications } from "../notifications/notification-provider";
+import { AppShell } from "../ui/app-shell/AppShell";
 import { SessionTabs } from "../session-workspace/session-tabs";
 import { ApiSessionComposer } from "../session-workspace/api-session-composer";
 import type { SessionTabId } from "../session-workspace/session-tab-bar";
@@ -229,21 +230,8 @@ export function MainLayout({
 
   return (
     <main className="min-h-screen bg-background text-foreground">
-      <div className="relative flex h-screen min-h-0 flex-col overflow-hidden">
-        <TopBar
-          focusMode={conversationFocusMode}
-          focusModeAvailable={destination === "sessions"}
-          onFocusModeChange={setConversationFocusMode}
-          onSearch={() => {
-            // Search lives in the session sidebar, so the top bar entry has to reveal it before
-            // it can hand over focus.
-            goToSessions({});
-            setConversationFocusMode(false);
-            setSessionSidebarCollapsed(false);
-            setSearchFocusToken((token) => token + 1);
-          }}
-        />
-        <div className="relative flex min-h-0 flex-1" data-testid="workspace-frame">
+      <AppShell
+        activityRail={(
           <WorkspaceActivityBar
             activeDestination={destination}
             labels={workspaceActivityBarLabels(t)}
@@ -260,6 +248,31 @@ export function MainLayout({
             }}
             sessionSidebarExpanded={!effectiveSessionSidebarCollapsed}
           />
+        )}
+        className="relative h-screen overflow-hidden"
+        topBar={(
+          <>
+            <TopBar
+              focusMode={conversationFocusMode}
+              focusModeAvailable={destination === "sessions"}
+              onFocusModeChange={setConversationFocusMode}
+              onSearch={() => {
+                // Search lives in the session sidebar, so the top bar entry has to reveal it before
+                // it can hand over focus.
+                goToSessions({});
+                setConversationFocusMode(false);
+                setSessionSidebarCollapsed(false);
+                setSearchFocusToken((token) => token + 1);
+              }}
+            />
+            {/* Fixed-position toast viewport (design.md Decision 2's "NotificationAndUtility"
+                slice of TopBar) — its placement in the tree has no visual effect since it never
+                participates in TopBar's own layout, only in the viewport's. */}
+            <NotificationHost activeSessionId={model.activeSessionId} />
+          </>
+        )}
+      >
+        <div className="relative flex min-h-0 flex-1" data-testid="workspace-frame">
           <div
             className={cn(
               "ucd-workspace-grid relative min-h-0 min-w-0 flex-1 gap-0",
@@ -425,7 +438,7 @@ export function MainLayout({
             data-testid="workspace-bottom-divider"
           />
         </div>
-      </div>
+      </AppShell>
       <SessionContextPanel
         categories={model.categories}
         onArchive={model.archiveSession}
@@ -461,7 +474,6 @@ export function MainLayout({
           }}
         />
       ) : null}
-      <NotificationHost activeSessionId={model.activeSessionId} />
     </main>
   );
 }
