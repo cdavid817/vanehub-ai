@@ -137,7 +137,7 @@ impl ResolveOutcome {
     /// The one question every caller of the old `finalize(delivered: bool)` was really asking,
     /// answered from the outcome instead of being passed in by a command that had already guessed.
     ///
-    /// The command returns [`token`] rather than this, because the frontend has to tell
+    /// The command returns [`Self::token`] rather than this, because the frontend has to tell
     /// `delivery_failed` from `stale` from `already_resolved`; this is the coarse reading the tests
     /// assert with.
     #[cfg_attr(not(test), expect(dead_code))]

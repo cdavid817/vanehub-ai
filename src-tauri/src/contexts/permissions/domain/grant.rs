@@ -90,7 +90,8 @@ impl Grant {
                 .applies_to(principal_id, action, resource, session_id, project_key)
     }
 
-    /// How narrow this grant's binding is. Higher wins; see [`RememberedScope::specificity`].
+    /// How narrow this grant's binding is. Higher wins; see
+    /// [`super::canonical_grant_key::RememberedScope::specificity`].
     ///
     /// Used by the in-memory fakes, which have to rank the same way the SQL does — a fake that
     /// returned the first applicable grant would hide the very defect the query was changed to

@@ -844,29 +844,53 @@ impl std::io::Read for FailsAfterOneChunk {
     }
 }
 
-/// Makes a file refuse to be examined, on the two platforms this runs on.
+/// Makes a file refuse to be examined, until the returned guard is dropped.
 ///
 /// Two mechanisms because there is no one portable way, and testing it on Unix alone would leave the
-/// branch unexercised on the platform most of this project's users are on. The returned value must
-/// be held for the duration: on Windows it *is* the mechanism.
+/// branch unexercised on the platform most of this project's users are on. One guard type either
+/// way, releasing in `Drop`: two shapes for one idea means the arm that does not compile on the
+/// machine you are sitting at is the arm you find out about from CI.
 #[cfg(windows)]
-fn deny_access(path: &std::path::Path) -> fs::File {
+struct AccessDenied(#[allow(dead_code)] fs::File);
+
+#[cfg(windows)]
+fn deny_access(path: &std::path::Path) -> AccessDenied {
     use std::os::windows::fs::OpenOptionsExt;
 
     // An exclusive handle. Every later open — the metadata call and the read — asks for the usual
     // share modes and gets a sharing violation instead.
-    fs::OpenOptions::new()
-        .read(true)
-        .share_mode(0)
-        .open(path)
-        .expect("an exclusive handle on the file")
+    AccessDenied(
+        fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(path)
+            .expect("an exclusive handle on the file"),
+    )
 }
 
 #[cfg(unix)]
-fn deny_access(path: &std::path::Path) -> fs::Permissions {
+struct AccessDenied {
+    path: PathBuf,
+    original: fs::Permissions,
+}
+
+#[cfg(unix)]
+impl Drop for AccessDenied {
+    fn drop(&mut self) {
+        // Restored even if the test failed: a temporary file nobody can read is one nobody can
+        // delete either.
+        let _ = fs::set_permissions(&self.path, self.original.clone());
+    }
+}
+
+#[cfg(unix)]
+fn deny_access(path: &std::path::Path) -> AccessDenied {
     use std::os::unix::fs::PermissionsExt;
 
     let original = fs::metadata(path).expect("metadata").permissions();
     fs::set_permissions(path, fs::Permissions::from_mode(0o000)).expect("chmod");
-    original
+    AccessDenied {
+        path: path.to_path_buf(),
+        original,
+    }
 }

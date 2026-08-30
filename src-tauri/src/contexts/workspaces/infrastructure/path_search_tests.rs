@@ -155,34 +155,61 @@ fn execution_stopped_by(token: SearchCancellationToken) -> WorkspaceInspectionEx
     execution
 }
 
-/// Makes a directory refuse to be enumerated, on the two platforms this runs on.
+/// Makes a directory refuse to be enumerated, until the returned guard is dropped.
 ///
 /// Two mechanisms because there is no one portable way, and the alternative — testing this on Unix
 /// only — would leave the branch that turns an unreadable subdirectory into partial coverage
-/// unexercised on the platform most of this project's users are on. The returned value must be held
-/// for the duration: on Windows it *is* the mechanism.
+/// unexercised on the platform most of this project's users are on.
+///
+/// One guard type either way, and the release happens in `Drop` rather than at the call site. The
+/// first version had the caller undo it, which meant the Windows path dropped a handle and the Unix
+/// path restored a mode — two shapes for one idea, and the arm that does not compile on the machine
+/// you are sitting at is the arm you do not find out about until CI.
 #[cfg(windows)]
-fn deny_enumeration(path: &std::path::Path) -> fs::File {
+struct EnumerationDenied(#[allow(dead_code)] fs::File);
+
+#[cfg(windows)]
+fn deny_enumeration(path: &std::path::Path) -> EnumerationDenied {
     use std::os::windows::fs::OpenOptionsExt;
 
     // An exclusive handle. `read_dir` opens with the read/write/delete share modes, so a handle that
     // shares nothing makes the next open a sharing violation. `FILE_FLAG_BACKUP_SEMANTICS` is what
-    // permits opening a directory at all.
-    fs::OpenOptions::new()
-        .read(true)
-        .share_mode(0)
-        .custom_flags(0x0200_0000)
-        .open(path)
-        .expect("an exclusive handle on the directory")
+    // permits opening a directory at all. Holding it *is* the denial; dropping it lifts it.
+    EnumerationDenied(
+        fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .custom_flags(0x0200_0000)
+            .open(path)
+            .expect("an exclusive handle on the directory"),
+    )
 }
 
 #[cfg(unix)]
-fn deny_enumeration(path: &std::path::Path) -> fs::Permissions {
+struct EnumerationDenied {
+    path: PathBuf,
+    original: fs::Permissions,
+}
+
+#[cfg(unix)]
+impl Drop for EnumerationDenied {
+    fn drop(&mut self) {
+        // Restored even if the test failed: a temporary directory nobody can read is a temporary
+        // directory nobody can delete.
+        let _ = fs::set_permissions(&self.path, self.original.clone());
+    }
+}
+
+#[cfg(unix)]
+fn deny_enumeration(path: &std::path::Path) -> EnumerationDenied {
     use std::os::unix::fs::PermissionsExt;
 
     let original = fs::metadata(path).expect("metadata").permissions();
     fs::set_permissions(path, fs::Permissions::from_mode(0o000)).expect("chmod");
-    original
+    EnumerationDenied {
+        path: path.to_path_buf(),
+        original,
+    }
 }
 
 fn answer_from(
@@ -748,16 +775,12 @@ fn an_unreadable_subdirectory_is_reported_rather_than_failing_the_search() {
 
     let answer = workspace.search("main.rs", None, Some(10));
 
-    // Held across the search and released only now: on Windows the handle *is* the denial.
+    // Held across the search and released only now: the guard is the denial on both platforms.
     drop(guard);
     assert_eq!(answer.paths, vec!["readable/main.rs".to_string()]);
     assert_eq!(answer.coverage, "partial");
     assert_eq!(answer.reason, Some("unreadable_entries"));
     assert_eq!(spent(&answer).unreadable_entries, 1);
-    #[cfg(unix)]
-    {
-        let _ = std::fs::set_permissions(&locked, guard);
-    }
 }
 
 /// A cancelled search says it was cancelled, and says it about an empty list.
