@@ -104,3 +104,20 @@ export function enterWebSearch(): void {
 export function leaveWebSearch(): void {
   inFlight -= 1;
 }
+
+/**
+ * Directories the simulated recursive search does not descend into.
+ *
+ * Deliberately a short list and deliberately the mock's own. The native policy holds eighteen names
+ * and lives in one place on that side; restating all of them here would be a second list that drifts,
+ * for a fixture set that contains three directories. What this exists to make observable is the
+ * *behaviour* — that a recursive search skips somewhere on purpose and still reports `complete`,
+ * because an ignored tree is a discovery rule rather than an omission.
+ */
+const SIMULATED_EXCLUSIONS = ["node_modules", "target", "dist"];
+
+/** Whether a recursive search skips this workspace-relative path. */
+export function webSearchSkipsPath(path: string): boolean {
+  const [first] = path.split("/");
+  return SIMULATED_EXCLUSIONS.includes(first);
+}

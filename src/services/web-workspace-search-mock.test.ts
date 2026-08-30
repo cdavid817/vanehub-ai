@@ -130,3 +130,53 @@ describe("web workspace search", () => {
     expect(result.coverage.budget?.filesOpened).toBe(0);
   });
 });
+
+describe("web search ignore rules", () => {
+  const withVendored = {
+    ...files,
+    "node_modules/vendored/index.ts": "const needle = 3;\n",
+    "dist/bundle.js": "const needle = 4;\n",
+    "src/kept.ts": "const needle = 5;\n",
+  };
+
+  it("skips a vendored tree without calling the answer incomplete", async () => {
+    const result = await runWebWorkspaceSearch({ query: "needle", searchId: "s" }, withVendored);
+
+    expect(result.matches.map((match) => match.path)).not.toContain(
+      "node_modules/vendored/index.ts",
+    );
+    expect(result.matches.map((match) => match.path)).not.toContain("dist/bundle.js");
+    expect(result.matches.map((match) => match.path)).toContain("src/kept.ts");
+    // Complete, not partial. An ignored tree is a discovery rule rather than an omission: the
+    // reader asked for their workspace, and a vendored copy of somebody else's code is not it.
+    // Reporting partial here would put a "we did not finish" notice on every search in a project
+    // with dependencies, which is how a notice stops being read.
+    expect(result.coverage.state).toBe("complete");
+    expect(result.coverage.reasonCode).toBeUndefined();
+  });
+
+  it("counts the directories it walked and not the ones it skipped", async () => {
+    const result = await runWebWorkspaceSearch({ query: "needle", searchId: "s" }, withVendored);
+
+    // Root, plus `src`. Not `node_modules`, not `node_modules/vendored`, not `dist` — a structural
+    // counter that included them would describe a walk that never happened, and these counters are
+    // what a reader has to explain a partial answer with.
+    expect(result.coverage.budget?.directoriesVisited).toBe(2);
+    expect(result.coverage.budget?.maxDepthReached).toBe(2);
+  });
+
+  it("charges nothing for a tree it skipped", async () => {
+    const kept = await runWebWorkspaceSearch({ query: "needle", searchId: "s" }, withVendored);
+    resetWebWorkspaceSearch();
+    const withoutVendored = { ...files, "src/kept.ts": "const needle = 5;\n" };
+    const baseline = await runWebWorkspaceSearch(
+      { query: "needle", searchId: "s" },
+      withoutVendored,
+    );
+
+    // Skipped before anything is charged for it, which is what makes an exclusion a saving rather
+    // than a filter applied after the work.
+    expect(kept.coverage.budget?.filesOpened).toBe(baseline.coverage.budget?.filesOpened);
+    expect(kept.coverage.budget?.bytesRead).toBe(baseline.coverage.budget?.bytesRead);
+  });
+});

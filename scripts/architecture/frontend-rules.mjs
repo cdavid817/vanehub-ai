@@ -339,10 +339,18 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 视图 attach 之前就输出并退出"这三种情形,是让这三件事第一次可观察,不是复制既有分支。
 // 同时把三处 close outcome 字面量抽成构造函数(client 因此从 302 行回到 300 以内),这部分是净移动。
 // 上限按实测值 25041 记录(+97),不留余量。
+// 同一 change 第五次上调(Task 8.5):Web/mock 的递归搜索扫的是一张平坦的 fixture 表,没有任何被
+// 排除的目录,于是"搜索会刻意跳过某处、且跳过之后 coverage 仍是 complete"这件事在浏览器侧根本无从
+// 观察——面板会被写成"结果少了就是没搜完"。补上一份**mock 自己的**短排除表(不是把 native 那 18 个
+// 名字抄一遍,抄了就是第二份会漂移的清单),内容搜索与路径搜索共用它:两条各带一份清单的遍历,正是
+// 一个文件按名字找得到、按内容找不到的由来。同一处顺带把 `directoriesVisited`/`maxDepthReached` 从
+// 写死的 1 改成按实际走过的路径推导——排除表一旦存在,写死的结构计数就在描述一次没发生过的遍历。
+// +46 行,全部是这条规则、结构计数及其说明。
+// 上限按实测值 25087 记录,不留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
   {
     root: "src/services",
-    budget: 25041,
+    budget: 25087,
     owner: "harden-workspace-search-cancellation-and-resource-budgets",
   },
 ]);

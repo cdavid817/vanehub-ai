@@ -79,7 +79,7 @@
 - [x] 8.2 Prevent stale result delivery by comparing request generation before application-store/event/frontend update.
 - [x] 8.3 Extend the frontend workspace service with generation, coverage, reason, bounded budget summary, and cursor V2 types while preserving existing result fields.
 - [x] 8.4 Update the Tauri adapter only; React components/hooks must not add direct `invoke()` calls.
-- [ ] 8.5 Implement deterministic Web/mock cancellation, supersession, budget consumption, ignore fixtures, busy admission, cursor stale/invalid behavior, and structural counters without native-scan claims.
+- [x] 8.5 Implement deterministic Web/mock cancellation, supersession, budget consumption, ignore fixtures, busy admission, cursor stale/invalid behavior, and structural counters without native-scan claims.
 - [x] 8.6 Update search/document/directory UI to distinguish empty Complete from empty Partial/Unavailable, show localized reason, ignore stale generations, and restart pagination on stale cursor.
 - [x] 8.7 Add all new reason/coverage/cursor messages to every registered locale and pass key/interpolation parity tests.
 - [ ] 8.8 Add frontend unit/component tests for rapid query replacement, explicit cancel, unmount/abort, stale result, busy state, each budget notice, Web parity, and stale-directory pagination restart.

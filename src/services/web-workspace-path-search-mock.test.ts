@@ -35,6 +35,22 @@ describe("web path search", () => {
     expect(second.nextCursor).toBeUndefined();
   });
 
+  it("skips the same trees content search does", async () => {
+    const withVendored = [
+      ...fixture,
+      { kind: "file" as const, name: "main.rs", path: "node_modules/vendored/main.rs" },
+    ];
+
+    const result = await runWebPathSearch({ query: "main", searchId: "q" }, withVendored);
+
+    // Two walks with their own lists is how a file becomes findable by name and not by content,
+    // which reads as the search being broken for that one file rather than as a policy.
+    expect(result.matches.map((match) => match.path)).not.toContain(
+      "node_modules/vendored/main.rs",
+    );
+    expect(result.matches.map((match) => match.path)).toContain("src/main.rs");
+  });
+
   it("refuses a cursor issued for another query", async () => {
     const first = await runWebPathSearch({ query: "main", searchId: "q", limit: 1 }, fixture);
 

@@ -6,6 +6,7 @@ import {
   claimWebSearchGeneration,
   releaseWebSearchGeneration,
   webSearchGenerationIsCurrent,
+  webSearchSkipsPath,
 } from "./web-workspace-search-registry";
 
 /**
@@ -73,7 +74,12 @@ export async function runWebPathSearch(
       };
     }
     const eligible = fixture.filter(
-      (entry) => !needle || entry.path.toLowerCase().includes(needle),
+      (entry) =>
+        // The same rule content search applies. Two walks with their own lists is how a file
+        // becomes findable by name and not by content, which reads as the search being broken for
+        // that one file.
+        !webSearchSkipsPath(entry.path) &&
+        (!needle || entry.path.toLowerCase().includes(needle)),
     );
     // Yielded once before the answer is decided. A synchronous mock would finish before a second
     // request could be issued, so supersession would be unreachable here and the parity it exists

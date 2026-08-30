@@ -12,6 +12,7 @@ import {
   webSearchAdmissionExhausted,
   webSearchGenerationIsCancelled,
   webSearchGenerationIsCurrent,
+  webSearchSkipsPath,
   webWorkspaceSearchLimits,
 } from "./web-workspace-search-registry";
 
@@ -127,7 +128,10 @@ async function scanFixtures(
   generation: number,
 ): Promise<Scan> {
   const needle = input.query.trim().toLowerCase();
+  // The workspace root counts as visited the moment the walk starts, which is why this is 1 rather
+  // than 0 before any file is seen.
   const budget: WorkspaceInspectionBudget = { ...NO_WORK, directoriesVisited: 1, maxDepthReached: 1 };
+  const visited = new Set<string>();
   // An empty query would match every line of every file. Nothing is charged for it because nothing
   // is read: reporting a spend here would be inventing work to explain an answer that cost none.
   if (!needle) return { matches: [], budget };
@@ -139,6 +143,10 @@ async function scanFixtures(
   for (const [path, content] of Object.entries(files).sort(([left], [right]) =>
     left.localeCompare(right),
   )) {
+    // Skipped before anything is charged for it. An ignored tree is a discovery rule rather than an
+    // omission, so it does not make the answer partial — the reader asked for their workspace, and a
+    // vendored copy of somebody else's code is not it.
+    if (webSearchSkipsPath(path)) continue;
     // Before the work rather than after, so a cancel issued while this was queued is observed before
     // another file is opened.
     await Promise.resolve();
@@ -151,6 +159,17 @@ async function scanFixtures(
 
     budget.entriesVisited += 1;
     budget.metadataOperations += 1;
+    // Counted from the paths actually walked rather than fixed, so a skipped tree contributes no
+    // directory and no depth. A structural counter that ignores its own exclusions would report a
+    // walk nobody performed, and these counters exist to explain where the spend went.
+    const segments = path.split("/").slice(0, -1);
+    for (const [index] of segments.entries()) {
+      const prefix = segments.slice(0, index + 1).join("/");
+      if (visited.has(prefix)) continue;
+      visited.add(prefix);
+      budget.directoriesVisited += 1;
+    }
+    budget.maxDepthReached = Math.max(budget.maxDepthReached, segments.length + 1);
     if (budget.filesOpened >= limits.maxFiles) {
       return { matches, budget, reasonCode: "file_budget_exhausted" };
     }
