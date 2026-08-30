@@ -23,7 +23,36 @@ const DEFAULT_LIMITS: WebWorkspaceSearchLimits = {
   maxConcurrent: 2,
 };
 
-let limits: WebWorkspaceSearchLimits = { ...DEFAULT_LIMITS };
+/**
+ * Ceilings named in the address bar, for the browser build only.
+ *
+ * A partial answer, a refused admission, and a budget notice are all states a panel has to render,
+ * and none of them can be reached from a browser without either a ceiling a caller can lower or a
+ * fixture set large enough to exhaust a realistic one. The second would put thousands of invented
+ * files in the repository for every unrelated checkout to carry.
+ *
+ * Read once, from the URL, and only here: the desktop adapter has no equivalent and must not grow
+ * one. A ceiling a query parameter can lower is a demo affordance in a build whose whole purpose is
+ * to be deterministic without a machine behind it.
+ */
+function limitsFromLocation(): Partial<WebWorkspaceSearchLimits> {
+  if (typeof window === "undefined") return {};
+  const raw = new URLSearchParams(window.location.search).get("workspaceSearchLimits");
+  if (!raw) return {};
+  const parsed: Partial<WebWorkspaceSearchLimits> = {};
+  for (const pair of raw.split(",")) {
+    const [name, value] = pair.split(":");
+    const count = Number(value);
+    if (!Number.isFinite(count) || count < 0) continue;
+    if (name === "maxFiles") parsed.maxFiles = count;
+    if (name === "maxBytes") parsed.maxBytes = count;
+    if (name === "maxResults") parsed.maxResults = count;
+    if (name === "maxConcurrent") parsed.maxConcurrent = count;
+  }
+  return parsed;
+}
+
+let limits: WebWorkspaceSearchLimits = { ...DEFAULT_LIMITS, ...limitsFromLocation() };
 let nextGeneration = 1;
 let inFlight = 0;
 /** Which generation currently answers for a search id. */
@@ -47,7 +76,7 @@ export function webWorkspaceSearchLimits(): WebWorkspaceSearchLimits {
 }
 
 export function resetWebWorkspaceSearch(): void {
-  limits = { ...DEFAULT_LIMITS };
+  limits = { ...DEFAULT_LIMITS, ...limitsFromLocation() };
   nextGeneration = 1;
   inFlight = 0;
   currentGeneration.clear();

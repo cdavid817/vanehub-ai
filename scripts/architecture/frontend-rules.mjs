@@ -347,10 +347,16 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 写死的 1 改成按实际走过的路径推导——排除表一旦存在,写死的结构计数就在描述一次没发生过的遍历。
 // +46 行,全部是这条规则、结构计数及其说明。
 // 上限按实测值 25087 记录,不留余量。
+// 同一 change 第六次上调(Task 10.3):partial / busy / 预算提示这三种状态,在浏览器里既到不了也测不到——
+// mock 的默认上限足够宽,fixture 工作区永远是 complete,而要靠 fixture 撑爆一个现实的上限就得往仓库里塞
+// 上千个凭空造出来的文件,让每一次无关的 checkout 都背着它们。于是让 Web 侧(且只有 Web 侧)从地址栏读
+// 上限。desktop adapter 没有对等物,也不该有:能被查询参数调低的上限,是一个本就以"没有真实机器也能确定
+// 性演示"为目的的构建里的演示设施。+29 行,全是这一个解析函数及其说明。
+// 上限按实测值 25116 记录,不留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
   {
     root: "src/services",
-    budget: 25087,
+    budget: 25116,
     owner: "harden-workspace-search-cancellation-and-resource-budgets",
   },
 ]);
