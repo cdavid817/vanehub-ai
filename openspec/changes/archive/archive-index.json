@@ -3620,6 +3620,19 @@
     },
     {
       "archivedOn": "2026-08-30",
+      "changeName": "improve-skill-evolution-system-activity-health",
+      "path": "openspec/changes/archive/2026-08-30-improve-skill-evolution-system-activity-health/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "skill-evolution-system-activity"
+      ]
+    },
+    {
+      "archivedOn": "2026-08-30",
       "changeName": "stabilize-desktop-wdio-lifecycle",
       "path": "openspec/changes/archive/2026-08-30-stabilize-desktop-wdio-lifecycle/",
       "artifacts": [
