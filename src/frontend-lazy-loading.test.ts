@@ -54,9 +54,9 @@ describe("frontend feature module boundaries", () => {
     const settingsShell = read("settings/settings-shell.tsx");
     const sessionTabs = read("session-workspace/session-tabs.tsx");
     expect(settingsShell).toContain("new Set([initialPage])");
-    expect(settingsShell).toContain("if (!visitedPages.has(page.id)) return null");
+    expect(settingsShell).toContain("if (!shouldRenderPage(SETTINGS_PAGE_LIFECYCLE[page.id], isActivePage, visitedPages.has(page.id))) return null");
     expect(settingsShell).toContain("new Set(current).add(pageId)");
-    expect(settingsShell).toContain("hidden={page.id !== activePageId}");
+    expect(settingsShell).toContain("hidden={!isActivePage}");
     expect(sessionTabs).toContain("mountedTabs");
     expect(sessionTabs).toContain('activeTab === id ? "block" : "hidden"');
   });
