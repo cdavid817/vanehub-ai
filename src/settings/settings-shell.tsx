@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { LazyFeature } from "../components/lazy-feature";
+import { shouldRenderPage } from "../ui/page-lifecycle/page-lifecycle-policy";
+import { SETTINGS_PAGE_LIFECYCLE } from "./settings-page-lifecycle";
 import { defaultSettingsPageId, getSettingsPage, settingsPages, type SettingsNavigationTarget, type SettingsPageId } from "./settings-pages";
 import { SettingsSidebar } from "./settings-sidebar";
 import { SettingsTopBar } from "./settings-topbar";
@@ -45,17 +47,18 @@ export function SettingsShell({
         <SettingsSidebar activePageId={activePageId} onSelectPage={handleSelectPage} />
         <section className="min-h-0 min-w-0 overflow-hidden rounded-lg border border-border bg-background shadow-xs">
           {settingsPages.map((page) => {
-            if (!visitedPages.has(page.id)) return null;
+            const isActivePage = page.id === activePageId;
+            if (!shouldRenderPage(SETTINGS_PAGE_LIFECYCLE[page.id], isActivePage, visitedPages.has(page.id))) return null;
             const pageProps = {
-              isActive: page.id === activePageId,
-              navigationTarget: page.id === activePageId ? navigationTarget : null,
+              isActive: isActivePage,
+              navigationTarget: isActivePage ? navigationTarget : null,
               onNavigate: handleSelectPage,
               onOpenSession,
               onReturn,
-              searchTerm: page.id === activePageId ? searchTerm : "",
+              searchTerm: isActivePage ? searchTerm : "",
             };
             return (
-              <div className="h-full overflow-y-auto" hidden={page.id !== activePageId} key={page.id}>
+              <div className="h-full overflow-y-auto" hidden={!isActivePage} key={page.id}>
                 <div className="mx-auto w-full max-w-[1680px] px-5 py-5 sm:px-6 lg:px-8 xl:px-10">
                   <LazyFeature componentProps={pageProps} loader={page.loader} />
                 </div>

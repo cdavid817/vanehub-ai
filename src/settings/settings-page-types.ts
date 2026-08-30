@@ -42,8 +42,10 @@ export interface SettingsPageContext {
    * a session simply does not pass it, and the surfaces that offer the link hide it. */
   onOpenSession?: (sessionId: string) => void;
   /**
-   * False while the page is mounted but hidden. Visited pages stay mounted so their state survives
-   * tab switches, which means background work has to be gated on this rather than on mount.
+   * False while the page is mounted but hidden. Most pages unmount instead of ever seeing this go
+   * false (`keepAlive: "never"`, settings-page-lifecycle.ts's default per design.md Decision 6) —
+   * this only matters for the pages with a documented reason to stay mounted while inactive, whose
+   * background work has to be gated on this rather than on mount.
    */
   isActive: boolean;
 }
