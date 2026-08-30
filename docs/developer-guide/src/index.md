@@ -97,6 +97,8 @@ These live outside the guide's chapter list but are part of the repository's doc
 | [Runtime performance budgets](../../runtime-performance-budgets.md) | The declared runtime budgets and how a regression against them is reported |
 | [CLI Agent global configuration](../../cli-agent-global-configuration.md) | How VaneHub AI writes each CLI's own global configuration, and how tests isolate it |
 | [Unified workbench UI redesign baseline](../../ui-redesign/baseline.md) | The Milestone 0 "before" evidence for `redesign-unified-workbench-ui`: verification command results, pre-existing defects, confirmed runtime architecture facts, and screenshot/fixture references |
+| [Unified workbench design system reference](../../ui-redesign/design-system.md) | The additive semantic tokens, surface hierarchy, text/truncation rules, and per-row metadata budgets `redesign-unified-workbench-ui` introduces in `src/styles.css` |
+| [Unified workbench visual-token audit](../../ui-redesign/token-audit.md) | The task 2.1 hard-coded-color/radius/height/shadow audit behind those tokens, and what was deliberately deferred to a later milestone and why |
 
 ### Provider SDK
 

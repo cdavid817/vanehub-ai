@@ -31,20 +31,20 @@
 
 ## 2. Semantic tokens and visual foundations
 
-- [ ] 2.1 Audit `src/styles.css` and theme token sources; map every hard-coded color, radius, shadow, control height, and ad-hoc surface used by affected modules.
-- [ ] 2.2 Add semantic canvas, sidebar, panel, raised, overlay, subtle-border, default-border, and strong-border tokens for both `minimal` and `futuristic`.
-- [ ] 2.3 Add compact/default/comfortable control-height and row-height tokens without changing existing density defaults until component migration.
-- [ ] 2.4 Add documented spacing, radius, elevation, focus, status, and motion tokens while keeping radius at or below the repository visual rule.
-- [ ] 2.5 Define semantic neutral, running, success, warning, danger, information, blocked, and attention state token groups for both themes.
-- [ ] 2.6 Implement shared focus-ring utilities that remain visible on canvas, panel, selected row, destructive surface, and high-contrast backgrounds.
-- [ ] 2.7 Add reduced-motion token behavior for pane transitions, sheets, selection highlights, loading indicators, and drag feedback.
-- [ ] 2.8 Remove theme-specific JSX branches from affected shared UI; themes SHALL alter token values rather than component structure.
-- [ ] 2.9 Define the default surface hierarchy as canvas plus quiet separators, with raised surfaces reserved for independent interactive regions.
-- [ ] 2.10 Replace unnecessary nested cards in one representative page and obtain screenshot approval before applying the pattern globally.
-- [ ] 2.11 Add a visual token story or internal fixture page showing all interactive, status, loading, disabled, selected, error, and focus states.
-- [ ] 2.12 Add unit or architecture checks preventing new inline color styles and non-semantic status colors in migrated modules.
-- [ ] 2.13 Document text hierarchy, truncation, wrapping, monospace identifier, and metadata display rules in `docs/ui-redesign/design-system.md`.
-- [ ] 2.14 Document the metadata budget for Session rows, Work Item cards, Run rows, Goal rows, and Evaluation rows.
+- [x] 2.1 Audit `src/styles.css` and theme token sources; map every hard-coded color, radius, shadow, control height, and ad-hoc surface used by affected modules. — `docs/ui-redesign/token-audit.md`; found existing `console-visual-tokens.test.ts`/`visual-token-rules.ts` already enforce this in 2 of 9 directories, real hex/palette findings confined to `settings/`/`goal-center/`, zero theme-branching JSX (evidence for 2.8).
+- [x] 2.2 Add semantic canvas, sidebar, panel, raised, overlay, subtle-border, default-border, and strong-border tokens for both `minimal` and `futuristic`. — `src/styles.css`, all 3 theme blocks, purely additive (canvas/sidebar/raised alias existing surfaces; overlay/border-subtle are new values).
+- [x] 2.3 Add compact/default/comfortable control-height and row-height tokens without changing existing density defaults until component migration. — `src/styles.css`; values corrected against the task 2.1 audit's real height inventory (default=36px/h-9, comfortable=44px/h-11, both already the dominant existing tiers, not invented).
+- [x] 2.4 Add documented spacing, radius, elevation, focus, status, and motion tokens while keeping radius at or below the repository visual rule. — Tokens in `src/styles.css`; documented in `docs/ui-redesign/design-system.md`. Radius unchanged (still 8/6/4px ceiling).
+- [x] 2.5 Define semantic neutral, running, success, warning, danger, information, blocked, and attention state token groups for both themes. — `src/styles.css` (5 new groups + existing 3) + matching `.ucd-status-*` utility classes.
+- [x] 2.6 Implement shared focus-ring utilities that remain visible on canvas, panel, selected row, destructive surface, and high-contrast backgrounds. — `.ucd-focus-ring`/`.ucd-focus-ring-on-danger` in `src/styles.css`, canvas-colored gap so the ring never fights its own surface's color.
+- [x] 2.7 Add reduced-motion token behavior for pane transitions, sheets, selection highlights, loading indicators, and drag feedback. — `prefers-reduced-motion: reduce` media query zeroes `--motion-*` tokens globally in `src/styles.css`.
+- [x] 2.8 Remove theme-specific JSX branches from affected shared UI; themes SHALL alter token values rather than component structure. — Audit (2.1) found zero theme-branching JSX in any of the 9 affected directories; no code change needed. Evidence in `docs/ui-redesign/token-audit.md`.
+- [x] 2.9 Define the default surface hierarchy as canvas plus quiet separators, with raised surfaces reserved for independent interactive regions. — Documented in `docs/ui-redesign/design-system.md`; `.ucd-raised` utility reserves elevation for independently-floating content per the rule.
+- [ ] 2.10 Replace unnecessary nested cards in one representative page and obtain screenshot approval before applying the pattern globally. — Deferred to task group 12 (Settings): audit found no clean nested-card instance reachable with legacy primitives alone (the one real finding, `SectionPanel`'s `rounded-xl`, is a radius bug deferred to the same migration); a pilot now would use soon-to-be-replaced primitives. Rationale in `docs/ui-redesign/token-audit.md`.
+- [ ] 2.11 Add a visual token story or internal fixture page showing all interactive, status, loading, disabled, selected, error, and focus states. — Deferred to land alongside §3's primitives (`AsyncBoundary`/`StatusBadge`/etc.) — a fixture page with only color swatches and no primitives to demonstrate states on would be a weak deliverable.
+- [x] 2.12 Add unit or architecture checks preventing new inline color styles and non-semantic status colors in migrated modules. — `ARCH-FE-006` in `scripts/architecture/frontend-rules.mjs`, importing the same `LITERAL_COLOR`/`PALETTE_COLOR` patterns `console-visual-tokens.test.ts` already uses (Node 24 loads the `.ts` source directly), scoped to `src/ui/`; 8 new tests including a caught-and-fixed false-positive against the existing `hsl(var(--x))` pattern.
+- [x] 2.13 Document text hierarchy, truncation, wrapping, monospace identifier, and metadata display rules in `docs/ui-redesign/design-system.md`. — Done.
+- [x] 2.14 Document the metadata budget for Session rows, Work Item cards, Run rows, Goal rows, and Evaluation rows. — Done, `docs/ui-redesign/design-system.md`.
 
 ## 3. Shared UI primitives
 

@@ -25,6 +25,10 @@ export const RULES = Object.freeze({
     repair:
       "Keep src/ui/ primitives feature-agnostic: depend only on other src/ui/ modules or npm packages, and pass feature data in via props.",
   },
+  nonSemanticColor: {
+    id: "ARCH-FE-006",
+    repair: "Use a semantic token from src/styles.css (see docs/ui-redesign/design-system.md) instead of a literal color.",
+  },
 });
 
 export function architectureDiagnostic(rule, file, line, message) {

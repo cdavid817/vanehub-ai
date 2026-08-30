@@ -48,6 +48,51 @@ test("accepts a src/ui/ primitive that only depends on other src/ui/ modules and
   assert.deepEqual(diagnostics, []);
 });
 
+for (const [name, source] of [
+  ["an inline style prop", 'export function Badge() { return <span style={{ color: "red" }} />; }'],
+  ["a literal hex color class", 'const badgeClass = "bg-[#ff0000] rounded-md";\nexport function Badge() { return <span className={badgeClass} />; }'],
+  ["a literal rgb color class", 'export function Badge() { return <span className="text-[rgb(0,0,0)]" />; }'],
+  ["a literal hsl color class in a cn() call", 'export function Badge() { return <span className={cn("rounded-md", active && "border-[hsl(0,0%,0%)]")} />; }'],
+]) {
+  test(`rejects a src/ui/ primitive using ${name}`, () => {
+    const diagnostics = analyzeFrontendSource("src/ui/status/status-badge.tsx", source);
+    assert.ok(diagnostics.some((value) => value.includes("[ARCH-FE-006]")));
+    assert.ok(diagnostics.every((value) => value.includes("Repair:")));
+  });
+}
+
+test("accepts a src/ui/ primitive using only semantic-token classes", () => {
+  const diagnostics = analyzeFrontendSource(
+    "src/ui/status/status-badge.tsx",
+    'export function Badge() { return <span className={cn("bg-canvas text-attention border-[var(--border-subtle)]", "rounded-md")} />; }',
+  );
+  assert.deepEqual(diagnostics, []);
+});
+
+test("rejects a src/ui/ primitive using a Tailwind default-palette class", () => {
+  const diagnostics = analyzeFrontendSource(
+    "src/ui/status/status-badge.tsx",
+    'export function Badge() { return <span className="text-red-500 dark:text-red-300" />; }',
+  );
+  assert.ok(diagnostics.some((value) => value.includes("[ARCH-FE-006]") && value.includes("text-red-500")));
+});
+
+test("accepts a color function wrapping a CSS variable, matching the existing button.tsx pattern", () => {
+  const diagnostics = analyzeFrontendSource(
+    "src/ui/status/status-badge.tsx",
+    'export function Badge() { return <span className="bg-[hsl(var(--panel-glass))] shadow-[hsl(var(--shadow-color))]" />; }',
+  );
+  assert.deepEqual(diagnostics, []);
+});
+
+test("does not apply the non-semantic-color check outside src/ui/", () => {
+  const diagnostics = analyzeFrontendSource(
+    "src/main-layout/main-layout.tsx",
+    'export function Legacy() { return <span style={{ color: "red" }} className="bg-[#ff0000]" />; }',
+  );
+  assert.deepEqual(diagnostics, []);
+});
+
 test("does not apply src/ui/ isolation to files outside src/ui/", () => {
   const diagnostics = analyzeFrontendSource(
     "src/main-layout/main-layout.tsx",

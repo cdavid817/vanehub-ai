@@ -33,9 +33,39 @@
   --color-warning: hsl(var(--warning));
   --color-danger: hsl(var(--danger));
 
+  /* These 6 tokens already existed with real per-theme values (see the :root/futuristic/minimal
+     blocks below) but had no @theme mapping, so every one of their ~90 existing call sites had to
+     spell out arbitrary syntax (`bg-[hsl(var(--nav-active-soft))]`) even though the value itself
+     was never hard-coded (redesign-unified-workbench-ui task 2.1 audit finding). Purely additive:
+     existing arbitrary-syntax call sites keep working unchanged; this only makes the plain utility
+     class (`bg-nav-active-soft`) available for new code, which is not itself a migration of any
+     existing file. */
+  --color-nav-active-soft: hsl(var(--nav-active-soft));
+  --color-panel-glass: hsl(var(--panel-glass));
+  --color-panel-hover: hsl(var(--panel-hover));
+  --color-success-soft: hsl(var(--success-soft));
+  --color-warning-soft: hsl(var(--warning-soft));
+  --color-danger-soft: hsl(var(--danger-soft));
+
   --radius-lg: 8px;
   --radius-md: 6px;
   --radius-sm: 4px;
+
+  /* Additive workbench redesign tokens (redesign-unified-workbench-ui §2). Existing
+     --color-panel/--color-border/etc. above are untouched; new shared UI (src/ui/) consumes
+     these instead. See docs/ui-redesign/design-system.md for the full token reference. */
+  --color-canvas: hsl(var(--canvas));
+  --color-sidebar: hsl(var(--sidebar));
+  --color-raised: hsl(var(--raised));
+  --color-overlay: hsl(var(--overlay));
+  --color-border-subtle: hsl(var(--border-subtle));
+  --color-border-default: hsl(var(--border-default));
+
+  --color-neutral: hsl(var(--neutral));
+  --color-running: hsl(var(--running));
+  --color-information: hsl(var(--information));
+  --color-blocked: hsl(var(--blocked));
+  --color-attention: hsl(var(--attention));
 }
 
 /*
@@ -123,6 +153,43 @@
   --terminal-ansi-bright-magenta: #d2a8ff;
   --terminal-ansi-bright-cyan: #56d4dd;
   --terminal-ansi-bright-white: #f0f6fc;
+
+  /* Additive workbench redesign tokens (redesign-unified-workbench-ui §2.2/§2.4/§2.5). Canvas,
+     sidebar, and raised alias existing surface colors (elevation/emphasis is expressed through
+     shadow and border tier, not a new hue) so nothing currently on screen changes; border-subtle,
+     the 5 new status groups, control/row heights, extra shadow tier, and motion durations are
+     genuinely new. */
+  --canvas: var(--background);
+  --sidebar: var(--panel-muted);
+  --raised: var(--panel);
+  --overlay: 220 20% 4%;
+  --border-subtle: 214 18% 91%;
+  --border-default: var(--border);
+
+  --neutral: 220 10% 46%;
+  --neutral-soft: 220 10% 46% / 0.12;
+  --running: 192 82% 40%;
+  --running-soft: 192 82% 40% / 0.12;
+  --information: 198 78% 36%;
+  --information-soft: 198 78% 36% / 0.12;
+  --blocked: 262 20% 46%;
+  --blocked-soft: 262 20% 46% / 0.12;
+  --attention: 18 88% 50%;
+  --attention-soft: 18 88% 50% / 0.14;
+
+  --shadow-overlay: 220 18% 12% / 0.22;
+
+  --control-height-compact: 28px;
+  --control-height-default: 36px;
+  --control-height-comfortable: 44px;
+  --row-height-compact: 32px;
+  --row-height-default: 40px;
+  --row-height-comfortable: 48px;
+
+  --motion-fast: 120ms;
+  --motion-base: 160ms;
+  --motion-slow: 240ms;
+  --motion-easing: ease;
 }
 
 :root[data-theme="futuristic"] {
@@ -162,6 +229,39 @@
   --agent-opencode: 154 64% 52%;
   --agent-gemini: 262 83% 72%;
   --agent-antigravity: 210 90% 62%;
+
+  /* Additive workbench redesign tokens — see the :root block above for the rationale comment. */
+  --canvas: var(--background);
+  --sidebar: var(--panel-muted);
+  --raised: var(--panel);
+  --overlay: 220 30% 3%;
+  --border-subtle: 218 18% 19%;
+  --border-default: var(--border);
+
+  --neutral: 215 12% 58%;
+  --neutral-soft: 215 12% 58% / 0.16;
+  --running: 190 85% 58%;
+  --running-soft: 190 85% 58% / 0.16;
+  --information: 215 88% 66%;
+  --information-soft: 215 88% 66% / 0.14;
+  --blocked: 262 24% 62%;
+  --blocked-soft: 262 24% 62% / 0.16;
+  --attention: 20 92% 64%;
+  --attention-soft: 20 92% 64% / 0.18;
+
+  --shadow-overlay: 0 0% 0% / 0.58;
+
+  --control-height-compact: 28px;
+  --control-height-default: 36px;
+  --control-height-comfortable: 44px;
+  --row-height-compact: 32px;
+  --row-height-default: 40px;
+  --row-height-comfortable: 48px;
+
+  --motion-fast: 120ms;
+  --motion-base: 160ms;
+  --motion-slow: 240ms;
+  --motion-easing: ease;
 }
 
 :root[data-theme="minimal"] {
@@ -204,6 +304,39 @@
   --agent-opencode: 154 64% 34%;
   --agent-gemini: 262 83% 52%;
   --agent-antigravity: 210 90% 38%;
+
+  /* Additive workbench redesign tokens — see the :root block above for the rationale comment. */
+  --canvas: var(--background);
+  --sidebar: var(--panel-muted);
+  --raised: var(--panel);
+  --overlay: 221 39% 6%;
+  --border-subtle: 221 39% 11% / 0.14;
+  --border-default: var(--border);
+
+  --neutral: 221 14% 40%;
+  --neutral-soft: 221 14% 40% / 0.1;
+  --running: 193 88% 36%;
+  --running-soft: 193 88% 36% / 0.12;
+  --information: 221 83% 53%;
+  --information-soft: 221 83% 53% / 0.12;
+  --blocked: 262 24% 40%;
+  --blocked-soft: 262 24% 40% / 0.1;
+  --attention: 16 90% 46%;
+  --attention-soft: 16 90% 46% / 0.13;
+
+  --shadow-overlay: 221 39% 11% / 0.16;
+
+  --control-height-compact: 28px;
+  --control-height-default: 36px;
+  --control-height-comfortable: 44px;
+  --row-height-compact: 32px;
+  --row-height-default: 40px;
+  --row-height-comfortable: 48px;
+
+  --motion-fast: 120ms;
+  --motion-base: 160ms;
+  --motion-slow: 240ms;
+  --motion-easing: ease;
 }
 
 * {
@@ -246,6 +379,23 @@ body.floating-assistant-surface {
   background: hsl(var(--panel));
   color: hsl(var(--panel-foreground));
   box-shadow: 0 8px 20px hsl(var(--shadow-color));
+}
+
+/* Additive surface hierarchy (redesign-unified-workbench-ui §2.9): canvas (bg-canvas utility, from
+   the @theme mapping) is the default surface everywhere; .ucd-raised is reserved for surfaces that
+   float independently above the page's normal stacking — popovers, dropdowns, floating menus — not
+   for routine cards or panels, which stay on .ucd-panel/.ucd-card. Elevation is expressed as a
+   deeper shadow at the same panel color, not a different surface hue, so a raised element still
+   reads as the same "material" as the panel it floats above. */
+.ucd-raised {
+  border: 1px solid hsl(var(--panel-border));
+  background: hsl(var(--raised));
+  color: hsl(var(--panel-foreground));
+  box-shadow: 0 16px 40px hsl(var(--shadow-elevated));
+}
+
+.ucd-overlay {
+  background: hsl(var(--overlay) / 0.5);
 }
 
 .ucd-interactive {
@@ -485,6 +635,41 @@ body.floating-assistant-surface {
   color: hsl(var(--danger));
 }
 
+/* Additive status groups (redesign-unified-workbench-ui §2.5): neutral/running/information/
+   blocked/attention, alongside the existing success/warning/danger above. Status is never
+   color-only in this redesign (per workbench-design-system-ui's "Express status" scenario) — these
+   classes carry a semantic tone for text/icon/border, but callers still need their own text or icon
+   to distinguish states like blocked vs. danger for readers who can't perceive the hue difference. */
+.ucd-status-neutral {
+  border-color: hsl(var(--neutral) / 0.4);
+  background: hsl(var(--neutral-soft));
+  color: hsl(var(--neutral));
+}
+
+.ucd-status-running {
+  border-color: hsl(var(--running) / 0.45);
+  background: hsl(var(--running-soft));
+  color: hsl(var(--running));
+}
+
+.ucd-status-information {
+  border-color: hsl(var(--information) / 0.4);
+  background: hsl(var(--information-soft));
+  color: hsl(var(--information));
+}
+
+.ucd-status-blocked {
+  border-color: hsl(var(--blocked) / 0.4);
+  background: hsl(var(--blocked-soft));
+  color: hsl(var(--blocked));
+}
+
+.ucd-status-attention {
+  border-color: hsl(var(--attention) / 0.45);
+  background: hsl(var(--attention-soft));
+  color: hsl(var(--attention));
+}
+
 .ucd-agent-codex {
   border-color: hsl(var(--agent-codex) / 0.4);
   background: hsl(var(--agent-codex) / 0.12);
@@ -518,6 +703,33 @@ body.floating-assistant-surface {
 *:focus-visible {
   outline: 2px solid hsl(var(--ring));
   outline-offset: 2px;
+}
+
+/* Additive workbench redesign focus treatment (redesign-unified-workbench-ui §2.6). The global
+   outline above can lose contrast against a same-hue selected row or a colored surface (e.g. a
+   danger button, where a primary-colored outline reads poorly against red). This halo pattern
+   stays visible on any background: the inner gap always shows through to the surface behind the
+   focused element, so the outer ring never has to fight that surface's own color for contrast. */
+.ucd-focus-ring:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px hsl(var(--canvas)),
+    0 0 0 4px hsl(var(--ring));
+}
+
+.ucd-focus-ring-on-danger:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px hsl(var(--danger)),
+    0 0 0 4px hsl(var(--canvas));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fast: 0ms;
+    --motion-base: 0ms;
+    --motion-slow: 0ms;
+  }
 }
 
 /* Highlight.js emits semantic token classes; theme them with the same design

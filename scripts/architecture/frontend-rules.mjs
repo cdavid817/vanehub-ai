@@ -2,6 +2,12 @@ import fs from "node:fs";
 import path from "node:path";
 import ts from "typescript";
 import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./rules.mjs";
+// Single source of truth for "what counts as a non-token color" — session-workspace/main-layout
+// already enforce this via console-visual-tokens.test.ts, which reads these same two patterns.
+// Importing rather than re-deriving avoids exactly the drift its own file comment warns about:
+// two independently-maintained copies, where the one nobody remembers to update stops meaning
+// anything. Node's built-in TypeScript support loads this directly; it has no TS-specific syntax.
+import { LITERAL_COLOR, PALETTE_COLOR } from "../../src/session-workspace/visual-token-rules.ts";
 
 // 每文件预算(eslint.config.js)管不住"把一个超大文件拆成十个大文件",也管不住
 // 拆分时把代码复制而非搬移。聚合预算才能。预算只能下调;上调必须在同一个 commit 写明原因。
@@ -336,6 +342,18 @@ function resolveRelativeSpecifier(file, specifier) {
   return path.posix.normalize(path.posix.join(path.posix.dirname(file), specifier));
 }
 
+function checkNoSemanticColor(file, report, text, node) {
+  if (!file.startsWith("src/ui/")) return;
+  const literalMatch = LITERAL_COLOR.exec(text);
+  if (literalMatch) {
+    report(RULES.nonSemanticColor, node, `src/ui/ primitive uses a literal-color arbitrary value \`${literalMatch[0]}...\` instead of a semantic token`);
+  }
+  const paletteMatch = PALETTE_COLOR.exec(text);
+  if (paletteMatch) {
+    report(RULES.nonSemanticColor, node, `src/ui/ primitive uses Tailwind default-palette class \`${paletteMatch[0]}\` instead of a semantic token`);
+  }
+}
+
 function location(sourceFile, node) {
   return sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
 }
@@ -396,6 +414,16 @@ export function analyzeFrontendSource(file, source, { requiresServiceBoundary = 
           report(RULES.uiPrimitiveIsolation, node.moduleSpecifier, `src/ui/ primitive imports feature-specific module \`${specifier}\` (resolves under ${forbiddenRoot})`);
         }
       }
+    }
+    if (file.startsWith("src/ui/") && ts.isJsxAttribute(node) && ts.isIdentifier(node.name) && node.name.text === "style") {
+      report(RULES.nonSemanticColor, node, "src/ui/ primitive uses an inline `style` prop instead of a semantic-token utility class");
+    }
+    // Class-name strings reach a className prop indirectly as often as directly in this codebase
+    // (a `const xClass = "..."` constant, or a `cn(base, condition && "...")` call) — checking
+    // every string/template literal in the file, not just ones attached to a className attribute,
+    // catches those without having to trace each string back to its eventual JSX usage.
+    if (file.startsWith("src/ui/") && ts.isStringLiteralLike(node) && !ts.isImportDeclaration(node.parent)) {
+      checkNoSemanticColor(file, report, node.text, node);
     }
     if (requiresServiceBoundary && ts.isCallExpression(node) && ts.isIdentifier(node.expression) && invokeBindings.has(node.expression.text)) {
       report(RULES.tauriBoundary, node.expression, "React surface calls Tauri invoke directly");

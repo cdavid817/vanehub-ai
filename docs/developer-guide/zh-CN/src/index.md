@@ -97,6 +97,8 @@
 | [运行时性能预算](../../../runtime-performance-budgets.md) | 已声明的运行时预算,以及针对它们的回归如何被报告 |
 | [CLI Agent 全局配置](../../../cli-agent-global-configuration.md) | VaneHub AI 如何写入各 CLI 自己的全局配置,以及测试如何隔离它 |
 | [统一工作台 UI 重构基线](../../../ui-redesign/baseline.md) | `redesign-unified-workbench-ui` 的里程碑 0 "改动前"证据:校验命令结果、已知缺陷、已确认的运行时架构事实,以及截图与 Fixture 引用 |
+| [统一工作台设计系统参考](../../../ui-redesign/design-system.md) | `redesign-unified-workbench-ui` 在 `src/styles.css` 中新增的语义 Token、表面层级、文本/截断规则,以及各行/卡片的元数据预算 |
+| [统一工作台视觉 Token 审计](../../../ui-redesign/token-audit.md) | 支撑上述 Token 的任务 2.1 硬编码色值/圆角/高度/阴影审计,以及哪些项被有意延后到后续里程碑及原因 |
 
 ### Provider SDK
 
