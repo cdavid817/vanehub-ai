@@ -1,6 +1,6 @@
 # LSP code intelligence
 
-Language Server Protocol (LSP) integration lets the native API Agent ask a local language server for definitions, references, hover information, and current diagnostics. It is disabled by default and requires both language enablement and explicit trust for each local workspace.
+Language Server Protocol (LSP) integration lets the native API Agent ask a local language server for definitions, references, hover information, and current diagnostics. It is disabled by default and requires both language enablement and explicit trust for each local workspace. The entry point is **Settings → Code Intelligence**.
 
 ![The Language server intelligence settings page showing configuration, discovery, startup arguments, and trusted workspaces](assets/screenshots/settings-code-intelligence-en.png)
 
