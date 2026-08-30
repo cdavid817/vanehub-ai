@@ -306,8 +306,12 @@ const COLOR_STYLE_PROPERTIES = new Set([
 // 控制台、本地媒体/LSP 与个性化治理,每一条都新增了 service 接口 + Tauri 客户端 + Web/mock
 // 客户端这三件套。三件套是"React 不直接 invoke"这条规则的代价,按能力条数线性增长而不是按代码
 // 量——所以每次合并都在合并后的树上重测,不把两侧的数相加,后者会把两边共有的基线算两遍。
+// 上调理由(redesign-unified-workbench-ui,5.15):Loop 轮询补上 Mission Control 早就有的
+// document-visibility 守卫(隐藏时跳过 fetch,focus/visibilitychange 时立即补一次追赶),全部落在
+// `loop-run-polling.ts` 同一个订阅函数里——没有新文件,也没有复制既有分支。上限按实测值 24148
+// 记录,不留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 24141, owner: "redesign-unified-workbench-ui" },
+  { root: "src/services", budget: 24148, owner: "redesign-unified-workbench-ui" },
 ]);
 
 const STATE_PACKAGES = new Set([
