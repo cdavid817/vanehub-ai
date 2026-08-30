@@ -5,6 +5,7 @@ import {
   decodeReturnToken,
   defaultWorkbenchLocation,
   extractReturnTo,
+  legacyWorkbenchRedirectPath,
   parseWorkbenchLocation,
   recallWorkbenchPath,
   rememberWorkbenchLocation,
@@ -69,12 +70,43 @@ describe("parseWorkbenchLocation — missing, malformed, and unsupported input",
 
   it("falls back to the default location for an unsupported destination id", () => {
     // The stable-id set this repo shipped before the redesign — must not resolve to a blank panel.
+    // App.tsx now redirects these specific five (legacyWorkbenchRedirectPath, below) before this
+    // fallback is ever reached; the parser itself stays destination-agnostic on purpose, since it
+    // cannot and should not know which unrecognized ids are legacy versus simply nonexistent.
     expect(parse("/workspace/mission-control")).toEqual(defaultWorkbenchLocation);
     expect(parse("/workspace/work-board")).toEqual(defaultWorkbenchLocation);
   });
 
   it("falls back to the default location for a bare /workspace with no destination", () => {
     expect(parse("/workspace")).toEqual(defaultWorkbenchLocation);
+  });
+});
+
+describe("legacyWorkbenchRedirectPath", () => {
+  it("maps each pre-redesign flat destination to its new home", () => {
+    expect(legacyWorkbenchRedirectPath("/workspace/loops")).toBe("/workspace/runs/loops");
+    expect(legacyWorkbenchRedirectPath("/workspace/work-board")).toBe("/workspace/plan/board");
+    expect(legacyWorkbenchRedirectPath("/workspace/goals")).toBe("/workspace/plan/goals");
+    expect(legacyWorkbenchRedirectPath("/workspace/evaluations")).toBe("/workspace/quality/evaluations");
+    expect(legacyWorkbenchRedirectPath("/workspace/mission-control")).toBe("/workspace/runs/attention");
+  });
+
+  it("returns null for a current-scheme path", () => {
+    expect(legacyWorkbenchRedirectPath("/workspace/runs/loops")).toBeNull();
+    expect(legacyWorkbenchRedirectPath("/workspace/sessions")).toBeNull();
+  });
+
+  it("returns null for a never-issued id, rather than guessing", () => {
+    expect(legacyWorkbenchRedirectPath("/workspace/does-not-exist")).toBeNull();
+  });
+
+  it("returns null outside /workspace, and for a bare /workspace", () => {
+    expect(legacyWorkbenchRedirectPath("/settings")).toBeNull();
+    expect(legacyWorkbenchRedirectPath("/workspace")).toBeNull();
+  });
+
+  it("returns null for a legacy id with an extra segment, since the old scheme never produced one", () => {
+    expect(legacyWorkbenchRedirectPath("/workspace/loops/extra")).toBeNull();
   });
 });
 

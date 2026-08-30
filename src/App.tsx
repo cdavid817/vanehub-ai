@@ -3,6 +3,7 @@ import { ErrorBoundary } from "react-error-boundary";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router";
 import { MainLayout } from "./main-layout/main-layout";
 import {
+  legacyWorkbenchRedirectPath,
   parseWorkbenchLocation,
   recallWorkbenchPath,
   rememberWorkbenchLocation,
@@ -53,6 +54,14 @@ function WorkspaceRoute() {
     () => parseWorkbenchLocation(location.pathname, new URLSearchParams(location.search)),
     [location.pathname, location.search],
   );
+
+  // 4.5: a pre-redesign bookmark/history entry (e.g. `/workspace/loops`) parses as an unrecognized
+  // destination and would otherwise silently land on Sessions — corrected here, in the URL bar
+  // itself, rather than only in what renders at the old URL.
+  useEffect(() => {
+    const redirect = legacyWorkbenchRedirectPath(location.pathname);
+    if (redirect) navigate(redirect, { replace: true });
+  }, [location.pathname, navigate]);
 
   useEffect(() => rememberWorkbenchLocation(workspaceLocation), [workspaceLocation]);
 

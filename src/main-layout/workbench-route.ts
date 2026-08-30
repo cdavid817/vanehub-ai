@@ -185,3 +185,34 @@ export function recallWorkbenchPath(): string {
   const [pathname, search] = stored.split("?");
   return workbenchPath(parseWorkbenchLocation(pathname, new URLSearchParams(search)));
 }
+
+/**
+ * The pre-Decision-1 flat six-destination scheme's five non-`sessions` ids (`workspace-route.ts`,
+ * deleted in `b3ba029a`). Every one of them was always a bare `/workspace/<id>` path — that scheme
+ * never appended a detail segment to any destination but `sessions` — so there is no id/detail to
+ * carry forward into the new path, only the destination itself.
+ */
+const LEGACY_DESTINATION_REDIRECTS: Record<string, string> = {
+  loops: "/workspace/runs/loops",
+  "work-board": "/workspace/plan/board",
+  goals: "/workspace/plan/goals",
+  evaluations: "/workspace/quality/evaluations",
+  "mission-control": "/workspace/runs/attention",
+};
+
+/**
+ * 4.5: `parseWorkbenchLocation` alone cannot distinguish "never existed" from "used to exist under
+ * the old flat scheme" — both are simply an unrecognized `WorkbenchDestination` id, and it falls
+ * back to Sessions for both, correctly (a syntactically valid route whose target is gone is a
+ * separate, later concern — `RouteValidationState`). This is the layer above that: a router-level
+ * check for the specific, known-finite set of paths a pre-redesign bookmark or browser-history
+ * entry could actually contain, so those resolve to their real new home instead of silently
+ * bouncing to Sessions. Strict on shape (exactly `/workspace/<id>`, nothing after it) because that
+ * is the only shape the old scheme ever produced — a hand-typed variant is not a real compatibility
+ * case to solve for.
+ */
+export function legacyWorkbenchRedirectPath(pathname: string): string | null {
+  const segments = pathname.split("/").filter(Boolean);
+  if (segments.length !== 2 || segments[0] !== "workspace") return null;
+  return LEGACY_DESTINATION_REDIRECTS[segments[1]] ?? null;
+}

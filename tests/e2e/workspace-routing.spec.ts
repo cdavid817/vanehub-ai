@@ -49,6 +49,24 @@ test.describe("workspace routing", () => {
     await expect(page.getByTestId("session-sidebar")).toBeVisible();
   });
 
+  test("redirects every pre-redesign flat destination URL to its new home, in the URL bar itself", async ({ page }) => {
+    await page.goto("/workspace/loops");
+    await expect(page).toHaveURL(/\/workspace\/runs\/loops$/);
+    await expect(page.getByTestId("loop-center")).toBeVisible();
+
+    await page.goto("/workspace/mission-control");
+    await expect(page).toHaveURL(/\/workspace\/runs\/attention$/);
+
+    await page.goto("/workspace/work-board");
+    await expect(page).toHaveURL(/\/workspace\/plan\/board$/);
+
+    await page.goto("/workspace/goals");
+    await expect(page).toHaveURL(/\/workspace\/plan\/goals$/);
+
+    await page.goto("/workspace/evaluations");
+    await expect(page).toHaveURL(/\/workspace\/quality\/evaluations$/);
+  });
+
   /**
    * Sessions is the one destination the "stays mounted" guarantee names: main-layout.tsx keeps
    * its route outlet mounted with a CSS `hidden` toggle rather than conditionally rendering it,
