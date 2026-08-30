@@ -37,6 +37,8 @@ mod session_shell_workspace;
 mod shell_lifecycle_diagnostics;
 mod sqlite_repository;
 mod ssh_shell_transport;
+#[cfg(test)]
+mod structural_performance_tests;
 mod workspace_inspection;
 #[cfg(test)]
 mod workspace_inspection_tests;
