@@ -9,7 +9,10 @@ import tseslint from "typescript-eslint";
 export const LEGACY_LINE_BUDGET_EXEMPTIONS = [
   ["src/services/tauri-agent-client.ts", 1215],
   ["src/types/agent.ts", 702],
-  ["src/main-layout/main-layout.tsx", 528],
+  // 528 -> 536: 接入全局 Command Center(§6)——一行 import、一次 `useCommandCenterContext` 调用
+  // (聚合 navigate/onOpenSettings 与三个面板 toggle handler 为 WorkbenchCommandContext)、一行条件
+  // 渲染。上下文对象的构造本身已抽到 use-command-center-context.ts,这里只留调用点。
+  ["src/main-layout/main-layout.tsx", 536],
   ["src/contracts/agent.ts", 504],
   ["src/settings/pages/sdk-page.tsx", 396],
   // 318 -> 335: 会话创建需要选一个个性化模式，而这个选择又必须在没有工作区时被纠正——

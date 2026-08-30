@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { ArrowLeft } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { CommandCenter } from "../command-center/command-center";
 import { NotificationHost, useNotifications } from "../notifications/notification-provider";
 import { AppShell } from "../ui/app-shell/AppShell";
 import { DestinationLayout } from "../ui/destination-layout/DestinationLayout";
@@ -21,6 +22,7 @@ import { RunsDestination } from "./runs-destination";
 import { SessionContextPanel, type ContextPanelState } from "./session-context-panel";
 import { SessionInfoPanel } from "./session-info-panel";
 import { SessionSidebar } from "./session-sidebar";
+import { useCommandCenterContext } from "./use-command-center-context";
 import { nextSlashTabRequestState, type SlashTabRequest } from "./slash-tab-request";
 import { TopBar } from "./top-bar";
 import { useMainLayoutModel } from "./use-main-layout-model";
@@ -224,6 +226,16 @@ export function MainLayout({
       }}
     />
   ) : null;
+
+  const commandCenter = useCommandCenterContext({
+    location,
+    navigate: onNavigate,
+    onNewSession: () => goToSessions({ creatingSession: true }),
+    onOpenSettings,
+    onToggleFocusMode: () => setConversationFocusMode((mode) => !mode),
+    onToggleInspector: () => setInfoPanelOpenState((open) => !open),
+    onToggleNavigation: () => setSessionSidebarOpen((open) => !open),
+  });
 
   return (
     <main className="min-h-screen bg-background text-foreground">
@@ -518,6 +530,7 @@ export function MainLayout({
           }}
         />
       ) : null}
+      {commandCenter.open ? <CommandCenter context={commandCenter.context} onClose={commandCenter.close} /> : null}
     </main>
   );
 }
