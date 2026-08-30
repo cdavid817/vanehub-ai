@@ -6,6 +6,14 @@ import { agentService } from "../../services/runtime-agent-client";
 import type { MessageFeedback, MessageFeedbackState } from "../../types/chat";
 import { cn } from "../../lib/utils";
 
+function errorText(cause: unknown): string {
+  if (cause instanceof Error) return cause.message;
+  if (typeof cause === "object" && cause !== null && "code" in cause) {
+    return String((cause as { code: unknown }).code);
+  }
+  return String(cause);
+}
+
 export function MessageFeedbackControls({
   feedback: initialFeedback,
   messageId,
@@ -54,7 +62,9 @@ export function MessageFeedbackControls({
       setEditing(false);
       setAuthorizeReusableGuidance(false);
     } catch (cause) {
-      const text = cause instanceof Error ? cause.message : String(cause);
+      // Desktop command errors reject with `{ code }` objects; String() would render
+      // "[object Object]" and misclassify every conflict as a generic save failure.
+      const text = errorText(cause);
       setError(text.includes("feedback-conflict") ? t("chat.feedback.conflict") : t("chat.feedback.saveFailed"));
     } finally {
       setPending(false);
@@ -76,7 +86,9 @@ export function MessageFeedbackControls({
         setFeedback(revoked);
       }
     } catch (cause) {
-      const text = cause instanceof Error ? cause.message : String(cause);
+      // Desktop command errors reject with `{ code }` objects; String() would render
+      // "[object Object]" and misclassify every conflict as a generic save failure.
+      const text = errorText(cause);
       setError(text.includes("feedback-conflict") ? t("chat.feedback.conflict") : t("chat.feedback.saveFailed"));
     } finally {
       setPending(false);

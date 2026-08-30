@@ -122,7 +122,14 @@ pub(crate) fn open_breaker(
         health_check_version: BREAKER_HEALTH_CHECK_VERSION_V1.into(),
         health_probe_passed: false,
         acknowledged_by: None,
-        opened_at_ms: current.opened_at_ms.or(Some(signal.occurred_at_ms)),
+        // A breaker that recovered and re-opens starts a new incident: keeping the previous
+        // opened_at_ms would date the new outage to the old one. Only an already-open breaker
+        // keeps its original opening time.
+        opened_at_ms: if current.status == CircuitBreakerStatus::Closed {
+            Some(signal.occurred_at_ms)
+        } else {
+            current.opened_at_ms.or(Some(signal.occurred_at_ms))
+        },
         updated_at_ms: signal.occurred_at_ms,
         revision: current.revision.saturating_add(1),
         ..current.clone()

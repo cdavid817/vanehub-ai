@@ -19,12 +19,16 @@ pub(crate) fn evaluate_probation(
     if probation.status != ProbationStatus::Active || now_ms < probation.starts_at_ms {
         return Err(ProbationEvaluationError::InvalidState);
     }
+    // Only evidence observed inside the probation window counts: an observation recorded after
+    // ends_at_ms — but before the expiry sweep runs — must not regress a probation that already
+    // survived its window, so the upper bound is the window end, never the sweep time.
+    let window_end = now_ms.min(probation.ends_at_ms);
     let relevant = observations.iter().filter(|observation| {
         observation.probation_id == probation.probation_id
             && observation.verified
             && observation.negative
             && (observation.baseline_exceeded || observation.harmful_correction)
-            && (probation.starts_at_ms..=now_ms).contains(&observation.observed_at_ms)
+            && (probation.starts_at_ms..=window_end).contains(&observation.observed_at_ms)
     });
     let mut independent_negatives = BTreeSet::new();
     let mut harmful_correction = false;

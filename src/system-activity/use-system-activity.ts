@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { agentService } from "../services/runtime-agent-client";
 import type {
   ActivitySeverity,
@@ -55,6 +55,8 @@ export function useSystemActivity(): SystemActivityModel {
   const [refreshToken, setRefreshToken] = useState(0);
 
   const refresh = useCallback(() => setRefreshToken((token) => token + 1), []);
+  const queryKeyRef = useRef("");
+  queryKeyRef.current = `${selectedSessionId ?? ""}|${severityFilter ?? ""}|${searchText.trim()}`;
 
   useEffect(() => {
     let cancelled = false;
@@ -122,6 +124,7 @@ export function useSystemActivity(): SystemActivityModel {
 
   const loadMore = useCallback(() => {
     if (!selectedSessionId || !nextCursor) return;
+    const requestKey = `${selectedSessionId}|${severityFilter ?? ""}|${searchText.trim()}`;
     agentService
       .querySystemActivityTimeline({
         sessionId: selectedSessionId,
@@ -130,6 +133,9 @@ export function useSystemActivity(): SystemActivityModel {
         cursor: nextCursor,
       })
       .then((result) => {
+        // A page requested for one session or filter set must never splice into another: the
+        // user may have switched selection while this request was in flight.
+        if (queryKeyRef.current !== requestKey) return;
         if (result.kind !== "page") {
           setStaleGeneration(true);
           return;
@@ -142,7 +148,9 @@ export function useSystemActivity(): SystemActivityModel {
 
   const markReadThroughNewest = useCallback(() => {
     if (!selectedSessionId || !readState || entries.length === 0) return;
-    const newest = entries[entries.length - 1].sequence;
+    // The desktop adapter pages newest-first and the web adapter matches it, but the cursor is
+    // MAX-monotonic either way, so the highest loaded sequence is what "read through" means.
+    const newest = entries.reduce((highest, entry) => Math.max(highest, entry.sequence), 0);
     agentService
       .advanceSystemActivityReadCursor(selectedSessionId, newest, readState.revision)
       .then((state) => {

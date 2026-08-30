@@ -1,5 +1,5 @@
 import { Ban, CheckCircle2, CircleDashed, Clock3, RefreshCw } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Badge } from "../../../components/ui/badge";
@@ -26,9 +26,16 @@ export function SkillEvolutionRunsPanel({
 }) {
   const { i18n, t } = useTranslation();
   const [selectedId, setSelectedId] = useState(initialRunId ?? runs[0]?.runId ?? null);
+  // The deep-linked run is applied only when the link itself changes; re-asserting it on every
+  // render would snap selection back and make every other run unselectable.
+  const appliedInitialRunId = useRef<string | null>(null);
   useEffect(() => {
-    if (initialRunId) setSelectedId(initialRunId);
-    else if (!selectedId && runs[0]) setSelectedId(runs[0].runId);
+    if (initialRunId && appliedInitialRunId.current !== initialRunId) {
+      appliedInitialRunId.current = initialRunId;
+      setSelectedId(initialRunId);
+    } else if (!selectedId && runs[0]) {
+      setSelectedId(runs[0].runId);
+    }
   }, [initialRunId, runs, selectedId]);
   const detail = useQuery({
     enabled: Boolean(selectedId),

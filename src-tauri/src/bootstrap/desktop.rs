@@ -147,10 +147,11 @@ struct RuntimeShutdownAdapter {
 #[async_trait]
 impl DesktopShutdownPort for RuntimeShutdownAdapter {
     async fn shutdown(&self, deadline: Instant) -> Result<(), String> {
-        self.evolution_background.shutdown()?;
-        // Runs before the fallible shutdowns below so a failure there cannot leave background
-        // command trees behind (`add-background-shell-execution`).
+        // Runs before every fallible shutdown so a failure there cannot leave background command
+        // trees behind (`add-background-shell-execution`) — including a panicked evolution
+        // maintenance worker, whose join error must not abort the reap.
         self.agents.reap_all_background_commands();
+        let evolution = self.evolution_background.shutdown();
         self.agents
             .shutdown_generations()
             .map_err(|_| "agent-runner-shutdown-failed".to_string())?;
@@ -164,7 +165,8 @@ impl DesktopShutdownPort for RuntimeShutdownAdapter {
         );
         agents?;
         communications.map_err(|error| error.safe_code().to_string())?;
-        code_intelligence.map_err(|_| "lsp-shutdown-failed".to_string())
+        code_intelligence.map_err(|_| "lsp-shutdown-failed".to_string())?;
+        evolution
     }
 }
 

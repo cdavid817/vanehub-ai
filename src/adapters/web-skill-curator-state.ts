@@ -37,7 +37,14 @@ export function stableHash(value: string): string {
 
 function scenarioFrom(workspaceId: string): string {
   if (workspaceId.startsWith("mock://")) return workspaceId.slice(7).replaceAll("-", "_");
-  const stored = typeof localStorage === "undefined" ? null : localStorage.getItem("vanehub.skillCuratorScenario");
+  let stored: string | null;
+  try {
+    // Browsers configured to block site data throw on the accessor itself; the mock must fall
+    // back to its deterministic scenario rather than crash the page.
+    stored = typeof localStorage === "undefined" ? null : localStorage.getItem("vanehub.skillCuratorScenario");
+  } catch {
+    stored = null;
+  }
   return stored?.replaceAll("-", "_") ?? "deterministic";
 }
 

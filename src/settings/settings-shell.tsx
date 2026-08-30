@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { LazyFeature } from "../components/lazy-feature";
 import { defaultSettingsPageId, getSettingsPage, settingsPages, type SettingsNavigationTarget, type SettingsPageId } from "./settings-pages";
@@ -27,11 +27,19 @@ export function SettingsShell({
   const [searchTerm, setSearchTerm] = useState("");
   const activePage = useMemo(() => getSettingsPage(activePageId), [activePageId]);
 
+  // Applied once per URL change, never re-asserted: the URL does not update on sidebar clicks, so
+  // re-running on activePageId would snap every in-shell navigation back to the deep-linked page.
+  const appliedRequestedPage = useRef<string | null>(null);
   useEffect(() => {
-    if (requestedPage && requestedPage !== activePageId && settingsPages.some((page) => page.id === requestedPage)) {
+    if (
+      requestedPage
+      && appliedRequestedPage.current !== requestedPage
+      && settingsPages.some((page) => page.id === requestedPage)
+    ) {
+      appliedRequestedPage.current = requestedPage;
       handleSelectPage(requestedPage as SettingsPageId);
     }
-  }, [activePageId, requestedPage]);
+  }, [requestedPage]);
 
   function handleSelectPage(pageId: SettingsPageId, target?: SettingsNavigationTarget) {
     setVisitedPages((current) => new Set(current).add(pageId));

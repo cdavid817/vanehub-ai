@@ -213,6 +213,9 @@ pub(super) fn refresh_session_summary(
     transaction: &Transaction<'_>,
     session_id: &str,
 ) -> Result<(), ActivityProjectionRepositoryError> {
+    // Two-argument MIN is a scalar function, so a session the user has never read (read-state
+    // rows are created lazily) yields zero rows rather than NULL; `.optional()` keeps that case
+    // from aborting the whole retention or purge transaction.
     let effective_read = transaction
         .query_row(
             "SELECT MIN(highest_read_sequence,
@@ -220,7 +223,9 @@ pub(super) fn refresh_session_summary(
              FROM evolution_activity_read_state WHERE session_id=?1 AND user_id=?2",
             params![session_id, LOCAL_ACTIVITY_USER_ID],
             |row| row.get::<_, Option<i64>>(0),
-        )?
+        )
+        .optional()?
+        .flatten()
         .unwrap_or(0);
     transaction.execute(
         "UPDATE evolution_system_activity_sessions SET

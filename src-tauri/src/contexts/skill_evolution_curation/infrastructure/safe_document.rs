@@ -8,15 +8,22 @@ use thiserror::Error;
 const MAX_SNAPSHOT_BYTES: usize = 16 * 1024;
 const MAX_LEARN_BLOCK_BYTES: usize = 8 * 1024;
 const MAX_EXACT_PATCH_BYTES: usize = 16 * 1024;
-const PROHIBITED_KEYS: &[&str] = &[
-    "rawprompt",
+// Matched as substrings of the normalized key, not exact names: an exact-match list lets
+// `userPrompt`, `apiKeys`, or `toolArgs` sail past and land raw prompts or secrets on disk.
+// Fail closed — a rejected draft surfaces `UnsafeShape` to its author instead of persisting.
+const PROHIBITED_KEY_STEMS: &[&str] = &[
     "prompt",
     "providerpayload",
     "terminaloutput",
     "credential",
     "secret",
+    "password",
+    "apikey",
+    "accesskey",
+    "authtoken",
     "modelresponse",
-    "toolarguments",
+    "toolargument",
+    "toolarg",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -77,7 +84,10 @@ fn contains_prohibited_key(value: &Value) -> bool {
     match value {
         Value::Object(object) => object.iter().any(|(key, value)| {
             let normalized = key.to_ascii_lowercase().replace(['_', '-'], "");
-            PROHIBITED_KEYS.contains(&normalized.as_str()) || contains_prohibited_key(value)
+            PROHIBITED_KEY_STEMS
+                .iter()
+                .any(|stem| normalized.contains(stem))
+                || contains_prohibited_key(value)
         }),
         Value::Array(values) => values.iter().any(contains_prohibited_key),
         _ => false,

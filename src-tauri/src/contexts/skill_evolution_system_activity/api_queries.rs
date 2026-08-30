@@ -345,9 +345,23 @@ fn parse_safe_search(text: &str) -> ActivitySafeSearch {
                 .unwrap_or(false)
         })
         .collect();
+    // Identity matching accepts only the safe-identity charset; the raw text is reduced to that
+    // charset rather than passed through, so a space or quote yields an empty (skipped) token and
+    // an alias-only search instead of failing the whole query as invalid input.
+    let identity_token: String = text
+        .trim()
+        .chars()
+        .filter(|character| {
+            character.is_alphanumeric() || matches!(character, '-' | '_' | '.' | ':' | '@')
+        })
+        .collect();
     ActivitySafeSearch {
         event_alias_codes,
-        identity_tokens: vec![text.trim().to_owned()],
+        identity_tokens: if identity_token.is_empty() {
+            Vec::new()
+        } else {
+            vec![identity_token]
+        },
     }
 }
 

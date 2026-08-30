@@ -24,6 +24,9 @@ export const webSystemActivityClient: SystemActivityService = {
       if (query.searchText && !entry.envelope.eventCode.includes(query.searchText)) return false;
       return true;
     });
+    // Newest-first, matching the desktop adapter's ORDER BY sequence DESC — adapter parity is a
+    // contract, and the read cursor's MAX-monotonic semantics assume both page the same way.
+    entries.sort((left, right) => right.sequence - left.sequence);
     const start = query.cursor ? Number.parseInt(query.cursor, 10) : 0;
     if (Number.isNaN(start) || start < 0) throw new Error("system-activity-invalid-input");
     const pageSize = Math.min(query.pageSize ?? 50, 100);

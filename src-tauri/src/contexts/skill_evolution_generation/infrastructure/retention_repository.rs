@@ -163,6 +163,29 @@ fn purge_jobs(
                 [job_id],
             )
             .map_err(|_| GenerationPersistenceError::Storage)?;
+        // Quarantine rows and the supersession self-references have no ON DELETE clause, so they
+        // must be removed or detached first or the job DELETE aborts the whole purge transaction
+        // on the foreign key — wedging retention and privacy purges permanently.
+        transaction
+            .execute(
+                "DELETE FROM evolution_generated_skill_quarantine WHERE job_id=?1",
+                [job_id],
+            )
+            .map_err(|_| GenerationPersistenceError::Storage)?;
+        transaction
+            .execute(
+                "UPDATE evolution_generation_jobs SET supersedes_job_id=NULL
+                 WHERE supersedes_job_id=?1",
+                [job_id],
+            )
+            .map_err(|_| GenerationPersistenceError::Storage)?;
+        transaction
+            .execute(
+                "UPDATE evolution_generation_jobs SET superseded_by_job_id=NULL
+                 WHERE superseded_by_job_id=?1",
+                [job_id],
+            )
+            .map_err(|_| GenerationPersistenceError::Storage)?;
         result.removed_jobs += transaction
             .execute(
                 "DELETE FROM evolution_generation_jobs WHERE job_id=?1",
