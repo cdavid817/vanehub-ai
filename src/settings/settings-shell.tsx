@@ -29,7 +29,10 @@ export function SettingsShell({
 
   // Applied once per URL change, never re-asserted: the URL does not update on sidebar clicks, so
   // re-running on activePageId would snap every in-shell navigation back to the deep-linked page.
-  const appliedRequestedPage = useRef<string | null>(null);
+  // The initial page already honoured the URL (and initialNavigationTarget carries the deep-linked
+  // sub-target), so a requested page that is already active is recorded without a navigation that
+  // would wipe that target.
+  const appliedRequestedPage = useRef<string | null>(requestedPage);
   useEffect(() => {
     if (
       requestedPage
