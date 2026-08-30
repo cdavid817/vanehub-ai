@@ -2,7 +2,7 @@
 
 ## Overview
 
-**Settings → Plugin integration** manages VaneHub AI's built-in product integrations and runs a **readiness check** on each one — confirming the external tool it depends on is installed, authenticated, and usable right now.
+**Settings → Plugin Integrations** manages VaneHub AI's built-in product integrations and runs a **readiness check** on each one — confirming the external tool it depends on is installed, authenticated, and usable right now.
 
 ![The Plugin integration settings page, the GitHub integration card, and three counts](assets/screenshots/settings-plugins-en.png)
 

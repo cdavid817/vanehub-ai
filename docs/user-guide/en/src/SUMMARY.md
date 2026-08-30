@@ -26,6 +26,7 @@
 - [Code indexing](code-indexing.md)
 - [LSP code intelligence](lsp-code-intelligence.md)
 - [Tools and extensions](tooling.md)
+- [Local media](local-media.md)
 - [MCP servers](mcp.md)
 - [Plugin integration](plugin-integration.md)
 - [Prompt Hooks](prompt-hooks.md)
