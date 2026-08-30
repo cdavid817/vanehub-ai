@@ -13,22 +13,38 @@ async function expectContinuousBottomDivider(page: Page) {
 }
 
 test.describe("workspace activity bar", () => {
+  // Wide enough that the inspector stays inline rather than a modal Sheet (Wide tier starts at a
+  // 1280px content width, and the activity rail eats roughly 49px of viewport before content
+  // starts) -- most of these tests open the inspector and then still need to reach controls a
+  // Sheet's full-viewport backdrop would otherwise block. The narrow-viewport tests at the bottom
+  // of this file override it themselves, deliberately, to exercise that Sheet behavior.
+  test.use({ viewport: { width: 1440, height: 720 } });
+
   test("uses the conversation overflow menu to toggle adjacent workspace regions", async ({ page }) => {
     await page.goto("/");
 
-    const grid = page.locator(".ucd-workspace-grid");
+    const grid = page.getByTestId("sessions-destination-layout");
     const sessionSidebar = page.locator("#workspace-session-sidebar");
     const workspaceTabs = page.getByTestId("session-workspace").getByRole("tablist");
-    await expect(sessionSidebar).toHaveCSS("border-right-style", "solid");
     await expectContinuousBottomDivider(page);
     const expandedSidebarBox = await sessionSidebar.boundingBox();
-    const expandedConversationBox = await grid.locator(":scope > section").first().boundingBox();
-    expect(Math.round((expandedConversationBox?.x ?? 0) - ((expandedSidebarBox?.x ?? 0) + (expandedSidebarBox?.width ?? 0)))).toBe(12);
+    const expandedConversationBox = await page.getByTestId("session-conversation-shell").boundingBox();
+    // `SplitPane`'s gutter (`w-2`, 8px) is what separates the two regions now, not a border plus a
+    // CSS margin hack on the conversation column. A tolerance, not an exact value: the gap is a
+    // fixed CSS width, but the two boxes it is measured between can each land on a fractional
+    // device pixel depending on the sidebar's exact width, off by up to 1px from rounding alone.
+    const gutterGap = (expandedConversationBox?.x ?? 0) - ((expandedSidebarBox?.x ?? 0) + (expandedSidebarBox?.width ?? 0));
+    expect(gutterGap).toBeGreaterThanOrEqual(7);
+    expect(gutterGap).toBeLessThanOrEqual(9);
+    await expect(page.getByRole("separator", { name: "会话" })).toBeVisible();
 
     const menu = page.getByTestId("conversation-overflow-trigger");
     await menu.click();
     await expect(page.getByTestId("toggle-session-list")).toHaveAttribute("aria-checked", "true");
-    await expect(page.getByTestId("toggle-info-panel")).toHaveAttribute("aria-checked", "true");
+    // Closed by default (workbench-layout-preferences.ts): open is a modal Sheet at every tier
+    // narrower than Wide, and this viewport's content area -- the full 1280px viewport minus the
+    // activity rail -- already falls in that range.
+    await expect(page.getByTestId("toggle-info-panel")).toHaveAttribute("aria-checked", "false");
     await expect(page.getByTestId("toggle-workspace-tabs")).toHaveAttribute("aria-checked", "true");
     await page.getByTestId("toggle-workspace-tabs").click();
     await expect(workspaceTabs).toHaveCount(0);
@@ -38,14 +54,16 @@ test.describe("workspace activity bar", () => {
     await menu.click();
     await page.getByTestId("toggle-session-list").click();
     await expect(grid).toHaveAttribute("data-session-collapsed", "true");
-    await expect(grid.locator(":scope > section").first()).toHaveCSS("margin-left", "0px");
+    // Closed now unmounts the region (destination-layout/DestinationLayoutBody.tsx) instead of
+    // hiding it with CSS, so its absence from the DOM is the assertion.
+    await expect(sessionSidebar).toHaveCount(0);
     await menu.click();
     await page.getByTestId("toggle-session-list").click();
     await expect(grid).toHaveAttribute("data-session-collapsed", "false");
 
     await menu.click();
     await page.getByTestId("toggle-info-panel").click();
-    await expect(grid).toHaveAttribute("data-info-collapsed", "true");
+    await expect(grid).toHaveAttribute("data-info-collapsed", "false");
     await expectContinuousBottomDivider(page);
     await menu.click();
     await page.getByTestId("toggle-workspace-tabs").click();
@@ -56,34 +74,33 @@ test.describe("workspace activity bar", () => {
     await page.goto("/");
     await createSession(page, "专注模式测试");
 
-    const grid = page.locator(".ucd-workspace-grid");
-    const mainPanel = grid.locator(":scope > section").first();
+    const grid = page.getByTestId("sessions-destination-layout");
+    const mainPanel = page.getByTestId("session-conversation-shell");
     const composer = page.getByRole("textbox", { name: "工作区命令输入" });
     const topBar = page.getByTestId("top-bar");
     const sessionWorkspace = page.getByTestId("session-workspace");
     const overflowMenu = page.getByTestId("conversation-overflow-trigger");
     const workspaceTabs = sessionWorkspace.getByRole("tablist");
     await composer.fill("draft survives focus mode");
-    await expect(grid).toHaveCSS("gap", "0px");
     await expect(page.getByTestId("session-sidebar")).toHaveCSS("border-top-left-radius", "0px");
-    await expect(mainPanel).toHaveCSS("border-right-style", "solid");
     await expect(topBar).toHaveAttribute("data-focus-collapsed", "false");
     await expect(workspaceTabs).toBeVisible();
     const topBarBeforeFocus = await topBar.boundingBox();
 
+    // The inspector starts closed (workbench-layout-preferences.ts); opening it here is what
+    // gives the later "restores the preceding panel state" assertions a non-default state to
+    // restore back to.
     await overflowMenu.click();
     await page.getByTestId("toggle-info-panel").click();
-    await expect(grid).toHaveAttribute("data-info-collapsed", "true");
+    await expect(grid).toHaveAttribute("data-info-collapsed", "false");
     const beforeFocus = await mainPanel.boundingBox();
     expect(beforeFocus).not.toBeNull();
 
     await page.getByRole("button", { name: "专注对话" }).click();
     await expect(grid).toHaveAttribute("data-conversation-focus", "true");
     await expectContinuousBottomDivider(page);
-    await expect(grid).not.toHaveCSS("transition-property", /grid-template-columns/);
     await expect(grid).toHaveAttribute("data-session-collapsed", "true");
     await expect(grid).toHaveAttribute("data-info-collapsed", "true");
-    await expect(grid).toHaveCSS("gap", "0px");
     await expect(topBar).toHaveAttribute("data-focus-collapsed", "true");
     await expect(sessionWorkspace).toHaveAttribute("data-focus-mode", "true");
     await expect(workspaceTabs).toHaveCount(0);
@@ -95,26 +112,30 @@ test.describe("workspace activity bar", () => {
     await page.getByRole("button", { name: "恢复工作区" }).click();
     await expect(grid).toHaveAttribute("data-conversation-focus", "false");
     await expect(grid).toHaveAttribute("data-session-collapsed", "false");
-    await expect(grid).toHaveAttribute("data-info-collapsed", "true");
+    // Restores open, not closed: focus mode only overrides what is on screen this frame, and the
+    // preference it is overriding was switched to open just above.
+    await expect(grid).toHaveAttribute("data-info-collapsed", "false");
     await expect(topBar).toHaveAttribute("data-focus-collapsed", "false");
     await expect(sessionWorkspace).toHaveAttribute("data-focus-mode", "false");
     await expect(workspaceTabs).toBeVisible();
     await expect(composer).toHaveValue("draft survives focus mode");
 
+    // Toggling it closed again before a second focus-mode round trip proves the restore is
+    // reading the live preference each time, not replaying whatever the first round trip saw.
     await overflowMenu.click();
     await page.getByTestId("toggle-info-panel").click();
     await page.getByRole("button", { name: "专注对话" }).click();
     await page.getByRole("button", { name: "恢复工作区" }).click();
     await expect(grid).toHaveAttribute("data-session-collapsed", "false");
-    await expect(grid).toHaveAttribute("data-info-collapsed", "false");
+    await expect(grid).toHaveAttribute("data-info-collapsed", "true");
   });
 
   test("toggles the session sidebar, preserves its view, and keeps panel states independent", async ({ page }) => {
     await page.goto("/");
 
-    const grid = page.locator(".ucd-workspace-grid");
+    const grid = page.getByTestId("sessions-destination-layout");
     const sessionSidebar = page.locator("#workspace-session-sidebar");
-    const mainPanel = grid.locator(":scope > section").first();
+    const mainPanel = page.getByTestId("session-conversation-shell");
     const sessionMoreActions = page.getByRole("button", { name: "更多操作" });
     await sessionMoreActions.click();
     await page.getByRole("menuitem", { name: /归档/ }).click();
@@ -124,7 +145,7 @@ test.describe("workspace activity bar", () => {
     expect(initialBox).not.toBeNull();
     await page.getByRole("button", { name: "折叠会话栏" }).click();
     await expect(grid).toHaveAttribute("data-session-collapsed", "true");
-    await expect(sessionSidebar).toHaveAttribute("aria-hidden", "true");
+    await expect(sessionSidebar).toHaveCount(0);
     await expect.poll(async () => (await mainPanel.boundingBox())?.width ?? 0).toBeGreaterThan((initialBox?.width ?? 0) + 150);
 
     await page.getByRole("button", { name: "展开会话栏" }).click();
@@ -132,14 +153,17 @@ test.describe("workspace activity bar", () => {
     await expect(sessionMoreActions).toBeVisible();
     await expect(sessionMoreActions).toHaveClass(/text-primary/);
 
+    // Opens it from its default-closed state (workbench-layout-preferences.ts) -- what this
+    // block checks is that toggling the session list around it does not touch this state either
+    // way, not which direction the one click here went.
     await page.getByTestId("conversation-overflow-trigger").click();
     await page.getByTestId("toggle-info-panel").click();
-    await expect(grid).toHaveAttribute("data-info-collapsed", "true");
+    await expect(grid).toHaveAttribute("data-info-collapsed", "false");
     await page.getByRole("button", { name: "折叠会话栏" }).click();
     await expect(grid).toHaveAttribute("data-session-collapsed", "true");
-    await expect(grid).toHaveAttribute("data-info-collapsed", "true");
+    await expect(grid).toHaveAttribute("data-info-collapsed", "false");
     await page.getByRole("button", { name: "展开会话栏" }).click();
-    await expect(grid).toHaveAttribute("data-info-collapsed", "true");
+    await expect(grid).toHaveAttribute("data-info-collapsed", "false");
   });
 
   test("resizes the session sidebar and restores the persisted width after collapse and reload", async ({ page }) => {
@@ -151,7 +175,10 @@ test.describe("workspace activity bar", () => {
     await page.goto("/");
 
     const sessionSidebar = page.locator("#workspace-session-sidebar");
-    const resizeHandle = page.getByRole("button", { name: "调整会话栏宽度" });
+    // The sidebar's own gutter, not a `<button>`: `SplitPane` resizes through a
+    // `role="separator"` element (pointer-drag and arrow-key alike), shared with the Sheet title
+    // at narrower tiers (destination-layout/regions.ts).
+    const resizeHandle = page.getByRole("separator", { name: "会话" });
     await expect.poll(async () => Math.round((await sessionSidebar.boundingBox())?.width ?? 0)).toBe(300);
 
     const handleBox = await resizeHandle.boundingBox();
@@ -163,14 +190,21 @@ test.describe("workspace activity bar", () => {
     await page.mouse.up();
 
     await expect.poll(async () => Math.round((await sessionSidebar.boundingBox())?.width ?? 0)).toBeGreaterThan(380);
-    const persistedWidth = await page.evaluate(() => Number(window.localStorage.getItem("vanehub.session-sidebar.width.v1")));
+    // A commit persists to the V2 preferences record now (workbench-layout-preferences.ts), not
+    // back to the legacy key this spec seeded above -- that key is a one-time migration source,
+    // never a write target once a V2 value exists.
+    const readPersistedWidth = () => page.evaluate(() => {
+      const raw = window.localStorage.getItem("vanehub.workbench.layout.v2");
+      const parsed = raw ? JSON.parse(raw) : null;
+      return parsed?.destination?.sessions?.navigationWidth ?? null;
+    });
+    const persistedWidth = await readPersistedWidth();
     expect(persistedWidth).toBeGreaterThan(380);
     expect(persistedWidth).toBeLessThanOrEqual(420);
 
     await page.getByRole("button", { name: "折叠会话栏" }).click();
-    await expect(sessionSidebar).toHaveJSProperty("inert", true);
+    await expect(sessionSidebar).toHaveCount(0);
     await page.getByRole("button", { name: "展开会话栏" }).click();
-    await expect(sessionSidebar).toHaveJSProperty("inert", false);
     await expect.poll(async () => Math.round((await sessionSidebar.boundingBox())?.width ?? 0)).toBe(persistedWidth);
 
     await page.reload();
@@ -208,13 +242,11 @@ test.describe("workspace activity bar", () => {
     expect(await page.evaluate(() => JSON.parse(window.localStorage.getItem("vanehub.session-sidebar.expanded-groups.v1") ?? "[]"))).toContain("project:D:\\example-workspace");
 
     await page.getByRole("button", { name: "折叠会话栏" }).click();
-    await expect(sessionSidebar).toHaveAttribute("aria-hidden", "true");
-    await expect(sessionSidebar).toHaveJSProperty("inert", true);
-    await page.keyboard.press("Tab");
-    expect(await sessionSidebar.evaluate((element) => element.contains(document.activeElement))).toBe(false);
+    // Unmounted rather than merely hidden, so there is nothing left for a stray Tab to reach --
+    // the `inert`/`aria-hidden` bookkeeping the old CSS-hidden shell needed is not required here.
+    await expect(sessionSidebar).toHaveCount(0);
 
     await page.getByRole("button", { name: "展开会话栏" }).click();
-    await expect(sessionSidebar).toHaveJSProperty("inert", false);
     await expect(projectMode).toHaveClass(/text-primary/);
     await expect(folder).toBeVisible();
     await expect(sessionCard).toBeVisible();
@@ -225,26 +257,14 @@ test.describe("workspace activity bar", () => {
   test("opens scheduled tasks and manages a Web mock task", async ({ page }) => {
     await page.goto("/");
 
-    const scheduledTasks = page.getByRole("button", { name: "定时任务" });
-    await page.getByRole("button", { name: "折叠会话栏" }).focus();
-    await page.keyboard.press("Tab");
-    await expect(page.getByRole("button", { name: "循环工程" })).toBeFocused();
-    // Scheduled tasks opens a dialog, so it follows every destination entry in its
-    // own group rather than sitting between them.
-    await page.keyboard.press("Tab");
-    await expect(page.getByRole("button", { name: "任务看板" })).toBeFocused();
-    await page.keyboard.press("Tab");
-    await expect(page.getByRole("button", { name: "目标中心" })).toBeFocused();
-    await page.keyboard.press("Tab");
-    await expect(page.getByRole("button", { name: "Agent 评测" })).toBeFocused();
-    await page.keyboard.press("Tab");
-    await expect(page.getByRole("button", { name: "任务控制台" })).toBeFocused();
-    await page.keyboard.press("Tab");
-    await expect(scheduledTasks).toBeFocused();
-    await scheduledTasks.click();
-    // Scheduled tasks is a dialog, not a destination, so it must leave the workspace route alone.
-    await expect(page).toHaveURL(/\/workspace\/sessions/);
-    await expect(page.getByRole("heading", { name: "定时任务" })).toBeVisible();
+    // Scheduled Tasks is a Runs section now (runs-destination.tsx), not its own activity-bar
+    // entry with a dialog behind it -- design.md Decision 1 folded it into Runs' own secondary
+    // navigation along with Loops, Attention, Active, and History.
+    await page.getByRole("button", { name: "运行", exact: true }).click();
+    const scheduledTasksTab = page.getByRole("tab", { name: "定时任务" });
+    await scheduledTasksTab.click();
+    await expect(scheduledTasksTab).toHaveAttribute("aria-selected", "true");
+    await expect(page).toHaveURL(/\/workspace\/runs\/schedules/);
     await expect(page.getByPlaceholder("例如：每日整理项目进度")).toBeVisible();
 
     await page.getByLabel("任务名称").fill("每日整理项目进度");
@@ -270,8 +290,6 @@ test.describe("workspace activity bar", () => {
     await expect(page.getByText("还没有定时任务。")).toBeVisible();
     await expect(page.getByRole("button", { name: "帮助" })).toBeVisible();
 
-    await page.keyboard.press("Escape");
-    await expect(page.getByRole("heading", { name: "定时任务" })).toHaveCount(0);
     await page.getByRole("button", { name: "设置", exact: true }).click();
     await expect(page).toHaveURL(/\/settings$/);
   });
@@ -289,9 +307,9 @@ test.describe("workspace activity bar", () => {
       await expect(activityBar).toBeVisible();
       await expectContinuousBottomDivider(page);
       await page.getByRole("button", { name: "折叠会话栏" }).click();
-      await expect(sessionSidebar).toHaveAttribute("aria-hidden", "true");
+      await expect(sessionSidebar).toHaveCount(0);
       await page.getByRole("button", { name: "展开会话栏" }).click();
-      await expect(sessionSidebar).toHaveAttribute("aria-hidden", "false");
+      await expect(sessionSidebar).toBeVisible();
       await expect(activityBar).toBeVisible();
 
       // The entry used to open a second input that ran no query. It now hands focus to the
@@ -300,10 +318,10 @@ test.describe("workspace activity bar", () => {
       await expect(openSearch).toBeVisible();
       const searchInput = page.locator("#workspace-session-search");
       await page.getByRole("button", { name: "折叠会话栏" }).click();
-      await expect(sessionSidebar).toHaveAttribute("aria-hidden", "true");
+      await expect(sessionSidebar).toHaveCount(0);
 
       await openSearch.click();
-      await expect(sessionSidebar).toHaveAttribute("aria-hidden", "false");
+      await expect(sessionSidebar).toBeVisible();
       await expect(searchInput).toBeVisible();
       await expect(searchInput).toBeFocused();
       await expect(openSearch).toBeVisible();

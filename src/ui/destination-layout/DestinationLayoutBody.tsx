@@ -49,15 +49,28 @@ export function DestinationLayoutBody({ tier, containerWidth, navigation, inspec
 
   let workRow: ReactNode = withRuntimePanel(main, runtimePanel);
 
-  if (inspectorInlineOpen && inspector) {
+  // Wrapped whenever the tier allows inline at all, not only while actually open: `SplitPane`'s
+  // `open` prop (not this condition) is what hides the pane, because that keeps `workRow`'s
+  // wrapper at the same position in `SplitPane`'s own children across the toggle. Gating this
+  // condition on open/closed instead would swap `workRow` between being `SplitPane`'s direct
+  // return and being nested inside one, and React remounts a subtree whose ancestor type changed
+  // like that — which used to cost a reader an in-progress draft the moment they opened the
+  // inspector.
+  if (inspectorInline && inspector) {
     workRow = (
       <SplitPane
+        // Whichever of these two ends up outermost is a flex item of this component's own
+        // returned row below and needs to grow into it; nested inside the other one's flexRegion
+        // wrapper (a plain block, not a flex container), `flex-1` has no effect either way, so
+        // this is safe unconditionally rather than only on whichever one that turns out to be.
+        className="flex-1"
         direction="row"
         gutterLabel={inspector.label}
         max={inspector.max}
         min={inspector.min}
         onResizeEnd={inspector.onWidthCommit}
         onSizeChange={inspector.onWidthChange}
+        open={inspectorInlineOpen}
         primary={workRow}
         resizedPane="secondary"
         secondary={inspector.content}
@@ -65,15 +78,17 @@ export function DestinationLayoutBody({ tier, containerWidth, navigation, inspec
       />
     );
   }
-  if (navigationInlineOpen && navigation) {
+  if (navigationInline && navigation) {
     workRow = (
       <SplitPane
+        className="flex-1"
         direction="row"
         gutterLabel={navigation.label}
         max={navigation.max}
         min={navigation.min}
         onResizeEnd={navigation.onWidthCommit}
         onSizeChange={navigation.onWidthChange}
+        open={navigationInlineOpen}
         primary={navigation.content}
         resizedPane="primary"
         secondary={workRow}

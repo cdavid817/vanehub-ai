@@ -2371,7 +2371,6 @@
   "layout.sessionViewCategory": "카테고리",
   "layout.sessionViewProject": "프로젝트",
   "layout.ungroupedProject": "프로젝트 없음",
-  "layout.resizeSessionSidebar": "세션 사이드바 크기 조정",
   "layout.agentFilter": "Agent 필터",
   "layout.agentFilter.all": "모든 에이전트",
   "layout.agentFilter.claude-code": "Claude Code",

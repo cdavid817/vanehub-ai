@@ -12,6 +12,19 @@ export interface SplitPaneProps {
   secondary: ReactNode;
   /** Which pane the `size`/gutter controls; the other pane fills the remaining space. */
   resizedPane?: "primary" | "secondary";
+  /**
+   * Renders only the unsized side's own wrapper, with neither the gutter nor `secondary` —
+   * not simply `size={0}`, which `min` would clamp back up. Defaults to `true` so every existing
+   * caller is unaffected.
+   *
+   * That wrapper is the same element `primary`/`secondary` sits in either way (only its siblings
+   * change), which is what keeps this side's content mounted across an open/close toggle: a
+   * caller that skipped rendering `SplitPane` entirely instead, swapping it for a bare
+   * `resizedPane`-side element, would change that element's ancestor one level up and React would
+   * remount its subtree — exactly the bug this option exists to avoid (destination-layout wraps
+   * `main` this way, and toggling the inspector open used to wipe an in-progress draft under it).
+   */
+  open?: boolean;
   size: number;
   onSizeChange: (size: number) => void;
   /** Fires once per drag/keypress commit — the moment a caller should persist the size. */
@@ -31,6 +44,7 @@ export function SplitPane({
   primary,
   secondary,
   resizedPane = "primary",
+  open = true,
   size,
   onSizeChange,
   onResizeEnd,
@@ -64,25 +78,35 @@ export function SplitPane({
     return <div className="min-h-0 min-w-0 flex-1 overflow-hidden">{content}</div>;
   }
 
+  // The flex-side wrapper always renders at the same position in this element's children,
+  // whichever side that is — that positional stability, not the wrapper's specific div, is what
+  // lets a caller open/close the other side without React reconciling its content as a fresh
+  // subtree (see the `open` prop's doc comment).
+  // `h-full`, not just `flex-1`/`min-h-0`: those only size this element as a flex item of a flex
+  // parent. A `SplitPane` nested inside another `SplitPane`'s own flex-side wrapper sits in a
+  // plain block div instead (see that wrapper below), where block-level height defaults to
+  // content size — `h-full` is what makes this element inherit its parent's real height there too.
   return (
-    <div className={cn("flex min-h-0 min-w-0", direction === "row" ? "flex-row" : "flex-col", className)}>
-      {startIsSized ? sizedRegion(primary) : flexRegion(primary)}
-      <div
-        aria-label={gutterLabel}
-        aria-orientation={direction === "row" ? "vertical" : "horizontal"}
-        aria-valuemax={max}
-        aria-valuemin={min}
-        aria-valuenow={clamped}
-        className={cn(
-          "ucd-focus-ring shrink-0 touch-none bg-border-subtle hover:bg-accent",
-          direction === "row" ? "w-2 cursor-col-resize" : "h-2 cursor-row-resize",
-        )}
-        onKeyDown={handleKeyDown}
-        onPointerDown={handlePointerDown}
-        role="separator"
-        tabIndex={0}
-      />
-      {startIsSized ? flexRegion(secondary) : sizedRegion(secondary)}
+    <div className={cn("flex h-full min-h-0 min-w-0", direction === "row" ? "flex-row" : "flex-col", className)}>
+      {startIsSized ? (open ? sizedRegion(primary) : null) : flexRegion(primary)}
+      {open ? (
+        <div
+          aria-label={gutterLabel}
+          aria-orientation={direction === "row" ? "vertical" : "horizontal"}
+          aria-valuemax={max}
+          aria-valuemin={min}
+          aria-valuenow={clamped}
+          className={cn(
+            "ucd-focus-ring shrink-0 touch-none bg-border-subtle hover:bg-accent",
+            direction === "row" ? "w-2 cursor-col-resize" : "h-2 cursor-row-resize",
+          )}
+          onKeyDown={handleKeyDown}
+          onPointerDown={handlePointerDown}
+          role="separator"
+          tabIndex={0}
+        />
+      ) : null}
+      {startIsSized ? flexRegion(secondary) : (open ? sizedRegion(secondary) : null)}
     </div>
   );
 }

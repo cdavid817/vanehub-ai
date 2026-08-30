@@ -2,7 +2,6 @@ import { renderToString } from "react-dom/server";
 import "../i18n";
 import { describe, expect, it, vi } from "vitest";
 import type { Session } from "../types/agent";
-import { clampSessionSidebarWidth } from "./main-layout";
 import { SessionSidebar } from "./session-sidebar";
 import { filterSearchResultsByAgent, filterSessionsByAgent, groupSessionsByProject, pruneSelectionToVisible } from "./session-sidebar-model";
 
@@ -147,11 +146,5 @@ describe("session sidebar filtering and grouping", () => {
       ["devbox:app", ["remote"]],
       ["No Project", ["ungrouped"]],
     ]);
-  });
-
-  it("clamps the resizable session sidebar width", () => {
-    expect(clampSessionSidebarWidth(120)).toBe(232);
-    expect(clampSessionSidebarWidth(300.4)).toBe(300);
-    expect(clampSessionSidebarWidth(900)).toBe(420);
   });
 });

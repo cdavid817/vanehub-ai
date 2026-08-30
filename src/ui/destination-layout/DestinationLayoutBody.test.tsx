@@ -1,9 +1,16 @@
 // @vitest-environment jsdom
 
+import { useEffect } from "react";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { HorizontalPaneRegion, RuntimePanelRegion } from "./regions";
 import { DestinationLayoutBody } from "./DestinationLayoutBody";
+
+/** Fires once on mount, not on update — a remount is the only way this fires a second time. */
+function MountSpy({ onMount }: { onMount: () => void }) {
+  useEffect(() => { onMount(); }, [onMount]);
+  return <main>Work surface</main>;
+}
 
 function region(overrides: Partial<HorizontalPaneRegion> & { content: React.ReactNode; label: string }): HorizontalPaneRegion {
   return {
@@ -93,6 +100,29 @@ describe("DestinationLayoutBody", () => {
     render(<DestinationLayoutBody containerWidth={1600} main={<main>Work surface</main>} runtimePanel={{ ...runtimePanel, open: false }} tier="wide" />);
     expect(screen.queryByText("Runtime content")).toBeNull();
     expect(screen.getByText("Work surface")).toBeTruthy();
+  });
+
+  it("does not remount main when inspector or navigation toggles open at an inline tier", () => {
+    const mounts = vi.fn();
+    const renderWith = (inspectorOpen: boolean, navigationOpen: boolean) => (
+      <DestinationLayoutBody
+        containerWidth={1600}
+        inspector={region({ ...inspector, open: inspectorOpen })}
+        main={<MountSpy onMount={mounts} />}
+        navigation={region({ ...navigation, open: navigationOpen })}
+        tier="wide"
+      />
+    );
+    const { rerender } = render(renderWith(true, true));
+    expect(mounts).toHaveBeenCalledTimes(1);
+    rerender(renderWith(false, true));
+    expect(mounts).toHaveBeenCalledTimes(1);
+    rerender(renderWith(false, false));
+    expect(mounts).toHaveBeenCalledTimes(1);
+    rerender(renderWith(true, false));
+    expect(mounts).toHaveBeenCalledTimes(1);
+    rerender(renderWith(true, true));
+    expect(mounts).toHaveBeenCalledTimes(1);
   });
 
   it("tags its root with the current tier for downstream styling/testing hooks", () => {

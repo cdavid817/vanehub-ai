@@ -86,15 +86,30 @@ test.describe("multi-Agent session", () => {
     await expect(composerSurface.getByTestId("composer-toolbar")).toBeVisible();
     await expect(composerSurface.getByPlaceholder(/输入指令/)).toBeVisible();
 
+    // The seats view lives in the inspector, closed by default now (workbench-layout-preferences.ts).
+    await page.getByTestId("conversation-overflow-trigger").click();
+    await page.getByTestId("toggle-info-panel").click();
+
     // The seats view answers who is in the room without offering a control that dispatches them.
     await expect(page.getByText(/^席位$/).first()).toBeVisible();
     await expect(page.getByRole("button", { name: /指派|派给|dispatch/i })).toHaveCount(0);
+
+    // Closes the inspector again the way its own Sheet is dismissed, not by reopening the menu
+    // that is itself covered by the Sheet's backdrop at this viewport: the tab this test switches
+    // to next lives in the conversation area, behind it.
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("session-roster-editor")).toHaveCount(0);
 
     await page.getByRole("tab", { name: /终端|Terminal/ }).first().click();
     await expect(page.getByRole("tablist", { name: /席位切换/ })).toBeVisible();
   });
 
   test("a running shared session exposes roster presence, membership edits, and participant mentions", async ({ page }) => {
+    // Wide enough that the inspector stays inline instead of a modal Sheet (see
+    // workspace-activity-bar.spec.ts for why): this test needs the roster editor and the composer
+    // usable at the same time throughout, which an overlay covering one to reach the other rules
+    // out.
+    await page.setViewportSize({ width: 1440, height: 720 });
     await createMultiSeatSession(page, "共享成员会话");
 
     const sessionCard = page.locator("[data-session-id]").filter({ hasText: "共享成员会话" });
@@ -110,6 +125,11 @@ test.describe("multi-Agent session", () => {
     await expect(conversationHeader.getByTestId("session-roster-chips")).toHaveCount(0);
     await expect(conversationHeader.getByText("codex-cli", { exact: true })).toHaveCount(0);
     await expect(conversationHeader.getByText("claude-code", { exact: true })).toHaveCount(0);
+
+    // The roster editor lives in the inspector, closed by default now (workbench-layout-preferences.ts).
+    await page.getByTestId("conversation-overflow-trigger").click();
+    await page.getByTestId("toggle-info-panel").click();
+
     const editor = page.getByTestId("session-roster-editor");
     await expect(editor).toBeVisible();
     await expect(editor).toHaveAccessibleName("成员信息");
@@ -122,7 +142,7 @@ test.describe("multi-Agent session", () => {
     await expect(editor.locator('[data-role-icon="architect"]')).toBeVisible();
     await expect(editor.locator('[data-role-icon="implementer"]')).toBeVisible();
     await page.getByRole("button", { name: "专注对话" }).click();
-    await expect(page.locator(".ucd-workspace-grid")).toHaveAttribute("data-info-collapsed", "true");
+    await expect(page.getByTestId("sessions-destination-layout")).toHaveAttribute("data-info-collapsed", "true");
     await page.getByRole("button", { name: "恢复工作区" }).click();
     await expect(editor).toBeVisible();
     const participantRows = editor.locator("li.ucd-list-row");
@@ -160,6 +180,16 @@ test.describe("multi-Agent session", () => {
     const messageRegion = page.getByTestId("message-scroll-region");
     const messageCanvas = page.getByTestId("message-readable-measure");
     await expect.poll(() => messageRegion.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+    // The mock reply keeps appending sections (compaction, memory, web preview, validation,
+    // feedback row) after this, and the last of those can land after MessageList's
+    // ResizeObserver-driven auto-follow (MessageList.tsx) has already caught up once — a second
+    // pass, after giving it a moment, is what the rest of this test's stricter, sub-4px anchor
+    // checks depend on holding from here on. Not a plain wait for a stable reading: scrollHeight
+    // keeps moving by a pixel or two indefinitely on this page (consistent with the "ResizeObserver
+    // loop" warnings this suite already gets from other specs), so waiting for two consecutive
+    // reads to agree never converges within a normal poll window.
+    await messageRegion.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+    await page.waitForTimeout(2000);
     await messageRegion.evaluate((element) => { element.scrollTop = element.scrollHeight; });
     const expectAdaptiveMessageCanvas = async () => {
       await expect.poll(async () => {

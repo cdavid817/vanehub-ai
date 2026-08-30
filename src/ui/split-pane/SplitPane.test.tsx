@@ -1,9 +1,15 @@
 // @vitest-environment jsdom
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { SplitPane, type SplitPaneProps } from "./SplitPane";
+
+/** Fires once on mount, not on update — a remount is the only way this fires a second time. */
+function MountSpy({ label, onMount }: { label: string; onMount: () => void }) {
+  useEffect(() => { onMount(); }, [onMount]);
+  return <p>{label}</p>;
+}
 
 /** A controlled wrapper so keyboard steps accumulate the way a real caller's state would. */
 function ControlledSplitPane(props: Omit<SplitPaneProps, "size" | "onSizeChange"> & { initialSize: number; onSizeChange?: (size: number) => void }) {
@@ -137,5 +143,53 @@ describe("SplitPane", () => {
     expect(gutter.getAttribute("aria-orientation")).toBe("horizontal");
     expect(gutter.getAttribute("aria-valuemin")).toBe("120");
     expect(gutter.getAttribute("aria-valuemax")).toBe("480");
+  });
+
+  it("hides the gutter and the sized side when closed, keeping the flex side visible", () => {
+    render(
+      <SplitPane
+        direction="row"
+        gutterLabel="Resize inspector"
+        max={400}
+        min={160}
+        onSizeChange={vi.fn()}
+        open={false}
+        primary={<p>Main</p>}
+        resizedPane="secondary"
+        secondary={<p>Inspector</p>}
+        size={240}
+      />,
+    );
+    expect(screen.getByText("Main")).toBeTruthy();
+    expect(screen.queryByText("Inspector")).toBeNull();
+    expect(screen.queryByRole("separator")).toBeNull();
+  });
+
+  it("does not remount the flex side across an open/close/open cycle, on either resizedPane", () => {
+    for (const resizedPane of ["primary", "secondary"] as const) {
+      const mounts = vi.fn();
+      const flexSideProps = resizedPane === "secondary"
+        ? { primary: <MountSpy label="Main" onMount={mounts} />, secondary: <p>Inspector</p> }
+        : { primary: <p>Navigation</p>, secondary: <MountSpy label="Main" onMount={mounts} /> };
+      const renderWith = (open: boolean) => (
+        <SplitPane
+          direction="row"
+          gutterLabel="Resize"
+          max={400}
+          min={160}
+          onSizeChange={vi.fn()}
+          open={open}
+          resizedPane={resizedPane}
+          size={240}
+          {...flexSideProps}
+        />
+      );
+      const { rerender } = render(renderWith(true));
+      expect(mounts).toHaveBeenCalledTimes(1);
+      rerender(renderWith(false));
+      expect(mounts).toHaveBeenCalledTimes(1);
+      rerender(renderWith(true));
+      expect(mounts).toHaveBeenCalledTimes(1);
+    }
   });
 });

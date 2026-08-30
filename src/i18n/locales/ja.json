@@ -2371,7 +2371,6 @@
   "layout.sessionViewCategory": "カテゴリー",
   "layout.sessionViewProject": "プロジェクト",
   "layout.ungroupedProject": "プロジェクトがありません",
-  "layout.resizeSessionSidebar": "セッションのサイドバーのサイズを変更する",
   "layout.agentFilter": "Agentフィルター",
   "layout.agentFilter.all": "すべてのエージェント",
   "layout.agentFilter.claude-code": "Claude Code",

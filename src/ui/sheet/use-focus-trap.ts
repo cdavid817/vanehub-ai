@@ -22,8 +22,13 @@ export function useFocusTrap<T extends HTMLElement>({ onClose, closeDisabled = f
   useEffect(() => {
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const root = rootRef.current;
-    const focusTarget = root?.querySelector<HTMLElement>("[data-dialog-autofocus]") ?? root;
-    focusTarget?.focus();
+    // A descendant's own mount effect — e.g. content requesting a specific field — runs before
+    // this one in the same commit (children's effects fire before their parent's), so a focus it
+    // already placed inside this root wins over the generic fallback below.
+    if (!root?.contains(previousFocus)) {
+      const focusTarget = root?.querySelector<HTMLElement>("[data-dialog-autofocus]") ?? root;
+      focusTarget?.focus();
+    }
 
     function handleKeyDown(event: KeyboardEvent) {
       const modalStack = Array.from(document.querySelectorAll<HTMLElement>('[aria-modal="true"]'));

@@ -120,7 +120,7 @@ function renderPanel(
 
   return renderToString(
     <QueryClientProvider client={queryClient}>
-      <SessionInfoPanel activeSession={activeSession} collapsed={false} currentSpeakerSeatId={currentSpeakerSeatId} />
+      <SessionInfoPanel activeSession={activeSession} currentSpeakerSeatId={currentSpeakerSeatId} />
     </QueryClientProvider>,
   );
 }
@@ -175,8 +175,6 @@ describe("SessionInfoPanel", () => {
     expect(html).toContain("Skill");
     expect(html).toContain('id="info-tab-im"');
     expect(html).toContain('data-testid="session-im-access"');
-    expect(html).toContain("max-[900px]:absolute");
-    expect(html).toContain("max-[900px]:w-[min(320px,90vw)]");
     expect(html).not.toContain(">Files<");
     expect(html).not.toContain(">Changes<");
     expect(html).not.toContain(">Logs<");

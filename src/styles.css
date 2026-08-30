@@ -439,104 +439,10 @@ body.floating-assistant-surface {
   box-shadow: 0 8px 20px hsl(var(--primary) / 0.18);
 }
 
-.ucd-workspace-grid {
-  /* Keep the separation on the conversation item. This leaves the session column's full width
-     available to its rows and creates a real non-overlapping strip between the two surfaces. */
-  --session-conversation-gap: 12px;
-  grid-template-columns: var(--session-sidebar-width, 232px) minmax(0, 1fr) 300px;
-}
-
-.ucd-workspace-grid[data-info-collapsed="true"] {
-  grid-template-columns: var(--session-sidebar-width, 232px) minmax(0, 1fr) 0;
-}
-
-.ucd-workspace-grid[data-session-collapsed="true"] {
-  grid-template-columns: 0 minmax(0, 1fr) 300px;
-}
-
-.ucd-workspace-grid[data-session-collapsed="true"][data-info-collapsed="true"] {
-  grid-template-columns: 0 minmax(0, 1fr) 0;
-}
-
-/* Raised so a menu opened inside the sidebar draws above the conversation column, which comes
-   later in the DOM and paints an opaque background. */
-.ucd-session-sidebar-shell {
-  z-index: 10;
-  background: hsl(var(--panel-muted));
-}
-
-.ucd-conversation-shell {
-  margin-left: var(--session-conversation-gap, 12px);
-}
-
-.ucd-workspace-grid[data-session-collapsed="true"] .ucd-conversation-shell {
-  margin-left: 0;
-}
-
-.ucd-session-sidebar-resize {
-  position: absolute;
-  top: 10px;
-  right: 0;
-  z-index: 20;
-  height: calc(100% - 20px);
-  width: var(--session-sidebar-gutter, 10px);
-  cursor: col-resize;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-}
-
-.ucd-session-sidebar-resize::after {
-  position: absolute;
-  top: 0;
-  right: 4px;
-  bottom: 0;
-  width: 2px;
-  content: "";
-  border-radius: 999px;
-  background: hsl(var(--border-strong) / 0.5);
-  opacity: 0;
-  transition: opacity 160ms ease, background-color 160ms ease;
-}
-
-.ucd-session-sidebar-resize:hover::after,
-.ucd-session-sidebar-resize:focus-visible::after {
-  background: hsl(var(--primary));
-  opacity: 1;
-}
 .ucd-activity-bar {
   /* No border-right of its own: `AppShell` (src/ui/app-shell) now wraps the activity rail slot in
      one, and this used to stack a second, slightly different-toned line beside it. */
   background: hsl(var(--panel-muted));
-}
-
-@media (max-width: 900px) {
-  .ucd-workspace-grid,
-  .ucd-workspace-grid[data-info-collapsed="true"] {
-    grid-template-columns: minmax(232px, min(var(--session-sidebar-width, 232px), 42vw)) minmax(0, 1fr);
-  }
-
-  .ucd-workspace-grid[data-session-collapsed="true"],
-  .ucd-workspace-grid[data-session-collapsed="true"][data-info-collapsed="true"] {
-    grid-template-columns: 0 minmax(0, 1fr);
-  }
-}
-
-@media (max-width: 640px) {
-  .ucd-workspace-grid,
-  .ucd-workspace-grid[data-info-collapsed="true"],
-  .ucd-workspace-grid[data-session-collapsed="true"],
-  .ucd-workspace-grid[data-session-collapsed="true"][data-info-collapsed="true"] {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .ucd-workspace-grid[data-session-collapsed="true"] .ucd-session-sidebar-shell {
-    display: none;
-  }
-
-  .ucd-conversation-shell {
-    margin-left: 0;
-  }
 }
 
 .ucd-input {

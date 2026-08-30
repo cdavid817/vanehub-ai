@@ -21,15 +21,20 @@ import {
 
 const sessionSidebarPresentationKey = "vanehub.session-sidebar.presentation.v1";
 const sessionSidebarExpansionKey = "vanehub.session-sidebar.expanded-groups.v1";
+const sessionSidebarSourceModeKey = "vanehub.session-sidebar.source-mode.v1";
 
 function readPresentation(): SessionPresentationMode {
-  if (typeof localStorage === "undefined") return "list";
-  const stored = localStorage.getItem(sessionSidebarPresentationKey);
+  const stored = typeof localStorage === "undefined" ? null : localStorage.getItem(sessionSidebarPresentationKey);
   return stored === "category" || stored === "project" || stored === "list" ? stored : "list";
 }
 
+// Persisted because a closed sidebar now unmounts (destination-layout) rather than just hiding.
+function readSourceMode(): SessionSourceMode {
+  const stored = typeof localStorage === "undefined" ? null : localStorage.getItem(sessionSidebarSourceModeKey);
+  return stored === "archived" ? "archived" : "active";
+}
+
 function readExpandedGroups(): Set<string> {
-  if (typeof localStorage === "undefined") return new Set();
   try {
     const parsed = JSON.parse(localStorage.getItem(sessionSidebarExpansionKey) ?? "[]") as unknown;
     return new Set(Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : []);
@@ -109,7 +114,7 @@ export function SessionSidebar({ activeSessionId, agentsAvailable, archivedSessi
 }) {
   const { t } = useTranslation();
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const [sourceMode, setSourceMode] = useState<SessionSourceMode>("active");
+  const [sourceMode, setSourceMode] = useState<SessionSourceMode>(readSourceMode);
   const [presentation, setPresentation] = useState<SessionPresentationMode>(readPresentation);
   const [agentFilter, setAgentFilter] = useState<SessionAgentFilter>("all");
   const [batchMode, setBatchMode] = useState(false);
@@ -147,12 +152,10 @@ export function SessionSidebar({ activeSessionId, agentsAvailable, archivedSessi
   }, [focusSearchToken]);
 
   useEffect(() => {
-    if (typeof localStorage !== "undefined") localStorage.setItem(sessionSidebarPresentationKey, presentation);
-  }, [presentation]);
-
-  useEffect(() => {
-    if (typeof localStorage !== "undefined") localStorage.setItem(sessionSidebarExpansionKey, JSON.stringify([...expanded].sort()));
-  }, [expanded]);
+    localStorage.setItem(sessionSidebarPresentationKey, presentation);
+    localStorage.setItem(sessionSidebarSourceModeKey, sourceMode);
+    localStorage.setItem(sessionSidebarExpansionKey, JSON.stringify([...expanded].sort()));
+  }, [expanded, presentation, sourceMode]);
 
   useEffect(() => {
     if (!batchMode) {
@@ -180,15 +183,8 @@ export function SessionSidebar({ activeSessionId, agentsAvailable, archivedSessi
     return next;
   });
   const selectVisible = () => setSelectedIds(new Set(renderedSessions.map((session) => session.id)));
-  const exitBatch = () => {
-    setBatchMode(false);
-    setConfirmOpen(false);
-    setSelectedIds(new Set());
-  };
-  const confirmDelete = () => {
-    onBatchDelete(selectedSessions);
-    exitBatch();
-  };
+  const exitBatch = () => { setBatchMode(false); setConfirmOpen(false); setSelectedIds(new Set()); };
+  const confirmDelete = () => { onBatchDelete(selectedSessions); exitBatch(); };
   function toggle(group: string) {
     setExpanded((current) => {
       const next = new Set(current);

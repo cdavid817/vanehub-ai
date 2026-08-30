@@ -253,7 +253,7 @@ globalThis.describe("VaneHub AI desktop workspace UI flows", () => {
     primarySessionId = await globalThis.browser.waitUntil(async () => {
       const current = await globalThis.browser.getUrl();
       const segment = decodeURIComponent((current.split("/workspace/sessions/")[1] ?? "").split(/[?#]/)[0]);
-      // `new` is the create route's own segment (workspace-route.ts:6), so it is the one value that
+      // `new` is the create route's own segment (workbench-route.ts:22), so it is the one value that
       // means the dialog closed without the workspace ever moving on to a session.
       return segment && segment !== "new" ? segment : false;
     }, { timeout: 30_000, timeoutMsg: "The dialog closed without routing to the new session." });
@@ -291,62 +291,75 @@ globalThis.describe("VaneHub AI desktop workspace UI flows", () => {
 
   globalThis.it("switches destinations from the activity bar, toggles panels, and keeps the destination across a reload", async () => {
     await navigate("/workspace/sessions");
-    const grid = await globalThis.$(".ucd-workspace-grid");
+    const grid = await globalThis.$('[data-testid="sessions-destination-layout"]');
     await grid.waitForDisplayed({ timeout: 30_000 });
 
-    // workspace-activity-bar.tsx:90 -- each destination button names the region it controls, and
-    // those ids are the section ids in main-layout.tsx:431-483. Nothing here reads a label.
-    const boardButton = await globalThis.$('nav.ucd-activity-bar button[aria-controls="work-board"]');
+    // workspace-activity-bar.tsx:90-99 -- Projects/Runs/Plan/Quality all share
+    // aria-controls="workbench-route-outlet" now that main-layout.tsx routes them through one
+    // shared outlet, so position within the primary button group is what picks Plan out (it is
+    // fourth: sessions, projects, runs, plan, quality).
+    const boardButton = await globalThis.$('nav.ucd-activity-bar div[data-activity-group="primary"] button:nth-child(4)');
     await boardButton.waitForClickable({ timeout: 20_000 });
     await boardButton.click();
-    await (await globalThis.$("#work-board")).waitForDisplayed({ timeout: 30_000 });
+    // #todo-board is WorkBoard's own root (work-board.tsx:80); the Plan destination that mounts it
+    // carries no id of its own now that per-destination wrapper ids are gone.
+    await (await globalThis.$("#todo-board")).waitForDisplayed({ timeout: 30_000 });
     await globalThis.browser.waitUntil(
       async () => !(await grid.isDisplayed()),
       { timeout: 20_000, timeoutMsg: "The sessions grid stayed on screen after switching destination." },
     );
-    await waitForUrl("/workspace/work-board", "The activity bar did not change the workspace route.");
+    await waitForUrl("/workspace/plan/board", "The activity bar did not change the workspace route.");
 
     await globalThis.browser.refresh();
     await bootstrapReady("React bootstrap did not become ready after the reload.");
     // Either route back counts: the WebView may reload the deep path directly, or land on the
-    // launch route and be sent here by the remembered location (workspace-route.ts:58). What the
+    // launch route and be sent here by the remembered location (workbench-route.ts). What the
     // user is promised is the destination, not the mechanism.
-    await waitForUrl("/workspace/work-board", "The chosen destination did not survive a reload.");
-    await (await globalThis.$("#work-board")).waitForDisplayed({ timeout: 30_000 });
+    await waitForUrl("/workspace/plan/board", "The chosen destination did not survive a reload.");
+    await (await globalThis.$("#todo-board")).waitForDisplayed({ timeout: 30_000 });
 
     const sessionsButton = await globalThis.$('nav.ucd-activity-bar button[aria-controls="workspace-session-sidebar"]');
     await sessionsButton.waitForClickable({ timeout: 20_000 });
     await sessionsButton.click();
-    const sessionsGrid = await globalThis.$(".ucd-workspace-grid");
+    const sessionsGrid = await globalThis.$('[data-testid="sessions-destination-layout"]');
     await sessionsGrid.waitForDisplayed({ timeout: 30_000 });
 
     const sessionSidebar = await globalThis.$("#workspace-session-sidebar");
+    const conversation = await globalThis.$('[data-testid="session-conversation-shell"]');
     assert.equal(await sessionsButton.getAttribute("aria-expanded"), "true");
     assert.equal(await sessionsGrid.getAttribute("data-session-collapsed"), "false");
     const expandedWidth = (await sessionSidebar.getSize()).width;
     assert.ok(expandedWidth > 0, "the session sidebar reported no width while expanded");
+    const conversationWidthExpanded = (await conversation.getSize()).width;
 
-    // On the sessions destination the same button collapses the sidebar (main-layout.tsx:296).
-    // Width is the assertion that matters: the collapsed column is 0 wide (styles.css:300), so a
-    // state flag that never reached the layout would still fail here.
+    // On the sessions destination the same button collapses the sidebar (main-layout.tsx). Closed
+    // now unmounts the region entirely (destination-layout/DestinationLayoutBody.tsx) instead of
+    // hiding it in place, so absence from the DOM is the assertion, backed by the conversation
+    // column actually growing into the freed space.
     await sessionsButton.click();
     await globalThis.browser.waitUntil(
       async () => (await sessionsGrid.getAttribute("data-session-collapsed")) === "true",
       { timeout: 20_000, timeoutMsg: "The activity bar did not collapse the session sidebar." },
     );
     assert.equal(await sessionsButton.getAttribute("aria-expanded"), "false");
-    assert.equal(await sessionSidebar.getAttribute("aria-hidden"), "true");
-    // Not exactly zero: the shell keeps a 1px right border (main-layout.tsx:315), and a
-    // border-box element sized to a 0 track still measures its own border.
-    const collapsedWidth = (await sessionSidebar.getSize()).width;
-    assert.ok(collapsedWidth <= 2, `the collapsed sidebar still occupied ${collapsedWidth}px of its column`);
+    assert.equal(
+      await (await globalThis.$("#workspace-session-sidebar")).isExisting(),
+      false,
+      "the collapsed sidebar was still mounted in the DOM",
+    );
+    const conversationWidthCollapsed = (await conversation.getSize()).width;
+    assert.ok(
+      conversationWidthCollapsed > conversationWidthExpanded + 150,
+      `the conversation column measured ${conversationWidthExpanded}px expanded and ${conversationWidthCollapsed}px collapsed; collapsing the sidebar did not free its space`,
+    );
     await sessionsButton.click();
     await globalThis.browser.waitUntil(
       async () => (await sessionsGrid.getAttribute("data-session-collapsed")) === "false",
       { timeout: 20_000, timeoutMsg: "The activity bar did not restore the session sidebar." },
     );
+    const restoredSidebar = await globalThis.$("#workspace-session-sidebar");
     assert.ok(
-      Math.abs((await sessionSidebar.getSize()).width - expandedWidth) <= 1,
+      Math.abs((await restoredSidebar.getSize()).width - expandedWidth) <= 1,
       "the restored sidebar came back a different width",
     );
 
@@ -375,13 +388,17 @@ globalThis.describe("VaneHub AI desktop workspace UI flows", () => {
       { timeout: 20_000, timeoutMsg: "The menu entry did not bring the workspace tab bar back." },
     );
 
-    // The info panel starts collapsed on a narrow window (main-layout.tsx:87), so the direction of
-    // the toggle is read off the layout rather than assumed. What is asserted either way is that
-    // one of the two states occupies its column and the other does not -- a menu entry that only
-    // flipped a flag the layout never acted on fails that regardless of which way it started.
-    const infoPanel = await globalThis.$(".ucd-workspace-grid > aside");
+    // The info panel opens by default at every window size now (main-layout.tsx's
+    // `readInitialSessionsLayout`); the toggle's direction is still read off the layout rather
+    // than assumed, since an earlier step in this same spec may have left it closed. Closed now
+    // unmounts the panel entirely (destination-layout/DestinationLayoutBody.tsx) instead of
+    // hiding it in place, so its presence in the DOM is the assertion.
     const infoCollapsedAtStart = (await sessionsGrid.getAttribute("data-info-collapsed")) === "true";
-    const infoWidthAtStart = (await infoPanel.getSize()).width;
+    assert.equal(
+      await (await globalThis.$('[data-testid="session-info-panel"]')).isExisting(),
+      !infoCollapsedAtStart,
+      "the info panel's presence in the DOM disagreed with the layout's collapsed flag",
+    );
     await overflow.click();
     const infoToggle = await globalThis.$('[data-testid="toggle-info-panel"]');
     await infoToggle.waitForDisplayed({ timeout: 10_000 });
@@ -395,10 +412,10 @@ globalThis.describe("VaneHub AI desktop workspace UI flows", () => {
       async () => (await sessionsGrid.getAttribute("data-info-collapsed")) === String(!infoCollapsedAtStart),
       { timeout: 20_000, timeoutMsg: "The menu entry did not change the info panel's state." },
     );
-    const infoWidthToggled = (await infoPanel.getSize()).width;
-    assert.ok(
-      (infoWidthAtStart > 2) !== (infoWidthToggled > 2),
-      `the info panel measured ${infoWidthAtStart}px and then ${infoWidthToggled}px; toggling it changed nothing on screen`,
+    assert.equal(
+      await (await globalThis.$('[data-testid="session-info-panel"]')).isExisting(),
+      infoCollapsedAtStart,
+      "toggling the info panel did not change what is mounted on screen",
     );
     await overflow.click();
     const infoToggleBack = await globalThis.$('[data-testid="toggle-info-panel"]');
@@ -408,9 +425,10 @@ globalThis.describe("VaneHub AI desktop workspace UI flows", () => {
       async () => (await sessionsGrid.getAttribute("data-info-collapsed")) === String(infoCollapsedAtStart),
       { timeout: 20_000, timeoutMsg: "The menu entry did not restore the info panel." },
     );
-    assert.ok(
-      Math.abs((await infoPanel.getSize()).width - infoWidthAtStart) <= 1,
-      "the restored info panel came back a different width",
+    assert.equal(
+      await (await globalThis.$('[data-testid="session-info-panel"]')).isExisting(),
+      !infoCollapsedAtStart,
+      "the info panel did not come back after being restored",
     );
   });
 
@@ -461,7 +479,8 @@ globalThis.describe("VaneHub AI desktop workspace UI flows", () => {
   });
 
   globalThis.it("creates a work item on the board and moves it between stages", async function driveWorkBoard() {
-    const boardButton = await globalThis.$('nav.ucd-activity-bar button[aria-controls="work-board"]');
+    // See the destination-switching spec above for why this is a position-based selector.
+    const boardButton = await globalThis.$('nav.ucd-activity-bar div[data-activity-group="primary"] button:nth-child(4)');
     await boardButton.waitForClickable({ timeout: 20_000 });
     await boardButton.click();
     const board = await globalThis.$("#todo-board");

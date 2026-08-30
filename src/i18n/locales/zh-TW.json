@@ -2371,7 +2371,6 @@
   "layout.sessionViewCategory": "分類",
   "layout.sessionViewProject": "專案",
   "layout.ungroupedProject": "未歸類項目",
-  "layout.resizeSessionSidebar": "調整會話欄寬度",
   "layout.agentFilter": "Agent 篩選",
   "layout.agentFilter.all": "全部 Agent",
   "layout.agentFilter.claude-code": "Claude Code",

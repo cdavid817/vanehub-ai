@@ -62,7 +62,6 @@ function Field({ icon, label, value }: { icon: ReactNode; label: string; value: 
 
 export function SessionInfoPanel({
   activeSession,
-  collapsed,
   currentSpeakerSeatId = null,
   messages = [],
   requestedTab,
@@ -71,7 +70,6 @@ export function SessionInfoPanel({
   onOpenImSettings,
 }: {
   activeSession: Session | null;
-  collapsed: boolean;
   currentSpeakerSeatId?: string | null;
   messages?: ChatMessage[];
   requestedTab?: InfoTab | null;
@@ -112,7 +110,7 @@ export function SessionInfoPanel({
   }, [requestedTab, sessionId, showCodeIndex, showSessionMembers]);
 
   return (
-    <aside className={cn("min-w-0 overflow-hidden bg-[hsl(var(--panel-muted))] transition-[opacity,transform] duration-200 max-[900px]:absolute max-[900px]:inset-y-0 max-[900px]:right-0 max-[900px]:z-30 max-[900px]:w-[min(320px,90vw)] max-[900px]:border-l max-[900px]:border-border max-[900px]:shadow-xl", collapsed ? "pointer-events-none translate-x-2 opacity-0" : "opacity-100")}>
+    <aside className="h-full min-w-0 overflow-hidden bg-[hsl(var(--panel-muted))]" data-testid="session-info-panel">
       <div className="flex h-full min-h-0 flex-col p-3">
         <div className="mb-3 flex h-7 items-center"><h2 className="text-sm font-semibold">{t("layout.infoPanel")}</h2></div>
         <div aria-label={t("layout.infoPanel")} className={cn("ucd-segmented mb-3 grid gap-1 rounded-md p-1", tabColumns)} role="tablist">

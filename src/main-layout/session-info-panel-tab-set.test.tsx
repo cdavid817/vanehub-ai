@@ -91,7 +91,7 @@ function tabNames() {
 
 describe("the information panel's tab set", () => {
   it("keeps the four tabs every session has", () => {
-    renderWithAppProviders(<SessionInfoPanel activeSession={session()} collapsed={false} />);
+    renderWithAppProviders(<SessionInfoPanel activeSession={session()} />);
 
     expect(tabNames()).toEqual(["Basic Info", "Token Usage", "Skill", "IM"]);
   });
@@ -99,9 +99,7 @@ describe("the information panel's tab set", () => {
   it("adds Code Index only for a OnePiece session with a workspace", () => {
     renderWithAppProviders(
       <SessionInfoPanel
-        activeSession={session({ agentId: "onepiece", worktreePath: "D:\\code\\wt" })}
-        collapsed={false}
-      />,
+        activeSession={session({ agentId: "onepiece", worktreePath: "D:\\code\\wt" })}      />,
     );
 
     expect(tabNames()).toContain("Code Index");
@@ -110,9 +108,7 @@ describe("the information panel's tab set", () => {
   it("withholds Code Index from a OnePiece session with no workspace", () => {
     renderWithAppProviders(
       <SessionInfoPanel
-        activeSession={session({ agentId: "onepiece", folder: null, projectPath: null })}
-        collapsed={false}
-      />,
+        activeSession={session({ agentId: "onepiece", folder: null, projectPath: null })}      />,
     );
 
     // A code index for a session with nothing to index is a tab that opens onto an explanation of
@@ -121,7 +117,7 @@ describe("the information panel's tab set", () => {
   });
 
   it("keeps every pane mounted across a tab switch", async () => {
-    renderWithAppProviders(<SessionInfoPanel activeSession={session()} collapsed={false} />);
+    renderWithAppProviders(<SessionInfoPanel activeSession={session()} />);
     await waitFor(() => expect(screen.getByTestId("info-pane-basic")).toBeTruthy());
 
     fireEvent.click(within(screen.getByRole("tablist", { name: "Info Panel" })).getByRole("tab", { name: "IM" }));
@@ -136,7 +132,7 @@ describe("the information panel's tab set", () => {
   });
 
   it("keeps Basic Info readable when the evidence summary cannot be read", async () => {
-    renderWithAppProviders(<SessionInfoPanel activeSession={session()} collapsed={false} />);
+    renderWithAppProviders(<SessionInfoPanel activeSession={session()} />);
 
     // The block added in 14.1 sits beneath five fields that were there before it. A failed summary
     // must cost the reader the summary and nothing else.
@@ -147,7 +143,7 @@ describe("the information panel's tab set", () => {
   });
 
   it("reads only for the pane that is on screen", async () => {
-    renderWithAppProviders(<SessionInfoPanel activeSession={session()} collapsed={false} />);
+    renderWithAppProviders(<SessionInfoPanel activeSession={session()} />);
     await waitFor(() => expect(screen.getByTestId("info-pane-basic")).toBeTruthy());
 
     // Basic Info is the pane that opens, so the four behind it must not have asked for anything.
@@ -157,7 +153,7 @@ describe("the information panel's tab set", () => {
   });
 
   it("starts reading when a pane becomes the one on screen", async () => {
-    renderWithAppProviders(<SessionInfoPanel activeSession={session()} collapsed={false} />);
+    renderWithAppProviders(<SessionInfoPanel activeSession={session()} />);
     await waitFor(() => expect(screen.getByTestId("info-pane-basic")).toBeTruthy());
 
     fireEvent.click(
@@ -171,7 +167,7 @@ describe("the information panel's tab set", () => {
   });
 
   it("says there is no session rather than an empty summary", () => {
-    renderWithAppProviders(<SessionInfoPanel activeSession={null} collapsed={false} />);
+    renderWithAppProviders(<SessionInfoPanel activeSession={null} />);
 
     expect(screen.getByText("No session selected")).toBeTruthy();
     expect(screen.queryByText("This session's activity could not be read.")).toBeNull();

@@ -2371,7 +2371,6 @@
   "layout.sessionViewCategory": "Categories",
   "layout.sessionViewProject": "Projects",
   "layout.ungroupedProject": "No Project",
-  "layout.resizeSessionSidebar": "Resize sessions sidebar",
   "layout.agentFilter": "Agent filter",
   "layout.agentFilter.all": "All Agents",
   "layout.agentFilter.claude-code": "Claude Code",
