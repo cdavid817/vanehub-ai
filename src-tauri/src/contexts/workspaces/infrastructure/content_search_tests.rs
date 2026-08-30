@@ -4,10 +4,10 @@
 //! a binary file, and a walk that is asked to stop partway through — none of which a fixture can
 //! stand in for.
 
-use super::content_search::search_session_content;
+use super::content_search::{search_session_content, READ_CHUNK_BYTES};
 use crate::contexts::workspaces::application::{
     ManualClock, MonotonicClockPort, SearchCancellationCause, SearchCancellationToken,
-    WorkspaceContentSearchRequest, WorkspaceInspectionBudgetLimits,
+    WorkspaceContentSearchRequest, WorkspaceInspectionBudget, WorkspaceInspectionBudgetLimits,
     WorkspaceInspectionBudgetSnapshot, WorkspaceInspectionExecution, WorkspaceSearchCancellation,
     MAX_SNIPPET_CHARS,
 };
@@ -15,12 +15,14 @@ use crate::platform::database::NativeDatabase;
 use crate::test_support::TempDirectory;
 use rusqlite::params;
 use std::fs;
-use std::sync::Arc;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 struct Workspace {
     _directory: TempDirectory,
     database: NativeDatabase,
+    root: PathBuf,
 }
 
 /// A content-search context carrying the token and the clock the test wants to drive.
@@ -58,6 +60,10 @@ struct Hit {
 }
 
 impl Workspace {
+    fn root(&self) -> &Path {
+        &self.root
+    }
+
     fn search(&self, query: &str, cancellation: &SearchCancellationToken) -> Answer {
         let connection = self.database.connection().expect("connection");
         let result = search_session_content(
@@ -177,6 +183,7 @@ fn workspace(files: &[(&str, &[u8])]) -> Workspace {
     Workspace {
         _directory: directory,
         database,
+        root,
     }
 }
 
@@ -685,4 +692,181 @@ fn a_context_built_for_another_operation_is_refused() {
             )
         )
     ));
+}
+
+/// A file is read in chunks, and each chunk is charged before it is requested.
+///
+/// The alternative — one `read_to_end` charged afterwards — cannot be told apart from this by
+/// looking at a completed search, and it is the version where a file growing under the reader runs
+/// past the byte ceiling one short read at a time.
+#[test]
+fn a_file_is_read_in_chunks_and_charged_before_each_one() {
+    let big = vec![b'x'; READ_CHUNK_BYTES * 3];
+    let workspace = workspace(&[("big.txt", &big)]);
+
+    let mut limits = generous_limits();
+    // Enough for one chunk and not two. A whole-file read would charge three chunks at once, or
+    // charge nothing until it was done.
+    limits.max_bytes_read = (READ_CHUNK_BYTES + 1) as u64;
+    let answer = workspace.search_within(
+        "needle",
+        limits,
+        Arc::new(ManualClock::default()),
+        &SearchCancellationToken::new(),
+    );
+
+    assert_eq!(answer.reason, Some("byte_budget_exhausted"));
+    assert_eq!(spent(&answer).bytes_read, READ_CHUNK_BYTES as u64);
+}
+
+/// A cancel that arrives while a file is being read stops inside it.
+///
+/// Deterministic rather than raced: the clock is the thing the budget consults at every checkpoint,
+/// so a clock that signals the token on a chosen reading places the cancel at a checkpoint instead
+/// of at whatever moment a second thread happened to reach. A test that spawned a canceller would be
+/// asserting on where the walk was, which is the one thing about it that is not deterministic.
+#[test]
+fn a_cancel_during_a_file_read_stops_inside_the_file() {
+    let big = vec![b'x'; READ_CHUNK_BYTES * 8];
+    let workspace = workspace(&[("big.txt", &big)]);
+    let token = SearchCancellationToken::new();
+    // Nine readings in. The first six belong to the directory, the entry, and the three metadata
+    // and open checkpoints before any byte is read; the chunk charges start after them, so a cancel
+    // here lands between two chunks of an eight-chunk file rather than before the file is opened.
+    let clock = Arc::new(CancellingClock::after(9, token.clone()));
+
+    let answer = workspace.search_within("needle", generous_limits(), clock, &token);
+
+    assert_eq!(answer.reason, Some("cancelled"));
+    // Stopped part way through, not after it: the whole point of a per-chunk checkpoint is that a
+    // large file does not have to finish before a reader's cancel is noticed.
+    let read = spent(&answer).bytes_read;
+    assert!(read > 0, "nothing was read");
+    assert!(
+        read < big.len() as u64,
+        "the whole file was read before the cancel was seen"
+    );
+}
+
+/// A file the walk cannot examine is an omission, and the walk keeps going.
+///
+/// Metadata and open are separate calls and either can fail; both land on the same handling, and a
+/// held-open file blocks whichever comes first. What matters to a reader is the same either way:
+/// the other files were still searched, and the answer does not claim to be complete.
+#[test]
+fn a_file_that_cannot_be_examined_is_skipped_without_ending_the_walk() {
+    let workspace = workspace(&[("locked.txt", b"needle\n"), ("open.txt", b"needle\n")]);
+    let guard = deny_access(&workspace.root().join("locked.txt"));
+
+    let answer = workspace.search("needle", &SearchCancellationToken::new());
+
+    drop(guard);
+    assert_eq!(
+        answer
+            .hits
+            .iter()
+            .map(|hit| hit.path.as_str())
+            .collect::<Vec<_>>(),
+        vec!["open.txt"]
+    );
+    assert_eq!(answer.coverage, "partial");
+    assert_eq!(answer.reason, Some("unreadable_entries"));
+    assert_eq!(spent(&answer).unreadable_entries, 1);
+}
+
+/// A read that fails partway through discards what it had.
+///
+/// Half a file returned as if it were the file is worse than no file: the reader is told the text is
+/// not there, about content nothing looked at. Unreachable without a failing disk, which is why the
+/// chunk loop takes a reader rather than a path.
+#[test]
+fn a_read_that_fails_partway_yields_nothing_rather_than_half_a_file() {
+    let mut budget = WorkspaceInspectionBudget::new(
+        generous_limits(),
+        Arc::new(ManualClock::default()),
+        SearchCancellationToken::new(),
+    );
+
+    let outcome = super::content_search::read_chunks(FailsAfterOneChunk::default(), &mut budget);
+
+    assert!(outcome.is_err(), "a read error is not a shorter file");
+}
+
+/// A clock that signals a token once it has been read often enough.
+///
+/// The budget consults the clock at every checkpoint, so this places a cancellation at a checkpoint
+/// rather than at a wall-clock moment. It reports no elapsed time at all: the deadline is not what
+/// this test is about, and a clock that advanced would race its own cancel.
+struct CancellingClock {
+    readings: Mutex<u64>,
+    at: u64,
+    token: SearchCancellationToken,
+}
+
+impl CancellingClock {
+    fn after(readings: u64, token: SearchCancellationToken) -> Self {
+        Self {
+            readings: Mutex::new(0),
+            at: readings,
+            token,
+        }
+    }
+}
+
+impl MonotonicClockPort for CancellingClock {
+    fn elapsed(&self) -> Duration {
+        let mut readings = self
+            .readings
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *readings += 1;
+        if *readings >= self.at {
+            self.token.signal(SearchCancellationCause::Cancelled);
+        }
+        Duration::ZERO
+    }
+}
+
+/// One full chunk, then a failure.
+#[derive(Default)]
+struct FailsAfterOneChunk {
+    chunks: usize,
+}
+
+impl std::io::Read for FailsAfterOneChunk {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        if self.chunks == 0 {
+            self.chunks += 1;
+            buffer.fill(b'x');
+            return Ok(buffer.len());
+        }
+        Err(std::io::Error::other("the disk went away"))
+    }
+}
+
+/// Makes a file refuse to be examined, on the two platforms this runs on.
+///
+/// Two mechanisms because there is no one portable way, and testing it on Unix alone would leave the
+/// branch unexercised on the platform most of this project's users are on. The returned value must
+/// be held for the duration: on Windows it *is* the mechanism.
+#[cfg(windows)]
+fn deny_access(path: &std::path::Path) -> fs::File {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    // An exclusive handle. Every later open — the metadata call and the read — asks for the usual
+    // share modes and gets a sharing violation instead.
+    fs::OpenOptions::new()
+        .read(true)
+        .share_mode(0)
+        .open(path)
+        .expect("an exclusive handle on the file")
+}
+
+#[cfg(unix)]
+fn deny_access(path: &std::path::Path) -> fs::Permissions {
+    use std::os::unix::fs::PermissionsExt;
+
+    let original = fs::metadata(path).expect("metadata").permissions();
+    fs::set_permissions(path, fs::Permissions::from_mode(0o000)).expect("chmod");
+    original
 }

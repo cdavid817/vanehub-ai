@@ -51,8 +51,8 @@
 - [x] 5.2 Consume entry/metadata/file/byte/result budgets at the exact operation boundaries and check cancellation/deadline before directories, entry batches, file opens, read chunks, result append, and return serialization.
 - [x] 5.3 Preserve current binary detection, file-size handling, snippet/result behavior, and case-sensitivity semantics; do not mix the separate Unicode-offset or handle-confinement scope into this change.
 - [x] 5.4 Ensure one growing/large file cannot exceed aggregate byte budget or delay cancellation beyond the configured chunk-checkpoint bound.
-- [ ] 5.5 Add instrumented tests proving no full candidate list, bounded current-file/chunk memory, exact byte/file/result caps, partial coverage on unreadable/skipped content, and stale-generation result suppression.
-- [ ] 5.6 Add error/fault tests for directory read failure, metadata failure, open failure, mid-read failure, invalid UTF-8/binary content, cancellation during read, and serialization after supersession.
+- [x] 5.5 Add instrumented tests proving no full candidate list, bounded current-file/chunk memory, exact byte/file/result caps, partial coverage on unreadable/skipped content, and stale-generation result suppression.
+- [x] 5.6 Add error/fault tests for directory read failure, metadata failure, open failure, mid-read failure, invalid UTF-8/binary content, cancellation during read, and serialization after supersession.
 
 ## 6. Directory pagination and document discovery
 

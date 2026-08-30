@@ -42,7 +42,7 @@ use std::path::{Path, PathBuf};
 /// where a reader gives up waiting, and a check that only ran between files would keep reading it
 /// long after they had moved on. 64 KiB is sixteen checkpoints across the per-file ceiling, which
 /// is frequent enough to feel immediate and coarse enough not to matter to throughput.
-const READ_CHUNK_BYTES: usize = 64 * 1024;
+pub(super) const READ_CHUNK_BYTES: usize = 64 * 1024;
 
 /// Content search, under the context its caller built.
 ///
@@ -243,7 +243,20 @@ fn read_bounded(
         return Ok(None);
     }
     let file = fs::File::open(path).map_err(|error| AppError::Storage(error.to_string()))?;
-    let mut reader = file.take(MAX_SEARCHED_FILE_BYTES);
+    read_chunks(file.take(MAX_SEARCHED_FILE_BYTES), budget)
+}
+
+/// The chunk loop, over anything that reads.
+///
+/// Separated from opening the file so a test can supply a reader that fails partway. A read error
+/// mid-file is otherwise unreachable without a failing disk, and it is the one fault on this path
+/// that leaves a partially accumulated buffer behind — which must be discarded rather than searched,
+/// because half a file that reports itself complete is a file the reader was told does not contain
+/// what it contains.
+pub(super) fn read_chunks(
+    mut reader: impl Read,
+    budget: &mut WorkspaceInspectionBudget,
+) -> Result<Option<String>, AppError> {
     let mut raw: Vec<u8> = Vec::new();
     let mut chunk = vec![0u8; READ_CHUNK_BYTES];
     loop {
