@@ -1,7 +1,5 @@
 # Multi-Agent group chat
 
-**Status: Implemented — desktop runtime; seat assignment is visible in the normal create-session dialog.**
-
 ## What is Multi-Agent
 
 A **single-Agent session** has one execution actor: you ask, it does. A **Multi-Agent session** (group chat) puts several execution actors in one session, sharing the same conversation thread and handing the turn to each other as needed.
@@ -19,7 +17,7 @@ One session can hold several Agent **seats**. Each seat is one Agent plus one ex
 
 **How it differs from single-Agent**: single-Agent is one actor working start to finish; Multi-Agent is several actors relaying within the same context. Group chat is a superset of a single-Agent session — a "group chat" with exactly one seat behaves identically to a single-Agent session.
 
-> **Multi-Agent runtime capabilities are desktop only.** Display-layer things like seat assignment and speaker attribution exist in both runtimes, but handle derivation, `@` handoff, code-block exemption, seat briefing, runaway-chain protection, and model-family identification all depend on the desktop runtime. What you see in Web/mock reflects no fact about this machine.
+> **Multi-Agent runtime capabilities are desktop only.** Seat assignment and speaker attribution are display-layer concerns, but handle derivation, `@` handoff, code-block exemption, seat briefing, runaway-chain protection, and model-family identification all depend on the desktop runtime.
 
 > **On the A2A protocol**: the industry has Google's A2A (Agent-to-Agent) cross-network standard protocol (JSON-RPC, AgentCard). VaneHub AI **does not implement A2A** — "Agent handoff" here is peer-to-peer, in-process, based on an `@` mention in reply text (OpenAI Swarm style), not a cross-Agent network protocol. Both happen to be called "handoff," but the mechanisms are entirely different.
 

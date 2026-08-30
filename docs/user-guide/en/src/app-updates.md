@@ -1,6 +1,6 @@
 # Application updates: signature verification and release channels
 
-**Status: Implemented — real download, verification, and installation are desktop only; Web/mock simulates each lifecycle state through the same service contract and produces no installation side effects.**
+![The About VaneHub AI settings page, where version updates and the release channel live](assets/screenshots/settings-about-en.png)
 
 ## Overview
 
@@ -87,7 +87,6 @@ Checking and downloading are asynchronous, running through the frontend service 
 - **Downgrades are always refused**, including validly signed ones.
 - **The update endpoint and verification key cannot be changed.** That is deliberate, not a missing setting.
 - **It never restarts on its own**; restarting always requires you.
-- **Web/mock produces no real installation.** Every state is reachable, but there are no native side effects — see [Runtime and feature labels](runtime-labels.md).
 
 ## Related
 

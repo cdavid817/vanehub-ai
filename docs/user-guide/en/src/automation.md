@@ -1,7 +1,5 @@
 # Scheduled and usage
 
-**Status: Implemented — desktop only.**
-
 ## Scheduled tasks
 
 ### Overview
@@ -102,4 +100,3 @@ The four CLIs each report usage in a different format, and the system handles ea
 - **All of this is desktop only.**
 - **Scheduled tasks need the application running**; a missed run is made up only once, never in a backlog.
 - **OnePiece's usage does not go through the terminal collection path**, so its measure differs from that of the four CLIs.
-- **Notifications in the browser preview are in-application only** and produce no operating-system notification.

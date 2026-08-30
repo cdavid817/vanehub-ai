@@ -25,7 +25,14 @@ Follow `AGENTS.md` and `openspec/project.md`. In particular, do not add TypeScri
 
 ## Required validation
 
-Before requesting review, run **every** command in the「校验命令」(validation commands) section of [AGENTS.md](AGENTS.md), copying each command verbatim. The flags matter: `npm run lint:ci`, `cargo fmt --check`, and `cargo clippy --all-targets -- -D warnings` are what CI enforces — their weaker variants pass locally while CI rejects them. This file intentionally does not duplicate the command list; AGENTS.md is the single source of truth.
+Before requesting review, run **every** command in the「校验命令」(validation commands) section of [AGENTS.md](AGENTS.md), copying each command verbatim. This file intentionally does not duplicate the command list; AGENTS.md is the single source of truth.
+
+The flags matter, and two of them are easy to get wrong:
+
+- `npm run lint:ci`, not `npm run lint`.
+- `cargo check`, `cargo clippy`, and `cargo test` take `--workspace`, not `--manifest-path src-tauri/Cargo.toml`. This repository is a Cargo workspace, and `--manifest-path` covers only the `vanehub-ai` crate — members such as `vanehub-permission-hook` are silently skipped. `cargo fmt` is the exception and does use `--manifest-path`, matching CI.
+
+Every weaker variant above passes locally and is rejected by CI.
 
 When your change touches the corresponding area, also run the conditional commands listed below that section: `npx playwright test` for UI behavior changes, the coverage and contract checks, and `openspec validate <change-name> --strict` for every active change you modify.
 

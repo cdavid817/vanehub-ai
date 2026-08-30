@@ -2572,12 +2572,18 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // the CodeQL logging and transport fixes added eight lines. Same rule every time: measured on
     // the merged tree, because each branch had already recorded its own increment against a
     // baseline the other also carries, so summing them counts that baseline twice.
+    // Raised to 62,796 by `fix/bounded-terminal-reap-on-quit`. The +149 is a second reap helper
+    // for the quit path, which cannot reuse the reader thread's unbounded one, plus the three
+    // tests that pin its deadline -- including a live PTY child, which needs its own fixture
+    // because `dummy_child` exits immediately by design. Nothing was duplicated: the unbounded
+    // reap stays, because waiting forever is still correct on the thread that blocks nobody.
     SubtreeBudget {
         root: "src-tauri/src/contexts/agent_runtime/infrastructure",
         // Skill Evolution adds the structured model transport at the existing Agent runtime
         // boundary; measured on the merged tree because main changed the same subtree
-        // independently, and re-measured at 62,730 once the system-activity boundary landed.
-        budget: 62_730,
+        // independently (the bounded terminal reap landed there in parallel); merged-tree
+        // measurement: 62,879.
+        budget: 62_879,
         owner: "add-skill-evolution-system-sessions-and-result-projection",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
@@ -2712,10 +2718,15 @@ const NATIVE_PRODUCTION_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // port methods, adapter implementations, and the symbol and call-relation result shapes.
         // The three test doubles that also gained methods are counted by the aggregate above and
         // deliberately not by this one.
+        //
+        // `fix/bounded-terminal-reap-on-quit` raises it to 33,803. The +53 is production: the
+        // bounded exit-path reap, the deadline decision split out of its loop so the moment it
+        // gives up is testable at all, two constants, and the rationale for why the unbounded
+        // sibling stays. The tests that pin the deadline are counted by the aggregate above and
+        // deliberately not by this one.
         // The structured model transport contributes the remaining production-only delta on the
-        // merged tree (measured 33,809); its test doubles account for the difference from the
-        // aggregate increase.
-        budget: 33_809,
+        // merged tree (measured 33,866); its test doubles are counted by the aggregate above.
+        budget: 33_866,
         owner: "add-skill-evolution-system-sessions-and-result-projection",
     },
 ];

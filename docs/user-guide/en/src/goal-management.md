@@ -1,6 +1,6 @@
 # Goal management: track scattered work in one place
 
-**Status: Implemented — the interface is identical on desktop and in Web/mock; Web/mock does not persist, and reloading the page clears it.**
+![The Goal Center with the goal list on the left and the goal detail pane on the right](assets/screenshots/goal-center-en.png)
 
 ## Overview
 
@@ -102,7 +102,6 @@ If the object a child points at is deleted, or its state cannot be queried, the 
 
 ## Notes and limits
 
-- **Web/mock does not persist.** Goals live in memory and are gone when the page reloads. Real persistence needs the desktop runtime — see [Runtime and feature labels](runtime-labels.md).
 - **Acceptance notes take no part in any machine judgement**; they are for humans to read.
 - **Sessions and runs never advance a goal**; a goal linked only to those does not enter awaiting acceptance.
 - **Unlinking does not affect the linked object**; it only removes it from this goal's child list.
@@ -112,4 +111,3 @@ If the object a child points at is deleted, or its state cannot be queried, the 
 
 - Automatic cycles under a goal → [Loop Engineering](loop-engineering.md)
 - Multi-Agent collaboration → [Multi-Agent group chat](multi-agent-workflow.md)
-- How to read the status labels → [Runtime and feature labels](runtime-labels.md)

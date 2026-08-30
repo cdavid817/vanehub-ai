@@ -1,7 +1,5 @@
 # Prompt Hooks: insert content into the prompt assembly pipeline
 
-**Status: Implemented — desktop only; applies to the four external CLI Agents and not to OnePiece.**
-
 ## What a Prompt Hook is
 
 **It is a pluggable slot on the prompt assembly pipeline.**

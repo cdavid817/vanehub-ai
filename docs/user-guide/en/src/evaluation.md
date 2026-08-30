@@ -1,8 +1,10 @@
 # Agent evaluation
 
+![The Agent evaluations page listing evaluation runs and their results](assets/screenshots/evaluations-en.png)
+
 ## Overview
 
-**Agent evaluation** in the left activity bar runs multiple Agents against **the same task, on the same starting code**, then lines the results up side by side.
+**Evaluations** in the left activity bar runs multiple Agents against **the same task, on the same starting code**, then lines the results up side by side.
 
 It answers "**who should get this kind of task**" — not by feel, but by head-to-head comparison: the same prompt, the same project, the same verification commands, and who passed, how many tokens they burned, and how long it took.
 

@@ -1,5 +1,7 @@
 # Agent 评测
 
+![Agent 评测页面，列出评测运行及其结果](assets/screenshots/evaluations-zh-CN.png)
+
 ## 功能概述
 
 左侧活动栏的 **Agent 评测**在**同一道题、同一份初始代码**上跑多个 Agent，然后把结果并排摆出来比。

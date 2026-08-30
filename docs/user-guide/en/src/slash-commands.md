@@ -1,7 +1,5 @@
 # Slash commands: drive the interface from the input box
 
-**Status: Implemented — the interface is identical on desktop and in Web/mock; commands are only active in built-in native Agent sessions.**
-
 ## Overview
 
 Typing `/` in a session input box lets you switch tabs, change the execution mode, or check usage without moving your hands to the sidebar.
