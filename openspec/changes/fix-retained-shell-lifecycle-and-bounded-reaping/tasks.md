@@ -94,7 +94,7 @@
 - [x] 10.2 Update Shell and SSH developer documentation with startup ownership, capacity reservation, lifecycle phases, bounded close, Reaper, route retention, shared-transport isolation, and strict session cleanup.
 - [x] 10.3 Run focused Rust domain/application/infrastructure tests, frontend Shell tests, Web/mock tests, and deterministic lifecycle/performance tests; record exact counts and results.
 - [x] 10.4 Run `npm run architecture:check` and resolve violations without blanket allowlists.
-- [ ] 10.5 Run `npm run desktop:unit:test`, `npm run test:desktop:build`, and the current desktop session-Shell suite with fixed fixtures. Add/adjust the repository's current remote-Shell desktop coverage if available.
+- [x] 10.5 Run `npm run desktop:unit:test`, `npm run test:desktop:build`, and the current desktop session-Shell suite with fixed fixtures. Add/adjust the repository's current remote-Shell desktop coverage if available.
 - [x] 10.6 Run the complete validation set from `AGENTS.md`: lint, frontend tests, build, Cargo fmt/check/clippy/panic-check/test, and `openspec validate --specs --strict`.
 - [x] 10.7 Run `openspec validate fix-retained-shell-lifecycle-and-bounded-reaping --strict` after all task/spec edits.
 - [x] 10.8 Report Windows, macOS, and Linux individually as PASSED/FAILED/BLOCKED/NOT RUN. Do not infer success for an unexecuted platform.

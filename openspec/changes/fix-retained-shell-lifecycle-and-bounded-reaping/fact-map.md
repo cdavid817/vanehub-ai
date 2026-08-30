@@ -53,7 +53,15 @@ nothing downstream can detect the loss.
 
 ## Closing
 
-`close` transitions to `Closing`, runs the bounded sequence, and settles:
+`close` stops input, waits for the child within the graceful, terminate and force stages, **then
+releases the terminal**, and only then waits for the workers. The release is not tidiness and its
+position is not arbitrary: on Windows the pseudoconsole keeps its output pipe open while any handle
+to it lives, so the reader sees EOF when the last master handle drops rather than when the child
+exits. Waiting for that worker while still holding the master waits for something this code is
+itself preventing, and every ordinary close on Windows timed out into `Reaping` — a Shell the reader
+pressed Close on and could not make go away.
+
+Having settled that, `close` settles the Shell:
 
 - **Confirmed / NotHeld** → finalize, publish `ShellClosed`, release the slot.
 - **Retained** → hand to the Reaper. `Reaping` when it was taken, `CloseFailed` when the queue was

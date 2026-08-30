@@ -198,6 +198,7 @@ pub(super) fn close_process_bounded(
     budget: ShellCloseBudget,
     clock: &dyn ShellDeadlineClock,
     observations: &CloseObservations,
+    on_reaped: &dyn Fn(),
 ) -> ShellRuntimeCloseOutcome {
     if !budget.is_finite_and_positive() {
         return ShellRuntimeCloseOutcome::Retained {
@@ -255,6 +256,14 @@ pub(super) fn close_process_bounded(
             retryable: true,
         };
     }
+
+    // The child is gone, so whatever the caller was holding on its behalf can go too. This runs
+    // before the workers are waited on and not after: a reader parked on a terminal that stays open
+    // because this code is holding it open is a wait that can only ever time out.
+    // The child is gone, so whatever the caller was holding on its behalf can go too. This runs
+    // before the workers are waited on and not after: a reader parked on a terminal that stays open
+    // because this code is holding it open is a wait that can only ever time out.
+    on_reaped();
 
     if !complete_workers(workers, budget.worker, budget.poll, deadline, clock) {
         return ShellRuntimeCloseOutcome::Retained {

@@ -248,6 +248,24 @@ impl ShellProcessHandle for FakeProcess {
     }
 }
 
+/// A terminal that reports when it is finally let go.
+///
+/// The reader's completion and the master's release are the same event on Windows, and this is how
+/// a test says so without a real pseudoconsole.
+struct ReleaseFlagMaster(Arc<AtomicBool>);
+
+impl Drop for ReleaseFlagMaster {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+}
+
+impl ShellPtyHandle for ReleaseFlagMaster {
+    fn resize(&self, _dimensions: TerminalDimensions) -> Result<(), ()> {
+        Ok(())
+    }
+}
+
 struct FakeMaster;
 
 impl ShellPtyHandle for FakeMaster {
@@ -889,4 +907,44 @@ impl ShellLifecycleDiagnosticsPort for RecordingStartupDiagnostics {
     fn startup_rollback_unconfirmed(&self, _shell_id: &str, _generation: u64, _reason: &str) {
         self.rollbacks.fetch_add(1, Ordering::SeqCst);
     }
+}
+
+/// The terminal is released before the workers are waited on, not after.
+///
+/// Not a contrivance about ordering for its own sake. On Windows the pseudoconsole keeps its output
+/// pipe open while any handle to it lives, so a reader parked on that pipe sees EOF when the last
+/// master handle drops — not when the child exits. Waiting for that worker while still holding the
+/// master is waiting for something this code is itself preventing, and the whole close then times
+/// out into `Reaping` on every ordinary close. What a reader saw was a Shell that would not go away.
+///
+/// Written without a thread: the master sets a flag when it is dropped, and that same flag is the
+/// worker's completion flag. The worker therefore completes exactly when the terminal is released,
+/// so the assertion is about order and nothing else.
+#[test]
+fn the_terminal_is_released_before_the_workers_are_awaited() {
+    let released = Arc::new(AtomicBool::new(false));
+    let worker = Arc::new(ShellWorker::detached(released.clone()));
+    let runtime = RetainedLocalShellRuntime::with_clock(Arc::new(VirtualClock::default()));
+    let shell_id = shell("shell-1");
+    runtime.install_for_tests(
+        &shell_id,
+        ShellGeneration::new(1),
+        Arc::new(FakeProcess::exits_after(1)),
+        Arc::new(ReleaseFlagMaster(released.clone())),
+        vec![worker],
+    );
+
+    let outcome = runtime.close(&shell_id, ShellGeneration::new(1), budget());
+
+    // Released too late and this worker never completes, so the close returns `Retained` with
+    // `shell_worker_completion_pending` — which is exactly what the defect looked like.
+    assert!(
+        matches!(outcome, ShellRuntimeCloseOutcome::Confirmed),
+        "the close did not confirm: {outcome:?}"
+    );
+    assert!(
+        released.load(Ordering::SeqCst),
+        "the terminal was never released"
+    );
+    assert!(!runtime.holds(&shell_id));
 }

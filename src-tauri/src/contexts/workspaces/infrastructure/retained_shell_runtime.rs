@@ -47,8 +47,37 @@ const EXIT_POLL_MILLIS: u64 = 100;
 /// what an interactive shell sees as end-of-input, and it is the one termination step that lets a
 /// shell finish on its own terms rather than being killed.
 struct ShellIo {
-    master: Arc<dyn ShellPtyHandle>,
+    /// Released once the child is confirmed gone, before the workers are waited on.
+    ///
+    /// An `Option` rather than a plain handle because the order matters and nothing else expresses
+    /// it. On Windows the pseudoconsole keeps its output pipe open while any handle to it lives, so
+    /// a reader parked on that pipe does not see EOF when the child exits — it sees EOF when the
+    /// last master handle drops. Waiting for that worker while still holding the master is waiting
+    /// for something this code is itself preventing.
+    master: Mutex<Option<Arc<dyn ShellPtyHandle>>>,
     writer: Mutex<Option<Box<dyn Write + Send>>>,
+}
+
+impl ShellIo {
+    fn master(&self) -> Option<Arc<dyn ShellPtyHandle>> {
+        match self.master.lock() {
+            Ok(guard) => guard.clone(),
+            Err(poisoned) => poisoned.into_inner().clone(),
+        }
+    }
+
+    /// Drops this side's last reference to the terminal.
+    ///
+    /// Safe to call before the outcome is known: the master is only used for resizing, and a Shell
+    /// whose input has already been closed is not one anybody resizes. Calling it twice is a no-op,
+    /// which is what a retried close needs.
+    fn release_master(&self) {
+        let mut guard = match self.master.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        guard.take();
+    }
 }
 
 /// One live shell as the runtime owns it.
@@ -200,7 +229,7 @@ impl RetainedLocalShellRuntime {
             RetainedShell {
                 generation,
                 io: Arc::new(ShellIo {
-                    master,
+                    master: Mutex::new(Some(master)),
                     writer: Mutex::new(None),
                 }),
                 process,
@@ -362,7 +391,7 @@ impl LocalLaunchGuard {
         Some(RetainedShell {
             generation,
             io: Arc::new(ShellIo {
-                master,
+                master: Mutex::new(Some(master)),
                 writer: Mutex::new(self.writer.take()),
             }),
             process,
@@ -403,12 +432,25 @@ impl LocalLaunchGuard {
         };
         let clock = MonotonicDeadlineClock::default();
         let observations = CloseObservations::default();
+        // The guard still owns the master here, so releasing it is what lets a reader spawned
+        // during startup see EOF and finish. A rollback that held it would wait out the worker
+        // window on every failed start.
+        // Behind a `Mutex` because the callback is `Fn` and has to be able to drop what it holds:
+        // cloning the handle and dropping the clone would release nothing at all.
+        let master = Mutex::new(self.master.take());
         let outcome = close_process_bounded(
             process.as_ref(),
             &self.workers,
             ShellCloseBudget::default(),
             &clock,
             &observations,
+            &|| {
+                let mut held = match master.lock() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => poisoned.into_inner(),
+                };
+                held.take();
+            },
         );
         // Recorded rather than discarded. The rollback is best-effort by construction — blocking
         // here would hold the create path open on a child refusing to die — and the outcome is the
@@ -681,7 +723,8 @@ impl SessionShellRuntimePort for RetainedLocalShellRuntime {
         dimensions: TerminalDimensions,
     ) -> Result<(), SessionShellError> {
         let io = self.checkout(shell_id)?;
-        io.master
+        io.master()
+            .ok_or_else(|| runtime_error("shell_resize_failed"))?
             .resize(dimensions)
             .map_err(|()| runtime_error("shell_resize_failed"))
     }
@@ -716,6 +759,10 @@ impl SessionShellRuntimePort for RetainedLocalShellRuntime {
             budget,
             self.clock.as_ref(),
             &self.observations,
+            // Between the child being confirmed gone and the workers being waited on. Any earlier
+            // and a resize during a slow close would fail for no reason; any later and the reader
+            // is waited on while still holding the handle that would end it.
+            &|| checkout.io.release_master(),
         );
         if matches!(outcome, ShellRuntimeCloseOutcome::Confirmed) {
             // Removed under the same generation check that let us in, so a close racing a newer

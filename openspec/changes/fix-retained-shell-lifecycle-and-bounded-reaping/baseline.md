@@ -76,3 +76,16 @@ There is no idle sweep interval and no shutdown grace constant in this subtree. 
 on explicit close, on the session-done edge (archive and delete), and at process shutdown — each of
 which is an event rather than a timer. Recorded here because an absent constant and an unfound one
 look identical to somebody reading a task list.
+
+## Where the close budget is actually spent
+
+Recorded after the desktop layer was run, because the numbers above say what the stages *allow* and
+not what a real close *uses*. On Windows a PowerShell child under a pseudoconsole is reaped inside
+the graceful stage — input closes, the shell notices, it exits — so `terminate` and `force` are
+normally untouched.
+
+The worker stage is the one that mattered. Before the terminal was released ahead of it, the reader
+never completed and every close spent the full 250 ms and then reported `Reaping`. It now completes
+as soon as the master drops. That is the whole reason the ordering is stated in the fact map rather
+than left as an implementation detail: the budget was never too small, it was being spent waiting
+for something this code was preventing.
