@@ -2561,9 +2561,14 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // the CodeQL logging and transport fixes added eight lines. Same rule every time: measured on
     // the merged tree, because each branch had already recorded its own increment against a
     // baseline the other also carries, so summing them counts that baseline twice.
+    // Raised to 62,796 by `fix/bounded-terminal-reap-on-quit`. The +149 is a second reap helper
+    // for the quit path, which cannot reuse the reader thread's unbounded one, plus the three
+    // tests that pin its deadline -- including a live PTY child, which needs its own fixture
+    // because `dummy_child` exits immediately by design. Nothing was duplicated: the unbounded
+    // reap stays, because waiting forever is still correct on the thread that blocks nobody.
     SubtreeBudget {
         root: "src-tauri/src/contexts/agent_runtime/infrastructure",
-        budget: 62_647,
+        budget: 62_796,
         owner: "decompose-api-tool-use-loop",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
@@ -2694,7 +2699,13 @@ const NATIVE_PRODUCTION_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // port methods, adapter implementations, and the symbol and call-relation result shapes.
         // The three test doubles that also gained methods are counted by the aggregate above and
         // deliberately not by this one.
-        budget: 33_750,
+        //
+        // `fix/bounded-terminal-reap-on-quit` raises it to 33,803. The +53 is production: the
+        // bounded exit-path reap, the deadline decision split out of its loop so the moment it
+        // gives up is testable at all, two constants, and the rationale for why the unbounded
+        // sibling stays. The tests that pin the deadline are counted by the aggregate above and
+        // deliberately not by this one.
+        budget: 33_803,
         owner: "decompose-api-tool-use-loop",
     },
 ];
