@@ -55,6 +55,10 @@ export const fileFixtures: Record<string, string> = {
   "package.json": "{\n  \"name\": \"vanehub-web-preview\",\n  \"private\": true\n}",
   "src/main.ts": "export const runtime = \"web-mock\";\n",
   "src/long-module.ts": longModule,
+  // Inside a tree a recursive search skips, and containing a word the other fixtures also contain.
+  // Without it the browser build can never show a search that deliberately did not look somewhere,
+  // and a panel gets written as though every file in the workspace is a file the search read.
+  "node_modules/vendored/runtime.ts": "export const runtime = \"vendored\";\n",
 };
 
 export const documentFixtures: SessionDocument[] = [

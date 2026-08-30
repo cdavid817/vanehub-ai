@@ -51,7 +51,7 @@ export function DocumentsTab({
     // document stay exactly as the reader left them, and only the discovery walk stops.
     enabled: Boolean(sessionId) && isVisible,
     queryKey: workspaceQueryKeys.documents(sessionId ?? ""),
-    queryFn: () => agentService.listSessionDocuments(sessionId ?? ""),
+    queryFn: () => agentService.listSessionDocuments(sessionId ?? "", `documents-${sessionId ?? ""}`),
   });
   // The same retention the file preview uses: switching documents, refreshing, and a failed read
   // all leave the last readable one on screen rather than blanking the panel.
@@ -132,7 +132,13 @@ export function DocumentsTab({
   return (
     <div className="grid h-full min-h-0 gap-3 lg:grid-cols-[240px_minmax(0,1fr)]">
       <div className="flex min-h-0 flex-col gap-2">
-        {listQuery.data?.truncated ? (
+        {listQuery.data?.coverage && listQuery.data.coverage.state !== "complete" ? (
+          <WorkspaceCoverageNotice
+            provider={capabilities?.provider}
+            reason="document-walk"
+            reasonCode={listQuery.data.coverage.reasonCode}
+          />
+        ) : listQuery.data?.truncated ? (
           <WorkspaceCoverageNotice provider={capabilities?.provider} reason="document-walk" />
         ) : null}
         <DocumentSidebar

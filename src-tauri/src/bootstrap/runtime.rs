@@ -86,8 +86,14 @@ pub(crate) fn run() {
                 if let Some(bridge) = app.try_state::<super::EvidenceBridgeShutdown>() {
                     bridge.shutdown();
                 }
-                // Drains the receipts already queued. Bounded by the queue's own capacity, because
-                // the sender is dropped first and the worker then sees the channel close.
+                // Uninstalled before the wait, and that order is the whole point: the sink holds
+                // the only sender, so a shutdown that waited without releasing it waited for a
+                // channel that could never close. Dropped outside the slot's lock, because the
+                // destructor would otherwise run under a lock every logging call takes.
+                let sink = crate::platform::log_receipts::take_append_sink();
+                drop(sink);
+                // Drains the receipts already queued. Bounded by the queue's own capacity now that
+                // the sender is gone and the worker sees the channel close.
                 if let Some(worker) =
                     app.try_state::<std::sync::Arc<super::LogIndexBridgeWorker>>()
                 {
@@ -101,7 +107,22 @@ pub(crate) fn run() {
                 if let Some(workspaces) =
                     app.try_state::<crate::contexts::workspaces::api::WorkspaceApi>()
                 {
-                    workspaces.shutdown_session_shells();
+                    let report = workspaces.shutdown_session_shells();
+                    // Residual cleanup is recorded rather than waited on. Blocking here until every
+                    // child died would make an unkillable process into an application that cannot
+                    // be closed; logging nothing would make it into a leak nobody can see.
+                    if !report.is_complete() {
+                        write_bootstrap_log(
+                            &logging::fallback_log_dir(),
+                            LogSeverity::Warn,
+                            "workspaces.shell_shutdown",
+                            &format!(
+                                "{} of {} retained shells were still unconfirmed at the shutdown deadline",
+                                report.reaping() + report.failed(),
+                                report.requested()
+                            ),
+                        );
+                    }
                 }
             }
             if matches!(event, tauri::RunEvent::Exit)
@@ -362,11 +383,12 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         fallback_log_directory.clone(),
         Arc::new(evidence_bridge.clone()),
     );
-    let permissions_api = super::assemble_permissions_api(
+    let permissions_assembly = super::assemble_permissions_api(
         database.clone(),
         desktop_settings_api.clone(),
         app.handle().clone(),
     );
+    let permissions_api = permissions_assembly.api.clone();
     let runners = super::assemble_agent_runners(sessions_api.clone(), ssh_connections_api.clone())
         .map_err(boxed_message)?;
     let runner_discovery = Arc::new(
@@ -458,7 +480,14 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
             ),
             Arc::new(UnifiedLoggingAdapter::active(fallback_log_directory.clone())),
         );
-    super::start_permission_timeout_sweep_job(permissions_api.clone(), agent_runtime_api.clone());
+    // Assembled here rather than with the rest of `permissions` because it needs `agent_runtime`,
+    // which only exists at this point. The timeout sweep and the frontend command share this one
+    // instance, which is what makes them two callers of one single-winner decision.
+    let approval_resolver = std::sync::Arc::new(super::assemble_approval_resolver(
+        &permissions_assembly,
+        agent_runtime_api.clone(),
+    ));
+    super::start_permission_timeout_sweep_job(permissions_api.clone(), approval_resolver.clone());
     let execution_observability_api = super::assemble_execution_observability_api(database.clone());
     let evaluation_api = super::assemble_evaluation_api(
         database.clone(),
@@ -580,6 +609,10 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     app.manage(sessions_api.clone());
     app.manage(agent_runtime_api.clone());
     app.manage(permissions_api.clone());
+    // Managed as its own state rather than reached through `PermissionsApi`, because the resolver
+    // is the only thing here that legitimately spans two contexts and the facade should not start
+    // carrying `agent_runtime`.
+    app.manage(approval_resolver);
     app.manage(retrieval_api);
     app.manage(code_index_api);
     app.manage(telemetry_lifecycle);

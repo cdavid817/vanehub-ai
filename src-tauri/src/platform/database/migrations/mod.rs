@@ -687,6 +687,18 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
     apply_transactional_migration(conn, 108, "skill-evolution-notify", apply_notifications)?;
     apply_transactional_migration(conn, 109, "skill-evolution-source-outboxes", apply_outboxes)?;
     apply_transactional_migration(conn, 110, "skill-activity-query", apply_activity_query)?;
+    // 111, moved up from 95 on this merge: Skill evolution took 95-110 while this branch was in
+    // review. Neither number has reached an installation, so the renumber is additive.
+    //
+    // Transactional rather than `apply_migration`: this one rebuilds a table rather than adding
+    // to one, so a failure partway through has to leave the pre-migration grants intact instead
+    // of a half-copied replacement.
+    apply_transactional_migration(
+        conn,
+        111,
+        "permission-grant-canonical-identity",
+        crate::contexts::permissions::infrastructure::resolution_schema::apply_grant_identity_migration,
+    )?;
     repair_missing_stable_participant_schema(conn)?;
     repair_missing_cli_parameter_profile_schema(conn)?;
     crate::contexts::execution_observability::infrastructure::repair_missing_evidence_schema(conn)?;
@@ -838,6 +850,9 @@ pub(super) const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (108, "skill-evolution-notify"),
     (109, "skill-evolution-source-outboxes"),
     (110, "skill-activity-query"),
+    // 111, moved up from 95 on this merge for the same reason the block above moved: the
+    // number this branch chose had been taken by a change that merged first.
+    (111, "permission-grant-canonical-identity"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {

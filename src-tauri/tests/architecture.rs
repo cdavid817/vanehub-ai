@@ -1708,6 +1708,105 @@ fn lsp_and_retrieval_communicate_only_through_owned_ports_and_public_apis() {
     );
 }
 
+/// Whether a `permissions` source line reaches into `agent_runtime` at all.
+///
+/// Nothing inside the context may, including its published `api`. The delivery adapter that needs
+/// both lives in bootstrap, satisfying a port `permissions` declared — which is what keeps the
+/// dependency pointing from the composition root inward, rather than from one context into another.
+fn permissions_reaches_agent_runtime(segments: &[String]) -> bool {
+    matches!(segments.first().map(String::as_str), Some("crate"))
+        && segments.get(1).map(String::as_str) == Some("contexts")
+        && segments.get(2).map(String::as_str) == Some("agent_runtime")
+}
+
+/// Whether a bootstrap line reaches past `agent_runtime`'s published surface.
+fn bootstrap_bypasses_agent_runtime_api(segments: &[String]) -> bool {
+    permissions_reaches_agent_runtime(segments)
+        && !matches!(
+            segments.get(3).map(String::as_str),
+            Some("api") | Some("application")
+        )
+}
+
+/// `fix-permission-decision-atomicity-and-grant-precedence` group 9.1.
+///
+/// The change made resolving an approval span two contexts: `permissions` decides, `agent_runtime`
+/// holds the waiter. The safe shape for that is one narrow published contract consumed by an
+/// adapter in the composition root — and the unsafe shape, which this pins shut, is `permissions`
+/// growing its own import of another context's generation internals in order to check a waiter.
+#[test]
+fn permissions_reaches_agent_runtime_only_through_the_bootstrap_delivery_adapter() {
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let permissions_root = source_root.join("contexts/permissions");
+    let mut violations = Vec::new();
+
+    for path in rust_files(&permissions_root).expect("enumerate permissions context") {
+        let source = fs::read_to_string(&path).expect("read permissions source");
+        let relative = path
+            .strip_prefix(&source_root)
+            .expect("relative permissions path");
+        for (line, segments) in path_dependencies(&source).expect("parse permissions source") {
+            if permissions_reaches_agent_runtime(&segments) {
+                violations.push(format!(
+                    "{}:{line}: {}",
+                    relative.display(),
+                    segments.join("::")
+                ));
+            }
+        }
+    }
+
+    let bridge_path = source_root.join("bootstrap/permissions.rs");
+    let bridge = fs::read_to_string(&bridge_path).expect("read permissions composition root");
+    let bridge_dependencies =
+        path_dependencies(&bridge).expect("parse permissions composition root");
+    for required in [
+        "crate::contexts::agent_runtime::api::AgentRuntimeApi",
+        "crate::contexts::permissions::application::ApprovalDeliveryPort",
+    ] {
+        assert!(
+            bridge_dependencies
+                .iter()
+                .any(|(_, segments)| segments.join("::") == required),
+            "the composition root must retain the reviewed delivery boundary `{required}`"
+        );
+    }
+    for (line, segments) in bridge_dependencies {
+        if bootstrap_bypasses_agent_runtime_api(&segments) {
+            violations.push(format!(
+                "bootstrap/permissions.rs:{line}: {}",
+                segments.join("::")
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "approval delivery must cross contexts only through a published API in bootstrap:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn the_permissions_delivery_detector_rejects_a_direct_context_import() {
+    assert!(permissions_reaches_agent_runtime(&path_segments(
+        "crate::contexts::agent_runtime::api::AgentRuntimeApi"
+    )));
+    assert!(permissions_reaches_agent_runtime(&path_segments(
+        "crate::contexts::agent_runtime::infrastructure::RuntimeAgentApiAdapter"
+    )));
+    assert!(!permissions_reaches_agent_runtime(&path_segments(
+        "crate::contexts::permissions::domain::Grant"
+    )));
+    // Bootstrap may hold the published surface and nothing beneath it.
+    assert!(!bootstrap_bypasses_agent_runtime_api(&path_segments(
+        "crate::contexts::agent_runtime::api::AgentRuntimeApi"
+    )));
+    assert!(bootstrap_bypasses_agent_runtime_api(&path_segments(
+        "crate::contexts::agent_runtime::infrastructure::RuntimeAgentApiAdapter"
+    )));
+}
+
 #[test]
 fn lsp_architecture_detectors_reject_direct_boundary_bypasses() {
     assert!(forbidden_lsp_retrieval_context_link(
@@ -2676,11 +2775,20 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // for those four and it stays cheap because none of them has shipped; a version that has
         // reached an installation is the one that can never move again.
         //
-        // Re-measured at 3,619 on merging the Skill evolution branch, whose sixteen migrations
-        // (renumbered 95-110 on merge, from 88-103) each pay the fixed registration cost here;
-        // their table bodies remain in the owning contexts.
-        budget: 3_619,
-        owner: "add-skill-evolution-system-sessions-and-result-projection",
+        // +11 for migration 111 (`permission-grant-canonical-identity`) from
+        // `fix-permission-decision-atomicity-and-grant-precedence`: the seven-line
+        // `apply_transactional_migration` call, the three-line comment saying why this one is
+        // transactional rather than additive, and its one-line `EXPECTED_MIGRATIONS` entry. The
+        // migration's own SQL lives in `permissions` infrastructure, so only the registration is
+        // counted here — which is the fixed cost of landing any migration in this subtree.
+        //
+        // Re-measured on merging the Skill evolution branch, whose sixteen migrations (renumbered
+        // 95-110 on that merge) each pay the same fixed registration cost, and which pushed this
+        // change's one migration from 95 to 111. Measured on the merged tree rather than summed:
+        // both branches raised this number for their own migrations and neither copied the other's.
+        // Merged-tree measurement: 3,634.
+        budget: 3_634,
+        owner: "merge/openspec-permission-shell-search",
     },
 ];
 
@@ -3626,6 +3734,127 @@ fn no_external_input_reaches_the_trusted_identifier_constructor() {
 }
 
 #[test]
+fn the_retained_shell_lifecycle_never_waits_without_a_ceiling() {
+    // [ARCH-NATIVE-012] A regression guard, not a style rule, and the regression is specific:
+    // closing a Shell used to remove its registry entry, kill the child, then call `child.wait()`
+    // and `JoinHandle::join()` — both unbounded — while discarding every kill, wait and join result
+    // with `let _ =`. On a child that ignored the kill, the window closed and the process stayed,
+    // and the entry that could have retried it was already gone.
+    //
+    // Each forbidden shape reintroduces one half of that, and each is a single line that looks
+    // harmless at its own call site.
+    //
+    // Matched on the trimmed line rather than on a multi-line pattern, because a regex anchored on
+    // a newline reads differently on a CRLF checkout than on the file that was just written — and
+    // that failure is silent, which is worse than the drift it would be guarding against.
+    const FORBIDDEN: &[(&str, &str)] = &[
+        (
+            ".join()",
+            "an unbounded thread join; use `ShellWorker::try_join`, which joins only a worker that \
+             has already reported itself complete",
+        ),
+        (
+            ".wait()",
+            "an unbounded child wait; observe termination through `ShellProcessHandle::try_reap` \
+             inside a `ShellCloseBudget`",
+        ),
+        (
+            "let _ = ",
+            "a discarded lifecycle result; map it into a `ShellRuntimeCloseOutcome` or a \
+             `SessionShellCloseResult`",
+        ),
+    ];
+    // The one file that is allowed to hold a `JoinHandle::join()` is the one that owns the seam:
+    // `ShellWorker::try_join` joins a thread that has already set its completion flag, which is the
+    // only join in the subsystem that is bounded by construction. It is exempted by name rather
+    // than by an inline escape hatch, and the exemption is paid for by the assertion below.
+    const WORKER_SEAM: &str =
+        "src-tauri/src/contexts/workspaces/infrastructure/retained_shell_process.rs";
+    let lifecycle = [
+        "src-tauri/src/contexts/workspaces/infrastructure/retained_shell_runtime.rs",
+        WORKER_SEAM,
+        "src-tauri/src/contexts/workspaces/infrastructure/retained_remote_shell.rs",
+        "src-tauri/src/contexts/workspaces/application/session_shell_registry.rs",
+        "src-tauri/src/contexts/workspaces/application/session_shell_store.rs",
+    ];
+    let mut violations = Vec::new();
+
+    for (relative, source) in production_native_sources() {
+        if !lifecycle.contains(&relative.as_str()) {
+            continue;
+        }
+        for (index, line) in source.lines().enumerate() {
+            let trimmed = line.trim();
+            // Prose about the rule is not a breach of it, and this rule is worth explaining in the
+            // files it governs.
+            if trimmed.starts_with("//") {
+                continue;
+            }
+            for (shape, repair) in FORBIDDEN {
+                if relative == WORKER_SEAM && *shape == ".join()" {
+                    continue;
+                }
+                if trimmed.contains(shape) {
+                    violations.push(format!(
+                        "[ARCH-NATIVE-012] {relative}:{}: `{shape}` is {repair}",
+                        index + 1
+                    ));
+                }
+            }
+        }
+    }
+
+    violations.sort();
+    assert!(violations.is_empty(), "{}", violations.join("\n"));
+
+    // What makes the exemption above safe. Remove the guard and the seam becomes the unbounded join
+    // every other file is forbidden from writing, with the exemption still in place.
+    let seam = fs::read_to_string(project_root().join(WORKER_SEAM)).expect("read the worker seam");
+    let guarded = seam
+        .split("fn try_join")
+        .nth(1)
+        .expect("the worker seam still defines try_join");
+    assert!(
+        guarded
+            .split("handle.join()")
+            .next()
+            .is_some_and(|before| before.contains("if !self.is_complete()")),
+        "[ARCH-NATIVE-012] `ShellWorker::try_join` joins without first checking the completion \
+         flag, which makes it the unbounded join the rest of the subsystem is forbidden to write"
+    );
+}
+
+/// A Tauri command translates a Shell close; it does not decide one.
+///
+/// If the command starts naming lifecycle states, budgets, or the reaper, the lifecycle has two
+/// authorities and the transport layer is one of them.
+#[test]
+fn the_shell_commands_translate_rather_than_orchestrate_cleanup() {
+    let source = fs::read_to_string(
+        project_root().join("src-tauri/src/commands/workspaces/session_shell.rs"),
+    )
+    .expect("read the session shell commands");
+    let mut violations = Vec::new();
+
+    for forbidden in [
+        "Reaping",
+        "CloseFailed",
+        "ShellCloseBudget",
+        "ShellGeneration",
+        "reaper",
+    ] {
+        if source.contains(forbidden) {
+            violations.push(format!(
+                "[ARCH-NATIVE-012] the close command names `{forbidden}`; lifecycle decisions \
+                 belong to the workspaces application layer"
+            ));
+        }
+    }
+
+    assert!(violations.is_empty(), "{}", violations.join("\n"));
+}
+
+#[test]
 fn command_adapters_cannot_construct_identifiers_without_validating_them() {
     // Visibility is the real guard; this fails with a readable message rather than a privacy error
     // if someone widens it.
@@ -3649,5 +3878,207 @@ fn command_adapters_cannot_construct_identifiers_without_validating_them() {
         "a command adapter builds an identifier without validating it. Everything a command \
          receives came from outside the process: {}",
         offenders.join(", ")
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// Workspace inspection: who owns the walk, the policy, and the admission
+// ---------------------------------------------------------------------------------------------
+
+/// Every source file under one directory, with its inline test module removed.
+fn production_sources_under(relative_dir: &str) -> Vec<(String, String)> {
+    let root = project_root().join(relative_dir);
+    let mut sources = Vec::new();
+    let Ok(entries) = fs::read_dir(&root) else {
+        return sources;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|value| value.to_str()) != Some("rs") {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        // A file whose whole purpose is tests, and the inline module inside a file that is not.
+        if name.ends_with("_tests.rs") || name == "tests.rs" {
+            continue;
+        }
+        let source = fs::read_to_string(&path).expect("read a workspaces source");
+        let production = source
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap_or(&source)
+            .to_string();
+        sources.push((format!("{relative_dir}/{name}"), production));
+    }
+    sources
+}
+
+/// The application layer decides what a walk may spend; it never walks.
+///
+/// The two are easy to confuse because both are "the search". Keeping the filesystem out of the
+/// application layer is what makes a budget testable without a disk and a policy readable without
+/// a workspace — and the first `fs::read_dir` there would put a second walk beside the one the
+/// providers own, with its own bounds and its own idea of what to skip.
+#[test]
+fn the_workspaces_application_layer_never_touches_the_filesystem() {
+    const FORBIDDEN: &[(&str, &str)] = &[
+        (
+            "std::fs",
+            "the filesystem belongs to a provider in infrastructure",
+        ),
+        (
+            "fs::read_dir",
+            "directory enumeration belongs to a provider",
+        ),
+        ("File::open", "opening a file belongs to a provider"),
+        (
+            "native_pty_system",
+            "acquiring a terminal belongs to a provider",
+        ),
+        (
+            "std::process::Command",
+            "starting a process belongs to a provider",
+        ),
+    ];
+    let mut violations = Vec::new();
+
+    for (relative, source) in
+        production_sources_under("src-tauri/src/contexts/workspaces/application")
+    {
+        for line in source.lines() {
+            let trimmed = line.trim();
+            // Prose about the rule is not a breach of it, and this rule is worth explaining where
+            // it applies.
+            if trimmed.starts_with("//") || trimmed.starts_with("///") {
+                continue;
+            }
+            for (shape, reason) in FORBIDDEN {
+                if trimmed.contains(shape) {
+                    violations.push(format!(
+                        "[ARCH-NATIVE-001] {relative}: `{shape}` — {reason}"
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(violations.is_empty(), "{}", violations.join("\n"));
+}
+
+/// One place decides whether an inspection may start.
+///
+/// Admission exists to refuse *before* a blocking task or a remote process exists. A second caller
+/// would be a second such decision, and the one that is wrong is always the one that acquired after
+/// the cost had already been paid. Pinned to the published API rather than counted, because the
+/// number of entry points is meant to grow.
+#[test]
+fn inspection_admission_is_acquired_only_by_the_published_workspace_api() {
+    let mut holders = Vec::new();
+
+    for (relative, source) in production_native_sources() {
+        if !relative.starts_with("src-tauri/src/contexts/workspaces/") {
+            continue;
+        }
+        // The admission type's own file implements it; every other file would be using it.
+        if relative.ends_with("application/inspection_admission.rs") {
+            continue;
+        }
+        if source.contains("admission.acquire") {
+            holders.push(relative);
+        }
+    }
+
+    assert_eq!(
+        holders,
+        vec!["src-tauri/src/contexts/workspaces/api.rs".to_string()],
+        "admission is acquired outside the published workspace API"
+    );
+}
+
+/// The search commands carry DTOs; they do not run a search.
+///
+/// A command that names a token, a budget, or a registration is a second place deciding when work
+/// starts and stops — and the transport layer is the worst place for that, because it is the one
+/// layer with no way to observe what it started.
+#[test]
+fn the_search_commands_translate_rather_than_orchestrate() {
+    const COMMANDS: &[&str] = &[
+        "src-tauri/src/commands/workspaces/search_workspace_content.rs",
+        "src-tauri/src/commands/workspaces/search_workspace_paths.rs",
+        "src-tauri/src/commands/workspaces/list_session_directory.rs",
+        "src-tauri/src/commands/workspaces/list_session_documents.rs",
+    ];
+    const FORBIDDEN: &[&str] = &[
+        "WorkspaceInspectionAdmission",
+        "SearchCancellationToken",
+        "SearchRegistration",
+        "WorkspaceInspectionBudget",
+        "DirectoryCursor",
+        "spawn_blocking",
+    ];
+    let mut violations = Vec::new();
+
+    for relative in COMMANDS {
+        let source = fs::read_to_string(project_root().join(relative))
+            .unwrap_or_else(|_| panic!("read {relative}"));
+        let production = source.split("#[cfg(test)]").next().unwrap_or(&source);
+        for forbidden in FORBIDDEN {
+            if production.contains(forbidden) {
+                violations.push(format!(
+                    "[ARCH-NATIVE-002] {relative} names `{forbidden}`; deciding when inspection \
+                     work starts belongs to the workspaces application layer"
+                ));
+            }
+        }
+    }
+
+    assert!(violations.is_empty(), "{}", violations.join("\n"));
+}
+
+/// One list of directories a workspace search skips.
+///
+/// Three walks each had their own copy and a fourth had none, so a file was findable by name and
+/// not by content. The remote helper had a fifth copy that had already fallen three entries behind,
+/// which is what a second list does: it does not disagree loudly, it disagrees about the entries
+/// nobody added to it.
+///
+/// Scoped to this context and to the helper it ships. Other subsystems name `node_modules` for
+/// unrelated reasons — locating a bundled CLI, bounding a Skills scan — and folding them in would
+/// make this rule about the string rather than about who decides what a workspace search covers.
+#[test]
+fn the_default_workspace_exclusions_have_exactly_one_owner() {
+    const OWNER: &str = "src-tauri/src/contexts/workspaces/application/ignore_policy.rs";
+    let mut holders = Vec::new();
+
+    for (relative, source) in production_native_sources() {
+        if relative == OWNER || !relative.starts_with("src-tauri/src/contexts/workspaces/") {
+            continue;
+        }
+        let production = source.split("#[cfg(test)]").next().unwrap_or(&source);
+        // One representative name rather than the whole list: a second copy that omitted this one
+        // would be a copy nobody would call a copy.
+        if production.contains("\"node_modules\"") {
+            holders.push(relative);
+        }
+    }
+
+    // The helper is a Python script this binary ships and sends; it held the copy that drifted.
+    let helper = fs::read_to_string(
+        project_root()
+            .join("src-tauri/src/contexts/workspaces/infrastructure/remote_helper/helper.py"),
+    )
+    .expect("read the remote helper");
+    assert!(
+        !helper.contains("\"node_modules\""),
+        "the remote helper restates the exclusion list; it receives it in the request so the two \
+         sides cannot drift"
+    );
+
+    assert!(
+        holders.is_empty(),
+        "the default exclusion list is restated in {holders:?}; it belongs to {OWNER} and travels \
+         to the remote helper in the request"
     );
 }

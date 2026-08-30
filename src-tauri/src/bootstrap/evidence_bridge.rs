@@ -30,6 +30,7 @@ use crate::contexts::workspaces::api::{
     WorkspaceShellCloseReason, WorkspaceShellRuntimeKind,
 };
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -302,8 +303,19 @@ fn lock<T>(value: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 /// places, where they could drift.
 #[derive(Clone)]
 pub(crate) struct EvidenceBridge {
-    sender: SyncSender<RecordEvidenceInput>,
+    sender: SyncSender<BridgeMessage>,
     drops: Arc<DropAccumulator>,
+}
+
+/// What travels down the queue.
+///
+/// `Stop` exists because the worker cannot be ended by dropping the senders: the bridge is cloned
+/// into five long-lived assemblies, every one of which holds a sender for the process's whole life.
+/// A shutdown that only waited for the channel to close therefore waited for something that could
+/// never happen, and paid its full grace on every exit.
+enum BridgeMessage {
+    Record(Box<RecordEvidenceInput>),
+    Stop,
 }
 
 impl EvidenceBridge {
@@ -320,7 +332,7 @@ impl EvidenceBridge {
                 .record(session_id, EvidenceDropReason::UnmappableSignal);
             return;
         };
-        match self.sender.try_send(input) {
+        match self.sender.try_send(BridgeMessage::Record(Box::new(input))) {
             Ok(()) => {}
             // Both failures are silent to the producer by design. `Full` means the journal is
             // behind; `Disconnected` means the worker is gone. Neither says anything about whether
@@ -1190,6 +1202,18 @@ fn map_session_signal(signal: &SessionEvidenceSignal) -> Option<RecordEvidenceIn
 /// The receiving half. Owns the thread and the only handle that calls the recorder.
 pub(crate) struct EvidenceBridgeWorker {
     handle: Option<JoinHandle<()>>,
+    /// The sender the shutdown uses to end the worker, and nothing else uses.
+    ///
+    /// Kept here rather than reached through the bridge because the two have opposite lifetimes: the
+    /// bridge is cloned everywhere and lives forever, and this is dropped the moment shutdown has
+    /// used it.
+    stop: SyncSender<BridgeMessage>,
+    /// Set as well as sent, for the case where the queue is full.
+    ///
+    /// A bounded queue can refuse the stop message, and a blocking send would then hold the exit
+    /// open on whatever write the worker is in the middle of. The flag is what the worker sees after
+    /// finishing that write.
+    stopping: Arc<AtomicBool>,
 }
 
 /// Managed state so the exit handler can reach the worker it did not create.
@@ -1228,6 +1252,12 @@ impl EvidenceBridgeWorker {
         let Some(handle) = self.handle.take() else {
             return;
         };
+        // Told to stop, then waited for. Waiting alone was the defect: the worker blocks on a
+        // channel whose senders outlive it by design, so the wait could only ever end at the
+        // deadline — two seconds on the event-loop thread, on every exit, with the window already
+        // gone and the process apparently hung.
+        self.stopping.store(true, Ordering::SeqCst);
+        let _ = self.stop.try_send(BridgeMessage::Stop);
         let deadline = Instant::now() + SHUTDOWN_GRACE;
         while !handle.is_finished() {
             if Instant::now() >= deadline {
@@ -1255,11 +1285,23 @@ pub(crate) fn start_evidence_bridge(
         sender,
         drops: drops.clone(),
     };
+    let stopping = Arc::new(AtomicBool::new(false));
+    let stop = bridge.sender.clone();
     let handle = std::thread::Builder::new()
         .name("evidence-bridge".to_string())
-        .spawn(move || run_worker(evidence, receiver, drops))
+        .spawn({
+            let stopping = stopping.clone();
+            move || run_worker(evidence, receiver, drops, stopping)
+        })
         .ok();
-    (bridge, EvidenceBridgeWorker { handle })
+    (
+        bridge,
+        EvidenceBridgeWorker {
+            handle,
+            stop,
+            stopping,
+        },
+    )
 }
 
 /// One failed record must not end the worker.
@@ -1269,10 +1311,15 @@ pub(crate) fn start_evidence_bridge(
 /// permanent loss of every later one.
 fn run_worker(
     evidence: ExecutionEvidenceApi,
-    receiver: Receiver<RecordEvidenceInput>,
+    receiver: Receiver<BridgeMessage>,
     drops: Arc<DropAccumulator>,
+    stopping: Arc<AtomicBool>,
 ) {
-    while let Ok(input) = receiver.recv() {
+    while let Ok(message) = receiver.recv() {
+        let BridgeMessage::Record(input) = message else {
+            break;
+        };
+        let input = *input;
         // Captured before the input moves: a failure has to be attributable, and the correlation
         // is the only place the session survives once `record` has taken ownership.
         let session = input
@@ -1285,8 +1332,14 @@ fn run_worker(
             }
         }
         flush_drops(&evidence, &drops);
+        // Checked after the write rather than before the read, because the interesting case is a
+        // stop that arrived while this thread was inside SQLite: the queue was full, the message
+        // could not be sent, and the flag is what is left.
+        if stopping.load(Ordering::SeqCst) {
+            break;
+        }
     }
-    // The senders are gone; report whatever never made it, on the way down.
+    // Nothing more is coming; report whatever never made it, on the way down.
     flush_drops(&evidence, &drops);
 }
 

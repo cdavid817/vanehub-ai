@@ -41,7 +41,15 @@ function entries(count: number, prefix = "file"): DirectoryEntry[] {
 }
 
 function listing(overrides: Partial<DirectoryListing> = {}): DirectoryListing {
-  return { context: CONTEXT, items: [], nextCursor: null, path: "", truncated: false, ...overrides };
+  return {
+    context: CONTEXT,
+    coverage: { state: "complete" },
+    items: [],
+    nextCursor: null,
+    path: "",
+    truncated: false,
+    ...overrides,
+  };
 }
 
 function pathMatch(path: string): WorkspacePathMatch {
@@ -145,6 +153,7 @@ describe("a path search at its result bound", () => {
   it("offers the next page when the search minted a cursor", async () => {
     const matches = Array.from({ length: 50 }, (_, index) => pathMatch(`src/file-${index}.rs`));
     searchPaths.mockResolvedValue({
+      generation: 1,
       coverage: { state: "complete" },
       matches,
       nextCursor: "cursor-2",
@@ -158,7 +167,7 @@ describe("a path search at its result bound", () => {
 
   it("offers no next page for a full result set that happens to end there", async () => {
     const matches = Array.from({ length: 50 }, (_, index) => pathMatch(`src/file-${index}.rs`));
-    searchPaths.mockResolvedValue({ coverage: { state: "complete" }, matches });
+    searchPaths.mockResolvedValue({ generation: 1, coverage: { state: "complete" }, matches });
 
     openQuickOpen();
 
@@ -170,7 +179,8 @@ describe("a path search at its result bound", () => {
 
   it("keeps a cursor and a coverage gap as two separate sentences", async () => {
     searchPaths.mockResolvedValue({
-      coverage: { state: "partial", reasonCode: "scan_limit" },
+      generation: 1,
+      coverage: { state: "partial", reasonCode: "entry_budget_exhausted" },
       matches: [pathMatch("src/main.rs")],
       nextCursor: "cursor-2",
     });
@@ -189,7 +199,8 @@ describe("a content search at its match bound", () => {
   it("renders every match it was handed and says the walk was cut", async () => {
     const matches = Array.from({ length: 200 }, (_, index) => contentMatch(index));
     searchContent.mockResolvedValue({
-      coverage: { state: "partial", reasonCode: "match_limit" },
+      generation: 1,
+      coverage: { state: "partial", reasonCode: "result_budget_exhausted" },
       matches,
     } satisfies WorkspaceContentSearchResult);
 
@@ -199,7 +210,13 @@ describe("a content search at its match bound", () => {
     fireEvent.change(screen.getByRole("combobox"), { target: { value: "value" } });
 
     await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(200), { timeout: 4000 });
-    expect(screen.getByText("Part of this workspace was not searched.")).toBeTruthy();
+    // The reason as well as the state. "Part of this workspace was not searched" tells a reader
+    // there is more; only the reason tells them whether narrowing the query would find it.
+    expect(
+      screen.getByText(
+        "Part of this workspace was not searched. Stopped at the maximum number of results.",
+      ),
+    ).toBeTruthy();
   });
 
   it("distinguishes a search that was cut from one that found nothing", async () => {

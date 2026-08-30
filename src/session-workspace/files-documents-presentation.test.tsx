@@ -50,6 +50,7 @@ const SURFACES: readonly SearchSurface[] = [
   {
     arrange: (rows) =>
       vi.spyOn(agentService, "searchWorkspacePaths").mockResolvedValue({
+        generation: 1,
         coverage: { state: "complete" },
         matches: rows.map((path) => ({ kind: "file", name: path, path })),
       }),
@@ -66,6 +67,7 @@ const SURFACES: readonly SearchSurface[] = [
     arrange: (rows) => {
       vi.spyOn(agentService, "cancelWorkspaceSearch").mockResolvedValue(true);
       return vi.spyOn(agentService, "searchWorkspaceContent").mockResolvedValue({
+        generation: 1,
         coverage: { state: "complete" },
         matches: rows.map((path, index) => ({
           column: 1,
@@ -96,6 +98,7 @@ beforeAll(async () => {
 beforeEach(() => {
   vi.spyOn(agentService, "listSessionDirectory").mockResolvedValue({
     context: CONTEXT,
+    coverage: { state: "complete" },
     items: [],
     nextCursor: null,
     path: "",

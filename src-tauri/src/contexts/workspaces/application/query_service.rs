@@ -1,3 +1,4 @@
+use super::inspection_execution::WorkspaceInspectionExecution;
 use super::{
     DirectoryListing, DocumentListing, FileContent, FileSearchListing, GitDiffResult,
     GitDiffSource, GitStatusResult, SessionLogExportResult, SessionLogPage, SessionLogQuery,
@@ -38,11 +39,29 @@ impl WorkspaceQueryApplicationService {
         self.queries.list_directory(session_id, path)
     }
 
+    /// One page of a directory, resuming after a cursor.
+    ///
+    /// The unpaged call above is this with no cursor and the default bound. Kept separate at this
+    /// seam rather than folded into one method with two optional arguments, because "give me this
+    /// folder" and "give me what comes after this position in this folder" fail differently: only
+    /// the second can be refused for a reason that has nothing to do with the folder.
+    pub(crate) fn list_directory_page(
+        &self,
+        session_id: &str,
+        path: &str,
+        cursor: Option<&str>,
+        limit: usize,
+    ) -> Result<DirectoryListing, WorkspaceApplicationError> {
+        self.queries
+            .list_directory_page(session_id, path, cursor, limit)
+    }
+
     pub(crate) fn list_documents(
         &self,
         session_id: &str,
+        execution: &WorkspaceInspectionExecution,
     ) -> Result<DocumentListing, WorkspaceApplicationError> {
-        self.queries.list_documents(session_id)
+        self.queries.list_documents(session_id, execution)
     }
 
     pub(crate) fn search_files(

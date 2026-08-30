@@ -318,14 +318,22 @@ globalThis.describe("VaneHub AI desktop domain observability", () => {
 
     const session = await createSession(agent.id, agent.mode, "Domain sweep binding", repository);
     try {
-      // src-tauri/src/commands/communications/get_im_session_binding.rs:7-9 -- `session_id`.
-      // `SessionBindingView` is dto.rs:46-51.
+      // `get_im_session_binding` takes `session_id` and an optional connector; the answer is
+      // `SessionBindingView` in commands/communications/dto.rs.
       const empty = await invoke(({ core }, id) => core.invoke("get_im_session_binding", {
         sessionId: id,
         connector: "feishu",
       }), session.id);
+      // Three separate claims, because they fail for different reasons and a single `deepEqual` of
+      // the whole view reports all three as one. This used to be that `deepEqual`, and when
+      // `access` was added it started failing with "a session with no pairing reported a binding"
+      // — about a session that had no binding. A message that names the wrong fault is worse than
+      // no message.
       assert.equal(empty.binding, null, "a session with no pairing reported a binding");
       assert.equal(empty.pendingConnector, null, "a session with no pairing reported a pending connector");
+      // The view's own shape is still pinned, so a *fourth* field is still caught — and named.
+      assert.deepEqual(Object.keys(empty).sort(), ["access", "binding", "pendingConnector"],
+        `the binding view carries fields this contract does not describe: ${JSON.stringify(Object.keys(empty))}`);
       assert.deepEqual(empty.access, {
         sessionId: session.id,
         // The read model always projects the default Feishu access policy until a connector is
@@ -346,16 +354,40 @@ globalThis.describe("VaneHub AI desktop domain observability", () => {
       assert.equal(unknownSession.ok, false, "pairing accepted a session that does not exist");
       assert.equal(unknownSession.error, "im-session-not-found", `unexpected: ${unknownSession.error}`);
 
-      // Connector-scoped session access is checked before connector configuration and health.
-      // This new session has the disabled default projected above, so pairing must stop at that
-      // boundary without revealing whether the borrowed connector is configured or connected.
+      // Two gates, in the order `begin_pairing` applies them. Asserting only the second is what
+      // this spec used to do, and when the session-access gate was added in front of it the
+      // failure read as "pairing started against an unconfigured connector" — about a connector
+      // that was never reached.
+      //
+      // First: connector-scoped session access, checked before connector configuration and health.
+      // This session has the disabled default projected above, so pairing stops at that boundary
+      // without revealing whether the borrowed connector is configured or connected.
+      const disabled = await attempt("begin_im_pairing", {
+        sessionId: session.id,
+        connector: BORROWED_CONNECTOR,
+        replaceExisting: false,
+      });
+      assert.equal(disabled.ok, false, "pairing started for a session with IM access disabled");
+      assert.equal(disabled.error, "im-session-disabled", `unexpected: ${disabled.error}`);
+
+      // Second, once the session is allowed to use IM at all: a configured, enabled and *connected*
+      // connector. Nothing on this host is connected, so this must be refused rather than reaching
+      // out for a pairing code. Reached only by opening the first gate, which is the only way to
+      // show that the second one exists at all.
+      const allowed = await attempt("set_im_session_access", {
+        sessionId: session.id,
+        connector: BORROWED_CONNECTOR,
+        enabled: true,
+      });
+      assert.equal(allowed.ok, true, `enabling session access failed: ${allowed.error}`);
+
       const notReady = await attempt("begin_im_pairing", {
         sessionId: session.id,
         connector: BORROWED_CONNECTOR,
         replaceExisting: false,
       });
       assert.equal(notReady.ok, false, "pairing started against an unconfigured connector");
-      assert.equal(notReady.error, "im-session-disabled", `unexpected: ${notReady.error}`);
+      assert.equal(notReady.error, "im-connector-not-ready", `unexpected: ${notReady.error}`);
 
       // src-tauri/src/commands/communications/cancel_im_pairing.rs:6-9 -- `session_id`,
       // `connector`. Cancelling a pairing that was never started is a no-op, not an error.

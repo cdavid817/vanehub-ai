@@ -23,6 +23,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 
 HELPER_VERSION = 1
 
@@ -282,23 +283,77 @@ def directory_fingerprints(root, paths):
 PATH_SCAN_LIMIT = 20000
 PATH_DEPTH_LIMIT = 10
 PATH_CANDIDATE_LIMIT = 2000
+# The walk's own ceiling on how long it may run, in seconds. The client sends a deadline from the
+# shared budget; this is what bounds a request that arrived without one, on a machine this process
+# does not administer.
+PATH_DEADLINE_SECONDS = 10
 
-# Trees a reader is never trying to reach by name. The same list the local walk uses, so a workspace
-# does not appear to have a different shape depending on which machine it is on. `bin` is
-# deliberately absent: Cargo treats `src/bin` as real source.
-EXCLUDED_DIRECTORIES = (
-    "node_modules", "bower_components", "jspm_packages", "vendor", "dist", "build", "out",
-    "target", "obj", "__pycache__", "venv", "site-packages", "coverage", "pods", "deriveddata",
-)
+# Trees a reader is never trying to reach by name.
+#
+# Sent by the client rather than held here. This file used to carry its own copy of the list, and the
+# copy fell behind: a workspace appeared to have a different shape depending on which machine it was
+# on, which is the single thing a provider-neutral seam exists to prevent. The client and this script
+# ship together in one binary, so there is no version to reconcile — an absent list means the client
+# asked for no exclusions, not that it is too old to have any.
+def normalized_exclusions(operation):
+    names = operation.get("excludedDirectories")
+    if not isinstance(names, list):
+        return ()
+    return tuple(str(name).lower() for name in names if isinstance(name, str) and name)
 
 
-def search_paths(root, query, limit):
+def exclusion_globs(excluded):
+    """The same list, as ripgrep globs.
+
+    ripgrep already applies the repository's own `.gitignore`, which is where the two sides agree by
+    construction — it is Git's rules on both. These globs add the defaults on top, which ripgrep has
+    no opinion about. The one place they differ from the local walk: a `.gitignore` that negates one
+    of these names re-includes that tree locally and does not here, because a command-line glob
+    outranks a rule file.
+    """
+    globs = []
+    for name in excluded:
+        globs.extend(["--glob", "!" + name + "/"])
+    return globs
+
+
+def walk_limits(operation):
+    """The bounds the client sent, clamped by this script's own ceilings.
+
+    Both, not either. The client's numbers are the shared budget and are what makes the two sides
+    bound the same walk; the ceilings here are the last defence on a machine this process does not
+    administer, for a request that arrived malformed or with a number somebody widened by hand.
+    """
+    sent = operation.get("limits")
+    sent = sent if isinstance(sent, dict) else {}
+
+    def bounded(key, ceiling):
+        try:
+            value = int(sent.get(key, 0) or 0)
+        except (TypeError, ValueError):
+            value = 0
+        return ceiling if value <= 0 else min(value, ceiling)
+
+    return {
+        "max_entries": bounded("maxEntries", PATH_SCAN_LIMIT),
+        "max_depth": bounded("maxDepth", PATH_DEPTH_LIMIT),
+        "max_results": bounded("maxResults", PATH_CANDIDATE_LIMIT),
+        "deadline_seconds": bounded("deadlineSeconds", PATH_DEADLINE_SECONDS),
+    }
+
+
+def search_paths(root, query, limit, excluded, limits):
     """Candidate paths for Quick Open, unranked.
 
     Ranking stays on the client. Scoring here would be a second implementation of an ordering the
     local provider already has, and the two would disagree first about the ties nobody writes tests
     for. What this side owns is the walk, its bounds, and the confinement — all three of which can
     only happen on the machine holding the files.
+
+    The walk reports which bound stopped it and what it spent. One boolean cannot say whether a
+    reader is looking at a short list because the tree is deep, because it is wide, or because the
+    host could not read part of it — and the client used to report every one of them as an entry
+    budget, which was a guess and usually the wrong one.
     """
     resolved = resolve_root(root)
     if resolved is None:
@@ -307,14 +362,27 @@ def search_paths(root, query, limit):
 
     entries = []
     truncated = False
+    reason = None
     scanned = 0
+    directories = 0
+    unreadable = 0
+    deepest = 0
+    started = time.monotonic()
     queue = [("", 0)]
     seen = set()
     while queue:
+        # Checked per directory rather than per entry: a deadline needs to be observed often enough
+        # to be finite, and a clock read per filename would cost more than the walk.
+        if time.monotonic() - started >= limits["deadline_seconds"]:
+            truncated = True
+            reason = reason or "deadline_exceeded"
+            break
         relative, depth = queue.pop(0)
         directory = resolve_within(resolved, relative)
         if directory is None:
             continue
+        directories += 1
+        deepest = max(deepest, depth)
         try:
             with os.scandir(directory) as scan:
                 children = list(scan)
@@ -322,13 +390,16 @@ def search_paths(root, query, limit):
             # An unreadable subdirectory is a permission quirk rather than a failure, but it does
             # leave part of the workspace unexamined.
             truncated = True
+            unreadable += 1
+            reason = reason or "unreadable_entries"
             continue
         for entry in children:
             if entry.name.startswith("."):
                 continue
             scanned += 1
-            if scanned > PATH_SCAN_LIMIT:
+            if scanned > limits["max_entries"]:
                 truncated = True
+                reason = "entry_budget_exhausted"
                 break
             child_relative = entry.name if not relative else relative + "/" + entry.name
             target = resolve_within(resolved, child_relative)
@@ -342,15 +413,17 @@ def search_paths(root, query, limit):
             if not is_directory and not is_file:
                 continue
             if is_directory:
-                if entry.name.lower() in EXCLUDED_DIRECTORIES:
+                if entry.name.lower() in excluded:
                     continue
-                if depth + 1 > PATH_DEPTH_LIMIT:
+                if depth + 1 > limits["max_depth"]:
                     truncated = True
+                    reason = reason or "depth_budget_exhausted"
                 elif target not in seen:
                     seen.add(target)
                     queue.append((child_relative, depth + 1))
-            if len(entries) >= PATH_CANDIDATE_LIMIT:
+            if len(entries) >= limits["max_results"]:
                 truncated = True
+                reason = reason or "result_budget_exhausted"
                 continue
             if needle and needle not in entry.name.lower() and needle not in child_relative.lower():
                 continue
@@ -362,16 +435,32 @@ def search_paths(root, query, limit):
                     "size": None,
                 }
             )
-        if scanned > PATH_SCAN_LIMIT:
+        if scanned > limits["max_entries"]:
             truncated = True
+            reason = reason or "entry_budget_exhausted"
             break
     # The limit bounds what crosses the wire, not what the client shows: it ranks first, so cutting
     # here by anything other than the walk order would drop candidates that would have ranked well.
-    bound = max(1, min(limit or PATH_CANDIDATE_LIMIT, PATH_CANDIDATE_LIMIT))
+    bound = max(1, min(limit or limits["max_results"], limits["max_results"]))
     if len(entries) > bound:
         truncated = True
+        reason = reason or "result_budget_exhausted"
         entries = entries[:bound]
-    return {"entries": entries, "truncated": truncated}, None
+    answer = {
+        "entries": entries,
+        "truncated": truncated,
+        # Structural counters only, and no paths: this lands in a coverage a reader can see, and a
+        # count is a fact about effort rather than about what the workspace contains.
+        "counts": {
+            "directoriesVisited": directories,
+            "entriesVisited": scanned,
+            "maxDepthReached": deepest,
+            "unreadableEntries": unreadable,
+        },
+    }
+    if reason is not None:
+        answer["reasonCode"] = reason
+    return answer, None
 
 
 def read_text_file(root, relative):
@@ -412,7 +501,7 @@ def read_text_file(root, relative):
     return answer, None
 
 
-def search(root, query, max_results):
+def search(root, query, max_results, excluded):
     resolved = resolve_root(root)
     if resolved is None:
         return None, "workspace_path_escaped"
@@ -428,6 +517,9 @@ def search(root, query, max_results):
             "--max-count",
             "1",
             "--fixed-strings",
+        ]
+        + exclusion_globs(excluded)
+        + [
             "--",
             query,
         ],
@@ -495,7 +587,7 @@ def safe_snippet(line, column_index):
     return cleaned[start:start + SNIPPET_CHAR_LIMIT], True
 
 
-def search_content(root, query, max_results):
+def search_content(root, query, max_results, excluded):
     """Positions inside files, via ripgrep.
 
     ripgrep or nothing, for the same reason the path-mention search says so: a hand-rolled walk
@@ -520,6 +612,9 @@ def search_content(root, query, max_results):
             # one place to go, and six rows for it would push five other files off a bounded list.
             "--max-count",
             str(limit),
+        ]
+        + exclusion_globs(excluded)
+        + [
             "--",
             query,
         ],
@@ -654,16 +749,32 @@ def dispatch(root, operation):
         # answer is an empty list, and an empty list is falsy.
         return ({"fingerprints": answer} if answer is not None else None), error
     if kind == "searchPaths":
-        answer, error = search_paths(root, operation.get("query", ""), int(operation.get("limit", 0) or 0))
+        answer, error = search_paths(
+            root,
+            operation.get("query", ""),
+            int(operation.get("limit", 0) or 0),
+            normalized_exclusions(operation),
+            walk_limits(operation),
+        )
         return ({"paths": answer} if answer else None), error
     if kind == "readTextFile":
         answer, error = read_text_file(root, operation.get("path", ""))
         return ({"file": answer} if answer else None), error
     if kind == "search":
-        answer, error = search(root, operation.get("query", ""), int(operation.get("maxResults", 0) or 0))
+        answer, error = search(
+            root,
+            operation.get("query", ""),
+            int(operation.get("maxResults", 0) or 0),
+            normalized_exclusions(operation),
+        )
         return ({"search": answer} if answer else None), error
     if kind == "searchContent":
-        answer, error = search_content(root, operation.get("query", ""), int(operation.get("maxResults", 0) or 0))
+        answer, error = search_content(
+            root,
+            operation.get("query", ""),
+            int(operation.get("maxResults", 0) or 0),
+            normalized_exclusions(operation),
+        )
         return ({"content": answer} if answer is not None else None), error
     if kind == "gitStatus":
         answer, error = git_status(root)

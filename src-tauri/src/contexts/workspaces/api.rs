@@ -1,7 +1,11 @@
+/// Content search, the registry that lets one be stopped, and the ceiling on how many inspections
+/// run at once.
+pub(crate) use super::application::bounded_page_size;
 pub(crate) use super::application::{
-    AttachSessionShellRequest, CreateSessionShellRequest, ResizeSessionShellRequest,
-    SessionShellDescriptor, SessionShellRegistry, ShellAttachSnapshot, ShellAttachmentScope,
-    WriteSessionShellRequest,
+    deliver_content_search, MonotonicClockPort, SystemMonotonicClock,
+    WorkspaceContentSearchDelivery, WorkspaceContentSearchRequest, WorkspaceContentSearchResult,
+    WorkspaceInspectionAdmission, WorkspaceInspectionExecution, WorkspaceInspectionReason,
+    WorkspaceSearchCancellation, WorkspaceSearchCoverage,
 };
 /// Provider-neutral workspace inspection.
 ///
@@ -9,9 +13,14 @@ pub(crate) use super::application::{
 /// `WorkspaceTarget` itself is published too, because a caller has to be able to tell a reader
 /// which machine an answer came from — but nothing outside this context can construct one.
 pub(crate) use super::application::{
-    CapabilityState, WorkspaceInspectionCapabilities, WorkspaceInspectionError,
-    WorkspaceInspectionRouter, WorkspacePathSearchRequest, WorkspacePathSearchResult,
-    WorkspaceTarget,
+    deliver_path_search, CapabilityState, WorkspaceInspectionCapabilities,
+    WorkspaceInspectionError, WorkspaceInspectionRouter, WorkspacePathSearchDelivery,
+    WorkspacePathSearchRequest, WorkspacePathSearchResult, WorkspaceTarget,
+};
+pub(crate) use super::application::{
+    AttachSessionShellRequest, CreateSessionShellRequest, ResizeSessionShellRequest,
+    SessionShellCleanupReport, SessionShellCloseResult, SessionShellDescriptor,
+    SessionShellRegistry, ShellAttachSnapshot, ShellAttachmentScope, WriteSessionShellRequest,
 };
 pub(crate) use super::application::{
     CreatedWorktree, DirectoryListing, DocumentListing, FileContent, FileSearchListing,
@@ -30,10 +39,6 @@ use super::application::{WorkspaceApplicationService, WorkspaceQueryApplicationS
 pub(crate) use super::application::{
     WorkspaceChangeObserverPort, WorkspaceInvalidationChange, WorkspaceInvalidationDispatcher,
     WorkspaceInvalidationScope, WorkspaceInvalidationSource,
-};
-/// Content search, and the registry that lets one be stopped.
-pub(crate) use super::application::{
-    WorkspaceContentSearchRequest, WorkspaceContentSearchResult, WorkspaceSearchCancellation,
 };
 pub(crate) use super::application::{
     WorkspaceEvidencePort, WorkspaceEvidenceSignal, WorkspaceFileChangeKind,
@@ -82,6 +87,18 @@ pub(crate) struct WorkspaceApi {
     /// Owned here rather than by the router, because cancelling is a different command from
     /// searching and both need to reach the same registry.
     searches: Arc<WorkspaceSearchCancellation>,
+    /// How many inspections may run at once, globally and per workspace.
+    ///
+    /// Held here rather than inside a provider, because the point of a ceiling is to refuse
+    /// *before* a blocking task or an SSH channel exists. A provider that admitted itself would be
+    /// deciding after the cost had already been paid.
+    admission: Arc<WorkspaceInspectionAdmission>,
+    /// The clock every bounded inspection measures its deadline against.
+    ///
+    /// Assembled here rather than constructed inside each traversal. A walk that reaches for
+    /// `Instant::now` itself cannot be given a different clock, so a deadline is only provable by
+    /// waiting one out — and a suite that waits out a twenty-second deadline is a suite nobody runs.
+    clock: Arc<dyn MonotonicClockPort>,
 }
 
 impl WorkspaceApi {
@@ -124,6 +141,8 @@ impl WorkspaceApi {
             inspection,
             invalidation,
             searches: Arc::new(WorkspaceSearchCancellation::default()),
+            admission: Arc::new(WorkspaceInspectionAdmission::default()),
+            clock: Arc::new(SystemMonotonicClock::default()),
         }
     }
 
@@ -255,25 +274,63 @@ impl WorkspaceApi {
             .create_guarded_loop_worktree(project_path, name, base_branch)
     }
 
-    pub(crate) fn list_session_directory(
+    /// One page of a directory, and the note that somebody is looking at it.
+    ///
+    /// The note is recorded on the way out and only when the read worked, for every page rather
+    /// than only the first. A directory that could not be listed is not one a console is showing,
+    /// and polling it would spend a stat every tick to rediscover that.
+    pub(crate) fn list_session_directory_page(
         &self,
         session_id: &str,
         path: &str,
+        cursor: Option<&str>,
+        limit: usize,
     ) -> Result<DirectoryListing, WorkspaceError> {
-        let listing = self.queries.list_directory(session_id, path)?;
-        // Recorded on the way out, and only when the read worked. A directory that could not be
-        // listed is not one a console is showing, and polling it would be spending a stat every
-        // tick to rediscover that.
+        let listing = self
+            .queries
+            .list_directory_page(session_id, path, cursor, limit)?;
         self.invalidation
             .note_directory_read(session_id, path, unix_milliseconds());
         Ok(listing)
     }
 
-    pub(crate) fn list_session_documents(
+    /// Every Markdown and text file in the project, as a recursive walk.
+    ///
+    /// Admission is acquired before the walk and held until it exits, and the walk polls the
+    /// registration's token. It is a recursive traversal of an entire project on a blocking thread,
+    /// which is the shape of work the ceiling exists for — and until now it was the one such walk
+    /// that could start any number of times with nothing to stop it.
+    pub(crate) async fn list_session_documents(
         &self,
-        session_id: &str,
+        session_id: String,
+        search_id: String,
     ) -> Result<DocumentListing, WorkspaceError> {
-        self.queries.list_documents(session_id)
+        let registration = self.searches.begin(&search_id);
+        let Ok(_permit) = self.admission.acquire(&session_id).await else {
+            registration.complete();
+            return Ok(DocumentListing {
+                context: SessionWorkspaceContext::available(None),
+                items: Vec::new(),
+                truncated: false,
+                next_cursor: None,
+                coverage: WorkspaceSearchCoverage::stopped(
+                    WorkspaceInspectionReason::InspectionBusy,
+                ),
+            });
+        };
+        let api = self.clone();
+        let execution = WorkspaceInspectionExecution::document_discovery(
+            registration.generation(),
+            registration.token(),
+            Arc::clone(&self.clock),
+        );
+        let outcome = tauri::async_runtime::spawn_blocking(move || {
+            api.queries.list_documents(&session_id, &execution)
+        })
+        .await
+        .map_err(|_| WorkspaceError::Storage("session documents task failed".to_string()))?;
+        registration.complete();
+        outcome
     }
 
     pub(crate) fn search_session_files(
@@ -320,24 +377,59 @@ impl WorkspaceApi {
         self.inspection.capabilities(session_id).await
     }
 
-    /// Content search, registered so it can be stopped.
+    /// Content search, admitted and registered so it can be stopped.
     ///
-    /// The flag is taken before the search starts and released after it ends, in this one place.
-    /// Registering inside the provider would put the lifetime of the registration inside the thing
-    /// being registered, and a provider that returned early would leave an id running forever.
+    /// Three things happen here and nowhere else. Admission is acquired before any blocking or
+    /// remote work exists, so a burst is refused rather than queued. The registration is taken
+    /// before the search starts, so a cancel arriving in the window between the request leaving
+    /// the frontend and the first directory being read still lands. And the guard that owns the
+    /// registration stays in *this* future - so an abort releases it and signals the worker, and a
+    /// walk on the blocking pool never touches the registry at all.
+    ///
+    /// The permit is held for as long as this future is, and the provider's future is awaited
+    /// inside it, so the ceiling counts work that is actually running rather than callers that are
+    /// still interested in the answer.
     pub(crate) async fn search_workspace_content(
         &self,
         session_id: &str,
         request: WorkspaceContentSearchRequest,
-    ) -> Result<WorkspaceContentSearchResult, WorkspaceInspectionError> {
-        let search_id = request.search_id.clone();
-        let cancelled = self.searches.begin(&search_id);
+    ) -> Result<WorkspaceContentSearchDelivery, WorkspaceInspectionError> {
+        // Registered before admission is awaited, not after. Admission is a semaphore and the wait
+        // is unbounded in principle, so a cancel arriving during it would otherwise find no slot and
+        // report that nothing was running — for a request the reader can see is in progress.
+        let registration = self.searches.begin(&request.search_id);
+        let generation = registration.generation().value();
+
+        let Ok(_permit) = self.admission.acquire(session_id).await else {
+            // Busy is an answer, not an error: no blocking task was queued and no remote process
+            // was launched, and telling a reader the system is busy is more honest than starting
+            // hidden work whose result they will never see.
+            registration.complete();
+            return Ok(WorkspaceContentSearchDelivery {
+                generation,
+                result: WorkspaceContentSearchResult {
+                    coverage: WorkspaceSearchCoverage::stopped(
+                        WorkspaceInspectionReason::InspectionBusy,
+                    ),
+                    matches: Vec::new(),
+                },
+            });
+        };
+        let execution = WorkspaceInspectionExecution::content_search(
+            registration.generation(),
+            registration.token(),
+            Arc::clone(&self.clock),
+        );
         let outcome = self
             .inspection
-            .search_content(session_id, request, cancelled)
+            .search_content(session_id, request, execution)
             .await;
-        self.searches.finish(&search_id);
-        outcome
+
+        // Decided before the guard is released, because releasing it removes the slot the decision
+        // compares against.
+        let delivery = outcome.map(|result| deliver_content_search(&registration, result));
+        registration.complete();
+        delivery
     }
 
     /// Asks a running search to stop, and says whether one was there to ask.
@@ -351,8 +443,45 @@ impl WorkspaceApi {
         &self,
         session_id: &str,
         request: WorkspacePathSearchRequest,
-    ) -> Result<WorkspacePathSearchResult, WorkspaceInspectionError> {
-        self.inspection.search_paths(session_id, request).await
+    ) -> Result<WorkspacePathSearchDelivery, WorkspaceInspectionError> {
+        // The same order content search uses, for the same two reasons. Registered before admission
+        // is awaited, so a cancel arriving during the wait has a slot to land on; admission acquired
+        // before the walk, so a refusal costs nothing rather than being decided after a blocking
+        // thread is already committed. Quick Open is cheaper than a content search but it is still a
+        // filesystem walk, and a reader holding a key down starts one per repeat.
+        let registration = self.searches.begin(&request.search_id);
+        let generation = registration.generation().value();
+
+        let Ok(_permit) = self.admission.acquire(session_id).await else {
+            registration.complete();
+            return Ok(WorkspacePathSearchDelivery {
+                generation,
+                result: WorkspacePathSearchResult {
+                    coverage: WorkspaceSearchCoverage::stopped(
+                        WorkspaceInspectionReason::InspectionBusy,
+                    ),
+                    matches: Vec::new(),
+                    next_cursor: None,
+                },
+            });
+        };
+        // Built here, where the registration is, because the generation is half of what a stale
+        // arrival is judged against and the walk has no other way to learn it.
+        let execution = WorkspaceInspectionExecution::path_search(
+            registration.generation(),
+            registration.token(),
+            Arc::clone(&self.clock),
+        );
+        let outcome = self
+            .inspection
+            .search_paths(session_id, request, execution)
+            .await;
+
+        // Decided before the guard is released, because releasing it removes the slot the decision
+        // compares against.
+        let delivery = outcome.map(|result| deliver_path_search(&registration, result));
+        registration.complete();
+        delivery
     }
 
     pub(crate) fn get_session_git_status(
@@ -421,15 +550,37 @@ impl WorkspaceApi {
     }
 
     /// Async wrapper for directory listing, which walks the filesystem synchronously.
+    ///
+    /// Admission is acquired before the blocking task is spawned and held until it returns. A
+    /// listing is a filesystem walk on a pool with a fixed number of threads, and a console with
+    /// twenty folders open would otherwise queue twenty of them behind whatever else is reading the
+    /// same disk — with nothing anywhere to say the system had run out of capacity.
     pub(crate) async fn list_session_directory_blocking(
         &self,
         session_id: String,
         path: String,
+        cursor: Option<String>,
+        limit: Option<usize>,
     ) -> Result<DirectoryListing, WorkspaceError> {
+        let Ok(_permit) = self.admission.acquire(&session_id).await else {
+            return Ok(DirectoryListing {
+                context: SessionWorkspaceContext::available(None),
+                path,
+                items: Vec::new(),
+                truncated: false,
+                next_cursor: None,
+                coverage: WorkspaceSearchCoverage::stopped(
+                    WorkspaceInspectionReason::InspectionBusy,
+                ),
+            });
+        };
         let api = self.clone();
-        tauri::async_runtime::spawn_blocking(move || api.list_session_directory(&session_id, &path))
-            .await
-            .map_err(|_| WorkspaceError::Storage("session directory task failed".to_string()))?
+        let limit = bounded_page_size(limit);
+        tauri::async_runtime::spawn_blocking(move || {
+            api.list_session_directory_page(&session_id, &path, cursor.as_deref(), limit)
+        })
+        .await
+        .map_err(|_| WorkspaceError::Storage("session directory task failed".to_string()))?
     }
 
     /// Async wrapper for mention candidate search, which walks the filesystem synchronously.
@@ -453,11 +604,20 @@ impl WorkspaceApi {
     /// Shell outlives its view by design, so nothing else would ever close it: the session it
     /// belonged to would be gone from the list while its process kept running with no way left to
     /// reach it.
+    /// Strict by default: a session whose Shells are not all confirmed gone is not a session that
+    /// finished archiving. Reporting success here would delete the last thing that could reach the
+    /// process still running behind it.
+    ///
+    /// A `Conflict` rather than a storage failure, because the code is what a caller matches on and
+    /// the retry is a real one: the Shells and the session are both still addressable, and the same
+    /// call made again finishes the job once cleanup confirms.
     pub(crate) fn kill_shells_for_session(&self, session_id: &str) -> Result<(), WorkspaceError> {
-        for descriptor in self.shells.list(Some(session_id)) {
-            let _ = self.shells.close(&descriptor.shell_id);
+        if self.shells.close_for_session(session_id).is_complete() {
+            return Ok(());
         }
-        Ok(())
+        Err(WorkspaceError::Conflict(
+            crate::contexts::workspaces::domain::shell_reason_code::SESSION_CLEANUP_INCOMPLETE,
+        ))
     }
 
     pub(crate) fn list_session_shells(&self, session_id: &str) -> Vec<SessionShellDescriptor> {
@@ -504,8 +664,8 @@ impl WorkspaceApi {
     pub(crate) async fn close_session_shell_blocking(
         &self,
         shell_id: ShellId,
-    ) -> Result<(), SessionShellError> {
-        self.on_blocking_pool(move |api| api.close_session_shell(&shell_id))
+    ) -> Result<SessionShellCloseResult, SessionShellError> {
+        self.on_blocking_pool(move |api| Ok(api.close_session_shell(&shell_id)))
             .await
     }
 
@@ -560,7 +720,11 @@ impl WorkspaceApi {
         self.shells.rename(shell_id, title)
     }
 
-    pub(crate) fn close_session_shell(&self, shell_id: &ShellId) -> Result<(), SessionShellError> {
+    /// Ends a Shell and reports what that achieved.
+    ///
+    /// Returns a value rather than `Result<(), _>` because three of the four outcomes are not
+    /// errors and only two of them mean the process is gone.
+    pub(crate) fn close_session_shell(&self, shell_id: &ShellId) -> SessionShellCloseResult {
         self.shells.close(shell_id)
     }
 
@@ -572,17 +736,22 @@ impl WorkspaceApi {
         self.shells.live_count(session_id)
     }
 
-    /// Reclaims detached, quiet Shells. Bounded per sweep and never a Shell someone is watching.
-    pub(crate) fn sweep_idle_session_shells(&self) -> usize {
-        self.shells.sweep_idle().len()
+    /// Reclaims detached, quiet Shells and advances outstanding cleanup.
+    ///
+    /// Bounded per sweep and never a Shell someone is watching. The report distinguishes a Shell
+    /// that was confirmed gone from one that is still being reaped; counting the second as
+    /// reclaimed would make the sweep's own figures the first place this application lies about a
+    /// process it did not end.
+    pub(crate) fn sweep_idle_session_shells(&self) -> SessionShellCleanupReport {
+        self.shells.sweep_idle()
     }
 
-    /// Closes every Shell and joins its runtime workers.
+    /// Closes every Shell within one global finite budget and reports what is left.
     ///
-    /// Called on the way out rather than left to the process teardown, because a joined worker is
-    /// the difference between a clean exit and a window that has closed while the process is still
-    /// waiting on a thread reading a dead PTY.
-    pub(crate) fn shutdown_session_shells(&self) {
-        self.shells.shutdown();
+    /// Called on the way out rather than left to the process teardown. It never waits without a
+    /// ceiling: an exit path that blocks until every child dies is an application that cannot be
+    /// closed, and that is a worse failure than a residual process reported honestly.
+    pub(crate) fn shutdown_session_shells(&self) -> SessionShellCleanupReport {
+        self.shells.shutdown()
     }
 }

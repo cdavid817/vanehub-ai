@@ -2,6 +2,7 @@ use super::content_search::{WorkspaceContentSearchRequest, WorkspaceContentSearc
 use super::inspection::{
     DirectoryFingerprint, WorkspacePathSearchRequest, WorkspacePathSearchResult,
 };
+use super::inspection_execution::WorkspaceInspectionExecution;
 use super::{
     DirectoryListing, DocumentListing, FileContent, FileSearchListing, GitBranchReference,
     GitDiffResult, GitDiffSource, GitStatusResult, KnownProject, KnownRemoteWorkspace,
@@ -11,8 +12,6 @@ use super::{
 use crate::contexts::workspaces::domain::{
     ProjectInspection, ProjectPath, RemoteWorkspace, WorktreeName,
 };
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
 
 pub(crate) trait WorkspaceHistoryRepository: Send + Sync {
     fn list_projects(&self) -> Result<Vec<KnownProject>, WorkspaceApplicationError>;
@@ -156,23 +155,29 @@ pub(crate) trait WorkspaceSessionQueryPort: Send + Sync {
     ///
     /// Separate from `search_files`, which ranks prompt-mention candidates and therefore filters
     /// to source extensions and skips directories.
+    ///
+    /// Takes the whole execution context rather than a token. Its generation, limits, clock and
+    /// ignore rules travel together because a caller that supplies four of the five still compiles,
+    /// and the one it forgot is a bound nothing enforces.
     fn search_paths(
         &self,
         session_id: &str,
         request: &WorkspacePathSearchRequest,
+        execution: &WorkspaceInspectionExecution,
     ) -> Result<WorkspacePathSearchResult, WorkspaceApplicationError>;
 
-    /// Content search over the confined walk, polling the flag it is given.
+    /// Content search over the confined walk, under the context it is given.
     fn search_content(
         &self,
         session_id: &str,
         request: &WorkspaceContentSearchRequest,
-        cancelled: &Arc<AtomicBool>,
+        execution: &WorkspaceInspectionExecution,
     ) -> Result<WorkspaceContentSearchResult, WorkspaceApplicationError>;
 
     fn list_documents(
         &self,
         session_id: &str,
+        execution: &WorkspaceInspectionExecution,
     ) -> Result<DocumentListing, WorkspaceApplicationError>;
 
     fn search_files(
@@ -219,6 +224,39 @@ pub(crate) trait WorkspaceShellContextPort: Send + Sync {
         &self,
         session_id: &str,
     ) -> Result<ShellWorkspace, WorkspaceApplicationError>;
+}
+
+/// Where a Shell lifecycle event that nothing else records goes.
+///
+/// The events this exists for are the ones that are, by construction, invisible: a Reaper completion
+/// for a generation that has been replaced, and one for a Shell whose entry is gone. Both are
+/// correctly *no-ops* — releasing capacity there would return a slot the current generation is
+/// using — and a no-op leaves no trace at all. If the stale path ever fires for a reason nobody
+/// predicted, this line is the only thing that will say so.
+///
+/// Identifiers and counts only. Nothing here may carry a command, terminal output, a host, or a
+/// path: this is a diagnostic about the application's own bookkeeping, and the Shell it names is one
+/// whose contents are exactly what must not travel.
+pub(crate) trait ShellLifecycleDiagnosticsPort: Send + Sync {
+    /// A Reaper attempt whose generation is no longer the current one.
+    fn stale_reaper_completion(
+        &self,
+        shell_id: &str,
+        attempted_generation: u64,
+        current_generation: u64,
+    );
+
+    /// A Reaper attempt for a Shell that no longer has an entry.
+    fn orphaned_reaper_completion(&self, shell_id: &str, attempted_generation: u64);
+
+    /// A startup that acquired a child and could not confirm it was gone when it rolled back.
+    ///
+    /// The guard signals whatever it acquired and gives up at its deadline, which is the right
+    /// bound — a rollback that blocked would hold the create path open on a child refusing to die.
+    /// What it cannot do is return a value: it runs in `Drop`, on the unwinding path of a startup
+    /// that is already failing. Without this the outcome is discarded, and a child that outlived
+    /// its own startup leaves no trace anywhere.
+    fn startup_rollback_unconfirmed(&self, shell_id: &str, generation: u64, reason: &str);
 }
 
 /// Where a remote terminal's own diagnostics go.

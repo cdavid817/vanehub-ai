@@ -250,6 +250,9 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-29 | restore-documentation-spec-conformance | native-developer-documentation, user-guide-documentation | `openspec/changes/archive/2026-08-29-restore-documentation-spec-conformance/` |
 | 2026-08-30 | add-skill-evolution-system-sessions-and-result-projection | chat-experience, notification-system, session-management, settings-skill-management-ui, skill-evolution-system-activity, skill-management | `openspec/changes/archive/2026-08-30-add-skill-evolution-system-sessions-and-result-projection/` |
 | 2026-08-30 | fix-agent-evaluation-webdriverio | agent-evaluation, desktop-runtime-verification | `openspec/changes/archive/2026-08-30-fix-agent-evaluation-webdriverio/` |
+| 2026-08-30 | fix-permission-decision-atomicity-and-grant-precedence | claude-code-permission-hook, permissions-approval, permissions-core | `openspec/changes/archive/2026-08-30-fix-permission-decision-atomicity-and-grant-precedence/` |
+| 2026-08-30 | fix-retained-shell-lifecycle-and-bounded-reaping | remote-terminal-runtime, runtime-performance-governance, session-shell | `openspec/changes/archive/2026-08-30-fix-retained-shell-lifecycle-and-bounded-reaping/` |
+| 2026-08-30 | harden-workspace-search-cancellation-and-resource-budgets | runtime-performance-governance, session-project-inspection | `openspec/changes/archive/2026-08-30-harden-workspace-search-cancellation-and-resource-budgets/` |
 | 2026-08-30 | improve-skill-evolution-system-activity-health | skill-evolution-system-activity | `openspec/changes/archive/2026-08-30-improve-skill-evolution-system-activity-health/` |
 | 2026-08-30 | stabilize-desktop-wdio-lifecycle | desktop-runtime-verification | `openspec/changes/archive/2026-08-30-stabilize-desktop-wdio-lifecycle/` |
 

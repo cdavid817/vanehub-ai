@@ -161,6 +161,39 @@ fn a_published_signal_reaches_the_journal_through_the_worker() {
     worker.shutdown();
 }
 
+/// Shutdown ends the worker rather than waiting out a deadline it can never beat.
+///
+/// The defect: the bridge is cloned into five long-lived assemblies, each holding a sender for the
+/// process's whole life, so the worker's `recv` could never return `Err`. A shutdown that only
+/// waited for the channel to close therefore always ran to its full two-second grace — on the
+/// event-loop thread, on every exit, with the window already gone and the application apparently
+/// hung.
+///
+/// The bound asserted here is deliberately loose. What is being distinguished is "ended on request"
+/// from "ran out the grace", and those are two seconds apart; a tight bound would turn a busy CI
+/// machine into a failure about something this test is not measuring.
+#[test]
+fn shutdown_ends_the_worker_while_every_producer_still_holds_a_sender() {
+    let harness = harness("bridge-shutdown");
+    let (bridge, worker) = start_evidence_bridge(harness.api.clone());
+    AgentEvidencePort::try_publish(&bridge, run_started(&run_id(1)));
+    assert!(wait_until(|| watermark(&harness.api) > 0));
+
+    // Still held, exactly as production holds it: the senders are not going anywhere.
+    let still_publishing = bridge.clone();
+    let started = std::time::Instant::now();
+    worker.shutdown();
+    let elapsed = started.elapsed();
+
+    assert!(
+        elapsed < std::time::Duration::from_millis(1_500),
+        "shutdown took {elapsed:?}, which is the grace rather than an ending"
+    );
+    // And a producer that publishes afterwards is still refused silently rather than panicking: a
+    // signal arriving after shutdown says nothing about whether the observed work succeeded.
+    AgentEvidencePort::try_publish(&still_publishing, run_started(&run_id(2)));
+}
+
 /// Every producer's port lands in the same journal. A context whose signal silently mapped to
 /// nothing would look identical from its own side — it publishes and returns either way.
 #[test]

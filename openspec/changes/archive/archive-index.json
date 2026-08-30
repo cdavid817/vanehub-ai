@@ -3634,6 +3634,51 @@
     },
     {
       "archivedOn": "2026-08-30",
+      "changeName": "fix-permission-decision-atomicity-and-grant-precedence",
+      "path": "openspec/changes/archive/2026-08-30-fix-permission-decision-atomicity-and-grant-precedence/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "claude-code-permission-hook",
+        "permissions-approval",
+        "permissions-core"
+      ]
+    },
+    {
+      "archivedOn": "2026-08-30",
+      "changeName": "fix-retained-shell-lifecycle-and-bounded-reaping",
+      "path": "openspec/changes/archive/2026-08-30-fix-retained-shell-lifecycle-and-bounded-reaping/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "remote-terminal-runtime",
+        "runtime-performance-governance",
+        "session-shell"
+      ]
+    },
+    {
+      "archivedOn": "2026-08-30",
+      "changeName": "harden-workspace-search-cancellation-and-resource-budgets",
+      "path": "openspec/changes/archive/2026-08-30-harden-workspace-search-cancellation-and-resource-budgets/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks",
+        "verification"
+      ],
+      "capabilities": [
+        "runtime-performance-governance",
+        "session-project-inspection"
+      ]
+    },
+    {
+      "archivedOn": "2026-08-30",
       "changeName": "improve-skill-evolution-system-activity-health",
       "path": "openspec/changes/archive/2026-08-30-improve-skill-evolution-system-activity-health/",
       "artifacts": [

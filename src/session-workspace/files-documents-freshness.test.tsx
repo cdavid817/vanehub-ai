@@ -26,7 +26,7 @@ import { useWorkspaceInvalidation } from "./use-workspace-invalidation";
 const CONTEXT = { availability: "available" as const, rootName: "project", reason: null };
 
 function listing(items: DirectoryEntry[], path = ""): DirectoryListing {
-  return { context: CONTEXT, items, nextCursor: null, path, truncated: false };
+  return { context: CONTEXT, coverage: { state: "complete" }, items, nextCursor: null, path, truncated: false };
 }
 
 function directory(name: string): DirectoryEntry {
@@ -218,6 +218,7 @@ describe("a workspace on a host that cannot answer", () => {
     });
     vi.spyOn(agentService, "listSessionDocuments").mockResolvedValue({
       context: CONTEXT,
+      coverage: { state: "complete" },
       items: [],
       nextCursor: null,
       truncated: false,

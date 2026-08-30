@@ -1,3 +1,5 @@
+import type { WorkspaceSearchCoverage } from "./session-workspace-inspection";
+
 export interface BoundedResult<T> {
   items: T[];
   truncated: boolean;
@@ -24,6 +26,16 @@ export interface DirectoryEntry {
 export interface DirectoryListing extends BoundedResult<DirectoryEntry> {
   context: SessionWorkspaceContext;
   path: string;
+  /**
+   * How much of the directory the scan actually saw.
+   *
+   * Separate from `truncated`, because they are different facts and a reader acts on them
+   * differently: `truncated` means another page follows and asking for it is worth doing, while an
+   * incomplete coverage means part of the folder was never examined and no amount of paging reaches
+   * it. This is also where a refused cursor arrives — `invalid_cursor` for a token that does not
+   * belong to this listing, `stale_cursor` for one that did until the directory changed.
+   */
+  coverage: WorkspaceSearchCoverage;
 }
 
 export type DocumentKind = "markdown" | "text";
@@ -36,6 +48,14 @@ export interface SessionDocument {
 
 export interface DocumentListing extends BoundedResult<SessionDocument> {
   context: SessionWorkspaceContext;
+  /**
+   * How much of the project the discovery walk actually reached.
+   *
+   * Separate from `truncated`, which only says the document limit was hit. A walk stopped by its own
+   * budget reached less of the project than one that filled the list, and a reader shown only the
+   * first reads the second as a project with fewer documents in it.
+   */
+  coverage: WorkspaceSearchCoverage;
 }
 
 export interface FileSearchMatch {

@@ -58,8 +58,20 @@ impl HelperRequest {
     }
 }
 
+/// `rename_all` names the variants; `rename_all_fields` names their fields.
+///
+/// Both are needed and only one was there. The container attribute does not reach struct-variant
+/// fields, so every multi-word field went out as `max_results` while the helper read `maxResults` —
+/// and `dict.get` answers a missing key with `None` rather than complaining. The result was a
+/// remote search that silently used the helper's own result cap and no exclusions at all, a remote
+/// listing whose cursor never resumed, and nothing anywhere reporting a fault. The wire-name test
+/// below reads the keys back out of `helper.py`, so the two cannot drift apart again.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub(crate) enum HelperOperation {
     /// What this host can do. Always answered, even when the answer is "almost nothing": a host
     /// with no Python cannot run the helper at all, but one with no ripgrep is perfectly usable for
@@ -93,10 +105,24 @@ pub(crate) enum HelperOperation {
     SearchPaths {
         query: String,
         limit: usize,
+        /// What the remote walk may spend.
+        ///
+        /// Sent rather than left to the helper's own constants, so the two sides bound the same walk
+        /// by the same numbers. A helper deciding for itself is a second budget policy, and the two
+        /// disagree first about the workspace nobody has tried yet.
+        limits: HelperWalkLimits,
+        /// The shared policy's default exclusions, sent rather than restated on the remote host.
+        ///
+        /// The helper used to hold its own copy of this list, and the copy had already fallen behind
+        /// — a workspace appeared to have a different shape depending on which machine it was on,
+        /// which is the one thing a provider-neutral seam exists to prevent. Sending it means there
+        /// is one list, and the script that ships with this binary cannot disagree with it.
+        excluded_directories: Vec<String>,
     },
     Search {
         query: String,
         max_results: usize,
+        excluded_directories: Vec<String>,
     },
     /// Content search. Fixed-string and case-insensitive, matching the local scan exactly: two
     /// different engines can agree about a literal and cannot be made to agree about a pattern
@@ -105,6 +131,7 @@ pub(crate) enum HelperOperation {
     SearchContent {
         query: String,
         max_results: usize,
+        excluded_directories: Vec<String>,
     },
     GitStatus,
     GitDiff {
@@ -196,11 +223,51 @@ pub(crate) struct HelperFingerprint {
 ///
 /// `truncated` is the honest half: a walk that stopped at its bound has left part of the workspace
 /// unexamined, and a result list that did not say so is how somebody concludes a file is not there.
+/// What a remote walk may spend, in the terms the shared budget uses.
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct HelperWalkLimits {
+    pub(crate) max_entries: u64,
+    pub(crate) max_depth: u32,
+    pub(crate) max_results: u64,
+    /// Seconds. A walk on somebody else's machine needs its own deadline: the transport timeout
+    /// ends the *exchange*, and a helper that kept walking after it would hold a remote process for
+    /// an answer this side has already given up on.
+    pub(crate) deadline_seconds: u64,
+}
+
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct HelperPathCandidates {
     pub(crate) entries: Vec<HelperEntry>,
     pub(crate) truncated: bool,
+    /// Which bound stopped the walk, in the shared vocabulary. Absent when nothing did.
+    ///
+    /// Before this, every remote stop arrived as one boolean and was reported as an entry budget —
+    /// which was a guess, and wrong whenever the real bound was depth, results, or a directory the
+    /// host could not read.
+    #[serde(default)]
+    pub(crate) reason_code: Option<String>,
+    /// What the walk spent. Absent from a helper that did not count.
+    #[serde(default)]
+    pub(crate) counts: Option<HelperCounts>,
+}
+
+/// What one remote walk actually spent.
+///
+/// Structural counters only, and no paths: this crosses the wire and lands in a coverage a reader
+/// can see, and a count is a fact about effort rather than about what the workspace contains.
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct HelperCounts {
+    #[serde(default)]
+    pub(crate) directories_visited: u64,
+    #[serde(default)]
+    pub(crate) entries_visited: u64,
+    #[serde(default)]
+    pub(crate) max_depth_reached: u32,
+    #[serde(default)]
+    pub(crate) unreadable_entries: u64,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -295,6 +362,13 @@ pub(crate) enum RemoteHelperError {
     ConnectionFailed,
     ChannelFailed,
     Timeout,
+    /// A cancel reached this exchange while it was waiting on the remote host.
+    ///
+    /// Its own variant rather than a timeout, because the two are different events and a reader is
+    /// told different things: one of them is something they did on purpose. The channel is closed on
+    /// this path like every other, so the remote process ends rather than running on for an answer
+    /// nobody will read.
+    Cancelled,
     /// The request would not fit inside its bound. Refused here rather than sent.
     RequestTooLarge,
     ResponseTooLarge,
@@ -315,6 +389,7 @@ impl RemoteHelperError {
             Self::ConnectionFailed => "remote_connection_unavailable",
             Self::ChannelFailed => "remote_channel_failed",
             Self::Timeout => "remote_helper_timeout",
+            Self::Cancelled => "remote_helper_cancelled",
             Self::RequestTooLarge => "remote_helper_request_too_large",
             Self::ResponseTooLarge => "remote_helper_response_too_large",
             Self::MalformedResponse => "remote_helper_malformed_response",

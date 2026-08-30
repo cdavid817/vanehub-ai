@@ -240,7 +240,7 @@ impl WorkspaceSessionQueryPort for FakeSessionQueries {
         &self,
         session_id: &str,
         request: &WorkspaceContentSearchRequest,
-        _cancelled: &Arc<std::sync::atomic::AtomicBool>,
+        _execution: &super::inspection_execution::WorkspaceInspectionExecution,
     ) -> Result<WorkspaceContentSearchResult, WorkspaceApplicationError> {
         self.calls
             .lock()
@@ -256,6 +256,7 @@ impl WorkspaceSessionQueryPort for FakeSessionQueries {
         &self,
         session_id: &str,
         request: &WorkspacePathSearchRequest,
+        _execution: &WorkspaceInspectionExecution,
     ) -> Result<WorkspacePathSearchResult, WorkspaceApplicationError> {
         self.calls
             .lock()
@@ -301,6 +302,7 @@ impl WorkspaceSessionQueryPort for FakeSessionQueries {
             items: Vec::new(),
             truncated: false,
             next_cursor: None,
+            coverage: WorkspaceSearchCoverage::complete(),
         })
     }
 
@@ -319,6 +321,7 @@ impl WorkspaceSessionQueryPort for FakeSessionQueries {
     fn list_documents(
         &self,
         session_id: &str,
+        _execution: &WorkspaceInspectionExecution,
     ) -> Result<DocumentListing, WorkspaceApplicationError> {
         self.calls
             .lock()
@@ -326,6 +329,7 @@ impl WorkspaceSessionQueryPort for FakeSessionQueries {
             .push(format!("query:documents:{session_id}"));
         Ok(DocumentListing {
             context: SessionWorkspaceContext::available(Some("app".to_string())),
+            coverage: WorkspaceSearchCoverage::complete(),
             items: Vec::new(),
             truncated: false,
             next_cursor: None,
@@ -677,7 +681,16 @@ fn bounded_workspace_queries_delegate_only_through_the_injected_port() {
             .path,
         "src"
     );
-    service.list_documents("session-1").expect("documents");
+    let registry = Arc::new(super::search_cancellation::WorkspaceSearchCancellation::default());
+    let registration = registry.begin("documents-1");
+    let execution = super::inspection_execution::WorkspaceInspectionExecution::document_discovery(
+        registration.generation(),
+        registration.token(),
+        Arc::new(super::inspection_budget::SystemMonotonicClock::default()),
+    );
+    service
+        .list_documents("session-1", &execution)
+        .expect("documents");
     assert_eq!(
         service
             .read_file("session-1", "readme.md")

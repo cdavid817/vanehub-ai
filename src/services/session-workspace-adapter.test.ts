@@ -6,7 +6,7 @@ describe("Web session workspace adapter", () => {
     const root = await webSessionWorkspaceClient.listSessionDirectory("session-1", "");
     expect(root.items.map((entry) => entry.name)).toContain("README.md");
     expect((await webSessionWorkspaceClient.readSessionFile("session-1", "README.md")).content).toContain("Web Preview");
-    expect((await webSessionWorkspaceClient.listSessionDocuments("session-1")).items).toHaveLength(3);
+    expect((await webSessionWorkspaceClient.listSessionDocuments("session-1", "documents-1")).items).toHaveLength(3);
     expect((await webSessionWorkspaceClient.getSessionGitStatus("session-1")).isGit).toBe(true);
     expect((await webSessionWorkspaceClient.getSessionGitDiff("session-1", "src/main.ts", "staged")).source).toBe("staged");
     const logs = await webSessionWorkspaceClient.listSessionLogs({ sessionId: "session-1", levels: ["warn"], search: "retry" });

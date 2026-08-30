@@ -14,7 +14,7 @@ function match(path: string, kind: "file" | "directory" = "file"): WorkspacePath
 }
 
 function result(overrides: Partial<WorkspacePathSearchResult> = {}): WorkspacePathSearchResult {
-  return { coverage: { state: "complete" }, matches: [], ...overrides };
+  return { generation: 1, coverage: { state: "complete" }, matches: [], ...overrides };
 }
 
 let search: ReturnType<typeof vi.spyOn>;

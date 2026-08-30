@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import type { SessionShellDescriptor } from "../types/session-workspace-shell-frames";
-import { shellEndingDetail, shellRuntimeKey, shellStateKey } from "./shell-status";
+import { shellControls, shellEndingDetail, shellRuntimeKey, shellStateKey } from "./shell-status";
 
 interface ShellStripProps {
   shells: SessionShellDescriptor[];
@@ -27,6 +27,10 @@ export function ShellStrip({
   shells,
 }: ShellStripProps) {
   const { t } = useTranslation();
+  const active = shells.find((shell) => shell.shellId === activeShellId) ?? null;
+  const controls = active
+    ? shellControls(active)
+    : { canRename: false, canClose: false, closeIntent: "close" as const };
   return (
     <div className="flex flex-wrap items-center gap-1 border-b border-border p-2 text-xs">
       <div aria-label={t("sessionTabs.shell.strip")} className="flex flex-wrap gap-1" role="tablist">
@@ -58,22 +62,31 @@ export function ShellStrip({
       >
         {t("sessionTabs.shell.add")}
       </button>
-      {activeShellId ? (
+      {active ? (
         <div className="ml-auto flex items-center gap-1">
-          <ActiveShellDetail shells={shells} activeShellId={activeShellId} />
+          <ActiveShellDetail shells={shells} activeShellId={active.shellId} />
           <button
-            className="h-7 rounded border border-border px-2 hover:bg-muted"
-            onClick={() => onRename(activeShellId)}
+            className="h-7 rounded border border-border px-2 hover:bg-muted disabled:opacity-50"
+            disabled={!controls.canRename}
+            onClick={() => onRename(active.shellId)}
             type="button"
           >
             {t("sessionTabs.shell.rename")}
           </button>
           <button
-            className="h-7 rounded border border-border px-2 hover:bg-muted"
-            onClick={() => onClose(activeShellId)}
+            className="h-7 rounded border border-border px-2 hover:bg-muted disabled:opacity-50"
+            disabled={!controls.canClose}
+            onClick={() => onClose(active.shellId)}
             type="button"
           >
-            {t("sessionTabs.shell.close")}
+            {/* "Retry" rather than "Close" once a close failed. The same button doing a different
+                thing under the same word would let a reader press it believing nothing had been
+                tried yet. */}
+            {t(
+              controls.closeIntent === "retry"
+                ? "sessionTabs.shell.retryClose"
+                : "sessionTabs.shell.close",
+            )}
           </button>
         </div>
       ) : null}
@@ -99,7 +112,7 @@ function ActiveShellDetail({
       </span>
       {ending ? (
         <span className="rounded-full border border-border px-2 py-1 text-muted-foreground">
-          {ending}
+          {"exitCode" in ending ? String(ending.exitCode) : t(ending.reasonKey)}
         </span>
       ) : null}
     </>
