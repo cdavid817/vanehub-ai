@@ -53,8 +53,8 @@
 - [ ] 3.3 Create `src/ui/page-header/` with title, bounded description, breadcrumb slot, one primary action, status summary, and More menu.
 - [ ] 3.4 Create `src/ui/toolbar/` with one keyboard entry point, search slot, filter trigger, active filters, sort/view controls, and batch-mode slot.
 - [ ] 3.5 Create `src/ui/filter-bar/` with typed filter definitions, active filter chips, clear-one, clear-all, and localized result counts.
-- [ ] 3.6 Create `src/ui/split-pane/` with pointer and keyboard resizing, clamping, reserved gutter, persistence hooks, and reduced-motion support.
-- [ ] 3.7 Create `src/ui/sheet/` by extending the shared dialog/focus primitives for side and full-height sheets with focus trap and focus return.
+- [x] 3.6 Create `src/ui/split-pane/` with pointer and keyboard resizing, clamping, reserved gutter, persistence hooks, and reduced-motion support. — `src/ui/split-pane/{use-pane-resize.ts,SplitPane.tsx}` + test; ARIA `separator` with arrow/Home/End keyboard resize, pointer drag derived from a fixed drag-origin (not the possibly-stale `size` prop), `onResizeEnd` as the caller's persistence hook, `.ucd-pane-transition` skipped while actively dragging.
+- [x] 3.7 Create `src/ui/sheet/` by extending the shared dialog/focus primitives for side and full-height sheets with focus trap and focus return. — `src/ui/sheet/{use-focus-trap.ts,Sheet.tsx}` + test; extracted `ApplicationDialog`'s focus-trap effect into `useFocusTrap` (existing `application-dialog.test.tsx` 7/7 still green, confirming no behavior change) and built `Sheet` on the same hook for left/right/bottom/full placements.
 - [ ] 3.8 Create `src/ui/inspector/` shell with overview, follow, pinned, unavailable, restricted, loading, error, and retry states.
 - [ ] 3.9 Create `src/ui/runtime-panel/` shell with tabs, resize, maximize, restore, close, badges, and per-context state hooks.
 - [ ] 3.10 Create `src/ui/entity-list/` and `src/ui/virtual-list/` wrappers around the existing virtualization dependency with stable item keys and accessible active selection.

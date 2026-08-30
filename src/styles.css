@@ -732,6 +732,15 @@ body.floating-assistant-surface {
   }
 }
 
+/* Shared by split-pane/sheet/runtime-panel for programmatic size or open/close transitions.
+   Callers must NOT apply this while a pointer drag is live — following the pointer with an
+   eased transition reads as lag, not motion. The reduced-motion query above already zeroes
+   --motion-base, so this needs no media query of its own. */
+.ucd-pane-transition {
+  transition-duration: var(--motion-base);
+  transition-timing-function: var(--motion-easing);
+}
+
 /* Highlight.js emits semantic token classes; theme them with the same design
    tokens as the rest of the chat instead of importing a fixed light palette. */
 .rich-markdown .hljs-comment,

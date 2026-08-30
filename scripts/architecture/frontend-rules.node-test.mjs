@@ -61,6 +61,22 @@ for (const [name, source] of [
   });
 }
 
+test("accepts a src/ui/ primitive using layout-only inline style (no token equivalent exists for a runtime pixel size)", () => {
+  const diagnostics = analyzeFrontendSource(
+    "src/ui/split-pane/SplitPane.tsx",
+    'export function Pane({ size }) { return <div style={{ width: size, transform: `translateX(${size}px)` }} />; }',
+  );
+  assert.deepEqual(diagnostics, []);
+});
+
+test("rejects a src/ui/ primitive mixing a layout-only style with a color style property", () => {
+  const diagnostics = analyzeFrontendSource(
+    "src/ui/split-pane/SplitPane.tsx",
+    'export function Pane({ size }) { return <div style={{ width: size, backgroundColor: "red" }} />; }',
+  );
+  assert.ok(diagnostics.some((value) => value.includes("[ARCH-FE-006]") && value.includes("backgroundColor")));
+});
+
 test("accepts a src/ui/ primitive using only semantic-token classes", () => {
   const diagnostics = analyzeFrontendSource(
     "src/ui/status/status-badge.tsx",

@@ -9,6 +9,16 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // anything. Node's built-in TypeScript support loads this directly; it has no TS-specific syntax.
 import { LITERAL_COLOR, PALETTE_COLOR } from "../../src/session-workspace/visual-token-rules.ts";
 
+// Layout-only inline styles (width/height/transform for a resizable pane or a virtualized list
+// item's offset) have no token equivalent and are not what task 2.12 is guarding against — only
+// color set via `style` bypasses the semantic-token utility classes the way a literal Tailwind
+// arbitrary value does.
+const COLOR_STYLE_PROPERTIES = new Set([
+  "color", "backgroundColor", "background", "borderColor", "borderTopColor", "borderRightColor",
+  "borderBottomColor", "borderLeftColor", "outlineColor", "fill", "stroke", "boxShadow",
+  "textDecorationColor", "caretColor", "accentColor",
+]);
+
 // 每文件预算(eslint.config.js)管不住"把一个超大文件拆成十个大文件",也管不住
 // 拆分时把代码复制而非搬移。聚合预算才能。预算只能下调;上调必须在同一个 commit 写明原因。
 // 上调理由(split-web-agent-client):把 web-agent-client.ts 的方法搬进 web-* 模块时,方法体
@@ -354,6 +364,22 @@ function checkNoSemanticColor(file, report, text, node) {
   }
 }
 
+function checkStyleAttributeForColor(report, node) {
+  const init = node.initializer;
+  if (!init || !ts.isJsxExpression(init) || !init.expression) return;
+  const expr = init.expression;
+  // A spread or a variable reference can't be statically resolved here; this stays conservative
+  // rather than guessing, matching how the rest of this checker treats unanalyzable expressions.
+  if (!ts.isObjectLiteralExpression(expr)) return;
+  for (const property of expr.properties) {
+    if (!ts.isPropertyAssignment(property) && !ts.isShorthandPropertyAssignment(property)) continue;
+    const name = ts.isIdentifier(property.name) || ts.isStringLiteral(property.name) ? property.name.text : undefined;
+    if (name && COLOR_STYLE_PROPERTIES.has(name)) {
+      report(RULES.nonSemanticColor, property, `src/ui/ primitive sets color via inline style (\`${name}\`) instead of a semantic-token utility class`);
+    }
+  }
+}
+
 function location(sourceFile, node) {
   return sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
 }
@@ -416,7 +442,7 @@ export function analyzeFrontendSource(file, source, { requiresServiceBoundary = 
       }
     }
     if (file.startsWith("src/ui/") && ts.isJsxAttribute(node) && ts.isIdentifier(node.name) && node.name.text === "style") {
-      report(RULES.nonSemanticColor, node, "src/ui/ primitive uses an inline `style` prop instead of a semantic-token utility class");
+      checkStyleAttributeForColor(report, node);
     }
     // Class-name strings reach a className prop indirectly as often as directly in this codebase
     // (a `const xClass = "..."` constant, or a `cn(base, condition && "...")` call) — checking
