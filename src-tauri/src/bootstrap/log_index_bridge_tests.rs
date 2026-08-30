@@ -212,6 +212,57 @@ fn a_full_queue_does_not_fail_the_log_append_it_describes() {
 
 /// A dropped receipt reaches the live stream, not only the coverage table.
 ///
+/// A shutdown with a sender still alive returns rather than waiting forever.
+///
+/// The defect: the bridge is installed as a process-wide `'static` sink that nothing released, so
+/// the worker's channel could never close and `shutdown` joined a thread that could never finish.
+/// The exit handler releases the sink now; this covers the other half — the day somebody adds a
+/// second sender, the wait ends at a deadline instead of holding the application open.
+#[test]
+fn shutdown_gives_up_rather_than_waiting_on_a_sender_that_never_goes_away() {
+    let index = Arc::new(StalledIndex::default());
+    let held = index.release.lock().expect("hold the index");
+    let notices = Arc::new(RecordingNotices::default());
+    let (bridge, worker) = start_log_index_bridge(index.clone(), notices.clone());
+    bridge.record_appended(receipt(1));
+
+    // The sender is deliberately still alive, which is what the process-wide sink was.
+    let started = std::time::Instant::now();
+    worker.shutdown();
+    let elapsed = started.elapsed();
+
+    // Loose on purpose: what is being distinguished is "gave up" from "never returns", and a tight
+    // bound would turn a busy machine into a failure about something this is not measuring.
+    assert!(
+        elapsed < std::time::Duration::from_secs(5),
+        "shutdown took {elapsed:?}"
+    );
+    drop(held);
+    drop(bridge);
+}
+
+/// Releasing the sink is what lets the worker finish, which is the ordinary path.
+#[test]
+fn dropping_the_last_sender_lets_the_worker_drain_and_stop() {
+    // Unheld, so it records rather than stalls.
+    let index = Arc::new(StalledIndex::default());
+    let notices = Arc::new(RecordingNotices::default());
+    let (bridge, worker) = start_log_index_bridge(index.clone(), notices.clone());
+    bridge.record_appended(receipt(1));
+
+    // What the exit handler does: uninstall first, then wait.
+    drop(bridge);
+    let started = std::time::Instant::now();
+    worker.shutdown();
+
+    // Ends by the channel closing rather than by the deadline, so it is far below the grace.
+    assert!(started.elapsed() < std::time::Duration::from_millis(400));
+    assert!(
+        index.seen.load(Ordering::SeqCst) > 0,
+        "the queued receipt was never indexed"
+    );
+}
+
 /// Coverage tells a *page* that it is short. A subscriber watching the live stream never asks for a
 /// page — it accumulates notices — so a loss that only ever appeared in coverage would leave that
 /// view missing exactly the records nobody could deliver, with nothing to say so.

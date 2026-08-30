@@ -15,17 +15,19 @@
 //! sides turn their answers into the same shapes and their refusals into the same meanings.
 
 use super::remote_helper::{
-    scripted_session, RemoteHelperError, RemoteProfileSource, RemoteWorkspaceInspectionProvider,
+    scripted_session, silent_session, RemoteHelperError, RemoteHelperSession, RemoteProfileSource,
+    RemoteWorkspaceInspectionProvider, ScriptedHelperSession, SilentHelperSession,
 };
 use super::workspace_inspection::LocalWorkspaceInspectionProvider;
 use crate::contexts::workspaces::application::{
-    DirectoryCursor, DirectoryFingerprint, DirectoryFingerprintState, DirectoryListing,
-    DocumentListing, FileContent, FileSearchListing, GitDiffRequest, GitDiffResult, GitDiffSource,
-    GitStatusResult, ListDirectoryRequest, LocalWorkspaceTarget, ReadTextFileRequest,
-    RemoteWorkspaceTarget, SessionLogExportResult, SessionLogPage, SessionLogQuery,
-    WorkspaceApplicationError as AppError, WorkspaceContentSearchRequest,
-    WorkspaceContentSearchResult, WorkspaceInspectionError, WorkspaceInspectionProvider,
-    WorkspacePathSearchRequest, WorkspacePathSearchResult, WorkspaceSearchRequest,
+    DirectoryFingerprint, DirectoryFingerprintState, DirectoryListing, DocumentListing,
+    FileContent, FileSearchListing, GitDiffRequest, GitDiffResult, GitDiffSource, GitStatusResult,
+    ListDirectoryRequest, LocalWorkspaceTarget, ReadTextFileRequest, RemoteWorkspaceTarget,
+    SearchCancellationCause, SearchCancellationToken, SessionLogExportResult, SessionLogPage,
+    SessionLogQuery, SystemMonotonicClock, WorkspaceApplicationError as AppError,
+    WorkspaceContentSearchRequest, WorkspaceContentSearchResult, WorkspaceInspectionError,
+    WorkspaceInspectionExecution, WorkspaceInspectionProvider, WorkspacePathSearchRequest,
+    WorkspacePathSearchResult, WorkspaceSearchCancellation, WorkspaceSearchRequest,
     WorkspaceSessionQueryPort, WorkspaceTarget,
 };
 use crate::platform::database::NativeDatabase;
@@ -33,6 +35,32 @@ use crate::test_support::TempDirectory;
 use rusqlite::params;
 use std::fs;
 use std::sync::Arc;
+
+/// A Quick Open context carrying the token the test wants to drive.
+///
+/// The generation comes from a real registration: a hand-made one would let a test assert against a
+/// number nothing issued, which is the same as asserting nothing.
+fn path_search_execution(token: SearchCancellationToken) -> WorkspaceInspectionExecution {
+    let registry = Arc::new(WorkspaceSearchCancellation::default());
+    let registration = registry.begin("quick-open-1");
+    let execution = WorkspaceInspectionExecution::path_search(
+        registration.generation(),
+        token,
+        Arc::new(crate::contexts::workspaces::application::SystemMonotonicClock::default()),
+    );
+    registration.complete();
+    execution
+}
+
+/// A token that was already signalled before the search started.
+///
+/// The interesting cancellation is the one that arrives before the first directory is read; a test
+/// that signalled mid-walk would be racing the walk rather than asserting against it.
+fn cancelled_token() -> SearchCancellationToken {
+    let token = SearchCancellationToken::new();
+    token.signal(SearchCancellationCause::Cancelled);
+    token
+}
 
 /// The local reads, over a database and nothing else.
 ///
@@ -58,7 +86,12 @@ impl WorkspaceSessionQueryPort for DatabaseQueries {
     }
 
     fn list_directory(&self, session_id: &str, path: &str) -> Result<DirectoryListing, AppError> {
-        super::session_queries::list_session_directory(&*self.connection()?, session_id, path)
+        super::session_queries::list_session_directory(
+            &*self.connection()?,
+            session_id,
+            path,
+            Arc::new(SystemMonotonicClock::default()),
+        )
     }
 
     fn resolve_session_directory(
@@ -75,13 +108,13 @@ impl WorkspaceSessionQueryPort for DatabaseQueries {
         &self,
         session_id: &str,
         request: &WorkspaceContentSearchRequest,
-        cancelled: &Arc<std::sync::atomic::AtomicBool>,
+        execution: &WorkspaceInspectionExecution,
     ) -> Result<WorkspaceContentSearchResult, AppError> {
         super::content_search::search_session_content(
             &*self.connection()?,
             session_id,
             request,
-            cancelled,
+            execution,
         )
     }
 
@@ -89,8 +122,14 @@ impl WorkspaceSessionQueryPort for DatabaseQueries {
         &self,
         session_id: &str,
         request: &WorkspacePathSearchRequest,
+        execution: &WorkspaceInspectionExecution,
     ) -> Result<WorkspacePathSearchResult, AppError> {
-        super::path_search::search_session_paths(&*self.connection()?, session_id, request)
+        super::path_search::search_session_paths(
+            &*self.connection()?,
+            session_id,
+            request,
+            execution,
+        )
     }
 
     fn directory_fingerprints(
@@ -118,11 +157,16 @@ impl WorkspaceSessionQueryPort for DatabaseQueries {
             path,
             cursor,
             limit,
+            Arc::new(SystemMonotonicClock::default()),
         )
     }
 
-    fn list_documents(&self, session_id: &str) -> Result<DocumentListing, AppError> {
-        super::session_queries::list_session_documents(&*self.connection()?, session_id)
+    fn list_documents(
+        &self,
+        session_id: &str,
+        execution: &WorkspaceInspectionExecution,
+    ) -> Result<DocumentListing, AppError> {
+        super::session_queries::list_session_documents(&*self.connection()?, session_id, execution)
     }
 
     fn search_files(
@@ -180,6 +224,17 @@ struct Subject {
     target: WorkspaceTarget,
     /// The temporary workspace, held so it outlives the test.
     _directory: Option<TempDirectory>,
+    /// The scripted session, for the cases that assert on what was sent rather than what came back.
+    session: Option<Arc<ScriptedHelperSession>>,
+}
+
+impl Subject {
+    fn sent(&self) -> String {
+        self.session
+            .as_ref()
+            .expect("only a scripted remote records what it sent")
+            .written()
+    }
 }
 
 fn block<T>(future: impl std::future::Future<Output = T>) -> T {
@@ -220,6 +275,7 @@ fn local_subject() -> Subject {
             root: workspace.canonicalize().expect("canonical workspace"),
         }),
         _directory: Some(directory),
+        session: None,
     }
 }
 
@@ -232,12 +288,14 @@ impl RemoteProfileSource for StaticProfile {
 }
 
 fn remote_subject(body: &str) -> Subject {
+    let session = Arc::new(scripted_session(vec![body.to_string()]));
     Subject {
         name: "remote",
         provider: Box::new(RemoteWorkspaceInspectionProvider::new(
             Arc::new(StaticProfile),
-            Arc::new(scripted_session(vec![body.to_string()])),
+            Arc::clone(&session) as Arc<dyn RemoteHelperSession>,
         )),
+        session: Some(session),
         target: WorkspaceTarget::Remote(RemoteWorkspaceTarget {
             session_id: "session-remote".to_string(),
             connection_id: "connection-1".to_string(),
@@ -247,6 +305,121 @@ fn remote_subject(body: &str) -> Subject {
         }),
         _directory: None,
     }
+}
+
+/// A remote provider whose host never answers, so a cancel is the only thing that can end the wait.
+fn silent_remote() -> (
+    RemoteWorkspaceInspectionProvider,
+    WorkspaceTarget,
+    Arc<SilentHelperSession>,
+) {
+    let session = Arc::new(silent_session());
+    let provider = RemoteWorkspaceInspectionProvider::new(
+        Arc::new(StaticProfile),
+        Arc::clone(&session) as Arc<dyn RemoteHelperSession>,
+    );
+    let target = WorkspaceTarget::Remote(RemoteWorkspaceTarget {
+        session_id: "session-remote".to_string(),
+        connection_id: "connection-1".to_string(),
+        connection_revision: 7,
+        root: "/work/app".to_string(),
+        display_name: "Remote app".to_string(),
+    });
+    (provider, target, session)
+}
+
+fn content_request() -> WorkspaceContentSearchRequest {
+    WorkspaceContentSearchRequest {
+        query: "needle".to_string(),
+        search_id: "content-1".to_string(),
+        limit: None,
+    }
+}
+
+fn already_cancelled() -> WorkspaceInspectionExecution {
+    content_search_execution(cancelled_token())
+}
+
+/// A content-search context carrying the token the test wants to drive.
+fn content_search_execution(token: SearchCancellationToken) -> WorkspaceInspectionExecution {
+    let registry = Arc::new(WorkspaceSearchCancellation::default());
+    let registration = registry.begin("search-1");
+    let execution = WorkspaceInspectionExecution::content_search(
+        registration.generation(),
+        token,
+        Arc::new(SystemMonotonicClock::default()),
+    );
+    registration.complete();
+    execution
+}
+
+/// Both providers answer a cancel with coverage rather than with a failure.
+///
+/// The remote one is the case worth staging: the local walk polls a flag it already holds, while the
+/// remote one is parked on a round trip and has to give up on it.
+#[test]
+fn a_cancelled_search_reports_cancellation_on_both_sides() {
+    let local = local_subject();
+    let local_result = block(local.provider.search_content(
+        &local.target,
+        content_request(),
+        already_cancelled(),
+    ))
+    .expect("local answer");
+    assert_eq!(local_result.coverage.reason_code, Some("cancelled"));
+
+    let (provider, target, session) = silent_remote();
+    let remote_result =
+        block(provider.search_content(&target, content_request(), already_cancelled()))
+            .expect("remote answer");
+
+    assert_eq!(remote_result.coverage.reason_code, Some("cancelled"));
+    assert!(remote_result.matches.is_empty());
+    // No channel was opened at all: the pre-flight check refuses before connecting. A reader who
+    // cancelled while the request was still being assembled has already stopped waiting, and opening
+    // a channel to answer them spends a remote host's effort on nothing.
+    assert_eq!(session.closes(), 0);
+}
+
+/// A cancel that lands while the host is still thinking ends the exchange and closes the channel.
+///
+/// The defect this replaces: the exchange waited out the full helper timeout — twenty seconds — and
+/// then reported a remote failure, for a search the reader stopped themselves.
+#[test]
+fn a_cancel_that_arrives_mid_flight_ends_the_remote_exchange() {
+    let (provider, target, session) = silent_remote();
+    let token = SearchCancellationToken::new();
+    let signalled = token.clone();
+
+    let answer = block(async move {
+        // Signalled from inside the runtime while the exchange is parked on a channel that never
+        // answers. Nothing here waits on a duration to *prove* the behaviour — the assertion is that
+        // an answer arrives at all, which under the previous code it would not have for 20 seconds.
+        let waiter = tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+            signalled.signal(SearchCancellationCause::Cancelled);
+        });
+        let answer = provider
+            .search_paths(
+                &target,
+                WorkspacePathSearchRequest {
+                    search_id: "quick-open-1".to_string(),
+                    query: "main".to_string(),
+                    cursor: None,
+                    limit: None,
+                },
+                path_search_execution(token),
+            )
+            .await;
+        let _ = waiter.await;
+        answer
+    })
+    .expect("an answer rather than a remote failure");
+
+    assert_eq!(answer.coverage.reason_code, Some("cancelled"));
+    // The cancel does not travel to the remote host; closing the channel its stdin and stdout are on
+    // is what ends the process there.
+    assert_eq!(session.closes(), 1);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -490,7 +663,7 @@ fn a_content_match_carries_a_position_on_both_sides() {
                 search_id: "search-1".to_string(),
                 limit: None,
             },
-            Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            content_search_execution(SearchCancellationToken::new()),
         ))
         .unwrap_or_else(|error| panic!("{}: {error:?}", subject.name));
 
@@ -518,7 +691,7 @@ fn a_cancelled_content_search_is_partial_rather_than_an_error() {
                 search_id: "search-1".to_string(),
                 limit: None,
             },
-            Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            content_search_execution(cancelled_token()),
         ))
         .unwrap_or_else(|error| panic!("{}: {error:?}", subject.name));
 
@@ -528,7 +701,7 @@ fn a_cancelled_content_search_is_partial_rather_than_an_error() {
         assert_eq!(result.coverage.state.token(), "partial", "{}", subject.name);
         assert_eq!(
             result.coverage.reason_code,
-            Some("workspace_search_cancelled"),
+            Some("cancelled"),
             "{}",
             subject.name
         );
@@ -547,7 +720,7 @@ fn a_remote_host_without_ripgrep_says_so_rather_than_matching_nothing() {
             search_id: "search-1".to_string(),
             limit: None,
         },
-        Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        content_search_execution(SearchCancellationToken::new()),
     ))
     .expect("search");
 
@@ -570,10 +743,12 @@ fn a_path_search_ranks_and_labels_identically_on_both_sides() {
         let result = block(subject.provider.search_paths(
             &subject.target,
             WorkspacePathSearchRequest {
+                search_id: "quick-open-1".to_string(),
                 query: "main".to_string(),
                 cursor: None,
                 limit: None,
             },
+            path_search_execution(SearchCancellationToken::new()),
         ))
         .unwrap_or_else(|error| panic!("{}: {error:?}", subject.name));
 
@@ -611,10 +786,12 @@ fn a_path_search_offers_directories_on_both_sides() {
         let result = block(subject.provider.search_paths(
             &subject.target,
             WorkspacePathSearchRequest {
+                search_id: "quick-open-1".to_string(),
                 query: "src".to_string(),
                 cursor: None,
                 limit: None,
             },
+            path_search_execution(SearchCancellationToken::new()),
         ))
         .unwrap_or_else(|error| panic!("{}: {error:?}", subject.name));
 
@@ -634,10 +811,12 @@ fn a_search_cursor_from_another_query_is_refused_on_both_sides() {
         let first = block(subject.provider.search_paths(
             &subject.target,
             WorkspacePathSearchRequest {
+                search_id: "quick-open-1".to_string(),
                 query: "".to_string(),
                 cursor: None,
                 limit: Some(1),
             },
+            path_search_execution(SearchCancellationToken::new()),
         ))
         .unwrap_or_else(|error| panic!("{}: {error:?}", subject.name));
         let Some(cursor) = first.next_cursor else {
@@ -647,14 +826,23 @@ fn a_search_cursor_from_another_query_is_refused_on_both_sides() {
         let refusal = block(subject.provider.search_paths(
             &subject.target,
             WorkspacePathSearchRequest {
+                search_id: "quick-open-1".to_string(),
                 // The same file ranks differently under a different query, so this cursor names a
                 // position the new ordering never produced.
                 query: "main".to_string(),
                 cursor: Some(cursor),
                 limit: Some(1),
             },
+            path_search_execution(SearchCancellationToken::new()),
         ));
-        assert!(refusal.is_err(), "{}", subject.name);
+        let refusal = refusal.unwrap_or_else(|error| panic!("{}: {error:?}", subject.name));
+        assert!(refusal.matches.is_empty(), "{}", subject.name);
+        assert_eq!(
+            refusal.coverage.reason_code,
+            Some("invalid_cursor"),
+            "{}",
+            subject.name
+        );
     }
 }
 
@@ -917,7 +1105,7 @@ fn a_cursor_from_another_directory_is_refused() {
     .expect("root page");
     let cursor = root_page.next_cursor.expect("a cursor for the root");
 
-    let error = block(subject.provider.list_directory(
+    let refused = block(subject.provider.list_directory(
         &subject.target,
         ListDirectoryRequest {
             path: "src".to_string(),
@@ -925,16 +1113,17 @@ fn a_cursor_from_another_directory_is_refused() {
             limit: Some(10),
         },
     ))
-    .expect_err("a cursor from the root does not continue src");
+    .expect("a refusal is an answer, not a failure");
 
-    // `NotFound` rather than a page: the local reads report a rejected cursor as a validation
-    // refusal, which the provider classifies as a path that is not there rather than an escape.
-    assert!(
-        matches!(
-            error,
-            WorkspaceInspectionError::NotFound | WorkspaceInspectionError::InvalidCursor
-        ),
-        "{error:?}"
+    // An empty page carrying the reason, rather than an error. An error leaves a caller unable to
+    // tell "start this listing again" from "this workspace is unreachable", and only one of those
+    // is worth retrying. `Unavailable` because nothing was examined — not one entry was read.
+    assert!(refused.items.is_empty());
+    assert!(!refused.truncated);
+    assert_eq!(refused.coverage.reason_code, Some("invalid_cursor"));
+    assert_eq!(
+        refused.coverage.state,
+        crate::contexts::workspaces::application::WorkspaceSearchCoverageState::Unavailable
     );
 }
 
@@ -955,7 +1144,94 @@ fn the_remote_cursor_is_minted_from_the_page_it_ends() {
 
     assert!(page.truncated);
     let cursor = page.next_cursor.expect("a cursor");
-    // It decodes for the directory that was asked for, and only that one.
-    assert!(DirectoryCursor::decode(&cursor, "").is_ok());
-    assert!(DirectoryCursor::decode(&cursor, "src").is_err());
+
+    // It is accepted for the directory it was issued for. What the resumed page contains is the
+    // scripted helper's business rather than this provider's — the fake answers the same listing to
+    // every request — so the assertion here is that the cursor was not refused.
+    let second = block(subject.provider.list_directory(
+        &subject.target,
+        ListDirectoryRequest {
+            path: String::new(),
+            cursor: Some(cursor.clone()),
+            limit: Some(2),
+        },
+    ))
+    .expect("second page");
+    assert_eq!(second.coverage.reason_code, None);
+
+    // And is refused anywhere else — as an answer rather than an error, on both providers. A name
+    // compares perfectly well against another directory's entries, which is exactly why the
+    // directory has to be checked rather than trusted.
+    let elsewhere = block(subject.provider.list_directory(
+        &subject.target,
+        ListDirectoryRequest {
+            path: "src".to_string(),
+            cursor: Some(cursor),
+            limit: Some(2),
+        },
+    ))
+    .expect("a refusal is an answer");
+    assert!(elsewhere.items.is_empty());
+    assert_eq!(elsewhere.coverage.reason_code, Some("invalid_cursor"));
+}
+
+/// A supersede is reported as a supersede on both sides.
+///
+/// Both stop the search and both return nothing, and a reader is told different things: they
+/// cancelled it, or they typed another character. A provider that reported the second as the first
+/// would put "you stopped this" in front of somebody who did not.
+#[test]
+fn a_superseded_search_is_reported_as_supersession_on_both_sides() {
+    let superseded = || {
+        let token = SearchCancellationToken::new();
+        token.signal(SearchCancellationCause::Superseded);
+        content_search_execution(token)
+    };
+
+    let local = local_subject();
+    let local_result = block(local.provider.search_content(
+        &local.target,
+        content_request(),
+        superseded(),
+    ))
+    .expect("local answer");
+
+    let (provider, target, _session) = silent_remote();
+    let remote_result = block(provider.search_content(&target, content_request(), superseded()))
+        .expect("remote answer");
+
+    assert_eq!(local_result.coverage.reason_code, Some("superseded"));
+    assert_eq!(remote_result.coverage.reason_code, Some("superseded"));
+    assert!(local_result.matches.is_empty());
+    assert!(remote_result.matches.is_empty());
+}
+
+/// A caller asking for fewer matches asks the remote host for fewer, too.
+///
+/// A limit applied only after the answer arrives is a limit the remote host never had: it searches
+/// its whole workspace, sends everything it found, and this side throws most of it away. The saving
+/// a bound exists for happens on the machine doing the work.
+#[test]
+fn a_narrower_result_limit_travels_to_the_remote_host() {
+    let subject = remote_subject(REMOTE_CONTENT);
+
+    block(subject.provider.search_content(
+        &subject.target,
+        WorkspaceContentSearchRequest {
+            query: "main".to_string(),
+            search_id: "search-1".to_string(),
+            limit: Some(3),
+        },
+        content_search_execution(SearchCancellationToken::new()),
+    ))
+    .expect("answer");
+
+    let sent = subject.sent();
+    // The program travels base64-encoded on its own line and the request follows it, so the last
+    // line is the request and a search for a JSON field cannot match the program by accident.
+    let request = sent.lines().next_back().unwrap_or_default();
+    assert!(
+        request.contains("\"maxResults\":3"),
+        "the request did not carry the caller's limit: {request}"
+    );
 }

@@ -77,7 +77,9 @@ pub(crate) use operations::{
     assemble_agent_runs_api_with_recovery, assemble_operations_api, assemble_session_log_api,
     start_log_index_repair_job,
 };
-pub(crate) use permissions::{assemble_permissions_api, start_permission_timeout_sweep_job};
+pub(crate) use permissions::{
+    assemble_approval_resolver, assemble_permissions_api, start_permission_timeout_sweep_job,
+};
 pub(crate) use personalization::{
     assemble_personalization, spawn_startup_maintenance, DeferredRetrievalIndex,
     PersonalizationAssembly,

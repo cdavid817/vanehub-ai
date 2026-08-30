@@ -94,10 +94,31 @@ impl ShellTitle {
 /// is still worth reading, and the registry keeps it attachable for replay, whereas a Shell the
 /// user closed is gone. Reporting either as the other would either hide a crash or resurrect a
 /// tab the user dismissed.
+///
+/// The three intermediate states are the other half of that distinction, on the way in and on the
+/// way out. `Opening` exists so a Shell is addressable before its workers can publish anything;
+/// `Closing`, `Reaping`, and `CloseFailed` exist because "close was asked for" and "the process is
+/// gone" are different facts, and a state model with only the first is a model in which the UI
+/// reports a terminated shell while the process is still running.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SessionShellState {
     Starting,
+    /// Registered, but the runtime has not committed ownership yet. Not writable: a keystroke
+    /// delivered here would race the very handoff that decides whether the Shell exists at all.
+    Opening,
     Running,
+    /// Close was requested and one bounded attempt is in progress. Still addressable, still holding
+    /// its capacity, and explicitly not terminal.
+    Closing,
+    /// A close attempt reached its deadline and ownership moved to the retained Reaper. The
+    /// resources still exist, so the Shell still consumes its capacity.
+    Reaping,
+    /// Cleanup failed with a reported reason and the handles are still owned here. `retryable` is
+    /// what the UI needs to decide whether offering a retry is honest.
+    CloseFailed {
+        reason: ShellReasonCode,
+        retryable: bool,
+    },
     /// The process ended by itself. `None` when the runtime could not report a code — never `0`,
     /// which would report an unknown ending as a clean one.
     Exited {
@@ -110,7 +131,7 @@ pub(crate) enum SessionShellState {
     Failed {
         reason: ShellReasonCode,
     },
-    /// Closed on request, on idle, or at shutdown.
+    /// Closed on request, on idle, or at shutdown, *and confirmed terminal*.
     Closed,
 }
 
@@ -118,7 +139,11 @@ impl SessionShellState {
     pub(crate) fn token(&self) -> &'static str {
         match self {
             Self::Starting => "starting",
+            Self::Opening => "opening",
             Self::Running => "running",
+            Self::Closing => "closing",
+            Self::Reaping => "reaping",
+            Self::CloseFailed { .. } => "close_failed",
             Self::Exited { .. } => "exited",
             Self::Disconnected { .. } => "disconnected",
             Self::Failed { .. } => "failed",
@@ -132,7 +157,96 @@ impl SessionShellState {
     /// had to parse prose could not tell a crash from a dropped transport.
     pub(crate) fn reason(&self) -> Option<&str> {
         match self {
-            Self::Disconnected { reason } | Self::Failed { reason } => Some(reason.as_str()),
+            Self::Disconnected { reason }
+            | Self::Failed { reason }
+            | Self::CloseFailed { reason, .. } => Some(reason.as_str()),
+            _ => None,
+        }
+    }
+
+    /// Whether cleanup has been asked for and is not finished.
+    ///
+    /// The predicate a caller needs before claiming a session was deleted or a sweep closed a
+    /// Shell: these three states each mean an operating-system process or an SSH channel is still
+    /// out there under this application's ownership.
+    pub(crate) fn is_cleanup_pending(&self) -> bool {
+        matches!(
+            self,
+            Self::Closing | Self::Reaping | Self::CloseFailed { .. }
+        )
+    }
+
+    /// Whether the runtime has committed ownership and the Shell is usable.
+    pub(crate) fn is_opening(&self) -> bool {
+        matches!(self, Self::Starting | Self::Opening)
+    }
+
+    /// Whether moving from here to `next` is a move the aggregate allows.
+    ///
+    /// One table rather than a check at each writer, because the illegal moves are the ones nobody
+    /// writes deliberately: a startup completing after the shell already exited and overwriting the
+    /// exit with `Running`, a monitor thread turning a requested close into a natural exit, or a
+    /// stale reaper reopening a Shell that has already been finalized. Each of those is a plausible
+    /// line of code at its own call site and a lie about the process at this one.
+    pub(crate) fn may_transition_to(&self, next: &Self) -> bool {
+        if self == next || matches!(self, Self::Closed) {
+            return false;
+        }
+        match (self, next) {
+            // An ended Shell still has an entry, a replay buffer, and — until a runtime confirms
+            // otherwise — workers and handles. Closing it is therefore a real operation, and the
+            // only one it admits: it cannot come back to life, and it cannot end a second time.
+            (
+                Self::Exited { .. } | Self::Failed { .. },
+                Self::Closing | Self::Reaping | Self::CloseFailed { .. } | Self::Closed,
+            ) => true,
+            (Self::Exited { .. } | Self::Failed { .. }, _) => false,
+            // Startup can complete, end early, or be closed before it completes. It cannot be
+            // finalized as `Closed` directly: a startup that never committed has nothing to
+            // confirm, and a rollback reports `Failed` with the reason it rolled back for.
+            (
+                Self::Starting | Self::Opening,
+                Self::Running
+                | Self::Closing
+                | Self::Reaping
+                | Self::Exited { .. }
+                | Self::Disconnected { .. }
+                | Self::Failed { .. },
+            ) => true,
+            (
+                Self::Running,
+                Self::Closing
+                | Self::Exited { .. }
+                | Self::Disconnected { .. }
+                | Self::Failed { .. },
+            ) => true,
+            // A dropped transport is not an ending, so a disconnected Shell can still be closed,
+            // and can still be observed to have ended underneath.
+            (
+                Self::Disconnected { .. },
+                Self::Closing | Self::Exited { .. } | Self::Failed { .. },
+            ) => true,
+            // Once close is under way the close operation owns the ending. A monitor observing the
+            // child exit here must not report `Exited`: the user asked for a close, and reporting
+            // the ending it produced as a spontaneous exit would lose the request.
+            (Self::Closing, Self::Reaping | Self::CloseFailed { .. } | Self::Closed) => true,
+            (Self::Reaping, Self::CloseFailed { .. } | Self::Closed) => true,
+            // A failed close is retryable in place: the next attempt re-enters `Closing`, and a
+            // reaper that succeeds late can finalize it directly.
+            (Self::CloseFailed { .. }, Self::Closing | Self::Reaping | Self::Closed) => true,
+            (Self::CloseFailed { .. }, Self::CloseFailed { .. }) => true,
+            _ => false,
+        }
+    }
+
+    /// Whether a failed cleanup is worth trying again, for the one state that carries the answer.
+    ///
+    /// `None` everywhere else, and deliberately not `Some(false)`: a Shell that has not failed a
+    /// close has not answered this question, and reporting `false` would tell a view that a retry is
+    /// pointless for a Shell nobody has tried to close.
+    pub(crate) fn close_retryable(&self) -> Option<bool> {
+        match self {
+            Self::CloseFailed { retryable, .. } => Some(*retryable),
             _ => None,
         }
     }
@@ -147,8 +261,26 @@ impl SessionShellState {
 
     /// Whether the runtime can still accept input. A view uses this to decide whether to bind a
     /// keyboard, and it is deliberately narrower than "the Shell still exists".
+    ///
+    /// `Running` alone. Every other state is either before the runtime committed ownership or after
+    /// it gave it up, and a write accepted in either has nowhere to go — answering it with success
+    /// would tell the caller a keystroke reached a process that may not exist.
+    ///
+    /// `Starting` used to be allowed here and is not produced by the registry at all: the store
+    /// registers as `Opening`. Permitting a state nothing reaches is dead permissiveness that reads
+    /// as a deliberate exception, and the next state added beside it inherits the exception.
     pub(crate) fn accepts_input(&self) -> bool {
-        matches!(self, Self::Starting | Self::Running)
+        matches!(self, Self::Running)
+    }
+
+    /// Whether the registry entry still accepts a change to its own fields.
+    ///
+    /// Wider than `accepts_input`, and deliberately: renaming touches a string in this process and
+    /// reaches no runtime, so an ended Shell whose transcript a reader is keeping can still be
+    /// relabelled. What it refuses is a Shell being torn down — the entry is on its way out, and a
+    /// title written onto it is a change nobody will see again.
+    pub(crate) fn accepts_metadata_change(&self) -> bool {
+        !self.is_cleanup_pending() && !self.is_terminal()
     }
 
     /// Whether the registry should still hold it. An exited Shell stays until it is closed or the
@@ -308,5 +440,187 @@ impl SessionShellError {
 impl std::fmt::Display for SessionShellError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(self.code())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::contexts::workspaces::domain::session_shell_lifecycle::shell_reason_code;
+
+    fn reason(code: &str) -> ShellReasonCode {
+        ShellReasonCode::sanitized(code)
+    }
+
+    /// The defect this table exists for. A Shell that echoes and exits does so before the startup
+    /// path gets to write `Running`, and an unconditional write there would replace a real ending
+    /// with a claim that the shell is live — after which nothing ever ends it.
+    #[test]
+    fn a_startup_completion_cannot_overwrite_an_ending_that_already_happened() {
+        let exited = SessionShellState::Exited { code: Some(0) };
+
+        assert!(SessionShellState::Opening.may_transition_to(&SessionShellState::Running));
+        assert!(SessionShellState::Opening.may_transition_to(&exited));
+        assert!(!exited.may_transition_to(&SessionShellState::Running));
+        assert!(!SessionShellState::Closed.may_transition_to(&SessionShellState::Running));
+        assert!(!SessionShellState::Failed {
+            reason: reason("x")
+        }
+        .may_transition_to(&SessionShellState::Running));
+    }
+
+    /// A confirmed ending does not happen twice. Two terminal states for one Shell would publish
+    /// two endings, and anything counting them would see work that never happened.
+    #[test]
+    fn an_ended_shell_admits_only_being_closed() {
+        for ended in [
+            SessionShellState::Exited { code: None },
+            SessionShellState::Failed {
+                reason: reason("x"),
+            },
+        ] {
+            assert!(ended.has_ended(), "{}", ended.token());
+            // Still a real operation: the entry, the replay buffer, and — until a runtime says
+            // otherwise — the workers are all there, and dismissing the tab has to reclaim them.
+            assert!(ended.may_transition_to(&SessionShellState::Closing));
+            assert!(ended.may_transition_to(&SessionShellState::Closed));
+            for next in [
+                SessionShellState::Running,
+                SessionShellState::Opening,
+                SessionShellState::Exited { code: Some(1) },
+                SessionShellState::Disconnected {
+                    reason: reason("x"),
+                },
+            ] {
+                assert!(
+                    !ended.may_transition_to(&next),
+                    "{} -> {}",
+                    ended.token(),
+                    next.token()
+                );
+            }
+        }
+    }
+
+    /// `Closed` is the one state nothing leaves. It is the only one meaning every owned resource was
+    /// confirmed gone, so anything after it would be a claim about a Shell with nothing left to
+    /// claim.
+    #[test]
+    fn a_finalized_shell_admits_no_transition_at_all() {
+        for next in [
+            SessionShellState::Running,
+            SessionShellState::Closing,
+            SessionShellState::Reaping,
+            SessionShellState::Exited { code: Some(0) },
+            SessionShellState::CloseFailed {
+                reason: reason("x"),
+                retryable: true,
+            },
+        ] {
+            assert!(
+                !SessionShellState::Closed.may_transition_to(&next),
+                "closed -> {}",
+                next.token()
+            );
+        }
+    }
+
+    /// Once close is under way the close operation owns the ending. The monitor thread observing
+    /// the child die is the *expected* consequence of the kill, and reporting it as a spontaneous
+    /// exit would lose the fact that a user asked for this.
+    #[test]
+    fn a_close_in_progress_is_not_reclassified_as_a_natural_exit() {
+        assert!(!SessionShellState::Closing
+            .may_transition_to(&SessionShellState::Exited { code: Some(0) }));
+        assert!(!SessionShellState::Reaping
+            .may_transition_to(&SessionShellState::Exited { code: Some(0) }));
+        assert!(SessionShellState::Closing.may_transition_to(&SessionShellState::Closed));
+        assert!(SessionShellState::Closing.may_transition_to(&SessionShellState::Reaping));
+        assert!(SessionShellState::Reaping.may_transition_to(&SessionShellState::Closed));
+    }
+
+    /// A failed close keeps its handles, so the next attempt re-enters the same close rather than
+    /// starting a competing one, and a reaper that succeeds late can still finalize it.
+    #[test]
+    fn a_failed_close_is_retryable_in_place() {
+        let failed = SessionShellState::CloseFailed {
+            reason: reason(shell_reason_code::CLOSE_DEADLINE_REACHED),
+            retryable: true,
+        };
+
+        assert!(failed.is_cleanup_pending());
+        assert!(!failed.has_ended());
+        assert!(!failed.is_terminal());
+        assert!(failed.may_transition_to(&SessionShellState::Closing));
+        assert!(failed.may_transition_to(&SessionShellState::Closed));
+        assert!(!failed.may_transition_to(&SessionShellState::Running));
+    }
+
+    /// Cleanup pending is the predicate a caller needs before claiming a session was deleted: each
+    /// of these three means a process or a channel is still out there under this application's
+    /// ownership.
+    #[test]
+    fn cleanup_pending_covers_exactly_the_unconfirmed_states() {
+        assert!(SessionShellState::Closing.is_cleanup_pending());
+        assert!(SessionShellState::Reaping.is_cleanup_pending());
+        assert!(!SessionShellState::Running.is_cleanup_pending());
+        assert!(!SessionShellState::Opening.is_cleanup_pending());
+        assert!(!SessionShellState::Closed.is_cleanup_pending());
+        assert!(!SessionShellState::Exited { code: Some(0) }.is_cleanup_pending());
+    }
+
+    /// A keystroke accepted before the runtime committed ownership would have nowhere to go, and
+    /// answering it with success would report a delivery that did not happen.
+    #[test]
+    fn an_opening_shell_is_addressable_but_not_writable() {
+        assert!(!SessionShellState::Opening.accepts_input());
+        assert!(!SessionShellState::Closing.accepts_input());
+        assert!(SessionShellState::Running.accepts_input());
+        assert!(SessionShellState::Opening.is_opening());
+    }
+
+    /// These tokens cross the command boundary and the frontend switches on them, so they are part
+    /// of the contract rather than a debug rendering.
+    #[test]
+    fn every_state_has_a_distinct_stable_token() {
+        let tokens = [
+            SessionShellState::Starting,
+            SessionShellState::Opening,
+            SessionShellState::Running,
+            SessionShellState::Closing,
+            SessionShellState::Reaping,
+            SessionShellState::CloseFailed {
+                reason: reason("x"),
+                retryable: true,
+            },
+            SessionShellState::Exited { code: None },
+            SessionShellState::Disconnected {
+                reason: reason("x"),
+            },
+            SessionShellState::Failed {
+                reason: reason("x"),
+            },
+            SessionShellState::Closed,
+        ]
+        .map(|state| state.token());
+        let mut unique = tokens.to_vec();
+        unique.sort_unstable();
+        unique.dedup();
+
+        assert_eq!(unique.len(), tokens.len());
+        assert!(tokens.contains(&"close_failed"));
+    }
+
+    /// A close failure carries its reason the same way a disconnect does, so a reader never has to
+    /// parse prose to tell "the child would not die" from "the transport dropped".
+    #[test]
+    fn a_close_failure_reports_its_reason_and_never_an_exit_code() {
+        let failed = SessionShellState::CloseFailed {
+            reason: reason(shell_reason_code::TERMINATE_FAILED),
+            retryable: false,
+        };
+
+        assert_eq!(failed.reason(), Some(shell_reason_code::TERMINATE_FAILED));
+        assert_eq!(failed.exit_code(), None);
     }
 }

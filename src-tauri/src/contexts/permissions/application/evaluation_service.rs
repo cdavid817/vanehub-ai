@@ -4,7 +4,7 @@
 use super::error::PermissionsApplicationError;
 use super::ports::{
     AuditDecider, AuditRecord, AuditRepository, DefaultTemplatePort, GrantQuery, GrantRepository,
-    PermissionsClockPort, PermissionsIdPort, PrincipalRepository,
+    PermissionsClockPort, PermissionsDiagnosticsPort, PermissionsIdPort, PrincipalRepository,
 };
 use crate::contexts::permissions::domain::{
     policies_for_template, resolve_for, risk_level_for, Action, Effect, PolicyTemplateName,
@@ -20,6 +20,7 @@ pub(crate) struct EvaluationService {
     clock: Arc<dyn PermissionsClockPort>,
     ids: Arc<dyn PermissionsIdPort>,
     default_template: Arc<dyn DefaultTemplatePort>,
+    diagnostics: Arc<dyn PermissionsDiagnosticsPort>,
 }
 
 impl EvaluationService {
@@ -31,6 +32,7 @@ impl EvaluationService {
         clock: Arc<dyn PermissionsClockPort>,
         ids: Arc<dyn PermissionsIdPort>,
         default_template: Arc<dyn DefaultTemplatePort>,
+        diagnostics: Arc<dyn PermissionsDiagnosticsPort>,
     ) -> Self {
         Self {
             principals,
@@ -39,6 +41,7 @@ impl EvaluationService {
             clock,
             ids,
             default_template,
+            diagnostics,
         }
     }
 
@@ -57,15 +60,81 @@ impl EvaluationService {
         generation_id: &str,
         project_key: &str,
     ) -> Effect {
-        self.evaluate_inner(
+        match self.evaluate_inner(
             agent_id,
             &action,
             &resource,
             session_id,
             generation_id,
             project_key,
-        )
-        .unwrap_or(Effect::Ask)
+        ) {
+            Ok(effect) => effect,
+            Err(error) => {
+                // Fail closed, and leave evidence saying why. A bare `unwrap_or(Ask)` made a
+                // storage outage and a policy that genuinely asks look identical in the audit
+                // trail, so an operator seeing a burst of approval prompts had no way to tell
+                // which of the two was happening.
+                self.record_evaluation_failure(
+                    agent_id,
+                    &action,
+                    &resource,
+                    session_id,
+                    generation_id,
+                    &error,
+                );
+                Effect::Ask
+            }
+        }
+    }
+
+    /// Records an evaluation that could not complete, with a stable reason code and no payload.
+    ///
+    /// Two levels of fallback, because the thing that failed is usually storage and the audit trail
+    /// is storage. If the audit write also fails there is nowhere durable left, so the last resort
+    /// is one redacted line through unified logging. Neither path carries the resource, the tool
+    /// input, or the underlying error text: the first is a user path, the last can quote a query.
+    fn record_evaluation_failure(
+        &self,
+        agent_id: &str,
+        action: &Action,
+        resource: &Resource,
+        session_id: &str,
+        generation_id: &str,
+        error: &PermissionsApplicationError,
+    ) {
+        let reason = evaluation_failure_reason(error);
+        // Attributed to the principal only when one is already known. Creating one here would mean
+        // a storage failure could write the very row whose absence caused it.
+        let principal_id = self
+            .principals
+            .find_by_agent_id(agent_id)
+            .ok()
+            .flatten()
+            .map(|principal| principal.id().to_string());
+
+        if let Some(principal_id) = principal_id {
+            let appended = self.audit.append(AuditRecord {
+                id: self.ids.next_id("audit"),
+                principal_id,
+                session_id: session_id.to_string(),
+                generation_id: generation_id.to_string(),
+                action: action.clone(),
+                resource: resource.clone(),
+                effect: Effect::Ask,
+                risk_level: risk_level_for(action),
+                decider: AuditDecider::EvaluationError,
+                channel: "native_agent",
+                resolution_id: None,
+                outcome_reason: Some(reason),
+                created_at: self.clock.now(),
+            });
+            if appended.is_ok() {
+                return;
+            }
+        }
+
+        self.diagnostics
+            .evaluation_failed_closed(action, reason, session_id, generation_id);
     }
 
     fn evaluate_inner(
@@ -92,7 +161,15 @@ impl EvaluationService {
                 session_id,
                 project_key,
             };
-            match self.grants.find_matching(&query)?.map(|grant| grant.effect) {
+            // Re-checked against the domain rule rather than trusted. The repository decides
+            // precedence in SQL, and this is the one place that can tell a storage-side widening —
+            // a wrong predicate, a stale index, an inactive row leaking through — from an
+            // authorization the user actually granted. A grant that does not apply is dropped, not
+            // honoured, so the failure mode is falling back to the template rather than executing.
+            let effective = self.grants.find_effective_grant(&query)?.filter(|grant| {
+                grant.matches(principal.id(), action, resource, session_id, project_key)
+            });
+            match effective.map(|grant| grant.effect.as_effect()) {
                 Some(effect) => effect,
                 None => {
                     let template_policies = policies_for_template(principal.template());
@@ -123,19 +200,14 @@ impl EvaluationService {
         &self,
         agent_id: &str,
     ) -> Result<Principal, PermissionsApplicationError> {
-        if let Some(principal) = self.principals.find_by_agent_id(agent_id)? {
-            return Ok(principal);
-        }
-        let id = self.ids.next_id("principal");
-        let principal = Principal::new(
-            id,
-            agent_id.to_string(),
+        // One atomic operation rather than read-then-write: two evaluations meeting a new agent at
+        // the same moment would otherwise have one of them lose the unique-`agent_id` insert and
+        // fail closed to Ask, which is a race presenting itself as a policy decision.
+        self.principals.get_or_create(
+            agent_id,
+            &self.ids.next_id("principal"),
             self.default_template.default_template(),
-            None,
-            None,
-        )?;
-        self.principals.create(&principal)?;
-        Ok(principal)
+        )
     }
 
     /// Reports an agent's current policy template without ever writing a principal row as a side
@@ -205,15 +277,30 @@ impl EvaluationService {
             risk_level: risk_level_for(action),
             decider,
             channel: "native_agent",
+            resolution_id: None,
+            outcome_reason: None,
             created_at: self.clock.now(),
         })
+    }
+}
+
+/// A stable code for why evaluation could not complete.
+///
+/// Derived from the error's kind, never from its message: the message can quote a SQL statement or
+/// a path, and this value is written to the audit trail and to the log.
+fn evaluation_failure_reason(error: &PermissionsApplicationError) -> &'static str {
+    match error {
+        PermissionsApplicationError::Infrastructure { .. } => "evaluation_storage_unavailable",
+        PermissionsApplicationError::NotFound(_) => "evaluation_principal_unavailable",
+        PermissionsApplicationError::Domain(_) => "evaluation_invalid_stored_state",
+        PermissionsApplicationError::Internal(_) => "evaluation_internal_error",
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::contexts::permissions::domain::{Effect, Grant, Scope};
+    use crate::contexts::permissions::domain::{Effect, Grant, PersistedEffect, RememberedScope};
     use std::collections::HashMap;
     use std::sync::Mutex;
 
@@ -230,12 +317,25 @@ mod tests {
             Ok(self.by_agent.lock().unwrap().get(agent_id).cloned())
         }
 
-        fn create(&self, principal: &Principal) -> Result<(), PermissionsApplicationError> {
-            self.by_agent
-                .lock()
-                .unwrap()
-                .insert(principal.agent_id().to_string(), principal.clone());
-            Ok(())
+        fn get_or_create(
+            &self,
+            agent_id: &str,
+            id_hint: &str,
+            default_template: PolicyTemplateName,
+        ) -> Result<Principal, PermissionsApplicationError> {
+            let mut principals = self.by_agent.lock().unwrap();
+            if let Some(principal) = principals.get(agent_id) {
+                return Ok(principal.clone());
+            }
+            let principal = Principal::new(
+                id_hint.to_string(),
+                agent_id.to_string(),
+                default_template,
+                None,
+                None,
+            )?;
+            principals.insert(agent_id.to_string(), principal.clone());
+            Ok(principal)
         }
 
         fn update_template(
@@ -257,7 +357,10 @@ mod tests {
     }
 
     impl GrantRepository for FakeGrants {
-        fn find_matching(
+        /// Ranks in memory the way the SQL does. A fake that returned the first applicable grant
+        /// would hide exactly the defect the real query was changed to remove, so the precedence
+        /// rule is restated here rather than assumed.
+        fn find_effective_grant(
             &self,
             query: &GrantQuery<'_>,
         ) -> Result<Option<Grant>, PermissionsApplicationError> {
@@ -266,7 +369,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .iter()
-                .find(|grant| {
+                .filter(|grant| {
                     grant.matches(
                         query.principal_id,
                         query.action,
@@ -275,12 +378,8 @@ mod tests {
                         query.project_key,
                     )
                 })
+                .max_by_key(|grant| (grant.specificity(), grant.revision))
                 .cloned())
-        }
-
-        fn create(&self, grant: &Grant) -> Result<(), PermissionsApplicationError> {
-            self.grants.lock().unwrap().push(grant.clone());
-            Ok(())
         }
     }
 
@@ -297,6 +396,66 @@ mod tests {
                 record.decider,
             ));
             Ok(())
+        }
+    }
+
+    /// A grant store that is down. What evaluation actually meets when SQLite is unavailable.
+    struct UnavailableGrants;
+    impl GrantRepository for UnavailableGrants {
+        fn find_effective_grant(
+            &self,
+            _query: &GrantQuery<'_>,
+        ) -> Result<Option<Grant>, PermissionsApplicationError> {
+            Err(PermissionsApplicationError::infrastructure(
+                "sqlite",
+                // Deliberately quotes a statement and a path, the way a real driver error does.
+                // Nothing this test asserts on may contain either.
+                "SELECT ... FROM permission_grants: unable to open /home/user/secret/vanehub.sqlite"
+                    .to_string(),
+            ))
+        }
+    }
+
+    /// Records what the last-resort diagnostic was told, so a test can assert on the fields rather
+    /// than on a log file.
+    #[derive(Default)]
+    struct RecordingDiagnostics {
+        calls: Mutex<Vec<(String, &'static str, String, String)>>,
+    }
+    impl PermissionsDiagnosticsPort for RecordingDiagnostics {
+        fn evaluation_failed_closed(
+            &self,
+            action: &Action,
+            reason: &'static str,
+            session_id: &str,
+            generation_id: &str,
+        ) {
+            self.calls.lock().unwrap().push((
+                action.as_str().to_string(),
+                reason,
+                session_id.to_string(),
+                generation_id.to_string(),
+            ));
+        }
+        fn approval_denied_fail_closed(
+            &self,
+            _request_id: &str,
+            _session_id: &str,
+            _generation_id: &str,
+            _reason: &'static str,
+        ) {
+            unreachable!("evaluation never resolves a pending approval")
+        }
+    }
+
+    /// An audit store that is down too — the case the diagnostic port exists for.
+    struct UnavailableAudit;
+    impl AuditRepository for UnavailableAudit {
+        fn append(&self, _record: AuditRecord) -> Result<(), PermissionsApplicationError> {
+            Err(PermissionsApplicationError::infrastructure(
+                "sqlite",
+                "unable to open /home/user/secret/vanehub.sqlite".to_string(),
+            ))
         }
     }
 
@@ -350,8 +509,117 @@ mod tests {
             Arc::new(FixedClock),
             Arc::new(FakeIds(Mutex::new(0))),
             default_template.clone(),
+            Arc::new(SilentDiagnostics),
         );
         (service, grants, audit, principals, default_template)
+    }
+
+    /// Swallows the fallback diagnostic. These tests are about which effect an evaluation returns,
+    /// and the one case that reaches this port is asserted through the audit trail instead — a
+    /// double that recorded lines here would tempt a test to assert on log text.
+    struct SilentDiagnostics;
+    impl PermissionsDiagnosticsPort for SilentDiagnostics {
+        fn evaluation_failed_closed(
+            &self,
+            _action: &Action,
+            _reason: &'static str,
+            _session_id: &str,
+            _generation_id: &str,
+        ) {
+        }
+        fn approval_denied_fail_closed(
+            &self,
+            _request_id: &str,
+            _session_id: &str,
+            _generation_id: &str,
+            _reason: &'static str,
+        ) {
+            unreachable!("evaluation never resolves a pending approval")
+        }
+    }
+
+    /// `permissions-core`'s "Evaluation storage failure".
+    ///
+    /// Two things have to be true at once and only one of them was before: the evaluation fails
+    /// closed, *and* it leaves evidence saying it was an infrastructure failure. Without the
+    /// second, a database outage and a policy that genuinely asks are indistinguishable in the
+    /// audit trail, and an operator seeing a burst of prompts has nothing to go on.
+    #[test]
+    fn a_storage_failure_fails_closed_and_records_attributed_evidence() {
+        let principals = Arc::new(FakePrincipals::default());
+        let audit = Arc::new(FakeAudit::default());
+        let diagnostics = Arc::new(RecordingDiagnostics::default());
+        let service = EvaluationService::new(
+            principals,
+            Arc::new(UnavailableGrants),
+            audit.clone(),
+            Arc::new(FixedClock),
+            Arc::new(FakeIds(Mutex::new(0))),
+            Arc::new(FakeDefaultTemplate(Mutex::new(PolicyTemplateName::Trusted))),
+            diagnostics.clone(),
+        );
+
+        let effect = service.evaluate(
+            "agent-1",
+            Action::file_write(),
+            crate::contexts::permissions::domain::Resource::file_path("a.txt"),
+            "session-1",
+            "generation-1",
+            "project-1",
+        );
+
+        // Trusted would normally allow this. A storage failure must not be able to produce Allow.
+        assert_eq!(effect, Effect::Ask);
+        let records = audit.records.lock().unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].1, Effect::Ask);
+        assert_eq!(
+            records[0].2,
+            AuditDecider::EvaluationError,
+            "a storage failure was recorded as an ordinary policy decision"
+        );
+        // The audit store was available, so the last-resort diagnostic is not used.
+        assert!(diagnostics.calls.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn when_the_audit_store_is_also_down_the_diagnostic_carries_codes_and_no_content() {
+        let principals = Arc::new(FakePrincipals::default());
+        let diagnostics = Arc::new(RecordingDiagnostics::default());
+        let service = EvaluationService::new(
+            principals,
+            Arc::new(UnavailableGrants),
+            Arc::new(UnavailableAudit),
+            Arc::new(FixedClock),
+            Arc::new(FakeIds(Mutex::new(0))),
+            Arc::new(FakeDefaultTemplate(Mutex::new(PolicyTemplateName::Trusted))),
+            diagnostics.clone(),
+        );
+
+        let effect = service.evaluate(
+            "agent-1",
+            Action::file_write(),
+            crate::contexts::permissions::domain::Resource::file_path("secret/keys.pem"),
+            "session-1",
+            "generation-1",
+            "project-1",
+        );
+
+        assert_eq!(effect, Effect::Ask);
+        let calls = diagnostics.calls.lock().unwrap();
+        assert_eq!(calls.len(), 1);
+        let (action, reason, session_id, generation_id) = &calls[0];
+        assert_eq!(action, "file.write");
+        assert_eq!(*reason, "evaluation_storage_unavailable");
+        assert_eq!(session_id, "session-1");
+        assert_eq!(generation_id, "generation-1");
+        // The resource is a user path and the driver error quotes a database location; neither may
+        // reach a diagnostic, and the port's signature is what makes that structural rather than a
+        // convention somebody has to remember at each call site.
+        let emitted = format!("{action}{reason}{session_id}{generation_id}");
+        assert!(!emitted.contains("secret"));
+        assert!(!emitted.contains("keys.pem"));
+        assert!(!emitted.contains("vanehub.sqlite"));
     }
 
     #[test]
@@ -429,19 +697,14 @@ mod tests {
         );
         assert_eq!(effect_before, Effect::Ask);
 
-        grants
-            .create(&Grant {
-                id: "grant-1".to_string(),
-                principal_id: "principal-1".to_string(),
-                action: Action::file_write(),
-                resource: crate::contexts::permissions::domain::Resource::file_path("a.txt"),
-                effect: Effect::Allow,
-                scope: Scope::Session,
-                session_id: Some("session-1".to_string()),
-                project_key: None,
-                created_at: "0".to_string(),
-            })
-            .unwrap();
+        grants.grants.lock().unwrap().push(Grant::active_for_test(
+            "grant-1",
+            "principal-1",
+            Action::file_write(),
+            crate::contexts::permissions::domain::Resource::file_path("a.txt"),
+            PersistedEffect::Allow,
+            RememberedScope::Session("session-1".to_string()),
+        ));
 
         let effect_after = service.evaluate(
             "agent-1",

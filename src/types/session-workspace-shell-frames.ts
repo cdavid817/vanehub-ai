@@ -16,11 +16,100 @@ export type ShellStream = "pty" | "stdout" | "stderr" | "system";
  */
 export type SessionShellState =
   | "starting"
+  /** Registered and addressable, but the runtime has not committed ownership. Not writable. */
+  | "opening"
   | "running"
+  /** Close was asked for and one bounded attempt is under way. Not terminal. */
+  | "closing"
+  /** A close attempt ran out of time; cleanup continues under retained ownership. Not terminal. */
+  | "reaping"
+  /** Cleanup failed with a reason and the resources are still owned. Not terminal. */
+  | "close_failed"
   | "exited"
   | "disconnected"
   | "failed"
   | "closed";
+
+/**
+ * The three states in which a Shell has been asked to end and has not.
+ *
+ * A view needs this predicate rather than `state !== "closed"`, because the difference it protects
+ * is the one the user acts on: the tab is still there, the process may still be running, and
+ * removing it from the list would take away the only way to retry.
+ */
+export function isShellCleanupPending(state: SessionShellState): boolean {
+  return state === "closing" || state === "reaping" || state === "close_failed";
+}
+
+/**
+ * What a close attempt achieved.
+ *
+ * Four values rather than a resolved promise, because "the call returned" and "the process is gone"
+ * are different facts. `reaping` and `closeFailed` both resolve successfully and both mean a
+ * process may still exist.
+ */
+export type ShellCloseDisposition = "closed" | "reaping" | "close_failed" | "already_terminal";
+
+export interface ShellCloseOutcome {
+  shellId: string;
+  generation: number;
+  disposition: ShellCloseDisposition;
+  /** Present only for a settled disposition; an unsettled close observed nothing final. */
+  finalState?: SessionShellState;
+  reason?: string;
+  retryable: boolean;
+  attempt: number;
+  cleanupDeadlineReached: boolean;
+}
+
+/** Whether the Shell can be considered finished with. Not "the call did not throw". */
+export function isCloseSettled(disposition: ShellCloseDisposition): boolean {
+  return disposition === "closed" || disposition === "already_terminal";
+}
+
+/**
+ * What one session-wide cleanup achieved, as a view can state it.
+ *
+ * Archiving and deleting a session end every Shell it owns, and both refuse when any of them is not
+ * confirmed gone. The refusal arrives as one stable code, which tells a reader that something is
+ * still winding down and nothing about *what* — so the only thing they can do with it is try again
+ * and hope. This is that same fact with the Shells named, assembled from the list the view can
+ * already ask for.
+ *
+ * Derived rather than sent. A report crossing from the workspaces context into the sessions one
+ * would be a workspaces type in the sessions contract, for a summary the frontend can compute from
+ * a call it already makes.
+ */
+export interface SessionShellCleanupReport {
+  sessionId: string;
+  /** The Shells that have been asked to end and have not. Empty when cleanup is complete. */
+  pending: SessionShellDescriptor[];
+  /**
+   * Whether trying again is worth offering.
+   *
+   * True while anything is still `closing` or `reaping` — those are attempts in progress. A Shell
+   * that reported `close_failed` is only retryable if it said so, and one that did not means the
+   * next press would produce the same refusal.
+   */
+  retryable: boolean;
+}
+
+/** The Shells blocking a session-wide cleanup, and whether retrying is honest. */
+export function sessionShellCleanupReport(
+  sessionId: string,
+  shells: readonly SessionShellDescriptor[],
+): SessionShellCleanupReport {
+  const pending = shells.filter(
+    (shell) => shell.sessionId === sessionId && isShellCleanupPending(shell.state),
+  );
+  return {
+    sessionId,
+    pending,
+    // `close_failed` without a retryable flag is a wall, not a wait. Offering a retry there would
+    // invite the reader to press again for an answer nothing is going to give.
+    retryable: pending.some((shell) => shell.state !== "close_failed"),
+  };
+}
 
 /**
  * Whether something is running in the foreground. Three values, not two: `unknown` is what an
@@ -47,6 +136,11 @@ export interface ShellReplayGap {
 
 export interface SessionShellDescriptor {
   shellId: string;
+  /**
+   * Which life of this Shell id the descriptor describes. Compared against an arriving notice so a
+   * completion for a Shell this view has already replaced is discarded rather than applied.
+   */
+  generation: number;
   sessionId: string;
   seatId?: string;
   title: string;
@@ -55,6 +149,13 @@ export interface SessionShellDescriptor {
   /** Present only for the states that carry one. */
   reason?: string;
   exitCode?: number;
+  /**
+   * Whether a failed cleanup is worth trying again. Present only for `close_failed`.
+   *
+   * Absent rather than `false` everywhere else: a Shell nobody has tried to close has not answered
+   * this question, and reporting `false` would tell a view that a retry is pointless.
+   */
+  retryable?: boolean;
   createdAt: string;
   lastActivityAt: string;
   /**
@@ -83,6 +184,7 @@ export interface ShellAttachSnapshot {
 /** A state change published while a view is attached. */
 export interface SessionShellStateNotice {
   shellId: string;
+  generation: number;
   sessionId: string;
   state: SessionShellState;
   reason?: string;

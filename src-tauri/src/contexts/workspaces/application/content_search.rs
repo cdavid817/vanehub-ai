@@ -11,10 +11,6 @@
 //! be made to agree about. A reader who gets different matches from the same query depending on
 //! which machine the workspace is on has been handed a puzzle rather than a feature.
 
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
-
 /// How many matches one search returns.
 pub(crate) const MAX_CONTENT_MATCHES: usize = 200;
 
@@ -64,57 +60,48 @@ pub(crate) struct WorkspaceContentSearchResult {
     pub(crate) matches: Vec<WorkspaceContentMatch>,
 }
 
-/// Which searches have been asked to stop.
+/// A content search answer together with the registration that produced it.
 ///
-/// A registry rather than a token passed down, because the thing that cancels a search is a
-/// different command from the one running it: by the time a reader presses Escape, the search is
-/// already inside a walk on the blocking pool, and the only way to reach it is a flag it polls.
+/// Separate from the result because a provider cannot know this. A provider is handed a query and a
+/// token and returns what it found; whether that answer is still the one anybody is waiting for is a
+/// fact about the registry, and it is only knowable at the moment the answer comes back.
 ///
-/// Entries are removed when their search ends, and a cancel for a search that already finished is
-/// silently accepted — the caller cannot know which happened first, and refusing would make an
-/// ordinary race look like an error.
-#[derive(Default)]
-pub(crate) struct WorkspaceSearchCancellation {
-    running: Mutex<HashMap<String, Arc<AtomicBool>>>,
+/// The generation travels all the way to the frontend rather than being consumed here. A caller that
+/// only saw "superseded" would still have to guess whether the delivery it is holding is older or
+/// newer than the one already on screen — two answers can be in flight, and arrival order is not
+/// issue order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct WorkspaceContentSearchDelivery {
+    /// Which registration under the search id produced this.
+    pub(crate) generation: u64,
+    pub(crate) result: WorkspaceContentSearchResult,
 }
 
-impl WorkspaceSearchCancellation {
-    /// Registers a search and hands back the flag it should poll.
-    ///
-    /// Registering *before* the work starts is what makes a cancel that arrives immediately still
-    /// land: a flag created when the walk begins would miss every cancel sent in the window
-    /// between the request leaving the frontend and the first directory being read.
-    pub(crate) fn begin(&self, search_id: &str) -> Arc<AtomicBool> {
-        let flag = Arc::new(AtomicBool::new(false));
-        if let Ok(mut running) = self.running.lock() {
-            // Replacing an id already in flight cancels the old one. A caller reusing an id has
-            // superseded its own search, and leaving both running would spend a machine's effort on
-            // an answer nobody will read.
-            if let Some(previous) = running.insert(search_id.to_string(), flag.clone()) {
-                previous.store(true, Ordering::Relaxed);
+/// What a finished search is allowed to hand back, given whether it is still the current one.
+///
+/// Asked here rather than at the call site so the rule has one statement. A superseded generation's
+/// matches are matches for a query the reader has already replaced; passing them on would invite
+/// whoever receives them to render text nobody searched for, and the coverage would say `complete`
+/// while describing a different question.
+///
+/// The generation goes out either way. A receiver holding two answers needs to know which is newer,
+/// and "this one was stale" does not tell it whether what is already on screen was staler still.
+pub(crate) fn deliver(
+    registration: &super::search_cancellation::SearchRegistration,
+    result: WorkspaceContentSearchResult,
+) -> WorkspaceContentSearchDelivery {
+    WorkspaceContentSearchDelivery {
+        generation: registration.generation().value(),
+        result: if registration.is_current() {
+            result
+        } else {
+            WorkspaceContentSearchResult {
+                coverage: super::inspection::WorkspaceSearchCoverage::stopped(
+                    super::inspection_budget::WorkspaceInspectionReason::Superseded,
+                ),
+                matches: Vec::new(),
             }
-        }
-        flag
-    }
-
-    pub(crate) fn finish(&self, search_id: &str) {
-        if let Ok(mut running) = self.running.lock() {
-            running.remove(search_id);
-        }
-    }
-
-    /// Asks a search to stop. Returns whether one was running under that id.
-    pub(crate) fn cancel(&self, search_id: &str) -> bool {
-        let Ok(running) = self.running.lock() else {
-            return false;
-        };
-        match running.get(search_id) {
-            Some(flag) => {
-                flag.store(true, Ordering::Relaxed);
-                true
-            }
-            None => false,
-        }
+        },
     }
 }
 
@@ -157,39 +144,69 @@ pub(crate) fn safe_snippet(line: &str, match_start_chars: usize) -> (String, boo
 
 #[cfg(test)]
 mod tests {
+    use super::super::inspection::{WorkspaceSearchCoverage, WorkspaceSearchCoverageState};
+    use super::super::search_cancellation::WorkspaceSearchCancellation;
     use super::*;
+    use std::sync::Arc;
 
-    #[test]
-    fn a_cancel_reaches_a_search_that_registered_first() {
-        let registry = WorkspaceSearchCancellation::default();
-        let flag = registry.begin("search-1");
-
-        assert!(registry.cancel("search-1"));
-        assert!(flag.load(Ordering::Relaxed));
+    fn one_match() -> WorkspaceContentSearchResult {
+        WorkspaceContentSearchResult {
+            coverage: WorkspaceSearchCoverage::complete(),
+            matches: vec![WorkspaceContentMatch {
+                path: "src/main.rs".to_string(),
+                line: 1,
+                column: 1,
+                snippet: "let needle = 1;".to_string(),
+                snippet_truncated: false,
+            }],
+        }
     }
 
     #[test]
-    fn a_cancel_for_a_search_that_already_ended_is_accepted_quietly() {
-        let registry = WorkspaceSearchCancellation::default();
-        registry.begin("search-1");
-        registry.finish("search-1");
+    fn a_current_search_delivers_what_it_found() {
+        let registry = Arc::new(WorkspaceSearchCancellation::default());
+        let registration = registry.begin("content-1");
 
-        // False means "there was nothing to stop", not "you did something wrong". A caller cannot
-        // know whether their cancel beat the search's own completion, and turning that ordinary
-        // race into an error would put a failure on screen for a keystroke that worked.
-        assert!(!registry.cancel("search-1"));
+        let delivery = deliver(&registration, one_match());
+
+        assert_eq!(delivery.generation, registration.generation().value());
+        assert_eq!(delivery.result, one_match());
     }
 
+    /// The defect this rule exists for.
+    ///
+    /// A finishes after B replaced it under the same id. Its matches are matches for a query the
+    /// reader has already retyped, and delivering them puts text nobody searched for on screen under
+    /// a `complete` coverage — the one combination that reads as an authoritative answer.
     #[test]
-    fn reusing_an_id_cancels_the_search_it_replaces() {
-        let registry = WorkspaceSearchCancellation::default();
-        let first = registry.begin("search-1");
-        let second = registry.begin("search-1");
+    fn a_superseded_search_delivers_no_matches_and_says_why() {
+        let registry = Arc::new(WorkspaceSearchCancellation::default());
+        let stale = registry.begin("content-1");
+        let _current = registry.begin("content-1");
 
-        // A caller reusing an id has superseded its own search. Leaving both running would spend a
-        // machine's effort producing an answer nobody will read.
-        assert!(first.load(Ordering::Relaxed));
-        assert!(!second.load(Ordering::Relaxed));
+        let delivery = deliver(&stale, one_match());
+
+        assert!(delivery.result.matches.is_empty());
+        assert_eq!(
+            delivery.result.coverage.state,
+            WorkspaceSearchCoverageState::Partial
+        );
+        assert_eq!(delivery.result.coverage.reason_code, Some("superseded"));
+    }
+
+    /// Arrival order is not issue order, so a receiver cannot use "most recent response wins".
+    #[test]
+    fn both_deliveries_carry_the_generation_that_produced_them() {
+        let registry = Arc::new(WorkspaceSearchCancellation::default());
+        let stale = registry.begin("content-1");
+        let current = registry.begin("content-1");
+
+        let late = deliver(&stale, one_match());
+        let fresh = deliver(&current, one_match());
+
+        // The stale answer is not merely flagged: it is comparable, so a receiver holding the newer
+        // one already can tell that this is the older without having to remember what it asked.
+        assert!(late.generation < fresh.generation);
     }
 
     #[test]

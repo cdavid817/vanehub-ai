@@ -3,17 +3,18 @@ use crate::contexts::operations::infrastructure::UnifiedLoggingAdapter;
 use crate::contexts::ssh_connections::api::SshConnectionsApi;
 use crate::contexts::workspaces::api::WorkspaceApi;
 use crate::contexts::workspaces::application::{
-    SessionShellRegistry, ShellCapacities, ShellStore, WorkspaceApplicationService,
-    WorkspaceInspectionRouter, WorkspaceInvalidationDispatcher, WorkspaceQueryApplicationService,
+    SessionShellPorts, SessionShellRegistry, ShellCapacities, ShellStore, SystemMonotonicClock,
+    WorkspaceApplicationService, WorkspaceInspectionRouter, WorkspaceInvalidationDispatcher,
+    WorkspaceQueryApplicationService,
 };
 use crate::contexts::workspaces::infrastructure::{
     LocalWorkspaceInspectionProvider, RemoteWorkspaceInspectionProvider, RetainedLocalShellRuntime,
     RetainedRemoteShellRuntime, RoutedShellRuntime, SessionWorkspaceQueryAdapter,
     SessionWorkspaceTargetResolver, SqliteSessionShellWorkspace, SqliteShellWorkspaceAdapter,
     SqliteWorkspaceHistoryRepository, SshRemoteHelperSession, SshRemoteProfileSource,
-    SystemShellClock, SystemWorkspaceClock, TauriProjectDirectorySelection,
-    TauriSessionShellNotices, TauriWorkspaceInvalidationNotices, UuidShellIds,
-    WorkspaceFilesystemAdapter, WorkspaceGitAdapter, WorkspaceInvalidationPoller,
+    SshShellTransport, SystemShellClock, SystemWorkspaceClock, TauriProjectDirectorySelection,
+    TauriSessionShellNotices, TauriWorkspaceInvalidationNotices, UnifiedLogShellDiagnostics,
+    UuidShellIds, WorkspaceFilesystemAdapter, WorkspaceGitAdapter, WorkspaceInvalidationPoller,
 };
 use crate::platform::database::NativeDatabase;
 use std::path::PathBuf;
@@ -30,9 +31,13 @@ pub(crate) fn assemble_workspace_api(
 ) -> WorkspaceApi {
     let logging: Arc<dyn DiagnosticLogPort> =
         Arc::new(UnifiedLoggingAdapter::active(fallback_log_directory));
+    // The clock every bounded workspace read measures against, chosen once here. A walk that
+    // reached for `Instant::now` itself could not be handed a different one, which is what makes a
+    // deadline provable only by waiting one out.
     let review_adapter = Arc::new(SessionWorkspaceQueryAdapter::new(
         database.clone(),
         app.clone(),
+        Arc::new(SystemMonotonicClock::default()),
     ));
     let queries = WorkspaceQueryApplicationService::new(review_adapter.clone());
     // Selection lives in one router rather than at each call site: the provider follows from the
@@ -188,16 +193,23 @@ fn assemble_session_shell_registry(
         clock.clone(),
     ));
     let runtime = Arc::new(RoutedShellRuntime::new(
-        Arc::new(RetainedLocalShellRuntime::default()),
-        Arc::new(RetainedRemoteShellRuntime::new(ssh)),
+        Arc::new(RetainedLocalShellRuntime::new(Arc::new(
+            UnifiedLogShellDiagnostics,
+        ))),
+        Arc::new(RetainedRemoteShellRuntime::new(Arc::new(
+            SshShellTransport::new(ssh),
+        ))),
     ));
     Arc::new(SessionShellRegistry::new(
         store,
-        runtime,
-        Arc::new(SqliteSessionShellWorkspace::new(database, shell_workspaces)),
-        Arc::new(UuidShellIds),
-        clock,
+        SessionShellPorts {
+            runtime,
+            workspaces: Arc::new(SqliteSessionShellWorkspace::new(database, shell_workspaces)),
+            ids: Arc::new(UuidShellIds),
+            clock,
+            evidence,
+            diagnostics: Arc::new(UnifiedLogShellDiagnostics),
+        },
         ShellCapacities::default(),
-        evidence,
     ))
 }

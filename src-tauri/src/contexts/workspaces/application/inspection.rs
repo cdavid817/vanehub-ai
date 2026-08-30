@@ -18,14 +18,14 @@
 
 use super::content_search::{WorkspaceContentSearchRequest, WorkspaceContentSearchResult};
 use super::error::WorkspaceApplicationError;
+use super::inspection_budget::{WorkspaceInspectionBudgetSnapshot, WorkspaceInspectionReason};
+use super::inspection_execution::WorkspaceInspectionExecution;
 use super::models::{
     DirectoryListing, DocumentListing, FileContent, FileSearchListing, GitDiffResult,
     GitDiffSource, GitStatusResult,
 };
 use async_trait::async_trait;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
 
 /// Which workspace an inspection is about.
 ///
@@ -278,6 +278,13 @@ pub(crate) struct WorkspaceSearchRequest {
 pub(crate) struct WorkspacePathSearchRequest {
     /// What the reader typed. Empty is a valid query: it browses rather than searches.
     pub(crate) query: String,
+    /// Issued by the caller, and reused for every keystroke from the same panel.
+    ///
+    /// A path search is cheaper than a content search but it is still a filesystem walk on a
+    /// blocking thread, and a reader holding a key down starts one per repeat. Registering under a
+    /// stable id is what makes the newest of those cancel the ones it replaced, under the registry's
+    /// own lock — rather than leaving a trail of walks whose answers nobody is waiting for.
+    pub(crate) search_id: String,
     pub(crate) cursor: Option<String>,
     pub(crate) limit: Option<usize>,
 }
@@ -322,7 +329,16 @@ impl WorkspaceSearchCoverageState {
 pub(crate) struct WorkspaceSearchCoverage {
     pub(crate) state: WorkspaceSearchCoverageState,
     /// Why it is not complete, as a token the frontend translates. Absent when it is.
+    ///
+    /// One primary reason rather than a list. A UI that had to rank several would rank them
+    /// differently from the code that produced them, and a reader only ever acts on one.
     pub(crate) reason_code: Option<&'static str>,
+    /// What the inspection actually spent, when it was accounted.
+    ///
+    /// Absent means "not accounted", never "spent nothing": a remote provider counts on the other
+    /// machine and a fixture counts nothing at all, and a zero here would claim a scan that never
+    /// happened.
+    pub(crate) budget: Option<WorkspaceInspectionBudgetSnapshot>,
 }
 
 impl WorkspaceSearchCoverage {
@@ -330,6 +346,7 @@ impl WorkspaceSearchCoverage {
         Self {
             state: WorkspaceSearchCoverageState::Complete,
             reason_code: None,
+            budget: None,
         }
     }
 
@@ -337,6 +354,7 @@ impl WorkspaceSearchCoverage {
         Self {
             state: WorkspaceSearchCoverageState::Partial,
             reason_code: Some(reason_code),
+            budget: None,
         }
     }
 
@@ -344,7 +362,32 @@ impl WorkspaceSearchCoverage {
         Self {
             state: WorkspaceSearchCoverageState::Unavailable,
             reason_code: Some(reason_code),
+            budget: None,
         }
+    }
+
+    /// Coverage for a stop reason, with the state that reason implies.
+    ///
+    /// The mapping lives on the reason rather than at each call site. A provider that decided for
+    /// itself whether `inspection_busy` was partial or unavailable would be a second opinion, and
+    /// the two would differ exactly where a reader needs them not to.
+    pub(crate) fn stopped(reason: WorkspaceInspectionReason) -> Self {
+        let state = if reason.is_unavailable() {
+            WorkspaceSearchCoverageState::Unavailable
+        } else {
+            WorkspaceSearchCoverageState::Partial
+        };
+        Self {
+            state,
+            reason_code: Some(reason.code()),
+            budget: None,
+        }
+    }
+
+    /// Attaches what the inspection spent.
+    pub(crate) fn with_budget(mut self, budget: WorkspaceInspectionBudgetSnapshot) -> Self {
+        self.budget = Some(budget);
+        self
     }
 }
 
@@ -353,6 +396,44 @@ pub(crate) struct WorkspacePathSearchResult {
     pub(crate) coverage: WorkspaceSearchCoverage,
     pub(crate) matches: Vec<WorkspacePathMatch>,
     pub(crate) next_cursor: Option<String>,
+}
+
+/// A path search answer together with the registration that produced it.
+///
+/// The same shape content search delivers, for the same reason: a provider is handed a query and
+/// returns what it found, and whether that answer is still wanted is a fact about the registry that
+/// is only knowable when it comes back.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct WorkspacePathSearchDelivery {
+    /// Which registration under the search id produced this.
+    pub(crate) generation: u64,
+    pub(crate) result: WorkspacePathSearchResult,
+}
+
+/// What a finished path search is allowed to hand back.
+///
+/// A superseded page loses its matches *and* its cursor. The cursor is the part that would do real
+/// damage: it names a rank in an ordering derived from a query the reader has already retyped, so a
+/// caller that kept it would page the new query's result list from a position the new ordering never
+/// produced.
+pub(crate) fn deliver_path_search(
+    registration: &super::search_cancellation::SearchRegistration,
+    result: WorkspacePathSearchResult,
+) -> WorkspacePathSearchDelivery {
+    WorkspacePathSearchDelivery {
+        generation: registration.generation().value(),
+        result: if registration.is_current() {
+            result
+        } else {
+            WorkspacePathSearchResult {
+                coverage: WorkspaceSearchCoverage::stopped(
+                    super::inspection_budget::WorkspaceInspectionReason::Superseded,
+                ),
+                matches: Vec::new(),
+                next_cursor: None,
+            }
+        },
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -406,19 +487,22 @@ pub(crate) trait WorkspaceInspectionProvider: Send + Sync {
 
     /// Content search: positions inside files, bounded and interruptible.
     ///
-    /// Takes the cancellation flag rather than looking one up. A provider that consulted a registry
+    /// Takes the cancellation token rather than looking one up. A provider that consulted a registry
     /// would be a second place that decides whether a search is still wanted, and the two would
-    /// disagree exactly when a reader cancelled at the wrong moment.
+    /// disagree exactly when a reader cancelled at the wrong moment. It is also the only half of a
+    /// registration a worker is given: the guard that owns the slot stays with the async caller, so
+    /// no walk on the blocking pool can remove a registration — its own or anybody else's.
     async fn search_content(
         &self,
         target: &WorkspaceTarget,
         request: WorkspaceContentSearchRequest,
-        cancelled: Arc<AtomicBool>,
+        execution: WorkspaceInspectionExecution,
     ) -> Result<WorkspaceContentSearchResult, WorkspaceInspectionError>;
 
     async fn list_documents(
         &self,
         target: &WorkspaceTarget,
+        execution: WorkspaceInspectionExecution,
     ) -> Result<DocumentListing, WorkspaceInspectionError>;
 
     async fn read_text_file(
@@ -439,10 +523,15 @@ pub(crate) trait WorkspaceInspectionProvider: Send + Sync {
     /// candidates, so it filters to source extensions and skips directories — right for composing a
     /// message and wrong for a reader trying to reach `package-lock.json` or a folder. Widening it
     /// would change what a mention offers, which nobody asked for.
+    ///
+    /// Takes the whole execution context rather than a token alone: the generation it runs under,
+    /// the budget it may spend, the clock that bounds it, and the rules about where it may look.
+    /// Five loose arguments is a shape where supplying four still compiles.
     async fn search_paths(
         &self,
         target: &WorkspaceTarget,
         request: WorkspacePathSearchRequest,
+        execution: WorkspaceInspectionExecution,
     ) -> Result<WorkspacePathSearchResult, WorkspaceInspectionError>;
 
     async fn git_status(

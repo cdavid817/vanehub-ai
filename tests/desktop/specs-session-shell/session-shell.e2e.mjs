@@ -190,12 +190,33 @@ globalThis.describe("VaneHub AI desktop retained session shells", () => {
     await (await shellButton("关闭")).click();
     await (await shellDialog()).waitForExist({ timeout: 20000 });
     await (await shellButton("关闭 Shell")).click();
-    await globalThis.browser.waitUntil(
-      async () => (await registrySnapshot(sessionId)).length === before.length - 1,
-      { timeout: 30000, timeoutMsg: "The confirmed close did not end the Shell." },
-    );
+    // The message carries the states, not just the count. A Shell that stayed because its cleanup
+    // could not be confirmed is `reaping` or `closeFailed` and is a different fault from one that
+    // was never asked to close, and a message that says only "did not end" cannot tell them apart.
+    // By identity rather than by count. The Shell strip opens one when a session has none, so a
+    // count that returns to its old value says nothing about whether *this* Shell ended — and
+    // whether the poll ever catches the moment between the two is a race.
+    const closedId = before[0].shellId;
+    let after = before;
+    try {
+      await globalThis.browser.waitUntil(
+        async () => {
+          after = await registrySnapshot(sessionId);
+          return after.every((shell) => shell.shellId !== closedId);
+        },
+        { timeout: 30000 },
+      );
+    } catch {
+      // The states, not just the ids: a Shell still there as `reaping` could not confirm its
+      // cleanup, which is a different fault from one that was never asked to close.
+      assert.fail(
+        `The confirmed close did not end the Shell ${closedId}: ${JSON.stringify(
+          after.map((shell) => ({ id: shell.shellId, state: shell.state })),
+        )}`,
+      );
+    }
 
-    globalThis.console.warn(`SESSION_SHELL_CLOSED ${before.length} -> ${before.length - 1}`);
+    globalThis.console.warn(`SESSION_SHELL_CLOSED ${closedId}`);
     await assertNoFatalError(root);
   });
 });

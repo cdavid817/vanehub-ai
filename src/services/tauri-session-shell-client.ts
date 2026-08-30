@@ -4,11 +4,13 @@ import {
   parseSessionShellDescriptor,
   parseSessionShellNotice,
   parseShellAttachSnapshot,
+  parseShellCloseOutcome,
 } from "../contracts/session-workspace-evidence";
 import type {
   SessionShellDescriptor,
   SessionShellNotice,
   ShellAttachSnapshot,
+  ShellCloseOutcome,
 } from "../types/session-workspace-shell-frames";
 import { createShellFrameDispatcher, onceDetach, orderBufferedNotices } from "./session-shell-frames";
 import type {
@@ -127,8 +129,13 @@ export function createTauriSessionShellClient(
       );
     },
 
-    async closeSessionShell(shellId: string): Promise<void> {
-      await transport.invokeShell("close_session_shell", { shellId });
+    async closeSessionShell(shellId: string): Promise<ShellCloseOutcome> {
+      // Parsed rather than discarded. The native command reports what the attempt achieved, and
+      // dropping that here would put the adapter back to answering "no error" for a child that is
+      // still running.
+      return parseShellCloseOutcome(
+        await transport.invokeShell("close_session_shell", { shellId }),
+      );
     },
   };
 }

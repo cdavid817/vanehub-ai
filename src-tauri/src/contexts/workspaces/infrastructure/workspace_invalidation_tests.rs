@@ -117,7 +117,7 @@ impl WorkspaceInspectionProvider for ScriptedProvider {
         &self,
         _target: &WorkspaceTarget,
         _request: WorkspaceContentSearchRequest,
-        _cancelled: Arc<std::sync::atomic::AtomicBool>,
+        _execution: crate::contexts::workspaces::application::WorkspaceInspectionExecution,
     ) -> Result<WorkspaceContentSearchResult, WorkspaceInspectionError> {
         panic!("a poll must not search")
     }
@@ -126,6 +126,7 @@ impl WorkspaceInspectionProvider for ScriptedProvider {
         &self,
         _target: &WorkspaceTarget,
         _request: WorkspacePathSearchRequest,
+        _execution: crate::contexts::workspaces::application::WorkspaceInspectionExecution,
     ) -> Result<WorkspacePathSearchResult, WorkspaceInspectionError> {
         panic!("a poll must not search")
     }
@@ -141,6 +142,7 @@ impl WorkspaceInspectionProvider for ScriptedProvider {
     async fn list_documents(
         &self,
         _target: &WorkspaceTarget,
+        _execution: crate::contexts::workspaces::application::WorkspaceInspectionExecution,
     ) -> Result<DocumentListing, WorkspaceInspectionError> {
         panic!("a poll must not read documents")
     }

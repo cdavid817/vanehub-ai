@@ -8,28 +8,7 @@ pub(crate) enum Scope {
     Global,
 }
 
-impl Scope {
-    /// Only `Session`/`Project`/`Global` resolutions persist a grant
-    /// (`permissions-core`'s "Remembered grants are consulted before falling back to
-    /// templates"); `Once` never does.
-    pub(crate) fn is_remembered(self) -> bool {
-        !matches!(self, Scope::Once)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn once_is_not_remembered() {
-        assert!(!Scope::Once.is_remembered());
-    }
-
-    #[test]
-    fn session_project_and_global_are_remembered() {
-        assert!(Scope::Session.is_remembered());
-        assert!(Scope::Project.is_remembered());
-        assert!(Scope::Global.is_remembered());
-    }
-}
+// Whether a scope is remembered is no longer a question a caller asks and then acts on: it is
+// answered by construction, in `RememberedScope::parse`, which cannot produce a binding from
+// `Once`. The predicate that used to live here was a check every writer had to remember to
+// perform — and one that a new persistence path could simply forget.

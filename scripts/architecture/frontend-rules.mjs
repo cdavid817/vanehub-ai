@@ -302,6 +302,74 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 控制台、本地媒体/LSP 与个性化治理,每一条都新增了 service 接口 + Tauri 客户端 + Web/mock
 // 客户端这三件套。三件套是"React 不直接 invoke"这条规则的代价,按能力条数线性增长而不是按代码
 // 量——所以每次合并都在合并后的树上重测,不把两侧的数相加,后者会把两边共有的基线算两遍。
+// 上调理由(fix-permission-decision-atomicity-and-grant-precedence):+150。
+// `resolvePendingApproval` 的返回从 `boolean` 变成六态 typed outcome,因为原来的布尔把四种实质
+// 不同的结果压成一个值:已交付、已持久化但未送达、被别人决定了、请求不存在——调用方无法把"工具
+// 真的运行了"从另外三种里分出来,而这正是 UI 必须区分的东西。
+// 分布:`web-permissions-client.ts` +70 与 `web-permissions-mock-state.ts` +45 是 Web/mock 侧的
+// claim/commit/ack 模拟。它不是装饰:Web/mock 是"React 不直接 invoke"这条规则的另一半,一个对
+// 每次调用都答"成功"的 mock 会让重复点击和过期状态的 bug 通过全部 Web 模式测试,只在桌面客户端
+// 上才暴露。`permissions.ts` +15 与 `tauri-permissions-client.ts` +8 是契约与未知值降级
+// (新版 native 返回本前端不认识的 token 时必须降级成"结果不明",而不是"已交付")。
+// 剩余 +12 是三处 import 块随类型增加的行。没有任何一行是从别处复制来的。
+// 上调理由(fix-retained-shell-lifecycle-and-bounded-reaping):24136 → 24243,+107,没有一行是复制来的。
+// +68 是新文件 `web-session-shell-state.ts`。它不是新增能力,是搬出来的:`web-session-shell-client.ts`
+// 加上四个新的 close 分支后到 315 行,而 300 行是硬规则。搬走的是 `MockShell`、mock 选项和帧淘汰
+// 逻辑,原文件对应减少了约 40 行,净开销是每个新文件都要付的 import 块与文档注释。
+// +39 分布在三件套上,全部是"关闭到底做成了什么"这一个事实第一次有地方可放:`session-shell-service.ts`
+// 把 `closeSessionShell` 的返回类型从 `void` 换成 `ShellCloseOutcome` 并写明为什么 resolve 不等于
+// 进程已经没了;`tauri-session-shell-client.ts` 解析那个响应而不是丢掉它;`web-session-shell-client.ts`
+// 用一个计数器模拟"这次关不掉、下次能关掉",这是浏览器里没有别的办法造出来的状态。
+// 这条不是"又加了一个能力的三件套",而是既有能力的返回类型从一个不能承载事实的形状换成能承载的。
+// 合并后重测:两条改动落在同一棵子树上。合并树实测 24393(基线 24136,+257)。
+// 这一次它恰好等于两侧增量之和(150+107),因为两条改的是互不相交的文件——不要把这当成
+// "可以相加"的先例:相加会把两边共有的基线算两遍,只是这次没有共有的部分。
+// 上调理由(harden-workspace-search-cancellation-and-resource-budgets,Task 8.5):
+// Web/mock 的内容搜索原本只有一条同步扫描,永远返回 complete。它不是"没实现取消",而是让取消、
+// 被取代、准入拒绝、预算耗尽这四件事在浏览器侧完全不可观察——面板会被写成"搜索不会中途放弃",
+// 而 desktop 侧一旦中途放弃,面板就会把"我们没找完"说成"这里没有"。所以新增的
+// `web-workspace-search-mock.ts` 不是把既有分支复制一遍:它是这四个停止条件第一次在这一侧存在。
+// 计数器是模拟的(数的是 fixture 字节,不是磁盘读),但答案的形状——哪个 reason code 配哪个
+// coverage state——与 native 适配器逐字对齐,这正是同一个面板能同时写给两个运行时的前提。
+// 上限按合并后实测值 24609 记录(基线 24393,+216),不留余量。
+// 同一 change 第二次上调(Task 6.4 / 8.5):目录分页同样只有一条"一次返回全部、永不发游标"的
+// mock。它不是"少实现了一个分页",而是让游标被拒这件事在浏览器侧不可观察——文件树会被写成
+// "listing 不会被拒",而 desktop 侧一旦发生 stale_cursor,树就会把变化后的下一页接在变化前的
+// 前缀上,静默丢行或重复行。新增的 `web-workspace-directory-mock.ts` 让两种拒绝(invalid /
+// stale)在这一侧第一次存在,且与 native 的判定顺序逐条对齐。
+// 上限按实测值 24746 记录(+137),不留余量。
+// 同一 change 第三次上调(Task 8.1):Quick Open 此前既不申请准入、也不注册世代——它同样走
+// `spawn_blocking`,按住一个键就是每次重复一条阻塞线程,而阻塞池对此没有意见。补上之后 Web 侧要
+// 有对等物,于是这一轮拆成三份:`web-workspace-search-registry.ts` 是两种搜索共用的世代/取消/
+// 准入状态(共用是刻意的:native 只有一个注册表,两份计数器会让 Quick Open 与内容搜索在浏览器里
+// 看着并发、在桌面端互相取代),`web-workspace-search-mock.ts` 只留内容搜索,
+// `web-workspace-path-search-mock.ts` 是路径搜索及其唯一能真正踩到的拒绝(游标绑定查询)。
+// 拆分本身是平移,净增是三个模块各自的 import 块与那条"为什么注册表必须共用"的说明。
+// 上限按实测值 24930 记录(+184),不留余量。
+// 同一 change 第四次上调(Task 6.5):文档发现补上预算与 coverage,service 边界因此多两处——
+// `listSessionDocuments` 多一个 searchId 参数(它同样是整个项目的递归遍历,重复调用应当取代而不是
+// 再起一个),Web 侧多一条 `coverage: complete` 的诚实声明。+14 行,全部是这两处。
+// 上限按实测值 24944 记录,不留余量。
+// 上调理由(fix-retained-shell-lifecycle-and-bounded-reaping,Task 9.3):Web/mock 此前直接创建成
+// `running`,启动阶段在浏览器侧根本不存在——面板会被写成"新建的 Shell 立刻可写",而 desktop 侧
+// 在 `opening` 阶段是拒绝输入的。补上 `opening`→`running` 的提交、回滚为 `failed`、以及"命令在任何
+// 视图 attach 之前就输出并退出"这三种情形,是让这三件事第一次可观察,不是复制既有分支。
+// 同时把三处 close outcome 字面量抽成构造函数(client 因此从 302 行回到 300 以内),这部分是净移动。
+// 上限按实测值 25041 记录(+97),不留余量。
+// 同一 change 第五次上调(Task 8.5):Web/mock 的递归搜索扫的是一张平坦的 fixture 表,没有任何被
+// 排除的目录,于是"搜索会刻意跳过某处、且跳过之后 coverage 仍是 complete"这件事在浏览器侧根本无从
+// 观察——面板会被写成"结果少了就是没搜完"。补上一份**mock 自己的**短排除表(不是把 native 那 18 个
+// 名字抄一遍,抄了就是第二份会漂移的清单),内容搜索与路径搜索共用它:两条各带一份清单的遍历,正是
+// 一个文件按名字找得到、按内容找不到的由来。同一处顺带把 `directoriesVisited`/`maxDepthReached` 从
+// 写死的 1 改成按实际走过的路径推导——排除表一旦存在,写死的结构计数就在描述一次没发生过的遍历。
+// +46 行,全部是这条规则、结构计数及其说明。
+// 上限按实测值 25087 记录,不留余量。
+// 同一 change 第六次上调(Task 10.3):partial / busy / 预算提示这三种状态,在浏览器里既到不了也测不到——
+// mock 的默认上限足够宽,fixture 工作区永远是 complete,而要靠 fixture 撑爆一个现实的上限就得往仓库里塞
+// 上千个凭空造出来的文件,让每一次无关的 checkout 都背着它们。于是让 Web 侧(且只有 Web 侧)从地址栏读
+// 上限。desktop adapter 没有对等物,也不该有:能被查询参数调低的上限,是一个本就以"没有真实机器也能确定
+// 性演示"为目的的构建里的演示设施。+29 行,全是这一个解析函数及其说明。
+// 上限按实测值 25116 记录,不留余量。
 // 本次合并 Skill Evolution 分支后按合并树实测重记为 25835:上面各段理由分属 Skill
 // Evolution(assessment/Curator/generation/orchestration 与聊天反馈授权)与 main 侧的证据
 // 控制台、本地媒体/LSP、个性化治理,互不相交,仍按惯例在合并树上重测而不是相加。
@@ -310,8 +378,11 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // (tauri-system-activity-client)与显式 provenance 的 Web/mock 状态与实现
 // (web-system-activity-state / -client)。React 仍只依赖服务边界,按当前树实测精确到 26515,
 // 不预留余量。
+// 合并后重测(本次 merge):上面两组理由分属这条分支的三个 change(权限决定、Shell 生命周期、
+// 搜索取消与预算)与 main 侧的 Skill Evolution,落在互不相交的文件上。合并树实测 27405,不是
+// 26515+890 也不是 25116+2289——相加会把两边共有的基线算两遍。按实测记,不留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 26515, owner: "add-skill-evolution-system-sessions-and-result-projection" },
+  { root: "src/services", budget: 27405, owner: "merge/openspec-permission-shell-search" },
 ]);
 
 const STATE_PACKAGES = new Set([

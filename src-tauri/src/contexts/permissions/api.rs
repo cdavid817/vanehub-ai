@@ -4,13 +4,14 @@
 //! reaching into `permissions`' application services or repositories directly.
 
 use super::application::{ApprovalBroker, ClaudeCodeHookPort, EvaluationService};
-use super::infrastructure::HookWaitRegistry;
+use super::infrastructure::{HookDelivery, HookWaitRegistry};
 use std::sync::Arc;
 
-pub(crate) use super::application::{PermissionsApplicationError, ResolvedApproval};
+pub(crate) use super::application::{PermissionsApplicationError, ResolveApprovalUseCase};
 pub(crate) use super::domain::{
-    Action, ApprovalDecision, ApprovalRequest, Effect, PolicyTemplateName, Principal, Resource,
-    RiskLevel, Scope, SkillApprovalInvalidation, SkillApprovalProvenance, CLAUDE_CODE_AGENT_ID,
+    Action, ApprovalDecision, ApprovalRequest, ApprovalResolutionId, Effect, PolicyTemplateName,
+    Principal, Resource, RiskLevel, Scope, SkillApprovalInvalidation, SkillApprovalProvenance,
+    CLAUDE_CODE_AGENT_ID,
 };
 
 #[derive(Clone)]
@@ -160,8 +161,12 @@ impl PermissionsApi {
         self.approvals.list_pending()
     }
 
-    pub(crate) fn get_pending_approval(&self, request_id: &str) -> Option<ApprovalRequest> {
-        self.approvals.get_pending(request_id)
+    /// Whether a Claude Code loopback request is still blocked on this approval.
+    ///
+    /// Asked before a resolution is committed, so a hook waiter that timed out is discovered while
+    /// the decision can still be recorded as stale rather than delivered to nobody.
+    pub(crate) fn hook_waiter_is_live(&self, request_id: &str) -> bool {
+        self.hook_waits.has_waiter(request_id)
     }
 
     #[allow(dead_code)]
@@ -175,35 +180,34 @@ impl PermissionsApi {
             .invalidate_skill_pending(request_id, current_witness, reason)
     }
 
-    /// Finalizes a pending approval. See `ApprovalBroker::finalize` for what `delivered` means
-    /// and why the caller (a `permissions` command handler) determines it.
-    pub(crate) fn finalize_pending_approval(
+    /// Which pending approvals have waited past the timeout window.
+    ///
+    /// Reports rather than resolves: the caller feeds these ids back through the same resolution
+    /// use case a human decision uses, so a timeout racing a click loses the single-winner claim
+    /// instead of writing a second decision.
+    pub(crate) fn expired_pending_approval_ids(&self) -> Vec<String> {
+        self.approvals.expired_pending_ids()
+    }
+
+    /// Delivers one immutable resolution to the Claude Code hook bridge's own waiting HTTP request,
+    /// if `request_id` was raised through that channel (`claude-code-permission-hook`).
+    ///
+    /// `WaiterGone` for a request raised through any other channel — callers try every registered
+    /// delivery channel unconditionally and combine the results rather than branching on which one
+    /// applies (`resolve_pending_approval`'s zero-branching command-adapter rule), so asking the
+    /// wrong one is a harmless answer rather than an error.
+    pub(crate) fn deliver_hook_resolution(
         &self,
         request_id: &str,
-        decision: ApprovalDecision,
-        scope: Scope,
-        delivered: bool,
-    ) -> Result<Option<ResolvedApproval>, PermissionsApplicationError> {
-        self.approvals
-            .finalize(request_id, decision, scope, delivered)
+        resolution_id: &ApprovalResolutionId,
+        effect: Effect,
+    ) -> HookDelivery {
+        self.hook_waits.deliver(request_id, resolution_id, effect)
     }
 
-    /// Sweeps every pending approval past its timeout window, resolving each as `Deny`. The
-    /// caller is responsible for delivering that denial back to each request's waiting
-    /// generation through the same PEP-specific channel it was raised through.
-    pub(crate) fn sweep_timed_out_approvals(&self) -> Vec<ApprovalRequest> {
-        self.approvals.sweep_timed_out()
-    }
-
-    /// Delivers a resolution to the Claude Code hook bridge's own waiting HTTP request, if
-    /// `request_id` was raised through that channel (`claude-code-permission-hook`). Returns
-    /// `false` harmlessly for a request raised through any other channel, or one already
-    /// resolved — callers are expected to try every registered delivery channel unconditionally
-    /// and combine the results, not branch on which one applies (`resolve_pending_approval`'s
-    /// zero-branching command-adapter rule).
-    pub(crate) fn resolve_hook_wait(&self, request_id: &str, effect: Effect) -> bool {
-        self.hook_waits.resolve(request_id, effect)
-    }
+    // Cancellation is `HookWaitRegistry::cancel`, and it is deliberately not surfaced here yet:
+    // nothing in the resolution flow cancels a hook wait, and a facade method with no caller is a
+    // boundary widened on speculation.
 }
 
 #[cfg(test)]
@@ -248,7 +252,7 @@ pub(crate) fn test_permissions_api_on(
     use super::application::{DefaultTemplatePort, PendingApprovalEventPort};
     use super::infrastructure::{
         PermissionsSystemClock, PermissionsUuidIdGenerator, SqliteAuditRepository,
-        SqliteGrantRepository, SqlitePrincipalRepository,
+        SqliteGrantRepository, SqlitePrincipalRepository, UnifiedLogDiagnosticsAdapter,
     };
 
     struct FixedDefault(PolicyTemplateName);
@@ -277,16 +281,9 @@ pub(crate) fn test_permissions_api_on(
         clock.clone(),
         ids.clone(),
         Arc::new(FixedDefault(default_template)),
+        Arc::new(UnifiedLogDiagnosticsAdapter),
     );
-    let approvals = ApprovalBroker::new(
-        principals,
-        grants,
-        audit,
-        clock,
-        ids,
-        Arc::new(NoopEvents),
-        300,
-    );
+    let approvals = ApprovalBroker::new(principals, clock, ids, Arc::new(NoopEvents), 300);
     PermissionsApi::new(
         evaluation,
         approvals,

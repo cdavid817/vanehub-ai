@@ -7,36 +7,37 @@
 //! Reached only through `ssh_connections::api`. Nothing here knows what a transport is made of,
 //! which is what keeps a Shell from acquiring one, tuning one, or outliving one.
 
-use crate::contexts::ssh_connections::api::{
-    SshConnectionsApi, SshExecutionChannel, SshExecutionChannelEvent,
-};
+use super::retained_shell_process::ShellWorker;
 use crate::contexts::workspaces::application::{
-    SessionShellRuntimePort, ShellOutputSink, ShellRuntimeOpen, ShellRuntimeOpened,
+    RemoteShellChannel, RemoteShellEvent, RemoteShellOpenFailure, RemoteShellTransport,
+    SessionShellRuntimePort, ShellOutputSink, ShellRuntimeCloseOutcome, ShellRuntimeOpen,
+    ShellRuntimeOpened,
 };
 use crate::contexts::workspaces::domain::{
-    shell_reason, SessionShellError, SessionShellState, ShellForegroundProcessState, ShellId,
-    ShellRuntimeDescriptor, ShellStream, TerminalDimensions,
+    shell_reason, shell_reason_code, SessionShellError, SessionShellState, ShellCloseBudget,
+    ShellForegroundProcessState, ShellGeneration, ShellId, ShellRuntimeDescriptor, ShellStream,
+    TerminalDimensions,
 };
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::thread::{self, JoinHandle};
 
 struct RemoteShell {
-    channel: Arc<SshExecutionChannel>,
+    generation: ShellGeneration,
+    channel: Arc<dyn RemoteShellChannel>,
     closing: Arc<AtomicBool>,
-    worker: Option<JoinHandle<()>>,
+    worker: Arc<ShellWorker>,
 }
 
 pub(crate) struct RetainedRemoteShellRuntime {
-    ssh: SshConnectionsApi,
+    transport: Arc<dyn RemoteShellTransport>,
     shells: Mutex<HashMap<String, RemoteShell>>,
 }
 
 impl RetainedRemoteShellRuntime {
-    pub(crate) fn new(ssh: SshConnectionsApi) -> Self {
+    pub(crate) fn new(transport: Arc<dyn RemoteShellTransport>) -> Self {
         Self {
-            ssh,
+            transport,
             shells: Mutex::new(HashMap::new()),
         }
     }
@@ -48,7 +49,10 @@ impl RetainedRemoteShellRuntime {
         }
     }
 
-    fn channel(&self, shell_id: &ShellId) -> Result<Arc<SshExecutionChannel>, SessionShellError> {
+    fn channel(
+        &self,
+        shell_id: &ShellId,
+    ) -> Result<Arc<dyn RemoteShellChannel>, SessionShellError> {
         self.lock()
             .get(shell_id.as_str())
             .map(|shell| shell.channel.clone())
@@ -59,6 +63,54 @@ impl RetainedRemoteShellRuntime {
 fn unavailable(reason: &str) -> SessionShellError {
     SessionShellError::RuntimeUnavailable {
         reason: shell_reason(reason),
+    }
+}
+
+/// Owns the newly opened channel until the Shell is committed to the map.
+///
+/// Only the channel. The pooled transport lease is explicitly *not* here: it belongs to the pool
+/// and may be carrying other Shells, so a failed startup that dropped the connection would take
+/// unrelated terminals down with it. Ending one channel is the whole extent of this rollback.
+struct RemoteShellLaunchGuard {
+    channel: Option<Arc<dyn RemoteShellChannel>>,
+    closing: Arc<AtomicBool>,
+}
+
+impl RemoteShellLaunchGuard {
+    fn commit(mut self) {
+        self.channel.take();
+    }
+}
+
+impl Drop for RemoteShellLaunchGuard {
+    fn drop(&mut self) {
+        let Some(channel) = self.channel.take() else {
+            return;
+        };
+        // Marked first so a reader that did get started does not report the rollback as a
+        // spontaneous exit of a Shell the caller never saw open.
+        self.closing.store(true, Ordering::SeqCst);
+        let _closed = tauri::async_runtime::block_on(async {
+            tokio::time::timeout(ShellCloseBudget::default().terminate, channel.close()).await
+        });
+    }
+}
+
+/// Waits for the reader to report itself finished, then gives up its handle.
+///
+/// Polling rather than joining, because the thread being waited on is blocked inside an SSH read
+/// that a closed channel is *expected* to end — and, when the transport is wedged, is exactly the
+/// thread that will never end at all.
+fn wait_for_worker(worker: &ShellWorker, budget: ShellCloseBudget) -> bool {
+    let deadline = std::time::Instant::now() + budget.worker;
+    loop {
+        if worker.try_join() {
+            return true;
+        }
+        if std::time::Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(budget.poll);
     }
 }
 
@@ -79,67 +131,60 @@ impl SessionShellRuntimePort for RetainedRemoteShellRuntime {
         };
         // The revision is checked by `acquire_execution`, which refuses a stale one. A Shell opened
         // against a profile the user has since edited would connect somewhere they did not choose.
-        let lease = tauri::async_runtime::block_on(
-            self.ssh
-                .acquire_execution(&remote.connection_id, remote.profile_revision),
-        )
-        .map_err(|_| unavailable("shell_remote_connection_unavailable"))?;
-        let channel = tauri::async_runtime::block_on(
-            lease.open_pty(request.dimensions.cols(), request.dimensions.rows()),
-        )
-        .map_err(|_| unavailable("shell_remote_channel_unavailable"))?;
-        let channel = Arc::new(channel);
+        let channel = tauri::async_runtime::block_on(self.transport.open_channel(
+            &remote.connection_id,
+            remote.profile_revision,
+            request.dimensions.cols(),
+            request.dimensions.rows(),
+        ))
+        .map_err(|failure| match failure {
+            RemoteShellOpenFailure::ConnectionUnavailable => {
+                unavailable("shell_remote_connection_unavailable")
+            }
+            RemoteShellOpenFailure::ChannelUnavailable => {
+                unavailable("shell_remote_channel_unavailable")
+            }
+        })?;
 
         let closing = Arc::new(AtomicBool::new(false));
         let reader_channel = channel.clone();
         let reader_shell = request.shell_id.clone();
+        let generation = request.generation;
         let reader_closing = closing.clone();
-        let worker = thread::Builder::new()
-            .name(format!(
-                "vanehub-remote-shell-{}",
-                request.shell_id.as_str()
-            ))
-            .spawn(move || {
+        // A guard from here on: the channel is open, and every `?` below has to close it rather
+        // than return past it. `RemoteShellLaunchGuard` owns the channel until commit, and the
+        // pooled transport lease stays untouched — closing one Shell's channel is not this Shell's
+        // business to extend to the connection every other Shell is riding.
+        let guard = RemoteShellLaunchGuard {
+            channel: Some(channel.clone()),
+            closing: closing.clone(),
+        };
+        let worker = Arc::new(ShellWorker::spawn(
+            format!("vanehub-remote-shell-{}", request.shell_id.as_str()),
+            move || {
                 loop {
                     match tauri::async_runtime::block_on(reader_channel.next_event()) {
-                        Ok(Some(SshExecutionChannelEvent::Output(bytes)))
-                        | Ok(Some(SshExecutionChannelEvent::ExtendedOutput {
-                            content: bytes,
-                            ..
-                        })) => {
-                            // One merged stream from the reader's point of view: an SSH PTY
-                            // interleaves them, and labelling either separately would claim a
-                            // separation nobody made.
-                            sink.on_output(&reader_shell, ShellStream::Pty, &bytes);
+                        Ok(Some(RemoteShellEvent::Output(bytes))) => {
+                            sink.on_output(&reader_shell, generation, ShellStream::Pty, &bytes);
                         }
-                        Ok(Some(SshExecutionChannelEvent::ExitStatus(code))) => {
+                        Ok(Some(RemoteShellEvent::Exited { code })) => {
                             if !reader_closing.load(Ordering::SeqCst) {
                                 sink.on_state(
                                     &reader_shell,
-                                    SessionShellState::Exited {
-                                        code: Some(code as i32),
-                                    },
+                                    generation,
+                                    SessionShellState::Exited { code },
                                 );
                             }
                             break;
                         }
-                        Ok(Some(SshExecutionChannelEvent::ExitSignal(_))) => {
-                            // Killed by a signal. The runtime saw it end and did not see a code,
-                            // so the code stays absent rather than becoming a zero that would
-                            // read as a clean exit.
+                        // A remote program can close its output while the channel stays open and
+                        // the user keeps typing. Ending here would tear down a live Shell.
+                        Ok(Some(RemoteShellEvent::Eof)) => continue,
+                        Ok(None) => {
                             if !reader_closing.load(Ordering::SeqCst) {
                                 sink.on_state(
                                     &reader_shell,
-                                    SessionShellState::Exited { code: None },
-                                );
-                            }
-                            break;
-                        }
-                        Ok(Some(SshExecutionChannelEvent::Eof)) => continue,
-                        Ok(Some(SshExecutionChannelEvent::Closed)) | Ok(None) => {
-                            if !reader_closing.load(Ordering::SeqCst) {
-                                sink.on_state(
-                                    &reader_shell,
+                                    generation,
                                     SessionShellState::Exited { code: None },
                                 );
                             }
@@ -152,6 +197,7 @@ impl SessionShellRuntimePort for RetainedRemoteShellRuntime {
                             if !reader_closing.load(Ordering::SeqCst) {
                                 sink.on_state(
                                     &reader_shell,
+                                    generation,
                                     SessionShellState::Disconnected {
                                         reason: shell_reason("shell_remote_channel_lost"),
                                     },
@@ -161,15 +207,17 @@ impl SessionShellRuntimePort for RetainedRemoteShellRuntime {
                         }
                     }
                 }
-            })
-            .map_err(|_| unavailable("shell_remote_worker_unavailable"))?;
+            },
+        )?);
 
+        guard.commit();
         self.lock().insert(
             request.shell_id.as_str().to_string(),
             RemoteShell {
+                generation: request.generation,
                 channel,
                 closing,
-                worker: Some(worker),
+                worker,
             },
         );
         Ok(ShellRuntimeOpened {
@@ -201,18 +249,68 @@ impl SessionShellRuntimePort for RetainedRemoteShellRuntime {
             .map_err(|_| runtime_error("shell_remote_resize_failed"))
     }
 
-    /// Closes one channel and joins its worker. The transport stays, and so does every other Shell
-    /// riding it.
-    fn close(&self, shell_id: &ShellId) -> Result<(), SessionShellError> {
-        let Some(mut shell) = self.lock().remove(shell_id.as_str()) else {
-            return Ok(());
+    /// Closes one channel within a finite budget. The transport stays, and so does every other
+    /// Shell riding it.
+    ///
+    /// The entry is not removed up front. Removing it and then closing is what makes a failed
+    /// remote close unrecoverable: the channel is gone from the map, a retry has nothing to retry,
+    /// and the routed runtime falls through to the *local* adapter for a Shell that never was.
+    fn close(
+        &self,
+        shell_id: &ShellId,
+        generation: ShellGeneration,
+        budget: ShellCloseBudget,
+    ) -> ShellRuntimeCloseOutcome {
+        let held = {
+            let shells = self.lock();
+            let shell = shells.get(shell_id.as_str());
+            match shell {
+                Some(shell) if shell.generation == generation => Some((
+                    shell.channel.clone(),
+                    shell.closing.clone(),
+                    shell.worker.clone(),
+                )),
+                _ => None,
+            }
         };
-        shell.closing.store(true, Ordering::SeqCst);
-        let _ = tauri::async_runtime::block_on(shell.channel.close());
-        if let Some(worker) = shell.worker.take() {
-            let _ = worker.join();
+        let Some((channel, closing, worker)) = held else {
+            return ShellRuntimeCloseOutcome::NotHeld;
+        };
+        closing.store(true, Ordering::SeqCst);
+        // One bounded wait for the channel-level close. `block_on` with no ceiling is how a stuck
+        // SSH channel becomes an application that will not shut down.
+        let closed = tauri::async_runtime::block_on(async {
+            tokio::time::timeout(budget.terminate, channel.close())
+                .await
+                .map(|result| result.is_ok())
+        });
+        let confirmed = matches!(closed, Ok(true));
+        if !confirmed {
+            return ShellRuntimeCloseOutcome::Retained {
+                reason: shell_reason(if closed.is_err() {
+                    shell_reason_code::CLOSE_DEADLINE_REACHED
+                } else {
+                    shell_reason_code::TERMINATE_FAILED
+                }),
+                retryable: true,
+            };
         }
-        Ok(())
+        // The reader is blocked inside `next_event`; joining it unconditionally is the unbounded
+        // wait this whole change exists to remove. It is joined only once it says it has finished.
+        if !wait_for_worker(&worker, budget) {
+            return ShellRuntimeCloseOutcome::Retained {
+                reason: shell_reason(shell_reason_code::WORKER_COMPLETION_PENDING),
+                retryable: true,
+            };
+        }
+        let mut shells = self.lock();
+        if shells
+            .get(shell_id.as_str())
+            .is_some_and(|shell| shell.generation == generation)
+        {
+            shells.remove(shell_id.as_str());
+        }
+        ShellRuntimeCloseOutcome::Confirmed
     }
 
     /// An SSH PTY exposes no reliable foreground marker either, and inferring one from output would
@@ -234,7 +332,19 @@ impl SessionShellRuntimePort for RetainedRemoteShellRuntime {
 pub(crate) struct RoutedShellRuntime {
     local: Arc<dyn SessionShellRuntimePort>,
     remote: Arc<dyn SessionShellRuntimePort>,
-    routes: Mutex<HashMap<String, bool>>,
+    /// Which runtime owns a Shell, and which life of it the entry describes.
+    ///
+    /// The generation is what makes a late close safe. A close for an old generation that arrives
+    /// after the id was opened again must not delete the route the new Shell is using, and the
+    /// consequence of getting that wrong is silent: the next write falls through to the *local*
+    /// runtime for a remote Shell and reports "not found" for a terminal the user is looking at.
+    routes: Mutex<HashMap<String, ShellRoute>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ShellRoute {
+    generation: ShellGeneration,
+    is_remote: bool,
 }
 
 impl RoutedShellRuntime {
@@ -249,12 +359,67 @@ impl RoutedShellRuntime {
         }
     }
 
-    fn route(&self, shell_id: &ShellId) -> Arc<dyn SessionShellRuntimePort> {
-        let routes = match self.routes.lock() {
+    fn routes(&self) -> std::sync::MutexGuard<'_, HashMap<String, ShellRoute>> {
+        match self.routes.lock() {
             Ok(guard) => guard,
             Err(poisoned) => poisoned.into_inner(),
-        };
-        if routes.get(shell_id.as_str()).copied().unwrap_or(false) {
+        }
+    }
+
+    /// Claims the id for this generation, or refuses because a newer one already holds it.
+    ///
+    /// Reserved *before* the runtime is invoked. Recording it afterwards left a window in which a
+    /// worker was already publishing while anything addressed by shell id still fell through to the
+    /// local runtime — which for a remote Shell means "not found" for a terminal the user is looking
+    /// at, and a close that reports success for a channel that is still open.
+    ///
+    /// A route for an *older* generation is replaced: that Shell is gone. One for a newer generation
+    /// is never overwritten by a late arrival, and neither is one for the same generation with a
+    /// different runtime — an id belongs to one runtime for one life, and a second claim on it is a
+    /// bug rather than a race to resolve.
+    fn reserve_route(
+        &self,
+        shell_id: &ShellId,
+        generation: ShellGeneration,
+        is_remote: bool,
+    ) -> bool {
+        let mut routes = self.routes();
+        if let Some(existing) = routes.get(shell_id.as_str()) {
+            let conflicting = existing.generation == generation && existing.is_remote != is_remote;
+            if existing.generation > generation || conflicting {
+                return false;
+            }
+        }
+        routes.insert(
+            shell_id.as_str().to_string(),
+            ShellRoute {
+                generation,
+                is_remote,
+            },
+        );
+        true
+    }
+
+    /// Gives the id back, but only if this generation still holds it.
+    ///
+    /// A newer generation may have claimed the id while this open was failing, and removing its
+    /// route would send its writes to the wrong runtime.
+    fn release_route(&self, shell_id: &ShellId, generation: ShellGeneration) {
+        let mut routes = self.routes();
+        if routes
+            .get(shell_id.as_str())
+            .is_some_and(|route| route.generation == generation)
+        {
+            routes.remove(shell_id.as_str());
+        }
+    }
+
+    fn route(&self, shell_id: &ShellId) -> Arc<dyn SessionShellRuntimePort> {
+        let is_remote = self
+            .routes()
+            .get(shell_id.as_str())
+            .is_some_and(|route| route.is_remote);
+        if is_remote {
             self.remote.clone()
         } else {
             self.local.clone()
@@ -269,21 +434,26 @@ impl SessionShellRuntimePort for RoutedShellRuntime {
         sink: Arc<dyn ShellOutputSink>,
     ) -> Result<ShellRuntimeOpened, SessionShellError> {
         let is_remote = request.remote.is_some();
+        if !self.reserve_route(&request.shell_id, request.generation, is_remote) {
+            // A newer generation already owns this id. Opening anyway would leave a runtime handle
+            // nothing routes to, which is the definition of a resource with no owner.
+            return Err(SessionShellError::Runtime {
+                reason: shell_reason(shell_reason_code::GENERATION_STALE),
+            });
+        }
         let runtime = if is_remote {
             self.remote.clone()
         } else {
             self.local.clone()
         };
-        let opened = runtime.open(request, sink)?;
-        // Recorded only after the open succeeded, so a failed open leaves no route to a Shell that
-        // does not exist.
-        match self.routes.lock() {
-            Ok(mut routes) => routes.insert(request.shell_id.as_str().to_string(), is_remote),
-            Err(poisoned) => poisoned
-                .into_inner()
-                .insert(request.shell_id.as_str().to_string(), is_remote),
-        };
-        Ok(opened)
+        match runtime.open(request, sink) {
+            Ok(opened) => Ok(opened),
+            Err(error) => {
+                // A failed open must leave no route to a Shell that does not exist.
+                self.release_route(&request.shell_id, request.generation);
+                Err(error)
+            }
+        }
     }
 
     fn write(&self, shell_id: &ShellId, content: &str) -> Result<(), SessionShellError> {
@@ -298,13 +468,28 @@ impl SessionShellRuntimePort for RoutedShellRuntime {
         self.route(shell_id).resize(shell_id, dimensions)
     }
 
-    fn close(&self, shell_id: &ShellId) -> Result<(), SessionShellError> {
-        let result = self.route(shell_id).close(shell_id);
-        match self.routes.lock() {
-            Ok(mut routes) => routes.remove(shell_id.as_str()),
-            Err(poisoned) => poisoned.into_inner().remove(shell_id.as_str()),
-        };
-        result
+    /// Routes the close, and removes the route only on confirmation for the same generation.
+    ///
+    /// The removed-unconditionally version of this was the defect: a remote close that timed out
+    /// deleted the route on its way out, so the retry the user pressed next went to the local
+    /// runtime, found nothing, and reported success for a channel that was still open.
+    fn close(
+        &self,
+        shell_id: &ShellId,
+        generation: ShellGeneration,
+        budget: ShellCloseBudget,
+    ) -> ShellRuntimeCloseOutcome {
+        let outcome = self.route(shell_id).close(shell_id, generation, budget);
+        if outcome.is_released() {
+            let mut routes = self.routes();
+            if routes
+                .get(shell_id.as_str())
+                .is_some_and(|route| route.generation == generation)
+            {
+                routes.remove(shell_id.as_str());
+            }
+        }
+        outcome
     }
 
     fn foreground_process(&self, shell_id: &ShellId) -> ShellForegroundProcessState {

@@ -1915,6 +1915,24 @@ impl AgentRuntimeApplicationService {
         Ok(())
     }
 
+    /// Whether this session still has a live generation that a tool approval could reach.
+    ///
+    /// Asks the same question `resolve_tool_approval` answers first, without the second half that
+    /// resumes the waiter. The `permissions` context needs to know a generation is current *before*
+    /// it commits a decision — a decision committed for a generation that has already ended is
+    /// evidence, not authority — and it cannot find that out by attempting delivery, because
+    /// attempting delivery is the thing that must not happen first.
+    pub(crate) fn has_live_tool_approval_waiter(
+        &self,
+        session_id: &str,
+    ) -> Result<bool, AgentRuntimeApplicationError> {
+        Ok(self
+            .ports
+            .generations
+            .active_process_id(session_id)?
+            .is_some())
+    }
+
     /// Delivers a user's approve/deny decision for a native-agent tool call awaiting approval.
     /// Returns `false` if no such pending approval exists.
     pub(crate) fn resolve_tool_approval(

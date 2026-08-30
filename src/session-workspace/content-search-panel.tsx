@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { emptyResultKey, searchReasonKey } from "./search-coverage";
 import { cn } from "../lib/utils";
 import type { WorkspaceContentMatch } from "../types/session-workspace-inspection";
 import { useContentSearch } from "./use-content-search";
@@ -132,7 +133,7 @@ export function ContentSearchPanel({
             {search.failed
               ? t("sessionTabs.files.contentSearch.failed")
               : search.query.trim()
-                ? t("sessionTabs.files.contentSearch.empty")
+                ? t(emptyResultKey(search.coverage))
                 : t("sessionTabs.files.contentSearch.prompt")}
           </p>
         ) : null}
@@ -141,7 +142,15 @@ export function ContentSearchPanel({
             <span>
               {search.isSearching
                 ? t("sessionTabs.files.contentSearch.searching")
-                : t(`sessionTabs.files.contentSearch.coverage.${search.coverage?.state}`)}
+                : [
+                    t(`sessionTabs.files.contentSearch.coverage.${search.coverage?.state}`),
+                    // The reason when this build has wording for it. A code it does not recognise
+                    // falls back to the state sentence alone rather than showing a raw token.
+                    searchReasonKey(search.coverage?.reasonCode),
+                  ]
+                    .map((key, index) => (index === 0 ? key : key && t(key)))
+                    .filter(Boolean)
+                    .join(" ")}
             </span>
             {search.isSearching ? (
               <button

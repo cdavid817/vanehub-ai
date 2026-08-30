@@ -7,7 +7,7 @@
 //! The search id comes from the caller. An id this side generated would arrive with the answer,
 //! which is exactly too late to cancel the search that produced it.
 
-use super::dto;
+use super::{dto, mapper};
 use crate::contexts::workspaces::api::{WorkspaceApi, WorkspaceContentSearchRequest};
 use tauri::State;
 
@@ -58,11 +58,10 @@ pub(super) async fn search_content(
         })?;
 
     Ok(dto::WorkspaceContentSearchDto {
-        coverage: dto::WorkspaceSearchCoverageDto {
-            state: result.coverage.state.token().to_string(),
-            reason_code: result.coverage.reason_code.map(str::to_string),
-        },
+        generation: result.generation,
+        coverage: mapper::coverage_to_dto(result.result.coverage),
         matches: result
+            .result
             .matches
             .into_iter()
             .map(|entry| dto::WorkspaceContentMatchDto {

@@ -56,6 +56,7 @@ vi.mock("@xterm/xterm/css/xterm.css", () => ({}));
 function descriptor(overrides: Partial<SessionShellDescriptor> = {}): SessionShellDescriptor {
   return {
     shellId: "shell-1",
+    generation: 1,
     sessionId: "session-1",
     title: "Shell 1",
     runtime: {

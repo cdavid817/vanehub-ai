@@ -732,6 +732,20 @@ impl AgentRuntimeApi {
         self.resolve_tool_approval(session_id, call_id, decision)
     }
 
+    /// Whether a tool approval for this session could still reach a live waiter.
+    ///
+    /// The narrow published contract `permissions` needs to reserve a waiter without resuming it
+    /// (`permissions-approval`'s "Stale generation is detected before commit"). Deliberately
+    /// answers one boolean rather than exposing a generation handle: a caller holding one would be
+    /// able to decide for itself whether the waiter is still valid, which is the judgement this
+    /// context owns.
+    pub(crate) fn has_live_tool_approval_waiter(
+        &self,
+        session_id: &str,
+    ) -> Result<bool, AgentRuntimeApplicationError> {
+        self.service.has_live_tool_approval_waiter(session_id)
+    }
+
     pub(crate) fn resolve_tool_approval(
         &self,
         session_id: &str,
