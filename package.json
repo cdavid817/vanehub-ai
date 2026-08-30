@@ -23,6 +23,8 @@
     "package:linux:arm64": "npm run sidecar:prepare -- --release --target=aarch64-unknown-linux-gnu && tauri build --config src-tauri/tauri.sidecar.conf.json --target aarch64-unknown-linux-gnu",
     "version:check": "node scripts/check-version-sync.mjs",
     "version:unit:test": "node --test scripts/check-version-sync.node-test.mjs",
+    "deps:config:check": "node scripts/check-dependency-updates.mjs",
+    "deps:config:test": "node --test scripts/check-dependency-updates.node-test.mjs",
     "release:unit:test": "node --test scripts/release-policy.node-test.mjs",
     "test": "vitest run --maxWorkers=4",
     "test:desktop:build": "node scripts/test-desktop.mjs build",

@@ -52,6 +52,14 @@ jobs:
       - name: Release version sync regression tests
         run: npm run version:unit:test
 
+      # Runs here rather than in a Dependabot-specific lane because the failure it catches is an
+      # absence: an updater pointed at a directory with no lockfile opens no pull request and
+      # reports no error, so there is no run to attach the check to.
+      - name: Dependency update configuration
+        run: |
+          npm run deps:config:test
+          npm run deps:config:check
+
       - name: Release policy regression tests
         run: npm run release:unit:test
 
@@ -254,6 +262,13 @@ jobs:
 
       - name: Install npm dependencies
         run: npm ci
+
+      # `npm ci` installs the `playwright` package; it does not download a browser. Without this
+      # step `real_playwright_worker_bounds_page_operations_handoff_and_artifact_bytes` finds the
+      # package, fails to create a context, and returns green having asserted nothing — which it did
+      # on every run of this job for as long as it has existed.
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
 
       - name: Verify Linux fast linker
         run: |
