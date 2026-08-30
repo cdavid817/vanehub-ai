@@ -71,7 +71,7 @@
 - [x] 7.3 Implement bounded remote cancellation/termination for cancel, supersede, deadline, and caller drop; discard late output/results for stale generations.
 - [x] 7.4 Map provider-specific truncation, timeout, unreadable, and failure into the common coverage/reason contract without exposing raw remote commands, secrets, or unrestricted paths.
 - [x] 7.5 Align remote recursive ignore behavior with the shared policy to the extent supported; document any provider limitation as typed partial coverage rather than silent divergence.
-- [ ] 7.6 Add deterministic fake-provider tests for busy admission, supersession, cancel failure, provider timeout, result/byte limits, late stale output, cleanup completion, and local/remote reason parity.
+- [x] 7.6 Add deterministic fake-provider tests for busy admission, supersession, cancel failure, provider timeout, result/byte limits, late stale output, cleanup completion, and local/remote reason parity.
 
 ## 8. Runtime/API and frontend service integration
 

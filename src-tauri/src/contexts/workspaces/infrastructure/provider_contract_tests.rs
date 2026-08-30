@@ -16,7 +16,7 @@
 
 use super::remote_helper::{
     scripted_session, silent_session, RemoteHelperError, RemoteHelperSession, RemoteProfileSource,
-    RemoteWorkspaceInspectionProvider, SilentHelperSession,
+    RemoteWorkspaceInspectionProvider, ScriptedHelperSession, SilentHelperSession,
 };
 use super::workspace_inspection::LocalWorkspaceInspectionProvider;
 use crate::contexts::workspaces::application::{
@@ -224,6 +224,17 @@ struct Subject {
     target: WorkspaceTarget,
     /// The temporary workspace, held so it outlives the test.
     _directory: Option<TempDirectory>,
+    /// The scripted session, for the cases that assert on what was sent rather than what came back.
+    session: Option<Arc<ScriptedHelperSession>>,
+}
+
+impl Subject {
+    fn sent(&self) -> String {
+        self.session
+            .as_ref()
+            .expect("only a scripted remote records what it sent")
+            .written()
+    }
 }
 
 fn block<T>(future: impl std::future::Future<Output = T>) -> T {
@@ -264,6 +275,7 @@ fn local_subject() -> Subject {
             root: workspace.canonicalize().expect("canonical workspace"),
         }),
         _directory: Some(directory),
+        session: None,
     }
 }
 
@@ -276,12 +288,14 @@ impl RemoteProfileSource for StaticProfile {
 }
 
 fn remote_subject(body: &str) -> Subject {
+    let session = Arc::new(scripted_session(vec![body.to_string()]));
     Subject {
         name: "remote",
         provider: Box::new(RemoteWorkspaceInspectionProvider::new(
             Arc::new(StaticProfile),
-            Arc::new(scripted_session(vec![body.to_string()])),
+            Arc::clone(&session) as Arc<dyn RemoteHelperSession>,
         )),
+        session: Some(session),
         target: WorkspaceTarget::Remote(RemoteWorkspaceTarget {
             session_id: "session-remote".to_string(),
             connection_id: "connection-1".to_string(),
@@ -1159,4 +1173,65 @@ fn the_remote_cursor_is_minted_from_the_page_it_ends() {
     .expect("a refusal is an answer");
     assert!(elsewhere.items.is_empty());
     assert_eq!(elsewhere.coverage.reason_code, Some("invalid_cursor"));
+}
+
+/// A supersede is reported as a supersede on both sides.
+///
+/// Both stop the search and both return nothing, and a reader is told different things: they
+/// cancelled it, or they typed another character. A provider that reported the second as the first
+/// would put "you stopped this" in front of somebody who did not.
+#[test]
+fn a_superseded_search_is_reported_as_supersession_on_both_sides() {
+    let superseded = || {
+        let token = SearchCancellationToken::new();
+        token.signal(SearchCancellationCause::Superseded);
+        content_search_execution(token)
+    };
+
+    let local = local_subject();
+    let local_result = block(local.provider.search_content(
+        &local.target,
+        content_request(),
+        superseded(),
+    ))
+    .expect("local answer");
+
+    let (provider, target, _session) = silent_remote();
+    let remote_result = block(provider.search_content(&target, content_request(), superseded()))
+        .expect("remote answer");
+
+    assert_eq!(local_result.coverage.reason_code, Some("superseded"));
+    assert_eq!(remote_result.coverage.reason_code, Some("superseded"));
+    assert!(local_result.matches.is_empty());
+    assert!(remote_result.matches.is_empty());
+}
+
+/// A caller asking for fewer matches asks the remote host for fewer, too.
+///
+/// A limit applied only after the answer arrives is a limit the remote host never had: it searches
+/// its whole workspace, sends everything it found, and this side throws most of it away. The saving
+/// a bound exists for happens on the machine doing the work.
+#[test]
+fn a_narrower_result_limit_travels_to_the_remote_host() {
+    let subject = remote_subject(REMOTE_CONTENT);
+
+    block(subject.provider.search_content(
+        &subject.target,
+        WorkspaceContentSearchRequest {
+            query: "main".to_string(),
+            search_id: "search-1".to_string(),
+            limit: Some(3),
+        },
+        content_search_execution(SearchCancellationToken::new()),
+    ))
+    .expect("answer");
+
+    let sent = subject.sent();
+    // The program travels base64-encoded on its own line and the request follows it, so the last
+    // line is the request and a search for a JSON field cannot match the program by accident.
+    let request = sent.lines().next_back().unwrap_or_default();
+    assert!(
+        request.contains("\"maxResults\":3"),
+        "the request did not carry the caller's limit: {request}"
+    );
 }

@@ -463,3 +463,85 @@ fn unused_type_witnesses(
     _error: WorkspaceInspectionError,
 ) {
 }
+
+/// Every operation field the helper reads is a field this side actually sends.
+///
+/// The defect this exists for was silent in both directions. `serde`'s container `rename_all` names
+/// variants and not their fields, so `max_results` went out while the helper read `maxResults`; and
+/// `dict.get` answers a missing key with `None` rather than complaining. A remote search quietly
+/// used the helper's own cap and no exclusions, a remote listing's cursor never resumed, and every
+/// fixture-backed test kept passing because a scripted answer never parses the request.
+///
+/// Read out of `helper.py` rather than listed here, because a list written twice is the thing that
+/// drifted in the first place.
+#[test]
+fn every_operation_field_the_helper_reads_is_one_this_side_sends() {
+    let helper = super::transport::HELPER_PROGRAM;
+    let mut expected: Vec<String> = Vec::new();
+    for (index, _) in helper.match_indices("operation.get(\"") {
+        let rest = &helper[index + "operation.get(\"".len()..];
+        let Some(end) = rest.find('"') else { continue };
+        let key = rest[..end].to_string();
+        if !expected.contains(&key) {
+            expected.push(key);
+        }
+    }
+    assert!(
+        expected.len() > 5,
+        "the helper reader scan found almost nothing, which means it stopped working: {expected:?}"
+    );
+
+    // Every operation, so a field belonging to one of them is not missed by sampling another.
+    let sent = [
+        HelperOperation::Probe,
+        HelperOperation::ListDirectory {
+            path: "src".to_string(),
+            after_kind_rank: Some(1),
+            after_name_key: Some("main.rs".to_string()),
+            limit: 10,
+        },
+        HelperOperation::DirectoryFingerprints {
+            paths: vec!["src".to_string()],
+        },
+        HelperOperation::ReadTextFile {
+            path: "src/main.rs".to_string(),
+        },
+        HelperOperation::SearchPaths {
+            query: "main".to_string(),
+            limit: 10,
+            limits: super::protocol::HelperWalkLimits {
+                max_entries: 1,
+                max_depth: 1,
+                max_results: 1,
+                deadline_seconds: 1,
+            },
+            excluded_directories: vec!["node_modules".to_string()],
+        },
+        HelperOperation::Search {
+            query: "main".to_string(),
+            max_results: 10,
+            excluded_directories: vec!["node_modules".to_string()],
+        },
+        HelperOperation::SearchContent {
+            query: "main".to_string(),
+            max_results: 10,
+            excluded_directories: vec!["node_modules".to_string()],
+        },
+        HelperOperation::GitStatus,
+        HelperOperation::GitDiff {
+            path: "src/main.rs".to_string(),
+            staged: true,
+        },
+    ]
+    .iter()
+    .map(|operation| serde_json::to_string(operation).expect("operation"))
+    .collect::<Vec<_>>()
+    .join(" ");
+
+    for key in expected {
+        assert!(
+            sent.contains(&format!("\"{key}\":")),
+            "the helper reads `{key}`, which nothing sends"
+        );
+    }
+}

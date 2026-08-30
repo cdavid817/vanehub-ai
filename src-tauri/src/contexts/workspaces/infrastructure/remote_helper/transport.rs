@@ -20,8 +20,10 @@ use super::protocol::{
     MAX_HELPER_REQUEST_BYTES, MAX_HELPER_RESPONSE_BYTES,
 };
 use crate::contexts::workspaces::application::SearchCancellationToken;
+use crate::platform::logging::{fallback_log_dir, write_message_raw, LogLevel};
 use async_trait::async_trait;
 use base64::Engine;
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 /// The whole remote command.
@@ -114,6 +116,30 @@ pub(crate) async fn exchange_cancellable(
     request: &HelperRequest,
     cancellation: Option<&SearchCancellationToken>,
 ) -> Result<HelperResponse, RemoteHelperError> {
+    exchange_within(
+        session,
+        connection_id,
+        revision,
+        request,
+        cancellation,
+        Duration::from_secs(HELPER_TIMEOUT_SECONDS),
+    )
+    .await
+}
+
+/// The same exchange with its timeout supplied.
+///
+/// The seam exists for tests and for nothing else. A twenty-second timeout is only provable by
+/// waiting twenty seconds, and a suite that does that is a suite nobody runs — so the bound would go
+/// untested, which is how it comes to be applied to the wrong future.
+pub(super) async fn exchange_within(
+    session: &dyn RemoteHelperSession,
+    connection_id: &str,
+    revision: i64,
+    request: &HelperRequest,
+    cancellation: Option<&SearchCancellationToken>,
+    timeout: Duration,
+) -> Result<HelperResponse, RemoteHelperError> {
     let body = serde_json::to_vec(request).map_err(|_| RemoteHelperError::MalformedResponse)?;
     if body.len() > MAX_HELPER_REQUEST_BYTES {
         // Refused here, not sent. The remote reads its whole stdin into memory, so an oversized
@@ -127,16 +153,48 @@ pub(crate) async fn exchange_cancellable(
         // First, so a token already signalled when the exchange starts wins over a round trip that
         // happens to be ready in the same poll.
         () = wait_for_cancellation(cancellation) => Err(RemoteHelperError::Cancelled),
-        result = tokio::time::timeout(
-            Duration::from_secs(HELPER_TIMEOUT_SECONDS),
-            round_trip(channel.as_ref(), &body),
-        ) => result.map_err(|_| RemoteHelperError::Timeout).and_then(|raw| raw),
+        result = tokio::time::timeout(timeout, round_trip(channel.as_ref(), &body))
+            => result.map_err(|_| RemoteHelperError::Timeout).and_then(|raw| raw),
     };
     // Closed on every path including the timeout and the cancel: a channel left open holds a remote
     // process and a pool slot for as long as the connection lives.
-    let _ = channel.close().await;
+    if channel.close().await.is_err() {
+        // Recorded rather than discarded, and not turned into the caller's answer. A close that
+        // failed means the remote process may still be running, which nothing else on this path
+        // would ever mention — but it is not what the reader asked about, and replacing their
+        // cancellation with a transport error would tell them the wrong thing about their own
+        // request. The record is what an operator has when a host accumulates helper processes.
+        record_close_failure(connection_id, revision);
+    }
 
     parse(&outcome?)
+}
+
+/// The fields a failed-close record carries, and nothing else.
+///
+/// Built as a value so a test can read it. Nothing here is a host name, a path, a command, or a
+/// query: a connection id is minted by this process and a revision is a counter, and those two are
+/// what an operator needs to find the connection whose channel would not close.
+pub(super) fn close_failure_context(
+    connection_id: &str,
+    revision: i64,
+) -> BTreeMap<String, String> {
+    BTreeMap::from([
+        ("connection_id".to_string(), connection_id.to_string()),
+        ("connection_revision".to_string(), revision.to_string()),
+    ])
+}
+
+fn record_close_failure(connection_id: &str, revision: i64) {
+    // A write failure is swallowed here and only here: this is already the diagnostic for a failure,
+    // and propagating from it would replace a reader's answer with a logging problem.
+    let _ = write_message_raw(
+        &fallback_log_dir(),
+        LogLevel::Warn,
+        "remote-helper",
+        "the helper channel did not close; a remote process may still be running",
+        close_failure_context(connection_id, revision),
+    );
 }
 
 /// Resolves when the token is signalled, and never when there is no token.
@@ -213,6 +271,7 @@ fn parse(raw: &[u8]) -> Result<HelperResponse, RemoteHelperError> {
 pub(crate) fn scripted_session(bodies: Vec<String>) -> ScriptedHelperSession {
     ScriptedHelperSession {
         bodies: std::sync::Mutex::new(bodies),
+        writes: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
     }
 }
 
@@ -285,6 +344,22 @@ impl RemoteHelperChannel for SilentHelperChannel {
 #[cfg(test)]
 pub(crate) struct ScriptedHelperSession {
     bodies: std::sync::Mutex<Vec<String>>,
+    /// What this side sent, so a test can assert on the request rather than only on the answer.
+    ///
+    /// A bound the caller chose is only a bound if it reaches the machine doing the work; applied
+    /// after the answer arrives it is a filter, and the remote host searched its whole workspace.
+    writes: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
+}
+
+#[cfg(test)]
+impl ScriptedHelperSession {
+    /// Everything written to the channel, as one string.
+    ///
+    /// The program arrives base64-encoded before the request, so a search for a JSON field cannot
+    /// accidentally match the program itself.
+    pub(crate) fn written(&self) -> String {
+        String::from_utf8_lossy(&self.writes.lock().expect("writes")).to_string()
+    }
 }
 
 #[cfg(test)]
@@ -308,6 +383,7 @@ impl RemoteHelperSession for ScriptedHelperSession {
                 RemoteHelperEvent::Stdout(body.into_bytes()),
                 RemoteHelperEvent::Ended,
             ]),
+            writes: std::sync::Arc::clone(&self.writes),
         }))
     }
 }
@@ -315,12 +391,14 @@ impl RemoteHelperSession for ScriptedHelperSession {
 #[cfg(test)]
 struct ScriptedHelperChannel {
     events: std::sync::Mutex<Vec<RemoteHelperEvent>>,
+    writes: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
 }
 
 #[cfg(test)]
 #[async_trait]
 impl RemoteHelperChannel for ScriptedHelperChannel {
-    async fn write(&self, _bytes: &[u8]) -> Result<(), RemoteHelperError> {
+    async fn write(&self, bytes: &[u8]) -> Result<(), RemoteHelperError> {
+        self.writes.lock().expect("writes").extend_from_slice(bytes);
         Ok(())
     }
     async fn send_eof(&self) -> Result<(), RemoteHelperError> {

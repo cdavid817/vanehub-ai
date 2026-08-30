@@ -58,8 +58,20 @@ impl HelperRequest {
     }
 }
 
+/// `rename_all` names the variants; `rename_all_fields` names their fields.
+///
+/// Both are needed and only one was there. The container attribute does not reach struct-variant
+/// fields, so every multi-word field went out as `max_results` while the helper read `maxResults` —
+/// and `dict.get` answers a missing key with `None` rather than complaining. The result was a
+/// remote search that silently used the helper's own result cap and no exclusions at all, a remote
+/// listing whose cursor never resumed, and nothing anywhere reporting a fault. The wire-name test
+/// below reads the keys back out of `helper.py`, so the two cannot drift apart again.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub(crate) enum HelperOperation {
     /// What this host can do. Always answered, even when the answer is "almost nothing": a host
     /// with no Python cannot run the helper at all, but one with no ripgrep is perfectly usable for
