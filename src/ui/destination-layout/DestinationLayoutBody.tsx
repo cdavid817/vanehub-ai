@@ -1,0 +1,118 @@
+import type { ReactNode } from "react";
+import { Sheet } from "../sheet/Sheet";
+import { SplitPane } from "../split-pane/SplitPane";
+import type { HorizontalPaneRegion, RuntimePanelRegion } from "./regions";
+import type { LayoutTier } from "./use-layout-tier";
+
+/**
+ * Not stated as a pixel value in design.md Decision 3 ("主工作面设置最小可读宽度") — chosen as a
+ * floor below which the work surface reads as unusable, same order of magnitude as an editor
+ * pane's practical minimum. Only enforced at the `wide` tier, where navigation and inspector
+ * compete for the same row; narrower tiers keep at most one pane inline already.
+ */
+export const MAIN_MIN_WIDTH = 320;
+
+export interface DestinationLayoutBodyProps {
+  tier: LayoutTier;
+  containerWidth: number;
+  navigation?: HorizontalPaneRegion;
+  inspector?: HorizontalPaneRegion;
+  runtimePanel?: RuntimePanelRegion;
+  main: ReactNode;
+  className?: string;
+}
+
+/**
+ * Pure composition given an already-classified tier — kept separate from `DestinationLayout`'s
+ * `ResizeObserver` wrapper so tests can exercise every tier directly. jsdom does not implement
+ * `ResizeObserver`, and this repo's existing tests stub it as a no-op observer that never fires
+ * (see `shell-tab.test.tsx`), which would otherwise leave a mounted layout stuck at its default
+ * tier forever.
+ */
+export function DestinationLayoutBody({ tier, containerWidth, navigation, inspector, runtimePanel, main, className }: DestinationLayoutBodyProps) {
+  const navigationInline = tier === "wide" || tier === "standard";
+  const inspectorInline = tier === "wide";
+
+  // At `wide`, both panes compete with the work surface for the same row. If keeping both open
+  // would starve it below MAIN_MIN_WIDTH, inspector yields first (design.md: "优先折叠 Inspector,
+  // 再折叠 Navigation") — this only affects what renders this frame, not the user's stored `open`
+  // preference, so the pane reappears on its own once the window widens again.
+  const bothInlineOpen = inspectorInline && navigationInline && Boolean(navigation?.open) && Boolean(inspector?.open);
+  const wouldStarveMain = bothInlineOpen && containerWidth - (navigation?.width ?? 0) - (inspector?.width ?? 0) < MAIN_MIN_WIDTH;
+  const inspectorInlineOpen = inspectorInline && Boolean(inspector?.open) && !wouldStarveMain;
+  const navigationInlineOpen = navigationInline && Boolean(navigation?.open);
+
+  // Compact/narrow demote both to sheets; only one can cover the work surface at a time, so a
+  // freshly opened inspector takes priority over navigation left open from a wider layout.
+  const inspectorSheetOpen = !inspectorInline && Boolean(inspector?.open);
+  const navigationSheetOpen = !navigationInline && Boolean(navigation?.open) && !inspectorSheetOpen;
+
+  let workRow: ReactNode = withRuntimePanel(main, runtimePanel);
+
+  if (inspectorInlineOpen && inspector) {
+    workRow = (
+      <SplitPane
+        direction="row"
+        gutterLabel={inspector.label}
+        max={inspector.max}
+        min={inspector.min}
+        onResizeEnd={inspector.onWidthCommit}
+        onSizeChange={inspector.onWidthChange}
+        primary={workRow}
+        resizedPane="secondary"
+        secondary={inspector.content}
+        size={inspector.width}
+      />
+    );
+  }
+  if (navigationInlineOpen && navigation) {
+    workRow = (
+      <SplitPane
+        direction="row"
+        gutterLabel={navigation.label}
+        max={navigation.max}
+        min={navigation.min}
+        onResizeEnd={navigation.onWidthCommit}
+        onSizeChange={navigation.onWidthChange}
+        primary={navigation.content}
+        resizedPane="primary"
+        secondary={workRow}
+        size={navigation.width}
+      />
+    );
+  }
+
+  return (
+    <div className="relative flex h-full min-h-0 min-w-0" data-layout-tier={tier}>
+      <div className={className ?? "flex h-full min-h-0 w-full min-w-0"}>{workRow}</div>
+      {navigationSheetOpen && navigation ? (
+        <Sheet onClose={() => navigation.onOpenChange(false)} placement={tier === "narrow" ? "full" : "left"} title={navigation.label}>
+          {navigation.content}
+        </Sheet>
+      ) : null}
+      {inspectorSheetOpen && inspector ? (
+        <Sheet onClose={() => inspector.onOpenChange(false)} placement={tier === "narrow" ? "full" : "right"} title={inspector.label}>
+          {inspector.content}
+        </Sheet>
+      ) : null}
+    </div>
+  );
+}
+
+function withRuntimePanel(main: ReactNode, runtimePanel: RuntimePanelRegion | undefined): ReactNode {
+  if (!runtimePanel?.open) return main;
+  return (
+    <SplitPane
+      direction="column"
+      gutterLabel={runtimePanel.label}
+      max={runtimePanel.max}
+      min={runtimePanel.min}
+      onResizeEnd={runtimePanel.onHeightCommit}
+      onSizeChange={runtimePanel.onHeightChange}
+      primary={main}
+      resizedPane="secondary"
+      secondary={runtimePanel.content}
+      size={runtimePanel.height}
+    />
+  );
+}
