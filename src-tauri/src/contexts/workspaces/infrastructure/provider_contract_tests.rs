@@ -25,15 +25,32 @@ use crate::contexts::workspaces::application::{
     ListDirectoryRequest, LocalWorkspaceTarget, ReadTextFileRequest, RemoteWorkspaceTarget,
     SearchCancellationCause, SearchCancellationToken, SessionLogExportResult, SessionLogPage,
     SessionLogQuery, WorkspaceApplicationError as AppError, WorkspaceContentSearchRequest,
-    WorkspaceContentSearchResult, WorkspaceInspectionError, WorkspaceInspectionProvider,
-    WorkspacePathSearchRequest, WorkspacePathSearchResult, WorkspaceSearchRequest,
-    WorkspaceSessionQueryPort, WorkspaceTarget,
+    WorkspaceContentSearchResult, WorkspaceInspectionError, WorkspaceInspectionExecution,
+    WorkspaceInspectionProvider, WorkspacePathSearchRequest, WorkspacePathSearchResult,
+    WorkspaceSearchCancellation, WorkspaceSearchRequest, WorkspaceSessionQueryPort,
+    WorkspaceTarget,
 };
 use crate::platform::database::NativeDatabase;
 use crate::test_support::TempDirectory;
 use rusqlite::params;
 use std::fs;
 use std::sync::Arc;
+
+/// A Quick Open context carrying the token the test wants to drive.
+///
+/// The generation comes from a real registration: a hand-made one would let a test assert against a
+/// number nothing issued, which is the same as asserting nothing.
+fn path_search_execution(token: SearchCancellationToken) -> WorkspaceInspectionExecution {
+    let registry = Arc::new(WorkspaceSearchCancellation::default());
+    let registration = registry.begin("quick-open-1");
+    let execution = WorkspaceInspectionExecution::path_search(
+        registration.generation(),
+        token,
+        Arc::new(crate::contexts::workspaces::application::SystemMonotonicClock::default()),
+    );
+    registration.complete();
+    execution
+}
 
 /// A token that was already signalled before the search started.
 ///
@@ -100,13 +117,13 @@ impl WorkspaceSessionQueryPort for DatabaseQueries {
         &self,
         session_id: &str,
         request: &WorkspacePathSearchRequest,
-        cancellation: &SearchCancellationToken,
+        execution: &WorkspaceInspectionExecution,
     ) -> Result<WorkspacePathSearchResult, AppError> {
         super::path_search::search_session_paths(
             &*self.connection()?,
             session_id,
             request,
-            cancellation,
+            execution,
         )
     }
 
@@ -364,7 +381,7 @@ fn a_cancel_that_arrives_mid_flight_ends_the_remote_exchange() {
                     cursor: None,
                     limit: None,
                 },
-                token,
+                path_search_execution(token),
             )
             .await;
         let _ = waiter.await;
@@ -704,7 +721,7 @@ fn a_path_search_ranks_and_labels_identically_on_both_sides() {
                 cursor: None,
                 limit: None,
             },
-            SearchCancellationToken::new(),
+            path_search_execution(SearchCancellationToken::new()),
         ))
         .unwrap_or_else(|error| panic!("{}: {error:?}", subject.name));
 
@@ -747,7 +764,7 @@ fn a_path_search_offers_directories_on_both_sides() {
                 cursor: None,
                 limit: None,
             },
-            SearchCancellationToken::new(),
+            path_search_execution(SearchCancellationToken::new()),
         ))
         .unwrap_or_else(|error| panic!("{}: {error:?}", subject.name));
 
@@ -772,7 +789,7 @@ fn a_search_cursor_from_another_query_is_refused_on_both_sides() {
                 cursor: None,
                 limit: Some(1),
             },
-            SearchCancellationToken::new(),
+            path_search_execution(SearchCancellationToken::new()),
         ))
         .unwrap_or_else(|error| panic!("{}: {error:?}", subject.name));
         let Some(cursor) = first.next_cursor else {
@@ -789,7 +806,7 @@ fn a_search_cursor_from_another_query_is_refused_on_both_sides() {
                 cursor: Some(cursor),
                 limit: Some(1),
             },
-            SearchCancellationToken::new(),
+            path_search_execution(SearchCancellationToken::new()),
         ));
         let refusal = refusal.unwrap_or_else(|error| panic!("{}: {error:?}", subject.name));
         assert!(refusal.matches.is_empty(), "{}", subject.name);

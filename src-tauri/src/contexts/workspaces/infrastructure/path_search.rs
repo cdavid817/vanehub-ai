@@ -24,11 +24,10 @@ use super::bounded_selection::BoundedSelection;
 use super::ignore_matcher::WorkspaceIgnoreMatcher;
 use super::session_queries::resolve_session_root;
 use crate::contexts::workspaces::application::{
-    bounded_search_page, MonotonicClockPort, PathSearchCursor, SearchCancellationToken,
-    SystemMonotonicClock, WorkspaceApplicationError as AppError, WorkspaceIgnorePolicy,
-    WorkspaceInspectionBudget, WorkspaceInspectionBudgetLimits, WorkspaceInspectionReason,
-    WorkspacePathMatch, WorkspacePathSearchRequest, WorkspacePathSearchResult,
-    WorkspaceSearchCoverage,
+    bounded_search_page, PathSearchCursor, WorkspaceApplicationError as AppError,
+    WorkspaceIgnorePolicy, WorkspaceInspectionBudget, WorkspaceInspectionExecution,
+    WorkspaceInspectionOperation, WorkspaceInspectionReason, WorkspacePathMatch,
+    WorkspacePathSearchRequest, WorkspacePathSearchResult, WorkspaceSearchCoverage,
 };
 use crate::contexts::workspaces::domain::CanonicalPathBoundary;
 use rusqlite::Connection;
@@ -36,7 +35,6 @@ use std::cmp::Ordering;
 use std::collections::{HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 /// How deep the walk goes. The same bound the mention search uses: a source tree is deep, and
 /// beyond ten levels a path is longer than the box a reader is typing into.
@@ -92,34 +90,28 @@ impl Ord for RankedCandidate {
     }
 }
 
+/// Quick Open, under the context its caller built.
+///
+/// One argument rather than five. The generation, the token, the limits, the clock and the ignore
+/// rules are all properties of the same walk, and passing them separately is a shape where supplying
+/// four of them still compiles — which is how a search ran with a default budget for a caller that
+/// meant to narrow it.
 pub(crate) fn search_session_paths(
     conn: &Connection,
     session_id: &str,
     request: &WorkspacePathSearchRequest,
-    cancellation: &SearchCancellationToken,
+    execution: &WorkspaceInspectionExecution,
 ) -> Result<WorkspacePathSearchResult, AppError> {
-    search_session_paths_with(
-        conn,
-        session_id,
-        request,
-        WorkspaceInspectionBudgetLimits::path_search(),
-        Arc::new(SystemMonotonicClock::default()),
-        cancellation.clone(),
-    )
-}
-
-/// The same search with its limits and its clock supplied.
-///
-/// The seam exists for tests and for nothing else. A budget dimension is only worth having if a
-/// test can drive the traversal into it.
-pub(super) fn search_session_paths_with(
-    conn: &Connection,
-    session_id: &str,
-    request: &WorkspacePathSearchRequest,
-    limits: WorkspaceInspectionBudgetLimits,
-    clock: Arc<dyn MonotonicClockPort>,
-    cancellation: SearchCancellationToken,
-) -> Result<WorkspacePathSearchResult, AppError> {
+    // A context built for another operation carries another operation's budget profile and another
+    // operation's ignore mode. Refused rather than trusted, because the wrong profile is invisible
+    // in the answer: it looks like a workspace that is simply bigger or smaller than it is.
+    // Bundling the arguments is what made this checkable at all — five loose ones carried nothing
+    // that said which walk they belonged to.
+    if execution.operation() != WorkspaceInspectionOperation::PathSearch {
+        return Err(AppError::Conflict(
+            "workspace_inspection_operation_mismatch",
+        ));
+    }
     let normalized = normalize_query(&request.query);
     let cursor = match request.cursor.as_deref() {
         Some(encoded) => match PathSearchCursor::decode(encoded, &normalized) {
@@ -152,16 +144,16 @@ pub(super) fn search_session_paths_with(
 
     let limit = bounded_search_page(request.limit);
     let capacity = limit + 1;
-    let mut limits = limits;
-    // The page, plus the one entry that proves another page exists. Stated as a budget rather than
-    // only as the heap's capacity, so the bound is something a test reads off the answer instead of
-    // something it has to take the implementation's word for.
-    limits.max_retained_candidates = limits.max_retained_candidates.min(capacity as u64);
-    limits.max_results = limits.max_results.min(limit as u64);
-    let mut budget = WorkspaceInspectionBudget::new(limits, clock, cancellation);
+    let mut budget = execution.clone().bounded_to_page(limit).budget();
 
-    let selection =
-        walk_ranked_candidates(&root, &normalized, cursor.as_ref(), capacity, &mut budget)?;
+    let selection = walk_ranked_candidates(
+        &root,
+        &normalized,
+        cursor.as_ref(),
+        capacity,
+        execution.ignore(),
+        &mut budget,
+    )?;
     let ranked = selection.into_sorted();
 
     let has_more = ranked.len() > limit;
@@ -215,6 +207,7 @@ fn walk_ranked_candidates(
     query: &str,
     cursor: Option<&PathSearchCursor>,
     capacity: usize,
+    ignore: WorkspaceIgnorePolicy,
     budget: &mut WorkspaceInspectionBudget,
 ) -> Result<BoundedSelection<RankedCandidate>, AppError> {
     // Entries are canonicalized before the containment check, so the root must be too: a short
@@ -224,8 +217,7 @@ fn walk_ranked_candidates(
         .map_err(|error| AppError::Storage(error.to_string()))?;
     let root = canonical_root.as_path();
     let boundary = CanonicalPathBoundary::new(root);
-    let ignores =
-        WorkspaceIgnoreMatcher::for_root(root, WorkspaceIgnorePolicy::recursive_discovery());
+    let ignores = WorkspaceIgnoreMatcher::for_root(root, ignore);
     let mut queue: VecDeque<(PathBuf, u32)> = VecDeque::from([(root.to_path_buf(), 0u32)]);
     let mut visited: HashSet<PathBuf> = HashSet::from([root.to_path_buf()]);
     let mut selection = BoundedSelection::new(capacity);

@@ -38,11 +38,11 @@
 
 ## 4. Local path search bounded selection
 
-- [ ] 4.1 Refactor local path search to receive one execution context containing generation/token, budget tracker, ignore policy, and operation metadata.
+- [x] 4.1 Refactor local path search to receive one execution context containing generation/token, budget tracker, ignore policy, and operation metadata.
 - [x] 4.2 Count every visited directory/entry and metadata/canonicalization operation before filtering or matching; stop with precise coverage when a limit is reached.
 - [x] 4.3 Replace full candidate collection/sort with a bounded top-K/heap/selection structure preserving the current stable ordering and tie-break behavior.
 - [x] 4.4 Bound retained candidates independently of returned results and expose instrumentation for tests.
-- [ ] 4.5 Add deterministic large-tree tests for no matches, many matches, equal sort keys, deep tree, unreadable entries, ignored trees, cancellation, supersession, deadline, and every relevant budget.
+- [x] 4.5 Add deterministic large-tree tests for no matches, many matches, equal sort keys, deep tree, unreadable entries, ignored trees, cancellation, supersession, deadline, and every relevant budget.
 - [x] 4.6 Verify existing search syntax, path normalization, and result DTO compatibility remain unchanged outside explicit coverage additions.
 
 ## 5. Local streaming content search

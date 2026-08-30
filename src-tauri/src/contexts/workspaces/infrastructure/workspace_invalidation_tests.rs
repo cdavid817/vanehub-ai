@@ -127,7 +127,7 @@ impl WorkspaceInspectionProvider for ScriptedProvider {
         &self,
         _target: &WorkspaceTarget,
         _request: WorkspacePathSearchRequest,
-        _cancellation: SearchCancellationToken,
+        _execution: crate::contexts::workspaces::application::WorkspaceInspectionExecution,
     ) -> Result<WorkspacePathSearchResult, WorkspaceInspectionError> {
         panic!("a poll must not search")
     }

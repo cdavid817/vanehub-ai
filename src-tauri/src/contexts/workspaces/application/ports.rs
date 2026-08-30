@@ -2,6 +2,7 @@ use super::content_search::{WorkspaceContentSearchRequest, WorkspaceContentSearc
 use super::inspection::{
     DirectoryFingerprint, WorkspacePathSearchRequest, WorkspacePathSearchResult,
 };
+use super::inspection_execution::WorkspaceInspectionExecution;
 use super::search_cancellation::SearchCancellationToken;
 use super::{
     DirectoryListing, DocumentListing, FileContent, FileSearchListing, GitBranchReference,
@@ -155,11 +156,15 @@ pub(crate) trait WorkspaceSessionQueryPort: Send + Sync {
     ///
     /// Separate from `search_files`, which ranks prompt-mention candidates and therefore filters
     /// to source extensions and skips directories.
+    ///
+    /// Takes the whole execution context rather than a token. Its generation, limits, clock and
+    /// ignore rules travel together because a caller that supplies four of the five still compiles,
+    /// and the one it forgot is a bound nothing enforces.
     fn search_paths(
         &self,
         session_id: &str,
         request: &WorkspacePathSearchRequest,
-        cancellation: &SearchCancellationToken,
+        execution: &WorkspaceInspectionExecution,
     ) -> Result<WorkspacePathSearchResult, WorkspaceApplicationError>;
 
     /// Content search over the confined walk, polling the token it is given.

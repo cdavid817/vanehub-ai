@@ -15,8 +15,8 @@ use crate::contexts::workspaces::application::{
     workspace_identity, DirectoryOrder, DirectoryPageScope, MonotonicClockPort,
     SearchCancellationToken, SystemMonotonicClock, WorkspaceContentSearchRequest,
     WorkspaceContentSearchResult, WorkspaceIgnorePolicy, WorkspaceInspectionBudget,
-    WorkspaceInspectionBudgetLimits, WorkspaceInspectionReason, WorkspacePathSearchRequest,
-    WorkspacePathSearchResult, WorkspaceSearchCoverage,
+    WorkspaceInspectionBudgetLimits, WorkspaceInspectionExecution, WorkspaceInspectionReason,
+    WorkspacePathSearchRequest, WorkspacePathSearchResult, WorkspaceSearchCoverage,
 };
 use crate::contexts::workspaces::domain::{CanonicalPathBoundary, WorkspaceRelativePath};
 use crate::platform;
@@ -118,13 +118,13 @@ impl WorkspaceSessionQueryPort for SessionWorkspaceQueryAdapter {
         &self,
         session_id: &str,
         request: &WorkspacePathSearchRequest,
-        cancellation: &SearchCancellationToken,
+        execution: &WorkspaceInspectionExecution,
     ) -> Result<WorkspacePathSearchResult, AppError> {
         super::path_search::search_session_paths(
             &*self.connection()?,
             session_id,
             request,
-            cancellation,
+            execution,
         )
     }
 

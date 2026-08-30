@@ -27,9 +27,10 @@ use crate::contexts::workspaces::application::{
     SessionWorkspaceContext, WorkspaceContentMatch, WorkspaceContentSearchRequest,
     WorkspaceContentSearchResult, WorkspaceIgnorePolicy, WorkspaceInspectionBudgetLimits,
     WorkspaceInspectionBudgetSnapshot, WorkspaceInspectionCapabilities, WorkspaceInspectionError,
-    WorkspaceInspectionProvider, WorkspaceInspectionReason, WorkspacePathMatch,
-    WorkspacePathSearchRequest, WorkspacePathSearchResult, WorkspaceSearchCoverage,
-    WorkspaceSearchRequest, WorkspaceTarget, MAX_CONTENT_MATCHES, MAX_FINGERPRINT_PATHS,
+    WorkspaceInspectionExecution, WorkspaceInspectionProvider, WorkspaceInspectionReason,
+    WorkspacePathMatch, WorkspacePathSearchRequest, WorkspacePathSearchResult,
+    WorkspaceSearchCoverage, WorkspaceSearchRequest, WorkspaceTarget, MAX_CONTENT_MATCHES,
+    MAX_FINGERPRINT_PATHS,
 };
 use async_trait::async_trait;
 use base64::Engine;
@@ -655,8 +656,12 @@ impl WorkspaceInspectionProvider for RemoteWorkspaceInspectionProvider {
         &self,
         target: &WorkspaceTarget,
         request: WorkspacePathSearchRequest,
-        cancellation: SearchCancellationToken,
+        execution: WorkspaceInspectionExecution,
     ) -> Result<WorkspacePathSearchResult, WorkspaceInspectionError> {
+        // The helper runs its own walk with its own limits, so what this provider takes from the
+        // context is the token and nothing else. Reading the local budget here would report counts
+        // for work this machine did not do.
+        let cancellation = execution.cancellation().clone();
         // Checked before the helper is launched. A cancel that arrived while the request was queued
         // for admission has already been signalled, and starting a remote process for it would put
         // work on somebody else's machine for an answer nobody is waiting for.

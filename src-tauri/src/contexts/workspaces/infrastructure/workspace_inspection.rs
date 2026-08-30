@@ -18,9 +18,9 @@ use crate::contexts::workspaces::application::{
     ListDirectoryRequest, LocalWorkspaceTarget, ReadTextFileRequest, RemoteWorkspaceTarget,
     SearchCancellationToken, WatchMode, WorkspaceApplicationError as AppError,
     WorkspaceContentSearchRequest, WorkspaceContentSearchResult, WorkspaceInspectionCapabilities,
-    WorkspaceInspectionError, WorkspaceInspectionProvider, WorkspacePathSearchRequest,
-    WorkspacePathSearchResult, WorkspaceSearchRequest, WorkspaceSessionQueryPort, WorkspaceTarget,
-    WorkspaceTargetResolver,
+    WorkspaceInspectionError, WorkspaceInspectionExecution, WorkspaceInspectionProvider,
+    WorkspacePathSearchRequest, WorkspacePathSearchResult, WorkspaceSearchRequest,
+    WorkspaceSessionQueryPort, WorkspaceTarget, WorkspaceTargetResolver,
 };
 use crate::platform::database::{NativeDatabase, PooledSqlite};
 use async_trait::async_trait;
@@ -242,10 +242,10 @@ impl WorkspaceInspectionProvider for LocalWorkspaceInspectionProvider {
         &self,
         target: &WorkspaceTarget,
         request: WorkspacePathSearchRequest,
-        cancellation: SearchCancellationToken,
+        execution: WorkspaceInspectionExecution,
     ) -> Result<WorkspacePathSearchResult, WorkspaceInspectionError> {
         let session_id = require_local(target)?.session_id.clone();
-        self.blocking(move |queries| queries.search_paths(&session_id, &request, &cancellation))
+        self.blocking(move |queries| queries.search_paths(&session_id, &request, &execution))
             .await
     }
 

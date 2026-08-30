@@ -2,8 +2,9 @@
 /// run at once.
 pub(crate) use super::application::bounded_page_size;
 pub(crate) use super::application::{
-    deliver_content_search, WorkspaceContentSearchDelivery, WorkspaceContentSearchRequest,
-    WorkspaceContentSearchResult, WorkspaceInspectionAdmission, WorkspaceInspectionReason,
+    deliver_content_search, MonotonicClockPort, SystemMonotonicClock,
+    WorkspaceContentSearchDelivery, WorkspaceContentSearchRequest, WorkspaceContentSearchResult,
+    WorkspaceInspectionAdmission, WorkspaceInspectionExecution, WorkspaceInspectionReason,
     WorkspaceSearchCancellation, WorkspaceSearchCoverage,
 };
 /// Provider-neutral workspace inspection.
@@ -92,6 +93,12 @@ pub(crate) struct WorkspaceApi {
     /// *before* a blocking task or an SSH channel exists. A provider that admitted itself would be
     /// deciding after the cost had already been paid.
     admission: Arc<WorkspaceInspectionAdmission>,
+    /// The clock every bounded inspection measures its deadline against.
+    ///
+    /// Assembled here rather than constructed inside each traversal. A walk that reaches for
+    /// `Instant::now` itself cannot be given a different clock, so a deadline is only provable by
+    /// waiting one out — and a suite that waits out a twenty-second deadline is a suite nobody runs.
+    clock: Arc<dyn MonotonicClockPort>,
 }
 
 impl WorkspaceApi {
@@ -135,6 +142,7 @@ impl WorkspaceApi {
             invalidation,
             searches: Arc::new(WorkspaceSearchCancellation::default()),
             admission: Arc::new(WorkspaceInspectionAdmission::default()),
+            clock: Arc::new(SystemMonotonicClock::default()),
         }
     }
 
@@ -449,9 +457,16 @@ impl WorkspaceApi {
                 },
             });
         };
+        // Built here, where the registration is, because the generation is half of what a stale
+        // arrival is judged against and the walk has no other way to learn it.
+        let execution = WorkspaceInspectionExecution::path_search(
+            registration.generation(),
+            registration.token(),
+            Arc::clone(&self.clock),
+        );
         let outcome = self
             .inspection
-            .search_paths(session_id, request, registration.token())
+            .search_paths(session_id, request, execution)
             .await;
 
         // Decided before the guard is released, because releasing it removes the slot the decision

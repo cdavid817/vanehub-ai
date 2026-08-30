@@ -19,6 +19,7 @@
 use super::content_search::{WorkspaceContentSearchRequest, WorkspaceContentSearchResult};
 use super::error::WorkspaceApplicationError;
 use super::inspection_budget::{WorkspaceInspectionBudgetSnapshot, WorkspaceInspectionReason};
+use super::inspection_execution::WorkspaceInspectionExecution;
 use super::models::{
     DirectoryListing, DocumentListing, FileContent, FileSearchListing, GitDiffResult,
     GitDiffSource, GitStatusResult,
@@ -523,11 +524,15 @@ pub(crate) trait WorkspaceInspectionProvider: Send + Sync {
     /// candidates, so it filters to source extensions and skips directories — right for composing a
     /// message and wrong for a reader trying to reach `package-lock.json` or a folder. Widening it
     /// would change what a mention offers, which nobody asked for.
+    ///
+    /// Takes the whole execution context rather than a token alone: the generation it runs under,
+    /// the budget it may spend, the clock that bounds it, and the rules about where it may look.
+    /// Five loose arguments is a shape where supplying four still compiles.
     async fn search_paths(
         &self,
         target: &WorkspaceTarget,
         request: WorkspacePathSearchRequest,
-        cancellation: SearchCancellationToken,
+        execution: WorkspaceInspectionExecution,
     ) -> Result<WorkspacePathSearchResult, WorkspaceInspectionError>;
 
     async fn git_status(

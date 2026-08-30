@@ -6,6 +6,7 @@ mod inspection;
 mod inspection_admission;
 mod inspection_budget;
 mod inspection_cursor;
+mod inspection_execution;
 mod inspection_router;
 mod invalidation;
 mod invalidation_dispatcher;
@@ -72,6 +73,7 @@ pub(crate) use inspection_cursor::{
     bounded_page_size, bounded_search_page, kind_rank, workspace_identity, DirectoryCursor,
     DirectoryOrder, DirectoryPageScope, PathSearchCursor, DEFAULT_DIRECTORY_PAGE_SIZE,
 };
+pub(crate) use inspection_execution::{WorkspaceInspectionExecution, WorkspaceInspectionOperation};
 pub(crate) use inspection_router::WorkspaceInspectionRouter;
 pub(crate) use invalidation::{
     WorkspaceChangeObserverPort, WorkspaceInvalidationChange, WorkspaceInvalidationNotice,

@@ -4,26 +4,32 @@
 //! depths on a filesystem, and a fixture asserting its own layout would prove nothing about the
 //! walk that produces it.
 
-use super::path_search::{
-    normalize_query, path_match_score, search_session_paths, search_session_paths_with,
-};
+use super::path_search::{normalize_query, path_match_score, search_session_paths};
 use crate::contexts::workspaces::application::{
-    ManualClock, MonotonicClockPort, SearchCancellationToken, WorkspaceInspectionBudgetLimits,
-    WorkspaceInspectionBudgetSnapshot, WorkspacePathSearchRequest,
+    ManualClock, MonotonicClockPort, SearchCancellationCause, SearchCancellationToken,
+    WorkspaceApplicationError as AppError, WorkspaceIgnorePolicy, WorkspaceInspectionBudgetLimits,
+    WorkspaceInspectionBudgetSnapshot, WorkspaceInspectionExecution, WorkspaceInspectionOperation,
+    WorkspacePathSearchRequest, WorkspaceSearchCancellation,
 };
 use crate::platform::database::NativeDatabase;
 use crate::test_support::TempDirectory;
 use rusqlite::params;
 use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 struct Workspace {
     _directory: TempDirectory,
     database: NativeDatabase,
+    root: PathBuf,
 }
 
 impl Workspace {
+    fn root(&self) -> &Path {
+        &self.root
+    }
+
     fn search(&self, query: &str, cursor: Option<String>, limit: Option<usize>) -> SearchAnswer {
         let connection = self.database.connection().expect("connection");
         answer_from(
@@ -36,7 +42,54 @@ impl Workspace {
                     cursor,
                     limit,
                 },
-                &SearchCancellationToken::new(),
+                &path_search_execution(),
+            )
+            .expect("search"),
+        )
+    }
+
+    /// The same search under a token the test already signalled.
+    ///
+    /// Signalled before the walk starts rather than during it. A test that raced a running traversal
+    /// would be asserting on where the walk happened to be, which is the one thing about it that is
+    /// not deterministic.
+    fn search_stopped_by(&self, query: &str, token: SearchCancellationToken) -> SearchAnswer {
+        let connection = self.database.connection().expect("connection");
+        answer_from(
+            search_session_paths(
+                &connection,
+                "session-1",
+                &WorkspacePathSearchRequest {
+                    query: query.to_string(),
+                    search_id: "quick-open-1".to_string(),
+                    cursor: None,
+                    limit: Some(10),
+                },
+                &execution_stopped_by(token),
+            )
+            .expect("search"),
+        )
+    }
+
+    /// The same search under ignore rules the test chose.
+    fn search_under(
+        &self,
+        query: &str,
+        limit: Option<usize>,
+        ignore: WorkspaceIgnorePolicy,
+    ) -> SearchAnswer {
+        let connection = self.database.connection().expect("connection");
+        answer_from(
+            search_session_paths(
+                &connection,
+                "session-1",
+                &WorkspacePathSearchRequest {
+                    query: query.to_string(),
+                    search_id: "quick-open-1".to_string(),
+                    cursor: None,
+                    limit,
+                },
+                &path_search_execution().with_ignore(ignore),
             )
             .expect("search"),
         )
@@ -52,7 +105,7 @@ impl Workspace {
     ) -> SearchAnswer {
         let connection = self.database.connection().expect("connection");
         answer_from(
-            search_session_paths_with(
+            search_session_paths(
                 &connection,
                 "session-1",
                 &WorkspacePathSearchRequest {
@@ -61,13 +114,75 @@ impl Workspace {
                     cursor: None,
                     limit,
                 },
-                limits,
-                clock,
-                SearchCancellationToken::new(),
+                &execution_with(clock).with_limits(limits),
             )
             .expect("search"),
         )
     }
+}
+
+/// A context for a walk nobody intends to cancel.
+///
+/// Registered against a real registry rather than assembled from parts, because the generation a
+/// context carries is only meaningful if something issued it.
+fn path_search_execution() -> WorkspaceInspectionExecution {
+    execution_with(Arc::new(ManualClock::default()))
+}
+
+fn execution_with(clock: Arc<dyn MonotonicClockPort>) -> WorkspaceInspectionExecution {
+    let registry = Arc::new(WorkspaceSearchCancellation::default());
+    let registration = registry.begin("quick-open-1");
+    let execution = WorkspaceInspectionExecution::path_search(
+        registration.generation(),
+        registration.token(),
+        clock,
+    );
+    // Completed here rather than held: the walk polls the token, and a guard kept alive only to
+    // satisfy a lifetime would be a registration this test never uses.
+    registration.complete();
+    execution
+}
+
+fn execution_stopped_by(token: SearchCancellationToken) -> WorkspaceInspectionExecution {
+    let registry = Arc::new(WorkspaceSearchCancellation::default());
+    let registration = registry.begin("quick-open-1");
+    let execution = WorkspaceInspectionExecution::path_search(
+        registration.generation(),
+        token,
+        Arc::new(ManualClock::default()),
+    );
+    registration.complete();
+    execution
+}
+
+/// Makes a directory refuse to be enumerated, on the two platforms this runs on.
+///
+/// Two mechanisms because there is no one portable way, and the alternative — testing this on Unix
+/// only — would leave the branch that turns an unreadable subdirectory into partial coverage
+/// unexercised on the platform most of this project's users are on. The returned value must be held
+/// for the duration: on Windows it *is* the mechanism.
+#[cfg(windows)]
+fn deny_enumeration(path: &std::path::Path) -> fs::File {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    // An exclusive handle. `read_dir` opens with the read/write/delete share modes, so a handle that
+    // shares nothing makes the next open a sharing violation. `FILE_FLAG_BACKUP_SEMANTICS` is what
+    // permits opening a directory at all.
+    fs::OpenOptions::new()
+        .read(true)
+        .share_mode(0)
+        .custom_flags(0x0200_0000)
+        .open(path)
+        .expect("an exclusive handle on the directory")
+}
+
+#[cfg(unix)]
+fn deny_enumeration(path: &std::path::Path) -> fs::Permissions {
+    use std::os::unix::fs::PermissionsExt;
+
+    let original = fs::metadata(path).expect("metadata").permissions();
+    fs::set_permissions(path, fs::Permissions::from_mode(0o000)).expect("chmod");
+    original
 }
 
 fn answer_from(
@@ -155,6 +270,7 @@ fn workspace(files: &[&str], directories: &[&str]) -> Workspace {
     Workspace {
         _directory: directory,
         database,
+        root,
     }
 }
 
@@ -277,7 +393,7 @@ fn a_cursor_from_another_query_is_refused() {
             cursor: Some(cursor),
             limit: Some(1),
         },
-        &SearchCancellationToken::new(),
+        &path_search_execution(),
     );
 
     let refusal = refusal.expect("a refusal is an answer, not a failure");
@@ -548,6 +664,7 @@ fn quick_open_and_content_search_skip_the_same_trees() {
     let workspace = Workspace {
         _directory: fixture,
         database,
+        root,
     };
 
     // The whole reason for one policy: a workspace should not appear to have a different shape
@@ -556,4 +673,162 @@ fn quick_open_and_content_search_skip_the_same_trees() {
         workspace.search("main", None, Some(10)).paths,
         vec!["src/main.rs".to_string()]
     );
+}
+
+/// A context built for another walk is refused rather than obeyed.
+///
+/// The failure this guards against does not look like a failure: a document-discovery profile
+/// applied to Quick Open returns fewer results and calls itself partial, which reads as a workspace
+/// that is simply larger than it is. Nothing in the answer would say the wrong budget was used.
+#[test]
+fn a_context_built_for_another_operation_is_refused() {
+    let workspace = workspace(&["main.rs"], &[]);
+    let connection = workspace.database.connection().expect("connection");
+
+    let refused = search_session_paths(
+        &connection,
+        "session-1",
+        &WorkspacePathSearchRequest {
+            query: "main".to_string(),
+            search_id: "quick-open-1".to_string(),
+            cursor: None,
+            limit: None,
+        },
+        &path_search_execution().with_operation(WorkspaceInspectionOperation::DocumentDiscovery),
+    );
+
+    // An error rather than an empty page, unlike a stale cursor. A cursor a reader carried from an
+    // earlier request is something they can recover from by starting again; a mislabelled context is
+    // a caller bug, and answering it would hide the bug behind a plausible result.
+    assert!(matches!(
+        refused,
+        Err(AppError::Conflict(
+            "workspace_inspection_operation_mismatch"
+        ))
+    ));
+}
+
+/// The walk obeys the rules it was handed, not rules it chose.
+///
+/// Proved from the other side: under direct navigation the same tree is searched, so the skip in the
+/// default mode is the policy acting rather than the fixture missing a file. A traversal that picked
+/// its own mode could only ever be observed obeying it.
+#[test]
+fn an_ignored_tree_is_skipped_under_the_policy_the_caller_supplied() {
+    let workspace = workspace(&["node_modules/vendored/main.rs", "src/main.rs"], &[]);
+
+    let default = workspace.search("main.rs", None, Some(10));
+    let direct = workspace.search_under(
+        "main.rs",
+        Some(10),
+        WorkspaceIgnorePolicy::direct_navigation(),
+    );
+
+    assert_eq!(default.paths, vec!["src/main.rs".to_string()]);
+    assert!(direct
+        .paths
+        .contains(&"node_modules/vendored/main.rs".to_string()));
+    // Complete either way. An ignored tree is a discovery rule, not an omission — reporting partial
+    // would put a "we did not finish" notice on every search in a project with dependencies, which
+    // is how a notice stops being read.
+    assert_eq!(default.coverage, "complete");
+    assert_eq!(default.reason, None);
+}
+
+/// An unreadable subdirectory is an omission, not a failure.
+///
+/// The entries beside it are still in scope and are still returned. Failing the whole search would
+/// make one permission quirk anywhere in a workspace into "Quick Open does not work here", and the
+/// reader has no way to find out which folder caused it.
+#[test]
+fn an_unreadable_subdirectory_is_reported_rather_than_failing_the_search() {
+    let workspace = workspace(&["readable/main.rs", "locked/main.rs"], &[]);
+    let locked = workspace.root().join("locked");
+    let guard = deny_enumeration(&locked);
+
+    let answer = workspace.search("main.rs", None, Some(10));
+
+    // Held across the search and released only now: on Windows the handle *is* the denial.
+    drop(guard);
+    assert_eq!(answer.paths, vec!["readable/main.rs".to_string()]);
+    assert_eq!(answer.coverage, "partial");
+    assert_eq!(answer.reason, Some("unreadable_entries"));
+    assert_eq!(spent(&answer).unreadable_entries, 1);
+    #[cfg(unix)]
+    {
+        let _ = std::fs::set_permissions(&locked, guard);
+    }
+}
+
+/// A cancelled search says it was cancelled, and says it about an empty list.
+///
+/// Distinct from "no matches": the reader stopped this one, and telling them the string is not in
+/// their workspace is a claim nobody established.
+#[test]
+fn a_cancelled_search_reports_the_cancellation_rather_than_an_empty_workspace() {
+    let names: Vec<String> = (0..40).map(|index| format!("main_{index:02}.rs")).collect();
+    let workspace = workspace(&names.iter().map(String::as_str).collect::<Vec<_>>(), &[]);
+    let token = SearchCancellationToken::new();
+    token.signal(SearchCancellationCause::Cancelled);
+
+    let answer = workspace.search_stopped_by("main", token);
+
+    assert!(answer.paths.is_empty());
+    assert_eq!(answer.coverage, "partial");
+    assert_eq!(answer.reason, Some("cancelled"));
+}
+
+/// A superseded search is told apart from a cancelled one.
+///
+/// Both stop the walk and both return nothing, and a reader is told different things: they cancelled
+/// it, or they typed another character. Collapsing the two would make a keystroke look like a
+/// failure the user caused on purpose.
+#[test]
+fn a_superseded_search_is_not_reported_as_a_cancellation() {
+    let names: Vec<String> = (0..40).map(|index| format!("main_{index:02}.rs")).collect();
+    let workspace = workspace(&names.iter().map(String::as_str).collect::<Vec<_>>(), &[]);
+    let token = SearchCancellationToken::new();
+    token.signal(SearchCancellationCause::Superseded);
+
+    let answer = workspace.search_stopped_by("main", token);
+
+    assert!(answer.paths.is_empty());
+    assert_eq!(answer.reason, Some("superseded"));
+}
+
+/// Every remaining budget dimension stops the walk and names itself.
+///
+/// One test rather than four, because the assertion is the same one four times and the thing worth
+/// reading is the table. A dimension that stopped the walk under another dimension's name would be
+/// the failure this catches: the reason code is what a reader is shown, and the wrong one sends them
+/// to narrow the wrong thing.
+#[test]
+fn each_budget_dimension_stops_the_walk_under_its_own_name() {
+    let names: Vec<String> = (0..40).map(|index| format!("main_{index:02}.rs")).collect();
+    let files: Vec<&str> = names.iter().map(String::as_str).collect();
+    let workspace = workspace(&files, &["a", "b", "c", "d"]);
+
+    for (reason, narrow) in [
+        (
+            "directory_budget_exhausted",
+            (|limits: &mut WorkspaceInspectionBudgetLimits| limits.max_directories_visited = 2)
+                as fn(&mut WorkspaceInspectionBudgetLimits),
+        ),
+        ("metadata_budget_exhausted", |limits| {
+            limits.max_metadata_operations = 5
+        }),
+        ("candidate_budget_exhausted", |limits| {
+            limits.max_retained_candidates = 3
+        }),
+        ("result_budget_exhausted", |limits| limits.max_results = 2),
+    ] {
+        let mut limits = generous_limits();
+        narrow(&mut limits);
+
+        let answer =
+            workspace.search_within("main", Some(50), limits, Arc::new(ManualClock::default()));
+
+        assert_eq!(answer.coverage, "partial", "{reason}");
+        assert_eq!(answer.reason, Some(reason), "{reason}");
+    }
 }

@@ -18,6 +18,7 @@ use super::inspection::{
     WorkspacePathSearchRequest, WorkspacePathSearchResult, WorkspaceSearchRequest, WorkspaceTarget,
     WorkspaceTargetResolver,
 };
+use super::inspection_execution::WorkspaceInspectionExecution;
 use super::models::{
     DirectoryListing, DocumentListing, FileContent, FileSearchListing, GitDiffResult,
     GitStatusResult,
@@ -166,16 +167,16 @@ impl WorkspaceInspectionRouter {
             .await
     }
 
-    /// Quick Open, with the token the caller will use to stop it.
+    /// Quick Open, with the context the walk runs under.
     pub(crate) async fn search_paths(
         &self,
         session_id: &str,
         request: WorkspacePathSearchRequest,
-        cancellation: SearchCancellationToken,
+        execution: WorkspaceInspectionExecution,
     ) -> Result<WorkspacePathSearchResult, WorkspaceInspectionError> {
         let target = self.target(session_id)?;
         self.provider(&target)?
-            .search_paths(&target, request, cancellation)
+            .search_paths(&target, request, execution)
             .await
     }
 

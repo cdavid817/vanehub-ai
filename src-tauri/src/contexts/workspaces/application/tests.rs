@@ -256,7 +256,7 @@ impl WorkspaceSessionQueryPort for FakeSessionQueries {
         &self,
         session_id: &str,
         request: &WorkspacePathSearchRequest,
-        _cancellation: &SearchCancellationToken,
+        _execution: &WorkspaceInspectionExecution,
     ) -> Result<WorkspacePathSearchResult, WorkspaceApplicationError> {
         self.calls
             .lock()

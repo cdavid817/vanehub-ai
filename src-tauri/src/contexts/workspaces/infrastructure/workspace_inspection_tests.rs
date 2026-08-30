@@ -233,7 +233,7 @@ impl WorkspaceInspectionProvider for RecordingProvider {
         &self,
         _target: &WorkspaceTarget,
         request: WorkspacePathSearchRequest,
-        _cancellation: SearchCancellationToken,
+        _execution: crate::contexts::workspaces::application::WorkspaceInspectionExecution,
     ) -> Result<WorkspacePathSearchResult, WorkspaceInspectionError> {
         self.calls
             .lock()
