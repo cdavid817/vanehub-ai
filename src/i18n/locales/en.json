@@ -5139,5 +5139,11 @@
   "workbenchUi.draftBar.save": "Save",
   "workbenchUi.draftBar.discard": "Discard",
   "workbenchUi.draftBar.unsavedChanges_one": "{{count, number}} unsaved change",
-  "workbenchUi.draftBar.unsavedChanges_other": "{{count, number}} unsaved changes"
+  "workbenchUi.draftBar.unsavedChanges_other": "{{count, number}} unsaved changes",
+  "workbenchUi.pageHeader.moreActions": "More actions",
+  "workbenchUi.filterBar.clearAll": "Clear all filters",
+  "workbenchUi.filterBar.clearFilter": "Clear {{label}}",
+  "workbenchUi.filterBar.resultCount_one": "{{count, number}} result",
+  "workbenchUi.filterBar.resultCount_other": "{{count, number}} results",
+  "workbenchUi.filterBar.resultCountOfTotal": "{{count, number}} of {{total, number}} results"
 }

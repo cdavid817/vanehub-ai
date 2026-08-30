@@ -5139,5 +5139,11 @@
   "workbenchUi.draftBar.save": "保存",
   "workbenchUi.draftBar.discard": "放弃",
   "workbenchUi.draftBar.unsavedChanges_one": "{{count, number}} 项未保存的更改",
-  "workbenchUi.draftBar.unsavedChanges_other": "{{count, number}} 项未保存的更改"
+  "workbenchUi.draftBar.unsavedChanges_other": "{{count, number}} 项未保存的更改",
+  "workbenchUi.pageHeader.moreActions": "更多操作",
+  "workbenchUi.filterBar.clearAll": "清除全部筛选",
+  "workbenchUi.filterBar.clearFilter": "清除{{label}}",
+  "workbenchUi.filterBar.resultCount_one": "{{count, number}} 条结果",
+  "workbenchUi.filterBar.resultCount_other": "{{count, number}} 条结果",
+  "workbenchUi.filterBar.resultCountOfTotal": "共 {{total, number}} 条结果中的 {{count, number}} 条"
 }

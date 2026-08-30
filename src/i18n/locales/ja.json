@@ -5139,5 +5139,11 @@
   "workbenchUi.draftBar.save": "保存",
   "workbenchUi.draftBar.discard": "破棄",
   "workbenchUi.draftBar.unsavedChanges_one": "未保存の変更が {{count, number}} 件あります",
-  "workbenchUi.draftBar.unsavedChanges_other": "未保存の変更が {{count, number}} 件あります"
+  "workbenchUi.draftBar.unsavedChanges_other": "未保存の変更が {{count, number}} 件あります",
+  "workbenchUi.pageHeader.moreActions": "その他の操作",
+  "workbenchUi.filterBar.clearAll": "すべてのフィルターを解除",
+  "workbenchUi.filterBar.clearFilter": "{{label}}をクリア",
+  "workbenchUi.filterBar.resultCount_one": "{{count, number}} 件の結果",
+  "workbenchUi.filterBar.resultCount_other": "{{count, number}} 件の結果",
+  "workbenchUi.filterBar.resultCountOfTotal": "{{total, number}} 件中 {{count, number}} 件"
 }

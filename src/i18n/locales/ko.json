@@ -5139,5 +5139,11 @@
   "workbenchUi.draftBar.save": "저장",
   "workbenchUi.draftBar.discard": "취소",
   "workbenchUi.draftBar.unsavedChanges_one": "저장되지 않은 변경 사항 {{count, number}}개",
-  "workbenchUi.draftBar.unsavedChanges_other": "저장되지 않은 변경 사항 {{count, number}}개"
+  "workbenchUi.draftBar.unsavedChanges_other": "저장되지 않은 변경 사항 {{count, number}}개",
+  "workbenchUi.pageHeader.moreActions": "추가 작업",
+  "workbenchUi.filterBar.clearAll": "모든 필터 지우기",
+  "workbenchUi.filterBar.clearFilter": "{{label}} 지우기",
+  "workbenchUi.filterBar.resultCount_one": "결과 {{count, number}}개",
+  "workbenchUi.filterBar.resultCount_other": "결과 {{count, number}}개",
+  "workbenchUi.filterBar.resultCountOfTotal": "전체 {{total, number}}개 중 {{count, number}}개"
 }
