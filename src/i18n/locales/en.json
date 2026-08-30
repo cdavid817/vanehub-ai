@@ -5151,5 +5151,12 @@
   "workbenchUi.inspector.returnToOverview": "Return to overview",
   "workbenchUi.inspector.close": "Close",
   "workbenchUi.runtimePanel.maximize": "Maximize",
-  "workbenchUi.runtimePanel.restore": "Restore"
+  "workbenchUi.runtimePanel.restore": "Restore",
+  "workbenchUi.dataTable.columns": "Columns",
+  "workbenchUi.dataTable.selectAll": "Select all rows",
+  "workbenchUi.dataTable.selectRow": "Select row",
+  "workbenchUi.dataTable.pageOfTotal": "Page {{page, number}} of {{totalPages, number}}",
+  "workbenchUi.dataTable.previousPage": "Previous page",
+  "workbenchUi.dataTable.nextPage": "Next page",
+  "workbenchUi.dataTable.atLeastOneColumn": "At least one column must stay visible"
 }

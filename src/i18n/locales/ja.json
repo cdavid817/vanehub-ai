@@ -5151,5 +5151,12 @@
   "workbenchUi.inspector.returnToOverview": "概要に戻る",
   "workbenchUi.inspector.close": "閉じる",
   "workbenchUi.runtimePanel.maximize": "最大化",
-  "workbenchUi.runtimePanel.restore": "元に戻す"
+  "workbenchUi.runtimePanel.restore": "元に戻す",
+  "workbenchUi.dataTable.columns": "列",
+  "workbenchUi.dataTable.selectAll": "すべて選択",
+  "workbenchUi.dataTable.selectRow": "この行を選択",
+  "workbenchUi.dataTable.pageOfTotal": "{{totalPages, number}} ページ中 {{page, number}} ページ目",
+  "workbenchUi.dataTable.previousPage": "前のページ",
+  "workbenchUi.dataTable.nextPage": "次のページ",
+  "workbenchUi.dataTable.atLeastOneColumn": "少なくとも1つの列は表示しておく必要があります"
 }

@@ -5151,5 +5151,12 @@
   "workbenchUi.inspector.returnToOverview": "返回概覽",
   "workbenchUi.inspector.close": "關閉",
   "workbenchUi.runtimePanel.maximize": "最大化",
-  "workbenchUi.runtimePanel.restore": "還原"
+  "workbenchUi.runtimePanel.restore": "還原",
+  "workbenchUi.dataTable.columns": "欄位",
+  "workbenchUi.dataTable.selectAll": "全選",
+  "workbenchUi.dataTable.selectRow": "選擇該列",
+  "workbenchUi.dataTable.pageOfTotal": "第 {{page, number}} 頁，共 {{totalPages, number}} 頁",
+  "workbenchUi.dataTable.previousPage": "上一頁",
+  "workbenchUi.dataTable.nextPage": "下一頁",
+  "workbenchUi.dataTable.atLeastOneColumn": "至少保留一欄可見"
 }

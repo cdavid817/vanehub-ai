@@ -40,6 +40,11 @@ export interface MeasuredVirtualListProps<T> {
   overscan: number;
   renderItem: (item: T, index: number) => ReactNode;
   testId?: string;
+  /** Every existing caller renders a plain list; a selectable one (e.g. `src/ui/entity-list`) needs "listbox". */
+  role?: "list" | "listbox";
+  /** For a `role="listbox"` caller managing `aria-activedescendant` instead of per-item DOM focus. */
+  onKeyDown?: (event: React.KeyboardEvent) => void;
+  activeDescendantId?: string;
 }
 
 /**
@@ -52,6 +57,7 @@ const AT_START_TOLERANCE_PX = 8;
 
 function MeasuredVirtualListInner<T>(
   {
+    activeDescendantId,
     ariaLabel,
     className,
     contentStyle,
@@ -60,8 +66,10 @@ function MeasuredVirtualListInner<T>(
     itemClassName,
     items,
     onAtStartChange,
+    onKeyDown,
     overscan,
     renderItem,
+    role = "list",
     testId,
   }: MeasuredVirtualListProps<T>,
   ref: ForwardedRef<MeasuredVirtualListHandle>,
@@ -84,16 +92,18 @@ function MeasuredVirtualListInner<T>(
 
   return (
     <div
+      aria-activedescendant={activeDescendantId}
       aria-label={ariaLabel}
       className={cn("relative overflow-y-auto", className)}
       data-rendered-count={virtualItems.length}
       data-testid={testId}
       data-virtual-count={items.length}
+      onKeyDown={onKeyDown}
       onScroll={onAtStartChange
         ? (event) => onAtStartChange(event.currentTarget.scrollTop <= AT_START_TOLERANCE_PX)
         : undefined}
       ref={scrollElementRef}
-      role="list"
+      role={role}
       tabIndex={0}
     >
       <div className="relative w-full" style={{ ...virtualContentStyle(virtualizer.getTotalSize()), ...contentStyle }}>

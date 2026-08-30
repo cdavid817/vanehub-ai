@@ -5151,5 +5151,12 @@
   "workbenchUi.inspector.returnToOverview": "개요로 돌아가기",
   "workbenchUi.inspector.close": "닫기",
   "workbenchUi.runtimePanel.maximize": "최대화",
-  "workbenchUi.runtimePanel.restore": "복원"
+  "workbenchUi.runtimePanel.restore": "복원",
+  "workbenchUi.dataTable.columns": "열",
+  "workbenchUi.dataTable.selectAll": "모두 선택",
+  "workbenchUi.dataTable.selectRow": "이 행 선택",
+  "workbenchUi.dataTable.pageOfTotal": "{{totalPages, number}}페이지 중 {{page, number}}페이지",
+  "workbenchUi.dataTable.previousPage": "이전 페이지",
+  "workbenchUi.dataTable.nextPage": "다음 페이지",
+  "workbenchUi.dataTable.atLeastOneColumn": "최소 하나의 열은 표시되어야 합니다"
 }
