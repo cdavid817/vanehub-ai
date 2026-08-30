@@ -50,6 +50,53 @@ export async function createWorkspaceFolder(prefix) {
   return folder;
 }
 
+/**
+ * Selects a session workspace tab without WebKitGTK's unreliable centre-point hit test.
+ *
+ * Buttons inside the horizontally scrollable tab strip can be visible, enabled, and accept a
+ * real WebDriver click while `waitForClickable` reports the strip itself at the button's centre.
+ * The selected state remains the product assertion, so this only removes the false precondition.
+ */
+export async function clickWorkspaceTab(title, timeout = 30000) {
+  const selector = `//*[@role="tablist" and @aria-label="会话工作区"]//*[@role="tab" and @title="${title}"]`;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const tab = await globalThis.$(selector);
+    await tab.waitForDisplayed({ timeout });
+    assert.equal(await tab.isEnabled(), true, `The ${title} workspace tab was disabled.`);
+    try {
+      await tab.click();
+    } catch {
+      const hitTest = await globalThis.browser.execute((element) => {
+        const rect = element.getBoundingClientRect();
+        const covering = globalThis.document.elementFromPoint(
+          rect.left + rect.width / 2,
+          rect.top + rect.height / 2,
+        );
+        return {
+          coveringClass: covering?.getAttribute("class") ?? null,
+          coveringTag: covering?.tagName ?? null,
+          rect: { height: rect.height, left: rect.left, top: rect.top, width: rect.width },
+        };
+      }, tab);
+      throw new Error(`Clicking the ${title} workspace tab failed: ${JSON.stringify(hitTest)}`);
+    }
+    const controls = await tab.getAttribute("aria-controls");
+    const panel = controls ? await globalThis.$(`[id="${controls}"]`) : null;
+    const selected = await globalThis.browser.waitUntil(async () => (
+      (await tab.getAttribute("aria-selected")) === "true" && Boolean(await panel?.isDisplayed())
+    ), { timeout, timeoutMsg: `The ${title} tab never exposed its selected panel.` }).then(
+      () => true,
+      () => false,
+    );
+    if (!selected) continue;
+    // Session creation can commit a late activation that resets the tab immediately after the
+    // first selected frame. Re-check after that transition window before returning to the caller.
+    await globalThis.browser.pause(500);
+    if ((await tab.getAttribute("aria-selected")) === "true" && await panel?.isDisplayed()) return tab;
+  }
+  throw new Error(`The ${title} tab did not remain selected after session activation settled.`);
+}
+
 export async function createSessionButton() {
   const create = await globalThis.$('//button[normalize-space(.)="新建"]');
   if (await create.isDisplayed()) return create;

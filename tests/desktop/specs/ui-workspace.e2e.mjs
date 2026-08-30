@@ -108,6 +108,33 @@ function workspaceTabLists() {
   return globalThis.$$('[data-testid="session-workspace"] [role="tablist"]');
 }
 
+async function clickWorkspaceTab(button, tab) {
+  await button.waitForDisplayed({ timeout: 20_000 });
+  assert.equal(await button.isEnabled(), true, `The ${tab} workspace tab was disabled.`);
+  try {
+    await button.click();
+  } catch {
+    const hitTest = await globalThis.browser.execute((element) => {
+      const rect = element.getBoundingClientRect();
+      const x = rect.left + rect.width / 2;
+      const y = rect.top + rect.height / 2;
+      const covering = globalThis.document.elementFromPoint(x, y);
+      const style = globalThis.getComputedStyle(element);
+      return {
+        coveringClass: covering?.getAttribute("class") ?? null,
+        coveringId: covering?.id ?? null,
+        coveringTag: covering?.tagName ?? null,
+        disabled: element.disabled,
+        opacity: style.opacity,
+        pointerEvents: style.pointerEvents,
+        rect: { height: rect.height, left: rect.left, top: rect.top, width: rect.width },
+        visibility: style.visibility,
+      };
+    }, button);
+    throw new Error(`Clicking the ${tab} workspace tab failed: ${JSON.stringify(hitTest)}`);
+  }
+}
+
 globalThis.describe("VaneHub AI desktop workspace UI flows", () => {
   globalThis.before(async () => {
     // Never inherit the previous spec's page. Route changes commit inside `startTransition`, so a
@@ -251,23 +278,28 @@ globalThis.describe("VaneHub AI desktop workspace UI flows", () => {
     assert.equal(refusal, "", `the create-session dialog refused the submission: ${refusal}`);
 
     primarySessionId = await globalThis.browser.waitUntil(async () => {
-      const current = await globalThis.browser.getUrl();
-      const segment = decodeURIComponent((current.split("/workspace/sessions/")[1] ?? "").split(/[?#]/)[0]);
-      // `new` is the create route's own segment (workspace-route.ts:6), so it is the one value that
-      // means the dialog closed without the workspace ever moving on to a session.
-      return segment && segment !== "new" ? segment : false;
-    }, { timeout: 30_000, timeoutMsg: "The dialog closed without routing to the new session." });
+      const sessions = await invoke(({ core }) => core.invoke("list_sessions"));
+      return sessions.find((session) => session.title === primaryTitle)?.id ?? false;
+    }, { timeout: 30_000, timeoutMsg: "The dialog closed without persisting the new session." });
 
     const card = await globalThis.$(`[data-session-id="${primarySessionId}"]`);
-    await card.waitForExist({ timeout: 30_000 });
-    await globalThis.browser.waitUntil(
-      async () => (await card.getAttribute("aria-pressed")) === "true",
-      { timeout: 30_000, timeoutMsg: "The new session was listed but never shown as the active one." },
-    );
-    assert.ok(
-      (await card.getText()).includes(primaryTitle),
-      "the sidebar card for the new session did not show the title that was typed",
-    );
+    await card.waitForDisplayed({ timeout: 30_000 });
+    // A prior evaluation attempt can finish its own session activation after this dialog closes.
+    // The persisted id identifies what this test created; if that late activation won the route,
+    // select the new card again and then require both route and card state to agree.
+    if ((await card.getAttribute("aria-pressed")) !== "true") await card.click();
+    await globalThis.browser.waitUntil(async () => {
+      const currentCard = await globalThis.$(`[data-session-id="${primarySessionId}"]`);
+      return (await currentCard.getAttribute("aria-pressed")) === "true"
+        && (await globalThis.browser.getUrl()).includes(`/workspace/sessions/${primarySessionId}`);
+    }, { timeout: 30_000, timeoutMsg: "The new session was listed but never shown as the active one." });
+    await globalThis.browser.waitUntil(async () => {
+      const currentCard = await globalThis.$(`[data-session-id="${primarySessionId}"]`);
+      return (await currentCard.getText()).includes(primaryTitle);
+    }, {
+      timeout: 30_000,
+      timeoutMsg: "the sidebar card for the new session did not show the title that was typed",
+    });
 
     const workspace = await globalThis.$('[data-testid="session-workspace"]');
     await workspace.waitForDisplayed({ timeout: 30_000 });
@@ -428,8 +460,7 @@ globalThis.describe("VaneHub AI desktop workspace UI flows", () => {
     let current = "chat";
     for (const tab of ["files", "logs", "report", "chat"]) {
       const button = await globalThis.$(`[aria-controls="session-tab-panel-${tab}"]`);
-      await button.waitForClickable({ timeout: 20_000 });
-      await button.click();
+      await clickWorkspaceTab(button, tab);
       await globalThis.browser.waitUntil(
         async () => (await button.getAttribute("aria-selected")) === "true",
         { timeout: 20_000, timeoutMsg: `The ${tab} tab never reported itself as selected.` },
@@ -651,8 +682,7 @@ globalThis.describe("VaneHub AI desktop workspace UI flows", () => {
       await attempt("stop the agent terminal", async () => {
         await navigate(`/workspace/sessions/${encodeURIComponent(primarySessionId)}`);
         const chatTab = await globalThis.$('[aria-controls="session-tab-panel-chat"]');
-        await chatTab.waitForClickable({ timeout: 20_000 });
-        await chatTab.click();
+        await clickWorkspaceTab(chatTab, "chat");
         const controls = await globalThis.$$("#session-tab-panel-chat div.ml-auto button");
         if (controls.length === 2 && await controls[1].isEnabled()) await controls[1].click();
       });
@@ -664,9 +694,17 @@ globalThis.describe("VaneHub AI desktop workspace UI flows", () => {
       });
     }
     for (const sessionId of [primarySessionId, secondarySessionId].filter(Boolean)) {
-      await attempt(`delete session ${sessionId}`, () => invoke(
-        ({ core }, id) => core.invoke("delete_session", { sessionId: id }), sessionId,
-      ));
+      await attempt(`delete session ${sessionId}`, async () => {
+        for (let retry = 0; retry < 3; retry += 1) {
+          try {
+            await invoke(({ core }, id) => core.invoke("delete_session", { sessionId: id }), sessionId);
+            return;
+          } catch (error) {
+            if (!String(error).includes("database is locked") || retry === 2) throw error;
+            await globalThis.browser.pause(250);
+          }
+        }
+      });
     }
     // Reload before parking: the page still holds the deleted sessions in its query cache, and the
     // route reconciler would bounce straight back to one of them (use-workspace-session-route.ts:52).

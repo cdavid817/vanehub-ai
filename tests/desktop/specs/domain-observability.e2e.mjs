@@ -346,16 +346,16 @@ globalThis.describe("VaneHub AI desktop domain observability", () => {
       assert.equal(unknownSession.ok, false, "pairing accepted a session that does not exist");
       assert.equal(unknownSession.error, "im-session-not-found", `unexpected: ${unknownSession.error}`);
 
-      // A configured, enabled and *connected* connector is the second gate
-      // (application/service.rs:541-564). Nothing here is connected, so this must be refused
-      // rather than reaching out for a pairing code.
+      // Connector-scoped session access is checked before connector configuration and health.
+      // This new session has the disabled default projected above, so pairing must stop at that
+      // boundary without revealing whether the borrowed connector is configured or connected.
       const notReady = await attempt("begin_im_pairing", {
         sessionId: session.id,
         connector: BORROWED_CONNECTOR,
         replaceExisting: false,
       });
       assert.equal(notReady.ok, false, "pairing started against an unconfigured connector");
-      assert.equal(notReady.error, "im-connector-not-ready", `unexpected: ${notReady.error}`);
+      assert.equal(notReady.error, "im-session-disabled", `unexpected: ${notReady.error}`);
 
       // src-tauri/src/commands/communications/cancel_im_pairing.rs:6-9 -- `session_id`,
       // `connector`. Cancelling a pairing that was never started is a no-op, not an error.

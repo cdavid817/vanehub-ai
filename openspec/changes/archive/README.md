@@ -249,5 +249,6 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-28 | upgrade-session-workspace-evidence-console | agent-code-review, agent-execution-observability, main-layout-ui, remote-terminal-runtime, session-log-viewer, session-project-inspection, session-workspace-execution-evidence, unified-log-management, usage-statistics | `openspec/changes/archive/2026-08-28-upgrade-session-workspace-evidence-console/` |
 | 2026-08-30 | add-skill-evolution-system-sessions-and-result-projection | chat-experience, notification-system, session-management, settings-skill-management-ui, skill-evolution-system-activity, skill-management | `openspec/changes/archive/2026-08-30-add-skill-evolution-system-sessions-and-result-projection/` |
 | 2026-08-30 | fix-agent-evaluation-webdriverio | agent-evaluation, desktop-runtime-verification | `openspec/changes/archive/2026-08-30-fix-agent-evaluation-webdriverio/` |
+| 2026-08-30 | stabilize-desktop-wdio-lifecycle | desktop-runtime-verification | `openspec/changes/archive/2026-08-30-stabilize-desktop-wdio-lifecycle/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

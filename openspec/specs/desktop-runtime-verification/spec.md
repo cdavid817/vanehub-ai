@@ -92,6 +92,19 @@ The orchestrator MUST track the root application process and test-owned child pr
 - **WHEN** a user-owned or separately launched VaneHub AI process exists during cleanup
 - **THEN** the orchestrator leaves that process running
 
+### Requirement: Stable desktop automation worker lifecycle
+The desktop verification harness SHALL ensure its automation driver is accepting sessions before each isolated worker starts, including after a preceding worker has cleanly closed the native application.
+
+#### Scenario: Start a worker after native shutdown
+- **WHEN** a desktop verification worker starts after the preceding worker has completed owned-process shutdown
+- **THEN** the harness verifies that the automation driver accepts a new session before executing the worker's spec
+- **AND** it recovers the test-owned driver when the previous shutdown invalidated it
+
+#### Scenario: Driver cannot be restored
+- **WHEN** the automation driver cannot accept a session within the configured readiness deadline
+- **THEN** the affected worker reports `FAILED`
+- **AND** its run-scoped evidence identifies the driver readiness failure rather than attributing it to application behavior
+
 ### Requirement: Reviewable failure evidence
 Failed desktop verification SHALL retain a run-scoped summary, assertion details, screenshot when a window is available, frontend and driver diagnostics, process state, and the existing redacted unified native logs. Evidence collection MUST NOT create a parallel unredacted native log sink.
 
@@ -103,6 +116,19 @@ Failed desktop verification SHALL retain a run-scoped summary, assertion details
 #### Scenario: Evidence contains application diagnostics
 - **WHEN** native application logs are collected
 - **THEN** they come from the isolated unified log directory and retain its required redaction behavior
+
+### Requirement: Diagnosable frontend failure evidence
+The desktop verification harness SHALL preserve redacted details for the browser error or unhandled rejection that triggers a fatal frontend marker, so test results can distinguish an application failure from test instrumentation.
+
+#### Scenario: Browser error triggers the fatal marker
+- **WHEN** a browser error or unhandled rejection occurs during native desktop verification
+- **THEN** the run-scoped evidence records the event type and a redacted diagnostic message or reason
+- **AND** the failing assertion identifies that captured diagnostic detail
+
+#### Scenario: No frontend error details are available
+- **WHEN** the browser supplies no serializable message or rejection reason
+- **THEN** the evidence records that the detail was unavailable
+- **AND** it does not claim a specific application root cause
 
 ### Requirement: Stable verification entry points and results
 The repository SHALL provide independent npm entry points for desktop artifact construction and desktop smoke, plus a composed desktop verification entry point. Every requested verification layer MUST report one of `PASSED`, `FAILED`, `BLOCKED`, `NOT RUN`, or `NOT REQUIRED`, and `NOT REQUIRED` MUST include an impact-based reason.

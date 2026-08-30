@@ -221,7 +221,9 @@ test("each desktop layer owns a disjoint spec directory and its own wdio configu
   assert.match(shared, /specFileRetriesDelay: 5/);
   assert.match(shared, /const waitForEmbeddedDriverShutdown = createEmbeddedDriverShutdownWaiter\(embeddedDriverPort\)/);
   assert.match(shared, /onWorkerStart: waitForEmbeddedDriverShutdown/);
-  assert.match(shared, /await delay\(EMBEDDED_DRIVER_PROCESS_REAP_MS\)/);
+  assert.match(shared, /await stopOwnedProcess\(\)/);
+  assert.match(shared, /await pause\(processReapMs\)/);
+  assert.match(shared, /Desktop driver lifecycle failure/);
 });
 
 test("the live Skill layer is explicitly runnable without joining the deterministic full suite", async () => {
