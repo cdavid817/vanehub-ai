@@ -104,9 +104,8 @@ impl SqliteActivityProjectionRepository<'_> {
         let limit = to_i64(batch_limit.min(remaining_budget.max(1)))?;
         let batch = {
             let mut statement = transaction.prepare(
-                "SELECT e.event_id,e.source_domain,e.supersedes,e.created FROM (
-                     SELECT event_id,source_domain,NULL AS supersedes,committed_at_ms AS created,
-                            source_sequence
+                "SELECT e.event_id,e.source_domain,e.created FROM (
+                     SELECT event_id,source_domain,committed_at_ms AS created,source_sequence
                      FROM evolution_activity_envelopes
                      WHERE scope_kind=?1 AND canonical_scope_id=?2
                  ) e
@@ -124,13 +123,7 @@ impl SqliteActivityProjectionRepository<'_> {
                     row.shadow_generation_id,
                     limit
                 ],
-                |r| {
-                    Ok((
-                        r.get::<_, String>(0)?,
-                        r.get::<_, String>(1)?,
-                        r.get::<_, i64>(3)?,
-                    ))
-                },
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
             )?;
             rows.collect::<Result<Vec<_>, _>>()?
         };
@@ -150,14 +143,19 @@ impl SqliteActivityProjectionRepository<'_> {
             |r| r.get(0),
         )?;
         let mut processed = row.processed_items;
-        for (event_id, source_domain, _) in &batch {
+        for (event_id, source_domain) in &batch {
             next_sequence += 1;
             let item_id = stable_activity_item_id(&session_id, &row.shadow_generation_id, event_id);
+            // The supersession relation is part of the canonical envelope and must survive
+            // reprojection, so the shadow item re-reads it from the envelope body instead of
+            // defaulting to NULL and silently flattening every supersession chain.
             transaction.execute(
                 "INSERT INTO evolution_activity_items
                  (item_id,session_id,generation_id,sequence,event_id,supersedes_event_id,
                   created_at_ms)
-                 SELECT ?1,?2,?3,?4,event_id,NULL,?5 FROM evolution_activity_envelopes
+                 SELECT ?1,?2,?3,?4,event_id,
+                        json_extract(envelope_json,'$.supersedesEventId'),?5
+                 FROM evolution_activity_envelopes
                  WHERE event_id=?6",
                 params![
                     item_id,

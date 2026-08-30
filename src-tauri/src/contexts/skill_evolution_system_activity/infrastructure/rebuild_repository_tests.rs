@@ -231,6 +231,36 @@ fn prior_generation_stays_readable_through_the_recovery_window() {
     assert_eq!(prior_items, 2);
 }
 
+#[test]
+fn rebuild_preserves_supersession_relations_from_the_envelope() {
+    let (connection, session_id) = projected_fixture(1);
+    let repository = SqliteActivityProjectionRepository::new(&connection);
+    let mut superseding = event(2);
+    superseding.envelope.supersedes_event_id = Some("event-1".into());
+    superseding.envelope = superseding.envelope.seal().expect("resealed envelope");
+    persist(&repository, vec![superseding]);
+    project(&repository, "event-2");
+
+    let rebuild = repository
+        .begin_rebuild(ActivityScopeKind::Workspace, SCOPE, 100, 1_000)
+        .expect("begin");
+    drive_to_ready(&repository, &rebuild.rebuild_id);
+    repository
+        .activate_rebuild(&rebuild.rebuild_id, 1_010)
+        .expect("activate");
+
+    let supersedes: Option<String> = connection
+        .query_row(
+            "SELECT supersedes_event_id FROM evolution_activity_items
+             WHERE generation_id=?1 AND event_id='event-2'",
+            [&rebuild.shadow_generation_id],
+            |row| row.get(0),
+        )
+        .expect("shadow item");
+    assert_eq!(supersedes.as_deref(), Some("event-1"));
+    let _ = session_id;
+}
+
 fn projected_fixture(events_count: u64) -> (Connection, String) {
     let connection = Connection::open_in_memory().expect("database");
     apply_schema(&connection).expect("schema");
