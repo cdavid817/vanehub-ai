@@ -143,24 +143,34 @@ fn purge_jobs(
     now_ms: i64,
 ) -> Result<GenerationPurgeResultV1, GenerationPersistenceError> {
     let mut result = GenerationPurgeResultV1::default();
-    for job_id in job_ids {
+    // Set-based per chunk rather than one statement per job: a retention sweep can select many
+    // jobs, and per-row DML turns it into an N+1 storm.
+    for chunk in job_ids.chunks(IN_CHUNK) {
+        let plain = placeholders_from(0, chunk.len());
+        let ids: Vec<&dyn rusqlite::ToSql> =
+            chunk.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
+        let shifted = placeholders_from(2, chunk.len());
+        let mut tombstone_values: Vec<&dyn rusqlite::ToSql> = vec![&witness_hash, &now_ms];
+        tombstone_values.extend(chunk.iter().map(|id| id as &dyn rusqlite::ToSql));
         let inserted = transaction.execute(
-            "INSERT OR IGNORE INTO evolution_generation_governance_tombstones
-             (tombstone_id,job_id,package_hash,artifact_hash,validation_report_hash,
-              curator_candidate_id,final_status,source_purge_witness_hash,created_at_ms)
-             SELECT 'tombstone:' || h.handoff_id,h.job_id,h.package_hash,d.content_hash,
-                    v.report_hash,h.curator_candidate_id,h.status,?2,?3
-             FROM evolution_generation_handoffs h
-             JOIN evolution_generation_validations v ON v.validation_id=h.validation_id
-             JOIN evolution_generated_drafts d ON d.draft_id=v.draft_id AND d.generation_attempt=v.draft_attempt
-             WHERE h.job_id=?1 AND h.status IN ('delivered','duplicate')",
-            params![job_id, witness_hash, now_ms],
+            &format!(
+                "INSERT OR IGNORE INTO evolution_generation_governance_tombstones
+                 (tombstone_id,job_id,package_hash,artifact_hash,validation_report_hash,
+                  curator_candidate_id,final_status,source_purge_witness_hash,created_at_ms)
+                 SELECT 'tombstone:' || h.handoff_id,h.job_id,h.package_hash,d.content_hash,
+                        v.report_hash,h.curator_candidate_id,h.status,?1,?2
+                 FROM evolution_generation_handoffs h
+                 JOIN evolution_generation_validations v ON v.validation_id=h.validation_id
+                 JOIN evolution_generated_drafts d ON d.draft_id=v.draft_id AND d.generation_attempt=v.draft_attempt
+                 WHERE h.status IN ('delivered','duplicate') AND h.job_id IN ({shifted})"
+            ),
+            &tombstone_values[..],
         ).map_err(|_| GenerationPersistenceError::Storage)?;
         result.retained_tombstones += inserted as u64;
         transaction
             .execute(
-                "DELETE FROM evolution_generation_handoffs WHERE job_id=?1",
-                [job_id],
+                &format!("DELETE FROM evolution_generation_handoffs WHERE job_id IN ({plain})"),
+                &ids[..],
             )
             .map_err(|_| GenerationPersistenceError::Storage)?;
         // Quarantine rows and the supersession self-references have no ON DELETE clause, so they
@@ -168,28 +178,34 @@ fn purge_jobs(
         // on the foreign key — wedging retention and privacy purges permanently.
         transaction
             .execute(
-                "DELETE FROM evolution_generated_skill_quarantine WHERE job_id=?1",
-                [job_id],
+                &format!(
+                    "DELETE FROM evolution_generated_skill_quarantine WHERE job_id IN ({plain})"
+                ),
+                &ids[..],
             )
             .map_err(|_| GenerationPersistenceError::Storage)?;
         transaction
             .execute(
-                "UPDATE evolution_generation_jobs SET supersedes_job_id=NULL
-                 WHERE supersedes_job_id=?1",
-                [job_id],
+                &format!(
+                    "UPDATE evolution_generation_jobs SET supersedes_job_id=NULL
+                     WHERE supersedes_job_id IN ({plain})"
+                ),
+                &ids[..],
             )
             .map_err(|_| GenerationPersistenceError::Storage)?;
         transaction
             .execute(
-                "UPDATE evolution_generation_jobs SET superseded_by_job_id=NULL
-                 WHERE superseded_by_job_id=?1",
-                [job_id],
+                &format!(
+                    "UPDATE evolution_generation_jobs SET superseded_by_job_id=NULL
+                     WHERE superseded_by_job_id IN ({plain})"
+                ),
+                &ids[..],
             )
             .map_err(|_| GenerationPersistenceError::Storage)?;
         result.removed_jobs += transaction
             .execute(
-                "DELETE FROM evolution_generation_jobs WHERE job_id=?1",
-                [job_id],
+                &format!("DELETE FROM evolution_generation_jobs WHERE job_id IN ({plain})"),
+                &ids[..],
             )
             .map_err(|_| GenerationPersistenceError::Storage)?
             as u64;
@@ -202,19 +218,22 @@ fn purge_dossiers(
     dossier_ids: &[String],
     result: &mut GenerationPurgeResultV1,
 ) -> Result<(), GenerationPersistenceError> {
-    for dossier_id in dossier_ids {
+    for chunk in dossier_ids.chunks(IN_CHUNK) {
+        let plain = placeholders_from(0, chunk.len());
+        let ids: Vec<&dyn rusqlite::ToSql> =
+            chunk.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
         let exports = transaction
             .execute(
-                "DELETE FROM evolution_generation_exports WHERE dossier_id=?1",
-                [dossier_id],
+                &format!("DELETE FROM evolution_generation_exports WHERE dossier_id IN ({plain})"),
+                &ids[..],
             )
             .map_err(|_| GenerationPersistenceError::Storage)?;
         result.removed_export_manifests += exports as u64;
         result.exported_files_remain_user_managed |= exports > 0;
         result.removed_dossiers += transaction
             .execute(
-                "DELETE FROM evolution_evidence_dossiers WHERE dossier_id=?1",
-                [dossier_id],
+                &format!("DELETE FROM evolution_evidence_dossiers WHERE dossier_id IN ({plain})"),
+                &ids[..],
             )
             .map_err(|_| GenerationPersistenceError::Storage)?
             as u64;
@@ -236,4 +255,14 @@ fn collect_ids<P: rusqlite::Params>(
         .collect::<Result<_, _>>()
         .map_err(|_| GenerationPersistenceError::Storage)?;
     Ok(values)
+}
+
+/// Chunked IN-lists keep statements bounded and plans cacheable however many rows a sweep selects.
+const IN_CHUNK: usize = 500;
+
+fn placeholders_from(preceding: usize, count: usize) -> String {
+    (0..count)
+        .map(|index| format!("?{}", preceding + index + 1))
+        .collect::<Vec<_>>()
+        .join(",")
 }

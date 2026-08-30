@@ -7,7 +7,6 @@ import type { NotificationType } from "./notification-types";
 
 const types: Record<GenerationNotificationEvent["eventKind"], NotificationType> = {
   review_ready: "success",
-  attention_required: "error",
   cancelled: "info",
   superseded: "warning",
 };

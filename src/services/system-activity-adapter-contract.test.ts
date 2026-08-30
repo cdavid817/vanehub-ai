@@ -124,6 +124,9 @@ describe("System activity Web adapter contract", () => {
   it("exports with limits, completeness, and the retention disclosure", async () => {
     const session = seedWebSystemActivityEventForTest("workspace", "ws", "run_completed");
     seedWebSystemActivityEventForTest("workspace", "ws", "run_completed");
+    expect(await webSystemActivityClient.chooseSystemActivityExportTarget("json")).toBe(
+      "/exports/skill-evolution-activity.json",
+    );
     seedWebSystemActivityEventForTest("workspace", "ws", "run_completed");
     const record = await webSystemActivityClient.exportSystemActivity({
       exportId: "export-1",

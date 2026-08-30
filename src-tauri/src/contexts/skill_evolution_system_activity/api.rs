@@ -13,7 +13,7 @@ pub(crate) struct SkillEvolutionSystemActivityApi {
 /// Interactive session commands call this to refuse system activity sessions before touching any
 /// Agent, provider, or terminal state.
 pub(crate) fn is_system_activity_session_id(session_id: &str) -> bool {
-    session_id.starts_with("system-activity-v1-")
+    session_id.starts_with(SYSTEM_ACTIVITY_SESSION_ID_PREFIX)
 }
 
 impl SkillEvolutionSystemActivityApi {

@@ -95,9 +95,7 @@ fn contains_prohibited_key(value: &Value) -> bool {
 }
 
 fn sha256(bytes: &[u8]) -> String {
-    let digest = Sha256::digest(bytes);
-    let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
-    format!("sha256:{hex}")
+    crate::platform::hashing::sha256_tagged(bytes)
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]

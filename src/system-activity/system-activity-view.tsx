@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import { MeasuredVirtualList } from "../components/measured-virtual-list";
 import { formatAppDateTime } from "../i18n/format";
 import { formatActivityUnreadBadge } from "./activity-badge";
 import type { ActivityNavigator } from "./activity-navigation";
@@ -60,12 +61,12 @@ export function SystemActivityView({ onNavigate = () => undefined }: SystemActiv
   }
 
   return (
-    <div className="flex h-full min-h-0 w-full gap-3" data-testid="system-activity-view">
-      <nav aria-label={t("systemActivity.view.sessions")} className="w-56 shrink-0 space-y-1 overflow-y-auto">
+    <div className="grid h-full min-h-0 w-full grid-cols-1 grid-rows-[auto_minmax(0,1fr)_auto] gap-3 xl:grid-cols-[14rem_minmax(0,1fr)_16rem] xl:grid-rows-1" data-testid="system-activity-view">
+      <nav aria-label={t("systemActivity.view.sessions")} className="flex max-h-28 gap-1 overflow-auto xl:block xl:max-h-none xl:space-y-1">
         {model.sessions.filter((session) => session.visible).map((session) => (
           <button
             aria-current={session.sessionId === model.selectedSessionId ? "true" : undefined}
-            className={`flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-left text-xs ${
+            className={`flex min-w-48 items-center gap-2 rounded-md border px-2 py-1.5 text-left text-xs xl:min-w-0 ${
               session.sessionId === model.selectedSessionId
                 ? "border-primary bg-[hsl(var(--nav-active-soft))]"
                 : "border-transparent hover:bg-muted"
@@ -141,18 +142,25 @@ export function SystemActivityView({ onNavigate = () => undefined }: SystemActiv
             {t("systemActivity.view.noItems")}
           </p>
         ) : (
-          <ol className="min-h-0 flex-1 space-y-2 overflow-y-auto" data-testid="system-activity-timeline">
-            {model.entries.map((entry) => (
+          <MeasuredVirtualList
+            ariaLabel={t("systemActivity.view.timeline")}
+            className="min-h-0 flex-1"
+            estimateSize={() => 132}
+            getItemKey={(entry) => entry.envelope.eventId}
+            itemClassName="pb-2"
+            items={model.entries}
+            overscan={6}
+            renderItem={(entry) => (
               <SystemActivityTimelineItem
                 entry={entry}
-                key={entry.envelope.eventId}
                 language={i18n.language}
                 onNavigate={onNavigate}
                 t={t}
                 unread={entry.sequence > effectiveRead}
               />
-            ))}
-          </ol>
+            )}
+            testId="system-activity-timeline"
+          />
         )}
         {model.nextCursor ? (
           <button className="shrink-0 self-center rounded-md border border-border px-3 py-1 text-xs hover:bg-muted" onClick={model.loadMore} type="button">
@@ -160,7 +168,7 @@ export function SystemActivityView({ onNavigate = () => undefined }: SystemActiv
           </button>
         ) : null}
       </section>
-      <aside aria-label={t("systemActivity.view.summary")} className="w-64 shrink-0 space-y-3 overflow-y-auto">
+      <aside aria-label={t("systemActivity.view.summary")} className="max-h-52 space-y-3 overflow-y-auto xl:max-h-none">
         {model.dashboard.length > 0 ? (
           <section aria-label={t("systemActivity.view.dashboard")} className="rounded-lg border border-border p-3" data-testid="system-activity-dashboard">
             <h3 className="text-xs font-semibold">{t("systemActivity.view.dashboard")}</h3>

@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { save } from "@tauri-apps/plugin-dialog";
 import type {
   SystemActivityService,
   SystemActivitySession,
@@ -79,6 +80,13 @@ export const tauriSystemActivityClient: SystemActivityService = {
   },
   async cancelSystemActivityRebuild(rebuildId) {
     await invoke("cancel_system_activity_rebuild", { rebuildId });
+  },
+  chooseSystemActivityExportTarget(format) {
+    const extension = format === "json" ? "json" : "md";
+    return save({
+      defaultPath: `skill-evolution-activity.${extension}`,
+      filters: [{ name: "Skill Evolution Activity", extensions: [extension] }],
+    });
   },
   exportSystemActivity(request) {
     return invoke("export_system_activity", { input: request });

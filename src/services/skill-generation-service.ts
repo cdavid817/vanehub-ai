@@ -191,7 +191,10 @@ export interface RegenerateGenerationInput {
   requestId: string;
 }
 
-export type GenerationNotificationKind = "review_ready" | "attention_required" | "cancelled" | "superseded";
+// Failure attention is not a generation-channel kind: failed jobs reach the user through the
+// orchestration run_attention notification and the durable system-activity notification path,
+// so this union carries only the events the generation channel actually emits.
+export type GenerationNotificationKind = "review_ready" | "cancelled" | "superseded";
 
 export interface GenerationNotificationEvent {
   schemaVersion: 1;

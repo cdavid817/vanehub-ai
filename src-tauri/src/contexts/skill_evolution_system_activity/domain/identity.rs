@@ -3,6 +3,9 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 const GLOBAL_SCOPE_ID: &str = "global";
+/// Namespace prefix of every system activity session id. Interactive session commands refuse ids
+/// carrying it (`SessionId::parse`), and `api::is_system_activity_session_id` publishes the check.
+pub(crate) const SYSTEM_ACTIVITY_SESSION_ID_PREFIX: &str = "system-activity-v1-";
 const ID_NAMESPACE_V1: &str = "vanehub:system-activity-session:v1";
 const GENERATION_NAMESPACE_V1: &str = "vanehub:system-activity-generation:v1";
 const ITEM_NAMESPACE_V1: &str = "vanehub:system-activity-item:v1";
@@ -29,7 +32,10 @@ pub(crate) fn stable_system_activity_session_id(
         ActivityScopeKind::Workspace => canonical_scope_id,
     };
     let input = format!("{ID_NAMESPACE_V1}|{activity_kind:?}|{scope_kind:?}|{scope}");
-    Ok(format!("system-activity-v1-{}", sha256_hex(&input)))
+    Ok(format!(
+        "{SYSTEM_ACTIVITY_SESSION_ID_PREFIX}{}",
+        sha256_hex(&input)
+    ))
 }
 
 pub(crate) fn stable_activity_generation_id(session_id: &str, projection_version: u16) -> String {

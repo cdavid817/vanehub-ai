@@ -43,11 +43,12 @@ export function SystemActivityTimelineItem({ entry, unread, t, language, onNavig
   const statusKey = activityStatusPresentation[envelope.status as ActivityStatus];
   const severityKey = activitySeverityPresentation[envelope.severity as ActivitySeverity];
   return (
-    <li
+    <article
       className="rounded-lg border border-border bg-card p-3"
       data-sequence={entry.sequence}
       data-testid="system-activity-item"
       data-unread={unread ? "true" : "false"}
+      role="listitem"
     >
       <div className="flex items-center gap-2">
         {Icon ? <Icon aria-hidden="true" className={`h-4 w-4 shrink-0 ${severityTone[envelope.severity]}`} /> : null}
@@ -89,6 +90,6 @@ export function SystemActivityTimelineItem({ entry, unread, t, language, onNavig
           })}
         </button>
       ) : null}
-    </li>
+    </article>
   );
 }

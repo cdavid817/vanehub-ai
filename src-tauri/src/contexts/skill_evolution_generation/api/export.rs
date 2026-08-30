@@ -123,8 +123,5 @@ impl SkillEvolutionGenerationApi {
 }
 
 fn hex_hash(content: &[u8]) -> String {
-    Sha256::digest(content)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
+    crate::platform::hashing::sha256_hex(content)
 }

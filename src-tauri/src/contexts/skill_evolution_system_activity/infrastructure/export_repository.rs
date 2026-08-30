@@ -1,10 +1,12 @@
 use std::collections::BTreeMap;
 
 use rusqlite::params;
-use sha2::{Digest, Sha256};
 
 use super::{ActivityProjectionRepositoryError, SqliteActivityProjectionRepository};
 use crate::contexts::skill_evolution_system_activity::domain::*;
+
+mod rendering;
+use rendering::*;
 
 pub(crate) const ACTIVITY_EXPORT_REDACTION_VERSION: &str = "activity-redaction-v1";
 
@@ -142,10 +144,7 @@ impl SqliteActivityProjectionRepository<'_> {
                 .collect::<Vec<_>>(),
         }))
         .map_err(|_| ActivityProjectionRepositoryError::Storage)?;
-        let content_hash = format!(
-            "sha256:{}",
-            hex_bytes(&Sha256::digest(hash_input.as_bytes()))
-        );
+        let content_hash = crate::platform::hashing::sha256_tagged(hash_input.as_bytes());
         let item_count = if complete {
             manifest.item_count
         } else {
@@ -186,150 +185,4 @@ impl SqliteActivityProjectionRepository<'_> {
             content,
         })
     }
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ExportManifest {
-    schema_version: u8,
-    export_id: String,
-    session_id: String,
-    generation_id: String,
-    format: ActivityExportFormat,
-    locale: String,
-    filters: BTreeMap<String, serde_json::Value>,
-    item_count: u32,
-    complete: bool,
-    redaction_version: String,
-    created_at_ms: i64,
-}
-
-fn filters_summary(query: &ActivityTimelineQuery) -> BTreeMap<String, serde_json::Value> {
-    let mut filters = BTreeMap::new();
-    let mut set = |key: &str, value: serde_json::Value| {
-        if !matches!(&value, serde_json::Value::Array(items) if items.is_empty())
-            && !value.is_null()
-        {
-            filters.insert(key.to_owned(), value);
-        }
-    };
-    set(
-        "committedFromMs",
-        serde_json::json!(query.committed_from_ms),
-    );
-    set("committedToMs", serde_json::json!(query.committed_to_ms));
-    set("severities", serde_json::json!(query.severities));
-    set("sourceDomains", serde_json::json!(query.source_domains));
-    set("statuses", serde_json::json!(query.statuses));
-    set("skillId", serde_json::json!(query.skill_id));
-    set("runId", serde_json::json!(query.run_id));
-    set("curatorStates", serde_json::json!(query.curator_states));
-    set("attentionKinds", serde_json::json!(query.attention_kinds));
-    filters
-}
-
-fn render_json(
-    manifest: &ExportManifest,
-    entries: &[ActivityTimelineEntry],
-) -> Result<String, ActivityProjectionRepositoryError> {
-    let items: Vec<serde_json::Value> = entries
-        .iter()
-        .map(|entry| {
-            serde_json::to_value(&entry.envelope).map(|envelope| {
-                serde_json::json!({
-                    "sequence": entry.sequence,
-                    "envelope": envelope,
-                })
-            })
-        })
-        .collect::<Result<_, _>>()
-        .map_err(|_| ActivityProjectionRepositoryError::Storage)?;
-    serde_json::to_string_pretty(&serde_json::json!({
-        "manifest": manifest,
-        "items": items,
-    }))
-    .map_err(|_| ActivityProjectionRepositoryError::Storage)
-}
-
-fn render_markdown(
-    manifest: &ExportManifest,
-    entries: &[ActivityTimelineEntry],
-    locale_labels: &BTreeMap<String, String>,
-) -> String {
-    let mut lines = Vec::new();
-    lines.push("# Skill Evolution Activity Export".to_owned());
-    lines.push(String::new());
-    lines.push(format!("- export: `{}`", manifest.export_id));
-    lines.push(format!("- session: `{}`", manifest.session_id));
-    lines.push(format!("- generation: `{}`", manifest.generation_id));
-    lines.push(format!("- locale: `{}`", manifest.locale));
-    lines.push(format!("- items: {}", manifest.item_count));
-    lines.push(format!("- complete: {}", manifest.complete));
-    lines.push(format!("- redaction: `{}`", manifest.redaction_version));
-    for entry in entries {
-        let envelope = &entry.envelope;
-        let code = envelope_code_text(envelope);
-        let title = locale_labels.get(&code).cloned().unwrap_or_else(|| {
-            // Documented fallback: the safe code stays visible for diagnosis when a locale
-            // string is missing, and the persisted envelope is never rewritten.
-            code.clone()
-        });
-        lines.push(String::new());
-        lines.push(format!("## {}. {title}", entry.sequence));
-        lines.push(format!(
-            "- code: `{code}` · severity: `{severity}` · status: `{status}`",
-            severity = enum_text(envelope.severity).unwrap_or_default(),
-            status = enum_text(envelope.status).unwrap_or_default(),
-        ));
-        lines.push(format!(
-            "- source: `{}` `{}` rev `{}` · committed at {}",
-            envelope.source_domain,
-            envelope.source_id,
-            envelope.source_revision,
-            envelope.committed_at_ms,
-        ));
-        if !envelope.reason_codes.is_empty() {
-            let reasons: Vec<String> = envelope
-                .reason_codes
-                .iter()
-                .filter_map(|reason| enum_text(*reason).ok())
-                .collect();
-            lines.push(format!("- reasons: `{}`", reasons.join("`, `")));
-        }
-    }
-    lines.push(String::new());
-    lines.join("\n")
-}
-
-fn envelope_code_text(envelope: &EvolutionActivityEnvelopeV1) -> String {
-    enum_text(envelope.event_code).unwrap_or_default()
-}
-
-fn count_rendered_items(content: &str, format: ActivityExportFormat) -> u32 {
-    match format {
-        ActivityExportFormat::Json => serde_json::from_str::<serde_json::Value>(content)
-            .ok()
-            .and_then(|value| {
-                value
-                    .get("items")
-                    .and_then(|items| items.as_array().map(Vec::len))
-            })
-            .unwrap_or(0) as u32,
-        ActivityExportFormat::Markdown => content
-            .lines()
-            .filter(|line| line.starts_with("## "))
-            .count() as u32,
-    }
-}
-
-fn enum_text(value: impl serde::Serialize) -> Result<String, ActivityProjectionRepositoryError> {
-    serde_json::to_value(value)
-        .map_err(|_| ActivityProjectionRepositoryError::Storage)?
-        .as_str()
-        .map(str::to_owned)
-        .ok_or(ActivityProjectionRepositoryError::Storage)
-}
-
-fn hex_bytes(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }

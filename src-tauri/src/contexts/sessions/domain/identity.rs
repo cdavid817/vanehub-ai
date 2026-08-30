@@ -77,5 +77,12 @@ mod tests {
             SessionId::parse("system-activity-v1-abcdef"),
             Err(SessionsDomainError::SystemActivitySessionRefused)
         );
+        // The literal here must stay in step with the system activity context's namespace; the
+        // domain layer cannot import another context, so the agreement is asserted instead.
+        assert!(
+            crate::contexts::skill_evolution_system_activity::api::is_system_activity_session_id(
+                "system-activity-v1-abcdef"
+            )
+        );
     }
 }

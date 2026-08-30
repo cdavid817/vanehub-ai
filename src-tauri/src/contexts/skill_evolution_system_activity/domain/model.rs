@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+mod event_codes;
+
 pub(crate) const ACTIVITY_SCHEMA_VERSION_V1: u16 = 1;
 pub(crate) const MAX_ENVELOPE_BYTES: usize = 16 * 1024;
 pub(crate) const MAX_PAYLOAD_BYTES: usize = 8 * 1024;
@@ -119,46 +121,6 @@ activity_enum!(ActivityEventCode {
     RetentionApplied,
     SourcePurged
 });
-impl ActivityEventCode {
-    /// Every registered event code, for safe alias search over the closed registry.
-    pub(crate) const ALL: &'static [Self] = &[
-        Self::RunStarted,
-        Self::RunCompleted,
-        Self::RunFailed,
-        Self::StageStarted,
-        Self::StageCompleted,
-        Self::StageFailed,
-        Self::EvidenceReady,
-        Self::SeedReady,
-        Self::AssessmentCompleted,
-        Self::AssessmentNeedsReview,
-        Self::GenerationStarted,
-        Self::GenerationCompleted,
-        Self::GenerationFailed,
-        Self::DossierCompleted,
-        Self::CuratorQueued,
-        Self::CuratorApproved,
-        Self::CuratorRejected,
-        Self::CuratorDeferred,
-        Self::OverlayPreviewed,
-        Self::OverlayApplied,
-        Self::OverlayReverted,
-        Self::AutomaticEligible,
-        Self::AutomaticApplied,
-        Self::AutomaticBlocked,
-        Self::ProbationStarted,
-        Self::ProbationPassed,
-        Self::ProbationRegressed,
-        Self::BreakerOpened,
-        Self::BreakerClosed,
-        Self::SkillCreated,
-        Self::RecoveryCompleted,
-        Self::ReconciliationFailed,
-        Self::RetentionApplied,
-        Self::SourcePurged,
-    ];
-}
-
 activity_enum!(ActivitySafeIdentityKind {
     Workspace,
     Skill,

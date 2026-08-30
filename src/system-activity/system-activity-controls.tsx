@@ -2,11 +2,11 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { agentService } from "../services/runtime-agent-client";
 import type {
-  ActivityDigestCadence,
   SystemActivityExportFormat,
   SystemActivityPreferences,
   SystemActivitySession,
 } from "../services/system-activity-service";
+import { SystemActivityPreferencesPanel } from "./system-activity-preferences";
 
 function defaultPreferences(session: SystemActivitySession): SystemActivityPreferences {
   return {
@@ -123,46 +123,22 @@ export function SystemActivityControls({ session, onChanged }: SystemActivityCon
     }
   };
 
+  const chooseExportPath = async () => {
+    try {
+      const selected = await agentService.chooseSystemActivityExportTarget(exportFormat);
+      if (selected) setExportPath(selected);
+    } catch (error) {
+      report(error instanceof Error ? error.message : String(error));
+    }
+  };
+
   return (
     <section aria-label={t("systemActivity.view.controls")} className="space-y-3 rounded-lg border border-border p-3">
       {preferences ? (
-        <div className="space-y-2 text-xs" data-testid="system-activity-preferences">
-          <label className="flex items-center gap-2">
-            <input
-              checked={preferences.visible}
-              onChange={(event) => void savePreferences({ ...preferences, visible: event.target.checked })}
-              type="checkbox"
-            />
-            {t("systemActivity.view.preferenceVisible")}
-          </label>
-          <label className="flex items-center justify-between gap-2">
-            {t("systemActivity.view.preferenceDigest")}
-            <select
-              className="rounded-md border border-border bg-background px-1 py-0.5"
-              onChange={(event) => void savePreferences({ ...preferences, digestCadence: event.target.value as ActivityDigestCadence })}
-              value={preferences.digestCadence}
-            >
-              <option value="off">{t("systemActivity.view.digestOff")}</option>
-              <option value="hourly">{t("systemActivity.view.digestHourly")}</option>
-              <option value="daily">{t("systemActivity.view.digestDaily")}</option>
-            </select>
-          </label>
-          <label className="flex items-center justify-between gap-2">
-            {t("systemActivity.view.preferenceRetention")}
-            <input
-              className="w-16 rounded-md border border-border bg-background px-1 py-0.5"
-              max={365}
-              min={30}
-              onChange={(event) => {
-                const days = Number.parseInt(event.target.value, 10);
-                if (Number.isNaN(days) || days < 30 || days > 365) return;
-                void savePreferences({ ...preferences, detailRetentionDays: days });
-              }}
-              type="number"
-              value={preferences.detailRetentionDays}
-            />
-          </label>
-        </div>
+        <SystemActivityPreferencesPanel
+          onSave={(next) => void savePreferences(next)}
+          preferences={preferences}
+        />
       ) : null}
       <div className="flex items-center gap-2">
         <button
@@ -178,12 +154,21 @@ export function SystemActivityControls({ session, onChanged }: SystemActivityCon
         <label className="block text-xs text-muted-foreground" htmlFor="system-activity-export-path">
           {t("systemActivity.view.exportPath")}
         </label>
-        <input
-          className="w-full rounded-md border border-border bg-background px-2 py-1 text-xs"
-          id="system-activity-export-path"
-          onChange={(event) => setExportPath(event.target.value)}
-          value={exportPath}
-        />
+        <div className="flex gap-2">
+          <input
+            className="min-w-0 flex-1 rounded-md border border-border bg-muted px-2 py-1 text-xs"
+            id="system-activity-export-path"
+            readOnly
+            value={exportPath}
+          />
+          <button
+            className="rounded-md border border-border px-2 py-1 text-xs hover:bg-muted"
+            onClick={() => void chooseExportPath()}
+            type="button"
+          >
+            {t("systemActivity.view.exportChoose")}
+          </button>
+        </div>
         <div className="flex items-center gap-2">
           <select
             aria-label={t("systemActivity.view.exportFormat")}

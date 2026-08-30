@@ -226,6 +226,5 @@ fn hash_text(value: &str) -> String {
     hash_bytes(value.as_bytes())
 }
 fn hash_bytes(value: &[u8]) -> String {
-    let digest = Sha256::digest(value);
-    digest.iter().map(|byte| format!("{byte:02x}")).collect()
+    crate::platform::hashing::sha256_hex(value)
 }

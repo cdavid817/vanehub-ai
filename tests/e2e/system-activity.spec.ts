@@ -65,7 +65,8 @@ test("switches sessions, shows global scope, and simulates rebuild and export", 
     "Rebuild completed and activated.",
   );
 
-  await page.getByLabel("Export file path").fill("/exports/activity.json");
+  await page.getByRole("button", { name: "Choose location" }).click();
+  await expect(page.getByLabel("Export file path")).toHaveValue("/exports/skill-evolution-activity.json");
   await page.getByTestId("system-activity-export").click();
   await expect(page.getByTestId("system-activity-controls-message")).toContainText("Exported 1 item");
   await expect(page.getByText("Exported files live outside the app's automatic retention.")).toBeVisible();

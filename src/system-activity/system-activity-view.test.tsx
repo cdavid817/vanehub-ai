@@ -2,7 +2,8 @@
 
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it } from "vitest";
+import type { ReactNode } from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { activateAppLanguage } from "../i18n";
 import { renderWithAppProviders } from "../test/render";
 import {
@@ -10,6 +11,18 @@ import {
   seedWebSystemActivityEventForTest,
 } from "../services/web-system-activity-state";
 import { SystemActivityView } from "./system-activity-view";
+
+vi.mock("../components/measured-virtual-list", () => ({
+  MeasuredVirtualList: <T,>({ items, renderItem, testId }: {
+    items: readonly T[];
+    renderItem: (item: T, index: number) => ReactNode;
+    testId?: string;
+  }) => (
+    <div data-testid={testId} data-virtual-count={items.length} role="list">
+      {items.map(renderItem)}
+    </div>
+  ),
+}));
 
 describe("SystemActivityView", () => {
   beforeEach(async () => {
@@ -32,6 +45,7 @@ describe("SystemActivityView", () => {
     await waitFor(() => {
       expect(screen.getAllByTestId("system-activity-item")).toHaveLength(2);
     });
+    expect(screen.getByTestId("system-activity-timeline").dataset.virtualCount).toBe("2");
     // Localized at render time from the locale-neutral event code.
     expect(screen.getByText("运行已完成")).toBeTruthy();
     expect(screen.getByText("熔断器已打开")).toBeTruthy();

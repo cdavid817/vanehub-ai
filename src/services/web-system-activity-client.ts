@@ -180,6 +180,9 @@ export const webSystemActivityClient: SystemActivityService = {
     if (!rebuild || rebuild.status === "active") throw new Error("system-activity-conflict");
     rebuild.status = "cancelled";
   },
+  async chooseSystemActivityExportTarget(format) {
+    return `/exports/skill-evolution-activity.${format === "json" ? "json" : "md"}`;
+  },
   async exportSystemActivity(request) {
     const result = await webSystemActivityClient.querySystemActivityTimeline(request.query);
     if (result.kind !== "page") throw new Error("system-activity-conflict");

@@ -5,6 +5,9 @@ use super::{
 };
 use crate::contexts::skill_evolution_system_activity::domain::*;
 
+mod policy;
+use policy::*;
+
 const DAY_MS: i64 = 86_400_000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,19 +49,35 @@ impl SqliteActivityProjectionRepository<'_> {
         let preserved_mandatory_items = mandatory_item_count(&transaction, session_id, cutoff)?;
         let mut removed_items = 0_u64;
         let mut redacted_payloads = 0_u64;
-        for event_id in &removable {
+        // Set-based per chunk rather than per-row: retention regularly walks thousands of
+        // expired items, and one statement per id turns a single sweep into an N+1 storm.
+        for chunk in removable.chunks(IN_CHUNK) {
+            let marks = placeholders(chunk.len());
+            let mut values: Vec<&dyn rusqlite::ToSql> = vec![&session_id];
+            values.extend(chunk.iter().map(|id| id as &dyn rusqlite::ToSql));
             removed_items += transaction.execute(
-                "DELETE FROM evolution_activity_items WHERE session_id=?1 AND event_id=?2",
-                params![session_id, event_id],
+                &format!(
+                    "DELETE FROM evolution_activity_items
+                     WHERE session_id=?1 AND event_id IN ({marks})"
+                ),
+                &values[..],
             )? as u64;
+            let ids: Vec<&dyn rusqlite::ToSql> =
+                chunk.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
             redacted_payloads += transaction.execute(
-                "UPDATE evolution_activity_envelopes SET payload_json=NULL
-                 WHERE event_id=?1 AND payload_json IS NOT NULL",
-                [event_id],
+                &format!(
+                    "UPDATE evolution_activity_envelopes SET payload_json=NULL
+                     WHERE payload_json IS NOT NULL AND event_id IN ({marks_first})",
+                    marks_first = placeholders_from(0, chunk.len()),
+                ),
+                &ids[..],
             )? as u64;
             transaction.execute(
-                "DELETE FROM evolution_activity_safe_identities WHERE event_id=?1",
-                [event_id],
+                &format!(
+                    "DELETE FROM evolution_activity_safe_identities WHERE event_id IN ({marks_first})",
+                    marks_first = placeholders_from(0, chunk.len()),
+                ),
+                &ids[..],
             )?;
         }
         refresh_session_summary(&transaction, session_id)?;
@@ -81,31 +100,58 @@ impl SqliteActivityProjectionRepository<'_> {
         let events = affected_source_events(&transaction, source_domain, source_id)?;
         let mut removed_detail_items = 0_u64;
         let mut preserved_tombstones = 0_u64;
+        let mut all_ids: Vec<String> = Vec::with_capacity(events.len());
+        let mut removable_ids: Vec<String> = Vec::new();
         for (event_id, event_code) in events {
-            transaction.execute(
-                "INSERT OR IGNORE INTO evolution_activity_purge_tombstones
-                 (event_id,purged_source_domain,purged_source_id,detail_unavailable_reason,purged_at_ms)
-                 VALUES (?1,?2,?3,'source_purged',?4)",
-                params![event_id, source_domain.as_str(), source_id, purged_at_ms],
-            )?;
             if preserves_committed_outcome(&event_code) {
                 preserved_tombstones += 1;
             } else {
-                removed_detail_items += transaction.execute(
-                    "DELETE FROM evolution_activity_items WHERE event_id=?1",
-                    [&event_id],
-                )? as u64;
+                removable_ids.push(event_id.clone());
             }
+            all_ids.push(event_id);
+        }
+        let domain_text = source_domain.as_str();
+        for chunk in all_ids.chunks(IN_CHUNK) {
+            let marks = placeholders_from(3, chunk.len());
+            let mut values: Vec<&dyn rusqlite::ToSql> =
+                vec![&domain_text, &source_id, &purged_at_ms];
+            values.extend(chunk.iter().map(|id| id as &dyn rusqlite::ToSql));
             transaction.execute(
-                "UPDATE evolution_activity_envelopes SET payload_json=NULL
-                 WHERE event_id=?1",
-                [&event_id],
+                &format!(
+                    "INSERT OR IGNORE INTO evolution_activity_purge_tombstones
+                     (event_id,purged_source_domain,purged_source_id,detail_unavailable_reason,
+                      purged_at_ms)
+                     SELECT event_id,?1,?2,'source_purged',?3 FROM evolution_activity_envelopes
+                     WHERE event_id IN ({marks})"
+                ),
+                &values[..],
+            )?;
+            let ids: Vec<&dyn rusqlite::ToSql> =
+                chunk.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
+            let plain = placeholders_from(0, chunk.len());
+            transaction.execute(
+                &format!(
+                    "UPDATE evolution_activity_envelopes SET payload_json=NULL
+                     WHERE event_id IN ({plain})"
+                ),
+                &ids[..],
             )?;
             transaction.execute(
-                "DELETE FROM evolution_activity_safe_identities
-                 WHERE event_id=?1 AND identity_kind NOT IN ('skill','application')",
-                [&event_id],
+                &format!(
+                    "DELETE FROM evolution_activity_safe_identities
+                     WHERE identity_kind NOT IN ('skill','application') AND event_id IN ({plain})"
+                ),
+                &ids[..],
             )?;
+        }
+        for chunk in removable_ids.chunks(IN_CHUNK) {
+            let plain = placeholders_from(0, chunk.len());
+            let ids: Vec<&dyn rusqlite::ToSql> =
+                chunk.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
+            removed_detail_items += transaction.execute(
+                &format!("DELETE FROM evolution_activity_items WHERE event_id IN ({plain})"),
+                &ids[..],
+            )? as u64;
         }
         refresh_all_session_summaries(&transaction)?;
         transaction.commit()?;
@@ -114,6 +160,21 @@ impl SqliteActivityProjectionRepository<'_> {
             preserved_tombstones,
         })
     }
+}
+
+/// SQLite's host-parameter ceiling is generous, but chunking keeps statements bounded and plans
+/// cacheable regardless of how many rows a sweep touches.
+const IN_CHUNK: usize = 500;
+
+fn placeholders(count: usize) -> String {
+    placeholders_from(1, count)
+}
+
+fn placeholders_from(offset: usize, count: usize) -> String {
+    (0..count)
+        .map(|index| format!("?{}", offset + index + 1))
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 fn removable_event_ids(
@@ -168,30 +229,6 @@ fn affected_source_events(
         |row| Ok((row.get(0)?, row.get(1)?)),
     )?;
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
-}
-
-fn source_identity_kind(domain: EvolutionSourceDomain) -> Option<&'static str> {
-    match domain {
-        EvolutionSourceDomain::Orchestration => Some("run"),
-        EvolutionSourceDomain::Evidence => Some("evidence"),
-        EvolutionSourceDomain::Assessment => Some("assessment"),
-        EvolutionSourceDomain::Generation => Some("generation_job"),
-        EvolutionSourceDomain::Curator => Some("curator_candidate"),
-        EvolutionSourceDomain::Probation => Some("probation"),
-        EvolutionSourceDomain::Breaker => Some("breaker"),
-        EvolutionSourceDomain::SkillCreation => Some("skill"),
-        EvolutionSourceDomain::Overlay
-        | EvolutionSourceDomain::AutomaticApplication
-        | EvolutionSourceDomain::Recovery
-        | EvolutionSourceDomain::Retention => None,
-    }
-}
-
-fn preserves_committed_outcome(event_code: &str) -> bool {
-    matches!(
-        event_code,
-        "overlay_applied" | "automatic_applied" | "skill_created" | "source_purged"
-    )
 }
 
 fn refresh_all_session_summaries(
