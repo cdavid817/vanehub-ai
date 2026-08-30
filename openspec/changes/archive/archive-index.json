@@ -3585,6 +3585,38 @@
         "unified-log-management",
         "usage-statistics"
       ]
+    },
+    {
+      "archivedOn": "2026-08-30",
+      "changeName": "add-skill-evolution-system-sessions-and-result-projection",
+      "path": "openspec/changes/archive/2026-08-30-add-skill-evolution-system-sessions-and-result-projection/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "chat-experience",
+        "notification-system",
+        "session-management",
+        "settings-skill-management-ui",
+        "skill-evolution-system-activity",
+        "skill-management"
+      ]
+    },
+    {
+      "archivedOn": "2026-08-30",
+      "changeName": "fix-agent-evaluation-webdriverio",
+      "path": "openspec/changes/archive/2026-08-30-fix-agent-evaluation-webdriverio/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "agent-evaluation",
+        "desktop-runtime-verification"
+      ]
     }
   ]
 }
