@@ -5135,5 +5135,9 @@
   "workbenchUi.evidence.unavailable": "사용할 수 없음",
   "workbenchUi.evidence.restricted": "권한 없음",
   "workbenchUi.evidence.copy": "링크 복사",
-  "workbenchUi.evidence.copied": "링크가 복사되었습니다"
+  "workbenchUi.evidence.copied": "링크가 복사되었습니다",
+  "workbenchUi.draftBar.save": "저장",
+  "workbenchUi.draftBar.discard": "취소",
+  "workbenchUi.draftBar.unsavedChanges_one": "저장되지 않은 변경 사항 {{count, number}}개",
+  "workbenchUi.draftBar.unsavedChanges_other": "저장되지 않은 변경 사항 {{count, number}}개"
 }

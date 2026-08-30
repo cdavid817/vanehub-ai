@@ -5135,5 +5135,9 @@
   "workbenchUi.evidence.unavailable": "不可用",
   "workbenchUi.evidence.restricted": "无权限",
   "workbenchUi.evidence.copy": "复制链接",
-  "workbenchUi.evidence.copied": "链接已复制"
+  "workbenchUi.evidence.copied": "链接已复制",
+  "workbenchUi.draftBar.save": "保存",
+  "workbenchUi.draftBar.discard": "放弃",
+  "workbenchUi.draftBar.unsavedChanges_one": "{{count, number}} 项未保存的更改",
+  "workbenchUi.draftBar.unsavedChanges_other": "{{count, number}} 项未保存的更改"
 }

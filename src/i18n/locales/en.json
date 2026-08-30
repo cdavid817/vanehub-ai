@@ -5135,5 +5135,9 @@
   "workbenchUi.evidence.unavailable": "Not available",
   "workbenchUi.evidence.restricted": "Restricted",
   "workbenchUi.evidence.copy": "Copy link",
-  "workbenchUi.evidence.copied": "Link copied"
+  "workbenchUi.evidence.copied": "Link copied",
+  "workbenchUi.draftBar.save": "Save",
+  "workbenchUi.draftBar.discard": "Discard",
+  "workbenchUi.draftBar.unsavedChanges_one": "{{count, number}} unsaved change",
+  "workbenchUi.draftBar.unsavedChanges_other": "{{count, number}} unsaved changes"
 }

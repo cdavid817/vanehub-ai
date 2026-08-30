@@ -5135,5 +5135,9 @@
   "workbenchUi.evidence.unavailable": "無法使用",
   "workbenchUi.evidence.restricted": "權限不足",
   "workbenchUi.evidence.copy": "複製連結",
-  "workbenchUi.evidence.copied": "連結已複製"
+  "workbenchUi.evidence.copied": "連結已複製",
+  "workbenchUi.draftBar.save": "儲存",
+  "workbenchUi.draftBar.discard": "放棄",
+  "workbenchUi.draftBar.unsavedChanges_one": "{{count, number}} 項未儲存的變更",
+  "workbenchUi.draftBar.unsavedChanges_other": "{{count, number}} 項未儲存的變更"
 }

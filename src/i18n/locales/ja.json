@@ -5135,5 +5135,9 @@
   "workbenchUi.evidence.unavailable": "利用できません",
   "workbenchUi.evidence.restricted": "権限がありません",
   "workbenchUi.evidence.copy": "リンクをコピー",
-  "workbenchUi.evidence.copied": "リンクをコピーしました"
+  "workbenchUi.evidence.copied": "リンクをコピーしました",
+  "workbenchUi.draftBar.save": "保存",
+  "workbenchUi.draftBar.discard": "破棄",
+  "workbenchUi.draftBar.unsavedChanges_one": "未保存の変更が {{count, number}} 件あります",
+  "workbenchUi.draftBar.unsavedChanges_other": "未保存の変更が {{count, number}} 件あります"
 }
