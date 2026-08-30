@@ -18,6 +18,7 @@ interface NotificationContextValue {
   unreadCount: number;
   notify: (input: NotificationInput) => string;
   markRead: (id: string) => void;
+  activate: (id: string) => void;
   markAllRead: () => void;
   remove: (id: string) => void;
   clear: () => void;
@@ -38,7 +39,13 @@ function nextNotificationId(createdAt: number) {
   return `notification-${createdAt}-${nextNotificationSequence}`;
 }
 
-export function NotificationProvider({ children }: { children: ReactNode }) {
+export function NotificationProvider({
+  children,
+  onNavigate,
+}: {
+  children: ReactNode;
+  onNavigate?: (path: string) => void;
+}) {
   const [notifications, dispatch] = useReducer(notificationReducer, []);
 
   const notify = useCallback((input: NotificationInput) => {
@@ -60,6 +67,11 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   const markRead = useCallback((id: string) => {
     dispatch({ type: "read", id });
   }, []);
+  const activate = useCallback((id: string) => {
+    dispatch({ type: "read", id });
+    const path = notifications.find((item) => item.id === id)?.navigation?.path;
+    if (path) onNavigate?.(path);
+  }, [notifications, onNavigate]);
   const markAllRead = useCallback(() => {
     dispatch({ type: "all-read" });
   }, []);
@@ -75,12 +87,14 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       notifications,
       unreadCount: notifications.filter((item) => !item.read).length,
       notify,
+      activate,
       markRead,
       markAllRead,
       remove,
       clear,
     }),
     [
+      activate,
       clear,
       markAllRead,
       markRead,

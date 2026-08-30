@@ -59,7 +59,7 @@ pub(crate) use code_intelligence::{
 pub(crate) use communications::{assemble_communications, CommunicationsDependencies};
 pub(crate) use desktop::{
     assemble_desktop_lifecycle_api, assemble_desktop_settings_api, assemble_floating_assistant_api,
-    initialize_desktop_runtime,
+    initialize_desktop_runtime, DesktopLifecycleDependencies,
 };
 pub(crate) use evidence_bridge::{start_evidence_bridge, EvidenceBridgeShutdown};
 pub(crate) use execution_observability::{

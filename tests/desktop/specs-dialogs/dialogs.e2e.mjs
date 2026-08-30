@@ -23,7 +23,6 @@ globalThis.describe("VaneHub AI desktop dialogs", () => {
     const folder = await createWorkspaceFolder("vanehub-dialog-");
 
     const opener = await createSessionButton();
-    await opener.waitForClickable({ timeout: 30000 });
     await opener.click();
 
     const created = await dialog();
@@ -62,7 +61,6 @@ globalThis.describe("VaneHub AI desktop dialogs", () => {
     const before = await globalThis.browser.tauri.execute(({ core }) => core.invoke("list_sessions"));
 
     const opener = await createSessionButton();
-    await opener.waitForClickable({ timeout: 30000 });
     await opener.click();
     const open = await dialog();
     await open.waitForExist({ timeout: 20000 });

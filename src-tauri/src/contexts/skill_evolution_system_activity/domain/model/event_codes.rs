@@ -1,0 +1,41 @@
+use super::ActivityEventCode;
+
+impl ActivityEventCode {
+    /// Every registered event code, for safe alias search over the closed registry.
+    pub(crate) const ALL: &'static [Self] = &[
+        Self::RunStarted,
+        Self::RunCompleted,
+        Self::RunFailed,
+        Self::StageStarted,
+        Self::StageCompleted,
+        Self::StageFailed,
+        Self::EvidenceReady,
+        Self::SeedReady,
+        Self::AssessmentCompleted,
+        Self::AssessmentNeedsReview,
+        Self::GenerationStarted,
+        Self::GenerationCompleted,
+        Self::GenerationFailed,
+        Self::DossierCompleted,
+        Self::CuratorQueued,
+        Self::CuratorApproved,
+        Self::CuratorRejected,
+        Self::CuratorDeferred,
+        Self::OverlayPreviewed,
+        Self::OverlayApplied,
+        Self::OverlayReverted,
+        Self::AutomaticEligible,
+        Self::AutomaticApplied,
+        Self::AutomaticBlocked,
+        Self::ProbationStarted,
+        Self::ProbationPassed,
+        Self::ProbationRegressed,
+        Self::BreakerOpened,
+        Self::BreakerClosed,
+        Self::SkillCreated,
+        Self::RecoveryCompleted,
+        Self::ReconciliationFailed,
+        Self::RetentionApplied,
+        Self::SourcePurged,
+    ];
+}

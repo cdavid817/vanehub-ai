@@ -40,7 +40,9 @@ pub(crate) use super::application::{
     SaveCustomOnePieceProviderProfileInput, SaveLoopDefinitionRequest,
     SaveOnePieceProviderConfigInput, SaveOnePieceProviderProfileInput, SendMessageRequest,
     StartLoopResultView, StartedAgentMessage, StopAgentTerminalRequest, StopGenerationResult,
-    StoredEndpointProfileMetadata, StoredHybridRoutingRule, ToolApprovalDecision,
+    StoredEndpointProfileMetadata, StoredHybridRoutingRule, StructuredModelEvaluationError,
+    StructuredModelEvaluationRequest, StructuredModelEvaluationResult,
+    StructuredModelEvaluationService, StructuredModelPurpose, ToolApprovalDecision,
     UpdateApiAgentInput, ValidateOnePieceProviderCredentialInput, WorkflowView,
 };
 
@@ -113,6 +115,7 @@ pub(crate) struct AgentRuntimeApiServices {
     pub(crate) browser_handoff: Option<std::sync::Arc<dyn BrowserHandoffControlPort>>,
     pub(crate) manual_native_tools: ManualNativeToolControl,
     pub(crate) local_discovery: LocalModelDiscoveryService,
+    pub(crate) structured_evaluation: StructuredModelEvaluationService,
 }
 
 #[derive(Clone)]
@@ -136,6 +139,7 @@ pub(crate) struct AgentRuntimeApi {
     browser_handoff: Option<std::sync::Arc<dyn BrowserHandoffControlPort>>,
     manual_native_tools: ManualNativeToolControl,
     local_discovery: LocalModelDiscoveryService,
+    structured_evaluation: StructuredModelEvaluationService,
 }
 
 impl AgentRuntimeApi {
@@ -156,6 +160,7 @@ impl AgentRuntimeApi {
             browser_handoff,
             manual_native_tools,
             local_discovery,
+            structured_evaluation,
         } = services;
         Self {
             service,
@@ -173,7 +178,15 @@ impl AgentRuntimeApi {
             browser_handoff,
             manual_native_tools,
             local_discovery,
+            structured_evaluation,
         }
+    }
+
+    pub(crate) fn evaluate_structured_model(
+        &self,
+        request: StructuredModelEvaluationRequest,
+    ) -> Result<StructuredModelEvaluationResult, StructuredModelEvaluationError> {
+        self.structured_evaluation.evaluate(request)
     }
 
     pub(crate) fn list_context_quality_history(

@@ -17,15 +17,21 @@ import { SkillDetailsSurface } from "./skills/skill-details-surface";
 import { SkillDriftBanner } from "./skills/skill-drift-banner";
 import { SkillFilterToolbar } from "./skills/skill-filter-toolbar";
 import { SkillInventorySummary } from "./skills/skill-inventory-summary";
+import { SkillCuratorWorkspace } from "./skills/skill-curator-workspace";
+import { SkillGenerationWorkspace } from "./skills/skill-generation-workspace";
+import { SkillEvolutionOrchestrationWorkspace } from "./skills/skill-evolution-orchestration-workspace";
 import { useSkillManagement } from "./skills/use-skill-management";
+import type { SettingsNavigationTarget } from "../settings-pages";
 
 const globalScope: SkillScopeInput = { scope: "global", workspacePath: null };
 const defaultFilters: SkillInventoryFilters = { category: "all", query: "", source: "all", status: "all", sort: "name" };
 
-export function SkillsPage({ searchTerm }: { searchTerm: string }) {
+export function SkillsPage({ searchTerm, navigationTarget }: { searchTerm: string; navigationTarget?: SettingsNavigationTarget | null }) {
   const { t } = useTranslation();
   const manager = useSkillManagement(globalScope);
   const [view, setView] = useState<SkillInventoryView>({ kind: "all" });
+  const [workspaceView, setWorkspaceView] = useState<"inventory" | "curator" | "generation" | "orchestration">(navigationTarget?.evolutionWorkspaceId ? "orchestration" : navigationTarget?.generationWorkspaceId ? "generation" : navigationTarget?.curatorWorkspaceId ? "curator" : "inventory");
+  const [curatorWorkspaceOverride, setCuratorWorkspaceOverride] = useState<string | undefined>();
   const [filters, setFilters] = useState<SkillInventoryFilters>(defaultFilters);
   const [mountDrafts, setMountDrafts] = useState<Record<string, string>>({});
   const [selectedSkillKey, setSelectedSkillKey] = useState<string | null>(null);
@@ -64,6 +70,13 @@ export function SkillsPage({ searchTerm }: { searchTerm: string }) {
       setDetailsReturnFocus(null);
     }
   }, [selectedSkill, selectedSkillKey]);
+  useEffect(() => {
+    if (!navigationTarget?.overlaySkillId || !overview) return;
+    const target = effectiveSkillInventory(overview.skills).find((skill) => skill.id === navigationTarget.overlaySkillId);
+    if (!target) return;
+    setWorkspaceView("inventory");
+    setSelectedSkillKey(skillIdentity(target));
+  }, [navigationTarget?.overlaySkillId, overview]);
   const activeMigration = activeAgent && mountMutation.data?.agentId === activeAgent.id ? mountMutation.data : null;
   const mountError = activeAgent && mountMutation.variables?.agentId === activeAgent.id ? mountMutation.error?.message ?? null : null;
   const filtered = Boolean(effectiveFilters.query || filters.category !== "all" || filters.source !== "all" || filters.status !== "all");
@@ -71,6 +84,8 @@ export function SkillsPage({ searchTerm }: { searchTerm: string }) {
 
   return <div className="space-y-4">
     <PageHeader actions={<><Button onClick={() => manager.setDialog({ mode: "restore", skill: null, preview: null })} variant="outline"><RotateCcw />{t("skills.restoreBuiltIn")}</Button><Button onClick={() => manager.setDialog({ mode: "import", skill: null, preview: null })} variant="outline"><Upload />{t("skills.importSkill")}</Button><Button onClick={() => manager.setDialog({ mode: "create", skill: null, preview: null })}><Plus />{t("skills.createSkill")}</Button></>} description={t("skills.descriptionGlobal")} icon={Puzzle} title={t("skills.title")} />
+    <div aria-label={t("skills.workspacePicker")} className="flex max-w-full gap-1 overflow-x-auto rounded-lg border border-border bg-muted/30 p-1" role="tablist"><button aria-selected={workspaceView === "inventory"} className={`shrink-0 rounded-md px-3 py-1.5 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${workspaceView === "inventory" ? "bg-background shadow-sm" : "text-muted-foreground"}`} onClick={() => setWorkspaceView("inventory")} role="tab" type="button">{t("skills.inventoryWorkspace")}</button><button aria-selected={workspaceView === "generation"} className={`shrink-0 rounded-md px-3 py-1.5 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${workspaceView === "generation" ? "bg-background shadow-sm" : "text-muted-foreground"}`} onClick={() => setWorkspaceView("generation")} role="tab" type="button">{t("skills.generation.title")}</button><button aria-selected={workspaceView === "orchestration"} className={`shrink-0 rounded-md px-3 py-1.5 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${workspaceView === "orchestration" ? "bg-background shadow-sm" : "text-muted-foreground"}`} onClick={() => setWorkspaceView("orchestration")} role="tab" type="button">{t("skills.evolution.orchestrationTitle")}</button><button aria-selected={workspaceView === "curator"} className={`shrink-0 rounded-md px-3 py-1.5 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${workspaceView === "curator" ? "bg-background shadow-sm" : "text-muted-foreground"}`} onClick={() => setWorkspaceView("curator")} role="tab" type="button">{t("skills.curator.title")}</button></div>
+    {workspaceView === "curator" ? <SkillCuratorWorkspace initialCandidateId={navigationTarget?.curatorCandidateId} initialWorkspaceId={curatorWorkspaceOverride ?? navigationTarget?.curatorWorkspaceId ?? navigationTarget?.generationWorkspaceId ?? navigationTarget?.evolutionWorkspaceId} /> : workspaceView === "generation" ? <SkillGenerationWorkspace initialJobId={navigationTarget?.generationJobId} initialWorkspaceId={navigationTarget?.generationWorkspaceId} onOpenCurator={(workspaceId) => { setCuratorWorkspaceOverride(workspaceId); setWorkspaceView("curator"); }} /> : workspaceView === "orchestration" ? <SkillEvolutionOrchestrationWorkspace initial={{ applicationId: navigationTarget?.evolutionApplicationId, breakerId: navigationTarget?.evolutionBreakerId, probationId: navigationTarget?.evolutionProbationId, runId: navigationTarget?.evolutionRunId, workspaceId: navigationTarget?.evolutionWorkspaceId }} onOpenCurator={(workspaceId) => { setCuratorWorkspaceOverride(workspaceId); setWorkspaceView("curator"); }} /> : <>
     {manager.overviewQuery.isLoading ? <Status>{t("skills.loading")}</Status> : null}
     {manager.overviewQuery.isError ? <Status danger><div className="flex flex-wrap items-center justify-between gap-3"><span>{manager.overviewQuery.error.message}</span><Button onClick={() => void manager.overviewQuery.refetch()} size="sm" variant="outline">{t("featureLoad.retry")}</Button></div></Status> : null}
     {overview ? <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
@@ -88,6 +103,7 @@ export function SkillsPage({ searchTerm }: { searchTerm: string }) {
       </div>
     </div> : null}
     <SkillDialogs editConflict={Boolean(manager.updateMutation.error?.message.toLowerCase().includes("skill changed since it was loaded"))} editError={editError} onClose={() => { manager.setDialog(closedSkillDialog); manager.deleteMutation.reset(); }} onCreate={(metadata, body, source) => manager.createMutation.mutate({ metadata, body, source })} onDelete={(skill) => manager.deleteMutation.mutate(skill)} onImport={(sourcePath) => manager.importMutation.mutate(sourcePath)} onReloadEdit={(skill) => manager.editReloadMutation.mutate(skill)} onRestore={(skillId) => manager.restoreMutation.mutate(skillId)} onUpdate={(skill, metadata, body) => manager.updateMutation.mutate({ skill, metadata, body })} operationError={manager.dialogOperationError} operationPending={manager.dialogPending} reloadingEdit={manager.editReloadMutation.isPending} restoreCandidates={overview?.restoreCandidates} scope="global" state={manager.dialog} workspacePath={null} />
+    </>}
   </div>;
 }
 

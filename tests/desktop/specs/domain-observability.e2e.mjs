@@ -324,8 +324,17 @@ globalThis.describe("VaneHub AI desktop domain observability", () => {
         sessionId: id,
         connector: "feishu",
       }), session.id);
-      assert.deepEqual(empty, { binding: null, pendingConnector: null },
-        "a session with no pairing reported a binding");
+      assert.equal(empty.binding, null, "a session with no pairing reported a binding");
+      assert.equal(empty.pendingConnector, null, "a session with no pairing reported a pending connector");
+      assert.deepEqual(empty.access, {
+        sessionId: session.id,
+        // The read model always projects the default Feishu access policy until a connector is
+        // explicitly paired; the Telegram credential borrowed elsewhere in this spec must not
+        // silently change that session-level default.
+        connector: "feishu",
+        enabled: false,
+        updatedAt: "1970-01-01T00:00:00Z",
+      }, "an unpaired session did not expose the disabled default access policy");
 
       // src-tauri/src/commands/communications/begin_im_pairing.rs:7-11 -- `session_id`,
       // `connector`, `replace_existing`. An unknown session is rejected before anything else.
@@ -337,16 +346,16 @@ globalThis.describe("VaneHub AI desktop domain observability", () => {
       assert.equal(unknownSession.ok, false, "pairing accepted a session that does not exist");
       assert.equal(unknownSession.error, "im-session-not-found", `unexpected: ${unknownSession.error}`);
 
-      // A configured, enabled and *connected* connector is the second gate
-      // (application/service.rs:541-564). Nothing here is connected, so this must be refused
-      // rather than reaching out for a pairing code.
+      // Connector-scoped session access is checked before connector configuration and health.
+      // This new session has the disabled default projected above, so pairing must stop at that
+      // boundary without revealing whether the borrowed connector is configured or connected.
       const notReady = await attempt("begin_im_pairing", {
         sessionId: session.id,
         connector: BORROWED_CONNECTOR,
         replaceExisting: false,
       });
       assert.equal(notReady.ok, false, "pairing started against an unconfigured connector");
-      assert.equal(notReady.error, "im-connector-not-ready", `unexpected: ${notReady.error}`);
+      assert.equal(notReady.error, "im-session-disabled", `unexpected: ${notReady.error}`);
 
       // src-tauri/src/commands/communications/cancel_im_pairing.rs:6-9 -- `session_id`,
       // `connector`. Cancelling a pairing that was never started is a no-op, not an error.

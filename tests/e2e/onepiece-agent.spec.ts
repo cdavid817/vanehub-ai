@@ -121,10 +121,15 @@ test.describe("OnePiece native Agent", () => {
     await expect(feedback.getByRole("button", { name: "有帮助", exact: true })).toHaveAttribute("aria-pressed", "true");
     await feedback.getByRole("button", { name: "提出纠正" }).click();
     await feedback.getByLabel("需要纠正什么？").fill("请先概括风险，再请求工具审批。");
+    await feedback.getByRole("checkbox", { name: "允许将这条纠正用作可复用指导" }).check();
     // Replacing an existing rating confirms through an in-application dialog now.
     await feedback.getByRole("button", { name: "保存" }).click();
     await page.getByRole("dialog").getByRole("button", { name: "确认" }).click();
     await expect(feedback.getByRole("button", { name: "提出纠正" })).toHaveAttribute("aria-pressed", "true");
+    await expect(feedback.getByText("当前纠正修订的可复用指导授权已启用。")).toBeVisible();
+    await feedback.getByRole("button", { name: "撤销授权" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "确认" }).click();
+    await expect(feedback.getByText("当前纠正修订的可复用指导授权已启用。")).toHaveCount(0);
     await feedback.getByRole("button", { name: "清除反馈" }).click();
     await page.getByRole("dialog").getByRole("button", { name: "确认" }).click();
     await expect(feedback.getByRole("button", { name: "清除反馈" })).toHaveCount(0);

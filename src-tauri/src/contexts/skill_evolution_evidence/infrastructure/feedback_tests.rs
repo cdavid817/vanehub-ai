@@ -34,7 +34,18 @@ fn request(
         expected_revision,
         state,
         correction_note: correction_note.map(str::to_string),
+        authorize_reusable_guidance: false,
     }
+}
+
+fn authorized_correction(expected_revision: u64, note: &str) -> SaveFeedbackRequest {
+    let mut request = request(
+        expected_revision,
+        Some(FeedbackState::Corrected),
+        Some(note),
+    );
+    request.authorize_reusable_guidance = true;
+    request
 }
 
 #[test]
@@ -172,4 +183,133 @@ fn batched_feedback_lookup_surfaces_storage_failure() {
         repository.feedback_for_messages(&["assistant-feedback".to_owned()]),
         Err(EvidenceRepositoryError::Storage)
     ));
+}
+
+#[test]
+fn reusable_guidance_authorization_is_explicit_revision_bound_and_replaced_atomically() {
+    let (database, repository) = fixture("feedback-reusable-authorization");
+    let saved = repository
+        .save_feedback(
+            &authorized_correction(0, "Use the verified retry boundary."),
+            KEY,
+        )
+        .expect("authorized correction");
+    let authorization = saved
+        .reusable_guidance_authorization
+        .expect("authorization");
+    assert_eq!(authorization.feedback_revision, 1);
+    assert_eq!(
+        authorization.disclosure_version,
+        REUSABLE_GUIDANCE_DISCLOSURE_VERSION_V1
+    );
+    let summaries = repository
+        .feedback_for_messages(&["assistant-feedback".into()])
+        .expect("feedback summary");
+    assert_eq!(
+        summaries["assistant-feedback"]
+            .reusable_guidance_authorization
+            .as_ref()
+            .map(|value| value.authorization_id.as_str()),
+        Some(authorization.authorization_id.as_str())
+    );
+    let source = repository
+        .authorized_correction_guidance(&authorization.authorization_id)
+        .expect("authorized source")
+        .expect("current authorization");
+    assert_eq!(
+        source.sanitized_guidance,
+        "Use the verified retry boundary."
+    );
+    assert_eq!(source.sanitizer_version, 1);
+    assert!(!source.authorization_witness_hash.is_empty());
+
+    repository
+        .save_feedback(
+            &authorized_correction(1, "Use the newer verified boundary."),
+            KEY,
+        )
+        .expect("replacement correction");
+    let connection = database.connection().expect("connection");
+    let revoked: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM evolution_correction_authorizations
+             WHERE feedback_id='assistant-feedback' AND feedback_revision=1
+               AND authorized=0 AND revoked_at_ms IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )
+        .expect("revoked authorization");
+    assert_eq!(revoked, 1);
+    assert_eq!(
+        repository
+            .authorized_correction_guidance(&authorization.authorization_id)
+            .expect("revoked lookup"),
+        None
+    );
+}
+
+#[test]
+fn explicit_revocation_is_conflict_safe_and_stales_derived_eligibility() {
+    let (database, repository) = fixture("feedback-authorization-revocation");
+    let saved = repository
+        .save_feedback(
+            &authorized_correction(0, "Use the verified retry boundary."),
+            KEY,
+        )
+        .expect("authorized correction");
+    let authorization_id = saved
+        .reusable_guidance_authorization
+        .expect("authorization")
+        .authorization_id;
+    seed_derived_eligibility(&database, &authorization_id);
+    assert_eq!(
+        repository.revoke_reusable_guidance_authorization(
+            &RevokeReusableGuidanceAuthorizationRequest {
+                message_id: "assistant-feedback".into(),
+                expected_feedback_revision: 0,
+            },
+            KEY,
+        ),
+        Err(FeedbackTransitionError::Conflict {
+            current_revision: 1
+        })
+    );
+    repository
+        .revoke_reusable_guidance_authorization(
+            &RevokeReusableGuidanceAuthorizationRequest {
+                message_id: "assistant-feedback".into(),
+                expected_feedback_revision: 1,
+            },
+            KEY,
+        )
+        .expect("revoked");
+    let connection = database.connection().expect("connection");
+    let result: String = connection
+        .query_row(
+            "SELECT result FROM evolution_auto_eligibility
+             WHERE eligibility_id='feedback-eligibility'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("eligibility");
+    assert_eq!(result, "ineligible");
+}
+
+#[test]
+fn non_correction_feedback_cannot_authorize_reusable_guidance() {
+    let (_, repository) = fixture("feedback-authorization-shape");
+    let mut invalid = request(0, Some(FeedbackState::Helpful), None);
+    invalid.authorize_reusable_guidance = true;
+    assert_eq!(
+        repository.save_feedback(&invalid, KEY),
+        Err(FeedbackTransitionError::InvalidInput)
+    );
+}
+
+fn seed_derived_eligibility(database: &NativeDatabase, authorization_id: &str) {
+    let connection = database.connection().expect("connection");
+    connection.execute("INSERT INTO evolution_run_requests VALUES ('feedback-request',1,'workspace:feedback','runtime_trigger','completed','{}',0,0,'feedback-run',0,1,1)", []).expect("request");
+    connection.execute("INSERT INTO evolution_runs VALUES ('feedback-run',1,'feedback-request','workspace:feedback','completed',NULL,'policy','{}','{}',NULL,NULL,NULL,NULL,0,1,1)", []).expect("run");
+    connection.execute("INSERT INTO evolution_deterministic_drafts VALUES ('feedback-draft','workspace:feedback','skill-one',?1,'assessment-one','v1','content',7,'deterministic_authorized_correction','source',1)", [authorization_id]).expect("draft");
+    connection.execute("INSERT INTO evolution_auto_eligibility VALUES ('feedback-eligibility','feedback-run','feedback-draft','skill-one','eligible','[]','proof','preview',1,0)", []).expect("eligibility");
 }

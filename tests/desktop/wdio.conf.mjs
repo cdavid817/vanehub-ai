@@ -30,5 +30,8 @@ const fixturePath = await pathWithoutCompetingAgents(agentFixtureDir);
 export const config = await createDesktopConfig({
   specDirectory: "specs",
   specFiles: selectedSpecs(),
-  environment: { PATH: fixturePath },
+  environment: {
+    PATH: fixturePath,
+    VANEHUB_CLI_FIXTURE_ROOT: agentFixtureDir,
+  },
 });

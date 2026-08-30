@@ -6,7 +6,7 @@ const LEGACY_V1_FIXTURE: &str = include_str!("../tests/fixtures/database/legacy-
 const CURRENT_V20_DATA_FIXTURE: &str =
     include_str!("../tests/fixtures/database/current-v20-data.sql");
 
-/// Contiguous through 94. Migration 53 reconciles Plan execution and workspace code indexing,
+/// Contiguous through 110. Migration 53 reconciles Plan execution and workspace code indexing,
 /// migrations 54-58 add Loop, recovery, and LSP foundations, migration 59 introduces stable
 /// shared-session participant identity, migration 60 adds effective Skill reconciliation, and
 /// migration 61 resets legacy session execution preferences and governed CLI security selections;
@@ -31,7 +31,10 @@ const CURRENT_V20_DATA_FIXTURE: &str =
 /// with its correlation indexes, source checkpoints, gaps, and repair state; migration 93 adds
 /// review hunk decisions and per-file Viewed state, each witnessed to the snapshot it was recorded
 /// against; and migration 94 adds the per-file witness that decides whether a Viewed mark still
-/// applies.
+/// applies. Migrations 95-110 add Skill evolution assessment, system activity, Curator, generation,
+/// orchestration persistence, single-use automatic preflight witnesses, Curator system-policy
+/// authorization, breaker failures, rollback candidates, probation baselines, notifications, source
+/// outboxes, and the activity query schema.
 /// Derived from the migration list rather than hardcoded.
 ///
 /// A literal upper bound here means every new migration breaks this file for a reason that has

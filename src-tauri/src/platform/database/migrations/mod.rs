@@ -3,6 +3,7 @@ mod inline_schema;
 mod tests;
 
 use super::DatabaseError;
+use crate::contexts::{apply_activity_query, apply_notifications, apply_outboxes};
 use inline_schema::{
     apply_agent_sdk_dependency_migration, apply_app_settings_migration,
     apply_chat_messages_migration, apply_cli_environment_details_migration,
@@ -601,6 +602,91 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "review-file-viewed-witness",
         crate::contexts::sessions::infrastructure::apply_review_file_witness_schema,
     )?;
+    // 95-110, moved up from 88-103 on this merge: main shipped 88-94 (personalization governance
+    // and the evidence/log/review block above) in v1.3.0 while this branch was in review, and a
+    // version number that has shipped can never be reused. None of these sixteen has reached an
+    // installation, so the renumber is additive rather than a data migration.
+    apply_transactional_migration(
+        conn,
+        95,
+        "skill-evolution-assessment-foundation",
+        crate::contexts::skill_evolution_assessment::infrastructure::apply_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        96,
+        "skill-evolution-system-activity-foundation",
+        crate::contexts::skill_evolution_system_activity::infrastructure::apply_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        97,
+        "skill-evolution-curator-foundation",
+        crate::contexts::skill_evolution_curation::infrastructure::apply_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        98,
+        "skill-evolution-generation-foundation",
+        crate::contexts::skill_evolution_generation::infrastructure::apply_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        99,
+        "skill-evolution-generation-policy-payload",
+        crate::contexts::skill_evolution_generation::infrastructure::apply_policy_payload_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        100,
+        "skill-evolution-generation-tool-receipt-names",
+        crate::contexts::skill_evolution_generation::infrastructure::apply_tool_receipt_names_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        101,
+        "skill-evolution-generation-governance-tombstones",
+        crate::contexts::skill_evolution_generation::infrastructure::apply_governance_tombstone_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        102,
+        "skill-evolution-orchestration-foundation",
+        crate::contexts::skill_evolution_orchestration::infrastructure::apply_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        103,
+        "skill-evolution-automatic-preflight-witnesses",
+        crate::contexts::skill_evolution_orchestration::infrastructure::apply_preflight_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        104,
+        "skill-evolution-curator-system-policy-authorization",
+        crate::contexts::skill_evolution_curation::infrastructure::apply_system_policy_authorization_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        105,
+        "skill-evolution-automatic-breaker-failures",
+        crate::contexts::skill_evolution_orchestration::infrastructure::apply_breaker_failure_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        106,
+        "skill-evolution-curator-rollback-candidates",
+        crate::contexts::skill_evolution_curation::infrastructure::apply_rollback_candidate_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        107,
+        "skill-evolution-probation-baseline-threshold",
+        crate::contexts::skill_evolution_orchestration::infrastructure::apply_probation_baseline_schema,
+    )?;
+    apply_transactional_migration(conn, 108, "skill-evolution-notify", apply_notifications)?;
+    apply_transactional_migration(conn, 109, "skill-evolution-source-outboxes", apply_outboxes)?;
+    apply_transactional_migration(conn, 110, "skill-activity-query", apply_activity_query)?;
     repair_missing_stable_participant_schema(conn)?;
     repair_missing_cli_parameter_profile_schema(conn)?;
     crate::contexts::execution_observability::infrastructure::repair_missing_evidence_schema(conn)?;
@@ -734,6 +820,24 @@ pub(super) const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (92, "unified-log-query-index"),
     (93, "review-decision-state"),
     (94, "review-file-viewed-witness"),
+    // Skill evolution moved up from 88-103: main shipped 88-94 in v1.3.0 while this branch was in
+    // review, and a shipped number can never be reused.
+    (95, "skill-evolution-assessment-foundation"),
+    (96, "skill-evolution-system-activity-foundation"),
+    (97, "skill-evolution-curator-foundation"),
+    (98, "skill-evolution-generation-foundation"),
+    (99, "skill-evolution-generation-policy-payload"),
+    (100, "skill-evolution-generation-tool-receipt-names"),
+    (101, "skill-evolution-generation-governance-tombstones"),
+    (102, "skill-evolution-orchestration-foundation"),
+    (103, "skill-evolution-automatic-preflight-witnesses"),
+    (104, "skill-evolution-curator-system-policy-authorization"),
+    (105, "skill-evolution-automatic-breaker-failures"),
+    (106, "skill-evolution-curator-rollback-candidates"),
+    (107, "skill-evolution-probation-baseline-threshold"),
+    (108, "skill-evolution-notify"),
+    (109, "skill-evolution-source-outboxes"),
+    (110, "skill-activity-query"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {

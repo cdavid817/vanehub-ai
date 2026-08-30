@@ -1,5 +1,7 @@
 mod deletion;
 mod feedback;
+mod feedback_authorization;
+mod feedback_storage;
 mod governance;
 mod processor;
 mod purge;
@@ -12,6 +14,7 @@ mod sqlite_repository;
 mod storage_values;
 
 pub(crate) use feedback::*;
+pub(crate) use feedback_authorization::*;
 pub(crate) use governance::*;
 pub(crate) use processor::*;
 pub(crate) use purge::*;
