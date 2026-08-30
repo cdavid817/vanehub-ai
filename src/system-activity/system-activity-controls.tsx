@@ -7,6 +7,7 @@ import type {
   SystemActivitySession,
 } from "../services/system-activity-service";
 import { SystemActivityPreferencesPanel } from "./system-activity-preferences";
+import { useSystemActivityRebuild } from "./use-system-activity-rebuild";
 
 function defaultPreferences(session: SystemActivitySession): SystemActivityPreferences {
   return {
@@ -42,6 +43,7 @@ export function SystemActivityControls({ session, onChanged }: SystemActivityCon
   const [preferences, setPreferences] = useState<SystemActivityPreferences | null>(null);
 
   const report = (text: string) => setMessage(text);
+  const rebuild = useSystemActivityRebuild(session, onChanged, report);
 
   useEffect(() => {
     let cancelled = false;
@@ -67,34 +69,6 @@ export function SystemActivityControls({ session, onChanged }: SystemActivityCon
           ? t("systemActivity.view.preferencesSaved")
           : t("systemActivity.view.preferencesConflict"),
       );
-      onChanged();
-    } catch (error) {
-      report(error instanceof Error ? error.message : String(error));
-    }
-  };
-
-  const runRebuild = async () => {
-    try {
-      const rebuild = await agentService.beginSystemActivityRebuild(
-        session.scopeKind,
-        session.canonicalScopeId,
-        10_000,
-      );
-      let step = await agentService.advanceSystemActivityRebuild(rebuild.rebuildId, 100);
-      while (step.step === "running") {
-        step = await agentService.advanceSystemActivityRebuild(rebuild.rebuildId, 100);
-      }
-      await agentService.validateSystemActivityRebuild(rebuild.rebuildId);
-      let activation = await agentService.activateSystemActivityRebuild(rebuild.rebuildId);
-      while (activation.step === "needsCatchUp") {
-        step = await agentService.advanceSystemActivityRebuild(rebuild.rebuildId, 100);
-        while (step.step === "running") {
-          step = await agentService.advanceSystemActivityRebuild(rebuild.rebuildId, 100);
-        }
-        await agentService.validateSystemActivityRebuild(rebuild.rebuildId);
-        activation = await agentService.activateSystemActivityRebuild(rebuild.rebuildId);
-      }
-      report(t("systemActivity.view.rebuildDone"));
       onChanged();
     } catch (error) {
       report(error instanceof Error ? error.message : String(error));
@@ -142,14 +116,42 @@ export function SystemActivityControls({ session, onChanged }: SystemActivityCon
       ) : null}
       <div className="flex items-center gap-2">
         <button
-          className="rounded-md border border-border px-2 py-1 text-xs hover:bg-muted"
+          className="rounded-md border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-50"
           data-testid="system-activity-rebuild"
-          onClick={() => void runRebuild()}
+          disabled={rebuild.progress !== null}
+          onClick={() => void rebuild.run()}
           type="button"
         >
           {t("systemActivity.view.rebuild")}
         </button>
+        {rebuild.progress ? (
+          <button
+            className="rounded-md border border-destructive/50 px-2 py-1 text-xs text-destructive hover:bg-destructive/10 disabled:opacity-50"
+            data-testid="system-activity-rebuild-cancel"
+            disabled={rebuild.progress.phase === "cancelling"}
+            onClick={() => void rebuild.cancel()}
+            type="button"
+          >
+            {t("systemActivity.view.rebuildCancel")}
+          </button>
+        ) : null}
       </div>
+      {rebuild.progress ? (
+        <div className="space-y-1" data-testid="system-activity-rebuild-progress">
+          <div className="flex justify-between gap-2 text-[11px] text-muted-foreground">
+            <span>{t(`systemActivity.view.rebuildPhase.${rebuild.progress.phase}`)}</span>
+            <span className="font-mono">
+              {rebuild.progress.processedItems}/{rebuild.progress.itemBudget}
+            </span>
+          </div>
+          <progress
+            aria-label={t("systemActivity.view.rebuildProgress")}
+            className="h-1.5 w-full accent-primary"
+            max={rebuild.progress.itemBudget}
+            value={rebuild.progress.processedItems}
+          />
+        </div>
+      ) : null}
       <div className="space-y-2">
         <label className="block text-xs text-muted-foreground" htmlFor="system-activity-export-path">
           {t("systemActivity.view.exportPath")}

@@ -115,11 +115,34 @@ export interface SystemActivityDashboardSummary {
   updatedAtMs: number;
 }
 
+export interface SystemActivityDomainHealth {
+  sourceDomain: string;
+  opaqueCursor: unknown | null;
+  lastSequence: number;
+  lastSourceHash: string | null;
+  retentionFloor: unknown | null;
+  pendingCount: number;
+  oldestPendingAtMs: number | null;
+  gap: string | null;
+  failureCode: string | null;
+  revision: number;
+}
+
+export interface SystemActivityRebuildHealth {
+  rebuildId: string;
+  scopeKind: ActivityScopeKind;
+  canonicalScopeId: string;
+  status: string;
+  processedItems: number;
+  itemBudget: number;
+  updatedAtMs?: number;
+}
+
 export interface SystemActivityHealth {
   leaseOwner: string | null;
-  domains: Array<Record<string, unknown>>;
+  domains: SystemActivityDomainHealth[];
   lastCompletedAtMs: number | null;
-  rebuilds: Array<Record<string, unknown>>;
+  rebuilds: SystemActivityRebuildHealth[];
 }
 
 export interface SystemActivityRebuild {

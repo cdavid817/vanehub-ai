@@ -5,6 +5,7 @@ import { formatActivityUnreadBadge } from "./activity-badge";
 import type { ActivityNavigator } from "./activity-navigation";
 import type { ActivitySeverity } from "./activity-contracts";
 import { SystemActivityControls } from "./system-activity-controls";
+import { SystemActivityHealthPanel } from "./system-activity-health-panel";
 import { SystemActivityTimelineItem } from "./system-activity-timeline-item";
 import { useSystemActivity } from "./use-system-activity";
 
@@ -180,21 +181,7 @@ export function SystemActivityView({ onNavigate = () => undefined }: SystemActiv
             ))}
           </section>
         ) : null}
-        {model.health ? (
-          <section aria-label={t("systemActivity.view.health")} className="rounded-lg border border-border p-3 text-xs text-muted-foreground" data-testid="system-activity-health">
-            <h3 className="font-semibold text-foreground">{t("systemActivity.view.health")}</h3>
-            <p className="mt-1">
-              {model.health.lastCompletedAtMs
-                ? t("systemActivity.view.lastProjected", {
-                    time: formatAppDateTime(model.health.lastCompletedAtMs, i18n.language, {
-                      dateStyle: "medium",
-                      timeStyle: "short",
-                    }),
-                  })
-                : t("systemActivity.view.neverProjected")}
-            </p>
-          </section>
-        ) : null}
+        {model.health ? <SystemActivityHealthPanel health={model.health} language={i18n.language} /> : null}
         {selected ? <SystemActivityControls onChanged={model.refresh} session={selected} /> : null}
       </aside>
     </div>
