@@ -13,7 +13,7 @@ async function openLoopsFromActivityBar(page: Page) {
 }
 
 test.describe("workspace routing", () => {
-  test("addresses every destination and restores them with Back", async ({ page }) => {
+  test("addresses every destination and restores them with Back and Forward", async ({ page }) => {
     await openWorkspace(page);
 
     await openLoopsFromActivityBar(page);
@@ -33,6 +33,15 @@ test.describe("workspace routing", () => {
     await page.goBack();
     await expect(page).toHaveURL(/\/workspace\/sessions$/);
     await expect(page.getByTestId("session-sidebar")).toBeVisible();
+
+    // Forward retraces the exact same stack, not just the URL bar — content restores too.
+    await page.goForward();
+    await expect(page).toHaveURL(/\/workspace\/runs\/attention$/);
+    await page.goForward();
+    await expect(page).toHaveURL(/\/workspace\/runs\/loops$/);
+    await expect(page.getByTestId("loop-center")).toBeVisible();
+    await page.goForward();
+    await expect(page).toHaveURL(/\/workspace\/plan\/board$/);
   });
 
   test("opens a destination directly from its URL", async ({ page }) => {

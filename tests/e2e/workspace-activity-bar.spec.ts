@@ -294,6 +294,22 @@ test.describe("workspace activity bar", () => {
     await expect(page).toHaveURL(/\/settings$/);
   });
 
+  test("5.13: keeps an in-progress new-scheduled-task draft when switching Runs tabs and back", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "运行", exact: true }).click();
+    await page.getByRole("tab", { name: "定时任务" }).click();
+
+    await page.getByLabel("任务名称").fill("草稿任务名称");
+    await page.getByLabel("任务内容").fill("草稿任务内容，尚未提交");
+
+    await page.getByRole("tab", { name: "循环工程" }).click();
+    await expect(page.getByTestId("loop-center")).toBeVisible();
+
+    await page.getByRole("tab", { name: "定时任务" }).click();
+    await expect(page.getByLabel("任务名称")).toHaveValue("草稿任务名称");
+    await expect(page.getByLabel("任务内容")).toHaveValue("草稿任务内容，尚未提交");
+  });
+
   for (const viewport of [
     { name: "900px", width: 900, height: 720 },
     { name: "640px", width: 640, height: 720 },

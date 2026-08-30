@@ -4,6 +4,12 @@ import type { LoopEvidence, LoopRun } from "../types/loop";
 export function useLoopElapsed(run: LoopRun | null) {
   const active = run?.status === "queued" || run?.status === "running";
   const [now, setNow] = useState(() => Date.now());
+  // Not guarded by document visibility, unlike the Mission Control/Loop-poll/Evaluation pollers
+  // (5.15): since runs-destination.tsx (5.13) started keeping the Loops tab mounted-but-hidden
+  // when another Runs tab is active, an active run's header can tick here once a second while
+  // hidden. Left as-is — one interval, one header, only while that specific run is still running,
+  // cheap enough that the fix (threading an `isActive`/hidden signal down from RunsDestination
+  // through LoopCenter to this one hook) is not worth its own surface area yet.
   useEffect(() => {
     if (!active) return;
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
