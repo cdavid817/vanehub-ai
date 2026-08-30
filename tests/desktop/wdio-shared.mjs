@@ -4,11 +4,16 @@ import path from "node:path";
 import process from "node:process";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import {
+  ensureOwnedProcessesStopped,
+  readProcessMarker,
+} from "../../scripts/desktop/process-ownership.mjs";
 
 const configDir = path.dirname(fileURLToPath(import.meta.url));
 const EMBEDDED_DRIVER_SHUTDOWN_POLL_MS = 100;
 const EMBEDDED_DRIVER_SHUTDOWN_TIMEOUT_MS = 10_000;
 const EMBEDDED_DRIVER_PROCESS_REAP_MS = 2_000;
+const EXITED_DESKTOP_PROCESS_GRACE_MS = 500;
 const APPLICATION_EXIT_WAIT_MS = 2_500;
 
 function isTcpPortOpen(port) {
@@ -27,20 +32,53 @@ function isTcpPortOpen(port) {
   });
 }
 
-function createEmbeddedDriverShutdownWaiter(port) {
+async function stopPreviousOwnedDesktopProcess() {
+  const dataDir = process.env.VANEHUB_APP_DATA_DIR;
+  const runId = process.env.VANEHUB_TEST_RUN_ID;
+  if (!dataDir || !runId) return { forced: false, remaining: [] };
+
+  const marker = await readProcessMarker(dataDir);
+  const cleanExitRecorded = marker.state === "exited";
+  const result = await ensureOwnedProcessesStopped({
+    marker,
+    runId,
+    ...(cleanExitRecorded ? { timeoutMs: EXITED_DESKTOP_PROCESS_GRACE_MS } : {}),
+  });
+  if (result.forced) {
+    process.stderr.write(
+      cleanExitRecorded
+        ? `Desktop driver recovery reaped the exited test-owned process ${marker.pid}.\n`
+        : `Desktop driver recovery stopped the unresponsive test-owned process ${marker.pid}.\n`,
+    );
+  }
+  return result;
+}
+
+export function createEmbeddedDriverShutdownWaiter(port, options = {}) {
+  const isPortOpen = options.isPortOpen ?? isTcpPortOpen;
+  const pause = options.delay ?? delay;
+  const stopOwnedProcess = options.stopOwnedProcess ?? stopPreviousOwnedDesktopProcess;
+  const shutdownTimeoutMs = options.shutdownTimeoutMs ?? EMBEDDED_DRIVER_SHUTDOWN_TIMEOUT_MS;
+  const processReapMs = options.processReapMs ?? EMBEDDED_DRIVER_PROCESS_REAP_MS;
   let hasStartedWorker = false;
   return async () => {
     if (!hasStartedWorker) {
       hasStartedWorker = true;
       return;
     }
-    const deadline = Date.now() + EMBEDDED_DRIVER_SHUTDOWN_TIMEOUT_MS;
-    while (Date.now() < deadline && await isTcpPortOpen(port)) {
-      await delay(EMBEDDED_DRIVER_SHUTDOWN_POLL_MS);
+    await stopOwnedProcess();
+    const deadline = Date.now() + shutdownTimeoutMs;
+    while (Date.now() < deadline && await isPortOpen(port)) {
+      await pause(EMBEDDED_DRIVER_SHUTDOWN_POLL_MS);
+    }
+    if (await isPortOpen(port)) {
+      throw new Error(
+        `Desktop driver lifecycle failure: test-owned WebDriver port ${port} remained open after shutdown.`,
+      );
     }
     // The native port closes before Tauri has fully reaped the old application process. Starting
     // its replacement immediately can hit the single-instance process while it is shutting down.
-    await delay(EMBEDDED_DRIVER_PROCESS_REAP_MS);
+    await pause(processReapMs);
   };
 }
 
@@ -86,6 +124,9 @@ export async function closeDesktopSession(browser, waitForExit = () => delay(APP
     await browser.tauri.execute(({ core }) => core.invoke("exit_application"));
   } catch {
     // A layer may already have exited explicitly; the process marker remains authoritative.
+    process.stderr.write(
+      "Desktop session exit request was unavailable; worker-start ownership recovery will verify cleanup.\n",
+    );
     return;
   }
 
@@ -116,7 +157,17 @@ export async function createDesktopConfig({
   environment = {},
   captureFailureScreenshots = true,
   captureServiceLogs = true,
-  commandTimeout = 30_000,
+  // Every WebDriver command, script execution included. The first `execute/sync` of a session is
+  // the Tauri service's plugin-initialization wait, and it runs while a cold WebKitGTK WebView is
+  // still warming -- so it is the one command in the run that is systematically slowest, and at
+  // 30s it was the tightest budget in a config whose `startTimeout` and `connectionRetryTimeout`
+  // both allow 120s. On a loaded Linux runner that inversion fails the whole spec: CI run
+  // 33262390405 lost `Desktop Smoke (ubuntu-latest)` when session creation alone took 30s and the
+  // plugin-init script then timed out twice, while the identical commit passed in 7m45s on a
+  // quieter runner. The `agent-evaluation` and `feishu-live` layers had already raised this to 90s
+  // for their own slow work; this lifts the shared default far enough that a cold start is not a
+  // coin flip, while staying well inside `mochaTimeout` so a genuinely hung command still fails.
+  commandTimeout = 60_000,
   logLevel = "info",
   mochaTimeout = 300_000,
   beforeExit,

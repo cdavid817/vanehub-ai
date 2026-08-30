@@ -176,6 +176,12 @@ pub(crate) trait OverlayHistoryRepository: Send + Sync {
 
     fn verified_tail_hash(&self, key: &OverlayKey)
         -> Result<Option<String>, SkillApplicationError>;
+
+    fn find_curator_application(
+        &self,
+        key: &OverlayKey,
+        application_id: &str,
+    ) -> Result<Option<OverlayHistoryEntry>, SkillApplicationError>;
 }
 
 #[derive(Clone, PartialEq, Eq)]

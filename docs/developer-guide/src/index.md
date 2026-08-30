@@ -93,6 +93,21 @@ These live outside the guide's chapter list but are part of the repository's doc
 | [Agent infrastructure technical documentation](../../agent-infrastructure/README.md) (Simplified Chinese) | MCP, LSP, Function Calling, RAG, and other **protocols and technologies themselves** — not VaneHub AI's implementation of them |
 | [Native build performance](../../build-performance.md) | Platform linker requirements, release-profile behavior, and measured build evidence |
 | [Release signing](../../release-signing.md) | The signing and verification chain for published artifacts |
+| [Desktop release verification](../../desktop-release-verification.md) | The per-platform verification procedure a desktop release must pass before publication |
+| [Runtime performance budgets](../../runtime-performance-budgets.md) | The declared runtime budgets and how a regression against them is reported |
+| [CLI Agent global configuration](../../cli-agent-global-configuration.md) | How VaneHub AI writes each CLI's own global configuration, and how tests isolate it |
+
+### Provider SDK
+
+The provider SDK documents live under `docs/provider-sdk/` and are the contract a third-party provider plugin implements. `openspec/specs/provider-plugin-sdk` requires them to exist at that location.
+
+| Document | What it covers |
+| --- | --- |
+| [Provider contract](../../provider-sdk/contract.md) | The interface a provider implements and the guarantees it must uphold |
+| [Manifest](../../provider-sdk/manifest.md) | The manifest schema, its required fields, and version compatibility |
+| [Example provider](../../provider-sdk/example-provider.md) | A test-only reference implementation walked end to end |
+| [Conformance testing](../../provider-sdk/conformance-testing.md) | The conformance workflow a provider runs before submission |
+| [Security rules](../../provider-sdk/security-rules.md) | The restrictions a provider plugin operates under |
 
 ### Point-in-time surveys
 

@@ -2,16 +2,12 @@ import assert from "node:assert/strict";
 import {
   assertNoFatalError,
   bootDesktopUi,
+  clickWorkspaceTab,
   createSessionButton,
   createWorkspaceFolder,
   dialog,
   submitCreateSession,
 } from "../helpers/native-ui.mjs";
-
-const WORKSPACE_TABS = '//*[@role="tablist" and @aria-label="会话工作区"]';
-
-const workspaceTab = (title) =>
-  globalThis.$(`${WORKSPACE_TABS}//*[@role="tab" and @title="${title}"]`);
 
 const SHELL_PANEL = '//*[@id="session-tab-panel-shell"]';
 
@@ -27,23 +23,12 @@ const shellTabs = () => globalThis.$$('[role="tablist"][aria-label="已打开的
  */
 async function shellButton(label) {
   const button = await globalThis.$(`${SHELL_PANEL}//button[normalize-space(.)="${label}"]`);
-  await button.waitForClickable({ timeout: 30000 });
+  await button.waitForDisplayed({ timeout: 30000 });
+  assert.equal(await button.isEnabled(), true, `The ${label} Shell action was disabled.`);
   return button;
 }
 
 const shellDialog = () => globalThis.$(`${SHELL_PANEL}//*[@role="dialog"]`);
-
-/** Selects a workspace tab and waits for it to actually become the selected one. */
-async function openWorkspaceTab(title) {
-  const tab = await workspaceTab(title);
-  await tab.waitForClickable({ timeout: 30000 });
-  await tab.click();
-  await globalThis.browser.waitUntil(async () => (await tab.getAttribute("aria-selected")) === "true", {
-    timeout: 30000,
-    timeoutMsg: `The ${title} tab never became the selected tab.`,
-  });
-  return tab;
-}
 
 /**
  * The Shells the native registry is holding, read through the registered command.
@@ -83,8 +68,8 @@ globalThis.describe("VaneHub AI desktop retained session shells", () => {
     await (await dialog()).waitForExist({ timeout: 20000 });
     await submitCreateSession({ projectPath: folder, title: "Shell 保留验证", agentId: "opencode" });
 
-    // 2. Opening the Shell tab opens the session's first Shell.
-    await openWorkspaceTab("Shell");
+    // 2. Showing the Shell tab opens the session's default Shell once the registry has loaded.
+    await clickWorkspaceTab("Shell");
     await (await shellStrip()).waitForExist({ timeout: 60000 });
     const sessionId = await activeSessionId();
     assert.ok(sessionId, "the workspace panel did not report which session it belongs to");
@@ -132,14 +117,14 @@ globalThis.describe("VaneHub AI desktop retained session shells", () => {
     );
 
     // 5. Leaving for another workspace tab must not end anything.
-    await openWorkspaceTab("日志");
+    await clickWorkspaceTab("日志");
     await globalThis.browser.waitUntil(
       async () => (await registrySnapshot(sessionId)).length === 2,
       { timeout: 30000, timeoutMsg: "Switching workspace tabs ended a Shell." },
     );
 
     // 6. Coming back finds the same Shells, by id.
-    await openWorkspaceTab("Shell");
+    await clickWorkspaceTab("Shell");
     const returned = await globalThis.browser.waitUntil(
       async () => {
         const shells = await registrySnapshot(sessionId);
@@ -181,7 +166,7 @@ globalThis.describe("VaneHub AI desktop retained session shells", () => {
     this.timeout(600000);
     const root = await bootDesktopUi();
 
-    await openWorkspaceTab("Shell");
+    await clickWorkspaceTab("Shell");
     await (await shellStrip()).waitForExist({ timeout: 60000 });
     const sessionId = await activeSessionId();
     const before = await globalThis.browser.waitUntil(

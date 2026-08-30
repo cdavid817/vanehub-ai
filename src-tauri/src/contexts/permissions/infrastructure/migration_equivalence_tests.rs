@@ -45,20 +45,20 @@ fn migrated_service(temp_label: &str, trusted: bool) -> EvaluationService {
                 )
                 .expect("mark onepiece trusted pre-migration");
         }
-        // Both versions are withdrawn, not just 44. Migration 95 rebuilds `permission_grants`
-        // under canonical identity, so replaying 44 alone would recreate the pre-95 table and
+        // Both versions are withdrawn, not just 44. Migration 111 rebuilds `permission_grants`
+        // under canonical identity, so replaying 44 alone would recreate the pre-111 table and
         // leave the reader querying columns that are not there — an upgrade path no real database
         // ever takes, failing in a way that looks like a policy regression.
         connection
             .execute_batch(
-                "DELETE FROM schema_migrations WHERE version IN (44, 95);
+                "DELETE FROM schema_migrations WHERE version IN (44, 111);
                  DROP TABLE agent_principals;
                  DROP TABLE permission_grants;
                  DROP TABLE approval_audit;
                  DROP TABLE IF EXISTS approval_resolutions;",
             )
             .expect("simulate pre-migration-44 schema");
-        migrate(&connection).expect("re-run migrations 44 and 95 against the trust-flag fixture");
+        migrate(&connection).expect("re-run migrations 44 and 111 against the trust-flag fixture");
     }
 
     EvaluationService::new(

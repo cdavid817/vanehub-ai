@@ -1,7 +1,5 @@
 # Personalization
 
-**Status: Implemented — desktop only.**
-
 ## Overview
 
 Store "facts about you", "style preferences", and "knowledge accumulated in a project" in one place, and have them injected automatically before an Agent runs, instead of explaining it all again in every new session.

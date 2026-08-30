@@ -6,12 +6,18 @@ export type NotificationScope =
 
 export type NotificationToastState = "visible" | "exiting" | "hidden";
 
+export interface NotificationNavigationAction {
+  label: string;
+  path: string;
+}
+
 export interface NotificationInput {
   type: NotificationType;
   title: string;
   message?: string;
   scope?: NotificationScope;
   durationMs?: number;
+  navigation?: NotificationNavigationAction;
 }
 
 export interface NotificationRecord {
@@ -24,4 +30,5 @@ export interface NotificationRecord {
   createdAt: number;
   read: boolean;
   toastState: NotificationToastState;
+  navigation?: NotificationNavigationAction;
 }

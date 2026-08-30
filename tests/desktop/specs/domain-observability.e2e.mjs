@@ -325,20 +325,24 @@ globalThis.describe("VaneHub AI desktop domain observability", () => {
         connector: "feishu",
       }), session.id);
       // Three separate claims, because they fail for different reasons and a single `deepEqual` of
-      // the whole object reports all three as one. This assertion used to be that `deepEqual`, and
-      // when `access` was added to the view it started failing with "a session with no pairing
-      // reported a binding" — about a session that had no binding. A message that names the wrong
-      // fault is worse than no message.
+      // the whole view reports all three as one. This used to be that `deepEqual`, and when
+      // `access` was added it started failing with "a session with no pairing reported a binding"
+      // — about a session that had no binding. A message that names the wrong fault is worse than
+      // no message.
       assert.equal(empty.binding, null, "a session with no pairing reported a binding");
       assert.equal(empty.pendingConnector, null, "a session with no pairing reported a pending connector");
-      // The shape is still pinned, so a field appearing is still caught — it now says which one.
+      // The view's own shape is still pinned, so a *fourth* field is still caught — and named.
       assert.deepEqual(Object.keys(empty).sort(), ["access", "binding", "pendingConnector"],
         `the binding view carries fields this contract does not describe: ${JSON.stringify(Object.keys(empty))}`);
-      // `updatedAt` is deliberately not asserted: it is an epoch placeholder for a session that has
-      // no access row, and pinning a placeholder is pinning something nobody promised.
-      assert.equal(empty.access.sessionId, session.id, "the access row belongs to another session");
-      assert.equal(empty.access.connector, "feishu", "the access row is for another connector");
-      assert.equal(empty.access.enabled, false, "an unpaired session was reported as reachable");
+      assert.deepEqual(empty.access, {
+        sessionId: session.id,
+        // The read model always projects the default Feishu access policy until a connector is
+        // explicitly paired; the Telegram credential borrowed elsewhere in this spec must not
+        // silently change that session-level default.
+        connector: "feishu",
+        enabled: false,
+        updatedAt: "1970-01-01T00:00:00Z",
+      }, "an unpaired session did not expose the disabled default access policy");
 
       // src-tauri/src/commands/communications/begin_im_pairing.rs:7-11 -- `session_id`,
       // `connector`, `replace_existing`. An unknown session is rejected before anything else.
@@ -350,12 +354,14 @@ globalThis.describe("VaneHub AI desktop domain observability", () => {
       assert.equal(unknownSession.ok, false, "pairing accepted a session that does not exist");
       assert.equal(unknownSession.error, "im-session-not-found", `unexpected: ${unknownSession.error}`);
 
-      // Two more gates, in the order `begin_pairing` applies them. Asserting only the second one
-      // is what this test used to do, and when the session-access gate was added in front of it the
+      // Two gates, in the order `begin_pairing` applies them. Asserting only the second is what
+      // this spec used to do, and when the session-access gate was added in front of it the
       // failure read as "pairing started against an unconfigured connector" — about a connector
       // that was never reached.
       //
-      // First: this session has no access row, so it is disabled and pairing stops here.
+      // First: connector-scoped session access, checked before connector configuration and health.
+      // This session has the disabled default projected above, so pairing stops at that boundary
+      // without revealing whether the borrowed connector is configured or connected.
       const disabled = await attempt("begin_im_pairing", {
         sessionId: session.id,
         connector: BORROWED_CONNECTOR,
@@ -367,7 +373,7 @@ globalThis.describe("VaneHub AI desktop domain observability", () => {
       // Second, once the session is allowed to use IM at all: a configured, enabled and *connected*
       // connector. Nothing on this host is connected, so this must be refused rather than reaching
       // out for a pairing code. Reached only by opening the first gate, which is the only way to
-      // show that the second one exists.
+      // show that the second one exists at all.
       const allowed = await attempt("set_im_session_access", {
         sessionId: session.id,
         connector: BORROWED_CONNECTOR,

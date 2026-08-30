@@ -60,3 +60,4 @@
 # 参考
 
 - [Native API 参考](native-api-reference.md)
+- [Skill Tool 运行时安全](skill-tool-runtime-security.md)

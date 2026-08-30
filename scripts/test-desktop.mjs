@@ -347,6 +347,15 @@ function loopDesktop(artifact) {
   });
 }
 
+function scheduledTasksDesktop(artifact) {
+  return runDesktopLayer({
+    layer: "desktop-scheduled-tasks",
+    config: "tests/desktop/wdio.scheduled-tasks.conf.mjs",
+    label: "Desktop scheduled tasks",
+    artifact,
+  });
+}
+
 function settingsPersistenceDesktop(artifact) {
   return runDesktopLayer({
     layer: "desktop-settings-persistence",
@@ -460,6 +469,7 @@ const fullSuiteLayers = [
   sessionWorkspaceDesktop,
   sessionShellDesktop,
   dialogsDesktop,
+  scheduledTasksDesktop,
   settingsPersistenceDesktop,
   agentMcpDesktop,
 ];
@@ -483,6 +493,7 @@ async function main() {
   else if (mode === "session-workspace") await sessionWorkspaceDesktop();
   else if (mode === "session-shell") await sessionShellDesktop();
   else if (mode === "dialogs") await dialogsDesktop();
+  else if (mode === "scheduled-tasks") await scheduledTasksDesktop();
   else if (mode === "settings-persistence") await settingsPersistenceDesktop();
   else if (mode === "cli-management") await cliManagementDesktop();
   else if (mode === "agent-mcp") await agentMcpDesktop();

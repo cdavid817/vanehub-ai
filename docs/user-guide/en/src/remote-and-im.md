@@ -1,7 +1,5 @@
 # Remote and IM
 
-**Status: Implemented — desktop only.**
-
 ## Overview
 
 **SSH connections** move the execution environment to a remote host; **IM connectors** move the control surface to your phone. Between them they solve the problem of not being at your computer.
@@ -88,7 +86,7 @@ A session created by a connector is marked with its source, distinguishing it fr
 
 ## Notes and limits
 
-- **All of this is desktop only**, depending on the native network stack and system credential storage. The browser preview states plainly that it only simulates connector operations, cannot receive real-time platform messages, and does not store credentials securely.
+- **All of this is desktop only**, depending on the native network stack and system credential storage.
 - **The default route must be configured first**, or no connector can be enabled.
 - **Personal WeChat is marked experimental** — it goes through iLink QR authorization, and its stability is expected to be lower than the other four.
 - **Connectors need each platform's application credentials**, so you must create an application on the corresponding open platform first.

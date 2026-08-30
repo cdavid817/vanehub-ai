@@ -1,4 +1,5 @@
 import zhCN from "./locales/zh-CN.json";
+import { activityTranslationResource } from "./activity-locale-data";
 
 export type TranslationResource = Record<string, string>;
 
@@ -58,7 +59,13 @@ export function getSupportedLocale(language: AppLanguage) {
 }
 
 export async function loadLocaleResource(language: AppLanguage): Promise<TranslationResource> {
-  return getSupportedLocale(language).load();
+  return {
+    ...await getSupportedLocale(language).load(),
+    ...activityTranslationResource(language),
+  };
 }
 
-export { zhCN as defaultTranslationResource };
+export const defaultTranslationResource: TranslationResource = {
+  ...zhCN,
+  ...activityTranslationResource(defaultAppLanguage),
+};

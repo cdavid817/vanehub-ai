@@ -1,6 +1,6 @@
 {
   "name": "vanehub-ai",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -24,7 +24,7 @@
     "version:check": "node scripts/check-version-sync.mjs",
     "version:unit:test": "node --test scripts/check-version-sync.node-test.mjs",
     "release:unit:test": "node --test scripts/release-policy.node-test.mjs",
-    "test": "vitest run",
+    "test": "vitest run --maxWorkers=4",
     "test:desktop:build": "node scripts/test-desktop.mjs build",
     "test:desktop:smoke": "node scripts/test-desktop.mjs smoke",
     "test:desktop:cli-terminal": "node scripts/test-desktop.mjs cli-terminal",
@@ -32,6 +32,7 @@
     "test:desktop:session-workspace": "node scripts/test-desktop.mjs session-workspace",
     "test:desktop:session-shell": "node scripts/test-desktop.mjs session-shell",
     "test:desktop:dialogs": "node scripts/test-desktop.mjs dialogs",
+    "test:desktop:scheduled-tasks": "node scripts/test-desktop.mjs scheduled-tasks",
     "test:desktop:settings-persistence": "node scripts/test-desktop.mjs settings-persistence",
     "test:desktop:agent-mcp": "node scripts/test-desktop.mjs agent-mcp",
     "test:desktop:agent-evaluation": "node scripts/test-desktop.mjs agent-evaluation",
@@ -49,7 +50,7 @@
     "local-media:python:test": "node scripts/test-local-media-python.mjs",
     "local-media:e2e": "playwright test --config playwright.local-media.config.ts",
     "local-media:fake:check": "node scripts/check-local-media-fake-bundle.mjs",
-    "test:coverage": "vitest run --coverage --maxWorkers=4 --testTimeout=15000",
+    "test:coverage": "vitest run --coverage --maxWorkers=2 --testTimeout=15000",
     "coverage:check:frontend": "node scripts/check-coverage-policy.mjs --kind frontend --report coverage/frontend/coverage-summary.json",
     "coverage:native": "node scripts/run-native-coverage.mjs",
     "coverage:check:native": "node scripts/check-coverage-policy.mjs --kind native --report coverage/native/coverage.json",

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
   assertNoFatalError,
   bootDesktopUi,
+  clickWorkspaceTab,
   createSessionButton,
   createWorkspaceFolder,
   dialog,
@@ -11,6 +12,7 @@ import {
 } from "../helpers/native-ui.mjs";
 
 const TABS = ["工作区", "变更", "文档", "文件", "终端记录", "Shell", "日志", "链路", "报告"];
+let workspaceSessionId = null;
 
 globalThis.describe("VaneHub AI desktop session workspace", () => {
   globalThis.after(async () => {
@@ -27,6 +29,10 @@ globalThis.describe("VaneHub AI desktop session workspace", () => {
     await opener.click();
     await (await dialog()).waitForExist({ timeout: 20000 });
     await submitCreateSession({ projectPath: folder, title: "工作区标签原生验证", agentId: "opencode" });
+    workspaceSessionId = await globalThis.browser.waitUntil(async () => {
+      const sessions = await globalThis.browser.tauri.execute(({ core }) => core.invoke("list_sessions"));
+      return sessions.find((session) => session.title === "工作区标签原生验证")?.id ?? false;
+    }, { timeout: 30000, timeoutMsg: "The workspace session id was not persisted." });
 
     const tablist = await globalThis.$('[role="tablist"][aria-label="会话工作区"]');
     await tablist.waitForExist({ timeout: 30000 });
@@ -38,13 +44,7 @@ globalThis.describe("VaneHub AI desktop session workspace", () => {
       // Matched on `title`, not on the button's text. The text also carries the evidence badge —
       // a count, a floor, or a placeholder glyph — so an equality match on it finds nothing the
       // moment a session has work to report, and a `contains` match would find the wrong tab.
-      const tab = await globalThis.$(`//*[@role="tablist" and @aria-label="会话工作区"]//*[@role="tab" and @title="${name}"]`);
-      await tab.waitForClickable({ timeout: 20000 });
-      await tab.click();
-      await globalThis.browser.waitUntil(async () => await tab.getAttribute("aria-selected") === "true", {
-        timeout: 20000,
-        timeoutMsg: `The ${name} tab never became the selected tab.`,
-      });
+      const tab = await clickWorkspaceTab(name, 20000);
 
       // The visible panel has to be this tab's panel, not merely some panel: a workspace that
       // switches the selected tab without switching the panel looks correct in a screenshot.
@@ -78,11 +78,7 @@ globalThis.describe("VaneHub AI desktop session workspace", () => {
     this.timeout(300000);
     const root = await bootDesktopUi();
 
-    const terminal = await globalThis.$(
-      '//*[@role="tablist" and @aria-label="会话工作区"]//*[@role="tab" and @title="终端记录"]',
-    );
-    await terminal.waitForClickable({ timeout: 20000 });
-    await terminal.click();
+    await clickWorkspaceTab("终端记录", 20000);
     const views = await globalThis.$('[role="tablist"][aria-label="执行记录视图"]');
     await views.waitForExist({ timeout: 20000 });
 
@@ -121,12 +117,8 @@ globalThis.describe("VaneHub AI desktop session workspace", () => {
 
     // Hidden means paused, not unmounted: the view the reader chose is still chosen when they
     // come back, which is the Group 5 retention rule applied to this panel.
-    const report = await globalThis.$(
-      '//*[@role="tablist" and @aria-label="会话工作区"]//*[@role="tab" and @title="报告"]',
-    );
-    await report.waitForClickable({ timeout: 20000 });
-    await report.click();
-    await terminal.click();
+    await clickWorkspaceTab("报告", 20000);
+    await clickWorkspaceTab("终端记录", 20000);
     const stillLegacy = await globalThis.$('[data-testid="legacy-source-notice"]');
     assert.ok(
       await stillLegacy.isExisting(),
@@ -139,12 +131,58 @@ globalThis.describe("VaneHub AI desktop session workspace", () => {
   globalThis.it("renders the trace waterfall in both visual styles", async function () {
     this.timeout(300000);
     const root = await bootDesktopUi();
+    assert.ok(workspaceSessionId, "the workspace session from the first test is unavailable");
 
-    const traces = await globalThis.$(
-      '//*[@role="tablist" and @aria-label="会话工作区"]//*[@role="tab" and @title="链路"]',
-    );
-    await traces.waitForClickable({ timeout: 20000 });
-    await traces.click();
+    const traceSpanCount = async () => {
+      const page = await globalThis.browser.tauri.execute(({ core }, sessionId) => (
+        core.invoke("list_execution_runs", {
+          request: { limit: 20, pageToken: null },
+          sessionId,
+        })
+      ), workspaceSessionId);
+      if (!page.items.length) return 0;
+      const timeline = await globalThis.browser.tauri.execute(({ core }, runId) => (
+        core.invoke("get_execution_timeline", { runId })
+      ), page.items[0].runId);
+      return timeline.spans.length;
+    };
+    if (await traceSpanCount() === 0) {
+      const request = {
+        sessionId: workspaceSessionId,
+        content: "VANEHUB_E2E_TRACE",
+        config: {
+          agentId: "opencode",
+          interactionMode: "cli",
+          executionMode: "inherit",
+          providerId: null,
+          modelId: null,
+          reasoningDepth: null,
+          streaming: true,
+          thinking: false,
+          longContext: false,
+        },
+        fileReferences: null,
+        runner: null,
+      };
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          await globalThis.browser.tauri.execute(
+            ({ core }, payload) => core.invoke("send_message", payload),
+            request,
+          );
+          break;
+        } catch (error) {
+          if (!String(error).includes("database is locked") || attempt === 2) throw error;
+          await globalThis.browser.pause(250);
+        }
+      }
+    }
+    await globalThis.browser.waitUntil(async () => (await traceSpanCount()) > 0, {
+      timeout: 60000,
+      timeoutMsg: "The deterministic CLI turn produced no trace spans.",
+    });
+
+    await clickWorkspaceTab("链路", 20000);
 
     // The waterfall is the panel most likely to become a picture with no text in it, so the
     // assertion is on its landmarks rather than on it having rendered *something*: a named scroll

@@ -383,6 +383,118 @@
       "runtime": "web-mock",
       "featureState": "delivered",
       "path": "en/src/assets/screenshots/settings-cli-parameters-en.png"
+    },
+    {
+      "id": "settings-code-intelligence-en",
+      "scenario": "settings-code-intelligence",
+      "locale": "en",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "en/src/assets/screenshots/settings-code-intelligence-en.png"
+    },
+    {
+      "id": "settings-code-intelligence-zh-CN",
+      "scenario": "settings-code-intelligence",
+      "locale": "zh-CN",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "zh-CN/src/assets/screenshots/settings-code-intelligence-zh-CN.png"
+    },
+    {
+      "id": "settings-about-en",
+      "scenario": "settings-about",
+      "locale": "en",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "en/src/assets/screenshots/settings-about-en.png"
+    },
+    {
+      "id": "settings-about-zh-CN",
+      "scenario": "settings-about",
+      "locale": "zh-CN",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "zh-CN/src/assets/screenshots/settings-about-zh-CN.png"
+    },
+    {
+      "id": "todo-board-en",
+      "scenario": "todo-board",
+      "locale": "en",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "en/src/assets/screenshots/todo-board-en.png"
+    },
+    {
+      "id": "todo-board-zh-CN",
+      "scenario": "todo-board",
+      "locale": "zh-CN",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "zh-CN/src/assets/screenshots/todo-board-zh-CN.png"
+    },
+    {
+      "id": "goal-center-en",
+      "scenario": "goal-center",
+      "locale": "en",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "en/src/assets/screenshots/goal-center-en.png"
+    },
+    {
+      "id": "goal-center-zh-CN",
+      "scenario": "goal-center",
+      "locale": "zh-CN",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "zh-CN/src/assets/screenshots/goal-center-zh-CN.png"
+    },
+    {
+      "id": "evaluations-en",
+      "scenario": "evaluations",
+      "locale": "en",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "en/src/assets/screenshots/evaluations-en.png"
+    },
+    {
+      "id": "evaluations-zh-CN",
+      "scenario": "evaluations",
+      "locale": "zh-CN",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "zh-CN/src/assets/screenshots/evaluations-zh-CN.png"
+    },
+    {
+      "id": "mission-control-en",
+      "scenario": "mission-control",
+      "locale": "en",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "en/src/assets/screenshots/mission-control-en.png"
+    },
+    {
+      "id": "mission-control-zh-CN",
+      "scenario": "mission-control",
+      "locale": "zh-CN",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "zh-CN/src/assets/screenshots/mission-control-zh-CN.png"
+    },
+    {
+      "id": "settings-local-media-en",
+      "scenario": "settings-local-media",
+      "locale": "en",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "en/src/assets/screenshots/settings-local-media-en.png"
+    },
+    {
+      "id": "settings-local-media-zh-CN",
+      "scenario": "settings-local-media",
+      "locale": "zh-CN",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "zh-CN/src/assets/screenshots/settings-local-media-zh-CN.png"
     }
   ]
 }

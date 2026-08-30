@@ -93,6 +93,21 @@
 | [Agent 基础设施技术文档](../../../agent-infrastructure/README.md) | MCP、LSP、Function Calling、RAG 等**协议与技术本身**，不是 VaneHub AI 的实现 |
 | [Native 构建性能](../../../build-performance.md) | 各平台链接器要求、release profile 行为与实测构建证据 |
 | [发布签名](../../../release-signing.md) | 已发布产物的签名与验证链 |
+| [桌面端发布验证](../../../desktop-release-verification.md) | 一次桌面端发布在发布前必须逐平台通过的验证流程 |
+| [运行时性能预算](../../../runtime-performance-budgets.md) | 已声明的运行时预算,以及针对它们的回归如何被报告 |
+| [CLI Agent 全局配置](../../../cli-agent-global-configuration.md) | VaneHub AI 如何写入各 CLI 自己的全局配置,以及测试如何隔离它 |
+
+### Provider SDK
+
+Provider SDK 文档位于 `docs/provider-sdk/`,是第三方 provider 插件要实现的契约。`openspec/specs/provider-plugin-sdk` 要求它们存在于该位置。
+
+| 文档 | 讲什么 |
+| --- | --- |
+| [Provider 契约](../../../provider-sdk/contract.md) | provider 要实现的接口,以及它必须维持的保证 |
+| [Manifest](../../../provider-sdk/manifest.md) | manifest schema、必填字段与版本兼容性 |
+| [示例 provider](../../../provider-sdk/example-provider.md) | 一个仅供测试的参考实现,端到端走一遍 |
+| [一致性测试](../../../provider-sdk/conformance-testing.md) | provider 提交前要跑的一致性流程 |
+| [安全规则](../../../provider-sdk/security-rules.md) | provider 插件运行时所受的限制 |
 
 ### 时间点快照
 

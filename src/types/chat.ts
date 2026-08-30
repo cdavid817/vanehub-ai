@@ -1,25 +1,19 @@
 import type { TurnStatusEvent } from "../services/turn-status";
 import type { InteractionMode } from "./agent";
 import type { PolicyTemplateName } from "./permissions";
+import type { MessageFeedback } from "./chat-feedback";
+
+export type {
+  MessageFeedback,
+  MessageFeedbackState,
+  ReusableGuidanceAuthorization,
+  RevokeReusableGuidanceAuthorizationInput,
+  SaveMessageFeedbackInput,
+} from "./chat-feedback";
 
 export type MessageRole = "user" | "assistant" | "system" | "tool";
 
 export type MessageStatus = "pending" | "streaming" | "completed" | "failed" | "cancelled";
-export type MessageFeedbackState = "helpful" | "unhelpful" | "corrected";
-
-export interface MessageFeedback {
-  state: MessageFeedbackState | null;
-  revision: number;
-  correctionNote?: string;
-}
-
-export interface SaveMessageFeedbackInput {
-  messageId: string;
-  expectedRevision: number;
-  state: MessageFeedbackState | null;
-  correctionNote?: string;
-}
-
 export type ReasoningDepth = "low" | "medium" | "high" | "max";
 
 export type SessionExecutionMode = "inherit" | "plan" | "execute";

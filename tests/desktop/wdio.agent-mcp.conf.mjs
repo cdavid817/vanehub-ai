@@ -13,6 +13,7 @@ export const config = await createDesktopConfig({
   specDirectory: "specs-agent-mcp",
   environment: {
     PATH: fixturePath,
+    VANEHUB_CLI_FIXTURE_ROOT: agentMcpFixtureDir,
     ALL_PROXY: "",
     all_proxy: "",
     NO_PROXY: "127.0.0.1,localhost",

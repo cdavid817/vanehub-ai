@@ -1,7 +1,5 @@
 # Skill management
 
-**Status: Implemented — desktop and Web/mock UI.** Desktop performs local persistence, CLI Skill mounting, and API Agent prompt binding. Web/mock only simulates the same UI and state transitions; it does not change local files or runtime configuration.
-
 ## What a Skill is
 
 **A Skill is a reusable capability package** — a document telling an Agent how to approach a class of task, plus the supporting files it needs.
@@ -148,10 +146,7 @@ Collection status is one of **Collection healthy**, **Collection degraded**, or 
 
 If several Agents need the same Skill, open each Agent page and assign it separately. Turning off Enabled under All Skills pauses every assigned Agent; it is not a per-Agent switch.
 
-## Runtime differences
-
-- **Desktop:** Assigning a Skill to a CLI Agent may perform filesystem work in its Skill mount directory; assigning to an API Agent stores a prompt binding. If an operation fails, the error stays on the affected Skill row and the assignment does not move optimistically.
-- **Web/mock:** You can verify filtering, assignment, removal, and responsive UI behavior, but every result is an in-memory simulation and is not evidence of changed local files or native configuration.
+Assigning a Skill to a CLI Agent may perform filesystem work in its Skill mount directory; assigning to an API Agent stores a prompt binding. If an operation fails, the error stays on the affected Skill row and the assignment does not move optimistically.
 
 ## Related
 

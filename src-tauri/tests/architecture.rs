@@ -1201,7 +1201,18 @@ const BOUNDED_CONTEXTS: &[&str] = &[
     "permissions",
     "retrieval",
     "sessions",
+    // Added by the four archived skill-evolution changes (target-selection, curator-governance,
+    // generation-agent, orchestration-auto-apply-gate) and by
+    // `add-skill-evolution-system-sessions-and-result-projection`, each of which argued for its
+    // own governed lifecycle: assessment witnesses, Curator decisions, constrained generation,
+    // durable orchestration, and the read-only activity projection are five separate lifecycles
+    // that evidence alone does not own.
+    "skill_evolution_assessment",
+    "skill_evolution_curation",
     "skill_evolution_evidence",
+    "skill_evolution_generation",
+    "skill_evolution_orchestration",
+    "skill_evolution_system_activity",
     "ssh_connections",
     "tooling",
     "web_research",
@@ -2660,10 +2671,19 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // the CodeQL logging and transport fixes added eight lines. Same rule every time: measured on
     // the merged tree, because each branch had already recorded its own increment against a
     // baseline the other also carries, so summing them counts that baseline twice.
+    // Raised to 62,796 by `fix/bounded-terminal-reap-on-quit`. The +149 is a second reap helper
+    // for the quit path, which cannot reuse the reader thread's unbounded one, plus the three
+    // tests that pin its deadline -- including a live PTY child, which needs its own fixture
+    // because `dummy_child` exits immediately by design. Nothing was duplicated: the unbounded
+    // reap stays, because waiting forever is still correct on the thread that blocks nobody.
     SubtreeBudget {
         root: "src-tauri/src/contexts/agent_runtime/infrastructure",
-        budget: 62_647,
-        owner: "decompose-api-tool-use-loop",
+        // Skill Evolution adds the structured model transport at the existing Agent runtime
+        // boundary; measured on the merged tree because main changed the same subtree
+        // independently (the bounded terminal reap landed there in parallel); merged-tree
+        // measurement: 62,879.
+        budget: 62_879,
+        owner: "add-skill-evolution-system-sessions-and-result-projection",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
     // directory module. The +51 is entirely per-file boilerplate: +29 module headers (the `mod`
@@ -2755,14 +2775,20 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // for those four and it stays cheap because none of them has shipped; a version that has
         // reached an installation is the one that can never move again.
         //
-        // +11 for migration 95 (`permission-grant-canonical-identity`) from
+        // +11 for migration 111 (`permission-grant-canonical-identity`) from
         // `fix-permission-decision-atomicity-and-grant-precedence`: the seven-line
         // `apply_transactional_migration` call, the three-line comment saying why this one is
         // transactional rather than additive, and its one-line `EXPECTED_MIGRATIONS` entry. The
         // migration's own SQL lives in `permissions` infrastructure, so only the registration is
         // counted here — which is the fixed cost of landing any migration in this subtree.
-        budget: 3_526,
-        owner: "split-database-migrations",
+        //
+        // Re-measured on merging the Skill evolution branch, whose sixteen migrations (renumbered
+        // 95-110 on that merge) each pay the same fixed registration cost, and which pushed this
+        // change's one migration from 95 to 111. Measured on the merged tree rather than summed:
+        // both branches raised this number for their own migrations and neither copied the other's.
+        // Merged-tree measurement: 3,634.
+        budget: 3_634,
+        owner: "merge/openspec-permission-shell-search",
     },
 ];
 
@@ -2800,8 +2826,16 @@ const NATIVE_PRODUCTION_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // port methods, adapter implementations, and the symbol and call-relation result shapes.
         // The three test doubles that also gained methods are counted by the aggregate above and
         // deliberately not by this one.
-        budget: 33_750,
-        owner: "decompose-api-tool-use-loop",
+        //
+        // `fix/bounded-terminal-reap-on-quit` raises it to 33,803. The +53 is production: the
+        // bounded exit-path reap, the deadline decision split out of its loop so the moment it
+        // gives up is testable at all, two constants, and the rationale for why the unbounded
+        // sibling stays. The tests that pin the deadline are counted by the aggregate above and
+        // deliberately not by this one.
+        // The structured model transport contributes the remaining production-only delta on the
+        // merged tree (measured 33,866); its test doubles are counted by the aggregate above.
+        budget: 33_866,
+        owner: "add-skill-evolution-system-sessions-and-result-projection",
     },
 ];
 

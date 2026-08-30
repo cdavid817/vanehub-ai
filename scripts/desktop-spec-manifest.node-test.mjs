@@ -3,11 +3,13 @@ import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 import {
+  AGENT_EVALUATION_SPECS,
   DESKTOP_SPECS,
   DUPLICATE_REPLACED,
   EXTERNAL_PREREQUISITE_VARIABLES,
   EXTERNAL_PROVIDER,
   REQUIRED_FIXTURE,
+  agentEvaluationSpecFiles,
   externalSpecFiles,
   replacedSpecs,
   requiredSpecFiles,
@@ -106,6 +108,20 @@ test("the external suite is never part of the required desktop command", async (
   // `all` is the gate; only the explicit `everything` mode adds the external suite.
   assert.match(orchestrator, /mode === "all" \|\| mode === "everything"/);
   assert.match(orchestrator, /if \(mode === "everything"\)/);
+});
+
+test("the focused Agent evaluation layer selects one spec for every provider mode", async () => {
+  assert.deepEqual(agentEvaluationSpecFiles("fixture-opencode"), ["agent-evaluation.e2e.mjs"]);
+  assert.deepEqual(agentEvaluationSpecFiles("live-opencode"), ["agent-evaluation.e2e.mjs"]);
+  assert.deepEqual(agentEvaluationSpecFiles("live-onepiece"), ["agent-evaluation.e2e.mjs"]);
+  assert.deepEqual(agentEvaluationSpecFiles("unsupported"), []);
+  assert.equal(AGENT_EVALUATION_SPECS.length, 1);
+
+  const config = await readFile("tests/desktop/wdio.agent-evaluation.conf.mjs", "utf8");
+  assert.match(config, /agentEvaluationSpecFiles\(mode\)/);
+  const orchestrator = await readFile("scripts/test-desktop.mjs", "utf8");
+  assert.match(orchestrator, /agent-evaluation-live-opencode/);
+  assert.match(orchestrator, /agent-evaluation-live-onepiece/);
 });
 
 test("a blocked external run reports BLOCKED rather than PASSED", async () => {

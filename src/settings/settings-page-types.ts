@@ -51,6 +51,17 @@ export interface SettingsPageContext {
 export interface SettingsNavigationTarget {
   cliConfigAgentId?: CliConfigAgentId;
   agentConfigAgentId?: CliConfigAgentId | "onepiece";
+  curatorCandidateId?: string;
+  curatorWorkspaceId?: string;
+  generationWorkspaceId?: string;
+  generationJobId?: string;
+  evolutionWorkspaceId?: string;
+  evolutionRunId?: string;
+  evolutionApplicationId?: string;
+  evolutionProbationId?: string;
+  evolutionBreakerId?: string;
+  overlayHistoryId?: string;
+  overlaySkillId?: string;
 }
 
 /**

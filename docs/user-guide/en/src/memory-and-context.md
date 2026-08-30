@@ -1,7 +1,5 @@
 # Memory and context: what carries between sessions, and what happens when context fills up
 
-**Status: Implemented — available on desktop and in Web/mock; Web/mock reproduces the same event contracts with a deterministic simulation and never calls a real model provider.**
-
 ## Overview
 
 Two related but distinct things:
@@ -145,7 +143,6 @@ The retention policy is equally explicit: **only approved counters, enums, versi
 - **Changing the compaction switch does not affect a running generation.**
 - **The token measure outranks the character threshold** when it is available; the character count is only a fallback.
 - **Context health figures are not billing data**; for usage and billing see [Scheduled and usage](automation.md).
-- Web/mock reproduces selection and the compaction notice with a deterministic simulation and **never issues a request to a model provider**.
 
 ## Related
 

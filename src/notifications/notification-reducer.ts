@@ -23,6 +23,7 @@ export function createNotificationRecord(
     type: input.type,
     title: input.title,
     ...(input.message ? { message: input.message } : {}),
+    ...(input.navigation ? { navigation: input.navigation } : {}),
     scope: input.scope ?? { kind: "global" },
     durationMs: Math.max(1_000, input.durationMs ?? DEFAULT_NOTIFICATION_DURATION_MS),
     createdAt,

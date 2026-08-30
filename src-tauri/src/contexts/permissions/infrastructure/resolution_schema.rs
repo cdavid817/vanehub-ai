@@ -1,4 +1,4 @@
-//! Migration 95: canonical grant identity and the durable approval-resolution ledger.
+//! Migration 111: canonical grant identity and the durable approval-resolution ledger.
 //!
 //! The table this rebuilds could hold several rows for one logical decision, with only a
 //! non-unique lookup index and no ordering rule to say which of them applied. This migration turns

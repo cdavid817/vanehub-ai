@@ -1,7 +1,5 @@
 # OnePiece (native Agent)
 
-**Status: Implemented — desktop only.**
-
 ## Overview
 
 **OnePiece is the only built-in Agent that does not depend on an external CLI.** It calls a model provider over HTTP directly, so you can start using it with no CLI installed at all.

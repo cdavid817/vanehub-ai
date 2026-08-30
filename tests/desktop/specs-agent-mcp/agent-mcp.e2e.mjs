@@ -156,10 +156,18 @@ globalThis.describe("VaneHub Agent MCP desktop runtime", () => {
       mcpRelayEnabled: false,
       otlpAuthToken: null,
     });
+    // WDIO retries relaunch the app against the same isolated database. If an earlier attempt
+    // persisted the server but failed while starting its process, make setup idempotent so the
+    // retry tests the original failure instead of stopping at a duplicate-name validation error.
+    await invoke(({ core }, name) => core.invoke("remove_mcp_server", { name }), MCP_NAME)
+      .catch(() => undefined);
     await invoke(({ core }, config) => core.invoke("add_mcp_server", { config }), {
       name: MCP_NAME,
       transportType: "stdio",
-      command: "node",
+      // Agent isolation may deliberately remove the host directory containing `node` from PATH
+      // when it also contains a real managed Agent. The current runner is the exact runtime that
+      // should execute this JavaScript fixture, so address it directly.
+      command: process.execPath,
       args: [MCP_FIXTURE, "normal"],
       env: {},
       url: null,

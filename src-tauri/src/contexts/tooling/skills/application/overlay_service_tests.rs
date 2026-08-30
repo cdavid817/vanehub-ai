@@ -161,6 +161,61 @@ impl OverlayHistoryRepository for FixedHistory {
     ) -> Result<Option<String>, SkillApplicationError> {
         Ok(Some("history-tail".to_string()))
     }
+
+    fn find_curator_application(
+        &self,
+        _key: &OverlayKey,
+        _application_id: &str,
+    ) -> Result<Option<OverlayHistoryEntry>, SkillApplicationError> {
+        Ok(None)
+    }
+}
+
+struct ExistingGovernedHistory;
+
+impl OverlayHistoryRepository for ExistingGovernedHistory {
+    fn read_verified_page(
+        &self,
+        _: &OverlayKey,
+        _: &OverlayHistoryQuery,
+    ) -> Result<OverlayHistoryPage, SkillApplicationError> {
+        Ok(OverlayHistoryPage {
+            entries: vec![],
+            next_cursor: None,
+            integrity: OverlayPageIntegrity::Verified,
+        })
+    }
+
+    fn verified_tail_hash(&self, _: &OverlayKey) -> Result<Option<String>, SkillApplicationError> {
+        Ok(Some("history-event-1".to_string()))
+    }
+
+    fn find_curator_application(
+        &self,
+        key: &OverlayKey,
+        application_id: &str,
+    ) -> Result<Option<OverlayHistoryEntry>, SkillApplicationError> {
+        Ok(
+            (application_id == "curator-application-1").then(|| OverlayHistoryEntry {
+                event_id: "event-1".to_string(),
+                canonical_skill_id: key.canonical_skill_id.clone(),
+                scope: key.scope,
+                prior_revision: None,
+                next_revision: 1,
+                actor: OverlayActor::User,
+                action: OverlayHistoryAction::Patch,
+                timestamp: "2026-08-11T12:00:00Z".to_string(),
+                prior_document_hash: None,
+                next_document_hash: "document-1".to_string(),
+                scanner_version: OVERLAY_TEXT_SCANNER_VERSION.to_string(),
+                safe_outcome: "exact-patch-created".to_string(),
+                curator_application_id: Some(application_id.to_string()),
+                committed_effective_diff_hash: Some("effective-content-hash".to_string()),
+                prior_event_hash: None,
+                event_hash: "history-event-1".to_string(),
+            }),
+        )
+    }
 }
 
 struct FixedUsage;
@@ -622,6 +677,99 @@ fn exact_patch_creation_commits_manifest_history_and_usage_with_current_witnesse
     assert_eq!(invalidated.canonical_skill_id, request.canonical_skill_id);
     assert_eq!(invalidated.scope, OverlayScope::User);
     assert_eq!(invalidated.workspace_identity, None);
+}
+
+#[test]
+fn governed_patch_commits_exact_preview_hash_and_application_provenance() {
+    let manifests = Arc::new(MemoryManifests::default());
+    let transactions = Arc::new(CapturingTransactions::default());
+    let service = mutation_service(manifests, transactions.clone());
+    let mutation = exact_request(OverlayMutation::ExactPatch {
+        old_string: "safely".to_string(),
+        new_string: "deterministically".to_string(),
+        replace_all: false,
+    });
+    let preview = service.preview(&mutation, None).expect("preview");
+    let request = OverlayGovernedMutationRequest {
+        application_id: "curator-application-1".to_string(),
+        expected_effective_diff_hash: preview.diff.effective_hash,
+        mutation,
+    };
+
+    let outcome = service
+        .commit_governed(&request, None)
+        .expect("governed commit");
+    let plan = transactions.last_plan();
+
+    assert!(!outcome.duplicate);
+    assert_eq!(
+        outcome.effective_diff_hash,
+        request.expected_effective_diff_hash
+    );
+    assert_eq!(
+        plan.history_event.curator_application_id.as_deref(),
+        Some("curator-application-1")
+    );
+    assert_eq!(
+        plan.history_event.committed_effective_diff_hash,
+        Some(request.expected_effective_diff_hash)
+    );
+    assert_eq!(plan.usage_delta.overlay_mutation_count_delta, 1);
+}
+
+#[test]
+fn governed_patch_refuses_changed_effective_hash_without_a_transaction() {
+    let manifests = Arc::new(MemoryManifests::default());
+    let transactions = Arc::new(CapturingTransactions::default());
+    let service = mutation_service(manifests, transactions.clone());
+    let request = OverlayGovernedMutationRequest {
+        application_id: "curator-application-1".to_string(),
+        expected_effective_diff_hash: "stale-effective-hash".to_string(),
+        mutation: exact_request(OverlayMutation::ExactPatch {
+            old_string: "safely".to_string(),
+            new_string: "deterministically".to_string(),
+            replace_all: false,
+        }),
+    };
+
+    let error = service
+        .commit_governed(&request, None)
+        .expect_err("stale hash");
+
+    assert!(matches!(
+        error,
+        SkillApplicationError::Overlay(OverlayApplicationError::StaleWitnesses { .. })
+    ));
+    assert_eq!(transactions.plan_count(), 0);
+}
+
+#[test]
+fn governed_duplicate_returns_original_history_without_usage_or_manifest_mutation() {
+    let manifests = Arc::new(MemoryManifests::default());
+    let transactions = Arc::new(CapturingTransactions::default());
+    let service = service(manifests).with_mutation_ports(
+        Arc::new(ExistingGovernedHistory),
+        Arc::new(FixedUsage),
+        transactions.clone(),
+    );
+    let request = OverlayGovernedMutationRequest {
+        application_id: "curator-application-1".to_string(),
+        expected_effective_diff_hash: "effective-content-hash".to_string(),
+        mutation: exact_request(OverlayMutation::ExactPatch {
+            old_string: "safely".to_string(),
+            new_string: "deterministically".to_string(),
+            replace_all: false,
+        }),
+    };
+
+    let outcome = service
+        .commit_governed(&request, None)
+        .expect("duplicate history");
+
+    assert!(outcome.duplicate);
+    assert_eq!(outcome.committed_revision, 1);
+    assert_eq!(outcome.history_event_hash, "history-event-1");
+    assert_eq!(transactions.plan_count(), 0);
 }
 
 #[test]

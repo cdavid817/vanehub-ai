@@ -50,3 +50,6 @@ tests/desktop/fixtures/agent-mcp/*.exe
 tests/desktop/fixtures/agent-mcp/*.pdb
 tests/desktop/fixtures/cli/*.exe
 tests/desktop/fixtures/cli/*.pdb
+
+# Runtime binaries captured by the desktop agent-mcp layer; never commit them.
+tests/desktop/fixtures/agent-mcp-support/

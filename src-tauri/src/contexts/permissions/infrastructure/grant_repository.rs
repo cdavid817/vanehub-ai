@@ -739,7 +739,7 @@ mod tests {
 
     #[test]
     fn a_row_written_before_the_ledger_still_reads_back_as_an_active_grant() {
-        // Migration 95 carries pre-existing grants forward with no resolution id. They have no
+        // Migration 111 carries pre-existing grants forward with no resolution id. They have no
         // delivery to wait for, so they are active, and the reader has to accept a null there
         // rather than treat it as a malformed row.
         let (repository, _directory) = repository();

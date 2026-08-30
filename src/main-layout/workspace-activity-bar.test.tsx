@@ -14,6 +14,7 @@ const labels: WorkspaceActivityBarLabels = {
   goals: "Goals",
   evaluations: "Evaluations",
   missionControl: "Mission Control",
+  systemActivity: "System activity",
   settings: "Settings",
   help: "Help",
 };
@@ -30,7 +31,7 @@ function groupButtons(element: ReactElement<{ children: ReactNode }>, groupIndex
 describe("WorkspaceActivityBar", () => {
   it("renders icon-only primary and utility groups with accessible state", () => {
     const html = renderToStaticMarkup(
-      <WorkspaceActivityBar activeDestination="sessions" labels={labels} onEvaluations={vi.fn()} onHelp={vi.fn()} onLoops={vi.fn()} onMissionControl={vi.fn()} onOpenSettings={vi.fn()} onScheduledTasks={vi.fn()} onSessions={vi.fn()} onGoals={vi.fn()} onWorkBoard={vi.fn()} sessionSidebarExpanded />,
+      <WorkspaceActivityBar activeDestination="sessions" labels={labels} onEvaluations={vi.fn()} onHelp={vi.fn()} onLoops={vi.fn()} onMissionControl={vi.fn()} onOpenSettings={vi.fn()} onScheduledTasks={vi.fn()} onSessions={vi.fn()} onGoals={vi.fn()} onWorkBoard={vi.fn()} onSystemActivity={vi.fn()} systemActivityUnread={0} sessionSidebarExpanded />,
     );
 
     expect(html).toContain('aria-label="Workspace navigation"');
@@ -57,7 +58,8 @@ describe("WorkspaceActivityBar", () => {
     const onMissionControl = vi.fn();
     const onOpenSettings = vi.fn();
     const onHelp = vi.fn();
-    const element = WorkspaceActivityBar({ activeDestination: "loops", labels, onEvaluations, onGoals, onHelp, onLoops, onMissionControl, onOpenSettings, onScheduledTasks, onSessions, onWorkBoard, sessionSidebarExpanded: false });
+    const onSystemActivity = vi.fn();
+    const element = WorkspaceActivityBar({ activeDestination: "loops", labels, onEvaluations, onGoals, onHelp, onLoops, onMissionControl, onOpenSettings, onScheduledTasks, onSessions, onSystemActivity, onWorkBoard, sessionSidebarExpanded: false, systemActivityUnread: 3 });
     const destinationButtons = groupButtons(element, 0);
     const toolButtons = groupButtons(element, 1);
     const utilityButtons = groupButtons(element, 2);
@@ -68,6 +70,7 @@ describe("WorkspaceActivityBar", () => {
     destinationButtons[3].props.onClick?.({} as never);
     destinationButtons[4].props.onClick?.({} as never);
     destinationButtons[5].props.onClick?.({} as never);
+    destinationButtons[6].props.onClick?.({} as never);
     toolButtons[0].props.onClick?.({} as never);
     utilityButtons[0].props.onClick?.({} as never);
     utilityButtons[1].props.onClick?.({} as never);
@@ -79,6 +82,8 @@ describe("WorkspaceActivityBar", () => {
     expect(onGoals).toHaveBeenCalledOnce();
     expect(onEvaluations).toHaveBeenCalledOnce();
     expect(onMissionControl).toHaveBeenCalledOnce();
+    expect(onSystemActivity).toHaveBeenCalledOnce();
+    expect(renderToStaticMarkup(element)).toContain('data-testid="system-activity-bar-badge"');
     expect(onOpenSettings).toHaveBeenCalledWith();
     expect(renderToStaticMarkup(element)).toContain('title="Expand sessions"');
     expect(utilityButtons[1].props.title).toBe("Help");

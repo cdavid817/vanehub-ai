@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change split-settings-center-ui-spec. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Service-backed Skills settings page
 The Skills settings page SHALL render the global Skill library from one service-backed global overview and SHALL expose explicit loading, retryable error, stale-conflict, empty, pending, and partial-operation states rather than interpreting absent data as an empty healthy result.
 
@@ -549,3 +551,235 @@ The Skill Management page SHALL replace its active drift report with a freshly l
 - **WHEN** the synchronization result or refreshed overview contains unresolved issues
 - **THEN** the page SHALL show the remaining issue count and bounded per-Skill failure information
 - **AND** it SHALL not describe failed items as synchronized
+
+### Requirement: Evolution assessment summary
+The Skill Evolution area SHALL present the current target-selection classification, leading target and alternatives, nine-check quality summary, confidence, risk, routing recommendation, and whether the result is deterministic, model-assisted, or a fallback.
+
+#### Scenario: Clear deterministic assessment
+- **WHEN** an assessment has a clear target and deterministic result
+- **THEN** the UI shows the selected effective revision, score components, threshold margin, check outcomes, and routing explanation
+
+#### Scenario: Ambiguous assessment
+- **WHEN** target selection remains ambiguous
+- **THEN** the UI shows ranked alternatives and uncertainty without presenting any target as causally proven
+
+#### Scenario: No assessment exists
+- **WHEN** evidence is unready, assessment is pending, or no result exists
+- **THEN** the UI shows the corresponding non-destructive state rather than fabricated assessment data
+
+### Requirement: Assessment detail and history
+The Skill Evolution area SHALL let users inspect safe evidence references, target score explanations, all nine check results, model or fallback provenance, version witnesses, and superseded assessment history.
+
+#### Scenario: Inspect a failed quality check
+- **WHEN** the user opens a check that blocked advancement
+- **THEN** the UI shows its stable reason, sanitized supporting references, and effect on routing
+
+#### Scenario: Inspect superseded attempt
+- **WHEN** a newer assessment replaced an older result
+- **THEN** the UI identifies which evidence or policy witness changed and keeps both attempts read-only
+
+### Requirement: Model evaluation consent controls
+The Skill Evolution area SHALL keep model evaluation disabled by default and SHALL disclose sanitized outbound data categories, provider availability, deterministic fallback behavior, and revocation effects before accepting consent.
+
+#### Scenario: User enables evaluation
+- **WHEN** the user explicitly confirms the current disclosure
+- **THEN** the UI updates policy through the Skill service and displays the consent version and enabled state
+
+#### Scenario: Provider is unavailable
+- **WHEN** no compatible configured model is available
+- **THEN** the UI keeps deterministic assessment usable and explains that optional consultation is unavailable
+
+### Requirement: Safe reassessment control
+The Skill Evolution area SHALL expose reassessment only for existing candidate seeds and SHALL explain that it creates an audit attempt rather than modifying evidence or Skills.
+
+#### Scenario: User requests reassessment
+- **WHEN** the user activates reassessment
+- **THEN** the UI submits through the Skill service, shows queued or current status, and preserves the previous result during processing
+
+#### Scenario: Reassessment fails
+- **WHEN** scheduling or assessment fails
+- **THEN** the UI retains the last valid result and presents an actionable retry message
+
+### Requirement: Assessment UI remains non-mutating
+The assessment UI SHALL NOT expose approve, reject, target override, Overlay edit, apply, unpin, archive, memory-write, or automatic-evolution actions in this change.
+
+#### Scenario: Recommendation is advance
+- **WHEN** an assessment recommends `advance`
+- **THEN** the UI describes it as ready for a later governance stage and provides no mutation action
+
+### Requirement: Curator workspace
+The Skill Evolution experience SHALL provide a Curator workspace with queue counts, stable filters, candidate summaries, draft readiness, risk, route, staleness, and deferred status while retaining per-Skill navigation context.
+
+#### Scenario: User opens Curator
+- **WHEN** Curator candidates exist
+- **THEN** the UI shows service-backed queue data ordered by governance priority and age
+
+#### Scenario: Queue is empty
+- **WHEN** no candidates match the current filters
+- **THEN** the UI shows an accurate empty state without demo candidates
+
+### Requirement: Complete candidate review
+The Curator workspace SHALL display sanitized source lineage, assessment target ranking, all nine quality checks, risk, confidence, route, target revision, current Skill and Overlay state, draft history, and decision audit before actions.
+
+#### Scenario: High-risk candidate is reviewed
+- **WHEN** the user opens a high-risk candidate
+- **THEN** the UI foregrounds the blocking risk and shows why manual review cannot bypass Overlay restrictions
+
+### Requirement: Safe Curator draft editor
+The Curator workspace SHALL support only learned-guidance and exact-patch drafts, preserve unsaved input on validation errors, and clearly prohibit target override, base editing, executable content, and supporting-file mutation.
+
+#### Scenario: Draft validation fails
+- **WHEN** the service rejects unsafe or stale draft input
+- **THEN** the UI retains safe unsaved input where permitted and presents the specific corrective action
+
+### Requirement: Diff-bound approval experience
+The UI SHALL require a current Overlay preview and explicit confirmation of the displayed effective diff before enabling approval, and SHALL invalidate approval controls whenever any witness changes.
+
+#### Scenario: User reviews a valid preview
+- **WHEN** preview is current and all required checks pass
+- **THEN** the UI shows base-to-current, current-to-proposed, and final effective changes and enables explicit approval
+
+#### Scenario: Preview becomes stale
+- **WHEN** candidate, draft, assessment, Skill, Overlay, pin, or policy state changes
+- **THEN** approval is disabled and the UI requires refresh or reassessment
+
+### Requirement: Reject defer and resume experience
+The UI SHALL collect required reason categories for rejection and deferral, support an optional bounded note and review-after time, and explain that deferred candidates require manual resume.
+
+#### Scenario: Required reason is missing
+- **WHEN** the user attempts to reject or defer without a reason
+- **THEN** the UI prevents submission and identifies the required field
+
+### Requirement: Curator recovery and history
+The UI SHALL preserve the last valid candidate state during failures, show stale, superseded, and apply-failed recovery paths, and link applied candidates to the resulting Overlay history.
+
+#### Scenario: Application fails
+- **WHEN** Overlay application returns a recoverable failure
+- **THEN** the UI shows the stable failure category and requires a new preview before retry approval
+
+### Requirement: Manual-governance boundary
+The Curator UI SHALL NOT provide automatic apply, approve-all, bulk approval, model approval, pin bypass, direct base mutation, or notification action buttons that commit a mutation.
+
+#### Scenario: Multiple low-risk candidates exist
+- **WHEN** the queue contains several `advance` candidates
+- **THEN** each candidate still requires its own witnessed preview and explicit approval
+
+### Requirement: Evolution orchestration dashboard
+The Skill Evolution area SHALL show scheduler mode, idle-gate state, pending trigger counts, active and recent runs, stage progress, checkpoints, budgets, partial results, and sanitized failures.
+
+#### Scenario: Run waits for idle
+- **WHEN** an automatic run is blocked by active work
+- **THEN** the UI shows the safe blocking category and does not suggest bypassing it
+
+### Requirement: Automatic-application policy controls
+The UI SHALL present `off`, `observe`, and `enabled` modes, versioned consent disclosure, per-Skill allowlist, fixed exclusions, rate limits, cooldowns, and Web capability differences before enabling automatic application.
+
+#### Scenario: User enables automatic application
+- **WHEN** the user confirms disclosure and selects allowed Skills
+- **THEN** policy is updated through the Skill service and the UI shows the effective version and limits
+
+#### Scenario: User selects Web/mock runtime
+- **WHEN** the application lacks native background and filesystem capabilities
+- **THEN** the UI labels orchestration and application results as simulated and does not claim real auto application
+
+### Requirement: Eligibility and observe-mode inspection
+The UI SHALL show every auto-apply condition, pass/fail reason, draft provenance, final-preflight state, and observed-would-apply result without exposing unsafe correction content.
+
+#### Scenario: Candidate is routed to Curator
+- **WHEN** one eligibility condition fails
+- **THEN** the UI identifies the stable condition and links to Curator where applicable
+
+### Requirement: Probation and circuit-breaker controls
+The UI SHALL show automatic applications under probation, verified outcome summaries, Skill/workspace suspensions, breaker cause, health status, and explicit acknowledgement controls. It MUST NOT offer automatic rollback.
+
+#### Scenario: Breaker is open
+- **WHEN** auto application is suspended
+- **THEN** the UI keeps pipeline monitoring available, disables automatic mutation, and links regression review to Curator
+
+### Requirement: Manual run and cancellation controls
+The UI SHALL allow a user to request one manual run or cooperative cancellation and SHALL explain that manual action cannot bypass writer locks, mutation gates, limits, or breakers.
+
+#### Scenario: User cancels an active run
+- **WHEN** cancellation is accepted
+- **THEN** the UI shows cancel-requested until the next safe checkpoint and preserves completed results
+
+### Requirement: Generation consent and controls
+The Skill Evolution UI SHALL keep model generation disabled by default and SHALL disclose outbound sanitized data, provider/model, budgets, cost boundary, mandatory Curator review, and permanent auto-apply exclusion before enabling it.
+
+#### Scenario: User enables generation
+- **WHEN** the user confirms the current disclosure
+- **THEN** the UI updates consent through the Skill service and shows its version and configured provider state
+
+### Requirement: Generation job workspace
+The UI SHALL show generation requests and jobs with source assessment, target or no-target intent, seven stages, progress, budgets, attempts, costs, cancellation, supersession, failure reasons, and Curator handoff status.
+
+#### Scenario: Job is running
+- **WHEN** a generation stage is active
+- **THEN** the UI shows safe progress and permits cooperative cancellation without exposing raw model reasoning
+
+### Requirement: Thirteen-section dossier inspector
+The UI SHALL present all thirteen ordered dossier sections with completeness, redaction, truncation, source links, version hashes, pagination, and sanitized JSON/Markdown export.
+
+#### Scenario: Section data is unavailable
+- **WHEN** a dossier section has a declared unavailable reason
+- **THEN** the UI shows that reason rather than hiding the section
+
+### Requirement: Generated draft review
+The UI SHALL distinguish learned guidance, exact patch, and quarantined new Skill proposals and SHALL show locally rendered content, evidence citations, validation results, effective diff or creation preview, model provenance, and permanent manual-review status.
+
+#### Scenario: Generated patch is reviewable
+- **WHEN** exact-anchor and all draft validations pass
+- **THEN** the UI links the immutable generated draft to its Curator candidate without offering direct apply
+
+#### Scenario: New Skill proposal is reviewable
+- **WHEN** a quarantined `SKILL.md` passes validation
+- **THEN** the UI shows id, scope, type, frontmatter, instructions, collision state, and Curator creation review
+
+### Requirement: Safe regeneration and cancellation
+The UI SHALL allow regeneration as a new immutable attempt and cooperative cancellation while preserving completed dossiers and prior attempt history.
+
+#### Scenario: User regenerates
+- **WHEN** the current witnesses remain valid
+- **THEN** the UI creates a linked new attempt and retains the prior draft for comparison
+
+### Requirement: Generation UI remains non-mutating
+Generation screens SHALL NOT expose direct Overlay apply, automatic apply, automatic new-Skill install, target override, shell execution, tool permission, supporting-file creation, or provider-prompt editing.
+
+#### Scenario: Draft validation succeeds
+- **WHEN** generation packages a draft
+- **THEN** the only mutation path presented is navigation to explicit Curator review
+
+### Requirement: System Activity navigation and unread badges
+The Skill Evolution experience SHALL provide a distinct System Activity destination for global and workspace scopes with unread counts and attention indicators that do not alter interactive session totals.
+
+#### Scenario: Workspace has unread attention activity
+- **WHEN** the workspace system session is visible
+- **THEN** navigation shows its bounded unread count and highest attention severity
+
+### Requirement: Activity dashboard projection
+The Skill Evolution dashboard SHALL show safe current summaries for runs, candidates, generation, Curator queue, applications, probation, and breakers derived from canonical projected envelopes with freshness and completeness indicators.
+
+#### Scenario: Projection is behind
+- **WHEN** one source domain has pending events
+- **THEN** the dashboard shows its last projected time and lag rather than presenting stale data as current
+
+### Requirement: Projection preferences and retention UI
+The UI SHALL provide service-backed controls for visibility, minimum severity, attention notifications, digest cadence, read-state retention, detailed retention, and export limits with clear effect descriptions.
+
+#### Scenario: User reduces detailed retention
+- **WHEN** the user confirms a valid shorter period
+- **THEN** the UI updates preference version and explains that authoritative governance retention remains separate
+
+### Requirement: Projection health and rebuild UI
+The UI SHALL show per-domain cursors, lag, gaps, failed categories, active generation, rebuild attempts, validation, and last success, and SHALL offer scoped rebuild without implying source replay.
+
+#### Scenario: Rebuild is requested
+- **WHEN** the user confirms workspace projection rebuild
+- **THEN** the UI preserves the current readable generation, shows bounded rebuild progress, and states that no model or mutation reruns
+
+### Requirement: System activity export UI
+The UI SHALL support sanitized JSON and Markdown export of the current scope and filters and SHALL disclose completeness, redaction, and exported-file retention responsibility.
+
+#### Scenario: Export fails
+- **WHEN** native export is cancelled or unavailable
+- **THEN** the UI preserves timeline state and shows a localized actionable result

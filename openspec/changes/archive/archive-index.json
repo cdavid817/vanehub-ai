@@ -3352,6 +3352,20 @@
       ]
     },
     {
+      "archivedOn": "2026-08-25",
+      "changeName": "optimize-scheduled-task-desktop-experience",
+      "path": "openspec/changes/archive/2026-08-25-optimize-scheduled-task-desktop-experience/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "desktop-runtime-verification",
+        "scheduled-task-management"
+      ]
+    },
+    {
       "archivedOn": "2026-08-26",
       "changeName": "add-lsp-go-python-cpp",
       "path": "openspec/changes/archive/2026-08-26-add-lsp-go-python-cpp/",
@@ -3362,6 +3376,21 @@
       ],
       "capabilities": [
         "lsp-server-management"
+      ]
+    },
+    {
+      "archivedOn": "2026-08-26",
+      "changeName": "add-skill-evolution-target-selection-and-quality-gates",
+      "path": "openspec/changes/archive/2026-08-26-add-skill-evolution-target-selection-and-quality-gates/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "settings-skill-management-ui",
+        "skill-evolution-assessment",
+        "skill-management"
       ]
     },
     {
@@ -3390,6 +3419,22 @@
       "capabilities": [
         "lsp-server-management",
         "settings-center-ui"
+      ]
+    },
+    {
+      "archivedOn": "2026-08-27",
+      "changeName": "add-skill-evolution-curator-governance",
+      "path": "openspec/changes/archive/2026-08-27-add-skill-evolution-curator-governance/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "notification-system",
+        "settings-skill-management-ui",
+        "skill-evolution-curation",
+        "skill-management"
       ]
     },
     {
@@ -3458,6 +3503,40 @@
     },
     {
       "archivedOn": "2026-08-28",
+      "changeName": "add-skill-evolution-generation-agent-and-evidence-dossiers",
+      "path": "openspec/changes/archive/2026-08-28-add-skill-evolution-generation-agent-and-evidence-dossiers/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "notification-system",
+        "settings-skill-management-ui",
+        "skill-evolution-generation",
+        "skill-management"
+      ]
+    },
+    {
+      "archivedOn": "2026-08-28",
+      "changeName": "add-skill-evolution-orchestration-and-auto-apply-gate",
+      "path": "openspec/changes/archive/2026-08-28-add-skill-evolution-orchestration-and-auto-apply-gate/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "chat-experience",
+        "desktop-background-lifecycle",
+        "notification-system",
+        "settings-skill-management-ui",
+        "skill-evolution-orchestration",
+        "skill-management"
+      ]
+    },
+    {
+      "archivedOn": "2026-08-28",
       "changeName": "expand-session-im-connectors",
       "path": "openspec/changes/archive/2026-08-28-expand-session-im-connectors/",
       "artifacts": [
@@ -3508,6 +3587,52 @@
       ]
     },
     {
+      "archivedOn": "2026-08-29",
+      "changeName": "restore-documentation-spec-conformance",
+      "path": "openspec/changes/archive/2026-08-29-restore-documentation-spec-conformance/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "native-developer-documentation",
+        "user-guide-documentation"
+      ]
+    },
+    {
+      "archivedOn": "2026-08-30",
+      "changeName": "add-skill-evolution-system-sessions-and-result-projection",
+      "path": "openspec/changes/archive/2026-08-30-add-skill-evolution-system-sessions-and-result-projection/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "chat-experience",
+        "notification-system",
+        "session-management",
+        "settings-skill-management-ui",
+        "skill-evolution-system-activity",
+        "skill-management"
+      ]
+    },
+    {
+      "archivedOn": "2026-08-30",
+      "changeName": "fix-agent-evaluation-webdriverio",
+      "path": "openspec/changes/archive/2026-08-30-fix-agent-evaluation-webdriverio/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "agent-evaluation",
+        "desktop-runtime-verification"
+      ]
+    },
+    {
       "archivedOn": "2026-08-30",
       "changeName": "fix-permission-decision-atomicity-and-grant-precedence",
       "path": "openspec/changes/archive/2026-08-30-fix-permission-decision-atomicity-and-grant-precedence/",
@@ -3550,6 +3675,32 @@
       "capabilities": [
         "runtime-performance-governance",
         "session-project-inspection"
+      ]
+    },
+    {
+      "archivedOn": "2026-08-30",
+      "changeName": "improve-skill-evolution-system-activity-health",
+      "path": "openspec/changes/archive/2026-08-30-improve-skill-evolution-system-activity-health/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "skill-evolution-system-activity"
+      ]
+    },
+    {
+      "archivedOn": "2026-08-30",
+      "changeName": "stabilize-desktop-wdio-lifecycle",
+      "path": "openspec/changes/archive/2026-08-30-stabilize-desktop-wdio-lifecycle/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "desktop-runtime-verification"
       ]
     }
   ]
