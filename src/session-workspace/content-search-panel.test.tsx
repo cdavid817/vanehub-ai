@@ -133,6 +133,70 @@ describe("ContentSearchPanel", () => {
     expect(screen.getByText(/fresh\.rs/)).toBeTruthy();
   });
 
+  it("stops the search when the panel goes away rather than when the reader closes it", async () => {
+    // Unmounted, not closed. Escape has a handler; a route change, a session switch, or a parent
+    // re-render does not — and a scan reading every file in a workspace has nobody left waiting on
+    // it either way.
+    search.mockImplementation(() => new Promise<WorkspaceContentSearchResult>(() => {}));
+    const { unmount } = open();
+    await type("needle");
+    await waitFor(() => expect(search).toHaveBeenCalled());
+    cancel.mockClear();
+
+    unmount();
+
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("says the host was too busy rather than that nothing matched", async () => {
+    search.mockResolvedValue(
+      result({ coverage: { state: "unavailable", reasonCode: "inspection_busy" } }),
+    );
+    open();
+    await type("needle");
+
+    // A refused admission is the one stop a reader can act on directly: wait and ask again. Folding
+    // it into "no matches" turns a queue into a fact about the workspace.
+    await waitFor(() => expect(screen.getByText(/搜索过多|Too many searches/)).toBeTruthy());
+  });
+
+  it("words every budget stop rather than putting its code on screen", async () => {
+    // Each of these is a different thing to have run out of, and a reader deciding whether to narrow
+    // the query or the folder needs to know which. The failure this guards against is not a missing
+    // sentence — it is `byte_budget_exhausted` rendered verbatim, which the key lookup would do if a
+    // code were ever added on one side only.
+    const budgetStops = [
+      "directory_budget_exhausted",
+      "entry_budget_exhausted",
+      "file_budget_exhausted",
+      "byte_budget_exhausted",
+      "metadata_budget_exhausted",
+      "candidate_budget_exhausted",
+      "result_budget_exhausted",
+      "depth_budget_exhausted",
+      "deadline_exceeded",
+      "unreadable_entries",
+    ];
+    const worded = new Set<string>();
+
+    for (const reasonCode of budgetStops) {
+      search.mockResolvedValue(result({ coverage: { state: "partial", reasonCode } }));
+      const { unmount } = open();
+      await type("needle");
+      const notice = await screen.findByRole("status");
+      const sentence = notice.parentElement?.textContent ?? "";
+
+      expect(sentence).not.toContain(reasonCode);
+      expect(sentence.length).toBeGreaterThan(0);
+      worded.add(sentence);
+      unmount();
+    }
+
+    // Distinct, not merely present. Ten stops sharing one sentence would pass every assertion above
+    // and still leave the reader unable to tell which limit they hit.
+    expect(worded.size).toBe(budgetStops.length);
+  });
+
   it("says when part of the workspace was not searched", async () => {
     search.mockResolvedValue(
       result({

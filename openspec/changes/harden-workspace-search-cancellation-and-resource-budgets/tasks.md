@@ -82,7 +82,7 @@
 - [x] 8.5 Implement deterministic Web/mock cancellation, supersession, budget consumption, ignore fixtures, busy admission, cursor stale/invalid behavior, and structural counters without native-scan claims.
 - [x] 8.6 Update search/document/directory UI to distinguish empty Complete from empty Partial/Unavailable, show localized reason, ignore stale generations, and restart pagination on stale cursor.
 - [x] 8.7 Add all new reason/coverage/cursor messages to every registered locale and pass key/interpolation parity tests.
-- [ ] 8.8 Add frontend unit/component tests for rapid query replacement, explicit cancel, unmount/abort, stale result, busy state, each budget notice, Web parity, and stale-directory pagination restart.
+- [x] 8.8 Add frontend unit/component tests for rapid query replacement, explicit cancel, unmount/abort, stale result, busy state, each budget notice, Web parity, and stale-directory pagination restart.
 
 ## 9. Structural performance, architecture, and documentation
 

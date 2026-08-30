@@ -1,9 +1,17 @@
 import { describe, expect, it } from "vitest";
+import { runWebPathSearch } from "../services/web-workspace-path-search-mock";
+import { runWebWorkspaceSearch } from "../services/web-workspace-search-mock";
+import {
+  configureWebWorkspaceSearch,
+  resetWebWorkspaceSearch,
+} from "../services/web-workspace-search-registry";
 import {
   emptyResultKey,
   searchReasonKey,
   workspaceSearchReasonCodes,
 } from "./search-coverage";
+
+const twoFiles = { "a.ts": "const needle = 1;\n", "b.ts": "const needle = 2;\n" };
 
 /**
  * The distinction the whole coverage contract exists for. A search that examined the workspace and
@@ -46,6 +54,60 @@ describe("coverage reason", () => {
     // this is that the degradation is a deliberate act rather than an oversight.
     expect(workspaceSearchReasonCodes).toHaveLength(18);
     for (const code of workspaceSearchReasonCodes) {
+      expect(searchReasonKey(code)).toBe(`sessionTabs.files.searchReason.${code}`);
+    }
+  });
+
+  it("words every stop the Web adapter can produce, not only the native ones", async () => {
+    // Parity from the other direction. The pinned list is written against the Rust enum, so a code
+    // the browser build invents on its own would render as a raw token there and nowhere else —
+    // which is the shape of bug that only reproduces on the adapter nobody is running.
+    const observed = new Set<string>();
+
+    configureWebWorkspaceSearch({ maxFiles: 1 });
+    observed.add(
+      (await runWebWorkspaceSearch({ query: "needle", searchId: "s" }, twoFiles)).coverage
+        .reasonCode ?? "",
+    );
+    resetWebWorkspaceSearch();
+
+    configureWebWorkspaceSearch({ maxBytes: 4 });
+    observed.add(
+      (await runWebWorkspaceSearch({ query: "needle", searchId: "s" }, twoFiles)).coverage
+        .reasonCode ?? "",
+    );
+    resetWebWorkspaceSearch();
+
+    configureWebWorkspaceSearch({ maxResults: 1 });
+    observed.add(
+      (await runWebWorkspaceSearch({ query: "needle", searchId: "s" }, twoFiles)).coverage
+        .reasonCode ?? "",
+    );
+    resetWebWorkspaceSearch();
+
+    const stale = runWebWorkspaceSearch({ query: "needle", searchId: "s" }, twoFiles);
+    const fresh = runWebWorkspaceSearch({ query: "other", searchId: "s" }, twoFiles);
+    observed.add((await stale).coverage.reasonCode ?? "");
+    await fresh;
+    resetWebWorkspaceSearch();
+
+    observed.add(
+      (await runWebPathSearch({ query: "a", searchId: "s", cursor: "not-a-cursor" }, [])).coverage
+        .reasonCode ?? "",
+    );
+    resetWebWorkspaceSearch();
+
+    observed.delete("");
+    // Named rather than counted. A drive that stopped producing codes would still satisfy a "every
+    // observed code has a key" loop, by observing none.
+    expect([...observed].sort()).toEqual([
+      "byte_budget_exhausted",
+      "file_budget_exhausted",
+      "invalid_cursor",
+      "result_budget_exhausted",
+      "superseded",
+    ]);
+    for (const code of observed) {
       expect(searchReasonKey(code)).toBe(`sessionTabs.files.searchReason.${code}`);
     }
   });
