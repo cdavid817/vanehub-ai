@@ -38,7 +38,9 @@ The top of the page has three counters, **Installed / Running / Errors**; when s
 
 ## SDK dependencies
 
-**There are only two managed SDKs**: the Claude Code SDK and the Codex SDK, each corresponding to one npm package and carrying three alternative versions — so you can fall back when a version misbehaves.
+**There are only two managed SDKs**: the Claude Code SDK and the Codex SDK, each corresponding to one npm package and carrying three alternative versions.
+
+**There is no separate SDK settings page.** Which version is installed is changed from [CLI management](#cli-management), the one place install, upgrade, and downgrade run for every managed package — so falling back from a version that misbehaves happens there.
 
 Gemini CLI, OpenCode, and Antigravity CLI have no corresponding managed SDK.
 

@@ -12,7 +12,7 @@ This chapter covers configuring the three engines and using them. Installing the
 
 That is a deliberate constraint rather than a missing feature. Three consequences follow from it:
 
-- **There is no automatic install.** An engine with no configured model stays `Unconfigured` until you configure it.
+- **There is no automatic install.** An engine with no configured model stays **Not configured** until you configure it.
 - **There is no cloud fallback.** If a local engine cannot run, the operation fails with a reason. Nothing is quietly sent anywhere.
 - **When a path is wrong, you move the files.** The application tells you which field is affected and stops there. It will not relocate, copy, hard-link, junction, short-path, rename, or download anything to work around it.
 
@@ -34,14 +34,14 @@ Each engine reports its own readiness, independently of the other two:
 
 | State | What it means |
 | --- | --- |
-| **Disabled** | You have not turned this engine on |
-| **Unconfigured** | Turned on, but a required path or model is not set |
+| **Off** | You have not turned this engine on |
+| **Not configured** | Turned on, but a required path or model is not set |
 | **Checking** | A probe is running right now |
 | **Ready** | A real inference succeeded; the engine works |
 | **Unavailable** | The probe failed, with a classifying reason |
-| **RestartRequired** | A saved change needs the worker restarted before it takes effect |
+| **Needs another check** | A saved profile change stopped the worker that used the old revision; readiness is re-established by checking again |
 
-**`Ready` means an inference actually ran, not that a model loaded.** The probe executes a minimal real inference and reports `Unavailable` if the model loads and then fails to execute. That distinction matters: a runtime that accepts a model but cannot execute its graph looks perfectly healthy to a load-only check, and the failure would otherwise surface much later as a broken operation in the middle of your work.
+**Ready means an inference actually ran, not that a model loaded.** The probe executes a minimal real inference and reports **Unavailable** if the model loads and then fails to execute. That distinction matters: a runtime that accepts a model but cannot execute its graph looks perfectly healthy to a load-only check, and the failure would otherwise surface much later as a broken operation in the middle of your work.
 
 ## Using it
 
@@ -55,7 +55,7 @@ Each engine reports its own readiness, independently of the other two:
 
 **This is the trap most likely to catch you on Windows.** A path containing non-ASCII characters — which is what you get if your Windows user name is not written in ASCII — can be resolved perfectly by the host and still be unopenable by the engine's own native code, because the engine reads it through the active code page.
 
-VaneHub AI does not reject such paths categorically; they work wherever the underlying runtime supports them. What it does instead is record, per field, whether a path contains spaces or non-ASCII characters, and **verify any non-ASCII path with a real canary inference before reporting that engine `Ready`**. So an engine that cannot open your model directory tells you at configuration time rather than at use time.
+VaneHub AI does not reject such paths categorically; they work wherever the underlying runtime supports them. What it does instead is record, per field, whether a path contains spaces or non-ASCII characters, and **verify any non-ASCII path with a real canary inference before reporting that engine Ready**. So an engine that cannot open your model directory tells you at configuration time rather than at use time.
 
 If a path turns out to be incompatible, the fix is to move the model files to an ASCII path yourself. The application will name the affected field and will not move anything for you.
 
@@ -74,7 +74,7 @@ The same principle governs execution providers generally: **a failed inference i
 ## Notes and limits
 
 - **Desktop only**, and it depends on a local Python environment for OCR and speech recognition.
-- **The engines are independent.** OCR being `Unavailable` says nothing about speech recognition.
+- **The engines are independent.** OCR reporting **Unavailable** says nothing about speech recognition.
 - **Cancellation is bounded and isolated** — cancelling one operation does not disturb another that is already running.
 - **Transcription returns the final transcript only** in this version, with bounded language and duration metadata; there is no partial or streaming transcript.
 - **Model acquisition is yours.** See [Tools and extensions](tooling.md#extension-capabilities) for the framework install path and its disk footprint.
@@ -83,4 +83,4 @@ The same principle governs execution providers generally: **a failed inference i
 
 - Installing the frameworks → [Tools and extensions](tooling.md#extension-capabilities)
 - Where operation failures are recorded → [Observability](observability.md)
-- Something reports `Unavailable` and you cannot tell why → [Troubleshooting](troubleshooting.md)
+- Something reports **Unavailable** and you cannot tell why → [Troubleshooting](troubleshooting.md)
