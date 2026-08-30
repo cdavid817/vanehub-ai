@@ -5145,5 +5145,11 @@
   "workbenchUi.filterBar.clearFilter": "清除{{label}}",
   "workbenchUi.filterBar.resultCount_one": "{{count, number}} 条结果",
   "workbenchUi.filterBar.resultCount_other": "{{count, number}} 条结果",
-  "workbenchUi.filterBar.resultCountOfTotal": "共 {{total, number}} 条结果中的 {{count, number}} 条"
+  "workbenchUi.filterBar.resultCountOfTotal": "共 {{total, number}} 条结果中的 {{count, number}} 条",
+  "workbenchUi.inspector.pin": "置顶",
+  "workbenchUi.inspector.unpin": "取消置顶",
+  "workbenchUi.inspector.returnToOverview": "返回概览",
+  "workbenchUi.inspector.close": "关闭",
+  "workbenchUi.runtimePanel.maximize": "最大化",
+  "workbenchUi.runtimePanel.restore": "还原"
 }

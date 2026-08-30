@@ -5145,5 +5145,11 @@
   "workbenchUi.filterBar.clearFilter": "{{label}}をクリア",
   "workbenchUi.filterBar.resultCount_one": "{{count, number}} 件の結果",
   "workbenchUi.filterBar.resultCount_other": "{{count, number}} 件の結果",
-  "workbenchUi.filterBar.resultCountOfTotal": "{{total, number}} 件中 {{count, number}} 件"
+  "workbenchUi.filterBar.resultCountOfTotal": "{{total, number}} 件中 {{count, number}} 件",
+  "workbenchUi.inspector.pin": "固定する",
+  "workbenchUi.inspector.unpin": "固定を解除する",
+  "workbenchUi.inspector.returnToOverview": "概要に戻る",
+  "workbenchUi.inspector.close": "閉じる",
+  "workbenchUi.runtimePanel.maximize": "最大化",
+  "workbenchUi.runtimePanel.restore": "元に戻す"
 }

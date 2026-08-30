@@ -5145,5 +5145,11 @@
   "workbenchUi.filterBar.clearFilter": "{{label}} 지우기",
   "workbenchUi.filterBar.resultCount_one": "결과 {{count, number}}개",
   "workbenchUi.filterBar.resultCount_other": "결과 {{count, number}}개",
-  "workbenchUi.filterBar.resultCountOfTotal": "전체 {{total, number}}개 중 {{count, number}}개"
+  "workbenchUi.filterBar.resultCountOfTotal": "전체 {{total, number}}개 중 {{count, number}}개",
+  "workbenchUi.inspector.pin": "고정",
+  "workbenchUi.inspector.unpin": "고정 해제",
+  "workbenchUi.inspector.returnToOverview": "개요로 돌아가기",
+  "workbenchUi.inspector.close": "닫기",
+  "workbenchUi.runtimePanel.maximize": "최대화",
+  "workbenchUi.runtimePanel.restore": "복원"
 }

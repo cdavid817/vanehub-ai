@@ -5145,5 +5145,11 @@
   "workbenchUi.filterBar.clearFilter": "Clear {{label}}",
   "workbenchUi.filterBar.resultCount_one": "{{count, number}} result",
   "workbenchUi.filterBar.resultCount_other": "{{count, number}} results",
-  "workbenchUi.filterBar.resultCountOfTotal": "{{count, number}} of {{total, number}} results"
+  "workbenchUi.filterBar.resultCountOfTotal": "{{count, number}} of {{total, number}} results",
+  "workbenchUi.inspector.pin": "Pin",
+  "workbenchUi.inspector.unpin": "Unpin",
+  "workbenchUi.inspector.returnToOverview": "Return to overview",
+  "workbenchUi.inspector.close": "Close",
+  "workbenchUi.runtimePanel.maximize": "Maximize",
+  "workbenchUi.runtimePanel.restore": "Restore"
 }
