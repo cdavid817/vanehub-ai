@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import {
   assertNoFatalError,
   bootDesktopUi,
@@ -177,6 +179,59 @@ globalThis.describe("VaneHub AI desktop session workspace", () => {
 
     await globalThis.browser.execute(() => {
       globalThis.document.documentElement.dataset.theme = "futuristic";
+    });
+    await assertNoFatalError(root);
+  });
+
+  globalThis.it("says part of the workspace was never searched when a real tree is too deep", async function () {
+    this.timeout(300000);
+    const root = await bootDesktopUi();
+    // Twelve levels, against a walk that descends ten. Deep rather than wide because depth is the
+    // one native ceiling a fixture can reach without writing hundreds of thousands of entries, and
+    // the notice under test is the same one every other budget produces.
+    const folder = await createWorkspaceFolder("vanehub-deep-workspace-");
+    let deep = folder;
+    for (let level = 0; level < 12; level += 1) {
+      deep = join(deep, `level-${level}`);
+      await mkdir(deep, { recursive: true });
+      await writeFile(join(deep, "buried.txt"), "needle-at-the-bottom\n", "utf8");
+    }
+
+    const opener = await createSessionButton();
+    await opener.waitForClickable({ timeout: 30000 });
+    await opener.click();
+    await (await dialog()).waitForExist({ timeout: 20000 });
+    await submitCreateSession({ projectPath: folder, title: "深层工作区搜索验证", agentId: "opencode" });
+
+    const files = await globalThis.$('//*[@role="tablist" and @aria-label="会话工作区"]//*[@role="tab" and @title="文件"]');
+    await files.waitForClickable({ timeout: 30000 });
+    await files.click();
+    const openSearch = await globalThis.$('//button[@title="在文件中搜索" or @aria-label="在文件中搜索"]');
+    await openSearch.waitForClickable({ timeout: 30000 });
+    await openSearch.click();
+
+    const input = await globalThis.$('[role="combobox"][aria-label="在此工作区中查找文本"]');
+    await input.waitForExist({ timeout: 20000 });
+    await input.setValue("needle-at-the-bottom");
+
+    // The distinction the coverage contract exists for, against a real filesystem and the native
+    // walk rather than a mock: the search found matches and still did not see everything, so it
+    // must not read as an authoritative answer about the parts it never reached.
+    const notice = await globalThis.browser.waitUntil(async () => {
+      const text = await globalThis.browser.execute(() => {
+        const panel = globalThis.document.querySelector('[role="dialog"][aria-label="在文件中搜索"]');
+        return panel ? panel.innerText : "";
+      });
+      return text.includes("此工作区有一部分未被搜索。") ? text : false;
+    }, { timeout: 60000, timeoutMsg: "the deep workspace never reported incomplete coverage" });
+
+    globalThis.console.warn("WORKSPACE_SEARCH_COVERAGE " + JSON.stringify(notice.slice(0, 200)));
+    // Escape closes the panel and cancels whatever is still running. Every spec in this file shares
+    // one client, so a modal left open is the next test's missing element.
+    await globalThis.browser.keys("Escape");
+    await globalThis.browser.waitUntil(async () => !(await (await globalThis.$('[role="dialog"][aria-label="在文件中搜索"]')).isExisting()), {
+      timeout: 20000,
+      timeoutMsg: "the search panel stayed open",
     });
     await assertNoFatalError(root);
   });

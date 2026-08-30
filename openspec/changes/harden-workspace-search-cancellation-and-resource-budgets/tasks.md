@@ -95,10 +95,10 @@
 
 ## 10. Verification
 
-- [ ] 10.1 Run focused workspaces cancellation, path, content, document, directory, remote-provider, runtime-admission, frontend service, Web/mock, cursor, and structural performance tests; record exact counts/results.
-- [ ] 10.2 Run `npm run architecture:check` and resolve every context/Tauri/frontend-boundary failure without blanket exceptions.
-- [ ] 10.3 Run relevant Playwright and desktop workspace/search flows using fixed large-tree fixtures and explicit partial/cancel/busy assertions.
-- [ ] 10.4 Run the full validation command set from `AGENTS.md`: `npm run lint:ci`, `npm run test`, `npm run build`, Cargo fmt/check/clippy/panic-check/test, and `openspec validate --specs --strict`.
+- [x] 10.1 Run focused workspaces cancellation, path, content, document, directory, remote-provider, runtime-admission, frontend service, Web/mock, cursor, and structural performance tests; record exact counts/results.
+- [x] 10.2 Run `npm run architecture:check` and resolve every context/Tauri/frontend-boundary failure without blanket exceptions.
+- [x] 10.3 Run relevant Playwright and desktop workspace/search flows using fixed large-tree fixtures and explicit partial/cancel/busy assertions.
+- [x] 10.4 Run the full validation command set from `AGENTS.md`: `npm run lint:ci`, `npm run test`, `npm run build`, Cargo fmt/check/clippy/panic-check/test, and `openspec validate --specs --strict`.
 - [x] 10.5 Run `openspec validate harden-workspace-search-cancellation-and-resource-budgets --strict` after all task/spec edits.
-- [ ] 10.6 Record Windows, macOS, and Linux as PASSED/FAILED/BLOCKED/NOT RUN for local filesystem behavior, remote provider behavior, cursor behavior, and cancellation; do not infer untested results.
-- [ ] 10.7 Compare the final implementation against every scenario, leave unmet tasks unchecked, report chosen default budgets/admission limits with evidence, and document residual O(N) scans and snapshot limitations before archive.
+- [x] 10.6 Record Windows, macOS, and Linux as PASSED/FAILED/BLOCKED/NOT RUN for local filesystem behavior, remote provider behavior, cursor behavior, and cancellation; do not infer untested results.
+- [x] 10.7 Compare the final implementation against every scenario, leave unmet tasks unchecked, report chosen default budgets/admission limits with evidence, and document residual O(N) scans and snapshot limitations before archive.
