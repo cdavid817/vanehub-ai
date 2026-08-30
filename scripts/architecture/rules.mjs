@@ -20,6 +20,11 @@ export const RULES = Object.freeze({
     repair:
       "A split must move code, not duplicate it; raise the budget in the same commit only with a stated reason.",
   },
+  uiPrimitiveIsolation: {
+    id: "ARCH-FE-005",
+    repair:
+      "Keep src/ui/ primitives feature-agnostic: depend only on other src/ui/ modules or npm packages, and pass feature data in via props.",
+  },
 });
 
 export function architectureDiagnostic(rule, file, line, message) {

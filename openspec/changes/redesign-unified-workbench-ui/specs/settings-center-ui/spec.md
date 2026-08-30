@@ -158,6 +158,36 @@ The Settings center SHALL lazy-load registered page modules and SHALL retain, su
 - **THEN** only the page content region SHALL show a localized retry action
 - **AND** navigation to other pages SHALL remain available
 
+#### Scenario: Open settings before visiting another page
+- **WHEN** the settings center opens and a registered page has not been visited
+- **THEN** that page's module SHALL remain unloaded and unmounted, per "Open an unvisited page"
+- **AND** the active settings page SHALL remain usable
+
+#### Scenario: Visit a settings page
+- **WHEN** the user selects a settings page for the first time
+- **THEN** the settings content region SHALL show a localized loading state while its module loads, per "Visit a page"
+- **AND** the navigation and settings shell SHALL remain mounted
+
+#### Scenario: Open settings before visiting a heavy page
+- **WHEN** the settings center opens and a page whose lifecycle policy declares non-trivial load cost has not been visited
+- **THEN** that page's module SHALL remain unloaded, per "Open an unvisited page" — there is no separate "heavy page" category in the registry; every page follows the same declared lifecycle policy
+- **AND** the active settings page SHALL remain usable
+
+#### Scenario: Visit a heavy settings page
+- **WHEN** the user selects such a page for the first time
+- **THEN** the settings content region SHALL show a localized loading state while its module loads, per "Visit a page"
+- **AND** the navigation and settings shell SHALL remain mounted
+
+#### Scenario: Return to a visited lazy page
+- **WHEN** the user leaves and later returns to a `keepAlive: never` settings page
+- **THEN** the page SHALL have unmounted while away, per "Leave an ordinary page", and SHALL remount and restore canonical data on return, per "Return to a page" — it SHALL NOT remain mounted indefinitely between visits, which was the prior permanently-mounted behavior this requirement replaces
+- **AND** a page declaring `draft-only` or a documented `always` exception SHALL instead follow "Leave a page with a protected draft"
+
+#### Scenario: Fail to load a settings module
+- **WHEN** a lazy settings page module cannot be loaded
+- **THEN** only that page content region SHALL show a localized retryable error, per "Module load fails"
+- **AND** the user SHALL be able to navigate to another settings page
+
 ### Requirement: Polished settings visual system
 The Settings center SHALL use the shared workbench PageHeader, navigation, FormSection, SettingsRow, DraftActionBar, DataTable, AsyncBoundary, status, and dialog primitives with one consistent hierarchy in both registered themes.
 
@@ -178,3 +208,13 @@ The Settings center SHALL use the shared workbench PageHeader, navigation, FormS
 #### Scenario: Render both themes
 - **WHEN** the page renders in futuristic or minimal
 - **THEN** structure, density, status, focus, disabled state, and responsive behavior SHALL be equivalent
+
+#### Scenario: Settings shell visual consistency
+- **WHEN** the settings center shell renders
+- **THEN** top navigation, sidebar navigation, page content, and fixed scroll regions SHALL share consistent typography, spacing, border strength, panel treatment, hover states, and focus rings, per "Render a settings page"
+- **AND** the visual result SHALL remain coherent in both `futuristic` and `minimal` styles
+
+#### Scenario: Settings page visual consistency
+- **WHEN** any registered settings page renders
+- **THEN** page headers, stat summaries, section panels, cards, form controls, empty states, status messages, and operation logs SHALL use the shared primitives named in this requirement, per "Render sections" and "Render resource management"
+- **AND** page-specific styling SHALL not create a conflicting radius, color, or spacing system

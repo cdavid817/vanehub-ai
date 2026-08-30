@@ -122,7 +122,7 @@ Work-item cards SHALL prioritize title, actionable state, stage context, and at 
 - **THEN** the state SHALL be understandable without color alone
 
 ### Requirement: Optional board WIP guidance
-The board MAY display configured work-in-progress limits and warnings without changing canonical stage-transition rules unless an owning service explicitly enforces them.
+The board MAY display configured work-in-progress limits and warnings, and any displayed limit SHALL NOT change canonical stage-transition rules unless an owning service explicitly enforces them.
 
 #### Scenario: Column reaches a visual WIP limit
 - **WHEN** a configured presentation limit is reached

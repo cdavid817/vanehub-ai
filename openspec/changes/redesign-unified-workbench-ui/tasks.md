@@ -19,15 +19,15 @@
 
 ## 1. Change governance and implementation gates
 
-- [ ] 1.1 Add a temporary `unifiedWorkbenchV2` migration flag through the existing settings/configuration mechanism without creating a permanent product preference.
-- [ ] 1.2 Document milestone ownership and dependency order in `openspec/changes/redesign-unified-workbench-ui/implementation-notes.md`.
-- [ ] 1.3 Create a requirement-to-task-to-test traceability table and keep it updated when requirements or tasks change.
-- [ ] 1.4 Add an architecture guard preventing shared `src/ui/` primitives from importing feature services, Tauri APIs, or feature-specific contracts.
-- [ ] 1.5 Add an architecture guard preventing React files from calling `invoke()` outside the existing Tauri adapters.
-- [ ] 1.6 Add or update the line-count gate so every new or modified production TS/TSX file remains within the repository limit.
-- [ ] 1.7 Define a deprecation policy for legacy destination ids and legacy session tab ids; add development diagnostics for unmapped values without logging user content.
-- [ ] 1.8 Require each milestone commit to pass focused tests and strict OpenSpec validation before the next milestone begins.
-- [ ] 1.9 Do not mark visual tasks complete from browser-only evidence when the behavior depends on xterm, WebView, native dialogs, filesystem selection, or SSH.
+- [x] 1.1 Add a temporary `unifiedWorkbenchV2` migration flag through the existing settings/configuration mechanism without creating a permanent product preference. — `DesktopSettingKey::UnifiedWorkbenchV2` end-to-end (domain/DTO/mapper/Rust tests) + `AppSettingKey`/`normalizeAppSettings` on the TS side; no SQL migration needed (settings table is generic key/value).
+- [x] 1.2 Document milestone ownership and dependency order in `openspec/changes/redesign-unified-workbench-ui/implementation-notes.md`. — Written, including 3 corrections Milestone 0 made to the delivered planning assumptions.
+- [x] 1.3 Create a requirement-to-task-to-test traceability table and keep it updated when requirements or tasks change. — `traceability.md`, all 89 requirements mapped to owning task sections.
+- [x] 1.4 Add an architecture guard preventing shared `src/ui/` primitives from importing feature services, Tauri APIs, or feature-specific contracts. — `ARCH-FE-005` in `scripts/architecture/frontend-rules.mjs`, 6 new tests, verified against the real tree (no `src/ui/` files exist yet, so 0 current violations).
+- [x] 1.5 Add an architecture guard preventing React files from calling `invoke()` outside the existing Tauri adapters. — Broadened existing `ARCH-FE-001`/`ARCH-FE-002` from `.tsx`-only to "not a `tauri-*.ts` adapter file" (closes a real gap: `.ts` hooks were unchecked); verified zero false positives against the full real `src/` tree.
+- [x] 1.6 Add or update the line-count gate so every new or modified production TS/TSX file remains within the repository limit. — Verified the existing mechanism already excludes new files by construction; added a regression test (`line-budget-exemptions.node-test.mjs`) that fails if the exemption list grows or gains a `src/ui/` entry.
+- [x] 1.7 Define a deprecation policy for legacy destination ids and legacy session tab ids; add development diagnostics for unmapped values without logging user content. — Policy documented in `src/lib/legacy-id-diagnostics.ts` and `implementation-notes.md`; `warnUnmappedLegacyId` implemented and tested (4 tests).
+- [x] 1.8 Require each milestone commit to pass focused tests and strict OpenSpec validation before the next milestone begins. — Documented in `implementation-notes.md`; already followed (M0 fully committed and evidenced before M1 code started). Ongoing discipline, not a one-time artifact.
+- [x] 1.9 Do not mark visual tasks complete from browser-only evidence when the behavior depends on xterm, WebView, native dialogs, filesystem selection, or SSH. — Documented in `implementation-notes.md`; already followed (task 0.6 recorded honestly as BLOCKED rather than claiming a desktop pass from browser evidence). Ongoing discipline, not a one-time artifact.
 
 ## 2. Semantic tokens and visual foundations
 

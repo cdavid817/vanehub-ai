@@ -35,6 +35,11 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 合并后下调:上面两条各自按自己那一侧的增量报了上限(19471 / 19581),但同一批上游改动在
 // src/services 里是净减的,合并后实测只有 19234——比两侧的预估、也比它们共同的基线 19414 都低。
 // 上限按实测值收紧,不保留任何一侧凭预估留下的余量。
+// 上调理由(redesign-unified-workbench-ui,Task 1.1):+5,全部在 settings-service.ts,是临时迁移
+// 开关 unifiedWorkbenchV2 在服务边界上的固定开销——AppSettingKey 新增一个枚举值、defaultAppSettings
+// 一个默认字段、normalizeAppSettings 一个类型守卫分支。两个 Adapter(tauri-settings-client.ts、
+// web-settings-client.ts)都是泛化的透传实现,不需要为这一个新字段各写一条分支,所以净增只有这
+// 三处而不是通常的"接口 + 两个 Adapter"三件套。上限按实测值 24141 记录,不留余量。
 // 上调理由(upgrade-session-workspace-evidence-console):新增 hunk 级评审决定这条能力,不是拆分。
 // 之前接受一个 hunk 调的是 review 级的 `setCodeReviewDecision`,等于整份评审被接受;修掉它需要
 // 一个独立的 service 方法、Web/mock 的定点变更实现、以及 Tauri 侧在 Task Group 13 落地持久化前
@@ -286,7 +291,7 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 客户端这三件套。三件套是"React 不直接 invoke"这条规则的代价,按能力条数线性增长而不是按代码
 // 量——所以每次合并都在合并后的树上重测,不把两侧的数相加,后者会把两边共有的基线算两遍。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 24136, owner: "upgrade-session-workspace-evidence-console" },
+  { root: "src/services", budget: 24141, owner: "redesign-unified-workbench-ui" },
 ]);
 
 const STATE_PACKAGES = new Set([
@@ -308,6 +313,28 @@ const RUNTIME_HELPERS = new Set([
   "../services/runtime-mode",
   "../../services/runtime-mode",
 ]);
+// Denylist, not an allowlist: an allowlist would need updating every time a genuinely shared
+// helper (src/lib, src/i18n, src/types) grows a new file, while this only needs updating if a
+// new feature domain directory appears at the top of src/ — and `src/features/` is covered by
+// prefix so domains created under it need no changes here either.
+const UI_PRIMITIVE_FORBIDDEN_ROOTS = [
+  "src/services/",
+  "src/main-layout/",
+  "src/session-workspace/",
+  "src/components/chat/",
+  "src/settings/",
+  "src/work-board/",
+  "src/goal-center/",
+  "src/mission-control/",
+  "src/loop-center/",
+  "src/evaluation-center/",
+  "src/features/",
+];
+
+function resolveRelativeSpecifier(file, specifier) {
+  if (!specifier.startsWith(".")) return null;
+  return path.posix.normalize(path.posix.join(path.posix.dirname(file), specifier));
+}
 
 function location(sourceFile, node) {
   return sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
@@ -322,7 +349,15 @@ function packageRoot(specifier) {
   return specifier.split("/")[0];
 }
 
-export function analyzeFrontendSource(file, source, { reactSurface = file.endsWith(".tsx") } = {}) {
+// The `tauri-*.ts` naming convention is the actual boundary, not the .tsx extension: hooks are
+// .ts and are just as capable of calling invoke() directly as a component is, and every
+// legitimate direct Tauri caller in this repo already starts with this prefix — client and
+// transport suffixes both occur (tauri-agent-client.ts, tauri-native-evidence-transport.ts).
+function isTauriAdapterFile(file) {
+  return /(^|\/)tauri-[^/]+\.ts$/.test(file);
+}
+
+export function analyzeFrontendSource(file, source, { requiresServiceBoundary = !isTauriAdapterFile(file) } = {}) {
   const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
   const diagnostics = [];
   const invokeBindings = new Set();
@@ -337,25 +372,35 @@ export function analyzeFrontendSource(file, source, { reactSurface = file.endsWi
       if (specifier && STATE_PACKAGES.has(packageRoot(specifier))) {
         report(RULES.stateManagement, node.moduleSpecifier, `prohibited production dependency \`${specifier}\``);
       }
-      if (reactSurface && specifier?.startsWith("@tauri-apps/")) {
+      if (requiresServiceBoundary && specifier?.startsWith("@tauri-apps/")) {
         report(RULES.tauriBoundary, node.moduleSpecifier, `React surface imports \`${specifier}\``);
       }
-      if (reactSurface && specifier && NATIVE_ADAPTERS.has(specifier)) {
+      if (requiresServiceBoundary && specifier && NATIVE_ADAPTERS.has(specifier)) {
         report(RULES.tauriBoundary, node.moduleSpecifier, `React surface imports native adapter \`${specifier}\``);
       }
-      if (reactSurface && specifier && RUNTIME_HELPERS.has(specifier)) {
+      if (requiresServiceBoundary && specifier && RUNTIME_HELPERS.has(specifier)) {
         report(RULES.runtimeBranch, node.moduleSpecifier, `React surface imports runtime selector \`${specifier}\``);
       }
-      if (reactSurface && specifier?.startsWith("@tauri-apps/")) {
+      if (requiresServiceBoundary && specifier?.startsWith("@tauri-apps/")) {
         for (const element of node.importClause?.namedBindings?.elements ?? []) {
           if ((element.propertyName ?? element.name).text === "invoke") invokeBindings.add(element.name.text);
         }
       }
+      if (file.startsWith("src/ui/") && specifier?.startsWith("@tauri-apps/")) {
+        report(RULES.uiPrimitiveIsolation, node.moduleSpecifier, `src/ui/ primitive imports Tauri API \`${specifier}\``);
+      }
+      if (file.startsWith("src/ui/") && specifier) {
+        const resolved = resolveRelativeSpecifier(file, specifier);
+        const forbiddenRoot = resolved && UI_PRIMITIVE_FORBIDDEN_ROOTS.find((root) => `${resolved}/`.startsWith(root));
+        if (forbiddenRoot) {
+          report(RULES.uiPrimitiveIsolation, node.moduleSpecifier, `src/ui/ primitive imports feature-specific module \`${specifier}\` (resolves under ${forbiddenRoot})`);
+        }
+      }
     }
-    if (reactSurface && ts.isCallExpression(node) && ts.isIdentifier(node.expression) && invokeBindings.has(node.expression.text)) {
+    if (requiresServiceBoundary && ts.isCallExpression(node) && ts.isIdentifier(node.expression) && invokeBindings.has(node.expression.text)) {
       report(RULES.tauriBoundary, node.expression, "React surface calls Tauri invoke directly");
     }
-    if (reactSurface && ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "window" && node.name.text.startsWith("__TAURI")) {
+    if (requiresServiceBoundary && ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "window" && node.name.text.startsWith("__TAURI")) {
       report(RULES.runtimeBranch, node, `React surface reads native runtime global \`window.${node.name.text}\``);
     }
     ts.forEachChild(node, visit);

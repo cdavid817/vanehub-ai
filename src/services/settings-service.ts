@@ -48,6 +48,7 @@ export const defaultAppSettings: AppSettings = {
   memoryToolAssistedChatsEnabled: true,
   automaticContextCompactionEnabled: true,
   contextQualityRetentionDays: 30,
+  unifiedWorkbenchV2: false,
   personalizationRevision: 0,
 };
 
@@ -164,6 +165,10 @@ export function normalizeAppSettings(input: AppSettingsInput): AppSettings {
     contextQualityRetentionDays: isContextQualityRetentionDays(input.contextQualityRetentionDays)
       ? input.contextQualityRetentionDays
       : defaultAppSettings.contextQualityRetentionDays,
+    unifiedWorkbenchV2:
+      typeof input.unifiedWorkbenchV2 === "boolean"
+        ? input.unifiedWorkbenchV2
+        : defaultAppSettings.unifiedWorkbenchV2,
     personalizationRevision:
       typeof input.personalizationRevision === "number" && Number.isInteger(input.personalizationRevision) && input.personalizationRevision >= 0
         ? input.personalizationRevision

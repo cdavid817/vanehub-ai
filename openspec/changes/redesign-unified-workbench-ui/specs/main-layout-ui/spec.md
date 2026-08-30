@@ -82,6 +82,39 @@ The workspace shell SHALL render a persistent primary activity rail for Sessions
 - **WHEN** the available vertical space is limited
 - **THEN** all five primary entries and the utility group SHALL remain reachable without an undiscoverable clipped item
 
+#### Scenario: Render activity entries
+- **WHEN** the activity rail renders
+- **THEN** it SHALL show Sessions, Projects and Workspaces, Runs, Plan, and Quality as primary entries
+- **AND** Settings and Help SHALL render in a separate anchored utility group
+- **AND** Loops and Scheduled Tasks SHALL NOT render as separate primary entries; both are reachable through Runs' secondary navigation instead
+
+#### Scenario: Identify icon-only entries
+- **WHEN** an activity-bar entry is available to pointer, keyboard, or assistive-technology users
+- **THEN** it SHALL provide an accessible name and tooltip synchronized across every registered application locale
+- **AND** it SHALL expose stable hover, focus, selected, attention, and disabled styling without shifting adjacent entries
+
+#### Scenario: Open settings from activity bar
+- **WHEN** the user activates the Settings utility entry
+- **THEN** the system SHALL open the existing settings center without requiring a runtime-specific backend call
+
+#### Scenario: Open Loops from activity bar
+- **WHEN** the user wants to open Loops
+- **THEN** they SHALL do so through the Runs destination's Loops secondary route rather than a dedicated primary activity-bar entry
+- **AND** the workspace SHALL preserve mounted Sessions destination state for later return
+
+#### Scenario: Return to sessions from activity bar
+- **WHEN** the user activates the Sessions primary entry while another destination is active
+- **THEN** the workspace SHALL restore the Sessions destination without losing its selected session and mounted tab state
+
+#### Scenario: Open scheduled tasks from activity bar
+- **WHEN** the user wants to open Scheduled Tasks
+- **THEN** they SHALL do so through the Runs destination's Schedules secondary route as a routed page rather than a dedicated primary activity-bar dialog entry
+- **AND** it SHALL NOT show a coming-soon placeholder
+
+#### Scenario: Preserve future help entry
+- **WHEN** the activity rail renders its utility group
+- **THEN** it SHALL keep the Help entry available without introducing a new Help destination in this requirement
+
 ### Requirement: Three-panel workspace proportions
 The Sessions workspace SHALL use a bounded resizable context-navigation pane, a minimum-width main work surface, and an optional bounded Inspector whose presentation changes between inline and sheet modes according to available container width.
 
@@ -104,6 +137,33 @@ The Sessions workspace SHALL use a bounded resizable context-navigation pane, a 
 - **WHEN** the user enters conversation focus mode
 - **THEN** auxiliary panes and optional navigation SHALL hide without losing their prior preferred states
 - **AND** the user SHALL retain an always-reachable exit control
+
+#### Scenario: Render expanded panel layout
+- **WHEN** the session navigation and Inspector are both open at wide-layout width
+- **THEN** the workspace SHALL render navigation, main surface, and Inspector side by side within their documented bounded widths
+- **AND** the main surface SHALL receive the remaining width without overlap
+
+#### Scenario: Render collapsed information panel layout
+- **WHEN** the session navigation is open and the Inspector is closed
+- **THEN** the main surface SHALL expand into the space the Inspector would otherwise occupy
+
+#### Scenario: Render collapsed session sidebar layout
+- **WHEN** the session navigation is closed and the Inspector is open
+- **THEN** the main surface SHALL expand into the space the session navigation would otherwise occupy
+
+#### Scenario: Render both panels collapsed
+- **WHEN** the session navigation and Inspector are both closed
+- **THEN** the main surface SHALL occupy the full available width
+
+#### Scenario: Align panel bottoms
+- **WHEN** the workspace shell renders between the top bar and status bar
+- **THEN** the activity rail and all visible workspace panels SHALL use the same available height and align at the bottom edge
+
+#### Scenario: Separate the session list from the conversation surface
+- **WHEN** the session navigation and main conversation surface are both visible
+- **THEN** the workspace SHALL reserve a non-overlapping visual gap between the two surfaces
+- **AND** the gap SHALL NOT reduce or cover the session cards' trailing content
+- **AND** the gap SHALL be removed when session navigation is closed or the workspace switches to its narrow single-surface composition
 
 ### Requirement: Sidebar session organization
 The Sessions context-navigation pane SHALL provide an attention-first, virtualized, service-backed session list with compact view, filter, archive, category, project, pin, search, batch, and context-action capabilities.
@@ -136,6 +196,72 @@ The Sessions context-navigation pane SHALL provide an attention-first, virtualiz
 - **THEN** a dedicated batch action region SHALL show selected count and permitted actions
 - **AND** normal session activation and drag behavior SHALL be suspended until batch mode exits
 
+#### Scenario: Omit sidebar utility row
+- **WHEN** the session navigation pane renders
+- **THEN** it SHALL omit Settings, Help, and any visual-style-switching control, because global utility actions belong to the activity rail's utility group
+
+#### Scenario: Show agent marker on session cards
+- **WHEN** a session row is rendered
+- **THEN** the row SHALL show an agent-type marker using a distinct icon and color for every registered stable agent id, including Claude Code, Codex CLI, OpenCode, Gemini CLI, Antigravity CLI, and OnePiece
+- **AND** an unrecognized future agent id SHALL render a neutral fallback marker rather than failing the row
+
+#### Scenario: Open create-session dialog from new action
+- **WHEN** the user activates the New Session action
+- **THEN** the pane SHALL open the create-session wizard rather than immediately creating a session
+
+#### Scenario: Create session from dialog
+- **WHEN** the user completes the create-session wizard
+- **THEN** the UI SHALL create a session through the frontend agent service and make the created session available for selection
+
+#### Scenario: Select session card
+- **WHEN** the user selects a session row
+- **THEN** the pane SHALL switch the active session through the frontend agent service and visually mark that row as selected
+
+#### Scenario: Switch to activity view
+- **WHEN** the user is viewing an alternate organization and chooses to return to the default view
+- **THEN** the pane SHALL restore the attention-first grouping described in "Render the default view"
+
+#### Scenario: Sort activity groups by priority
+- **WHEN** the pane renders the default attention-first view
+- **THEN** groups SHALL appear in priority order: needs-input, pending verification or approval, running, pinned, recent, remaining
+
+#### Scenario: Show pinned sessions
+- **WHEN** one or more sessions are pinned
+- **THEN** the pane SHALL render pinned sessions in their own group within the attention-first ordering, ranked before recent and remaining sessions
+
+#### Scenario: Switch to folder group view
+- **WHEN** the user selects category organization
+- **THEN** the pane SHALL group sessions by their assigned category, including a localized uncategorized group for sessions without one
+
+#### Scenario: Toggle folder expansion
+- **WHEN** the user toggles a category group in category organization
+- **THEN** the pane SHALL expand or collapse that category's session rows without changing the selected session
+
+#### Scenario: Open archived view
+- **WHEN** the user selects archived organization
+- **THEN** the pane SHALL show archived sessions from the frontend agent service and indicate the archived session count
+
+#### Scenario: Use context actions
+- **WHEN** the user opens a session row's context menu
+- **THEN** the pane SHALL provide actions to rename, pin or unpin, archive or restore, and delete the session according to its current state
+
+#### Scenario: Prevent browser context menu
+- **WHEN** the user opens the custom session context menu in browser or desktop WebView mode
+- **THEN** the pane SHALL prevent the platform default context menu from appearing over the custom menu
+
+#### Scenario: Confirm destructive session deletion
+- **WHEN** the user chooses to delete a session
+- **THEN** the pane SHALL ask for confirmation before calling the delete operation
+
+#### Scenario: Scroll long session lists internally
+- **WHEN** the session list content exceeds the pane height
+- **THEN** the list SHALL scroll inside the pane, using virtualization per "Render a large history" once the visible source is large, without scrolling the whole workspace shell
+
+#### Scenario: Compact secondary session controls
+- **WHEN** the pane renders batch-management, organization-switching, filter, and archived-view entry points alongside the session list
+- **THEN** these secondary controls SHALL be exposed through the shared bounded toolbar or overflow described in "Keep controls compact" rather than each occupying its own dedicated full-width row
+- **AND** the session list SHALL remain the dominant vertical element of the pane
+
 ### Requirement: Optimized information panel tabs
 The former fixed session information-tab panel SHALL become a contextual Inspector with Session Overview, Follow Selection, and Pinned modes. Session overview content SHALL use bounded sections rather than a row of equal-width Basic, Member, Usage, Skill, IM, or Code Index tabs.
 
@@ -163,6 +289,63 @@ The former fixed session information-tab panel SHALL become a contextual Inspect
 - **WHEN** the Inspector is closed or a section has not been expanded
 - **THEN** it SHALL not start unneeded high-frequency queries or mount every detail implementation
 - **AND** service-owned background work SHALL remain unaffected
+
+#### Scenario: Information panel tab set
+- **WHEN** the Inspector renders Session Overview for an active session
+- **THEN** it SHALL show Participant, Runtime, Usage, Skill, Workspace, IM, and Code Index as bounded sections rather than equal-width tabs
+- **AND** it SHALL NOT show Files, Changes, or Logs sections in Overview mode; that evidence remains reachable through their owning primary or Runtime Panel surfaces
+
+#### Scenario: Switch tabs without unmounting content
+- **WHEN** the user scrolls between Overview sections or returns to Overview after Follow Selection or Pinned mode
+- **THEN** each section's already-loaded data SHALL remain available without an unnecessary reload
+- **AND** an unexpanded or not-yet-visible section MAY defer its own query until needed, per "Protect panel performance"
+
+#### Scenario: Show selected session model
+- **WHEN** the Runtime section is visible for an active session
+- **THEN** it SHALL show the active CLI identity, session lifecycle state, project or worktree context, and the model id from that session's chat configuration
+- **AND** it SHALL show a localized empty state when no model id is available
+
+#### Scenario: Show session token usage
+- **WHEN** the Usage section is visible for an active session
+- **THEN** it SHALL show reported input, output, cache-read, cache-creation, and total token counts for that session when reported usage exists
+- **AND** it SHALL keep estimated character activity separate from reported token totals
+
+#### Scenario: Show no reported token fallback
+- **WHEN** the Usage section is visible and the active session has no reported token totals
+- **THEN** it SHALL show a localized no-reported-token state
+- **AND** it SHALL include estimated response and character context when estimated usage exists
+
+#### Scenario: Show Skill scope subviews
+- **WHEN** the Skill section is visible for an active session
+- **THEN** it SHALL show Effective, Global, and Project subviews with localized counts
+- **AND** switching those subviews SHALL preserve their loaded content and local UI state
+
+#### Scenario: Show effective Skills
+- **WHEN** the Effective Skill subview is visible
+- **THEN** it SHALL show enabled global and project Skills applicable to the active stable Agent id
+- **AND** each Skill SHALL retain a visible global or project scope label so same-id Skills remain distinguishable
+
+#### Scenario: Show global Skills read-only
+- **WHEN** the Global Skill subview is visible
+- **THEN** it SHALL show global Skills assigned to the active Agent with enablement and binding status
+- **AND** SHALL keep global Skill mutations out of the Inspector
+- **AND** SHALL provide navigation to the global Skill Settings page via EvidenceLink
+
+#### Scenario: Show complete project Skill inventory
+- **WHEN** the Project Skill subview is visible with a resolved workspace path
+- **THEN** it SHALL show all project Skills for that workspace, including disabled, unbound, and drifted Skills
+- **AND** disabled or paused Skills SHALL NOT appear in the Effective subview
+
+#### Scenario: Localize optimized information panel
+- **WHEN** the Inspector renders in any registered application locale
+- **THEN** all user-visible labels, section names, Skill subview names, actions, loading states, empty states, errors, confirmations, and headings SHALL use the active locale resources
+- **AND** stable Agent ids, model ids, project paths, worktree names, and Skill ids MAY remain literal identifiers
+
+#### Scenario: Preserve compact panel behavior
+- **WHEN** the Inspector renders inline or as a sheet in `futuristic` or `minimal` style
+- **THEN** it SHALL use shared semantic panel, muted-panel, segmented-control, border, text, and status tokens
+- **AND** long labels, model ids, paths, Skill names, and project Skill controls SHALL not overlap adjacent controls or resize the workspace grid
+- **AND** complex project Skill forms and confirmations SHALL render in application-level dialogs rather than expanding the Inspector's width
 
 ### Requirement: Create-session dialog
 The main layout UI SHALL provide a four-step create-session wizard for runtime mode, participants and capabilities, workspace, and final review, using the shared application dialog or full-height sheet primitive according to available width.
@@ -197,6 +380,53 @@ The main layout UI SHALL provide a four-step create-session wizard for runtime m
 - **THEN** duplicate submission and destructive dismissal SHALL be prevented
 - **AND** scrolling, copying the review, and accessing non-conflicting help SHALL remain available
 
+#### Scenario: Select session mode
+- **WHEN** the wizard's runtime-mode step opens
+- **THEN** it SHALL present Single Agent and Multi Agent as selectable modes, alongside the CLI/API and Local/Remote choices described in "Choose runtime mode"
+- **AND** only combinations the current service capabilities do not support SHALL be disabled, each with an explanation
+
+#### Scenario: Multi Agent is disabled
+- **WHEN** a specific runtime-mode combination is not supported by current service capabilities
+- **THEN** that combination SHALL be marked disabled with an explanation
+- **AND** the user SHALL NOT be able to submit an unsupported combination
+- **AND** Multi Agent itself SHALL NOT be universally disabled, since multi-participant sessions are a supported capability
+
+#### Scenario: Select Agent
+- **WHEN** the participant step renders
+- **THEN** the wizard SHALL let the user choose among every registered stable agent id, including Claude Code, Gemini CLI, Codex CLI, OpenCode, Antigravity CLI, and OnePiece, subject to the selected runtime mode
+- **AND** Multi Agent mode SHALL let the user configure more than one participant per "Configure participants"
+
+#### Scenario: Show project history
+- **WHEN** the workspace step renders
+- **THEN** it SHALL show recently selected project folders and remote workspaces from the frontend agent service
+
+#### Scenario: Browse project folder
+- **WHEN** the user chooses to browse for a project folder
+- **THEN** the workspace step SHALL request folder selection through the frontend agent service
+
+#### Scenario: Show worktree controls for Git project
+- **WHEN** the selected project folder is a Git repository
+- **THEN** the workspace step SHALL show an optional worktree checkbox and a worktree name field when the checkbox is enabled
+
+#### Scenario: Disable worktree controls for non-Git project
+- **WHEN** the selected project folder is not a Git repository
+- **THEN** the workspace step SHALL allow normal session creation and SHALL hide or disable worktree controls
+
+#### Scenario: Submit concise failures
+- **WHEN** project inspection, folder selection, or session creation fails
+- **THEN** the wizard SHALL show a concise error message without rendering raw stdout or stderr, per "Show validation errors"
+- **AND** the message SHALL remain fully readable rather than being truncated to a single line
+- **AND** it SHALL be announced to assistive technology
+
+#### Scenario: Dismiss without creating
+- **WHEN** the wizard is open and no creation request is in flight
+- **THEN** pressing Escape SHALL close it without creating a session
+- **AND** focus SHALL return to the control that opened it
+
+#### Scenario: Dismissal blocked while creating
+- **WHEN** a creation request is in flight
+- **THEN** Escape and backdrop dismissal SHALL NOT close the wizard, per "Submit once"
+
 ### Requirement: Declarative session workspace tab capabilities
 The session workspace SHALL declare four primary surfaces and four runtime-panel surfaces in one capability registry, including scope, retention, live-update, badge, route-compatibility, and renderer policies.
 
@@ -228,3 +458,21 @@ The session workspace SHALL declare four primary surfaces and four runtime-panel
 - **WHEN** a surface is not visible
 - **THEN** its registry retention and live-update policies SHALL control mounting and subscriptions
 - **AND** CSS visibility alone SHALL NOT be treated as proof that expensive work is suspended
+
+#### Scenario: Render a seat-optional tab
+- **WHEN** the Runtime Panel's Terminal History or Logs surface is active for a multi-Agent session
+- **THEN** the workspace SHALL expose an all-seats choice and concrete active-seat choices according to the registry's seat-optional declaration
+- **AND** the selected seat SHALL be included in that surface's service query key
+
+#### Scenario: Render a seat-required tab
+- **WHEN** the Runtime Panel's Shell surface is active for a multi-Agent session
+- **THEN** the workspace SHALL require one concrete active seat before creating or attaching a Shell, per the registry's seat-required declaration
+
+#### Scenario: Render a session-scoped tab
+- **WHEN** the Changes, Files, or Report primary surface is active in its default mode
+- **THEN** the workspace SHALL NOT show a global seat control that appears to filter that surface, per the registry's session-scoped declaration
+
+#### Scenario: Add a future workspace tab
+- **WHEN** a future primary or runtime surface is registered
+- **THEN** its scope, retention, live-update, badge, and route-compatibility policies SHALL be declared in the same registry
+- **AND** React SHALL NOT infer those semantics from its translated label or display order

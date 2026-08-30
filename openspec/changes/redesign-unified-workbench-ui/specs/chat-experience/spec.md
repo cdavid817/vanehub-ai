@@ -179,3 +179,15 @@ The composer SHALL acknowledge a valid submission immediately, retain recoverabl
 - **WHEN** the user message exists but generation fails
 - **THEN** the user message SHALL remain in chronology and the assistant or operation state SHALL show a concise failure with recovery actions
 - **AND** unrelated messages, Inspector content, and Runtime Panel access SHALL remain usable
+
+#### Scenario: Optimistically display a submitted user message
+- **WHEN** the user submits a valid message
+- **THEN** the draft and selected references SHALL clear immediately
+- **AND** the shared thread SHALL immediately display a temporary user message without waiting for native prompt assembly or CLI launch
+- **AND** the send action SHALL remain protected from duplicate submission while the command is pending
+
+#### Scenario: Roll back a rejected optimistic message
+- **WHEN** the message service rejects the submission
+- **THEN** the temporary user message SHALL be removed
+- **AND** the submitted draft and file references SHALL be restored
+- **AND** the existing localized error feedback SHALL remain available

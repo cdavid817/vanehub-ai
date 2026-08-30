@@ -41,6 +41,8 @@ pub(crate) struct AppSettings {
     pub(crate) custom_instructions_enabled: bool,
     pub(crate) memory_enabled: bool,
     pub(crate) memory_tool_assisted_chats_enabled: bool,
+    /// Temporary migration flag for `redesign-unified-workbench-ui`; not a permanent setting.
+    pub(crate) unified_workbench_v2: bool,
     /// The revision the personalization fields above were read at, or `0` while the dedicated
     /// policy is unreachable. The page echoes it back on save, so a write from a screen rendered
     /// before someone else's edit is refused instead of silently reverting it.

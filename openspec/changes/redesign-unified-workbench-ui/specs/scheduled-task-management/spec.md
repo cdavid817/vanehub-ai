@@ -154,3 +154,21 @@ The workbench SHALL replace the full scheduled-task management dialog with a fir
 #### Scenario: Use compact width
 - **WHEN** list and detail cannot fit together
 - **THEN** the page SHALL use list-then-detail and full-height editor-sheet flows with clear Back and Close actions
+
+#### Scenario: Open scheduled task dialog
+- **WHEN** the user activates the Scheduled Tasks entry
+- **THEN** the workbench SHALL navigate to the `/runs/schedules` page rather than opening a large management dialog, per "Open scheduled tasks"
+- **AND** it SHALL NOT create a task or invoke Agent runtime behavior until the user submits a valid task from the editor sheet
+
+#### Scenario: Render creation fields
+- **WHEN** the editor sheet is open for creation
+- **THEN** it SHALL show localized fields for task name, task content, Agent tool, frequency type, and frequency parameters, per "Create or edit"
+- **AND** the task name field SHALL provide a default hint such as "例如：每日整理项目进度"
+
+#### Scenario: Render task list
+- **WHEN** the `/runs/schedules` page is open
+- **THEN** it SHALL show created scheduled tasks with name, selected Agent, frequency summary, enabled state, next run time, and latest status, per "Render scheduled-task collection"
+
+#### Scenario: Manage task state
+- **WHEN** a user enables, disables, or deletes a scheduled task
+- **THEN** the page SHALL perform the mutation through the frontend service boundary using target-local pending state and refresh the affected task without reloading the whole collection

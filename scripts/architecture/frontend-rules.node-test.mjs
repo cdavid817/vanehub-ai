@@ -27,9 +27,54 @@ for (const [name, source, id, line] of [
   });
 }
 
+for (const [name, file, source] of [
+  ["a feature service", "src/ui/inspector/inspector.tsx", 'import { agentService } from "../../services/agent-service";\nexport function Inspector() { return agentService ? null : null; }'],
+  ["a Tauri API", "src/ui/inspector/inspector.ts", 'import { invoke } from "@tauri-apps/api/core";\nexport function run() { return invoke("x"); }'],
+  ["a feature domain directory", "src/ui/status/status-badge.tsx", 'import { workspacePath } from "../../main-layout/workspace-route";\nexport function StatusBadge() { return workspacePath ? null : null; }'],
+  ["src/features/", "src/ui/inspector/inspector.tsx", 'import { thing } from "../../features/sessions/thing";\nexport function Inspector() { return thing ? null : null; }'],
+]) {
+  test(`rejects a src/ui/ primitive importing ${name}`, () => {
+    const diagnostics = analyzeFrontendSource(file, source);
+    assert.ok(diagnostics.some((value) => value.includes("[ARCH-FE-005]")));
+    assert.ok(diagnostics.every((value) => value.includes("Repair:")));
+  });
+}
+
+test("accepts a src/ui/ primitive that only depends on other src/ui/ modules and npm packages", () => {
+  const diagnostics = analyzeFrontendSource(
+    "src/ui/inspector/inspector.tsx",
+    'import { cn } from "../lib/utils";\nimport { StatusBadge } from "../status/status-badge";\nimport { Info } from "lucide-react";\nexport function Inspector() { return cn && StatusBadge && Info ? null : null; }',
+  );
+  assert.deepEqual(diagnostics, []);
+});
+
+test("does not apply src/ui/ isolation to files outside src/ui/", () => {
+  const diagnostics = analyzeFrontendSource(
+    "src/main-layout/main-layout.tsx",
+    'import { agentService } from "../services/agent-service";\nexport function MainLayout() { return agentService ? null : null; }',
+  );
+  assert.deepEqual(diagnostics, []);
+});
+
 test("does not treat test fixtures as production selection in the repository walker", () => {
-  const diagnostics = analyzeFrontendSource("fixture.test.ts", 'import { create } from "zustand";', { reactSurface: false });
+  const diagnostics = analyzeFrontendSource("fixture.test.ts", 'import { create } from "zustand";', { requiresServiceBoundary: false });
   assert.equal(diagnostics.length, 1);
+});
+
+test("rejects a .ts hook (not just .tsx components) calling Tauri invoke directly", () => {
+  const diagnostics = analyzeFrontendSource(
+    "src/main-layout/use-something.ts",
+    'import { invoke } from "@tauri-apps/api/core";\nexport function useSomething() { return invoke("x"); }',
+  );
+  assert.ok(diagnostics.some((value) => value.includes("[ARCH-FE-001] src/main-layout/use-something.ts:1:")));
+});
+
+test("accepts a real tauri-*-client.ts adapter calling Tauri invoke directly", () => {
+  const diagnostics = analyzeFrontendSource(
+    "src/services/tauri-example-client.ts",
+    'import { invoke } from "@tauri-apps/api/core";\nexport const tauriExampleClient = { run: () => invoke("x") };',
+  );
+  assert.deepEqual(diagnostics, []);
 });
 
 test("counts physical lines the way wc -l does, with and without a trailing newline", () => {

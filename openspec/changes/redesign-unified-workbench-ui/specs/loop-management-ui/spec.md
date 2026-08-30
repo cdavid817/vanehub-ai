@@ -66,6 +66,14 @@ The workbench SHALL provide Loops as a dedicated section of the Runs destination
 - **WHEN** a Loop Run has actionable or failed canonical state
 - **THEN** Mission Control MAY surface its safe summary and navigate to the authoritative Loop Run page
 
+#### Scenario: Open Loop Center
+- **WHEN** the user selects Loops under the Runs destination
+- **THEN** the workspace SHALL show the Loop definition or Run list, selected overview or timeline, and optional Inspector, per "Open Loops"
+
+#### Scenario: Render empty state
+- **WHEN** no Loop definitions exist
+- **THEN** the Loops page SHALL show a localized empty state with a create-Loop action, per "No definitions exist"
+
 ### Requirement: Loop Center operational layout
 The Loop Center SHALL use a flexible two-region primary layout with bounded contextual navigation and a readable definition overview or Run timeline, while detailed selection content uses the shared optional Inspector.
 
@@ -82,6 +90,14 @@ The Loop Center SHALL use a flexible two-region primary layout with bounded cont
 #### Scenario: Resize content
 - **WHEN** pane width changes
 - **THEN** timeline labels, phase state, iteration summaries, and decision actions SHALL not overlap or become unreachable
+
+#### Scenario: Render desktop layout
+- **WHEN** sufficient desktop width is available
+- **THEN** the Loop Center SHALL render bounded contextual navigation, a flexible timeline, and an optional Inspector with aligned heights and internal scrolling, per "Render desktop Run" — the fixed approximately-240px/300px three-panel grid is replaced by the shared bounded/collapsible model
+
+#### Scenario: Render narrow layout
+- **WHEN** the viewport cannot fit navigation, timeline, and Inspector without clipping
+- **THEN** navigation and Inspector SHALL become accessible sheets while the timeline remains the primary surface, per "Render compact Run"
 
 ### Requirement: Run phase and iteration monitoring
 The selected Loop Run view SHALL expose current status, phase, progress, limits, compact iteration history, evidence availability, and decision reasons while progressively disclosing low-level evidence through selection and the Inspector.
@@ -102,6 +118,18 @@ The selected Loop Run view SHALL expose current status, phase, progress, limits,
 - **WHEN** updated state is loading
 - **THEN** existing timeline and selected detail SHALL remain visible with a refresh indicator
 
+#### Scenario: Monitor active run
+- **WHEN** a run is queued, running, paused, or recovery-required
+- **THEN** the center SHALL show its current phase, iteration position, elapsed time, configured limits, and latest decision or operation status, per "Monitor active Run"
+
+#### Scenario: Inspect iteration
+- **WHEN** a user opens an iteration
+- **THEN** the UI SHALL show Worker summary, changed-file and diff summary, verification outcomes, Verifier recommendation and findings, decision reason, and links to owned session inspection surfaces, per "Inspect iteration detail"
+
+#### Scenario: Preserve loaded history during refresh
+- **WHEN** updated run state is loading
+- **THEN** the UI SHALL retain existing iteration history and indicate refreshing rather than replacing the center with a blank state, per "Refresh Run"
+
 ### Requirement: Persistent Loop run action header
 The selected Loop Run surface SHALL keep a bounded canonical status, phase, current activity, budget summary, one state-appropriate primary action, and a secondary action menu visible independently of the Inspector.
 
@@ -121,6 +149,16 @@ The selected Loop Run surface SHALL keep a bounded canonical status, phase, curr
 - **WHEN** the header cannot fit all summaries
 - **THEN** secondary metrics SHALL collapse into a details trigger while state and the primary action remain readable
 
+#### Scenario: Monitor and control a desktop run
+- **WHEN** a run is selected at desktop width
+- **THEN** the header SHALL show status, phase, current iteration, elapsed or remaining budget, and the current activity summary, per "Run is active"
+- **AND** pause, resume, stop, or acceptance actions appropriate to the state SHALL remain reachable from that header or an adjacent persistent action region
+
+#### Scenario: Control a run at narrow width
+- **WHEN** the Loop Center uses its compact composition
+- **THEN** critical run controls SHALL remain reachable without first opening the Inspector, per "Use compact width"
+- **AND** controls SHALL not overlap the timeline or hide state and consequence text
+
 ### Requirement: Decision-oriented iteration history
 The Loop Center SHALL summarize iterations as a compact decision timeline and SHALL place full chronological evidence behind explicit selection rather than rendering a large accordion for every iteration by default.
 
@@ -137,6 +175,15 @@ The Loop Center SHALL summarize iterations as a compact decision timeline and SH
 #### Scenario: Recover interrupted Run
 - **WHEN** an iteration stopped at a durable recovery boundary
 - **THEN** the summary SHALL explain preserved evidence and available resume or stop actions
+
+#### Scenario: Inspect low-level evidence
+- **WHEN** the user requests full evidence for an iteration
+- **THEN** the UI SHALL progressively disclose its chronological evidence and inspection links, per "Expand evidence"
+- **AND** it SHALL not repeat the same full evidence list in the default summary
+
+#### Scenario: Recover from an interrupted run
+- **WHEN** a run is paused with recovery-required detail
+- **THEN** the selected run surface SHALL explain the durable boundary, preserved evidence, and available resume or stop actions, per "Recover interrupted Run"
 
 ### Requirement: Decision-ready human acceptance panel
 An awaiting-acceptance Loop Run SHALL present one focused sticky or primary decision panel that relates acceptance criteria, required verification outcomes, Verifier advice, change summary, risks, remaining budget, and consequences of Accept, Continue, and Reject.
@@ -163,3 +210,16 @@ An awaiting-acceptance Loop Run SHALL present one focused sticky or primary deci
 #### Scenario: Reject
 - **WHEN** the user confirms rejection
 - **THEN** the action SHALL not delete the worktree, Sessions, artifacts, or Run history unless a separate explicit cleanup action says so
+
+#### Scenario: Review an acceptance-ready result
+- **WHEN** a run enters awaiting-acceptance
+- **THEN** the primary run surface SHALL show the evidence needed to accept, continue, or reject without requiring the user to assemble the decision from separate panels, per "Review decision"
+- **AND** each acceptance criterion SHALL be shown with an evidence-backed or not-evaluated state rather than inferred as passed without evidence
+
+#### Scenario: Continue with feedback from the decision panel
+- **WHEN** the user supplies non-empty feedback and another iteration is permitted
+- **THEN** the decision panel SHALL submit continuation through the Loop service boundary and retain all prior evidence while the next iteration is queued, per "Continue with feedback"
+
+#### Scenario: Iteration budget prevents continuation
+- **WHEN** the run has exhausted its maximum iteration budget
+- **THEN** the decision panel SHALL disable continuation, explain the exhausted limit, and keep accept and reject actions available, per "Continuation is unavailable"

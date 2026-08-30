@@ -89,6 +89,15 @@ Mission Control SHALL prioritize a compact attention summary, a queryable canoni
 - **WHEN** the canonical query returns no history and no filters are active
 - **THEN** the page SHALL show a first-run explanation and routes to supported ways of starting work
 
+#### Scenario: More than one hundred historical Runs exist
+- **WHEN** Mission Control loads with more than one hundred historical Runs
+- **THEN** the native runtime SHALL return only configured bounded pages and summary counts through indexed queries
+- **AND** the number of native queries SHALL NOT grow with the number of returned Runs
+
+#### Scenario: Multiple Agents run concurrently
+- **WHEN** Runs belonging to different Agents transition independently
+- **THEN** every overview row SHALL reflect its own latest canonical state, owner, title, elapsed state, workspace, phase, attention reason, and verification summary
+
 ### Requirement: Lazy and truthful Run detail
 Run detail SHALL provide Overview, Plan and Tasks, Timeline, Verification, Files and Artifacts, Tools, Context, Usage, and Logs as lazy bounded sections with explicit available, unavailable, restricted, loading, and error states.
 
@@ -120,6 +129,11 @@ Run detail SHALL provide Overview, Plan and Tasks, Timeline, Verification, Files
 - **THEN** it SHALL request a bounded correlated page from the logging contract
 - **AND** it SHALL not load unrelated Run logs or an unbounded body
 
+#### Scenario: Logs tab is selected
+- **WHEN** the user selects the Logs section
+- **THEN** the page SHALL request a bounded log page correlated to the Run through the existing logging contract, per "Select Logs"
+- **AND** it SHALL not load logs for unrelated Runs
+
 ### Requirement: Coalesced events and deterministic reconciliation
 Mission Control SHALL apply terminal and attention transitions promptly, coalesce high-frequency progress updates, and schedule reconciliation according to route visibility, document focus, connection state, and active Run selection.
 
@@ -139,6 +153,14 @@ Mission Control SHALL apply terminal and attention transitions promptly, coalesc
 #### Scenario: Return after missed events
 - **WHEN** Mission Control becomes visible or reconnects
 - **THEN** a bounded canonical reconciliation query SHALL replace stale summary and selected-detail state
+
+#### Scenario: Token events arrive rapidly
+- **WHEN** many token, usage, phase-progress, or heartbeat events arrive without a state transition
+- **THEN** the dashboard SHALL batch their presentation and SHALL NOT rerender once per token event, per "Receive high-frequency progress"
+
+#### Scenario: Event is missed while unfocused
+- **WHEN** the application regains focus after missing a Run transition
+- **THEN** a bounded reconciliation query SHALL replace stale summary state with persisted canonical state, per "Return after missed events"
 
 ### Requirement: Compact accessible responsive presentation
 Mission Control SHALL use the shared responsive collection and detail layout so Run discovery, attention, detail sections, state-aware actions, unavailable states, and return navigation remain complete without compressing nine detail controls into an unreadable row.
@@ -160,3 +182,11 @@ Mission Control SHALL use the shared responsive collection and detail layout so 
 #### Scenario: Render both themes
 - **WHEN** Mission Control renders in futuristic or minimal
 - **THEN** state and hierarchy SHALL be equivalent and SHALL not depend on color alone
+
+#### Scenario: Narrow detail is opened
+- **WHEN** Run detail renders at narrow width
+- **THEN** detail section navigation SHALL become a bounded selector or scroller, per "Render compact detail", rather than compressing a multi-column table into unreadable columns
+
+#### Scenario: Keyboard user operates actions
+- **WHEN** a keyboard or assistive-technology user filters, opens, or acts on a Run
+- **THEN** controls SHALL expose localized accessible names, stable focus states, and no layout shift, per "Operate with keyboard"
