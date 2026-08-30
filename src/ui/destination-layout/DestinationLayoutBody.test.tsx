@@ -125,6 +125,29 @@ describe("DestinationLayoutBody", () => {
     expect(mounts).toHaveBeenCalledTimes(1);
   });
 
+  it("does not remount main across a tier change, including a transient drop to narrow", () => {
+    // A hidden container's ResizeObserver reports a momentary zero width before its real size
+    // arrives (main-layout.tsx toggles the Sessions destination with CSS `hidden`, not unmount),
+    // which classifies as `narrow` for one render — this reproduces that transient without needing
+    // a real ResizeObserver.
+    const mounts = vi.fn();
+    const renderAt = (tier: "wide" | "narrow") => (
+      <DestinationLayoutBody
+        containerWidth={tier === "wide" ? 1600 : 0}
+        inspector={inspector}
+        main={<MountSpy onMount={mounts} />}
+        navigation={navigation}
+        tier={tier}
+      />
+    );
+    const { rerender } = render(renderAt("wide"));
+    expect(mounts).toHaveBeenCalledTimes(1);
+    rerender(renderAt("narrow"));
+    expect(mounts).toHaveBeenCalledTimes(1);
+    rerender(renderAt("wide"));
+    expect(mounts).toHaveBeenCalledTimes(1);
+  });
+
   it("tags its root with the current tier for downstream styling/testing hooks", () => {
     const { container } = render(<DestinationLayoutBody containerWidth={1600} main={<main>Work surface</main>} tier="wide" />);
     expect(container.querySelector('[data-layout-tier="wide"]')).not.toBeNull();

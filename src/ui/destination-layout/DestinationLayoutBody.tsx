@@ -49,14 +49,16 @@ export function DestinationLayoutBody({ tier, containerWidth, navigation, inspec
 
   let workRow: ReactNode = withRuntimePanel(main, runtimePanel);
 
-  // Wrapped whenever the tier allows inline at all, not only while actually open: `SplitPane`'s
+  // Wrapped whenever the region exists at all, regardless of tier or open state: `SplitPane`'s
   // `open` prop (not this condition) is what hides the pane, because that keeps `workRow`'s
-  // wrapper at the same position in `SplitPane`'s own children across the toggle. Gating this
-  // condition on open/closed instead would swap `workRow` between being `SplitPane`'s direct
-  // return and being nested inside one, and React remounts a subtree whose ancestor type changed
-  // like that — which used to cost a reader an in-progress draft the moment they opened the
-  // inspector.
-  if (inspectorInline && inspector) {
+  // wrapper at the same position in `SplitPane`'s own children no matter what changes around it.
+  // Gating this condition on tier or open/closed instead would swap `workRow` between being
+  // `SplitPane`'s direct return and being nested inside one, and React remounts a subtree whose
+  // ancestor type changed like that — which used to cost a reader an in-progress draft the moment
+  // they opened the inspector, and separately (since a hidden container's `ResizeObserver` reports
+  // a momentary zero width, which classifies as `narrow` before the real size arrives) the moment
+  // they navigated to this destination and back.
+  if (inspector) {
     workRow = (
       <SplitPane
         // Whichever of these two ends up outermost is a flex item of this component's own
@@ -78,7 +80,7 @@ export function DestinationLayoutBody({ tier, containerWidth, navigation, inspec
       />
     );
   }
-  if (navigationInline && navigation) {
+  if (navigation) {
     workRow = (
       <SplitPane
         className="flex-1"

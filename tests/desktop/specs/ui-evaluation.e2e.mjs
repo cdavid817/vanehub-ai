@@ -45,7 +45,7 @@ async function navigate(path) {
 }
 
 async function openEvaluationCenter() {
-  await navigate("/workspace/evaluations");
+  await navigate("/workspace/quality/evaluations");
   const center = await globalThis.$('[data-testid="evaluation-center"]');
   // Lazily loaded on first visit (main-layout.tsx:445), so the wait is for the chunk as well as
   // for the initial catalogue round trip.

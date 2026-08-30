@@ -52,7 +52,7 @@ async function configureOnePiece() {
 
 async function openEvaluationCenter() {
   await globalThis.browser.execute(() => {
-    globalThis.history.pushState({}, "", "/workspace/evaluations");
+    globalThis.history.pushState({}, "", "/workspace/quality/evaluations");
     globalThis.dispatchEvent(new globalThis.PopStateEvent("popstate"));
   });
   const center = await globalThis.$('[data-testid="evaluation-center"]');

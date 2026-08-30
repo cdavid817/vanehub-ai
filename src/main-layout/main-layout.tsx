@@ -63,9 +63,12 @@ export function MainLayout({
   // apparatus below, so it gets its own navigation helper that only ever targets its own shape
   // rather than a generic partial-merge across a discriminated union (design.md Decision 1).
   const goToSessions = (next: Partial<Extract<WorkbenchLocation, { destination: "sessions" }>>, options?: { replace?: boolean }) => {
+    // `activeSessionId`, not `null`: the backend's active session does not change just because
+    // the route moved to another destination, and a caller that wants a blank list instead
+    // (there is none today) can still say so explicitly via `next.sessionId`.
     const base: Extract<WorkbenchLocation, { destination: "sessions" }> = location.destination === "sessions"
       ? location
-      : { destination: "sessions", sessionId: null, creatingSession: false };
+      : { destination: "sessions", sessionId: activeSessionId, creatingSession: false };
     onNavigate({ ...base, ...next }, options);
   };
   const { t } = useTranslation();

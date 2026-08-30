@@ -1,8 +1,11 @@
 import { expect, type Page } from "@playwright/test";
 
 export async function openLoops(page: Page) {
-  await page.getByRole("button", { name: "循环工程" }).click();
-  await expect(page.locator("#loop-center")).toBeVisible();
+  // Loops is a Runs section now (runs-destination.tsx), not its own activity-bar entry —
+  // design.md Decision 1 folded it into Runs' secondary navigation.
+  await page.getByRole("button", { name: "运行", exact: true }).click();
+  await page.getByRole("tab", { name: "循环工程" }).click();
+  await expect(page.getByTestId("loop-center")).toBeVisible();
 }
 
 export async function createAndRunLoop(page: Page, name: string) {

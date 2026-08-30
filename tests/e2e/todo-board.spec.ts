@@ -3,7 +3,10 @@ import { expect, test } from "@playwright/test";
 test.describe("Todo Board", () => {
   test("creates, edits, moves, filters, archives, restores, and deletes manual work", async ({ page }) => {
     await page.goto("/");
-    const navigationEntry = page.getByRole("button", { name: "任务看板" });
+    // Board is a Plan section now (plan-destination.tsx), not its own activity-bar entry —
+    // design.md Decision 1 folded it into Plan's secondary navigation alongside Goals.
+    await page.getByRole("button", { name: "计划", exact: true }).click();
+    const navigationEntry = page.getByRole("tab", { name: "任务看板" });
     await navigationEntry.click();
     await expect(navigationEntry).toHaveClass(/text-primary/);
     await expect(page.getByRole("heading", { name: "任务看板" })).toBeVisible();
@@ -50,7 +53,7 @@ test.describe("Todo Board", () => {
   test("keeps every stage reachable on a compact viewport", async ({ page }) => {
     await page.setViewportSize({ width: 700, height: 720 });
     await page.goto("/");
-    await page.getByRole("button", { name: "任务看板" }).click();
+    await page.getByRole("button", { name: "计划", exact: true }).click();
 
     const stage = page.getByLabel("工作阶段").first();
     await expect(stage).toBeVisible();

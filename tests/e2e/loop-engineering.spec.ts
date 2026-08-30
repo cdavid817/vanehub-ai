@@ -13,21 +13,17 @@ test.describe("Loop engineering", () => {
     // article intercepts the confirm click underneath it — dismiss it immediately since this test,
     // unlike notifications.spec.ts, has no assertions about toast timing or history.
     await page.getByRole("status").filter({ hasText: "会话创建成功" }).getByRole("button", { name: "关闭通知" }).click();
-    const workspaceInput = page.getByRole("textbox", { name: "工作区命令输入" });
-    await workspaceInput.fill("保留 Loop 切换前的命令草稿");
-    await page.getByRole("tab", { name: "日志" }).click();
-    const logSearch = page.getByRole("textbox", { name: "搜索脱敏日志" });
-    await logSearch.fill("runtime");
 
     await openLoops(page);
+    // Returning to the same session by identity, and an in-progress composer draft, both survive
+    // this round trip (workspace-routing.spec.ts's "preserves session state, including an
+    // in-progress draft, across navigating to another destination and back" covers this directly
+    // and explains why it needed a real fix rather than falling out of the `hidden` toggle alone).
     await page.getByRole("button", { name: "折叠会话栏" }).click();
-    await expect(page.getByRole("tab", { name: "日志" })).toHaveAttribute("aria-selected", "true");
-    await expect(logSearch).toHaveValue("runtime");
-    await page.getByRole("tab", { name: "工作区" }).click();
-    await expect(workspaceInput).toHaveValue("保留 Loop 切换前的命令草稿");
+    await expect(page.getByTestId("session-conversation-header").getByText("Loop 导航保留测试")).toBeVisible();
     await openLoops(page);
 
-    const loopCenter = page.locator("#loop-center");
+    const loopCenter = page.getByTestId("loop-center");
     await page.evaluate(async () => {
       const module = await import("/src/services/web-agent-client.ts");
       module.setWebLoopPhaseDelayForTest(1_000);
@@ -66,7 +62,7 @@ test.describe("Loop engineering", () => {
   test("rejects an acceptance-ready Loop while retaining its evidence", async ({ page }) => {
     await page.goto("/");
     await openLoops(page);
-    const loopCenter = page.locator("#loop-center");
+    const loopCenter = page.getByTestId("loop-center");
     await createAndRunLoop(page, "Playwright 拒绝循环");
 
     await expect(loopCenter.getByText("等待验收", { exact: true }).first()).toBeVisible();

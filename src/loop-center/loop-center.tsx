@@ -46,7 +46,7 @@ export function LoopCenter({ onInspect }: { onInspect?: (target: LoopInspectionT
   const closeDrawers = () => { setNavigationOpen(false); setInspectorOpen(false); };
 
   return (
-    <div className="relative grid h-full min-h-0 w-full min-w-0 grid-cols-1 gap-2 overflow-hidden min-[1024px]:grid-cols-[minmax(220px,280px)_minmax(360px,1fr)_minmax(260px,340px)]">
+    <div className="relative grid h-full min-h-0 w-full min-w-0 grid-cols-1 gap-2 overflow-hidden min-[1024px]:grid-cols-[minmax(220px,280px)_minmax(360px,1fr)_minmax(260px,340px)]" data-testid="loop-center">
       {navigationOpen || inspectorOpen ? <button aria-label={t("loops.drawers.close")} className="absolute inset-0 z-30 bg-background/70 backdrop-blur-[1px] min-[1024px]:hidden" onClick={closeDrawers} title={t("loops.drawers.close")} type="button" /> : null}
       <LoopNavigation
         className={`absolute inset-y-0 left-0 z-40 w-[min(88vw,320px)] border-r border-border/70 shadow-xl transition-transform duration-200 min-[1024px]:static min-[1024px]:w-auto min-[1024px]:translate-x-0 min-[1024px]:shadow-none ${navigationOpen ? "translate-x-0" : "-translate-x-full invisible min-[1024px]:visible"}`}

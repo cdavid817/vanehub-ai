@@ -135,7 +135,7 @@ globalThis.describe("VaneHub AI desktop Loop Engineering UI", () => {
   });
 
   globalThis.it("shows the Loop centre empty state with a create action", async () => {
-    await navigate("/workspace/loops");
+    await navigate("/workspace/runs/loops");
     const frame = await globalThis.$('[data-testid="workspace-frame"]');
     await frame.waitForExist({ timeout: 20_000 });
     const create = await globalThis.$('//*[@role="main"]//button[normalize-space(.)="创建循环定义"]');
