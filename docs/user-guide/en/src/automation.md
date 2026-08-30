@@ -8,7 +8,7 @@ Turn repetitive work into a recurring task that automatically creates a session 
 
 ### Create one
 
-Select **Scheduled tasks** in the activity bar to open the dialog. Existing tasks are on the left, the new-task form on the right:
+Select **Runs** in the activity bar, then switch to the **Scheduled tasks** tab. Existing tasks are on the left, the new-task form on the right:
 
 | Field | Notes |
 | --- | --- |

@@ -20,7 +20,7 @@ VaneHub AI 的界面按功能讲解界面里能做什么。每个功能讲它是
 
 ### 活动栏导航
 
-会话列表左侧的活动栏切换主要功能区：**会话 / 循环工程 / 目标中心 / 任务看板 / Agent 评测 / 定时任务 / 设置 / 帮助**。
+会话列表左侧的活动栏切换五个主要业务域：**会话 / 项目与工作区 / 运行 / 计划 / 质量**，右下角另有**设置 / 帮助**两个工具项。部分业务域内部还有二级标签：**运行**下是等待关注、活动运行、最近完成（即[任务控制台](observability.md#任务控制台)）、[循环工程](loop-engineering.md)、[定时任务](automation.md)；**计划**下是[任务看板](todo-board.md)、[目标中心](goal-management.md)；**质量**即 [Agent 评测](evaluation.md)，没有二级标签。**项目与工作区**是占位页面，聚合项目/worktree 的内容尚未上线。
 
 ## Agent 类型
 
@@ -185,7 +185,7 @@ Agent 回复支持富内容渲染：代码块（语法高亮）、Mermaid 图（
 
 ## 循环中心
 
-左侧活动栏的**循环**管理 Loop 工程：运行列表与检视、运行控件（暂停/继续/取消/接受/拒绝）、验证命令编辑器、时间线。Loop 的概念与创建见 [Loop Engineering 工程](loop-engineering.md)。
+左侧活动栏选择**运行**，切到**循环工程**标签，管理 Loop 工程：运行列表与检视、运行控件（暂停/继续/取消/接受/拒绝）、验证命令编辑器、时间线。Loop 的概念与创建见 [Loop Engineering 工程](loop-engineering.md)。
 
 ![循环中心](assets/screenshots/loop-center-zh-CN.png)
 

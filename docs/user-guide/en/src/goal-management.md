@@ -12,7 +12,7 @@ Goals are that consolidating layer. You attach the relevant Loops and board item
 
 ## Create a goal
 
-1. Select **Goal Center** in the activity bar.
+1. Select **Plan** in the activity bar, then switch to the **Goal Center** tab.
 2. Select **New goal** at the top right.
 3. Fill in the fields:
 

@@ -4,7 +4,7 @@
 
 ## Overview
 
-**Agent evaluation** in the left activity bar runs multiple Agents against **the same task, on the same starting code**, then lines the results up side by side.
+**Quality** in the left activity bar runs multiple Agents against **the same task, on the same starting code**, then lines the results up side by side.
 
 It answers "**who should get this kind of task**" — not by feel, but by head-to-head comparison: the same prompt, the same project, the same verification commands, and who passed, how many tokens they burned, and how long it took.
 
@@ -40,7 +40,7 @@ The first version ships three tasks, covering three typical categories of work:
 
 ## How to run one
 
-1. Open **Agent evaluation** in the left activity bar.
+1. Open **Quality** in the left activity bar.
 2. Pick a **benchmark task** from the top dropdown (shown as `task-id vVersion`).
 3. Check the **Agents** you want to enter.
 4. Click **Run arena**.

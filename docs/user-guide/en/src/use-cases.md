@@ -39,7 +39,7 @@ You can switch between them at any time in the session sidebar, and each session
 
 ### Steps
 
-1. Select **Loops** in the activity bar and create a definition.
+1. Select **Runs** in the activity bar, switch to the **Loops** tab, and create a definition.
 2. Set the **goal**: "Fix the failing tests under `src/auth` without changing the test files themselves."
 3. Set the **limits**:
    - Maximum iterations `8`
@@ -103,7 +103,7 @@ Every decision is written to an audit record, including those allowed or denied 
 ### Steps
 
 1. Configure IM first: **Settings → IM Connectors**, choose Feishu (or DingTalk / WeCom), and enter the application credentials you created on the open platform.
-2. Select **Scheduled tasks** in the activity bar and create a task.
+2. Select **Runs** in the activity bar, switch to the **Scheduled tasks** tab, and create a task.
 3. Set the frequency to **Daily** and the time to `09:00`.
 4. Configure what the task should do — the target repository and the check.
 5. Save and **enable** it.

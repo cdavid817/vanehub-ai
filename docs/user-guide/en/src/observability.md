@@ -114,7 +114,7 @@ This is a deliberate privacy design, and the cost is that **you cannot search th
 
 ## Mission Control
 
-A trace answers "what happened inside this one run". **Mission Control answers the other question: which runs need you right now.** It is the **Mission Control** entry in the left activity bar.
+A trace answers "what happened inside this one run". **Mission Control answers the other question: which runs need you right now.** It lives under **Runs** in the left activity bar — it is that domain's default landing tab (Attention inbox / Active Runs / Recently completed).
 
 ![The Mission Control overview with summary counts across the top and the attention, active, and recent sections below](assets/screenshots/mission-control-en.png)
 

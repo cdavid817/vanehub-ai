@@ -10,7 +10,7 @@ The key design is that **the board stage and the source status are kept complete
 
 ## Open the board
 
-Select **Todo Board** in the activity bar. There are two views at the top, **Active board** and **Archive**; you land on the active board, where archived items are not shown.
+Select **Plan** in the activity bar — Todo Board is that domain's default landing tab. There are two views at the top, **Active board** and **Archive**; you land on the active board, where archived items are not shown.
 
 ## The five stages
 

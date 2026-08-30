@@ -20,7 +20,7 @@ The session list on the left supports three display modes: **list / by category 
 
 ### Activity bar navigation
 
-The activity bar to the left of the session list switches between the main destinations: **Sessions / Loops / Goal Center / Todo Board / Agent evaluation / Scheduled tasks / Settings / Help**.
+The activity bar to the left of the session list switches between five primary domains: **Sessions / Projects & Workspaces / Runs / Plan / Quality**, plus two utility entries in the lower-right corner: **Settings / Help**. Some domains have their own secondary tabs: **Runs** has Attention inbox, Active Runs, Recently completed (together, [Mission Control](observability.md#mission-control)), [Loops](loop-engineering.md), and [Scheduled tasks](automation.md); **Plan** has [Todo Board](todo-board.md) and [Goal Center](goal-management.md); **Quality** is [Agent evaluation](evaluation.md) directly, with no secondary tabs. **Projects & Workspaces** is a placeholder today — the aggregated project/worktree view has not shipped yet.
 
 ## Agent types
 
@@ -185,7 +185,7 @@ Once the floating assistant is enabled in settings, a separate floating window s
 
 ## Loop center
 
-**Loops** in the activity bar manages Loop engineering: the run list and inspector, run controls (pause/resume/cancel/accept/reject), the verification command editor, and the timeline. For the concept and how to create one, see [Loop Engineering](loop-engineering.md).
+Select **Runs** in the activity bar, then the **Loops** tab, to manage Loop engineering: the run list and inspector, run controls (pause/resume/cancel/accept/reject), the verification command editor, and the timeline. For the concept and how to create one, see [Loop Engineering](loop-engineering.md).
 
 ![The Loop center](assets/screenshots/loop-center-en.png)
 

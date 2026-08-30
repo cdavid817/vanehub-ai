@@ -104,7 +104,7 @@ A definition is validated at save time: **a non-Git project, a remote workspace,
 
 The interface has three columns: **definitions** and **run records** on the left, the main area in the middle, and the **inspector** on the right. On first entry the middle says there are no Loop definitions yet.
 
-1. Select **Loops** in the activity bar.
+1. Select **Runs** in the activity bar, then switch to the **Loops** tab.
 2. Select **+** in the left column to create a definition, and work through the four wizard steps above.
 3. Save and start.
 
