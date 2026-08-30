@@ -116,7 +116,17 @@ export async function createDesktopConfig({
   environment = {},
   captureFailureScreenshots = true,
   captureServiceLogs = true,
-  commandTimeout = 30_000,
+  // Every WebDriver command, script execution included. The first `execute/sync` of a session is
+  // the Tauri service's plugin-initialization wait, and it runs while a cold WebKitGTK WebView is
+  // still warming -- so it is the one command in the run that is systematically slowest, and at
+  // 30s it was the tightest budget in a config whose `startTimeout` and `connectionRetryTimeout`
+  // both allow 120s. On a loaded Linux runner that inversion fails the whole spec: CI run
+  // 33262390405 lost `Desktop Smoke (ubuntu-latest)` when session creation alone took 30s and the
+  // plugin-init script then timed out twice, while the identical commit passed in 7m45s on a
+  // quieter runner. The `agent-evaluation` and `feishu-live` layers had already raised this to 90s
+  // for their own slow work; this lifts the shared default far enough that a cold start is not a
+  // coin flip, while staying well inside `mochaTimeout` so a genuinely hung command still fails.
+  commandTimeout = 60_000,
   logLevel = "info",
   mochaTimeout = 300_000,
   beforeExit,
