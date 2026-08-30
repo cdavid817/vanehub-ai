@@ -318,13 +318,25 @@ whose twenty-five specs include the surfaces an approval actually crosses: `doma
 answered), `ui-settings` (where a grant is reviewed and revoked), `ui-workspace`, and
 `domain-automation`.
 
-**Windows: PASSED for every one of those specs.** Twenty-four of twenty-five passed overall. The
-single failure is `domain-observability.e2e.mjs › guards the IM session binding surface when nothing
-is paired`, which asserts that an unpaired session reports no IM binding. Nothing under
-`contexts/communications` changed on this branch — `git diff bece2e3c..HEAD -- src-tauri/src/contexts/communications`
-is empty — and the same run logged `database is locked` during teardown, which points at the shared
-user database. **No baseline was taken**, so that spec is recorded as FAILED and unattributed rather
-than as a known-good failure.
+**Windows: PASSED, twenty-five of twenty-five, no retries.**
+
+An earlier run of this layer failed `domain-observability.e2e.mjs › guards the IM session binding
+surface when nothing is paired`. That spec turned out to be asserting a contract that two earlier
+merges had already changed, and both of its stale assertions reported the wrong fault:
+
+- It compared the whole `SessionBindingView` against `{ binding: null, pendingConnector: null }`.
+  The view gained an `access` field in #235, so the comparison failed with *"a session with no
+  pairing reported a binding"* — about a session that had no binding. It now asserts the two null
+  fields separately, pins the key set so a new field is still caught and is *named* when it appears,
+  and states what `access` says for an unpaired session.
+- It expected `begin_im_pairing` to be refused with `im-connector-not-ready`. #238 put a
+  session-access gate in front of that check, so the refusal is `im-session-disabled` and the
+  failure read as *"pairing started against an unconfigured connector"* — about a connector that was
+  never reached. It now asserts both gates in the order the service applies them, opening the first
+  one to show that the second exists.
+
+Neither was a product defect: the frontend's Zod contract for the view already carried `access` and
+is `.strict()`. What had gone stale was the desktop spec, and nothing ran it until now.
 
 An earlier attempt on this host was recorded as blocked: `domain-automation.e2e.mjs` and
 `domain-cli-tooling.e2e.mjs` had both exhausted their retries with `WebDriverError: Script execution

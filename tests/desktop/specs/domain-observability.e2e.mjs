@@ -318,14 +318,27 @@ globalThis.describe("VaneHub AI desktop domain observability", () => {
 
     const session = await createSession(agent.id, agent.mode, "Domain sweep binding", repository);
     try {
-      // src-tauri/src/commands/communications/get_im_session_binding.rs:7-9 -- `session_id`.
-      // `SessionBindingView` is dto.rs:46-51.
+      // `get_im_session_binding` takes `session_id` and an optional connector; the answer is
+      // `SessionBindingView` in commands/communications/dto.rs.
       const empty = await invoke(({ core }, id) => core.invoke("get_im_session_binding", {
         sessionId: id,
         connector: "feishu",
       }), session.id);
-      assert.deepEqual(empty, { binding: null, pendingConnector: null },
-        "a session with no pairing reported a binding");
+      // Three separate claims, because they fail for different reasons and a single `deepEqual` of
+      // the whole object reports all three as one. This assertion used to be that `deepEqual`, and
+      // when `access` was added to the view it started failing with "a session with no pairing
+      // reported a binding" — about a session that had no binding. A message that names the wrong
+      // fault is worse than no message.
+      assert.equal(empty.binding, null, "a session with no pairing reported a binding");
+      assert.equal(empty.pendingConnector, null, "a session with no pairing reported a pending connector");
+      // The shape is still pinned, so a field appearing is still caught — it now says which one.
+      assert.deepEqual(Object.keys(empty).sort(), ["access", "binding", "pendingConnector"],
+        `the binding view carries fields this contract does not describe: ${JSON.stringify(Object.keys(empty))}`);
+      // `updatedAt` is deliberately not asserted: it is an epoch placeholder for a session that has
+      // no access row, and pinning a placeholder is pinning something nobody promised.
+      assert.equal(empty.access.sessionId, session.id, "the access row belongs to another session");
+      assert.equal(empty.access.connector, "feishu", "the access row is for another connector");
+      assert.equal(empty.access.enabled, false, "an unpaired session was reported as reachable");
 
       // src-tauri/src/commands/communications/begin_im_pairing.rs:7-11 -- `session_id`,
       // `connector`, `replace_existing`. An unknown session is rejected before anything else.
@@ -337,9 +350,31 @@ globalThis.describe("VaneHub AI desktop domain observability", () => {
       assert.equal(unknownSession.ok, false, "pairing accepted a session that does not exist");
       assert.equal(unknownSession.error, "im-session-not-found", `unexpected: ${unknownSession.error}`);
 
-      // A configured, enabled and *connected* connector is the second gate
-      // (application/service.rs:541-564). Nothing here is connected, so this must be refused
-      // rather than reaching out for a pairing code.
+      // Two more gates, in the order `begin_pairing` applies them. Asserting only the second one
+      // is what this test used to do, and when the session-access gate was added in front of it the
+      // failure read as "pairing started against an unconfigured connector" — about a connector
+      // that was never reached.
+      //
+      // First: this session has no access row, so it is disabled and pairing stops here.
+      const disabled = await attempt("begin_im_pairing", {
+        sessionId: session.id,
+        connector: BORROWED_CONNECTOR,
+        replaceExisting: false,
+      });
+      assert.equal(disabled.ok, false, "pairing started for a session with IM access disabled");
+      assert.equal(disabled.error, "im-session-disabled", `unexpected: ${disabled.error}`);
+
+      // Second, once the session is allowed to use IM at all: a configured, enabled and *connected*
+      // connector. Nothing on this host is connected, so this must be refused rather than reaching
+      // out for a pairing code. Reached only by opening the first gate, which is the only way to
+      // show that the second one exists.
+      const allowed = await attempt("set_im_session_access", {
+        sessionId: session.id,
+        connector: BORROWED_CONNECTOR,
+        enabled: true,
+      });
+      assert.equal(allowed.ok, true, `enabling session access failed: ${allowed.error}`);
+
       const notReady = await attempt("begin_im_pairing", {
         sessionId: session.id,
         connector: BORROWED_CONNECTOR,
