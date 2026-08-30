@@ -14,17 +14,21 @@ platform**; where a platform was not exercised it says so rather than being left
 | `cargo check --workspace` | PASSED | |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASSED | |
 | `npm run native:panic:check` | PASSED | |
-| `cargo test --workspace` | PASSED | 6 203 lib tests, plus every integration target |
+| `cargo test --workspace` | PASSED | 6 205 lib tests, plus every integration target |
 | `openspec validate --specs --strict` | PASSED | 142 items |
 | `npm run architecture:check` | PASSED | 63 + 9 + 11 + 8 |
 | `npx playwright test` | PASSED with one pre-existing failure | 212 of 213; see below |
 
 ### The two failures, and why neither is this change
 
-**`settings-pages.test.ts › keeps the CLI management route lazy`** — fails only under the full
-suite and passes 13/13 in isolation. `src/settings` has no diff against the merge base on this
-branch: `git diff bece2e3c..HEAD -- src/settings` is empty. It is a load-sensitive timeout on a
-lazy-import assertion, and it is recorded here rather than silenced.
+**One test in `src/settings`, and not the same one twice.** The first full run failed
+`settings-pages.test.ts › keeps the CLI management route lazy`; a later run failed
+`onepiece-context-health-section.test.tsx › shows aggregate coverage` instead, on a `findByText`
+in a file that takes twenty-five seconds to run. Both pass in isolation — 13/13 and 8/8 — and the
+second passed three consecutive times on this branch after failing once. `src/settings` has no diff
+against the merge base: `git diff bece2e3c..HEAD -- src/settings` is empty. These are load-sensitive
+async assertions, recorded here rather than silenced; the machine was building a desktop client and
+running cargo suites at the same time.
 
 **`multi-agent-session.spec.ts › participant mentions`** — a scroll-anchoring assertion,
 `|scrollHeight − scrollTop − clientHeight| < 4`, receiving 58. Checked against the merge base rather
