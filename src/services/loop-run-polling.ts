@@ -12,7 +12,10 @@ export function subscribeLoopRunPolling(
   let fingerprint: string | null = null;
 
   const poll = async () => {
-    if (!active || polling) return;
+    // design.md Decision 6: hidden pages must not retain high-frequency polling — a backgrounded
+    // tab/window skips the fetch here rather than unsubscribing, matching Mission Control's
+    // existing reconcile guard (mission-control.tsx) so a regained-focus tick still catches up fast.
+    if (!active || polling || document.visibilityState !== "visible") return;
     polling = true;
     try {
       const run = await loadRun();
@@ -31,8 +34,13 @@ export function subscribeLoopRunPolling(
 
   void poll();
   const timer = setInterval(() => void poll(), intervalMs);
+  const reconcileOnReturn = () => { if (document.visibilityState === "visible") void poll(); };
+  window.addEventListener("focus", reconcileOnReturn);
+  document.addEventListener("visibilitychange", reconcileOnReturn);
   return () => {
     active = false;
     clearInterval(timer);
+    window.removeEventListener("focus", reconcileOnReturn);
+    document.removeEventListener("visibilitychange", reconcileOnReturn);
   };
 }

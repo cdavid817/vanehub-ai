@@ -263,6 +263,9 @@ export function MainLayout({
             what let this whole subtree grow past the viewport instead of capping the message
             list's own internal scroll region. */}
         <div className="relative flex h-full min-h-0 flex-1" data-testid="workspace-frame">
+          {/* CSS `hidden`, never a conditional unmount: DESTINATION_LIFECYCLE.sessions is
+              `keepAlive: "draft-only"` (destination-lifecycle.ts) for the composer's in-progress
+              draft, so this subtree stays mounted across every destination switch. */}
           <div
             className={cn("relative min-h-0 min-w-0 flex-1", destination === "sessions" ? "block" : "hidden")}
             data-conversation-focus={conversationFocusMode ? "true" : "false"}
@@ -422,6 +425,10 @@ export function MainLayout({
               }}
             />
           </div>
+          {/* Each `? <XDestination/> : null` below, with no `key`, fully unmounts the previous
+              destination on every switch per React's reconciliation rules — already
+              `keepAlive: "never"` (destination-lifecycle.ts's default for all four) with nothing
+              extra needed to make it so. */}
           <div className={cn("min-h-0 min-w-0 flex-1", destination === "sessions" ? "hidden" : "flex")} id="workbench-route-outlet">
             {location.destination === "projects" ? <ProjectsDestination /> : null}
             {location.destination === "runs" ? (

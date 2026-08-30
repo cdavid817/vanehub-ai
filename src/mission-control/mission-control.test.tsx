@@ -74,4 +74,17 @@ describe("MissionControl", () => {
     vi.spyOn(agentService, "getMissionControlOverview").mockResolvedValue(empty);
     render(<MissionControl />); await waitFor(() => expect(document.querySelector("[data-testid='mission-control'] .p-8")).toBeTruthy());
   });
+
+  it("stops polling once unmounted", async () => {
+    const empty: MissionControlOverview = { counts: { running: 0, waitingApproval: 0, waitingUser: 0, retrying: 0, blocked: 0, failed: 0, completedRecently: 0 }, attention: { items: [], nextCursor: null }, active: { items: [], nextCursor: null }, recent: { items: [], nextCursor: null } };
+    const overview = vi.spyOn(agentService, "getMissionControlOverview").mockResolvedValue(empty);
+    const { unmount } = render(<MissionControl />);
+    await waitFor(() => expect(overview).toHaveBeenCalled());
+
+    unmount();
+    const callsAtUnmount = overview.mock.calls.length;
+    // Longer than the 2s poll interval: proves the interval, not just this test's patience, stopped.
+    await new Promise((resolve) => setTimeout(resolve, 2_500));
+    expect(overview.mock.calls.length).toBe(callsAtUnmount);
+  });
 });

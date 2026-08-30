@@ -81,6 +81,42 @@ describe("EvaluationCenter", () => {
     expect(screen.queryByTestId("evaluation-cancel")).toBeNull();
   });
 
+  it("pauses polling while the document is hidden, and reconciles immediately once visible again", async () => {
+    await i18n.changeLanguage("zh-CN");
+    const list = vi.spyOn(agentService, "listEvaluationArenas").mockResolvedValue([]);
+    vi.spyOn(agentService, "startEvaluation").mockResolvedValue(arena("queued"));
+    render(<EvaluationCenter />);
+    const run = await screen.findByRole("button", { name: "运行竞技场" });
+    await waitFor(() => expect((run as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(run);
+    await waitFor(() => expect(screen.getByTestId("evaluation-detail").dataset.selectedOutcome).toBe("queued"));
+
+    const callsBeforeHiding = list.mock.calls.length;
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    expect(list.mock.calls.length).toBe(callsBeforeHiding);
+
+    visibility.mockReturnValue("visible");
+    document.dispatchEvent(new Event("visibilitychange"));
+    await waitFor(() => expect(list.mock.calls.length).toBeGreaterThan(callsBeforeHiding));
+  });
+
+  it("stops polling once unmounted", async () => {
+    await i18n.changeLanguage("zh-CN");
+    const list = vi.spyOn(agentService, "listEvaluationArenas").mockResolvedValue([]);
+    vi.spyOn(agentService, "startEvaluation").mockResolvedValue(arena("queued"));
+    const { unmount } = render(<EvaluationCenter />);
+    const run = await screen.findByRole("button", { name: "运行竞技场" });
+    await waitFor(() => expect((run as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(run);
+    await waitFor(() => expect(screen.getByTestId("evaluation-detail").dataset.selectedOutcome).toBe("queued"));
+
+    unmount();
+    const callsAtUnmount = list.mock.calls.length;
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    expect(list.mock.calls.length).toBe(callsAtUnmount);
+  });
+
   it("provides every evaluation label in all registered locales", () => {
     for (const locale of ["en", "zh-CN", "zh-TW", "ja", "ko"]) {
       for (const key of ["agents", "filter", "cancel", "diff", "metrics", "loadError", "runError", "cancelError"]) {

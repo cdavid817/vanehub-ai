@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LoopRun } from "../types/loop";
 import { subscribeLoopRunPolling } from "./loop-run-polling";
@@ -43,5 +45,39 @@ describe("subscribeLoopRunPolling", () => {
 
     expect(handler).toHaveBeenCalledOnce();
     unsubscribe();
+  });
+
+  it("skips fetching while the document is hidden, and catches up immediately once visible again", async () => {
+    vi.useFakeTimers();
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    const loadRun = vi.fn<() => Promise<LoopRun>>().mockResolvedValue(run("2026-07-22T10:00:00Z"));
+    const handler = vi.fn();
+
+    const unsubscribe = subscribeLoopRunPolling(loadRun, handler, 100);
+    await vi.advanceTimersByTimeAsync(350);
+    expect(loadRun).not.toHaveBeenCalled();
+
+    visibility.mockReturnValue("visible");
+    document.dispatchEvent(new Event("visibilitychange"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(loadRun).toHaveBeenCalledTimes(1);
+
+    unsubscribe();
+    visibility.mockRestore();
+  });
+
+  it("removes its focus and visibilitychange listeners on unsubscribe", async () => {
+    vi.useFakeTimers();
+    const addSpy = vi.spyOn(document, "addEventListener");
+    const removeSpy = vi.spyOn(document, "removeEventListener");
+    const loadRun = vi.fn<() => Promise<LoopRun>>().mockResolvedValue(run("2026-07-22T10:00:00Z"));
+
+    const unsubscribe = subscribeLoopRunPolling(loadRun, vi.fn(), 100);
+    const [, registeredHandler] = addSpy.mock.calls.find(([type]) => type === "visibilitychange")!;
+    unsubscribe();
+
+    expect(removeSpy).toHaveBeenCalledWith("visibilitychange", registeredHandler);
+    addSpy.mockRestore();
+    removeSpy.mockRestore();
   });
 });

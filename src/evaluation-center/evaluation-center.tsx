@@ -33,8 +33,18 @@ export function EvaluationCenter() {
   }, [t]);
   useEffect(() => {
     if (!arenas.some((arena) => arena.attempts.some((attempt) => !TERMINAL.has(attempt.outcome)))) return;
-    const timer = window.setInterval(() => { void agentService.listEvaluationArenas().then(setArenas); }, 1_000);
-    return () => window.clearInterval(timer);
+    // design.md Decision 6: polling adjusts for document visibility, matching mission-control.tsx's
+    // reconcile guard — a backgrounded tab skips the fetch, and regaining focus/visibility catches
+    // up immediately rather than waiting out the rest of the interval.
+    const reconcile = () => { if (document.visibilityState === "visible") void agentService.listEvaluationArenas().then(setArenas); };
+    const timer = window.setInterval(reconcile, 1_000);
+    window.addEventListener("focus", reconcile);
+    document.addEventListener("visibilitychange", reconcile);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", reconcile);
+      document.removeEventListener("visibilitychange", reconcile);
+    };
   }, [arenas]);
   const activeTask = useMemo(() => tasks.find((task) => task.id === taskId), [taskId, tasks]);
   // Derived rather than held: an attempt captured at click time is a snapshot of a run still in
