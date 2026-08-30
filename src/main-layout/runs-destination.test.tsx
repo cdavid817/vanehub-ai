@@ -11,7 +11,11 @@ import type { RunsSection } from "./workbench-route";
 // replaced with a stub that exposes which loader+props it was asked to render.
 vi.mock("../components/lazy-feature", () => ({
   LazyFeature: ({ componentProps }: { componentProps: Record<string, unknown> }) => (
-    <div data-props={Object.keys(componentProps).sort().join(",")} data-testid="lazy-feature" />
+    <div
+      data-initial-run-id={String(componentProps.initialRunId)}
+      data-props={Object.keys(componentProps).sort().join(",")}
+      data-testid="lazy-feature"
+    />
   ),
 }));
 
@@ -47,7 +51,7 @@ describe("RunsDestination", () => {
     expect(onSectionChange).toHaveBeenCalledWith({ section: "loops" });
   });
 
-  it.each(["attention", "active", "history"] as const)("routes %s to MissionControl with onNavigate wired", (section) => {
+  it.each(["attention", "active", "history"] as const)("routes %s to MissionControl with initialRunId and onNavigate wired", (section) => {
     render(
       <RunsDestination
         agents={[]}
@@ -56,7 +60,7 @@ describe("RunsDestination", () => {
         onSectionChange={vi.fn()}
       />,
     );
-    expect(screen.getByTestId("lazy-feature").dataset.props).toBe("onNavigate");
+    expect(screen.getByTestId("lazy-feature").dataset.props).toBe("initialRunId,onNavigate");
   });
 
   it("routes loops to LoopCenter with onInspect wired", () => {

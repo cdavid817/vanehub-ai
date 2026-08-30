@@ -2708,6 +2708,7 @@
   "layout.noSession": "未選擇會話",
   "layout.startChat": "新建或選擇一個會話後開始聊天",
   "layout.infoPanel": "資訊面板",
+  "layout.returnToEvidenceSource": "返回 Agent 任務控制台",
   "layout.infoTab.agent": "基本訊息",
   "layout.infoTab.basic": "基本訊息",
   "layout.infoTab.tokenUsage": "Token 使用",

@@ -2708,6 +2708,7 @@
   "layout.noSession": "セッションが選択されていません",
   "layout.startChat": "セッションを作成または選択してチャットを開始します",
   "layout.infoPanel": "情報パネル",
+  "layout.returnToEvidenceSource": "Agent ミッション管理に戻る",
   "layout.infoTab.agent": "基本情報",
   "layout.infoTab.basic": "基本情報",
   "layout.infoTab.tokenUsage": "Tokenの使用法",

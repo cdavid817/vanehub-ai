@@ -14,7 +14,7 @@ const TABS: { section: RunsSection["section"]; labelKey: string }[] = [
   { section: "schedules", labelKey: "layout.activityBar.scheduledTasks" },
 ];
 
-type MissionControlProps = { onNavigate?: (target: MissionControlNavigationTarget) => void };
+type MissionControlProps = { initialRunId?: string; onNavigate?: (target: MissionControlNavigationTarget, sourceRunId: string) => void };
 const loadMissionControl: LazyFeatureLoader<MissionControlProps> = () => import("../mission-control/mission-control")
   .then((module) => ({ default: module.MissionControl }));
 type LoopCenterProps = { onInspect?: (target: LoopInspectionTarget) => void };
@@ -28,7 +28,7 @@ export interface RunsDestinationProps {
   location: RunsSection;
   onSectionChange: (section: RunsSection) => void;
   agents: AgentRegistryEntry[];
-  onMissionControlNavigate: (target: MissionControlNavigationTarget) => void;
+  onMissionControlNavigate: (target: MissionControlNavigationTarget, sourceRunId: string) => void;
   onInspectLoop?: (target: LoopInspectionTarget) => void;
 }
 
@@ -36,9 +36,10 @@ export interface RunsDestinationProps {
  * Attention/Active/History share one `MissionControl` render: it already shows all three as
  * parallel sections rather than exclusive tabs (confirmed by reading the component directly), so
  * there is no per-section view to route between yet — that split is real content work for a
- * later milestone, not something this shell can fake. `runId`/`definitionId`/`loopRunId`/
- * `scheduleId` deep-linking is likewise not implemented: none of MissionControl, LoopCenter, or
- * ScheduledTasksPanel accept an initial-selection prop today.
+ * later milestone, not something this shell can fake. `definitionId`/`loopRunId`/`scheduleId`
+ * deep-linking is likewise not implemented: neither LoopCenter nor ScheduledTasksPanel accept an
+ * initial-selection prop today. MissionControl's `runId` is the one exception (4.8): it restores
+ * the run last selected before navigating away to an evidence surface and back.
  *
  * Each section keeps its own `LazyFeature` chunk rather than being statically imported here, so
  * navigating within Runs does not pull in code for a section the reader has not opened yet — same
@@ -74,7 +75,7 @@ export function RunsDestination({ location, onSectionChange, agents, onMissionCo
           <LazyFeature className="h-full min-h-0" componentProps={{ agents }} loader={loadScheduledTasksPanel} />
         ) : null}
         {location.section === "attention" || location.section === "active" || location.section === "history" ? (
-          <LazyFeature className="h-full min-h-0" componentProps={{ onNavigate: onMissionControlNavigate }} loader={loadMissionControl} />
+          <LazyFeature className="h-full min-h-0" componentProps={{ initialRunId: location.runId, onNavigate: onMissionControlNavigate }} loader={loadMissionControl} />
         ) : null}
       </div>
     </div>

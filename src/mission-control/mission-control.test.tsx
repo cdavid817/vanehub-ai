@@ -9,10 +9,13 @@ import {
   seedWebMissionControlRunsForTest,
   webAgentClient,
 } from "../services/web-agent-client";
-import type { MissionControlOverview } from "../types/mission-control";
+import type { MissionControlOverview, MissionControlRunDetail } from "../types/mission-control";
 import { MissionControl } from "./mission-control";
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); resetWebMissionControlRunsForTest(); });
+// `sessionStorage.clear()`: mission-control-view-state.ts persists filters there (4.8), and
+// jsdom's storage is one shared global across every test in this file — without clearing it, a
+// filter set by an earlier test silently becomes a later test's initial state.
+afterEach(() => { cleanup(); vi.restoreAllMocks(); resetWebMissionControlRunsForTest(); sessionStorage.clear(); });
 
 describe("MissionControl", () => {
   it("renders a bounded page from 1,000 Web Runs and loads detail only on inspection", async () => {
@@ -50,7 +53,45 @@ describe("MissionControl", () => {
     fireEvent.click(failed[0].querySelector("button")!);
     await waitFor(() => expect(document.querySelector("[role='tablist']")).toBeTruthy());
     fireEvent.click(document.querySelector("[data-action='review']")!);
-    expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ kind: "review" }));
+    expect(navigate).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "review" }),
+      "018f0f17-4d6a-7e20-b41d-66c5271a294",
+    );
+  });
+
+  it("does not let a slower inspect() response overwrite a more recently selected run's detail", async () => {
+    await i18n.changeLanguage("en");
+    seedWebMissionControlRunsForTest(100);
+    render(<MissionControl />);
+    await waitFor(() => expect(document.querySelectorAll("[data-testid^='mission-run-']").length).toBeGreaterThanOrEqual(2));
+
+    const rows = Array.from(document.querySelectorAll("[data-testid^='mission-run-']"));
+    const firstRunId = rows[0].getAttribute("data-testid")!.replace("mission-run-", "");
+    const secondRunId = rows[1].getAttribute("data-testid")!.replace("mission-run-", "");
+    // Real, valid detail fixtures fetched through the underlying client, before the spy below
+    // starts intercepting the very same method on `agentService`.
+    const firstDetail = await webAgentClient.getMissionControlRun(firstRunId);
+    const secondDetail = await webAgentClient.getMissionControlRun(secondRunId);
+
+    let resolveFirst: ((detail: MissionControlRunDetail) => void) | undefined;
+    let resolveSecond: ((detail: MissionControlRunDetail) => void) | undefined;
+    vi.spyOn(agentService, "getMissionControlRun")
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve; }))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveSecond = resolve; }));
+
+    fireEvent.click(rows[0].querySelector("button")!);
+    fireEvent.click(rows[1].querySelector("button")!);
+
+    // The second (more recent) click's response arrives first, as it normally would.
+    resolveSecond?.(secondDetail);
+    await waitFor(() => expect(document.querySelector("aside [role='tablist']")).toBeTruthy());
+    expect(document.querySelector("aside")!.querySelector(`[data-testid='mission-run-${secondRunId}']`)).toBeTruthy();
+
+    // The stale first click's response arrives late — must not clobber the second run's detail.
+    resolveFirst?.(firstDetail);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(document.querySelector("aside")!.querySelector(`[data-testid='mission-run-${secondRunId}']`)).toBeTruthy();
+    expect(document.querySelector("aside")!.querySelector(`[data-testid='mission-run-${firstRunId}']`)).toBeNull();
   });
 
   it("shows safe errors and does not expose backend diagnostics", async () => {

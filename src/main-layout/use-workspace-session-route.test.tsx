@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import "../i18n";
-import { NotificationProvider } from "../notifications/notification-provider";
+import { i18n } from "../i18n";
+import { NotificationHost, NotificationProvider } from "../notifications/notification-provider";
 import type { Session } from "../types/agent";
 import { useWorkspaceSessionRoute } from "./use-workspace-session-route";
 import type { WorkbenchLocation } from "./workbench-route";
@@ -123,6 +123,27 @@ describe("useWorkspaceSessionRoute", () => {
       { creatingSession: false, destination: "sessions", sessionId: null },
       { replace: true },
     );
+  });
+
+  /**
+   * 4.10: the fallback above is silent by itself — a route naming a real-but-gone session must not
+   * look identical to one that was simply never valid. `notify` is the only signal a reader gets
+   * that anything unusual happened, so it has to actually fire, not just the redirect.
+   */
+  it("explains why, not just where, when the route session turns out to be missing", async () => {
+    await i18n.changeLanguage("zh-CN");
+    function Probe() {
+      useWorkspaceSessionRoute({
+        ...defaults,
+        location: sessionsLocation({ sessionId: "session-missing" }),
+        sessions: [session("session-1")],
+      });
+      return null;
+    }
+    render(<NotificationProvider><Probe /><NotificationHost activeSessionId={null} /></NotificationProvider>);
+
+    await waitFor(() => expect(screen.getByText("会话不可用")).toBeTruthy());
+    expect(screen.getByText(/链接指向的会话已不存在/)).toBeTruthy();
   });
 
   it("stays out of the way on other destinations and while creating", () => {

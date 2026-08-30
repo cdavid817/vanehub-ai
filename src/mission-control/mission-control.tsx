@@ -1,25 +1,44 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 import { agentService } from "../services/runtime-agent-client";
 import type { MissionControlAction, MissionControlFacet, MissionControlNavigationTarget, MissionControlOverview, MissionControlRunDetail, MissionControlRunSummary, MissionControlSort } from "../types/mission-control";
+import {
+  readMissionControlScrollTop,
+  readMissionControlViewState,
+  writeMissionControlScrollTop,
+  writeMissionControlViewState,
+} from "./mission-control-view-state";
 
 const states = ["", "running", "waiting_approval", "waiting_user", "retrying", "stuck", "failed", "completed"] as const;
 const facets = ["overview", "timeline", "tools", "files", "review", "verification", "context", "usage", "logs"] as const;
 
-export function MissionControl({ onNavigate }: { onNavigate?: (target: MissionControlNavigationTarget) => void }) {
+export function MissionControl({
+  initialRunId,
+  onNavigate,
+}: {
+  /** 4.8: the run selected the last time this view was left, restored on the way back in. */
+  initialRunId?: string;
+  onNavigate?: (target: MissionControlNavigationTarget, sourceRunId: string) => void;
+}) {
   const { t } = useTranslation();
+  const [savedView] = useState(readMissionControlViewState);
   const [overview, setOverview] = useState<MissionControlOverview | null>(null);
   const [selected, setSelected] = useState<MissionControlRunDetail | null>(null);
-  const [status, setStatus] = useState("");
-  const [agentId, setAgentId] = useState("");
-  const [projectId, setProjectId] = useState("");
-  const [runner, setRunner] = useState<"" | "local" | "ssh">("");
-  const [sort, setSort] = useState<MissionControlSort>("attention");
+  const [status, setStatus] = useState(savedView?.status ?? "");
+  const [agentId, setAgentId] = useState(savedView?.agentId ?? "");
+  const [projectId, setProjectId] = useState(savedView?.projectId ?? "");
+  const [runner, setRunner] = useState<"" | "local" | "ssh">(savedView?.runner ?? "");
+  const [sort, setSort] = useState<MissionControlSort>(savedView?.sort ?? "attention");
   const [cursor, setCursor] = useState<string | null>(null);
   const [activeFacet, setActiveFacet] = useState<MissionControlFacet>("overview");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  // 4.9: guards against an earlier inspect() call's response landing after a later one already
+  // resolved — otherwise clicking run A then quickly clicking run B could show A's evidence under
+  // B's row, or clobber B's already-loaded detail, if A's fetch happens to finish last.
+  const latestInspectedRunId = useRef<string | null>(null);
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -35,13 +54,37 @@ export function MissionControl({ onNavigate }: { onNavigate?: (target: MissionCo
     window.addEventListener("focus", reconcile); document.addEventListener("visibilitychange", reconcile);
     return () => { window.clearInterval(polling); window.removeEventListener("focus", reconcile); document.removeEventListener("visibilitychange", reconcile); };
   }, [load]);
+  useEffect(() => { writeMissionControlViewState({ status, agentId, projectId, runner, sort }); }, [status, agentId, projectId, runner, sort]);
 
-  async function inspect(run: MissionControlRunSummary) {
-    try { setSelected(await agentService.getMissionControlRun(run.runId)); setActiveFacet("overview"); } catch { setError(t("missionControl.loadError")); }
-  }
+  const inspect = useCallback(async (runId: string) => {
+    latestInspectedRunId.current = runId;
+    try {
+      const detail = await agentService.getMissionControlRun(runId);
+      if (latestInspectedRunId.current !== runId) return;
+      setSelected(detail);
+      setActiveFacet("overview");
+    } catch {
+      if (latestInspectedRunId.current !== runId) return;
+      setError(t("missionControl.loadError"));
+    }
+  }, [t]);
+  // 4.8: restores the run selected when this view was last left, on the way back in — mount-only,
+  // since RunsDestination fully remounts this component on every destination/tab switch (a fresh
+  // `initialRunId` never arrives without a fresh mount to go with it).
+  useEffect(() => { if (initialRunId) void inspect(initialRunId); }, [inspect, initialRunId]);
+  // 4.8: restores the run-list scroll position once there is actual content to scroll to — doing
+  // this before `overview` arrives would restore against an empty, still-collapsing list.
+  useEffect(() => {
+    if (!overview || !listRef.current) return;
+    listRef.current.scrollTop = readMissionControlScrollTop();
+    // Deliberately once, the first time real content exists — not on every `overview` refresh,
+    // which would fight a reader who has since scrolled on their own.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- see comment above
+  }, [Boolean(overview)]);
+
   async function act(run: MissionControlRunSummary, action: MissionControlAction) {
     if (action === "open" || action === "approval" || action === "review") {
-      if (run.navigation) onNavigate?.(run.navigation);
+      if (run.navigation) onNavigate?.(run.navigation, run.runId);
       return;
     }
     try {
@@ -64,16 +107,20 @@ export function MissionControl({ onNavigate }: { onNavigate?: (target: MissionCo
     {error ? <p aria-live="polite" className="m-3 rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">{error}</p> : null}
     <div className="flex gap-2 overflow-x-auto border-b border-border p-2">{counts ? Object.entries(counts).map(([key, count]) => <div className="min-w-28 rounded-md border border-border bg-muted/30 px-3 py-2" key={key}><p className="text-[11px] text-muted-foreground">{t(`missionControl.count.${key}`)}</p><p className="text-lg font-semibold tabular-nums">{count}</p></div>) : null}</div>
     <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden min-[900px]:grid-cols-[minmax(0,1.4fr)_minmax(280px,1fr)]">
-      <div className="min-h-0 overflow-y-auto p-3">
-        <RunSection title={t("missionControl.attention")} runs={overview?.attention.items ?? []} onAct={act} onInspect={inspect} urgent />
-        <RunSection title={t("missionControl.active")} runs={overview?.active.items ?? []} onAct={act} onInspect={inspect} />
-        <RunSection title={t("missionControl.recent")} runs={overview?.recent.items ?? []} onAct={act} onInspect={inspect} />
+      <div
+        className="min-h-0 overflow-y-auto p-3"
+        onScroll={(event) => writeMissionControlScrollTop(event.currentTarget.scrollTop)}
+        ref={listRef}
+      >
+        <RunSection title={t("missionControl.attention")} runs={overview?.attention.items ?? []} onAct={act} onInspect={(run) => void inspect(run.runId)} urgent />
+        <RunSection title={t("missionControl.active")} runs={overview?.active.items ?? []} onAct={act} onInspect={(run) => void inspect(run.runId)} />
+        <RunSection title={t("missionControl.recent")} runs={overview?.recent.items ?? []} onAct={act} onInspect={(run) => void inspect(run.runId)} />
         {overview && [overview.attention.nextCursor, overview.active.nextCursor, overview.recent.nextCursor].some(Boolean) ? <button className="rounded-md border border-input px-3 py-1.5 text-xs" onClick={() => setCursor(overview.attention.nextCursor ?? overview.active.nextCursor ?? overview.recent.nextCursor)} type="button">{t("missionControl.nextPage")}</button> : null}
         {!loading && overview && overview.attention.items.length + overview.active.items.length + overview.recent.items.length === 0 ? <p className="p-8 text-center text-sm text-muted-foreground">{t("missionControl.empty")}</p> : null}
       </div>
       <aside className="min-h-0 overflow-y-auto border-t border-border p-3 min-[900px]:border-l min-[900px]:border-t-0">
         <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t("missionControl.detail")}</h2>
-        {selected ? <><RunCard run={selected.run} onAct={act} onInspect={inspect} /><div className="mt-3 flex gap-1 overflow-x-auto" role="tablist">{facets.map((facet) => { const availability = selected.facets.find((item) => item.facet === facet)?.state ?? "unavailable"; return <button aria-disabled={availability !== "available"} aria-selected={activeFacet === facet} className="shrink-0 rounded-md border border-input px-2 py-1 text-xs disabled:opacity-50" disabled={availability !== "available"} key={facet} onClick={() => setActiveFacet(facet)} role="tab" type="button">{t(`missionControl.facet.${facet}`)}{availability === "available" ? null : ` · ${t(`missionControl.availability.${availability}`)}`}</button>; })}</div><p className="mt-4 text-xs text-muted-foreground">{t("missionControl.facetSelected", { facet: t(`missionControl.facet.${activeFacet}`) })} · {t("missionControl.lazyDetail")}</p></> : <p className="text-sm text-muted-foreground">{t("missionControl.selectRun")}</p>}
+        {selected ? <><RunCard run={selected.run} onAct={act} onInspect={(run) => void inspect(run.runId)} /><div className="mt-3 flex gap-1 overflow-x-auto" role="tablist">{facets.map((facet) => { const availability = selected.facets.find((item) => item.facet === facet)?.state ?? "unavailable"; return <button aria-disabled={availability !== "available"} aria-selected={activeFacet === facet} className="shrink-0 rounded-md border border-input px-2 py-1 text-xs disabled:opacity-50" disabled={availability !== "available"} key={facet} onClick={() => setActiveFacet(facet)} role="tab" type="button">{t(`missionControl.facet.${facet}`)}{availability === "available" ? null : ` · ${t(`missionControl.availability.${availability}`)}`}</button>; })}</div><p className="mt-4 text-xs text-muted-foreground">{t("missionControl.facetSelected", { facet: t(`missionControl.facet.${activeFacet}`) })} · {t("missionControl.lazyDetail")}</p></> : <p className="text-sm text-muted-foreground">{t("missionControl.selectRun")}</p>}
       </aside>
     </div>
   </div>;

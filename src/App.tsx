@@ -4,10 +4,12 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from
 import { MainLayout } from "./main-layout/main-layout";
 import { hasSeenLegacyRouteHint, markLegacyRouteHintSeen } from "./main-layout/legacy-route-hint";
 import {
+  extractReturnTo,
   legacyWorkbenchRedirectPath,
   parseWorkbenchLocation,
   recallWorkbenchPath,
   rememberWorkbenchLocation,
+  withReturnTo,
   workbenchPath,
   type WorkbenchLocation,
 } from "./main-layout/workbench-route";
@@ -57,6 +59,9 @@ function WorkspaceRoute() {
     () => parseWorkbenchLocation(location.pathname, new URLSearchParams(location.search)),
     [location.pathname, location.search],
   );
+  // 4.8: decoded fresh from the URL on every render, never stored — a stale returnTo surviving
+  // past the navigation it was meant for would offer to send the reader somewhere unexpected.
+  const returnTo = useMemo(() => extractReturnTo(new URLSearchParams(location.search)), [location.search]);
 
   // 4.5/4.14: a pre-redesign bookmark/history entry (e.g. `/workspace/loops`) parses as an
   // unrecognized destination and would otherwise silently land on Sessions — corrected here, in
@@ -78,7 +83,10 @@ function WorkspaceRoute() {
   // Takes a whole location so it depends only on `navigate`. An inline arrow closing over the
   // current location would change every render and re-fire the layout's reconciliation effect.
   const navigateWorkspace = useCallback(
-    (next: WorkbenchLocation, options?: { replace?: boolean }) => navigate(workbenchPath(next), options),
+    (next: WorkbenchLocation, options?: { replace?: boolean; returnTo?: WorkbenchLocation }) => {
+      const path = options?.returnTo ? withReturnTo(workbenchPath(next), options.returnTo) : workbenchPath(next);
+      navigate(path, options);
+    },
     [navigate],
   );
 
@@ -88,6 +96,7 @@ function WorkspaceRoute() {
       onConfigureOnePiece={() => navigate("/settings?section=agent-configurations&agentConfig=onepiece")}
       onNavigate={navigateWorkspace}
       onOpenSettings={(pageId) => navigate(pageId ? `/settings?section=${pageId}` : "/settings")}
+      returnTo={returnTo}
     />
   );
 }

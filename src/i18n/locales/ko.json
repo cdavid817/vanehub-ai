@@ -2708,6 +2708,7 @@
   "layout.noSession": "선택된 세션이 없습니다.",
   "layout.startChat": "채팅을 시작하려면 세션을 만들거나 선택하세요.",
   "layout.infoPanel": "정보 패널",
+  "layout.returnToEvidenceSource": "Agent 미션 컨트롤로 돌아가기",
   "layout.infoTab.agent": "기본 정보",
   "layout.infoTab.basic": "기본 정보",
   "layout.infoTab.tokenUsage": "Token 사용법",

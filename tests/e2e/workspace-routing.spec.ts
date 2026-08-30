@@ -132,6 +132,16 @@ test.describe("workspace routing", () => {
     await expect(page.getByTestId("loop-center")).toBeVisible();
   });
 
+  /**
+   * The warning notification this fires alongside the fallback (4.10) needs a real session
+   * already in the list to fire at all — `useWorkspaceSessionRoute` treats an empty list as a
+   * deep link still loading, not a genuine not-found. That precondition can't survive a
+   * `page.goto()` here: Web/mock session state lives in module memory and does not survive a full
+   * document load (same constraint documented on "resumes the previous destination on relaunch",
+   * above) — a session created just before this navigation would already be gone by the time it
+   * runs. Proven instead at the unit level, where the precondition is just a prop, not a live
+   * backend: `use-workspace-session-route.test.tsx`'s "explains why, not just where...".
+   */
   test("falls back to the session list for a session that does not exist", async ({ page }) => {
     await page.goto("/workspace/sessions/session-does-not-exist");
     await expect(page.getByTestId("session-sidebar")).toBeVisible();

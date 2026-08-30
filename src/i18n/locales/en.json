@@ -2708,6 +2708,7 @@
   "layout.noSession": "No session selected",
   "layout.startChat": "Create or select a session to start chatting",
   "layout.infoPanel": "Info Panel",
+  "layout.returnToEvidenceSource": "Back to Mission Control",
   "layout.infoTab.agent": "Basic Info",
   "layout.infoTab.basic": "Basic Info",
   "layout.infoTab.tokenUsage": "Token Usage",

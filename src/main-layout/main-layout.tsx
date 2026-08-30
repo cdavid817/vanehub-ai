@@ -50,11 +50,16 @@ export function MainLayout({
   onConfigureOnePiece,
   onNavigate,
   onOpenSettings,
+  returnTo,
 }: {
   location: WorkbenchLocation;
   onOpenSettings: (pageId?: SettingsPageId) => void;
   onConfigureOnePiece?: () => void;
-  onNavigate: (next: WorkbenchLocation, options?: { replace?: boolean }) => void;
+  onNavigate: (next: WorkbenchLocation, options?: { replace?: boolean; returnTo?: WorkbenchLocation }) => void;
+  /** 4.8: decoded from `?returnTo=` (workbench-route.ts) — set when the reader arrived at Sessions
+   *  from an evidence-navigation action (e.g. Mission Control's Approve/Review) rather than by
+   *  their own choice, so there is somewhere specific worth offering to go back to. */
+  returnTo?: WorkbenchLocation | null;
 }) {
   const model = useMainLayoutModel();
   const destination = location.destination;
@@ -62,7 +67,7 @@ export function MainLayout({
   // Sessions is not a peer of the other four domains — it is the entire session workspace
   // apparatus below, so it gets its own navigation helper that only ever targets its own shape
   // rather than a generic partial-merge across a discriminated union (design.md Decision 1).
-  const goToSessions = (next: Partial<Extract<WorkbenchLocation, { destination: "sessions" }>>, options?: { replace?: boolean }) => {
+  const goToSessions = (next: Partial<Extract<WorkbenchLocation, { destination: "sessions" }>>, options?: { replace?: boolean; returnTo?: WorkbenchLocation }) => {
     // `activeSessionId`, not `null`: the backend's active session does not change just because
     // the route moved to another destination, and a caller that wants a blank list instead
     // (there is none today) can still say so explicitly via `next.sessionId`.
@@ -186,9 +191,16 @@ export function MainLayout({
     }
   }
 
-  function navigateFromMissionControl(target: MissionControlNavigationTarget) {
+  function navigateFromMissionControl(target: MissionControlNavigationTarget, sourceRunId: string) {
     if (target.kind === "review") setSlashTabRequest((current) => ({ tab: "changes", nonce: (current?.nonce ?? 0) + 1 }));
-    goToSessions({ sessionId: target.sessionId ?? target.id, creatingSession: false });
+    // 4.8: only attention/active/history actually render MissionControl (runs-destination.tsx), so
+    // this call can only ever fire while `location` is already one of those three sections — the
+    // narrowing below is a type guard for that already-true fact, not a runtime possibility.
+    const returnLocation: WorkbenchLocation | undefined = location.destination === "runs"
+      && (location.section === "attention" || location.section === "active" || location.section === "history")
+      ? { destination: "runs", section: location.section, runId: sourceRunId }
+      : undefined;
+    goToSessions({ sessionId: target.sessionId ?? target.id, creatingSession: false }, { returnTo: returnLocation });
   }
 
   const displayedMessages = loopInspection?.messages ?? model.messages;
@@ -327,6 +339,22 @@ export function MainLayout({
                         <p className="truncate text-xs font-semibold">{t("loops.inspection.title")}</p>
                         <p className="truncate text-[11px] text-muted-foreground">{loopInspection.session.title}</p>
                       </div>
+                    </div>
+                  ) : null}
+                  {/* 4.8: loop inspection wins if somehow both are true — it is showing another
+                      session's transcript, which this banner's own back button has no bearing on. */}
+                  {!loopInspection && returnTo ? (
+                    <div className="flex min-h-11 shrink-0 items-center gap-2 border-b border-border/70 px-3">
+                      <button
+                        aria-label={t("layout.returnToEvidenceSource")}
+                        className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-border text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+                        onClick={() => onNavigate(returnTo, { replace: true })}
+                        title={t("layout.returnToEvidenceSource")}
+                        type="button"
+                      >
+                        <ArrowLeft aria-hidden="true" className="h-4 w-4" />
+                      </button>
+                      <p className="truncate text-xs font-semibold">{t("layout.returnToEvidenceSource")}</p>
                     </div>
                   ) : null}
                   <div className="min-h-0 flex-1">

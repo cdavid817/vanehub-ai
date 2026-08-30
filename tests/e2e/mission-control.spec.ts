@@ -1,15 +1,21 @@
 import { expect, test, type Page } from "@playwright/test";
 
+/**
+ * Mission Control is a Runs section now (runs-destination.tsx), not its own activity-bar entry —
+ * clicking "Runs" already lands on its default "attention" section, where Mission Control renders.
+ */
 async function openMissionControl(page: Page, theme: "futuristic" | "minimal" = "futuristic", width = 1440) {
   await page.setViewportSize({ width, height: width < 600 ? 844 : 900 });
   await page.addInitScript((selectedTheme) => window.localStorage.setItem("vanehub.appSettings", JSON.stringify({ applicationLanguage: "en", theme: selectedTheme })), theme);
-  await page.goto("/"); await page.getByRole("button", { name: "Mission Control" }).click();
+  await page.goto("/"); await page.getByRole("button", { name: "Runs", exact: true }).click();
   await expect(page.getByTestId("mission-control")).toBeVisible();
 }
 
 test("monitors multiple Runs, attention, failure, bounded filters, detail, and review navigation", async ({ page }) => {
   await openMissionControl(page);
-  await expect(page.getByText("Attention inbox")).toBeVisible();
+  // "Attention inbox" now also names the Runs tab that got here (runs-destination.tsx) — this
+  // checks the section heading inside Mission Control's own content actually rendered.
+  await expect(page.getByRole("heading", { name: "Attention inbox" })).toBeVisible();
   await expect(page.getByTestId("mission-run-018f0f17-4d6a-7e20-b41d-66c5271a290").first()).toContainText("Waiting approval");
   await expect(page.getByText("provider_backoff", { exact: true })).toBeVisible();
   await expect(page.locator("[data-runner='ssh']").first()).toContainText("build.example.test");
@@ -20,6 +26,25 @@ test("monitors multiple Runs, attention, failure, bounded filters, detail, and r
   await expect(page.getByRole("tab", { name: "Overview" })).toBeVisible();
   await failed.locator("[data-action='review']").click();
   await expect(page).toHaveURL(/\/workspace\/sessions\//);
+});
+
+test("4.8: returns to the same run, with the same filter, after an evidence-navigation round trip", async ({ page }) => {
+  await openMissionControl(page);
+  await page.getByLabel("Filter by status").selectOption("failed");
+  const failed = page.getByTestId("mission-run-018f0f17-4d6a-7e20-b41d-66c5271a294").first();
+  await failed.locator("[data-action='review']").click();
+  await expect(page).toHaveURL(/\/workspace\/sessions\//);
+
+  const returnButton = page.getByRole("button", { name: "Back to Mission Control" });
+  await expect(returnButton).toBeVisible();
+  await returnButton.click();
+
+  await expect(page).toHaveURL(/\/workspace\/runs\/attention\/018f0f17-4d6a-7e20-b41d-66c5271a294$/);
+  await expect(page.getByTestId("mission-control")).toBeVisible();
+  // Selected entity: the same run is restored into the detail pane, not just the URL.
+  await expect(page.locator("aside").getByTestId("mission-run-018f0f17-4d6a-7e20-b41d-66c5271a294")).toBeVisible();
+  // Filter: the status filter set before leaving survives the round trip too.
+  await expect(page.getByLabel("Filter by status")).toHaveValue("failed");
 });
 
 for (const variant of [
@@ -36,7 +61,9 @@ for (const variant of [
     await expect(page.getByLabel("Filter by Runner")).toBeVisible();
     await expect(page.locator("[data-runner='ssh']").first()).toContainText("SSH");
     await expect(page.getByText("user_question", { exact: true }).first()).toBeVisible();
-    await expect(page.getByRole("tablist")).toBeAttached();
+    // Two tablists exist now that Mission Control lives inside Runs' own tab bar (runs-destination.tsx)
+    // — scoped to the detail pane's facet tabs specifically, the one this assertion always meant.
+    await expect(page.locator("aside").getByRole("tablist")).toBeAttached();
     await expect(page.getByText("Select a Run to inspect available details.")).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     expect(await page.getByTestId("mission-control").evaluate((element) => {
