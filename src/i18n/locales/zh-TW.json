@@ -35,6 +35,8 @@
   "app.settings.breadcrumb": "設定",
   "app.settings.return": "返回",
   "app.settings.system": "系統設定",
+  "app.legacyRouteHint.title": "已遷移",
+  "app.legacyRouteHint.message": "此內容已移動到「執行」「計畫」或「品質」中的新位置,已為你自動跳轉。",
   "settings.pages.basic": "基礎配置",
   "settings.pages.providers": "CLI 管理",
   "settings.pages.cliParameters": "CLI 參數",

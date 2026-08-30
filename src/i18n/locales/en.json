@@ -35,6 +35,8 @@
   "app.settings.breadcrumb": "Settings",
   "app.settings.return": "Back",
   "app.settings.system": "System Settings",
+  "app.legacyRouteHint.title": "Moved",
+  "app.legacyRouteHint.message": "This has moved to its new location under Runs, Plan, or Quality — you've been redirected automatically.",
   "settings.pages.basic": "Basic Configuration",
   "settings.pages.providers": "CLI Management",
   "settings.pages.cliParameters": "CLI Parameters",

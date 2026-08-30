@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ErrorBoundary } from "react-error-boundary";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router";
 import { MainLayout } from "./main-layout/main-layout";
+import { hasSeenLegacyRouteHint, markLegacyRouteHintSeen } from "./main-layout/legacy-route-hint";
 import {
   legacyWorkbenchRedirectPath,
   parseWorkbenchLocation,
@@ -15,7 +16,7 @@ import { SettingsProvider } from "./settings/settings-provider";
 import { ThemeProvider } from "./theme/theme-provider";
 import { useTranslation } from "react-i18next";
 import { settingsService } from "./services/runtime-settings-client";
-import { NotificationProvider } from "./notifications/notification-provider";
+import { NotificationProvider, useNotifications } from "./notifications/notification-provider";
 import { floatingAssistantService } from "./services/runtime-floating-assistant-client";
 import { useCallback, useEffect, useMemo } from "react";
 
@@ -50,18 +51,27 @@ function RouteErrorFallback({ error }: { error: unknown }) {
 function WorkspaceRoute() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { t } = useTranslation();
+  const { notify } = useNotifications();
   const workspaceLocation = useMemo(
     () => parseWorkbenchLocation(location.pathname, new URLSearchParams(location.search)),
     [location.pathname, location.search],
   );
 
-  // 4.5: a pre-redesign bookmark/history entry (e.g. `/workspace/loops`) parses as an unrecognized
-  // destination and would otherwise silently land on Sessions — corrected here, in the URL bar
-  // itself, rather than only in what renders at the old URL.
+  // 4.5/4.14: a pre-redesign bookmark/history entry (e.g. `/workspace/loops`) parses as an
+  // unrecognized destination and would otherwise silently land on Sessions — corrected here, in
+  // the URL bar itself, rather than only in what renders at the old URL. The first time this ever
+  // fires for this install, it also explains the jump with a one-time hint (never again after —
+  // `hasSeenLegacyRouteHint` is a permanent dismissal flag, not a per-visit one).
   useEffect(() => {
     const redirect = legacyWorkbenchRedirectPath(location.pathname);
-    if (redirect) navigate(redirect, { replace: true });
-  }, [location.pathname, navigate]);
+    if (!redirect) return;
+    navigate(redirect, { replace: true });
+    if (!hasSeenLegacyRouteHint()) {
+      notify({ type: "info", title: t("app.legacyRouteHint.title"), message: t("app.legacyRouteHint.message"), scope: { kind: "global" } });
+      markLegacyRouteHintSeen();
+    }
+  }, [location.pathname, navigate, notify, t]);
 
   useEffect(() => rememberWorkbenchLocation(workspaceLocation), [workspaceLocation]);
 

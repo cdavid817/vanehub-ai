@@ -35,6 +35,8 @@
   "app.settings.breadcrumb": "設定",
   "app.settings.return": "戻る",
   "app.settings.system": "システム設定",
+  "app.legacyRouteHint.title": "移動しました",
+  "app.legacyRouteHint.message": "この内容は「実行」「計画」「品質」のいずれかの新しい場所に移動しました。自動的にリダイレクトされました。",
   "settings.pages.basic": "基本構成",
   "settings.pages.providers": "CLI 管理",
   "settings.pages.cliParameters": "CLIパラメータ",

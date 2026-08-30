@@ -35,6 +35,8 @@
   "app.settings.breadcrumb": "설정",
   "app.settings.return": "뒤로",
   "app.settings.system": "시스템 설정",
+  "app.legacyRouteHint.title": "이동됨",
+  "app.legacyRouteHint.message": "이 콘텐츠는 실행, 계획 또는 품질의 새 위치로 이동되었습니다. 자동으로 리디렉션되었습니다.",
   "settings.pages.basic": "기본 구성",
   "settings.pages.providers": "CLI 관리",
   "settings.pages.cliParameters": "CLI 매개변수",

@@ -67,6 +67,16 @@ test.describe("workspace routing", () => {
     await expect(page).toHaveURL(/\/workspace\/quality\/evaluations$/);
   });
 
+  test("explains a legacy redirect once, then stays quiet on the next one", async ({ page }) => {
+    await page.goto("/workspace/loops");
+    await expect(page).toHaveURL(/\/workspace\/runs\/loops$/);
+    await expect(page.getByText("已迁移")).toBeVisible();
+
+    await page.goto("/workspace/work-board");
+    await expect(page).toHaveURL(/\/workspace\/plan\/board$/);
+    await expect(page.getByText("已迁移")).toHaveCount(0);
+  });
+
   /**
    * Sessions is the one destination the "stays mounted" guarantee names: main-layout.tsx keeps
    * its route outlet mounted with a CSS `hidden` toggle rather than conditionally rendering it,
