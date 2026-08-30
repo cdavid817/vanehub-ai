@@ -38,7 +38,9 @@ Prompt Hook 在提示词组装链路里插入内容，在**设置 → Prompt Hoo
 
 ## SDK 依赖
 
-**受管 SDK 只有两个**：Claude Code SDK 与 Codex SDK，各自对应一个 npm 包，并带三个备选版本——某个版本出问题时可以回退。
+**受管 SDK 只有两个**：Claude Code SDK 与 Codex SDK，各自对应一个 npm 包，并带三个备选版本。
+
+**没有独立的 SDK 设置页**。要换装哪个版本，在 [CLI 管理](#cli-管理)里操作——所有受管包的安装、升级、降级都走那一处，某个版本出问题时的回退也在那里。
 
 Gemini CLI、OpenCode 与 Antigravity CLI 没有对应的受管 SDK。
 

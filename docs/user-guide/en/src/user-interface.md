@@ -20,7 +20,7 @@ The session list on the left supports three display modes: **list / by category 
 
 ### Activity bar navigation
 
-The activity bar to the left of the session list switches between the main destinations: **Sessions / Loops / Goal Center / Todo Board / Evaluations / Mission Control / Scheduled tasks / Settings / Help**.
+The activity bar to the left of the session list switches between the main destinations: **Sessions / Loops / Todo Board / Goal Center / Evaluations / Mission Control / Scheduled tasks / Settings / Help**.
 
 ## Agent types
 
@@ -137,14 +137,13 @@ When you reopen a session after a crash or an abnormal exit, a **recovery banner
 
 ## Settings center
 
-**Settings** in the activity bar opens the settings center: navigation on the left, the configuration page on the right. There are 21 settings pages:
+**Settings** in the activity bar opens the settings center: navigation on the left, the configuration page on the right. There are 20 settings pages:
 
 | Settings page | What it holds |
 | --- | --- |
 | **Basic Configuration** | See [the next section](#basic-configuration) |
 | **CLI Management** | Install detection, conflict diagnostics, and upgrades for each CLI — see [Install and authenticate a CLI](getting-started.md) |
 | **CLI Parameters** | Launch flags per CLI Agent — see [Tools and extensions](tooling.md#cli-parameters) |
-| **SDK Dependencies** | Version management for the managed SDKs — see [Tools and extensions](tooling.md#sdk-dependencies) |
 | **Extension Capabilities** | Installing and enabling local multimodal capabilities — see [Tools and extensions](tooling.md#extension-capabilities) |
 | **Plugin Integrations** | Built-in product integrations and readiness checks — see [Plugin integration](plugin-integration.md) |
 | **MCP Servers** | MCP server configuration and per-Agent binding — see [MCP servers](mcp.md) |

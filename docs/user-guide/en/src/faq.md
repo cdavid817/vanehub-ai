@@ -46,7 +46,7 @@ For a fully expandable call chain, use OnePiece. See [Observability](observabili
 
 ## Can I search the logs by a trace id?
 
-**No.** Logs deliberately contain no execution identifiers, which is a privacy design. The two are lined up by **time**.
+**Yes.** A log entry carries `runId`, `traceId`, and `spanId` in its context whenever the source supplies them. What logs deliberately exclude is **content** — prompts, Agent output, source, stderr, credentials, private absolute paths — not identifiers. If a search finds nothing, the entry most likely came from a source with no identifier to attach; line those up by **time**.
 
 ## Can a Loop run in a remote workspace?
 
