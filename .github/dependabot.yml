@@ -23,7 +23,12 @@ updates:
           - patch
 
   - package-ecosystem: cargo
-    directory: /src-tauri
+    # The workspace root, not `/src-tauri`. `Cargo.lock` moved here when the cargo workspace was
+    # established (#180) and `src-tauri/Cargo.toml` now inherits all 78 of its dependencies with
+    # `workspace = true`, so there is no version literal in that directory to bump. Pointed at the
+    # old path, the updater opened no pull request and reported no error for months — which looks
+    # exactly like having no updates to make.
+    directory: /
     schedule:
       interval: weekly
       day: monday
