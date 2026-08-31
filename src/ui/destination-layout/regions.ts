@@ -11,6 +11,8 @@ export interface HorizontalPaneRegion {
   onOpenChange: (open: boolean) => void;
   /** Accessible label for both the resize gutter and the sheet title at narrower tiers. */
   label: string;
+  /** The element to restore focus to when this region closes as a Sheet at a narrower tier. */
+  returnFocus?: HTMLElement | null;
 }
 
 export interface RuntimePanelRegion {

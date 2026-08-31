@@ -25,4 +25,13 @@ describe("DestinationLayout", () => {
     unmount();
     expect(disconnect).toHaveBeenCalledOnce();
   });
+
+  it("reports the initial tier to a caller building region content, without needing a resize", () => {
+    const onTierChange = vi.fn();
+    render(<DestinationLayout main={<main>Work surface</main>} onTierChange={onTierChange} />);
+    // jsdom's ResizeObserver stub never actually observes a size, so this is the only tier the
+    // caller ever sees here — it still has to fire once, or a first-render Inspector built before
+    // any real resize event would never learn it needs a close affordance.
+    expect(onTierChange).toHaveBeenCalledWith("wide");
+  });
 });

@@ -103,12 +103,12 @@ export function DestinationLayoutBody({ tier, containerWidth, navigation, inspec
     <div className="relative flex h-full min-h-0 min-w-0" data-layout-tier={tier}>
       <div className={className ?? "flex h-full min-h-0 w-full min-w-0"}>{workRow}</div>
       {navigationSheetOpen && navigation ? (
-        <Sheet onClose={() => navigation.onOpenChange(false)} placement={tier === "narrow" ? "full" : "left"} title={navigation.label}>
+        <Sheet onClose={() => navigation.onOpenChange(false)} placement={tier === "narrow" ? "full" : "left"} returnFocus={navigation.returnFocus} title={navigation.label}>
           {navigation.content}
         </Sheet>
       ) : null}
       {inspectorSheetOpen && inspector ? (
-        <Sheet onClose={() => inspector.onOpenChange(false)} placement={tier === "narrow" ? "full" : "right"} title={inspector.label}>
+        <Sheet onClose={() => inspector.onOpenChange(false)} placement={tier === "narrow" ? "full" : "right"} returnFocus={inspector.returnFocus} title={inspector.label}>
           {inspector.content}
         </Sheet>
       ) : null}
