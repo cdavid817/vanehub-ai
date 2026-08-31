@@ -86,9 +86,11 @@ test.describe("multi-Agent session", () => {
     await expect(composerSurface.getByTestId("composer-toolbar")).toBeVisible();
     await expect(composerSurface.getByPlaceholder(/输入指令/)).toBeVisible();
 
-    // The seats view lives in the inspector, closed by default now (workbench-layout-preferences.ts).
+    // The seats view lives in the inspector, closed by default now (workbench-layout-preferences.ts),
+    // inside a Member Info section that is itself collapsed by default (session-overview-sections.tsx).
     await page.getByTestId("conversation-overflow-trigger").click();
     await page.getByTestId("toggle-info-panel").click();
+    await page.getByRole("button", { name: "成员信息", exact: true }).click();
 
     // The seats view answers who is in the room without offering a control that dispatches them.
     await expect(page.getByText(/^席位$/).first()).toBeVisible();
@@ -126,24 +128,34 @@ test.describe("multi-Agent session", () => {
     await expect(conversationHeader.getByText("codex-cli", { exact: true })).toHaveCount(0);
     await expect(conversationHeader.getByText("claude-code", { exact: true })).toHaveCount(0);
 
-    // The roster editor lives in the inspector, closed by default now (workbench-layout-preferences.ts).
+    // The roster editor lives in the inspector, closed by default now (workbench-layout-preferences.ts),
+    // inside a Member Info section that is itself collapsed by default (session-overview-sections.tsx).
     await page.getByTestId("conversation-overflow-trigger").click();
     await page.getByTestId("toggle-info-panel").click();
 
     const editor = page.getByTestId("session-roster-editor");
+    const memberHeader = page.getByRole("button", { name: "成员信息", exact: true });
+    await memberHeader.click();
     await expect(editor).toBeVisible();
     await expect(editor).toHaveAccessibleName("成员信息");
-    const memberTab = page.getByRole("tab", { name: "成员信息" });
-    await expect(memberTab).toHaveAttribute("aria-selected", "true");
-    await page.getByRole("tab", { name: "基本信息" }).click();
+    await expect(memberHeader).toHaveAttribute("aria-expanded", "true");
+    // Collapsing hides it same as any other Accordion section (not "switching to another tab" --
+    // Member Info and the rest are independently toggleable now, not mutually exclusive), and
+    // re-expanding brings it back unchanged.
+    await memberHeader.click();
     await expect(editor).toBeHidden();
-    await memberTab.click();
+    await memberHeader.click();
     await expect(editor).toBeVisible();
     await expect(editor.locator('[data-role-icon="architect"]')).toBeVisible();
     await expect(editor.locator('[data-role-icon="implementer"]')).toBeVisible();
     await page.getByRole("button", { name: "专注对话" }).click();
     await expect(page.getByTestId("sessions-destination-layout")).toHaveAttribute("data-info-collapsed", "true");
     await page.getByRole("button", { name: "恢复工作区" }).click();
+    // The inspector's own content sits in `SplitPane`'s sized (not flex) side, which -- unlike
+    // `main` -- is not kept mounted across an open/close toggle (SplitPane.tsx); Member Info comes
+    // back at its collapsed default rather than wherever this test last left it.
+    await expect(memberHeader).toHaveAttribute("aria-expanded", "false");
+    await memberHeader.click();
     await expect(editor).toBeVisible();
     const participantRows = editor.locator("li.ucd-list-row");
     await expect(participantRows).toHaveCount(2);
@@ -220,6 +232,9 @@ test.describe("multi-Agent session", () => {
     await page.getByTestId("toggle-info-panel").click();
     await expectLatestMessageAnchored();
 
+    // Reopening reset Member Info to its collapsed default again (see above).
+    await memberHeader.click();
+    await expect(editor).toBeVisible();
     await editor.getByRole("button", { name: /成员离席/ }).first().click();
     await expect(participantRows).toHaveCount(1);
     await expect(historicalSpeaker).toHaveText(speakerLabel ?? "");

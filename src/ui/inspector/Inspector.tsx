@@ -46,7 +46,7 @@ export function Inspector({
   const { t } = useTranslation();
 
   return (
-    <div className={cn("flex h-full min-h-0 flex-col", className)}>
+    <div className={cn("flex h-full min-h-0 flex-col", className)} data-testid="workbench-inspector">
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border-subtle px-4 py-3">
         <div className="min-w-0">
           <h2 className="truncate text-sm font-semibold">{title}</h2>

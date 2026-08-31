@@ -5,6 +5,7 @@ import { CommandCenter } from "../command-center/command-center";
 import { NotificationHost, useNotifications } from "../notifications/notification-provider";
 import { AppShell } from "../ui/app-shell/AppShell";
 import { DestinationLayout } from "../ui/destination-layout/DestinationLayout";
+import type { LayoutTier } from "../ui/destination-layout/use-layout-tier";
 import { useSessionWorkspaceRegions } from "../session-workspace/session-tabs";
 import { ApiSessionComposer } from "../session-workspace/api-session-composer";
 import type { SessionSurfaceId } from "../session-workspace/session-surface-registry";
@@ -21,7 +22,6 @@ import { ProjectsDestination } from "./projects-destination";
 import { QualityDestination } from "./quality-destination";
 import { RunsDestination } from "./runs-destination";
 import { SessionContextPanel, type ContextPanelState } from "./session-context-panel";
-import { SessionInfoPanel } from "./session-info-panel";
 import { SessionSidebar } from "./session-sidebar";
 import { useCommandCenterContext } from "./use-command-center-context";
 import { nextSlashTabRequestState, type SlashTabRequest } from "./slash-tab-request";
@@ -34,9 +34,8 @@ import type { SettingsPageId } from "../settings/settings-pages";
 import type { WorkbenchLocation } from "./workbench-route";
 import { seatsFromSession } from "../services/session-seats";
 import { useSessionRuntimeRecovery } from "./use-session-runtime-recovery";
-import { buildConversationVisibilityControls, buildRecoveryNotice, usePersistPreferredRuntimeTab } from "./session-workspace-region-builders";
+import { buildConversationVisibilityControls, buildRecoveryNotice, useInspectorRegion, useSessionInspection, usePersistPreferredRuntimeTab } from "./session-workspace-region-builders";
 import {
-  INSPECTOR_WIDTH_BOUNDS,
   NAVIGATION_WIDTH_BOUNDS,
   RUNTIME_HEIGHT_BOUNDS,
   patchDestinationLayoutPreference,
@@ -87,6 +86,7 @@ export function MainLayout({
   // landing in between them and seed the sidebar and inspector from inconsistent snapshots.
   const [initialSessionsLayout] = useState(readInitialSessionsLayout);
   const [conversationFocusMode, setConversationFocusMode] = useState(false);
+  const [inspectorTier, setInspectorTier] = useState<LayoutTier>("wide");
   const [infoPanelOpenState, setInfoPanelOpenState] = useState(initialSessionsLayout.inspectorOpen);
   const [requestedInfoTab, setRequestedInfoTab] = useState<"im" | null>(null);
   /**
@@ -278,6 +278,28 @@ export function MainLayout({
     workspaceTabsCollapsed,
   });
   usePersistPreferredRuntimeTab(sessionWorkspace.activeRuntimeSurface);
+  const inspection = useSessionInspection({
+    conversationFocusMode,
+    currentSpeakerSeatId: loopInspection || model.turnStatus?.kind !== "agent" ? null : model.turnStatus.seatId ?? null,
+    // Not `displayedMessages` (which shows the *loop's own* transcript while loop-inspecting):
+    // the roster's speaking-highlight is a live-streaming concept, and nothing is live during
+    // loop inspection, so this stays empty then exactly like currentSpeakerSeatId does above.
+    displayedMessages: loopInspection ? [] : model.messages,
+    displayedSession,
+    loopInspectionUsageSurface: loopInspection?.target.surface === "usage",
+    requestedInfoTab,
+    setConversationFocusMode,
+    setPanelTabRequest,
+  });
+  const inspectorRegion = useInspectorRegion({
+    commitInfoPanelWidth,
+    effectiveInfoPanelOpen,
+    infoPanelWidth,
+    inspection,
+    inspectorTier,
+    setInfoPanelOpen,
+    setInfoPanelWidth,
+  });
 
   return (
     <main className="min-h-screen bg-background text-foreground">
@@ -340,32 +362,8 @@ export function MainLayout({
             data-testid="sessions-destination-layout"
           >
             <DestinationLayout
-              inspector={{
-                content: (
-                  <SessionInfoPanel
-                    activeSession={displayedSession}
-                    currentSpeakerSeatId={loopInspection || model.turnStatus?.kind !== "agent" ? null : model.turnStatus.seatId ?? null}
-                    messages={loopInspection ? [] : model.messages}
-                    onNavigateToTab={(tab) => {
-                      // Focus mode hides the workspace entirely, so a request to show a tab has to
-                      // leave it first or the reader clicks a row and nothing appears to happen.
-                      if (conversationFocusMode) setConversationFocusMode(false);
-                      setPanelTabRequest((current) => ({ nonce: (current?.nonce ?? 0) + 1, tab }));
-                    }}
-                    onOpenImSettings={() => onOpenSettings("im")}
-                    onOpenSkillSettings={() => onOpenSettings("skills")}
-                    requestedTab={loopInspection?.target.surface === "usage" ? "usage" : requestedInfoTab}
-                  />
-                ),
-                label: t("layout.infoPanel"),
-                max: INSPECTOR_WIDTH_BOUNDS.max,
-                min: INSPECTOR_WIDTH_BOUNDS.min,
-                onOpenChange: setInfoPanelOpen,
-                onWidthChange: setInfoPanelWidth,
-                onWidthCommit: commitInfoPanelWidth,
-                open: effectiveInfoPanelOpen,
-                width: infoPanelWidth,
-              }}
+              inspector={inspectorRegion}
+              onTierChange={setInspectorTier}
               main={(
                 <section className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-background" data-testid="session-conversation-shell">
                   {/* `flex-1` is load-bearing, not decorative: with the navigation pane closed,

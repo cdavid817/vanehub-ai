@@ -95,7 +95,7 @@ export async function openSessionIm(sessionId) {
     globalThis.history.pushState({}, "", target);
     globalThis.dispatchEvent(new globalThis.PopStateEvent("popstate"));
   }, `/workspace/sessions/${encodeURIComponent(sessionId)}`);
-  const tab = await globalThis.$('[aria-controls="info-pane-im"]');
+  const tab = await globalThis.$('[data-testid="accordion-header-im"]');
   await tab.waitForClickable({ timeout: 30_000 });
   await tab.click();
   const accessSwitch = await globalThis.$('[data-testid="session-im-access"] [role="switch"]');

@@ -1,5 +1,5 @@
 import type { LazyFeatureLoader } from "../../components/lazy-feature";
-import type { SessionSurfaceId } from "../../session-workspace/session-surface-registry";
+import type { ChatMessage } from "../../types/chat";
 import type { WorkbenchSelection, WorkbenchSelectionKind } from "../../types/workbench-selection";
 
 /**
@@ -12,8 +12,32 @@ import type { WorkbenchSelection, WorkbenchSelectionKind } from "../../types/wor
  * target.
  */
 export interface InspectorProviderContext {
-  /** Absent where nothing owns the workspace tabs, mirroring the old SessionInfoPanel's own optional prop. */
-  onNavigateToSessionTab?: (tab: SessionSurfaceId) => void;
+  /**
+   * Absent where nothing owns the workspace tabs, mirroring the old SessionInfoPanel's own
+   * optional prop. Typed as a plain `string`, not `SessionSurfaceId` (ARCH-FE-005: `src/ui/`
+   * primitives stay feature-agnostic, no importing a `src/session-workspace/` type) — the caller
+   * that implements this callback owns the real, narrower type, the same way it owns validating
+   * `requestedSessionSection` below.
+   */
+  onNavigateToSessionTab?: (tab: string) => void;
+  /**
+   * Opaque to this layer — meaningful only to whichever provider's own content knows its section
+   * ids (currently just Session Overview's `"usage"`/`"im"`). Sourced the same way the
+   * pre-migration information panel's own `requestedTab` was: a value that is set but never reset
+   * back to `null`, so re-requesting the same section twice in a row is a harmless no-op rather
+   * than something that needs a nonce to distinguish from "unchanged" — see `main-layout.tsx`.
+   */
+  requestedSessionSection?: string | null;
+  /**
+   * Live turn state a provider cannot derive from `selection` alone: who is currently speaking,
+   * and the transcript to derive that from. Only meaningful when the selected session is the one
+   * actually streaming right now (a session referenced from elsewhere is neither, and simply
+   * receives neither field) — mirrors the pre-migration information panel's own
+   * `currentSpeakerSeatId`/`messages` props, sourced from the same `model.turnStatus`/
+   * `model.messages` in `main-layout.tsx`.
+   */
+  currentSpeakerSeatId?: string | null;
+  messages?: ChatMessage[];
 }
 
 /** What every Inspector provider component receives — never more than its own kind's selection. */
@@ -46,7 +70,13 @@ export interface InspectorProvider<K extends WorkbenchSelectionKind = WorkbenchS
  * `unavailable` state as a selection whose object was deleted (task 9.8) — the correct, honest
  * behavior for "nothing to show yet" rather than a placeholder screen.
  */
-export const INSPECTOR_PROVIDERS: { [K in WorkbenchSelectionKind]?: InspectorProvider<K> } = {};
+export const INSPECTOR_PROVIDERS: { [K in WorkbenchSelectionKind]?: InspectorProvider<K> } = {
+  session: {
+    kind: "session",
+    titleKey: "workbenchUi.inspector.title.session",
+    loader: () => import("../../main-layout/session-overview").then((module) => ({ default: module.SessionOverview })),
+  },
+};
 
 export function getInspectorProvider<K extends WorkbenchSelectionKind>(kind: K): InspectorProvider<K> | undefined {
   return INSPECTOR_PROVIDERS[kind];

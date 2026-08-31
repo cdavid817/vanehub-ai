@@ -5222,5 +5222,9 @@
   "workbenchUi.dataTable.pageOfTotal": "第 {{page, number}} 页，共 {{totalPages, number}} 页",
   "workbenchUi.dataTable.previousPage": "上一页",
   "workbenchUi.dataTable.nextPage": "下一页",
-  "workbenchUi.dataTable.atLeastOneColumn": "至少保留一列可见"
+  "workbenchUi.dataTable.atLeastOneColumn": "至少保留一列可见",
+  "sessionOverview.section.runtime": "运行信息",
+  "sessionOverview.loadError": "无法加载此会话。",
+  "sessionOverview.openSkillSettings": "打开 Skill 设置",
+  "sessionOverview.openImSettings": "打开 IM 设置"
 }

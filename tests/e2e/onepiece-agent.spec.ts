@@ -66,7 +66,14 @@ test.describe("OnePiece native Agent", () => {
     await expect(conversationHeader.getByText("onepiece", { exact: true })).toHaveCount(0);
     // The subtitle renders the localized interaction mode, not the raw enum value.
     await expect(conversationHeader.getByText("API", { exact: true })).toBeVisible();
-    await expect(page.getByTestId("info-pane-basic").getByText("OnePiece", { exact: true }).first()).toBeVisible();
+    // The inspector is closed by default now (workbench-layout-preferences.ts), and at this
+    // content width it hosts in a Sheet rather than inline — its own close button is dismissed
+    // afterward, or the Sheet's backdrop would intercept every click for the rest of this test.
+    await page.getByTestId("conversation-overflow-trigger").click();
+    await page.getByTestId("toggle-info-panel").click();
+    const inspector = page.getByTestId("workbench-inspector");
+    await expect(inspector.getByText("OnePiece", { exact: true }).first()).toBeVisible();
+    await inspector.getByRole("button", { name: "关闭", exact: true }).click();
     const composer = page.getByPlaceholder("输入指令，下发任务给当前 Agent...");
     await expect(composer).toBeVisible();
     await expect(page.getByLabel("Agent CLI 工作区")).toHaveCount(0);

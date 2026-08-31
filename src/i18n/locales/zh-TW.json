@@ -5222,5 +5222,9 @@
   "workbenchUi.dataTable.pageOfTotal": "第 {{page, number}} 頁，共 {{totalPages, number}} 頁",
   "workbenchUi.dataTable.previousPage": "上一頁",
   "workbenchUi.dataTable.nextPage": "下一頁",
-  "workbenchUi.dataTable.atLeastOneColumn": "至少保留一欄可見"
+  "workbenchUi.dataTable.atLeastOneColumn": "至少保留一欄可見",
+  "sessionOverview.section.runtime": "運作資訊",
+  "sessionOverview.loadError": "無法載入此會話。",
+  "sessionOverview.openSkillSettings": "開啟 Skill 設定",
+  "sessionOverview.openImSettings": "開啟 IM 設定"
 }

@@ -80,8 +80,12 @@ test.describe("OnePiece retrieval configuration", () => {
     await createDialog.getByPlaceholder("新会话").fill("本地代码索引会话");
     await createDialog.getByRole("button", { name: "创建", exact: true }).click();
 
-    const infoPanel = page.locator("aside").filter({ hasText: /信息面板|Info Panel/ });
-    await infoPanel.getByRole("tab", { name: "代码索引", exact: true }).click();
+    // The inspector is closed by default now (workbench-layout-preferences.ts).
+    await page.getByTestId("conversation-overflow-trigger").click();
+    await page.getByTestId("toggle-info-panel").click();
+
+    const infoPanel = page.getByTestId("workbench-inspector");
+    await infoPanel.getByRole("button", { name: "代码索引", exact: true }).click();
     await expect(infoPanel.getByText("D:\\code\\automatic-local", { exact: true }).last()).toBeVisible();
     await expect(infoPanel.getByText("仅本地", { exact: true })).toBeVisible();
     await expect(infoPanel.getByText("扫描中", { exact: true })).toBeVisible();

@@ -5222,5 +5222,9 @@
   "workbenchUi.dataTable.pageOfTotal": "{{totalPages, number}}페이지 중 {{page, number}}페이지",
   "workbenchUi.dataTable.previousPage": "이전 페이지",
   "workbenchUi.dataTable.nextPage": "다음 페이지",
-  "workbenchUi.dataTable.atLeastOneColumn": "최소 하나의 열은 표시되어야 합니다"
+  "workbenchUi.dataTable.atLeastOneColumn": "최소 하나의 열은 표시되어야 합니다",
+  "sessionOverview.section.runtime": "런타임 정보",
+  "sessionOverview.loadError": "이 세션을 불러올 수 없습니다.",
+  "sessionOverview.openSkillSettings": "기술 설정 열기",
+  "sessionOverview.openImSettings": "IM 설정 열기"
 }

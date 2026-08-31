@@ -395,7 +395,7 @@ globalThis.describe("VaneHub AI desktop workspace UI flows", () => {
     // hiding it in place, so its presence in the DOM is the assertion.
     const infoCollapsedAtStart = (await sessionsGrid.getAttribute("data-info-collapsed")) === "true";
     assert.equal(
-      await (await globalThis.$('[data-testid="session-info-panel"]')).isExisting(),
+      await (await globalThis.$('[data-testid="workbench-inspector"]')).isExisting(),
       !infoCollapsedAtStart,
       "the info panel's presence in the DOM disagreed with the layout's collapsed flag",
     );
@@ -413,7 +413,7 @@ globalThis.describe("VaneHub AI desktop workspace UI flows", () => {
       { timeout: 20_000, timeoutMsg: "The menu entry did not change the info panel's state." },
     );
     assert.equal(
-      await (await globalThis.$('[data-testid="session-info-panel"]')).isExisting(),
+      await (await globalThis.$('[data-testid="workbench-inspector"]')).isExisting(),
       infoCollapsedAtStart,
       "toggling the info panel did not change what is mounted on screen",
     );
@@ -426,7 +426,7 @@ globalThis.describe("VaneHub AI desktop workspace UI flows", () => {
       { timeout: 20_000, timeoutMsg: "The menu entry did not restore the info panel." },
     );
     assert.equal(
-      await (await globalThis.$('[data-testid="session-info-panel"]')).isExisting(),
+      await (await globalThis.$('[data-testid="workbench-inspector"]')).isExisting(),
       !infoCollapsedAtStart,
       "the info panel did not come back after being restored",
     );

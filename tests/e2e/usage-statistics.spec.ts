@@ -50,8 +50,12 @@ test.describe("Usage statistics", () => {
     await dialog.getByPlaceholder("新会话").fill("OnePiece Token usage");
     await dialog.getByRole("button", { name: "创建", exact: true }).click();
 
-    const infoPanel = page.locator("aside").filter({ hasText: /信息面板|Info Panel/ });
-    await infoPanel.getByRole("tab", { name: /Token 使用|Token Usage/ }).click();
+    // The inspector is closed by default now (workbench-layout-preferences.ts).
+    await page.getByTestId("conversation-overflow-trigger").click();
+    await page.getByTestId("toggle-info-panel").click();
+
+    const infoPanel = page.getByTestId("workbench-inspector");
+    await infoPanel.getByRole("button", { name: /^Token 使用|^Token Usage/ }).click();
     await expect(infoPanel.getByText("330", { exact: true }).first()).toBeVisible();
     await expect(infoPanel.getByText(/工具续接|Tool continuation/)).toBeVisible();
     const details = infoPanel.getByRole("button", { name: /调用明细|Invocation details/ });

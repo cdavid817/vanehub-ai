@@ -38,8 +38,8 @@ const SEND_ICON = `${ACTION} svg.lucide-send`;                   // ButtonArea.t
 // SeatMentionCompletion is the only role="group" the composer overlay renders for an `@` draft in
 // a multi-seat session (SeatMentionCompletion.tsx:27); its per-seat rows are its buttons.
 const MENTION_OPTION = `${COMPOSER} [role="group"] button`;
-const MEMBERS_TAB = '[aria-controls="info-pane-members"]';       // session-info-panel.tsx:113
-const MEMBERS_PANE = '[data-testid="info-pane-members"]';        // session-info-panel.tsx:39
+const MEMBERS_TAB = '[data-testid="accordion-header-participants"]';   // session-overview-sections.tsx:67
+const MEMBERS_PANE = '[data-testid="accordion-content-participants"]'; // Accordion.tsx:77
 const ROSTER = '[data-testid="session-roster-editor"]';          // session-roster-editor.tsx:72
 // The editor's add-seat form: two selects (Agent, then role — session-roster-editor.tsx:92-97)
 // and the one button in that grid (the Plus — session-roster-editor.tsx:99-109).
@@ -198,7 +198,7 @@ globalThis.describe("VaneHub AI desktop multi-Agent UI", () => {
     }, { timeout: 30_000, timeoutMsg: "The app never switched to the multi-seat session." });
 
     // The members tab renders only for a session the UI recognizes as multi-seat
-    // (session-info-panel.tsx:86-88), so its very existence is already an assertion.
+    // (session-overview-sections.tsx:45), so its very existence is already an assertion.
     const membersTab = await globalThis.$(MEMBERS_TAB);
     await membersTab.waitForExist({
       timeout: 30_000,

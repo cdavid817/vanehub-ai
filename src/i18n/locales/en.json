@@ -5222,5 +5222,9 @@
   "workbenchUi.dataTable.pageOfTotal": "Page {{page, number}} of {{totalPages, number}}",
   "workbenchUi.dataTable.previousPage": "Previous page",
   "workbenchUi.dataTable.nextPage": "Next page",
-  "workbenchUi.dataTable.atLeastOneColumn": "At least one column must stay visible"
+  "workbenchUi.dataTable.atLeastOneColumn": "At least one column must stay visible",
+  "sessionOverview.section.runtime": "Runtime",
+  "sessionOverview.loadError": "This session could not be loaded.",
+  "sessionOverview.openSkillSettings": "Open Skills settings",
+  "sessionOverview.openImSettings": "Open IM settings"
 }

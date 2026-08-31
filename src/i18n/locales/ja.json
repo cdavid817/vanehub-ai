@@ -5222,5 +5222,9 @@
   "workbenchUi.dataTable.pageOfTotal": "{{totalPages, number}} ページ中 {{page, number}} ページ目",
   "workbenchUi.dataTable.previousPage": "前のページ",
   "workbenchUi.dataTable.nextPage": "次のページ",
-  "workbenchUi.dataTable.atLeastOneColumn": "少なくとも1つの列は表示しておく必要があります"
+  "workbenchUi.dataTable.atLeastOneColumn": "少なくとも1つの列は表示しておく必要があります",
+  "sessionOverview.section.runtime": "ランタイム情報",
+  "sessionOverview.loadError": "このセッションを読み込めませんでした。",
+  "sessionOverview.openSkillSettings": "スキル設定を開く",
+  "sessionOverview.openImSettings": "IM設定を開く"
 }
