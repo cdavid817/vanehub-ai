@@ -12,7 +12,8 @@ import { SessionRowList } from "./session-row-list";
  * nothing to visually roll back; its failure surfaces through that mutation's own error toast
  * instead of failing silently (see use-main-layout-model.ts's `assignCategory.onError`).
  */
-export function SessionCategoryGroup({ batchMode, card, dragOverGroupKey, expanded, group, justDroppedGroupKey, onDrop, onToggle, setDragOverGroupKey }: {
+export function SessionCategoryGroup({ activeSessionId, batchMode, card, dragOverGroupKey, expanded, group, justDroppedGroupKey, onDrop, onToggle, setDragOverGroupKey }: {
+  activeSessionId: string | null;
   batchMode: boolean;
   card: (session: Session) => ReactNode;
   dragOverGroupKey: string | null;
@@ -43,7 +44,7 @@ export function SessionCategoryGroup({ batchMode, card, dragOverGroupKey, expand
         <span className="truncate">{group.label}</span>
         <span className="ml-auto">{group.sessions.length}</span>
       </button>
-      {expanded ? <SessionRowList ariaLabel={group.label} card={card} sessions={group.sessions} /> : null}
+      {expanded ? <SessionRowList activeSessionId={activeSessionId} ariaLabel={group.label} card={card} sessions={group.sessions} /> : null}
     </section>
   );
 }

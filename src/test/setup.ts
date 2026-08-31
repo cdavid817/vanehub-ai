@@ -1,6 +1,13 @@
 import { cleanup } from "@testing-library/react";
 import { afterEach } from "vitest";
 
+// jsdom implements no scroll layout at all, so it never defines `scrollIntoView` — any component
+// that calls it (e.g. session-row-list.tsx's scroll-anchor effect) throws "is not a function" in
+// every test that mounts it, not just ones that call the method directly.
+if (typeof Element !== "undefined" && !Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = () => undefined;
+}
+
 if (typeof window !== "undefined" && !window.matchMedia) {
   Object.defineProperty(window, "matchMedia", {
     configurable: true,

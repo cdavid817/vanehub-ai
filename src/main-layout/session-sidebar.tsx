@@ -237,10 +237,11 @@ export function SessionSidebar({ activeSessionId, agentsAvailable, archivedSessi
         {!searchQuery.trim() && presentation === "list" ? (
           attentionSorted.length === 0
             ? <p className="ucd-muted-panel rounded-md p-3 text-xs text-muted-foreground">{emptyListMessage}</p>
-            : <SessionRowList ariaLabel={t("layout.sessions")} card={card} sessions={attentionSorted} />
+            : <SessionRowList activeSessionId={activeSessionId} ariaLabel={t("layout.sessions")} card={card} sessions={attentionSorted} />
         ) : null}
         {!searchQuery.trim() && presentation === "category" ? <div className="grid gap-2">{categoryGroups.map((group) => (
           <SessionCategoryGroup
+            activeSessionId={activeSessionId}
             batchMode={batchMode}
             card={card}
             dragOverGroupKey={dragOverGroupKey}
@@ -253,7 +254,7 @@ export function SessionSidebar({ activeSessionId, agentsAvailable, archivedSessi
             setDragOverGroupKey={setDragOverGroupKey}
           />
         ))}</div> : null}
-        {presentation === "project" ? <div className="grid gap-2">{projectGroups.map((group) => <section className="grid gap-2" key={group.id}><button className="ucd-list-row flex h-8 items-center gap-2 rounded-md px-2 text-left text-xs" onClick={() => toggle(group.id)} title={group.path ?? group.label} type="button">{expanded.has(group.id) ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}<FolderOpen className="h-3.5 w-3.5 text-primary" /><span className="truncate">{group.label}</span><span className="ml-auto">{group.sessions.length}</span></button>{expanded.has(group.id) ? <SessionRowList ariaLabel={group.label} card={card} sessions={group.sessions} /> : null}</section>)}{projectGroups.length === 0 ? <p className="ucd-muted-panel rounded-md p-3 text-xs text-muted-foreground">{searchQuery.trim() ? t("layout.noSearchResults") : sourceMode === "archived" ? t("layout.noArchived") : t("layout.noSessionsVisible")}</p> : null}</div> : null}
+        {presentation === "project" ? <div className="grid gap-2">{projectGroups.map((group) => <section className="grid gap-2" key={group.id}><button className="ucd-list-row flex h-8 items-center gap-2 rounded-md px-2 text-left text-xs" onClick={() => toggle(group.id)} title={group.path ?? group.label} type="button">{expanded.has(group.id) ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}<FolderOpen className="h-3.5 w-3.5 text-primary" /><span className="truncate">{group.label}</span><span className="ml-auto">{group.sessions.length}</span></button>{expanded.has(group.id) ? <SessionRowList activeSessionId={activeSessionId} ariaLabel={group.label} card={card} sessions={group.sessions} /> : null}</section>)}{projectGroups.length === 0 ? <p className="ucd-muted-panel rounded-md p-3 text-xs text-muted-foreground">{searchQuery.trim() ? t("layout.noSearchResults") : sourceMode === "archived" ? t("layout.noArchived") : t("layout.noSessionsVisible")}</p> : null}</div> : null}
       </div>
       {/* 7.7: a dedicated region at the bottom of the pane, not a top-of-list panel — visible only
           in batch mode, so it never competes with the search/new-session controls above. */}
