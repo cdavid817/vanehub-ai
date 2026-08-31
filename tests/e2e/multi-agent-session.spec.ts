@@ -102,7 +102,10 @@ test.describe("multi-Agent session", () => {
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("session-roster-editor")).toHaveCount(0);
 
-    await page.getByRole("tab", { name: /终端|Terminal/ }).first().click();
+    // Terminal History lives in the closed-by-default Runtime Panel now, not a top-level tab
+    // (§8's split of the flat 9-tab workspace into 4 primary + 4 Runtime Panel surfaces).
+    await page.getByRole("button", { name: "运行时面板" }).click();
+    await page.getByRole("tab", { name: /终端记录|Terminal History/ }).first().click();
     await expect(page.getByRole("tablist", { name: /席位切换/ })).toBeVisible();
   });
 
@@ -251,7 +254,10 @@ test.describe("multi-Agent session", () => {
     await expect(page.getByText("Token: 2,340")).toHaveCount(0);
     await expect(page.getByRole("textbox", { name: "Terminal input" })).toBeEnabled();
 
-    await page.getByRole("tab", { name: /终端|Terminal/ }).first().click();
+    // Terminal History lives in the closed-by-default Runtime Panel now, not a top-level tab
+    // (§8's split of the flat 9-tab workspace into 4 primary + 4 Runtime Panel surfaces).
+    await page.getByRole("button", { name: "运行时面板" }).click();
+    await page.getByRole("tab", { name: /终端记录|Terminal History/ }).first().click();
     await expect(page.getByRole("tablist", { name: /席位切换/ })).toHaveCount(0);
   });
 });
