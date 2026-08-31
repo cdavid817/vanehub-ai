@@ -44,13 +44,73 @@ fn real_node_fixture_completes_handshake_health_and_owned_shutdown() {
         .expect("owned process tree should stop");
 }
 
+/// Where Playwright keeps the browsers it downloads.
+///
+/// Checked separately from the package, because the package being installed is what `npm ci` gives
+/// you and a browser is what `npx playwright install` gives you — and the difference between them is
+/// the difference between this test running and this test returning immediately. The `Rust` job had
+/// the first and not the second, so the guard below passed and the test asserted nothing on every
+/// run for as long as it has existed.
+fn playwright_browser_cache() -> Option<std::path::PathBuf> {
+    if let Ok(explicit) = std::env::var("PLAYWRIGHT_BROWSERS_PATH") {
+        // `0` means "beside the package" rather than a path. Treated as unknown rather than guessed
+        // at: a wrong guess here reports a browser that is not there.
+        if explicit == "0" {
+            return None;
+        }
+        return Some(std::path::PathBuf::from(explicit));
+    }
+    #[cfg(windows)]
+    let base = std::env::var("LOCALAPPDATA")
+        .ok()
+        .map(std::path::PathBuf::from);
+    #[cfg(target_os = "macos")]
+    let base = std::env::var("HOME")
+        .ok()
+        .map(|home| std::path::PathBuf::from(home).join("Library/Caches"));
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let base = std::env::var("HOME")
+        .ok()
+        .map(|home| std::path::PathBuf::from(home).join(".cache"));
+    base.map(|base| base.join("ms-playwright"))
+}
+
+/// Whether a browser this test could drive is actually present.
+fn a_browser_is_installed() -> bool {
+    playwright_browser_cache().is_some_and(|cache| {
+        std::fs::read_dir(cache).is_ok_and(|mut entries| {
+            entries.any(|entry| {
+                entry.is_ok_and(|entry| entry.file_name().to_string_lossy().starts_with("chromium"))
+            })
+        })
+    })
+}
+
+/// Says that this test did not run, and what would make it run.
+///
+/// A bare `return` reports the same thing a pass reports, and the longer it does so the more
+/// coverage the suite appears to have. This does not fail the run — a machine with no browser is not
+/// a broken machine — but it leaves a sentence behind that names the prerequisite, so a green run
+/// can be told apart from a run that checked something.
+fn skip(reason: &str) {
+    eprintln!(
+        "SKIPPED real_playwright_worker_bounds_page_operations_handoff_and_artifact_bytes: {reason}. Run `npx playwright install chromium` to exercise it."
+    );
+}
+
 #[test]
 fn real_playwright_worker_bounds_page_operations_handoff_and_artifact_bytes() {
     if !crate::platform::process::command_exists("node", Duration::from_secs(2)) {
+        skip("no `node` on PATH");
         return;
     }
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     if !root.join("node_modules/playwright/package.json").is_file() {
+        skip("the `playwright` package is not installed");
+        return;
+    }
+    if !a_browser_is_installed() {
+        skip("the `playwright` package is installed but no Chromium browser is");
         return;
     }
     let script = root.join("scripts/onepiece-playwright-sidecar.mjs");
@@ -87,8 +147,14 @@ fn real_playwright_worker_bounds_page_operations_handoff_and_artifact_bytes() {
         }),
     );
     if !context.ok {
+        // A browser is installed and the context still could not be created, so this is a failure
+        // rather than an absence. Returning green here is what let the missing-browser case hide:
+        // the two were the same early return, and one of them is a defect.
         let _ = worker.shutdown(SHUTDOWN_BUDGET);
-        return;
+        panic!(
+            "a browser is installed but context.create failed: {:?}",
+            context.error_code
+        );
     }
     let context_id = context
         .result

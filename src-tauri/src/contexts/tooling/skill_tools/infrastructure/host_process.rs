@@ -163,9 +163,27 @@ fn denied(capability: &str) -> SkillToolApplicationError {
 mod tests {
     use super::*;
     use crate::contexts::tooling::skill_tools::domain::{
-        SkillProcessCommand, DEFAULT_SKILL_TOOL_LIMITS,
+        SkillProcessCommand, SkillToolLimits, DEFAULT_SKILL_TOOL_LIMITS,
     };
     use crate::test_support::TempDirectory;
+
+    /// The default limits with a wall-time nobody here is testing.
+    ///
+    /// These tests spawn a real `rustc` and assert things that have nothing to do with how long it
+    /// takes: that an argument stays one literal token, that a denied environment variable is
+    /// refused, that the child ceiling holds. The shipped ten-second ceiling is the *product's*
+    /// bound on a skill's whole invocation, and on a loaded Windows runner — where this step runs
+    /// straight after `cargo build`, with as many of these tests in parallel as there are cores —
+    /// one `rustc` startup has exceeded it. Widening costs no discriminating power: the assertions
+    /// below are about what the child did, not about when.
+    ///
+    /// The one test that *is* about a ceiling names the ceiling it means.
+    fn unhurried_limits() -> SkillToolLimits {
+        SkillToolLimits {
+            wall_time_milliseconds: 120_000,
+            ..DEFAULT_SKILL_TOOL_LIMITS
+        }
+    }
 
     fn permissions(arguments: &[&str], environment: &[&str]) -> SkillProcessPermissions {
         SkillProcessPermissions {
@@ -196,7 +214,7 @@ mod tests {
         let mut gateway = SkillToolProcessGateway::new(
             workspace.path(),
             permissions(&["--version"], &[]),
-            DEFAULT_SKILL_TOOL_LIMITS,
+            unhurried_limits(),
         )
         .expect("gateway");
 
@@ -210,7 +228,7 @@ mod tests {
     #[test]
     fn argument_environment_cwd_and_child_bounds_fail_closed() {
         let workspace = TempDirectory::new("skill-process-adversarial");
-        let mut limits = DEFAULT_SKILL_TOOL_LIMITS;
+        let mut limits = unhurried_limits();
         limits.child_processes = 1;
         let mut gateway = SkillToolProcessGateway::new(
             workspace.path(),
@@ -231,9 +249,16 @@ mod tests {
         gateway
             .execute(request(&["--version"]))
             .expect("first child");
+        // Named, not wildcarded. `ResourceLimit` is also what a wall-time timeout produces, so a
+        // wildcard here passes when the second `rustc` merely ran long — which is the assertion
+        // succeeding for the opposite of the reason it claims.
+        // Named, not wildcarded. `ResourceLimit` is also what a wall-time timeout produces, so a
+        // wildcard here passes when the second `rustc` merely ran long — the assertion succeeding
+        // for the opposite of the reason it claims. `aggregate` is as specific as the production
+        // code allows: six ceilings share that one code, and only the timeout is excluded by it.
         assert!(matches!(
             gateway.execute(request(&["--version"])),
-            Err(SkillToolApplicationError::ResourceLimit(_))
+            Err(SkillToolApplicationError::ResourceLimit(ref code)) if code == "aggregate"
         ));
     }
 
@@ -245,7 +270,7 @@ mod tests {
         let mut gateway = SkillToolProcessGateway::new(
             workspace.path(),
             permissions(&[&argument], &[]),
-            DEFAULT_SKILL_TOOL_LIMITS,
+            unhurried_limits(),
         )
         .expect("gateway");
 
