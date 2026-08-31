@@ -33,7 +33,15 @@ async function createOnePieceSession(page: Page, title: string) {
   await dialog.getByPlaceholder(/code.*project/).fill("D:\\example-workspace");
   await dialog.getByPlaceholder("新会话").fill(title);
   await dialog.getByRole("button", { name: "创建", exact: true }).click();
-  await expect(page.getByTestId("wechat-style-composer")).toBeVisible();
+  const composer = page.getByTestId("wechat-style-composer");
+  const input = composer.getByRole("textbox");
+  await expect(composer).toBeVisible();
+  // A composer can remain visible while the new session is still becoming active. Wait for the
+  // OnePiece-only completion surface so Enter dispatches against the new session rather than the
+  // session that was active before the dialog closed.
+  await input.fill("/");
+  await expect(page.getByRole("button", { name: /\/help/ })).toBeVisible();
+  await input.fill("");
 }
 
 test.describe("OnePiece slash commands", () => {
