@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { LazyFeature } from "../../components/lazy-feature";
 import { isSelectionInScope, type WorkbenchSelection, type WorkbenchSelectionKind, type WorkbenchSelectionScope } from "../../types/workbench-selection";
 import type { AsyncViewState } from "../async/async-view-state";
-import { getInspectorProvider } from "./inspector-provider-registry";
+import { getInspectorProvider, type InspectorProviderContext } from "./inspector-provider-registry";
 import type { InspectorMode } from "./Inspector";
 
 const TITLE_KEYS: Record<WorkbenchSelectionKind, string> = {
@@ -46,7 +46,7 @@ export interface WorkbenchInspection {
  * know which of those applies, only that scope is the one check no provider could make for
  * itself, since a provider is never told what is currently on screen elsewhere.
  */
-export function useWorkbenchInspection(scope: WorkbenchSelectionScope): WorkbenchInspection {
+export function useWorkbenchInspection(scope: WorkbenchSelectionScope, context: InspectorProviderContext = {}): WorkbenchInspection {
   const { t } = useTranslation();
   const [selection, setSelection] = useState<WorkbenchSelection | null>(null);
   const [pinned, setPinned] = useState(false);
@@ -109,12 +109,12 @@ export function useWorkbenchInspection(scope: WorkbenchSelectionScope): Workbenc
       // file selection would keep rendering the message provider forever. Keyed by kind rather
       // than by full selection identity so that following one message with another *within* the
       // same kind updates via normal props/query-key reactivity instead of a full remount.
-      data: <LazyFeature componentProps={{ selection }} key={selection.kind} loader={provider.loader} />,
+      data: <LazyFeature componentProps={{ context, selection }} key={selection.kind} loader={provider.loader} />,
       initialLoading: false,
       refreshing: false,
       stale: false,
     };
-  }, [selection, outOfScope, t]);
+  }, [selection, outOfScope, t, context]);
 
   return { detail, follow, mode, pin, returnToOverview, selection, title, unpin };
 }

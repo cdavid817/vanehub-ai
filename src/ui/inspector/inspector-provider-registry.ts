@@ -1,9 +1,25 @@
 import type { LazyFeatureLoader } from "../../components/lazy-feature";
+import type { SessionSurfaceId } from "../../session-workspace/session-surface-registry";
 import type { WorkbenchSelection, WorkbenchSelectionKind } from "../../types/workbench-selection";
+
+/**
+ * Ambient app-level navigation a provider may need but cannot reach through `selection` or its
+ * own owning service — mirrors `SettingsPageContext` (settings-page-types.ts), the established
+ * precedent for lazily-loaded, id-addressed content that still needs a few host-supplied
+ * callbacks. Everything reachable by a plain route instead goes through `EvidenceLink`, not this
+ * bag — `onNavigateToSessionTab` exists here only because session workspace tabs are reducer
+ * state on the current route (workspace-evidence-reducer.ts), not a distinct URL a `Link` could
+ * target.
+ */
+export interface InspectorProviderContext {
+  /** Absent where nothing owns the workspace tabs, mirroring the old SessionInfoPanel's own optional prop. */
+  onNavigateToSessionTab?: (tab: SessionSurfaceId) => void;
+}
 
 /** What every Inspector provider component receives — never more than its own kind's selection. */
 export interface InspectorProviderProps<K extends WorkbenchSelectionKind = WorkbenchSelectionKind> {
   selection: Extract<WorkbenchSelection, { kind: K }>;
+  context: InspectorProviderContext;
 }
 
 export interface InspectorProvider<K extends WorkbenchSelectionKind = WorkbenchSelectionKind> {

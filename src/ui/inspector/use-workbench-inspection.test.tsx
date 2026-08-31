@@ -111,4 +111,17 @@ describe("useWorkbenchInspection", () => {
     const dataElement = result.current.detail.data as { key: string | null };
     expect(dataElement.key).toBe("message");
   });
+
+  it("threads the ambient provider context through to the resolved detail element", () => {
+    vi.mocked(getInspectorProvider).mockReturnValue({
+      kind: "message",
+      titleKey: "workbenchUi.inspector.title.message",
+      loader: () => Promise.resolve({ default: () => null }),
+    });
+    const onNavigateToSessionTab = vi.fn();
+    const { result } = renderHook(() => useWorkbenchInspection({ activeSessionId: "s-1" }, { onNavigateToSessionTab }));
+    act(() => result.current.follow(messageSelection));
+    const dataElement = result.current.detail.data as { props: { componentProps: { context: { onNavigateToSessionTab: unknown } } } };
+    expect(dataElement.props.componentProps.context.onNavigateToSessionTab).toBe(onNavigateToSessionTab);
+  });
 });
