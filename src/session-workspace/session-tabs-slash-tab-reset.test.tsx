@@ -7,7 +7,7 @@ import { I18nextProvider } from "react-i18next";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { activateAppLanguage, i18n } from "../i18n";
 import type { Session } from "../types/agent";
-import { SessionTabs } from "./session-tabs";
+import { SessionWorkspaceRegionsHost } from "./session-tabs";
 
 vi.mock("./agent-terminal-tab", () => ({
   AgentTerminalTab: ({ isVisible }: { isVisible: boolean }) => (
@@ -52,10 +52,10 @@ function session(id: string): Session {
   };
 }
 
-// SessionTabs' descendants read react-query context, so the provider tree has to be reused across
-// rerenders (not `renderWithAppProviders`, whose wrapper element isn't exported) — otherwise React
-// sees the root element type change on rerender and remounts SessionTabs from scratch, silently
-// defeating the point of "rerender with new props onto the same instance".
+// The workspace's descendants read react-query context, so the provider tree has to be reused
+// across rerenders (not `renderWithAppProviders`, whose wrapper element isn't exported) —
+// otherwise React sees the root element type change on rerender and remounts the host from
+// scratch, silently defeating the point of "rerender with new props onto the same instance".
 function mount(ui: ReactElement) {
   const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false }, queries: { retry: false } } });
   const wrap = (element: ReactElement) => (
@@ -65,88 +65,94 @@ function mount(ui: ReactElement) {
   return { rerenderTabs: (next: ReactElement) => rendered.rerender(wrap(next)) };
 }
 
-function expectActiveTab(name: string) {
-  expect(screen.getByRole("tab", { name }).getAttribute("aria-selected")).toBe("true");
+// The Runtime Panel is behind a `LazyFeature` boundary (its shared `RuntimePanel` primitive and
+// icon dependencies are dead weight for a reader who never opens it) — the first render that
+// activates a runtime surface needs a tick to resolve, unlike the primary tab bar, which is always
+// synchronous. `findByRole` waits for either.
+async function expectActiveTab(name: string) {
+  expect((await screen.findByRole("tab", { name })).getAttribute("aria-selected")).toBe("true");
 }
 
-describe("SessionTabs slash-tab request reset on session switch", () => {
+describe("session workspace requested-surface reset on session switch", () => {
   beforeAll(async () => {
     await activateAppLanguage("en");
   });
 
-  it("lands on chat when the caller clears the request in the same update as the session switch", () => {
+  it("lands on Work when the caller clears the request in the same update as the session switch", async () => {
     const { rerenderTabs } = mount(
-      <SessionTabs
+      <SessionWorkspaceRegionsHost
         activeSession={session("session-a")}
         messages={[]}
         messagesPartial={false}
         onOpenSettings={() => undefined}
-        requestedTab={null}
-        requestedTabNonce={0}
+        requestedSurface={null}
+        requestedSurfaceNonce={0}
         sessionActivationKey={1}
       />,
     );
-    expectActiveTab("Workspace");
+    await expectActiveTab("Work");
 
-    // Simulate `/logs`.
+    // Simulate `/logs` — Logs is a Runtime Panel surface, so the request also opens the panel.
     rerenderTabs(
-      <SessionTabs
+      <SessionWorkspaceRegionsHost
         activeSession={session("session-a")}
         messages={[]}
         messagesPartial={false}
         onOpenSettings={() => undefined}
-        requestedTab="logs"
-        requestedTabNonce={1}
+        requestedSurface="logs"
+        requestedSurfaceNonce={1}
         sessionActivationKey={1}
       />,
     );
-    expectActiveTab("Logs");
+    await expectActiveTab("Logs");
 
     // MainLayout's fix clears the request in the same render that changes the active session, so
-    // SessionTabs never observes a stale, truthy requestedTab paired with a new sessionId. This
+    // the host never observes a stale, truthy requestedSurface paired with a new sessionId. This
     // asserts the contract the fix relies on; it does not exercise MainLayout's own wiring.
     rerenderTabs(
-      <SessionTabs
+      <SessionWorkspaceRegionsHost
         activeSession={session("session-b")}
         messages={[]}
         messagesPartial={false}
         onOpenSettings={() => undefined}
-        requestedTab={null}
-        requestedTabNonce={0}
+        requestedSurface={null}
+        requestedSurfaceNonce={0}
         sessionActivationKey={1}
       />,
     );
-    expectActiveTab("Workspace");
+    await expectActiveTab("Work");
+    // The Runtime Panel closed with the session reset, so Logs is no longer even in the tree.
+    expect(screen.queryByRole("tab", { name: "Logs" })).toBeNull();
   });
 
-  it("documents why the clear must happen: an un-cleared request survives a session switch", () => {
+  it("documents why the clear must happen: an un-cleared request survives a session switch", async () => {
     const { rerenderTabs } = mount(
-      <SessionTabs
+      <SessionWorkspaceRegionsHost
         activeSession={session("session-a")}
         messages={[]}
         messagesPartial={false}
         onOpenSettings={() => undefined}
-        requestedTab="logs"
-        requestedTabNonce={1}
+        requestedSurface="logs"
+        requestedSurfaceNonce={1}
         sessionActivationKey={1}
       />,
     );
-    expectActiveTab("Logs");
+    await expectActiveTab("Logs");
 
-    // A caller that fails to clear the request (pre-fix MainLayout) leaves requestedTab truthy
-    // across the switch. The reset to chat happens during the scope provider's render and the
-    // tab-request effect runs afterwards, keyed on sessionId, so the request re-fires and wins.
+    // A caller that fails to clear the request (pre-fix MainLayout) leaves requestedSurface truthy
+    // across the switch. The reset to Work happens during the scope provider's render and the
+    // surface-request effect runs afterwards, keyed on sessionId, so the request re-fires and wins.
     rerenderTabs(
-      <SessionTabs
+      <SessionWorkspaceRegionsHost
         activeSession={session("session-b")}
         messages={[]}
         messagesPartial={false}
         onOpenSettings={() => undefined}
-        requestedTab="logs"
-        requestedTabNonce={1}
+        requestedSurface="logs"
+        requestedSurfaceNonce={1}
         sessionActivationKey={1}
       />,
     );
-    expectActiveTab("Logs");
+    await expectActiveTab("Logs");
   });
 });

@@ -30,7 +30,7 @@ describe("report evidence links", () => {
     expect(reportSectionTarget(report, "failures").tab).toBe("logs");
     expect(reportSectionTarget(report, "changes").tab).toBe("changes");
     expect(reportSectionTarget(report, "latency").tab).toBe("traces");
-    expect(reportSectionTarget(report, "tools").tab).toBe("terminal");
+    expect(reportSectionTarget(report, "tools").tab).toBe("terminal-history");
   });
 
   it("carries a single run or seat into the destination scope", () => {

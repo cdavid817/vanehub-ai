@@ -8,7 +8,7 @@ import { renderWithAppProviders } from "../test/render";
 import type { Session } from "../types/agent";
 import type { ChatMessage } from "../types/chat";
 import { SessionRecoveryNotice } from "./session-recovery-notice";
-import { SessionTabs } from "./session-tabs";
+import { SessionWorkspaceRegionsHost } from "./session-tabs";
 
 vi.mock("../components/chat/MessageList", () => ({
   MessageList: ({ messages }: { messages: ChatMessage[] }) => (
@@ -93,7 +93,7 @@ describe("SessionRecoveryNotice", () => {
       />
     );
     const { user } = renderWithAppProviders(
-      <SessionTabs
+      <SessionWorkspaceRegionsHost
         activeSession={activeSession}
         apiComposer={<div>Composer remains mounted</div>}
         messages={[partialMessage]}

@@ -170,7 +170,7 @@ export const nativeEvidenceFixtures = {
     changes: { changedFiles: 8, unviewedFiles: 4, unresolvedFindings: 2 },
     verification: { passed: 138, failed: 2, skipped: 0 },
     failures: { rows: [{ reasonCode: "command_failed", count: 1 }] },
-    evidenceLinks: [{ tab: "terminal", scope: { sessionId: "session-1", runId: "run-124" } }],
+    evidenceLinks: [{ tab: "terminal-history", scope: { sessionId: "session-1", runId: "run-124" } }],
     sourceCoverage: { state: "partial", reasonCodes: ["coverage_partial"], truncated: false },
   },
   reportExport: { status: "exported", path: "D:/exports/vanehub-report-session-1.json" },

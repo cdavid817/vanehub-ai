@@ -1,47 +1,27 @@
 import { useRef, type KeyboardEvent } from "react";
-import {
-  Bot,
-  FileDiff,
-  FileText,
-  Files,
-  ScrollText,
-  Shell,
-  TerminalSquare,
-  BarChart3,
-  Activity,
-  type LucideIcon,
-} from "lucide-react";
+import { Bot, FileDiff, Files, BarChart3, type LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "../lib/utils";
 import type { Session } from "../types/agent";
+import type { SessionPrimarySurfaceId } from "./session-surface-registry";
 import { FolderOpenerControl } from "./folder-opener-control";
 import { workspaceBadgeLabelKey, type WorkspaceTabBadge } from "./workspace-evidence-badges";
 
-export type SessionTabId =
-  | "chat"
-  | "changes"
-  | "documents"
-  | "files"
-  | "terminal"
-  | "shell"
-  | "logs"
-  | "traces"
-  | "report";
+export type SessionTabId = SessionPrimarySurfaceId;
 
 interface TabDefinition {
   id: SessionTabId;
   icon: LucideIcon;
 }
 
+/**
+ * Just the primary four — Terminal History, Shell, Logs, and Traces moved to the Runtime Panel
+ * (`session-runtime-panel.tsx`) and render their own tab strip there (`src/ui/runtime-panel`).
+ */
 export const sessionTabDefinitions: TabDefinition[] = [
-  { id: "chat", icon: Bot },
+  { id: "work", icon: Bot },
   { id: "changes", icon: FileDiff },
-  { id: "documents", icon: FileText },
   { id: "files", icon: Files },
-  { id: "terminal", icon: TerminalSquare },
-  { id: "shell", icon: Shell },
-  { id: "logs", icon: ScrollText },
-  { id: "traces", icon: Activity },
   { id: "report", icon: BarChart3 },
 ];
 

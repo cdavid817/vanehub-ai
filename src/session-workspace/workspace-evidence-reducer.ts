@@ -5,7 +5,12 @@ import type {
   WorkspaceEvidenceTabId,
   WorkspaceEvidenceTarget,
 } from "../types/session-workspace-evidence";
-import type { SessionTabId } from "./session-tab-bar";
+import {
+  isRuntimeSurface,
+  type SessionPrimarySurfaceId,
+  type SessionRuntimeSurfaceId,
+  type SessionSurfaceId,
+} from "./session-surface-registry";
 import {
   EVIDENCE_SCOPE_FIELDS,
   unsupportedScopeFields,
@@ -14,32 +19,43 @@ import {
   type WorkspaceEvidenceCorrelation,
 } from "./workspace-evidence-navigation";
 
+const DEFAULT_RUNTIME_SURFACE: SessionRuntimeSurfaceId = "terminal-history";
+
 /**
  * The whole cross-panel selection, as one serializable value.
  *
  * Nothing here is a query client, a DOM node, a promise, or a callback. That is what makes a tab
  * switch survivable: the state can be compared and restored, and a panel that reads it cannot end
  * up holding a handle to a panel that has since unmounted.
+ *
+ * `activePrimarySurface` and the Runtime Panel's own fields are separate on purpose — design.md
+ * Decision 7's own scenario requires opening a runtime surface to *preserve* the active primary
+ * surface, not replace it. A single shared "active tab" field, as the pre-Runtime-Panel nine-tab
+ * model used, cannot represent "Files is showing, and Shell is also open" at the same time.
  */
 export interface WorkspaceEvidenceState {
   /** Whose evidence this is. Null when no session is selected; a scope has no meaning without it. */
   sessionId: EvidenceSessionId | null;
-  activeTab: SessionTabId;
+  activePrimarySurface: SessionPrimarySurfaceId;
+  runtimePanelOpen: boolean;
+  activeRuntimeSurface: SessionRuntimeSurfaceId;
   correlation: WorkspaceEvidenceCorrelation;
   focus: WorkspaceEvidenceFocus | null;
   /**
-   * Bumped by every accepted `navigate`. Choosing the same target twice produces the same tab and
-   * the same correlation, so without a revision the destination has nothing to react to and the
-   * second "open this span" would not re-focus.
+   * Bumped by every accepted `navigate`. Choosing the same target twice produces the same surface
+   * and the same correlation, so without a revision the destination has nothing to react to and
+   * the second "open this span" would not re-focus.
    */
   navigationRevision: number;
-  /** Fields the current tab was handed and will not apply. Rendered, never silently dropped. */
+  /** Fields the current surface was handed and will not apply. Rendered, never silently dropped. */
   unsupportedFields: readonly EvidenceScopeField[];
 }
 
 export type WorkspaceEvidenceAction =
   | { type: "select-session"; sessionId: EvidenceSessionId | null }
-  | { type: "activate-tab"; tab: SessionTabId }
+  | { type: "activate-surface"; id: SessionSurfaceId }
+  | { type: "open-runtime-panel" }
+  | { type: "close-runtime-panel" }
   | { type: "navigate"; target: WorkspaceEvidenceTarget }
   | { type: "patch-scope"; patch: WorkspaceEvidenceCorrelation }
   /** An empty list is Clear All; a named list also clears whatever those fields own. */
@@ -48,10 +64,14 @@ export type WorkspaceEvidenceAction =
 
 export function initialWorkspaceEvidenceState(
   sessionId: EvidenceSessionId | null,
+  /** The persisted "preferred Runtime Panel tab" — only meaningful for the very first mount. */
+  activeRuntimeSurface: SessionRuntimeSurfaceId = DEFAULT_RUNTIME_SURFACE,
 ): WorkspaceEvidenceState {
   return {
     sessionId,
-    activeTab: "chat",
+    activePrimarySurface: "work",
+    runtimePanelOpen: false,
+    activeRuntimeSurface,
     correlation: {},
     focus: null,
     navigationRevision: 0,
@@ -60,25 +80,26 @@ export function initialWorkspaceEvidenceState(
 }
 
 /**
- * The evidence destination each workspace tab maps to, or null for a tab that reads no evidence.
+ * The evidence destination each workspace surface maps to, or null for a surface that reads no
+ * evidence.
  *
- * Written out rather than derived from a key test so the compiler checks it: a tab added to the
- * bar without a decision here is an error, not a tab that silently consumes nothing.
+ * Written out rather than derived from a key test so the compiler checks it: a surface added to
+ * either region without a decision here is an error, not a surface that silently consumes
+ * nothing.
  */
-const TAB_DESTINATIONS: Record<SessionTabId, WorkspaceEvidenceTabId | null> = {
-  chat: null,
+const SURFACE_DESTINATIONS: Record<SessionSurfaceId, WorkspaceEvidenceTabId | null> = {
+  work: null,
   changes: "changes",
-  documents: "documents",
   files: "files",
-  terminal: "terminal",
+  report: "report",
+  "terminal-history": "terminal-history",
   shell: "shell",
   logs: "logs",
   traces: "traces",
-  report: "report",
 };
 
-export function evidenceTabOf(tab: SessionTabId): WorkspaceEvidenceTabId | null {
-  return TAB_DESTINATIONS[tab];
+export function evidenceTabOf(id: SessionSurfaceId): WorkspaceEvidenceTabId | null {
+  return SURFACE_DESTINATIONS[id];
 }
 
 /**
@@ -135,11 +156,20 @@ function sameCorrelation(
 }
 
 function unsupportedFor(
-  tab: SessionTabId,
+  id: SessionSurfaceId,
   correlation: WorkspaceEvidenceCorrelation,
 ): readonly EvidenceScopeField[] {
-  const destination = evidenceTabOf(tab);
+  const destination = evidenceTabOf(id);
   return destination === null ? [] : unsupportedScopeFields(destination, correlation);
+}
+
+/** Which surface `unsupportedFields` should be computed against: whichever one is "active" now. */
+function focusedSurface(state: {
+  activePrimarySurface: SessionPrimarySurfaceId;
+  activeRuntimeSurface: SessionRuntimeSurfaceId;
+  runtimePanelOpen: boolean;
+}): SessionSurfaceId {
+  return state.runtimePanelOpen ? state.activeRuntimeSurface : state.activePrimarySurface;
 }
 
 /** Rebuilds the derived half of the state, keeping the previous array when nothing moved. */
@@ -147,11 +177,21 @@ function settle(
   previous: WorkspaceEvidenceState,
   next: Omit<WorkspaceEvidenceState, "unsupportedFields">,
 ): WorkspaceEvidenceState {
-  const unsupported = unsupportedFor(next.activeTab, next.correlation);
+  const unsupported = unsupportedFor(focusedSurface(next), next.correlation);
   const unchanged =
     unsupported.length === previous.unsupportedFields.length &&
     unsupported.every((field, index) => previous.unsupportedFields[index] === field);
   return { ...next, unsupportedFields: unchanged ? previous.unsupportedFields : unsupported };
+}
+
+/** Activating a surface is not navigating: the correlation carries over untouched. */
+function withActiveSurface(
+  state: WorkspaceEvidenceState,
+  id: SessionSurfaceId,
+): WorkspaceEvidenceState {
+  return isRuntimeSurface(id)
+    ? settle(state, { ...state, activeRuntimeSurface: id, runtimePanelOpen: true })
+    : settle(state, { ...state, activePrimarySurface: id });
 }
 
 export function workspaceEvidenceReducer(
@@ -165,31 +205,51 @@ export function workspaceEvidenceReducer(
       if (action.sessionId === state.sessionId) return state;
       return initialWorkspaceEvidenceState(action.sessionId);
 
-    case "activate-tab":
-      if (action.tab === state.activeTab) return state;
-      // Activating a tab is not navigating: the correlation carries over untouched, so a user who
-      // filtered Logs to one run and glanced at Traces returns to the same filter.
-      return settle(state, { ...state, activeTab: action.tab });
+    case "activate-surface":
+      if (
+        (isRuntimeSurface(action.id) && action.id === state.activeRuntimeSurface && state.runtimePanelOpen)
+        || (!isRuntimeSurface(action.id) && action.id === state.activePrimarySurface)
+      ) {
+        return state;
+      }
+      return withActiveSurface(state, action.id);
+
+    // Closing hides the panel; it does not touch which runtime surface reopens to. A running
+    // Shell or a live Terminal History subscription follows its own retention policy, not this
+    // toggle — RuntimePanel keeps a closed tab's mount exactly as design.md Decision 7 requires.
+    case "close-runtime-panel":
+      if (!state.runtimePanelOpen) return state;
+      return settle(state, { ...state, runtimePanelOpen: false });
+
+    case "open-runtime-panel":
+      if (state.runtimePanelOpen) return state;
+      return settle(state, { ...state, runtimePanelOpen: true });
 
     case "navigate": {
       // Fail closed on a scope owned by another session. A partial application would be worse than
-      // refusing outright: the tab would change while the filter did not.
+      // refusing outright: the surface would change while the filter did not.
       if (state.sessionId === null || action.target.scope.sessionId !== state.sessionId) {
         return state;
       }
       // Replace, never merge. Merging would leave the previous destination's filters in place, so
       // "show me this command" would quietly mean "this command, still inside yesterday's trace".
-      return settle(state, {
-        sessionId: state.sessionId,
-        activeTab: action.target.tab,
+      const id = action.target.tab;
+      const base = {
+        ...state,
         correlation: correlationOf(action.target.scope),
         focus: action.target.focus ?? null,
         navigationRevision: state.navigationRevision + 1,
-      });
+      };
+      return settle(
+        state,
+        isRuntimeSurface(id)
+          ? { ...base, activeRuntimeSurface: id, runtimePanelOpen: true }
+          : { ...base, activePrimarySurface: id },
+      );
     }
 
     case "patch-scope": {
-      // In-panel filtering: merges, does not move tabs, and does not re-focus. The user is
+      // In-panel filtering: merges, does not move surfaces, and does not re-focus. The user is
       // adjusting what they are already looking at.
       const merged = normalizeCorrelation({ ...state.correlation, ...action.patch });
       if (sameCorrelation(merged, state.correlation)) return state;

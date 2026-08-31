@@ -1,9 +1,9 @@
 import { isOnePieceSession } from "./command-availability";
 import type { WorkbenchLocation } from "../../main-layout/workbench-route";
-import type { SessionTabId } from "../../session-workspace/session-tab-bar";
+import type { LegacySessionTabId } from "../../session-workspace/legacy-session-surface-adapter";
 import type { SlashCommand } from "./types";
 
-const TAB_COMMANDS: SessionTabId[] = [
+const TAB_COMMANDS: LegacySessionTabId[] = [
   "logs", "files", "changes", "documents", "terminal", "shell", "traces", "report",
 ];
 

@@ -32,7 +32,7 @@ export interface WorkspacePathNavigation {
 }
 
 export function useWorkspacePathNavigation(): WorkspacePathNavigation {
-  const { activateTab, navigate, scope } = useWorkspaceEvidenceScope();
+  const { activateSurface, navigate, scope } = useWorkspaceEvidenceScope();
 
   return useMemo(() => {
     const sessionId = scope?.sessionId;
@@ -59,12 +59,12 @@ export function useWorkspacePathNavigation(): WorkspacePathNavigation {
                   operationId: evidenceOperationIdSchema.parse(operationId),
                   sessionId,
                 },
-                tab: "terminal",
+                tab: "terminal-history",
               })
           : undefined,
       // No scope needed: nothing is being focused, the reader is simply being taken to the Shell
       // that was just created for them.
-      showShell: () => activateTab("shell"),
+      showShell: () => activateSurface("shell"),
     };
-  }, [activateTab, navigate, scope]);
+  }, [activateSurface, navigate, scope]);
 }

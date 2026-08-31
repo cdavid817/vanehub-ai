@@ -116,8 +116,16 @@ export function DestinationLayoutBody({ tier, containerWidth, navigation, inspec
   );
 }
 
+/**
+ * Wrapped whenever the region exists at all, mirroring `inspector`/`navigation` above for the same
+ * reason: gating this on `.open` instead would swap `main` between being this function's direct
+ * return and being nested inside a freshly-mounted `SplitPane`, and React remounts a subtree whose
+ * ancestor type changed like that — the caller must keep passing a `runtimePanel` object across the
+ * open/close toggle (only flipping `.open`), not swap the whole prop to `undefined` when closed, or
+ * the remount just moves one level up.
+ */
 function withRuntimePanel(main: ReactNode, runtimePanel: RuntimePanelRegion | undefined): ReactNode {
-  if (!runtimePanel?.open) return main;
+  if (!runtimePanel) return main;
   return (
     <SplitPane
       direction="column"
@@ -126,6 +134,7 @@ function withRuntimePanel(main: ReactNode, runtimePanel: RuntimePanelRegion | un
       min={runtimePanel.min}
       onResizeEnd={runtimePanel.onHeightCommit}
       onSizeChange={runtimePanel.onHeightChange}
+      open={runtimePanel.open}
       primary={main}
       resizedPane="secondary"
       secondary={runtimePanel.content}

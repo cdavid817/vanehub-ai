@@ -50,7 +50,7 @@ const JOURNEYS: Array<{
   },
   {
     name: "a span opens the command it ran",
-    target: { tab: "terminal", scope: { sessionId, runId, commandId }, focus: "row" },
+    target: { tab: "terminal-history", scope: { sessionId, runId, commandId }, focus: "row" },
     chips: ["Run", "Command"],
     ignored: [],
   },
@@ -86,7 +86,9 @@ const JOURNEYS: Array<{
 
 /** Renders the destination's chips, so an assertion reads what the user would see. */
 function Workspace({ target }: { target: WorkspaceEvidenceTarget }) {
-  const { activeTab, focus, navigate, navigationRevision } = useWorkspaceEvidenceScope();
+  const { activePrimarySurface, activeRuntimeSurface, focus, navigate, navigationRevision, runtimePanelOpen } =
+    useWorkspaceEvidenceScope();
+  const activeTab = runtimePanelOpen ? activeRuntimeSurface : activePrimarySurface;
   const destination = evidenceTabOf(activeTab);
   return (
     <div>
@@ -121,7 +123,7 @@ describe("cross-panel evidence navigation", () => {
       const user = userEvent.setup();
       mount(journey.target);
 
-      expect(screen.getByTestId("tab").textContent).toBe("chat");
+      expect(screen.getByTestId("tab").textContent).toBe("work");
       await user.click(screen.getByRole("button", { name: "open" }));
 
       expect(screen.getByTestId("tab").textContent).toBe(journey.target.tab);
@@ -143,7 +145,7 @@ describe("cross-panel evidence navigation", () => {
   it("carries no trace of the panel the user came from", async () => {
     const user = userEvent.setup();
     function Chain() {
-      const { activeTab, correlation, navigate } = useWorkspaceEvidenceScope();
+      const { activeRuntimeSurface, correlation, navigate } = useWorkspaceEvidenceScope();
       return (
         <div>
           <button
@@ -153,12 +155,12 @@ describe("cross-panel evidence navigation", () => {
             open span
           </button>
           <button
-            onClick={() => navigate({ tab: "terminal", scope: { sessionId, commandId } })}
+            onClick={() => navigate({ tab: "terminal-history", scope: { sessionId, commandId } })}
             type="button"
           >
             open command
           </button>
-          <span data-testid="tab">{activeTab}</span>
+          <span data-testid="tab">{activeRuntimeSurface}</span>
           <span data-testid="correlation">{JSON.stringify(correlation)}</span>
         </div>
       );
@@ -178,6 +180,6 @@ describe("cross-panel evidence navigation", () => {
     expect(JSON.parse(screen.getByTestId("correlation").textContent ?? "null")).toEqual({
       commandId,
     });
-    expect(screen.getByTestId("tab").textContent).toBe("terminal");
+    expect(screen.getByTestId("tab").textContent).toBe("terminal-history");
   });
 });

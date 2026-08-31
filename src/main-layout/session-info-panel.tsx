@@ -15,7 +15,7 @@ import { normalizeDisplayPath } from "../lib/session-path";
 import { cn } from "../lib/utils";
 import { agentService } from "../services/runtime-agent-client";
 import { seatsFromSession } from "../services/session-seats";
-import type { SessionTabId } from "../session-workspace/session-tab-bar";
+import type { SessionSurfaceId } from "../session-workspace/session-surface-registry";
 import type { Session } from "../types/agent";
 import type { ChatMessage } from "../types/chat";
 import { SessionSkillsPane } from "./session-skills-pane";
@@ -74,7 +74,7 @@ export function SessionInfoPanel({
   messages?: ChatMessage[];
   requestedTab?: InfoTab | null;
   /** Absent where nothing owns the workspace tabs, in which case the rows are not navigable. */
-  onNavigateToTab?: (tab: SessionTabId) => void;
+  onNavigateToTab?: (tab: SessionSurfaceId) => void;
   onOpenSkillSettings?: () => void;
   onOpenImSettings?: () => void;
 }) {

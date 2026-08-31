@@ -66,13 +66,12 @@ export const workspaceEvidenceScopeSchema = z.object({
 });
 
 export const workspaceEvidenceTabIdSchema = z.enum([
-  "terminal",
+  "terminal-history",
   "shell",
   "logs",
   "traces",
   "changes",
   "files",
-  "documents",
   "report",
 ]);
 

@@ -25,14 +25,22 @@ const spanId = evidenceSpanIdSchema.parse("span-1");
 
 /** Records the scope every render saw, which is where a one-frame stale filter shows up. */
 function ScopeProbe({ onRender }: { onRender?: (key: string) => void }) {
-  const { activeTab, clearScope, navigate, navigationRevision, patchScope, scope } =
-    useWorkspaceEvidenceScope();
+  const {
+    activePrimarySurface,
+    activeRuntimeSurface,
+    clearScope,
+    navigate,
+    navigationRevision,
+    patchScope,
+    runtimePanelOpen,
+    scope,
+  } = useWorkspaceEvidenceScope();
   const key = JSON.stringify(scope);
   onRender?.(key);
   return (
     <div>
       <output data-testid="scope">{key}</output>
-      <output data-testid="tab">{activeTab}</output>
+      <output data-testid="tab">{runtimePanelOpen ? activeRuntimeSurface : activePrimarySurface}</output>
       <output data-testid="revision">{navigationRevision}</output>
       <button
         onClick={() => navigate({ tab: "logs", scope: { sessionId: sessionA, runId, spanId } })}
@@ -100,7 +108,7 @@ describe("WorkspaceEvidenceScopeProvider", () => {
       expect(scope.runId).toBeUndefined();
     }
     expect(seen.length).toBeGreaterThan(0);
-    expect(screen.getByTestId("tab").textContent).toBe("chat");
+    expect(screen.getByTestId("tab").textContent).toBe("work");
   });
 
   it("drops a seat filter when that seat leaves the session", async () => {

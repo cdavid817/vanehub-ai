@@ -125,6 +125,41 @@ describe("DestinationLayoutBody", () => {
     expect(mounts).toHaveBeenCalledTimes(1);
   });
 
+  it("does not remount main when the runtime panel opens, closes, or resizes", () => {
+    // The bug this guards: `withRuntimePanel` used to gate wrapping `main` in a `SplitPane` on
+    // `.open` itself, so opening the panel swapped `main` from this function's direct return to
+    // being nested a level deeper — a real caller (redesign-unified-workbench-ui §8's Runtime
+    // Panel) hit this as an in-progress Agent Terminal composer draft vanishing the moment the
+    // panel opened. Two separate `render()` calls (as the test above this one does) cannot catch
+    // it; only a `rerender()` on the same instance exercises the transition.
+    const mounts = vi.fn();
+    const runtimePanel: RuntimePanelRegion = {
+      content: <div>Runtime content</div>,
+      open: false,
+      height: 200,
+      min: 120,
+      max: 480,
+      onHeightChange: vi.fn(),
+      label: "Runtime panel",
+    };
+    const renderWith = (overrides: Partial<RuntimePanelRegion>) => (
+      <DestinationLayoutBody
+        containerWidth={1600}
+        main={<MountSpy onMount={mounts} />}
+        runtimePanel={{ ...runtimePanel, ...overrides }}
+        tier="wide"
+      />
+    );
+    const { rerender } = render(renderWith({}));
+    expect(mounts).toHaveBeenCalledTimes(1);
+    rerender(renderWith({ open: true }));
+    expect(mounts).toHaveBeenCalledTimes(1);
+    rerender(renderWith({ open: true, height: 320 }));
+    expect(mounts).toHaveBeenCalledTimes(1);
+    rerender(renderWith({ open: false }));
+    expect(mounts).toHaveBeenCalledTimes(1);
+  });
+
   it("does not remount main across a tier change, including a transient drop to narrow", () => {
     // A hidden container's ResizeObserver reports a momentary zero width before its real size
     // arrives (main-layout.tsx toggles the Sessions destination with CSS `hidden`, not unmount),

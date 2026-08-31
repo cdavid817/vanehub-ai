@@ -35,10 +35,12 @@ function reduce(
 const opened = initialWorkspaceEvidenceState(sessionId);
 
 describe("workspace evidence reducer", () => {
-  it("starts on the conversation with no filters", () => {
+  it("starts on Work with the Runtime Panel closed and no filters", () => {
     expect(opened).toEqual({
       sessionId,
-      activeTab: "chat",
+      activePrimarySurface: "work",
+      runtimePanelOpen: false,
+      activeRuntimeSurface: "terminal-history",
       correlation: {},
       focus: null,
       navigationRevision: 0,
@@ -46,7 +48,7 @@ describe("workspace evidence reducer", () => {
     });
   });
 
-  it("stays serializable, so a tab switch cannot strand a handle", () => {
+  it("stays serializable, so a surface switch cannot strand a handle", () => {
     const state = reduce(opened, {
       type: "navigate",
       target: { tab: "traces", scope: { sessionId, runId, traceId }, focus: "row" },
@@ -54,22 +56,36 @@ describe("workspace evidence reducer", () => {
     expect(JSON.parse(JSON.stringify(state))).toEqual(state);
   });
 
-  it("moves the tab and the scope in one step", () => {
+  it("moves the surface and the scope in one step", () => {
     const state = reduce(opened, {
       type: "navigate",
       target: { tab: "logs", scope: { sessionId, runId, spanId }, focus: "row" },
     });
-    expect(state.activeTab).toBe("logs");
+    expect(state.activeRuntimeSurface).toBe("logs");
+    expect(state.runtimePanelOpen).toBe(true);
     expect(state.correlation).toEqual({ runId, spanId });
     expect(state.focus).toBe("row");
     expect(state.navigationRevision).toBe(1);
+  });
+
+  it("preserves the active primary surface when a runtime surface opens", () => {
+    // design.md Decision 7: opening a runtime surface must not lose which primary surface was
+    // showing — a shared "active tab" field, as the pre-Runtime-Panel model used, could not.
+    const primary = reduce(opened, { type: "activate-surface", id: "files" });
+    const withRuntime = reduce(primary, {
+      type: "navigate",
+      target: { tab: "logs", scope: { sessionId, runId } },
+    });
+    expect(withRuntime.activePrimarySurface).toBe("files");
+    expect(withRuntime.activeRuntimeSurface).toBe("logs");
+    expect(withRuntime.runtimePanelOpen).toBe(true);
   });
 
   it("replaces the correlation rather than merging into it", () => {
     const state = reduce(
       opened,
       { type: "navigate", target: { tab: "logs", scope: { sessionId, runId, traceId, spanId } } },
-      { type: "navigate", target: { tab: "terminal", scope: { sessionId, commandId } } },
+      { type: "navigate", target: { tab: "terminal-history", scope: { sessionId, commandId } } },
     );
     // A merge would leave the previous trace in place, so "show me this command" would silently
     // mean "this command, still inside the trace I was reading a moment ago".
@@ -93,7 +109,7 @@ describe("workspace evidence reducer", () => {
       type: "navigate",
       target: { tab: "logs", scope: { sessionId: otherSessionId, runId } },
     });
-    // Fail closed: changing the tab while refusing the filter would be worse than refusing both.
+    // Fail closed: changing the surface while refusing the filter would be worse than refusing both.
     expect(state).toBe(opened);
   });
 
@@ -105,23 +121,23 @@ describe("workspace evidence reducer", () => {
     expect(state.unsupportedFields).toEqual(["commandId"]);
   });
 
-  it("keeps filters when a tab is activated rather than navigated to", () => {
+  it("keeps filters when a surface is activated rather than navigated to", () => {
     const filtered = reduce(opened, {
       type: "navigate",
       target: { tab: "logs", scope: { sessionId, runId } },
     });
-    const switched = reduce(filtered, { type: "activate-tab", tab: "traces" });
+    const switched = reduce(filtered, { type: "activate-surface", id: "traces" });
     expect(switched.correlation).toEqual({ runId });
     expect(switched.navigationRevision).toBe(filtered.navigationRevision);
   });
 
-  it("merges an in-panel filter without moving the tab or re-focusing", () => {
+  it("merges an in-panel filter without moving the surface or re-focusing", () => {
     const filtered = reduce(opened, {
       type: "navigate",
       target: { tab: "logs", scope: { sessionId, runId } },
     });
     const patched = reduce(filtered, { type: "patch-scope", patch: { seatId } });
-    expect(patched.activeTab).toBe("logs");
+    expect(patched.activeRuntimeSurface).toBe("logs");
     expect(patched.correlation).toEqual({ runId, seatId });
     expect(patched.navigationRevision).toBe(filtered.navigationRevision);
   });
@@ -170,9 +186,29 @@ describe("workspace evidence reducer", () => {
     expect(switched).toEqual(initialWorkspaceEvidenceState(otherSessionId));
   });
 
+  it("closes the Runtime Panel without forgetting which surface was open", () => {
+    const withRuntime = reduce(opened, {
+      type: "navigate",
+      target: { tab: "logs", scope: { sessionId, runId } },
+    });
+    const closed = reduce(withRuntime, { type: "close-runtime-panel" });
+    expect(closed.runtimePanelOpen).toBe(false);
+    expect(closed.activeRuntimeSurface).toBe("logs");
+    expect(closed.correlation).toEqual({ runId });
+  });
+
+  it("reopens the Runtime Panel to whichever surface was last active", () => {
+    const withRuntime = reduce(opened, { type: "activate-surface", id: "shell" });
+    const closed = reduce(withRuntime, { type: "close-runtime-panel" });
+    const reopened = reduce(closed, { type: "open-runtime-panel" });
+    expect(reopened.runtimePanelOpen).toBe(true);
+    expect(reopened.activeRuntimeSurface).toBe("shell");
+  });
+
   it("keeps object identity when nothing changed", () => {
     expect(reduce(opened, { type: "select-session", sessionId })).toBe(opened);
-    expect(reduce(opened, { type: "activate-tab", tab: "chat" })).toBe(opened);
+    expect(reduce(opened, { type: "activate-surface", id: "work" })).toBe(opened);
+    expect(reduce(opened, { type: "close-runtime-panel" })).toBe(opened);
     expect(reduce(opened, { type: "clear-scope", fields: ["runId"] })).toBe(opened);
   });
 
@@ -183,8 +219,8 @@ describe("workspace evidence reducer", () => {
     );
   });
 
-  it("maps only the tabs that read evidence to a destination", () => {
-    expect(evidenceTabOf("chat")).toBeNull();
+  it("maps only the surfaces that read evidence to a destination", () => {
+    expect(evidenceTabOf("work")).toBeNull();
     expect(evidenceTabOf("logs")).toBe("logs");
     expect(evidenceTabOf("report")).toBe("report");
   });

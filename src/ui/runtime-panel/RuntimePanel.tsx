@@ -20,6 +20,8 @@ export interface RuntimePanelTab {
 export interface RuntimePanelProps {
   tabs: RuntimePanelTab[];
   activeTabId: string;
+  /** Names the tablist for assistive tech — this shell has no opinion of its own on what it holds. */
+  ariaLabel: string;
   onActiveTabChange: (tabId: string) => void;
   onClose: () => void;
   maximized: boolean;
@@ -36,7 +38,7 @@ export interface RuntimePanelProps {
  * height is a composition decision for whoever assembles the layout, not something this shell
  * can force from inside its own container.
  */
-export function RuntimePanel({ tabs, activeTabId, onActiveTabChange, onClose, maximized, onMaximizedChange, className }: RuntimePanelProps) {
+export function RuntimePanel({ tabs, activeTabId, ariaLabel, onActiveTabChange, onClose, maximized, onMaximizedChange, className }: RuntimePanelProps) {
   const { t } = useTranslation();
   const everOpenedRef = useRef<Set<string>>(new Set());
   if (!everOpenedRef.current.has(activeTabId)) {
@@ -47,7 +49,7 @@ export function RuntimePanel({ tabs, activeTabId, onActiveTabChange, onClose, ma
   return (
     <div className={cn("flex h-full min-h-0 flex-col", className)}>
       <div className="flex shrink-0 items-center justify-between border-b border-border-subtle">
-        <div className="flex items-center gap-1 overflow-x-auto px-2" onKeyDown={handleKeyDown} role="tablist">
+        <div aria-label={ariaLabel} className="flex items-center gap-1 overflow-x-auto px-2" onKeyDown={handleKeyDown} role="tablist">
           {tabs.map((tab) => (
             <button
               aria-selected={tab.id === activeTabId}

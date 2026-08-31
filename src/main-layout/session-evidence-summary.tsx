@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import type { SessionTabId } from "../session-workspace/session-tab-bar";
+import type { SessionSurfaceId } from "../session-workspace/session-surface-registry";
 import { evidenceSessionIdSchema } from "../contracts/session-workspace-evidence-ids";
 import { useWorkspaceCapabilities } from "../session-workspace/workspace-capability-notice";
 import { useWorkspaceEvidenceSummary } from "../session-workspace/use-workspace-evidence-summary";
@@ -30,7 +30,7 @@ const ROW_TABS = {
   shells: "shell",
   verification: "report",
   workspace: "files",
-} satisfies Record<string, SessionTabId>;
+} satisfies Record<string, SessionSurfaceId>;
 
 /**
  * What this session has actually done, in seven lines.
@@ -53,7 +53,7 @@ export function SessionEvidenceSummary({
   /** Whether Basic Info is the pane on screen. See the panes beside it for why this is not unmount. */
   active?: boolean;
   /** Absent where nothing owns the workspace tabs, in which case the rows are plain text. */
-  onNavigateToTab?: (tab: SessionTabId) => void;
+  onNavigateToTab?: (tab: SessionSurfaceId) => void;
   onShowUsage?: () => void;
   sessionId: string | null;
 }) {

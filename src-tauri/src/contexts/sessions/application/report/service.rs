@@ -345,7 +345,7 @@ fn evidence_links(scope: &ReportScope) -> Vec<ReportEvidenceLink> {
     // Tab tokens the workspace actually has. "review" is not one of them — review lives inside the
     // changes tab, and a link naming a tab that does not exist is a dead link the type system would
     // not have caught on either side of the wire.
-    ["terminal", "traces", "logs", "changes"]
+    ["terminal-history", "traces", "logs", "changes"]
         .into_iter()
         .map(|tab| ReportEvidenceLink {
             tab: tab.to_string(),

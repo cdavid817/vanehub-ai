@@ -85,7 +85,7 @@ describe("workspace tab badges", () => {
       "ready",
     );
     expect(badges.changes).toEqual({ kind: "count", count: 4, tone: "neutral", atLeast: false });
-    expect(badges.terminal).toEqual({ kind: "count", count: 2, tone: "neutral", atLeast: false });
+    expect(badges["terminal-history"]).toEqual({ kind: "count", count: 2, tone: "neutral", atLeast: false });
     expect(badges.shell).toEqual({ kind: "count", count: 1, tone: "neutral", atLeast: false });
     expect(badges.logs).toEqual({ kind: "count", count: 3, tone: "danger", atLeast: false });
     expect(badges.traces).toEqual({ kind: "count", count: 5, tone: "neutral", atLeast: false });
@@ -99,14 +99,14 @@ describe("workspace tab badges", () => {
     );
     // Showing `running` alone would hide a tab whose work has already failed, and a badge has
     // room for one number.
-    expect(badges.terminal).toEqual({ kind: "count", count: 2, tone: "danger", atLeast: false });
+    expect(badges["terminal-history"]).toEqual({ kind: "count", count: 2, tone: "danger", atLeast: false });
     expect(badges.traces).toEqual({ kind: "count", count: 1, tone: "danger", atLeast: false });
   });
 
   it("badges only the tabs that count something", () => {
     const badges = workspaceTabBadges(summary("complete", { running: 1 }), "ready");
     expect(Object.keys(badges).sort()).toEqual(
-      ["changes", "logs", "report", "shell", "terminal", "traces"].sort(),
+      ["changes", "logs", "report", "shell", "terminal-history", "traces"].sort(),
     );
   });
 });

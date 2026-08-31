@@ -11,7 +11,7 @@ function mount(badges: Partial<Record<SessionTabId, WorkspaceTabBadge>>) {
   return render(
     <I18nextProvider i18n={i18n}>
       <SessionTabBar
-        activeTab="chat"
+        activeTab="work"
         badges={badges}
         onActivate={() => undefined}
         onOpenSettings={() => undefined}
@@ -36,10 +36,19 @@ describe("SessionTabBar badges", () => {
     await activateAppLanguage("en");
   });
 
+  it("renders exactly the four primary surfaces", () => {
+    mount({});
+    for (const tab of ["work", "changes", "files", "report"] as const) {
+      expect(screen.getByRole("tab", { name: tabLabel(tab) })).toBeTruthy();
+    }
+    // Terminal History, Shell, Logs, and Traces moved to the Runtime Panel — they no longer have a
+    // button in this strip at all.
+    expect(screen.getAllByRole("tab")).toHaveLength(4);
+  });
+
   it("keeps a tab's accessible name free of its badge", () => {
     mount({
       changes: { kind: "count", count: 4, tone: "neutral", atLeast: false },
-      shell: { kind: "unknown", reason: "indexing" },
     });
 
     // The name identifies the tab and nothing else. Folding a live count into it makes the name
@@ -47,7 +56,7 @@ describe("SessionTabBar badges", () => {
     // search for the Files tab — which is how a click lands on the wrong panel.
     // `getByRole`'s string `name` filter matches the whole accessible name, so this fails the
     // moment a badge joins it.
-    for (const tab of ["changes", "documents", "files", "shell"] as const) {
+    for (const tab of ["changes", "files"] as const) {
       expect(screen.getByRole("tab", { name: tabLabel(tab) })).toBeTruthy();
     }
   });
@@ -55,35 +64,31 @@ describe("SessionTabBar badges", () => {
   it("speaks the badge as the tab's description", () => {
     mount({
       changes: { kind: "count", count: 4, tone: "neutral", atLeast: false },
-      logs: { kind: "count", count: 2, tone: "danger", atLeast: true },
-      shell: { kind: "unknown", reason: "indexing" },
+      report: { kind: "count", count: 2, tone: "danger", atLeast: true },
     });
 
     expect(describedText("changes")).toBe("Unviewed changed files: 4");
-    expect(describedText("logs")).toBe("New errors: at least 2");
-    // The placeholder says why it cannot count, rather than leaving a bare glyph unexplained.
-    expect(describedText("shell")).toContain("the index is still building");
+    expect(describedText("report")).toContain("2");
   });
 
   it("renders a floor and a placeholder differently on screen", () => {
     mount({
-      logs: { kind: "count", count: 2, tone: "danger", atLeast: true },
-      shell: { kind: "unknown", reason: "unavailable" },
-      report: { kind: "none" },
+      changes: { kind: "count", count: 2, tone: "danger", atLeast: true },
+      report: { kind: "unknown", reason: "unavailable" },
     });
 
-    const floor = document.querySelector('[data-badge="logs-count"]');
-    const placeholder = document.querySelector('[data-badge="shell-unknown"]');
+    const floor = document.querySelector('[data-badge="changes-count"]');
+    const placeholder = document.querySelector('[data-badge="report-unknown"]');
     expect(floor?.textContent).toBe("≥2");
     expect(placeholder?.textContent).toBe("·");
     // A known zero is the absence of a badge, not a rendered "0".
-    expect(document.querySelector('[data-badge="report-count"]')).toBeNull();
-    expect(document.querySelector('[data-badge="report-unknown"]')).toBeNull();
+    expect(document.querySelector('[data-badge="files-count"]')).toBeNull();
+    expect(document.querySelector('[data-badge="files-unknown"]')).toBeNull();
   });
 
   it("gives a tab with nothing to report no description at all", () => {
     mount({});
-    for (const { id } of [{ id: "changes" as const }, { id: "shell" as const }]) {
+    for (const id of ["changes", "files"] as const) {
       expect(screen.getByRole("tab", { name: tabLabel(id) }).getAttribute("aria-describedby")).toBeNull();
     }
   });

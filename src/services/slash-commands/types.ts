@@ -1,6 +1,6 @@
 import type { Session, SessionExportFormat } from "../../types/agent";
 import type { ChatConfig, SessionExecutionMode } from "../../types/chat";
-import type { SessionTabId } from "../../session-workspace/session-tab-bar";
+import type { LegacySessionTabId } from "../../session-workspace/legacy-session-surface-adapter";
 import type { WorkbenchLocation } from "../../main-layout/workbench-route";
 
 export type SlashCommandCategory = "session" | "runtime" | "navigation" | "info";
@@ -37,7 +37,7 @@ export interface SlashCommandNavigation {
    * command that only named the domain would silently lose that precision.
    */
   openDestination: (location: WorkbenchLocation) => void;
-  openSessionTab: (tab: SessionTabId) => void;
+  openSessionTab: (tab: LegacySessionTabId) => void;
 }
 
 export interface CommandContext {

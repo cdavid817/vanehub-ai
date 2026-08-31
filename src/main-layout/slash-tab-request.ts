@@ -1,7 +1,7 @@
-import type { SessionTabId } from "../session-workspace/session-tab-bar";
+import type { SessionSurfaceId } from "../session-workspace/session-surface-registry";
 
 export interface SlashTabRequest {
-  tab: SessionTabId;
+  tab: SessionSurfaceId;
   nonce: number;
 }
 

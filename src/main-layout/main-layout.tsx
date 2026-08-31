@@ -5,9 +5,10 @@ import { CommandCenter } from "../command-center/command-center";
 import { NotificationHost, useNotifications } from "../notifications/notification-provider";
 import { AppShell } from "../ui/app-shell/AppShell";
 import { DestinationLayout } from "../ui/destination-layout/DestinationLayout";
-import { SessionTabs } from "../session-workspace/session-tabs";
+import { useSessionWorkspaceRegions } from "../session-workspace/session-tabs";
 import { ApiSessionComposer } from "../session-workspace/api-session-composer";
-import type { SessionTabId } from "../session-workspace/session-tab-bar";
+import type { SessionSurfaceId } from "../session-workspace/session-surface-registry";
+import { legacySessionSurfaceAdapter } from "../session-workspace/legacy-session-surface-adapter";
 import { agentService } from "../services/runtime-agent-client";
 import type { Session } from "../types/agent";
 import type { ChatMessage } from "../types/chat";
@@ -32,11 +33,12 @@ import { cn } from "../lib/utils";
 import type { SettingsPageId } from "../settings/settings-pages";
 import type { WorkbenchLocation } from "./workbench-route";
 import { seatsFromSession } from "../services/session-seats";
-import { SessionNotices } from "../session-workspace/session-notices";
 import { useSessionRuntimeRecovery } from "./use-session-runtime-recovery";
+import { buildConversationVisibilityControls, buildRecoveryNotice, usePersistPreferredRuntimeTab } from "./session-workspace-region-builders";
 import {
   INSPECTOR_WIDTH_BOUNDS,
   NAVIGATION_WIDTH_BOUNDS,
+  RUNTIME_HEIGHT_BOUNDS,
   patchDestinationLayoutPreference,
   readInitialSessionsLayout,
 } from "./workbench-layout-preferences";
@@ -94,16 +96,19 @@ export function MainLayout({
    * back to Chat, and clicks Changes again means it both times, and a request keyed only on the
    * tab would be a no-op the second time.
    */
-  const [panelTabRequest, setPanelTabRequest] = useState<{ nonce: number; tab: SessionTabId } | null>(null);
+  const [panelTabRequest, setPanelTabRequest] = useState<{ nonce: number; tab: SessionSurfaceId } | null>(null);
   // Unlike the inspector's open state, design.md Decision 3's persisted shape has no
   // `preferredNavigationOpen` field — the session list is expected back open on every fresh load.
   const [sessionSidebarOpen, setSessionSidebarOpen] = useState(true);
   const [workspaceTabsCollapsed, setWorkspaceTabsCollapsed] = useState(false);
   const [sessionSidebarWidth, setSessionSidebarWidth] = useState(initialSessionsLayout.navigationWidth);
   const [infoPanelWidth, setInfoPanelWidth] = useState(initialSessionsLayout.inspectorWidth);
+  const [runtimeHeight, setRuntimeHeight] = useState(initialSessionsLayout.runtimeHeight);
+  // Not persisted (unlike height/preferred tab): momentary chrome, not a restorable preference.
+  const [runtimeMaximized, setRuntimeMaximized] = useState(false);
   const [contextPanel, setContextPanel] = useState<ContextPanelState | null>(null);
-  // Nonce, not just the tab id: requesting the same tab twice in a row (e.g. `/logs` again after
-  // the user manually switched back to chat) must still re-trigger `SessionTabs`' activation effect.
+  // Nonce, not just the surface id: requesting the same surface twice in a row (e.g. `/logs` again
+  // after the user manually switched back to Work) must still re-trigger the activation effect.
   const [slashTabRequest, setSlashTabRequest] = useState<SlashTabRequest | null>(null);
   // Not seeded from a session id: the guard below reconciles this against displayedSession?.id on
   // every render, including the first, so any value that isn't a real session id settles safely.
@@ -152,6 +157,9 @@ export function MainLayout({
   }
   function commitInfoPanelWidth(width: number) {
     patchDestinationLayoutPreference("sessions", { inspectorWidth: width });
+  }
+  function commitRuntimeHeight(height: number) {
+    patchDestinationLayoutPreference("sessions", { runtimeHeight: height });
   }
 
   function openContextMenu(event: MouseEvent<HTMLButtonElement>, session: Session) {
@@ -209,8 +217,8 @@ export function MainLayout({
   // Loop inspection wins: it is showing another session's transcript, and a panel row that moved
   // the tab out from under it would leave the reader looking at this session's workspace beside
   // that one's messages.
-  const requestedWorkspaceTab: SessionTabId | null = loopInspection
-    ? loopInspection.target.surface === "usage" ? "chat" : loopInspection.target.surface
+  const requestedWorkspaceSurface: SessionSurfaceId | null = loopInspection
+    ? legacySessionSurfaceAdapter(loopInspection.target.surface === "usage" ? "chat" : loopInspection.target.surface)
     : panelTabRequest?.tab ?? slashTabRequest?.tab ?? null;
   const usesStructuredChat = Boolean(
     displayedSession && (displayedSession.interactionMode === "api" || seatsFromSession(displayedSession).length > 1),
@@ -222,7 +230,9 @@ export function MainLayout({
         // No visited-flag bookkeeping here: destinations no longer use one. A command is just
         // another way to change the route, and it already names the exact section it wants.
         openDestination: (target) => onNavigate(target),
-        openSessionTab: (tab) => setSlashTabRequest((current) => ({ tab, nonce: (current?.nonce ?? 0) + 1 })),
+        openSessionTab: (tab) => setSlashTabRequest((current) => (
+          { tab: legacySessionSurfaceAdapter(tab), nonce: (current?.nonce ?? 0) + 1 }
+        )),
       }}
     />
   ) : null;
@@ -236,6 +246,38 @@ export function MainLayout({
     onToggleInspector: () => setInfoPanelOpenState((open) => !open),
     onToggleNavigation: () => setSessionSidebarOpen((open) => !open),
   });
+
+  const sessionWorkspace = useSessionWorkspaceRegions({
+    activeSession: displayedSession,
+    apiComposer,
+    focusMode: conversationFocusMode,
+    initialRuntimeSurface: initialSessionsLayout.preferredRuntimeTab,
+    isStreaming: loopInspection ? false : model.isStreaming,
+    messages: displayedMessages,
+    messagesPartial: loopInspection ? false : model.messagesPartial,
+    onLoadEarlier: model.loadEarlier,
+    onOpenSettings,
+    onRuntimeMaximizedChange: setRuntimeMaximized,
+    recoveryNotice: buildRecoveryNotice({ model, recoverSession, recoveringSessionId, showing: !loopInspection }),
+    requestedSurface: requestedWorkspaceSurface,
+    requestedSurfaceNonce: (panelTabRequest?.nonce ?? 0) + (slashTabRequest?.nonce ?? 0),
+    runtimeMaximized,
+    sessionActivationKey,
+    turnStatus: loopInspection ? null : model.turnStatus,
+    visibilityControls: buildConversationVisibilityControls({
+      conversationFocusMode,
+      effectiveInfoPanelOpen,
+      effectiveSessionSidebarOpen,
+      setConversationFocusMode,
+      setInfoPanelOpen,
+      setRequestedInfoTab,
+      setSessionSidebarOpen,
+      setWorkspaceTabsCollapsed,
+      workspaceTabsCollapsed,
+    }),
+    workspaceTabsCollapsed,
+  });
+  usePersistPreferredRuntimeTab(sessionWorkspace.activeRuntimeSurface);
 
   return (
     <main className="min-h-screen bg-background text-foreground">
@@ -369,62 +411,7 @@ export function MainLayout({
                       <p className="truncate text-xs font-semibold">{t("layout.returnToEvidenceSource")}</p>
                     </div>
                   ) : null}
-                  <div className="min-h-0 flex-1">
-                    <SessionTabs
-                      activeSession={displayedSession}
-                      apiComposer={apiComposer}
-                      focusMode={conversationFocusMode}
-                      isStreaming={loopInspection ? false : model.isStreaming}
-                      messages={displayedMessages}
-                      messagesPartial={loopInspection ? false : model.messagesPartial}
-                      onLoadEarlier={model.loadEarlier}
-                      onOpenSettings={onOpenSettings}
-                      recoveryNotice={!loopInspection ? (
-                        <SessionNotices
-                          acknowledging={model.acknowledgingRecovery}
-                          messages={model.messages}
-                          onAcknowledge={model.acknowledgeRecovery}
-                          onRecover={(target) => void recoverSession(target)}
-                          recovering={recoveringSessionId === model.activeSession?.id}
-                          recoverySummary={model.recoverySummary}
-                          session={model.activeSession}
-                        />
-                      ) : null}
-                      requestedTab={requestedWorkspaceTab}
-                      requestedTabNonce={(panelTabRequest?.nonce ?? 0) + (slashTabRequest?.nonce ?? 0)}
-                      sessionActivationKey={sessionActivationKey}
-                      turnStatus={loopInspection ? null : model.turnStatus}
-                      visibilityControls={{
-                        infoPanelExpanded: effectiveInfoPanelOpen,
-                        onToggleInfoPanel: () => {
-                          if (effectiveInfoPanelOpen) setInfoPanelOpen(false);
-                          else {
-                            if (conversationFocusMode) setConversationFocusMode(false);
-                            setInfoPanelOpen(true);
-                          }
-                        },
-                        onOpenIm: () => {
-                          if (conversationFocusMode) setConversationFocusMode(false);
-                          setRequestedInfoTab("im");
-                          setInfoPanelOpen(true);
-                        },
-                        onToggleSessionList: () => {
-                          if (effectiveSessionSidebarOpen) setSessionSidebarOpen(false);
-                          else {
-                            if (conversationFocusMode) setConversationFocusMode(false);
-                            setSessionSidebarOpen(true);
-                          }
-                        },
-                        onToggleWorkspaceTabs: () => {
-                          if (conversationFocusMode) setConversationFocusMode(false);
-                          setWorkspaceTabsCollapsed((collapsed) => conversationFocusMode ? false : !collapsed);
-                        },
-                        sessionListExpanded: effectiveSessionSidebarOpen,
-                        workspaceTabsExpanded: !(conversationFocusMode || workspaceTabsCollapsed),
-                      }}
-                      workspaceTabsCollapsed={workspaceTabsCollapsed}
-                    />
-                  </div>
+                  <div className="min-h-0 flex-1">{sessionWorkspace.main}</div>
                 </section>
               )}
               navigation={{
@@ -462,6 +449,19 @@ export function MainLayout({
                 onWidthCommit: commitSessionSidebarWidth,
                 open: effectiveSessionSidebarOpen,
                 width: sessionSidebarWidth,
+              }}
+              runtimePanel={{
+                content: sessionWorkspace.runtimePanelContent,
+                // Maximizing is momentary chrome, not a stored preference — the persisted height
+                // resumes the moment the reader restores rather than staying pinned to full height.
+                height: runtimeMaximized ? RUNTIME_HEIGHT_BOUNDS.max : runtimeHeight,
+                label: t("layout.runtimePanel"),
+                max: RUNTIME_HEIGHT_BOUNDS.max,
+                min: RUNTIME_HEIGHT_BOUNDS.min,
+                onHeightChange: setRuntimeHeight,
+                onHeightCommit: commitRuntimeHeight,
+                // Same object shape either way (see `withRuntimePanel`'s doc comment) — only `open` flips.
+                open: sessionWorkspace.runtimePanelOpen,
               }}
             />
           </div>

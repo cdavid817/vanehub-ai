@@ -22,6 +22,7 @@ function ControlledRuntimePanel({ tabs }: { tabs: RuntimePanelTab[] }) {
   return (
     <RuntimePanel
       activeTabId={activeTabId}
+      ariaLabel="Runtime Panel"
       maximized={maximized}
       onActiveTabChange={setActiveTabId}
       onClose={vi.fn()}
@@ -40,6 +41,7 @@ describe("RuntimePanel", () => {
     render(
       <RuntimePanel
         activeTabId="shell"
+        ariaLabel="Runtime Panel"
         maximized={false}
         onActiveTabChange={vi.fn()}
         onClose={vi.fn()}
@@ -107,6 +109,7 @@ describe("RuntimePanel", () => {
     render(
       <RuntimePanel
         activeTabId="shell"
+        ariaLabel="Runtime Panel"
         maximized={false}
         onActiveTabChange={vi.fn()}
         onClose={onClose}

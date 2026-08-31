@@ -276,10 +276,11 @@ describe("ReportTab", () => {
   });
 });
 
-/** Reads the tab the provider settled on, so a navigation is observable as its own effect. */
+/** Reads the surface the provider settled on, so a navigation is observable as its own effect. */
 function ActiveTabProbe() {
-  const { activeTab } = useWorkspaceEvidenceScope();
-  return <output data-testid="active-tab">{activeTab}</output>;
+  const { activePrimarySurface, activeRuntimeSurface, runtimePanelOpen } = useWorkspaceEvidenceScope();
+  const active = runtimePanelOpen ? activeRuntimeSurface : activePrimarySurface;
+  return <output data-testid="active-tab">{active}</output>;
 }
 
 /** Stands in for the conversation whose mounted length used to decide the report's contents. */

@@ -38,13 +38,13 @@ export type ReportSectionId = (typeof REPORT_SECTIONS)[number];
  */
 const SECTION_TABS: Record<ReportSectionId, WorkspaceEvidenceTarget["tab"]> = {
   overview: "traces",
-  usage: "terminal",
+  usage: "terminal-history",
   latency: "traces",
   agents: "traces",
-  tools: "terminal",
-  commands: "terminal",
+  tools: "terminal-history",
+  commands: "terminal-history",
   changes: "changes",
-  verification: "terminal",
+  verification: "terminal-history",
   failures: "logs",
 };
 

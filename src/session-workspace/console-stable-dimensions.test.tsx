@@ -124,8 +124,8 @@ describe("the tab badges", () => {
     ]) {
       const { container, unmount } = renderWithAppProviders(
         <SessionTabBar
-          activeTab="logs"
-          badges={{ logs: badge }}
+          activeTab="changes"
+          badges={{ changes: badge }}
           onActivate={() => {}}
           onOpenSettings={() => {}}
           session={null}

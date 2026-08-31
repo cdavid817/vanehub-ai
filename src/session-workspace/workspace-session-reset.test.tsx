@@ -29,30 +29,35 @@ const traceId = evidenceTraceIdSchema.parse("trace-1");
  * The reset happens during the provider's render, and the property under test is about frames that
  * never reach a settled state — asserting only the final value would pass on an implementation
  * that showed the previous session's filters for one frame and then corrected itself.
+ *
+ * Exercises two primary surfaces (Changes/Report) rather than a Runtime Panel surface: since the
+ * split into `activePrimarySurface`/`activeRuntimeSurface`, `useMountedWorkspaceTabs` only ever
+ * tracks the primary four — a runtime surface's own mount/unmount lifecycle belongs to
+ * `RuntimePanel`'s internal state instead, which is out of scope for this reset invariant.
  */
 function Probe({ onRender, sessionId }: { onRender: (frame: string) => void; sessionId: EvidenceSessionId }) {
-  const { activeTab, activateTab, navigate, scope } = useWorkspaceEvidenceScope();
-  const { mount, mountedTabs } = useMountedWorkspaceTabs(sessionId, activeTab);
+  const { activePrimarySurface, activateSurface, navigate, scope } = useWorkspaceEvidenceScope();
+  const { mount, mountedTabs } = useMountedWorkspaceTabs(sessionId, activePrimarySurface);
   const renders = useRef(0);
   renders.current += 1;
-  onRender(JSON.stringify({ activeTab, mounted: [...mountedTabs], scope }));
+  onRender(JSON.stringify({ activeSurface: activePrimarySurface, mounted: [...mountedTabs], scope }));
   return (
     <div>
-      <span data-testid="tab">{activeTab}</span>
+      <span data-testid="tab">{activePrimarySurface}</span>
       <span data-testid="mounted">{[...mountedTabs].join(",")}</span>
       <span data-testid="scope">{JSON.stringify(scope)}</span>
       <span data-testid="renders">{renders.current}</span>
       <button
         onClick={() => {
-          mount("logs");
-          navigate({ tab: "logs", scope: { sessionId, runId, traceId }, focus: "row" });
+          mount("changes");
+          navigate({ tab: "changes", scope: { sessionId, runId, traceId }, focus: "row" });
         }}
         type="button"
       >
-        open logs
+        open changes
       </button>
-      <button onClick={() => { mount("traces"); activateTab("traces"); }} type="button">
-        open traces
+      <button onClick={() => { mount("report"); activateSurface("report"); }} type="button">
+        open report
       </button>
     </div>
   );
@@ -89,7 +94,7 @@ describe("workspace session reset", () => {
     const user = userEvent.setup();
     const view = mount(sessionA, () => undefined, true);
 
-    await user.click(screen.getByRole("button", { name: "open logs" }));
+    await user.click(screen.getByRole("button", { name: "open changes" }));
     view.reopen(sessionB);
     view.reopen(sessionA);
 
@@ -116,7 +121,7 @@ describe("workspace session reset", () => {
   it("settles rather than oscillating between the scope and the mounted tabs", async () => {
     const user = userEvent.setup();
     const view = mount(sessionA, () => undefined, false);
-    await user.click(screen.getByRole("button", { name: "open logs" }));
+    await user.click(screen.getByRole("button", { name: "open changes" }));
     const before = Number(screen.getByTestId("renders").textContent);
 
     view.reopen(sessionB);
@@ -133,27 +138,27 @@ describe("workspace session reset", () => {
     const frames: string[] = [];
     const view = mount(sessionA, (frame) => frames.push(frame), false);
 
-    await user.click(screen.getByRole("button", { name: "open logs" }));
+    await user.click(screen.getByRole("button", { name: "open changes" }));
     frames.length = 0;
     view.reopen(sessionB);
 
     expect(frames.length).toBeGreaterThan(0);
     for (const frame of frames) {
-      const state: { activeTab: string; mounted: string[]; scope: { sessionId?: string; runId?: string } } =
+      const state: { activeSurface: string; mounted: string[]; scope: { sessionId?: string; runId?: string } } =
         JSON.parse(frame);
       expect(state.scope.sessionId).toBe(sessionB);
-      // The filter, the tab, and the mounted set all belong to the new session on every frame.
+      // The filter, the surface, and the mounted set all belong to the new session on every frame.
       expect(state.scope.runId).toBeUndefined();
-      expect(state.activeTab).toBe("chat");
-      expect(state.mounted).toEqual(["chat"]);
+      expect(state.activeSurface).toBe("work");
+      expect(state.mounted).toEqual(["work"]);
     }
   });
 
   it("returns a session to a clean scope rather than to the one it was left in", async () => {
     const user = userEvent.setup();
     const view = mount(sessionA, () => undefined, false);
-    await user.click(screen.getByRole("button", { name: "open logs" }));
-    expect(screen.getByTestId("tab").textContent).toBe("logs");
+    await user.click(screen.getByRole("button", { name: "open changes" }));
+    expect(screen.getByTestId("tab").textContent).toBe("changes");
 
     view.reopen(sessionB);
     view.reopen(sessionA);
@@ -161,10 +166,10 @@ describe("workspace session reset", () => {
     // Coming back is not resuming: the correlation belonged to a view of the session that the
     // workspace has since torn down, and re-applying it would filter by a run the panels never
     // fetched.
-    expect(screen.getByTestId("tab").textContent).toBe("chat");
+    expect(screen.getByTestId("tab").textContent).toBe("work");
     expect(JSON.parse(screen.getByTestId("scope").textContent ?? "null")).toEqual({
       sessionId: sessionA,
     });
-    expect(screen.getByTestId("mounted").textContent).toBe("chat");
+    expect(screen.getByTestId("mounted").textContent).toBe("work");
   });
 });

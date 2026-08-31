@@ -1,22 +1,21 @@
 import { describe, expect, it } from "vitest";
 import type { SessionSeat } from "../types/agent";
-import { sessionTabDefinitions, type SessionTabId } from "./session-tab-bar";
+import { SESSION_PRIMARY_SURFACE_IDS, SESSION_RUNTIME_SURFACE_IDS } from "./session-surface-registry";
 import { effectiveSeatId, tabScope, showsSeatSwitcher } from "./tab-scope";
 
 describe("tabScope", () => {
   // What one Agent ran belongs to that Agent; what the project looks like does not.
   it("scopes the per-Agent views to a seat", () => {
-    expect(tabScope("terminal")).toBe("seat");
+    expect(tabScope("terminal-history")).toBe("seat");
     expect(tabScope("shell")).toBe("seat");
     expect(tabScope("logs")).toBe("seat");
   });
 
   it("keeps project-level views session-scoped", () => {
     expect(tabScope("changes")).toBe("session");
-    expect(tabScope("documents")).toBe("session");
     expect(tabScope("files")).toBe("session");
     expect(tabScope("report")).toBe("session");
-    expect(tabScope("chat")).toBe("session");
+    expect(tabScope("work")).toBe("session");
   });
 
   // The trace shows the whole round including handoffs, so splitting it by seat would destroy it.
@@ -24,23 +23,23 @@ describe("tabScope", () => {
     expect(tabScope("traces")).toBe("session");
   });
 
-  // A tab added later must be classified deliberately rather than defaulting to something.
-  it("classifies every registered tab", () => {
-    for (const definition of sessionTabDefinitions) {
-      expect(["seat", "session"]).toContain(tabScope(definition.id as SessionTabId));
+  // A surface added later must be classified deliberately rather than defaulting to something.
+  it("classifies every registered surface", () => {
+    for (const id of [...SESSION_PRIMARY_SURFACE_IDS, ...SESSION_RUNTIME_SURFACE_IDS]) {
+      expect(["seat", "session"]).toContain(tabScope(id));
     }
   });
 });
 
 describe("showsSeatSwitcher", () => {
   it("shows the switcher only for seat-scoped tabs in a multi-seat session", () => {
-    expect(showsSeatSwitcher("terminal", 3)).toBe(true);
+    expect(showsSeatSwitcher("terminal-history", 3)).toBe(true);
     expect(showsSeatSwitcher("changes", 3)).toBe(false);
   });
 
   // A single-seat session must look exactly as it does today.
   it("hides the switcher when there is only one seat", () => {
-    expect(showsSeatSwitcher("terminal", 1)).toBe(false);
+    expect(showsSeatSwitcher("terminal-history", 1)).toBe(false);
   });
 });
 
@@ -54,7 +53,7 @@ describe("effectiveSeatId", () => {
   // choosing a seat changed the highlighted button and nothing else.
   it("resolves the selected seat for a seat-scoped tab", () => {
     expect(effectiveSeatId("logs", seats, 1)).toBe("seat-builder");
-    expect(effectiveSeatId("terminal", seats, 0)).toBe("seat-planner");
+    expect(effectiveSeatId("terminal-history", seats, 0)).toBe("seat-planner");
     expect(effectiveSeatId("shell", seats, 1)).toBe("seat-builder");
   });
 

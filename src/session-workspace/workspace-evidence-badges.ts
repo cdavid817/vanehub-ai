@@ -2,7 +2,7 @@ import type {
   EvidenceCoverageState,
   WorkspaceEvidenceSummary,
 } from "../types/session-workspace-evidence";
-import type { SessionTabId } from "./session-tab-bar";
+import type { SessionSurfaceId } from "./session-surface-registry";
 
 export type WorkspaceBadgeTone = "neutral" | "danger";
 
@@ -78,7 +78,7 @@ function attentionBadge(
 export function workspaceTabBadges(
   summary: WorkspaceEvidenceSummary | undefined,
   state: WorkspaceSummaryState,
-): Partial<Record<SessionTabId, WorkspaceTabBadge>> {
+): Partial<Record<SessionSurfaceId, WorkspaceTabBadge>> {
   // No summary at all means no badges at all. A runtime that cannot answer the summary query has
   // no evidence surface to be uncertain about, and stamping six placeholders across the bar would
   // report a limitation of the console as a property of the session. A summary that *does* answer
@@ -88,7 +88,7 @@ export function workspaceTabBadges(
   const coverage = summary.coverage.state;
   return {
     changes: badgeFor(summary.changes.unviewedFiles, "neutral", coverage),
-    terminal: attentionBadge(
+    "terminal-history": attentionBadge(
       summary.executionRecords.running,
       summary.executionRecords.failed,
       coverage,
@@ -101,6 +101,6 @@ export function workspaceTabBadges(
 }
 
 /** The i18n key describing what a tab's badge counts, used as the badge's accessible name. */
-export function workspaceBadgeLabelKey(tab: SessionTabId): string {
+export function workspaceBadgeLabelKey(tab: SessionSurfaceId): string {
   return `workspaceBadge.label.${tab}`;
 }

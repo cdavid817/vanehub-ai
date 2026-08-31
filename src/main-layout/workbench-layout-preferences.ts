@@ -1,3 +1,4 @@
+import type { SessionRuntimeSurfaceId } from "../session-workspace/session-surface-registry";
 import type { WorkbenchDestination } from "./workbench-route";
 
 const STORAGE_KEY = "vanehub.workbench.layout.v2";
@@ -7,16 +8,17 @@ const LEGACY_SESSION_SIDEBAR_WIDTH_KEY = "vanehub.session-sidebar.width.v1";
 // workspace"); 280px is tasks.md's own preferred default, not separately spec'd.
 export const NAVIGATION_WIDTH_BOUNDS = { min: 256, max: 400, default: 280 };
 export const INSPECTOR_WIDTH_BOUNDS = { min: 260, max: 480, default: 300 };
+// No spec'd figure for the Runtime Panel exists yet, so this mirrors the inspector's own bounds —
+// tall enough to read a log line or a shell prompt, short enough that Work never drops below its
+// own documented minimum height (design.md Decision 7's "Resize or maximize" scenario).
+export const RUNTIME_HEIGHT_BOUNDS = { min: 160, max: 640, default: 260 };
 
-/**
- * `runtimeHeight`/`preferredRuntimeTab` from design.md Decision 3's shape are omitted here: the
- * Runtime Panel they describe belongs to the session workspace redesign (Decision 7), not this
- * pane-shell migration, and nothing produces a `RuntimePanelTabId` yet to type them against.
- */
 interface DestinationLayoutPreference {
   navigationWidth?: number;
   inspectorWidth?: number;
   preferredInspectorOpen?: boolean;
+  runtimeHeight?: number;
+  preferredRuntimeTab?: SessionRuntimeSurfaceId;
 }
 
 export interface WorkbenchLayoutPreferencesV2 {
@@ -94,6 +96,9 @@ export interface SessionsLayoutInitialState {
   navigationWidth: number;
   inspectorWidth: number;
   inspectorOpen: boolean;
+  runtimeHeight: number;
+  /** Undefined means no surface has ever been opened; the Runtime Panel falls back to its own default. */
+  preferredRuntimeTab: SessionRuntimeSurfaceId | undefined;
 }
 
 /**
@@ -113,7 +118,8 @@ export function readInitialSessionsLayout(): SessionsLayoutInitialState {
   // entirely ordinary laptop-width window -- is a worse first impression than an easy-to-find
   // toggle they have not pressed yet.
   const inspectorOpen = sessions?.preferredInspectorOpen ?? false;
-  return { navigationWidth, inspectorWidth, inspectorOpen };
+  const runtimeHeight = clamp(sessions?.runtimeHeight ?? RUNTIME_HEIGHT_BOUNDS.default, RUNTIME_HEIGHT_BOUNDS);
+  return { navigationWidth, inspectorWidth, inspectorOpen, runtimeHeight, preferredRuntimeTab: sessions?.preferredRuntimeTab };
 }
 
 export function clampNavigationWidth(width: number): number {
@@ -122,4 +128,8 @@ export function clampNavigationWidth(width: number): number {
 
 export function clampInspectorWidth(width: number): number {
   return clamp(width, INSPECTOR_WIDTH_BOUNDS);
+}
+
+export function clampRuntimeHeight(height: number): number {
+  return clamp(height, RUNTIME_HEIGHT_BOUNDS);
 }

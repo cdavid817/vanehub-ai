@@ -9,7 +9,7 @@ import type { ChatMessage } from "../types/chat";
 import { agentTerminalInputClassName } from "./agent-terminal-tab";
 import { SessionTabBar } from "./session-tab-bar";
 import { SessionConversationHeader } from "./session-conversation-header";
-import { SessionTabs } from "./session-tabs";
+import { SessionWorkspaceRegionsHost } from "./session-tabs";
 import { toolUseCount } from "./terminal-tab";
 
 const message: ChatMessage = {
@@ -38,20 +38,20 @@ describe("session workspace components", () => {
   beforeAll(async () => {
     await activateAppLanguage("en");
   });
-  it("renders all tab labels and the terminal badge", () => {
-    const html = renderToStaticMarkup(<SessionTabBar activeTab="chat" badges={{ terminal: { kind: "count", count: 1, tone: "neutral", atLeast: false } }} onActivate={() => undefined} onOpenSettings={() => undefined} session={null} />);
-    expect(html).toContain("Workspace");
+  it("renders all tab labels and the changes badge", () => {
+    const html = renderToStaticMarkup(<SessionTabBar activeTab="work" badges={{ changes: { kind: "count", count: 1, tone: "neutral", atLeast: false } }} onActivate={() => undefined} onOpenSettings={() => undefined} session={null} />);
+    expect(html).toContain("Work");
     expect(html).toContain("Changes");
     expect(html).toContain("Report");
     expect(html).toContain("1");
   });
 
   it("omits a badge for a known zero rather than rendering 0", () => {
-    // A known zero is the absence of a badge. "Zero live shells" and "nobody has counted the live
-    // shells" must not look the same, so the count case never carries a zero.
-    const html = renderToStaticMarkup(<SessionTabBar activeTab="chat" badges={{ terminal: { kind: "none" } }} onActivate={() => undefined} onOpenSettings={() => undefined} session={null} />);
-    expect(html).not.toContain('data-badge="terminal-count"');
-    expect(html).not.toContain('data-badge="terminal-unknown"');
+    // A known zero is the absence of a badge. "Zero unviewed files" and "nobody has counted the
+    // changed files" must not look the same, so the count case never carries a zero.
+    const html = renderToStaticMarkup(<SessionTabBar activeTab="work" badges={{ changes: { kind: "none" } }} onActivate={() => undefined} onOpenSettings={() => undefined} session={null} />);
+    expect(html).not.toContain('data-badge="changes-count"');
+    expect(html).not.toContain('data-badge="changes-unknown"');
   });
 
   it("renders tool execution cards and report values", () => {
@@ -93,7 +93,7 @@ describe("session workspace components", () => {
     };
     const html = renderToStaticMarkup(
       <QueryClientProvider client={new QueryClient()}>
-        <SessionTabs
+        <SessionWorkspaceRegionsHost
           activeSession={session}
           apiComposer={<div>API composer</div>}
           messages={[message]}
@@ -132,7 +132,7 @@ describe("session workspace components", () => {
     };
     const html = renderToStaticMarkup(
       <QueryClientProvider client={new QueryClient()}>
-        <SessionTabs
+        <SessionWorkspaceRegionsHost
           activeSession={session}
           apiComposer={<div>Shared composer</div>}
           messages={[]}
@@ -178,7 +178,7 @@ describe("session workspace components", () => {
     };
     const html = renderToStaticMarkup(
       <QueryClientProvider client={new QueryClient()}>
-        <SessionTabs
+        <SessionWorkspaceRegionsHost
           activeSession={session}
           apiComposer={<div>Focused composer</div>}
           focusMode
@@ -205,7 +205,7 @@ describe("session workspace components", () => {
   it("keeps all managed CLI terminal output readable", () => {
     expect(agentTerminalInputClassName).toContain("ucd-agent-terminal-input");
     const source = readFileSync(new URL("./agent-terminal-tab.tsx", import.meta.url), "utf8");
-    const sessionTabsSource = readFileSync(new URL("./session-tabs.tsx", import.meta.url), "utf8");
+    const primarySurfacesSource = readFileSync(new URL("./session-primary-surfaces.tsx", import.meta.url), "utf8");
     const themeSource = readFileSync(new URL("./terminal-theme.ts", import.meta.url), "utf8");
     const styles = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 
@@ -216,7 +216,7 @@ describe("session workspace components", () => {
       "antigravity-cli",
       "gemini-cli",
     ]);
-    expect(sessionTabsSource).toContain('<AgentTerminalTab isVisible={activeTab === "chat"}');
+    expect(primarySurfacesSource).toContain("<AgentTerminalTab isVisible={isVisible}");
     expect(source).toContain("requestAnimationFrame");
     expect(source).toContain("fitRef.current?.fit()");
     expect(source).toContain("resizeAgentTerminal");

@@ -23,7 +23,7 @@ describe("frontend feature module boundaries", () => {
     expect(viteConfig).toContain('"./src/settings/pages/agent-configurations-page.tsx"');
   });
 
-  it("keeps every non-Sessions domain's heavy content and non-default session tabs behind dynamic imports", () => {
+  it("keeps every non-Sessions domain's heavy content and non-default session surfaces behind dynamic imports", () => {
     // Moved out of main-layout.tsx into per-domain destination components (redesign-unified-
     // workbench-ui section 4/5) — main-layout.tsx no longer imports any of these at all now that
     // Runs/Plan/Quality render through RunsDestination/PlanDestination/QualityDestination.
@@ -31,7 +31,10 @@ describe("frontend feature module boundaries", () => {
     const planDestination = read("main-layout/plan-destination.tsx");
     const qualityDestination = read("main-layout/quality-destination.tsx");
     const mainLayout = read("main-layout/main-layout.tsx");
-    const sessionTabs = read("session-workspace/session-tabs.tsx");
+    // Terminal History/Shell/Logs/Traces moved to the Runtime Panel (redesign-unified-workbench-ui
+    // section 8); Changes/Files/Report stayed the primary surfaces' own concern.
+    const primarySurfaces = read("session-workspace/session-primary-surfaces.tsx");
+    const runtimePanel = read("session-workspace/session-runtime-panel.tsx");
     expect(runsDestination).toContain('import("../loop-center/loop-center")');
     expect(runsDestination).toContain('import("../mission-control/mission-control")');
     expect(runsDestination).toContain('import("./scheduled-tasks-panel")');
@@ -44,21 +47,21 @@ describe("frontend feature module boundaries", () => {
     for (const heavyModule of ["loop-center/loop-center", "mission-control/mission-control", "work-board/work-board", "goal-center/goal-center", "evaluation-center/evaluation-center"]) {
       expect(mainLayout).not.toContain(`"../${heavyModule}"`);
     }
-    expect(sessionTabs).toContain('import("./logs-tab")');
-    expect(sessionTabs).toContain('import("./report-tab")');
-    expect(sessionTabs).not.toContain('from "./logs-tab"');
-    expect(sessionTabs).not.toContain('from "./report-tab"');
+    expect(runtimePanel).toContain('import("./logs-tab")');
+    expect(runtimePanel).not.toContain('from "./logs-tab"');
+    expect(primarySurfaces).toContain('import("./report-tab")');
+    expect(primarySurfaces).not.toContain('from "./report-tab"');
   });
 
-  it("retains visited settings and tab panels in mounted collections", () => {
+  it("retains visited settings and primary session surfaces in mounted collections", () => {
     const settingsShell = read("settings/settings-shell.tsx");
-    const sessionTabs = read("session-workspace/session-tabs.tsx");
+    const primarySurfaces = read("session-workspace/session-primary-surfaces.tsx");
     expect(settingsShell).toContain("new Set([initialPage])");
     expect(settingsShell).toContain("if (!shouldRenderPage(SETTINGS_PAGE_LIFECYCLE[page.id], isActivePage, visitedPages.has(page.id))) return null");
     expect(settingsShell).toContain("new Set(current).add(pageId)");
     expect(settingsShell).toContain("hidden={!isActivePage}");
-    expect(sessionTabs).toContain("mountedTabs");
-    expect(sessionTabs).toContain('activeTab === id ? "block" : "hidden"');
+    expect(primarySurfaces).toContain("mountedTabs");
+    expect(primarySurfaces).toContain('scope.activePrimarySurface === id ? "block" : "hidden"');
   });
 
   it("recreates a rejected lazy component when the user retries", () => {

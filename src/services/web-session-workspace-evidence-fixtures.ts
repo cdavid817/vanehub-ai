@@ -201,7 +201,7 @@ export function webSessionRunReport(): SessionRunReport {
     changes: { changedFiles: 8, unviewedFiles: 4, unresolvedFindings: 2 },
     verification: { passed: 138, failed: 2, skipped: 0 },
     failures: { rows: [{ reasonCode: "command_failed", count: 1 }] },
-    evidenceLinks: [{ tab: "terminal", scope: { sessionId, runId } }],
+    evidenceLinks: [{ tab: "terminal-history", scope: { sessionId, runId } }],
     sourceCoverage: simulatedCoverage({ state: "partial", reasonCodes: ["simulated", "coverage_partial"] }),
   };
 }

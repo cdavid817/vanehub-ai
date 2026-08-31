@@ -5,7 +5,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import { activateAppLanguage } from "../i18n";
 import { renderWithAppProviders } from "../test/render";
 import type { Session } from "../types/agent";
-import { SessionTabs } from "./session-tabs";
+import { SessionWorkspaceRegionsHost } from "./session-tabs";
 
 vi.mock("./agent-terminal-tab", () => ({
   AgentTerminalTab: ({ isVisible }: { isVisible: boolean }) => (
@@ -55,7 +55,7 @@ describe("session tab retention", () => {
 
   it("keeps the agent terminal mounted and reactivates it after page switches", async () => {
     const { user } = renderWithAppProviders(
-      <SessionTabs
+      <SessionWorkspaceRegionsHost
         activeSession={session}
         messages={[]}
         messagesPartial={false}
@@ -71,7 +71,7 @@ describe("session tab retention", () => {
     expect(terminal.dataset.active).toBe("false");
     expect(terminal.closest("section")?.classList.contains("hidden")).toBe(true);
 
-    await user.click(screen.getByRole("tab", { name: "Workspace" }));
+    await user.click(screen.getByRole("tab", { name: "Work" }));
     expect(screen.getByTestId("retained-agent-terminal")).toBe(terminal);
     expect(terminal.dataset.active).toBe("true");
     expect(terminal.closest("section")?.classList.contains("block")).toBe(true);

@@ -38,13 +38,13 @@ export const EVIDENCE_SCOPE_FIELDS: readonly EvidenceScopeField[] = [
  * out would silently consume nothing and report every field as unsupported.
  */
 export const TAB_SCOPE_FIELDS = {
-  terminal: ["seatId", "runId", "operationId", "commandId", "occurredAt"],
+  "terminal-history": ["seatId", "runId", "operationId", "commandId", "occurredAt"],
   shell: ["seatId"],
   logs: ["seatId", "runId", "traceId", "spanId", "operationId", "occurredAt"],
   traces: ["runId", "traceId", "spanId", "occurredAt"],
   changes: ["runId", "relativePath", "hunkFingerprint"],
+  // Files' merged Documents view reads the same path filter the Explorer view always did.
   files: ["relativePath"],
-  documents: ["relativePath"],
   report: ["seatId", "runId"],
 } satisfies Record<WorkspaceEvidenceTabId, readonly EvidenceScopeField[]>;
 

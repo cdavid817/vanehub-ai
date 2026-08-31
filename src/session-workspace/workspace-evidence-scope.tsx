@@ -13,7 +13,11 @@ import type {
   WorkspaceEvidenceScope,
   WorkspaceEvidenceTarget,
 } from "../types/session-workspace-evidence";
-import type { SessionTabId } from "./session-tab-bar";
+import type {
+  SessionPrimarySurfaceId,
+  SessionRuntimeSurfaceId,
+  SessionSurfaceId,
+} from "./session-surface-registry";
 import type {
   EvidenceScopeField,
   WorkspaceEvidenceCorrelation,
@@ -25,17 +29,23 @@ import {
 
 /** The one cross-panel selection API. Panels read the scope; nothing else may write it. */
 export interface WorkspaceEvidenceNavigation {
-  activeTab: SessionTabId;
+  activePrimarySurface: SessionPrimarySurfaceId;
+  runtimePanelOpen: boolean;
+  activeRuntimeSurface: SessionRuntimeSurfaceId;
   /** Null when no session is selected: a correlation without an owner is not a scope. */
   scope: WorkspaceEvidenceScope | null;
   correlation: WorkspaceEvidenceCorrelation;
   focus: WorkspaceEvidenceFocus | null;
   navigationRevision: number;
   unsupportedFields: readonly EvidenceScopeField[];
-  activateTab: (tab: SessionTabId) => void;
-  /** Moves tab and scope together. Replaces the correlation rather than merging into it. */
+  /** Activates a primary surface, or opens the Runtime Panel to a runtime surface. */
+  activateSurface: (id: SessionSurfaceId) => void;
+  openRuntimePanel: () => void;
+  /** Hides the Runtime Panel without touching what it holds — see design.md Decision 7. */
+  closeRuntimePanel: () => void;
+  /** Moves the active surface and scope together. Replaces the correlation rather than merging. */
   navigate: (target: WorkspaceEvidenceTarget) => void;
-  /** In-panel filtering: merges into the current correlation without moving tabs. */
+  /** In-panel filtering: merges into the current correlation without moving surfaces. */
   patchScope: (patch: WorkspaceEvidenceCorrelation) => void;
   /** Named fields plus whatever they own; no argument means Clear All. */
   clearScope: (fields?: readonly EvidenceScopeField[]) => void;
@@ -43,20 +53,35 @@ export interface WorkspaceEvidenceNavigation {
 
 const WorkspaceEvidenceScopeContext = createContext<WorkspaceEvidenceNavigation | null>(null);
 
-export function WorkspaceEvidenceScopeProvider({
-  children,
+/**
+ * The state half of the provider below, without the JSX wrapping.
+ *
+ * Exported so a caller that needs the same value to reach two separate subtrees — `SessionTabs`'
+ * primary content and the Runtime Panel's content, which `DestinationLayoutBody` renders in two
+ * different parts of its own tree, not as siblings either side can wrap together — can compute it
+ * once and hand it to two `WorkspaceEvidenceScopeValueProvider`s instead of two independent
+ * reducers that would silently drift apart.
+ */
+export function useWorkspaceEvidenceScopeValue({
+  initialRuntimeSurface,
   seatIds,
   sessionId,
 }: {
-  children: ReactNode;
+  /**
+   * The persisted "preferred Runtime Panel tab" — read once, for this component's very first
+   * mount only. A session switch resets to the registry default regardless, the same way it
+   * always has: this is a workbench-level preference like navigation/inspector width, not
+   * something that should chase the reader from session to session.
+   */
+  initialRuntimeSurface?: SessionRuntimeSurfaceId;
   /** Seats currently in the session. A scope naming one that has left is dropped. */
   seatIds: readonly string[];
   sessionId: EvidenceSessionId | null;
-}) {
+}): WorkspaceEvidenceNavigation {
   const [stored, dispatch] = useReducer(
     workspaceEvidenceReducer,
     sessionId,
-    initialWorkspaceEvidenceState,
+    (id) => initialWorkspaceEvidenceState(id, initialRuntimeSurface),
   );
 
   // Reset during render, not in an effect, for two reasons that both bite.
@@ -64,7 +89,7 @@ export function WorkspaceEvidenceScopeProvider({
   // A child's effects run before its parent's, so an effect here would land after every panel had
   // already rendered and after their own effects had run — the first frame of a new session would
   // build query keys from the previous session's run and trace, and a panel effect asking for a
-  // tab would be undone by a reset that arrives later.
+  // surface would be undone by a reset that arrives later.
   //
   // React re-runs this component immediately on a render-phase dispatch and discards the child
   // render, so the children below only ever see the settled state.
@@ -78,7 +103,9 @@ export function WorkspaceEvidenceScopeProvider({
     dispatch({ type: "validate-seats", seatIds });
   }, [seatIds]);
 
-  const activateTab = useCallback((tab: SessionTabId) => dispatch({ type: "activate-tab", tab }), []);
+  const activateSurface = useCallback((id: SessionSurfaceId) => dispatch({ type: "activate-surface", id }), []);
+  const openRuntimePanel = useCallback(() => dispatch({ type: "open-runtime-panel" }), []);
+  const closeRuntimePanel = useCallback(() => dispatch({ type: "close-runtime-panel" }), []);
   const navigate = useCallback(
     (target: WorkspaceEvidenceTarget) => dispatch({ type: "navigate", target }),
     [],
@@ -98,26 +125,54 @@ export function WorkspaceEvidenceScopeProvider({
     [state.correlation, state.sessionId],
   );
 
-  const value = useMemo<WorkspaceEvidenceNavigation>(
+  return useMemo<WorkspaceEvidenceNavigation>(
     () => ({
-      activeTab: state.activeTab,
+      activePrimarySurface: state.activePrimarySurface,
+      runtimePanelOpen: state.runtimePanelOpen,
+      activeRuntimeSurface: state.activeRuntimeSurface,
       scope,
       correlation: state.correlation,
       focus: state.focus,
       navigationRevision: state.navigationRevision,
       unsupportedFields: state.unsupportedFields,
-      activateTab,
+      activateSurface,
+      openRuntimePanel,
+      closeRuntimePanel,
       navigate,
       patchScope,
       clearScope,
     }),
-    [activateTab, clearScope, navigate, patchScope, scope, state],
+    [activateSurface, clearScope, closeRuntimePanel, navigate, openRuntimePanel, patchScope, scope, state],
   );
+}
 
+/** Wraps children in an already-computed value, for the two-subtree case described above. */
+export function WorkspaceEvidenceScopeValueProvider({
+  children,
+  value,
+}: {
+  children: ReactNode;
+  value: WorkspaceEvidenceNavigation;
+}) {
   return (
     <WorkspaceEvidenceScopeContext.Provider value={value}>
       {children}
     </WorkspaceEvidenceScopeContext.Provider>
+  );
+}
+
+export function WorkspaceEvidenceScopeProvider({
+  children,
+  seatIds,
+  sessionId,
+}: {
+  children: ReactNode;
+  seatIds: readonly string[];
+  sessionId: EvidenceSessionId | null;
+}) {
+  const value = useWorkspaceEvidenceScopeValue({ seatIds, sessionId });
+  return (
+    <WorkspaceEvidenceScopeValueProvider value={value}>{children}</WorkspaceEvidenceScopeValueProvider>
   );
 }
 

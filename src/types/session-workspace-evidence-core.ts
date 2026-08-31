@@ -70,13 +70,12 @@ export interface WorkspaceEvidenceScope {
 }
 
 export type WorkspaceEvidenceTabId =
-  | "terminal"
+  | "terminal-history"
   | "shell"
   | "logs"
   | "traces"
   | "changes"
   | "files"
-  | "documents"
   | "report";
 
 export type WorkspaceEvidenceFocus = "row" | "detail" | "filter" | "timestamp";
