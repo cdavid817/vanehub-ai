@@ -1,20 +1,11 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { MessageSpeaker } from "../../services/message-speaker";
 import type { ChatMessage } from "../../types/chat";
 import { MessageItem } from "./MessageItem";
 import type { MessageMemoryContext } from "./MessageMemoryMenu";
 import { ScrollControl } from "./ScrollControl";
+import { useConversationWindowModel } from "./use-conversation-window-model";
 import { WelcomeScreen } from "./WelcomeScreen";
-
-function isNearBottom(element: HTMLDivElement) {
-  return element.scrollHeight - element.scrollTop - element.clientHeight < 96;
-}
-
-export function anchoredScrollTop(autoScroll: boolean, previousHeight: number, currentHeight: number, currentTop: number) {
-  if (autoScroll) return currentHeight;
-  return Math.max(0, currentTop + currentHeight - previousHeight);
-}
 
 export function MessageList({
   hasActiveSession,
@@ -34,38 +25,7 @@ export function MessageList({
   speakers?: Map<string | number, MessageSpeaker>;
 }) {
   const { t } = useTranslation();
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const [autoScroll, setAutoScroll] = useState(true);
-  const autoScrollRef = useRef(true);
-
-  useLayoutEffect(() => {
-    const element = scrollRef.current;
-    if (!element || typeof ResizeObserver === "undefined") return;
-    let previousHeight = element.scrollHeight;
-    let animationFrame = 0;
-    const observer = new ResizeObserver(() => {
-      cancelAnimationFrame(animationFrame);
-      animationFrame = requestAnimationFrame(() => {
-        const currentHeight = element.scrollHeight;
-        if (currentHeight !== previousHeight) {
-          element.scrollTop = anchoredScrollTop(autoScrollRef.current, previousHeight, currentHeight, element.scrollTop);
-        }
-        previousHeight = currentHeight;
-      });
-    });
-    observer.observe(element);
-    if (element.firstElementChild) observer.observe(element.firstElementChild);
-    return () => {
-      cancelAnimationFrame(animationFrame);
-      observer.disconnect();
-    };
-  }, []);
-
-  useEffect(() => {
-    const element = scrollRef.current;
-    if (!element || !autoScroll) return;
-    element.scrollTop = element.scrollHeight;
-  }, [autoScroll, messages]);
+  const { autoScroll, onScroll, registerItemRef, scrollRef, scrollToBottom } = useConversationWindowModel(messages);
 
   if (messages.length === 0) {
     return (
@@ -80,11 +40,7 @@ export function MessageList({
       <div
         className="h-full overflow-y-auto px-3 py-5 sm:px-4 lg:px-6 xl:px-8"
         data-testid="message-scroll-region"
-        onScroll={(event) => {
-          const nextAutoScroll = isNearBottom(event.currentTarget);
-          autoScrollRef.current = nextAutoScroll;
-          setAutoScroll(nextAutoScroll);
-        }}
+        onScroll={onScroll}
         ref={scrollRef}
       >
         <div className="grid w-full content-start gap-4" data-message-canvas="adaptive" data-testid="message-readable-measure">
@@ -94,24 +50,17 @@ export function MessageList({
           </button>
         ) : null}
         {messages.map((message) => (
-          <MessageItem
-            key={message.id}
-            memoryContext={memoryContext}
-            message={message}
-            speaker={speakers?.get(message.speakerSeatId ?? message.seatIndex ?? "") ?? null}
-          />
+          <div key={message.id} ref={registerItemRef(message.id)}>
+            <MessageItem
+              memoryContext={memoryContext}
+              message={message}
+              speaker={speakers?.get(message.speakerSeatId ?? message.seatIndex ?? "") ?? null}
+            />
+          </div>
         ))}
         </div>
       </div>
-      <ScrollControl
-        onClick={() => {
-          const element = scrollRef.current;
-          if (!element) return;
-          element.scrollTop = element.scrollHeight;
-          setAutoScroll(true);
-        }}
-        visible={!autoScroll}
-      />
+      <ScrollControl onClick={scrollToBottom} visible={!autoScroll} />
     </div>
   );
 }

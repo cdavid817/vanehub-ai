@@ -5,7 +5,7 @@ import type { AgentRegistryEntry } from "../../types/agent";
 import type { ChatConfig } from "../../types/chat";
 import { ChatInputBox } from "./ChatInputBox";
 import { MessageItem } from "./MessageItem";
-import { anchoredScrollTop } from "./MessageList";
+import { anchoredScrollTop } from "./use-conversation-window-model";
 
 const config: ChatConfig = {
   agentId: "codex-cli",
