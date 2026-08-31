@@ -136,10 +136,10 @@ test.describe("workspace activity bar", () => {
     const grid = page.getByTestId("sessions-destination-layout");
     const sessionSidebar = page.locator("#workspace-session-sidebar");
     const mainPanel = page.getByTestId("session-conversation-shell");
-    const sessionMoreActions = page.getByRole("button", { name: "更多操作" });
-    await sessionMoreActions.click();
-    await page.getByRole("menuitem", { name: /归档/ }).click();
-    await expect(sessionMoreActions).toHaveClass(/text-primary/);
+    // 7.13: archive is its own compact toggle now, not a step behind an overflow "更多操作" menu.
+    const archiveToggle = page.getByTestId("session-archive-toggle");
+    await archiveToggle.click();
+    await expect(archiveToggle).toHaveClass(/text-primary/);
 
     const initialBox = await mainPanel.boundingBox();
     expect(initialBox).not.toBeNull();
@@ -150,8 +150,8 @@ test.describe("workspace activity bar", () => {
 
     await page.getByRole("button", { name: "展开会话栏" }).click();
     await expect(grid).toHaveAttribute("data-session-collapsed", "false");
-    await expect(sessionMoreActions).toBeVisible();
-    await expect(sessionMoreActions).toHaveClass(/text-primary/);
+    await expect(archiveToggle).toBeVisible();
+    await expect(archiveToggle).toHaveClass(/text-primary/);
 
     // Opens it from its default-closed state (workbench-layout-preferences.ts) -- what this
     // block checks is that toggling the session list around it does not touch this state either
@@ -200,7 +200,7 @@ test.describe("workspace activity bar", () => {
     });
     const persistedWidth = await readPersistedWidth();
     expect(persistedWidth).toBeGreaterThan(380);
-    expect(persistedWidth).toBeLessThanOrEqual(420);
+    expect(persistedWidth).toBeLessThanOrEqual(400);
 
     await page.getByRole("button", { name: "折叠会话栏" }).click();
     await expect(sessionSidebar).toHaveCount(0);

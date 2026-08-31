@@ -72,7 +72,11 @@ describe("SessionSidebar CLI icons", () => {
     expect(html).toContain("OpenCode");
     expect(html).toContain("ucd-agent-codex");
     expect(html).toContain("ucd-agent-claude");
-    expect(html).toContain("更多操作");
+    // 7.5/7.13: the old overflow "更多操作" menu is gone — archive and batch-mode are their own
+    // compact, always-visible controls now, and the filter select became FilterPopover's trigger.
+    expect(html).not.toContain("更多操作");
+    expect(html).toContain("筛选");
+    expect(html).toContain("批量管理");
     expect(html).toContain("列表");
     expect(html).toContain("分类");
     expect(html).toContain("项目");

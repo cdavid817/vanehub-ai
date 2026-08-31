@@ -3,7 +3,9 @@ import type { WorkbenchDestination } from "./workbench-route";
 const STORAGE_KEY = "vanehub.workbench.layout.v2";
 const LEGACY_SESSION_SIDEBAR_WIDTH_KEY = "vanehub.session-sidebar.width.v1";
 
-export const NAVIGATION_WIDTH_BOUNDS = { min: 232, max: 420, default: 232 };
+// 7.2: 256-400px is spec'd exactly (specs/main-layout-ui/spec.md, "Render wide session
+// workspace"); 280px is tasks.md's own preferred default, not separately spec'd.
+export const NAVIGATION_WIDTH_BOUNDS = { min: 256, max: 400, default: 280 };
 export const INSPECTOR_WIDTH_BOUNDS = { min: 260, max: 480, default: 300 };
 
 /**
@@ -61,10 +63,21 @@ function writeWorkbenchLayoutPreferences(preferences: WorkbenchLayoutPreferences
   localStorage.setItem(STORAGE_KEY, JSON.stringify(preferences));
 }
 
-/** Reads the pre-V2 sidebar width so a first V2 read still honors a returning user's choice. */
+/**
+ * Reads the pre-V2 sidebar width so a first V2 read still honors a returning user's choice.
+ *
+ * The absent-key check must happen before `Number(...)`: `Number(null)` is `0`, not `NaN`, so
+ * `Number.isFinite` alone can't tell "key was never set" apart from "key is genuinely `0`" — the
+ * former needs to fall through to `NAVIGATION_WIDTH_BOUNDS.default` in the caller, the latter
+ * needs to clamp to `.min` like any other too-small stored value. Only visible once `default` and
+ * `min` diverge (7.2: they used to both be 232) — before that, both paths produced the same
+ * number, so no test could have told them apart.
+ */
 function readLegacySessionSidebarWidth(): number | undefined {
   if (typeof localStorage === "undefined") return undefined;
-  const stored = Number(localStorage.getItem(LEGACY_SESSION_SIDEBAR_WIDTH_KEY));
+  const raw = localStorage.getItem(LEGACY_SESSION_SIDEBAR_WIDTH_KEY);
+  if (raw === null) return undefined;
+  const stored = Number(raw);
   return Number.isFinite(stored) ? stored : undefined;
 }
 
