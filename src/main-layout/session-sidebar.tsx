@@ -8,6 +8,8 @@ import { cn } from "../lib/utils";
 import { FilterPopover, type FilterField } from "../ui/filter-popover/FilterPopover";
 import type { Session, SessionCategory, SessionSearchResult } from "../types/agent";
 import { SessionCard } from "./session-card";
+import { SessionCategoryGroup } from "./session-category-group";
+import { SessionRowList } from "./session-row-list";
 import {
   ALL_PROJECTS_FILTER,
   filterSearchResultsByAgent,
@@ -143,12 +145,24 @@ export function SessionSidebar({ activeSessionId, agentsAvailable, archivedSessi
       return next;
     });
   }
-  const dropCategory = (event: DragEvent<HTMLElement>, categoryId: string | null) => {
+  // 7.15: `dragOverGroupKey` drives the visible drop-target highlight while a drag is over a
+  // section; `justDroppedGroupKey` drives a brief success flash once the drop lands. Neither is an
+  // optimistic move — the row itself only reflects a new category once `onAssignCategory`'s own
+  // mutation actually succeeds (use-main-layout-model.ts's `invalidateSessions`) — so a rejected
+  // assignment has nothing to visually roll back; its failure now surfaces through that mutation's
+  // own `onError` toast instead of failing silently.
+  const [dragOverGroupKey, setDragOverGroupKey] = useState<string | null>(null);
+  const [justDroppedGroupKey, setJustDroppedGroupKey] = useState<string | null>(null);
+  const dropCategory = (event: DragEvent<HTMLElement>, categoryId: string | null, groupKey: string) => {
     event.preventDefault();
+    setDragOverGroupKey(null);
     if (batchMode) return;
     const sessionId = event.dataTransfer.getData("text/plain");
     const session = renderedSessions.find((candidate) => candidate.id === sessionId);
-    if (session) onAssignCategory(session, categoryId);
+    if (!session) return;
+    onAssignCategory(session, categoryId);
+    setJustDroppedGroupKey(groupKey);
+    window.setTimeout(() => setJustDroppedGroupKey((current) => current === groupKey ? null : current), 600);
   };
   const card = (session: Session) => (
     <SessionCard
@@ -220,9 +234,26 @@ export function SessionSidebar({ activeSessionId, agentsAvailable, archivedSessi
             {result.matches[0] && result.matches[0].kind !== "title" ? <p className="truncate px-2 text-xs text-muted-foreground">{result.matches[0].excerpt}</p> : null}
           </div>
         ))}{filteredSearchResults.length === 0 ? <p className="ucd-muted-panel rounded-md p-3 text-xs text-muted-foreground">{t("layout.noSearchResults")}</p> : null}</div> : null}
-        {!searchQuery.trim() && presentation === "list" ? <div className="grid gap-1">{attentionSorted.map(card)}{attentionSorted.length === 0 ? <p className="ucd-muted-panel rounded-md p-3 text-xs text-muted-foreground">{emptyListMessage}</p> : null}</div> : null}
-        {!searchQuery.trim() && presentation === "category" ? <div className="grid gap-2">{categoryGroups.map((group) => <section className="grid gap-2" data-session-category-id={group.id ?? "uncategorized"} key={group.id ?? "uncategorized"} onDragOver={(event) => { if (!batchMode) event.preventDefault(); }} onDrop={(event) => dropCategory(event, group.id)}><button className="ucd-list-row flex h-8 items-center gap-2 rounded-md px-2 text-left text-xs" onClick={() => toggle(`category:${group.id ?? "none"}`)} type="button">{expanded.has(`category:${group.id ?? "none"}`) ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}<ListTree className="h-3.5 w-3.5 text-primary" /><span className="truncate">{group.label}</span><span className="ml-auto">{group.sessions.length}</span></button>{expanded.has(`category:${group.id ?? "none"}`) ? group.sessions.map(card) : null}</section>)}</div> : null}
-        {presentation === "project" ? <div className="grid gap-2">{projectGroups.map((group) => <section className="grid gap-2" key={group.id}><button className="ucd-list-row flex h-8 items-center gap-2 rounded-md px-2 text-left text-xs" onClick={() => toggle(group.id)} title={group.path ?? group.label} type="button">{expanded.has(group.id) ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}<FolderOpen className="h-3.5 w-3.5 text-primary" /><span className="truncate">{group.label}</span><span className="ml-auto">{group.sessions.length}</span></button>{expanded.has(group.id) ? group.sessions.map(card) : null}</section>)}{projectGroups.length === 0 ? <p className="ucd-muted-panel rounded-md p-3 text-xs text-muted-foreground">{searchQuery.trim() ? t("layout.noSearchResults") : sourceMode === "archived" ? t("layout.noArchived") : t("layout.noSessionsVisible")}</p> : null}</div> : null}
+        {!searchQuery.trim() && presentation === "list" ? (
+          attentionSorted.length === 0
+            ? <p className="ucd-muted-panel rounded-md p-3 text-xs text-muted-foreground">{emptyListMessage}</p>
+            : <SessionRowList ariaLabel={t("layout.sessions")} card={card} sessions={attentionSorted} />
+        ) : null}
+        {!searchQuery.trim() && presentation === "category" ? <div className="grid gap-2">{categoryGroups.map((group) => (
+          <SessionCategoryGroup
+            batchMode={batchMode}
+            card={card}
+            dragOverGroupKey={dragOverGroupKey}
+            expanded={expanded.has(`category:${group.id ?? "none"}`)}
+            group={group}
+            justDroppedGroupKey={justDroppedGroupKey}
+            key={group.id ?? "uncategorized"}
+            onDrop={dropCategory}
+            onToggle={() => toggle(`category:${group.id ?? "none"}`)}
+            setDragOverGroupKey={setDragOverGroupKey}
+          />
+        ))}</div> : null}
+        {presentation === "project" ? <div className="grid gap-2">{projectGroups.map((group) => <section className="grid gap-2" key={group.id}><button className="ucd-list-row flex h-8 items-center gap-2 rounded-md px-2 text-left text-xs" onClick={() => toggle(group.id)} title={group.path ?? group.label} type="button">{expanded.has(group.id) ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}<FolderOpen className="h-3.5 w-3.5 text-primary" /><span className="truncate">{group.label}</span><span className="ml-auto">{group.sessions.length}</span></button>{expanded.has(group.id) ? <SessionRowList ariaLabel={group.label} card={card} sessions={group.sessions} /> : null}</section>)}{projectGroups.length === 0 ? <p className="ucd-muted-panel rounded-md p-3 text-xs text-muted-foreground">{searchQuery.trim() ? t("layout.noSearchResults") : sourceMode === "archived" ? t("layout.noArchived") : t("layout.noSessionsVisible")}</p> : null}</div> : null}
       </div>
       {/* 7.7: a dedicated region at the bottom of the pane, not a top-of-list panel — visible only
           in batch mode, so it never competes with the search/new-session controls above. */}

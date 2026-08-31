@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 
-import { fireEvent, screen } from "@testing-library/react";
+import { act, fireEvent, screen } from "@testing-library/react";
 import { useState } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Session, SessionCategory } from "../types/agent";
 import { renderWithAppProviders } from "../test/render";
 import { SessionSidebar } from "./session-sidebar";
@@ -16,6 +16,10 @@ describe("SessionSidebar category interactions", () => {
   beforeEach(() => {
     localStorage.clear();
   });
+
+  // A leaked fake-timer state from a failed assertion mid-test would hang every subsequent test's
+  // own real-timer waits.
+  afterEach(() => vi.useRealTimers());
 
   it("assigns a dragged Session once and presents it in the target category", async () => {
     const assigned = vi.fn();
@@ -45,6 +49,47 @@ describe("SessionSidebar category interactions", () => {
 
     expect(assigned).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: /Drag session/ })).toBeTruthy();
+  });
+
+  // 7.15
+  it("highlights the drop target while a drag is over it, and clears the highlight once it leaves", async () => {
+    const { user } = renderWithAppProviders(<SidebarHarness onAssigned={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /^分类$/ }));
+    await user.click(screen.getByRole("button", { name: /^Source/ }));
+    await user.click(screen.getByRole("button", { name: /^Target/ }));
+
+    const target = categorySection("target");
+    expect(target.className).not.toContain("ring-primary/50");
+
+    fireEvent.dragEnter(target);
+    expect(target.className).toContain("ring-primary/50");
+
+    // Fired on the section itself (event.target === event.currentTarget), matching a drag that
+    // leaves the section entirely rather than moving between its own children.
+    fireEvent.dragLeave(target, { target });
+    expect(target.className).not.toContain("ring-primary/50");
+  });
+
+  it("flashes success feedback on the section a drop lands in, then clears it", async () => {
+    const { user } = renderWithAppProviders(<SidebarHarness onAssigned={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: /^分类$/ }));
+    await user.click(screen.getByRole("button", { name: /^Source/ }));
+    await user.click(screen.getByRole("button", { name: /^Target/ }));
+
+    // Fake timers only from here: `userEvent`'s own clicks above need real ones, and switching
+    // mid-test (rather than never mixing at all) is safe as long as nothing async spans the swap.
+    vi.useFakeTimers();
+    const transfer = createDataTransfer();
+    fireEvent.dragStart(screen.getByRole("button", { name: /Drag session/ }), { dataTransfer: transfer });
+    const target = categorySection("target");
+    fireEvent.drop(target, { dataTransfer: transfer });
+
+    expect(target.className).toContain("success");
+    // `act()`: the state update this timer triggers happens outside any RTL-dispatched event, so
+    // nothing else flushes it before the assertion below reads the DOM.
+    act(() => { vi.advanceTimersByTime(600); });
+    expect(categorySection("target").className).not.toContain("success");
+    vi.useRealTimers();
   });
 });
 

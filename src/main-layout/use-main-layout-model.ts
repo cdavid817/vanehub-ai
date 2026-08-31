@@ -122,7 +122,13 @@ export function useMainLayoutModel() {
     onSettled: invalidateSessions,
   });
   const createCategory = useMutation({ mutationFn: (name: string) => agentService.createSessionCategory({ name }), onSuccess: invalidateSessions });
-  const assignCategory = useMutation({ mutationFn: ({ session, categoryId }: { session: Session; categoryId: string | null }) => agentService.assignSessionCategory({ sessionId: session.id, categoryId }), onSuccess: invalidateSessions });
+  const assignCategory = useMutation({
+    mutationFn: ({ session, categoryId }: { session: Session; categoryId: string | null }) => agentService.assignSessionCategory({ sessionId: session.id, categoryId }),
+    // 7.15: previously had no onError at all — a rejected assignment (from a drag or the context
+    // menu) failed silently, since nothing else in this mutation's own path reports it.
+    onError: (reason, input) => reportChatFailure("MainLayout.assignCategory", reason, input.session.id),
+    onSuccess: invalidateSessions,
+  });
   const exportSession = useMutation({
     mutationFn: ({ session, format }: { session: Session; format: SessionExportFormat }) => agentService.exportSession({ sessionId: session.id, format }),
     onSuccess: (result, input) => {
