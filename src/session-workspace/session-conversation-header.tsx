@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Circle, MessagesSquare } from "lucide-react";
+import { Circle, MessagesSquare, Square } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "../lib/utils";
 import {
@@ -23,11 +23,18 @@ export function SessionConversationHeader({
   actions,
   isStreaming,
   onOpenIm,
+  onStop,
   session,
 }: {
   actions?: ReactNode;
   isStreaming: boolean;
   onOpenIm?: () => void;
+  /**
+   * The header's one primary action (design.md: "一个主操作"), present only while there is
+   * something to stop — Send itself stays in the composer, not duplicated up here, and a pending
+   * recovery already has its own acknowledge affordance in the notice banner below this header.
+   */
+  onStop?: () => void;
   session: Session | null;
 }) {
   const { t } = useTranslation();
@@ -80,6 +87,18 @@ export function SessionConversationHeader({
               <Circle aria-hidden="true" className={cn("h-2 w-2 fill-current", isStreaming && "animate-pulse motion-reduce:animate-none")} />
               {statusLabel}
             </span>
+          ) : null}
+          {isStreaming && onStop ? (
+            <button
+              aria-label={t("chat.stopTitle")}
+              className="flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs font-medium text-foreground hover:bg-muted"
+              onClick={onStop}
+              title={t("chat.stopTitle")}
+              type="button"
+            >
+              <Square aria-hidden="true" className="h-3 w-3 fill-current" />
+              {t("chat.stop")}
+            </button>
           ) : null}
           {actions}
         </div>

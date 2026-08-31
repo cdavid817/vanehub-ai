@@ -26,6 +26,8 @@ export interface SessionWorkspaceRegionsProps {
   onLoadEarlier?: () => void;
   onOpenSettings: () => void;
   onRuntimeMaximizedChange?: (maximized: boolean) => void;
+  /** Absent when nothing is streaming — see SessionConversationHeader's own doc comment. */
+  onStop?: () => void;
   recoveryNotice?: ReactNode;
   requestedSurface?: SessionSurfaceId | null;
   requestedSurfaceNonce?: number;

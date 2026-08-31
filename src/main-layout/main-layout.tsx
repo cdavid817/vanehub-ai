@@ -258,6 +258,7 @@ export function MainLayout({
     onLoadEarlier: model.loadEarlier,
     onOpenSettings,
     onRuntimeMaximizedChange: setRuntimeMaximized,
+    onStop: model.stop,
     recoveryNotice: buildRecoveryNotice({ model, recoverSession, recoveringSessionId, showing: !loopInspection }),
     requestedSurface: requestedWorkspaceSurface,
     requestedSurfaceNonce: (panelTabRequest?.nonce ?? 0) + (slashTabRequest?.nonce ?? 0),

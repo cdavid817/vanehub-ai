@@ -39,6 +39,7 @@ export function SessionPrimarySurfaces(
     messages,
     onLoadEarlier = () => undefined,
     onOpenSettings,
+    onStop,
     recoveryNotice,
     requestedSurface,
     requestedSurfaceNonce = 0,
@@ -113,6 +114,7 @@ export function SessionPrimarySurfaces(
         actions={visibilityControls ? <ConversationOverflowMenu {...visibilityControls} /> : null}
         isStreaming={isStreaming}
         onOpenIm={visibilityControls?.onOpenIm}
+        onStop={onStop}
         session={activeSession}
       />
       {recoveryNotice}

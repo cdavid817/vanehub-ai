@@ -244,7 +244,7 @@ export function useMainLayoutModel() {
     fileReferenceCandidates,
     fileReferences,
     isSending: sendMessage.isPending, isStreaming,
-    loadEarlier: () => setMessageLimit((value) => value + 50), messages, messagesPartial: messages.length >= messageLimit,
+    loadEarlier: () => setMessageLimit((value) => value + 50), messages, messagesLoading: messagesQuery.isLoading, messagesPartial: messages.length >= messageLimit,
     pinSession: (session: Session) => pinSession.mutate(session), archiveSession: (session: Session) => archiveSession.mutate(session),
     recoverySummary: recoverySync.recoverySummary,
     acknowledgeRecovery: recoverySync.acknowledgeRecovery,
