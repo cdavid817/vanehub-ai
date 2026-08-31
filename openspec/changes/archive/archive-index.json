@@ -3702,6 +3702,20 @@
       "capabilities": [
         "desktop-runtime-verification"
       ]
+    },
+    {
+      "archivedOn": "2026-08-31",
+      "changeName": "fix-unverified-health-signals",
+      "path": "openspec/changes/archive/2026-08-31-fix-unverified-health-signals/",
+      "artifacts": [
+        "proposal",
+        "tasks",
+        "verification"
+      ],
+      "capabilities": [
+        "continuous-integration",
+        "lsp-server-management"
+      ]
     }
   ]
 }

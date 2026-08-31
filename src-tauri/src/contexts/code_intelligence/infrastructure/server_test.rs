@@ -17,6 +17,21 @@ use url::Url;
 const STDERR_LIMIT: usize = 64 * 1024;
 const MIN_TEST_TIMEOUT: Duration = Duration::from_millis(100);
 
+/// The least time cleanup gets, whatever the caller's own deadline has left.
+///
+/// The deadline a caller supplies bounds the work it asked for. Cleanup is not that work — it is
+/// what this code owes the machine afterwards — and giving it the remainder means a slow spawn
+/// leaves it nothing. What follows is not a slow cleanup but a false one: `start_kill` is issued,
+/// the wait is skipped because there is no time to wait in, and the phase reports failure for a
+/// child that did in fact die. A caller told "cleanup failed" cannot tell that from a process tree
+/// still running.
+///
+/// Two seconds because it has to cover the whole shutdown ladder — a graceful window, a terminate
+/// signal on Unix, then a kill and the wait that observes it — on a machine loaded enough to have
+/// spent the caller's budget in the first place. It is a ceiling, not a delay: cleanup that
+/// finishes sooner returns sooner.
+const CLEANUP_FLOOR: Duration = Duration::from_secs(2);
+
 #[derive(Clone)]
 pub(crate) struct ServerTestCommand {
     language: Language,
@@ -239,7 +254,11 @@ impl IsolatedServerTester {
             ),
         }
 
-        match process.shutdown_protocol(&client, deadline).await {
+        // The later of the caller's deadline and the floor. `max` rather than "the floor when the
+        // deadline has passed": a deadline with 50 ms left is as unable to observe a kill as one
+        // with none, and the boundary between them is not a distinction worth encoding.
+        let cleanup_deadline = deadline.max(Instant::now() + CLEANUP_FLOOR);
+        match process.shutdown_protocol(&client, cleanup_deadline).await {
             Ok(outcome) => {
                 let _exit_observed = outcome.exit.status;
                 let reason = (outcome.disposition == LspShutdownDisposition::Forced)
