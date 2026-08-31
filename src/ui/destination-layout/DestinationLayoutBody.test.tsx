@@ -183,6 +183,31 @@ describe("DestinationLayoutBody", () => {
     expect(mounts).toHaveBeenCalledTimes(1);
   });
 
+  it("returns focus to the region's returnFocus element when its sheet closes, not merely whatever had focus before opening", () => {
+    // Isolates the plumbing this test targets (HorizontalPaneRegion.returnFocus -> Sheet) from
+    // useFocusTrap's own pre-existing fallback (returning focus to whatever was focused right
+    // before the dialog opened) -- that fallback would make this pass even without the plumbing,
+    // so the two candidates must be different elements.
+    const previouslyFocused = document.createElement("button");
+    const returnFocusTarget = document.createElement("button");
+    document.body.append(previouslyFocused, returnFocusTarget);
+    previouslyFocused.focus();
+
+    const inspectorWithReturnFocus = region({ ...inspector, returnFocus: returnFocusTarget });
+    const { rerender } = render(
+      <DestinationLayoutBody containerWidth={1100} inspector={inspectorWithReturnFocus} main={<main>Work surface</main>} navigation={navigation} tier="standard" />,
+    );
+    expect(screen.getByRole("dialog", { name: "Inspector" })).toBeTruthy();
+
+    rerender(
+      <DestinationLayoutBody containerWidth={1100} inspector={{ ...inspectorWithReturnFocus, open: false }} main={<main>Work surface</main>} navigation={navigation} tier="standard" />,
+    );
+    expect(document.activeElement).toBe(returnFocusTarget);
+
+    previouslyFocused.remove();
+    returnFocusTarget.remove();
+  });
+
   it("tags its root with the current tier for downstream styling/testing hooks", () => {
     const { container } = render(<DestinationLayoutBody containerWidth={1600} main={<main>Work surface</main>} tier="wide" />);
     expect(container.querySelector('[data-layout-tier="wide"]')).not.toBeNull();
