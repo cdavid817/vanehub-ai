@@ -12,10 +12,7 @@ import type { Session } from "../types/agent";
 import type { InspectorProviderContext } from "../ui/inspector/inspector-provider-registry";
 import { SessionEvidenceSummary } from "./session-evidence-summary";
 
-/**
- * Mirrors session-info-panel.tsx's own private `Field` layout. Duplicated rather than imported:
- * that file is untouched until its own removal (task 9.17) and never exported this helper.
- */
+/** Mirrors the removed session-info-panel.tsx's own private `Field` layout, which never exported it. */
 function Field({ icon, label, value }: { icon: ReactNode; label: string; value: ReactNode }) {
   return (
     <div className="border-b border-border/60 pb-2 last:border-0 last:pb-0">

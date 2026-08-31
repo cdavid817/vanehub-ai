@@ -86,7 +86,6 @@ const checkedFiles = [
   "src/session-workspace/document-viewer.tsx",
   "src/session-workspace/workspace-coverage-notice.tsx",
   "src/main-layout/session-evidence-summary.tsx",
-  "src/main-layout/session-info-panel.tsx",
   "src/floating-assistant/floating-assistant-app.tsx",
   "src/settings/pages/floating-assistant-settings-section.tsx",
 ];

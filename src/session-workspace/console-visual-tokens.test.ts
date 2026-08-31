@@ -32,7 +32,9 @@ const CONSOLE_SURFACES: readonly { readonly directory: "main-layout" | "session-
   { directory: "session-workspace", file: "files-tab.tsx" },
   { directory: "session-workspace", file: "documents-tab.tsx" },
   { directory: "session-workspace", file: "review-center.tsx" },
-  { directory: "main-layout", file: "session-info-panel.tsx" },
+  { directory: "main-layout", file: "session-overview.tsx" },
+  { directory: "main-layout", file: "session-overview-sections.tsx" },
+  { directory: "main-layout", file: "session-overview-runtime-workspace.tsx" },
   { directory: "main-layout", file: "session-evidence-summary.tsx" },
 ];
 
