@@ -13,9 +13,9 @@ describe("about-service", () => {
       new Response(
         JSON.stringify({
           body: "Release notes",
-          html_url: "https://github.com/cdavid817/vanehub-ai/releases/tag/v1.3.1",
-          name: "VaneHub AI v1.3.1",
-          tag_name: "v1.3.1",
+          html_url: "https://github.com/cdavid817/vanehub-ai/releases/tag/v1.4.1",
+          name: "VaneHub AI v1.4.1",
+          tag_name: "v1.4.1",
         }),
         { status: 200 },
       );
@@ -23,7 +23,7 @@ describe("about-service", () => {
     const result = await checkAboutUpdates(fetchImpl);
 
     expect(result.updateAvailable).toBe(true);
-    expect(result.latestVersion).toBe("1.3.1");
+    expect(result.latestVersion).toBe("1.4.1");
     expect(result.releaseNotes).toBe("Release notes");
   });
 
