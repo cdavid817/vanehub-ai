@@ -51,6 +51,9 @@ test.describe("agent plan exit request", () => {
   test("keeps Plan mode inside the OnePiece session composer", async ({ page }) => {
     await createOnePieceChat(page, "会话栏计划模式");
 
+    // Execution mode now lives in the advanced Run configuration popover (10.16), not directly
+    // on the toolbar.
+    await page.getByTestId("composer-config-trigger").click();
     const mode = page.getByRole("button", { name: /继承|计划 · 只读|Agent · 可写/ });
     await mode.click();
     await page.getByRole("menuitemradio", { name: /计划 · 只读/ }).click();

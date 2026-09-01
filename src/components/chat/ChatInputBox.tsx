@@ -1,5 +1,5 @@
 import { useEffect, useRef, type ReactNode, type RefObject } from "react";
-import { FileText, X } from "lucide-react";
+import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useComposerDropTarget } from "../../hooks/use-composer-drop-target";
 import { useComposerMention } from "../../hooks/use-composer-mention";
@@ -14,10 +14,11 @@ const loadPreviewDialog = () =>
 import { formatMentionRange, type MentionLineRange } from "../../services/composer-mention";
 import type { AgentRegistryEntry } from "../../types/agent";
 import type { FileSearchMatch } from "../../types/session-workspace";
-import type { ChatConfig, ChatFileReference, ModelInfo, ReasoningDepth, SessionExecutionMode } from "../../types/chat";
+import type { ChatFileReference, ModelInfo, ReasoningDepth, SessionExecutionMode } from "../../types/chat";
 import { ButtonArea } from "./ButtonArea";
 import { ComposerMentionCompletion } from "./ComposerMentionCompletion";
-import { FileReferenceLines } from "./FileReferenceLines";
+import { FileReferenceChips } from "./FileReferenceChips";
+import type { RunConfigurationOverrides } from "./hooks/useRunConfigurationOverrides";
 import type { SeatMentionOption } from "./SeatMentionCompletion";
 import { SlashCommandCompletion } from "./SlashCommandCompletion";
 import { SlashCommandOutput } from "./SlashCommandOutput";
@@ -28,7 +29,6 @@ export function ChatInputBox({
   availableModes,
   availableModels,
   availableReasoning,
-  config,
   disabled,
   isStreaming,
   lockRuntimeIdentity = false,
@@ -40,18 +40,12 @@ export function ChatInputBox({
   onAddFileReference,
   onChange,
   onClear,
-  onConfigAgentChange,
-  onConfigLongContextChange,
-  onConfigModeChange,
-  onConfigModelChange,
-  onConfigProviderChange,
-  onConfigReasoningChange,
-  onConfigStreamingChange,
-  onConfigThinkingChange,
   onStop,
   onSubmit,
   onRemoveFileReference,
   participantMentions = [],
+  runConfig,
+  runnerSelector,
   sessionId = null,
   slashCommandOutput = null,
   slashCommandSuggestions = [],
@@ -63,7 +57,6 @@ export function ChatInputBox({
   availableModes: SessionExecutionMode[];
   availableModels: ModelInfo[];
   availableReasoning: ReasoningDepth[];
-  config: ChatConfig;
   disabled?: boolean;
   isStreaming: boolean;
   lockRuntimeIdentity?: boolean;
@@ -83,18 +76,18 @@ export function ChatInputBox({
   onChange: (value: string) => void;
   onAddFileReference: (candidate: FileSearchMatch, range: MentionLineRange) => void;
   onClear: () => void;
-  onConfigAgentChange: (value: string) => void;
-  onConfigLongContextChange: (value: boolean) => void;
-  onConfigModeChange: (value: SessionExecutionMode) => void;
-  onConfigModelChange: (value: string) => void;
-  onConfigProviderChange: (value: string) => void;
-  onConfigReasoningChange: (value: ReasoningDepth) => void;
-  onConfigStreamingChange: (value: boolean) => void;
-  onConfigThinkingChange: (value: boolean) => void;
   onStop: () => void;
   onSubmit: () => void;
   onRemoveFileReference: (referenceId: string) => void;
   participantMentions?: SeatMentionOption[];
+  /** The profile config merged with any this-message overrides, plus the provenance controls
+   *  the advanced popover needs — one consolidated prop instead of `config` plus eight
+   *  `onConfigXChange` profile setters, since every field now writes through `setOverride`
+   *  rather than the profile path (see `useRunConfigurationOverrides`). */
+  runConfig: RunConfigurationOverrides;
+  /** Runner-selection UI slot, mirroring `mediaActions`: `ApiSessionComposer` still owns
+   *  `useRunnerSelection` and renders `RunnerSelector`, just inside the popover now. */
+  runnerSelector?: ReactNode;
   /** Needed to read a candidate's content for the preview; without one, selection attaches directly. */
   sessionId?: string | null;
   slashCommandOutput?: CommandOutput | null;
@@ -221,20 +214,7 @@ export function ChatInputBox({
             <ComposerMentionCompletion activeIndex={completion.activeIndex} fileSuggestions={fileSuggestions} listboxId={completion.listboxId} onSelectFile={selectReference} onSelectParticipant={selectParticipant} optionId={completion.optionId} participantSuggestions={participantSuggestions} />
           </div>
         ) : null}
-        {fileReferences.length ? (
-          <div className="flex flex-wrap gap-1.5 px-3 pt-3" data-testid="composer-file-references">
-            {fileReferences.map((reference) => (
-              <span className="inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-muted/60 px-2 py-1 text-xs" key={reference.id}>
-                <FileText className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
-                <span className="truncate">{reference.name}</span>
-                <FileReferenceLines reference={reference} />
-                <button className="rounded text-muted-foreground hover:text-foreground" disabled={disabled || isStreaming} onClick={() => onRemoveFileReference(reference.id)} title={t("chat.removeFileReference")} type="button">
-                  <X className="h-3 w-3" aria-hidden="true" />
-                </button>
-              </span>
-            ))}
-          </div>
-        ) : null}
+        <FileReferenceChips disabled={disabled} fileReferences={fileReferences} isStreaming={isStreaming} onRemoveFileReference={onRemoveFileReference} />
         <div className="relative">
         <textarea
           aria-activedescendant={completion.activeOptionId}
@@ -279,20 +259,13 @@ export function ChatInputBox({
           availableReasoning={availableReasoning}
           canSubmit={canSubmit}
           mediaActions={mediaActions}
-          config={config}
           disabled={disabled}
           isStreaming={isStreaming}
           lockRuntimeIdentity={lockRuntimeIdentity}
-          onAgentChange={onConfigAgentChange}
-          onLongContextChange={onConfigLongContextChange}
-          onModeChange={onConfigModeChange}
-          onModelChange={onConfigModelChange}
-          onProviderChange={onConfigProviderChange}
-          onReasoningChange={onConfigReasoningChange}
           onStop={onStop}
-          onStreamingChange={onConfigStreamingChange}
           onSubmit={onSubmit}
-          onThinkingChange={onConfigThinkingChange}
+          runConfig={runConfig}
+          runnerSelector={runnerSelector}
         />
       </div>
     </div>

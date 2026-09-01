@@ -4,6 +4,7 @@ import { fireEvent, screen } from "@testing-library/react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { activateAppLanguage } from "../../i18n";
 import { renderWithAppProviders } from "../../test/render";
+import { runConfigFixture } from "../../test/run-config-fixture";
 import { ChatInputBox } from "./ChatInputBox";
 
 const participants = [
@@ -18,14 +19,10 @@ function renderComposer(overrides: Partial<Parameters<typeof ChatInputBox>[0]> =
   const view = renderWithAppProviders(
     <ChatInputBox
       agents={[]} availableModes={["inherit"]} availableModels={[]} availableReasoning={["low"]}
-      config={{ agentId: "codex-cli", interactionMode: "cli", executionMode: "inherit", streaming: true, thinking: false, longContext: false }}
+      runConfig={runConfigFixture({ agentId: "codex-cli", interactionMode: "cli", executionMode: "inherit", streaming: true, thinking: false, longContext: false })}
       fileReferenceCandidates={[{ name: "README.md", path: "README.md" }]}
       fileReferences={[]} isStreaming={false} participantMentions={participants} value="@"
       onAddFileReference={onAddFileReference} onChange={onChange} onClear={() => undefined}
-      onConfigAgentChange={() => undefined} onConfigLongContextChange={() => undefined}
-      onConfigModeChange={() => undefined} onConfigModelChange={() => undefined}
-      onConfigProviderChange={() => undefined} onConfigReasoningChange={() => undefined}
-      onConfigStreamingChange={() => undefined} onConfigThinkingChange={() => undefined}
       onRemoveFileReference={() => undefined} onStop={() => undefined} onSubmit={onSubmit}
       {...overrides}
     />,

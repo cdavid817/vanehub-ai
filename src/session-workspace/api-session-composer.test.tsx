@@ -5,6 +5,7 @@ import { screen } from "@testing-library/react";
 import { activateAppLanguage } from "../i18n";
 import { NotificationProvider } from "../notifications/notification-provider";
 import { renderWithAppProviders } from "../test/render";
+import { runConfigFixture } from "../test/run-config-fixture";
 import type { MainLayoutModel } from "../main-layout/use-main-layout-model";
 import { ApiSessionComposer } from "./api-session-composer";
 
@@ -14,17 +15,19 @@ const sendable = { recoveryStatus: "clean", activeExecutionRunId: null, archived
 
 function model(overrides: Record<string, unknown> = {}) {
   const submit = vi.fn();
+  const config = { agentId: "onepiece", interactionMode: "api", executionMode: "inherit", streaming: true, thinking: false, longContext: false } as const;
   const base = {
     activeSession: { id: "session-1", title: "S", agentId: "onepiece", interactionMode: "api", lifecycleState: "idle", ...sendable },
     agents: [], draft: "", fileReferenceCandidates: [], fileReferences: [],
     isSending: false, isStreaming: false, messages: [],
     chatConfig: {
       availableAgents: [], availableModes: ["inherit"], availableModels: [], availableReasoning: ["low"],
-      config: { agentId: "onepiece", interactionMode: "api", executionMode: "inherit", streaming: true, thinking: false, longContext: false },
+      config,
       changeAgent: vi.fn(), changeModel: vi.fn(), changeProvider: vi.fn(),
       setLongContext: vi.fn(), setReasoningDepth: vi.fn(), setSessionExecutionMode: vi.fn(),
       setStreaming: vi.fn(), setThinking: vi.fn(),
     },
+    runConfigOverrides: runConfigFixture(config),
     addFileReference: vi.fn(), removeFileReference: vi.fn(), exportSession: vi.fn(),
     setDraft: vi.fn(), stop: vi.fn(), submit, submitWithRunner: submit,
     ...overrides,

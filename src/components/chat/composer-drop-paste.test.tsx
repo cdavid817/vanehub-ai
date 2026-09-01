@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import "../../i18n";
 import { FILE_REFERENCE_TRANSFER_TYPE } from "../../services/file-reference-transfer";
 import type { MentionLineRange } from "../../services/composer-mention";
+import { runConfigFixture } from "../../test/run-config-fixture";
 import type { AgentRegistryEntry } from "../../types/agent";
 import type { ChatConfig } from "../../types/chat";
 import type { FileSearchMatch } from "../../types/session-workspace";
@@ -54,7 +55,7 @@ function renderComposer({ disabled = false, isStreaming = false } = {}) {
       availableModes={["inherit"]}
       availableModels={[]}
       availableReasoning={["medium"]}
-      config={config}
+      runConfig={runConfigFixture(config)}
       disabled={disabled}
       fileReferenceCandidates={[]}
       fileReferences={[]}
@@ -62,14 +63,6 @@ function renderComposer({ disabled = false, isStreaming = false } = {}) {
       onAddFileReference={onAddFileReference}
       onChange={onChange}
       onClear={vi.fn()}
-      onConfigAgentChange={vi.fn()}
-      onConfigLongContextChange={vi.fn()}
-      onConfigModeChange={vi.fn()}
-      onConfigModelChange={vi.fn()}
-      onConfigProviderChange={vi.fn()}
-      onConfigReasoningChange={vi.fn()}
-      onConfigStreamingChange={vi.fn()}
-      onConfigThinkingChange={vi.fn()}
       onRemoveFileReference={vi.fn()}
       onStop={vi.fn()}
       onSubmit={vi.fn()}

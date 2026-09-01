@@ -106,23 +106,25 @@ export function ApiSessionComposer({
     model.submitWithRunner(runner.selection);
   }
 
+  const runnerSelector = (
+    <RunnerSelector
+      descriptors={runner.descriptors}
+      disabled={!canSendToSession(model.activeSession) || model.isSending || model.isStreaming}
+      error={runner.error}
+      loading={runner.loading}
+      onChange={runner.setSelection}
+      onRetry={() => void runner.refetch()}
+      value={runner.selection}
+    />
+  );
+
   return (
     <div>
-      <RunnerSelector
-        descriptors={runner.descriptors}
-        disabled={!canSendToSession(model.activeSession) || model.isSending || model.isStreaming}
-        error={runner.error}
-        loading={runner.loading}
-        onChange={runner.setSelection}
-        onRetry={() => void runner.refetch()}
-        value={runner.selection}
-      />
       <ChatInputBox
       agents={model.chatConfig.availableAgents}
       availableModes={model.chatConfig.availableModes}
       availableModels={model.chatConfig.availableModels}
       availableReasoning={model.chatConfig.availableReasoning}
-      config={model.chatConfig.config}
       disabled={!canSendToSession(model.activeSession) || model.isSending}
       fileReferenceCandidates={model.fileReferenceCandidates}
       fileReferences={model.fileReferences}
@@ -130,19 +132,13 @@ export function ApiSessionComposer({
       lockRuntimeIdentity
       mediaActions={<ComposerMediaActions hasText={model.draft.trim().length > 0} media={media} />}
       participantMentions={participantMentions}
+      runConfig={model.runConfigOverrides}
+      runnerSelector={runnerSelector}
       slashCommandOutput={slash.output}
       slashCommandSuggestions={slash.suggestions}
       onAddFileReference={model.addFileReference}
       onChange={(value) => { slash.updateSuggestions(value); model.setDraft(value); }}
       onClear={() => model.setDraft("")}
-      onConfigAgentChange={model.chatConfig.changeAgent}
-      onConfigLongContextChange={model.chatConfig.setLongContext}
-      onConfigModeChange={model.chatConfig.setSessionExecutionMode}
-      onConfigModelChange={model.chatConfig.changeModel}
-      onConfigProviderChange={model.chatConfig.changeProvider}
-      onConfigReasoningChange={model.chatConfig.setReasoningDepth}
-      onConfigStreamingChange={model.chatConfig.setStreaming}
-      onConfigThinkingChange={model.chatConfig.setThinking}
       onDismissSlashCommandOutput={slash.dismissOutput}
       onRemoveFileReference={model.removeFileReference}
       onSelectionChange={(range) => { selectionRef.current = range; }}

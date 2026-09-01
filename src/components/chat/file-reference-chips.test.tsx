@@ -3,6 +3,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import "../../i18n";
+import { runConfigFixture } from "../../test/run-config-fixture";
 import type { AgentRegistryEntry } from "../../types/agent";
 import type { ChatConfig, ChatFileReference } from "../../types/chat";
 import { ChatInputBox } from "./ChatInputBox";
@@ -42,21 +43,13 @@ function renderComposer(onRemoveFileReference: (referenceId: string) => void) {
       availableModes={["inherit"]}
       availableModels={[]}
       availableReasoning={["medium"]}
-      config={config}
+      runConfig={runConfigFixture(config)}
       fileReferenceCandidates={[]}
       fileReferences={references}
       isStreaming={false}
       onAddFileReference={vi.fn()}
       onChange={vi.fn()}
       onClear={vi.fn()}
-      onConfigAgentChange={vi.fn()}
-      onConfigLongContextChange={vi.fn()}
-      onConfigModeChange={vi.fn()}
-      onConfigModelChange={vi.fn()}
-      onConfigProviderChange={vi.fn()}
-      onConfigReasoningChange={vi.fn()}
-      onConfigStreamingChange={vi.fn()}
-      onConfigThinkingChange={vi.fn()}
       onRemoveFileReference={onRemoveFileReference}
       onStop={vi.fn()}
       onSubmit={vi.fn()}

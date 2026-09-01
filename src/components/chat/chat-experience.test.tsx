@@ -1,6 +1,7 @@
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import "../../i18n";
+import { runConfigFixture } from "../../test/run-config-fixture";
 import type { AgentRegistryEntry } from "../../types/agent";
 import type { ChatConfig } from "../../types/chat";
 import { ChatInputBox } from "./ChatInputBox";
@@ -79,7 +80,7 @@ describe("chat Mermaid and file references", () => {
         availableModes={["inherit"]}
         availableModels={[]}
         availableReasoning={["low", "medium", "high", "max"]}
-        config={config}
+        runConfig={runConfigFixture(config)}
         fileReferenceCandidates={[
           { name: "README.md", path: "README.md" },
           { name: "session_search.rs", path: "src-tauri/src/session_search.rs" },
@@ -89,14 +90,6 @@ describe("chat Mermaid and file references", () => {
         onAddFileReference={vi.fn()}
         onChange={vi.fn()}
         onClear={vi.fn()}
-        onConfigAgentChange={vi.fn()}
-        onConfigLongContextChange={vi.fn()}
-        onConfigModeChange={vi.fn()}
-        onConfigModelChange={vi.fn()}
-        onConfigProviderChange={vi.fn()}
-        onConfigReasoningChange={vi.fn()}
-        onConfigStreamingChange={vi.fn()}
-        onConfigThinkingChange={vi.fn()}
         onRemoveFileReference={vi.fn()}
         onStop={vi.fn()}
         onSubmit={vi.fn()}
@@ -120,16 +113,12 @@ describe("chat Mermaid and file references", () => {
         availableModes={["inherit"]}
         availableModels={[]}
         availableReasoning={["medium"]}
-        config={config}
+        runConfig={runConfigFixture(config)}
         fileReferenceCandidates={[]}
         fileReferences={[]}
         isStreaming={false}
         participantMentions={[{ mention: "Reviewer", roleName: "Reviewer", agentName: "Codex", modelFamily: "openai", avatar: "🔍" }]}
         onAddFileReference={vi.fn()} onChange={vi.fn()} onClear={vi.fn()}
-        onConfigAgentChange={vi.fn()} onConfigLongContextChange={vi.fn()}
-        onConfigModeChange={vi.fn()} onConfigModelChange={vi.fn()}
-        onConfigProviderChange={vi.fn()} onConfigReasoningChange={vi.fn()}
-        onConfigStreamingChange={vi.fn()} onConfigThinkingChange={vi.fn()}
         onRemoveFileReference={vi.fn()} onStop={vi.fn()} onSubmit={vi.fn()}
         value="@rev"
       />,

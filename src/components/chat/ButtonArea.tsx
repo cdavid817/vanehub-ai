@@ -1,12 +1,14 @@
-import { useState, type ReactNode } from "react";
-import { Send, Sparkles, Square } from "lucide-react";
+import type { ReactNode } from "react";
+import { Send, Sparkles, Square, TriangleAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { cn } from "../../lib/utils";
 import type { AgentRegistryEntry } from "../../types/agent";
-import type { ChatConfig, ModelInfo, SessionExecutionMode, ReasoningDepth } from "../../types/chat";
+import type { ModelInfo, SessionExecutionMode, ReasoningDepth } from "../../types/chat";
+import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
-import { ConfigSelect, ModelSelect, ModeSelect, ProviderSelect, ReasoningSelect } from "./selectors";
-
-type OpenDropdown = "config" | "provider" | "mode" | "model" | "reasoning" | null;
+import { ComposerConfigPopover } from "./ComposerConfigPopover";
+import { effectivePolicyForDisplay, isHighRiskExecutionPolicy } from "./composer-risk";
+import type { RunConfigurationOverrides } from "./hooks/useRunConfigurationOverrides";
 
 export function ButtonArea({
   agents,
@@ -14,29 +16,21 @@ export function ButtonArea({
   availableModels,
   availableReasoning,
   canSubmit,
-  config,
   disabled,
   isStreaming,
   lockRuntimeIdentity = false,
   mediaActions,
-  onAgentChange,
   onEnhance,
-  onLongContextChange,
-  onModeChange,
-  onModelChange,
-  onProviderChange,
-  onReasoningChange,
   onStop,
-  onStreamingChange,
   onSubmit,
-  onThinkingChange,
+  runConfig,
+  runnerSelector,
 }: {
   agents: AgentRegistryEntry[];
   availableModes: SessionExecutionMode[];
   availableModels: ModelInfo[];
   availableReasoning: ReasoningDepth[];
   canSubmit: boolean;
-  config: ChatConfig;
   disabled?: boolean;
   isStreaming: boolean;
   lockRuntimeIdentity?: boolean;
@@ -48,81 +42,59 @@ export function ButtonArea({
    * all of which would land here permanently once the first one did.
    */
   mediaActions?: ReactNode;
-  onAgentChange: (value: string) => void;
   onEnhance?: () => void;
-  onLongContextChange: (value: boolean) => void;
-  onModeChange: (value: SessionExecutionMode) => void;
-  onModelChange: (value: string) => void;
-  onProviderChange: (value: string) => void;
-  onReasoningChange: (value: ReasoningDepth) => void;
   onStop: () => void;
-  onStreamingChange: (value: boolean) => void;
   onSubmit: () => void;
-  onThinkingChange: (value: boolean) => void;
+  /** Effective config (profile + this-message overrides) and the provenance controls the
+   *  popover needs (design.md Decision 9). Replaces the old `config` + eight
+   *  `onConfigXChange` profile setters now that every field writes through `setOverride`. */
+  runConfig: RunConfigurationOverrides;
+  runnerSelector?: ReactNode;
 }) {
   const { t } = useTranslation();
-  const [openDropdown, setOpenDropdown] = useState<OpenDropdown>(null);
-  const open = (id: OpenDropdown) => setOpenDropdown((current) => (current === id ? null : id));
-  const close = () => setOpenDropdown(null);
+  const { effectiveConfig } = runConfig;
+  const agentLabel = agents.find((agent) => agent.id === effectiveConfig.agentId)?.displayName ?? effectiveConfig.agentId;
+  const resolvedModel = availableModels.find((model) => model.id === effectiveConfig.modelId) ?? availableModels[0];
+  const modelLabel = resolvedModel?.label ?? t("chat.config.model");
+  // Re-derived rather than read off `effectiveConfig.effectiveExecutionPolicy` directly: that
+  // field is only recomputed by the server on a profile save, so it goes stale the moment
+  // `executionMode` is staged as a this-message-only override (composer-risk.ts).
+  const displayedPolicy = effectivePolicyForDisplay(effectiveConfig);
+  // "allow" is the one effective-policy value the settings page already treats as risky enough
+  // to need an explicit confirmation before assigning (composer-risk.ts) -- everything else
+  // (readonly/ask) keeps the same plain, always-visible line it has today.
+  const highRisk = isHighRiskExecutionPolicy(displayedPolicy);
 
   return (
     <div className="flex min-h-11 flex-wrap items-center gap-2 px-2 pb-2 pt-1" data-testid="composer-toolbar">
       <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-        <ConfigSelect
-          agents={agents}
-          longContext={config.longContext}
-          onAgentChange={onAgentChange}
-          onClose={close}
-          onLongContextChange={onLongContextChange}
-          onOpen={() => open("config")}
-          onStreamingChange={onStreamingChange}
-          onThinkingChange={onThinkingChange}
-          open={openDropdown === "config"}
-          selectedAgentId={config.agentId}
-          streaming={config.streaming}
-          thinking={config.thinking}
-        />
-        <ProviderSelect
-          disabled={lockRuntimeIdentity}
-          onChange={onProviderChange}
-          onClose={close}
-          onOpen={() => open("provider")}
-          open={openDropdown === "provider"}
-          value={config.providerId ?? "anthropic"}
-        />
-        <ModeSelect
-          availableModes={availableModes}
-          emphasizeCapabilities={config.agentId === "onepiece" || config.providerId === "onepiece"}
-          onChange={onModeChange}
-          onClose={close}
-          onOpen={() => open("mode")}
-          open={openDropdown === "mode"}
-          value={config.executionMode}
-        />
-        {config.agentPolicy && config.effectiveExecutionPolicy ? (
-          <span className="max-w-64 truncate text-[11px] text-muted-foreground" data-testid="effective-execution-policy">
-            {t("chat.config.execution.effective", {
-              effective: t(`chat.config.execution.effective.${config.effectiveExecutionPolicy}`),
-              policy: t(`settings.agentPolicies.template.${config.agentPolicy}`),
-            })}
+        <span className="min-w-0 truncate text-xs text-muted-foreground" data-testid="composer-config-summary">
+          {t("chat.config.summary", { agent: agentLabel, model: modelLabel })}
+        </span>
+        {effectiveConfig.agentPolicy && displayedPolicy ? (
+          <span className="inline-flex max-w-64 items-center gap-1 text-[11px]" data-testid="effective-execution-policy">
+            {highRisk ? (
+              <Badge className="shrink-0 gap-1" tone="warning">
+                <TriangleAlert className="h-3 w-3" aria-hidden="true" />
+                {t("chat.config.highRiskLabel")}
+              </Badge>
+            ) : null}
+            <span className={cn("min-w-0 truncate", highRisk ? "font-medium text-warning" : "text-muted-foreground")}>
+              {t("chat.config.execution.effective", {
+                effective: t(`chat.config.execution.effective.${displayedPolicy}`),
+                policy: t(`settings.agentPolicies.template.${effectiveConfig.agentPolicy}`),
+              })}
+            </span>
           </span>
         ) : null}
-        <ModelSelect
-          disabled={lockRuntimeIdentity}
-          models={availableModels}
-          onChange={onModelChange}
-          onClose={close}
-          onOpen={() => open("model")}
-          open={openDropdown === "model"}
-          value={config.modelId ?? availableModels[0]?.id ?? ""}
-        />
-        <ReasoningSelect
+        <ComposerConfigPopover
+          agents={agents}
+          availableModes={availableModes}
+          availableModels={availableModels}
           availableReasoning={availableReasoning}
-          onChange={onReasoningChange}
-          onClose={close}
-          onOpen={() => open("reasoning")}
-          open={openDropdown === "reasoning"}
-          value={config.reasoningDepth ?? "low"}
+          lockRuntimeIdentity={lockRuntimeIdentity}
+          runConfig={runConfig}
+          runnerSelector={runnerSelector}
         />
       </div>
 

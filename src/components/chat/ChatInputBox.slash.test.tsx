@@ -4,6 +4,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import { screen } from "@testing-library/react";
 import { activateAppLanguage } from "../../i18n";
 import { renderWithAppProviders } from "../../test/render";
+import { runConfigFixture } from "../../test/run-config-fixture";
 import type { SlashCommand } from "../../services/slash-commands/types";
 import { ChatInputBox } from "./ChatInputBox";
 
@@ -15,13 +16,9 @@ function renderBox(overrides: Partial<Parameters<typeof ChatInputBox>[0]> = {}) 
   return renderWithAppProviders(
     <ChatInputBox
       agents={[]} availableModes={["inherit"]} availableModels={[]} availableReasoning={["low"]}
-      config={{ agentId: "onepiece", interactionMode: "api", executionMode: "inherit", streaming: true, thinking: false, longContext: false }}
+      runConfig={runConfigFixture({ agentId: "onepiece", interactionMode: "api", executionMode: "inherit", streaming: true, thinking: false, longContext: false })}
       fileReferenceCandidates={[]} fileReferences={[]} isStreaming={false} value=""
       onAddFileReference={() => undefined} onChange={() => undefined} onClear={() => undefined}
-      onConfigAgentChange={() => undefined} onConfigLongContextChange={() => undefined}
-      onConfigModeChange={() => undefined} onConfigModelChange={() => undefined}
-      onConfigProviderChange={() => undefined} onConfigReasoningChange={() => undefined}
-      onConfigStreamingChange={() => undefined} onConfigThinkingChange={() => undefined}
       onRemoveFileReference={() => undefined} onStop={() => undefined} onSubmit={() => undefined}
       {...overrides}
     />,

@@ -77,8 +77,12 @@ test.describe("OnePiece native Agent", () => {
     const composer = page.getByPlaceholder("输入指令，下发任务给当前 Agent...");
     await expect(composer).toBeVisible();
     await expect(page.getByLabel("Agent CLI 工作区")).toHaveCount(0);
+    // The closed-state summary keeps showing effective policy on its own (10.15/10.18), but the
+    // Execution mode control that changes it now lives inside the advanced Run configuration
+    // popover (10.16) rather than directly on the toolbar.
     await expect(page.getByTestId("effective-execution-policy")).toContainText("危险操作需要审批");
 
+    await page.getByTestId("composer-config-trigger").click();
     await page.getByTitle("运行模式：继承").click();
     await page.getByRole("menuitemradio", { name: /计划.*只读/ }).click();
     await expect(page.getByTitle(/运行模式：计划.*只读/)).toBeVisible();
@@ -87,6 +91,10 @@ test.describe("OnePiece native Agent", () => {
     await page.getByTitle(/运行模式：计划.*只读/).click();
     await page.getByRole("menuitemradio", { name: /继承.*Agent 权限策略/ }).click();
     await expect(page.getByTestId("effective-execution-policy")).toContainText("危险操作需要审批");
+    // Close the popover before typing: it opens over the composer (same upward placement the
+    // individual dropdowns it replaced already used), and would otherwise intercept the fill.
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("composer-config-popover")).toHaveCount(0);
 
     await composer.fill("检查项目并总结当前状态");
     await page.getByRole("button", { name: "发送", exact: true }).click();
