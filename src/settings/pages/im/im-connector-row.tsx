@@ -6,6 +6,8 @@ import { Button } from "../../../components/ui/button";
 import { formatAppDateTime } from "../../../i18n/format";
 import type { ImConnectorView } from "../../../contracts/im";
 import { cn } from "../../../lib/utils";
+import { CopyDiagnosticsButton } from "../../../ui/diagnostics/CopyDiagnosticsButton";
+import { buildImConnectorDiagnosticFields } from "./im-diagnostic-summary";
 import { compactCredentials, connectorDocumentation, credentialDraftAfterSave, credentialFields, hasCompleteCredentials } from "./im-form";
 
 interface ImConnectorRowProps {
@@ -109,6 +111,7 @@ export function ImConnectorRow({ view, searchTerm, pendingAction, onAction, auth
             <Button data-im-action="test" disabled={busy || !view.hasCredentials} onClick={() => void onAction("test")} size="sm" variant="outline"><TestTube2 aria-hidden="true" />{t("im.actions.test")}</Button>
             <Button data-im-action="restart" disabled={busy || !view.config.enabled} onClick={() => void onAction("restart")} size="sm" variant="outline"><RefreshCw aria-hidden="true" />{t("im.actions.retry")}</Button>
             <Button asChild size="sm" variant="outline"><a href={connectorDocumentation[view.descriptor.kind]} rel="noreferrer" target="_blank"><ExternalLink aria-hidden="true" />{t("im.actions.documentation")}</a></Button>
+            <CopyDiagnosticsButton fields={buildImConnectorDiagnosticFields(view, t)} />
             <Button className="sm:ml-auto" data-im-action="clear" disabled={busy || (!view.hasCredentials && !view.config.enabled)} onClick={() => void onAction("clear")} size="sm" variant="destructive"><Trash2 aria-hidden="true" />{t("im.actions.clear")}</Button>
           </div>
           {pendingAction ? <p aria-live="polite" className="mt-3 text-xs text-muted-foreground">{t("im.actions.pending", { action: t(`im.actions.${pendingAction}`) })}</p> : null}

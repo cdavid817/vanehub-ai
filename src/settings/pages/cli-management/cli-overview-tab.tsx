@@ -1,7 +1,9 @@
 import { useTranslation } from "react-i18next";
 import { formatAppDateTime } from "../../../i18n/format";
 import { normalizeDisplayPath } from "../../../lib/session-path";
+import { CopyDiagnosticsButton } from "../../../ui/diagnostics/CopyDiagnosticsButton";
 import type { CliEnvironmentSnapshot } from "../../../types/cli-environment-snapshot";
+import { buildCliDiagnosticFields } from "./cli-diagnostic-summary";
 import {
   pathSelectedInstallation,
   recommendedInstallation,
@@ -86,6 +88,10 @@ export function CliOverviewTab({ snapshot }: { snapshot: CliEnvironmentSnapshot 
           </dd>
         </div>
       </dl>
+
+      <div className="flex justify-end">
+        <CopyDiagnosticsButton fields={buildCliDiagnosticFields(snapshot, t)} />
+      </div>
     </div>
   );
 }
