@@ -131,7 +131,7 @@ function Dialog({ title, description, children, onClose, closeDisabled = false, 
 
 function DialogActions({ onClose, onSubmit, submitLabel, dangerLabel, disabled, pending = false }: { onClose: () => void; onSubmit?: () => void; submitLabel?: string; dangerLabel?: string; disabled?: boolean; pending?: boolean }) {
   const { t } = useTranslation();
-  return <div className="mt-5 flex items-center justify-end gap-2">{pending ? <span className="mr-auto text-sm text-muted-foreground" role="status">{t("skills.dialog.pending")}</span> : null}<Button disabled={pending} onClick={onClose} variant="outline">{onSubmit ? t("skills.dialog.cancel") : t("skills.dialog.close")}</Button>{onSubmit ? <Button className={dangerLabel ? "bg-destructive text-destructive-foreground hover:bg-destructive/90" : undefined} disabled={disabled || pending} onClick={onSubmit}>{dangerLabel ?? submitLabel}</Button> : null}</div>;
+  return <div className="mt-5 flex items-center justify-end gap-2">{pending ? <span className="mr-auto text-sm text-muted-foreground" role="status">{t("skills.dialog.pending")}</span> : null}<Button disabled={pending} onClick={onClose} variant="outline">{onSubmit ? t("skills.dialog.cancel") : t("skills.dialog.close")}</Button>{onSubmit ? <Button disabled={disabled || pending} onClick={onSubmit} variant={dangerLabel ? "destructive" : "default"}>{dangerLabel ?? submitLabel}</Button> : null}</div>;
 }
 
 function MarkdownPreview({ content }: { content: string }) {

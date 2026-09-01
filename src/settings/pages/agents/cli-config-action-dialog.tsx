@@ -38,7 +38,7 @@ export function CliConfigActionDialog({ action, driftState, pending, onClose, on
       {action.kind === "delete" && action.profile.appliedState !== "saved" ? <p className="rounded-md border p-3 text-sm ucd-status-warning">{t("agentConfigurations.dialog.delete.appliedWarning")}</p> : null}
       <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
         <Button disabled={pending} onClick={onClose} variant="outline">{t("agents.edit.cancel")}</Button>
-        <Button data-dialog-autofocus={action.kind !== "import" ? true : undefined} disabled={pending || (action.kind === "import" && !importName.trim())} onClick={() => onConfirm({ importName: action.kind === "import" ? importName.trim() : undefined, confirmAuthFileReplacement: replacesAuth })}>
+        <Button data-dialog-autofocus={action.kind !== "import" ? true : undefined} disabled={pending || (action.kind === "import" && !importName.trim())} onClick={() => onConfirm({ importName: action.kind === "import" ? importName.trim() : undefined, confirmAuthFileReplacement: replacesAuth })} variant={action.kind === "delete" ? "destructive" : "default"}>
           {pending ? t("agentConfigurations.dialog.pending") : t(`agentConfigurations.dialog.${action.kind}.confirm`)}
         </Button>
       </div>

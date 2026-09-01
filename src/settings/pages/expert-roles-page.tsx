@@ -143,7 +143,7 @@ export function ExpertRolesPage({ searchTerm }: { searchTerm: string }) {
                           }}
                           title={t("expertRoles.delete")}
                           type="button"
-                          variant="outline"
+                          variant="destructive"
                         >
                           <Trash2 aria-hidden="true" className="h-3.5 w-3.5" />
                         </Button>

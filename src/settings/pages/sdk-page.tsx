@@ -312,7 +312,7 @@ export function SdkPage({ searchTerm }: { searchTerm: string }) {
             {operationBusy ? t("sdk.action.running") : actionLabel(sdk)}
           </Button>
           {sdk.status === "installed" ? (
-            <Button disabled={busy} onClick={() => void uninstall(sdk)} variant="outline">
+            <Button disabled={busy} onClick={() => void uninstall(sdk)} variant="destructive">
               <Trash2 className="h-4 w-4" aria-hidden="true" />
               {t("sdk.action.uninstall")}
             </Button>

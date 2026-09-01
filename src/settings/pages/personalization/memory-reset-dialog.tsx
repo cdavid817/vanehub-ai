@@ -185,6 +185,7 @@ export function MemoryResetDialog({
               data-testid="personalization-reset-execute"
               disabled={blocked}
               onClick={() => preview && executeMutation.mutate(preview.confirmationToken)}
+              variant="destructive"
             >
               {t("personalization.reset.execute")}
             </Button>

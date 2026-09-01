@@ -63,7 +63,7 @@ export function PromptHookDialogs({
         <DialogError error={error} />
         <div className="mt-4 flex justify-end gap-2">
           <Button onClick={onClose} variant="outline">{t("promptHooks.dialog.cancel")}</Button>
-          <Button onClick={() => onDelete(state.hook!)} variant="default">{t("promptHooks.dialog.delete")}</Button>
+          <Button onClick={() => onDelete(state.hook!)} variant="destructive">{t("promptHooks.dialog.delete")}</Button>
         </div>
       </Modal>
     );

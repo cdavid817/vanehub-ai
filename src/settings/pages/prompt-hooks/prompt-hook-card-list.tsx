@@ -206,7 +206,7 @@ function PromptHookRow({
               <Eye aria-hidden="true" />{t("promptHooks.actions.preview")}
             </Button>
             {hook.source === "user" ? (
-              <Button className="justify-start" onClick={() => onDelete(hook)} size="sm" variant="ghost">
+              <Button className="justify-start" onClick={() => onDelete(hook)} size="sm" variant="destructive">
                 <Trash2 aria-hidden="true" />{t("promptHooks.actions.delete")}
               </Button>
             ) : null}

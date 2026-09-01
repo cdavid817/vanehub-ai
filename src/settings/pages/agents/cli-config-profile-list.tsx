@@ -96,7 +96,7 @@ export function CliConfigProfileList({
                     <div className="absolute right-0 z-10 mt-1 grid min-w-40 gap-1 rounded-lg border border-border bg-background p-1 shadow-lg" role="menu">
                       <Button disabled={busy} onClick={() => onEdit(profile)} role="menuitem" size="sm" variant="ghost"><Pencil className="h-4 w-4" />{t("agents.globalConfig.editProfile")}</Button>
                       <Button disabled={busy} onClick={() => onDuplicate(profile)} role="menuitem" size="sm" variant="ghost"><Copy className="h-4 w-4" />{t("agents.globalConfig.duplicate")}</Button>
-                      <Button disabled={busy} onClick={() => onDelete(profile)} role="menuitem" size="sm" variant="ghost"><Trash2 className="h-4 w-4" />{t("agents.globalConfig.delete")}</Button>
+                      <Button disabled={busy} onClick={() => onDelete(profile)} role="menuitem" size="sm" variant="destructive"><Trash2 className="h-4 w-4" />{t("agents.globalConfig.delete")}</Button>
                     </div>
                   </details>
                 </div>

@@ -59,7 +59,7 @@ export function SshConnectionCard({
           <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
           {t("sshConnections.edit")}
         </Button>
-        <Button className="h-8 px-3 text-xs" onClick={() => onDelete(connection)} type="button" variant="outline">
+        <Button className="h-8 px-3 text-xs" onClick={() => onDelete(connection)} type="button" variant="destructive">
           <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
           {t("sshConnections.delete")}
         </Button>

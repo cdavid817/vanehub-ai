@@ -73,7 +73,7 @@ export function MemoryListSection({
         <Button data-testid="personalization-create-open" onClick={() => setCreating((open) => !open)} size="sm">
           {t("personalization.create.open")}
         </Button>
-        <Button data-testid="personalization-reset-open" onClick={() => setResetting(true)} size="sm" variant="outline">
+        <Button data-testid="personalization-reset-open" onClick={() => setResetting(true)} size="sm" variant="destructive">
           {t("personalization.reset.open")}
         </Button>
       </div>

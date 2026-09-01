@@ -214,7 +214,7 @@ function DetailFooter({
   const { t } = useTranslation();
   return (
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <div>{hook.source === "user" ? <Button onClick={onDelete} variant="ghost"><Trash2 aria-hidden="true" />{t("promptHooks.dialog.delete")}</Button> : null}</div>
+      <div>{hook.source === "user" ? <Button onClick={onDelete} variant="destructive"><Trash2 aria-hidden="true" />{t("promptHooks.dialog.delete")}</Button> : null}</div>
       <div className="flex flex-wrap items-center justify-end gap-2">
         {tab === "content" && hook.source === "user" ? (
           <>

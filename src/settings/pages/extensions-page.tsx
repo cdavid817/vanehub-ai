@@ -161,7 +161,7 @@ export function ExtensionsPage({
           {status.running ? <Button disabled={!nativeAvailable || busy} onClick={() => void runAction("stop", definition.id)} size="sm" variant="outline"><Square />{t("extensions.action.stop")}</Button> : null}
           {status.installed ? <Button disabled={!nativeAvailable || busy} onClick={() => void runAction("self-test", definition.id)} size="sm" variant="outline"><CheckCircle2 />{t("extensions.action.selfTest")}</Button> : null}
           {status.installed ? <Button disabled={!nativeAvailable || busy} onClick={() => void runAction(status.enabled ? "disable" : "enable", definition.id)} size="sm" variant="outline">{status.enabled ? t("extensions.action.disable") : t("extensions.action.enable")}</Button> : null}
-          {status.installed ? <Button disabled={!nativeAvailable || busy || status.running} onClick={() => void runAction("uninstall", definition.id)} size="sm" variant="ghost"><Trash2 />{t("extensions.action.uninstall")}</Button> : null}
+          {status.installed ? <Button disabled={!nativeAvailable || busy || status.running} onClick={() => void runAction("uninstall", definition.id)} size="sm" variant="destructive"><Trash2 />{t("extensions.action.uninstall")}</Button> : null}
         </div>
         {busy || activeOperation?.relatedEntityId === definition.id ? (
           <div className="mt-3 rounded-md border border-border bg-[hsl(var(--panel-muted))] p-3 text-xs">

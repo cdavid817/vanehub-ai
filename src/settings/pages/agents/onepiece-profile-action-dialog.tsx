@@ -17,7 +17,7 @@ export function OnePieceProfileActionDialog({ action, pending, onClose, onConfir
       {action.kind === "delete" && action.profile.active ? <p className="rounded-md border p-3 text-sm ucd-status-warning">{t("onepiece.action.delete.activeWarning")}</p> : null}
       <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
         <Button disabled={pending} onClick={onClose} variant="outline">{t("agents.edit.cancel")}</Button>
-        <Button data-dialog-autofocus disabled={pending} onClick={onConfirm}>{pending ? t("agentConfigurations.dialog.pending") : t(`onepiece.action.${action.kind}.confirm`)}</Button>
+        <Button data-dialog-autofocus disabled={pending} onClick={onConfirm} variant={action.kind === "delete" ? "destructive" : "default"}>{pending ? t("agentConfigurations.dialog.pending") : t(`onepiece.action.${action.kind}.confirm`)}</Button>
       </div>
     </ApplicationDialog>
   );

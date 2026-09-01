@@ -13,7 +13,7 @@ import type { AppSettingKey, AppSettings } from "../../types/settings";
 import { policyTemplateNames, type PolicyTemplateName } from "../../types/permissions";
 import type { MutationState } from "../../ui/async/mutation-state";
 import { NetworkProxySection } from "./network-proxy-section";
-import { SectionPanel, SettingsDisclosure, SettingsRow } from "./page-parts";
+import { DangerZone, SectionPanel, SettingsDisclosure, SettingsRow } from "./page-parts";
 import { FloatingAssistantSettingsSection } from "./floating-assistant-settings-section";
 import { DataManagementSection } from "./data-management-section";
 import { StartupSettingsSection } from "./startup-settings-section";
@@ -225,11 +225,7 @@ export function BasicSettingsPage() {
         </SettingsDisclosure>
       </div>
 
-      <footer className="flex flex-col gap-3 border-t border-border pt-5 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="text-sm font-medium text-foreground">{t("basic.resetSection")}</div>
-          <div className="mt-0.5 text-xs leading-5 text-muted-foreground">{t("basic.resetDescription")}</div>
-        </div>
+      <DangerZone description={t("basic.resetDescription")} title={t("basic.resetSection")}>
         <Button
           className="shrink-0"
           disabled={busy}
@@ -237,12 +233,12 @@ export function BasicSettingsPage() {
             void confirm({ title: t("basic.resetConfirm"), tone: "danger" })
               .then((confirmed) => { if (confirmed) void resetSettings(); });
           }}
-          variant="outline"
+          variant="destructive"
         >
           <RotateCcw className="h-4 w-4" aria-hidden="true" />
           {t("basic.reset")}
         </Button>
-      </footer>
+      </DangerZone>
     </div>
   );
 }

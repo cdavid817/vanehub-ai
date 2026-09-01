@@ -73,7 +73,7 @@ export function McpServerCard({
           <Edit3 className="h-4 w-4" aria-hidden="true" />
           {t("mcp.action.edit")}
         </Button>
-        <Button variant="ghost" onClick={() => onDelete(server)}>
+        <Button variant="destructive" onClick={() => onDelete(server)}>
           <Trash2 className="h-4 w-4" aria-hidden="true" />
           {t("mcp.action.delete")}
         </Button>

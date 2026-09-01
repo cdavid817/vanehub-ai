@@ -129,7 +129,7 @@ function LifecycleSkillRows(props: SkillCardListProps) {
         <DetailsButton onDetails={props.onDetails} selected={selected} skill={skill} />
         <Button aria-label={t("skills.preview")} className="h-11 w-11 sm:h-9 sm:w-9" disabled={busy} onClick={() => props.onPreview(skill)} size="icon" variant="outline"><Eye /></Button>
         {!skill.immutable ? <Button aria-label={t("skills.edit")} className="h-11 w-11 sm:h-9 sm:w-9" disabled={busy} onClick={() => props.onEdit(skill)} size="icon" variant="outline"><Pencil /></Button> : null}
-        {!skill.immutable ? <Button aria-label={t("skills.delete")} className="h-11 w-11 sm:h-9 sm:w-9" disabled={busy} onClick={() => props.onDelete(skill)} size="icon" variant="ghost"><Trash2 /></Button> : null}
+        {!skill.immutable ? <Button aria-label={t("skills.delete")} className="h-11 w-11 sm:h-9 sm:w-9" disabled={busy} onClick={() => props.onDelete(skill)} size="icon" variant="destructive"><Trash2 /></Button> : null}
         {props.operationSkillId === skill.id && props.operationError
           ? <p className="basis-full text-xs leading-5 text-destructive" role="alert">{props.operationError}</p>
           : null}

@@ -52,7 +52,7 @@ export function SkillEvolutionPurgeDialog({
       {mutation.isError ? <p className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-destructive" role="alert">{t("skills.evolution.purgeError")}</p> : null}
       <div className="flex justify-end gap-2 border-t border-border pt-4">
         <Button disabled={mutation.isPending} onClick={onClose} variant="outline">{t("skills.evolution.cancel")}</Button>
-        <Button className="bg-destructive text-destructive-foreground hover:bg-destructive/90" data-dialog-autofocus disabled={mutation.isPending} onClick={() => mutation.mutate()}>
+        <Button data-dialog-autofocus disabled={mutation.isPending} onClick={() => mutation.mutate()} variant="destructive">
           {t(mutation.isPending ? "skills.evolution.purging" : "skills.evolution.confirmPurge")}
         </Button>
       </div>

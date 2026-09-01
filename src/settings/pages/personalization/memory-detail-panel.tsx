@@ -122,7 +122,7 @@ export function MemoryDetailPanel({
             >
               {t(record.status === "archived" ? "personalization.detail.reactivate" : "personalization.detail.archive")}
             </Button>
-            <Button data-testid="personalization-detail-delete" disabled={detail.isSaving} onClick={handleDelete} variant="outline">
+            <Button data-testid="personalization-detail-delete" disabled={detail.isSaving} onClick={handleDelete} variant="destructive">
               {t("personalization.detail.delete")}
             </Button>
           </>

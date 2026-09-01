@@ -55,7 +55,7 @@ export function SkillEvolutionEvidence({ skill }: { skill: Skill }) {
         </div>
       </>}
       <PrivacySummary overview={overview} />
-      <div className="mt-4 flex justify-end border-t border-border pt-3"><Button onClick={(event) => setPurgeTrigger(event.currentTarget)} size="sm" variant="outline"><Trash2 />{t("skills.evolution.purgeAction")}</Button></div>
+      <div className="mt-4 flex justify-end border-t border-border pt-3"><Button onClick={(event) => setPurgeTrigger(event.currentTarget)} size="sm" variant="destructive"><Trash2 />{t("skills.evolution.purgeAction")}</Button></div>
     </> : null}
     {purgeTrigger ? <SkillEvolutionPurgeDialog onClose={() => setPurgeTrigger(null)} onPurged={() => query.refetch()} returnFocus={purgeTrigger} skillId={skill.id} workspace={skill.workspacePath ?? undefined} /> : null}
   </section>;

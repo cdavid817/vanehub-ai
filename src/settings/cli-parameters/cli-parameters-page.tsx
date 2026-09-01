@@ -176,7 +176,7 @@ export function CliParametersPage({
             <Button
               disabled={!activeProfile}
               onClick={() => void restoreInherited()}
-              variant="outline"
+              variant="destructive"
             >
               <RotateCcw aria-hidden="true" /> {t("cliParameters.actions.restoreInherited")}
             </Button>

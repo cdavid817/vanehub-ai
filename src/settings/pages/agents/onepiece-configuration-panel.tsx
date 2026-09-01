@@ -137,7 +137,7 @@ export function OnePieceConfigurationPanel({ onChanged, searchTerm = "", service
                 />
                 {!profile.active ? <Button disabled={!profile.credentialPresent} onClick={() => setPendingAction({ kind: "activate", profile })} size="sm"><Check className="h-4 w-4" />{t("onepiece.activate")}</Button> : null}
                 <Button onClick={() => setEditingProfile(profile)} size="sm" variant="outline"><Pencil className="h-4 w-4" />{t("onepiece.editProvider")}</Button>
-                <Button onClick={() => setPendingAction({ kind: "delete", profile })} size="sm" variant="ghost"><Trash2 className="h-4 w-4" />{t("onepiece.deleteProfile")}</Button>
+                <Button onClick={() => setPendingAction({ kind: "delete", profile })} size="sm" variant="destructive"><Trash2 className="h-4 w-4" />{t("onepiece.deleteProfile")}</Button>
               </div>
             </div>
           </article>
