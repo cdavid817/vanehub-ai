@@ -37,4 +37,18 @@ describe("CodeIntelligencePage", () => {
     expect(screen.getByRole("heading", { name: "运行状态" })).toBeTruthy();
     expect(invokeMock).not.toHaveBeenCalled();
   });
+
+  it("offers a page-level copy-diagnostics action once the LSP queries settle", async () => {
+    renderWithAppProviders(
+      <CodeIntelligencePage
+        isActive
+        navigationTarget={null}
+        onNavigate={vi.fn()}
+        searchTerm=""
+        service={webAgentClient}
+      />,
+    );
+
+    expect(await screen.findByRole("button", { name: "复制诊断信息" })).toBeTruthy();
+  });
 });
