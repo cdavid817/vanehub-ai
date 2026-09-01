@@ -6,7 +6,11 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import en from "../../i18n/locales/en.json";
-import type { PluginIntegrationDefinition, PluginIntegrationState } from "../../types/plugin-integration";
+import type {
+  PluginIntegrationDefinition,
+  PluginIntegrationOverview,
+  PluginIntegrationState,
+} from "../../types/plugin-integration";
 import { filterPluginIntegrations, PluginIntegrationsPage } from "./plugin-integrations-page";
 
 const definitions: PluginIntegrationDefinition[] = [
@@ -91,11 +95,111 @@ describe("PluginIntegrationsPage", () => {
   });
 
   it("uses semantic styles without theme-name branches or direct Tauri calls", () => {
-    const source = readFileSync("src/settings/pages/plugin-integrations-page.tsx", "utf8");
-    expect(source).not.toContain("@tauri-apps/api");
-    expect(source).not.toContain("invoke(");
-    expect(source).not.toMatch(/theme\s*===/);
-    expect(source).toContain("ucd-panel");
+    const pageSource = readFileSync("src/settings/pages/plugin-integrations-page.tsx", "utf8");
+    const cardSource = readFileSync("src/settings/pages/plugins/plugin-integration-card.tsx", "utf8");
+    for (const source of [pageSource, cardSource]) {
+      expect(source).not.toContain("@tauri-apps/api");
+      expect(source).not.toContain("invoke(");
+      expect(source).not.toMatch(/theme\s*===/);
+    }
+    // Task 12.18: the per-item card (mirrors ssh/ssh-connection-card.tsx), not this page file
+    // itself, now owns the ucd-panel card surface -- migrated out of this file along with the
+    // rest of the per-item markup.
+    expect(cardSource).toContain("ucd-panel");
+  });
+
+  it("shows the page icon and exactly one primary header action, with no More menu needed", async () => {
+    const queryClient = new QueryClient();
+    const service = {
+      async getOverview() {
+        return { definitions, states, environment: { runtime: "tauri" as const, nativeChecksAvailable: true, reasonKey: null } };
+      },
+      async refresh() {
+        return this.getOverview();
+      },
+      async testReadiness(): Promise<never> {
+        throw new Error("unused");
+      },
+    };
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <PluginIntegrationsPage searchTerm="" service={service} />
+      </QueryClientProvider>,
+    );
+    await screen.findByTestId("plugin-card-github");
+
+    const header = document.querySelector(".border-b.border-border-subtle");
+    expect(header).toBeTruthy();
+    expect(header?.querySelector("svg")).toBeTruthy();
+    // Task 12.18: Plugin Integrations only ever had one always-visible header action (Refresh),
+    // so it becomes the shared PageHeader's single primaryAction directly -- no moreMenuItems
+    // (and therefore no More trigger) is needed at all, unlike ssh-connections-page.tsx's Add+Refresh.
+    expect(within(header as HTMLElement).getByRole("button", { name: "plugins.refresh" })).toBeTruthy();
+    expect(within(header as HTMLElement).queryAllByRole("button")).toHaveLength(1);
+  });
+
+  it("collapses per-card Docs/Test actions behind one ActionMenu instead of two buttons", async () => {
+    const queryClient = new QueryClient();
+    const service = {
+      async getOverview() {
+        return { definitions, states, environment: { runtime: "tauri" as const, nativeChecksAvailable: true, reasonKey: null } };
+      },
+      async refresh() {
+        return this.getOverview();
+      },
+      async testReadiness(): Promise<never> {
+        throw new Error("unused");
+      },
+    };
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <PluginIntegrationsPage searchTerm="" service={service} />
+      </QueryClientProvider>,
+    );
+    const card = await screen.findByTestId("plugin-card-github");
+
+    expect(within(card).queryByRole("button", { name: "plugins.action.docs" })).toBeNull();
+    expect(within(card).queryByRole("button", { name: "plugins.action.test" })).toBeNull();
+    expect(within(card).getAllByRole("button")).toHaveLength(1);
+
+    fireEvent.click(within(card).getByRole("button"));
+    expect(within(card).getByRole("menuitem", { name: "plugins.action.docs" })).toBeTruthy();
+    expect(within(card).getByRole("menuitem", { name: "plugins.action.test" })).toBeTruthy();
+  });
+
+  it("renders the shared AsyncBoundary error state when the overview query fails, with a working retry", async () => {
+    // react-query's default `retry: 3` would otherwise keep this query retrying with backoff for
+    // several seconds before ever reaching `isError`, well past this test's own `waitFor` budget.
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const getOverview = vi.fn(async (): Promise<PluginIntegrationOverview> => {
+      throw new Error("network down");
+    });
+    const service = {
+      getOverview,
+      async refresh() {
+        return this.getOverview();
+      },
+      async testReadiness(): Promise<never> {
+        throw new Error("unused");
+      },
+    };
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <PluginIntegrationsPage searchTerm="" service={service} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("network down"));
+    getOverview.mockImplementationOnce(async () => ({
+      definitions,
+      states,
+      environment: { runtime: "tauri" as const, nativeChecksAvailable: true, reasonKey: null },
+    }));
+    fireEvent.click(screen.getByRole("button", { name: "featureLoad.retry" }));
+    await screen.findByTestId("plugin-card-github");
   });
 
   it("reports an error status for its nav entry once a readiness test fails, and null while healthy (task 12.16)", async () => {
@@ -141,7 +245,10 @@ describe("PluginIntegrationsPage", () => {
     const card = await screen.findByTestId("plugin-card-github");
     await waitFor(() => expect(onStatusChange).toHaveBeenLastCalledWith(null));
 
+    // Task 12.18: Test now lives behind the card's single ActionMenu rather than as its own
+    // directly-clickable button -- open the menu, then activate the Test item inside it.
     fireEvent.click(within(card).getByRole("button"));
+    fireEvent.click(within(card).getByRole("menuitem", { name: "plugins.action.test" }));
 
     await waitFor(() => expect(onStatusChange).toHaveBeenLastCalledWith({
       kind: "error",
