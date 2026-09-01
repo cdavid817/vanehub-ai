@@ -42,6 +42,10 @@ function safeRoleColor(color: string) {
   return /^#[0-9a-f]{6}$/i.test(color) ? color : "currentColor";
 }
 
+// A stable reference for the common no-rich-block message: `message.richBlocks ?? []` would
+// otherwise mint a fresh empty array every render, defeating RichBlocks' own memo (task 10.13).
+const EMPTY_RICH_BLOCKS: ChatMessage["richBlocks"] = [];
+
 // Memoized because streaming appends a token at a time: applyChatEvent keeps stable
 // references for unchanged messages, so memo lets historical rows skip re-rendering
 // (and re-parsing markdown / mermaid) on every token — only the streaming row updates.
@@ -60,11 +64,17 @@ export const MessageItem = memo(function MessageItem({
   message: ChatMessage;
   /**
    * Absent until a caller wires message selection (design.md Decision 8's Follow Selection); the
-   * bubble then stays the plain, non-interactive div it was before this existed.
+   * bubble then stays the plain, non-interactive div it was before this existed. Takes the
+   * message's own id rather than being pre-bound by the caller (task 10.13): `MessageList` can
+   * then pass the same `onSelectMessage` reference to every row instead of minting a new closure
+   * per row per render, which is what lets this component's own `memo` actually bail for rows
+   * unrelated to a streaming update.
    */
-  onSelect?: () => void;
-  /** Bound to a specific tool call id by `ToolUseBlock`; this component only forwards it. */
-  onSelectTool?: (toolCallId: string) => void;
+  onSelect?: (messageId: string) => void;
+  /** Same reasoning as `onSelect` — takes this message's own id so `MessageList` can pass one
+   *  stable `onSelectTool` reference to every row; this component curries the id in itself
+   *  before handing a single-arg callback down to `ToolUseBlock`. */
+  onSelectTool?: (messageId: string, toolCallId: string) => void;
   selected?: boolean;
   selectedToolCallId?: string | null;
   /**
@@ -105,13 +115,13 @@ export const MessageItem = memo(function MessageItem({
         : "border-transparent";
 
   function handleBubbleClick(event: MouseEvent<HTMLDivElement>) {
-    if (onSelect && !isInteractiveClickTarget(event.target, MESSAGE_SELECTION_EXCLUDED_SELECTOR, event.currentTarget)) onSelect();
+    if (onSelect && !isInteractiveClickTarget(event.target, MESSAGE_SELECTION_EXCLUDED_SELECTOR, event.currentTarget)) onSelect(message.id);
   }
 
   function handleBubbleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (!onSelect || !isSelfKeyActivation(event)) return;
     event.preventDefault();
-    onSelect();
+    onSelect(message.id);
   }
 
   return (
@@ -193,8 +203,15 @@ export const MessageItem = memo(function MessageItem({
           ) : null}
           {message.error ? <p className="mt-2 text-xs text-destructive">{message.error}</p> : null}
           <ThinkingBlock content={message.thinkingContent ?? ""} />
-          <ToolUseBlock messageFailed={message.status === "failed"} messageStatus={message.status} onSelectTool={onSelectTool} selectedToolCallId={selectedToolCallId} sessionId={message.sessionId} toolUse={message.toolUse ?? []} />
-          <RichBlocks blocks={message.richBlocks ?? []} />
+          <ToolUseBlock
+            messageFailed={message.status === "failed"}
+            messageStatus={message.status}
+            onSelectTool={onSelectTool ? (toolCallId: string) => onSelectTool(message.id, toolCallId) : undefined}
+            selectedToolCallId={selectedToolCallId}
+            sessionId={message.sessionId}
+            toolUse={message.toolUse ?? []}
+          />
+          <RichBlocks blocks={message.richBlocks ?? EMPTY_RICH_BLOCKS} />
           {!isUser && message.status === "completed" ? (
             <MessageFeedbackControls feedback={message.feedback} messageId={message.id} />
           ) : null}

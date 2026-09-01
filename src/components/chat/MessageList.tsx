@@ -86,8 +86,8 @@ export function MessageList({
               <MessageItem
                 memoryContext={memoryContext}
                 message={message}
-                onSelect={onSelectMessage ? () => onSelectMessage(message.id) : undefined}
-                onSelectTool={onSelectTool ? (toolCallId: string) => onSelectTool(message.id, toolCallId) : undefined}
+                onSelect={onSelectMessage}
+                onSelectTool={onSelectTool}
                 selected={selected}
                 selectedToolCallId={selectedToolCallIdFor(message, currentSelectionKey)}
                 showHeader={startsNewRun(message, messages[index - 1])}

@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import ReactMarkdown, { defaultUrlTransform, type Components, type UrlTransform } from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
@@ -75,8 +75,11 @@ const urlTransform: UrlTransform = (url, key, node) => {
  * source. By position rather than from the rendered text: the renderer sees children after parsing,
  * where emphasis and links are already elements, so re-deriving here would be a second parser that
  * disagrees with the first exactly on headings containing markup.
+ *
+ * Memoized (task 10.13): re-parsing Markdown/KaTeX/Mermaid on every token of an unrelated
+ * streaming sibling is exactly the "expensive... renderer" cost this task names avoiding.
  */
-export function RichMarkdown({
+export const RichMarkdown = memo(function RichMarkdown({
   children,
   className,
   headingIds,
@@ -97,7 +100,7 @@ export function RichMarkdown({
       </ReactMarkdown>
     </div>
   );
-}
+});
 
 /**
  * The same components, with an id on each heading.

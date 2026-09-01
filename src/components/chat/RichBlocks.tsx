@@ -10,6 +10,7 @@ import {
   Music2,
   PanelTop,
 } from "lucide-react";
+import { memo } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "../../lib/utils";
 import type {
@@ -227,7 +228,10 @@ function RichBlockRenderer({ block }: { block: RichBlock }) {
   }
 }
 
-export function RichBlocks({ blocks }: { blocks: RichBlock[] }) {
+// Memoized (task 10.13): with an unstable `blocks` reference (a fresh `[]` on every render for
+// the common no-rich-block message) this would never bail regardless — see MessageItem.tsx's own
+// EMPTY_RICH_BLOCKS constant, which is what makes this memoization actually take effect.
+export const RichBlocks = memo(function RichBlocks({ blocks }: { blocks: RichBlock[] }) {
   if (blocks.length === 0) return null;
   return (
     <div className="mt-3 grid gap-2">
@@ -236,4 +240,4 @@ export function RichBlocks({ blocks }: { blocks: RichBlock[] }) {
       ))}
     </div>
   );
-}
+});
