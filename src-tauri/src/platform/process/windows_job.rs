@@ -1,6 +1,9 @@
 use process_wrap::std::{ChildWrapper, CommandWrap, CommandWrapper};
 use std::io::{Error, Result};
-use std::os::windows::{io::AsRawHandle, process::CommandExt};
+use std::os::windows::{
+    io::{AsRawHandle, BorrowedHandle},
+    process::CommandExt,
+};
 use std::process::{Command, ExitStatus};
 use std::time::{Duration, Instant};
 use windows::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
@@ -71,12 +74,27 @@ fn create_job() -> Result<JobHandle> {
     ))
 }
 
+/// Resolves the Windows process handle a wrapper chain stands for.
+///
+/// `process_handle` is the capability process-wrap added for exactly this; the
+/// `try_inner_child` fallback keeps composition working with transparent wrappers written
+/// before it existed, which return the trait's `None` default.
+fn child_process_handle(child: &dyn ChildWrapper) -> Option<BorrowedHandle<'_>> {
+    child.process_handle().or_else(|| {
+        child
+            .try_inner_child()
+            .and_then(|child| child.process_handle())
+    })
+}
+
 /// Assigns the (suspended) child to `job` and lets it start running.
 ///
 /// Children are spawned `CREATE_SUSPENDED` so nothing executes before containment is in
 /// place; this is the step that releases them.
 fn assign_and_resume(job: &JobHandle, child: &dyn ChildWrapper) -> Result<()> {
-    let process = HANDLE(child.inner_child().as_raw_handle() as _);
+    let handle = child_process_handle(child)
+        .ok_or_else(|| Error::other("child wrapper does not expose a Windows process handle"))?;
+    let process = HANDLE(handle.as_raw_handle() as _);
     unsafe { AssignProcessToJobObject(job.0, process) }.map_err(Error::other)?;
     resume_process_threads(process)
 }
@@ -208,6 +226,10 @@ impl ChildWrapper for TerminateTreeJobChild {
         self.child.into_inner()
     }
 
+    fn process_handle(&self) -> Option<BorrowedHandle<'_>> {
+        self.child.process_handle()
+    }
+
     fn start_kill(&mut self) -> Result<()> {
         unsafe { TerminateJobObject(self.job.0, 1) }.map_err(Error::other)
     }
@@ -240,6 +262,10 @@ impl ChildWrapper for KillOnCloseJobChild {
         let Self { child, job } = *self;
         std::mem::forget(job);
         child.into_inner()
+    }
+
+    fn process_handle(&self) -> Option<BorrowedHandle<'_>> {
+        self.child.process_handle()
     }
 
     fn start_kill(&mut self) -> Result<()> {
