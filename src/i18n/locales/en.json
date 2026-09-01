@@ -410,6 +410,7 @@
   "sshConnections.test": "Test",
   "sshConnections.edit": "Edit",
   "sshConnections.delete": "Delete",
+  "sshConnections.rowActions": "Actions for {{name}}",
   "sshConnections.form.editTitle": "Edit SSH Connection",
   "sshConnections.form.addTitle": "Add SSH Connection",
   "sshConnections.form.description": "Credentials are stored by the native secure store; SQLite keeps only references.",

@@ -410,6 +410,7 @@
   "sshConnections.test": "测试",
   "sshConnections.edit": "编辑",
   "sshConnections.delete": "删除",
+  "sshConnections.rowActions": "{{name}}的操作",
   "sshConnections.form.editTitle": "编辑 SSH 连接",
   "sshConnections.form.addTitle": "新增 SSH 连接",
   "sshConnections.form.description": "凭据由 native secure storage 保存；SQLite 仅保存引用。",

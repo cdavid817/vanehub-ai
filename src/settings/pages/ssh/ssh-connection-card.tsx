@@ -1,29 +1,58 @@
 import { Pencil, Trash2, Wifi } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { Badge } from "../../../components/ui/badge";
-import { Button } from "../../../components/ui/button";
+import { ActionMenu, type ActionMenuItem } from "../../../ui/actions/ActionMenu";
+import { MutationStatus } from "../../../ui/async/MutationStatus";
+import type { MutationState } from "../../../ui/async/mutation-state";
+import { StatusBadge, type StatusTone } from "../../../ui/status/StatusBadge";
 import type { SshConnection, SshConnectionTestStatus } from "../../../types/ssh-connection";
 
-const statusTone: Record<SshConnectionTestStatus, "success" | "danger" | "muted"> = {
-  "not-tested": "muted",
+const statusTone: Record<SshConnectionTestStatus, StatusTone> = {
+  "not-tested": "neutral",
   succeeded: "success",
   failed: "danger",
 };
 
 export function SshConnectionCard({
   connection,
-  testing,
+  deleteState,
+  testState,
   onDelete,
   onEdit,
   onTest,
 }: {
   connection: SshConnection;
-  testing: boolean;
+  deleteState: MutationState | undefined;
+  testState: MutationState | undefined;
   onDelete: (connection: SshConnection) => void;
   onEdit: (connection: SshConnection) => void;
   onTest: (connection: SshConnection) => void;
 }) {
   const { t } = useTranslation();
+  const items: ActionMenuItem[] = [
+    {
+      disabled: testState?.pending,
+      icon: Wifi,
+      id: "test",
+      label: testState?.pending ? t("sshConnections.testing") : t("sshConnections.test"),
+      onSelect: () => onTest(connection),
+    },
+    {
+      icon: Pencil,
+      id: "edit",
+      label: t("sshConnections.edit"),
+      onSelect: () => onEdit(connection),
+    },
+    {
+      confirmation: { title: t("sshConnections.confirm.delete", { name: connection.name }) },
+      disabled: deleteState?.pending,
+      icon: Trash2,
+      id: "delete",
+      label: t("sshConnections.delete"),
+      onSelect: () => onDelete(connection),
+      tone: "destructive",
+    },
+  ];
+
   return (
     <article className="ucd-panel ucd-interactive grid gap-3 rounded-lg p-4">
       <div className="flex items-start justify-between gap-3">
@@ -33,9 +62,10 @@ export function SshConnectionCard({
             {connection.user}@{connection.host}:{connection.port}
           </p>
         </div>
-        <Badge tone={statusTone[connection.testStatus]}>
-          {t(`sshConnections.status.${connection.testStatus}`)}
-        </Badge>
+        <div className="flex shrink-0 items-center gap-1">
+          <StatusBadge label={t(`sshConnections.status.${connection.testStatus}`)} tone={statusTone[connection.testStatus]} />
+          <ActionMenu items={items} triggerLabel={t("sshConnections.rowActions", { name: connection.name })} />
+        </div>
       </div>
       <div className="grid gap-1 text-xs text-muted-foreground">
         <div className="truncate">{connection.defaultPath}</div>
@@ -50,20 +80,8 @@ export function SshConnectionCard({
           {connection.lastError}
         </div>
       ) : null}
-      <div className="flex flex-wrap justify-end gap-2">
-        <Button className="h-8 px-3 text-xs" disabled={testing} onClick={() => onTest(connection)} type="button" variant="outline">
-          <Wifi className="h-3.5 w-3.5" aria-hidden="true" />
-          {testing ? t("sshConnections.testing") : t("sshConnections.test")}
-        </Button>
-        <Button className="h-8 px-3 text-xs" onClick={() => onEdit(connection)} type="button" variant="outline">
-          <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
-          {t("sshConnections.edit")}
-        </Button>
-        <Button className="h-8 px-3 text-xs" onClick={() => onDelete(connection)} type="button" variant="destructive">
-          <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-          {t("sshConnections.delete")}
-        </Button>
-      </div>
+      <MutationStatus state={testState} />
+      <MutationStatus state={deleteState} />
     </article>
   );
 }

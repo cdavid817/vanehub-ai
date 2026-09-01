@@ -2,15 +2,18 @@ import { KeyRound, Plus, RefreshCw, Server, Wifi } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useConfirmation } from "../../components/ui/use-confirmation";
 import { Button } from "../../components/ui/button";
 import { sshConnectionService } from "../../services/runtime-ssh-connection-client";
+import { AsyncBoundary } from "../../ui/async/AsyncBoundary";
+import type { AsyncViewState } from "../../ui/async/async-view-state";
+import type { MutationState } from "../../ui/async/mutation-state";
+import { PageHeader } from "../../ui/page-header/PageHeader";
 import type {
   SaveSshConnectionInput,
   SshConnection,
 } from "../../types/ssh-connection";
 import type { SettingsPageStatus } from "../settings-page-types";
-import { PageHeader, SectionPanel, StatCard } from "./page-parts";
+import { StatCard } from "./page-parts";
 import { SshConnectionCard } from "./ssh/ssh-connection-card";
 import { SshConnectionForm } from "./ssh/ssh-connection-form";
 import { errorMessage } from "./ssh/ssh-connection-utils";
@@ -27,11 +30,9 @@ export function SshConnectionsPage({
   searchTerm: string;
 }) {
   const { t } = useTranslation();
-  const { confirm, confirmationDialog } = useConfirmation();
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<SshConnection | null | undefined>();
   const [notice, setNotice] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
   const connectionsQuery = useQuery({
     queryKey: sshConnectionsQueryKey,
@@ -88,75 +89,91 @@ export function SshConnectionsPage({
   const successCount = connections.filter(
     (connection) => connection.testStatus === "succeeded",
   ).length;
-  const visibleError =
-    error ??
-    (connectionsQuery.error instanceof Error
-      ? connectionsQuery.error.message
-      : null);
+
+  // task 12.18: this page's own connectionsQuery projected into the shared AsyncBoundary's
+  // AsyncViewState shape -- src/ui/ primitives cannot import this service's own error type
+  // (ARCH-FE-005), so the projection lives here rather than in the primitive.
+  const asyncState: AsyncViewState<SshConnection[]> = {
+    data: connectionsQuery.data,
+    error: connectionsQuery.isError
+      ? { kind: "error", message: errorMessage(connectionsQuery.error), retryable: true }
+      : undefined,
+    initialLoading: connectionsQuery.isLoading,
+    refreshing: connectionsQuery.isFetching && !connectionsQuery.isLoading,
+    stale: connectionsQuery.isStale,
+  };
 
   // Task 12.16: the same condition already rendered below, reported so this page's own nav
   // entry can flag it while the user looks at another page. Single condition, so no
   // pickPageStatus combination is needed.
   useEffect(() => {
-    onStatusChange?.(visibleError ? { kind: "error", labelKey: "sshConnections.status.error" } : null);
+    onStatusChange?.(connectionsQuery.isError ? { kind: "error", labelKey: "sshConnections.status.error" } : null);
     return () => onStatusChange?.(null);
-  }, [onStatusChange, visibleError]);
+  }, [connectionsQuery.isError, onStatusChange]);
 
   async function save(input: SaveSshConnectionInput) {
-    setError(null);
     setNotice(null);
-    await saveMutation
-      .mutateAsync(input)
-      .catch((saveError) => setError(errorMessage(saveError)));
+    await saveMutation.mutateAsync(input).catch(() => undefined);
   }
 
   async function deleteConnection(connection: SshConnection) {
-    if (
-      !(await confirm({
-        title: t("sshConnections.confirm.delete", { name: connection.name }),
-        tone: "danger",
-      }))
-    )
-      return;
-    setError(null);
     setNotice(null);
-    await deleteMutation
-      .mutateAsync(connection.id)
-      .catch((deleteError) => setError(errorMessage(deleteError)));
+    await deleteMutation.mutateAsync(connection.id).catch(() => undefined);
   }
 
   async function testConnection(connection: SshConnection) {
-    setError(null);
     setNotice(null);
-    await testMutation
-      .mutateAsync(connection.id)
-      .catch((testError) => setError(errorMessage(testError)));
+    await testMutation.mutateAsync(connection.id).catch(() => undefined);
   }
+
+  /** Task 12.18: projects this page's own single-in-flight `useMutation` (react-query already
+   *  tracks `variables`/`isPending`/`error` for its own most recent call) into the shared
+   *  `MutationState` shape, keyed to one connection at a time -- a second registry alongside
+   *  `useMutation` would just be a second source of truth for the same fact. */
+  function stateFor(mutation: typeof testMutation | typeof deleteMutation, connectionId: string): MutationState | undefined {
+    if (mutation.variables !== connectionId) return undefined;
+    if (mutation.isPending) return { pending: true, targetKey: connectionId };
+    if (mutation.isError) {
+      return { error: { kind: "error", message: errorMessage(mutation.error), retryable: true }, pending: false, targetKey: connectionId };
+    }
+    return undefined;
+  }
+
+  // Same message and action whether the list is genuinely empty or a search just matched
+  // nothing, matching this page's own pre-existing behavior -- AsyncBoundary still picks the
+  // right icon/variant (Inbox vs. SearchX) for each case on its own.
+  const emptyStateSlot = {
+    action: (
+      <button
+        className="text-primary underline-offset-4 hover:underline"
+        onClick={() => setEditing(null)}
+        type="button"
+      >
+        {t("sshConnections.emptyAction")}
+      </button>
+    ),
+    title: t("sshConnections.empty"),
+  };
 
   return (
     <div className="space-y-4">
-      {confirmationDialog}
       <PageHeader
-        actions={
-          <>
-            <Button
-              disabled={connectionsQuery.isFetching}
-              variant="outline"
-              onClick={() => void connectionsQuery.refetch()}
-            >
-              <RefreshCw className="h-4 w-4" aria-hidden="true" />
-              {connectionsQuery.isFetching
-                ? t("sshConnections.refreshing")
-                : t("sshConnections.refresh")}
-            </Button>
-            <Button onClick={() => setEditing(null)}>
-              <Plus className="h-4 w-4" aria-hidden="true" />
-              {t("sshConnections.add")}
-            </Button>
-          </>
-        }
         description={t("sshConnections.description")}
         icon={KeyRound}
+        moreMenuItems={[
+          {
+            icon: RefreshCw,
+            id: "refresh",
+            label: connectionsQuery.isFetching ? t("sshConnections.refreshing") : t("sshConnections.refresh"),
+            onSelect: () => void connectionsQuery.refetch(),
+          },
+        ]}
+        primaryAction={
+          <Button onClick={() => setEditing(null)}>
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            {t("sshConnections.add")}
+          </Button>
+        }
         title={t("sshConnections.title")}
       />
 
@@ -181,54 +198,36 @@ export function SshConnectionsPage({
         />
       </div>
 
-      {visibleError ? (
-        <div className="rounded-md border p-3 text-sm ucd-status-danger">
-          {visibleError}
-        </div>
-      ) : null}
       {notice ? (
         <div className="rounded-md border p-3 text-sm ucd-status-success">
           {notice}
         </div>
       ) : null}
 
-      {connectionsQuery.isLoading ? (
-        <SectionPanel title={t("sshConnections.title")}>
-          <div className="py-8 text-center text-sm text-muted-foreground">
-            {t("sshConnections.loading")}
+      <AsyncBoundary
+        emptyState={emptyStateSlot}
+        filtered={Boolean(searchTerm.trim())}
+        filteredEmptyState={emptyStateSlot}
+        isEmpty={() => visibleConnections.length === 0}
+        onRetry={() => void connectionsQuery.refetch()}
+        state={asyncState}
+      >
+        {() => (
+          <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
+            {visibleConnections.map((connection) => (
+              <SshConnectionCard
+                connection={connection}
+                deleteState={stateFor(deleteMutation, connection.id)}
+                key={connection.id}
+                onDelete={(item) => void deleteConnection(item)}
+                onEdit={setEditing}
+                onTest={(item) => void testConnection(item)}
+                testState={stateFor(testMutation, connection.id)}
+              />
+            ))}
           </div>
-        </SectionPanel>
-      ) : visibleConnections.length ? (
-        <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
-          {visibleConnections.map((connection) => (
-            <SshConnectionCard
-              connection={connection}
-              key={connection.id}
-              testing={
-                testMutation.isPending &&
-                testMutation.variables === connection.id
-              }
-              onDelete={(item) => void deleteConnection(item)}
-              onEdit={setEditing}
-              onTest={(item) => void testConnection(item)}
-            />
-          ))}
-        </div>
-      ) : (
-        <SectionPanel title={t("sshConnections.title")}>
-          <div className="flex min-h-40 flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground">
-            <KeyRound className="h-8 w-8" aria-hidden="true" />
-            <div>{t("sshConnections.empty")}</div>
-            <button
-              className="text-primary underline-offset-4 hover:underline"
-              onClick={() => setEditing(null)}
-              type="button"
-            >
-              {t("sshConnections.emptyAction")}
-            </button>
-          </div>
-        </SectionPanel>
-      )}
+        )}
+      </AsyncBoundary>
 
       {editing !== undefined ? (
         <SshConnectionForm
