@@ -29,8 +29,18 @@ async function createOnePieceSession(page: Page, title: string) {
   await seedOnePieceProvider(page);
   await page.getByRole("button", { name: /新建/ }).click();
   const dialog = page.getByRole("dialog");
+  // Task 11.3-11.7's 4-step wizard: Step 1 (mode, single/CLI/local defaults are fine here) ->
+  // Step 2 (Agent identity, OnePiece chosen here) -> Step 3 (workspace) -> Step 4 (review + name).
+  const nextButton = dialog.getByRole("button", { name: "下一步" });
+  await nextButton.click();
   await agentButton(dialog, "OnePiece").click();
-  await dialog.getByPlaceholder(/code.*project/).fill("D:\\example-workspace");
+  await nextButton.click();
+  const projectPath = dialog.getByPlaceholder(/code.*project/);
+  await projectPath.fill("D:\\example-workspace");
+  await projectPath.press("Tab");
+  // Next only enables once the async project-path validation this same fill triggers settles.
+  await expect(nextButton).toBeEnabled({ timeout: 10_000 });
+  await nextButton.click();
   await dialog.getByPlaceholder("新会话").fill(title);
   await dialog.getByRole("button", { name: "创建", exact: true }).click();
   await expect(page.getByTestId("wechat-style-composer")).toBeVisible();

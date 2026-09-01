@@ -52,12 +52,21 @@ test.describe("OnePiece native Agent", () => {
 
     await page.getByRole("button", { name: "返回", exact: true }).click();
     await page.getByRole("button", { name: /新建/ }).click();
+    // Task 11.3-11.7's 4-step wizard: Step 1 (mode) -> Step 2 (Agent identity, the card lives
+    // here now) -> Step 3 (workspace) -> Step 4 (review + name).
     const dialog = page.getByRole("dialog");
+    const dialogNext = dialog.getByRole("button", { name: "下一步" });
+    await dialogNext.click();
     await agentButton(dialog, "OnePiece").click();
     // The card's own pressed state is the selection signal; the separate "selected agent"
     // echo row it used to assert duplicated the already-highlighted card.
     await expect(agentButton(dialog, "OnePiece")).toHaveAttribute("aria-pressed", "true");
-    await dialog.getByPlaceholder(/code.*project/).fill("D:\\onepiece-workspace");
+    await dialogNext.click();
+    const dialogProjectPath = dialog.getByPlaceholder(/code.*project/);
+    await dialogProjectPath.fill("D:\\onepiece-workspace");
+    await dialogProjectPath.press("Tab");
+    await expect(dialogNext).toBeEnabled({ timeout: 10_000 });
+    await dialogNext.click();
     await dialog.getByPlaceholder("新会话").fill("OnePiece API 会话");
     await dialog.getByRole("button", { name: "创建", exact: true }).click();
 
@@ -164,7 +173,9 @@ test.describe("OnePiece native Agent", () => {
 
     await page.getByRole("button", { name: "返回", exact: true }).click();
     await page.getByRole("button", { name: /新建/ }).click();
+    // Task 11.3-11.7's 4-step wizard: Agent identity (this test's own subject) is Step 2 now.
     const dialog = page.getByRole("dialog");
+    await dialog.getByRole("button", { name: "下一步" }).click();
     await expect(dialog.getByText("内置 CLI")).toBeVisible();
     const cliNames = ["Claude Code", "Codex CLI", "OpenCode", "Antigravity", "Gemini CLI"];
     for (const name of cliNames) {
@@ -198,5 +209,167 @@ test.describe("OnePiece native Agent", () => {
     await expect(dialog.getByRole("button", { name: "取消" })).toBeVisible();
     await expect(dialog.getByRole("button", { name: "保存 OnePiece" })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  });
+});
+
+/**
+ * 10.22: streaming/stop/focus/touch/high-risk coverage. All five only exist in an API chat --
+ * `usesStructuredChat` in `main-layout.tsx` routes the "work" surface to `ChatTab`/`ButtonArea`
+ * (the header Stop button, the message selection affordance, the closed-state risk summary) only
+ * for `interactionMode === "api"` or a multi-seat session -- so, like `agent-plan-exit.spec.ts`,
+ * this reuses OnePiece rather than a CLI session, whose "work" surface is the plain Agent Terminal.
+ */
+async function createOnePieceChat(page: Page, title: string) {
+  await openAgentConfigurations(page);
+  const panel = page.getByRole("region", { name: "OnePiece" });
+  await panel.getByRole("button", { name: "新增配置" }).first().click();
+  const dialog = page.getByRole("dialog", { name: "新增 OnePiece 配置" });
+  await dialog.getByRole("button", { name: /Anthropic/ }).click();
+  await dialog.getByLabel("配置名称").fill("会话行为测试配置");
+  await dialog.getByLabel("模型", { exact: true }).selectOption("claude-sonnet-4-6");
+  await dialog.getByLabel("API 密钥").fill("playwright-behavior-secret");
+  await dialog.getByRole("button", { name: "保存 OnePiece" }).click();
+  await expect(panel.getByText("已可用于本地会话")).toBeVisible();
+
+  await page.getByRole("button", { name: "返回", exact: true }).click();
+  await page.getByRole("button", { name: /新建/ }).click();
+  // Task 11.3-11.7's 4-step wizard: Step 1 (mode, single/CLI/local defaults are fine here) ->
+  // Step 2 (Agent identity, OnePiece chosen here) -> Step 3 (workspace) -> Step 4 (review + name).
+  const create = page.getByRole("dialog");
+  const nextButton = create.getByRole("button", { name: "下一步" });
+  await nextButton.click();
+  await create.locator("button").filter({ hasText: "OnePiece" }).first().click();
+  await nextButton.click();
+  const projectPath = create.getByPlaceholder(/code.*project/);
+  await projectPath.fill("D:\\onepiece-workspace");
+  await projectPath.press("Tab");
+  await expect(nextButton).toBeEnabled({ timeout: 10_000 });
+  await nextButton.click();
+  await create.getByPlaceholder("新会话").fill(title);
+  await create.getByRole("button", { name: "创建", exact: true }).click();
+
+  return page.getByPlaceholder("输入指令，下发任务给当前 Agent...");
+}
+
+test.describe("OnePiece composer streaming, stop, focus, touch, and high-risk affordances (10.22)", () => {
+  test.describe.configure({ timeout: 120_000 });
+
+  test("shows a live streaming status and stops generation from the conversation header's own Stop button", async ({ page }) => {
+    const composer = await createOnePieceChat(page, "流式与停止会话");
+    // A long echoed message stretches the mock's own token schedule (`web-send-message-response-scheduler.ts`
+    // fires `token` events every 90ms and `completed` at 320ms + tokenCount * 90ms) so there is a
+    // multi-second window with the message genuinely mid-stream, rather than racing a ~1.6s reply.
+    await composer.fill("检查当前会话状态".repeat(25));
+    await page.getByRole("button", { name: "发送", exact: true }).click();
+
+    const header = page.getByTestId("session-conversation-header");
+    // Exactly two `<article>` rows exist after one send in a fresh session (user, then assistant) --
+    // `MessageItem.tsx` is the only chat component that renders one, confirmed by reading the tree.
+    const assistantArticle = page.locator("article").last();
+    await expect(assistantArticle.getByText("生成中", { exact: true })).toBeVisible();
+    await expect(header.getByText("生成中", { exact: true })).toBeVisible();
+    // The header's Stop button sets an explicit `aria-label` of `chat.stopTitle` ("停止生成"),
+    // distinct from the composer's own Stop button (accessible name "停止" from its text content) --
+    // both render at once while streaming, so the header's more specific name disambiguates them.
+    const headerStop = header.getByRole("button", { name: "停止生成", exact: true });
+    await expect(headerStop).toBeVisible();
+
+    await headerStop.click();
+
+    await expect(headerStop).toHaveCount(0);
+    await expect(header.getByText("已停止", { exact: true })).toBeVisible();
+    await expect(assistantArticle.getByText("已停止", { exact: true })).toBeVisible();
+  });
+
+  test("selects a message via keyboard focus and Enter, the same as a click would", async ({ page }) => {
+    const composer = await createOnePieceChat(page, "键盘选择会话");
+    await composer.fill("键盘选择测试消息");
+    await page.getByRole("button", { name: "发送", exact: true }).click();
+
+    const userArticle = page.locator("article").first();
+    const userBubble = userArticle.getByTestId("message-bubble");
+    await expect(userBubble).toBeVisible();
+    await expect(userBubble).not.toHaveAttribute("aria-current", "true");
+
+    await userBubble.focus();
+    await expect(userBubble).toBeFocused();
+    await page.keyboard.press("Enter");
+
+    await expect(userBubble).toHaveAttribute("aria-current", "true");
+    // The "Selected" badge lives in the message's header row, a sibling of the bubble within the
+    // same <article> (MessageItem.tsx) -- not a descendant of the bubble itself.
+    await expect(userArticle.getByTestId("message-selected-indicator")).toBeVisible();
+  });
+
+  test.describe("touch path", () => {
+    test.use({ hasTouch: true });
+
+    test("selects a message bubble with a tap, the same as a click would", async ({ page }) => {
+      const composer = await createOnePieceChat(page, "触屏选择会话");
+      await composer.fill("触屏选择测试消息");
+      await page.getByRole("button", { name: "发送", exact: true }).click();
+
+      const userArticle = page.locator("article").first();
+      const userBubble = userArticle.getByTestId("message-bubble");
+      await expect(userBubble).toBeVisible();
+      await expect(userBubble).not.toHaveAttribute("aria-current", "true");
+
+      // Tap the message text itself, not the bubble wrapper: the wrapper's bounding box also
+      // spans the always-visible MessageMemoryMenu row beneath the text (MessageMemoryMenu.tsx),
+      // and `.tap()` synthesizes its click at the element's geometric center -- for a short
+      // one-line message that center lands on the memory menu, not the text, the same way a real
+      // fingertip would land wherever it actually touches rather than the container's midpoint.
+      await userBubble.getByText("触屏选择测试消息").tap();
+
+      await expect(userBubble).toHaveAttribute("aria-current", "true");
+      await expect(userArticle.getByTestId("message-selected-indicator")).toBeVisible();
+    });
+  });
+
+  test("keeps the high-risk warning visible in the closed summary once an agent's policy allows automatic execution", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: /设置|Settings/ }).click();
+    await page.getByRole("button", { name: "Agent 权限策略", exact: true }).click();
+
+    const onepieceRow = page.locator("div.grid.min-h-18").filter({ has: page.getByText("OnePiece", { exact: true }) });
+    await onepieceRow.getByRole("button", { name: "Yolo", exact: true }).click();
+    const confirmDialog = page.getByRole("dialog", { name: "确认提升这个 Agent 的信任等级?" });
+    await confirmDialog.getByRole("button", { name: "确认" }).click();
+    await expect(onepieceRow.getByRole("button", { name: "Yolo", exact: true })).toHaveAttribute("aria-pressed", "true");
+
+    // Switches settings pages through the persistent sidebar (`settings-shell.tsx`'s `SettingsSidebar`),
+    // not a fresh `page.goto` -- a real navigation would reload the app and wipe the policy
+    // assignment just made, since the Web/mock permissions store is in-memory JS state, not persisted.
+    await page.getByRole("button", { name: /^(Agent 配置|Agent Configurations)$/ }).click();
+    await page.getByRole("button", { name: /OnePiece/ }).click();
+    const panel = page.getByRole("region", { name: "OnePiece" });
+    await panel.getByRole("button", { name: "新增配置" }).first().click();
+    const providerDialog = page.getByRole("dialog", { name: "新增 OnePiece 配置" });
+    await providerDialog.getByRole("button", { name: /Anthropic/ }).click();
+    await providerDialog.getByLabel("配置名称").fill("高风险策略测试配置");
+    await providerDialog.getByLabel("模型", { exact: true }).selectOption("claude-sonnet-4-6");
+    await providerDialog.getByLabel("API 密钥").fill("playwright-high-risk-secret");
+    await providerDialog.getByRole("button", { name: "保存 OnePiece" }).click();
+    await expect(panel.getByText("已可用于本地会话")).toBeVisible();
+
+    await page.getByRole("button", { name: "返回", exact: true }).click();
+    await page.getByRole("button", { name: /新建/ }).click();
+    // Task 11.3-11.7's 4-step wizard — see createOnePieceChat's own comment above.
+    const createDialog = page.getByRole("dialog");
+    const createNextButton = createDialog.getByRole("button", { name: "下一步" });
+    await createNextButton.click();
+    await createDialog.locator("button").filter({ hasText: "OnePiece" }).first().click();
+    await createNextButton.click();
+    const createProjectPath = createDialog.getByPlaceholder(/code.*project/);
+    await createProjectPath.fill("D:\\onepiece-workspace");
+    await createProjectPath.press("Tab");
+    await expect(createNextButton).toBeEnabled({ timeout: 10_000 });
+    await createNextButton.click();
+    await createDialog.getByPlaceholder("新会话").fill("高风险策略会话");
+    await createDialog.getByRole("button", { name: "创建", exact: true }).click();
+
+    const policySummary = page.getByTestId("effective-execution-policy");
+    await expect(policySummary.getByText("高风险", { exact: true })).toBeVisible();
+    await expect(policySummary).toContainText("允许自动执行");
   });
 });

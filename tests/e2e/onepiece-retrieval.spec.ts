@@ -75,8 +75,18 @@ test.describe("OnePiece retrieval configuration", () => {
     await page.getByRole("button", { name: "返回", exact: true }).click();
     await page.getByRole("button", { name: /新建/ }).click();
     const createDialog = page.getByRole("dialog");
+    // Task 11.3-11.7's 4-step wizard: Step 1 (mode, single/CLI/local defaults are fine here) ->
+    // Step 2 (Agent identity, OnePiece chosen here) -> Step 3 (workspace) -> Step 4 (review + name).
+    const nextButton = createDialog.getByRole("button", { name: "下一步" });
+    await nextButton.click();
     await agentButton(createDialog, "OnePiece").click();
-    await createDialog.getByPlaceholder(/code.*project/).fill("D:\\code\\automatic-local");
+    await nextButton.click();
+    const projectPath = createDialog.getByPlaceholder(/code.*project/);
+    await projectPath.fill("D:\\code\\automatic-local");
+    await projectPath.press("Tab");
+    // Next only enables once the async project-path validation this same fill triggers settles.
+    await expect(nextButton).toBeEnabled({ timeout: 10_000 });
+    await nextButton.click();
     await createDialog.getByPlaceholder("新会话").fill("本地代码索引会话");
     await createDialog.getByRole("button", { name: "创建", exact: true }).click();
 

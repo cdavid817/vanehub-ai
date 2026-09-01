@@ -90,7 +90,9 @@ for (const viewport of [
     await page.getByRole("button", { name: "新しい", exact: true }).click();
     const createHeading = page.getByRole("heading", { name: "セッションの作成" });
     await expect(createHeading).toBeVisible();
-    await expect(page.getByText("Agent とローカルまたはリモートのワークスペースを選択します。")).toBeVisible();
+    // Task 11.3-11.7's 4-step wizard replaced the old single-screen dialog's static description
+    // with a step counter (`createSession.step`); Step 1 reads "ステップ 1 / 4" in Japanese.
+    await expect(page.getByText("ステップ 1 / 4")).toBeVisible();
     // The dialog moved onto the shared ApplicationDialog primitive, which is identified by role.
     const createDialog = page.getByRole("dialog", { name: "セッションの作成" });
     await expectElementFitsViewport(page, createDialog);

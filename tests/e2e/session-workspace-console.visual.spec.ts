@@ -43,21 +43,33 @@ async function useStyle(page: Page, theme: string, language: string) {
  * Copied rather than parameterized upstream: every other spec calls that helper, and widening its
  * selectors to match five locales would widen them for all of them.
  */
+/**
+ * Task 11.3-11.7 turned the single-screen create-session dialog into a 4-step wizard: Step 1
+ * (mode) -> Step 2 (participant) -> Step 3 (workspace, the project path field) -> Step 4 (review,
+ * the session name field — the old single-screen dialog's own "Identity" section landed there).
+ * `copy.next` names each locale's "Next" button label alongside the pre-existing labels.
+ */
 async function createSession(page: Page, title: string, copy: {
   create: string;
   newSession: string;
+  next: string;
   start: RegExp;
   terminal: string;
 }) {
   await page.getByRole("button", { name: copy.start }).click();
+  const nextButton = page.getByRole("button", { name: copy.next });
+  await nextButton.click(); // Step 1 (mode) -> Step 2, defaults left as-is.
+  await nextButton.click(); // Step 2 (participant) -> Step 3, defaults left as-is.
+
   const projectPath = page.getByPlaceholder(/code.*project/);
+  await projectPath.fill("D:\\example-workspace");
+  await projectPath.press("Tab");
+  await expect(nextButton).toBeEnabled({ timeout: 10_000 });
+  await nextButton.click(); // Step 3 -> Step 4.
+
+  await page.getByPlaceholder(copy.newSession).fill(title);
   const createButton = page.getByRole("button", { name: copy.create, exact: true });
-  await expect(async () => {
-    await projectPath.fill("D:\\example-workspace");
-    await projectPath.press("Tab");
-    await page.getByPlaceholder(copy.newSession).fill(title);
-    await expect(createButton).toBeEnabled({ timeout: 1_000 });
-  }).toPass({ timeout: 10_000 });
+  await expect(createButton).toBeEnabled();
   await createButton.click();
   await expect(page.getByRole("textbox", { name: copy.terminal })).toBeEnabled();
 }
@@ -65,6 +77,7 @@ async function createSession(page: Page, title: string, copy: {
 const ZH = {
   create: "创建",
   newSession: "新会话",
+  next: "下一步",
   start: /新建/,
   terminal: "Terminal input",
 };
@@ -91,8 +104,14 @@ for (const variant of VARIANTS) {
     // that failed to apply looks exactly like one that applied and changed nothing.
     await expect(page.locator("html")).toHaveAttribute("data-theme", variant.theme);
 
-    await workspaceTabs(page).getByRole("tab", { name: "终端记录" }).click();
-    const records = page.locator('[id^="session-tab-panel-"]:not(.hidden)');
+    // Terminal History lives in the closed-by-default Runtime Panel now, not the primary 4-tab
+    // workspace (§8's split of the old flat 9-tab workspace into 4 primary + 4 Runtime Panel
+    // surfaces) -- open it first, then find the tab inside its own tablist.
+    await page.getByRole("button", { name: "运行时面板" }).click();
+    await page.getByRole("tablist", { name: "运行时面板" }).getByRole("tab", { name: "终端记录" }).click();
+    // Unlike the primary tabs, the Runtime Panel's own tab content (`RuntimeSurfaceShell` in
+    // session-runtime-panel.tsx) never sets a `session-tab-panel-*` id -- scope by ARIA role/name.
+    const records = page.getByRole("tabpanel", { name: "终端记录" });
 
     // Live, failed, and incomplete in one view. These are the console's whole reason for existing:
     // a run still going, a run that finished badly, and a row whose start was never observed. A
@@ -155,6 +174,7 @@ test("holds the narrow layout under the longest localized labels", async ({ page
   await createSession(page, "긴 라벨", {
     create: "만들기",
     newSession: "새 세션",
+    next: "다음",
     start: /새로운/,
     terminal: "Terminal input",
   });
@@ -162,11 +182,13 @@ test("holds the narrow layout under the longest localized labels", async ({ page
   await expect(page.locator("html")).toHaveAttribute("lang", "ko");
   await expectNoHorizontalSpill(page);
 
-  // Still nine, and still reachable. The failure worth catching here is the quiet one: a tab strip
-  // that runs out of room and drops its last entries rather than scrolling, which leaves a reader
-  // with a workspace whose Report tab does not appear to exist in their language.
+  // Still four (§8 split the old flat nine-tab workspace into 4 primary + 4 Runtime Panel
+  // surfaces -- this tablist is the primary one), and still reachable. The failure worth catching
+  // here is the quiet one: a tab strip that runs out of room and drops its last entries rather
+  // than scrolling, which leaves a reader with a workspace whose Report tab does not appear to
+  // exist in their language.
   const tabs = page.getByRole("tablist", { name: "세션 작업공간" });
-  await expect(tabs.getByRole("tab")).toHaveCount(9);
+  await expect(tabs.getByRole("tab")).toHaveCount(4);
   await tabs.getByRole("tab", { name: "신고" }).click();
   await expect(tabs.getByRole("tab", { name: "신고" })).toHaveAttribute("aria-selected", "true");
   await expectNoHorizontalSpill(page);

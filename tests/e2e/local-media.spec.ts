@@ -71,19 +71,18 @@ test.describe("Local media settings in Web mode", () => {
  * The media actions live in the structured composer, which only renders for an API-mode or
  * multi-seat session. A multi-seat session is the one the Web/mock adapter can create end to end.
  */
+/**
+ * Task 11.3-11.7 turned the single-screen create-session dialog into a 4-step wizard: Step 1
+ * (mode, including single/multi), Step 2 (participant, including seat assignment), Step 3
+ * (workspace, the project path field), Step 4 (review, including the session name field).
+ */
 async function openStructuredComposer(page: Page) {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await page.getByRole("button", { name: /新建/ }).click();
-  const projectPath = page.getByPlaceholder(/code.*project/);
-  await expect(async () => {
-    await projectPath.fill("D:\\example-workspace");
-    await projectPath.press("Tab");
-    await expect(page.getByRole("button", { name: "创建", exact: true })).toBeEnabled({
-      timeout: 1_000,
-    });
-  }).toPass({ timeout: 10_000 });
   await page.getByRole("button", { name: /多个 Agent 在同一会话里协作/ }).click();
+  const nextButton = page.getByRole("button", { name: "下一步" });
+  await nextButton.click(); // Step 1 -> Step 2 (seats live here now).
 
   const seatRows = page.locator("div.ucd-list-row").filter({
     has: page.getByRole("button", { name: /删除席位/ }),
@@ -94,8 +93,19 @@ async function openStructuredComposer(page: Page) {
     const value = await select.locator("option").nth(index).getAttribute("value");
     if (value) await select.selectOption(value);
   }
+  await nextButton.click(); // Step 2 -> Step 3.
+
+  const projectPath = page.getByPlaceholder(/code.*project/);
+  await projectPath.fill("D:\\example-workspace");
+  await projectPath.press("Tab");
+  // Next only enables once the async project-path validation this same fill triggers settles.
+  await expect(nextButton).toBeEnabled({ timeout: 10_000 });
+  await nextButton.click(); // Step 3 -> Step 4.
+
   await page.getByPlaceholder("新会话").fill("本地媒体会话");
-  await page.getByRole("button", { name: "创建", exact: true }).click();
+  const createButton = page.getByRole("button", { name: "创建", exact: true });
+  await expect(createButton).toBeEnabled();
+  await createButton.click();
   await expect(page.getByTestId("composer-media-actions")).toBeVisible();
 }
 

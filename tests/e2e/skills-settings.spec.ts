@@ -245,18 +245,40 @@ test.describe("Skills management", () => {
   test("exposes Effective, Global, and Project Skill views in session information", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("button", { name: "New", exact: true }).click();
+    // Task 11.3-11.7's 4-step wizard: Step 1 (mode) -> Step 2 (Agent identity) -> Step 3
+    // (workspace, the project path field) -> Step 4 (review + name). This test only cares about
+    // the resulting session's Skills information, so it leaves every step's defaults as-is and
+    // skips naming the session (title has no validation -- create-session-validation.ts).
+    const dialog = page.getByRole("dialog");
+    const next = dialog.getByRole("button", { name: "Next" });
+    await next.click(); // Step 1 -> Step 2, defaults left as-is.
+    await next.click(); // Step 2 -> Step 3, defaults left as-is.
     const project = page.getByPlaceholder(/code.*project/);
     await project.fill("D:\\example-workspace");
     await project.press("Tab");
+    await expect(next).toBeEnabled({ timeout: 10_000 });
+    await next.click(); // Step 3 -> Step 4.
     const create = page.getByRole("button", { name: "Create", exact: true });
     await expect(create).toBeEnabled();
     await create.click();
-    await page.getByRole("tab", { name: "Skill", exact: true }).click();
-    await expect(page.getByRole("tab", { name: "Effective" })).toBeVisible();
-    await expect(page.getByRole("tab", { name: "Global" })).toBeVisible();
-    await page.getByRole("tab", { name: "Project" }).click();
-    await expect(page.getByText("Project Skill context")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Create Skill" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Import Skill" })).toBeVisible();
+
+    // §9's Session Overview migration folded the old top-level "Skill" workspace tab into an
+    // accordion section of the Inspector's session-kind provider (session-overview-sections.tsx,
+    // session-skills-pane.tsx) -- reached through the info panel, not a workspace tab anymore.
+    // The panel defaults to following the current session as soon as one exists
+    // (session-workspace-region-builders.tsx's own effect), so opening it is enough to land on
+    // Session Overview without an extra selection step.
+    await page.getByTestId("conversation-overflow-trigger").click();
+    await page.getByTestId("toggle-info-panel").click();
+    const inspector = page.getByTestId("workbench-inspector");
+    await expect(inspector.getByRole("heading", { name: "Session Overview" })).toBeVisible();
+    await inspector.getByTestId("accordion-header-skills").click();
+    const skills = inspector.getByTestId("accordion-content-skills");
+    await expect(skills.getByRole("tab", { name: "Effective" })).toBeVisible();
+    await expect(skills.getByRole("tab", { name: "Global" })).toBeVisible();
+    await skills.getByRole("tab", { name: "Project" }).click();
+    await expect(skills.getByText("Project Skill context")).toBeVisible();
+    await expect(skills.getByRole("button", { name: "Create Skill" })).toBeVisible();
+    await expect(skills.getByRole("button", { name: "Import Skill" })).toBeVisible();
   });
 });

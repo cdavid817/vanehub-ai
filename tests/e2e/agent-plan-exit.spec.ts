@@ -25,9 +25,18 @@ async function createOnePieceChat(page: Page, title: string) {
 
   await page.getByRole("button", { name: "返回", exact: true }).click();
   await page.getByRole("button", { name: /新建/ }).click();
+  // Task 11.3-11.7's 4-step wizard: Step 1 (mode, single/CLI/local defaults are fine here) ->
+  // Step 2 (Agent identity, OnePiece chosen here) -> Step 3 (workspace) -> Step 4 (review + name).
   const create = page.getByRole("dialog");
+  const nextButton = create.getByRole("button", { name: "下一步" });
+  await nextButton.click();
   await create.locator("button").filter({ hasText: "OnePiece" }).first().click();
-  await create.getByPlaceholder(/code.*project/).fill("D:\\onepiece-workspace");
+  await nextButton.click();
+  const projectPath = create.getByPlaceholder(/code.*project/);
+  await projectPath.fill("D:\\onepiece-workspace");
+  await projectPath.press("Tab");
+  await expect(nextButton).toBeEnabled({ timeout: 10_000 });
+  await nextButton.click();
   await create.getByPlaceholder("新会话").fill(title);
   await create.getByRole("button", { name: "创建", exact: true }).click();
 

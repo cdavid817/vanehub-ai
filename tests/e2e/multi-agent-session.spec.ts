@@ -10,20 +10,35 @@ import { expect, test, type Page } from "@playwright/test";
  * `seat_turn_tests.rs` plus the real-Agent check in task 11.6.
  */
 
+/**
+ * Task 11.3-11.7 turned the single-screen create-session dialog into a 4-step wizard: Step 1
+ * (mode, including single/multi), Step 2 (participant, including seat assignment — moved off
+ * Step 1, which used to show seats the instant multi mode was picked), Step 3 (workspace, the
+ * project path field), Step 4 (review, including the session name field). This helper now only
+ * opens the dialog and leaves it on Step 1 — tests that need to inspect Step 1's own multi-mode
+ * UI (below) call it directly; `advanceToWorkspaceStep`/`createMultiSeatSession` carry a caller
+ * further when that is what the test actually needs.
+ */
 async function openCreateSessionDialog(page: Page) {
   await page.goto("/");
   await page.getByRole("button", { name: /新建/ }).click();
+}
+
+/** From Step 3 (workspace, already showing): fills the project path and advances to Step 4. */
+async function fillWorkspaceAndAdvance(page: Page) {
   const projectPath = page.getByPlaceholder(/code.*project/);
-  await expect(async () => {
-    await projectPath.fill("D:\\example-workspace");
-    await projectPath.press("Tab");
-    await expect(page.getByRole("button", { name: "创建", exact: true })).toBeEnabled({ timeout: 1_000 });
-  }).toPass({ timeout: 10_000 });
+  const nextButton = page.getByRole("button", { name: "下一步" });
+  await projectPath.fill("D:\\example-workspace");
+  await projectPath.press("Tab");
+  // Next only enables once the async project-path validation this same fill triggers settles.
+  await expect(nextButton).toBeEnabled({ timeout: 10_000 });
+  await nextButton.click();
 }
 
 async function createMultiSeatSession(page: Page, title: string) {
   await openCreateSessionDialog(page);
   await page.getByRole("button", { name: /多个 Agent 在同一会话里协作/ }).click();
+  await page.getByRole("button", { name: "下一步" }).click(); // Step 1 -> Step 2 (seats live here now).
 
   // Switching to multi seeds two seats so the editor opens usable; no clicks are needed here.
   // A seat defaults to the first *available* Agent, which the mock registry may not have, so each
@@ -42,8 +57,10 @@ async function createMultiSeatSession(page: Page, title: string) {
     const roleValue = await roleSelect.locator("option").nth(index + 1).getAttribute("value");
     if (roleValue) await roleSelect.selectOption(roleValue);
   }
-  await page.getByPlaceholder("新会话").fill(title);
+  await page.getByRole("button", { name: "下一步" }).click(); // Step 2 -> Step 3.
+  await fillWorkspaceAndAdvance(page); // Step 3 -> Step 4.
 
+  await page.getByPlaceholder("新会话").fill(title);
   const createButton = page.getByRole("button", { name: "创建", exact: true });
   await expect(createButton).toBeEnabled();
   await createButton.click();
@@ -59,6 +76,7 @@ test.describe("multi-Agent session", () => {
     await expect(page.getByText(/暂未实现/)).toHaveCount(0);
 
     await multi.click();
+    await page.getByRole("button", { name: "下一步" }).click(); // Step 1 -> Step 2 (seats live here now).
     await expect(page.getByText(/^席位$/).first()).toBeVisible();
     await expect(page.getByRole("button", { name: /添加席位/ })).toBeVisible();
   });
@@ -66,6 +84,7 @@ test.describe("multi-Agent session", () => {
   test("a seat can be added and removed before the session is created", async ({ page }) => {
     await openCreateSessionDialog(page);
     await page.getByRole("button", { name: /多个 Agent 在同一会话里协作/ }).click();
+    await page.getByRole("button", { name: "下一步" }).click(); // Step 1 -> Step 2 (seats live here now).
 
     const removeButtons = page.getByRole("button", { name: /删除席位/ });
     await expect(removeButtons).toHaveCount(2);
@@ -106,7 +125,13 @@ test.describe("multi-Agent session", () => {
     // (§8's split of the flat 9-tab workspace into 4 primary + 4 Runtime Panel surfaces).
     await page.getByRole("button", { name: "运行时面板" }).click();
     await page.getByRole("tab", { name: /终端记录|Terminal History/ }).first().click();
-    await expect(page.getByRole("tablist", { name: /席位切换/ })).toBeVisible();
+    // Task 10.20-10.21 replaced the seat switcher's tab strip with an Avatar Group popover
+    // (`role="listbox"`/`role="option"`, not `role="tablist"`/`role="tab"`) — closed by default,
+    // its trigger's own accessible name is "All seats" until a specific seat is selected.
+    const seatSwitcherTrigger = page.getByRole("button", { name: "全部席位" });
+    await expect(seatSwitcherTrigger).toBeVisible();
+    await seatSwitcherTrigger.click();
+    await expect(page.getByRole("listbox", { name: /席位切换/ })).toBeVisible();
   });
 
   test("a running shared session exposes roster presence, membership edits, and participant mentions", async ({ page }) => {
@@ -245,6 +270,10 @@ test.describe("multi-Agent session", () => {
 
   test("a single-Agent session offers no seat switcher", async ({ page }) => {
     await openCreateSessionDialog(page);
+    const nextButton = page.getByRole("button", { name: "下一步" });
+    await nextButton.click(); // Step 1 (mode, single by default) -> Step 2.
+    await nextButton.click(); // Step 2 (participant, default Agent) -> Step 3.
+    await fillWorkspaceAndAdvance(page); // Step 3 -> Step 4.
     await page.getByPlaceholder("新会话").fill("单 Agent 会话");
     await page.getByRole("button", { name: "创建", exact: true }).click();
     const sessionCard = page.locator("[data-session-id]").filter({ hasText: "单 Agent 会话" });
@@ -258,6 +287,10 @@ test.describe("multi-Agent session", () => {
     // (§8's split of the flat 9-tab workspace into 4 primary + 4 Runtime Panel surfaces).
     await page.getByRole("button", { name: "运行时面板" }).click();
     await page.getByRole("tab", { name: /终端记录|Terminal History/ }).first().click();
-    await expect(page.getByRole("tablist", { name: /席位切换/ })).toHaveCount(0);
+    // `SeatAvatarGroup` (task 10.20-10.21's popover replacement for the old tab-strip switcher)
+    // returns null outright for a single-seat session, so neither its trigger nor the listbox it
+    // opens exists at all — checked via the trigger's own `aria-haspopup`, since its accessible
+    // name is dynamic (whichever seat, if any, is selected) and has no fixed string to match here.
+    await expect(page.locator('button[aria-haspopup="listbox"]')).toHaveCount(0);
   });
 });

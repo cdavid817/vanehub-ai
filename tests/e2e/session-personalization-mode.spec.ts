@@ -11,29 +11,42 @@ import { expect, test, type Page } from "@playwright/test";
  * a reload starts from nothing -- that is the mock's own shape, not the behaviour under test, and
  * asserting it here would only prove the mock forgets. Restart belongs to the desktop layer, where
  * sessions are actually persisted.
+ *
+ * Task 11.3-11.7 turned the single-screen create-session dialog into a 4-step wizard: Step 1
+ * (mode), Step 2 (participant, including the personalization-mode selector this whole spec is
+ * about — moved here from the old single-screen dialog's "Workspace" section), Step 3 (workspace,
+ * the project path field), Step 4 (review, including the session name field). "Opening the
+ * dialog" below always lands on Step 2, since every test in this file needs that selector.
  */
 async function openCreateDialog(page: Page) {
   await page.goto("/");
   await reopenCreateDialog(page);
 }
 
-/** Opens the dialog again without navigating, which would take the mock's sessions with it. */
+/** Opens the dialog again without navigating, which would take the mock's sessions with it.
+ *  Lands on Step 2 (defaults from Step 1 left as-is), where personalization mode lives now. */
 async function reopenCreateDialog(page: Page) {
   await page.getByRole("button", { name: /新建/ }).click();
+  await page.getByRole("button", { name: "下一步" }).click(); // Step 1 -> Step 2.
   await expect(page.getByTestId("session-personalization-mode")).toBeVisible();
 }
 
+/** From Step 2 (personalization mode already chosen if the caller wanted to): advances through
+ *  Step 3 (workspace) and fills the Step 4 (review) session name, leaving Create enabled but not
+ *  yet clicked so each test still decides when to submit. */
 async function fillWorkspaceAndTitle(page: Page, title: string) {
+  const nextButton = page.getByRole("button", { name: "下一步" });
+  await nextButton.click(); // Step 2 -> Step 3.
+
   const projectPath = page.getByPlaceholder(/code.*project/);
-  const sessionTitle = page.getByPlaceholder("新会话");
-  await expect(async () => {
-    await projectPath.fill("D:\\example-workspace");
-    await projectPath.press("Tab");
-    await sessionTitle.fill(title);
-    await expect(page.getByRole("button", { name: "创建", exact: true })).toBeEnabled({
-      timeout: 1_000,
-    });
-  }).toPass({ timeout: 10_000 });
+  await projectPath.fill("D:\\example-workspace");
+  await projectPath.press("Tab");
+  // Next only enables once the async project-path validation this same fill triggers settles.
+  await expect(nextButton).toBeEnabled({ timeout: 10_000 });
+  await nextButton.click(); // Step 3 -> Step 4.
+
+  await page.getByPlaceholder("新会话").fill(title);
+  await expect(page.getByRole("button", { name: "创建", exact: true })).toBeEnabled();
 }
 
 test.describe("session personalization mode", () => {
@@ -54,8 +67,12 @@ test.describe("session personalization mode", () => {
     await expect(page.getByTestId("session-personalization-mode-blocked")).toBeVisible();
     await expect(page.getByTestId("session-personalization-mode").locator("option[value='project-only']")).toBeDisabled();
 
+    // The workspace field is on Step 3 now; go there to fill it, then back to Step 2 (`hasWorkspace`
+    // is draft state, not per-step state, so the selector reflects the change once re-shown).
+    await page.getByRole("button", { name: "下一步" }).click();
     await page.getByPlaceholder(/code.*project/).fill("D:\\example-workspace");
     await page.getByPlaceholder(/code.*project/).press("Tab");
+    await page.getByRole("button", { name: "上一步" }).click();
 
     await expect(page.getByTestId("session-personalization-mode-blocked")).toHaveCount(0);
     await expect(page.getByTestId("session-personalization-mode").locator("option[value='project-only']")).toBeEnabled();
@@ -63,8 +80,8 @@ test.describe("session personalization mode", () => {
 
   test("badges a temporary session for as long as it is open", async ({ page }) => {
     await openCreateDialog(page);
-    await fillWorkspaceAndTitle(page, "临时会话");
     await page.getByTestId("session-personalization-mode").selectOption("temporary");
+    await fillWorkspaceAndTitle(page, "临时会话");
     await page.getByRole("button", { name: "创建", exact: true }).click();
 
     const badge = page.getByTestId("session-personalization-badge-temporary");
@@ -86,8 +103,8 @@ test.describe("session personalization mode", () => {
 
   test("keeps each session's mode when switching between them", async ({ page }) => {
     await openCreateDialog(page);
-    await fillWorkspaceAndTitle(page, "临时的那个");
     await page.getByTestId("session-personalization-mode").selectOption("temporary");
+    await fillWorkspaceAndTitle(page, "临时的那个");
     await page.getByRole("button", { name: "创建", exact: true }).click();
     await expect(page.getByTestId("session-personalization-badge-temporary")).toBeVisible();
 
@@ -103,8 +120,8 @@ test.describe("session personalization mode", () => {
 
   test("leaves an existing session's mode alone when instructions change", async ({ page }) => {
     await openCreateDialog(page);
-    await fillWorkspaceAndTitle(page, "不该被改的会话");
     await page.getByTestId("session-personalization-mode").selectOption("temporary");
+    await fillWorkspaceAndTitle(page, "不该被改的会话");
     await page.getByRole("button", { name: "创建", exact: true }).click();
     await expect(page.getByTestId("session-personalization-badge-temporary")).toBeVisible();
 
