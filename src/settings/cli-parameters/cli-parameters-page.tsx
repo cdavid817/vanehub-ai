@@ -81,7 +81,11 @@ export function CliParametersPage({
       }),
     onSuccess: async (profile) => {
       drafts.accept(profile);
-      setNotice(t("cliParameters.notice.saved"));
+      // Task 12.15: an Interactive-scope launch parameter is only read when an Agent Terminal
+      // starts (`agent_runtime/application/terminal_service.rs`), not on every message the way
+      // Chat-scope ones are -- an already-open terminal keeps its original parameters until it is
+      // reopened, which the Chat-scope save notice does not need to say.
+      setNotice(t(scope === "interactive" ? "cliParameters.notice.savedInteractive" : "cliParameters.notice.saved"));
       await queryClient.invalidateQueries({ queryKey: profilesQueryKey });
     },
   });
@@ -208,6 +212,11 @@ export function CliParametersPage({
             query={localQuery}
             scope={scope}
           />
+          {scope === "interactive" ? (
+            <p className="rounded-md border p-3 text-xs leading-5 text-muted-foreground">
+              {t("cliParameters.scope.interactiveRestartNotice")}
+            </p>
+          ) : null}
 
           <div aria-live="polite" className="space-y-2">
             {conflict !== "none" ? (

@@ -84,6 +84,12 @@ export function LocalMediaPage({ isActive }: SettingsPageContext) {
 
         {draft ? (
           <>
+            {/* Task 12.15: every field below shares one profile revision (`use-local-media-settings.ts`),
+                so a change to any single one invalidates the last-known readiness of all three engines
+                at once -- stated once, here, rather than repeated on every field or card. */}
+            <p className="rounded-lg px-4 py-3 text-xs leading-5 text-muted-foreground">
+              {t("localMedia.settings.restartNotice")}
+            </p>
             <SetupOverview
               dirty={model.dirty}
               discovery={model.pythonDiscovery}

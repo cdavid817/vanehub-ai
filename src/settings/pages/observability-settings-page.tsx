@@ -11,6 +11,11 @@ import { PageHeader, SectionPanel } from "./page-parts";
 
 const queryKey = ["execution-observability"] as const;
 
+/** Task 12.15: fields whose change only takes effect after VaneHub restarts (the OTLP export
+ *  section's own banner explains why -- the processor is only rebuilt on launch). Excludes the
+ *  Local Timeline section, which applies live. */
+const EXPORT_RESTART_FIELDS = ["otlpEnabled", "otlpEndpoint", "samplingRatio"] as const;
+
 function supportedDraft(settings: ObservabilitySettings): ObservabilitySettings {
   return { ...settings, otlpAuthToken: null };
 }
@@ -50,6 +55,10 @@ export function ObservabilitySettingsPage({
   const [draft, setDraft] = useState<ObservabilitySettings | null>(settingsQuery.data ? supportedDraft(settingsQuery.data) : null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Task 12.15: distinct from `notice` (cleared on the next edit) -- this stays visible across
+  // further edits and saves, since the earlier restart-requiring change is still pending until an
+  // actual restart happens, which this component has no way to observe.
+  const [restartPending, setRestartPending] = useState(false);
 
   useEffect(() => {
     if (settingsQuery.data) setDraft(supportedDraft(settingsQuery.data));
@@ -57,7 +66,13 @@ export function ObservabilitySettingsPage({
 
   const mutation = useMutation({
     mutationFn: (settings: ObservabilitySettings) => service.updateSettings(settings),
-    onSuccess: async (saved) => {
+    onSuccess: async (saved, submitted) => {
+      const previous = settingsQuery.data;
+      const exportChanged = Boolean(
+        (previous && EXPORT_RESTART_FIELDS.some((key) => previous[key] !== submitted[key]))
+        || (submitted.otlpAuthToken !== null && submitted.otlpAuthToken !== ""),
+      );
+      if (exportChanged) setRestartPending(true);
       setDraft(supportedDraft(saved));
       setNotice(t("observability.saved"));
       setError(null);
@@ -115,6 +130,7 @@ export function ObservabilitySettingsPage({
       {settingsQuery.isError ? <div className="rounded border p-3 text-sm ucd-status-danger">{t("observability.loadError")}</div> : null}
       {error ? <div className="rounded border p-3 text-sm ucd-status-danger">{error}</div> : null}
       {notice ? <div className="rounded border p-3 text-sm ucd-status-success">{notice}</div> : null}
+      {restartPending ? <div className="rounded border p-3 text-sm ucd-status-warning" role="status">{t("observability.restartPending")}</div> : null}
 
       <SectionPanel description={t("observability.local.description")} icon={Database} title={t("observability.local.title")}>
         <ToggleRow checked={draft.localTimelineEnabled} label={t("observability.local.enabled")} onChange={(value) => update("localTimelineEnabled", value)} />
