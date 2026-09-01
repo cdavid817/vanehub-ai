@@ -3,8 +3,10 @@ import { useTranslation } from "react-i18next";
 import { ActionMenu, type ActionMenuItem } from "../../../ui/actions/ActionMenu";
 import { MutationStatus } from "../../../ui/async/MutationStatus";
 import type { MutationState } from "../../../ui/async/mutation-state";
+import { CopyDiagnosticsButton } from "../../../ui/diagnostics/CopyDiagnosticsButton";
 import { StatusBadge, type StatusTone } from "../../../ui/status/StatusBadge";
 import type { SshConnection, SshConnectionTestStatus } from "../../../types/ssh-connection";
+import { buildSshConnectionDiagnosticFields } from "./ssh-connection-diagnostic-summary";
 
 const statusTone: Record<SshConnectionTestStatus, StatusTone> = {
   "not-tested": "neutral",
@@ -82,6 +84,9 @@ export function SshConnectionCard({
       ) : null}
       <MutationStatus state={testState} />
       <MutationStatus state={deleteState} />
+      <div className="flex justify-end">
+        <CopyDiagnosticsButton fields={buildSshConnectionDiagnosticFields(connection, t)} />
+      </div>
     </article>
   );
 }
