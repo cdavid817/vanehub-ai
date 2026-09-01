@@ -3,6 +3,9 @@ import { useTranslation } from "react-i18next";
 import { ChevronDown, type LucideIcon } from "lucide-react";
 import { Badge } from "../../components/ui/badge";
 import { cn } from "../../lib/utils";
+import { MutationStatus } from "../../ui/async/MutationStatus";
+import type { MutationState } from "../../ui/async/mutation-state";
+import { FieldError } from "../../ui/forms/FieldError";
 
 export function PageHeader({
   title,
@@ -107,22 +110,43 @@ export function SectionPanel({
   );
 }
 
+/**
+ * Task 12.10: `mutation`/`onRetryMutation`/`onDismissMutation`/`errorMessage` are optional and
+ * additive -- every existing call site across 20 pages that omits them renders exactly as before.
+ * Mirrors `src/ui/forms/SettingsRow.tsx`'s own prop shape (same `MutationStatus`/`FieldError`
+ * building blocks) rather than inventing a second one, without switching this row's own distinct
+ * layout/styling that all 20 pages already share.
+ */
 export function SettingsRow({
   title,
   description,
   children,
+  mutation,
+  onRetryMutation,
+  onDismissMutation,
+  errorMessage,
 }: {
   title: string;
   description?: string;
   children: ReactNode;
+  mutation?: MutationState;
+  onRetryMutation?: () => void;
+  onDismissMutation?: () => void;
+  errorMessage?: string;
 }) {
   return (
-    <div className="grid min-h-18 gap-3 border-b border-border/70 px-5 py-4 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_minmax(180px,auto)] sm:items-center sm:px-6">
-      <div className="min-w-0">
-        <div className="text-sm font-medium leading-5 text-foreground">{title}</div>
-        {description ? <div className="mt-0.5 text-xs leading-5 text-muted-foreground">{description}</div> : null}
+    <div className="border-b border-border/70 px-5 py-4 last:border-b-0 sm:px-6">
+      <div className="grid min-h-18 gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(180px,auto)] sm:items-center">
+        <div className="min-w-0">
+          <div className="text-sm font-medium leading-5 text-foreground">{title}</div>
+          {description ? <div className="mt-0.5 text-xs leading-5 text-muted-foreground">{description}</div> : null}
+        </div>
+        <div className="flex min-w-0 items-center gap-2 sm:justify-self-end">
+          {children}
+          <MutationStatus onDismiss={onDismissMutation} onRetry={onRetryMutation} state={mutation} />
+        </div>
       </div>
-      <div className="min-w-0 sm:justify-self-end">{children}</div>
+      <FieldError message={errorMessage} />
     </div>
   );
 }

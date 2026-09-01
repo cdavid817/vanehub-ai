@@ -3,6 +3,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "../../i18n";
+import { settingsService } from "../../services/runtime-settings-client";
 import { SettingsProvider } from "../settings-provider";
 import { BasicSettingsPage } from "./basic-settings-page";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -124,5 +125,39 @@ describe("BasicSettingsPage", () => {
     await user.click(within(dialog).getByRole("button", { name: "取消" }));
 
     expect(window.localStorage.getItem("vanehub.appSettings")).toBe(stored);
+  });
+
+  it("shows the failure on the theme row alone, not a page-wide state (task 12.10)", async () => {
+    // Rollback-on-failure itself is pre-existing behavior in `saveSetting`, not something this
+    // task built -- this test is scoped to what task 12.10 actually added: the row-level pending
+    // and error display, not re-verifying the rollback's own correctness under concurrent saves
+    // from other sections (a separate, real question this test does not need to settle).
+    const user = userEvent.setup();
+    // Conditional on the call's own key, not call order -- other sections may save their own
+    // settings on mount, and a plain `mockRejectedValueOnce` would silently reject whichever of
+    // those happens to call first instead of the theme change this test actually exercises.
+    // Non-theme keys pass through to the real implementation so the rest of the page still works.
+    const realSaveSetting = settingsService.saveSetting.bind(settingsService);
+    const saveSpy = vi.spyOn(settingsService, "saveSetting").mockImplementation((input) => {
+      if (input.key === "theme") return Promise.reject(new Error("boom"));
+      return realSaveSetting(input);
+    });
+    const { unmount } = render(
+      <SettingsProvider>
+        <BasicSettingsPage />
+      </SettingsProvider>,
+    );
+
+    const theme = await screen.findByRole("combobox", { name: "主题" }) as HTMLSelectElement;
+    const language = screen.getByRole("combobox", { name: "应用语言" }) as HTMLSelectElement;
+    await user.selectOptions(theme, "简约风");
+
+    // Pending, then error, both scoped to this one row -- an unrelated row is never disabled by
+    // another row's own in-flight or failed save (design.md Decision 11: "mutation 只禁用目标动作").
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("boom"));
+    expect(language.disabled).toBe(false);
+
+    saveSpy.mockRestore();
+    unmount();
   });
 });

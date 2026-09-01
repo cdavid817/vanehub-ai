@@ -10,6 +10,10 @@ interface SettingsContextValue {
   loading: boolean;
   savingKey: AppSettingKey | null;
   error: string | null;
+  /** Which field `error` belongs to, if any -- `null` for an error with no single owning field
+   *  (e.g. `resetSettings`). Lets a row-level UI (task 12.10) show its own failure instead of
+   *  every row reacting to one global banner. */
+  errorKey: AppSettingKey | null;
   saveSetting: <K extends AppSettingKey>(key: K, value: AppSettings[K]) => Promise<void>;
   setLaunchOnStartup: (enabled: boolean) => Promise<void>;
   resetSettings: () => Promise<void>;
@@ -38,6 +42,7 @@ export function SettingsProvider({ children, activateLanguage = activateAppLangu
   const [loading, setLoading] = useState(true);
   const [savingKey, setSavingKey] = useState<AppSettingKey | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [errorKey, setErrorKey] = useState<AppSettingKey | null>(null);
 
   const refreshNodeInfo = useCallback(async () => {
     try {
@@ -125,6 +130,7 @@ export function SettingsProvider({ children, activateLanguage = activateAppLangu
       validateSettingValue(key, value);
       setSavingKey(key);
       setError(null);
+      setErrorKey(null);
       const previousSettings = settings;
       const optimisticSettings = normalizeAppSettings({ ...settings, [key]: value });
       try {
@@ -141,6 +147,7 @@ export function SettingsProvider({ children, activateLanguage = activateAppLangu
         setSettings(previousSettings);
         await applySettings(previousSettings, activateLanguage);
         setError(err instanceof Error ? err.message : String(err));
+        setErrorKey(key);
         throw err;
       } finally {
         setSavingKey(null);
@@ -224,6 +231,7 @@ export function SettingsProvider({ children, activateLanguage = activateAppLangu
       loading,
       savingKey,
       error,
+      errorKey,
       saveSetting,
       setLaunchOnStartup,
       resetSettings,
@@ -235,7 +243,7 @@ export function SettingsProvider({ children, activateLanguage = activateAppLangu
       scanNetworkProxies,
       reportClientLogEvent,
     }),
-    [error, getDataManagementInfo, loading, nodeInfo, openDatabaseDirectory, openLogDirectory, refreshNodeInfo, reportClientLogEvent, resetSettings, saveSetting, scanNetworkProxies, setLaunchOnStartup, savingKey, settings, testNetworkProxy],
+    [error, errorKey, getDataManagementInfo, loading, nodeInfo, openDatabaseDirectory, openLogDirectory, refreshNodeInfo, reportClientLogEvent, resetSettings, saveSetting, scanNetworkProxies, setLaunchOnStartup, savingKey, settings, testNetworkProxy],
   );
 
   if (loading) return null;

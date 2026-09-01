@@ -9,7 +9,9 @@ import { normalizeDisplayPath } from "../../lib/session-path";
 import { useSettings } from "../settings-provider";
 import { ucdThemes } from "../../theme/theme-registry";
 import { appFontSizes, type AppFontSize } from "../../types/settings";
+import type { AppSettingKey, AppSettings } from "../../types/settings";
 import { policyTemplateNames, type PolicyTemplateName } from "../../types/permissions";
+import type { MutationState } from "../../ui/async/mutation-state";
 import { NetworkProxySection } from "./network-proxy-section";
 import { SectionPanel, SettingsDisclosure, SettingsRow } from "./page-parts";
 import { FloatingAssistantSettingsSection } from "./floating-assistant-settings-section";
@@ -86,10 +88,28 @@ function NodeEnvironmentPanel({
 export function BasicSettingsPage() {
   const { t } = useTranslation();
   const { confirm, confirmationDialog } = useConfirmation();
-  const { error, loading, nodeInfo, reportClientLogEvent, resetSettings, saveSetting, savingKey, settings } = useSettings();
+  const { error, errorKey, loading, nodeInfo, reportClientLogEvent, resetSettings, saveSetting, savingKey, settings } = useSettings();
   const [defaultFolderDraft, setDefaultFolderDraft] = useState(settings.defaultFolderPath);
   const [defaultFolderError, setDefaultFolderError] = useState<string | null>(null);
   const busy = loading || savingKey !== null;
+
+  /** Task 12.10: per-row pending/error, derived from the provider's own single-in-flight
+   *  `savingKey`/`errorKey` rather than a page-wide busy flag or one global banner. No retry
+   *  action -- the failed value already rolled back in the `<select>` itself, so re-selecting it
+   *  *is* the retry; there is no separate cached value worth replaying. */
+  function rowMutation(key: AppSettingKey): MutationState | undefined {
+    if (savingKey === key) return { targetKey: key, pending: true };
+    if (errorKey === key && error) return { targetKey: key, pending: false, error: { kind: "error", message: error, retryable: false } };
+    return undefined;
+  }
+
+  /** `saveSetting` re-throws after its own internal handling (state rollback, `error`/`errorKey`)
+   *  so a caller that wants additional handling can still get it -- these rows do not, so the
+   *  bare `void saveSetting(...)` this replaces left the rejection genuinely unhandled at the call
+   *  site. The provider already did everything these rows need; this only acknowledges that. */
+  function saveField<K extends AppSettingKey>(key: K, value: AppSettings[K]) {
+    void saveSetting(key, value).catch(() => undefined);
+  }
 
   useEffect(() => {
     setDefaultFolderDraft(normalizeDisplayPath(settings.defaultFolderPath));
@@ -126,11 +146,11 @@ export function BasicSettingsPage() {
 
       <div className="grid gap-5">
         <SectionPanel title={t("basic.commonPreferences")} description={t("basic.commonPreferencesDesc")} variant="settings">
-          <SettingsRow description={t("basic.languageDesc")} title={t("basic.language")}>
+          <SettingsRow description={t("basic.languageDesc")} mutation={rowMutation("applicationLanguage")} title={t("basic.language")}>
             <SelectField<AppLanguage>
               disabled={busy}
               label={t("basic.language")}
-              onChange={(value) => void saveSetting("applicationLanguage", value)}
+              onChange={(value) => saveField("applicationLanguage", value)}
               options={supportedLocales.map((locale) => ({
                 label: t(locale.labelKey),
                 value: locale.id,
@@ -138,11 +158,11 @@ export function BasicSettingsPage() {
               value={settings.applicationLanguage}
             />
           </SettingsRow>
-          <SettingsRow description={t("basic.themeDesc")} title={t("basic.theme")}>
+          <SettingsRow description={t("basic.themeDesc")} mutation={rowMutation("theme")} title={t("basic.theme")}>
             <SelectField
               disabled={busy}
               label={t("basic.theme")}
-              onChange={(value) => void saveSetting("theme", value)}
+              onChange={(value) => saveField("theme", value)}
               options={ucdThemes.map((theme) => ({
                 label: theme.id === "futuristic" ? t("basic.theme.futuristic") : t("basic.theme.minimal"),
                 value: theme.id,
@@ -150,20 +170,20 @@ export function BasicSettingsPage() {
               value={settings.theme}
             />
           </SettingsRow>
-          <SettingsRow description={t("basic.fontSizeDesc")} title={t("basic.fontSize")}>
+          <SettingsRow description={t("basic.fontSizeDesc")} mutation={rowMutation("fontSize")} title={t("basic.fontSize")}>
             <SelectField<AppFontSize>
               disabled={busy}
               label={t("basic.fontSize")}
-              onChange={(value) => void saveSetting("fontSize", value)}
+              onChange={(value) => saveField("fontSize", value)}
               options={appFontSizes.map((fontSize) => ({ label: fontSize, value: fontSize }))}
               value={settings.fontSize}
             />
           </SettingsRow>
-          <SettingsRow description={t("basic.defaultPolicyTemplateDesc")} title={t("basic.defaultPolicyTemplate")}>
+          <SettingsRow description={t("basic.defaultPolicyTemplateDesc")} mutation={rowMutation("defaultPolicyTemplate")} title={t("basic.defaultPolicyTemplate")}>
             <SelectField<PolicyTemplateName>
               disabled={busy}
               label={t("basic.defaultPolicyTemplate")}
-              onChange={(value) => void saveSetting("defaultPolicyTemplate", value)}
+              onChange={(value) => saveField("defaultPolicyTemplate", value)}
               options={policyTemplateNames.map((template) => ({
                 label: t(`settings.agentPolicies.template.${template}`),
                 value: template,
