@@ -2,6 +2,7 @@ import { ArrowLeft, MessagesSquare, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../../components/ui/button";
+import { useConfirmation } from "../../components/ui/use-confirmation";
 import type { ImConnectorHealth, ImConnectorKind, ImConnectorView, WeChatAuthorization } from "../../contracts/im";
 import { imService } from "../../services/runtime-im-client";
 import { detectRuntimeKind } from "../../services/runtime-adapter";
@@ -13,6 +14,7 @@ type PendingByKind = Partial<Record<ImConnectorKind, string>>;
 
 export function ImPage({ onReturn, searchTerm }: { onReturn?: () => void; searchTerm: string }) {
   const { t } = useTranslation();
+  const { confirm, confirmationDialog } = useConfirmation();
   const isWebRuntime = detectRuntimeKind() !== "tauri";
   const [connectors, setConnectors] = useState<ImConnectorView[]>([]);
   const [pending, setPending] = useState<PendingByKind>({});
@@ -58,6 +60,14 @@ export function ImPage({ onReturn, searchTerm }: { onReturn?: () => void; search
     };
   }, []);
   async function connectorAction(kind: ImConnectorKind, action: string, credentials?: Record<string, string>): Promise<boolean> {
+    if (action === "clear") {
+      const confirmed = await confirm({
+        title: t("im.clearConfirm.title"),
+        description: t("im.clearConfirm.body"),
+        tone: "danger",
+      });
+      if (!confirmed) return false;
+    }
     setPending((current) => ({ ...current, [kind]: action }));
     setError(null);
     setNotice(null);
@@ -100,6 +110,7 @@ export function ImPage({ onReturn, searchTerm }: { onReturn?: () => void; search
 
   return (
     <div className="space-y-4">
+      {confirmationDialog}
       <PageHeader
         actions={<Button disabled={loading} onClick={() => void load()} variant="outline"><RefreshCw aria-hidden="true" />{t("im.actions.refresh")}</Button>}
         description={t("im.description")}

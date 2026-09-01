@@ -3,7 +3,7 @@
 import { render, screen } from "@testing-library/react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { activateAppLanguage } from "../../i18n";
-import { SettingsRow } from "./page-parts";
+import { DangerZone, SettingsRow } from "./page-parts";
 
 describe("SettingsRow's mutation/error support (task 12.10)", () => {
   beforeAll(async () => activateAppLanguage("en"));
@@ -38,5 +38,29 @@ describe("SettingsRow's mutation/error support (task 12.10)", () => {
   it("shows a field-validation error independently of any save mutation", () => {
     render(<SettingsRow errorMessage="Must not be empty." title="Language">field</SettingsRow>);
     expect(screen.getByRole("alert").textContent).toContain("Must not be empty.");
+  });
+});
+
+describe("DangerZone (task 12.14)", () => {
+  beforeAll(async () => activateAppLanguage("en"));
+
+  it("renders its title, description, and children", () => {
+    render(
+      <DangerZone description="This cannot be undone." title="Reset to defaults">
+        <button type="button">Reset</button>
+      </DangerZone>,
+    );
+    expect(screen.getByText("Reset to defaults")).toBeTruthy();
+    expect(screen.getByText("This cannot be undone.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Reset" })).toBeTruthy();
+  });
+
+  it("renders without a description when none is given", () => {
+    render(
+      <DangerZone title="Erase all data">
+        <button type="button">Erase</button>
+      </DangerZone>,
+    );
+    expect(screen.getByText("Erase all data")).toBeTruthy();
   });
 });

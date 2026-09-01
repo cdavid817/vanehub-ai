@@ -64,7 +64,7 @@ export function LspInstallControl({
             onClick={onUninstall}
             size="sm"
             type="button"
-            variant="outline"
+            variant="destructive"
           >
             {t("lspSettings.install.remove")}
           </Button>

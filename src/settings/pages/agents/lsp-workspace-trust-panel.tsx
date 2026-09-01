@@ -4,6 +4,7 @@ import { LoaderCircle, ShieldCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
+import { useConfirmation } from "../../../components/ui/use-confirmation";
 import type { AgentService } from "../../../services/agent-service";
 import { agentService as defaultAgentService } from "../../../services/runtime-agent-client";
 import type { LspWorkspaceTrustUpdate } from "../../../types/lsp";
@@ -19,6 +20,7 @@ export function LspWorkspaceTrustPanel({
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const { confirm, confirmationDialog } = useConfirmation();
   const [canonicalRoot, setCanonicalRoot] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const trustQuery = useQuery({
@@ -52,6 +54,7 @@ export function LspWorkspaceTrustPanel({
       variant="settings"
     >
       <div className="space-y-4 p-5 sm:p-6">
+        {confirmationDialog}
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm leading-6">
           <p className="font-medium">{t("lspSettings.trust.explanation")}</p>
           <p className="mt-2 text-xs leading-5 text-muted-foreground" id="lsp-trust-boundary">
@@ -118,10 +121,18 @@ export function LspWorkspaceTrustPanel({
                 <Button
                   aria-label={`${t("lspSettings.trust.revoke")} ${record.canonicalRoot}`}
                   disabled={pending}
-                  onClick={() => updateTrust({ canonicalRoot: record.canonicalRoot, trusted: false })}
+                  onClick={() => {
+                    void confirm({
+                      title: t("lspSettings.trust.revokeConfirm.title"),
+                      description: t("lspSettings.trust.revokeConfirm.body", { root: record.canonicalRoot }),
+                      tone: "danger",
+                    }).then((confirmed) => {
+                      if (confirmed) updateTrust({ canonicalRoot: record.canonicalRoot, trusted: false });
+                    });
+                  }}
                   size="sm"
                   type="button"
-                  variant="outline"
+                  variant="destructive"
                 >
                   {t("lspSettings.trust.revoke")}
                 </Button>

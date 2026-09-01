@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Braces, LoaderCircle, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../../../components/ui/button";
+import { useConfirmation } from "../../../components/ui/use-confirmation";
 import type { AgentService } from "../../../services/agent-service";
 import { agentService as defaultAgentService } from "../../../services/runtime-agent-client";
 import type { LspConfiguration } from "../../../types/lsp";
@@ -127,6 +128,7 @@ function ConfigurationEditor({
 export function LspConfigurationSection({ service = defaultAgentService }: { service?: AgentService }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const { confirm, confirmationDialog } = useConfirmation();
   const [notice, setNotice] = useState<string | null>(null);
   const configurationQuery = useQuery({
     queryKey: lspConfigurationQueryKey,
@@ -184,6 +186,7 @@ export function LspConfigurationSection({ service = defaultAgentService }: { ser
 
   return (
     <SectionPanel description={t("lspSettings.description")} icon={Braces} title={t("lspSettings.title")} variant="settings">
+      {confirmationDialog}
       {loading ? (
         <div className="flex min-h-32 items-center justify-center gap-2 p-5 text-sm text-muted-foreground">
           <LoaderCircle className="h-4 w-4 animate-spin" />{t("lspSettings.loading")}
@@ -205,7 +208,16 @@ export function LspConfigurationSection({ service = defaultAgentService }: { ser
           onInstall={(language) => { void runInstall(language, service.installLspServer); }}
           onRefreshDiscovery={() => { void discoveryQuery.refetch(); }}
           onSave={(configuration) => saveMutation.mutate(configuration)}
-          onUninstall={(language) => { void runInstall(language, service.uninstallLspServer); }}
+          onUninstall={(language) => {
+            const languageName = t(`lspSettings.language.${language}`, { defaultValue: language });
+            void confirm({
+              title: t("lspSettings.uninstallConfirm.title", { language: languageName }),
+              description: t("lspSettings.uninstallConfirm.body", { language: languageName }),
+              tone: "danger",
+            }).then((confirmed) => {
+              if (confirmed) void runInstall(language, service.uninstallLspServer);
+            });
+          }}
           pending={saveMutation.isPending}
         />
       ) : null}

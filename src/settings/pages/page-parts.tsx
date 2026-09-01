@@ -193,6 +193,40 @@ export function StatCard({ label, value, hint, icon: Icon }: { label: string; va
   );
 }
 
+/**
+ * Task 12.14: a visually separated container for destructive settings actions (reset, uninstall,
+ * disconnect, revoke, remove, erase) — spec.md "Render a destructive action": the action "SHALL
+ * be separated from routine Save controls". Distinct from `StatusPill`'s `tone="danger"` (a
+ * read-only status indicator) and from `useConfirmation`'s `tone: "danger"` (the confirmation
+ * step itself, still required in addition to this) — this is the *resting* visual separation a
+ * reader sees before ever clicking anything, for a page with a dedicated destructive section
+ * (e.g. Basic Settings' reset, a bulk-delete dialog's own footer). A destructive action embedded
+ * inline in a list/card row (a per-item Delete button) reaches for `Button`'s own `destructive`
+ * variant instead — wrapping every row in its own bordered zone would not read as separation, it
+ * would just look broken.
+ */
+export function DangerZone({
+  children,
+  description,
+  title,
+}: {
+  children: ReactNode;
+  description?: string;
+  title: string;
+}) {
+  return (
+    <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 sm:p-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-destructive">{title}</div>
+          {description ? <div className="mt-0.5 text-xs leading-5 text-muted-foreground">{description}</div> : null}
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">{children}</div>
+      </div>
+    </div>
+  );
+}
+
 export function StatusPill({ status, tone }: { status: string; tone: "success" | "warning" | "danger" | "muted" }) {
   return (
     <span

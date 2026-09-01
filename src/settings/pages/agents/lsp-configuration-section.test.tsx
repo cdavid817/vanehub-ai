@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { activateAppLanguage } from "../../../i18n";
 import { createAgentServiceDouble, renderWithAppProviders } from "../../../test/render";
@@ -198,5 +198,44 @@ describe("LspConfigurationSection", () => {
     // The prerequisite is the backend's string, rendered rather than mapped through a table the
     // frontend would have to extend for every new runtime.
     expect(screen.getByRole("note").textContent).toContain("Erlang/OTP 26 or newer");
+  });
+
+  it("does not uninstall a language server until the confirmation is accepted (task 12.14)", async () => {
+    const uninstallLspServer = vi.fn(async () => undefined);
+    const service = createAgentServiceDouble({
+      getLspConfiguration: async () => ({
+        enabled: false,
+        languages: [],
+        descriptors: [{
+          language: "rust",
+          server: "rust_analyzer",
+          supportedOnHost: true,
+          defaultStartupArguments: [],
+          overrideTarget: "executable_file",
+          prerequisite: null,
+          distribution: { verified: true },
+          installed: true,
+        }],
+      }),
+      discoverLspServers: async () => [],
+      uninstallLspServer,
+    });
+    renderWithAppProviders(<LspConfigurationSection service={service} />);
+
+    const remove = await screen.findByRole("button", { name: /移除服务器/ });
+    fireEvent.click(remove);
+
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.textContent).toContain("Rust");
+    expect(uninstallLspServer).not.toHaveBeenCalled();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "取消" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(uninstallLspServer).not.toHaveBeenCalled();
+
+    fireEvent.click(remove);
+    const secondDialog = await screen.findByRole("dialog");
+    fireEvent.click(within(secondDialog).getByRole("button", { name: "确认" }));
+    await waitFor(() => expect(uninstallLspServer).toHaveBeenCalledWith("rust"));
   });
 });
