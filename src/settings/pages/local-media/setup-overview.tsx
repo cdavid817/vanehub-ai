@@ -1,7 +1,9 @@
 import { useTranslation } from "react-i18next";
 
 import type { LocalMediaEngine, LocalMediaProfile, LocalMediaRuntimeStatus, PythonEnvironmentDiscovery } from "../../../types/local-media";
+import { CopyDiagnosticsButton } from "../../../ui/diagnostics/CopyDiagnosticsButton";
 import { SectionPanel, StatusPill } from "../page-parts";
+import { buildLocalMediaDiagnosticFields } from "./local-media-diagnostic-summary";
 
 function configured(profile: LocalMediaProfile, engine: LocalMediaEngine) {
   if (!profile[engine].pythonExecutable) return false;
@@ -38,6 +40,7 @@ export function SetupOverview({
   const configuredCount = (["ocr", "stt", "tts"] as const).filter((engine) => configured(profile, engine)).length;
   const readyCount = status?.engines.filter((engine) => engine.readiness.state === "ready").length ?? 0;
   const guidance = nextStep(profile, status, compatible, dirty);
+  const diagnosticFields = buildLocalMediaDiagnosticFields(profile, status, discovery, dirty, t);
   const entries = [
     { label: "master", value: profile.enabled ? "on" : "off", tone: profile.enabled ? "success" : "muted" },
     { label: "python", value: compatible > 0 ? "available" : "needed", tone: compatible > 0 ? "success" : "warning" },
@@ -60,6 +63,9 @@ export function SetupOverview({
         <span className="font-medium text-foreground">{t("localMedia.settings.overview.nextStep")}: </span>
         {t(`localMedia.settings.overview.next.${guidance}`)}
       </p>
+      <div className="flex justify-end border-t border-border px-5 py-3 sm:px-6">
+        <CopyDiagnosticsButton fields={diagnosticFields} />
+      </div>
     </SectionPanel>
   );
 }
