@@ -10,7 +10,7 @@ import {
   Music2,
   PanelTop,
 } from "lucide-react";
-import { memo } from "react";
+import { memo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "../../lib/utils";
 import type {
@@ -24,20 +24,38 @@ import type {
   RichInteractiveBlock,
   RichMediaGalleryBlock,
 } from "../../types/chat";
+import { Badge } from "../ui/badge";
 import { RichMarkdown } from "./RichMarkdown";
 import { SafeImage } from "./SafeImage";
 
+// Task 10.14: only html_widget/diff/media_gallery are unbounded or mount-cost, so only they pass
+// `collapsible` (native <details>/<summary>, matching ToolUseBlock's ActivityRow); the rest stay
+// always-expanded as bounded/inert (a checklist threshold was considered, no principled number found).
 function BlockShell({
   children,
+  collapsible = false,
   icon,
+  onToggle,
+  summaryDetail,
   title,
   tone = "default",
 }: {
   children: React.ReactNode;
+  collapsible?: boolean;
   icon: React.ReactNode;
+  onToggle?: (open: boolean) => void;
+  summaryDetail?: React.ReactNode;
   title: string;
   tone?: "default" | "success" | "warning" | "danger";
 }) {
+  const headerClassName = "flex min-w-0 items-center gap-2 border-b border-border/70 px-3 py-2 text-muted-foreground";
+  const header = (
+    <>
+      {icon}
+      <span className="min-w-0 truncate font-medium">{title}</span>
+      {summaryDetail}
+    </>
+  );
   return (
     <section
       className={cn(
@@ -47,11 +65,17 @@ function BlockShell({
         tone === "danger" && "border-destructive/40 bg-destructive/10",
       )}
     >
-      <div className="flex min-w-0 items-center gap-2 border-b border-border/70 px-3 py-2 text-muted-foreground">
-        {icon}
-        <span className="min-w-0 truncate font-medium">{title}</span>
-      </div>
-      <div className="px-3 py-2">{children}</div>
+      {collapsible ? (
+        <details onToggle={onToggle ? (event) => onToggle(event.currentTarget.open) : undefined}>
+          <summary className={cn(headerClassName, "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring")}>{header}</summary>
+          <div className="px-3 py-2">{children}</div>
+        </details>
+      ) : (
+        <>
+          <div className={headerClassName}>{header}</div>
+          <div className="px-3 py-2">{children}</div>
+        </>
+      )}
     </section>
   );
 }
@@ -78,8 +102,16 @@ function CardBlock({ block }: { block: RichCardBlock }) {
 }
 
 function DiffBlock({ block }: { block: RichDiffBlock }) {
+  const { t } = useTranslation();
+  // Cheap string split, not a diff parser -- no extra dependency needed just for a line count.
+  const lineCount = block.diff.split("\n").length;
   return (
-    <BlockShell icon={<Code2 className="h-3.5 w-3.5" aria-hidden="true" />} title={block.filePath}>
+    <BlockShell
+      collapsible
+      icon={<Code2 className="h-3.5 w-3.5" aria-hidden="true" />}
+      summaryDetail={<Badge className="ml-auto shrink-0" tone="muted">{t("chat.richBlock.diffLineCount", { count: lineCount })}</Badge>}
+      title={block.filePath}
+    >
       <pre className="max-h-80 overflow-auto rounded border border-border bg-background px-3 py-2 font-mono text-[11px] leading-5 text-muted-foreground">
         {block.diff}
       </pre>
@@ -114,7 +146,13 @@ function ChecklistBlock({ block }: { block: RichChecklistBlock }) {
 function MediaGalleryBlock({ block }: { block: RichMediaGalleryBlock }) {
   const { t } = useTranslation();
   return (
-    <BlockShell icon={<ImageIcon className="h-3.5 w-3.5" aria-hidden="true" />} title={block.title ?? t("chat.richBlock.mediaGallery")}>
+    <BlockShell
+      collapsible
+      icon={<ImageIcon className="h-3.5 w-3.5" aria-hidden="true" />}
+      summaryDetail={<Badge className="ml-auto shrink-0" tone="muted">{t("chat.richBlock.mediaGalleryCount", { count: block.items.length })}</Badge>}
+      title={block.title ?? t("chat.richBlock.mediaGallery")}
+    >
+      {/* No per-image conditional-mount beyond <details>: SafeImage's <img> already has `loading="lazy"`. */}
       <div className="grid gap-2 sm:grid-cols-2">
         {block.items.map((item) => (
           <figure className="min-w-0 overflow-hidden rounded border border-border bg-background" key={item.url}>
@@ -163,16 +201,23 @@ function AudioBlock({ block }: { block: RichAudioBlock }) {
 
 function HtmlWidgetBlock({ block }: { block: RichHtmlWidgetBlock }) {
   const { t } = useTranslation();
+  // Exception to the native-<details>-alone approach used for diff/media_gallery: an <iframe> starts
+  // loading the moment it's in the DOM, hidden or not, so `open` (mirrored from <details>'s own
+  // toggle, like ToolUseBlock's failed-tool-history) gates whether it mounts at all.
+  const [open, setOpen] = useState(false);
   const height = Math.min(Math.max(block.height ?? 300, 50), 600);
+  const title = block.title ?? t("chat.richBlock.htmlWidget");
   return (
-    <BlockShell icon={<PanelTop className="h-3.5 w-3.5" aria-hidden="true" />} title={block.title ?? t("chat.richBlock.htmlWidget")}>
-      <iframe
-        className="w-full rounded border border-border bg-background"
-        height={height}
-        sandbox=""
-        srcDoc={block.html}
-        title={block.title ?? t("chat.richBlock.htmlWidget")}
-      />
+    <BlockShell collapsible icon={<PanelTop className="h-3.5 w-3.5" aria-hidden="true" />} onToggle={setOpen} title={title}>
+      {open ? (
+        <iframe
+          className="w-full rounded border border-border bg-background"
+          height={height}
+          sandbox=""
+          srcDoc={block.html}
+          title={title}
+        />
+      ) : null}
     </BlockShell>
   );
 }
