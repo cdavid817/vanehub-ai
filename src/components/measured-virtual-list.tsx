@@ -37,6 +37,9 @@ export interface MeasuredVirtualListProps<T> {
    * than the estimate.
    */
   onAtStartChange?: (atStart: boolean) => void;
+  /** The other edge of `onAtStartChange`, for a list whose new rows arrive at the *end* instead
+   *  of the start (task 10.12: the chat transcript, oldest-first, follows the bottom). */
+  onAtEndChange?: (atEnd: boolean) => void;
   overscan: number;
   renderItem: (item: T, index: number) => ReactNode;
   testId?: string;
@@ -55,6 +58,15 @@ export interface MeasuredVirtualListProps<T> {
  */
 const AT_START_TOLERANCE_PX = 8;
 
+/**
+ * Much more generous than `AT_START_TOLERANCE_PX`: this edge answers "is the reader still
+ * following new rows closely enough to keep auto-following," not "are they exactly at the edge" —
+ * a small scroll jitter should not silently drop out of follow (matches
+ * `use-conversation-window-model.ts`'s own `NEAR_BOTTOM_THRESHOLD_PX`, the non-virtualized
+ * chat path's equivalent tolerance for the identical judgment call).
+ */
+const AT_END_TOLERANCE_PX = 96;
+
 function MeasuredVirtualListInner<T>(
   {
     activeDescendantId,
@@ -65,6 +77,7 @@ function MeasuredVirtualListInner<T>(
     getItemKey,
     itemClassName,
     items,
+    onAtEndChange,
     onAtStartChange,
     onKeyDown,
     overscan,
@@ -99,8 +112,14 @@ function MeasuredVirtualListInner<T>(
       data-testid={testId}
       data-virtual-count={items.length}
       onKeyDown={onKeyDown}
-      onScroll={onAtStartChange
-        ? (event) => onAtStartChange(event.currentTarget.scrollTop <= AT_START_TOLERANCE_PX)
+      onScroll={onAtStartChange || onAtEndChange
+        ? (event) => {
+            if (onAtStartChange) onAtStartChange(event.currentTarget.scrollTop <= AT_START_TOLERANCE_PX);
+            if (onAtEndChange) {
+              const { clientHeight, scrollHeight, scrollTop } = event.currentTarget;
+              onAtEndChange(scrollHeight - scrollTop - clientHeight <= AT_END_TOLERANCE_PX);
+            }
+          }
         : undefined}
       ref={scrollElementRef}
       role={role}

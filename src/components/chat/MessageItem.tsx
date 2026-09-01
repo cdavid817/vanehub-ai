@@ -125,7 +125,12 @@ export const MessageItem = memo(function MessageItem({
   }
 
   return (
-    <article className={cn("flex min-w-0 items-start gap-2.5", isUser && "justify-end", effectiveShowHeader && "mt-3")} data-message-header={effectiveShowHeader ? "shown" : "collapsed"}>
+    // No margin here for inter-run spacing (task 10.4) — that is the *caller's* responsibility
+    // (a padding class on whatever wraps this article), not this component's own, because task
+    // 10.12's virtualized path measures this article's own rendered box to position the next row,
+    // and a CSS margin sits outside an element's own measured box (`getBoundingClientRect()`)
+    // while padding on a wrapper does not.
+    <article className={cn("flex min-w-0 items-start gap-2.5", isUser && "justify-end")} data-message-header={effectiveShowHeader ? "shown" : "collapsed"}>
       {!isUser ? (
         effectiveShowHeader ? (
           showSpeaker && speaker ? <ParticipantAvatar agentId={speaker.agentId} label={speakerLabel} roleAvatar={speaker.avatar} roleName={speaker.roleName} /> : (
