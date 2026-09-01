@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { ActionMenu, type ActionMenuItem } from "../../../ui/actions/ActionMenu";
 import { MutationStatus } from "../../../ui/async/MutationStatus";
 import type { MutationState } from "../../../ui/async/mutation-state";
+import { CopyDiagnosticsButton } from "../../../ui/diagnostics/CopyDiagnosticsButton";
 import { StatusBadge, type StatusTone } from "../../../ui/status/StatusBadge";
 import type {
   ExtensionFrameworkDefinition,
@@ -11,6 +12,7 @@ import type {
 } from "../../../types/extension";
 import type { OperationTask } from "../../../types/operation";
 import { TagList } from "../page-parts";
+import { buildExtensionDiagnosticFields } from "./extension-diagnostic-summary";
 import { statusKey } from "./extension-status";
 
 const statusTone: Record<ExtensionFrameworkStatus["status"], StatusTone> = {
@@ -157,6 +159,9 @@ export function ExtensionFrameworkCard({
           </div>
         </div>
       ) : null}
+      <div className="mt-3 flex justify-end">
+        <CopyDiagnosticsButton fields={buildExtensionDiagnosticFields(definition, status, t)} />
+      </div>
     </article>
   );
 }
