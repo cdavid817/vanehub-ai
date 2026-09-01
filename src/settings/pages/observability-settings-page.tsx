@@ -7,7 +7,9 @@ import { Button } from "../../components/ui/button";
 import type { ExecutionObservabilityService } from "../../services/execution-observability-service";
 import { executionObservabilityService } from "../../services/runtime-execution-observability-client";
 import type { ObservabilitySettings } from "../../types/execution-observability";
+import { CopyDiagnosticsButton } from "../../ui/diagnostics/CopyDiagnosticsButton";
 import type { SettingsPageStatus } from "../settings-page-types";
+import { buildObservabilityDiagnosticFields } from "./observability-diagnostic-summary";
 import { PageHeader, SectionPanel } from "./page-parts";
 
 const queryKey = ["execution-observability"] as const;
@@ -124,6 +126,8 @@ export function ObservabilitySettingsPage({
     return <div className="text-sm text-muted-foreground">{t("observability.searchEmpty")}</div>;
   }
 
+  const diagnosticFields = buildObservabilityDiagnosticFields(draft, capabilitiesQuery.data ?? [], t);
+
   return (
     <div className="space-y-4">
       <PageHeader
@@ -190,6 +194,10 @@ export function ObservabilitySettingsPage({
           ))}
         </div>
       </SectionPanel>
+
+      <div className="flex justify-end">
+        <CopyDiagnosticsButton fields={diagnosticFields} />
+      </div>
     </div>
   );
 }
