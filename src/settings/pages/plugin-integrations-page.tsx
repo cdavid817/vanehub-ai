@@ -1,34 +1,28 @@
-import { CheckCircle2, ExternalLink, GitFork, Plug, RefreshCw, Search, ShieldAlert } from "lucide-react";
+import { CheckCircle2, Plug, RefreshCw, Search, ShieldAlert } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import type { PluginIntegrationService } from "../../services/plugin-integration-service";
 import { pluginIntegrationService } from "../../services/runtime-plugin-integration-client";
+import { AsyncBoundary } from "../../ui/async/AsyncBoundary";
+import type { AsyncViewState } from "../../ui/async/async-view-state";
+import type { MutationState } from "../../ui/async/mutation-state";
+import { PageHeader } from "../../ui/page-header/PageHeader";
 import type {
   PluginIntegrationDefinition,
+  PluginIntegrationOverview,
   PluginIntegrationState,
-  PluginIntegrationStatus,
-  PluginIntegrationTestResult,
 } from "../../types/plugin-integration";
 import { pickPageStatus } from "../settings-page-status";
 import type { SettingsPageStatus } from "../settings-page-types";
-import { PageHeader, SectionPanel, StatCard } from "./page-parts";
+import { StatCard } from "./page-parts";
+import { PluginIntegrationCard } from "./plugins/plugin-integration-card";
+import { errorMessage, statusKey } from "./plugins/plugin-integration-utils";
 
 const overviewKey = ["plugin-integrations", "overview"] as const;
 const emptyDefinitions: PluginIntegrationDefinition[] = [];
 const emptyStates: PluginIntegrationState[] = [];
-
-function statusKey(status: PluginIntegrationStatus) {
-  return `plugins.status.${status}`;
-}
-
-function statusTone(status: PluginIntegrationStatus): "success" | "warning" | "danger" | "muted" {
-  if (status === "configured") return "success";
-  if (status === "not-configured" || status === "missing-cli" || status === "unavailable") return "warning";
-  return "danger";
-}
 
 export function filterPluginIntegrations(
   definitions: PluginIntegrationDefinition[],
@@ -66,18 +60,12 @@ export function PluginIntegrationsPage({
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [notice, setNotice] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const overviewQuery = useQuery({ queryKey: overviewKey, queryFn: () => service.getOverview() });
   const testMutation = useMutation({
-    mutationFn: (definition: PluginIntegrationDefinition) => service.testReadiness({ integrationId: definition.id }),
+    mutationFn: (integrationId: PluginIntegrationDefinition["id"]) => service.testReadiness({ integrationId }),
     onSuccess: async (result) => {
       setNotice(t("plugins.notice.testCompleted", { status: t(statusKey(result.status)) }));
-      setError(null);
       await queryClient.invalidateQueries({ queryKey: overviewKey });
-    },
-    onError: (reason) => {
-      setNotice(null);
-      setError(reason instanceof Error ? reason.message : String(reason));
     },
   });
 
@@ -92,25 +80,33 @@ export function PluginIntegrationsPage({
   const attentionCount = states.filter((state) => state.status !== "configured").length;
   const nativeChecksAvailable = overview?.environment.nativeChecksAvailable === true;
 
-  // Task 12.16: the same conditions the banner and error box above already render from,
-  // reported so this page's own nav entry can flag them while the user looks at another page.
+  // task 12.18: this page's own overviewQuery projected into the shared AsyncBoundary's
+  // AsyncViewState shape -- src/ui/ primitives cannot import this service's own error type
+  // (ARCH-FE-005), so the projection lives here rather than in the primitive.
+  const asyncState: AsyncViewState<PluginIntegrationOverview> = {
+    data: overview,
+    error: overviewQuery.isError
+      ? { kind: "error", message: errorMessage(overviewQuery.error), retryable: true }
+      : undefined,
+    initialLoading: overviewQuery.isLoading,
+    refreshing: overviewQuery.isFetching && !overviewQuery.isLoading,
+    stale: overviewQuery.isStale,
+  };
+
+  // Task 12.16: `overviewQuery.isError` is a new condition made real (and now visibly rendered
+  // below via AsyncBoundary) by this same migration; `testMutation.isError` is the original,
+  // already-tested condition this nav dot reported before -- kept so no prior signal regresses.
   useEffect(() => {
     onStatusChange?.(pickPageStatus([
-      // "plugins.status.error" already names a per-integration status label -- this is the
-      // different, page-level condition, so it uses its own "pageStatus" namespace instead of colliding.
-      error ? { kind: "error", labelKey: "plugins.pageStatus.error" } : null,
+      overviewQuery.isError || testMutation.isError
+        ? { kind: "error", labelKey: "plugins.pageStatus.error" }
+        : null,
       overview && !nativeChecksAvailable
         ? { kind: "dependency-unavailable", labelKey: "plugins.status.nativeUnavailable" }
         : null,
     ]));
     return () => onStatusChange?.(null);
-  }, [error, nativeChecksAvailable, onStatusChange, overview]);
-
-  async function refresh() {
-    setError(null);
-    setNotice(null);
-    await overviewQuery.refetch();
-  }
+  }, [nativeChecksAvailable, onStatusChange, overview, overviewQuery.isError, testMutation.isError]);
 
   function stateFor(definition: PluginIntegrationDefinition): PluginIntegrationState {
     return (
@@ -126,17 +122,35 @@ export function PluginIntegrationsPage({
     );
   }
 
+  /** Task 12.18: projects this page's own single-in-flight `useMutation` (react-query already
+   *  tracks `variables`/`isPending`/`error` for its own most recent call) into the shared
+   *  `MutationState` shape, keyed to one integration at a time -- a second registry alongside
+   *  `useMutation` would just be a second source of truth for the same fact. */
+  function testStateFor(definition: PluginIntegrationDefinition): MutationState | undefined {
+    if (testMutation.variables !== definition.id) return undefined;
+    if (testMutation.isPending) return { pending: true, targetKey: definition.id };
+    if (testMutation.isError) {
+      return { error: { kind: "error", message: errorMessage(testMutation.error), retryable: true }, pending: false, targetKey: definition.id };
+    }
+    return undefined;
+  }
+
+  // Same message whether there are genuinely no built-in integrations yet or a search just
+  // matched none, matching this page's own pre-existing behavior (no create action either way --
+  // these are fixed built-in integrations, not user-created records).
+  const emptyStateSlot = { title: t("plugins.empty") };
+
   return (
     <div className="space-y-4">
       <PageHeader
-        actions={
-          <Button disabled={overviewQuery.isFetching} onClick={() => void refresh()} variant="outline">
-            <RefreshCw className={overviewQuery.isFetching ? "animate-spin" : ""} />
+        description={t("plugins.description")}
+        icon={Plug}
+        primaryAction={
+          <Button disabled={overviewQuery.isFetching} onClick={() => void overviewQuery.refetch()} variant="outline">
+            <RefreshCw aria-hidden="true" className={overviewQuery.isFetching ? "animate-spin" : ""} />
             {overviewQuery.isFetching ? t("plugins.refreshing") : t("plugins.refresh")}
           </Button>
         }
-        description={t("plugins.description")}
-        icon={Plug}
         title={t("plugins.title")}
       />
 
@@ -144,7 +158,6 @@ export function PluginIntegrationsPage({
         <div className="rounded-md border p-3 text-sm ucd-status-warning">{t("plugins.environment.desktopOnly")}</div>
       ) : null}
       {notice ? <div className="rounded-md border p-3 text-sm ucd-status-success">{notice}</div> : null}
-      {error ? <div className="rounded-md border p-3 text-sm ucd-status-danger">{error}</div> : null}
 
       <div className="grid gap-3 md:grid-cols-3">
         <StatCard hint={t("plugins.stats.totalHint")} icon={Plug} label={t("plugins.stats.total")} value={String(definitions.length)} />
@@ -152,73 +165,37 @@ export function PluginIntegrationsPage({
         <StatCard hint={t("plugins.stats.attentionHint")} icon={ShieldAlert} label={t("plugins.stats.attention")} value={String(attentionCount)} />
       </div>
 
-      <SectionPanel description={t("plugins.list.description")} title={t("plugins.list.title")} variant="plain">
-        {overviewQuery.isLoading ? <div className="text-sm text-muted-foreground">{t("plugins.loading")}</div> : null}
-        {searchTerm.trim() ? (
-          <div className="mb-3 flex items-center gap-2 text-xs text-muted-foreground">
-            <Search className="h-3.5 w-3.5" aria-hidden="true" />
-            {t("plugins.search.active", { term: searchTerm })}
+      {searchTerm.trim() ? (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Search className="h-3.5 w-3.5" aria-hidden="true" />
+          {t("plugins.search.active", { term: searchTerm })}
+        </div>
+      ) : null}
+
+      <AsyncBoundary
+        emptyState={emptyStateSlot}
+        filtered={Boolean(searchTerm.trim())}
+        filteredEmptyState={emptyStateSlot}
+        isEmpty={() => visibleDefinitions.length === 0}
+        onRetry={() => void overviewQuery.refetch()}
+        state={asyncState}
+      >
+        {() => (
+          <div className="grid gap-3">
+            {visibleDefinitions.map((definition) => (
+              <PluginIntegrationCard
+                definition={definition}
+                key={definition.id}
+                lastResult={testMutation.data}
+                nativeChecksAvailable={nativeChecksAvailable}
+                onTest={(item) => testMutation.mutate(item.id)}
+                state={stateFor(definition)}
+                testState={testStateFor(definition)}
+              />
+            ))}
           </div>
-        ) : null}
-        <div className="grid gap-3">{visibleDefinitions.map((definition) => renderCard(definition, stateFor(definition), nativeChecksAvailable, testMutation.data, testMutation.isPending && testMutation.variables?.id === definition.id, () => testMutation.mutate(definition), t))}</div>
-        {!overviewQuery.isLoading && visibleDefinitions.length === 0 ? <div className="text-sm text-muted-foreground">{t("plugins.empty")}</div> : null}
-      </SectionPanel>
+        )}
+      </AsyncBoundary>
     </div>
-  );
-}
-
-function renderCard(
-  definition: PluginIntegrationDefinition,
-  state: PluginIntegrationState,
-  nativeChecksAvailable: boolean,
-  lastResult: PluginIntegrationTestResult | undefined,
-  testing: boolean,
-  onTest: () => void,
-  t: (key: string, options?: Record<string, string>) => string,
-) {
-  const messageKey = lastResult?.integrationId === definition.id ? lastResult.message : state.statusReasonKey;
-  return (
-    <article className="ucd-panel ucd-interactive rounded-lg p-4" data-testid={`plugin-card-${definition.id}`} key={definition.id}>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex min-w-0 items-start gap-3">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-[hsl(var(--panel-muted))] text-foreground">
-            <GitFork className="h-5 w-5" aria-hidden="true" />
-          </span>
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-base font-semibold">{t(definition.nameKey)}</h3>
-              <Badge tone="muted">v{definition.version}</Badge>
-            </div>
-            <p className="mt-1 text-sm leading-6 text-muted-foreground">{t(definition.descriptionKey)}</p>
-          </div>
-        </div>
-        <Badge tone={statusTone(state.status)}>{t(statusKey(state.status))}</Badge>
-      </div>
-
-      <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
-        <div className="space-y-2">
-          {definition.setupSteps.map((step, index) => (
-            <div className="flex gap-2 text-sm" key={step.id}>
-              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-sm bg-muted text-xs font-semibold text-muted-foreground">{index + 1}</span>
-              <span className="text-muted-foreground">{t(step.labelKey)}</span>
-            </div>
-          ))}
-          {messageKey ? <div className="text-xs text-muted-foreground">{t(messageKey)}</div> : null}
-          {state.lastCheckedAt ? <div className="text-xs text-muted-foreground">{t("plugins.lastChecked", { time: state.lastCheckedAt })}</div> : null}
-        </div>
-        <div className="flex flex-wrap items-start justify-end gap-2">
-          <Button asChild size="sm" variant="outline">
-            <a href={definition.docsUrl} rel="noreferrer" target="_blank">
-              <ExternalLink />
-              {t("plugins.action.docs")}
-            </a>
-          </Button>
-          <Button disabled={!nativeChecksAvailable || !state.canTest || testing} onClick={onTest} size="sm">
-            <CheckCircle2 />
-            {testing ? t("plugins.action.testing") : t("plugins.action.test")}
-          </Button>
-        </div>
-      </div>
-    </article>
   );
 }
