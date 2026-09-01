@@ -1192,6 +1192,8 @@
   "mcp.form.saving": "Saving",
   "mcp.form.save": "Save",
   "mcp.form.fixErrors": "Fix the errors in the form",
+  "mcp.form.credentialsHidden": "Hidden — may contain saved credentials. Reveal to view or edit.",
+  "mcp.form.reveal": "Reveal",
   "mcp.validation.name": "Name must be kebab-case lowercase letters, numbers, and hyphens",
   "mcp.validation.commandRequired": "stdio MCP server requires Command",
   "mcp.validation.urlRequired": "URL MCP server requires URL",

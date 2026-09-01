@@ -11,6 +11,10 @@ function jsonText(value: Record<string, string> | null | undefined) {
   return JSON.stringify(value ?? {}, null, 2);
 }
 
+function hasEntries(value: Record<string, string> | null | undefined) {
+  return Boolean(value && Object.keys(value).length > 0);
+}
+
 export function McpServerForm({
   server,
   onCancel,
@@ -28,8 +32,14 @@ export function McpServerForm({
   const [command, setCommand] = useState(server?.command ?? "");
   const [args, setArgs] = useState((server?.args ?? []).join("\n"));
   const [env, setEnv] = useState(jsonText(server?.env));
+  // Env/headers can carry real credentials (a bearer token header, an API-key env var) already
+  // saved for this server -- spec.md "Render a credential field" says avoid displaying a secret
+  // by default, so an existing server's non-empty values start masked behind an explicit reveal.
+  // A brand-new server has nothing saved to hide, so there is nothing to gate.
+  const [envRevealed, setEnvRevealed] = useState(!hasEntries(server?.env));
   const [url, setUrl] = useState(server?.url ?? "");
   const [headers, setHeaders] = useState(jsonText(server?.headers));
+  const [headersRevealed, setHeadersRevealed] = useState(!hasEntries(server?.headers));
   const [description, setDescription] = useState(server?.description ?? "");
   const [active, setActive] = useState(server?.active ?? true);
   const [error, setError] = useState<string | null>(null);
@@ -126,11 +136,22 @@ export function McpServerForm({
               <textarea className="ucd-input min-h-24 rounded p-3 font-mono text-xs outline-hidden focus-visible:ring-2 focus-visible:ring-ring" value={args} onChange={(event) => setArgs(event.target.value)} />
               {fieldErrors.args ? <span className="text-xs text-[hsl(var(--danger))]">{fieldErrors.args}</span> : null}
             </label>
-            <label className="grid gap-1 text-sm">
+            {/* A plain div, not `label`, when masked: implicit label association would fold the
+                placeholder text and the Reveal button's own text together into one unusable
+                accessible name for the button, since a label associates with every control it
+                wraps, not just the one it visually sits above. */}
+            <div className="grid gap-1 text-sm">
               <span className="text-xs text-muted-foreground">{t("mcp.form.envJson")}</span>
-              <textarea className="ucd-input min-h-28 rounded p-3 font-mono text-xs outline-hidden focus-visible:ring-2 focus-visible:ring-ring" value={env} onChange={(event) => setEnv(event.target.value)} />
+              {envRevealed ? (
+                <textarea aria-label={t("mcp.form.envJson")} className="ucd-input min-h-28 rounded p-3 font-mono text-xs outline-hidden focus-visible:ring-2 focus-visible:ring-ring" value={env} onChange={(event) => setEnv(event.target.value)} />
+              ) : (
+                <div className="ucd-input flex min-h-28 flex-col items-start justify-center gap-2 rounded p-3 text-xs text-muted-foreground">
+                  <span>{t("mcp.form.credentialsHidden")}</span>
+                  <Button onClick={() => setEnvRevealed(true)} size="sm" type="button" variant="outline">{t("mcp.form.reveal")}</Button>
+                </div>
+              )}
               {fieldErrors.env ? <span className="text-xs text-[hsl(var(--danger))]">{fieldErrors.env}</span> : null}
-            </label>
+            </div>
           </div>
         ) : (
           <div className="mt-3 grid gap-3">
@@ -139,11 +160,18 @@ export function McpServerForm({
               <input className="ucd-input h-9 rounded px-3 outline-hidden focus-visible:ring-2 focus-visible:ring-ring" value={url} onChange={(event) => setUrl(event.target.value)} />
               {fieldErrors.url ? <span className="text-xs text-[hsl(var(--danger))]">{fieldErrors.url}</span> : null}
             </label>
-            <label className="grid gap-1 text-sm">
+            <div className="grid gap-1 text-sm">
               <span className="text-xs text-muted-foreground">{t("mcp.form.headersJson")}</span>
-              <textarea className="ucd-input min-h-28 rounded p-3 font-mono text-xs outline-hidden focus-visible:ring-2 focus-visible:ring-ring" value={headers} onChange={(event) => setHeaders(event.target.value)} />
+              {headersRevealed ? (
+                <textarea aria-label={t("mcp.form.headersJson")} className="ucd-input min-h-28 rounded p-3 font-mono text-xs outline-hidden focus-visible:ring-2 focus-visible:ring-ring" value={headers} onChange={(event) => setHeaders(event.target.value)} />
+              ) : (
+                <div className="ucd-input flex min-h-28 flex-col items-start justify-center gap-2 rounded p-3 text-xs text-muted-foreground">
+                  <span>{t("mcp.form.credentialsHidden")}</span>
+                  <Button onClick={() => setHeadersRevealed(true)} size="sm" type="button" variant="outline">{t("mcp.form.reveal")}</Button>
+                </div>
+              )}
               {fieldErrors.headers ? <span className="text-xs text-[hsl(var(--danger))]">{fieldErrors.headers}</span> : null}
-            </label>
+            </div>
           </div>
         )}
 

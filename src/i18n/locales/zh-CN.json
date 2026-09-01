@@ -1192,6 +1192,8 @@
   "mcp.form.saving": "保存中",
   "mcp.form.save": "保存",
   "mcp.form.fixErrors": "请修复表单错误",
+  "mcp.form.credentialsHidden": "已隐藏——可能包含已保存的凭据，点击显示后再编辑。",
+  "mcp.form.reveal": "显示",
   "mcp.validation.name": "名称必须是 kebab-case 小写字母、数字和连字符",
   "mcp.validation.commandRequired": "stdio MCP 服务器需要命令",
   "mcp.validation.urlRequired": "URL MCP 服务器需要 URL",

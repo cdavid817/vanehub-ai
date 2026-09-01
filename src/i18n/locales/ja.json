@@ -1192,6 +1192,8 @@
   "mcp.form.saving": "保存",
   "mcp.form.save": "保存",
   "mcp.form.fixErrors": "フォーム内のエラーを修正してください",
+  "mcp.form.credentialsHidden": "非表示です — 保存済みの認証情報が含まれている場合があります。表示してから編集してください。",
+  "mcp.form.reveal": "表示",
   "mcp.validation.name": "名前はケバブケースの小文字、数字、ハイフンでなければなりません",
   "mcp.validation.commandRequired": "stdio MCP サーバーにはコマンドが必要です",
   "mcp.validation.urlRequired": "URL MCP サーバーには URL が必要です",
