@@ -1,17 +1,22 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type MouseEvent } from "react";
 import type { TFunction } from "i18next";
-import { AlertCircle, Check, CheckCircle2, ChevronDown, CircleEllipsis, LoaderCircle, MessageCircleQuestion, ShieldAlert, Wrench, X } from "lucide-react";
+import { AlertCircle, Check, CheckCircle2, ChevronDown, CircleEllipsis, LoaderCircle, MessageCircleQuestion, ShieldAlert, Wrench } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "../../lib/utils";
+import { ApprovalCard } from "./ApprovalCard";
 import { PlanExitCard } from "./PlanExitCard";
 import { EXIT_PLAN_MODE_TOOL_NAME } from "./plan-exit-signal";
 import { QuestionCard } from "./QuestionCard";
-import { permissionsService } from "../../services/runtime-permissions-client";
+import { isInteractiveClickTarget } from "./selection-click-target";
 import { normalizeToolUse } from "../../services/tool-use";
 import { Badge } from "../ui/badge";
-import { Button } from "../ui/button";
 import type { MessageStatus, ToolUseBlock as ToolUseBlockType } from "../../types/chat";
-import type { ApprovalScope, PendingApprovalEntry, RiskLevel } from "../../types/permissions";
+
+// A tool row's own header (`<summary>`) is the row's only visible surface while collapsed, so
+// unlike the message bubble it is *not* excluded here -- clicking it both toggles disclosure
+// (native `<details>` behavior) and selects the row. Only controls with their own distinct action
+// (approve/deny, scope buttons, the question/plan-exit forms) are excluded.
+const TOOL_ROW_SELECTION_EXCLUDED_SELECTOR = 'button, a[href], input, textarea, select, [role="button"]';
 
 function formatJson(value: unknown) {
   if (value === undefined) return "";
@@ -58,65 +63,6 @@ export function groupConsecutiveFailures(toolUse: readonly ToolUseBlockType[]): 
   return groups;
 }
 
-const riskTone: Record<RiskLevel, "muted" | "default" | "warning" | "danger"> = {
-  L0: "muted", L1: "default", L2: "warning", L3: "danger",
-};
-const scopeOptions: ApprovalScope[] = ["once", "session", "project", "global"];
-
-function ApprovalCard({ sessionId, callId }: { sessionId: string; callId: string }) {
-  const { t } = useTranslation();
-  const [pending, setPending] = useState<PendingApprovalEntry | null>(null);
-  const [scope, setScope] = useState<ApprovalScope>("once");
-  const [resolving, setResolving] = useState<"approve" | "deny" | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    void permissionsService.listPendingApprovals().then((entries) => {
-      if (!cancelled) setPending(entries.find((entry) => entry.sessionId === sessionId && entry.callId === callId) ?? null);
-    });
-    return () => { cancelled = true; };
-  }, [sessionId, callId]);
-
-  async function resolve(approved: boolean) {
-    if (!pending) return;
-    setResolving(approved ? "approve" : "deny");
-    try { await permissionsService.resolvePendingApproval(pending.id, approved, scope); }
-    finally { setResolving(null); }
-  }
-
-  return (
-    <div className="flex flex-col gap-2 border-t border-warning/30 bg-warning/5 px-3 py-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-muted-foreground">{t("chat.toolApproval.prompt")}</span>
-        {pending ? <Badge tone={riskTone[pending.riskLevel]}>{t(`chat.toolApproval.riskLevel.${pending.riskLevel}`)}</Badge> : null}
-      </div>
-      {pending ? (
-        <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
-          <dt className="font-medium">{t("chat.toolApproval.agent")}</dt><dd className="truncate font-mono">{pending.agentId}</dd>
-          <dt className="font-medium">{t("chat.toolApproval.action")}</dt><dd className="truncate font-mono">{pending.action}</dd>
-          <dt className="font-medium">{t("chat.toolApproval.resource")}</dt><dd className="truncate font-mono">{pending.resource}</dd>
-        </dl>
-      ) : null}
-      <div className="flex flex-wrap items-center gap-1">
-        <span className="mr-1 text-muted-foreground">{t("chat.toolApproval.rememberLabel")}</span>
-        {scopeOptions.map((option) => (
-          <Button aria-pressed={scope === option} key={option} onClick={() => setScope(option)} size="sm" variant={scope === option ? "default" : "outline"}>
-            {t(`chat.toolApproval.scope.${option}`)}
-          </Button>
-        ))}
-      </div>
-      <div className="flex items-center gap-2">
-        <Button className="ml-auto" disabled={resolving !== null || !pending} onClick={() => void resolve(true)} size="sm" variant="outline">
-          <Check className="h-3.5 w-3.5" aria-hidden="true" />{t("chat.toolApproval.approve")}
-        </Button>
-        <Button disabled={resolving !== null || !pending} onClick={() => void resolve(false)} size="sm" variant="outline">
-          <X className="h-3.5 w-3.5" aria-hidden="true" />{t("chat.toolApproval.deny")}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
 const toolLabelKeys: Record<string, string> = {
   shell: "chat.toolActivity.tool.shell", glob: "chat.toolActivity.tool.glob",
   file: "chat.toolActivity.tool.file", read_file: "chat.toolActivity.tool.readFile",
@@ -136,16 +82,48 @@ function StatusIcon({ status }: { status: ToolUseBlockType["status"] }) {
   return <CheckCircle2 className="h-3.5 w-3.5 text-success" aria-hidden="true" />;
 }
 
-function ActivityRow({ occurrences = [], sessionId, tool, t }: { occurrences?: ToolUseBlockType[]; sessionId: string; tool: ToolUseBlockType; t: TFunction }) {
+function ActivityRow({
+  occurrences = [],
+  onSelect,
+  selected = false,
+  sessionId,
+  tool,
+  t,
+}: {
+  occurrences?: ToolUseBlockType[];
+  onSelect?: () => void;
+  selected?: boolean;
+  sessionId: string;
+  tool: ToolUseBlockType;
+  t: TFunction;
+}) {
   const preview = toolActivityPreview(tool.input);
   const repeated = occurrences.length > 1;
   const detailValue = repeated
     ? { occurrences: occurrences.map(({ id, input, output }) => ({ id, input, output })) }
     : { input: tool.input, output: tool.output };
+
+  function handleRowClick(event: MouseEvent<HTMLDivElement>) {
+    if (onSelect && !isInteractiveClickTarget(event.target, TOOL_ROW_SELECTION_EXCLUDED_SELECTOR, event.currentTarget)) onSelect();
+  }
+
   return (
-    <div className={cn("overflow-hidden rounded-md border bg-background/70", tool.status === "failed" && "border-destructive/40", tool.status === "awaiting_approval" && "border-warning/40", tool.status === "awaiting_input" && "border-primary/40")} data-tool-status={tool.status}>
+    <div
+      aria-current={selected ? "true" : undefined}
+      className={cn(
+        "overflow-hidden rounded-md border bg-background/70",
+        tool.status === "failed" && "border-destructive/40",
+        tool.status === "awaiting_approval" && "border-warning/40",
+        tool.status === "awaiting_input" && "border-primary/40",
+        selected && "ring-2 ring-primary",
+      )}
+      data-tool-call-id={tool.id}
+      data-tool-status={tool.status}
+      onClick={handleRowClick}
+    >
       <details>
         <summary className="flex min-h-9 cursor-pointer items-center gap-2 px-3 py-1.5 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          {selected ? <Check className="h-3 w-3 shrink-0 text-primary" aria-hidden="true" data-testid="tool-selected-indicator" /> : null}
           <StatusIcon status={tool.status} />
           <span className="shrink-0 font-medium text-foreground">{toolLabel(tool.name, t)}</span>
           {preview ? <span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground">{preview}</span> : null}
@@ -176,7 +154,21 @@ function CountBadge({ count, label, tone }: { count: number; label: string; tone
   return <Badge tone={tone}>{label}</Badge>;
 }
 
-export function ToolUseBlock({ messageFailed = false, messageStatus = "streaming", sessionId, toolUse }: { messageFailed?: boolean; messageStatus?: MessageStatus; sessionId: string; toolUse: ToolUseBlockType[] }) {
+export function ToolUseBlock({
+  messageFailed = false,
+  messageStatus = "streaming",
+  onSelectTool,
+  selectedToolCallId = null,
+  sessionId,
+  toolUse,
+}: {
+  messageFailed?: boolean;
+  messageStatus?: MessageStatus;
+  onSelectTool?: (toolCallId: string) => void;
+  selectedToolCallId?: string | null;
+  sessionId: string;
+  toolUse: ToolUseBlockType[];
+}) {
   const { t } = useTranslation();
   const contentId = useId();
   const normalized = normalizeToolUse(toolUse);
@@ -235,7 +227,7 @@ export function ToolUseBlock({ messageFailed = false, messageStatus = "streaming
         </button>
       </div>
       <div data-testid="tool-activity-content" hidden={!activityOpen} id={contentId}>
-        {actionable.length > 0 ? <div className="grid gap-1.5 p-2">{actionable.map((tool) => <ActivityRow key={tool.id} sessionId={sessionId} t={t} tool={tool} />)}</div> : null}
+        {actionable.length > 0 ? <div className="grid gap-1.5 p-2">{actionable.map((tool) => <ActivityRow key={tool.id} onSelect={onSelectTool ? () => onSelectTool(tool.id) : undefined} selected={tool.id === selectedToolCallId} sessionId={sessionId} t={t} tool={tool} />)}</div> : null}
         {failed.length > 0 ? (
         <details
           className={cn("border-border", actionable.length > 0 && "border-t")}
@@ -252,7 +244,17 @@ export function ToolUseBlock({ messageFailed = false, messageStatus = "streaming
           <div className="grid gap-1.5 border-t border-border p-2">
             {failureGroups.map((group) => {
               const tool = group.occurrences[group.occurrences.length - 1];
-              return <ActivityRow key={tool.id} occurrences={group.occurrences} sessionId={sessionId} t={t} tool={tool} />;
+              return (
+                <ActivityRow
+                  key={tool.id}
+                  occurrences={group.occurrences}
+                  onSelect={onSelectTool ? () => onSelectTool(tool.id) : undefined}
+                  selected={tool.id === selectedToolCallId}
+                  sessionId={sessionId}
+                  t={t}
+                  tool={tool}
+                />
+              );
             })}
           </div>
         </details>
@@ -267,7 +269,7 @@ export function ToolUseBlock({ messageFailed = false, messageStatus = "streaming
             <span className="ml-auto">{t("chat.toolActivity.showDetails")}</span>
           </summary>
           <div className="grid gap-1.5 border-t border-border p-2">
-            {completed.map((tool) => <ActivityRow key={tool.id} sessionId={sessionId} t={t} tool={tool} />)}
+            {completed.map((tool) => <ActivityRow key={tool.id} onSelect={onSelectTool ? () => onSelectTool(tool.id) : undefined} selected={tool.id === selectedToolCallId} sessionId={sessionId} t={t} tool={tool} />)}
           </div>
         </details>
         ) : null}

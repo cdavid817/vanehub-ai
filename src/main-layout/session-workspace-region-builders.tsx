@@ -10,6 +10,7 @@ import type { HorizontalPaneRegion } from "../ui/destination-layout/regions";
 import type { LayoutTier } from "../ui/destination-layout/use-layout-tier";
 import { Inspector } from "../ui/inspector/Inspector";
 import { useWorkbenchInspection, type WorkbenchInspection } from "../ui/inspector/use-workbench-inspection";
+import { workbenchSelectionKey, type WorkbenchSelection } from "../types/workbench-selection";
 import type { MainLayoutModel } from "./use-main-layout-model";
 import { INSPECTOR_WIDTH_BOUNDS, patchDestinationLayoutPreference } from "./workbench-layout-preferences";
 
@@ -71,6 +72,33 @@ export function useSessionInspection({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [displayedSession?.id]);
   return inspection;
+}
+
+function conversationSelectionKey(selection: WorkbenchSelection | null, sessionId: string | null): string | null {
+  if (!selection || !sessionId) return null;
+  if (selection.kind !== "message" && selection.kind !== "tool") return null;
+  return selection.sessionId === sessionId ? workbenchSelectionKey(selection) : null;
+}
+
+/**
+ * Bridges `useSessionInspection`'s selection state to `ChatTab`'s click affordances (task 9.6): a
+ * click follows (not pins — design.md Decision 8's default) the clicked message/tool as the
+ * Inspector's selection, and the transcript learns which one that is so the source object can
+ * show itself selected. Handlers come back `undefined`, not omitted, when there is no displayed
+ * session, so `ChatTab`'s own `onSelect ? ... : undefined` gating never receives a callback with
+ * nothing to select against.
+ */
+export function buildConversationSelectionBridge(inspection: WorkbenchInspection, sessionId: string | null): {
+  currentSelectionKey: string | null;
+  onSelectMessage: ((messageId: string) => void) | undefined;
+  onSelectTool: ((messageId: string, toolCallId: string) => void) | undefined;
+} {
+  if (!sessionId) return { currentSelectionKey: null, onSelectMessage: undefined, onSelectTool: undefined };
+  return {
+    currentSelectionKey: conversationSelectionKey(inspection.selection, sessionId),
+    onSelectMessage: (messageId: string) => inspection.follow({ kind: "message", sessionId, messageId }),
+    onSelectTool: (messageId: string, toolCallId: string) => inspection.follow({ kind: "tool", sessionId, messageId, toolCallId }),
+  };
 }
 
 /** `Inspector`'s `overview` slot when nothing is selected/followed — the old panel's own "no session" copy. */

@@ -8,14 +8,22 @@ import { useSessionSpeakers } from "../hooks/use-session-speakers";
 export function ChatTab({
   activeSession,
   composer,
+  currentSelectionKey = null,
   messages,
   onLoadEarlier,
+  onSelectMessage,
+  onSelectTool,
   turnStatus = null,
 }: {
   activeSession: Session | null;
   composer: ReactNode;
+  /** `workbenchSelectionKey` of the Inspector's current selection, when it is a message or tool
+   * call; null otherwise. Absent entirely until a caller wires selection (design.md Decision 8). */
+  currentSelectionKey?: string | null;
   messages: ChatMessage[];
   onLoadEarlier: () => void;
+  onSelectMessage?: (messageId: string) => void;
+  onSelectTool?: (messageId: string, toolCallId: string) => void;
   turnStatus?: TurnStatus | null;
 }) {
   const speakers = useSessionSpeakers(activeSession);
@@ -33,11 +41,14 @@ export function ChatTab({
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {turnStatus ? <TurnStatusBar status={turnStatus} /> : null}
         <MessageList
+          currentSelectionKey={currentSelectionKey}
           hasActiveSession={Boolean(activeSession)}
           memoryContext={memoryContext}
           hasMore={messages.length >= 50}
           messages={messages}
           onLoadEarlier={onLoadEarlier}
+          onSelectMessage={onSelectMessage}
+          onSelectTool={onSelectTool}
           speakers={speakers}
         />
       </div>

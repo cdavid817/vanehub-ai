@@ -34,11 +34,14 @@ export function SessionPrimarySurfaces(
     activeSession,
     apiComposer,
     badges,
+    currentSelectionKey = null,
     focusMode = false,
     isStreaming = false,
     messages,
     onLoadEarlier = () => undefined,
     onOpenSettings,
+    onSelectMessage,
+    onSelectTool,
     onStop,
     recoveryNotice,
     requestedSurface,
@@ -78,8 +81,11 @@ export function SessionPrimarySurfaces(
           <ChatTab
             activeSession={activeSession}
             composer={apiComposer}
+            currentSelectionKey={currentSelectionKey}
             messages={messages}
             onLoadEarlier={onLoadEarlier}
+            onSelectMessage={onSelectMessage}
+            onSelectTool={onSelectTool}
             turnStatus={turnStatus}
           />
         );

@@ -3012,6 +3012,8 @@
   "chat.removeFileReference": "移除文件引用",
   "chat.you": "你",
   "chat.agent": "Agent",
+  "chat.selectMessage": "选择此消息",
+  "chat.messageSelected": "已选择",
   "chat.config.providerTitle": "提供商：{{label}}",
   "chat.config.modeTitle": "运行模式：{{label}}",
   "chat.config.model": "模型",

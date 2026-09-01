@@ -3012,6 +3012,8 @@
   "chat.removeFileReference": "ファイル参照を削除する",
   "chat.you": "あなた",
   "chat.agent": "Agent",
+  "chat.selectMessage": "このメッセージを選択する",
+  "chat.messageSelected": "選択中",
   "chat.config.providerTitle": "プロバイダー: {{label}}",
   "chat.config.modeTitle": "実行モード: {{label}}",
   "chat.config.model": "モデル",

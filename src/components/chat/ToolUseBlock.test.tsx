@@ -131,6 +131,48 @@ describe("ToolUseBlock", () => {
     expect(container.textContent).toContain("failed-1");
     expect(container.textContent).toContain("failed-2");
   });
+
+  it("selects a tool call when its row is clicked", () => {
+    const onSelectTool = vi.fn();
+    render(
+      <ToolUseBlock
+        onSelectTool={onSelectTool}
+        sessionId="session-1"
+        toolUse={[{ id: "shell", name: "shell", input: { command: "npm test" }, status: "running" }]}
+      />,
+    );
+    const row = document.querySelector('[data-tool-call-id="shell"]');
+    fireEvent.click(row!.querySelector("summary")!);
+    expect(onSelectTool).toHaveBeenCalledWith("shell");
+  });
+
+  it("does not select the tool call when the click lands on the approval card's own controls", async () => {
+    await activateAppLanguage("en");
+    const onSelectTool = vi.fn();
+    render(
+      <ToolUseBlock
+        onSelectTool={onSelectTool}
+        sessionId="session-1"
+        toolUse={[{ id: "shell", name: "shell", input: { command: "npm test" }, status: "awaiting_approval" }]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "This session" }));
+    expect(onSelectTool).not.toHaveBeenCalled();
+  });
+
+  it("renders a non-color-only marker only on the row matching selectedToolCallId", () => {
+    const toolUse = [
+      { id: "a", name: "shell", input: { command: "one" }, status: "running" as const },
+      { id: "b", name: "shell", input: { command: "two" }, status: "running" as const },
+    ];
+    const { rerender } = render(<ToolUseBlock selectedToolCallId={null} sessionId="session-1" toolUse={toolUse} />);
+    expect(screen.queryByTestId("tool-selected-indicator")).toBeNull();
+
+    rerender(<ToolUseBlock selectedToolCallId="b" sessionId="session-1" toolUse={toolUse} />);
+    expect(screen.getAllByTestId("tool-selected-indicator")).toHaveLength(1);
+    expect(document.querySelector('[data-tool-call-id="a"]')?.getAttribute("aria-current")).toBeNull();
+    expect(document.querySelector('[data-tool-call-id="b"]')?.getAttribute("aria-current")).toBe("true");
+  });
 });
 
 describe("toolActivityPreview", () => {

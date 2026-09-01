@@ -3012,6 +3012,8 @@
   "chat.removeFileReference": "Remove file reference",
   "chat.you": "You",
   "chat.agent": "Agent",
+  "chat.selectMessage": "Select this message",
+  "chat.messageSelected": "Selected",
   "chat.config.providerTitle": "Provider: {{label}}",
   "chat.config.modeTitle": "Execution mode: {{label}}",
   "chat.config.model": "Model",

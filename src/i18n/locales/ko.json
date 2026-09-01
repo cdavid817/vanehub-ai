@@ -3012,6 +3012,8 @@
   "chat.removeFileReference": "파일 참조 제거",
   "chat.you": "당신",
   "chat.agent": "Agent",
+  "chat.selectMessage": "이 메시지 선택",
+  "chat.messageSelected": "선택됨",
   "chat.config.providerTitle": "제공자: {{label}}",
   "chat.config.modeTitle": "실행 모드: {{label}}",
   "chat.config.model": "모델",

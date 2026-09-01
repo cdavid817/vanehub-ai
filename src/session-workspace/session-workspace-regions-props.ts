@@ -17,6 +17,9 @@ export interface ConversationVisibilityControls {
 export interface SessionWorkspaceRegionsProps {
   activeSession: Session | null;
   apiComposer?: ReactNode;
+  /** `workbenchSelectionKey` of the Inspector's current selection, when it is a message or tool
+   *  call in this session; null otherwise. Absent entirely until a caller wires selection. */
+  currentSelectionKey?: string | null;
   focusMode?: boolean;
   /** The persisted "preferred Runtime Panel tab" — see `useWorkspaceEvidenceScopeValue`'s doc comment. */
   initialRuntimeSurface?: SessionRuntimeSurfaceId;
@@ -26,6 +29,8 @@ export interface SessionWorkspaceRegionsProps {
   onLoadEarlier?: () => void;
   onOpenSettings: () => void;
   onRuntimeMaximizedChange?: (maximized: boolean) => void;
+  onSelectMessage?: (messageId: string) => void;
+  onSelectTool?: (messageId: string, toolCallId: string) => void;
   /** Absent when nothing is streaming — see SessionConversationHeader's own doc comment. */
   onStop?: () => void;
   recoveryNotice?: ReactNode;

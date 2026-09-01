@@ -1,26 +1,43 @@
 import { useTranslation } from "react-i18next";
 import type { MessageSpeaker } from "../../services/message-speaker";
 import type { ChatMessage } from "../../types/chat";
+import { workbenchSelectionKey } from "../../types/workbench-selection";
 import { MessageItem } from "./MessageItem";
 import type { MessageMemoryContext } from "./MessageMemoryMenu";
 import { ScrollControl } from "./ScrollControl";
 import { useConversationWindowModel } from "./use-conversation-window-model";
 import { WelcomeScreen } from "./WelcomeScreen";
 
+function selectedToolCallIdFor(message: ChatMessage, currentSelectionKey: string | null): string | null {
+  if (currentSelectionKey === null) return null;
+  const match = message.toolUse?.find(
+    (tool) => workbenchSelectionKey({ kind: "tool", sessionId: message.sessionId, messageId: message.id, toolCallId: tool.id }) === currentSelectionKey,
+  );
+  return match?.id ?? null;
+}
+
 export function MessageList({
+  currentSelectionKey = null,
   hasActiveSession,
   hasMore,
   memoryContext = null,
   messages,
   onLoadEarlier,
+  onSelectMessage,
+  onSelectTool,
   speakers,
 }: {
+  /** `workbenchSelectionKey` of the Inspector's current selection, when it is a message or tool
+   * call in this session; null otherwise. Absent entirely until a caller wires selection. */
+  currentSelectionKey?: string | null;
   hasActiveSession: boolean;
   hasMore: boolean;
   /** Threaded from the session rather than read here: a message knows neither Agent nor project. */
   memoryContext?: MessageMemoryContext | null;
   messages: ChatMessage[];
   onLoadEarlier: () => void;
+  onSelectMessage?: (messageId: string) => void;
+  onSelectTool?: (messageId: string, toolCallId: string) => void;
   /** Empty for a single-Agent session, which renders exactly as it did before seats existed. */
   speakers?: Map<string | number, MessageSpeaker>;
 }) {
@@ -49,15 +66,23 @@ export function MessageList({
             {t("chat.loadEarlier")}
           </button>
         ) : null}
-        {messages.map((message) => (
-          <div key={message.id} ref={registerItemRef(message.id)}>
-            <MessageItem
-              memoryContext={memoryContext}
-              message={message}
-              speaker={speakers?.get(message.speakerSeatId ?? message.seatIndex ?? "") ?? null}
-            />
-          </div>
-        ))}
+        {messages.map((message) => {
+          const selected = currentSelectionKey !== null
+            && currentSelectionKey === workbenchSelectionKey({ kind: "message", sessionId: message.sessionId, messageId: message.id });
+          return (
+            <div key={message.id} ref={registerItemRef(message.id)}>
+              <MessageItem
+                memoryContext={memoryContext}
+                message={message}
+                onSelect={onSelectMessage ? () => onSelectMessage(message.id) : undefined}
+                onSelectTool={onSelectTool ? (toolCallId: string) => onSelectTool(message.id, toolCallId) : undefined}
+                selected={selected}
+                selectedToolCallId={selectedToolCallIdFor(message, currentSelectionKey)}
+                speaker={speakers?.get(message.speakerSeatId ?? message.seatIndex ?? "") ?? null}
+              />
+            </div>
+          );
+        })}
         </div>
       </div>
       <ScrollControl onClick={scrollToBottom} visible={!autoScroll} />

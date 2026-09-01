@@ -34,7 +34,7 @@ import type { SettingsPageId } from "../settings/settings-pages";
 import type { WorkbenchLocation } from "./workbench-route";
 import { seatsFromSession } from "../services/session-seats";
 import { useSessionRuntimeRecovery } from "./use-session-runtime-recovery";
-import { buildConversationVisibilityControls, buildRecoveryNotice, useInspectorRegion, useSessionInspection, usePersistPreferredRuntimeTab } from "./session-workspace-region-builders";
+import { buildConversationSelectionBridge, buildConversationVisibilityControls, buildRecoveryNotice, useInspectorRegion, useSessionInspection, usePersistPreferredRuntimeTab } from "./session-workspace-region-builders";
 import {
   NAVIGATION_WIDTH_BOUNDS,
   RUNTIME_HEIGHT_BOUNDS,
@@ -247,6 +247,19 @@ export function MainLayout({
     onToggleNavigation: () => setSessionSidebarOpen((open) => !open),
   });
 
+  const inspection = useSessionInspection({
+    conversationFocusMode,
+    currentSpeakerSeatId: loopInspection || model.turnStatus?.kind !== "agent" ? null : model.turnStatus.seatId ?? null,
+    // Not `displayedMessages` (which shows the *loop's own* transcript while loop-inspecting):
+    // the roster's speaking-highlight is a live-streaming concept, and nothing is live during
+    // loop inspection, so this stays empty then exactly like currentSpeakerSeatId does above.
+    displayedMessages: loopInspection ? [] : model.messages,
+    displayedSession,
+    loopInspectionUsageSurface: loopInspection?.target.surface === "usage",
+    requestedInfoTab,
+    setConversationFocusMode,
+    setPanelTabRequest,
+  });
   const sessionWorkspace = useSessionWorkspaceRegions({
     activeSession: displayedSession,
     apiComposer,
@@ -277,21 +290,9 @@ export function MainLayout({
       workspaceTabsCollapsed,
     }),
     workspaceTabsCollapsed,
+    ...buildConversationSelectionBridge(inspection, displayedSession?.id ?? null),
   });
   usePersistPreferredRuntimeTab(sessionWorkspace.activeRuntimeSurface);
-  const inspection = useSessionInspection({
-    conversationFocusMode,
-    currentSpeakerSeatId: loopInspection || model.turnStatus?.kind !== "agent" ? null : model.turnStatus.seatId ?? null,
-    // Not `displayedMessages` (which shows the *loop's own* transcript while loop-inspecting):
-    // the roster's speaking-highlight is a live-streaming concept, and nothing is live during
-    // loop inspection, so this stays empty then exactly like currentSpeakerSeatId does above.
-    displayedMessages: loopInspection ? [] : model.messages,
-    displayedSession,
-    loopInspectionUsageSurface: loopInspection?.target.surface === "usage",
-    requestedInfoTab,
-    setConversationFocusMode,
-    setPanelTabRequest,
-  });
   const inspectorRegion = useInspectorRegion({
     commitInfoPanelWidth,
     effectiveInfoPanelOpen,
