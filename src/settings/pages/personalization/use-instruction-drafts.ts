@@ -104,6 +104,9 @@ export function useInstructionDrafts(service: AgentService, scope: Personalizati
   // prompt, armed only while something is dirty anywhere. In-app navigation is covered by the
   // drafts surviving it, which is why leaving the window is the only moment work can be lost.
   const dirtyCount = Object.values(drafts).filter(isDirty).length;
+  // Task 12.16: same aggregate shape as `dirtyCount` above -- a failed save's `.error` (set by
+  // `saveFailed`) survives on its own draft regardless of which scope is on screen right now.
+  const hasError = Object.values(drafts).some((entry) => entry.error !== null);
   useEffect(() => {
     if (dirtyCount === 0) return;
     const warn = (event: BeforeUnloadEvent) => event.preventDefault();
@@ -114,6 +117,7 @@ export function useInstructionDrafts(service: AgentService, scope: Personalizati
   return {
     draft,
     dirtyCount,
+    hasError,
     isDirty: draft ? isDirty(draft) : false,
     canSave: draft ? canSave(draft) : false,
     isLoading: !incomplete && policyQuery.isPending,

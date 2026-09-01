@@ -6,13 +6,23 @@ import { useConfirmation } from "../../components/ui/use-confirmation";
 import type { ImConnectorHealth, ImConnectorKind, ImConnectorView, WeChatAuthorization } from "../../contracts/im";
 import { imService } from "../../services/runtime-im-client";
 import { detectRuntimeKind } from "../../services/runtime-adapter";
+import { pickPageStatus } from "../settings-page-status";
+import type { SettingsPageStatus } from "../settings-page-types";
 import { ImConnectorRow } from "./im/im-connector-row";
 import { ImWeChatAuthorization } from "./im/im-wechat-authorization";
 import { PageHeader } from "./page-parts";
 
 type PendingByKind = Partial<Record<ImConnectorKind, string>>;
 
-export function ImPage({ onReturn, searchTerm }: { onReturn?: () => void; searchTerm: string }) {
+export function ImPage({
+  onReturn,
+  onStatusChange,
+  searchTerm,
+}: {
+  onReturn?: () => void;
+  onStatusChange?: (status: SettingsPageStatus | null) => void;
+  searchTerm: string;
+}) {
   const { t } = useTranslation();
   const { confirm, confirmationDialog } = useConfirmation();
   const isWebRuntime = detectRuntimeKind() !== "tauri";
@@ -59,6 +69,21 @@ export function ImPage({ onReturn, searchTerm }: { onReturn?: () => void; search
       unsubscribe?.();
     };
   }, []);
+
+  // Task 12.16: the same conditions the banners above already render from, reported so this
+  // page's own nav entry can flag them while the user looks at another page.
+  useEffect(() => {
+    onStatusChange?.(pickPageStatus([
+      // "im.status.*" is already a closed set of per-connector lifecycle values
+      // (connected/reconnecting/authorization-expired/error/updatedAt, im-connector-row.tsx) --
+      // this is a different, page-level condition, so it gets its own "pageStatus" namespace
+      // instead of colliding with (or merely dodging) that enum.
+      error ? { kind: "error", labelKey: "im.pageStatus.error" } : null,
+      isWebRuntime ? { kind: "dependency-unavailable", labelKey: "im.pageStatus.webRuntime" } : null,
+    ]));
+    return () => onStatusChange?.(null);
+  }, [error, isWebRuntime, onStatusChange]);
+
   async function connectorAction(kind: ImConnectorKind, action: string, credentials?: Record<string, string>): Promise<boolean> {
     if (action === "clear") {
       const confirmed = await confirm({

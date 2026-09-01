@@ -6,7 +6,7 @@ import { useDraftNavigationGuard } from "../components/ui/use-draft-navigation-g
 import { useSettingsAnchorHighlight } from "../hooks/use-settings-anchor-highlight";
 import { shouldRenderPage } from "../ui/page-lifecycle/page-lifecycle-policy";
 import { SETTINGS_PAGE_LIFECYCLE } from "./settings-page-lifecycle";
-import type { SettingsDraftGuard } from "./settings-page-types";
+import type { SettingsDraftGuard, SettingsPageStatus } from "./settings-page-types";
 import { defaultSettingsPageId, getSettingsPage, settingsPages, type SettingsNavigationTarget, type SettingsPageId } from "./settings-pages";
 import { buildSettingsSearchIndex, type SettingsSearchResult } from "./settings-search-index";
 import { SettingsCompactNav } from "./settings-compact-nav";
@@ -49,6 +49,33 @@ export function SettingsShell({
   }, []);
   const { requestDecision, navigationGuardDialog } = useDraftNavigationGuard();
   const activePage = useMemo(() => getSettingsPage(activePageId), [activePageId]);
+
+  /**
+   * Task 12.16: unlike the draft guard above, this genuinely is rendered (every nav entry's own
+   * bounded status dot), so it lives in real state, not a ref. Keyed by page id rather than one
+   * active-page slot because a `draft-only` page (task 12.17) keeps reporting while backgrounded
+   * -- its entry should keep flagging itself while a different page is on screen.
+   */
+  const [pageStatuses, setPageStatuses] = useState<Partial<Record<SettingsPageId, SettingsPageStatus>>>({});
+  const handlePageStatusChange = useCallback((pageId: SettingsPageId, status: SettingsPageStatus | null) => {
+    setPageStatuses((current) => {
+      if (status !== null) return { ...current, [pageId]: status };
+      if (!(pageId in current)) return current;
+      const next = { ...current };
+      delete next[pageId];
+      return next;
+    });
+  }, []);
+  // One stable callback per page id, computed once (`settingsPages` is the static module-level
+  // list) -- a fresh closure built inline in the render loop below would change identity every
+  // shell render, and a reporting page's own effect depends on that identity, which is exactly
+  // the report-render-report loop the draft guard's own ref comment above already had to avoid.
+  const statusReporters = useMemo(
+    () => Object.fromEntries(
+      settingsPages.map((page) => [page.id, (status: SettingsPageStatus | null) => handlePageStatusChange(page.id, status)]),
+    ) as Record<SettingsPageId, (status: SettingsPageStatus | null) => void>,
+    [handlePageStatusChange],
+  );
 
   // A page reports its own guard through `onDraftStateChange`; clear it on every page switch so a
   // stale guard from the page just left can't outlive it (the newly active page re-reports its
@@ -128,8 +155,8 @@ export function SettingsShell({
         searchTerm={searchTerm}
       />
       <div className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] gap-4 px-4 pb-4 pt-0 lg:grid-cols-[clamp(220px,18vw,280px)_minmax(0,1fr)] lg:grid-rows-1 lg:gap-5 lg:px-5 lg:pb-5">
-        <SettingsSidebar activePageId={activePageId} onSelectPage={handleSelectPage} />
-        <SettingsCompactNav activePageId={activePageId} onSelectPage={handleSelectPage} />
+        <SettingsSidebar activePageId={activePageId} onSelectPage={handleSelectPage} pageStatuses={pageStatuses} />
+        <SettingsCompactNav activePageId={activePageId} onSelectPage={handleSelectPage} pageStatuses={pageStatuses} />
         <section className="min-h-0 min-w-0 overflow-hidden rounded-lg border border-border bg-background shadow-xs">
           {settingsPages.map((page) => {
             const isActivePage = page.id === activePageId;
@@ -141,6 +168,7 @@ export function SettingsShell({
               onNavigate: handleSelectPage,
               onOpenSession,
               onReturn: guardedOnReturn,
+              onStatusChange: statusReporters[page.id],
               searchTerm: isActivePage ? searchTerm : "",
             };
             return (

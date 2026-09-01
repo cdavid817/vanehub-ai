@@ -1,10 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { FileText, Layers, SlidersHorizontal } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { AgentService } from "../../../services/agent-service";
 import { agentService as defaultAgentService } from "../../../services/runtime-agent-client";
 import type { PersonalizationPolicyRef } from "../../../types/personalization";
+import { pickPageStatus } from "../../settings-page-status";
+import type { SettingsPageStatus } from "../../settings-page-types";
 import { SectionPanel } from "../page-parts";
 import { ConflictPanel } from "./conflict-panel";
 import { InheritancePanel } from "./inheritance-panel";
@@ -21,8 +23,10 @@ import { useScopeOptions } from "./use-scope-options";
  * selector usable, and an incomplete selection has no text to show at all.
  */
 export function PersonalizationInstructionsView({
+  onStatusChange,
   service = defaultAgentService,
 }: {
+  onStatusChange?: (status: SettingsPageStatus | null) => void;
   service?: AgentService;
 }) {
   const { t } = useTranslation();
@@ -35,6 +39,21 @@ export function PersonalizationInstructionsView({
     queryFn: () => service.listPersonalizationPolicies(),
   });
   const inherited = layersBelow(scope, policiesQuery.data ?? []);
+
+  // Task 12.16: cross-scope totals (`useInstructionDrafts`' own `dirtyCount`/`hasError`), not just
+  // the layer on screen right now -- this view only exists while the user is on the
+  // "instructions" sub-view (`personalization-page.tsx`'s view switch unmounts it otherwise), so
+  // its reported status only covers that window. A known, accepted limitation, not a bug: lifting
+  // the drafts hook above the view switch to cover the other sub-views is a larger separate change.
+  useEffect(() => {
+    onStatusChange?.(pickPageStatus([
+      drafts.hasError ? { kind: "error", labelKey: "personalization.status.error" } : null,
+      drafts.dirtyCount > 0
+        ? { kind: "unsaved", labelKey: "personalization.status.unsaved", labelParams: { count: drafts.dirtyCount } }
+        : null,
+    ]));
+    return () => onStatusChange?.(null);
+  }, [drafts.dirtyCount, drafts.hasError, onStatusChange]);
 
   return (
     <div className="grid gap-5">

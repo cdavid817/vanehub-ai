@@ -1,5 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { aboutCurrentVersion } from "../services/about-service";
+import { SettingsPageStatusDot } from "./settings-page-status-dot";
+import type { SettingsPageStatus } from "./settings-page-types";
 import {
   settingsPageGroupOrder,
   settingsPages,
@@ -10,6 +12,7 @@ import {
 interface SettingsSidebarProps {
   activePageId: SettingsPageId;
   onSelectPage: (pageId: SettingsPageId) => void;
+  pageStatuses?: Partial<Record<SettingsPageId, SettingsPageStatus>>;
 }
 
 const groupLabelKeys: Record<SettingsPageGroup, string> = {
@@ -20,7 +23,7 @@ const groupLabelKeys: Record<SettingsPageGroup, string> = {
   diagnostics: "settings.group.diagnostics",
 };
 
-export function SettingsSidebar({ activePageId, onSelectPage }: SettingsSidebarProps) {
+export function SettingsSidebar({ activePageId, onSelectPage, pageStatuses = {} }: SettingsSidebarProps) {
   const { t } = useTranslation();
 
   return (
@@ -45,6 +48,7 @@ export function SettingsSidebar({ activePageId, onSelectPage }: SettingsSidebarP
               {pages.map((page) => {
                 const Icon = page.icon;
                 const active = page.id === activePageId;
+                const status = pageStatuses[page.id];
                 return (
                   <button
                     className={`relative flex min-h-10 min-w-0 items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors ${
@@ -59,6 +63,7 @@ export function SettingsSidebar({ activePageId, onSelectPage }: SettingsSidebarP
                       <Icon className="h-3.5 w-3.5" aria-hidden="true" />
                     </span>
                     <span className="min-w-0 flex-1 truncate" title={t(page.labelKey)}>{t(page.labelKey)}</span>
+                    {status ? <SettingsPageStatusDot status={status} /> : null}
                     {page.badge ? (
                       <span className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-[hsl(var(--nav-active-soft))] px-1.5 text-xs text-primary">
                         {page.badge}

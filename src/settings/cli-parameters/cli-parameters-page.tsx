@@ -11,7 +11,7 @@ import type { ManagedCliAgentId } from "../../types/agent";
 import type { CliLaunchScope } from "../../types/cli-parameter";
 import type { CliParameterProfile } from "../../types/cli-parameter-profile";
 import { DraftActionBar } from "../../ui/forms/DraftActionBar";
-import type { SettingsDraftGuard } from "../settings-page-types";
+import type { SettingsDraftGuard, SettingsPageStatus } from "../settings-page-types";
 import type { SettingsPageId } from "../settings-pages";
 import { PageHeader } from "../pages/page-parts";
 import { CliParameterFieldGroups } from "./cli-parameter-field-groups";
@@ -20,21 +20,20 @@ import { CliParameterRail } from "./cli-parameter-rail";
 import { CliParameterToolbar } from "./cli-parameter-toolbar";
 import { useCliParameterDrafts } from "./use-cli-parameter-drafts";
 import { useCliParameterPreview } from "./use-cli-parameter-preview";
-import {
-  asCliParameterServiceError,
-  cliParameterErrorMessageKey,
-  type CliParameterFilter,
-} from "./view-model";
+import { useCliParametersPageStatus } from "./use-cli-parameters-page-status";
+import { asCliParameterServiceError, cliParameterErrorMessageKey, type CliParameterFilter } from "./view-model";
 
 const profilesQueryKey = ["cli-parameter-profiles"] as const;
 const emptyProfiles: CliParameterProfile[] = [];
 
 export function CliParametersPage({
   onDraftStateChange,
+  onStatusChange,
   searchTerm,
   onNavigate,
 }: {
   onDraftStateChange?: (guard: SettingsDraftGuard | null) => void;
+  onStatusChange?: (status: SettingsPageStatus | null) => void;
   searchTerm: string;
   onNavigate?: (pageId: SettingsPageId) => void;
 }) {
@@ -135,6 +134,8 @@ export function CliParametersPage({
     : error
       ? t("cliParameters.error.requestFailed", { message: String(error) })
       : null;
+
+  useCliParametersPageStatus({ errorMessage, onStatusChange, totalDirtyCount: drafts.totalDirtyCount });
 
   async function selectAgent(next: ManagedCliAgentId) {
     // Drafts survive the switch, so the guard exists to warn, not to block.

@@ -1,6 +1,6 @@
 import { CheckCircle2, ExternalLink, GitFork, Plug, RefreshCw, Search, ShieldAlert } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
@@ -12,6 +12,8 @@ import type {
   PluginIntegrationStatus,
   PluginIntegrationTestResult,
 } from "../../types/plugin-integration";
+import { pickPageStatus } from "../settings-page-status";
+import type { SettingsPageStatus } from "../settings-page-types";
 import { PageHeader, SectionPanel, StatCard } from "./page-parts";
 
 const overviewKey = ["plugin-integrations", "overview"] as const;
@@ -53,9 +55,11 @@ export function filterPluginIntegrations(
 }
 
 export function PluginIntegrationsPage({
+  onStatusChange,
   searchTerm,
   service = pluginIntegrationService,
 }: {
+  onStatusChange?: (status: SettingsPageStatus | null) => void;
   searchTerm: string;
   service?: PluginIntegrationService;
 }) {
@@ -87,6 +91,20 @@ export function PluginIntegrationsPage({
   const configuredCount = states.filter((state) => state.configured).length;
   const attentionCount = states.filter((state) => state.status !== "configured").length;
   const nativeChecksAvailable = overview?.environment.nativeChecksAvailable === true;
+
+  // Task 12.16: the same conditions the banner and error box above already render from,
+  // reported so this page's own nav entry can flag them while the user looks at another page.
+  useEffect(() => {
+    onStatusChange?.(pickPageStatus([
+      // "plugins.status.error" already names a per-integration status label -- this is the
+      // different, page-level condition, so it uses its own "pageStatus" namespace instead of colliding.
+      error ? { kind: "error", labelKey: "plugins.pageStatus.error" } : null,
+      overview && !nativeChecksAvailable
+        ? { kind: "dependency-unavailable", labelKey: "plugins.status.nativeUnavailable" }
+        : null,
+    ]));
+    return () => onStatusChange?.(null);
+  }, [error, nativeChecksAvailable, onStatusChange, overview]);
 
   async function refresh() {
     setError(null);

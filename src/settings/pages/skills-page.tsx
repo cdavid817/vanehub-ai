@@ -8,6 +8,7 @@ import { useMediaQuery } from "../../hooks/use-media-query";
 import { agentService } from "../../services/runtime-agent-client";
 import type { SkillCompatibleAgent, SkillOverview, SkillScopeInput } from "../../types/skill";
 import type { SkillOverlayTargetInput } from "../../types/skill-overlay";
+import type { SettingsPageStatus } from "../settings-page-types";
 import { PageHeader, SettingsDisclosure } from "./page-parts";
 import { SkillAgentMountPathsPanel } from "./skills/skill-agent-mount-paths-panel";
 import { SkillAgentNavigation } from "./skills/skill-agent-navigation";
@@ -22,7 +23,7 @@ import { useSkillManagement } from "./skills/use-skill-management";
 const globalScope: SkillScopeInput = { scope: "global", workspacePath: null };
 const defaultFilters: SkillInventoryFilters = { category: "all", query: "", source: "all", status: "all", sort: "name" };
 
-export function SkillsPage({ searchTerm }: { searchTerm: string }) {
+export function SkillsPage({ onStatusChange, searchTerm }: { onStatusChange?: (status: SettingsPageStatus | null) => void; searchTerm: string }) {
   const { t } = useTranslation();
   const manager = useSkillManagement(globalScope);
   const [view, setView] = useState<SkillInventoryView>({ kind: "all" });
@@ -68,6 +69,14 @@ export function SkillsPage({ searchTerm }: { searchTerm: string }) {
   const mountError = activeAgent && mountMutation.variables?.agentId === activeAgent.id ? mountMutation.error?.message ?? null : null;
   const filtered = Boolean(effectiveFilters.query || filters.category !== "all" || filters.source !== "all" || filters.status !== "all");
   const editError = manager.editReloadMutation.error?.message ?? manager.updateMutation.error?.message ?? null;
+
+  // Task 12.16: four already-rendered error surfaces above, combined as one boolean -- all the
+  // same "error" kind, so which one fired doesn't change what the nav entry shows.
+  useEffect(() => {
+    const hasError = Boolean(manager.overviewQuery.isError || manager.rowOperationError || mountError || manager.dialogOperationError);
+    onStatusChange?.(hasError ? { kind: "error", labelKey: "skills.status.error" } : null);
+    return () => onStatusChange?.(null);
+  }, [manager.dialogOperationError, manager.overviewQuery.isError, manager.rowOperationError, mountError, onStatusChange]);
 
   return <div className="space-y-4">
     <PageHeader actions={<><Button onClick={() => manager.setDialog({ mode: "restore", skill: null, preview: null })} variant="outline"><RotateCcw />{t("skills.restoreBuiltIn")}</Button><Button onClick={() => manager.setDialog({ mode: "import", skill: null, preview: null })} variant="outline"><Upload />{t("skills.importSkill")}</Button><Button onClick={() => manager.setDialog({ mode: "create", skill: null, preview: null })}><Plus />{t("skills.createSkill")}</Button></>} description={t("skills.descriptionGlobal")} icon={Puzzle} title={t("skills.title")} />

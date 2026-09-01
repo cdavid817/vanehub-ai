@@ -7,6 +7,8 @@ import { Button } from "../../components/ui/button";
 import { useConfirmation } from "../../components/ui/use-confirmation";
 import { normalizeDisplayPath } from "../../lib/session-path";
 import { useSettings } from "../settings-provider";
+import { pickPageStatus } from "../settings-page-status";
+import type { SettingsPageStatus } from "../settings-page-types";
 import { ucdThemes } from "../../theme/theme-registry";
 import { appFontSizes, type AppFontSize } from "../../types/settings";
 import type { AppSettingKey, AppSettings } from "../../types/settings";
@@ -85,13 +87,24 @@ function NodeEnvironmentPanel({
   );
 }
 
-export function BasicSettingsPage() {
+export function BasicSettingsPage({ onStatusChange }: { onStatusChange?: (status: SettingsPageStatus | null) => void }) {
   const { t } = useTranslation();
   const { confirm, confirmationDialog } = useConfirmation();
   const { error, errorKey, loading, nodeInfo, reportClientLogEvent, resetSettings, saveSetting, savingKey, settings } = useSettings();
   const [defaultFolderDraft, setDefaultFolderDraft] = useState(settings.defaultFolderPath);
   const [defaultFolderError, setDefaultFolderError] = useState<string | null>(null);
   const busy = loading || savingKey !== null;
+
+  // Task 12.16: the same two conditions already rendered below (the error banner, and
+  // NodeEnvironmentPanel's own unavailable banner) -- reported so this page's nav entry can flag
+  // either one while the user is looking elsewhere.
+  useEffect(() => {
+    onStatusChange?.(pickPageStatus([
+      error ? { kind: "error", labelKey: "basic.status.error" } : null,
+      !nodeInfo?.available ? { kind: "dependency-unavailable", labelKey: "basic.status.nodeUnavailable" } : null,
+    ]));
+    return () => onStatusChange?.(null);
+  }, [error, nodeInfo?.available, onStatusChange]);
 
   /** Task 12.10: per-row pending/error, derived from the provider's own single-in-flight
    *  `savingKey`/`errorKey` rather than a page-wide busy flag or one global banner. No retry

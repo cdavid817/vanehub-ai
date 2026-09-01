@@ -1,17 +1,24 @@
 import { Copy, Pencil, Plus, Trash2, UserRound } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../../components/ui/button";
 import { useConfirmation } from "../../components/ui/use-confirmation";
 import { agentService } from "../../services/runtime-agent-client";
+import type { SettingsPageStatus } from "../settings-page-types";
 import type { ExpertRole, SaveExpertRoleInput } from "../../types/expert-role";
 import { PageHeader, SectionPanel } from "./page-parts";
 import { ExpertRoleForm } from "./expert-roles/expert-role-form";
 
 const expertRolesQueryKey = ["expert-roles"] as const;
 
-export function ExpertRolesPage({ searchTerm }: { searchTerm: string }) {
+export function ExpertRolesPage({
+  onStatusChange,
+  searchTerm,
+}: {
+  onStatusChange?: (status: SettingsPageStatus | null) => void;
+  searchTerm: string;
+}) {
   const { t } = useTranslation();
   const { confirm, confirmationDialog } = useConfirmation();
   const queryClient = useQueryClient();
@@ -45,6 +52,14 @@ export function ExpertRolesPage({ searchTerm }: { searchTerm: string }) {
     },
     onError: (reason: unknown) => setError(reason instanceof Error ? reason.message : String(reason)),
   });
+
+  // Task 12.16: the same persistent error state the page's own <p> already renders from (set by
+  // either mutation's onError, cleared only by a later success) -- reported so this page's own
+  // nav entry can flag it too.
+  useEffect(() => {
+    onStatusChange?.(error ? { kind: "error", labelKey: "expertRoles.status.error" } : null);
+    return () => onStatusChange?.(null);
+  }, [error, onStatusChange]);
 
   const roles = useMemo(() => {
     const all = rolesQuery.data ?? [];

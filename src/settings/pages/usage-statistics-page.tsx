@@ -1,9 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { BarChart3 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { agentService } from "../../services/runtime-agent-client";
 import type { UsageStatisticsRange } from "../../types/chat";
+import type { SettingsPageStatus } from "../settings-page-types";
 import { PageHeader } from "./page-parts";
 import { UsageAccountingNote } from "./usage/usage-accounting-note";
 import { UsageBreakdowns } from "./usage/usage-breakdowns";
@@ -14,7 +15,13 @@ import { preserveUsageData, usageRefetchInterval } from "./usage/usage-query";
 import { UsageEmptyState, UsageLoadError } from "./usage/usage-status";
 import { breakdownKeys, usageRangeQuery } from "./usage/usage-presentation";
 
-export function UsageStatisticsPage({ isActive = true }: { isActive?: boolean }) {
+export function UsageStatisticsPage({
+  isActive = true,
+  onStatusChange,
+}: {
+  isActive?: boolean;
+  onStatusChange?: (status: SettingsPageStatus | null) => void;
+}) {
   const { i18n, t } = useTranslation();
   const [range, setRange] = useState<UsageStatisticsRange>("last30Days");
   const [filters, setFilters] = useState<UsageFilterState>({});
@@ -31,6 +38,13 @@ export function UsageStatisticsPage({ isActive = true }: { isActive?: boolean })
     refetchInterval: usageRefetchInterval(isActive),
   });
   const stats = usageQuery.data;
+
+  // Task 12.16: the same condition the banner below already renders from (`UsageLoadError`),
+  // reported so this page's nav entry can flag it while the user is looking at a different page.
+  useEffect(() => {
+    onStatusChange?.(usageQuery.isError ? { kind: "error", labelKey: "usage.status.error" } : null);
+    return () => onStatusChange?.(null);
+  }, [onStatusChange, usageQuery.isError]);
 
   return (
     <div className="space-y-4">

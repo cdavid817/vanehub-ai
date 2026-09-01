@@ -11,6 +11,8 @@ import {
 } from "../../services/about-service";
 import { agentService } from "../../services/runtime-agent-client";
 import type { DesktopUpdateSnapshot, UpdatePreferences } from "../../types/desktop-update";
+import { pickPageStatus } from "../settings-page-status";
+import type { SettingsPageStatus } from "../settings-page-types";
 import { PageHeader, SectionPanel } from "./page-parts";
 
 const changelogKeys = ["about.changelog.item1", "about.changelog.item2", "about.changelog.item3"];
@@ -31,7 +33,7 @@ function formatCheckedAt(value: string, language: string) {
   }).format(new Date(value));
 }
 
-export function AboutPage() {
+export function AboutPage({ onStatusChange }: { onStatusChange?: (status: SettingsPageStatus | null) => void }) {
   const { i18n, t } = useTranslation();
   const [checking, setChecking] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<DesktopUpdateSnapshot | null>(null);
@@ -88,6 +90,27 @@ export function AboutPage() {
         : updateInfo
       ? t("about.update.current", { version: updateInfo.currentVersion })
       : t("about.update.notChecked");
+
+  // Task 12.16: the same desktop-update phases the banner above already renders from, combined
+  // via the shared priority order (error > restart-required > update-available) so a failed
+  // recheck takes over from an earlier successful one that had already found something ready to
+  // install or restart for.
+  useEffect(() => {
+    onStatusChange?.(pickPageStatus([
+      updateError || updateInfo?.phase === "failed"
+        ? { kind: "error", labelKey: "about.status.error" }
+        : null,
+      // Reuses this page's own already-rendered copy for these two (`about.update.readyRestart`,
+      // `about.update.available`) rather than duplicating it under a new key.
+      updateInfo?.phase === "ready-to-restart"
+        ? { kind: "restart-required", labelKey: "about.update.readyRestart" }
+        : null,
+      updateInfo?.phase === "available"
+        ? { kind: "update-available", labelKey: "about.update.available", labelParams: { version: updateInfo.latestVersion ?? "" } }
+        : null,
+    ]));
+    return () => onStatusChange?.(null);
+  }, [onStatusChange, updateError, updateInfo?.error, updateInfo?.latestVersion, updateInfo?.phase]);
 
   return (
     <div className="space-y-4">

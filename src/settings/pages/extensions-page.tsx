@@ -16,6 +16,8 @@ import type {
   ExtensionInstallPreview,
 } from "../../types/extension";
 import type { OperationTask } from "../../types/operation";
+import { pickPageStatus } from "../settings-page-status";
+import type { SettingsPageStatus } from "../settings-page-types";
 import { PageHeader, SectionPanel, StatCard, StatusPill, TagList } from "./page-parts";
 
 const overviewKey = ["extensions", "overview"] as const;
@@ -61,9 +63,11 @@ export function filterExtensionDefinitions(
 }
 
 export function ExtensionsPage({
+  onStatusChange,
   searchTerm,
   service = extensionService,
 }: {
+  onStatusChange?: (status: SettingsPageStatus | null) => void;
   searchTerm: string;
   service?: ExtensionService;
 }) {
@@ -113,6 +117,22 @@ export function ExtensionsPage({
   const installed = overview?.statuses.filter((status) => status.installed).length ?? 0;
   const running = overview?.statuses.filter((status) => status.running).length ?? 0;
   const errors = overview?.statuses.filter((status) => status.status === "error").length ?? 0;
+  const nativeOperationsAvailable = overview?.environment.nativeOperationsAvailable;
+
+  // Task 12.16: the same conditions already rendered on screen -- the native-availability banner
+  // and the error stat card -- reported so this page's own nav entry can flag them while the user
+  // is looking at a different page.
+  useEffect(() => {
+    onStatusChange?.(pickPageStatus([
+      // "extensions.status.error" already names a per-framework status label -- this is the
+      // different, page-level condition, so it uses its own "pageStatus" namespace instead of colliding.
+      error || errors > 0 ? { kind: "error", labelKey: "extensions.pageStatus.error" } : null,
+      nativeOperationsAvailable === false
+        ? { kind: "dependency-unavailable", labelKey: "extensions.status.nativeUnavailable" }
+        : null,
+    ]));
+    return () => onStatusChange?.(null);
+  }, [error, errors, nativeOperationsAvailable, onStatusChange]);
 
   async function openPreview(frameworkId: ExtensionFrameworkId) {
     setError(null);

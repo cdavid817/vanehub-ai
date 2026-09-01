@@ -58,6 +58,16 @@ export interface SettingsPageContext {
    * non-null value.
    */
   onDraftStateChange?: (guard: SettingsDraftGuard | null) => void;
+  /**
+   * Reports (or clears, with `null`) the page's own current status for its nav entry's bounded
+   * semantic indicator (task 12.16, spec.md "Show page status"). Unlike `onDraftStateChange`,
+   * this is offered to every currently *rendered* page, not only the active one, so a
+   * backgrounded `draft-only` page (task 12.17) can keep flagging itself while the user looks at
+   * something else; a `never` page simply has nothing left to report once it unmounts, same as
+   * everything else about it. A page with more than one true condition at once should combine
+   * them with `pickPageStatus` (`settings-page-status.ts`) rather than invent its own priority.
+   */
+  onStatusChange?: (status: SettingsPageStatus | null) => void;
 }
 
 export interface SettingsDraftGuard {
@@ -69,6 +79,22 @@ export interface SettingsDraftGuard {
   canSave: boolean;
   save: () => Promise<void> | void;
   discard: () => void;
+}
+
+/** design.md "Show page status": the five conditions a nav entry MAY flag, one at a time. */
+export type SettingsPageStatusKind =
+  | "error"
+  | "dependency-unavailable"
+  | "unsaved"
+  | "restart-required"
+  | "update-available";
+
+export interface SettingsPageStatus {
+  kind: SettingsPageStatusKind;
+  /** Localized text for the indicator's accessible description -- never the raw condition name,
+   *  and never a value from the page's own data (a status is a shape, not a secret). */
+  labelKey: string;
+  labelParams?: Record<string, string | number>;
 }
 
 export interface SettingsNavigationTarget {

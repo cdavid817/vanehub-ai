@@ -5,10 +5,10 @@ import { useTranslation } from "react-i18next";
 import { orderByAgentPriority } from "../../../lib/agent-display-order";
 import { agentService } from "../../../services/runtime-agent-client";
 import { settingsService } from "../../../services/runtime-settings-client";
-import { readCliRejection, type CliRejection } from "../../../types/cli-environment";
-import type { CliBulkItemResult } from "../../../types/cli-environment";
+import { readCliRejection, type CliBulkItemResult, type CliRejection } from "../../../types/cli-environment";
 import type { CliEnvironmentSnapshot } from "../../../types/cli-environment-snapshot";
 import type { OperationTask } from "../../../types/operation";
+import type { SettingsPageStatus } from "../../settings-page-types";
 import { PageHeader } from "../page-parts";
 import { CliActionPlanDialog } from "./cli-action-plan-dialog";
 import { CliBulkPlanDialog } from "./cli-bulk-plan-dialog";
@@ -24,6 +24,7 @@ import {
   recommendedSourceId,
   summaryCounts,
 } from "./cli-management-presenters";
+import { useCliManagementPageStatus } from "./use-cli-management-page-status";
 import { useCliOperationTracking } from "./use-cli-operation-tracking";
 
 const cliEnvironmentsQueryKey = ["cli-environments"] as const;
@@ -37,7 +38,7 @@ export function refreshButtonState(isPending: boolean, operation?: OperationTask
   };
 }
 
-export function CliManagementPage({ searchTerm }: { searchTerm: string }) {
+export function CliManagementPage({ onStatusChange, searchTerm }: { onStatusChange?: (status: SettingsPageStatus | null) => void; searchTerm: string }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
@@ -184,6 +185,7 @@ export function CliManagementPage({ searchTerm }: { searchTerm: string }) {
     [snapshots, effectiveSearch, stateFilter, sourceFilter, attentionOnly],
   );
   const counts = useMemo(() => summaryCounts(snapshots), [snapshots]);
+  useCliManagementPageStatus({ error: snapshotsQuery.error, onStatusChange, updateCount: counts.updates });
   const bulkEligible = useMemo(() => snapshots.filter(bulkUpgradeEligible), [snapshots]);
   const detailsSnapshot = snapshots.find((snapshot) => snapshot.agentId === detailsAgentId);
 

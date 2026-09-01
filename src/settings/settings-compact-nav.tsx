@@ -2,6 +2,8 @@ import { useState } from "react";
 import { ChevronDown, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Sheet } from "../ui/sheet/Sheet";
+import { SettingsPageStatusDot } from "./settings-page-status-dot";
+import type { SettingsPageStatus } from "./settings-page-types";
 import { getSettingsPage, settingsPageGroupOrder, settingsPages, type SettingsPageGroup, type SettingsPageId } from "./settings-pages";
 
 const groupLabelKeys: Record<SettingsPageGroup, string> = {
@@ -20,11 +22,20 @@ const groupLabelKeys: Record<SettingsPageGroup, string> = {
  * all widths and toggled via the same `max-lg:`/`lg:hidden` CSS-breakpoint convention that
  * component already uses, not a `useMediaQuery` runtime switch, to match its existing idiom.
  */
-export function SettingsCompactNav({ activePageId, onSelectPage }: { activePageId: SettingsPageId; onSelectPage: (pageId: SettingsPageId) => void }) {
+export function SettingsCompactNav({
+  activePageId,
+  onSelectPage,
+  pageStatuses = {},
+}: {
+  activePageId: SettingsPageId;
+  onSelectPage: (pageId: SettingsPageId) => void;
+  pageStatuses?: Partial<Record<SettingsPageId, SettingsPageStatus>>;
+}) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("");
   const activePage = getSettingsPage(activePageId);
+  const activePageStatus = pageStatuses[activePageId];
   const normalizedFilter = filter.trim().toLowerCase();
 
   function selectPage(pageId: SettingsPageId) {
@@ -47,6 +58,7 @@ export function SettingsCompactNav({ activePageId, onSelectPage }: { activePageI
           <activePage.icon className="h-3.5 w-3.5" aria-hidden="true" />
         </span>
         <span className="min-w-0 flex-1 truncate font-medium">{t(activePage.labelKey)}</span>
+        {activePageStatus ? <SettingsPageStatusDot status={activePageStatus} /> : null}
         <ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" />
       </button>
       {open ? (
@@ -79,6 +91,7 @@ export function SettingsCompactNav({ activePageId, onSelectPage }: { activePageI
                   {pages.map((page) => {
                     const Icon = page.icon;
                     const active = page.id === activePageId;
+                    const status = pageStatuses[page.id];
                     return (
                       <button
                         aria-current={active ? "page" : undefined}
@@ -91,6 +104,7 @@ export function SettingsCompactNav({ activePageId, onSelectPage }: { activePageI
                           <Icon className="h-3.5 w-3.5" aria-hidden="true" />
                         </span>
                         <span className="min-w-0 flex-1 truncate">{t(page.labelKey)}</span>
+                        {status ? <SettingsPageStatusDot status={status} /> : null}
                       </button>
                     );
                   })}

@@ -8,6 +8,7 @@ import { mcpService } from "../../services/runtime-mcp-client";
 import { operationService } from "../../services/runtime-operation-client";
 import type { McpScope, McpServerConfig, McpServerStatus, McpTestResult } from "../../types/mcp";
 import type { OperationTask } from "../../types/operation";
+import type { SettingsPageStatus } from "../settings-page-types";
 import { PageHeader, SectionPanel, StatCard } from "./page-parts";
 import { McpImportExportModal } from "./mcp/mcp-import-export";
 import { formatMcpFailure, mcpErrorFromUnknown } from "./mcp/mcp-presentation";
@@ -31,7 +32,7 @@ async function loadMcpServersAndStatuses() {
   };
 }
 
-export function McpPage({ searchTerm }: { searchTerm: string }) {
+export function McpPage({ onStatusChange, searchTerm }: { onStatusChange?: (status: SettingsPageStatus | null) => void; searchTerm: string }) {
   const { t } = useTranslation();
   const { confirm, confirmationDialog } = useConfirmation();
   const queryClient = useQueryClient();
@@ -108,6 +109,14 @@ export function McpPage({ searchTerm }: { searchTerm: string }) {
     ? formatMcpFailure(t, queryFailure.errorCode, queryFailure.message)
     : null;
   const visibleError = error ?? queryError;
+
+  // Task 12.16: the same visibleError banner rendered below, reported for the nav entry.
+  useEffect(() => {
+    // "mcp.status.error" already names a per-server test-result label -- this is the different,
+    // page-level condition, so it uses its own "pageStatus" namespace instead of colliding.
+    onStatusChange?.(visibleError ? { kind: "error", labelKey: "mcp.pageStatus.error" } : null);
+    return () => onStatusChange?.(null);
+  }, [onStatusChange, visibleError]);
 
   useEffect(() => {
     const operation = activeTestOperationQuery.data;

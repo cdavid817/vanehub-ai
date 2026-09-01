@@ -2,6 +2,7 @@ import { Sparkles } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSettings } from "../settings-provider";
+import type { SettingsPageStatus } from "../settings-page-types";
 import { PageHeader } from "./page-parts";
 import { PersonalizationMemoryView } from "./personalization/memory-view";
 import { PersonalizationInstructionsView } from "./personalization/instructions-view";
@@ -14,7 +15,13 @@ import {
   type PersonalizationView,
 } from "./personalization/view-tabs";
 
-export function PersonalizationPage({ onOpenSession }: { onOpenSession?: (sessionId: string) => void }) {
+export function PersonalizationPage({
+  onOpenSession,
+  onStatusChange,
+}: {
+  onOpenSession?: (sessionId: string) => void;
+  onStatusChange?: (status: SettingsPageStatus | null) => void;
+}) {
   const { t } = useTranslation();
   const { error } = useSettings();
   const [view, setView] = useState<PersonalizationView>("overview");
@@ -36,7 +43,10 @@ export function PersonalizationPage({ onOpenSession }: { onOpenSession?: (sessio
         tabIndex={0}
       >
         {view === "overview" ? <PersonalizationOverviewSection /> : null}
-        {view === "instructions" ? <PersonalizationInstructionsView /> : null}
+        {/* Task 12.16: `onStatusChange` is threaded down rather than reported from here, because
+            the dirty/error signal (`use-instruction-drafts.ts`) lives one level below the view
+            switch -- see that view's own comment for the resulting, accepted limitation. */}
+        {view === "instructions" ? <PersonalizationInstructionsView onStatusChange={onStatusChange} /> : null}
         {view === "memory" ? <PersonalizationMemoryView onOpenSession={onOpenSession} /> : null}
         {view === "runtimePreview" ? <RuntimePreviewSection /> : null}
       </div>

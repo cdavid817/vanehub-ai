@@ -7,6 +7,7 @@ import { Button } from "../../components/ui/button";
 import type { ExecutionObservabilityService } from "../../services/execution-observability-service";
 import { executionObservabilityService } from "../../services/runtime-execution-observability-client";
 import type { ObservabilitySettings } from "../../types/execution-observability";
+import type { SettingsPageStatus } from "../settings-page-types";
 import { PageHeader, SectionPanel } from "./page-parts";
 
 const queryKey = ["execution-observability"] as const;
@@ -42,9 +43,11 @@ export function validateObservabilitySettings(input: ObservabilitySettings) {
 }
 
 export function ObservabilitySettingsPage({
+  onStatusChange,
   searchTerm = "",
   service = executionObservabilityService,
 }: {
+  onStatusChange?: (status: SettingsPageStatus | null) => void;
   searchTerm?: string;
   service?: ExecutionObservabilityService;
 }) {
@@ -63,6 +66,13 @@ export function ObservabilitySettingsPage({
   useEffect(() => {
     if (settingsQuery.data) setDraft(supportedDraft(settingsQuery.data));
   }, [settingsQuery.data]);
+
+  // Task 12.16: the same condition the banner above already renders from, reported to the shell
+  // so this page's own nav entry can flag it while the user is looking at a different page.
+  useEffect(() => {
+    onStatusChange?.(restartPending ? { kind: "restart-required", labelKey: "observability.restartPending" } : null);
+    return () => onStatusChange?.(null);
+  }, [onStatusChange, restartPending]);
 
   const mutation = useMutation({
     mutationFn: (settings: ObservabilitySettings) => service.updateSettings(settings),

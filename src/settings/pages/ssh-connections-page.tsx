@@ -1,6 +1,6 @@
 import { KeyRound, Plus, RefreshCw, Server, Wifi } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useConfirmation } from "../../components/ui/use-confirmation";
 import { Button } from "../../components/ui/button";
@@ -9,6 +9,7 @@ import type {
   SaveSshConnectionInput,
   SshConnection,
 } from "../../types/ssh-connection";
+import type { SettingsPageStatus } from "../settings-page-types";
 import { PageHeader, SectionPanel, StatCard } from "./page-parts";
 import { SshConnectionCard } from "./ssh/ssh-connection-card";
 import { SshConnectionForm } from "./ssh/ssh-connection-form";
@@ -18,7 +19,13 @@ import {
   sshConnectionsQueryKey,
 } from "./ssh/ssh-connection-query";
 
-export function SshConnectionsPage({ searchTerm }: { searchTerm: string }) {
+export function SshConnectionsPage({
+  onStatusChange,
+  searchTerm,
+}: {
+  onStatusChange?: (status: SettingsPageStatus | null) => void;
+  searchTerm: string;
+}) {
   const { t } = useTranslation();
   const { confirm, confirmationDialog } = useConfirmation();
   const queryClient = useQueryClient();
@@ -86,6 +93,14 @@ export function SshConnectionsPage({ searchTerm }: { searchTerm: string }) {
     (connectionsQuery.error instanceof Error
       ? connectionsQuery.error.message
       : null);
+
+  // Task 12.16: the same condition already rendered below, reported so this page's own nav
+  // entry can flag it while the user looks at another page. Single condition, so no
+  // pickPageStatus combination is needed.
+  useEffect(() => {
+    onStatusChange?.(visibleError ? { kind: "error", labelKey: "sshConnections.status.error" } : null);
+    return () => onStatusChange?.(null);
+  }, [onStatusChange, visibleError]);
 
   async function save(input: SaveSshConnectionInput) {
     setError(null);

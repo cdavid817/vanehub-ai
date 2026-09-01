@@ -1,9 +1,11 @@
 import { AudioLines } from "lucide-react";
+import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "../../components/ui/button";
 import { localMediaMessageKey } from "../../session-workspace/local-media/local-media-errors";
 import type { LocalMediaEngine } from "../../types/local-media";
+import { pickPageStatus } from "../settings-page-status";
 import { compatibilityMessageKey } from "./local-media/compatibility-notice";
 import { OcrCard } from "./local-media/ocr-card";
 import { PythonEnvironmentPanel } from "./local-media/python-environment-panel";
@@ -22,10 +24,25 @@ import type { SettingsPageContext } from "../settings-pages";
  * is no download button, no "get models" link, and no automatic retry that would reach the
  * network -- an engine that is not present stays not present, and the page says so.
  */
-export function LocalMediaPage({ isActive }: SettingsPageContext) {
+export function LocalMediaPage({ isActive, onStatusChange }: SettingsPageContext) {
   const { t } = useTranslation();
   const model = useLocalMediaSettings(isActive);
   const { draft, status } = model;
+
+  // Task 12.16: the same conditions the page's own banners already render from -- reported so
+  // this `draft-only` page (task 12.17) keeps flagging itself while backgrounded, not only while
+  // it is the active page.
+  useEffect(() => {
+    const notAvailable = !model.nativeAvailable && !model.loading;
+    onStatusChange?.(pickPageStatus([
+      model.loadError || model.saveState.kind === "failed"
+        ? { kind: "error", labelKey: "localMedia.settings.statusError" }
+        : null,
+      notAvailable ? { kind: "dependency-unavailable", labelKey: "localMedia.settings.nativeOnly" } : null,
+      model.dirty ? { kind: "unsaved", labelKey: "localMedia.settings.unsaved" } : null,
+    ]));
+    return () => onStatusChange?.(null);
+  }, [model.dirty, model.loadError, model.loading, model.nativeAvailable, model.saveState.kind, onStatusChange]);
 
   const statusFor = (engine: LocalMediaEngine) =>
     status?.engines.find((entry) => entry.engine === engine);

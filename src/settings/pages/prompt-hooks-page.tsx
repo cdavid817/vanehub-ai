@@ -8,6 +8,7 @@ import type { AgentService } from "../../services/agent-service";
 import { agentService } from "../../services/runtime-agent-client";
 import { managedCliAgentIds, type AgentRegistryEntry, type ManagedCliAgentId } from "../../types/agent";
 import type { PromptHook, PromptHookCategory, PromptHookMutationInput } from "../../types/prompt-hook";
+import type { SettingsPageStatus } from "../settings-page-types";
 import { PageHeader } from "./page-parts";
 import { PromptHookCardList } from "./prompt-hooks/prompt-hook-card-list";
 import { PromptHookDetailPanel } from "./prompt-hooks/prompt-hook-detail-panel";
@@ -27,7 +28,15 @@ type ManagedAgent = AgentRegistryEntry & { id: ManagedCliAgentId };
 type PromptHookView = "management" | "runtime";
 const emptyHooks: PromptHook[] = [];
 
-export function PromptHooksPage({ searchTerm, service = agentService }: { searchTerm: string; service?: AgentService }) {
+export function PromptHooksPage({
+  onStatusChange,
+  searchTerm,
+  service = agentService,
+}: {
+  onStatusChange?: (status: SettingsPageStatus | null) => void;
+  searchTerm: string;
+  service?: AgentService;
+}) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [view, setView] = useState<PromptHookView>("management");
@@ -99,6 +108,15 @@ export function PromptHooksPage({ searchTerm, service = agentService }: { search
     mutationFn: () => service.previewPromptAssembly({ agentId: firstAgentId(agentsQuery.data), sampleInput: t("promptHooks.preview.sample") }),
     onSuccess: (preview) => { setDialog({ mode: null, hook: null, preview }); void invalidate(); },
   });
+
+  // Task 12.16: the same two persistent error sources the page's own banners already render from
+  // (the runtime trace banner and the create/delete dialog's mutation error, neither auto-clearing)
+  // -- reported so this page's own nav entry can flag it too.
+  useEffect(() => {
+    const hasError = tracesQuery.isError || Boolean(errorMessage(createMutation.error ?? deleteMutation.error));
+    onStatusChange?.(hasError ? { kind: "error", labelKey: "promptHooks.status.error" } : null);
+    return () => onStatusChange?.(null);
+  }, [createMutation.error, deleteMutation.error, onStatusChange, tracesQuery.isError]);
 
   function toggleAgentBinding(hook: PromptHook, agentId: ManagedCliAgentId, checked: boolean) {
     const agentIds = checked
