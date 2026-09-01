@@ -51,6 +51,10 @@ beforeAll(async () => {
 // tops out around 140), so proving this claim needs a synthetic single-session array built here,
 // not that shared fixture.
 describe("MessageList virtualization threshold", () => {
+  // Explicit timeouts, not the 15s default: rendering ~300 real MessageItem trees (each parsing
+  // Markdown) comfortably finishes in isolation but has been observed to cross 15s under full
+  // test-suite contention -- a load artifact, not a correctness issue (confirmed by re-running
+  // this exact file alone, green, after it timed out once as part of the full chat/ suite).
   it("stays on the plain, non-virtualized path one message short of the threshold", () => {
     const messages = Array.from({ length: MESSAGE_LIST_VIRTUALIZE_THRESHOLD - 1 }, (_, index) => message(String(index)));
     renderWithAppProviders(
@@ -60,7 +64,7 @@ describe("MessageList virtualization threshold", () => {
     // The (mocked) virtualized list would also render every item, so length alone would not tell
     // the two paths apart -- the readable-measure grid only exists on the non-virtualized path.
     expect(screen.getByTestId("message-readable-measure")).toBeTruthy();
-  });
+  }, 30_000);
 
   it("switches to the virtualized path at exactly the threshold", () => {
     const messages = Array.from({ length: MESSAGE_LIST_VIRTUALIZE_THRESHOLD }, (_, index) => message(String(index)));
@@ -69,7 +73,7 @@ describe("MessageList virtualization threshold", () => {
     );
     expect(screen.queryByTestId("message-readable-measure")).toBeNull();
     expect(screen.getAllByTestId("message-bubble")).toHaveLength(messages.length);
-  });
+  }, 30_000);
 
   it("covers the 5,000-message fixture with wide margin, not just barely", () => {
     // Deliberately not a 5,000-item render: the routing decision above is a single scale-blind
