@@ -25,6 +25,7 @@ function baseProps(overrides: Partial<SessionRuntimePanelContentProps> = {}): Se
   return {
     activeSession: null,
     badges: {},
+    departedSeats: [],
     maximized: false,
     messages: [],
     messagesPartial: false,

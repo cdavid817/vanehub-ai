@@ -8,7 +8,7 @@ import type { TurnStatus } from "../components/chat/TurnStatusBar";
 import type { ChatMessage } from "../types/chat";
 import type { ExpertRole } from "../types/expert-role";
 import { effectiveSeatId, showsSeatSwitcher, tabScope } from "./tab-scope";
-import { SeatSwitcher } from "./seat-switcher";
+import { SeatAvatarGroup } from "./seat-avatar-group";
 import type { SessionRuntimeSurfaceId } from "./session-surface-registry";
 import { evidenceTabOf } from "./workspace-evidence-reducer";
 import { useWorkspaceEvidenceScope } from "./workspace-evidence-scope";
@@ -31,6 +31,9 @@ const RUNTIME_TAB_ICONS: Record<SessionRuntimeSurfaceId, LucideIcon> = {
 export interface SessionRuntimePanelContentProps {
   activeSession: Session | null;
   badges: Partial<Record<SessionRuntimeSurfaceId, WorkspaceTabBadge>>;
+  /** Seats that already left this session — see `SeatAvatarGroup`'s own contract for why these
+   *  stay visible in the switcher instead of disappearing with the rest of the filtered set. */
+  departedSeats: SessionSeat[];
   maximized: boolean;
   messages: ChatMessage[];
   messagesPartial: boolean;
@@ -51,25 +54,36 @@ export interface SessionRuntimePanelContentProps {
  */
 function RuntimeSurfaceShell({
   children,
+  departedSeats,
   id,
   onSelectSeat,
   roles,
   seats,
   selectedSeat,
+  turnStatus,
 }: {
   children: ReactNode;
+  departedSeats: SessionSeat[];
   id: SessionRuntimeSurfaceId;
   onSelectSeat: (index: number | null) => void;
   roles: ExpertRole[];
   seats: SessionSeat[];
   selectedSeat: number | null;
+  turnStatus: TurnStatus | null;
 }) {
   const { t } = useTranslation();
   const destination = evidenceTabOf(id);
   return (
     <div className="flex h-full min-h-0 flex-col">
       {showsSeatSwitcher(id, seats.length) ? (
-        <SeatSwitcher onSelect={onSelectSeat} roles={roles} seats={seats} selectedIndex={selectedSeat} />
+        <SeatAvatarGroup
+          departedSeats={departedSeats}
+          onSelect={onSelectSeat}
+          roles={roles}
+          seats={seats}
+          selectedIndex={selectedSeat}
+          turnStatus={turnStatus}
+        />
       ) : null}
       {seats.length > 1 && tabScope(id) === "session" ? (
         // Without this the absent switcher reads as an omission rather than as a statement that
@@ -113,6 +127,7 @@ export function useSessionRuntimeTabs(props: SessionRuntimePanelContentProps): R
   const {
     activeSession,
     badges,
+    departedSeats,
     messages,
     messagesPartial,
     onSelectSeat,
@@ -121,6 +136,7 @@ export function useSessionRuntimeTabs(props: SessionRuntimePanelContentProps): R
     seats,
     selectedSeat,
     sessionId,
+    turnStatus,
   } = props;
 
   function runtimeTab(id: SessionRuntimeSurfaceId, content: ReactNode): RuntimePanelTab {
@@ -131,7 +147,15 @@ export function useSessionRuntimeTabs(props: SessionRuntimePanelContentProps): R
       id,
       label: t(`sessionTabs.tab.${id}`),
       render: () => (
-        <RuntimeSurfaceShell id={id} onSelectSeat={onSelectSeat} roles={roles} seats={seats} selectedSeat={selectedSeat}>
+        <RuntimeSurfaceShell
+          departedSeats={departedSeats}
+          id={id}
+          onSelectSeat={onSelectSeat}
+          roles={roles}
+          seats={seats}
+          selectedSeat={selectedSeat}
+          turnStatus={turnStatus}
+        >
           {content}
         </RuntimeSurfaceShell>
       ),

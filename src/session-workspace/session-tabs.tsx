@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { evidenceSessionIdSchema } from "../contracts/session-workspace-evidence-ids";
 import { useSessionRoles } from "../hooks/use-session-speakers";
-import { activeSeatsFromSession } from "../services/session-seats";
+import { activeSeatsFromSession, seatsFromSession } from "../services/session-seats";
 import type { SessionRuntimeSurfaceId } from "./session-surface-registry";
 import { SessionPrimarySurfaces } from "./session-primary-surfaces";
 // Chrome stays eager, matching the primary tab strip's own pattern (`SessionTabBar` is never
@@ -49,6 +49,14 @@ export function useSessionWorkspaceRegions(props: SessionWorkspaceRegionsProps):
     () => (props.activeSession ? activeSeatsFromSession(props.activeSession) : []),
     [props.activeSession],
   );
+  // Kept separate from `seats` rather than folding departed participants into it: `seats` also
+  // scopes Shell attachment and evidence filtering (`seatIds` below), and neither should offer a
+  // departed participant as a live target. The seat switcher alone renders this list, marked, so a
+  // reader can still find a departed participant's history without those other consumers changing.
+  const departedSeats = useMemo(
+    () => (props.activeSession ? seatsFromSession(props.activeSession).filter((seat) => seat.leftAt != null) : []),
+    [props.activeSession],
+  );
   const seatIds = useMemo(
     () => seats.flatMap((seat) => (seat.seatId === undefined ? [] : [seat.seatId])),
     [seats],
@@ -91,6 +99,7 @@ export function useSessionWorkspaceRegions(props: SessionWorkspaceRegionsProps):
       <SessionRuntimePanel
         activeSession={props.activeSession}
         badges={badges}
+        departedSeats={departedSeats}
         maximized={props.runtimeMaximized ?? false}
         messages={props.messages}
         messagesPartial={props.messagesPartial}
