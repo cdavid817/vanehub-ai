@@ -1,41 +1,34 @@
-import { Activity, Box, CheckCircle2, Cpu, Download, Play, RefreshCw, Square, Trash2 } from "lucide-react";
+import { Activity, Box, Cpu, RefreshCw } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useConfirmation } from "../../components/ui/use-confirmation";
-import { ApplicationDialog } from "../../components/ui/application-dialog";
 import { Button } from "../../components/ui/button";
-import { normalizeDisplayPath } from "../../lib/session-path";
 import type { ExtensionService } from "../../services/extension-service";
 import { operationService } from "../../services/runtime-operation-client";
 import { extensionService } from "../../services/runtime-extension-client";
+import { AsyncBoundary } from "../../ui/async/AsyncBoundary";
+import type { AsyncViewState } from "../../ui/async/async-view-state";
+import type { MutationState } from "../../ui/async/mutation-state";
+import { PageHeader } from "../../ui/page-header/PageHeader";
 import type {
   ExtensionFrameworkDefinition,
   ExtensionFrameworkId,
   ExtensionFrameworkStatus,
   ExtensionInstallPreview,
+  ExtensionOverview,
 } from "../../types/extension";
 import type { OperationTask } from "../../types/operation";
 import { pickPageStatus } from "../settings-page-status";
 import type { SettingsPageStatus } from "../settings-page-types";
-import { PageHeader, SectionPanel, StatCard, StatusPill, TagList } from "./page-parts";
+import { ExtensionFrameworkCard } from "./extensions/extension-framework-card";
+import { ExtensionInstallPreviewDialog } from "./extensions/extension-install-preview";
+import { statusKey } from "./extensions/extension-status";
+import { SectionPanel, StatCard } from "./page-parts";
 
 const overviewKey = ["extensions", "overview"] as const;
 
-const statusTone: Record<ExtensionFrameworkStatus["status"], "success" | "warning" | "danger" | "muted"> = {
-  "not-installed": "muted",
-  installing: "warning",
-  installed: "muted",
-  starting: "warning",
-  running: "success",
-  stopping: "warning",
-  uninstalling: "warning",
-  error: "danger",
-  unsupported: "muted",
-};
-
-function statusKey(status: ExtensionFrameworkStatus["status"]) {
-  return `extensions.status.${status}`;
+function errorMessage(reason: unknown) {
+  return reason instanceof Error ? reason.message : String(reason);
 }
 
 export function filterExtensionDefinitions(
@@ -72,11 +65,10 @@ export function ExtensionsPage({
   service?: ExtensionService;
 }) {
   const { t } = useTranslation();
-  const { confirm, confirmationDialog } = useConfirmation();
   const queryClient = useQueryClient();
   const [preview, setPreview] = useState<ExtensionInstallPreview | null>(null);
   const [activeOperation, setActiveOperation] = useState<OperationTask | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const overviewQuery = useQuery({ queryKey: overviewKey, queryFn: () => service.getOverview() });
   const operationQuery = useQuery({
     queryKey: ["operation", activeOperation?.id],
@@ -90,11 +82,10 @@ export function ExtensionsPage({
     const operation = operationQuery.data;
     if (!operation) return;
     setActiveOperation(operation);
-    if (operation.status === "failed") setError(operation.error ?? t("extensions.error.operationFailed"));
     if (operation.status === "succeeded" || operation.status === "failed") {
       void queryClient.invalidateQueries({ queryKey: overviewKey });
     }
-  }, [operationQuery.data, queryClient, t]);
+  }, [operationQuery.data, queryClient]);
 
   const operationMutation = useMutation({
     mutationFn: async ({ action, frameworkId }: { action: string; frameworkId: ExtensionFrameworkId }) => {
@@ -106,7 +97,6 @@ export function ExtensionsPage({
       return service.setEnabled({ frameworkId, enabled: action === "enable" });
     },
     onSuccess: (operation) => setActiveOperation(operation),
-    onError: (reason) => setError(reason instanceof Error ? reason.message : String(reason)),
   });
 
   const overview = overviewQuery.data;
@@ -118,120 +108,160 @@ export function ExtensionsPage({
   const running = overview?.statuses.filter((status) => status.running).length ?? 0;
   const errors = overview?.statuses.filter((status) => status.status === "error").length ?? 0;
   const nativeOperationsAvailable = overview?.environment.nativeOperationsAvailable;
+  const nativeAvailable = nativeOperationsAvailable === true;
+
+  // Task 12.18: this page's own overviewQuery projected into the shared AsyncBoundary's
+  // AsyncViewState shape -- src/ui/ primitives cannot import this service's own error type
+  // (ARCH-FE-005), so the projection lives here rather than in the primitive.
+  const asyncState: AsyncViewState<ExtensionOverview> = {
+    data: overview,
+    error: overviewQuery.isError
+      ? { kind: "error", message: errorMessage(overviewQuery.error), retryable: true }
+      : undefined,
+    initialLoading: overviewQuery.isLoading,
+    refreshing: overviewQuery.isFetching && !overviewQuery.isLoading,
+    stale: overviewQuery.isStale,
+  };
 
   // Task 12.16: the same conditions already rendered on screen -- the native-availability banner
   // and the error stat card -- reported so this page's own nav entry can flag them while the user
-  // is looking at a different page.
+  // looks at a different page. `overviewQuery.isError` replaces the old page-level `error` string
+  // here: a per-action failure now surfaces through `stateFor`/`MutationStatus` on its own card
+  // (task 12.18) instead of a shared banner, and `errors` (a framework's own persisted "error"
+  // status) already eventually reflects an operation failure too, once the invalidate below
+  // refetches it.
   useEffect(() => {
     onStatusChange?.(pickPageStatus([
       // "extensions.status.error" already names a per-framework status label -- this is the
       // different, page-level condition, so it uses its own "pageStatus" namespace instead of colliding.
-      error || errors > 0 ? { kind: "error", labelKey: "extensions.pageStatus.error" } : null,
+      overviewQuery.isError || errors > 0 ? { kind: "error", labelKey: "extensions.pageStatus.error" } : null,
       nativeOperationsAvailable === false
         ? { kind: "dependency-unavailable", labelKey: "extensions.status.nativeUnavailable" }
         : null,
     ]));
     return () => onStatusChange?.(null);
-  }, [error, errors, nativeOperationsAvailable, onStatusChange]);
+  }, [overviewQuery.isError, errors, nativeOperationsAvailable, onStatusChange]);
 
   async function openPreview(frameworkId: ExtensionFrameworkId) {
-    setError(null);
+    setPreviewError(null);
     try {
       setPreview(await service.getInstallPreview({ frameworkId }));
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setPreviewError(errorMessage(reason));
     }
   }
 
   async function runAction(action: string, frameworkId: ExtensionFrameworkId) {
-    if (action === "uninstall" && !(await confirm({ title: t("extensions.confirm.uninstall"), tone: "danger" }))) return;
-    setError(null);
     await operationMutation.mutateAsync({ action, frameworkId }).catch(() => undefined);
   }
 
-  function renderCard(definition: ExtensionFrameworkDefinition) {
-    const status = overview?.statuses.find((item) => item.frameworkId === definition.id);
-    if (!status) return null;
-    const nativeAvailable = overview?.environment.nativeOperationsAvailable === true;
-    const busy = activeOperation?.relatedEntityId === definition.id &&
-      (activeOperation.status === "queued" || activeOperation.status === "running");
-    return (
-      <article className="ucd-panel ucd-interactive rounded-lg p-4" data-testid={`extension-card-${definition.id}`} key={definition.id}>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">
-              {t(`extensions.capability.${definition.capabilityId}`)}
-            </div>
-            <h3 className="mt-1 text-base font-semibold">{t(definition.nameKey)}</h3>
-            <p className="mt-1 text-sm leading-6 text-muted-foreground">{t(definition.descriptionKey)}</p>
-          </div>
-          <StatusPill status={t(statusKey(status.status))} tone={statusTone[status.status]} />
-        </div>
-        <div className="mt-3 grid gap-3 text-xs text-muted-foreground md:grid-cols-3">
-          <div><span className="block">{t("extensions.runtime")}</span><strong className="text-foreground">{definition.requirement.runtime}</strong></div>
-          <div><span className="block">{t("extensions.port")}</span><strong className="text-foreground">{status.port}</strong></div>
-          <div><span className="block">{t("extensions.disk")}</span><strong className="text-foreground">~{definition.requirement.estimatedDiskMb} MB</strong></div>
-        </div>
-        <div className="mt-3"><TagList tags={definition.requirement.packages} /></div>
-        {status.lastError ? <div className="mt-3 rounded border p-2 text-xs ucd-status-warning">{t(status.lastError)}</div> : null}
-        <div className="mt-4 flex flex-wrap gap-2">
-          <Button onClick={() => void openPreview(definition.id)} size="sm" variant="outline"><Box />{t("extensions.action.requirements")}</Button>
-          {!status.installed ? <Button disabled={!nativeAvailable || busy} onClick={() => void openPreview(definition.id)} size="sm"><Download />{t("extensions.action.install")}</Button> : null}
-          {status.installed && !status.running ? <Button disabled={!nativeAvailable || busy} onClick={() => void runAction("start", definition.id)} size="sm"><Play />{t("extensions.action.start")}</Button> : null}
-          {status.running ? <Button disabled={!nativeAvailable || busy} onClick={() => void runAction("stop", definition.id)} size="sm" variant="outline"><Square />{t("extensions.action.stop")}</Button> : null}
-          {status.installed ? <Button disabled={!nativeAvailable || busy} onClick={() => void runAction("self-test", definition.id)} size="sm" variant="outline"><CheckCircle2 />{t("extensions.action.selfTest")}</Button> : null}
-          {status.installed ? <Button disabled={!nativeAvailable || busy} onClick={() => void runAction(status.enabled ? "disable" : "enable", definition.id)} size="sm" variant="outline">{status.enabled ? t("extensions.action.disable") : t("extensions.action.enable")}</Button> : null}
-          {status.installed ? <Button disabled={!nativeAvailable || busy || status.running} onClick={() => void runAction("uninstall", definition.id)} size="sm" variant="destructive"><Trash2 />{t("extensions.action.uninstall")}</Button> : null}
-        </div>
-        {busy || activeOperation?.relatedEntityId === definition.id ? (
-          <div className="mt-3 rounded-md border border-border bg-[hsl(var(--panel-muted))] p-3 text-xs">
-            <div className="font-medium">{t("extensions.logs.title")}</div>
-            <div className="mt-2 grid gap-1 font-mono text-muted-foreground">
-              {(activeOperation?.logs ?? []).map((log) => <div key={`${log.timestamp}-${log.line}`}>{log.line}</div>)}
-            </div>
-          </div>
-        ) : null}
-      </article>
-    );
+  /** Task 12.18: projects this page's own single, shared `operationMutation` (react-query already
+   *  tracks `variables`/`isPending`/`error` for its own most recent call) plus the polled
+   *  `activeOperation` lifecycle it kicks off, into the shared `MutationState` shape, keyed to one
+   *  framework at a time -- a registry alongside these two would just be a third source of truth
+   *  for the same fact, and this page never tracks more than one operation in flight at once (a
+   *  single `activeOperation` slot is all it has ever held). */
+  function stateFor(frameworkId: ExtensionFrameworkId): MutationState | undefined {
+    if (operationMutation.variables?.frameworkId === frameworkId) {
+      if (operationMutation.isPending) return { pending: true, targetKey: frameworkId };
+      if (operationMutation.isError) {
+        return {
+          error: { kind: "error", message: errorMessage(operationMutation.error), retryable: false },
+          pending: false,
+          targetKey: frameworkId,
+        };
+      }
+    }
+    if (activeOperation?.relatedEntityId === frameworkId) {
+      if (activeOperation.status === "queued" || activeOperation.status === "running") {
+        return { operationId: activeOperation.id, pending: true, targetKey: frameworkId };
+      }
+      if (activeOperation.status === "failed") {
+        return {
+          error: {
+            kind: "error",
+            message: activeOperation.error ?? t("extensions.error.operationFailed"),
+            retryable: false,
+          },
+          operationId: activeOperation.id,
+          pending: false,
+          targetKey: frameworkId,
+        };
+      }
+    }
+    return undefined;
   }
+
+  const emptyStateSlot = { title: t("extensions.empty") };
 
   return (
     <div className="space-y-4">
-      {confirmationDialog}
-      <PageHeader actions={<Button disabled={overviewQuery.isFetching} onClick={() => void overviewQuery.refetch()} variant="outline"><RefreshCw className={overviewQuery.isFetching ? "animate-spin" : ""} />{t("extensions.refresh")}</Button>} description={t("extensions.description")} icon={Cpu} title={t("extensions.title")} />
-      {overview && !overview.environment.nativeOperationsAvailable ? <div className="rounded-md border p-3 text-sm ucd-status-warning">{t("extensions.environment.desktopOnly")}</div> : null}
-      {error ? <div className="rounded-md border p-3 text-sm ucd-status-danger">{error}</div> : null}
+      <PageHeader
+        description={t("extensions.description")}
+        icon={Cpu}
+        primaryAction={
+          <Button disabled={overviewQuery.isFetching} onClick={() => void overviewQuery.refetch()} variant="outline">
+            <RefreshCw className={overviewQuery.isFetching ? "animate-spin" : ""} />
+            {t("extensions.refresh")}
+          </Button>
+        }
+        title={t("extensions.title")}
+      />
+
+      {overview && !overview.environment.nativeOperationsAvailable ? (
+        <div className="rounded-md border p-3 text-sm ucd-status-warning">{t("extensions.environment.desktopOnly")}</div>
+      ) : null}
+      {previewError ? <div className="rounded-md border p-3 text-sm ucd-status-danger">{previewError}</div> : null}
+
       <div className="grid gap-3 md:grid-cols-3">
         <StatCard hint={t("extensions.stats.installedHint")} icon={Box} label={t("extensions.stats.installed")} value={String(installed)} />
         <StatCard hint={t("extensions.stats.runningHint")} icon={Activity} label={t("extensions.stats.running")} value={String(running)} />
         <StatCard hint={t("extensions.stats.errorsHint")} icon={Cpu} label={t("extensions.stats.errors")} value={String(errors)} />
       </div>
-      <SectionPanel description={t("extensions.list.description")} title={t("extensions.list.title")} variant="plain">
-        {overviewQuery.isLoading ? <div className="text-sm text-muted-foreground">{t("extensions.loading")}</div> : null}
-        <div className="grid gap-3">{visibleDefinitions.map(renderCard)}</div>
-        {!overviewQuery.isLoading && visibleDefinitions.length === 0 ? <div className="text-sm text-muted-foreground">{t("extensions.empty")}</div> : null}
-      </SectionPanel>
-      {preview ? <InstallPreview preview={preview} onClose={() => setPreview(null)} onInstall={() => { setPreview(null); void runAction("install", preview.frameworkId); }} nativeAvailable={overview?.environment.nativeOperationsAvailable === true} /> : null}
-    </div>
-  );
-}
 
-function InstallPreview({ preview, nativeAvailable, onClose, onInstall }: { preview: ExtensionInstallPreview; nativeAvailable: boolean; onClose: () => void; onInstall: () => void }) {
-  const { t } = useTranslation();
-  return (
-    <ApplicationDialog description={t("extensions.preview.description")} maxWidth="max-w-xl" onClose={onClose} title={t("extensions.preview.title")}>
-      <dl className="grid gap-3 text-sm md:grid-cols-2">
-        <div><dt className="text-muted-foreground">{t("extensions.preview.path")}</dt><dd className="break-all font-medium">{normalizeDisplayPath(preview.installPath)}</dd></div>
-        <div><dt className="text-muted-foreground">{t("extensions.preview.download")}</dt><dd className="font-medium">~{preview.estimatedDownloadMb} MB</dd></div>
-        <div><dt className="text-muted-foreground">{t("extensions.preview.disk")}</dt><dd className="font-medium">~{preview.estimatedDiskMb} MB</dd></div>
-        <div><dt className="text-muted-foreground">{t("extensions.preview.network")}</dt><dd className="font-medium">{t("extensions.preview.installOnly")}</dd></div>
-      </dl>
-      <div className="mt-4"><TagList tags={preview.packages} /></div>
-      {preview.reason ? <div className="mt-4 rounded border p-3 text-sm ucd-status-warning">{t(preview.reason)}</div> : null}
-      <div className="mt-5 flex justify-end gap-2">
-        <Button onClick={onClose} variant="outline">{t("extensions.action.cancel")}</Button>
-        <Button disabled={!nativeAvailable || !preview.supported} onClick={onInstall}>{t("extensions.action.confirmInstall")}</Button>
-      </div>
-    </ApplicationDialog>
+      <SectionPanel description={t("extensions.list.description")} title={t("extensions.list.title")} variant="plain">
+        <AsyncBoundary
+          emptyState={emptyStateSlot}
+          filtered={Boolean(searchTerm.trim())}
+          filteredEmptyState={emptyStateSlot}
+          isEmpty={() => visibleDefinitions.length === 0}
+          onRetry={() => void overviewQuery.refetch()}
+          state={asyncState}
+        >
+          {() => (
+            <div className="grid gap-3">
+              {visibleDefinitions.map((definition) => {
+                const status = overview?.statuses.find((item) => item.frameworkId === definition.id);
+                if (!status) return null;
+                return (
+                  <ExtensionFrameworkCard
+                    activeOperation={activeOperation?.relatedEntityId === definition.id ? activeOperation : undefined}
+                    definition={definition}
+                    key={definition.id}
+                    mutationState={stateFor(definition.id)}
+                    nativeAvailable={nativeAvailable}
+                    onOpenPreview={(frameworkId) => void openPreview(frameworkId)}
+                    onRunAction={(action, frameworkId) => void runAction(action, frameworkId)}
+                    status={status}
+                  />
+                );
+              })}
+            </div>
+          )}
+        </AsyncBoundary>
+      </SectionPanel>
+
+      {preview ? (
+        <ExtensionInstallPreviewDialog
+          nativeAvailable={nativeAvailable}
+          onClose={() => setPreview(null)}
+          onInstall={() => {
+            setPreview(null);
+            void runAction("install", preview.frameworkId);
+          }}
+          preview={preview}
+        />
+      ) : null}
+    </div>
   );
 }
