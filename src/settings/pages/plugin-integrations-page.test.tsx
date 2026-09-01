@@ -162,9 +162,12 @@ describe("PluginIntegrationsPage", () => {
 
     expect(within(card).queryByRole("button", { name: "plugins.action.docs" })).toBeNull();
     expect(within(card).queryByRole("button", { name: "plugins.action.test" })).toBeNull();
-    expect(within(card).getAllByRole("button")).toHaveLength(1);
+    // Task 12.19: the ActionMenu trigger plus one deliberately-standalone Copy Diagnostics button
+    // (matching IM/Local Media's own precedent of never hiding this action behind a menu) -- still
+    // exactly zero separate Docs/Test buttons, which is what this test actually guards.
+    expect(within(card).getAllByRole("button")).toHaveLength(2);
 
-    fireEvent.click(within(card).getByRole("button"));
+    fireEvent.click(within(card).getByRole("button", { name: "plugins.rowActions" }));
     expect(within(card).getByRole("menuitem", { name: "plugins.action.docs" })).toBeTruthy();
     expect(within(card).getByRole("menuitem", { name: "plugins.action.test" })).toBeTruthy();
   });
@@ -246,8 +249,9 @@ describe("PluginIntegrationsPage", () => {
     await waitFor(() => expect(onStatusChange).toHaveBeenLastCalledWith(null));
 
     // Task 12.18: Test now lives behind the card's single ActionMenu rather than as its own
-    // directly-clickable button -- open the menu, then activate the Test item inside it.
-    fireEvent.click(within(card).getByRole("button"));
+    // directly-clickable button -- open the menu, then activate the Test item inside it. Scoped by
+    // name since task 12.19 added a second, standalone Copy Diagnostics button to this same card.
+    fireEvent.click(within(card).getByRole("button", { name: "plugins.rowActions" }));
     fireEvent.click(within(card).getByRole("menuitem", { name: "plugins.action.test" }));
 
     await waitFor(() => expect(onStatusChange).toHaveBeenLastCalledWith({
