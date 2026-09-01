@@ -24,60 +24,6 @@ export function CreateSessionDialog({
   const model = useCreateSessionDraft({ agents, onCreated, open });
 
   if (!open) return null;
-  const { actions, draft, lifecycle, referenceData, validation } = model;
 
-  return (
-    <CreateSessionDialogContent
-      agentMode={draft.agentMode}
-      availableAgents={model.availableAgents}
-      expertRoles={referenceData.expertRoles}
-      multiSeats={draft.multiSeats}
-      onSeatsChange={actions.setSeats}
-      canSubmit={validation.canSubmit}
-      error={lifecycle.error}
-      gitCapable={model.gitCapable}
-      inspection={referenceData.inspection}
-      knownProjects={referenceData.knownProjects}
-      knownRemoteWorkspaces={referenceData.knownRemoteWorkspaces}
-      loading={lifecycle.loading}
-      onAgentModeChange={actions.setAgentMode}
-      onAgentSelect={actions.selectAgent}
-      onBrowseProject={actions.browseProject}
-      onClose={onClose}
-      onConfigureOnePiece={onConfigureOnePiece}
-      onInspectPath={actions.inspectPath}
-      onSubmit={actions.submit}
-      hasWorkspace={model.hasWorkspace}
-      onPersonalizationModeChange={actions.setPersonalizationMode}
-      personalizationMode={model.effectivePersonalizationMode}
-      onTitleChange={actions.setTitle}
-      onWorkspaceModeChange={actions.setWorkspaceMode}
-      projectPath={draft.projectPath}
-      remoteDisplayName={draft.remoteDisplayName}
-      remoteHost={draft.remoteHost}
-      remotePath={draft.remotePath}
-      remotePort={draft.remotePort}
-      remoteUser={draft.remoteUser}
-      saveSshConnection={draft.saveSshConnection}
-      selectedAgent={model.selectedAgent}
-      selectedSshConnectionId={draft.selectedSshConnectionId}
-      setProjectPath={actions.setProjectPath}
-      setRemoteDisplayName={actions.setRemoteDisplayName}
-      setRemoteHost={actions.setRemoteHost}
-      setRemotePath={actions.setRemotePath}
-      setRemotePort={actions.setRemotePort}
-      setRemoteUser={actions.setRemoteUser}
-      setSaveSshConnection={actions.setSaveSshConnection}
-      setSelectedSshConnectionId={actions.setSelectedSshConnectionId}
-      setSshConnectionDraft={actions.setSshConnectionDraft}
-      setWorktreeEnabled={actions.setWorktreeEnabled}
-      setWorktreeName={actions.setWorktreeName}
-      sshConnectionDraft={draft.sshConnectionDraft}
-      sshConnections={referenceData.sshConnections}
-      title={draft.title}
-      workspaceMode={draft.workspaceMode}
-      worktreeEnabled={draft.worktreeEnabled}
-      worktreeName={draft.worktreeName}
-    />
-  );
+  return <CreateSessionDialogContent model={model} onClose={onClose} onConfigureOnePiece={onConfigureOnePiece} />;
 }

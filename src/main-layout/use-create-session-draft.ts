@@ -25,6 +25,7 @@ import { validateCreateSessionDraft } from "./create-session-validation";
 import type { ExpertRole } from "../types/expert-role";
 import type {
   AgentRegistryEntry,
+  InteractionMode,
   KnownProject,
   KnownRemoteWorkspace,
   ProjectInspection,
@@ -205,6 +206,12 @@ export function useCreateSessionDraft({
   const validation = validateCreateSessionDraft(draft, selectedAgent, availableAgents);
 
   function submit() {
+    // Task 11.11: the Create button's own `disabled` already covers ordinary clicks, but that is
+    // a state-driven re-render away from the DOM update -- this closure-captured check is
+    // synchronous with the call itself, so a second invocation arriving before that re-render
+    // lands (a very fast double-click, a duplicate programmatic call) still cannot start a second
+    // submission.
+    if (lifecycle.loading) return;
     void submitCreateSession({
       agentMode: draft.agentMode,
       multiSeats: draft.multiSeats.map((seat) => snapshotSeat(seat, agents, expertRoles)),
@@ -245,6 +252,14 @@ export function useCreateSessionDraft({
     actions: {
       selectAgent,
       setAgentMode,
+      /**
+       * A direct, standalone override — distinct from `selectAgent`'s own side effect of setting
+       * this to the chosen Agent's first supported mode. Exists for task 11.3's Step 1, where the
+       * reader states a CLI/API preference before any Agent is chosen at all: the reconciliation
+       * effect just above already corrects this back if a later-chosen Agent cannot honor it, so
+       * this setter does not need to duplicate that validation itself.
+       */
+      setInteractionMode: (interactionMode: InteractionMode) => dispatch({ type: "set-interaction-mode", interactionMode }),
       setSeats: (seats: SessionSeat[]) => dispatch({ type: "set-seats", seats }),
       setTitle: (title: string) => dispatch({ type: "set-title", title }),
       setWorkspaceMode,
