@@ -19,9 +19,10 @@ test.describe("Extension Capabilities settings page", () => {
     await expect(page.getByRole("heading", { name: "PaddleOCR" })).toBeHidden();
     await search.clear();
     // Task 12.18: Requirements moved from a directly-visible button into the card's own
-    // ActionMenu -- open the paddleocr card's "..." trigger (its only button while no mutation is
-    // in flight) before reaching the menu item.
-    await page.getByTestId("extension-card-paddleocr").getByRole("button").click();
+    // ActionMenu -- open the paddleocr card's "..." trigger before reaching the menu item. Named
+    // explicitly (not a bare role locator) because task 12.19 added a second, always-visible
+    // button to this card (Copy Diagnostics), so "the card's only button" is no longer true.
+    await page.getByTestId("extension-card-paddleocr").getByRole("button", { name: /PaddleOCR的操作|Actions for PaddleOCR/ }).click();
     await page.getByRole("menuitem", { name: /安装要求|Requirements/ }).click();
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
