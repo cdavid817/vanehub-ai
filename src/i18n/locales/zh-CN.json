@@ -4393,6 +4393,8 @@
   "settings.group.capabilities": "能力与扩展",
   "settings.group.integrations": "集成与连接",
   "settings.group.diagnostics": "诊断与关于",
+  "settings.compactNav.filterPlaceholder": "筛选设置页面...",
+  "settings.compactNav.noResults": "没有匹配的设置页面。",
   "todoBoard.emptyFiltered": "没有符合筛选条件的事项",
   "todoBoard.filters": "筛选条件",
   "todoBoard.clearFilters": "清除筛选",

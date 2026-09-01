@@ -4393,6 +4393,8 @@
   "settings.group.capabilities": "能力與擴充",
   "settings.group.integrations": "整合與連線",
   "settings.group.diagnostics": "診斷與關於",
+  "settings.compactNav.filterPlaceholder": "篩選設定頁面...",
+  "settings.compactNav.noResults": "沒有符合的設定頁面。",
   "todoBoard.emptyFiltered": "沒有符合篩選條件的項目",
   "todoBoard.filters": "篩選條件",
   "todoBoard.clearFilters": "清除篩選",

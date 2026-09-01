@@ -4393,6 +4393,8 @@
   "settings.group.capabilities": "기능 및 확장",
   "settings.group.integrations": "통합 및 연결",
   "settings.group.diagnostics": "진단 및 정보",
+  "settings.compactNav.filterPlaceholder": "설정 페이지 필터링...",
+  "settings.compactNav.noResults": "일치하는 설정 페이지가 없습니다.",
   "todoBoard.emptyFiltered": "현재 필터와 일치하는 항목이 없습니다",
   "todoBoard.filters": "필터",
   "todoBoard.clearFilters": "필터 지우기",

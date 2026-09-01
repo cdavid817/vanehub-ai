@@ -4393,6 +4393,8 @@
   "settings.group.capabilities": "機能と拡張",
   "settings.group.integrations": "連携と接続",
   "settings.group.diagnostics": "診断と情報",
+  "settings.compactNav.filterPlaceholder": "設定ページを絞り込む...",
+  "settings.compactNav.noResults": "一致する設定ページがありません。",
   "todoBoard.emptyFiltered": "現在の絞り込み条件に一致する項目はありません",
   "todoBoard.filters": "フィルター",
   "todoBoard.clearFilters": "フィルターを解除",

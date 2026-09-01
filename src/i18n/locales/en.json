@@ -4393,6 +4393,8 @@
   "settings.group.capabilities": "Capabilities",
   "settings.group.integrations": "Integrations",
   "settings.group.diagnostics": "Diagnostics",
+  "settings.compactNav.filterPlaceholder": "Filter settings pages...",
+  "settings.compactNav.noResults": "No settings pages match.",
   "todoBoard.emptyFiltered": "No items match the current filters",
   "todoBoard.filters": "Filters",
   "todoBoard.clearFilters": "Clear filters",

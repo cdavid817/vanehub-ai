@@ -6,6 +6,7 @@ import { shouldRenderPage } from "../ui/page-lifecycle/page-lifecycle-policy";
 import { SETTINGS_PAGE_LIFECYCLE } from "./settings-page-lifecycle";
 import { defaultSettingsPageId, getSettingsPage, settingsPages, type SettingsNavigationTarget, type SettingsPageId } from "./settings-pages";
 import { buildSettingsSearchIndex, type SettingsSearchResult } from "./settings-search-index";
+import { SettingsCompactNav } from "./settings-compact-nav";
 import { SettingsSidebar } from "./settings-sidebar";
 import { SettingsTopBar } from "./settings-topbar";
 
@@ -67,6 +68,7 @@ export function SettingsShell({
       />
       <div className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] gap-4 px-4 pb-4 pt-0 lg:grid-cols-[clamp(220px,18vw,280px)_minmax(0,1fr)] lg:grid-rows-1 lg:gap-5 lg:px-5 lg:pb-5">
         <SettingsSidebar activePageId={activePageId} onSelectPage={handleSelectPage} />
+        <SettingsCompactNav activePageId={activePageId} onSelectPage={handleSelectPage} />
         <section className="min-h-0 min-w-0 overflow-hidden rounded-lg border border-border bg-background shadow-xs">
           {settingsPages.map((page) => {
             const isActivePage = page.id === activePageId;
