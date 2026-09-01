@@ -47,7 +47,7 @@ flate2 = "1.1"
 # layer; both feed one bounded extraction guard rather than a second set of checks.
 tar = { version = "0.4", default-features = false }
 html5ever = "0.39"
-russh = { version = "=0.62.6", default-features = false, features = ["ring"] }
+russh = { version = "=0.63.1", default-features = false, features = ["ring"] }
 async-trait = "0.1"
 base64 = "0.23"
 # Decode/validate/downscale for Agent image input (`add-agent-image-input`). Codec features are

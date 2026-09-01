@@ -50,8 +50,13 @@ impl client::Handler for HostCheckingHandler {
 
     async fn check_server_key(
         &mut self,
-        server_public_key: &russh::keys::PublicKey,
+        server_key: &russh::keys::PublicKeyOrCertificate,
     ) -> Result<bool, Self::Error> {
+        // A server can only present a certificate host key when the client advertises a
+        // `*-cert-v01@openssh.com` algorithm, and `client_config` leaves
+        // `host_key_certificates` empty. So what arrives here is always the bare-key variant,
+        // which `public_key` hands back unchanged.
+        let server_public_key = server_key.public_key();
         let evidence = HostKeyEvidence::new(
             server_public_key.algorithm().as_str(),
             server_public_key.fingerprint(HashAlg::Sha256).to_string(),
@@ -194,6 +199,11 @@ fn client_config() -> client::Config {
                     hash: Some(HashAlg::Sha256),
                 },
             ]),
+            // Advertising a certificate algorithm makes a server prove its identity with a
+            // certificate instead of a bare key, which only helps a client that knows which
+            // authorities it trusts. `HostCheckingHandler` pins fingerprints instead, so this
+            // stays empty and `check_server_key` only ever sees bare keys.
+            host_key_certificates: Cow::Borrowed(&[]),
             cipher: Cow::Owned(vec![
                 russh::cipher::CHACHA20_POLY1305,
                 russh::cipher::AES_256_GCM,
