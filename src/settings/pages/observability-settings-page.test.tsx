@@ -1,4 +1,7 @@
+// @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import "../../i18n";
@@ -46,5 +49,62 @@ describe("ObservabilitySettingsPage", () => {
     expect(html).toContain("仅元数据");
     expect(html).toContain("设置对后续运行生效");
     expect(html).toContain("中继激活保持不可用");
+  });
+
+  it("shows a persistent restart-pending notice only after saving a changed OTLP export field (task 12.15)", async () => {
+    const client = new QueryClient();
+    client.setQueryData(["execution-observability", "settings"], settings);
+    client.setQueryData(["execution-observability", "capabilities"], []);
+    const user = userEvent.setup();
+    const service = {
+      async getSettings() { return settings; },
+      async updateSettings(input: ObservabilitySettings) { return input; },
+      async listRuns() { return { items: [], nextPageToken: null }; },
+      async getRun() { throw new Error("not used"); },
+      async getTimeline() { throw new Error("not used"); },
+      async getObservationCapabilities() { return []; },
+    };
+    render(
+      <QueryClientProvider client={client}>
+        <ObservabilitySettingsPage service={service} />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.queryByText(/重启 VaneHub 以重建/)).toBeNull();
+
+    // Enabling OTLP export without a valid endpoint fails validation and keeps Save disabled, so
+    // the endpoint must be filled in too -- otherwise this test would pass for the wrong reason
+    // (Save never actually firing) rather than proving the restart notice.
+    await user.click(await screen.findByRole("checkbox", { name: "启用 OTLP/HTTP protobuf 导出" }));
+    await user.type(screen.getByRole("textbox", { name: "Collector 地址" }), "https://otel.example.com/v1/traces");
+    await user.click(screen.getByRole("button", { name: "保存可观测性设置" }));
+
+    expect(await screen.findByText(/重启 VaneHub 以重建/)).toBeTruthy();
+  });
+
+  it("does not show the restart-pending notice after saving an unrelated field (task 12.15)", async () => {
+    const client = new QueryClient();
+    client.setQueryData(["execution-observability", "settings"], settings);
+    client.setQueryData(["execution-observability", "capabilities"], []);
+    const user = userEvent.setup();
+    const service = {
+      async getSettings() { return settings; },
+      async updateSettings(input: ObservabilitySettings) { return input; },
+      async listRuns() { return { items: [], nextPageToken: null }; },
+      async getRun() { throw new Error("not used"); },
+      async getTimeline() { throw new Error("not used"); },
+      async getObservationCapabilities() { return []; },
+    };
+    render(
+      <QueryClientProvider client={client}>
+        <ObservabilitySettingsPage service={service} />
+      </QueryClientProvider>,
+    );
+
+    await user.click(await screen.findByRole("checkbox", { name: "保存本地执行时间线" }));
+    await user.click(screen.getByRole("button", { name: "保存可观测性设置" }));
+
+    expect(await screen.findByText(/可观测性配置已保存/)).toBeTruthy();
+    expect(screen.queryByText(/重启 VaneHub 以重建/)).toBeNull();
   });
 });

@@ -240,4 +240,43 @@ describe("CliParametersPage", () => {
     await waitFor(() => expect(onDraftStateChange).toHaveBeenLastCalledWith(null));
     expect((screen.getByLabelText("模型", { exact: true }) as HTMLSelectElement).value).toBe("__inherit__");
   });
+
+  it("shows a before-save reminder only while Interactive scope is selected (task 12.15)", async () => {
+    const user = userEvent.setup();
+    mount();
+
+    await screen.findByLabelText("模型", { exact: true });
+    expect(screen.queryByText(/此处的更改仅在下次启动/)).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "交互式" }));
+    expect(await screen.findByText(/此处的更改仅在下次启动/)).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "对话" }));
+    await waitFor(() => expect(screen.queryByText(/此处的更改仅在下次启动/)).toBeNull());
+  });
+
+  it("distinguishes the Interactive-scope saved notice from the Chat-scope one (task 12.15)", async () => {
+    const user = userEvent.setup();
+    const { agentService } = await import("../../services/runtime-agent-client");
+    // A successful save invalidates the profile list, which the module mock otherwise resolves to
+    // `[]` -- refetching real profiles keeps the rail (and the field this test edits next) present
+    // across both of this test's saves.
+    const listed = [...managedCliAgentIds].reverse().map(profile);
+    vi.mocked(agentService.listCliParameterProfiles).mockResolvedValueOnce(listed).mockResolvedValueOnce(listed);
+    vi.mocked(agentService.saveCliParameterProfile).mockResolvedValueOnce(profile("claude-code"));
+    mount();
+
+    await user.selectOptions(await screen.findByLabelText("模型", { exact: true }), "opus");
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(screen.getByText("CLI 参数已保存")).toBeTruthy());
+
+    vi.mocked(agentService.saveCliParameterProfile).mockResolvedValueOnce(profile("claude-code"));
+    await user.click(screen.getByRole("button", { name: "交互式" }));
+    await user.selectOptions(await screen.findByLabelText("模型", { exact: true }), "sonnet");
+    await user.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/已打开的 Agent 终端会保留原有的启动参数/)).toBeTruthy(),
+    );
+  });
 });

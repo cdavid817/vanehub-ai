@@ -487,6 +487,14 @@ describe("LocalMediaPage", () => {
     expect(screen.getByText(/不会离开本机/)).toBeTruthy();
   });
 
+  it("warns upfront that any saved change re-checks all three engines (task 12.15)", async () => {
+    install();
+    renderPage();
+    await whenLoaded();
+
+    expect(screen.getByText(/三个引擎都需要重新检查/)).toBeTruthy();
+  });
+
   it("keeps Save inert until something actually changed", async () => {
     install();
     const { user } = renderPage();
