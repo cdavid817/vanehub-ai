@@ -79,6 +79,35 @@ test.describe("CLI parameter settings", () => {
     await expect(page.getByRole("button", { name: /^(保存|Save)$/ })).toBeDisabled();
   });
 
+  test("guards leaving Settings entirely when a CLI parameter draft is dirty (task 12.12)", async ({ page }) => {
+    await page.goto("/");
+    await openCliParameters(page);
+
+    const model = page.getByRole("combobox", { name: /^(模型|Model)$/ });
+    await model.selectOption("opus");
+    await expect(page.getByRole("button", { name: /^(保存|Save)$/ })).toBeEnabled();
+
+    await page.getByRole("button", { name: /^(返回|Back)$/ }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText(/放弃 1 项未保存的更改|discard 1 unsaved change/)).toBeVisible();
+
+    // Stay cancels the departure and keeps the draft exactly as it was.
+    await dialog.getByRole("button", { name: /^(留在此页|Stay)$/ }).click();
+    await expect(dialog).toBeHidden();
+    await expect(model).toHaveValue("opus");
+    await expect(page).toHaveURL(/\/settings/);
+
+    // Leaving again and discarding actually navigates away this time, and the draft is gone.
+    await page.getByRole("button", { name: /^(返回|Back)$/ }).click();
+    await page.getByRole("dialog").getByRole("button", { name: /^(放弃更改|Discard changes)$/ }).click();
+    await expect(page).toHaveURL(/\/workspace/);
+
+    await page.getByRole("button", { name: /设置|Settings/ }).click();
+    await selectCliParametersPage(page);
+    await expect(page.getByRole("combobox", { name: /^(模型|Model)$/ })).toHaveValue("__inherit__");
+  });
+
   test("supports English minimal theme at a narrow viewport", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/");
