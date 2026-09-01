@@ -42,6 +42,8 @@ import {
   loadSshConnectionsPage,
   loadUsagePage,
 } from "./settings-page-loaders";
+import { SETTINGS_PAGE_SEARCH_METADATA } from "./settings-page-search-metadata";
+import type { SettingsPageSearchMetadata } from "./settings-page-search-metadata";
 import type { SettingsPageDefinition, SettingsPageId } from "./settings-page-types";
 
 // The navigation shape lives in `settings-page-types.ts`; re-exported here so the many modules
@@ -55,7 +57,15 @@ export type {
 } from "./settings-page-types";
 export { settingsPageGroupOrder } from "./settings-page-types";
 
-export const settingsPages: SettingsPageDefinition[] = [
+/**
+ * The navigation-relevant shape of a page entry: everything in `SettingsPageDefinition` except
+ * the search/save/risk metadata that `settings-page-search-metadata.ts` supplies per id. Keeping
+ * that metadata out of these literals is what keeps this list -- where the page order itself is
+ * the product decision -- under the file's line budget.
+ */
+type SettingsPageNavEntry = Omit<SettingsPageDefinition, keyof SettingsPageSearchMetadata>;
+
+const settingsPageNavEntries: SettingsPageNavEntry[] = [
   {
     id: "basic",
     group: "general",
@@ -237,6 +247,11 @@ export const settingsPages: SettingsPageDefinition[] = [
     loader: loadAboutPage,
   },
 ];
+
+export const settingsPages: SettingsPageDefinition[] = settingsPageNavEntries.map((page) => ({
+  ...page,
+  ...SETTINGS_PAGE_SEARCH_METADATA[page.id],
+}));
 
 export const defaultSettingsPageId: SettingsPageId = "basic";
 

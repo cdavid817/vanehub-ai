@@ -70,6 +70,28 @@ export const settingsPageGroupOrder: SettingsPageGroup[] = [
   "diagnostics",
 ];
 
+/**
+ * One searchable field within a page (task 12.1/12.4-12.6). `anchorId` must match a real
+ * `id` rendered in that page's DOM (typically a `SettingsRow`'s own row id) -- the search
+ * navigator scrolls/focuses it, so a field with no rendered anchor cannot be listed here.
+ */
+export interface SettingsSearchField {
+  id: string;
+  labelKey: string;
+  /** Extra synonyms beyond the localized label itself (task 12.1's "keywords", scenario "Search a synonym"). */
+  keywords?: string[];
+  anchorId: string;
+}
+
+/** design.md Decision 17: "immediate" saves per row, "draft" batches through a shared
+ *  DraftActionBar, "mixed" pages declare a page-specific split between the two. */
+export type SettingsSaveMode = "immediate" | "draft" | "mixed";
+
+/** design.md Decision 17 / spec.md "Settings danger and sensitivity hierarchy": "sensitive"
+ *  pages hold credentials or other secrets: "dangerous" pages expose destructive actions
+ *  (reset/uninstall/disconnect/revoke/erase) needing consequence-aware confirmation. */
+export type SettingsRiskLevel = "normal" | "sensitive" | "dangerous";
+
 export interface SettingsPageDefinition {
   id: SettingsPageId;
   labelKey: string;
@@ -78,5 +100,14 @@ export interface SettingsPageDefinition {
   icon: LucideIcon;
   badge?: number;
   searchPlaceholderKey: string;
+  /** Bounded, localized summary shown under the label in search results (task 12.5). */
+  descriptionKey: string;
+  /** Extra page-level search synonyms beyond `labelKey`/`descriptionKey` themselves. */
+  keywords: string[];
+  /** Empty is valid and honest for a page whose fields have not been indexed yet -- the page
+   *  still matches on label/description/keywords, it just contributes no field-level hits. */
+  fields: SettingsSearchField[];
+  saveMode: SettingsSaveMode;
+  risk: SettingsRiskLevel;
   loader: LazyFeatureLoader<SettingsPageContext>;
 }
