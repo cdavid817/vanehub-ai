@@ -52,6 +52,7 @@ export const MessageItem = memo(function MessageItem({
   onSelectTool,
   selected = false,
   selectedToolCallId = null,
+  showHeader = true,
   speaker,
 }: {
   /** Absent outside a session, where a message has no Agent or project to remember against. */
@@ -67,6 +68,14 @@ export const MessageItem = memo(function MessageItem({
   selected?: boolean;
   selectedToolCallId?: string | null;
   /**
+   * False collapses the avatar/name/timestamp header into a slim continuation row (task 10.4's
+   * continuous transcript hierarchy) — the message itself still renders in full, only the
+   * identity chrome a run's later messages would otherwise repeat is omitted. `MessageList`
+   * computes this by comparing a message against its immediate predecessor; defaults true so any
+   * caller that has not been updated to pass it keeps today's always-shown header.
+   */
+  showHeader?: boolean;
+  /**
    * Present only in a multi-seat session. When absent the message renders exactly as it did before
    * seats existed, so single-Agent sessions are untouched.
    */
@@ -75,6 +84,25 @@ export const MessageItem = memo(function MessageItem({
   const { i18n, t } = useTranslation();
   const isUser = message.role === "user";
   const showSpeaker = !isUser && Boolean(speaker);
+  // A non-"completed" status must stay prominent regardless of grouping (task 10.5) — never
+  // collapsed into a continuation row just because the same speaker sent the previous message.
+  const effectiveShowHeader = showHeader || message.status !== "completed";
+  const selectedBadge = selected ? (
+    <Badge className="gap-1" data-testid="message-selected-indicator" tone="default">
+      <Check className="h-3 w-3" aria-hidden="true" />
+      {t("chat.messageSelected")}
+    </Badge>
+  ) : null;
+  const speakerLabel = showSpeaker && speaker ? `${speaker.roleName ?? speaker.agentName} · ${speaker.agentName}` : t("chat.agent");
+  // Selected wins over failed/cancelled when both are true — the accent border is one color, and
+  // the header's own icon + text already says "failed"/"cancelled" independently of it.
+  const accentBorder = selected
+    ? "border-primary bg-primary/5"
+    : message.status === "failed"
+      ? "border-destructive/60 bg-destructive/5"
+      : message.status === "cancelled"
+        ? "border-warning/60 bg-warning/5"
+        : "border-transparent";
 
   function handleBubbleClick(event: MouseEvent<HTMLDivElement>) {
     if (onSelect && !isInteractiveClickTarget(event.target, MESSAGE_SELECTION_EXCLUDED_SELECTOR, event.currentTarget)) onSelect();
@@ -87,57 +115,59 @@ export const MessageItem = memo(function MessageItem({
   }
 
   return (
-    <article className={cn("flex min-w-0 items-start gap-2.5", isUser && "justify-end")}>
+    <article className={cn("flex min-w-0 items-start gap-2.5", isUser && "justify-end", effectiveShowHeader && "mt-3")} data-message-header={effectiveShowHeader ? "shown" : "collapsed"}>
       {!isUser ? (
-        showSpeaker && speaker ? <ParticipantAvatar agentId={speaker.agentId} label={`${speaker.roleName ?? speaker.agentName} · ${speaker.agentName}`} roleAvatar={speaker.avatar} roleName={speaker.roleName} /> : (
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-background text-primary shadow-xs">
-            <Bot className="h-4 w-4" aria-hidden="true" />
+        effectiveShowHeader ? (
+          showSpeaker && speaker ? <ParticipantAvatar agentId={speaker.agentId} label={speakerLabel} roleAvatar={speaker.avatar} roleName={speaker.roleName} /> : (
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-background text-primary shadow-xs">
+              <Bot className="h-4 w-4" aria-hidden="true" />
+            </span>
+          )
+        ) : (
+          // Reserves the same 36px column an avatar would, so continuation content still lines up
+          // beneath it. `title` carries the sender so a hover (or a screen reader landing here)
+          // still answers "who is this" without scrolling up to the run's own header.
+          <span className="flex h-5 w-9 shrink-0 items-center justify-center text-[10px] text-muted-foreground/70" title={speakerLabel}>
+            {formatTime(message.updatedAt, i18n.language)}
           </span>
         )
       ) : null}
       <div className="min-w-0 max-w-[88%] lg:max-w-3xl">
-        <div className={cn("mb-1 flex items-center gap-2 px-1 text-xs text-muted-foreground", isUser && "justify-end")}>
-          {showSpeaker ? (
-            <span className="inline-flex items-center gap-1.5" data-testid="message-speaker">
-              <svg aria-hidden="true" className="h-2.5 w-2.5 shrink-0 text-primary" data-testid="message-role-color" fill={safeRoleColor(speaker?.color ?? "")} viewBox="0 0 10 10">
-                <circle cx="5" cy="5" r="4" />
-              </svg>
-              <span className="font-semibold text-primary">
-                {speaker?.roleName ?? speaker?.agentName}
+        {effectiveShowHeader ? (
+          <div className={cn("mb-1 flex items-center gap-2 px-1 text-xs text-muted-foreground", isUser && "justify-end")}>
+            {showSpeaker ? (
+              <span className="inline-flex items-center gap-1.5" data-testid="message-speaker">
+                <svg aria-hidden="true" className="h-2.5 w-2.5 shrink-0 text-primary" data-testid="message-role-color" fill={safeRoleColor(speaker?.color ?? "")} viewBox="0 0 10 10">
+                  <circle cx="5" cy="5" r="4" />
+                </svg>
+                <span className="font-semibold text-primary">
+                  {speaker?.roleName ?? speaker?.agentName}
+                </span>
+                {speaker?.roleName ? <span>· {speaker.agentName}</span> : null}
+                {speaker?.crossFamilyReviewer ? (
+                  <span className="rounded bg-muted px-1 py-0.5 text-[10px]">{t("chat.crossFamily")}</span>
+                ) : null}
               </span>
-              {speaker?.roleName ? <span>· {speaker.agentName}</span> : null}
-              {speaker?.crossFamilyReviewer ? (
-                <span className="rounded bg-muted px-1 py-0.5 text-[10px]">{t("chat.crossFamily")}</span>
-              ) : null}
+            ) : (
+              <span>{isUser ? t("chat.you") : message.role === "assistant" ? t("chat.agent") : message.role}</span>
+            )}
+            <span className="font-mono">{formatTime(message.updatedAt, i18n.language)}</span>
+            {selectedBadge}
+            <span className={cn("inline-flex items-center gap-1", !isUser && "ml-auto")}>
+              {message.status === "failed" ? <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" /> : null}
+              {message.status === "cancelled" ? <CircleStop className="h-3.5 w-3.5" aria-hidden="true" /> : null}
+              {message.status === "completed" ? <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" /> : null}
+              {statusLabel(message, t)}
             </span>
-          ) : (
-            <span>{isUser ? t("chat.you") : message.role === "assistant" ? t("chat.agent") : message.role}</span>
-          )}
-          <span className="font-mono">{formatTime(message.updatedAt, i18n.language)}</span>
-          {selected ? (
-            <Badge className="gap-1" data-testid="message-selected-indicator" tone="default">
-              <Check className="h-3 w-3" aria-hidden="true" />
-              {t("chat.messageSelected")}
-            </Badge>
-          ) : null}
-          <span className={cn("inline-flex items-center gap-1", !isUser && "ml-auto")}>
-            {message.status === "failed" ? <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" /> : null}
-            {message.status === "cancelled" ? <CircleStop className="h-3.5 w-3.5" aria-hidden="true" /> : null}
-            {message.status === "completed" ? <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" /> : null}
-            {statusLabel(message, t)}
-          </span>
-        </div>
+          </div>
+        ) : selectedBadge ? (
+          <div className={cn("mb-1 flex items-center px-1", isUser && "justify-end")}>{selectedBadge}</div>
+        ) : null}
         {!isUser ? <AgentRunOwnerStatus ownerId={message.id} ownerType="session_generation" /> : null}
         <div
           aria-current={selected ? "true" : undefined}
           aria-label={onSelect ? t("chat.selectMessage") : undefined}
-          className={cn(
-            "rounded-lg border border-transparent px-3 py-2.5 text-sm",
-            isUser ? "rounded-tr-sm bg-primary text-primary-foreground" : "rounded-tl-sm bg-[hsl(var(--panel))] shadow-xs",
-            message.status === "failed" && "border-destructive/50",
-            message.status === "cancelled" && "border-warning/50",
-            selected && "ring-2 ring-primary",
-          )}
+          className={cn("rounded-md border-l-2 px-2.5 py-1 text-sm", accentBorder)}
           data-message-id={message.id}
           data-testid="message-bubble"
           onClick={handleBubbleClick}
@@ -153,7 +183,7 @@ export const MessageItem = memo(function MessageItem({
           {message.fileReferences?.length ? (
             <div className="mt-2 flex flex-wrap gap-1.5">
               {message.fileReferences.map((reference) => (
-                <span className={cn("inline-flex max-w-full items-center gap-1 rounded-md border px-2 py-1 text-xs", isUser ? "border-primary-foreground/30 bg-primary-foreground/10" : "border-border bg-muted")} key={reference.id}>
+                <span className="inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-muted px-2 py-1 text-xs" key={reference.id}>
                   <FileText className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                   <span className="truncate">{reference.name}</span>
                   <FileReferenceLines reference={reference} />

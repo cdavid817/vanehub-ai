@@ -16,6 +16,18 @@ function selectedToolCallIdFor(message: ChatMessage, currentSelectionKey: string
   return match?.id ?? null;
 }
 
+/**
+ * Whether `message` starts a new run (task 10.4's continuous transcript hierarchy) rather than
+ * continuing the previous one — same role, and for an assistant message, the same seat. A
+ * message with no predecessor always starts a run; `MessageItem` itself additionally forces a
+ * header for any non-"completed" status regardless of what this returns (task 10.5).
+ */
+function startsNewRun(message: ChatMessage, previous: ChatMessage | undefined): boolean {
+  if (!previous || previous.role !== message.role) return true;
+  if (message.role !== "assistant") return true;
+  return (message.speakerSeatId ?? message.seatIndex ?? null) !== (previous.speakerSeatId ?? previous.seatIndex ?? null);
+}
+
 export function MessageList({
   currentSelectionKey = null,
   hasActiveSession,
@@ -60,13 +72,13 @@ export function MessageList({
         onScroll={onScroll}
         ref={scrollRef}
       >
-        <div className="grid w-full content-start gap-4" data-message-canvas="adaptive" data-testid="message-readable-measure">
+        <div className="grid w-full content-start gap-1" data-message-canvas="adaptive" data-testid="message-readable-measure">
         {hasMore ? (
           <button className="mx-auto h-8 rounded border border-border px-3 text-xs text-muted-foreground hover:bg-muted" onClick={onLoadEarlier} type="button">
             {t("chat.loadEarlier")}
           </button>
         ) : null}
-        {messages.map((message) => {
+        {messages.map((message, index) => {
           const selected = currentSelectionKey !== null
             && currentSelectionKey === workbenchSelectionKey({ kind: "message", sessionId: message.sessionId, messageId: message.id });
           return (
@@ -78,6 +90,7 @@ export function MessageList({
                 onSelectTool={onSelectTool ? (toolCallId: string) => onSelectTool(message.id, toolCallId) : undefined}
                 selected={selected}
                 selectedToolCallId={selectedToolCallIdFor(message, currentSelectionKey)}
+                showHeader={startsNewRun(message, messages[index - 1])}
                 speaker={speakers?.get(message.speakerSeatId ?? message.seatIndex ?? "") ?? null}
               />
             </div>
