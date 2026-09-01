@@ -1,11 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { LazyFeature } from "../components/lazy-feature";
+import { useSettingsAnchorHighlight } from "../hooks/use-settings-anchor-highlight";
 import { shouldRenderPage } from "../ui/page-lifecycle/page-lifecycle-policy";
 import { SETTINGS_PAGE_LIFECYCLE } from "./settings-page-lifecycle";
 import { defaultSettingsPageId, getSettingsPage, settingsPages, type SettingsNavigationTarget, type SettingsPageId } from "./settings-pages";
+import { buildSettingsSearchIndex, type SettingsSearchResult } from "./settings-search-index";
 import { SettingsSidebar } from "./settings-sidebar";
 import { SettingsTopBar } from "./settings-topbar";
+
+/** Static registry data, built once -- `settingsPages` never changes at runtime (task 12.4). */
+const settingsSearchIndex = buildSettingsSearchIndex(settingsPages);
 
 export function SettingsShell({
   initialNavigationTarget = null,
@@ -27,6 +32,7 @@ export function SettingsShell({
   );
   const [navigationTarget, setNavigationTarget] = useState<SettingsNavigationTarget | null>(initialNavigationTarget);
   const [searchTerm, setSearchTerm] = useState("");
+  const [pendingAnchorId, setPendingAnchorId] = useState<string | null>(null);
   const activePage = useMemo(() => getSettingsPage(activePageId), [activePageId]);
 
   useEffect(() => {
@@ -40,9 +46,25 @@ export function SettingsShell({
     setSearchTerm("");
   }
 
+  // Task 12.6: a field result also needs the target page loaded before its anchor exists to
+  // scroll to -- `useSettingsAnchorHighlight` itself polls for that, this only decides *which*
+  // anchor (if any) to wait for once `handleSelectPage` has made the target page active.
+  function handleSelectSearchResult(result: SettingsSearchResult) {
+    handleSelectPage(result.page.id);
+    setPendingAnchorId(result.entry.kind === "field" ? (result.entry.anchorId ?? null) : null);
+  }
+  useSettingsAnchorHighlight(pendingAnchorId, () => setPendingAnchorId(null));
+
   return (
     <main className="flex h-screen min-h-0 flex-col overflow-hidden bg-muted/40 text-foreground">
-      <SettingsTopBar activePage={activePage} onReturn={onReturn} onSearchTermChange={setSearchTerm} searchTerm={searchTerm} />
+      <SettingsTopBar
+        activePage={activePage}
+        onReturn={onReturn}
+        onSearchTermChange={setSearchTerm}
+        onSelectSearchResult={handleSelectSearchResult}
+        searchIndex={settingsSearchIndex}
+        searchTerm={searchTerm}
+      />
       <div className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] gap-4 px-4 pb-4 pt-0 lg:grid-cols-[clamp(220px,18vw,280px)_minmax(0,1fr)] lg:grid-rows-1 lg:gap-5 lg:px-5 lg:pb-5">
         <SettingsSidebar activePageId={activePageId} onSelectPage={handleSelectPage} />
         <section className="min-h-0 min-w-0 overflow-hidden rounded-lg border border-border bg-background shadow-xs">

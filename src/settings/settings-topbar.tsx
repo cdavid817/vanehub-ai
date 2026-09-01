@@ -1,16 +1,20 @@
-import { ArrowLeft, Search } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../components/ui/button";
-import type { SettingsPageDefinition } from "./settings-pages";
+import { settingsPages, type SettingsPageDefinition } from "./settings-pages";
+import { SettingsSearchBox } from "./settings-search-box";
+import type { SettingsSearchEntry, SettingsSearchResult } from "./settings-search-index";
 
 interface SettingsTopBarProps {
   activePage: SettingsPageDefinition;
   searchTerm: string;
+  searchIndex: SettingsSearchEntry[];
   onSearchTermChange: (value: string) => void;
+  onSelectSearchResult: (result: SettingsSearchResult) => void;
   onReturn?: () => void;
 }
 
-export function SettingsTopBar({ activePage, searchTerm, onSearchTermChange, onReturn }: SettingsTopBarProps) {
+export function SettingsTopBar({ activePage, searchTerm, searchIndex, onSearchTermChange, onSelectSearchResult, onReturn }: SettingsTopBarProps) {
   const { t } = useTranslation();
 
   return (
@@ -20,23 +24,27 @@ export function SettingsTopBar({ activePage, searchTerm, onSearchTermChange, onR
           V
         </div>
         <div className="min-w-0">
+          {/* Task 12.8: this used to also render `<h1>{t(activePage.crumbKey)}</h1>` here, the
+              same page title every page's own header (`page-parts.tsx`'s `PageHeader`, an `<h2>`)
+              already presents -- two headings naming the same page. The active page's own header
+              is the one authoritative title now; this stays app-level chrome only. */}
           <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
             <span className="font-medium text-foreground">VaneHub AI</span>
             <span>/</span>
             <span>{t("app.settings.breadcrumb")}</span>
           </div>
-          <h1 className="mt-0.5 wrap-break-word text-lg font-semibold leading-tight tracking-tight">{t(activePage.crumbKey)}</h1>
         </div>
       </div>
 
       <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(220px,360px)_auto] lg:flex lg:flex-1 lg:items-center lg:justify-end">
-        <div className="relative min-w-0 lg:w-[min(34vw,420px)] lg:min-w-72">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <input
-            className="ucd-input h-9 w-full rounded-md px-9 text-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
-            onChange={(event) => onSearchTermChange(event.target.value)}
+        <div className="min-w-0 lg:w-[min(34vw,420px)] lg:min-w-72">
+          <SettingsSearchBox
+            index={searchIndex}
+            onSearchTermChange={onSearchTermChange}
+            onSelectResult={onSelectSearchResult}
+            pages={settingsPages}
             placeholder={t(activePage.searchPlaceholderKey)}
-            value={searchTerm}
+            searchTerm={searchTerm}
           />
         </div>
 
