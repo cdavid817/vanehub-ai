@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { activateAppLanguage } from "../../../i18n";
 import { createAgentServiceDouble, renderWithAppProviders } from "../../../test/render";
@@ -86,6 +86,9 @@ describe("LSP managed installation", () => {
     const { user } = renderWithAppProviders(<LspConfigurationSection service={service} />);
 
     await user.click(await screen.findByRole("button", { name: /· 移除服务器$/ }));
+    // Task 12.14: uninstalling now goes through a confirmation dialog rather than acting on the
+    // click alone.
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "确认" }));
 
     await waitFor(() => expect(uninstallLspServer).toHaveBeenCalledWith("elixir"));
   });

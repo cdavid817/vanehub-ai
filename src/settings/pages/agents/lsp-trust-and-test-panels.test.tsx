@@ -92,6 +92,9 @@ describe("LSP trust and server-test panels", () => {
     expect(await screen.findByText("D:/code/new-project")).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: /撤销信任.*D:\/code\/new-project/ }));
+    // Task 12.14: revoking trust now goes through a confirmation dialog rather than acting on the
+    // click alone.
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "确认" }));
     await waitFor(() => expect(updateLspWorkspaceTrust).toHaveBeenLastCalledWith({
       canonicalRoot: "D:/code/new-project",
       trusted: false,

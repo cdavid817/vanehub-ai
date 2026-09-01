@@ -100,6 +100,9 @@ describe("LSP settings Web integration", () => {
     await user.click(screen.getByRole("button", {
       name: "撤销信任 D:/code/web-integration",
     }));
+    // Task 12.14: revoking trust now goes through a confirmation dialog rather than acting on the
+    // click alone.
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "确认" }));
     expect(await screen.findByText("当前没有活动的语言服务器实例。")).toBeTruthy();
     expect(await screen.findByText("尚未信任任何工作区使用 LSP。")).toBeTruthy();
   });

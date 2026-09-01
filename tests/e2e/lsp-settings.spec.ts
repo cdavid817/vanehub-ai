@@ -61,6 +61,9 @@ test.describe("LSP settings in Web mode", () => {
     await expect(testResult.getByText("成功", { exact: true })).toHaveCount(4);
 
     await trust.getByRole("button", { name: `撤销信任 ${workspaceRoot}` }).click();
+    // Task 12.14: revoking trust now goes through a confirmation dialog rather than acting on the
+    // click alone.
+    await page.getByRole("dialog").getByRole("button", { name: "确认" }).click();
     await expect(trust.getByText("尚未信任任何工作区使用 LSP。")).toBeVisible();
     await expect(runtime.getByText("当前没有活动的语言服务器实例。")).toBeVisible();
   });
