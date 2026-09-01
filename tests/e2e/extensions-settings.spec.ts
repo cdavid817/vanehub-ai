@@ -10,12 +10,19 @@ test.describe("Extension Capabilities settings page", () => {
     await expect(page.getByRole("heading", { name: "PaddleOCR" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "faster-whisper" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "sherpa-onnx" })).toBeVisible();
-    const search = page.getByRole("textbox", { name: /搜索扩展能力|Search extensions/ });
+    // Pre-existing, unrelated to task 12.18: commit ebfde179 ("add cross-page search UI") gave
+    // this input role="combobox" (aria-autocomplete listbox), but this spec was never updated off
+    // its old role="textbox" locator.
+    const search = page.getByRole("combobox", { name: /搜索扩展能力|Search extensions/ });
     await search.fill("sherpa");
     await expect(page.getByRole("heading", { name: "sherpa-onnx" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "PaddleOCR" })).toBeHidden();
     await search.clear();
-    await page.getByRole("button", { name: /安装要求|Requirements/ }).first().click();
+    // Task 12.18: Requirements moved from a directly-visible button into the card's own
+    // ActionMenu -- open the paddleocr card's "..." trigger (its only button while no mutation is
+    // in flight) before reaching the menu item.
+    await page.getByTestId("extension-card-paddleocr").getByRole("button").click();
+    await page.getByRole("menuitem", { name: /安装要求|Requirements/ }).click();
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
     await expect(dialog).toBeFocused();
