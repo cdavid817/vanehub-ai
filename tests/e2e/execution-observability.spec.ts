@@ -6,6 +6,8 @@ test.describe("execution observability", () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/");
     await page.getByRole("button", { name: /设置|Settings/ }).click();
+    // Below `lg` the sidebar is hidden in favor of a searchable sheet (task 12.9): open it first.
+    await page.getByRole("button", { name: /^(切换设置页面|Switch settings page)/ }).click();
     await page.getByRole("button", { name: /执行可观测性|Execution Observability/ }).click();
 
     await expect(

@@ -32,6 +32,8 @@ test.describe("OnePiece context policy health", () => {
     await page.getByRole("button", { name: /设置|Settings/ }).click();
     await page.getByRole("combobox", { name: /应用语言|Application Language/ }).selectOption("en");
     await page.getByRole("combobox", { name: /主题|Theme/ }).selectOption("minimal");
+    // Below `lg` the sidebar is hidden in favor of a searchable sheet (task 12.9): open it first.
+    await page.getByRole("button", { name: /^Switch settings page/ }).click();
     await page.getByRole("button", { name: "Agent Configurations" }).click();
     await page.getByRole("button", { name: "OnePiece" }).click();
 
@@ -54,6 +56,10 @@ test.describe("OnePiece context policy health", () => {
       await page.getByRole("button", { name: /设置|Settings/ }).click();
       await page.getByRole("combobox", { name: /应用语言|Application Language/ }).selectOption("en");
       await page.getByRole("combobox", { name: /主题|Theme/ }).selectOption(variant.theme);
+      if (variant.width < 1024) {
+        // Below `lg` the sidebar is hidden in favor of a searchable sheet (task 12.9): open it first.
+        await page.getByRole("button", { name: /^Switch settings page/ }).click();
+      }
       await page.getByRole("button", { name: "Agent Configurations" }).click();
       await page.getByRole("button", { name: "OnePiece" }).click();
       const inspectorToggle = page.getByRole("button", { name: "Context Inspector" });

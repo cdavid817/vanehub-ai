@@ -6,8 +6,11 @@ async function openCliParameters(page: Page) {
 }
 
 // A reload keeps the settings view, so there is no Settings button to click a second time.
+// A role-based query (not getByText) matters below `lg`: the desktop sidebar's own same-named
+// item stays in the DOM (just CSS-hidden) while the compact-nav sheet is open, and getByText
+// matches hidden elements where getByRole -- which follows the accessibility tree -- does not.
 async function selectCliParametersPage(page: Page) {
-  await page.getByText(/^(CLI 参数|CLI Parameters)$/).click();
+  await page.getByRole("button", { name: /^(CLI 参数|CLI Parameters)$/ }).click();
 }
 
 test.describe("CLI parameter settings", () => {
@@ -38,7 +41,7 @@ test.describe("CLI parameter settings", () => {
     await page.getByRole("button", { name: /Codex CLI/ }).click();
     await expect(reasoningEffort).toHaveValue("high");
 
-    await page.getByRole("button", { name: /保存更改|Save changes/ }).click();
+    await page.getByRole("button", { name: /^(保存|Save)$/ }).click();
     await expect(page.getByText(/CLI 参数已保存|CLI parameters saved/)).toBeVisible();
 
     await page.reload();
@@ -62,15 +65,18 @@ test.describe("CLI parameter settings", () => {
 
     const model = page.getByRole("combobox", { name: /^(模型|Model)$/ });
     await model.selectOption("__custom__");
-    // Choosing Custom switched the editor and wrote nothing, so there is nothing to save.
-    await expect(page.getByRole("button", { name: /保存更改|Save changes/ })).toBeDisabled();
+    // Choosing Custom switched the editor and wrote nothing, so nothing is dirty yet -- the draft
+    // bar has nothing to show until a value actually differs from the baseline.
+    await expect(page.getByRole("button", { name: /^(保存|Save)$/ })).toHaveCount(0);
 
     const custom = page.getByRole("textbox", { name: /输入您的 CLI 支持的模型标识符|Enter a model/ });
     await custom.fill("claude-opus-5");
-    await expect(page.getByRole("button", { name: /保存更改|Save changes/ })).toBeEnabled();
+    await expect(page.getByRole("button", { name: /^(保存|Save)$/ })).toBeEnabled();
 
     await custom.fill("");
-    await expect(page.getByRole("button", { name: /保存更改|Save changes/ })).toBeDisabled();
+    // The last typed value stays dirty against the baseline (so the bar stays visible) but save is
+    // refused again.
+    await expect(page.getByRole("button", { name: /^(保存|Save)$/ })).toBeDisabled();
   });
 
   test("supports English minimal theme at a narrow viewport", async ({ page }) => {
@@ -79,7 +85,9 @@ test.describe("CLI parameter settings", () => {
     await page.getByRole("button", { name: /设置|Settings/ }).click();
     await page.getByRole("combobox", { name: /应用语言|Application Language/ }).selectOption("en");
     await page.getByRole("combobox", { name: /主题|Theme/ }).selectOption("minimal");
-    await page.getByText(/^CLI Parameters$/).click();
+    // Below `lg` the sidebar is hidden in favor of a searchable sheet (task 12.9): open it first.
+    await page.getByRole("button", { name: /^Switch settings page/ }).click();
+    await selectCliParametersPage(page);
 
     await expect(page.getByRole("heading", { name: "CLI Parameter Management" })).toBeVisible();
     await expect(page.getByText("Safe argument preview")).toBeVisible();

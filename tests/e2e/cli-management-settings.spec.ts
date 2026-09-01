@@ -382,6 +382,8 @@ test.describe("CLI Management presentation", () => {
     await page.getByRole("button", { name: /设置|Settings/ }).click();
     await page.getByRole("combobox", { name: /应用语言|Application Language/ }).selectOption("en");
     await page.getByRole("combobox", { name: /主题|Theme/ }).selectOption("minimal");
+    // Below `lg` the sidebar is hidden in favor of a searchable sheet (task 12.9): open it first.
+    await page.getByRole("button", { name: /^Switch settings page/ }).click();
     await page.getByRole("button", { name: /^CLI Management/ }).click();
 
     await expect(page.getByRole("heading", { name: "CLI Management", level: 2 })).toBeVisible();

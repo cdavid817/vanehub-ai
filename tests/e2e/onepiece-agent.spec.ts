@@ -194,7 +194,18 @@ test.describe("OnePiece native Agent", () => {
 
   test("keeps the API provider dialog usable at narrow width", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    await openAgentConfigurations(page);
+    // Below `lg` the sidebar is hidden in favor of a searchable sheet (task 12.9): unlike
+    // `openAgentConfigurations` (used by this file's other, desktop-width tests, where the
+    // compact-nav trigger itself is `lg:hidden` and clicking it would time out), this inlines the
+    // same navigation with the trigger opened first, and a role-based query for the target page --
+    // the desktop sidebar's identically-labeled item stays in the DOM (just CSS-hidden) once the
+    // sheet is open, and getByText would match it where getByRole does not.
+    await page.goto("/");
+    await page.getByRole("button", { name: /设置|Settings/ }).click();
+    await page.getByRole("button", { name: /^(切换设置页面|Switch settings page)/ }).click();
+    await page.getByRole("button", { name: /^(Agent 配置|Agent Configurations)$/ }).click();
+    await page.getByRole("button", { name: /OnePiece/ }).click();
+    await expect(page.getByRole("region", { name: "OnePiece" }).getByRole("heading", { name: /^(API 提供商|API providers)$/i })).toBeVisible();
     const onepiecePanel = page.getByRole("region", { name: "OnePiece" });
     await onepiecePanel.getByRole("button", { name: "新增配置" }).first().click();
     const dialog = page.getByRole("dialog", { name: "新增 OnePiece 配置" });

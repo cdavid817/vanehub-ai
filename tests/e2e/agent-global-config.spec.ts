@@ -3,6 +3,15 @@ import { expect, test, type Page } from "@playwright/test";
 async function openAgentConfigurations(page: Page) {
   await page.goto("/");
   await page.getByRole("button", { name: /设置|Settings/ }).click();
+  // Below `lg` (1024px) the sidebar is CSS-hidden in favor of a searchable sheet (task 12.9): its
+  // trigger must be opened before the target page button exists in the accessibility tree. A
+  // role-based query (not getByText) matters here too: the desktop sidebar's own same-named item
+  // stays in the DOM (just CSS-hidden) while the sheet is open, and getByText matches hidden
+  // elements where getByRole -- which follows the accessibility tree -- does not.
+  const viewport = page.viewportSize();
+  if (viewport && viewport.width < 1024) {
+    await page.getByRole("button", { name: /^(切换设置页面|Switch settings page)/ }).click();
+  }
   await page.getByRole("button", { name: /^(Agent 配置|Agent Configurations)$/ }).click();
   await expect(page.getByRole("heading", { name: /^(Agent 配置|Agent Configurations)$/, level: 2 })).toBeVisible();
   await expect(page.getByRole("button", { name: "Claude Code" })).toHaveAttribute("aria-current", "page");

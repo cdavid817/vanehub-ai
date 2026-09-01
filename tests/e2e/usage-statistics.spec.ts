@@ -81,12 +81,22 @@ test.describe("Usage statistics", () => {
     { theme: "minimal", width: 390, height: 844 },
   ]) {
     test(`fits ${variant.theme} at ${variant.width}px`, async ({ page }) => {
+      const isNarrow = variant.width < 1024;
       await page.setViewportSize({ width: variant.width, height: variant.height });
       await page.goto("/");
       await page.getByRole("button", { name: /设置|Settings/ }).click();
-      await page.getByRole("button", { name: /基础配置|Basic Settings/ }).click();
+      // Below `lg` the sidebar is hidden in favor of a searchable sheet (task 12.9), and Basic
+      // Settings is already the default active page there, so there is nothing to click yet --
+      // the sidebar's own (CSS-hidden) item isn't reachable via role, and the compact-nav
+      // trigger's accessible name happens to contain "基础配置" as its "current page" substring.
+      if (!isNarrow) {
+        await page.getByRole("button", { name: /基础配置|Basic Settings/ }).click();
+      }
       await page.getByRole("combobox", { name: /^主题$|^Theme$/ }).selectOption(variant.theme);
-      await page.getByRole("button", { name: /使用统计|Usage Statistics/ }).click();
+      if (isNarrow) {
+        await page.getByRole("button", { name: /^(切换设置页面|Switch settings page)/ }).click();
+      }
+      await page.getByRole("button", { name: /^(使用统计|Usage Statistics)$/ }).click();
 
       await expect(page.getByRole("heading", { name: /使用统计|Usage Statistics/, level: 2 })).toBeVisible();
       await expect(page.getByRole("heading", { name: /每日趋势|Daily Trend/ })).toBeVisible();

@@ -19,7 +19,11 @@ async function prepareSession(page: Page, theme: Theme, width: number) {
 
 async function configureFeishu(page: Page) {
   await page.getByRole("button", { name: /设置|Settings/ }).click();
-  await page.getByRole("button", { name: /IM 能力|IM Connectors/ }).click();
+  // Below `lg` the sidebar is hidden in favor of a searchable sheet (task 12.9): open it first.
+  if ((page.viewportSize()?.width ?? 1024) < 1024) {
+    await page.getByRole("button", { name: /^(切换设置页面|Switch settings page)/ }).click();
+  }
+  await page.getByRole("button", { name: /^(IM 能力|IM Connectors)$/ }).click();
   await expect(page.locator("[data-connector]")).toHaveCount(5);
   await expect(page.getByText(/Agent 和项目路由由各个会话管理/)).toBeVisible();
   await expect(page.getByRole("button", { name: /保存路由|Save Routing/ })).toHaveCount(0);

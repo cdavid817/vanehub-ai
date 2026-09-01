@@ -13,7 +13,12 @@ test.describe.configure({ timeout: 120_000 });
 
 async function openBasicSettings(page: Page) {
   const localeSelect = page.locator("select").filter({ has: page.locator('option[value="zh-TW"]') });
-  const settingsButton = page.getByRole("button", { name: /设置|Settings|設定|설정/ });
+  // Anchored to the activity bar's exact accessible name (`layout.activityBar.settings`): an
+  // unanchored match also matches the SettingsCompactNav trigger (`settings.compactNav.trigger`,
+  // e.g. "설정 페이지 전환, 현재: ...") and the Basic page's reset-to-default button (e.g. "기본값
+  // 재설정" contains "설정" as a substring), both visible below the `lg` breakpoint once already
+  // inside Settings, causing a strict-mode "resolved to 2 elements" violation at narrow widths.
+  const settingsButton = page.getByRole("button", { name: /^(设置|Settings|設定|설정)$/ });
   const alreadyOpen = await Promise.race([
     localeSelect.waitFor({ state: "visible" }).then(() => true),
     settingsButton.waitFor({ state: "visible" }).then(() => false),

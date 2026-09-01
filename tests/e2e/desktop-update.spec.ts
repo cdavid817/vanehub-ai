@@ -5,7 +5,11 @@ async function openAbout(page: import("@playwright/test").Page, theme: "futurist
   await page.addInitScript((selectedTheme) => localStorage.setItem("vanehub.appSettings", JSON.stringify({ theme: selectedTheme })), theme);
   await page.goto("/");
   await page.getByRole("button", { name: /设置|Settings|設定|설정/ }).click();
-  await page.getByRole("navigation", { name: /系统设置|Settings/ }).getByRole("button", { name: /关于|About/, exact: true }).click();
+  if (width < 1024) {
+    // Below `lg` the sidebar is hidden in favor of a searchable sheet (task 12.9): open it first.
+    await page.getByRole("button", { name: /^(切换设置页面|Switch settings page)/ }).click();
+  }
+  await page.getByRole("button", { name: /^(关于|About)$/ }).click();
 }
 
 for (const theme of ["futuristic", "minimal"] as const) {
