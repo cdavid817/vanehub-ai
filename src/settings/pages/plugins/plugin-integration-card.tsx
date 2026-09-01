@@ -5,12 +5,14 @@ import { ActionMenu, type ActionMenuItem } from "../../../ui/actions/ActionMenu"
 import { MutationStatus } from "../../../ui/async/MutationStatus";
 import type { MutationState } from "../../../ui/async/mutation-state";
 import { StatusBadge, type StatusTone } from "../../../ui/status/StatusBadge";
+import { CopyDiagnosticsButton } from "../../../ui/diagnostics/CopyDiagnosticsButton";
 import type {
   PluginIntegrationDefinition,
   PluginIntegrationState,
   PluginIntegrationStatus,
   PluginIntegrationTestResult,
 } from "../../../types/plugin-integration";
+import { buildPluginIntegrationDiagnosticFields } from "./plugin-integration-diagnostic-summary";
 import { statusKey } from "./plugin-integration-utils";
 
 const STATUS_TONE: Record<PluginIntegrationStatus, StatusTone> = {
@@ -90,6 +92,10 @@ export function PluginIntegrationCard({
         {state.lastCheckedAt ? (
           <div className="text-xs text-muted-foreground">{t("plugins.lastChecked", { time: state.lastCheckedAt })}</div>
         ) : null}
+      </div>
+
+      <div className="mt-3 flex justify-end">
+        <CopyDiagnosticsButton fields={buildPluginIntegrationDiagnosticFields(definition, state, lastResult, t)} />
       </div>
 
       <MutationStatus state={testState} />
