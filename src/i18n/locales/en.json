@@ -113,6 +113,8 @@
   "settings.pages.help": "Documentation",
   "settings.pages.help.description": "Read the bundled product guide and open the source repository.",
   "settings.search.help": "Search documentation...",
+  "settings.search.resultsLabel": "Settings search results",
+  "settings.search.noResults": "No matching settings found.",
   "documentation.description": "Product documentation shipped with this build. It stays available without a network connection.",
   "documentation.readmeTitle": "README",
   "documentation.readmeDescription": "Rendered in the current application language, falling back to English when no translation ships with this build.",

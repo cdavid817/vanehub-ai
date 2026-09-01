@@ -113,6 +113,8 @@
   "settings.pages.help": "ドキュメント",
   "settings.pages.help.description": "同梱の製品ガイドを読み、ソースリポジトリを開きます。",
   "settings.search.help": "ドキュメントを検索...",
+  "settings.search.resultsLabel": "設定の検索結果",
+  "settings.search.noResults": "一致する設定項目がありません。",
   "documentation.description": "このビルドに同梱された製品ドキュメントです。ネットワーク接続がなくても参照できます。",
   "documentation.readmeTitle": "README",
   "documentation.readmeDescription": "現在のアプリ言語で表示します。翻訳が同梱されていない場合は英語版を表示します。",

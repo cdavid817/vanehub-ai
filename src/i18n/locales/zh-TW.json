@@ -113,6 +113,8 @@
   "settings.pages.help": "使用文件",
   "settings.pages.help.description": "檢視內建產品指南,並開啟原始碼儲存庫。",
   "settings.search.help": "搜尋使用文件...",
+  "settings.search.resultsLabel": "設定搜尋結果",
+  "settings.search.noResults": "沒有符合的設定項目。",
   "documentation.description": "隨目前版本一同打包的產品文件，離線也能檢視。",
   "documentation.readmeTitle": "README",
   "documentation.readmeDescription": "依目前應用程式語言顯示；該語言沒有隨版本打包翻譯時回退到英文版。",

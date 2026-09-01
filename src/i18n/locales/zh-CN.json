@@ -113,6 +113,8 @@
   "settings.pages.help": "使用文档",
   "settings.pages.help.description": "查看内置产品指南,并打开源代码仓库。",
   "settings.search.help": "搜索使用文档...",
+  "settings.search.resultsLabel": "设置搜索结果",
+  "settings.search.noResults": "没有匹配的设置项。",
   "documentation.description": "随当前版本一同打包的产品文档，离线也能查看。",
   "documentation.readmeTitle": "README",
   "documentation.readmeDescription": "按当前应用语言展示；该语言没有随版本打包翻译时回退到英文版。",
