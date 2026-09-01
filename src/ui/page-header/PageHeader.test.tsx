@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { fireEvent, render, screen } from "@testing-library/react";
+import { KeyRound } from "lucide-react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { activateAppLanguage } from "../../i18n";
 import { PageHeader } from "./PageHeader";
@@ -28,6 +29,14 @@ describe("PageHeader", () => {
   it("bounds a long description instead of letting it grow the header freely", () => {
     render(<PageHeader description="A very long description that keeps going." title="Mission Control" />);
     expect(screen.getByText("A very long description that keeps going.").className).toContain("line-clamp-2");
+  });
+
+  it("renders the icon badge only when one is supplied", () => {
+    const { rerender } = render(<PageHeader title="Mission Control" />);
+    expect(document.querySelector("svg")).toBeNull();
+
+    rerender(<PageHeader icon={KeyRound} title="Mission Control" />);
+    expect(document.querySelector("svg")).toBeTruthy();
   });
 
   it("omits the More menu when no items are supplied", () => {

@@ -40,7 +40,9 @@ test.describe("SSH Connections settings", () => {
     await expect(notTestedBadge).toBeVisible();
     await expect(notTestedBadge).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
 
-    await card.getByRole("button", { name: "测试" }).click();
+    // Task 12.18: per-row actions moved behind a shared "..." ActionMenu.
+    await card.getByRole("button", { name: /的操作$/ }).click();
+    await card.getByRole("menuitem", { name: "测试" }).click();
     const succeededBadge = card.getByText("成功", { exact: true });
     await expect(succeededBadge).toBeVisible();
     await expect(succeededBadge).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
