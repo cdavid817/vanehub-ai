@@ -63,4 +63,29 @@ describe("SettingsCompactNav (task 12.9)", () => {
       .find((entry) => entry.getAttribute("aria-current") === "page");
     expect(activeRow).toBeTruthy();
   });
+
+  it("shows the active page's own status dot on the collapsed trigger (task 12.16)", () => {
+    render(
+      <SettingsCompactNav
+        activePageId="basic"
+        onSelectPage={vi.fn()}
+        pageStatuses={{ basic: { kind: "unsaved", labelKey: "cliParameters.badge.dirty", labelParams: { count: 2 } } }}
+      />,
+    );
+    expect(screen.getByRole("button", { name: /^切换设置页面/ }).querySelector(".bg-attention")).toBeTruthy();
+  });
+
+  it("shows a status dot only on the entry it belongs to inside the sheet (task 12.16)", () => {
+    render(
+      <SettingsCompactNav
+        activePageId="basic"
+        onSelectPage={vi.fn()}
+        pageStatuses={{ "ssh-connections": { kind: "dependency-unavailable", labelKey: "localMedia.settings.statusError" } }}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^切换设置页面/ }));
+
+    expect(screen.getByRole("button", { name: /SSH 连接/ }).querySelector(".bg-blocked")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /CLI 管理/ }).querySelector(".bg-blocked")).toBeNull();
+  });
 });

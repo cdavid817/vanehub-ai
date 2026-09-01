@@ -823,4 +823,39 @@ describe("LocalMediaPage", () => {
     expect(screen.getByText(/这些能力需要桌面客户端/)).toBeTruthy();
     expect(screen.getByTestId("local-media-probe-ocr").hasAttribute("disabled")).toBe(true);
   });
+
+  it("reports a dependency-unavailable status for its nav entry when native is absent (task 12.16)", async () => {
+    install({
+      isAvailable: vi.fn(async () => false),
+      getStatus: vi.fn(async () => status({ nativeAvailable: false, platformSupport: "unsupported" })),
+    });
+    const onStatusChange = vi.fn();
+    renderWithAppProviders(
+      <LocalMediaPage isActive navigationTarget={null} onNavigate={vi.fn()} onStatusChange={onStatusChange} searchTerm="" />,
+    );
+    await whenLoaded();
+
+    await waitFor(() => expect(onStatusChange).toHaveBeenLastCalledWith({
+      kind: "dependency-unavailable",
+      labelKey: "localMedia.settings.nativeOnly",
+    }));
+  });
+
+  it("reports an unsaved status for its nav entry once a field is edited (task 12.16)", async () => {
+    install();
+    const onStatusChange = vi.fn();
+    const { user } = renderWithAppProviders(
+      <LocalMediaPage isActive navigationTarget={null} onNavigate={vi.fn()} onStatusChange={onStatusChange} searchTerm="" />,
+    );
+    await whenLoaded();
+    await waitFor(() => expect(onStatusChange).toHaveBeenLastCalledWith(null));
+
+    openAdvanced(0);
+    await user.clear(screen.getByLabelText("语言", { selector: "#local-media-ocr-language" }));
+
+    await waitFor(() => expect(onStatusChange).toHaveBeenLastCalledWith({
+      kind: "unsaved",
+      labelKey: "localMedia.settings.unsaved",
+    }));
+  });
 });

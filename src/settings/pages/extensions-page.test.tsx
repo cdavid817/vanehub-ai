@@ -1,8 +1,14 @@
+// @vitest-environment jsdom
+
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { render, waitFor } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import "../../i18n";
 import en from "../../i18n/locales/en.json";
-import type { ExtensionFrameworkDefinition, ExtensionFrameworkStatus } from "../../types/extension";
-import { filterExtensionDefinitions } from "./extensions-page";
+import type { ExtensionService } from "../../services/extension-service";
+import type { ExtensionEnvironment, ExtensionFrameworkDefinition, ExtensionFrameworkStatus, ExtensionOverview } from "../../types/extension";
+import { ExtensionsPage, filterExtensionDefinitions } from "./extensions-page";
 
 const definitions: ExtensionFrameworkDefinition[] = [
   {
@@ -53,5 +59,54 @@ describe("ExtensionsPage", () => {
     expect(source).not.toContain("invoke(");
     expect(source).not.toMatch(/theme\s*===/);
     expect(source).toContain("ucd-panel");
+  });
+
+  it("reports a dependency-unavailable status for its nav entry when native operations are unavailable, and null once they are (task 12.16)", async () => {
+    function environment(nativeOperationsAvailable: boolean): ExtensionEnvironment {
+      return {
+        runtime: "tauri",
+        os: "windows",
+        arch: "x86_64",
+        supported: true,
+        nativeOperationsAvailable,
+        pythonPath: null,
+        pythonVersion: null,
+        reason: null,
+      };
+    }
+    function serviceFor(nativeOperationsAvailable: boolean): ExtensionService {
+      const overview: ExtensionOverview = { definitions: [], statuses: [], environment: environment(nativeOperationsAvailable) };
+      return {
+        async getOverview() { return overview; },
+        async refreshHealth() { throw new Error("not used"); },
+        async getInstallPreview() { throw new Error("not used"); },
+        async install() { throw new Error("not used"); },
+        async uninstall() { throw new Error("not used"); },
+        async setEnabled() { throw new Error("not used"); },
+        async start() { throw new Error("not used"); },
+        async stop() { throw new Error("not used"); },
+        async selfTest() { throw new Error("not used"); },
+      };
+    }
+    function renderPage(nativeOperationsAvailable: boolean, onStatusChange: (status: unknown) => void) {
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      return render(
+        <QueryClientProvider client={queryClient}>
+          <ExtensionsPage onStatusChange={onStatusChange} searchTerm="" service={serviceFor(nativeOperationsAvailable)} />
+        </QueryClientProvider>,
+      );
+    }
+
+    const unavailable = vi.fn();
+    const { unmount } = renderPage(false, unavailable);
+    await waitFor(() => expect(unavailable).toHaveBeenLastCalledWith({
+      kind: "dependency-unavailable",
+      labelKey: "extensions.status.nativeUnavailable",
+    }));
+    unmount();
+
+    const healthy = vi.fn();
+    renderPage(true, healthy);
+    await waitFor(() => expect(healthy).toHaveBeenLastCalledWith(null));
   });
 });

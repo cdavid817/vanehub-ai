@@ -160,4 +160,39 @@ describe("BasicSettingsPage", () => {
     saveSpy.mockRestore();
     unmount();
   });
+
+  it("reports a null status once Node is available, then an error status when a save fails (task 12.16)", async () => {
+    const user = userEvent.setup();
+    const nodeInfoSpy = vi.spyOn(settingsService, "getNodeInfo").mockResolvedValue({
+      available: true,
+      path: "/usr/local/bin/node",
+      reason: null,
+      version: "20.11.0",
+    });
+    const onStatusChange = vi.fn();
+    const { unmount } = render(
+      <SettingsProvider>
+        <BasicSettingsPage onStatusChange={onStatusChange} />
+      </SettingsProvider>,
+    );
+
+    const theme = await screen.findByRole("combobox", { name: "主题" }) as HTMLSelectElement;
+    await waitFor(() => expect(onStatusChange).toHaveBeenLastCalledWith(null));
+
+    const realSaveSetting = settingsService.saveSetting.bind(settingsService);
+    const saveSpy = vi.spyOn(settingsService, "saveSetting").mockImplementation((input) => {
+      if (input.key === "theme") return Promise.reject(new Error("boom"));
+      return realSaveSetting(input);
+    });
+    await user.selectOptions(theme, "简约风");
+
+    await waitFor(() => expect(onStatusChange).toHaveBeenLastCalledWith({
+      kind: "error",
+      labelKey: "basic.status.error",
+    }));
+
+    saveSpy.mockRestore();
+    nodeInfoSpy.mockRestore();
+    unmount();
+  });
 });

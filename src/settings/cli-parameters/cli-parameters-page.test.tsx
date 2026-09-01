@@ -279,4 +279,35 @@ describe("CliParametersPage", () => {
       expect(screen.getByText(/已打开的 Agent 终端会保留原有的启动参数/)).toBeTruthy(),
     );
   });
+
+  it("reports an unsaved status for its nav entry using the cross-agent total, not the active agent alone (task 12.16)", async () => {
+    const user = userEvent.setup();
+    const onStatusChange = vi.fn();
+    render(
+      <QueryClientProvider client={seededClient()}>
+        <CliParametersPage onStatusChange={onStatusChange} searchTerm="" />
+      </QueryClientProvider>,
+    );
+
+    await screen.findByLabelText("模型", { exact: true });
+    await waitFor(() => expect(onStatusChange).toHaveBeenLastCalledWith(null));
+
+    await user.selectOptions(screen.getByLabelText("模型", { exact: true }), "opus");
+    await waitFor(() => expect(onStatusChange).toHaveBeenLastCalledWith({
+      kind: "unsaved",
+      labelKey: "cliParameters.badge.dirty",
+      labelParams: { count: 1 },
+    }));
+
+    const rail = screen.getByRole("navigation", { name: "受管 CLI" });
+    await user.click(within(rail).getByRole("button", { name: /Codex CLI/ }));
+    await user.selectOptions(await screen.findByLabelText("模型", { exact: true }), "__custom__");
+    await user.type(screen.getByLabelText("输入您的 CLI 支持的模型标识符"), "custom-model");
+    // A second agent's own draft, not a replacement -- the nav entry reports the page-wide total.
+    await waitFor(() => expect(onStatusChange).toHaveBeenLastCalledWith({
+      kind: "unsaved",
+      labelKey: "cliParameters.badge.dirty",
+      labelParams: { count: 2 },
+    }));
+  });
 });

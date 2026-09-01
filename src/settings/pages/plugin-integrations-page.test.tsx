@@ -1,7 +1,10 @@
+// @vitest-environment jsdom
+
 import { readFileSync } from "node:fs";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import en from "../../i18n/locales/en.json";
 import type { PluginIntegrationDefinition, PluginIntegrationState } from "../../types/plugin-integration";
 import { filterPluginIntegrations, PluginIntegrationsPage } from "./plugin-integrations-page";
@@ -93,5 +96,56 @@ describe("PluginIntegrationsPage", () => {
     expect(source).not.toContain("invoke(");
     expect(source).not.toMatch(/theme\s*===/);
     expect(source).toContain("ucd-panel");
+  });
+
+  it("reports an error status for its nav entry once a readiness test fails, and null while healthy (task 12.16)", async () => {
+    const queryClient = new QueryClient();
+    const healthyStates: PluginIntegrationState[] = [
+      {
+        integrationId: "github",
+        status: "not-configured",
+        configured: false,
+        canTest: true,
+        lastCheckedAt: null,
+        statusReasonKey: "plugins.statusReason.notChecked",
+        message: null,
+      },
+    ];
+    const onStatusChange = vi.fn();
+    const service = {
+      async getOverview() {
+        return {
+          definitions,
+          states: healthyStates,
+          environment: {
+            runtime: "tauri" as const,
+            nativeChecksAvailable: true,
+            reasonKey: null,
+          },
+        };
+      },
+      async refresh() {
+        return this.getOverview();
+      },
+      async testReadiness() {
+        throw new Error("boom");
+      },
+    };
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <PluginIntegrationsPage onStatusChange={onStatusChange} searchTerm="" service={service} />
+      </QueryClientProvider>,
+    );
+
+    const card = await screen.findByTestId("plugin-card-github");
+    await waitFor(() => expect(onStatusChange).toHaveBeenLastCalledWith(null));
+
+    fireEvent.click(within(card).getByRole("button"));
+
+    await waitFor(() => expect(onStatusChange).toHaveBeenLastCalledWith({
+      kind: "error",
+      labelKey: "plugins.pageStatus.error",
+    }));
   });
 });

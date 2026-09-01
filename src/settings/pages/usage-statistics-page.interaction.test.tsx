@@ -51,4 +51,21 @@ describe("UsageStatisticsPage interactions", () => {
     expect(screen.getByRole("status").textContent).toContain("No usage records in the selected time range");
     expect(screen.getByRole("alert").textContent).toContain("Failed to load usage statistics: offline");
   });
+
+  it("reports an error status for its nav entry once the usage query fails, and null beforehand (task 12.16)", async () => {
+    vi.spyOn(agentService, "getTokenUsageSummary").mockRejectedValue(new Error("offline"));
+    const onStatusChange = vi.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <UsageStatisticsPage onStatusChange={onStatusChange} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(onStatusChange).toHaveBeenLastCalledWith(null));
+    await waitFor(() => expect(onStatusChange).toHaveBeenLastCalledWith({
+      kind: "error",
+      labelKey: "usage.status.error",
+    }));
+  });
 });

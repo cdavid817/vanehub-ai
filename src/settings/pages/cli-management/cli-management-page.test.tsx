@@ -25,6 +25,7 @@ import type {
   CliSourceSummary,
 } from "../../../types/cli-environment-snapshot";
 import type { OperationTask } from "../../../types/operation";
+import type { SettingsPageStatus } from "../../settings-page-types";
 
 const listCliEnvironments = vi.fn<() => Promise<CliEnvironmentSnapshot[]>>();
 const refreshCliEnvironments = vi.fn<(ids: string[], force: boolean) => Promise<OperationTask>>();
@@ -218,7 +219,10 @@ function plan(overrides: Partial<CliActionPlan> = {}): CliActionPlan {
   };
 }
 
-async function renderPage(snapshots: CliEnvironmentSnapshot[]) {
+async function renderPage(
+  snapshots: CliEnvironmentSnapshot[],
+  onStatusChange?: (status: SettingsPageStatus | null) => void,
+) {
   const { CliManagementPage } = await import("./cli-management-page");
   listCliEnvironments.mockResolvedValue(snapshots);
   const queryClient = new QueryClient({
@@ -226,7 +230,7 @@ async function renderPage(snapshots: CliEnvironmentSnapshot[]) {
   });
   const view = render(
     <QueryClientProvider client={queryClient}>
-      <CliManagementPage searchTerm="" />
+      <CliManagementPage onStatusChange={onStatusChange} searchTerm="" />
     </QueryClientProvider>,
   );
   await screen.findByText(snapshots[0].displayName);
@@ -730,5 +734,24 @@ describe("filters", () => {
     fireEvent.change(screen.getByLabelText("搜索 CLI"), { target: { value: "nothing-matches" } });
 
     expect(screen.getByText("没有符合当前筛选条件的 CLI。")).toBeTruthy();
+  });
+});
+
+describe("nav entry status (task 12.16)", () => {
+  it("reports an update-available status while a tool has one, and null once none do", async () => {
+    const updateAvailable = vi.fn();
+    // Default `snapshot()` is `overallState: "update-available"`, the same count `CliSummaryBar`
+    // already renders live -- this reports the same number, not a second computation of it.
+    const { unmount } = await renderPage([snapshot()], updateAvailable);
+    await waitFor(() => expect(updateAvailable).toHaveBeenLastCalledWith({
+      kind: "update-available",
+      labelKey: "cli.status.updateAvailable",
+      labelParams: { count: 1 },
+    }));
+    unmount();
+
+    const healthy = vi.fn();
+    await renderPage([snapshot({ overallState: "ready", update: "up-to-date" })], healthy);
+    await waitFor(() => expect(healthy).toHaveBeenLastCalledWith(null));
   });
 });

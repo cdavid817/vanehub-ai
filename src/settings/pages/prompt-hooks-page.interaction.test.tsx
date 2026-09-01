@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { AgentService } from "../../services/agent-service";
 import type { AgentRegistryEntry } from "../../types/agent";
@@ -154,6 +154,28 @@ describe("PromptHooksPage interactions", () => {
     await user.click(screen.getByRole("tab", { name: "基本设置" }));
     expect(screen.getByLabelText("名称")).toHaveProperty("value", "");
   }, 20_000);
+
+  it("flags the shell status once the runtime trace query fails", async () => {
+    const onStatusChange = vi.fn();
+    const service = promptHookService(() => [userHook()], vi.fn(), {
+      listPromptHookTraces: vi.fn(async () => {
+        throw new Error("trace fetch failed");
+      }),
+    });
+    const { user } = renderWithAppProviders(
+      <PromptHooksPage onStatusChange={onStatusChange} searchTerm="" service={service} />,
+    );
+
+    await waitFor(() => {
+      expect(onStatusChange).toHaveBeenCalledWith(null);
+    });
+
+    await user.click(screen.getByRole("tab", { name: "运行记录" }));
+
+    await waitFor(() => {
+      expect(onStatusChange).toHaveBeenCalledWith({ kind: "error", labelKey: "promptHooks.status.error" });
+    });
+  });
 
   it("does not expose mutation controls for an immutable built-in Prompt Hook", async () => {
     const service = promptHookService(() => [builtinHook()], vi.fn());

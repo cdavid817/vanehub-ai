@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import "../../i18n";
 import type { ObservabilitySettings } from "../../types/execution-observability";
 import { ObservabilitySettingsPage, validateObservabilitySettings } from "./observability-settings-page";
@@ -106,5 +106,36 @@ describe("ObservabilitySettingsPage", () => {
 
     expect(await screen.findByText(/可观测性配置已保存/)).toBeTruthy();
     expect(screen.queryByText(/重启 VaneHub 以重建/)).toBeNull();
+  });
+
+  it("reports a restart-required status for its nav entry once the same condition is true (task 12.16)", async () => {
+    const client = new QueryClient();
+    client.setQueryData(["execution-observability", "settings"], settings);
+    client.setQueryData(["execution-observability", "capabilities"], []);
+    const user = userEvent.setup();
+    const onStatusChange = vi.fn();
+    const service = {
+      async getSettings() { return settings; },
+      async updateSettings(input: ObservabilitySettings) { return input; },
+      async listRuns() { return { items: [], nextPageToken: null }; },
+      async getRun() { throw new Error("not used"); },
+      async getTimeline() { throw new Error("not used"); },
+      async getObservationCapabilities() { return []; },
+    };
+    render(
+      <QueryClientProvider client={client}>
+        <ObservabilitySettingsPage onStatusChange={onStatusChange} service={service} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(onStatusChange).toHaveBeenLastCalledWith(null));
+    await user.click(await screen.findByRole("checkbox", { name: "启用 OTLP/HTTP protobuf 导出" }));
+    await user.type(screen.getByRole("textbox", { name: "Collector 地址" }), "https://otel.example.com/v1/traces");
+    await user.click(screen.getByRole("button", { name: "保存可观测性设置" }));
+
+    await waitFor(() => expect(onStatusChange).toHaveBeenLastCalledWith({
+      kind: "restart-required",
+      labelKey: "observability.restartPending",
+    }));
   });
 });

@@ -858,4 +858,26 @@ describe("SkillsPage interactions", () => {
       { scope: "global", workspacePath: null },
     ));
   }, 10_000);
+
+  it("reports an error status for its nav entry when the overview query fails, and null once healthy again (task 12.16)", async () => {
+    serviceMocks.getSkillOverview.mockRejectedValueOnce(new Error("overview failed"));
+    const onStatusChange = vi.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const user = userEvent.setup();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SkillsPage onStatusChange={onStatusChange} searchTerm="" />
+      </QueryClientProvider>,
+    );
+
+    await screen.findByText("overview failed");
+    await waitFor(() => expect(onStatusChange).toHaveBeenLastCalledWith({
+      kind: "error",
+      labelKey: "skills.status.error",
+    }));
+
+    await user.click(screen.getByRole("button", { name: "重试" }));
+    await screen.findByText("Reliable Skill");
+    await waitFor(() => expect(onStatusChange).toHaveBeenLastCalledWith(null));
+  });
 });

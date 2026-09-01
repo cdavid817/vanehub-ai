@@ -6,7 +6,7 @@ import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 import type { LazyFeatureLoader } from "../components/lazy-feature";
 import { renderWithAppProviders } from "../test/render";
-import type { SettingsDraftGuard, SettingsPageContext } from "./settings-page-types";
+import type { SettingsDraftGuard, SettingsPageContext, SettingsPageStatus } from "./settings-page-types";
 import { SettingsShell } from "./settings-shell";
 
 function renderShell(onReturn?: () => void) {
@@ -38,6 +38,20 @@ function draftyMockPage(label: string, guard: SettingsDraftGuard | null) {
     return <p>{label}</p>;
   }
   return () => Promise.resolve({ default: DraftyMockPage });
+}
+
+/** Reports a fixed status on mount (or none, with `null`) via `onStatusChange` — a stand-in for a
+ *  real page's own condition tracking (task 12.16), so the shell's nav-entry indicator can be
+ *  exercised without depending on any specific real page's status logic. */
+function statusMockPage(label: string, status: SettingsPageStatus | null) {
+  function StatusMockPage({ onStatusChange }: { onStatusChange?: (next: SettingsPageStatus | null) => void }) {
+    useEffect(() => {
+      onStatusChange?.(status);
+      return () => onStatusChange?.(null);
+    }, [onStatusChange]);
+    return <p>{label}</p>;
+  }
+  return () => Promise.resolve({ default: StatusMockPage });
 }
 
 // vi.mock factories run once, at import time, before any it() block — so the mocked loaders can't
@@ -246,5 +260,54 @@ describe("SettingsShell draft navigation guard (task 12.12)", () => {
     const dialog = await screen.findByRole("dialog");
     expect(dialog.textContent).not.toContain(secretValue);
     expect(document.body.textContent).not.toContain(secretValue);
+  });
+});
+
+describe("SettingsShell nav-entry status indicator (task 12.16)", () => {
+  it("shows the active page's own reported status as a bounded dot on its nav entry", async () => {
+    mockLoaders.never.mockImplementation(statusMockPage("Basic page", { kind: "error", labelKey: "cliParameters.error.status" }));
+    mockLoaders.draftOnly.mockImplementation(mountSpyPage("CLI parameters page", vi.fn()));
+
+    renderShell();
+    await waitFor(() => expect(screen.getByText("Basic page")).toBeTruthy());
+    // Reporting is its own effect, one render after the page's own content commits -- and the
+    // dot's own accessible text is inside this same button, so its accessible name grows past the
+    // bare page label once it lands (anchored at the start rather than an exact match, same as
+    // this file's pre-existing `/^切换设置页面/` locator handles its own interpolated trailing text).
+    // A longer timeout than the default absorbs this file's own full-suite-load sensitivity (this
+    // waits on a second, effect-triggered render, not just the first paint the earlier line does).
+    await waitFor(() => expect(screen.getByRole("button", { name: /^基础配置/ }).querySelector(".bg-danger")).toBeTruthy(), { timeout: 5000 });
+  });
+
+  it("keeps a keepAlive:draft-only page's reported status visible after switching to a different page", async () => {
+    mockLoaders.never.mockImplementation(mountSpyPage("Basic page", vi.fn()));
+    mockLoaders.draftOnly.mockImplementation(statusMockPage("CLI parameters page", { kind: "unsaved", labelKey: "cliParameters.badge.dirty", labelParams: { count: 1 } }));
+
+    renderShell();
+    await waitFor(() => expect(screen.getByText("Basic page")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "CLI 参数" }));
+    await waitFor(() => expect(screen.getByText("CLI parameters page")).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("button", { name: /^CLI 参数/ }).querySelector(".bg-attention")).toBeTruthy(), { timeout: 5000 });
+
+    fireEvent.click(screen.getByRole("button", { name: "基础配置" }));
+    await waitFor(() => expect(screen.getByText("Basic page")).toBeTruthy());
+    // Still mounted (hidden, not removed) per task 12.17 -- its own effect never re-ran to clear
+    // the report, so the dot stays exactly where a user who left it dirty would expect to find it.
+    expect(screen.getByRole("button", { name: /^CLI 参数/ }).querySelector(".bg-attention")).toBeTruthy();
+  });
+
+  it("clears a keepAlive:never page's reported status once it actually unmounts", async () => {
+    mockLoaders.never.mockImplementation(statusMockPage("Basic page", { kind: "restart-required", labelKey: "observability.restartPending" }));
+    mockLoaders.draftOnly.mockImplementation(mountSpyPage("CLI parameters page", vi.fn()));
+
+    renderShell();
+    await waitFor(() => expect(screen.getByText("Basic page")).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("button", { name: /^基础配置/ }).querySelector(".bg-warning")).toBeTruthy(), { timeout: 5000 });
+
+    fireEvent.click(screen.getByRole("button", { name: "CLI 参数" }));
+    await waitFor(() => expect(screen.getByText("CLI parameters page")).toBeTruthy());
+    // Unmounted, not merely hidden -- there is no live component left to have a status at all, so
+    // the name is back to the bare page label too.
+    await waitFor(() => expect(screen.getByRole("button", { name: "基础配置" }).querySelector(".bg-warning")).toBeNull(), { timeout: 5000 });
   });
 });

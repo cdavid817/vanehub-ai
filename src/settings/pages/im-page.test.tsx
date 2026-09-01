@@ -1,8 +1,25 @@
-import { describe, expect, it } from "vitest";
+// @vitest-environment jsdom
+
+import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "../../i18n";
-import { applyLifecycleUpdate, imErrorMessage } from "./im-page";
+import { applyLifecycleUpdate, imErrorMessage, ImPage } from "./im-page";
 import type { ImConnectorView } from "../../contracts/im";
+
+const statusTelegramConnector: ImConnectorView = {
+  descriptor: { kind: "telegram", supportsQrAuthorization: false, experimental: false, maxOutboundChars: 4096 },
+  config: { kind: "telegram", enabled: true, publicConfig: {} },
+  health: { kind: "telegram", lifecycle: "connected", generation: 1, updatedAt: "2026-01-01" },
+  hasCredentials: true,
+};
+
+vi.mock("../../services/runtime-im-client", () => ({
+  imService: {
+    listConnectors: vi.fn(() => Promise.resolve([statusTelegramConnector])),
+    subscribeLifecycle: vi.fn(() => Promise.resolve(() => undefined)),
+  },
+}));
 
 const translate = ((key: string) => {
   const messages: Record<string, string> = {
@@ -43,12 +60,42 @@ describe("applyLifecycleUpdate", () => {
 
 describe("IM settings structure", () => {
   it("keeps connector configuration independent from Agent and project routing", () => {
-    const page = readFileSync(new URL("./im-page.tsx", import.meta.url), "utf8");
-    const row = readFileSync(new URL("./im/im-connector-row.tsx", import.meta.url), "utf8");
+    // Plain CWD-relative paths, not `new URL(..., import.meta.url)`: jsdom (needed below for the
+    // status-reporting test) shadows the global `URL` with its own implementation, which
+    // `readFileSync` rejects with "The URL must be of scheme file".
+    const page = readFileSync("src/settings/pages/im-page.tsx", "utf8");
+    const row = readFileSync("src/settings/pages/im/im-connector-row.tsx", "utf8");
 
     expect(page).not.toContain("ImRoutingSection");
     expect(page).not.toContain("getRouting()");
     expect(page).not.toContain("listKnownProjects()");
     expect(row).not.toContain("routingReady");
+  });
+});
+
+describe("ImPage status reporting (task 12.16)", () => {
+  it("reports an error status for its nav entry once a refresh fails, and null while healthy under the desktop runtime", async () => {
+    const { imService } = await import("../../services/runtime-im-client");
+    const onStatusChange = vi.fn();
+    const originalTauriInternals = window.__TAURI_INTERNALS__;
+    // isWebRuntime (im-page.tsx) reads window.__TAURI_INTERNALS__ directly -- without it jsdom's
+    // default "web-mock" runtime kind would always make the healthy/null case unreachable here.
+    window.__TAURI_INTERNALS__ = {};
+    try {
+      render(<ImPage onStatusChange={onStatusChange} searchTerm="" />);
+
+      await screen.findByText("Telegram");
+      await waitFor(() => expect(onStatusChange).toHaveBeenLastCalledWith(null));
+
+      vi.mocked(imService.listConnectors).mockRejectedValueOnce(new Error("boom"));
+      fireEvent.click(screen.getByRole("button", { name: "刷新" }));
+
+      await waitFor(() => expect(onStatusChange).toHaveBeenLastCalledWith({
+        kind: "error",
+        labelKey: "im.pageStatus.error",
+      }));
+    } finally {
+      window.__TAURI_INTERNALS__ = originalTauriInternals;
+    }
   });
 });

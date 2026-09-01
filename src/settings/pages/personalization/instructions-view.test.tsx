@@ -7,6 +7,7 @@ import "../../../i18n";
 import { SettingsProvider } from "../../settings-provider";
 import { createAgentServiceDouble, renderWithAppProviders } from "../../../test/render";
 import type { PersonalizationPolicy, WorkspaceScopeInput } from "../../../types/personalization";
+import type { SettingsPageStatus } from "../../settings-page-types";
 import { PersonalizationInstructionsView } from "./instructions-view";
 
 const GLOBAL_POLICY: PersonalizationPolicy = {
@@ -22,7 +23,10 @@ const GLOBAL_POLICY: PersonalizationPolicy = {
   globalMemoryAccessMode: "enabled",
 };
 
-function renderView(overrides: Parameters<typeof createAgentServiceDouble>[0] = {}) {
+function renderView(
+  overrides: Parameters<typeof createAgentServiceDouble>[0] = {},
+  onStatusChange?: (status: SettingsPageStatus | null) => void,
+) {
   const resolvePersonalizationWorkspace = vi.fn(async (input: WorkspaceScopeInput) =>
     input.projectPath
       ? { workspaceKey: `ws-local-${input.projectPath}`, kind: "local" as const }
@@ -59,7 +63,7 @@ function renderView(overrides: Parameters<typeof createAgentServiceDouble>[0] = 
   });
   const rendered = renderWithAppProviders(
     <SettingsProvider>
-      <PersonalizationInstructionsView service={service} />
+      <PersonalizationInstructionsView onStatusChange={onStatusChange} service={service} />
     </SettingsProvider>,
   );
   return { ...rendered, resolvePersonalizationWorkspace };
@@ -127,6 +131,25 @@ describe("PersonalizationInstructionsView", () => {
 
     await waitFor(() => {
       expect(select.querySelector('option[value="ws-local-/code/vanehub"]')?.textContent).toBe("vanehub");
+    });
+  });
+
+  it("flags the shell status once the open layer's draft becomes dirty", async () => {
+    const onStatusChange = vi.fn();
+    const { user } = renderView({}, onStatusChange);
+
+    await waitFor(() => {
+      expect(onStatusChange).toHaveBeenCalledWith(null);
+    });
+
+    await user.type(await screen.findByTestId("personalization-field-aboutUser"), "!");
+
+    await waitFor(() => {
+      expect(onStatusChange).toHaveBeenCalledWith({
+        kind: "unsaved",
+        labelKey: "personalization.status.unsaved",
+        labelParams: { count: 1 },
+      });
     });
   });
 });

@@ -24,4 +24,20 @@ describe("SettingsSidebar", () => {
     // The full name has to survive truncation for pointer hover and assistive technology.
     expect(label?.getAttribute("title")).toBe(label?.textContent);
   });
+
+  it("shows exactly one bounded status dot on the entry it belongs to (task 12.16)", () => {
+    render(
+      <SettingsSidebar
+        activePageId="agent-configurations"
+        onSelectPage={vi.fn()}
+        pageStatuses={{ mcp: { kind: "error", labelKey: "cliParameters.error.status" } }}
+      />,
+    );
+
+    const mcpButton = screen.getByRole("button", { name: /MCP/ });
+    expect(mcpButton.querySelector(".bg-danger")).toBeTruthy();
+    // Only the flagged entry gets a dot -- every other rendered page has nothing true to report.
+    const otherButtons = screen.getAllByRole("button").filter((button) => button !== mcpButton);
+    expect(otherButtons.every((button) => !button.querySelector(".bg-danger, .bg-blocked, .bg-attention, .bg-warning, .bg-information"))).toBe(true);
+  });
 });
