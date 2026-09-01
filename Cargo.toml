@@ -66,7 +66,7 @@ xcap = { version = "0.9.8", default-features = false }
 # two cpal versions in the graph, each opening its own handle to WASAPI/CoreAudio/ALSA and each
 # enumerating devices the other cannot resolve. One audio backend per process is worth more than
 # the better error type; revisit when rodio moves to 0.18.
-cpal = "0.17.3"
+cpal = "0.18.2"
 # 16-bit PCM WAV only, both directions. hound has no feature flags and no codec surface, which is
 # the reason it is here rather than a general media library.
 hound = "3.5.1"
