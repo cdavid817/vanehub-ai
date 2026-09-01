@@ -10,13 +10,17 @@ describe("SettingsCompactNav (task 12.9)", () => {
 
   it("shows a trigger naming the current page and no sheet until opened", () => {
     render(<SettingsCompactNav activePageId="basic" onSelectPage={vi.fn()} />);
-    expect(screen.getByRole("button", { name: /基础配置/ })).toBeTruthy();
+    // The accessible name is a stable "switch page" label plus the current page, not just the
+    // current page's own name -- a screen reader user tabbing to it must hear that it is a
+    // navigation control, not a static heading (task 12.11's e2e fix surfaced this gap).
+    expect(screen.getByRole("button", { name: /^切换设置页面.*基础配置/ })).toBeTruthy();
+    expect(screen.getByText("基础配置")).toBeTruthy();
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("opens a searchable sheet listing every registered page, grouped", () => {
     render(<SettingsCompactNav activePageId="basic" onSelectPage={vi.fn()} />);
-    fireEvent.click(screen.getByRole("button", { name: /基础配置/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^切换设置页面/ }));
 
     const dialog = screen.getByRole("dialog");
     expect(dialog).toBeTruthy();
@@ -27,7 +31,7 @@ describe("SettingsCompactNav (task 12.9)", () => {
 
   it("filters the listed pages as the reader types, without horizontal scrolling required", () => {
     render(<SettingsCompactNav activePageId="basic" onSelectPage={vi.fn()} />);
-    fireEvent.click(screen.getByRole("button", { name: /基础配置/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^切换设置页面/ }));
 
     fireEvent.change(screen.getByPlaceholderText("筛选设置页面..."), { target: { value: "SSH" } });
     expect(screen.getByRole("button", { name: /SSH 连接/ })).toBeTruthy();
@@ -36,7 +40,7 @@ describe("SettingsCompactNav (task 12.9)", () => {
 
   it("shows a no-results state for a query matching nothing", () => {
     render(<SettingsCompactNav activePageId="basic" onSelectPage={vi.fn()} />);
-    fireEvent.click(screen.getByRole("button", { name: /基础配置/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^切换设置页面/ }));
     fireEvent.change(screen.getByPlaceholderText("筛选设置页面..."), { target: { value: "zzz-no-such-page" } });
     expect(screen.getByRole("status").textContent).toContain("没有匹配的设置页面");
   });
@@ -44,7 +48,7 @@ describe("SettingsCompactNav (task 12.9)", () => {
   it("selects a page, closes the sheet, and clears the filter", () => {
     const onSelectPage = vi.fn();
     render(<SettingsCompactNav activePageId="basic" onSelectPage={onSelectPage} />);
-    fireEvent.click(screen.getByRole("button", { name: /基础配置/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^切换设置页面/ }));
     fireEvent.click(screen.getByRole("button", { name: /SSH 连接/ }));
 
     expect(onSelectPage).toHaveBeenCalledWith("ssh-connections");
@@ -53,10 +57,10 @@ describe("SettingsCompactNav (task 12.9)", () => {
 
   it("marks the active page with aria-current inside the sheet", () => {
     render(<SettingsCompactNav activePageId="ssh-connections" onSelectPage={vi.fn()} />);
-    fireEvent.click(screen.getByRole("button", { name: /SSH 连接/ }));
-    const activeEntries = screen.getAllByRole("button", { name: /SSH 连接/ });
-    // One is the trigger itself (outside the sheet), the other is the now-active row inside it.
-    const activeRow = activeEntries.find((entry) => entry.getAttribute("aria-current") === "page");
+    fireEvent.click(screen.getByRole("button", { name: /^切换设置页面/ }));
+    const activeRow = screen
+      .getAllByRole("button", { name: /SSH 连接/ })
+      .find((entry) => entry.getAttribute("aria-current") === "page");
     expect(activeRow).toBeTruthy();
   });
 });

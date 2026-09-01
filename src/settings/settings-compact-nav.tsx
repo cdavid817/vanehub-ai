@@ -38,6 +38,7 @@ export function SettingsCompactNav({ activePageId, onSelectPage }: { activePageI
       <button
         aria-expanded={open}
         aria-haspopup="dialog"
+        aria-label={t("settings.compactNav.trigger", { page: t(activePage.labelKey) })}
         className="ucd-list-row flex h-10 w-full items-center gap-2 rounded-md border border-border bg-background px-3 text-left text-sm"
         onClick={() => setOpen(true)}
         type="button"

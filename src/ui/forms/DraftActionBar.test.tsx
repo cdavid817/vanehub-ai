@@ -38,6 +38,12 @@ describe("DraftActionBar", () => {
     expect((screen.getByRole("button", { name: "Discard" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it("disables only Save, not Discard, when saveDisabled is set", () => {
+    render(<DraftActionBar dirtyCount={2} onDiscard={vi.fn()} onSave={vi.fn()} saveDisabled />);
+    expect((screen.getByRole("button", { name: /Save/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Discard" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it("shows a save error message", () => {
     render(
       <DraftActionBar

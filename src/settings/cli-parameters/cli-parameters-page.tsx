@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RotateCcw, Save, SlidersHorizontal, Undo2 } from "lucide-react";
+import { RotateCcw, SlidersHorizontal } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
@@ -10,6 +10,7 @@ import { agentService } from "../../services/runtime-agent-client";
 import type { ManagedCliAgentId } from "../../types/agent";
 import type { CliLaunchScope } from "../../types/cli-parameter";
 import type { CliParameterProfile } from "../../types/cli-parameter-profile";
+import { DraftActionBar } from "../../ui/forms/DraftActionBar";
 import type { SettingsPageId } from "../settings-pages";
 import { PageHeader } from "../pages/page-parts";
 import { CliParameterFieldGroups } from "./cli-parameter-field-groups";
@@ -57,6 +58,7 @@ export function CliParametersPage({
   const conflict = drafts.conflictFor(activeAgentId);
   // A blocking diagnostic is the server saying this profile is not in a saveable state.
   const blocked = (activeProfile?.diagnostics ?? []).some((entry) => entry.blocking);
+  const activeDirtyCount = drafts.dirtyIdsFor(activeAgentId).length;
 
   const preview = useCliParameterPreview(
     activeProfile ? activeAgentId : null,
@@ -155,20 +157,6 @@ export function CliParametersPage({
             >
               <RotateCcw aria-hidden="true" /> {t("cliParameters.actions.restoreInherited")}
             </Button>
-            <Button
-              disabled={!drafts.isDirtyFor(activeAgentId)}
-              onClick={() => void discardActiveDraft()}
-              variant="outline"
-            >
-              <Undo2 aria-hidden="true" /> {t("cliParameters.actions.discardDraft")}
-            </Button>
-            <Button
-              disabled={!drafts.canSaveFor(activeAgentId) || blocked || saveMutation.isPending}
-              onClick={() => saveMutation.mutate()}
-            >
-              <Save aria-hidden="true" />{" "}
-              {t(saveMutation.isPending ? "cliParameters.actions.saving" : "cliParameters.actions.save")}
-            </Button>
           </>
         }
         description={t("cliParameters.description")}
@@ -176,7 +164,10 @@ export function CliParametersPage({
         title={t("cliParameters.title")}
       />
 
-      <div className="grid gap-4 lg:grid-cols-[240px_minmax(0,1fr)]">
+      {/* DraftActionBar is sticky, not layout-reserving -- it can only overlap content, never push
+          it up. This bottom padding is how the page keeps its own controls clear of the bar once
+          a save becomes available, and only while one actually is (no permanent empty space). */}
+      <div className={`grid gap-4 lg:grid-cols-[240px_minmax(0,1fr)] ${activeDirtyCount > 0 ? "pb-20" : ""}`}>
         <CliParameterRail
           activeAgentId={activeAgentId}
           dirtyCountFor={(agentId) => drafts.dirtyIdsFor(agentId).length}
@@ -260,6 +251,14 @@ export function CliParametersPage({
           </div>
         </div>
       </div>
+
+      <DraftActionBar
+        dirtyCount={activeDirtyCount}
+        onDiscard={() => void discardActiveDraft()}
+        onSave={() => saveMutation.mutate()}
+        pending={saveMutation.isPending}
+        saveDisabled={!drafts.canSaveFor(activeAgentId) || blocked}
+      />
     </div>
   );
 }

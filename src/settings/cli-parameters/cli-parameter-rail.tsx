@@ -43,7 +43,10 @@ export function CliParameterRail({
 
   return (
     <SectionPanel
-      className="sticky top-4 self-start"
+      // Sticky-to-top only makes sense beside the field list in the desktop 2-column grid; below
+      // `lg` the grid collapses to one column and an unconditionally sticky rail pins itself over
+      // the content stacked below it as the reader scrolls.
+      className="lg:sticky lg:top-4 lg:self-start"
       description={t("cliParameters.agents.description")}
       title={t("cliParameters.agents.title")}
     >

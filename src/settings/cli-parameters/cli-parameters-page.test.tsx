@@ -129,16 +129,18 @@ describe("CliParametersPage", () => {
     const modelSelect = await screen.findByLabelText("模型", { exact: true });
     await user.selectOptions(modelSelect, "__custom__");
 
-    const save = screen.getByRole("button", { name: /保存更改/ });
-    // Choosing Custom changed the editor only, so nothing is dirty and save stays disabled.
-    expect((save as HTMLButtonElement).disabled).toBe(true);
+    // Choosing Custom changed the editor only, so nothing is dirty yet -- the draft bar (dirtyCount
+    // gated) has nothing to show until a value actually differs from the baseline.
+    expect(screen.queryByRole("button", { name: "保存" })).toBeNull();
 
     const custom = screen.getByLabelText("输入您的 CLI 支持的模型标识符");
     await user.type(custom, "claude-opus-5");
-    await waitFor(() => expect((save as HTMLButtonElement).disabled).toBe(false));
+    const save = await screen.findByRole("button", { name: "保存" });
+    expect((save as HTMLButtonElement).disabled).toBe(false);
 
     await user.clear(custom);
-    // An empty box is invalid, not an empty value: save is refused again.
+    // An empty box is invalid, not an empty value: the last typed value stays dirty against the
+    // baseline (so the bar stays visible) but save is refused again.
     await waitFor(() => expect((save as HTMLButtonElement).disabled).toBe(true));
   });
 
@@ -187,7 +189,7 @@ describe("CliParametersPage", () => {
       await screen.findByLabelText("\u6a21\u578b", { exact: true }),
       "opus",
     );
-    await user.click(screen.getByRole("button", { name: /\u4fdd\u5b58\u66f4\u6539/ }));
+    await user.click(screen.getByRole("button", { name: "\u4fdd\u5b58" }));
 
     await waitFor(() => expect(screen.queryByRole("alert")).not.toBeNull());
     // The draft is not thrown away by a rejected write.
