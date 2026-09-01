@@ -74,10 +74,14 @@ test.describe("CLI Management navigation and inventory", () => {
       .toEqual(["claude-code", "codex-cli", "opencode", "antigravity-cli", "gemini-cli"]);
 
     // The five summary counts add up to the tools that landed in a bucket; a tool counted twice
-    // would push the total past the number of cards.
-    await expect(page.getByRole("button", { name: /可更新/ })).toContainText("1");
-    await expect(page.getByRole("button", { name: /有冲突/ })).toContainText("1");
-    await expect(page.getByRole("button", { name: /就绪/ })).toContainText("2");
+    // would push the total past the number of cards. Scoped to the summary bar's own group --
+    // task 12.16's nav-entry status dot can fold "可更新" into the sidebar entry's own accessible
+    // name too (its sr-only text joins the button's name, not just a separate description), which
+    // would otherwise make an unscoped page-wide match ambiguous.
+    const summaryBar = page.getByRole("group", { name: "状态概览" });
+    await expect(summaryBar.getByRole("button", { name: /可更新/ })).toContainText("1");
+    await expect(summaryBar.getByRole("button", { name: /有冲突/ })).toContainText("1");
+    await expect(summaryBar.getByRole("button", { name: /就绪/ })).toContainText("2");
 
     // Nothing on this page may look like a path from the machine the browser is running on.
     const body = (await page.locator("body").textContent()) ?? "";
@@ -105,11 +109,12 @@ test.describe("CLI Management filtering", () => {
     await page.getByLabel("搜索 CLI").fill("");
     await expect(page.locator("[data-cli-agent]")).toHaveCount(5);
 
-    await page.getByRole("button", { name: /有冲突/ }).click();
+    const summaryBar = page.getByRole("group", { name: "状态概览" });
+    await summaryBar.getByRole("button", { name: /有冲突/ }).click();
     await expect(page.locator("[data-cli-agent]")).toHaveCount(1);
     await expect(card(page, "opencode")).toBeVisible();
     // The same control clears it, so there is never a filter with no visible way back.
-    await page.getByRole("button", { name: /有冲突/ }).click();
+    await summaryBar.getByRole("button", { name: /有冲突/ }).click();
     await expect(page.locator("[data-cli-agent]")).toHaveCount(5);
 
     await page.getByLabel("按来源筛选").selectOption("vendor");
