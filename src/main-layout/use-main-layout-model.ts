@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { approvedPlanExitCallId } from "../components/chat/plan-exit-signal";
 import { useChatConfig } from "../components/chat/hooks/useChatConfig";
+import { useRunConfigurationOverrides } from "../components/chat/hooks/useRunConfigurationOverrides";
 import { createChatOperationFailureEvent } from "./chat-operation-failure";
 import { useNotifications } from "../notifications/notification-provider";
 import { normalizeDisplayPath } from "../lib/session-path";
@@ -93,6 +94,7 @@ export function useMainLayoutModel() {
     onPersistError: reportConfigPersistFailure,
     approvedPlanExit: approvedPlanExitCallId(messages),
   });
+  const runConfigOverrides = useRunConfigurationOverrides(activeSessionId, chatConfig.config);
   const invalidateSessions = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: ["sessions"] });
     void queryClient.invalidateQueries({ queryKey: ["session-categories"] });
@@ -160,6 +162,10 @@ export function useMainLayoutModel() {
       queryClient.setQueriesData<ChatMessage[]>({ queryKey: ["messages", input.sessionId] }, (current) =>
         appendMessageIfMissing(current, assistant));
       invalidateRuntime();
+      // A per-message override does not survive past the message it was staged for (design.md
+      // Decision 9) -- cleared only once the send actually went through, not on every keystroke,
+      // and not on a failed send (see `onError` below: the override should still be there to retry with).
+      runConfigOverrides.clearAfterSend();
     },
     onError: (reason, input, context) => {
       if (context?.optimisticId) {
@@ -222,7 +228,7 @@ export function useMainLayoutModel() {
     const references = fileReferences;
     setDraft("");
     setFileReferences([]);
-    sendMessage.mutate({ sessionId: activeSession.id, content, fileReferences: references, runner, config: { ...chatConfig.config, agentId: chatConfig.config.agentId || activeSession.agentId, interactionMode: activeSession.interactionMode } });
+    sendMessage.mutate({ sessionId: activeSession.id, content, fileReferences: references, runner, config: { ...runConfigOverrides.effectiveConfig, agentId: runConfigOverrides.effectiveConfig.agentId || activeSession.agentId, interactionMode: activeSession.interactionMode } });
   }
   function stop() { if (activeSessionId && isStreaming) stopGeneration.mutate(activeSessionId); }
   function sessionCreated(session: Session) {
@@ -235,6 +241,7 @@ export function useMainLayoutModel() {
     assignCategory: (session: Session, categoryId: string | null) => assignCategory.mutate({ session, categoryId }),
     categories: categoriesQuery.data ?? [],
     chatConfig,
+    runConfigOverrides,
     createCategory: async (name: string): Promise<SessionCategory> => createCategory.mutateAsync(name),
     deleteSession: (session: Session) => deleteSession.mutate(session.id),
     deleteSessions: (selectedSessions: Session[]) => deleteSessions.mutate(selectedSessions),
