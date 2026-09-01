@@ -215,4 +215,29 @@ describe("CliParametersPage", () => {
       ).toBe("opus"),
     );
   });
+
+  it("reports its own draft state to the shell for the navigation guard (task 12.12)", async () => {
+    const user = userEvent.setup();
+    const onDraftStateChange = vi.fn();
+    render(
+      <QueryClientProvider client={seededClient()}>
+        <CliParametersPage onDraftStateChange={onDraftStateChange} searchTerm="" />
+      </QueryClientProvider>,
+    );
+
+    await screen.findByLabelText("模型", { exact: true });
+    await waitFor(() => expect(onDraftStateChange).toHaveBeenLastCalledWith(null));
+
+    await user.selectOptions(screen.getByLabelText("模型", { exact: true }), "opus");
+    await waitFor(() => {
+      expect(onDraftStateChange.mock.calls.at(-1)?.[0]).toMatchObject({ canSave: true, dirtyCount: 1 });
+    });
+
+    // The reported guard's own discard callback, not a second confirm dialog -- the shell's
+    // own Save/Discard/Stay prompt already was the confirmation.
+    const guard = onDraftStateChange.mock.calls.at(-1)?.[0];
+    guard.discard();
+    await waitFor(() => expect(onDraftStateChange).toHaveBeenLastCalledWith(null));
+    expect((screen.getByLabelText("模型", { exact: true }) as HTMLSelectElement).value).toBe("__inherit__");
+  });
 });

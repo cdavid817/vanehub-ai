@@ -48,6 +48,27 @@ export interface SettingsPageContext {
    * background work has to be gated on this rather than on mount.
    */
   isActive: boolean;
+  /**
+   * Reports (or clears, with `null`) the active page's own unsaved-draft state so the shell can
+   * guard navigation away from changes its own lifecycle would otherwise silently lose (task
+   * 12.12). Carries a count and two callbacks, never the field values themselves, so a secret
+   * draft value structurally cannot reach the shell, a route, storage, or a log through this path
+   * — the owning page is the only thing that ever holds it. A page whose `saveMode` is not
+   * "draft"/"mixed", or that has nothing dirty right now, simply never calls this with a
+   * non-null value.
+   */
+  onDraftStateChange?: (guard: SettingsDraftGuard | null) => void;
+}
+
+export interface SettingsDraftGuard {
+  /** For copy like "3 unsaved changes will be lost" in the shell's own leave prompt. */
+  dirtyCount: number;
+  /** False when the draft can't be saved right now (local validation error or a server-side
+   *  conflict) -- the shell still offers Discard/Stay, with Save disabled rather than hidden,
+   *  mirroring `DraftActionBar`'s own `saveDisabled`. */
+  canSave: boolean;
+  save: () => Promise<void> | void;
+  discard: () => void;
 }
 
 export interface SettingsNavigationTarget {

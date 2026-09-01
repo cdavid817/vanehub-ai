@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RotateCcw, SlidersHorizontal } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -11,6 +11,7 @@ import type { ManagedCliAgentId } from "../../types/agent";
 import type { CliLaunchScope } from "../../types/cli-parameter";
 import type { CliParameterProfile } from "../../types/cli-parameter-profile";
 import { DraftActionBar } from "../../ui/forms/DraftActionBar";
+import type { SettingsDraftGuard } from "../settings-page-types";
 import type { SettingsPageId } from "../settings-pages";
 import { PageHeader } from "../pages/page-parts";
 import { CliParameterFieldGroups } from "./cli-parameter-field-groups";
@@ -29,9 +30,11 @@ const profilesQueryKey = ["cli-parameter-profiles"] as const;
 const emptyProfiles: CliParameterProfile[] = [];
 
 export function CliParametersPage({
+  onDraftStateChange,
   searchTerm,
   onNavigate,
 }: {
+  onDraftStateChange?: (guard: SettingsDraftGuard | null) => void;
   searchTerm: string;
   onNavigate?: (pageId: SettingsPageId) => void;
 }) {
@@ -95,6 +98,26 @@ export function CliParametersPage({
       await queryClient.invalidateQueries({ queryKey: profilesQueryKey });
     },
   });
+
+  /** Task 12.12: reports the active agent's own draft state so the shell can guard leaving
+   *  Settings entirely (`onReturn`) -- the page already survives an *in-app* page switch on its
+   *  own via `keepAlive: "draft-only"` (task 12.17), so this only covers the one departure that
+   *  lifecycle can't. Scoped to the active agent, matching what `DraftActionBar` already shows on
+   *  screen: a *different* agent's own dirty draft is not covered by this guard instance (only
+   *  the header's cross-agent badge signals it), and the pre-existing `beforeunload` handler in
+   *  `use-cli-parameter-drafts.ts` remains the only protection against losing it by closing the
+   *  whole window. */
+  useEffect(() => {
+    if (!onDraftStateChange) return;
+    if (activeDirtyCount === 0) { onDraftStateChange(null); return; }
+    onDraftStateChange({
+      canSave: drafts.canSaveFor(activeAgentId) && !blocked,
+      dirtyCount: activeDirtyCount,
+      discard: () => drafts.discard(activeAgentId),
+      save: async () => { await saveMutation.mutateAsync(); },
+    });
+    return () => onDraftStateChange(null);
+  }, [activeAgentId, activeDirtyCount, blocked, drafts, onDraftStateChange, saveMutation]);
 
   const query = (searchTerm || localQuery).trim().toLocaleLowerCase();
   const error =

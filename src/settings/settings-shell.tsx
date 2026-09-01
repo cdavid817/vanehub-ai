@@ -1,9 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router";
 import { LazyFeature } from "../components/lazy-feature";
+import { useDraftNavigationGuard } from "../components/ui/use-draft-navigation-guard";
 import { useSettingsAnchorHighlight } from "../hooks/use-settings-anchor-highlight";
 import { shouldRenderPage } from "../ui/page-lifecycle/page-lifecycle-policy";
 import { SETTINGS_PAGE_LIFECYCLE } from "./settings-page-lifecycle";
+import type { SettingsDraftGuard } from "./settings-page-types";
 import { defaultSettingsPageId, getSettingsPage, settingsPages, type SettingsNavigationTarget, type SettingsPageId } from "./settings-pages";
 import { buildSettingsSearchIndex, type SettingsSearchResult } from "./settings-search-index";
 import { SettingsCompactNav } from "./settings-compact-nav";
@@ -24,6 +27,7 @@ export function SettingsShell({
   onOpenSession?: (sessionId: string) => void;
   onReturn?: () => void;
 }) {
+  const { t } = useTranslation();
   const [searchParams] = useSearchParams();
   const requestedPage = searchParams.get("section");
   const initialPage = settingsPages.some((page) => page.id === requestedPage) ? requestedPage as SettingsPageId : initialPageId;
@@ -34,18 +38,74 @@ export function SettingsShell({
   const [navigationTarget, setNavigationTarget] = useState<SettingsNavigationTarget | null>(initialNavigationTarget);
   const [searchTerm, setSearchTerm] = useState("");
   const [pendingAnchorId, setPendingAnchorId] = useState<string | null>(null);
+  // A ref, not state: the guard is only ever read imperatively, at the moment a navigation is
+  // attempted, never rendered -- state here would re-render the shell (and, through fresh
+  // `pageProps`, the active page) on every report, and a reporting page's own effect naturally
+  // depends on non-primitive values (its mutation/draft-API objects) that are new every render,
+  // which is exactly the shape of an infinite report-render-report loop.
+  const draftGuardRef = useRef<SettingsDraftGuard | null>(null);
+  const handleDraftStateChange = useCallback((guard: SettingsDraftGuard | null) => {
+    draftGuardRef.current = guard;
+  }, []);
+  const { requestDecision, navigationGuardDialog } = useDraftNavigationGuard();
   const activePage = useMemo(() => getSettingsPage(activePageId), [activePageId]);
+
+  // A page reports its own guard through `onDraftStateChange`; clear it on every page switch so a
+  // stale guard from the page just left can't outlive it (the newly active page re-reports its
+  // own state, if any, once mounted/visible). Redundant with the reporting page's own
+  // active-prop-changing cleanup, kept anyway as a cheap, explicit backstop.
+  useEffect(() => { draftGuardRef.current = null; }, [activePageId]);
+
+  /** Task 12.12: shell-coordinated Save/Discard/Stay instead of each page building its own
+   *  blocking dialog. `proceed` only runs once the user has chosen to actually leave. */
+  const guardedLeave = useCallback(async (proceed: () => void) => {
+    const guard = draftGuardRef.current;
+    if (!guard) { proceed(); return; }
+    const outcome = await requestDecision({
+      canSave: guard.canSave,
+      dirtyCount: guard.dirtyCount,
+      title: t("draftNavigationGuard.title"),
+    });
+    if (outcome === "stay") return;
+    if (outcome === "save") {
+      try {
+        await guard.save();
+      } catch {
+        // Save failed -- stay rather than navigate away as though it had succeeded. The page's
+        // own error surface (already shown next to its own Save control) explains what happened.
+        return;
+      }
+    } else {
+      guard.discard();
+    }
+    proceed();
+  }, [requestDecision, t]);
+
+  const handleSelectPage = useCallback((pageId: SettingsPageId, target?: SettingsNavigationTarget) => {
+    function proceed() {
+      setVisitedPages((current) => new Set(current).add(pageId));
+      setActivePageId(pageId);
+      setNavigationTarget(target ?? null);
+      setSearchTerm("");
+    }
+    // A `draft-only`/`always` page keeps its own state across an inter-page switch on its own
+    // (task 12.17) -- only a page that would actually unmount (`keepAlive: "never"`) needs
+    // interrupting here. Reselecting the already-active page is never a real departure.
+    if (pageId !== activePageId && draftGuardRef.current && SETTINGS_PAGE_LIFECYCLE[activePageId].keepAlive === "never") {
+      void guardedLeave(proceed);
+      return;
+    }
+    proceed();
+  }, [activePageId, guardedLeave]);
 
   useEffect(() => {
     if (requestedPage && settingsPages.some((page) => page.id === requestedPage)) handleSelectPage(requestedPage as SettingsPageId);
-  }, [requestedPage]);
+  }, [requestedPage, handleSelectPage]);
 
-  function handleSelectPage(pageId: SettingsPageId, target?: SettingsNavigationTarget) {
-    setVisitedPages((current) => new Set(current).add(pageId));
-    setActivePageId(pageId);
-    setNavigationTarget(target ?? null);
-    setSearchTerm("");
-  }
+  // Leaving Settings entirely unmounts the whole shell regardless of any individual page's
+  // lifecycle policy, so this is always guarded when a draft is reported -- unlike inter-page
+  // switches, no `keepAlive` value protects a component that is about to be unrouted.
+  const guardedOnReturn = onReturn ? () => { void guardedLeave(onReturn); } : undefined;
 
   // Task 12.6: a field result also needs the target page loaded before its anchor exists to
   // scroll to -- `useSettingsAnchorHighlight` itself polls for that, this only decides *which*
@@ -58,9 +118,10 @@ export function SettingsShell({
 
   return (
     <main className="flex h-screen min-h-0 flex-col overflow-hidden bg-muted/40 text-foreground">
+      {navigationGuardDialog}
       <SettingsTopBar
         activePage={activePage}
-        onReturn={onReturn}
+        onReturn={guardedOnReturn}
         onSearchTermChange={setSearchTerm}
         onSelectSearchResult={handleSelectSearchResult}
         searchIndex={settingsSearchIndex}
@@ -76,9 +137,10 @@ export function SettingsShell({
             const pageProps = {
               isActive: isActivePage,
               navigationTarget: isActivePage ? navigationTarget : null,
+              onDraftStateChange: isActivePage ? handleDraftStateChange : undefined,
               onNavigate: handleSelectPage,
               onOpenSession,
-              onReturn,
+              onReturn: guardedOnReturn,
               searchTerm: isActivePage ? searchTerm : "",
             };
             return (

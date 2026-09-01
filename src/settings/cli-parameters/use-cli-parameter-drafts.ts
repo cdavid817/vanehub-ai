@@ -82,10 +82,12 @@ export function useCliParameterDrafts(
     [drafts],
   );
 
-  // The repository has no shared unsaved-change guard to integrate with, so this is the guard: the
-  // browser's own prompt, armed only while something is actually dirty. In-app navigation is
-  // covered by the drafts surviving a page switch, which is why leaving the window is the only
-  // moment work can be lost.
+  // Closing the whole window/tab is not routed through React at all, so the shell's own
+  // navigation guard (task 12.12, `settings-shell.tsx`) cannot intercept it -- this is the only
+  // guard for that specific departure: the browser's own prompt, armed only while something is
+  // actually dirty. Every *in-app* departure (an inter-page switch, or leaving Settings for the
+  // workbench) is covered by the shell's guard instead, which -- unlike this blunt yes/no prompt
+  // -- can actually offer Save.
   useEffect(() => {
     if (totalDirtyCount === 0) return;
     const warn = (event: BeforeUnloadEvent) => {
