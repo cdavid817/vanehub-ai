@@ -1,34 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
-import { useTranslation } from "react-i18next";
-import { agentService } from "../services/runtime-agent-client";
-import { snapshotSeat } from "../services/seat-presentation";
-import { operationService } from "../services/runtime-operation-client";
-import { sshConnectionService } from "../services/runtime-ssh-connection-client";
 import { CreateSessionDialogContent } from "./create-session-dialog-content";
-import { canCreateSession, conciseError, defaultSshConnectionDraft, firstMode, resolveCreatedSession, submitCreateSession } from "./create-session-dialog-utils";
-import { defaultSessionAgent, previousSessionAgentStorageKey, selectSessionAgents } from "./create-session-agents";
-import type { WorkspaceMode } from "./create-session-workspace-sections";
-import { modeForWorkspace } from "./session-personalization-mode-selector";
-import type { SessionPersonalizationMode } from "../types/personalization";
-import type { SessionAgentMode } from "./session-agent-mode-selector";
-import type { SessionSeat } from "../types/agent";
-import type { ExpertRole } from "../types/expert-role";
-import type {
-  AgentRegistryEntry,
-  InteractionMode,
-  KnownRemoteWorkspace,
-  KnownProject,
-  ProjectInspection,
-  Session,
-} from "../types/agent";
-import type {
-  SaveSshConnectionInput,
-  SshConnection,
-} from "../types/ssh-connection";
-import {
-  defaultSessionTitleFromPath,
-  normalizeDisplayPath,
-} from "../lib/session-path";
+import { useCreateSessionDraft } from "./use-create-session-draft";
+import type { AgentRegistryEntry, Session } from "../types/agent";
+
+/**
+ * Wires `useCreateSessionDraft` (the draft/validation model, task 11.1) onto
+ * `CreateSessionDialogContent`'s existing props. Everything this component used to own directly
+ * -- ~26 pieces of `useState`, four effects, the inspect/browse handlers, and submission -- now
+ * lives in the hook; this file is left with only the mapping.
+ */
 export function CreateSessionDialog({
   agents,
   onClose,
@@ -42,294 +21,63 @@ export function CreateSessionDialog({
   onCreated: (session: Session) => void;
   open: boolean;
 }) {
-  const { t } = useTranslation();
-  const availableAgents = useMemo(
-    () => selectSessionAgents(agents),
-    [agents],
-  );
-  const [agentId, setAgentId] = useState("");
-  const selectedAgent =
-    availableAgents.find((agent) => agent.id === agentId) ??
-    availableAgents[0] ??
-    null;
-  const [interactionMode, setInteractionMode] =
-    useState<InteractionMode>("cli");
-  const [agentMode, setAgentMode] = useState<SessionAgentMode>("single");
-  const [multiSeats, setMultiSeats] = useState<SessionSeat[]>([]);
-  const [expertRoles, setExpertRoles] = useState<ExpertRole[]>([]);
-  const [title, setTitle] = useState("");
-  const [titleUserEdited, setTitleUserEdited] = useState(false);
-  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>("local");
-  const [projectPath, setProjectPath] = useState("");
-  const [personalizationMode, setPersonalizationMode] =
-    useState<SessionPersonalizationMode>("standard");
-  const [knownProjects, setKnownProjects] = useState<KnownProject[]>([]);
-  const [knownRemoteWorkspaces, setKnownRemoteWorkspaces] = useState<KnownRemoteWorkspace[]>([]);
-  const [sshConnections, setSshConnections] = useState<SshConnection[]>([]);
-  const [selectedSshConnectionId, setSelectedSshConnectionId] = useState("");
-  const [saveSshConnection, setSaveSshConnection] = useState(false);
-  const [sshConnectionDraft, setSshConnectionDraft] = useState<SaveSshConnectionInput>(defaultSshConnectionDraft);
-  const [inspection, setInspection] = useState<ProjectInspection | null>(null);
-  const [worktreeEnabled, setWorktreeEnabled] = useState(false);
-  const [worktreeName, setWorktreeName] = useState("");
-  const [remoteHost, setRemoteHost] = useState("");
-  const [remotePort, setRemotePort] = useState("22");
-  const [remoteUser, setRemoteUser] = useState("");
-  const [remotePath, setRemotePath] = useState("");
-  const [remoteDisplayName, setRemoteDisplayName] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [createOperationId, setCreateOperationId] = useState<string | null>(null);
-  const [handledCreateOperationId, setHandledCreateOperationId] = useState<string | null>(null);
-  useEffect(() => {
-    if (!open) return;
-    const agent = defaultSessionAgent(
-      availableAgents,
-      window.localStorage.getItem(previousSessionAgentStorageKey),
-    );
-    setAgentId(agent?.id ?? "");
-    setInteractionMode(firstMode(agent));
-    setAgentMode("single");
-    setTitle("");
-    setTitleUserEdited(false);
-    setWorkspaceMode("local");
-    // Reset rather than remembered: this is a privacy choice, and a dialog that silently repeated
-    // the last one would keep making temporary sessions for a user who chose it once, or -- worse
-    // in the other direction -- would not, without either being re-confirmed.
-    setPersonalizationMode("standard");
-    setProjectPath("");
-    setRemoteHost("");
-    setRemotePort("22");
-    setRemoteUser("");
-    setRemotePath("");
-    setRemoteDisplayName("");
-    setSelectedSshConnectionId("");
-    setSaveSshConnection(false);
-    setSshConnectionDraft(defaultSshConnectionDraft);
-    setError(null);
-    void agentService.listExpertRoles().then(setExpertRoles).catch(() => setExpertRoles([]));
-    void agentService
-      .listKnownProjects()
-      .then(setKnownProjects)
-      .catch(() => setKnownProjects([]));
-    void agentService
-      .listKnownRemoteWorkspaces()
-      .then(setKnownRemoteWorkspaces)
-      .catch(() => setKnownRemoteWorkspaces([]));
-    void sshConnectionService
-      .listConnections()
-      .then(setSshConnections)
-      .catch(() => setSshConnections([]));
-  }, [availableAgents, open]);
-
-  useEffect(() => {
-    if (!createOperationId || handledCreateOperationId === createOperationId)
-      return;
-    const operationId = createOperationId;
-    let cancelled = false;
-    let timer: number | undefined;
-
-    async function pollOperation() {
-      try {
-        const operation =
-          await operationService.getOperationStatus(operationId);
-        if (cancelled) return;
-        if (operation.status === "queued" || operation.status === "running") {
-          timer = window.setTimeout(() => void pollOperation(), 600);
-          return;
-        }
-        setHandledCreateOperationId(operation.id);
-        setLoading(false);
-        if (operation.status === "failed") {
-          setError(operation.error ?? t("createSession.error.command"));
-          return;
-        }
-        const session = await resolveCreatedSession(operation.result);
-        if (!session) {
-          setError(t("createSession.error.command"));
-          return;
-        }
-        onCreated(session);
-      } catch (operationError) {
-        if (!cancelled) {
-          setLoading(false);
-          setError(conciseError(operationError, t));
-        }
-      }
-    }
-
-    void pollOperation();
-    return () => {
-      cancelled = true;
-      if (timer !== undefined) window.clearTimeout(timer);
-    };
-  }, [createOperationId, handledCreateOperationId, onCreated, t]);
-  useEffect(() => {
-    if (!selectedAgent) return;
-    if (!selectedAgent.supportedInteractionModes.includes(interactionMode)) {
-      setInteractionMode(firstMode(selectedAgent));
-    }
-  }, [interactionMode, selectedAgent]);
-  useEffect(() => {
-    if (titleUserEdited) return;
-    const source =
-      workspaceMode === "local" ? projectPath : remoteDisplayName || remotePath;
-    const nextTitle = defaultSessionTitleFromPath(source);
-    setTitle(nextTitle);
-  }, [
-    projectPath,
-    remoteDisplayName,
-    remotePath,
-    titleUserEdited,
-    workspaceMode,
-  ]);
-  async function inspectPath(path: string) {
-    const trimmed = normalizeDisplayPath(path.trim());
-    setProjectPath(trimmed);
-    setWorktreeEnabled(false);
-    setWorktreeName("");
-    setInspection(null);
-    setError(null);
-    if (!trimmed) return;
-    try {
-      setInspection(await agentService.inspectProject(trimmed));
-    } catch (inspectionError) {
-      setError(conciseError(inspectionError, t));
-    }
-  }
-  async function browseProject() {
-    setError(null);
-    try {
-      const selectedPath = await agentService.selectProjectDirectory();
-      if (selectedPath) {
-        await inspectPath(selectedPath);
-      }
-    } catch (browseError) {
-      setError(conciseError(browseError, t));
-    }
-  }
+  const model = useCreateSessionDraft({ agents, onCreated, open });
 
   if (!open) return null;
-  const gitCapable = inspection?.isGit ?? false;
-  const hasWorkspace =
-    workspaceMode === "local" ? projectPath.trim() !== "" : remotePath.trim() !== "";
-  // The store refuses a project-only session with no workspace, so the selection is
-  // corrected here rather than failing at submit against a control the user cannot see.
-  const effectivePersonalizationMode = modeForWorkspace(personalizationMode, hasWorkspace);
-  const canSubmit = canCreateSession({
-    agentMode,
-    multiSeats,
-    projectPath,
-    remoteHost,
-    remotePath,
-    remotePort,
-    remoteUser,
-    saveSshConnection,
-    selectedAgent,
-    sshConnectionDraft,
-    workspaceMode,
-    worktreeEnabled,
-    worktreeName,
-  });
+  const { actions, draft, lifecycle, referenceData, validation } = model;
+
   return (
     <CreateSessionDialogContent
-      agentMode={agentMode}
-      availableAgents={availableAgents}
-      expertRoles={expertRoles}
-      multiSeats={multiSeats}
-      onSeatsChange={setMultiSeats}
-      canSubmit={canSubmit}
-      error={error}
-      gitCapable={gitCapable}
-      inspection={inspection}
-      knownProjects={knownProjects}
-      knownRemoteWorkspaces={knownRemoteWorkspaces}
-      loading={loading}
-      onAgentModeChange={(mode) => {
-        setAgentMode(mode);
-        // Seed two seats on first switch so the editor opens in a usable state rather than empty.
-        if (mode === "multi" && multiSeats.length === 0) {
-          const first = availableAgents[0]?.id ?? "";
-          setMultiSeats([
-            { agentId: first, roleId: null },
-            { agentId: availableAgents[1]?.id ?? first, roleId: null },
-          ]);
-        }
-      }}
-      onAgentSelect={(agent) => {
-        setAgentId(agent.id);
-        setInteractionMode(firstMode(agent));
-        window.localStorage.setItem(previousSessionAgentStorageKey, agent.id);
-      }}
-      onBrowseProject={() => void browseProject()}
+      agentMode={draft.agentMode}
+      availableAgents={model.availableAgents}
+      expertRoles={referenceData.expertRoles}
+      multiSeats={draft.multiSeats}
+      onSeatsChange={actions.setSeats}
+      canSubmit={validation.canSubmit}
+      error={lifecycle.error}
+      gitCapable={model.gitCapable}
+      inspection={referenceData.inspection}
+      knownProjects={referenceData.knownProjects}
+      knownRemoteWorkspaces={referenceData.knownRemoteWorkspaces}
+      loading={lifecycle.loading}
+      onAgentModeChange={actions.setAgentMode}
+      onAgentSelect={actions.selectAgent}
+      onBrowseProject={actions.browseProject}
       onClose={onClose}
       onConfigureOnePiece={onConfigureOnePiece}
-      onInspectPath={(path) => void inspectPath(path)}
-      onSubmit={() =>
-        void submitCreateSession({
-          agentMode,
-          multiSeats: multiSeats.map((seat) => snapshotSeat(seat, agents, expertRoles)),
-          interactionMode,
-          projectPath,
-          remoteDisplayName,
-          remoteHost,
-          remotePath,
-          remotePort,
-          remoteUser,
-          saveSshConnection,
-          selectedSshConnectionId,
-          selectedAgent,
-          setCreateOperationId,
-          setError,
-          setHandledCreateOperationId,
-          setLoading,
-          sshConnectionDraft,
-          title,
-          t,
-          personalizationMode: effectivePersonalizationMode,
-          workspaceMode,
-          worktreeEnabled,
-          worktreeName,
-        })
-      }
-      hasWorkspace={hasWorkspace}
-      onPersonalizationModeChange={setPersonalizationMode}
-      personalizationMode={effectivePersonalizationMode}
-      onTitleChange={(value) => {
-        setTitleUserEdited(true);
-        setTitle(value);
-      }}
-      onWorkspaceModeChange={(mode) => {
-        setWorkspaceMode(mode);
-        setWorktreeEnabled(false);
-        setError(null);
-      }}
-      projectPath={projectPath}
-      remoteDisplayName={remoteDisplayName}
-      remoteHost={remoteHost}
-      remotePath={remotePath}
-      remotePort={remotePort}
-      remoteUser={remoteUser}
-      saveSshConnection={saveSshConnection}
-      selectedAgent={selectedAgent}
-      selectedSshConnectionId={selectedSshConnectionId}
-      setProjectPath={setProjectPath}
-      setRemoteDisplayName={setRemoteDisplayName}
-      setRemoteHost={setRemoteHost}
-      setRemotePath={setRemotePath}
-      setRemotePort={setRemotePort}
-      setRemoteUser={setRemoteUser}
-      setSaveSshConnection={setSaveSshConnection}
-      setSelectedSshConnectionId={setSelectedSshConnectionId}
-      setSshConnectionDraft={setSshConnectionDraft}
-      setWorktreeEnabled={setWorktreeEnabled}
-      setWorktreeName={setWorktreeName}
-      sshConnectionDraft={sshConnectionDraft}
-      sshConnections={sshConnections}
-      title={title}
-      workspaceMode={workspaceMode}
-      worktreeEnabled={worktreeEnabled}
-      worktreeName={worktreeName}
+      onInspectPath={actions.inspectPath}
+      onSubmit={actions.submit}
+      hasWorkspace={model.hasWorkspace}
+      onPersonalizationModeChange={actions.setPersonalizationMode}
+      personalizationMode={model.effectivePersonalizationMode}
+      onTitleChange={actions.setTitle}
+      onWorkspaceModeChange={actions.setWorkspaceMode}
+      projectPath={draft.projectPath}
+      remoteDisplayName={draft.remoteDisplayName}
+      remoteHost={draft.remoteHost}
+      remotePath={draft.remotePath}
+      remotePort={draft.remotePort}
+      remoteUser={draft.remoteUser}
+      saveSshConnection={draft.saveSshConnection}
+      selectedAgent={model.selectedAgent}
+      selectedSshConnectionId={draft.selectedSshConnectionId}
+      setProjectPath={actions.setProjectPath}
+      setRemoteDisplayName={actions.setRemoteDisplayName}
+      setRemoteHost={actions.setRemoteHost}
+      setRemotePath={actions.setRemotePath}
+      setRemotePort={actions.setRemotePort}
+      setRemoteUser={actions.setRemoteUser}
+      setSaveSshConnection={actions.setSaveSshConnection}
+      setSelectedSshConnectionId={actions.setSelectedSshConnectionId}
+      setSshConnectionDraft={actions.setSshConnectionDraft}
+      setWorktreeEnabled={actions.setWorktreeEnabled}
+      setWorktreeName={actions.setWorktreeName}
+      sshConnectionDraft={draft.sshConnectionDraft}
+      sshConnections={referenceData.sshConnections}
+      title={draft.title}
+      workspaceMode={draft.workspaceMode}
+      worktreeEnabled={draft.worktreeEnabled}
+      worktreeName={draft.worktreeName}
     />
   );
 }

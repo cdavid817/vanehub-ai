@@ -10,20 +10,15 @@ import type {
 import type { OperationTask } from "../types/operation";
 import type { SaveSshConnectionInput } from "../types/ssh-connection";
 import { isSessionAgentSelectable } from "./create-session-agents";
+import { agentSupportsRemoteWorkspace } from "./create-session-draft-model";
 import type { WorkspaceMode } from "./create-session-workspace-sections";
 import type { SessionPersonalizationMode } from "../types/personalization";
 import type { SessionAgentMode } from "./session-agent-mode-selector";
 
-
-export const defaultSshConnectionDraft: SaveSshConnectionInput = {
-  name: "",
-  host: "",
-  port: 22,
-  user: "",
-  defaultPath: "",
-  authMode: "key",
-  keyPath: "",
-};
+// Moved to create-session-draft-model.ts (the field's natural home, and the only direction that
+// keeps this file and that one from importing each other); re-exported so existing importers of
+// this module keep working unchanged.
+export { defaultSshConnectionDraft } from "./create-session-draft-model";
 
 export function firstMode(agent: AgentRegistryEntry | null): InteractionMode {
   return agent?.supportedInteractionModes[0] ?? "cli";
@@ -57,8 +52,14 @@ export async function resolveCreatedSession(
   return loadSession(operationSession.id);
 }
 
+export function remotePortIsValid(remotePort: string): boolean {
+  const port = Number(remotePort.trim() || "22");
+  return Number.isInteger(port) && port >= 1 && port <= 65535;
+}
+
 export function canCreateSession({
   agentMode,
+  availableAgents,
   multiSeats,
   projectPath,
   remoteHost,
@@ -73,6 +74,12 @@ export function canCreateSession({
   worktreeName,
 }: {
   agentMode: SessionAgentMode;
+  /**
+   * Optional so this function keeps working for callers -- and its own pre-existing unit tests --
+   * that only have seat id strings, not the full registry. Omitting it skips only the staleness
+   * re-check below; every other rule still applies.
+   */
+  availableAgents?: AgentRegistryEntry[];
   multiSeats: SessionSeat[];
   projectPath: string;
   remoteHost: string;
@@ -86,25 +93,30 @@ export function canCreateSession({
   worktreeEnabled: boolean;
   worktreeName: string;
 }) {
-  const port = Number(remotePort.trim() || "22");
-  const remotePortValid = Number.isInteger(port) && port >= 1 && port <= 65535;
   const savedConnectionValid =
     !saveSshConnection ||
     sshConnectionSaveErrorKey(remoteUser, sshConnectionDraft) === null;
-  // A multi-Agent session needs at least two seats, each bound to an Agent; otherwise it is just
-  // a single-Agent session wearing the wrong mode.
+  // A multi-Agent session needs at least two seats, each bound to an Agent that is still
+  // selectable today -- a seat can go stale if its Agent's availability changes after it was
+  // added -- otherwise it is just a single-Agent session wearing the wrong mode.
   const seatsReady =
     agentMode === "single" ||
-    (multiSeats.length >= 2 && multiSeats.every((seat) => seat.agentId.trim().length > 0));
+    (multiSeats.length >= 2 &&
+      multiSeats.every((seat) => seat.agentId.trim().length > 0) &&
+      (!availableAgents ||
+        multiSeats.every((seat) => {
+          const seatAgent = availableAgents.find((candidate) => candidate.id === seat.agentId);
+          return seatAgent != null && isSessionAgentSelectable(seatAgent);
+        })));
   return Boolean(
     selectedAgent &&
     isSessionAgentSelectable(selectedAgent) &&
-    !(selectedAgent.id === "onepiece" && workspaceMode === "remote") &&
+    (workspaceMode !== "remote" || agentSupportsRemoteWorkspace(selectedAgent)) &&
     seatsReady &&
     (workspaceMode === "remote"
       ? remoteHost.trim() &&
         remotePath.trim() &&
-        remotePortValid &&
+        remotePortIsValid(remotePort) &&
         savedConnectionValid
       : projectPath.trim() && (!worktreeEnabled || worktreeName.trim())),
   );

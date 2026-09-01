@@ -8,6 +8,7 @@ import { ApplicationDialog } from "../components/ui/application-dialog";
 import { Button } from "../components/ui/button";
 import { CreateSessionAgentSection } from "./create-session-agent-section";
 import { CreateSessionSection } from "./create-session-section";
+import { agentSupportsRemoteWorkspace } from "./create-session-draft-model";
 import { RemoteWorkspaceSection } from "./create-session-remote-workspace-section";
 import { SessionPersonalizationModeSelector } from "./session-personalization-mode-selector";
 import type { SessionPersonalizationMode } from "../types/personalization";
@@ -211,9 +212,12 @@ export function CreateSessionDialogContent({
           <WorkspaceModeSelector
             mode={workspaceMode}
             onModeChange={onWorkspaceModeChange}
-            remoteDisabled={selectedAgent?.id === "onepiece"}
+            remoteDisabled={!agentSupportsRemoteWorkspace(selectedAgent)}
           />
-          {selectedAgent?.id === "onepiece" ? <p className="text-xs text-muted-foreground">{t("onepiece.localOnly")}</p> : null}
+          {/* This copy names OnePiece specifically because it is currently the only entry in
+              `AGENTS_WITHOUT_REMOTE_WORKSPACE_SUPPORT`; generalizing that set to a second Agent
+              would need this hint generalized too, not just the predicate call below. */}
+          {!agentSupportsRemoteWorkspace(selectedAgent) ? <p className="text-xs text-muted-foreground">{t("onepiece.localOnly")}</p> : null}
           {/* Beside the workspace it applies to: the mode is a statement about this session's
               relationship to that workspace, and choosing it anywhere else invites the user to
               pick one before they know whether there is a workspace at all. */}
