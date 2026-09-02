@@ -61,9 +61,31 @@
 - [x] 5.8 Working tree clean. `src-tauri/gen/schemas/*.json` showed as dirty after the cargo runs but carried no content change, and git's normalization kept them out of the commit
 - [x] 5.9 No failure to classify: every gate passed. The two failures seen during the work were deliberate — the injected defects in 4.7 — and one real miss the link checker caught, the two `tooling.md` links to the moved matrix
 
-## 6. Not done here
+## 6. Phase 3 — structure
 
-- [ ] 6.1 Decide the `skill_evolution_evidence` encryption conflict: implement at-rest encryption, or amend `openspec/project.md:66` to state the real boundary (`design.md`, Decision 3)
-- [ ] 6.2 Decide whether `recall` should respect an explicitly restricted memory audience (`design.md`, Decision 5). Until then the documentation states the boundary rather than the promise
-- [ ] 6.3 Phase 3 of the audit's own program: split `user-interface.md`, `tooling.md`, `remote-and-im.md`, `automation.md`; merge `goal-management.md` with `todo-board.md`; split `execution-observability.md` and `persistence-and-logging.md`. Deferred because each rewrites documents whose content is currently accurate
-- [ ] 6.4 Regroup `docs/agent-infrastructure/` into `protocols/`, `patterns/`, `methods/` subdirectories. The README now states the grouping, which is the reader-visible part; moving ten files changes forty-odd inbound links for no further gain
+Deferred at first, then requested. Both guides are split together: `user-guide-documentation` requires two complete, equivalent guides, so splitting one language alone would make them structurally diverge.
+
+- [x] 6.1 Resolve the `skill_evolution_evidence` encryption conflict on the specification side (`design.md`, Decision 3). Four documents carried the claim, not the one the earlier note named
+- [x] 6.2 Regroup `docs/agent-infrastructure/` into `protocols/`, `patterns/`, `methods/`, dropping the `-architecture` suffix the directory now carries itself
+- [x] 6.3 Split `user-interface.md` into interface / session workspace / settings
+- [x] 6.4 Split `tooling.md` into `agent-configuration.md` and `extensions.md`
+- [x] 6.5 Split `remote-and-im.md` into `remote-workspaces.md` and `im-connectors.md`
+- [x] 6.6 Split `automation.md` into `scheduled-tasks.md` and `usage-statistics.md`, distributing the shared "Notes and limits" bullets to whichever half each one constrains
+- [x] 6.7 Merge `goal-management.md` and `todo-board.md` into `goals-and-work-board.md`
+- [x] 6.8 Move `multi-agent-testing-tutorial.md` to the developer guide as `multi-agent-acceptance.md`
+- [x] 6.9 Split `execution-observability.md` into observability and `evaluation-runtime.md`
+- [x] 6.10 Split `persistence-and-logging.md` into `persistence-ownership.md` and `unified-logging.md`, splitting the constants section with it
+- [x] 6.11 Split `testing-and-release.md` into `testing.md` and `release.md`, and drop the verbatim copy of AGENTS.md's verification list in favour of a reference
+- [x] 6.12 Rebuild all four `SUMMARY.md` files and both `index.md` navigation tables
+- [x] 6.13 Give the English and Japanese READMEs the grouped entry points the Chinese one already had, rather than rewiring the sixteen anchored links each had into the split chapters
+- [x] 6.14 Drop the duplicated H1/H2 pair a whole-section-to-file split leaves behind, promoting the subheadings it held
+
+### Found while doing 6.9
+
+- [x] 6.15 `execution-observability.md` carried the same time-only correlation defect as `use-cases.md`, phrased in reverse ("traces deliberately carry no log identifier") — which is why the Phase 2 sweep missed it. Both languages corrected
+
+## 7. Still open
+
+- [ ] 7.1 Decide whether `recall` should respect an explicitly restricted memory audience (`design.md`, Decision 5). Until then the documentation states the boundary rather than the promise
+- [ ] 7.2 Raise skill-evolution evidence to application-level encryption, if that is wanted: key management, migration of existing rows, erasure verification. The chapters now say what it would take
+- [ ] 7.3 Generate the LSP capability matrix from a registry rather than maintaining it in the chapter (`design.md`, Deferred work 1)

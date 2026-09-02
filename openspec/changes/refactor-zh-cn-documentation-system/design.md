@@ -17,9 +17,11 @@ So the bundle never observed the tree it audits and never ran the gates its reco
 
 ## Goals / Non-Goals
 
-**Goals.** Remove statements that are false against code; give each cross-cutting capability one definition; regroup both guide tables of contents without moving files; convert two hand-maintained fact classes into checked ones.
+**Goals.** Remove statements that are false against code; give each cross-cutting capability one definition; convert two hand-maintained fact classes into checked ones; then reorganise both guides by subject.
 
-**Non-Goals.** Splitting `user-interface.md` / `tooling.md` / `remote-and-im.md` / `automation.md`, merging `goal-management.md` with `todo-board.md`, splitting `execution-observability.md` and `persistence-and-logging.md`, and adding per-file YAML frontmatter. These are the audit's Phase 3 body. They are deferred, with reasons in "Deferred work" below — not because they are wrong, but because each rewrites documents whose *content* is currently accurate, and bundling accurate-content rewrites with false-statement repairs makes the latter unreviewable.
+The work landed in that order deliberately, across separate commits. Phase 3's splits rewrite documents whose *content* is accurate; bundling them with the false-statement repairs would have made the repairs unreviewable. Once Phases 1 and 2 were committed and green, Phase 3 became a structural change reviewable on its own — and the split of `execution-observability.md` immediately surfaced a fourth instance of the Phase-2 correlation defect that the earlier sweep had missed, which is an argument for the ordering rather than against it.
+
+**Non-Goals.** Per-file YAML frontmatter (mdBook renders it as body text), a `docs/facts.json` generator for the seven fact classes that never drifted, and a phrase-shaped lint over Chinese prose. Reasons are in the revision decision table.
 
 ## Decisions
 
@@ -98,7 +100,7 @@ Verdicts: **采纳** adopt as proposed · **调整** adopt with correction · **
 | 11 | Assistants API is past tense | `function-calling-architecture.md:5,202` | "已废弃并定于 2026-08-26 关停" | Sunset date is in the past relative to 2026-09-02 | **采纳** | Rewritten as completed, with Responses API as the migration target. |
 | 12 | "ACP-stdio" → "JSON-RPC over stdio" | `runtime-boundaries.md` (zh **and** en) | Section heading, comparison table, and 6 further uses treat ACP as the generic name for LSP/MCP stdio framing; line 108 even glosses it as "Agent 通信协议(ACP)" | LSP and MCP each define their own JSON-RPC-over-stdio binding; neither is ACP | **调整** | Audit named only the Chinese file. The English guide carries the same error and is fixed too. |
 | 13 | Calibrate local-media status | 3 READMEs | Roadmap: "扩展的本地 OCR/语音能力" — reads as not yet delivered | `contexts/local_media/` ships OCR/STT/TTS with a real engine bridge; `local-media.md:3,16,58` documents no cloud fallback and canary verification | **调整** | Fixed in the roadmap line of all three READMEs. The user chapter the audit also flagged was already accurate and is unchanged. |
-| 14 | Escalate the evidence-encryption contradiction | `skill-evolution-evidence.md:90` | Already states the conflict inline | `storage_values.rs` has no encryption layer; `openspec/project.md` says "encrypted evidence storage" | **待确认** | Recorded in Decision 3 as an implementation-vs-spec conflict with a proposed resolution. Not resolved here; resolving it needs business code or a main-spec amendment. |
+| 14 | Escalate the evidence-encryption contradiction | `skill-evolution-evidence.md:90`, `openspec/project.md:66`, both `native-contexts.md` | Spec asserted encryption; one chapter noted the contradiction inline | `storage_values.rs` has no encryption layer | **采纳** | Recorded in Decision 3, then resolved on the specification side. Four documents carried the claim, not the one the audit named. |
 | 15 | External-citation rules per document | `agent-infrastructure/README.md` | No stated sourcing rules | — | **采纳** | Added to the directory README as maintenance rules. |
 
 ### From `vanehub-docs-audit.md` and the candidate files
@@ -112,9 +114,9 @@ Verdicts: **采纳** adopt as proposed · **调整** adopt with correction · **
 | `developer-guide-SUMMARY.phase1.md` | **调整** | Applied after verifying all 39 entries. `session-workspace-console.md` stays under observability rather than moving to platform capabilities — it is an evidence surface, and the audit's own developer matrix says so two rows later. |
 | `agent-infrastructure-README.proposed.md` | **采纳** | Adopted as the boundary restatement, minus its YAML frontmatter block (see Deferred work). |
 | Move the three CLI references to `docs/reference/cli/` | **采纳** | Done with `git mv`; all inbound links, the README table, and `validate-docs.mjs` inventories updated. |
-| Re-group agent-infrastructure into `protocols/` `patterns/` `methods/` | **拒绝 (this change)** | The directory README now states the grouping, which is the part that helps a reader. Moving 10 files changes 40+ inbound links across both guides and both languages for no reader-visible gain beyond what the grouped README already provides. Deferred. |
+| Re-group agent-infrastructure into `protocols/` `patterns/` `methods/` | **采纳** | Done. Nine files moved and the `-architecture` suffix dropped, since the directory now carries that meaning. Twenty-one files held external references, all written as `…/agent-infrastructure/<file>` whatever the `../` depth, so one swap per file covered them; three links authored inside the directory needed their own new depth. |
 | Per-file YAML frontmatter (`audience`/`status`/`source_of_truth`/…) | **拒绝** | mdBook renders unrecognised leading YAML as body text; `docs:test` walks every chapter and `docs:build` publishes it. The audit's own instruction says not to break the build if incompatible. Status is expressed in prose instead. |
-| `docs/facts.json` generator for agents, providers, LSP, permissions, UI surfaces, limits, packaging | **拒绝 (this change)** | Two of the nine fact classes actually drifted; both are now checked at their existing source. A new generated-facts file for the other seven is a speculative structure with no observed failure behind it. |
+| `docs/facts.json` generator for agents, providers, LSP, permissions, UI surfaces, limits, packaging | **拒绝** | Two of the nine fact classes actually drifted; both are now checked at their existing source. A new generated-facts file for the other seven is a speculative structure with no observed failure behind it. |
 | "15x token" needs a source | **调整** | The figure is already attributed to Anthropic's published research; the citation link is added rather than the figure removed. |
 | Lint for "共 N 个/支持 N 种" phrases with an allowlist | **拒绝** | A phrase-shaped lint over Chinese prose flags every legitimate enumeration. The two totals that drifted are now checked against their real source, which is stronger and produces no allowlist. |
 | `last_verified` staleness warnings at 180 days | **拒绝 (this change)** | Depends on the rejected frontmatter. |
@@ -127,14 +129,23 @@ The brief and the audit both name `docs/reference/cli/` as the destination for t
 
 This is survivable because the special cases are exact-match on two filenames and only apply to developer-guide files, so the new directory resolves normally from everywhere else. It becomes a problem if someone adds a third build-time `reference/` entry whose name collides with a real file under `docs/reference/`. Neither location is published to the assembled site today — `docs/agent-infrastructure/` was not either — so the move changed the GitHub browsing path and nothing else.
 
+### Decision 7: split both language guides together, and stop the READMEs reproducing chapter lists
+
+Phase 3 was deferred, then requested. Two constraints shaped how it was done.
+
+**Both languages, not one.** `user-guide-documentation` requires "two complete, equivalent user guides". Splitting the Chinese guide alone would leave the two with different chapter sets — a structural divergence the specification does not allow, and one no link check would catch. The two guides are line-for-line parallel, which made a single set of line ranges drive both splits.
+
+**The READMEs had to stop listing chapters.** The English and Japanese READMEs still reproduced ~35 user-guide and ~25 developer-guide rows, sixteen of which pointed into sections that the split moved. Rewiring those sixteen anchors per language was possible; it would also have preserved exactly the mechanism the audit identified — a README duplicating a SUMMARY at chapter granularity, drifting from it. Both get the grouped entry points the Chinese README already carries. Link parity is unaffected: the guide tables live inside the `docs-locale-guides` block, which is exempt.
+
+**Where the audit was followed with judgement rather than literally.** It asked for `automation.md` to become three chapters; "long-running operations" and "notifications" are six and eleven lines, so they stay with scheduled tasks under one heading that names both. It asked for fixed counts to be removed generally; `user-guide/zh-CN/src/index.md`'s "nine tabs" was checked against `sessionTabDefinitions`, which has exactly nine entries, and kept. It asked for `feishu-live-qualification.md` and `skill-tool-runtime-security.md` to move into subdirectories; mdBook renders by `SUMMARY.md`, not by directory, and both SUMMARYs now group them under qualification and decisions, so the move would change paths without changing what a reader sees.
+
 ## Deferred work
 
 Recorded so the next change does not rediscover it:
 
 1. **Generated LSP capability matrix.** Blocked: language, server binary, install strategy, integrity state, and negotiated tool set live in different places, and the negotiated set is a runtime property of each server handshake, not a static registry value. A generator would have to declare a static approximation of something the chapter correctly describes as negotiated.
-2. **Splitting `user-interface.md`, `tooling.md`, `remote-and-im.md`, `automation.md`; merging `goal-management.md` + `todo-board.md`; splitting `execution-observability.md` and `persistence-and-logging.md`.** These are size and organisation problems, not correctness problems.
-3. **`docs/agent-infrastructure/` subdirectory move.** See the table above.
-4. **`skill_evolution_evidence` encryption.** See Decision 3.
+2. **`recall` versus a restricted memory audience.** See Decision 5. This is the one open item with a privacy dimension.
+3. **Application-level encryption for skill-evolution evidence.** See Decision 3. The specification now states the real boundary; raising the boundary remains available and unimplemented.
 
 ## Risks / Trade-offs
 
