@@ -3,7 +3,7 @@ import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "../../lib/utils";
 import { ColumnVisibilityMenu } from "./ColumnVisibilityMenu";
-import type { DataTableColumn, DataTablePage, DataTableSort } from "./types";
+import type { DataTableColumn, DataTablePage, DataTableRowMeta, DataTableSort } from "./types";
 
 export interface DataTableBodyProps<T> {
   compact: boolean;
@@ -19,6 +19,8 @@ export interface DataTableBodyProps<T> {
   onSelectedRowKeysChange?: (keys: ReadonlySet<string>) => void;
   page?: DataTablePage;
   onPageChange?: (index: number) => void;
+  /** Per-row testid/data-attributes and click activation — optional, first needed by Evaluation's row-to-detail selection. */
+  getRowMeta?: (row: T) => DataTableRowMeta;
   emptyState?: ReactNode;
   className?: string;
 }
@@ -37,6 +39,7 @@ export function DataTableBody<T>({
   onSelectedRowKeysChange,
   page,
   onPageChange,
+  getRowMeta,
   emptyState,
   className,
 }: DataTableBodyProps<T>) {
@@ -78,11 +81,17 @@ export function DataTableBody<T>({
         <ul aria-label={ariaLabel} className="flex flex-col gap-2">
           {rows.map((row) => {
             const key = rowKey(row);
+            const meta = getRowMeta?.(row);
             return (
-              <li className="ucd-card rounded-lg p-3" key={key}>
+              <li
+                {...meta?.attributes}
+                className={cn("ucd-card rounded-lg p-3", meta?.onClick && "cursor-pointer hover:bg-muted/60")}
+                key={key}
+                onClick={meta?.onClick}
+              >
                 {selectable ? (
                   <label className="mb-2 flex items-center gap-2 text-sm font-medium">
-                    <input checked={selectedRowKeys?.has(key)} onChange={() => toggleRow(key)} type="checkbox" />
+                    <input checked={selectedRowKeys?.has(key)} onChange={() => toggleRow(key)} onClick={(event) => event.stopPropagation()} type="checkbox" />
                     {t("workbenchUi.dataTable.selectRow")}
                   </label>
                 ) : null}
@@ -108,6 +117,7 @@ export function DataTableBody<T>({
                     aria-label={t("workbenchUi.dataTable.selectAll")}
                     checked={rows.length > 0 && rows.every((row) => selectedRowKeys?.has(rowKey(row)))}
                     onChange={toggleAll}
+                    onClick={(event) => event.stopPropagation()}
                     type="checkbox"
                   />
                 </th>
@@ -127,14 +137,21 @@ export function DataTableBody<T>({
           <tbody>
             {rows.map((row) => {
               const key = rowKey(row);
+              const meta = getRowMeta?.(row);
               return (
-                <tr className="border-b border-border-subtle last:border-b-0" key={key}>
+                <tr
+                  {...meta?.attributes}
+                  className={cn("border-b border-border-subtle last:border-b-0", meta?.onClick && "cursor-pointer hover:bg-muted/60")}
+                  key={key}
+                  onClick={meta?.onClick}
+                >
                   {selectable ? (
                     <td className="pl-3">
                       <input
                         aria-label={t("workbenchUi.dataTable.selectRow")}
                         checked={selectedRowKeys?.has(key)}
                         onChange={() => toggleRow(key)}
+                        onClick={(event) => event.stopPropagation()}
                         type="checkbox"
                       />
                     </td>
