@@ -1,6 +1,8 @@
 import { type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../components/ui/button";
+import { MutationStatus } from "../ui/async/MutationStatus";
+import type { MutationState } from "../ui/async/mutation-state";
 import type { WorkItem, WorkItemPriority } from "../types/work-board";
 import { workItemPriorities } from "../types/work-board";
 
@@ -14,14 +16,17 @@ export type WorkItemFormValues = {
   dueAt: string | null;
 };
 
-export function WorkItemForm({ busy, item, onCancel, onSubmit, submitLabel }: {
-  busy: boolean;
+export function WorkItemForm({ item, mutation, onCancel, onSubmit, submitLabel }: {
   item?: WorkItem;
+  /** This form's own in-flight create/update, if any -- drives the submit button's disabled
+   *  state and an inline pending/error status, replacing the old page-wide `busy` boolean. */
+  mutation?: MutationState;
   onCancel: () => void;
   onSubmit: (input: WorkItemFormValues) => void;
   submitLabel: string;
 }) {
   const { t } = useTranslation();
+  const busy = mutation?.pending ?? false;
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
@@ -43,7 +48,8 @@ export function WorkItemForm({ busy, item, onCancel, onSubmit, submitLabel }: {
         {workItemPriorities.map((value) => <option key={value} value={value}>{t(`todoBoard.priority.${value}`)}</option>)}
       </select>
       <input aria-label={t("todoBoard.fields.due")} className={fieldClass} defaultValue={item?.dueAt?.slice(0, 10) ?? ""} name="due" type="date" />
-      <div className="flex justify-end gap-2 md:col-span-2">
+      <div className="flex items-center justify-end gap-2 md:col-span-2">
+        <MutationStatus className="mr-auto" state={mutation} />
         <Button onClick={onCancel} type="button" variant="outline">{t("todoBoard.cancel")}</Button>
         <Button disabled={busy} type="submit">{submitLabel}</Button>
       </div>

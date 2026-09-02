@@ -1,12 +1,12 @@
 import { Archive, FilterX, Inbox, Loader2, Plus, Search } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState, type DragEvent } from "react";
+import { useMemo, useState, type DragEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../components/ui/button";
 import { useMediaQuery } from "../hooks/use-media-query";
 import { normalizeDisplayPath } from "../lib/session-path";
-import { workBoardService } from "../services/runtime-work-board-client";
 import type { WorkItem, WorkItemPriority, WorkItemSourceKind, WorkItemStage } from "../types/work-board";
 import { workItemPriorities, workItemSourceKinds, workItemStages } from "../types/work-board";
+import { CREATE_MUTATION_KEY, useWorkBoardActions } from "./use-work-board-actions";
 import { WorkBoardColumn } from "./work-board-column";
 import { filterWorkItems } from "./work-board-filter";
 import { fieldClass, WorkItemForm } from "./work-board-form";
@@ -14,7 +14,6 @@ import { fieldClass, WorkItemForm } from "./work-board-form";
 export function WorkBoard() {
   const { t } = useTranslation();
   const compact = useMediaQuery("(max-width: 900px)");
-  const [items, setItems] = useState<WorkItem[]>([]);
   const [query, setQuery] = useState("");
   const [archived, setArchived] = useState(false);
   const [source, setSource] = useState<WorkItemSourceKind | "all">("all");
@@ -24,16 +23,8 @@ export function WorkBoard() {
   const [compactStage, setCompactStage] = useState<WorkItemStage>("inbox");
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<WorkItem | null>(null);
-  const [busy, setBusy] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setBusy(true);
-    try { setItems(await workBoardService.listWorkItems({ archived })); setError(null); }
-    catch (reason: unknown) { setError(reason instanceof Error ? reason.message : String(reason)); }
-    finally { setBusy(false); }
-  }, [archived]);
-  useEffect(() => { void load(); }, [load]);
+  const { archive, create, error, items, loading, move, mutations, remove, restore, update } = useWorkBoardActions(archived);
 
   // The option value stays the stored path so filtering keeps matching; only the label is
   // normalized, because a stored `\\?\` prefix is a Windows API detail, not something to read.
@@ -52,12 +43,6 @@ export function WorkBoard() {
     projectPaths: project === "all" ? undefined : [project],
   }), [archived, items, priority, project, query, source, stageFilter]);
 
-  const perform = async (action: () => Promise<unknown>) => {
-    setBusy(true);
-    try { await action(); await load(); }
-    catch (reason: unknown) { setError(reason instanceof Error ? reason.message : String(reason)); setBusy(false); }
-  };
-  const move = (item: WorkItem, stage: WorkItemStage) => perform(() => workBoardService.moveWorkItem({ workItemId: item.id, stage }));
   const drop = (event: DragEvent<HTMLElement>, stage: WorkItemStage) => {
     event.preventDefault();
     const item = items.find((candidate) => candidate.id === event.dataTransfer.getData("text/work-item"));
@@ -94,8 +79,8 @@ export function WorkBoard() {
           </Button>
         </div>
       </div>
-      {creating ? <WorkItemForm busy={busy} onCancel={() => setCreating(false)} onSubmit={(input) => perform(async () => { await workBoardService.createWorkItem(input); setCreating(false); })} submitLabel={t("todoBoard.create")} /> : null}
-      {editing ? <WorkItemForm busy={busy} item={editing} onCancel={() => setEditing(null)} onSubmit={(input) => perform(async () => { await workBoardService.updateWorkItem({ workItemId: editing.id, ...input }); setEditing(null); })} submitLabel={t("todoBoard.save")} /> : null}
+      {creating ? <WorkItemForm mutation={mutations.get(CREATE_MUTATION_KEY)} onCancel={() => setCreating(false)} onSubmit={(input) => void create(input, () => setCreating(false))} submitLabel={t("todoBoard.create")} /> : null}
+      {editing ? <WorkItemForm item={editing} mutation={mutations.get(editing.id)} onCancel={() => setEditing(null)} onSubmit={(input) => void update(editing, input, () => setEditing(null))} submitLabel={t("todoBoard.save")} /> : null}
 
       <label className="relative block">
         <Search aria-hidden="true" className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -122,20 +107,22 @@ export function WorkBoard() {
       {compact ? <select aria-label={t("todoBoard.stage")} className={fieldClass} onChange={(event) => setCompactStage(event.target.value as WorkItemStage)} value={compactStage}>{workItemStages.map((stage) => <option key={stage} value={stage}>{t(`todoBoard.stage.${stage}`)}</option>)}</select> : null}
     </header>
     {error ? <p className="m-3 rounded border border-destructive/50 bg-destructive/10 p-2 text-sm text-destructive" role="alert">{error}</p> : null}
-    {busy && !items.length
+    {loading && !items.length
       ? <div className="grid flex-1 place-items-center"><Loader2 aria-label={t("todoBoard.loading")} className="animate-spin" /></div>
       : <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-3">
           {stages.map((stage) => (
             <WorkBoardColumn
               filtersActive={filtersActive}
-              items={visible.filter((item) => item.stage === stage)}
+              items={visible.filter((item) => item.stage === stage).sort((left, right) => left.rank - right.rank)}
               key={stage}
-              onArchive={(item) => void perform(() => workBoardService.archiveWorkItem(item.id))}
-              onDelete={(item) => void perform(() => workBoardService.deleteWorkItem(item.id))}
+              mutations={mutations.registry}
+              onArchive={(item) => void archive(item)}
+              onDelete={(item) => void remove(item)}
+              onDismissError={(item) => mutations.clear(item.id)}
               onDrop={drop}
               onEdit={(item) => { setCreating(false); setEditing(item); }}
               onMove={(item, target) => void move(item, target)}
-              onRestore={(item) => void perform(() => workBoardService.restoreWorkItem(item.id))}
+              onRestore={(item) => void restore(item)}
               stage={stage}
             />
           ))}

@@ -1,13 +1,17 @@
 import { type DragEvent } from "react";
 import { useTranslation } from "react-i18next";
+import type { MutationState } from "../ui/async/mutation-state";
 import type { WorkItem, WorkItemStage } from "../types/work-board";
 import { WorkBoardCard } from "./work-board-card";
 
-export function WorkBoardColumn({ filtersActive, items, onArchive, onDelete, onDrop, onEdit, onMove, onRestore, stage }: {
+export function WorkBoardColumn({ filtersActive, items, mutations, onArchive, onDelete, onDismissError, onDrop, onEdit, onMove, onRestore, stage }: {
   filtersActive: boolean;
   items: WorkItem[];
+  /** Every card's own mutation state, keyed by work item id -- see use-work-board-actions.ts. */
+  mutations: ReadonlyMap<string, MutationState>;
   onArchive: (item: WorkItem) => void;
   onDelete: (item: WorkItem) => void;
+  onDismissError: (item: WorkItem) => void;
   onDrop: (event: DragEvent<HTMLElement>, stage: WorkItemStage) => void;
   onEdit: (item: WorkItem) => void;
   onMove: (item: WorkItem, stage: WorkItemStage) => void;
@@ -31,8 +35,10 @@ export function WorkBoardColumn({ filtersActive, items, onArchive, onDelete, onD
           <WorkBoardCard
             item={item}
             key={item.id}
+            mutation={mutations.get(item.id)}
             onArchive={() => onArchive(item)}
             onDelete={() => onDelete(item)}
+            onDismissError={() => onDismissError(item)}
             onEdit={() => onEdit(item)}
             onMove={(target) => onMove(item, target)}
             onRestore={() => onRestore(item)}

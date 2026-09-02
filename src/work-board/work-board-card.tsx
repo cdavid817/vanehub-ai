@@ -6,6 +6,8 @@ import { Button } from "../components/ui/button";
 import { formatAppDateTime } from "../i18n/format";
 import { normalizeDisplayPath } from "../lib/session-path";
 import { cn } from "../lib/utils";
+import { MutationStatus } from "../ui/async/MutationStatus";
+import type { MutationState } from "../ui/async/mutation-state";
 import type { WorkItem, WorkItemStage } from "../types/work-board";
 import { workItemStages } from "../types/work-board";
 
@@ -26,23 +28,29 @@ function MetaChip({ children, icon, title }: { children: ReactNode; icon: ReactN
   );
 }
 
-export function WorkBoardCard({ item, onArchive, onDelete, onEdit, onMove, onRestore }: {
+export function WorkBoardCard({ item, mutation, onArchive, onDelete, onDismissError, onEdit, onMove, onRestore }: {
   item: WorkItem;
+  /** This card's own in-flight move/edit/archive/restore/delete, if any -- shared across all of
+   *  those actions (they all mutate the same item and would race each other), so the card
+   *  disables its own controls while pending rather than the whole board. */
+  mutation?: MutationState;
   onArchive: () => void;
   onDelete: () => void;
+  onDismissError: () => void;
   onEdit: () => void;
   onMove: (stage: WorkItemStage) => void;
   onRestore: () => void;
 }) {
   const { i18n, t } = useTranslation();
   const stageIndex = workItemStages.indexOf(item.stage);
+  const pending = mutation?.pending ?? false;
   // Stored paths keep the Windows extended-length prefix; every display surface strips it.
   const projectPath = item.projectPath ? normalizeDisplayPath(item.projectPath) : null;
   return (
     <article
       className="ucd-card relative grid gap-2.5 overflow-hidden rounded-lg p-3 pl-3.5"
       data-testid={`work-item-${item.id}`}
-      draggable={!item.archived}
+      draggable={!item.archived && !pending}
       onDragStart={(event) => event.dataTransfer.setData("text/work-item", item.id)}
     >
       <span aria-hidden="true" className={cn("absolute inset-y-0 left-0 w-1", priorityAccent[item.priority])} />
@@ -80,13 +88,14 @@ export function WorkBoardCard({ item, onArchive, onDelete, onEdit, onMove, onRes
       )}
       <div className="flex flex-wrap items-center gap-1 border-t border-border pt-2">
         {!item.archived ? <>
-          <Button aria-label={t("todoBoard.movePrevious")} disabled={stageIndex === 0} onClick={() => onMove(workItemStages[stageIndex - 1])} size="icon" type="button" variant="ghost"><ArrowUp aria-hidden="true" /></Button>
-          <select aria-label={t("todoBoard.stage")} className="ucd-input min-w-0 flex-1 rounded px-2 py-1 text-xs" onChange={(event) => onMove(event.target.value as WorkItemStage)} value={item.stage}>{workItemStages.map((stage) => <option key={stage} value={stage}>{t(`todoBoard.stage.${stage}`)}</option>)}</select>
-          <Button aria-label={t("todoBoard.moveNext")} disabled={stageIndex === workItemStages.length - 1} onClick={() => onMove(workItemStages[stageIndex + 1])} size="icon" type="button" variant="ghost"><ArrowDown aria-hidden="true" /></Button>
-          <Button aria-label={t("todoBoard.edit")} onClick={onEdit} size="icon" type="button" variant="ghost"><Pencil aria-hidden="true" /></Button>
-          <Button aria-label={t("todoBoard.archive")} onClick={onArchive} size="icon" type="button" variant="ghost"><Archive aria-hidden="true" /></Button>
-        </> : <><Button onClick={onRestore} size="sm" type="button" variant="outline"><RotateCcw aria-hidden="true" />{t("todoBoard.restore")}</Button><Button onClick={onDelete} size="sm" type="button" variant="outline"><Trash2 aria-hidden="true" />{t("todoBoard.delete")}</Button></>}
+          <Button aria-label={t("todoBoard.movePrevious")} disabled={pending || stageIndex === 0} onClick={() => onMove(workItemStages[stageIndex - 1])} size="icon" type="button" variant="ghost"><ArrowUp aria-hidden="true" /></Button>
+          <select aria-label={t("todoBoard.stage")} className="ucd-input min-w-0 flex-1 rounded px-2 py-1 text-xs" disabled={pending} onChange={(event) => onMove(event.target.value as WorkItemStage)} value={item.stage}>{workItemStages.map((stage) => <option key={stage} value={stage}>{t(`todoBoard.stage.${stage}`)}</option>)}</select>
+          <Button aria-label={t("todoBoard.moveNext")} disabled={pending || stageIndex === workItemStages.length - 1} onClick={() => onMove(workItemStages[stageIndex + 1])} size="icon" type="button" variant="ghost"><ArrowDown aria-hidden="true" /></Button>
+          <Button aria-label={t("todoBoard.edit")} disabled={pending} onClick={onEdit} size="icon" type="button" variant="ghost"><Pencil aria-hidden="true" /></Button>
+          <Button aria-label={t("todoBoard.archive")} disabled={pending} onClick={onArchive} size="icon" type="button" variant="ghost"><Archive aria-hidden="true" /></Button>
+        </> : <><Button disabled={pending} onClick={onRestore} size="sm" type="button" variant="outline"><RotateCcw aria-hidden="true" />{t("todoBoard.restore")}</Button><Button disabled={pending} onClick={onDelete} size="sm" type="button" variant="outline"><Trash2 aria-hidden="true" />{t("todoBoard.delete")}</Button></>}
       </div>
+      <MutationStatus onDismiss={onDismissError} state={mutation} />
     </article>
   );
 }
