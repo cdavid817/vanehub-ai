@@ -11,14 +11,15 @@ function escapeRegExp(value: string): string {
  * file's own `expected` array (the product order defined in `settings-pages.ts`), clicking each
  * nav entry and asserting a page-specific heading becomes visible before moving to the next.
  *
- * `level` defaults to 2 because 17 of the 20 pages render their title through the local
- * `page-parts.tsx` `PageHeader`, an `<h2>`. Three pages -- `extensions`, `plugins`, and
- * `ssh-connections` -- instead import the newer shared `ui/page-header/PageHeader`
- * (`src/ui/page-header/PageHeader.tsx`, task 12.18's own primitive), which renders an `<h1>`, not
- * an `<h2>`. Confirmed by reading each of those 3 pages' own import line and both `PageHeader`
- * components' source directly, not assumed. Their title text still starts with this page's own
- * nav label the same as every other page, only the heading level differs -- so `level: 1` here is
- * the "actual page-specific marker" the task calls for, not a forced workaround.
+ * `level` defaults to 2 because 14 of the 20 pages render their title through the local
+ * `page-parts.tsx` `PageHeader`, an `<h2>`. Six pages -- `cli-management`, `extensions`, `mcp`,
+ * `plugins`, `skills`, and `ssh-connections` -- instead import the newer shared
+ * `ui/page-header/PageHeader` (`src/ui/page-header/PageHeader.tsx`, task 12.18's own primitive),
+ * which renders an `<h1>`, not an `<h2>`. Confirmed by reading each of those 6 pages' own import
+ * line and both `PageHeader` components' source directly, not assumed. Their title text still
+ * starts with this page's own nav label the same as every other page, only the heading level
+ * differs -- so `level: 1` here is the "actual page-specific marker" the task calls for, not a
+ * forced workaround.
  *
  * Prefix match, not exact, for two independent reasons already established elsewhere this session:
  * a nav entry's own accessible name can carry a folded-in status-dot description
@@ -33,13 +34,13 @@ const pages: ReadonlyArray<{ label: string; level: 1 | 2 }> = [
   { label: "Agent 权限策略", level: 2 },
   { label: "CLI 参数", level: 2 },
   { label: "代码智能", level: 2 },
-  { label: "MCP 服务器", level: 2 },
-  { label: "Skill 管理", level: 2 },
+  { label: "MCP 服务器", level: 1 },
+  { label: "Skill 管理", level: 1 },
   { label: "AI 个性化", level: 2 },
   { label: "Prompt Hook", level: 2 },
   { label: "专家角色", level: 2 },
   { label: "本地媒体", level: 2 },
-  { label: "CLI 管理", level: 2 },
+  { label: "CLI 管理", level: 1 },
   { label: "扩展能力", level: 1 },
   { label: "插件集成", level: 1 },
   { label: "IM 能力", level: 2 },
