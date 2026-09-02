@@ -4,8 +4,10 @@ import { Badge } from "../../../components/ui/badge";
 import { ActionMenu, type ActionMenuItem } from "../../../ui/actions/ActionMenu";
 import { MutationStatus } from "../../../ui/async/MutationStatus";
 import type { MutationState } from "../../../ui/async/mutation-state";
+import { CopyDiagnosticsButton } from "../../../ui/diagnostics/CopyDiagnosticsButton";
 import { StatusBadge } from "../../../ui/status/StatusBadge";
 import type { McpServerConfig, McpServerStatus } from "../../../types/mcp";
+import { buildMcpDiagnosticFields } from "./mcp-diagnostic-summary";
 import { mcpConnectionStatusKey, mcpConnectionStatusTone, mcpTransportTranslationKey } from "./mcp-presentation";
 import { McpTestResultPanel } from "./mcp-test-result";
 
@@ -93,6 +95,9 @@ export function McpServerCard({
       <MutationStatus state={toggleState} />
       <MutationStatus state={testState} />
       <MutationStatus state={deleteState} />
+      <div className="flex justify-end">
+        <CopyDiagnosticsButton fields={buildMcpDiagnosticFields(server, status, t)} />
+      </div>
     </article>
   );
 }
