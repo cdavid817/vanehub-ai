@@ -64,7 +64,8 @@
 | --- | --- |
 | [权限模型](permission-model.md) | 统一决策点、显式 Deny 优先、审批代理、CLI flag 投影、Claude Code 钩子桥 |
 | [执行可观测性与 Agent 评测](execution-observability.md) | run/span/时间线、四档保真度与脱敏上限，以及评测竞技场的判定规则 |
-| [持久化与统一日志](persistence-and-logging.md) | SQLite、迁移以及脱敏规则 |
+| [持久化所有权](persistence-ownership.md) | SQLite 所有权、迁移与数据库常量 |
+| [统一日志](unified-logging.md) | 统一写入流水线、落盘前脱敏与链路关联 |
 | [使用统计](usage-statistics.md) | 上报 token 与估算字符分离、时间范围、per-Agent 拆分 |
 
 ## 工程流程
@@ -72,7 +73,8 @@
 | 章节 | 覆盖内容 |
 | --- | --- |
 | [OpenSpec 工作流](openspec-workflow.md) | 如何提出、应用与归档一个变更 |
-| [测试、打包与发布](testing-and-release.md) | 关卡、覆盖率门槛与打包目标 |
+| [测试](testing.md) | 测试分层、覆盖率门槛与各层能证明什么 |
+| [发布](release.md) | 打包目标、签名凭据与版本同步 |
 
 ## 参考
 

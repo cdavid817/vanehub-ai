@@ -47,7 +47,7 @@
 
 右侧信息面板的**会话成员**区列出当前阵容与已离席成员；会话工作区提供席位切换器；每条消息标注「角色名 · Agent 名称」。
 
-想直接走一遍可复现的验收流程，见[群聊协作案例](multi-agent-testing-tutorial.md)。
+想直接走一遍可复现的验收流程，见[群聊协作案例](../../../developer-guide/zh-CN/src/multi-agent-acceptance.md)。
 
 ## 席位与句柄
 
@@ -200,7 +200,7 @@ sequenceDiagram
 
 **这条链里发生了什么**：三个不同模型族的 Agent 在同一上下文里接力，没人需要你把上一轮对话复制粘贴过去——共享对话线索加席位简报，让每个在场者都知道前面发生了什么。链深计数 `交接 1/15` 实时显示，触顶会显式终止而非失控。
 
-> 想走一遍带验收检查的可复现流程，见[群聊协作案例](multi-agent-testing-tutorial.md)。
+> 想走一遍带验收检查的可复现流程，见[群聊协作案例](../../../developer-guide/zh-CN/src/multi-agent-acceptance.md)。
 
 ## 群聊 vs Loop 工程化
 
@@ -261,7 +261,7 @@ Supervisor 模式要求一个 Agent 充当调度器，它会消耗 token 且引�
 ## 相关
 
 - 实现细节、源码位置与设计取舍 → [《开发者指南》的多 Agent 群聊一章](../../../developer-guide/zh-CN/src/multi-agent-group-chat.md)
-- 走一遍验收流程 → [群聊协作案例](multi-agent-testing-tutorial.md)
+- 走一遍验收流程 → [群聊协作案例](../../../developer-guide/zh-CN/src/multi-agent-acceptance.md)
 - 专家角色与评审策略 → [专家角色](expert-roles.md)
 - 编排拓扑、上下文管理与失败模式的技术全景 → [多 Agent 系统技术架构](../../../agent-infrastructure/patterns/multi-agent.md)
 - 上文提到的 A2A 协议究竟是什么 → [A2A 技术架构](../../../agent-infrastructure/protocols/a2a.md)

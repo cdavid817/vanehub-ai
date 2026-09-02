@@ -95,6 +95,6 @@ When OnePiece is ready to act, it requests `exit_plan_mode`. Approving applies A
 
 ## Related
 
-- Provider configuration and credential storage → [Tools and extensions](tooling.md#agent-configurations)
+- Provider configuration and credential storage → [Tools and extensions](agent-configuration.md#agent-configurations)
 - Memory extraction and context compaction → [Memory and context](memory-and-context.md)
 - Tool calling technology itself: the call loop, constrained decoding, parallel calls, and cross-provider adaptation → [Function Calling technical architecture](../../../agent-infrastructure/protocols/function-calling.md) (Simplified Chinese)

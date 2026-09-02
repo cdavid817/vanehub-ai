@@ -195,6 +195,6 @@ Loop 会比对每轮的目标状态，识别「原地打转」。**只要满足�
 
 ## 相关
 
-- 把多个 Loop 归到一个目标下追踪 → [目标管理](goal-management.md)
+- 把多个 Loop 归到一个目标下追踪 → [目标管理](goals-and-work-board.md)
 - 另一套多 Agent 机制 → [多 Agent 群聊](multi-agent-workflow.md)
 - 用 `/loops` 快速打开循环中心 → [斜杠命令](slash-commands.md)

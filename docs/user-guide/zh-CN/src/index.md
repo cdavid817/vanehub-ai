@@ -21,11 +21,11 @@
 | 章节 | 讲什么 |
 | --- | --- |
 | [多 Agent 群聊](multi-agent-workflow.md) | 一个会话里放多个 Agent，用 `@` 交接发言权 |
-| [群聊协作案例](multi-agent-testing-tutorial.md) | 用架构师、实现者和代码审查走完 UI、交接与历史身份验收 |
+| [群聊协作案例](../../../developer-guide/zh-CN/src/multi-agent-acceptance.md) | 用架构师、实现者和代码审查走完 UI、交接与历史身份验收 |
 | [Git Worktree](worktree.md) | 让 Agent 在独立工作副本里改代码，不动你的分支 |
 | [Loop Engineering 工程](loop-engineering.md) | 定目标与必过检查，让它自动迭代到达成 |
-| [目标管理](goal-management.md) | 把循环与看板项归到一个目标下追踪 |
-| [任务看板](todo-board.md) | 人工待办与 Agent 工作放在同一块看板 |
+| [目标管理](goals-and-work-board.md) | 把循环与看板项归到一个目标下追踪 |
+| [任务看板](goals-and-work-board.md) | 人工待办与 Agent 工作放在同一块看板 |
 | [斜杠命令](slash-commands.md) | 在输入框里直接切页签、改开关、看用量 |
 | [代码评审](code-review.md) | 逐行看差异、留评论、把意见送回 Agent |
 | [记忆与上下文](memory-and-context.md) | 跨会话记住什么，以及上下文满了怎么压缩 |
@@ -34,13 +34,16 @@
 | [Skill 管理](skill-management.md) | 安装 Skill、绑定到 Agent、漂移提示、演进证据 |
 | [代码索引](code-indexing.md) | 工作区代码的向量索引 |
 | [LSP 代码智能](lsp-code-intelligence.md) | 会话内的符号跳转与诊断 |
-| [工具与扩展](tooling.md) | MCP 服务器、Prompt Hook、本地 OCR/语音扩展 |
+| [Agent 与 CLI 配置](agent-configuration.md) | CLI 安装与升级、启动参数、provider 与模型 |
+| [本地扩展](extensions.md) | 本地扩展的安装与开关，以及产品集成 |
 | [MCP 服务器](mcp.md) | 给 Agent 接上外部工具，以及逐次工具审批 |
 | [Prompt Hook](prompt-hooks.md) | 在提示词组装链路里插入内容，草稿/发布/回滚 |
 | [OnePiece（原生 Agent）](native-agent.md) | 不装 CLI 也能用，配 provider、recall 与 Notebook 编辑 |
 | [可观测性](observability.md) | 执行链路、保真度、日志目录与脱敏 |
-| [远程与 IM](remote-and-im.md) | SSH 远程工作区、飞书/钉钉/企微/微信/Telegram |
-| [定时任务与用量统计](automation.md) | 按周期自动跑任务，以及 token 用量怎么看 |
+| [远程工作区与 SSH](remote-workspaces.md) | 把远程主机上的目录当作工作区 |
+| [IM 连接器](im-connectors.md) | 飞书/钉钉/企微/微信/Telegram，首版仅文本单聊 |
+| [定时任务与通知](scheduled-tasks.md) | 按周期自动跑任务、长时操作与通知 |
+| [使用统计](usage-statistics.md) | token 用量按时间/Agent/会话/模型怎么看 |
 | [版本更新](app-updates.md) | 发布通道、签名校验与自动更新 |
 
 ## 参考

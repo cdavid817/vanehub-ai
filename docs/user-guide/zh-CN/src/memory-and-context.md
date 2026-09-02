@@ -142,12 +142,12 @@
 - **删除记忆不可撤销**，且会一并吊销检索索引。
 - **压缩开关的更改不影响正在运行的生成**。
 - **Token 口径可用时压过字符阈值**，字符数只是兜底。
-- **上下文健康的数字不是计费数据**，用量计费请看 [定时与用量](automation.md)。
+- **上下文健康的数字不是计费数据**，用量计费请看 [使用统计](usage-statistics.md)。
 
 ## 相关
 
 - 记忆开关所在的设置页 → [个性化](personalization.md)
 - `/longcontext` 切换长上下文 → [斜杠命令](slash-commands.md)
-- 「记忆提取」「上下文压缩」在用量里的口径 → [定时与用量](automation.md)
+- 「记忆提取」「上下文压缩」在用量里的口径 → [使用统计](usage-statistics.md)
 - OnePiece 本身的执行模式与开关 → [OnePiece（原生 Agent）](native-agent.md)
 - 检索技术本身：索引管线、语义与关键字检索取舍、混合检索与重排序 → [RAG 技术架构](../../../agent-infrastructure/patterns/rag.md)

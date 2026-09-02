@@ -81,77 +81,31 @@ Verify downloads against the published `SHA256SUMS`, SPDX SBOM, and GitHub attes
 
 ### User guide
 
-| Topic | Entry |
-| --- | --- |
-| Quick start | [Five steps from installing a CLI to working in a workspace](docs/user-guide/en/src/quick-start.md) |
-| Basic configuration | [Interface language, theme, font size, default policy template, launch at login, network proxy, data directory, log directory](docs/user-guide/en/src/user-interface.md#basic-configuration) |
-| User interface overview | [Main layout, navigation, panel toggles, session/conversation/workspace tabs/info panel](docs/user-guide/en/src/user-interface.md) |
-| Session list | [Grouping/search/filter/batch/drag, context menu, focus mode](docs/user-guide/en/src/user-interface.md#session-list) |
-| Floating assistant | [Standalone floating window session, status badge, main action menu](docs/user-guide/en/src/user-interface.md#floating-assistant) |
-| Loop center | [Loop run controls, verification command, timeline](docs/user-guide/en/src/loop-engineering.md) |
-| OnePiece Plan mode | [Read-only planning and approved transition to Agent mode](docs/user-guide/en/src/user-interface.md#onepiece-plan-mode) |
-| Goal Center | [Track scattered execution items in one place](docs/user-guide/en/src/goal-management.md) |
-| Todo Board | [Board view and stage transitions for work items](docs/user-guide/en/src/todo-board.md) |
-| Agent evaluation | [Run several Agents head-to-head on the same task; compare pass rate, tokens, and time](docs/user-guide/en/src/evaluation.md) |
-| Notification center | [Bell, unread count, mark all read, clear](docs/user-guide/en/src/user-interface.md#notifications) |
-| System tray | [Show/hide main window, startup, notification integration](docs/user-guide/en/src/user-interface.md#system-tray) |
-| CLI management, install & auth | [Two install methods, authentication, install detection, conflict diagnostics, upgrades](docs/user-guide/en/src/getting-started.md) |
-| Multi-Agent group chat | [Seats, `@` handoff, turn bounds](docs/user-guide/en/src/multi-agent-workflow.md) |
-| Git worktrees | [Parallel changes to one repository without stepping on each other](docs/user-guide/en/src/worktree.md) |
-| Code review | [The review center and review flow](docs/user-guide/en/src/code-review.md) |
-| Slash commands | [In-session command entry points](docs/user-guide/en/src/slash-commands.md) |
-| Memory and context | [Cross-session memory and context compaction](docs/user-guide/en/src/memory-and-context.md) |
-| Code indexing | [Workspace code indexing and its privacy boundary](docs/user-guide/en/src/code-indexing.md) |
-| LSP code intelligence | [The live language server and its trust model](docs/user-guide/en/src/lsp-code-intelligence.md) |
-| OnePiece native Agent | [The built-in API Agent usable without installing a CLI](docs/user-guide/en/src/native-agent.md) |
-| Scheduled tasks | [Scheduled tasks and usage statistics](docs/user-guide/en/src/automation.md) |
-| Remote workspaces & SSH connections | [SSH workspaces, saved connections, and IM access](docs/user-guide/en/src/remote-and-im.md) |
-| CLI parameters | [Per-CLI-Agent launch parameters, with a per-CLI parameter quick reference](docs/user-guide/en/src/tooling.md#cli-parameters) |
-| Extension capabilities | [Local extension install/enable/disable](docs/user-guide/en/src/tooling.md#extension-capabilities) |
-| Plugin integration | [Built-in product integrations and readiness checks](docs/user-guide/en/src/plugin-integration.md) |
-| MCP servers | [MCP server configuration and per-Agent binding](docs/user-guide/en/src/mcp.md) |
-| Agent configurations | [Provider, endpoint, and model per Agent](docs/user-guide/en/src/tooling.md#agent-configurations) |
-| Expert roles | [Role fields, responsibilities, and review policy](docs/user-guide/en/src/expert-roles.md) |
-| Agent policies | [Agent permission policies and approval template configuration](docs/user-guide/en/src/permissions.md) |
-| Personalization | [Custom instructions and cross-session memory](docs/user-guide/en/src/personalization.md) |
-| Skill management | [Skill installation and binding](docs/user-guide/en/src/skill-management.md) |
-| Prompt Hooks | [Hook management](docs/user-guide/en/src/prompt-hooks.md) |
-| IM connectors | [IM connector configuration](docs/user-guide/en/src/remote-and-im.md#im-connectors) |
-| Execution observability | [Execution tracing and log collection policy](docs/user-guide/en/src/observability.md) |
-| Usage statistics | [Token usage statistics](docs/user-guide/en/src/automation.md) |
-| About | [Version, update check, changelog, and repository links](docs/user-guide/en/src/app-updates.md) |
-| Troubleshooting | [Check here first when something fails](docs/user-guide/en/src/troubleshooting.md) |
-| Reporting issues | [Which entry point to use, what the forms need, and how to redact before submitting](docs/user-guide/en/src/reporting-issues.md) |
+The [user guide](docs/user-guide/en/src/index.md) has the complete chapter list in its own sidebar; the table below is only the way in.
+
+| Group | Start here | Covers |
+| --- | --- | --- |
+| Getting started | [Quick Start](docs/user-guide/en/src/quick-start.md) | Installing, authenticating and upgrading a CLI, a first session, core concepts |
+| Interface and workspaces | [User interface](docs/user-guide/en/src/user-interface.md) | Layout and navigation, the session workspace, settings, remote workspaces, worktrees, slash commands |
+| Agents and collaboration | [Multi-Agent group chat](docs/user-guide/en/src/multi-agent-workflow.md) | OnePiece, seats and handoff, expert roles, Loop, goals and the work board, code review, evaluation |
+| Context and code intelligence | [Memory and context](docs/user-guide/en/src/memory-and-context.md) | Cross-session memory and personalization, compaction, code indexing, LSP |
+| Tools and integrations | [Agent and CLI configuration](docs/user-guide/en/src/agent-configuration.md) | CLI parameters, providers, Skills, MCP, Prompt Hooks, local extensions, local media, IM connectors |
+| Governance and operations | [Permission approvals](docs/user-guide/en/src/permissions.md) | Permission templates and approvals, observability, scheduled tasks, usage statistics |
+| Help | [Troubleshooting](docs/user-guide/en/src/troubleshooting.md) | Use cases, FAQ, troubleshooting, reporting issues |
 
 ### Developer guide
 
-| Topic | Entry |
-| --- | --- |
-| Repository layout | [Repository layout and module ownership](docs/developer-guide/src/repository-orientation.md) |
-| Runtime boundaries | [Frontend service boundaries, Web/mock and Tauri adapters](docs/developer-guide/src/runtime-boundaries.md) |
-| Bounded contexts | [What each native bounded context owns](docs/developer-guide/src/native-contexts.md) |
-| Agent lifecycle & provider runtime | [Registered Agent edits, stable provider resolution, capability declarations](docs/developer-guide/src/agent-lifecycle.md) |
-| Terminal & PTY runtime | [Session-scoped Agent Terminal, auto-start/attach, remote terminals](docs/developer-guide/src/terminal-runtime.md) |
-| Tool registry & execution | [Fixed native tool catalog, per-interface_format translation, multi-turn tool loop](docs/developer-guide/src/tool-registry.md) |
-| Permission model | [Unified decision point, explicit-Deny-first, approval broker, CLI flag projection, Claude Code hook bridge](docs/developer-guide/src/permission-model.md) |
-| Context compaction | [Token-aware trigger and character fallback, summarization compaction, recent turns kept](docs/developer-guide/src/context-compaction.md) |
-| Retrieval & vector search | [Host-level shared memory pool, workspace code index, graceful degradation](docs/developer-guide/src/retrieval.md) |
-| Tree-sitter code indexing | [Grammar parsing, bounded chunks, symbol metadata, grammar version, redaction](docs/developer-guide/src/tree-sitter-code-indexing.md) |
-| Cross-session memory | [Host-level shared pool, provenance metadata, OnePiece tool vs CLI auto-extraction](docs/developer-guide/src/cross-session-memory.md) |
-| Session recovery | [Recovery status orthogonal to lifecycle, durable execution identity and ownership](docs/developer-guide/src/session-recovery.md) |
-| OnePiece native Agent | [Built-in API Agent identity, Profile lifecycle, provider directory](docs/developer-guide/src/onepiece-native-agent.md) |
-| Multi-Agent group chat | [Seat model, mid-session add/remove, turn routing, durable presence](docs/developer-guide/src/multi-agent-group-chat.md) |
-| Skill management | [Dual scope, SKILL.md contract, drift, built-in seeding/reconciliation](docs/developer-guide/src/skill-management.md) |
-| MCP tools & clients | [Transport and configuration model, MCP tools in the native catalog](docs/developer-guide/src/mcp-tools.md) |
-| IM connectors | [Five built-in connectors, first-version direct-message scope, inbound routing](docs/developer-guide/src/im-connectors.md) |
-| Loop & Plan runtimes | [Durable Loop definitions, topology-aware serial subtask scheduling, Worker/Verifier trust](docs/developer-guide/src/loop-and-plan-runtime.md) |
-| Usage statistics | [Reported tokens vs estimated characters, time ranges, per-Agent breakdown](docs/developer-guide/src/usage-statistics.md) |
-| LSP code intelligence | [In-session LSP integration implementation](docs/developer-guide/src/lsp-code-intelligence.md) |
-| Persistence & logging | [SQLite ownership and unified redacted logs](docs/developer-guide/src/persistence-and-logging.md) |
-| Testing & release | [Testing, packaging, and release flow](docs/developer-guide/src/testing-and-release.md) |
-| OpenSpec workflow | [Proposal→design→delta spec→tasks→validation→archive change flow](docs/developer-guide/src/openspec-workflow.md) |
-| Native API reference | [Rustdoc-generated internal contract and ownership documentation](docs/developer-guide/src/native-api-reference.md) |
-| Architecture decisions | [Repository layout and module orientation, bounded contexts and call relationships](docs/developer-guide/src/repository-orientation.md) |
+The [developer guide](docs/developer-guide/src/index.md) has the complete chapter list in its own sidebar; the table below is only the way in.
+
+| Domain | Start here | Covers |
+| --- | --- | --- |
+| Orientation and boundaries | [Repository orientation](docs/developer-guide/src/repository-orientation.md) | Directory ownership, runtime and service boundaries, native bounded contexts, persistence ownership |
+| Agent runtime | [Agent lifecycle and provider runtime](docs/developer-guide/src/agent-lifecycle.md) | OnePiece, the tool registry, CLI lifecycle and delegation, terminal and PTY, group chat, Loop and Plan, session recovery |
+| Context, memory, and code intelligence | [Cross-session memory](docs/developer-guide/src/cross-session-memory.md) | Compaction, personalization governance, retrieval, Tree-sitter indexing, LSP |
+| Skills and external integrations | [Skill management](docs/developer-guide/src/skill-management.md) | The effective Skill runtime, overlay governance, evolution evidence, MCP tools, IM connectors |
+| Security, evaluation, and observability | [Permission model](docs/developer-guide/src/permission-model.md) | Execution observability, the evaluation runtime, the evidence console, unified logging, usage statistics |
+| Engineering delivery | [Testing](docs/developer-guide/src/testing.md) | The OpenSpec workflow, release, and live qualification |
+| Generated reference | [Native API reference](docs/developer-guide/src/native-api-reference.md) | The native contract and ownership reference generated from source |
 
 User guides are available in English and Simplified Chinese. Japanese, Traditional Chinese, and Korean are delivered as application UI resource locales only; no user guide is provided for those locales.
 

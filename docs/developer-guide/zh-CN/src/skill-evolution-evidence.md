@@ -104,7 +104,7 @@ flowchart TB
 ## 与其他上下文的关系
 
 - 证据来自执行过程，与[执行可观测性](execution-observability.md)的链路是两套记录：链路描述「发生了什么」，证据描述「这对某个 Skill 意味着什么」。
-- 脱敏原则与[持久化与统一日志](persistence-and-logging.md)一致——**落盘前脱敏，而不是读取时过滤**。
+- 脱敏原则与[统一日志](unified-logging.md)一致——**落盘前脱敏，而不是读取时过滤**。
 
 ## 设计所在
 

@@ -82,7 +82,7 @@ VaneHub AI 把 Claude Code、OpenCode、Codex CLI、Gemini CLI 和 Antigravity C
 | 工作区与会话 | [用户界面](docs/user-guide/zh-CN/src/user-interface.md) | 主布局与导航、会话列表、Git Worktree、斜杠命令、代码评审 |
 | Agent 与协作 | [多 Agent 群聊](docs/user-guide/zh-CN/src/multi-agent-workflow.md) | OnePiece、席位与交接、专家角色、Loop、目标与任务看板、Agent 评测 |
 | 上下文与代码智能 | [记忆与上下文](docs/user-guide/zh-CN/src/memory-and-context.md) | 跨会话记忆与个性化、上下文压缩、代码索引、LSP 代码智能 |
-| 工具与集成 | [工具与扩展](docs/user-guide/zh-CN/src/tooling.md) | CLI 参数、Agent 配置、Skill、MCP、Prompt Hook、本地媒体、远程工作区与 IM |
+| 工具与集成 | [Agent 与 CLI 配置](docs/user-guide/zh-CN/src/agent-configuration.md) | CLI 参数、provider 与模型、Skill、MCP、Prompt Hook、本地扩展、本地媒体、IM 连接器 |
 | 治理与运行 | [权限审批](docs/user-guide/zh-CN/src/permissions.md) | 权限模板与审批、执行可观测性、定时任务与用量统计、版本更新 |
 | 帮助 | [故障排查](docs/user-guide/zh-CN/src/troubleshooting.md) | 使用案例、常见问题、排障、反馈问题 |
 
@@ -97,7 +97,7 @@ VaneHub AI 把 Claude Code、OpenCode、Codex CLI、Gemini CLI 和 Antigravity C
 | 上下文、记忆与代码智能 | [跨会话记忆](docs/developer-guide/zh-CN/src/cross-session-memory.md) | 上下文压缩、个性化治理、检索与向量搜索、Tree-sitter 索引、LSP |
 | Skill 与外部集成 | [Skill 管理](docs/developer-guide/zh-CN/src/skill-management.md) | 有效 Skill 运行时、覆盖层治理、演进证据、MCP 工具与客户端、IM connector |
 | 安全、评测与可观测 | [权限模型](docs/developer-guide/zh-CN/src/permission-model.md) | 执行可观测性与 Agent 评测、会话工作区证据控制台、使用统计 |
-| 工程交付 | [测试、打包与发布](docs/developer-guide/zh-CN/src/testing-and-release.md) | OpenSpec 工作流、真实环境资格验证 |
+| 工程交付 | [测试](docs/developer-guide/zh-CN/src/testing.md) | OpenSpec 工作流、发布、真实环境资格验证 |
 | 生成参考 | [Native API 参考](docs/developer-guide/zh-CN/src/native-api-reference.md) | 由源码生成的 native contract 与所有权参考 |
 
 用户指南提供英文与简体中文两种语言。日文、繁体中文、韩文仅作为应用界面资源语言交付，不提供对应的用户指南。

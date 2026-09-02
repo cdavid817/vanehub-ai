@@ -55,7 +55,7 @@ claude
 
 > **Antigravity CLI 不接受自定义端点**。它只走 Google 登录、凭据存系统钥匙串，配置面板里没有端点和密钥字段——能调的是模型与审批行为。
 
-字段清单、凭据存放位置与漂移处理见[工具与扩展 → Agent 配置](tooling.md#agent-配置)。
+字段清单、凭据存放位置与漂移处理见[工具与扩展 → Agent 配置](agent-configuration.md#agent-配置)。
 
 ### 原生 Agent OnePiece
 

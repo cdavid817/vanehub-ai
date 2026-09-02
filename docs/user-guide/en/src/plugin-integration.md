@@ -15,7 +15,7 @@ Its division of labor with neighboring pages:
 | Page | What it manages |
 | --- | --- |
 | **Plugin integration** | Readiness checks for built-in product integrations (currently GitHub only) |
-| [Extensions](tooling.md#extension-capabilities) | Installing and toggling local multi-modal AI capabilities (OCR, speech recognition, speech synthesis) |
+| [Extensions](extensions.md#extension-capabilities) | Installing and toggling local multi-modal AI capabilities (OCR, speech recognition, speech synthesis) |
 | [MCP servers](mcp.md) | Wiring external tools to an Agent through the MCP protocol |
 | [Skill management](skill-management.md) | Installing and binding Skills |
 
@@ -100,5 +100,5 @@ Before it's ever tested, a card reads "GitHub readiness has not been checked yet
 ## Related
 
 - Other ways to hook up a tool → [MCP servers](mcp.md), [Skill management](skill-management.md)
-- Local multi-modal capabilities → [Tools and extensions](tooling.md#extension-capabilities)
+- Local multi-modal capabilities → [Tools and extensions](extensions.md#extension-capabilities)
 - The code review workflow → [Code review](code-review.md)

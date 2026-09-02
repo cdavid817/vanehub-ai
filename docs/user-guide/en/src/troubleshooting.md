@@ -143,13 +143,13 @@ That boundary covers **injection** only. Memory storage is still one shared pool
 
 ### An IM connector will not start
 
-**The default route configuration must be saved first.** The interface's message is that this must be configured before any connector can be enabled. See [Remote execution and IM connectors](remote-and-im.md).
+**The default route configuration must be saved first.** The interface's message is that this must be configured before any connector can be enabled. See [IM connectors](im-connectors.md).
 
 ### A scheduled task did not run while the application was closed
 
 The scheduler runs inside the application, not as a system-level service. **It does not run while closed, but missed runs are made up at the next launch — and only the most recent one.**
 
-A once-daily task with the application closed for three days makes up one run on restart. See [Scheduled tasks and usage statistics](automation.md).
+A once-daily task with the application closed for three days makes up one run on restart. See [Scheduled tasks and notifications](scheduled-tasks.md).
 
 ## Observability
 

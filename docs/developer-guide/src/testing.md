@@ -1,29 +1,9 @@
-# Testing, packaging, and release
+# Testing
 
-Run the repository verification commands appropriate to the change:
+**The single source of truth for verification commands is the "Verification commands" section of [`AGENTS.md`](../../../AGENTS.md) at the repository root.** This chapter no longer copies it: two lists drift, and the half that drifts is the half CI stops. What this chapter covers is which tier to run when, what each tier actually exercises, and how far a result generalises.
 
-```powershell
-npm run lint:ci
-npm run test
-npm run build
-cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
-cargo check --workspace
-cargo clippy --workspace --all-targets -- -D warnings
-npm run native:panic:check
-cargo test --workspace
-openspec validate --specs --strict
-```
+Packaging and release are in [Release](release.md).
 
-Copy those flags verbatim. `check`, `clippy`, and `test` take `--workspace` rather than `--manifest-path src-tauri/Cargo.toml`: the repository is a Cargo workspace, and `--manifest-path` covers only the `vanehub-ai` crate, silently skipping members such as `vanehub-permission-hook`. `fmt` is the exception, and CI uses `--manifest-path` for it. `AGENTS.md` is the source of truth for this list.
-
-Documentation changes additionally run:
-
-```powershell
-npm run docs:check
-npm run docs:test
-npm run docs:screenshots:check
-npm run docs:build
-```
 
 Frontend tests cover pure contracts and visible component behavior. Playwright covers the browser Web/mock runtime; passing it does not claim that the Tauri desktop runtime passed. Native tests cover domain invariants, application port orchestration, persistence/migrations, command mapping, process safety, and lifecycle behavior.
 
@@ -78,50 +58,7 @@ What each tier covers:
 
 Supplementary scripts must run when a change lands in their area: `npm run test:coverage` (which CI uses in place of `npm run test`), `npm run coverage:policy:test`, `npm run version:unit:test`, and `npm run contracts:check`. UI behavior changes run `npx playwright test`; runtime, startup-chain, or IPC changes run `npm run desktop:unit:test` and `npm run test:desktop`.
 
-## The release process
-
-A release is one synchronized packaging and signing pass across three platforms. The version number must agree in `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json`, guarded by `version:check`.
-
-```mermaid
-sequenceDiagram
-    participant Dev as Releaser
-    participant Sync as Version sync
-    participant Check as version:check + full verification
-    participant Tag as git tag
-    participant PKG as Three-platform package job
-    participant Win as Windows runner
-    participant Mac as macOS runner
-    participant Lin as Linux runner
-    participant Pub as publish job
-    Dev->>Sync: Sync the version number<br/>package.json / Cargo.toml / tauri.conf.json
-    Sync->>Check: version:check + lint:ci + test + build<br/>+ cargo fmt / check / clippy / test<br/>+ openspec validate --specs --strict
-    Check-->>Dev: Continue only when everything is green
-    Dev->>Tag: Create the tag
-    Tag->>PKG: Trigger the three-platform package workflow
-    par Windows
-        PKG->>Win: NSIS .exe<br/>signed
-    and macOS
-        PKG->>Mac: .dmg<br/>notarize + staple
-    and Linux
-        PKG->>Lin: .deb + AppImage
-    end
-    Win-->>Pub: Upload artifacts
-    Mac-->>Pub: Upload artifacts
-    Lin-->>Pub: Upload artifacts
-    Pub->>Pub: Generate SHA256SUMS<br/>generate an SPDX SBOM<br/>generate attestations<br/>assemble release notes
-    Pub-->>Dev: Release complete
-```
-
-What matters in a release:
-
-- **Version synchronization** — the version must agree across `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json`. `scripts/check-version-sync.mjs` cross-checks them, and `version:unit:test` is its unit test.
-- **Full verification comes first** — every verification command at the end of `AGENTS.md` must pass before the tag, plus `version:check`.
-- **Three platform artifacts** — Windows produces a signed NSIS `.exe`; macOS produces a `.dmg` that is notarized and stapled; Linux produces a `.deb` and an AppImage.
-- **The publish artifact list** — `SHA256SUMS` (a per-file sha256, verified to contain no duplicate hashes), an SPDX SBOM, attestations, and release notes.
-- **Updater signing** — the auto-updater signs with `TAURI_SIGNING_PRIVATE_KEY` and its password. The signing key belongs to the protected release environment and never appears in repository configuration or screenshots. An empty key takes the rehearsal-only path and produces no distributable update signature.
-- **Signing credential isolation** — signing credentials are injected only in the CI protected environment. A normal local packaging command carries neither the `desktop-e2e` feature nor the signing key.
-
-Packaging and signing details live in `src-tauri/ARCHITECTURE.md` and the [release signing guide](../reference/release-signing.md); CI orchestration lives in `.github/workflows/ci.yml` and `.github/workflows/package.yml`.
+## Test scripts and thresholds
 
 ## Key scripts and commands
 
@@ -133,6 +70,3 @@ The scripts and gates along the test and release path:
 - **`desktop:unit:test`** — runs the `scripts/desktop-*.node-test.mjs` automation-boundary tests.
 - **The coverage gate** — `coverage-policy.json` sets frontend `minimumLines: 45.2` and native `minimumLines: 67`, with three `criticalGroups` at 80 (`sqlite-transactions`, `agent-startup-and-terminal-control`, `mcp-routing`), checked by `scripts/check-coverage-policy.mjs`.
 - **CI Desktop Smoke** — `.github/workflows/ci.yml` runs the `desktop-smoke` job on a windows / macos / ubuntu matrix with `fail-fast: false`, using `xvfb-run -a npm run test:desktop` on Linux and labelling failure evidence per platform.
-- **Packaging targets** — `package.json` defines six: `package:windows:{x64,arm64}`, `package:macos:{x64,arm64}`, and `package:linux:{x64,arm64}`, each preceded by `sidecar:prepare -- --release --target=...`.
-- **Version synchronization** — `scripts/check-version-sync.mjs` requires the three version declarations to agree, with `version:unit:test` as its unit test.
-- **Signing credentials** — the protected `release` environment holds the credentials (`APPLE_CERTIFICATE`, `APPLE_SIGNING_IDENTITY`, `TAURI_SIGNING_PRIVATE_KEY`, `WINDOWS_CERTIFICATE`, and others). The environment is chosen by `github.ref_type == 'tag' ? 'release' : 'build-preview'`, and the updater uses `TAURI_SIGNING_PRIVATE_KEY` to produce `createUpdaterArtifacts`, with the public key embedded in `tauri.conf.json`.

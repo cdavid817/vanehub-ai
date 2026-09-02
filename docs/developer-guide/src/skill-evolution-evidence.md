@@ -104,7 +104,7 @@ The `ObservedSkillRevision` / `MountedSkillRevision` / `CliMountSnapshot` types 
 ## Relationship to other contexts
 
 - Evidence originates from execution, and it's a separate record from the trace in [Execution observability](execution-observability.md): the trace describes "what happened," and the evidence describes "what this means for a given Skill."
-- The sanitization principle matches [Persistence and unified logging](persistence-and-logging.md) — **sanitize before writing to disk, not filtered on read**.
+- The sanitization principle matches [Unified logging](unified-logging.md) — **sanitize before writing to disk, not filtered on read**.
 
 ## Where the design lives
 

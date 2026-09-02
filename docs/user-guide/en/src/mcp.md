@@ -118,7 +118,7 @@ When one server's cached catalog is malformed or over the limit, **only that ser
 
 ## Related
 
-- The rest of the tool and extension configuration → [Tools and extensions](tooling.md)
+- The rest of the tool and extension configuration → [Local extensions](extensions.md) and [Agent and CLI configuration](agent-configuration.md)
 - The approval flow and remembered scopes → [Permission approvals](permissions.md)
 - What fidelity a relayed call gets in the trace → [Observability](observability.md)
 - The MCP protocol itself: transports, core primitives, lifecycle, and the authorization model → [MCP technical architecture](../../../agent-infrastructure/protocols/mcp.md) (Simplified Chinese)

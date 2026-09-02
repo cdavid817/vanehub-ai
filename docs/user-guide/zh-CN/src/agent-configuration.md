@@ -1,40 +1,8 @@
-# 工具与扩展
+# Agent 与 CLI 配置
 
-## 功能概述
+CLI 的安装、升级与检测，按 Agent 配置启动参数，把某个 Agent 指向哪个 provider 和模型，以及 SDK 依赖。
 
-MCP 服务器、Prompt Hook、本地扩展、插件集成、SDK 依赖、CLI 管理与参数、Agent 配置都在设置中心集中配置，再按 Agent 下发，不必在每个 CLI 里各配一遍。
-
-Skill 的管理见[管理 Skill](skill-management.md)。
-
-## MCP 服务器
-
-MCP 服务器把外部工具接给 Agent，在**设置 → MCP 服务器**中集中注册。三种传输方式、命名规则、连接测试与状态缓存、Claude Desktop 导入导出、中继范围、逐次工具审批与资源上限，见[MCP 服务器](mcp.md)。
-
-## Prompt Hook
-
-Prompt Hook 在提示词组装链路里插入内容，在**设置 → Prompt Hook** 中配置。七种分类、两个执行阶段、模板变量允许清单、草稿/发布/回滚与效果评估，见[Prompt Hook](prompt-hooks.md)。
-
-> **Prompt Hook 只能绑定到五个外部 CLI Agent，不作用于 OnePiece**——原生 Agent 有自己的核心指令机制。
-
-## 扩展能力
-
-**设置 → 扩展能力**里装的是**本地多模态 AI 能力**，不是通用插件。首版每种能力提供一个内置白名单框架：
-
-| 能力 | 框架 | 运行时 | 本地端口 | 预计磁盘占用 |
-| --- | --- | --- | --- | --- |
-| **OCR 文字识别** | PaddleOCR | Python 3.10+ | 9875 | **~1800 MB** |
-| **语音识别** | faster-whisper | Python 3.10+ | 9876 | **~900 MB** |
-| **语音合成** | sherpa-onnx | Python 3.10+ | — | — |
-
-**装之前先看两件事**：需要本机有 Python 3.10+，以及**磁盘占用不小**——PaddleOCR 接近 1.8 GB。每个框架卡片上都有「安装要求」可展开查看。
-
-页面顶部有**已安装 / 运行中 / 异常**三个计数，异常时到操作日志里查原因。
-
-![设置中的扩展能力页面，PaddleOCR 与 faster-whisper 框架卡片](assets/screenshots/extensions-zh-CN.png)
-
-## 插件集成
-
-**设置 → 插件集成**管理内置产品集成与就绪检测——注意它**不安装第三方插件包**。首版内置 GitHub 一个集成，检测本机 `gh` 的认证状态。五种状态的含义、启用步骤与 Web 模式限制，见[插件集成](plugin-integration.md)。
+本地扩展与产品集成见[本地扩展](extensions.md)；MCP 与 Prompt Hook 各有专章。
 
 ## SDK 依赖
 
@@ -229,4 +197,4 @@ Claude Code 与 Codex 是**互斥模式**：可以存很多份配置，但同一
 
 - **全部仅桌面端可用**。
 - **漂移只报告不自动修复**——检测到配置被外部改动时需要你确认处理方式。
-- **MCP、Prompt Hook、扩展能力、CLI 参数都不改写各 CLI 自己的配置文件**，绑定通过启动参数与中继实现。**只有 Agent 配置例外**，它按上面的语义显式改写纳管字段。
+- **CLI 参数不改写各 CLI 自己的配置文件**，绑定通过启动参数与中继实现。**只有 Agent 配置例外**，它按上面的语义显式改写纳管字段。

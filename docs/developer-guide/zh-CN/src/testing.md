@@ -1,29 +1,9 @@
-# 测试、打包与发布
+# 测试
 
-运行与改动相匹配的仓库校验命令:
+**校验命令的唯一真源是仓库根目录的 [`AGENTS.md`](../../../../AGENTS.md)「校验命令」一节。** 本章不再抄一份——两份清单迟早漂移，而漂移的那一半正是 CI 会拦下来的东西。什么时候跑哪一层、每一层覆盖什么、结果能推广到哪里，是本章要讲的。
 
-```powershell
-npm run lint:ci
-npm run test
-npm run build
-cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
-cargo check --workspace
-cargo clippy --workspace --all-targets -- -D warnings
-npm run native:panic:check
-cargo test --workspace
-openspec validate --specs --strict
-```
+打包与发布见[发布](release.md)。
 
-逐字照抄这些参数。`check`/`clippy`/`test` 用 `--workspace` 而不是 `--manifest-path src-tauri/Cargo.toml`:仓库已是 cargo workspace,`--manifest-path` 只覆盖 `vanehub-ai` 一个 crate,`vanehub-permission-hook` 等成员会被静默跳过。`fmt` 是例外,CI 就用 `--manifest-path`。这份清单的真源是 `AGENTS.md`。
-
-文档改动还需额外运行:
-
-```powershell
-npm run docs:check
-npm run docs:test
-npm run docs:screenshots:check
-npm run docs:build
-```
 
 前端测试覆盖纯契约与可见的组件行为。Playwright 覆盖浏览器 Web/mock 运行时;通过它并不代表 Tauri 桌面运行时也通过了。native 测试覆盖领域不变量、应用端口编排、持久化/迁移、命令映射、进程安全与生命周期行为。
 
@@ -78,50 +58,7 @@ flowchart TD
 
 补充脚本在改动落到相应区域时必须跑：`npm run test:coverage`(CI 用它取代 `npm run test`)、`npm run coverage:policy:test`、`npm run version:unit:test`、`npm run contracts:check`。UI 行为变更时 `npx playwright test`;运行时/启动链路/IPC 变更时 `npm run desktop:unit:test` 与 `npm run test:desktop`。
 
-## 发布流程
-
-发布是一次跨三平台的同步打包与签发。版本号在 `package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json` 三处必须一致,由 `version:check` 守护。
-
-```mermaid
-sequenceDiagram
-    participant Dev as 发布者
-    participant Sync as 版本同步
-    participant Check as version:check + 全量验证
-    participant Tag as git tag
-    participant PKG as 三平台打包 job
-    participant Win as Windows runner
-    participant Mac as macOS runner
-    participant Lin as Linux runner
-    participant Pub as publish job
-    Dev->>Sync: 同步版本号<br/>package.json / Cargo.toml / tauri.conf.json
-    Sync->>Check: version:check + lint:ci + test + build<br/>+ cargo fmt/clippy/test/check<br/>+ openspec validate --specs --strict
-    Check-->>Dev: 全绿才继续
-    Dev->>Tag: 打 tag
-    Tag->>PKG: 触发三平台 package workflow
-    par Windows
-        PKG->>Win: NSIS .exe<br/>签名
-    and macOS
-        PKG->>Mac: .dmg<br/>notarize + staple
-    and Linux
-        PKG->>Lin: .deb + AppImage
-    end
-    Win-->>Pub: 上传产物
-    Mac-->>Pub: 上传产物
-    Lin-->>Pub: 上传产物
-    Pub->>Pub: 生成 SHA256SUMS<br/>生成 SPDX SBOM<br/>生成证言 attestation<br/>汇编 Release Notes
-    Pub-->>Dev: 发布完成
-```
-
-发布要点：
-
-- **版本同步**：`package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json` 三处版本号必须一致；`scripts/check-version-sync.mjs` 做交叉校验,`version:unit:test` 是其单元测试。
-- **全量验证先行**：打 tag 前必须跑通 `AGENTS.md` 末尾的全部校验命令,外加 `version:check`。
-- **三平台产物**：Windows 产出 NSIS `.exe`；macOS 产出 `.dmg` 并走 notarize + staple；Linux 产出 `.deb` 与 `AppImage`。
-- **publish 产物清单**：`SHA256SUMS`（逐文件 sha256，并校验无重复哈希）、SPDX SBOM、证言（attestation）、Release Notes。
-- **更新器签名**：自动更新器使用 `TAURI_SIGNING_PRIVATE_KEY`（与密码）签名,签名密钥属于受保护发布环境,绝不放入仓库配置或截图。空密钥走 rehearsal-only 路径,不产生可分发的更新签名。
-- **签名凭据隔离**：签名凭据只在 CI 受保护环境注入,正常本地打包命令不含 `desktop-e2e` feature,也不接触签名密钥。
-
-打包与签名细节见 `src-tauri/ARCHITECTURE.md` 与 `../../reference/release-signing.md`;CI 编排见 `.github/workflows/ci.yml` 与 `.github/workflows/package.yml`。
+## 测试相关脚本与门槛
 
 ## 关键脚本与命令
 
@@ -133,6 +70,3 @@ sequenceDiagram
 - **`desktop:unit:test`** —— 跑 `scripts/desktop-*.node-test.mjs`(自动化边界)。
 - **覆盖率门槛** `coverage-policy.json`:frontend `minimumLines: 45.2%`、native `minimumLines: 67%`,三个 `criticalGroups` 各 80 行(`sqlite-transactions`、`agent-startup-and-terminal-control`、`mcp-routing`);检查脚本 `scripts/check-coverage-policy.mjs`。
 - **CI Desktop Smoke** `.github/workflows/ci.yml`:`desktop-smoke` job matrix windows/macos/ubuntu,`fail-fast: false`,Linux 用 `xvfb-run -a npm run test:desktop`,失败按平台标注证据。
-- **打包目标** `package.json`:6 个目标 `package:windows:{x64,arm64}`、`package:macos:{x64,arm64}`、`package:linux:{x64,arm64}`,每个先 `sidecar:prepare -- --release --target=...`。
-- **版本同步** `scripts/check-version-sync.mjs`:三处(package.json/Cargo.toml/tauri.conf.json)版本必须一致,`version:unit:test` 是其单元测试。
-- **签名凭据**:受保护 `release` environment 存凭据(APPLE_CERTIFICATE/APPLE_SIGNING_IDENTITY/TAURI_SIGNING_PRIVATE_KEY/WINDOWS_CERTIFICATE 等);`environment` 由 `github.ref_type=='tag'?'release':'build-preview'` 决定;updater 用 `TAURI_SIGNING_PRIVATE_KEY` 生成 `createUpdaterArtifacts`,公钥内嵌 tauri.conf.json。

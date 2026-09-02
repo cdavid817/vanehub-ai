@@ -7,7 +7,7 @@
 - [仓库结构与模块导览](repository-orientation.md)
 - [运行时与服务边界](runtime-boundaries.md)
 - [Native 限界上下文](native-contexts.md)
-- [持久化与统一日志](persistence-and-logging.md)
+- [持久化所有权](persistence-ownership.md)
 
 # Agent 运行时
 
@@ -50,14 +50,18 @@
 # 安全、评测与可观测
 
 - [权限模型](permission-model.md)
-- [执行可观测性与 Agent 评测](execution-observability.md)
+- [执行可观测性](execution-observability.md)
+- [评测运行时](evaluation-runtime.md)
 - [会话工作区证据控制台](session-workspace-console.md)
+- [统一日志](unified-logging.md)
 - [使用统计](usage-statistics.md)
 
 # 工程交付与资格验证
 
 - [OpenSpec 工作流](openspec-workflow.md)
-- [测试、打包与发布](testing-and-release.md)
+- [测试](testing.md)
+- [发布](release.md)
+- [多 Agent 群聊验收](multi-agent-acceptance.md)
 - [飞书真实环境资格验证](feishu-live-qualification.md)
 
 # 生成参考与架构决策

@@ -1,13 +1,8 @@
-# 群聊协作案例
+# 多 Agent 群聊验收
 
-本教程用一个「架构师 → 实现者 → 代码审查」案例，验证多个 Agent 是否真的出现在**同一个会话**里，以及成员身份、发言状态、`@` 交接和历史归属是否正确。
+本章是一份**验收流程**，不是使用教程：用一个「架构师 → 实现者 → 代码审查」案例，逐步核对多 Agent 会话的成员身份、发言状态、`@` 交接与历史归属是否符合预期，最后留下可归档的测试记录。
 
-完成后，你应该能回答四个问题：
-
-1. 创建会话时能否为不同角色选择 Agent？
-2. 进入会话后能否同时看到所有成员和当前发言者？
-3. 成员加入或离席后，已有消息的发言者身份是否保留？
-4. 单 Agent 会话是否仍保持原来的界面和行为？
+想了解怎么日常使用多 Agent 群聊，看用户指南的[多 Agent 群聊](../../../user-guide/zh-CN/src/multi-agent-workflow.md)；实现细节看[多 Agent 群聊](multi-agent-group-chat.md)。
 
 ## 案例目标
 
@@ -142,6 +137,6 @@
 
 ## 相关
 
-- 机制和限制的完整说明 → [多 Agent 群聊](multi-agent-workflow.md)
-- 席位拿不到发言权、`@` 未触发 → [故障排查](troubleshooting.md)
-- 对应的自动化测试与实现细节 → [《开发者指南》的多 Agent 群聊一章](../../../developer-guide/zh-CN/src/multi-agent-group-chat.md)
+- 机制和限制的完整说明 → [多 Agent 群聊](../../../user-guide/zh-CN/src/multi-agent-workflow.md)
+- 席位拿不到发言权、`@` 未触发 → [故障排查](../../../user-guide/zh-CN/src/troubleshooting.md)
+- 对应的自动化测试与实现细节 → [《开发者指南》的多 Agent 群聊一章](multi-agent-group-chat.md)

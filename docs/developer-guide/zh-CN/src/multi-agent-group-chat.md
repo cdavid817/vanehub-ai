@@ -199,7 +199,7 @@ npx playwright test tests/e2e/multi-agent-session.spec.ts --headed
 npx playwright show-trace test-results\<failing-spec-directory>\trace.zip
 ```
 
-用户指南中的[群组聊天协作案例](../../../user-guide/zh-CN/src/multi-agent-testing-tutorial.md)以手工方式走查同样的内容,其检查点与本套件的用例对应。除此之外,此处的改动需运行仓库的完整验证集合——见 [测试、打包与发布](testing-and-release.md)。
+[多 Agent 群聊验收](multi-agent-acceptance.md)以手工方式走查同样的内容,其检查点与本套件的用例对应。除此之外,此处的改动需运行仓库的完整验证集合——见 [测试](testing.md)。
 
 **Web/mock 验证接口、席位变更和 `@` 补全,但不启动 CLI**。真实的 Agent 回复和自动交接需要 Tauri 桌面运行时。
 

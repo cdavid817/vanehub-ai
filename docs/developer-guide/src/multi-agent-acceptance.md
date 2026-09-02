@@ -1,13 +1,8 @@
-# Group chat collaboration case
+# Multi-Agent group chat acceptance
 
-This tutorial uses an "architect → implementer → code review" case to verify that several Agents really do appear in **one session**, and that membership, speaking state, `@` handoff, and history attribution all behave correctly.
+This chapter is an **acceptance procedure**, not a usage tutorial. It walks an architect → implementer → code-reviewer case step by step, checking that membership, speaking state, `@` handoff, and historical attribution behave as expected in a multi-Agent session, and ends in a test record you can file.
 
-When you finish, you should be able to answer four questions:
-
-1. Can you choose an Agent per role when creating the session?
-2. Once inside, can you see all members and the current speaker at the same time?
-3. When a member joins or leaves, is the speaker identity of existing messages preserved?
-4. Does a single-Agent session keep its original interface and behavior?
+For day-to-day use of multi-Agent group chat see the user guide's [Multi-Agent group chat](../../user-guide/en/src/multi-agent-workflow.md); for how it is built see [Multi-Agent group chat](multi-agent-group-chat.md).
 
 ## The case goal
 
@@ -142,6 +137,6 @@ This is the most important regression point: a member leaving may change the cur
 
 ## Related
 
-- The full description of the mechanism and its limits → [Multi-Agent group chat](multi-agent-workflow.md)
-- A seat cannot get the turn, or `@` does not trigger → [Troubleshooting](troubleshooting.md)
-- The matching automated tests and implementation detail → [the Developer Guide's multi-Agent group chat chapter](../../../developer-guide/src/multi-agent-group-chat.md)
+- The full description of the mechanism and its limits → [Multi-Agent group chat](../../user-guide/en/src/multi-agent-workflow.md)
+- A seat cannot get the turn, or `@` does not trigger → [Troubleshooting](../../user-guide/en/src/troubleshooting.md)
+- The matching automated tests and implementation detail → [the Developer Guide's multi-Agent group chat chapter](multi-agent-group-chat.md)

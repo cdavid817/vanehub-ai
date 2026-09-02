@@ -107,7 +107,7 @@ The diagram only draws **call direction** between contexts, not specific command
 | Context | Owns | Chapter |
 | --- | --- | --- |
 | `permissions` | Permission policy evaluation, approval brokering, risk classification, and the Claude Code hook wait registry | [Permission model](permission-model.md) |
-| `operations` | Observable task lifecycle and unified diagnostic/operation logging contracts | [Persistence and unified logging](persistence-and-logging.md) |
+| `operations` | Observable task lifecycle and unified diagnostic/operation logging contracts | [Unified logging](unified-logging.md) |
 | `execution_observability` | Execution runs, spans, timelines, capture policy, and OTLP export settings | [Execution observability and Agent evaluation](execution-observability.md) |
 | `skill_evolution_evidence` | Evidence envelopes, extraction, sanitization, attribution, feedback state, and evidence storage (sanitized before write, resting on OS and disk protection, no application-level encryption) | [Skill evolution evidence](skill-evolution-evidence.md) |
 | `skill_evolution_assessment` | Immutable assessment witnesses, effective Skill target projection, deterministic ranking and quality gates, evaluator provenance, and non-mutating routing recommendations | [Skill evolution evidence](skill-evolution-evidence.md) |

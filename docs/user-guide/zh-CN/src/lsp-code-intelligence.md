@@ -271,5 +271,5 @@ Java 的启动明显比其他服务器慢，而且在开始应答之后还会持
 ## 相关
 
 - 持久化索引与实时 LSP 的分工 → [代码索引](code-indexing.md)
-- 语言服务器开关所在的设置页 → [工具与扩展](tooling.md#agent-配置)
+- 语言服务器开关所在的设置页 → [工具与扩展](agent-configuration.md#agent-配置)
 - LSP 协议本身：分层与生命周期、能力协商、文本同步模型 → [LSP 技术架构](../../../agent-infrastructure/protocols/lsp.md)

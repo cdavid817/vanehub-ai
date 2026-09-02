@@ -84,7 +84,7 @@
 
 **MCP（Model Context Protocol）服务器为 Agent 提供额外工具**。在 VaneHub AI 里集中注册一次，就能按 Agent 下发，不必在每个 CLI 里各配一遍。
 
-详见[工具与扩展](tooling.md)。
+详见[MCP 服务器](mcp.md)。
 
 ## Skill
 

@@ -47,7 +47,7 @@ Typing `@` triggers seat completion; pick the target seat's handle. Who currentl
 
 The **Session members** area of the info panel on the right lists the current line-up and anyone who has left; the session workspace provides a seat switcher; and every message is labeled "role name · Agent name".
 
-To walk a reproducible acceptance flow directly, use [Group chat collaboration case](multi-agent-testing-tutorial.md).
+To walk a reproducible acceptance flow directly, use [Group chat collaboration case](../../../developer-guide/src/multi-agent-acceptance.md).
 
 ## Seats and handles
 
@@ -200,7 +200,7 @@ A typical cross-model-family collaboration flow, walking through one handoff rou
 
 **What happened in this chain**: three Agents from different model families relayed within one shared context, and nobody had to copy-paste the previous conversation for you — the shared thread plus the seat briefing let every participant know what came before. The chain-depth counter `handoff 1/15` updates live, and hitting the limit terminates explicitly rather than running away.
 
-> To walk a reproducible flow with acceptance checks, see [Group chat collaboration case](multi-agent-testing-tutorial.md).
+> To walk a reproducible flow with acceptance checks, see [Group chat collaboration case](../../../developer-guide/src/multi-agent-acceptance.md).
 
 ## Group chat versus Loop Engineering
 
@@ -261,7 +261,7 @@ Peer-to-peer handoff lets every Agent read the same context and decide for itsel
 ## Related
 
 - Implementation detail, source locations, and design trade-offs → [the Developer Guide's multi-Agent group chat chapter](../../../developer-guide/src/multi-agent-group-chat.md)
-- Walk an acceptance flow → [Group chat collaboration case](multi-agent-testing-tutorial.md)
+- Walk an acceptance flow → [Group chat collaboration case](../../../developer-guide/src/multi-agent-acceptance.md)
 - Expert roles and review policy → [Expert roles](expert-roles.md)
 - Technical overview of orchestration topologies, context management, and failure modes → [Multi-Agent systems technical architecture](../../../agent-infrastructure/patterns/multi-agent.md) (Simplified Chinese)
 - What the A2A protocol mentioned above actually is → [A2A technical architecture](../../../agent-infrastructure/protocols/a2a.md) (Simplified Chinese)

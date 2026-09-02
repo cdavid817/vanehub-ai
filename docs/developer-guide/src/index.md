@@ -64,7 +64,8 @@ If you're new to this codebase, read these in order before anything else — the
 | --- | --- |
 | [Permission model](permission-model.md) | Unified decision point, explicit-Deny-first, approval broker, CLI flag projection, Claude Code hook bridge |
 | [Execution observability and Agent evaluation](execution-observability.md) | Runs/spans/timelines, the four fidelity tiers and sanitization caps, and the evaluation arena's judgment rules |
-| [Persistence and unified logging](persistence-and-logging.md) | SQLite, migrations, and the redaction rules |
+| [Persistence ownership](persistence-ownership.md) | SQLite ownership, migrations, and database constants |
+| [Unified logging](unified-logging.md) | The single write pipeline, redaction before disk, and trace correlation |
 | [Usage statistics](usage-statistics.md) | Reported tokens vs. estimated characters, time ranges, per-Agent breakdown |
 
 ## Engineering process
@@ -72,7 +73,8 @@ If you're new to this codebase, read these in order before anything else — the
 | Chapter | What it covers |
 | --- | --- |
 | [OpenSpec workflow](openspec-workflow.md) | Proposing, applying, and archiving a change |
-| [Testing, packaging, and release](testing-and-release.md) | Gates, coverage thresholds, and packaging targets |
+| [Testing](testing.md) | Test tiers, coverage thresholds, and what each tier proves |
+| [Release](release.md) | Packaging targets, signing credentials, and version synchronization |
 
 ## Reference
 

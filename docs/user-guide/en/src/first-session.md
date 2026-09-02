@@ -33,7 +33,7 @@ Tick **Create new Git worktree** and fill in a **Worktree name**, and VaneHub AI
 
 Switch **Workspace** to **Remote**, then fill in **Host**, **Port**, **User**, and **Remote path** — or pick a saved **SSH connection** directly.
 
-Tick **Save as SSH connection** to store what you entered for reuse. The first connection asks you to confirm the host key; see [Remote execution and IM connectors](remote-and-im.md) for detail.
+Tick **Save as SSH connection** to store what you entered for reuse. The first connection asks you to confirm the host key; see [Remote workspaces and SSH](remote-workspaces.md) for detail.
 
 ## Several Agents working together
 
