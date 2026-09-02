@@ -40,19 +40,17 @@ Parity forces the command fix to be trilingual. The task brief says not to overw
 
 This is the minimum code change that satisfies "fix the documentation checker to eliminate deterministic drift" without expanding into business code.
 
-### Decision 3: record the `skill_evolution_evidence` encryption conflict; do not resolve it
+### Decision 3: resolve the `skill_evolution_evidence` encryption conflict on the specification side
 
-`openspec/project.md` describes that context's ownership as "encrypted evidence storage". `docs/developer-guide/zh-CN/src/skill-evolution-evidence.md:90` already states that no encryption layer exists in the implementation. Both statements survive this change, and the conflict is escalated here rather than being left only as an inline note:
+`openspec/project.md` described that context's ownership as "encrypted evidence storage". `skill-evolution-evidence.md:90` already stated that no encryption layer exists. The conflict was first recorded here for a decision, and that decision has now been taken: **the specification wording changes, the implementation does not.**
 
 | | |
 | --- | --- |
-| **Current implementation** | `storage_values.rs` converts between enums and strings; the schema and repository perform no encryption. Evidence rows rest on whatever the OS and disk provide. |
-| **Current specification** | `openspec/project.md` names the context's ownership "encrypted evidence storage". |
-| **Impact** | A reader budgeting for at-rest confidentiality of skill-evolution evidence would be over-assured by the spec. No user-facing claim of encrypted evidence storage exists in the README or user guide, so the exposure is internal. |
-| **Proposed resolution** | Either implement at-rest encryption with key management, migration, and erasure verification, or amend the main spec to state the real boundary and its dependency on OS/disk protection. |
-| **Business code change required** | Yes, under option 1. This change makes neither choice. |
-
-Until decided, the capability is described as `security-gap-under-review`, and no document in this change asserts encrypted evidence storage.
+| **Implementation** | `storage_values.rs` converts between enums and strings; the schema and repository perform no encryption. Evidence rows rest on whatever the OS and disk provide, after sanitization at write time. |
+| **Former specification** | `openspec/project.md` named the ownership "encrypted evidence storage". |
+| **Resolution** | The ownership description now states sanitization-before-write plus OS and disk protection, and says explicitly that there is no application-level encryption layer. Four documents carried the claim — `openspec/project.md`, both `native-contexts.md` ownership tables, and the two evidence chapters — and all four are corrected. |
+| **Why this side** | Adding encryption at rest is a security feature, not a wording change: it needs key management, migration of existing rows, and erasure verification, and it would land in a documentation change with none of that reviewed. Asserting a protection that does not exist is the worse of the two states to leave standing, and it is the one a wording change can actually fix. |
+| **Business code change required** | No. Raising evidence to application-level encryption remains open as its own piece of work, and the chapters now say what that would take. |
 
 ### Decision 5: state the memory-audience boundary instead of repeating the product promise
 
