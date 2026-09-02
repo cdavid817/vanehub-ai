@@ -8,7 +8,11 @@ async function openEvaluation(page: Page, theme: Theme, width: number) {
     window.localStorage.setItem("vanehub.appSettings", JSON.stringify({ applicationLanguage: "en", theme: selectedTheme }));
   }, theme);
   await page.goto("/");
-  await page.getByRole("button", { name: "Evaluations" }).click();
+  // The nine-entry activity bar (with a direct "Evaluations" primary entry) was replaced by five
+  // stable domains before this task (design.md Decision 1, workspace-activity-bar.tsx) -- Evaluation
+  // is reached through Quality's own single section, not a dedicated top-level button anymore. This
+  // spec's own locator was never updated for that rename, a pre-existing break unrelated to §18.
+  await page.getByRole("button", { name: "Quality" }).click();
   await expect(page.getByTestId("evaluation-center")).toBeVisible();
 }
 
