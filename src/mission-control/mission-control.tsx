@@ -1,27 +1,36 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, RefreshCw } from "lucide-react";
 import { agentService } from "../services/runtime-agent-client";
-import { MutationStatus } from "../ui/async/MutationStatus";
-import type { MutationState } from "../ui/async/mutation-state";
-import type { MissionControlAction, MissionControlFacet, MissionControlNavigationTarget, MissionControlOverview, MissionControlRunDetail, MissionControlRunSummary, MissionControlSort } from "../types/mission-control";
-import { MissionControlFacetPanel } from "./mission-control-facets";
-import { mergeMissionControlOverview } from "./mission-control-run-precedence";
+import type { AgentRegistryEntry } from "../types/agent";
+import type {
+  MissionControlCounts, MissionControlFacet, MissionControlNavigationTarget,
+  MissionControlOverview, MissionControlRunDetail,
+} from "../types/mission-control";
+import { MissionControlDetailPanel } from "./mission-control-detail-panel";
 import {
-  readMissionControlScrollTop,
-  readMissionControlViewState,
-  writeMissionControlScrollTop,
+  clearMissionControlFilters, defaultMissionControlFilterState, MISSION_CONTROL_COUNT_STATES,
+  sameStateSet, toMissionControlQuery, type MissionControlFilterState,
+} from "./mission-control-query";
+import { mergeMissionControlOverview } from "./mission-control-run-precedence";
+import { MissionControlRunList } from "./mission-control-run-list";
+import {
+  applyMissionControlSavedView, captureMissionControlSavedView, readMissionControlSavedViews,
+  writeMissionControlSavedViews, type MissionControlSavedView,
+} from "./mission-control-saved-views";
+import { MissionControlSummary } from "./mission-control-summary";
+import { MissionControlToolbar } from "./mission-control-toolbar";
+import {
+  readMissionControlScrollTop, readMissionControlViewState, writeMissionControlScrollTop,
   writeMissionControlViewState,
 } from "./mission-control-view-state";
 import { useMissionControlActions } from "./use-mission-control-actions";
 
-const states = ["", "running", "waiting_approval", "waiting_user", "retrying", "stuck", "failed", "completed"] as const;
-const facets = ["overview", "timeline", "tools", "files", "review", "verification", "context", "usage", "logs"] as const;
-
 export function MissionControl({
+  agents = [],
   initialRunId,
   onNavigate,
 }: {
+  agents?: AgentRegistryEntry[];
   /** 4.8: the run selected the last time this view was left, restored on the way back in. */
   initialRunId?: string;
   onNavigate?: (target: MissionControlNavigationTarget, sourceRunId: string) => void;
@@ -30,30 +39,37 @@ export function MissionControl({
   const [savedView] = useState(readMissionControlViewState);
   const [overview, setOverview] = useState<MissionControlOverview | null>(null);
   const [selected, setSelected] = useState<MissionControlRunDetail | null>(null);
-  const [status, setStatus] = useState(savedView?.status ?? "");
-  const [agentId, setAgentId] = useState(savedView?.agentId ?? "");
-  const [projectId, setProjectId] = useState(savedView?.projectId ?? "");
-  const [runner, setRunner] = useState<"" | "local" | "ssh">(savedView?.runner ?? "");
-  const [sort, setSort] = useState<MissionControlSort>(savedView?.sort ?? "attention");
+  const [filter, setFilter] = useState<MissionControlFilterState>(savedView ?? defaultMissionControlFilterState);
   const [cursor, setCursor] = useState<string | null>(null);
   const [activeFacet, setActiveFacet] = useState<MissionControlFacet>("overview");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [savedViews, setSavedViews] = useState<MissionControlSavedView[]>(() => readMissionControlSavedViews());
   const listRef = useRef<HTMLDivElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   // 4.9: guards against an earlier inspect() call's response landing after a later one already
   // resolved — otherwise clicking run A then quickly clicking run B could show A's evidence under
   // B's row, or clobber B's already-loaded detail, if A's fetch happens to finish last.
   const latestInspectedRunId = useRef<string | null>(null);
+
+  // Every filter-changing interaction (Toolbar fields, a metric card, Saved Views, Clear) goes
+  // through this one function so cursor-reset stays a single, unmissable rule rather than something
+  // each caller has to remember on its own.
+  const updateFilter = useCallback((patch: Partial<MissionControlFilterState>) => {
+    setFilter((current) => ({ ...current, ...patch }));
+    setCursor(null);
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const fresh = await agentService.getMissionControlOverview({ agentId: agentId || undefined, cursor, limit: 20, projectId: projectId || undefined, runner: runner || undefined, sort, states: status ? [status as MissionControlRunSummary["state"]] : undefined });
+      const fresh = await agentService.getMissionControlOverview(toMissionControlQuery(filter, cursor));
       // 16.15: never let a slow poll response regress a run this page already knows to be newer
       // (e.g. terminal after a just-applied action) -- see mission-control-run-precedence.ts.
       setOverview((current) => mergeMissionControlOverview(current, fresh));
       setError(null);
     } catch { setError(t("missionControl.loadError")); } finally { setLoading(false); }
-  }, [agentId, cursor, projectId, runner, sort, status, t]);
+  }, [cursor, filter, t]);
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
@@ -62,7 +78,7 @@ export function MissionControl({
     window.addEventListener("focus", reconcile); document.addEventListener("visibilitychange", reconcile);
     return () => { window.clearInterval(polling); window.removeEventListener("focus", reconcile); document.removeEventListener("visibilitychange", reconcile); };
   }, [load]);
-  useEffect(() => { writeMissionControlViewState({ status, agentId, projectId, runner, sort }); }, [status, agentId, projectId, runner, sort]);
+  useEffect(() => { writeMissionControlViewState(filter); }, [filter]);
 
   const inspect = useCallback(async (runId: string) => {
     latestInspectedRunId.current = runId;
@@ -95,48 +111,74 @@ export function MissionControl({
   // detection, terminal-state precedence).
   const { act, mutations } = useMissionControlActions({ onNavigate, setOverview, setSelected });
 
-  const counts = overview?.counts;
+  // 16.4: a second click on an already-active count clears it back to "all" rather than being a
+  // no-op re-apply -- the pressed metric card doubles as its own clear affordance.
+  function toggleCount(key: keyof MissionControlCounts) {
+    const mapped = MISSION_CONTROL_COUNT_STATES[key];
+    updateFilter({ states: sameStateSet(filter.states, mapped) ? [] : mapped });
+  }
+
+  function applySavedView(view: MissionControlSavedView) {
+    updateFilter(applyMissionControlSavedView(view));
+  }
+  function saveCurrentView(name: string) {
+    const next = [...savedViews, captureMissionControlSavedView(filter, name, crypto.randomUUID())];
+    setSavedViews(next);
+    writeMissionControlSavedViews(next);
+  }
+  function deleteSavedView(id: string) {
+    const next = savedViews.filter((view) => view.id !== id);
+    setSavedViews(next);
+    writeMissionControlSavedViews(next);
+  }
+
   return <div className="ucd-panel flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg" data-testid="mission-control">
     <header className="flex flex-wrap items-center gap-2 border-b border-border p-3">
       <div className="min-w-48 flex-1"><h1 className="text-sm font-semibold">{t("missionControl.title")}</h1><p className="text-xs text-muted-foreground">{t("missionControl.description")}</p></div>
-      <input aria-label={t("missionControl.filterAgent")} className="h-8 w-32 rounded-md border border-input bg-background px-2 text-xs" onChange={(event) => { setAgentId(event.target.value); setCursor(null); }} placeholder={t("missionControl.filterAgent")} value={agentId} />
-      <input aria-label={t("missionControl.filterProject")} className="h-8 w-32 rounded-md border border-input bg-background px-2 text-xs" onChange={(event) => { setProjectId(event.target.value); setCursor(null); }} placeholder={t("missionControl.filterProject")} value={projectId} />
-      <select aria-label={t("missionControl.filterStatus")} className="h-8 rounded-md border border-input bg-background px-2 text-xs" onChange={(event) => { setStatus(event.target.value); setCursor(null); }} value={status}>{states.map((state) => <option key={state || "all"} value={state}>{state ? t(`missionControl.state.${state}`) : t("missionControl.allStatuses")}</option>)}</select>
-      <select aria-label={t("missionControl.filterRunner")} className="h-8 rounded-md border border-input bg-background px-2 text-xs" onChange={(event) => { setRunner(event.target.value as "" | "local" | "ssh"); setCursor(null); }} value={runner}><option value="">{t("missionControl.allRunners")}</option><option value="local">{t("runner.kind.local")}</option><option value="ssh">{t("runner.kind.ssh")}</option></select>
-      <select aria-label={t("missionControl.sort")} className="h-8 rounded-md border border-input bg-background px-2 text-xs" onChange={(event) => { setSort(event.target.value as MissionControlSort); setCursor(null); }} value={sort}><option value="attention">{t("missionControl.sortAttention")}</option><option value="newest">{t("missionControl.sortNewest")}</option><option value="oldest">{t("missionControl.sortOldest")}</option></select>
-      <button aria-label={t("missionControl.refresh")} className="ucd-interactive grid h-8 w-8 place-items-center rounded-md border border-input" onClick={() => void load()} title={t("missionControl.refresh")} type="button"><RefreshCw aria-hidden="true" className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /></button>
     </header>
+    <div className="border-b border-border p-3">
+      <MissionControlToolbar
+        agents={agents}
+        filter={filter}
+        loading={loading}
+        onApplySavedView={applySavedView}
+        onClearFilters={() => updateFilter(clearMissionControlFilters(filter))}
+        onDeleteSavedView={deleteSavedView}
+        onFilterChange={updateFilter}
+        onRefresh={() => void load()}
+        onSaveCurrentView={saveCurrentView}
+        savedViews={savedViews}
+        searchInputRef={searchInputRef}
+      />
+    </div>
     {error ? <p aria-live="polite" className="m-3 rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">{error}</p> : null}
-    <div className="flex gap-2 overflow-x-auto border-b border-border p-2">{counts ? Object.entries(counts).map(([key, count]) => <div className="min-w-28 rounded-md border border-border bg-muted/30 px-3 py-2" key={key}><p className="text-[11px] text-muted-foreground">{t(`missionControl.count.${key}`)}</p><p className="text-lg font-semibold tabular-nums">{count}</p></div>) : null}</div>
+    {overview?.counts ? <MissionControlSummary counts={overview.counts} onToggle={toggleCount} states={filter.states} /> : null}
     <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden min-[900px]:grid-cols-[minmax(0,1.4fr)_minmax(280px,1fr)]">
-      <div
-        className="min-h-0 overflow-y-auto p-3"
-        onScroll={(event) => writeMissionControlScrollTop(event.currentTarget.scrollTop)}
-        ref={listRef}
-      >
-        <RunSection mutations={mutations.registry} onAct={act} onDismissError={(run) => mutations.clear(run.runId)} onInspect={(run) => void inspect(run.runId)} runs={overview?.attention.items ?? []} title={t("missionControl.attention")} urgent />
-        <RunSection mutations={mutations.registry} onAct={act} onDismissError={(run) => mutations.clear(run.runId)} onInspect={(run) => void inspect(run.runId)} runs={overview?.active.items ?? []} title={t("missionControl.active")} />
-        <RunSection mutations={mutations.registry} onAct={act} onDismissError={(run) => mutations.clear(run.runId)} onInspect={(run) => void inspect(run.runId)} runs={overview?.recent.items ?? []} title={t("missionControl.recent")} />
-        {overview && [overview.attention.nextCursor, overview.active.nextCursor, overview.recent.nextCursor].some(Boolean) ? <button className="rounded-md border border-input px-3 py-1.5 text-xs" onClick={() => setCursor(overview.attention.nextCursor ?? overview.active.nextCursor ?? overview.recent.nextCursor)} type="button">{t("missionControl.nextPage")}</button> : null}
-        {!loading && overview && overview.attention.items.length + overview.active.items.length + overview.recent.items.length === 0 ? <p className="p-8 text-center text-sm text-muted-foreground">{t("missionControl.empty")}</p> : null}
-      </div>
+      <MissionControlRunList
+        agents={agents}
+        listRef={listRef}
+        loading={loading}
+        mutations={mutations.registry}
+        onAct={act}
+        onDismissError={(run) => mutations.clear(run.runId)}
+        onInspect={(run) => void inspect(run.runId)}
+        onNextPage={(next) => setCursor(next)}
+        onScroll={writeMissionControlScrollTop}
+        overview={overview}
+      />
       <aside className="min-h-0 overflow-y-auto border-t border-border p-3 min-[900px]:border-l min-[900px]:border-t-0">
         <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t("missionControl.detail")}</h2>
-        {selected ? <><RunCard mutation={mutations.get(selected.run.runId)} onAct={act} onDismissError={() => mutations.clear(selected.run.runId)} onInspect={(run) => void inspect(run.runId)} run={selected.run} /><div className="mt-3 flex gap-1 overflow-x-auto" role="tablist">{facets.map((facet) => { const availability = selected.facets.find((item) => item.facet === facet)?.state ?? "unavailable"; return <button aria-disabled={availability !== "available"} aria-selected={activeFacet === facet} className="shrink-0 rounded-md border border-input px-2 py-1 text-xs disabled:opacity-50" disabled={availability !== "available"} key={facet} onClick={() => setActiveFacet(facet)} role="tab" type="button">{t(`missionControl.facet.${facet}`)}{availability === "available" ? null : ` · ${t(`missionControl.availability.${availability}`)}`}</button>; })}</div><MissionControlFacetPanel detail={selected} facet={activeFacet} /></> : <p className="text-sm text-muted-foreground">{t("missionControl.selectRun")}</p>}
+        <MissionControlDetailPanel
+          activeFacet={activeFacet}
+          agents={agents}
+          mutation={selected ? mutations.get(selected.run.runId) : undefined}
+          onAct={act}
+          onDismissError={() => { if (selected) mutations.clear(selected.run.runId); }}
+          onInspect={(run) => void inspect(run.runId)}
+          onSelectFacet={setActiveFacet}
+          selected={selected}
+        />
       </aside>
     </div>
   </div>;
-}
-
-function RunSection({ mutations, onAct, onDismissError, onInspect, runs, title, urgent = false }: { mutations: ReadonlyMap<string, MutationState>; onAct: (run: MissionControlRunSummary, action: MissionControlAction) => void; onDismissError: (run: MissionControlRunSummary) => void; onInspect: (run: MissionControlRunSummary) => void; runs: MissionControlRunSummary[]; title: string; urgent?: boolean }) {
-  if (!runs.length) return null;
-  return <section className="mb-4"><h2 className="mb-2 flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{urgent ? <AlertTriangle aria-hidden="true" className="h-3.5 w-3.5 text-warning" /> : null}{title}</h2><div className="grid gap-2">{runs.map((run) => <RunCard key={run.runId} mutation={mutations.get(run.runId)} onAct={onAct} onDismissError={onDismissError} onInspect={onInspect} run={run} />)}</div></section>;
-}
-
-function RunCard({ mutation, onAct, onDismissError, onInspect, run }: { mutation?: MutationState; onAct: (run: MissionControlRunSummary, action: MissionControlAction) => void; onDismissError: (run: MissionControlRunSummary) => void; onInspect: (run: MissionControlRunSummary) => void; run: MissionControlRunSummary }) {
-  const { t } = useTranslation();
-  const pending = mutation?.pending ?? false;
-  const ended = run.endedAt ?? run.updatedAt;
-  const elapsed = Math.max(0, Date.parse(ended) - Date.parse(run.createdAt));
-  return <article className="rounded-md border border-border bg-card p-3" data-testid={`mission-run-${run.runId}`}><button className="w-full text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring" onClick={() => void onInspect(run)} type="button"><div className="flex flex-wrap items-center gap-2"><span className="min-w-0 flex-1 truncate text-sm font-medium">{run.title}</span>{run.runner ? <span className="inline-flex max-w-44 items-center gap-1 rounded border border-primary/30 bg-primary/5 px-1.5 py-0.5 text-[11px] text-primary" data-runner={run.runner.kind}><span>{t(`runner.kind.${run.runner.kind}`)}</span>{run.runner.hostLabel ? <span className="truncate text-muted-foreground">· {run.runner.hostLabel}</span> : null}</span> : null}<span className="rounded border border-border px-1.5 py-0.5 text-[11px]">{t(`missionControl.state.${run.state}`)}</span></div><p className="mt-1 text-xs text-muted-foreground">{run.agentId ?? run.ownerType} · {t("missionControl.elapsed", { seconds: Math.round(elapsed / 1000) })} · {t(`missionControl.verification.${run.verification}`)}</p>{run.reasonCode ? <p className="mt-1 text-xs text-warning">{t(`runner.reason.${run.reasonCode}`, { defaultValue: run.reasonCode })}</p> : null}</button><div className="mt-2 flex flex-wrap items-center gap-2"><div className="flex flex-wrap gap-1">{run.actions.map((action) => <button className="rounded-md border border-input px-2 py-1 text-xs hover:bg-muted focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50" data-action={action} disabled={pending} key={action} onClick={() => void onAct(run, action)} type="button">{t(`missionControl.action.${action}`)}</button>)}</div><MutationStatus onDismiss={() => onDismissError(run)} state={mutation} /></div></article>;
 }

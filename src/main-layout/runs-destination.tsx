@@ -16,7 +16,7 @@ const TABS: { section: RunsSection["section"]; labelKey: string }[] = [
   { section: "schedules", labelKey: "layout.activityBar.scheduledTasks" },
 ];
 
-type MissionControlProps = { initialRunId?: string; onNavigate?: (target: MissionControlNavigationTarget, sourceRunId: string) => void };
+type MissionControlProps = { agents: AgentRegistryEntry[]; initialRunId?: string; onNavigate?: (target: MissionControlNavigationTarget, sourceRunId: string) => void };
 const loadMissionControl: LazyFeatureLoader<MissionControlProps> = () => import("../mission-control/mission-control")
   .then((module) => ({ default: module.MissionControl }));
 type LoopCenterProps = {
@@ -140,7 +140,7 @@ export function RunsDestination({ location, onSectionChange, agents, onMissionCo
           </div>
         ) : null}
         {location.section === "attention" || location.section === "active" || location.section === "history" ? (
-          <LazyFeature className="h-full min-h-0" componentProps={{ initialRunId: location.runId, onNavigate: onMissionControlNavigate }} loader={loadMissionControl} />
+          <LazyFeature className="h-full min-h-0" componentProps={{ agents, initialRunId: location.runId, onNavigate: onMissionControlNavigate }} loader={loadMissionControl} />
         ) : null}
       </div>
     </div>

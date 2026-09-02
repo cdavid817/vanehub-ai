@@ -71,7 +71,7 @@ describe("RunsDestination", () => {
         onSectionChange={vi.fn()}
       />,
     );
-    expect(screen.getByTestId("lazy-feature").dataset.props).toBe("initialRunId,onNavigate");
+    expect(screen.getByTestId("lazy-feature").dataset.props).toBe("agents,initialRunId,onNavigate");
   });
 
   it("routes loops to LoopCenter with onInspect and selection wired", () => {

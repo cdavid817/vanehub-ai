@@ -10,6 +10,7 @@ import {
   webAgentClient,
 } from "../services/web-agent-client";
 import { updateWebAgentRun } from "../services/web-agent-run-state";
+import type { AgentRegistryEntry } from "../types/agent";
 import type { MissionControlOverview, MissionControlRunDetail } from "../types/mission-control";
 import { MissionControl } from "./mission-control";
 
@@ -19,7 +20,24 @@ const RUNNING_RUN_ID = "018f0f17-4d6a-7e20-b41d-66c5271a296";
 // `sessionStorage.clear()`: mission-control-view-state.ts persists filters there (4.8), and
 // jsdom's storage is one shared global across every test in this file — without clearing it, a
 // filter set by an earlier test silently becomes a later test's initial state.
-afterEach(() => { cleanup(); vi.restoreAllMocks(); resetWebMissionControlRunsForTest(); sessionStorage.clear(); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); resetWebMissionControlRunsForTest(); sessionStorage.clear(); localStorage.clear(); });
+
+// 16.5/16.6: filters and Saved Views now live behind FilterPopover's/MissionControlSavedViewMenu's
+// own trigger, not a permanently-visible grid. Idempotent rather than a bare click: both close on
+// an outside *pointerdown*, which plain `fireEvent.click` never dispatches, so a naive second click
+// on an already-open trigger would toggle it shut instead of being a harmless no-op — same pattern
+// work-board.test.tsx's own `openByTrigger` established for the identical primitives.
+function openByTrigger(name: string | RegExp) {
+  const trigger = screen.getByRole("button", { name });
+  if (trigger.getAttribute("aria-expanded") !== "true") fireEvent.click(trigger);
+}
+
+function agentFixture(id: string, displayName: string): AgentRegistryEntry {
+  return {
+    id, displayName, provider: "test", launch: { kind: "cli" }, supportedInteractionModes: ["cli"],
+    availabilityState: "available", capabilityTags: [], agentOrigin: "user",
+  };
+}
 
 describe("MissionControl", () => {
   it("renders a bounded page from 1,000 Web Runs and loads detail only on inspection", async () => {
@@ -43,16 +61,28 @@ describe("MissionControl", () => {
     });
   });
 
-  it("prioritizes attention, freezes terminal elapsed time, filters, inspects, and navigates", async () => {
-    await i18n.changeLanguage("en"); const navigate = vi.fn();
+  it("prioritizes attention, freezes terminal elapsed time, filters via the Toolbar/FilterPopover, inspects, and navigates", async () => {
+    // `activateAppLanguage`, not the bare `i18n.changeLanguage`: only zh-CN is bundled at init
+    // (supported-locales.ts's own `defaultAppLanguage`) -- the "en" resource bundle is loaded
+    // lazily, and a bare `changeLanguage("en")` before it has ever been fetched silently falls
+    // back to zh-CN for every `t()` call rather than throwing. The pre-existing test this replaces
+    // got away with the bare form because its own `getByLabelText(/Runner/)` is a substring regex
+    // against a label that happens to keep the English loanword "Runner" even in zh-CN
+    // ("按 Runner 筛选") -- this test's own `/Filters/` ("筛选条件" in zh-CN, no shared substring)
+    // does not have that same accidental immunity, so it needs the real fix instead.
+    await activateAppLanguage("en"); const navigate = vi.fn();
     const overview = vi.spyOn(agentService, "getMissionControlOverview");
     render(<MissionControl onNavigate={navigate} />);
     await waitFor(() => expect(document.querySelectorAll("[data-testid^='mission-run-']").length).toBeGreaterThan(0));
     expect(document.querySelector("[data-runner='ssh']")?.textContent).toContain("build.example.test");
-    fireEvent.change(screen.getByLabelText(/Runner/), { target: { value: "ssh" } });
+
+    // 16.5: runner and status now live behind the Filters trigger, migrated verbatim from the old
+    // always-visible <select>s -- same aria-labels, same option values.
+    openByTrigger(/Filters/);
+    fireEvent.change(screen.getByLabelText("Filter by Runner"), { target: { value: "ssh" } });
     await waitFor(() => expect(overview).toHaveBeenLastCalledWith(expect.objectContaining({ runner: "ssh", cursor: null })));
-    const statusFilter = document.querySelector("select") as HTMLSelectElement;
-    fireEvent.change(statusFilter, { target: { value: "failed" } });
+
+    fireEvent.change(screen.getByLabelText("Filter by status"), { target: { value: "failed" } });
     const failed = await screen.findAllByTestId("mission-run-018f0f17-4d6a-7e20-b41d-66c5271a294");
     fireEvent.click(failed[0].querySelector("button")!);
     await waitFor(() => expect(document.querySelector("[role='tablist']")).toBeTruthy());
@@ -202,5 +232,98 @@ describe("MissionControl", () => {
     expect(within(pausedCard).queryByRole("button", { name: "Resume" })).toBeNull();
     // Attributed to this one run -- an unrelated run's own card shows no such explanation.
     expect(within(runningCard).queryByText(/changed elsewhere/)).toBeNull();
+  });
+
+  // 16.4: metric cards as filters.
+  it("applies the exact mapped filter when a metric card is clicked, including the two-state 'blocked' card, and toggles off on a second click", async () => {
+    await activateAppLanguage("en");
+    const overview = vi.spyOn(agentService, "getMissionControlOverview");
+    render(<MissionControl />);
+    await waitFor(() => expect(document.querySelectorAll("[data-testid^='mission-run-']").length).toBeGreaterThan(0));
+
+    const blockedCard = await screen.findByTestId("mission-control-count-blocked");
+    expect(blockedCard.getAttribute("aria-pressed")).toBe("false");
+
+    fireEvent.click(blockedCard);
+    await waitFor(() => expect(overview).toHaveBeenLastCalledWith(expect.objectContaining({ states: ["blocked", "stuck"] })));
+    expect(blockedCard.getAttribute("aria-pressed")).toBe("true");
+
+    fireEvent.click(blockedCard);
+    await waitFor(() => expect(overview).toHaveBeenLastCalledWith(expect.objectContaining({ states: undefined })));
+    expect(blockedCard.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("shows a single-state metric card as pressed when the same state is set manually from the status dropdown -- one shared filter, two entry points", async () => {
+    await activateAppLanguage("en");
+    render(<MissionControl />);
+    await waitFor(() => expect(document.querySelectorAll("[data-testid^='mission-run-']").length).toBeGreaterThan(0));
+
+    openByTrigger(/Filters/);
+    fireEvent.change(screen.getByLabelText("Filter by status"), { target: { value: "failed" } });
+
+    const failedCard = await screen.findByTestId("mission-control-count-failed");
+    await waitFor(() => expect(failedCard.getAttribute("aria-pressed")).toBe("true"));
+  });
+
+  // 16.5: Toolbar/FilterPopover migration preserves every existing filter's actual behavior.
+  it("filters by exact Agent id via the new dropdown, by free-text project id, and keeps Sort working outside the popover", async () => {
+    await activateAppLanguage("en");
+    const overview = vi.spyOn(agentService, "getMissionControlOverview");
+    render(<MissionControl agents={[agentFixture("web-owner-6", "Test Agent Six")]} />);
+    await waitFor(() => expect(document.querySelectorAll("[data-testid^='mission-run-']").length).toBeGreaterThan(0));
+
+    openByTrigger(/Filters/);
+    fireEvent.change(screen.getByLabelText("Filter by Agent"), { target: { value: "web-owner-6" } });
+    await waitFor(() => expect(overview).toHaveBeenLastCalledWith(expect.objectContaining({ agentId: "web-owner-6", cursor: null })));
+
+    fireEvent.change(screen.getByLabelText("Filter by project ID"), { target: { value: "proj-1" } });
+    await waitFor(() => expect(overview).toHaveBeenLastCalledWith(expect.objectContaining({ projectId: "proj-1", cursor: null })));
+
+    fireEvent.change(screen.getByLabelText("Sort Runs"), { target: { value: "newest" } });
+    await waitFor(() => expect(overview).toHaveBeenLastCalledWith(expect.objectContaining({ sort: "newest", cursor: null })));
+  });
+
+  // 16.6: Saved Views.
+  it("saves the current filters under a name and reapplies them exactly on Apply", async () => {
+    await activateAppLanguage("en");
+    const overview = vi.spyOn(agentService, "getMissionControlOverview");
+    render(<MissionControl />);
+    await waitFor(() => expect(document.querySelectorAll("[data-testid^='mission-run-']").length).toBeGreaterThan(0));
+
+    openByTrigger(/Filters/);
+    fireEvent.change(screen.getByLabelText("Filter by status"), { target: { value: "failed" } });
+    await waitFor(() => expect(overview).toHaveBeenLastCalledWith(expect.objectContaining({ states: ["failed"] })));
+
+    openByTrigger("Saved views");
+    fireEvent.change(screen.getByLabelText("View name"), { target: { value: "Only failed" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save current filters" }));
+    expect(await screen.findByRole("button", { name: "Only failed" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+    await waitFor(() => expect(overview).toHaveBeenLastCalledWith(expect.objectContaining({ states: undefined })));
+
+    fireEvent.click(screen.getByRole("button", { name: "Only failed" }));
+    await waitFor(() => expect(overview).toHaveBeenLastCalledWith(expect.objectContaining({ states: ["failed"] })));
+  });
+
+  // 16.7: safe Agent/owner labels.
+  it("resolves a matching Agent's own display name, translates a non-Agent owner type, and falls back to the raw id when no registry entry matches", async () => {
+    await activateAppLanguage("en");
+    const { rerender } = render(<MissionControl />);
+    const runningCard = await screen.findByTestId(`mission-run-${RUNNING_RUN_ID}`);
+    // No agents supplied yet: an honest fallback to the raw owner id, not a blank or a crash.
+    // Scoped to the owner-label <p> specifically -- the run's own title ("Run web-owner-6", from
+    // the Web mock's fixture data) also contains this id as a substring, so an unscoped query
+    // would match two elements.
+    expect(within(runningCard).getByText(/web-owner-6/, { selector: "p" })).toBeTruthy();
+
+    const pausedCard = await screen.findByTestId(`mission-run-${PAUSED_RUN_ID}`);
+    // ownerType "web_demo" carries no agentId at all (the Web mock only sets agentId when
+    // ownerType is exactly "agent") -- translated the same way `reasonCode` already is, not shown
+    // as the raw internal token.
+    expect(within(pausedCard).getByText(/Web demo/, { selector: "p" })).toBeTruthy();
+
+    rerender(<MissionControl agents={[agentFixture("web-owner-6", "Test Agent Six")]} />);
+    await waitFor(() => expect(within(screen.getByTestId(`mission-run-${RUNNING_RUN_ID}`)).getByText(/Test Agent Six/, { selector: "p" })).toBeTruthy());
   });
 });
