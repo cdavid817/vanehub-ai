@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { activateAppLanguage, i18n } from "../i18n";
 import type { AgentRegistryEntry, ScheduledTask, ScheduledTaskFrequency } from "../types/agent";
@@ -85,5 +85,46 @@ describe("ScheduledTasksPanel", () => {
     ]);
 
     await activateAppLanguage("en");
+  });
+
+  // 19.3: list/detail split -- selection is the one new piece of real behavior this task adds.
+  it("selecting a task from the list shows it in the detail view", async () => {
+    await activateAppLanguage("en");
+    mocks.listScheduledTasks.mockResolvedValueOnce([
+      buildTask("t-a", { kind: "daily", timeOfDay: "09:00" }),
+      buildTask("t-b", { kind: "hours", interval: 2 }),
+    ]);
+    render(<ScheduledTasksPanel agents={agents} />);
+    await screen.findByTestId("scheduled-task-select-t-a");
+
+    expect(within(screen.getByTestId("scheduled-task-detail")).getByText(i18n.t("scheduledTasks.detailEmpty"))).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("scheduled-task-select-t-a"));
+    expect(within(screen.getByTestId("scheduled-task-detail")).getByText("Task t-a")).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("scheduled-task-select-t-b"));
+    expect(within(screen.getByTestId("scheduled-task-detail")).getByText("Task t-b")).toBeTruthy();
+    expect(within(screen.getByTestId("scheduled-task-detail")).queryByText("Task t-a")).toBeNull();
+  });
+
+  // 19.3: `scheduleId` is `RunsSection`'s own field (workbench-route.ts) -- this is the first real
+  // consumer of it (runs-destination.tsx wires it from the route; see that file's own test).
+  it("uses the scheduleId prop as the initial selection, matching the route's own current task", async () => {
+    await activateAppLanguage("en");
+    mocks.listScheduledTasks.mockResolvedValueOnce([
+      buildTask("t-a", { kind: "daily", timeOfDay: "09:00" }),
+      buildTask("t-b", { kind: "hours", interval: 2 }),
+    ]);
+    render(<ScheduledTasksPanel agents={agents} scheduleId="t-b" />);
+    expect(await within(await screen.findByTestId("scheduled-task-detail")).findByText("Task t-b")).toBeTruthy();
+  });
+
+  it("reports a selection change through onSelectSchedule so the route can be updated", async () => {
+    await activateAppLanguage("en");
+    mocks.listScheduledTasks.mockResolvedValueOnce([buildTask("t-a", { kind: "daily", timeOfDay: "09:00" })]);
+    const onSelectSchedule = vi.fn();
+    render(<ScheduledTasksPanel agents={agents} onSelectSchedule={onSelectSchedule} />);
+    fireEvent.click(await screen.findByTestId("scheduled-task-select-t-a"));
+    expect(onSelectSchedule).toHaveBeenCalledWith("t-a");
   });
 });

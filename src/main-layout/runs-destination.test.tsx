@@ -20,6 +20,7 @@ vi.mock("../components/lazy-feature", () => ({
       <div
         data-initial-run-id={String(componentProps.initialRunId)}
         data-props={Object.keys(componentProps).sort().join(",")}
+        data-schedule-id={String(componentProps.scheduleId)}
         data-testid="lazy-feature"
       />
     );
@@ -84,7 +85,7 @@ describe("RunsDestination", () => {
     expect(screen.getByTestId("lazy-feature").dataset.props).toBe("onInspect");
   });
 
-  it("routes schedules to ScheduledTasksPanel with the agent registry wired", () => {
+  it("routes schedules to ScheduledTasksPanel with the agent registry and scheduleId selection wired", () => {
     render(
       <RunsDestination
         agents={[]}
@@ -93,7 +94,19 @@ describe("RunsDestination", () => {
         onSectionChange={vi.fn()}
       />,
     );
-    expect(screen.getByTestId("lazy-feature").dataset.props).toBe("agents");
+    expect(screen.getByTestId("lazy-feature").dataset.props).toBe("agents,onSelectSchedule,scheduleId");
+  });
+
+  it("19.3: threads the route's own scheduleId through as ScheduledTasksPanel's current selection", () => {
+    render(
+      <RunsDestination
+        agents={[]}
+        location={{ section: "schedules", scheduleId: "task-42" }}
+        onMissionControlNavigate={vi.fn()}
+        onSectionChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("lazy-feature").dataset.scheduleId).toBe("task-42");
   });
 
   it("5.13: keeps a Loops draft alive (mounted, not remounted) across a switch to Schedules and back", () => {

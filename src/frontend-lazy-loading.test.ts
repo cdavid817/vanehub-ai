@@ -37,8 +37,8 @@ describe("frontend feature module boundaries", () => {
     const runtimePanel = read("session-workspace/session-runtime-panel.tsx");
     expect(runsDestination).toContain('import("../loop-center/loop-center")');
     expect(runsDestination).toContain('import("../mission-control/mission-control")');
-    expect(runsDestination).toContain('import("./scheduled-tasks-panel")');
-    expect(runsDestination).not.toMatch(/from "(\.\.\/loop-center\/loop-center|\.\.\/mission-control\/mission-control|\.\/scheduled-tasks-panel)"/);
+    expect(runsDestination).toContain('import("../scheduled-tasks/scheduled-tasks-panel")');
+    expect(runsDestination).not.toMatch(/from "(\.\.\/loop-center\/loop-center|\.\.\/mission-control\/mission-control|\.\.\/scheduled-tasks\/scheduled-tasks-panel)"/);
     expect(planDestination).toContain('import("../work-board/work-board")');
     expect(planDestination).toContain('import("../goal-center/goal-center")');
     expect(planDestination).not.toMatch(/from "(\.\.\/work-board\/work-board|\.\.\/goal-center\/goal-center)"/);

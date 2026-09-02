@@ -22,8 +22,12 @@ const loadMissionControl: LazyFeatureLoader<MissionControlProps> = () => import(
 type LoopCenterProps = { onInspect?: (target: LoopInspectionTarget) => void };
 const loadLoopCenter: LazyFeatureLoader<LoopCenterProps> = () => import("../loop-center/loop-center")
   .then((module) => ({ default: module.LoopCenter }));
-type ScheduledTasksPanelProps = { agents: AgentRegistryEntry[] };
-const loadScheduledTasksPanel: LazyFeatureLoader<ScheduledTasksPanelProps> = () => import("./scheduled-tasks-panel")
+type ScheduledTasksPanelProps = {
+  agents: AgentRegistryEntry[];
+  scheduleId?: string;
+  onSelectSchedule?: (scheduleId: string | undefined) => void;
+};
+const loadScheduledTasksPanel: LazyFeatureLoader<ScheduledTasksPanelProps> = () => import("../scheduled-tasks/scheduled-tasks-panel")
   .then((module) => ({ default: module.ScheduledTasksPanel }));
 
 export interface RunsDestinationProps {
@@ -50,10 +54,14 @@ const RUNS_TAB_DRAFT_RETENTION: PageLifecyclePolicy = {
  * Attention/Active/History share one `MissionControl` render: it already shows all three as
  * parallel sections rather than exclusive tabs (confirmed by reading the component directly), so
  * there is no per-section view to route between yet — that split is real content work for a
- * later milestone, not something this shell can fake. `definitionId`/`loopRunId`/`scheduleId`
- * deep-linking is likewise not implemented: neither LoopCenter nor ScheduledTasksPanel accept an
- * initial-selection prop today. MissionControl's `runId` is the one exception (4.8): it restores
- * the run last selected before navigating away to an evidence surface and back.
+ * later milestone, not something this shell can fake. `definitionId`/`loopRunId` deep-linking is
+ * likewise not implemented: LoopCenter does not accept an initial-selection prop today (real
+ * content work for a later milestone, same as above). `scheduleId` is no longer in that boat as of
+ * 19.3: `ScheduledTasksPanel` now takes it as its current/initial selection and reports selection
+ * changes back through `onSelectSchedule`, wired below to `onSectionChange` the same way the tab
+ * buttons already are, so Back/forward and reload restore the same selected task. MissionControl's
+ * `runId` is the other exception (4.8): it restores the run last selected before navigating away
+ * to an evidence surface and back.
  *
  * Each section keeps its own `LazyFeature` chunk rather than being statically imported here, so
  * navigating within Runs does not pull in code for a section the reader has not opened yet — same
@@ -103,7 +111,15 @@ export function RunsDestination({ location, onSectionChange, agents, onMissionCo
         ) : null}
         {shouldRenderPage(RUNS_TAB_DRAFT_RETENTION, schedulesActive, visitedSections.has("schedules")) ? (
           <div className="h-full min-h-0" hidden={!schedulesActive}>
-            <LazyFeature className="h-full min-h-0" componentProps={{ agents }} loader={loadScheduledTasksPanel} />
+            <LazyFeature
+              className="h-full min-h-0"
+              componentProps={{
+                agents,
+                onSelectSchedule: (nextScheduleId: string | undefined) => onSectionChange({ section: "schedules", scheduleId: nextScheduleId }),
+                scheduleId: location.section === "schedules" ? location.scheduleId : undefined,
+              }}
+              loader={loadScheduledTasksPanel}
+            />
           </div>
         ) : null}
         {location.section === "attention" || location.section === "active" || location.section === "history" ? (
