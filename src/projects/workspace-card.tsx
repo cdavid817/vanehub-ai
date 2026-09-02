@@ -27,16 +27,38 @@ function WorkspaceIcon({ workspace }: { workspace: WorkspaceSummary }) {
   return <Folder aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" />;
 }
 
-export function WorkspaceCard({ workspace }: { workspace: WorkspaceSummary }) {
+export interface WorkspaceCardProps {
+  workspace: WorkspaceSummary;
+  /** Whether this card is the one currently shown in `WorkspaceDetail` (13.7's master-detail split). */
+  selected: boolean;
+  onSelect: () => void;
+}
+
+export function WorkspaceCard({ onSelect, selected, workspace }: WorkspaceCardProps) {
   const { i18n, t } = useTranslation();
   const session = workspace.recentSession;
 
   return (
-    <article className="ucd-card grid gap-2 rounded-lg p-3" data-testid={`workspace-${workspace.workspaceId}`}>
+    <button
+      aria-current={selected}
+      className={cn(
+        "ucd-card grid w-full gap-2 rounded-lg p-3 text-left transition-opacity hover:opacity-90",
+        // `.ucd-card` is unlayered CSS (styles.css), which always wins over a layered Tailwind
+        // utility of the same property regardless of source order -- the `!` suffix (Tailwind v4
+        // important-modifier syntax, already used this way in notification-center.tsx) is the
+        // established way around that in this codebase, not a workaround invented here.
+        selected && "border-primary!",
+      )}
+      data-testid={`workspace-${workspace.workspaceId}`}
+      onClick={onSelect}
+      type="button"
+    >
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <WorkspaceIcon workspace={workspace} />
-          <h3 className="min-w-0 truncate text-sm font-semibold">{workspace.displayName}</h3>
+          {/* A plain span, not a heading: heading elements are not valid phrasing content inside
+              a <button>, and this row is now one (matches GoalCenter's own row-title span). */}
+          <span className="min-w-0 truncate text-sm font-semibold">{workspace.displayName}</span>
         </div>
         <Badge tone={availabilityTone[workspace.availability]}>{t(`projects.availability.${workspace.availability}`)}</Badge>
       </div>
@@ -65,6 +87,6 @@ export function WorkspaceCard({ workspace }: { workspace: WorkspaceSummary }) {
           {t("projects.lastOpened", { date: formatAppDateTime(workspace.lastOpenedAt, i18n.language, { dateStyle: "medium" }) })}
         </p>
       ) : null}
-    </article>
+    </button>
   );
 }
