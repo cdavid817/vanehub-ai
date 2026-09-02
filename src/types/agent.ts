@@ -470,6 +470,10 @@ export interface ScheduledTask {
   latestError: string | null;
   createdAt: string;
   updatedAt: string;
+  /** 19.8: the optimistic-concurrency counter `updateScheduledTask` checks via `expectedVersion`.
+   *  Not advanced by `setScheduledTaskEnabled` or by the due-task sweep's own status bookkeeping --
+   *  neither writes the fields this column guards. */
+  version: number;
 }
 
 export interface ScheduledTaskRun {
@@ -503,6 +507,18 @@ export interface CreateScheduledTaskInput {
 export interface SetScheduledTaskEnabledInput {
   taskId: string;
   enabled: boolean;
+}
+
+/** 19.8: a full-record overwrite plus `expectedVersion`, the same shape
+ *  `SaveLoopDefinitionInput`/`expectedVersion` already uses for Loop Center's own version-checked
+ *  update -- editing name/content/agent/frequency together as one save. */
+export interface UpdateScheduledTaskInput {
+  taskId: string;
+  expectedVersion: number;
+  name: string;
+  content: string;
+  agentId: string;
+  frequency: ScheduledTaskFrequency;
 }
 
 export interface KnownProject {

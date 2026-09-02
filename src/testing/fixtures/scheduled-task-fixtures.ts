@@ -65,6 +65,7 @@ export function generateScheduledTasks(count: number, seed: number = DEFAULT_SEE
       latestError: latestStatus === "failed" ? words(rng, 6, 20) : null,
       createdAt,
       updatedAt,
+      version: 1,
     });
   }
 

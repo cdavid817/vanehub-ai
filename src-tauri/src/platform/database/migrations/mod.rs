@@ -601,6 +601,12 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "review-file-viewed-witness",
         crate::contexts::sessions::infrastructure::apply_review_file_witness_schema,
     )?;
+    apply_migration(
+        conn,
+        95,
+        "scheduled-task-versioning",
+        crate::contexts::sessions::infrastructure::apply_scheduled_task_version_schema,
+    )?;
     repair_missing_stable_participant_schema(conn)?;
     repair_missing_cli_parameter_profile_schema(conn)?;
     crate::contexts::execution_observability::infrastructure::repair_missing_evidence_schema(conn)?;
@@ -734,6 +740,7 @@ pub(super) const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (92, "unified-log-query-index"),
     (93, "review-decision-state"),
     (94, "review-file-viewed-witness"),
+    (95, "scheduled-task-versioning"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {

@@ -37,6 +37,16 @@ pub(crate) fn set_scheduled_task_enabled(
     scheduled_tasks::set_scheduled_task_enabled(&database, input)
 }
 
+/// 19.8: version-checked edit of name/content/agent/frequency. See
+/// `scheduled_tasks::update_scheduled_task`'s own doc comment for the conflict contract.
+#[tauri::command]
+pub(crate) fn update_scheduled_task(
+    database: State<'_, NativeDatabase>,
+    input: dto::UpdateScheduledTaskInput,
+) -> Result<dto::ScheduledTask, CommandError> {
+    scheduled_tasks::update_scheduled_task(&database, input)
+}
+
 #[tauri::command]
 pub(crate) fn delete_scheduled_task(
     database: State<'_, NativeDatabase>,

@@ -49,6 +49,7 @@ import type {
   ScheduledTask,
   ScheduledTaskRun,
   SetScheduledTaskEnabledInput,
+  UpdateScheduledTaskInput,
   SessionExportResult,
   SessionSearchInput,
   SessionSearchResult,
@@ -709,6 +710,10 @@ export const tauriAgentClient: AgentService = {
 
   setScheduledTaskEnabled(input: SetScheduledTaskEnabledInput) {
     return invoke<ScheduledTask>("set_scheduled_task_enabled", { input });
+  },
+
+  updateScheduledTask(input: UpdateScheduledTaskInput) {
+    return invoke<ScheduledTask>("update_scheduled_task", { input });
   },
 
   async deleteScheduledTask(taskId: string) {

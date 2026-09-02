@@ -7,6 +7,7 @@ mod review_decision_schema;
 mod review_repository;
 mod rows;
 mod runtime_support;
+mod scheduled_task_version_schema;
 pub(crate) mod scheduled_tasks;
 mod schema;
 mod sqlite_repository;
@@ -42,3 +43,4 @@ pub(crate) use runtime_support::{
 };
 
 pub(crate) use personalization_mode_schema::apply_schema as apply_personalization_mode_schema;
+pub(crate) use scheduled_task_version_schema::apply_scheduled_task_version_schema;

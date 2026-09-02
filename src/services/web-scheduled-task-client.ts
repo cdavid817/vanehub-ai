@@ -1,7 +1,7 @@
 import { mockAgents } from "./mock-agent-data";
 import type { ScheduledTaskService } from "./scheduled-task-service";
 import { nowIso } from "./web-mock-clock";
-import { computeNextScheduledRun, validateScheduledTaskFrequency } from "../lib/scheduled-task-recurrence";
+import { computeNextScheduledRun, sameScheduledTaskFrequency, validateScheduledTaskFrequency } from "../lib/scheduled-task-recurrence";
 import type {
   AutomaticArchivalSettings,
   CreateScheduledTaskInput,
@@ -76,6 +76,7 @@ export const webScheduledTaskClient: ScheduledTaskService = {
       latestError: null,
       createdAt: timestamp,
       updatedAt: timestamp,
+      version: 1,
     };
     scheduledTasks = [task, ...scheduledTasks];
     return cloneScheduledTask(task);
@@ -88,6 +89,39 @@ export const webScheduledTaskClient: ScheduledTaskService = {
       ...task,
       enabled: input.enabled,
       nextRunAt: input.enabled ? computeNextScheduledRun(task.frequency) : task.nextRunAt,
+      updatedAt: timestamp,
+    };
+    scheduledTasks = scheduledTasks.map((candidate) => (candidate.id === input.taskId ? updated : candidate));
+    return cloneScheduledTask(updated);
+  },
+
+  // 19.8: the message is the Tauri command's own contract verbatim (see
+  // `scheduled_tasks::version_conflict`) -- a stable `<code>: expected X, stored Y` string rather
+  // than prose, matching `personalization-revision-conflict`'s own precedent
+  // (`web-personalization-rules.ts`'s `conflict()`), because that is what `CommandError` actually
+  // sends across the real Tauri boundary and a friendlier mock message would leave this branch
+  // untested against what the desktop really returns.
+  async updateScheduledTask(input) {
+    const task = findScheduledTask(input.taskId);
+    if (input.expectedVersion !== task.version) {
+      throw new Error(`scheduled-task-version-conflict: expected ${input.expectedVersion}, stored ${task.version}`);
+    }
+    const { name, content } = validateScheduledTaskInput(input);
+    const timestamp = nowIso();
+    // Only a real frequency change earns a fresh nextRunAt -- see sameScheduledTaskFrequency's own
+    // doc comment; recomputing unconditionally would silently reschedule a task whose edit never
+    // touched its frequency at all.
+    const nextRunAt = sameScheduledTaskFrequency(task.frequency, input.frequency)
+      ? task.nextRunAt
+      : computeNextScheduledRun(input.frequency);
+    const updated: ScheduledTask = {
+      ...task,
+      name,
+      content,
+      agentId: input.agentId,
+      frequency: { ...input.frequency },
+      nextRunAt,
+      version: task.version + 1,
       updatedAt: timestamp,
     };
     scheduledTasks = scheduledTasks.map((candidate) => (candidate.id === input.taskId ? updated : candidate));

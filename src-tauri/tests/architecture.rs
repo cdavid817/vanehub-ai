@@ -2655,7 +2655,13 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // migrations take 88-90 and push this change's four to 91-94. That is the second renumber
         // for those four and it stays cheap because none of them has shipped; a version that has
         // reached an installation is the one that can never move again.
-        budget: 3_515,
+        //
+        // +7 for migration 95 (`scheduled-task-versioning`, `redesign-unified-workbench-ui` 19.8):
+        // the six-line `apply_migration` call and its one-line `EXPECTED_MIGRATIONS` entry. Same
+        // fixed cost as migration 86's own raise above -- the schema function itself lives in
+        // `contexts/sessions/infrastructure/scheduled_task_version_schema.rs`, not here, so nothing
+        // in this subtree grew beyond the registration.
+        budget: 3_522,
         owner: "split-database-migrations",
     },
 ];

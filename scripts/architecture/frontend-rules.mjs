@@ -316,8 +316,18 @@ const COLOR_STYLE_PROPERTIES = new Set([
 // +2(接口方法签名)、`tauri-agent-client.ts` +5(invoke 调用)、`web-scheduled-task-client.ts` +22
 // (合成一条真实感的 dispatch 回执,不改动既有的 `scheduledTasks` 数组)。没有新文件,也没有复制既有
 // 分支。上限按实测值 24177 记录,不留余量。
+// 上调理由(redesign-unified-workbench-ui,19.8):Scheduled Tasks 新增版本感知的 `updateScheduledTask`,
+// 同一条三件套模式再新增 +35 行——`scheduled-task-service.ts` +2(接口方法签名)、
+// `tauri-agent-client.ts` +5(invoke 调用)、`web-scheduled-task-client.ts` +28(版本冲突检测,复用
+// `create` 已有的 agent/frequency 校验而非重新实现,成功时把 version 自增一)。没有新文件,也没有
+// 复制既有分支。上限按实测值 24212 记录,不留余量。
+// 上调理由(redesign-unified-workbench-ui,review fix for 19.8):review 阶段发现 Rust 与 Web/mock 两侧的
+// `updateScheduledTask` 都无条件用新 frequency 重算 `next_run_at`,哪怕这次编辑根本没碰 frequency——
+// 一次纯改名会静默把任务的下次触发时间重置。修复只改判断,不新增分支:`web-scheduled-task-client.ts`
+// +6(按 `sameScheduledTaskFrequency`——新落在 `scheduled-task-recurrence.ts`,不计入本预算——决定是
+// 保留旧值还是重算)。上限按实测值 24218 记录,不留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 24177, owner: "redesign-unified-workbench-ui" },
+  { root: "src/services", budget: 24218, owner: "redesign-unified-workbench-ui" },
 ]);
 
 const STATE_PACKAGES = new Set([

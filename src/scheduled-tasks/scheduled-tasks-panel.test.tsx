@@ -37,6 +37,7 @@ function buildTask(id: string, frequency: ScheduledTaskFrequency): ScheduledTask
     latestError: null,
     createdAt: "2026-08-01T00:00:00.000Z",
     updatedAt: "2026-08-01T00:00:00.000Z",
+    version: 1,
   };
 }
 

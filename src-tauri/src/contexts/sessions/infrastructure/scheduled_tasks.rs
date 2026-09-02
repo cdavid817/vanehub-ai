@@ -1,4 +1,4 @@
-use crate::commands::error::CommandError;
+use crate::commands::error::{CommandError, CommandErrorCategory};
 use crate::commands::sessions::dto;
 use crate::contexts::agent_runtime::api::{
     AgentChatConfiguration, AgentRuntimeApi, InteractionMode, SendMessageRequest,
@@ -38,7 +38,7 @@ pub(crate) fn list_scheduled_tasks(
             r#"
             SELECT id, name, content, agent_id, frequency, enabled, next_run_at,
                    latest_status, latest_run_at, latest_run_session_id, latest_error,
-                   created_at, updated_at
+                   created_at, updated_at, version
             FROM scheduled_tasks
             ORDER BY next_run_at ASC
             "#,
@@ -92,29 +92,7 @@ pub(crate) fn create_scheduled_task(
     let next_run_at = compute_next_run(&input.frequency, Local::now())?;
     let frequency = serde_json::to_string(&input.frequency).map_err(command_error)?;
     let connection = database.connection().map_err(command_error)?;
-    let launch_kind: Option<String> = connection
-        .query_row(
-            "SELECT launch_kind FROM agents WHERE id = ?1",
-            [&input.agent_id],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(command_error)?;
-    // Scheduled execution has an explicit API route only for OnePiece. Other API agents have no
-    // runner contract, so reject them before persisting a task that could never run.
-    match (input.agent_id.as_str(), launch_kind.as_deref()) {
-        ("onepiece", Some("api")) | (_, Some("cli")) => {}
-        (_, Some(_)) => {
-            return Err(CommandError::validation(
-                "Scheduled tasks support CLI Agents and OnePiece.",
-            ));
-        }
-        (_, None) => {
-            return Err(CommandError::validation(
-                "Scheduled task references an unsupported Agent.",
-            ));
-        }
-    }
+    validate_scheduled_task_agent(&connection, &input.agent_id)?;
     let id = format!("scheduled-task-{}", Uuid::new_v4());
     let timestamp = Utc::now().to_rfc3339();
     connection
@@ -123,8 +101,8 @@ pub(crate) fn create_scheduled_task(
             INSERT INTO scheduled_tasks (
                 id, name, content, agent_id, frequency, enabled, next_run_at,
                 latest_status, latest_run_at, latest_run_session_id, latest_error,
-                created_at, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6, 'never-run', NULL, NULL, NULL, ?7, ?7)
+                created_at, updated_at, version
+            ) VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6, 'never-run', NULL, NULL, NULL, ?7, ?7, 1)
             "#,
             params![
                 id,
@@ -138,6 +116,114 @@ pub(crate) fn create_scheduled_task(
         )
         .map_err(command_error)?;
     load_task(&connection, &id)
+}
+
+/// Shared by `create_scheduled_task` and `update_scheduled_task`: scheduled execution has an
+/// explicit API route only for OnePiece, so every other API Agent is rejected before persisting a
+/// task that could never run.
+fn validate_scheduled_task_agent(
+    connection: &rusqlite::Connection,
+    agent_id: &str,
+) -> Result<(), CommandError> {
+    let launch_kind: Option<String> = connection
+        .query_row(
+            "SELECT launch_kind FROM agents WHERE id = ?1",
+            [agent_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(command_error)?;
+    match (agent_id, launch_kind.as_deref()) {
+        ("onepiece", Some("api")) | (_, Some("cli")) => Ok(()),
+        (_, Some(_)) => Err(CommandError::validation(
+            "Scheduled tasks support CLI Agents and OnePiece.",
+        )),
+        (_, None) => Err(CommandError::validation(
+            "Scheduled task references an unsupported Agent.",
+        )),
+    }
+}
+
+/// 19.8: overwrites name/content/agent/frequency together, guarded by `expected_version` against a
+/// concurrent editor. Two checks exist for two different reasons: the pre-check below gives a
+/// caller the current stored version to report a useful conflict immediately, cheaply, before any
+/// validation runs; the `WHERE version = ?` on the `UPDATE` itself is the actual race-free guard
+/// (mirroring `loop_repository.rs`'s `update_definition`) for the window between that read and this
+/// write, where a concurrent update could otherwise land silently between the two.
+///
+/// Deliberately leaves `enabled` alone -- toggling it is `set_scheduled_task_enabled`'s own
+/// concern, not one of the fields this call edits.
+pub(crate) fn update_scheduled_task(
+    database: &NativeDatabase,
+    input: dto::UpdateScheduledTaskInput,
+) -> Result<dto::ScheduledTask, CommandError> {
+    let name = input.name.trim();
+    let content = input.content.trim();
+    if name.is_empty() || content.is_empty() {
+        return Err(CommandError::validation(
+            "Scheduled task name and content are required.",
+        ));
+    }
+    let connection = database.connection().map_err(command_error)?;
+    let current = load_task(&connection, &input.task_id)?;
+    if current.version != input.expected_version {
+        return Err(version_conflict(input.expected_version, current.version));
+    }
+    validate_scheduled_task_agent(&connection, &input.agent_id)?;
+
+    // Only a real frequency change earns a fresh `next_run_at` -- mirrors
+    // `set_scheduled_task_enabled`'s own conditional recompute just below. Recomputing
+    // unconditionally would silently push back a task's next fire time on every edit, including
+    // one that only touches `name`/`content`/`agentId`, which has nothing to do with when it runs.
+    let next_run_at = if input.frequency == current.frequency {
+        current.next_run_at
+    } else {
+        compute_next_run(&input.frequency, Local::now())?
+    };
+    let frequency = serde_json::to_string(&input.frequency).map_err(command_error)?;
+    let next_version = input.expected_version.saturating_add(1);
+    let timestamp = Utc::now().to_rfc3339();
+    let changed = connection
+        .execute(
+            r#"
+            UPDATE scheduled_tasks
+            SET name = ?1, content = ?2, agent_id = ?3, frequency = ?4, next_run_at = ?5,
+                version = ?6, updated_at = ?7
+            WHERE id = ?8 AND version = ?9
+            "#,
+            params![
+                name,
+                content,
+                input.agent_id,
+                frequency,
+                next_run_at,
+                next_version,
+                timestamp,
+                input.task_id,
+                input.expected_version,
+            ],
+        )
+        .map_err(command_error)?;
+    if changed == 0 {
+        // The pre-check above passed, so this row raced a concurrent write between that read and
+        // this write. Re-read rather than assume: the row may since have been deleted entirely.
+        let latest = load_task(&connection, &input.task_id)?;
+        return Err(version_conflict(input.expected_version, latest.version));
+    }
+    load_task(&connection, &input.task_id)
+}
+
+/// A stable code, not prose, so the frontend can match it independent of locale -- the same
+/// approach `personalization-revision-conflict` established (`commands/personalization/error.rs`),
+/// preferred here over Loop Center's own `AgentRuntimeApplicationError::Validation` prose
+/// (`loop_service.rs`'s `update_definition`) because `CommandError`'s `Serialize` impl
+/// (`commands/error.rs`) sends only this message string across the Tauri boundary -- `category` is
+/// never seen by the frontend, so the message itself has to carry a machine-matchable signal.
+fn version_conflict(expected: i64, stored: i64) -> CommandError {
+    CommandError::typed(
+        CommandErrorCategory::Conflict,
+        format!("scheduled-task-version-conflict: expected {expected}, stored {stored}"),
+    )
 }
 
 pub(crate) fn set_scheduled_task_enabled(
@@ -314,7 +400,7 @@ fn load_task(
             r#"
             SELECT id, name, content, agent_id, frequency, enabled, next_run_at,
                    latest_status, latest_run_at, latest_run_session_id, latest_error,
-                   created_at, updated_at
+                   created_at, updated_at, version
             FROM scheduled_tasks
             WHERE id = ?1
             "#,
@@ -345,6 +431,7 @@ fn read_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<dto::ScheduledTask> {
         latest_error: row.get(10)?,
         created_at: row.get(11)?,
         updated_at: row.get(12)?,
+        version: row.get(13)?,
     })
 }
 
@@ -400,7 +487,7 @@ pub(crate) fn due_tasks(
             r#"
             SELECT id, name, content, agent_id, frequency, enabled, next_run_at,
                    latest_status, latest_run_at, latest_run_session_id, latest_error,
-                   created_at, updated_at
+                   created_at, updated_at, version
             FROM scheduled_tasks
             WHERE enabled = 1 AND next_run_at <= ?1
             ORDER BY next_run_at ASC
@@ -1009,5 +1096,188 @@ mod tests {
             after.latest_run_session_id.as_deref(),
             Some("session-sweep")
         );
+    }
+
+    fn create_task_for_update(database: &NativeDatabase) -> dto::ScheduledTask {
+        create_scheduled_task(
+            database,
+            dto::CreateScheduledTaskInput {
+                name: "Task".to_string(),
+                content: "Run it".to_string(),
+                agent_id: "codex-cli".to_string(),
+                frequency: dto::ScheduledTaskFrequency::Minutes { interval: 5 },
+            },
+        )
+        .expect("create")
+    }
+
+    /// 19.8: a version-matched edit persists every editable field and advances the counter by
+    /// exactly one -- mirroring `loop_repository.rs`'s own "version must advance by exactly one"
+    /// invariant for the same reason: a caller that reads the returned `version` back has to be
+    /// able to trust it as the next `expectedVersion` to send.
+    #[test]
+    fn update_scheduled_task_persists_a_version_matched_edit_and_advances_the_version() {
+        let (_directory, database) = database();
+        let created = create_task_for_update(&database);
+        assert_eq!(created.version, 1);
+
+        let updated = update_scheduled_task(
+            &database,
+            dto::UpdateScheduledTaskInput {
+                task_id: created.id.clone(),
+                expected_version: created.version,
+                name: " Renamed task ".to_string(),
+                content: " Do something else ".to_string(),
+                agent_id: "onepiece".to_string(),
+                frequency: dto::ScheduledTaskFrequency::Hours { interval: 3 },
+            },
+        )
+        .expect("update");
+
+        assert_eq!(updated.name, "Renamed task");
+        assert_eq!(updated.content, "Do something else");
+        assert_eq!(updated.agent_id, "onepiece");
+        assert_eq!(
+            updated.frequency,
+            dto::ScheduledTaskFrequency::Hours { interval: 3 }
+        );
+        assert_eq!(updated.version, 2);
+
+        let persisted = list_scheduled_tasks(&database).expect("tasks").remove(0);
+        assert_eq!(persisted.version, 2);
+        assert_eq!(persisted.agent_id, "onepiece");
+    }
+
+    /// A real bug caught during review, not a hypothetical: recomputing `next_run_at`
+    /// unconditionally on every edit would silently push back a task's schedule from an edit that
+    /// never touched `frequency` at all -- mirrors `set_scheduled_task_enabled`'s own conditional
+    /// recompute (only when the toggle direction actually changes what "next" means).
+    #[test]
+    fn update_scheduled_task_preserves_next_run_at_when_frequency_is_unchanged() {
+        let (_directory, database) = database();
+        let created = create_task_for_update(&database);
+        let original_next_run_at = created.next_run_at.clone();
+
+        let renamed_only = update_scheduled_task(
+            &database,
+            dto::UpdateScheduledTaskInput {
+                task_id: created.id.clone(),
+                expected_version: created.version,
+                name: "Renamed, same schedule".to_string(),
+                content: created.content.clone(),
+                agent_id: created.agent_id.clone(),
+                frequency: created.frequency.clone(),
+            },
+        )
+        .expect("update name only");
+
+        assert_eq!(renamed_only.next_run_at, original_next_run_at);
+    }
+
+    /// The other half of the same fix: a genuine frequency change still recomputes `next_run_at`
+    /// from now, exactly as it always has -- this test would already have passed before the fix
+    /// above, but pins the behavior so a future change cannot "fix" the false-preserve case by
+    /// preserving unconditionally instead.
+    #[test]
+    fn update_scheduled_task_recomputes_next_run_at_when_frequency_changes() {
+        let (_directory, database) = database();
+        let created = create_task_for_update(&database);
+        let original_next_run_at = created.next_run_at.clone();
+
+        let rescheduled = update_scheduled_task(
+            &database,
+            dto::UpdateScheduledTaskInput {
+                task_id: created.id.clone(),
+                expected_version: created.version,
+                name: created.name.clone(),
+                content: created.content.clone(),
+                agent_id: created.agent_id.clone(),
+                frequency: dto::ScheduledTaskFrequency::Hours { interval: 3 },
+            },
+        )
+        .expect("update frequency");
+
+        assert_ne!(rescheduled.next_run_at, original_next_run_at);
+    }
+
+    /// The race-free half of the guard: a second update sent with the version the first update
+    /// already consumed must be rejected outright, and -- the part a service-layer-only check could
+    /// get wrong -- must not mutate the row at all, not even partially.
+    #[test]
+    fn update_scheduled_task_rejects_a_stale_version_without_mutating_the_row() {
+        let (_directory, database) = database();
+        let created = create_task_for_update(&database);
+        let first_update = update_scheduled_task(
+            &database,
+            dto::UpdateScheduledTaskInput {
+                task_id: created.id.clone(),
+                expected_version: created.version,
+                name: "Renamed task".to_string(),
+                content: "Do something else".to_string(),
+                agent_id: "codex-cli".to_string(),
+                frequency: dto::ScheduledTaskFrequency::Hours { interval: 3 },
+            },
+        )
+        .expect("first update");
+        assert_eq!(first_update.version, 2);
+
+        let stale = update_scheduled_task(
+            &database,
+            dto::UpdateScheduledTaskInput {
+                task_id: created.id.clone(),
+                // Stale: the row is already at version 2.
+                expected_version: created.version,
+                name: "Conflicting edit".to_string(),
+                content: "Should never be persisted".to_string(),
+                agent_id: "codex-cli".to_string(),
+                frequency: dto::ScheduledTaskFrequency::Minutes { interval: 1 },
+            },
+        );
+
+        let error = stale.expect_err("stale version must be rejected");
+        assert_eq!(error.category(), CommandErrorCategory::Conflict);
+        assert!(error.message().contains("scheduled-task-version-conflict"));
+        assert!(error.message().contains("expected 1"));
+        assert!(error.message().contains("stored 2"));
+
+        let unchanged = list_scheduled_tasks(&database).expect("tasks").remove(0);
+        assert_eq!(unchanged.name, "Renamed task");
+        assert_eq!(unchanged.content, "Do something else");
+        assert_eq!(unchanged.version, 2);
+    }
+
+    /// Reuses `create_scheduled_task`'s own Agent validation (`validate_scheduled_task_agent`)
+    /// rather than re-deriving it -- this pins that the shared helper is actually wired in, not
+    /// just present.
+    #[test]
+    fn update_scheduled_task_rejects_an_agent_that_does_not_support_cli() {
+        let (_directory, database) = database();
+        let created = create_task_for_update(&database);
+        let connection = database.connection().expect("connection");
+        connection
+            .execute(
+                "INSERT INTO agents (id, display_name, provider, launch_kind) \
+                 VALUES ('my-api-agent', 'My API Agent', 'Test', 'api')",
+                [],
+            )
+            .expect("seed api agent");
+        drop(connection);
+
+        let result = update_scheduled_task(
+            &database,
+            dto::UpdateScheduledTaskInput {
+                task_id: created.id.clone(),
+                expected_version: created.version,
+                name: "Task".to_string(),
+                content: "Run it".to_string(),
+                agent_id: "my-api-agent".to_string(),
+                frequency: dto::ScheduledTaskFrequency::Minutes { interval: 5 },
+            },
+        );
+
+        assert!(result.is_err());
+        let unchanged = list_scheduled_tasks(&database).expect("tasks").remove(0);
+        assert_eq!(unchanged.agent_id, "codex-cli");
+        assert_eq!(unchanged.version, 1);
     }
 }

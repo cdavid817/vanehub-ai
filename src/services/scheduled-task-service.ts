@@ -5,6 +5,7 @@ import type {
   ScheduledTask,
   ScheduledTaskRun,
   SetScheduledTaskEnabledInput,
+  UpdateScheduledTaskInput,
 } from "../types/agent";
 import type {
   ContextQualityHistoryPage,
@@ -25,6 +26,7 @@ export interface ScheduledTaskService {
   listScheduledTaskRuns(taskId: string): Promise<ScheduledTaskRun[]>;
   createScheduledTask(input: CreateScheduledTaskInput): Promise<ScheduledTask>;
   setScheduledTaskEnabled(input: SetScheduledTaskEnabledInput): Promise<ScheduledTask>;
+  updateScheduledTask(input: UpdateScheduledTaskInput): Promise<ScheduledTask>;
   deleteScheduledTask(taskId: string): Promise<void>;
   runScheduledTaskNow(taskId: string): Promise<RunScheduledTaskNowResult>;
 }

@@ -134,6 +134,7 @@ pub(crate) fn invoke_handler(
         crate::commands::sessions::scheduled_tasks::list_scheduled_tasks,
         crate::commands::sessions::scheduled_tasks::create_scheduled_task,
         crate::commands::sessions::scheduled_tasks::set_scheduled_task_enabled,
+        crate::commands::sessions::scheduled_tasks::update_scheduled_task,
         crate::commands::sessions::scheduled_tasks::delete_scheduled_task,
         crate::commands::sessions::scheduled_tasks::run_scheduled_task_now,
         // SSH Connections

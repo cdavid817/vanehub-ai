@@ -239,6 +239,10 @@ pub(crate) struct ScheduledTask {
     pub(crate) latest_error: Option<String>,
     pub(crate) created_at: String,
     pub(crate) updated_at: String,
+    /// 19.8: the optimistic-concurrency counter `update_scheduled_task` checks. Not touched by
+    /// `set_scheduled_task_enabled` or the due-task sweep's own status bookkeeping -- see
+    /// `apply_scheduled_task_version_schema`'s doc comment for why those stay silent on it.
+    pub(crate) version: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -279,6 +283,21 @@ pub(crate) struct CreateScheduledTaskInput {
 pub(crate) struct SetScheduledTaskEnabledInput {
     pub(crate) task_id: String,
     pub(crate) enabled: bool,
+}
+
+/// 19.8: a full-record overwrite plus `expected_version`, the same shape
+/// `SaveLoopDefinitionRequest`/`expectedVersion` already established for Loop Center's own
+/// version-checked update (`loop_service.rs`'s `update_definition`) -- editing name/content/
+/// agent/frequency together as one save rather than four independent PATCH-style calls.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct UpdateScheduledTaskInput {
+    pub(crate) task_id: String,
+    pub(crate) expected_version: i64,
+    pub(crate) name: String,
+    pub(crate) content: String,
+    pub(crate) agent_id: String,
+    pub(crate) frequency: ScheduledTaskFrequency,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]

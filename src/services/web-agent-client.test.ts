@@ -631,6 +631,83 @@ describe("webAgentClient", () => {
     expect((await webAgentClient.listScheduledTasks()).some((task) => task.id === created.id)).toBe(false);
   });
 
+  // 19.8: version-aware update -- a matched `expectedVersion` persists every editable field and
+  // advances `version`; a stale one is rejected with the same `<code>: expected X, stored Y`
+  // contract the Tauri command sends (`scheduled_tasks::version_conflict`), and the row must be
+  // left exactly as the first, successful update left it.
+  it("updates a scheduled task when the version matches, and rejects a stale version without mutating the row", async () => {
+    const created = await webAgentClient.createScheduledTask({
+      name: "Daily summary",
+      content: "Summarize project progress",
+      agentId: "codex-cli",
+      frequency: { kind: "daily", timeOfDay: "09:30" },
+    });
+    expect(created.version).toBe(1);
+
+    const updated = await webAgentClient.updateScheduledTask({
+      taskId: created.id,
+      expectedVersion: created.version,
+      name: " Updated summary ",
+      content: " Summarize progress four times a day ",
+      agentId: "onepiece",
+      frequency: { kind: "hours", interval: 4 },
+    });
+
+    expect(updated).toMatchObject({
+      name: "Updated summary",
+      content: "Summarize progress four times a day",
+      agentId: "onepiece",
+      frequency: { kind: "hours", interval: 4 },
+      version: 2,
+    });
+
+    await expect(
+      webAgentClient.updateScheduledTask({
+        taskId: created.id,
+        expectedVersion: created.version,
+        name: "Conflicting edit",
+        content: "Should not apply",
+        agentId: "codex-cli",
+        frequency: { kind: "minutes", interval: 5 },
+      }),
+    ).rejects.toThrow("scheduled-task-version-conflict: expected 1, stored 2");
+
+    const unchanged = (await webAgentClient.listScheduledTasks()).find((task) => task.id === created.id);
+    expect(unchanged).toMatchObject({ name: "Updated summary", agentId: "onepiece", version: 2 });
+  });
+
+  // A real bug caught during review of task 19.8, fixed on both backends: recomputing nextRunAt
+  // unconditionally on every edit would silently reschedule a task from an edit that never touched
+  // its frequency at all.
+  it("preserves nextRunAt on an edit that does not change frequency, and recomputes it when frequency does change", async () => {
+    const created = await webAgentClient.createScheduledTask({
+      name: "Weekly digest",
+      content: "Summarize the week",
+      agentId: "codex-cli",
+      frequency: { kind: "weekly", weekday: 1, timeOfDay: "09:00" },
+    });
+
+    const renamedOnly = await webAgentClient.updateScheduledTask({
+      taskId: created.id,
+      expectedVersion: created.version,
+      name: "Weekly digest (renamed)",
+      content: created.content,
+      agentId: created.agentId,
+      frequency: created.frequency,
+    });
+    expect(renamedOnly.nextRunAt).toBe(created.nextRunAt);
+
+    const rescheduled = await webAgentClient.updateScheduledTask({
+      taskId: created.id,
+      expectedVersion: renamedOnly.version,
+      name: renamedOnly.name,
+      content: renamedOnly.content,
+      agentId: renamedOnly.agentId,
+      frequency: { kind: "hours", interval: 2 },
+    });
+    expect(rescheduled.nextRunAt).not.toBe(created.nextRunAt);
+  });
+
   it("exports sessions as JSON or Markdown in Web preview", async () => {
     const session = await createMockSession({
       agentId: "codex-cli",

@@ -80,6 +80,31 @@ export function validateScheduledTaskFrequency(frequency: ScheduledTaskFrequency
   }
 }
 
+/**
+ * Field-by-field, not `JSON.stringify` equality -- key order in two independently-constructed
+ * objects of the same shape is not guaranteed to match, and a false "different" here would make a
+ * caller recompute `next_run_at` for an edit that never touched the schedule at all (task 19.8's
+ * own Rust-side fix for the identical bug, `update_scheduled_task`'s doc comment).
+ */
+export function sameScheduledTaskFrequency(left: ScheduledTaskFrequency, right: ScheduledTaskFrequency): boolean {
+  if (left.kind !== right.kind) return false;
+  switch (left.kind) {
+    case "minutes":
+    case "hours":
+      return left.interval === (right as typeof left).interval;
+    case "daily":
+      return left.timeOfDay === (right as typeof left).timeOfDay;
+    case "weekly": {
+      const other = right as typeof left;
+      return left.weekday === other.weekday && left.timeOfDay === other.timeOfDay;
+    }
+    case "monthly": {
+      const other = right as typeof left;
+      return left.dayOfMonth === other.dayOfMonth && left.timeOfDay === other.timeOfDay;
+    }
+  }
+}
+
 export function computeNextScheduledRun(frequency: ScheduledTaskFrequency, from = new Date()) {
   validateScheduledTaskFrequency(frequency);
   const base = startOfMinute(from);
