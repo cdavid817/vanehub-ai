@@ -16,8 +16,8 @@ function runSummary(overrides: Partial<MissionControlRunSummary> = {}): MissionC
     title: "Run 1", state: "running", createdAt: "2026-08-16T00:00:00.000Z", updatedAt: "2026-08-16T00:00:00.000Z",
     endedAt: null, projectId: null, workspace: null, phase: null, attention: null, reasonCode: null,
     verification: "unavailable", tokens: null, cost: null, actions: [],
-    // No session link: keeps the real UsageFacet's own resolver a no-op short-circuit in these
-    // router-focused tests, so they exercise routing only, not usage data fetching.
+    // No session link: keeps the real Usage/Timeline/Tools/Files facets' own resolver a no-op
+    // short-circuit in these router-focused tests, so they exercise routing only, not data fetching.
     navigation: null,
     runner: null,
     ...overrides,
@@ -41,7 +41,17 @@ describe("MissionControlFacetPanel", () => {
     expect(screen.getByTestId("mission-control-usage-facet")).toBeTruthy();
   });
 
-  it.each(["timeline", "tools", "files", "review", "verification", "context", "logs"] as const)(
+  it.each([
+    ["timeline", "mission-control-timeline-facet"],
+    ["tools", "mission-control-tools-facet"],
+    ["files", "mission-control-files-facet"],
+  ] as const)("renders the %s facet when it is available", async (facet, testId) => {
+    await activateAppLanguage("en");
+    render(<MissionControlFacetPanel detail={detail()} facet={facet} />);
+    expect(screen.getByTestId(testId)).toBeTruthy();
+  });
+
+  it.each(["review", "verification", "context", "logs"] as const)(
     "keeps the existing placeholder for the %s facet, unbuilt in this pass",
     async (facet) => {
       await activateAppLanguage("en");
@@ -62,5 +72,24 @@ describe("MissionControlFacetPanel", () => {
     render(<MissionControlFacetPanel detail={restrictedDetail} facet="usage" />);
     expect(screen.queryByTestId("mission-control-usage-facet")).toBeNull();
     expect(screen.getByText(/Selected: Usage/)).toBeTruthy();
+  });
+
+  it("falls back to the placeholder for timeline/tools/files when the backend has not actually marked them available", async () => {
+    await activateAppLanguage("en");
+    const restrictedDetail = detail({ timeline: "unavailable", tools: "restricted", files: "unavailable" });
+
+    render(<MissionControlFacetPanel detail={restrictedDetail} facet="timeline" />);
+    expect(screen.queryByTestId("mission-control-timeline-facet")).toBeNull();
+    expect(screen.getByText(/Selected: Timeline/)).toBeTruthy();
+    cleanup();
+
+    render(<MissionControlFacetPanel detail={restrictedDetail} facet="tools" />);
+    expect(screen.queryByTestId("mission-control-tools-facet")).toBeNull();
+    expect(screen.getByText(/Selected: Tools/)).toBeTruthy();
+    cleanup();
+
+    render(<MissionControlFacetPanel detail={restrictedDetail} facet="files" />);
+    expect(screen.queryByTestId("mission-control-files-facet")).toBeNull();
+    expect(screen.getByText(/Selected: Files/)).toBeTruthy();
   });
 });
