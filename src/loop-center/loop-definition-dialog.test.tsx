@@ -30,4 +30,21 @@ describe("LoopDefinitionDialog", () => {
     expect(html).toContain("deleted-branch — 不可用");
     expect(html).toContain("启用定义");
   });
+
+  it("marks discovered but simulated project/branch choices distinctly from unavailable ones", () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client.setQueryData(loopQueryKeys.projects, [
+      { path: "D:/live", displayName: "live", available: true, simulated: false },
+      { path: "D:/mocked", displayName: "mocked", available: true, simulated: true },
+      { path: "D:/mocked-gone", displayName: "mocked-gone", available: false, simulated: true },
+    ]);
+    client.setQueryData(loopQueryKeys.branches(""), []);
+    const html = renderToStaticMarkup(<QueryClientProvider client={client}><LoopDefinitionDialog definition={null} onClose={() => undefined} onSaved={() => undefined} /></QueryClientProvider>);
+
+    // A real, reachable choice carries no suffix at all -- only a genuine gap earns one.
+    expect(html).toContain(">live<");
+    expect(html).not.toContain("live — ");
+    expect(html).toContain("mocked — 模拟运行");
+    expect(html).toContain("mocked-gone — 不可用, 模拟运行");
+  });
 });
