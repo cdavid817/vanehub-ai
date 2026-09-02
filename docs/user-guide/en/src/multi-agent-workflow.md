@@ -263,5 +263,5 @@ Peer-to-peer handoff lets every Agent read the same context and decide for itsel
 - Implementation detail, source locations, and design trade-offs → [the Developer Guide's multi-Agent group chat chapter](../../../developer-guide/src/multi-agent-group-chat.md)
 - Walk an acceptance flow → [Group chat collaboration case](multi-agent-testing-tutorial.md)
 - Expert roles and review policy → [Expert roles](expert-roles.md)
-- Technical overview of orchestration topologies, context management, and failure modes → [Multi-Agent systems technical architecture](../../../agent-infrastructure/multi-agent-architecture.md) (Simplified Chinese)
-- What the A2A protocol mentioned above actually is → [A2A technical architecture](../../../agent-infrastructure/a2a-architecture.md) (Simplified Chinese)
+- Technical overview of orchestration topologies, context management, and failure modes → [Multi-Agent systems technical architecture](../../../agent-infrastructure/patterns/multi-agent.md) (Simplified Chinese)
+- What the A2A protocol mentioned above actually is → [A2A technical architecture](../../../agent-infrastructure/protocols/a2a.md) (Simplified Chinese)

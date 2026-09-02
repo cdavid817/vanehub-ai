@@ -263,5 +263,5 @@ Supervisor 模式要求一个 Agent 充当调度器，它会消耗 token 且引�
 - 实现细节、源码位置与设计取舍 → [《开发者指南》的多 Agent 群聊一章](../../../developer-guide/zh-CN/src/multi-agent-group-chat.md)
 - 走一遍验收流程 → [群聊协作案例](multi-agent-testing-tutorial.md)
 - 专家角色与评审策略 → [专家角色](expert-roles.md)
-- 编排拓扑、上下文管理与失败模式的技术全景 → [多 Agent 系统技术架构](../../../agent-infrastructure/multi-agent-architecture.md)
-- 上文提到的 A2A 协议究竟是什么 → [A2A 技术架构](../../../agent-infrastructure/a2a-architecture.md)
+- 编排拓扑、上下文管理与失败模式的技术全景 → [多 Agent 系统技术架构](../../../agent-infrastructure/patterns/multi-agent.md)
+- 上文提到的 A2A 协议究竟是什么 → [A2A 技术架构](../../../agent-infrastructure/protocols/a2a.md)

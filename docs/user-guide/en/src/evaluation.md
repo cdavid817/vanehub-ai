@@ -131,4 +131,4 @@ Every arena row has an **Export JSON** action at the end; the export carries the
 - Getting multiple Agents to collaborate in one session, rather than compete → [Multi-Agent group chat](multi-agent-workflow.md)
 - The full semantics of execution traces and logs → [Observability](observability.md)
 - Token usage accounting → [Scheduled tasks and usage](automation.md)
-- The evaluation methodology itself → [Multi-Agent systems technical architecture](../../../agent-infrastructure/multi-agent-architecture.md) (Simplified Chinese)
+- The evaluation methodology itself → [Multi-Agent systems technical architecture](../../../agent-infrastructure/patterns/multi-agent.md) (Simplified Chinese)

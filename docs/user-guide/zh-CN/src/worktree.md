@@ -158,4 +158,4 @@ Agent 生成的代码不一定对。可以让多个 Agent 对同一问题给出�
 - 依赖 worktree 的自动循环 → [Loop Engineering 工程](loop-engineering.md)
 - 并行改同一仓库的完整走法 → [使用案例](use-cases.md)
 - Git 失败详情去哪看 → [可观测性](observability.md)
-- 执行隔离在多 Agent 编排里的位置 → [多 Agent 系统技术架构](../../../agent-infrastructure/multi-agent-architecture.md)
+- 执行隔离在多 Agent 编排里的位置 → [多 Agent 系统技术架构](../../../agent-infrastructure/patterns/multi-agent.md)

@@ -17,10 +17,10 @@ Agent 宿主与外部系统之间的互操作规范，各有独立的版本与�
 
 | 主题 | 适用范围 | 文档基线 |
 | --- | --- | --- |
-| [MCP](mcp-architecture.md) | Agent 宿主与工具/资源/提示词服务之间的互操作 | 协议模型与三角色架构、传输层、核心原语、生命周期、授权与安全模型 |
-| [Function Calling](function-calling-architecture.md) | 模型向应用表达结构化工具调用意图 | 调用循环与约束解码、Anthropic 与 OpenAI 的 API 差异、并行调用与流式组装、结构化输出 |
-| [LSP](lsp-architecture.md) | 编辑器/Agent 宿主与语言服务器之间的代码智能协议 | 协议分层与生命周期、能力协商、文本同步模型、语言与工作区特性 |
-| [A2A](a2a-architecture.md) | 跨 Agent、跨进程或跨组织的任务委派与协作 | AgentCard/Task/Message/Artifact 数据模型、任务状态机、发现机制、异步更新通道 |
+| [MCP](protocols/mcp.md) | Agent 宿主与工具/资源/提示词服务之间的互操作 | 协议模型与三角色架构、传输层、核心原语、生命周期、授权与安全模型 |
+| [Function Calling](protocols/function-calling.md) | 模型向应用表达结构化工具调用意图 | 调用循环与约束解码、Anthropic 与 OpenAI 的 API 差异、并行调用与流式组装、结构化输出 |
+| [LSP](protocols/lsp.md) | 编辑器/Agent 宿主与语言服务器之间的代码智能协议 | 协议分层与生命周期、能力协商、文本同步模型、语言与工作区特性 |
+| [A2A](protocols/a2a.md) | 跨 Agent、跨进程或跨组织的任务委派与协作 | AgentCard/Task/Message/Artifact 数据模型、任务状态机、发现机制、异步更新通道 |
 
 ## 通用架构模式
 
@@ -28,16 +28,16 @@ Agent 宿主与外部系统之间的互操作规范，各有独立的版本与�
 
 | 主题 | 适用范围 |
 | --- | --- |
-| [多 Agent 系统](multi-agent-architecture.md) | 编排拓扑与角色框架、通信与协调、上下文管理、执行隔离、失败模式与评估 |
-| [Agent Skills](agent-skills-architecture.md) | 开放规范与文件格式、渐进式披露加载、触发与执行、与 MCP/Prompt 的定位对比 |
-| [RAG](rag-architecture.md) | 索引与检索管线、语义与关键字检索取舍、混合检索与重排序、评估方法 |
-| [Tree-sitter](tree-sitter-architecture.md) | GLR 增量解析、语法工具链与 ABI、查询系统、结构化代码切分与 Repo Map |
+| [多 Agent 系统](patterns/multi-agent.md) | 编排拓扑与角色框架、通信与协调、上下文管理、执行隔离、失败模式与评估 |
+| [Agent Skills](patterns/agent-skills.md) | 开放规范与文件格式、渐进式披露加载、触发与执行、与 MCP/Prompt 的定位对比 |
+| [RAG](patterns/rag.md) | 索引与检索管线、语义与关键字检索取舍、混合检索与重排序、评估方法 |
+| [Tree-sitter](patterns/tree-sitter.md) | GLR 增量解析、语法工具链与 ABI、查询系统、结构化代码切分与 Repo Map |
 
 ## 工程方法
 
 | 主题 | 适用范围 |
 | --- | --- |
-| [OpenSpec](openspec-architecture.md) | 规范驱动开发的知识模型、变更包工件链、opsx 命令族、Delta 规格合并 |
+| [OpenSpec](methods/openspec.md) | 规范驱动开发的知识模型、变更包工件链、opsx 命令族、Delta 规格合并 |
 
 OpenSpec 是一套具体工具与工程方法，不是 Agent 互操作协议，所以与 MCP、LSP、A2A 分开列。
 

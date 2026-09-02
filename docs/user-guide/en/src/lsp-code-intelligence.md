@@ -272,4 +272,4 @@ Review the safe reason shown in **Runtime status**, fix the executable, project,
 
 - How the persistent index and live LSP divide the work → [Code indexing](code-indexing.md)
 - The settings page holding the language-server toggles → [Tools and extensions](tooling.md#agent-configurations)
-- The LSP protocol itself: layering and lifecycle, capability negotiation, the text synchronization model → [LSP technical architecture](../../../agent-infrastructure/lsp-architecture.md) (Simplified Chinese)
+- The LSP protocol itself: layering and lifecycle, capability negotiation, the text synchronization model → [LSP technical architecture](../../../agent-infrastructure/protocols/lsp.md) (Simplified Chinese)
