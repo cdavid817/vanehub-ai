@@ -86,8 +86,22 @@ Deferred at first, then requested. Both guides are split together: `user-guide-d
 
 - [x] 6.15 `execution-observability.md` carried the same time-only correlation defect as `use-cases.md`, phrased in reverse ("traces deliberately carry no log identifier") — which is why the Phase 2 sweep missed it. Both languages corrected
 
-## 7. Still open
+## 7. Content-conservation audit
 
-- [ ] 7.1 Decide whether `recall` should respect an explicitly restricted memory audience (`design.md`, Decision 5). Until then the documentation states the boundary rather than the promise
-- [ ] 7.2 Raise skill-evolution evidence to application-level encryption, if that is wanted: key management, migration of existing rows, erasure verification. The chapters now say what it would take
-- [ ] 7.3 Generate the LSP capability matrix from a registry rather than maintaining it in the chapter (`design.md`, Deferred work 1)
+No gate checks whether content survives a split — `docs:check` verifies links and inventories, `docs:test` verifies navigation, and both pass over a chapter that silently lost a paragraph. Audited separately, comparing every content line of each source at `origin/main` against the union of its outputs, with link targets and heading levels normalised out so link rewriting does not masquerade as loss.
+
+- [x] 7.1 Line-by-line conservation audit across all eleven splits, both languages
+- [x] 7.2 Restore the acceptance chapter's four checkpoints, dropped with the framing paragraph they followed
+- [x] 7.3 Restore "record only what can be substantiated, and state honestly how much is actually known" into both halves of the observability split
+- [x] 7.4 Restore the documentation-change command list; `docs:screenshots:check` is in neither `AGENTS.md`'s core list nor anywhere else
+- [x] 7.5 Remove the worktree/Loop bullet added to `remote-workspaces.md`, which duplicated its own Limits section
+- [x] 7.6 Verify the vanished `tooling.md` sections were pointers only — `mcp.md:51` and `prompt-hooks.md:22,105` carry their facts, including "Prompt Hooks do not apply to OnePiece"
+- [x] 7.7 Compare every rewritten "Notes and limits" bullet against its original sentence by sentence; all faithful
+- [x] 7.8 Duplication audit in the other direction — no sentence repeated within a file, and the four repeated across files are deliberate (shared constraints and cross-links)
+- [x] 7.9 Cross-language equivalence: both guides hold identical file sets, and every chapter pair matches on heading count except `worktree.md` and `terminal-runtime.md`, which differ identically on `origin/main` — pre-existing, left as found
+
+## 8. Still open
+
+- [ ] 8.1 Decide whether `recall` should respect an explicitly restricted memory audience (`design.md`, Decision 5). Until then the documentation states the boundary rather than the promise
+- [ ] 8.2 Raise skill-evolution evidence to application-level encryption, if that is wanted: key management, migration of existing rows, erasure verification. The chapters now say what it would take
+- [ ] 8.3 Generate the LSP capability matrix from a registry rather than maintaining it in the chapter (`design.md`, Deferred work 1)
