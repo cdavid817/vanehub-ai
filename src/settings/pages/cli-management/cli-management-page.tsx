@@ -1,41 +1,33 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { TerminalSquare } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { orderByAgentPriority } from "../../../lib/agent-display-order";
 import { agentService } from "../../../services/runtime-agent-client";
-import { settingsService } from "../../../services/runtime-settings-client";
-import { readCliRejection, type CliBulkItemResult, type CliRejection } from "../../../types/cli-environment";
 import type { CliEnvironmentSnapshot } from "../../../types/cli-environment-snapshot";
-import type { OperationTask } from "../../../types/operation";
 import type { SettingsPageStatus } from "../../settings-page-types";
-import { PageHeader } from "../page-parts";
+import { AsyncBoundary } from "../../../ui/async/AsyncBoundary";
+import type { AsyncViewState } from "../../../ui/async/async-view-state";
+import { PageHeader } from "../../../ui/page-header/PageHeader";
 import { CliActionPlanDialog } from "./cli-action-plan-dialog";
 import { CliBulkPlanDialog } from "./cli-bulk-plan-dialog";
 import { CliDetailsDrawer } from "./cli-details-drawer";
 import { CliEnvironmentList } from "./cli-environment-list";
 import { CliSummaryBar } from "./cli-summary-bar";
 import { CliToolbar } from "./cli-toolbar";
-import { isOperationRunning } from "./cli-operation-status";
 import {
   availableSourceIds,
   bulkUpgradeEligible,
   filterSnapshots,
-  recommendedSourceId,
   summaryCounts,
 } from "./cli-management-presenters";
+import { useCliManagementActions } from "./use-cli-management-actions";
 import { useCliManagementPageStatus } from "./use-cli-management-page-status";
-import { useCliOperationTracking } from "./use-cli-operation-tracking";
 
 const cliEnvironmentsQueryKey = ["cli-environments"] as const;
 
-export function refreshButtonState(isPending: boolean, operation?: OperationTask) {
-  const running = isPending || isOperationRunning(operation);
-  return {
-    disabled: running,
-    labelKey: running ? "cli.refreshing" : "cli.refresh",
-    iconClassName: `h-4 w-4 ${running ? "animate-spin" : ""}`,
-  };
+function errorMessage(reason: unknown) {
+  return reason instanceof Error ? reason.message : String(reason);
 }
 
 export function CliManagementPage({ onStatusChange, searchTerm }: { onStatusChange?: (status: SettingsPageStatus | null) => void; searchTerm: string }) {
@@ -47,10 +39,6 @@ export function CliManagementPage({ onStatusChange, searchTerm }: { onStatusChan
   const [attentionOnly, setAttentionOnly] = useState(false);
   const [selectedVersions, setSelectedVersions] = useState<Record<string, string>>({});
   const [detailsAgentId, setDetailsAgentId] = useState<string | null>(null);
-  const [planId, setPlanId] = useState<string | null>(null);
-  const [bulkPlanId, setBulkPlanId] = useState<string | null>(null);
-  const [bulkResults, setBulkResults] = useState<readonly CliBulkItemResult[] | null>(null);
-  const [planRejection, setPlanRejection] = useState<CliRejection | null>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
   const detailsPanelId = `${useId()}-cli-details`;
 
@@ -66,7 +54,7 @@ export function CliManagementPage({ onStatusChange, searchTerm }: { onStatusChan
     [snapshotsQuery.data],
   );
 
-  const tracking = useCliOperationTracking(snapshots, queryClient, cliEnvironmentsQueryKey);
+  const actions = useCliManagementActions(snapshots, queryClient, cliEnvironmentsQueryKey);
 
   useEffect(() => {
     setSelectedVersions((current) => {
@@ -80,99 +68,6 @@ export function CliManagementPage({ onStatusChange, searchTerm }: { onStatusChan
       return next;
     });
   }, [snapshots]);
-
-  function reportFailure(source: string, error: unknown, details?: Record<string, string>) {
-    void settingsService.reportClientLogEvent({
-      level: "error",
-      kind: "critical-operation-failure",
-      message: String(error),
-      source,
-      details,
-    });
-  }
-
-  const refreshMutation = useMutation({
-    mutationFn: (agentId: string | null) =>
-      agentService.refreshCliEnvironments(agentId ? [agentId] : [], false),
-    onSuccess: (operation, agentId) => tracking.trackRefresh(operation, agentId, snapshots),
-    onError: (error, agentId) =>
-      reportFailure("CliManagementPage.refresh", error, agentId ? { agentId } : undefined),
-  });
-
-  const prepareMutation = useMutation({
-    mutationFn: ({ snapshot, targetVersion }: {
-      snapshot: CliEnvironmentSnapshot;
-      targetVersion: string;
-    }) =>
-      agentService.prepareCliAction({
-        agentId: snapshot.agentId,
-        // No action: the backend derives install/upgrade/downgrade from the target and what is
-        // installed, so this page never compares two versions.
-        action: null,
-        sourceId: recommendedSourceId(snapshot) ?? "",
-        targetVersion,
-        channel: null,
-      }),
-    onSuccess: async (operation, variables) => {
-      tracking.trackMutation(operation, variables.snapshot.agentId);
-      const prepared = await tracking.awaitPlanId(operation.id);
-      if (prepared) setPlanId(prepared);
-    },
-    onError: (error, variables) =>
-      reportFailure("CliManagementPage.prepareCliAction", error, {
-        agentId: variables.snapshot.agentId,
-        targetVersion: variables.targetVersion,
-      }),
-  });
-
-  const executeMutation = useMutation({
-    mutationFn: (input: { planId: string; expectedRevision: number }) =>
-      agentService.executeCliAction(input),
-    onSuccess: (operation) => {
-      tracking.trackMutation(operation, operation.relatedEntityId ?? null);
-      setPlanRejection(null);
-      setPlanId(null);
-    },
-    onError: (error) => {
-      // A refusal stays on screen. Closing the dialog silently would leave the user believing the
-      // change ran, which is the one thing a refusal guarantees did not happen.
-      setPlanRejection(readCliRejection(error));
-      reportFailure("CliManagementPage.executeCliAction", error);
-    },
-  });
-
-  const bulkPrepareMutation = useMutation({
-    mutationFn: (agentIds: string[]) => agentService.prepareCliBulkUpgrade(agentIds),
-    onSuccess: async (operation) => {
-      const prepared = await tracking.awaitPlanId(operation.id);
-      if (prepared) {
-        setBulkResults(null);
-        setBulkPlanId(prepared);
-      }
-    },
-    onError: (error) => reportFailure("CliManagementPage.prepareCliBulkUpgrade", error),
-  });
-
-  const bulkExecuteMutation = useMutation({
-    mutationFn: (input: { planId: string; expectedRevision: number }) =>
-      agentService.executeCliBulkAction(input),
-    onSuccess: async (operation) => {
-      const items = await tracking.awaitBulkItems(operation.id);
-      setBulkResults(items);
-    },
-    onError: (error) => reportFailure("CliManagementPage.executeCliBulkAction", error),
-  });
-
-  const planQuery = useQuery({
-    queryKey: ["cli-action-plan", planId],
-    queryFn: () => agentService.getCliActionPlan(planId ?? ""),
-    enabled: planId !== null,
-  });
-  const bulkPlanQuery = useQuery({
-    queryKey: ["cli-bulk-plan", bulkPlanId],
-    queryFn: () => agentService.getCliBulkActionPlan(bulkPlanId ?? ""),
-    enabled: bulkPlanId !== null,
-  });
 
   const effectiveSearch = search || searchTerm;
   const visible = useMemo(
@@ -188,6 +83,29 @@ export function CliManagementPage({ onStatusChange, searchTerm }: { onStatusChan
   useCliManagementPageStatus({ error: snapshotsQuery.error, onStatusChange, updateCount: counts.updates });
   const bulkEligible = useMemo(() => snapshots.filter(bulkUpgradeEligible), [snapshots]);
   const detailsSnapshot = snapshots.find((snapshot) => snapshot.agentId === detailsAgentId);
+  const filtersActive = Boolean(effectiveSearch.trim()) || stateFilter !== "all" || sourceFilter !== "all" || attentionOnly;
+
+  // task 12.18: this page's own snapshotsQuery projected into the shared AsyncBoundary's
+  // AsyncViewState shape -- src/ui/ primitives cannot import this service's own error type
+  // (ARCH-FE-005), so the projection lives here rather than in the primitive. Only routed into
+  // AsyncBoundary's own full-screen error state when there is no data at all to fall back on --
+  // with `placeholderData` above keeping the last-known list on screen across a refresh, replacing
+  // it with a full-screen error on every transient refetch failure would regress this page's own
+  // deliberate "never blank the list" intent, so a refetch-time failure keeps using the narrower
+  // inline warning below instead, exactly as it did before this migration.
+  const asyncState: AsyncViewState<CliEnvironmentSnapshot[]> = {
+    data: snapshotsQuery.data,
+    error: snapshotsQuery.isError && snapshotsQuery.data === undefined
+      ? { kind: "error", message: errorMessage(snapshotsQuery.error), retryable: true }
+      : undefined,
+    initialLoading: snapshotsQuery.isLoading,
+    refreshing: snapshotsQuery.isFetching && !snapshotsQuery.isLoading,
+    stale: snapshotsQuery.isStale,
+  };
+  // Same message and action whether the catalog is genuinely empty or a filter just matched
+  // nothing, matching this page's own pre-existing behavior -- AsyncBoundary still picks the
+  // right icon/variant (Inbox vs. SearchX) for each case on its own.
+  const emptyStateSlot = { title: t("cli.list.empty") };
 
   return (
     <div className="space-y-4">
@@ -200,97 +118,95 @@ export function CliManagementPage({ onStatusChange, searchTerm }: { onStatusChan
       <CliToolbar
         attentionOnly={attentionOnly}
         bulkEligibleCount={bulkEligible.length}
-        bulkPending={bulkPrepareMutation.isPending}
-        refreshing={refreshMutation.isPending && refreshMutation.variables === null}
+        bulkPending={actions.bulkPrepareMutation.isPending}
+        refreshing={actions.refreshMutation.isPending && actions.refreshMutation.variables === null}
         search={search}
         sourceFilter={sourceFilter}
         sourceIds={availableSourceIds(snapshots)}
         onAttentionOnlyChange={setAttentionOnly}
-        onBulkUpgrade={() => bulkPrepareMutation.mutate(bulkEligible.map((s) => s.agentId))}
-        onRefreshAll={() => refreshMutation.mutate(null)}
+        onBulkUpgrade={() => actions.bulkPrepareMutation.mutate(bulkEligible.map((s) => s.agentId))}
+        onRefreshAll={() => actions.refreshMutation.mutate(null)}
         onSearchChange={setSearch}
         onSourceFilterChange={setSourceFilter}
       />
-      {snapshotsQuery.error ? (
+      {snapshotsQuery.isError && snapshotsQuery.data !== undefined ? (
         <div className="rounded-md border p-3 text-sm ucd-status-warning" role="alert">
-          {String(snapshotsQuery.error)}
+          {errorMessage(snapshotsQuery.error)}
         </div>
       ) : null}
-      <CliEnvironmentList
-        detailsAgentId={detailsAgentId}
-        detailsPanelId={detailsPanelId}
-        mutatingAgentIds={tracking.mutatingAgentIds}
-        operations={tracking.operationsByAgentId}
-        refreshingAgentIds={tracking.refreshingAgentIds}
-        selectedVersions={selectedVersions}
-        snapshots={visible}
-        onCancelOperation={(agentId) => tracking.cancel(agentId)}
-        onOpenDetails={(agentId, trigger) => {
-          triggerRef.current = trigger;
-          setDetailsAgentId(agentId);
-        }}
-        onRefresh={(agentId) => refreshMutation.mutate(agentId)}
-        onRequestChange={(snapshot, targetVersion, trigger) => {
-          triggerRef.current = trigger;
-          prepareMutation.mutate({ snapshot, targetVersion });
-        }}
-        onSelectedVersionChange={(agentId, version) =>
-          setSelectedVersions((current) => ({ ...current, [agentId]: version }))}
-      />
+      <AsyncBoundary
+        emptyState={emptyStateSlot}
+        filtered={filtersActive}
+        filteredEmptyState={emptyStateSlot}
+        isEmpty={() => visible.length === 0}
+        onRetry={() => void snapshotsQuery.refetch()}
+        state={asyncState}
+      >
+        {() => (
+          <CliEnvironmentList
+            detailsAgentId={detailsAgentId}
+            detailsPanelId={detailsPanelId}
+            mutatingAgentIds={actions.tracking.mutatingAgentIds}
+            operations={actions.tracking.operationsByAgentId}
+            refreshingAgentIds={actions.tracking.refreshingAgentIds}
+            selectedVersions={selectedVersions}
+            snapshots={visible}
+            onCancelOperation={(agentId) => actions.tracking.cancel(agentId)}
+            onOpenDetails={(agentId, trigger) => {
+              triggerRef.current = trigger;
+              setDetailsAgentId(agentId);
+            }}
+            onRefresh={(agentId) => actions.refreshMutation.mutate(agentId)}
+            onRequestChange={(snapshot, targetVersion, trigger) => {
+              triggerRef.current = trigger;
+              actions.prepareMutation.mutate({ snapshot, targetVersion });
+            }}
+            onSelectedVersionChange={(agentId, version) =>
+              setSelectedVersions((current) => ({ ...current, [agentId]: version }))}
+          />
+        )}
+      </AsyncBoundary>
 
       {detailsSnapshot ? (
         <CliDetailsDrawer
-          diagnosticsRunning={tracking.mutatingAgentIds.has(detailsSnapshot.agentId)}
-          operation={tracking.operationsByAgentId[detailsSnapshot.agentId]}
+          diagnosticsRunning={actions.tracking.mutatingAgentIds.has(detailsSnapshot.agentId)}
+          operation={actions.tracking.operationsByAgentId[detailsSnapshot.agentId]}
           panelId={detailsPanelId}
           returnFocus={triggerRef.current}
           snapshot={detailsSnapshot}
-          onCancelOperation={() => tracking.cancel(detailsSnapshot.agentId)}
+          onCancelOperation={() => actions.tracking.cancel(detailsSnapshot.agentId)}
           onClose={() => setDetailsAgentId(null)}
-          onRerunDiagnostics={() => {
-            void agentService.runCliDoctor(detailsSnapshot.agentId)
-              .then((operation) => tracking.trackMutation(operation, detailsSnapshot.agentId))
-              .catch((error: unknown) => reportFailure("CliManagementPage.runCliDoctor", error));
-          }}
+          onRerunDiagnostics={() => actions.rerunDiagnostics(detailsSnapshot.agentId)}
         />
       ) : null}
 
-      {planQuery.data ? (
+      {actions.planQuery.data ? (
         <CliActionPlanDialog
           displayName={
-            snapshots.find((snapshot) => snapshot.agentId === planQuery.data?.agentId)?.displayName
-            ?? planQuery.data.agentId
+            snapshots.find((snapshot) => snapshot.agentId === actions.planQuery.data?.agentId)?.displayName
+            ?? actions.planQuery.data.agentId
           }
-          plan={planQuery.data}
-          rejection={planRejection}
+          plan={actions.planQuery.data}
+          rejection={actions.planRejection}
           returnFocus={triggerRef.current}
-          submitting={executeMutation.isPending}
-          onCancel={() => {
-            setPlanRejection(null);
-            setPlanId(null);
-          }}
-          onConfirm={(input) => executeMutation.mutate(input)}
-          onPrepareAgain={() => {
-            setPlanRejection(null);
-            setPlanId(null);
-          }}
+          submitting={actions.executeMutation.isPending}
+          onCancel={actions.closePlan}
+          onConfirm={(input) => actions.executeMutation.mutate(input)}
+          onPrepareAgain={actions.closePlan}
         />
       ) : null}
 
-      {bulkPlanQuery.data ? (
+      {actions.bulkPlanQuery.data ? (
         <CliBulkPlanDialog
           displayNames={Object.fromEntries(
             snapshots.map((snapshot) => [snapshot.agentId, snapshot.displayName]),
           )}
-          plan={bulkPlanQuery.data}
-          results={bulkResults}
+          plan={actions.bulkPlanQuery.data}
+          results={actions.bulkResults}
           returnFocus={triggerRef.current}
-          submitting={bulkExecuteMutation.isPending}
-          onClose={() => {
-            setBulkPlanId(null);
-            setBulkResults(null);
-          }}
-          onConfirm={(input) => bulkExecuteMutation.mutate(input)}
+          submitting={actions.bulkExecuteMutation.isPending}
+          onClose={actions.closeBulkPlan}
+          onConfirm={(input) => actions.bulkExecuteMutation.mutate(input)}
         />
       ) : null}
     </div>

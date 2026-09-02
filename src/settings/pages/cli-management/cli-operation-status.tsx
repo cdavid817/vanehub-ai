@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
-import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
+import { StatusBadge, type StatusTone } from "../../../ui/status/StatusBadge";
 import type { CliMutationResult } from "../../../types/cli-environment";
 import type { OperationTask } from "../../../types/operation";
 
@@ -39,10 +39,10 @@ function guidanceKey(outcome: CliMutationResult["outcome"]): string | null {
 /** Outcomes that mean the change did not take. The operation still completed; the change did not. */
 const FAILED_OUTCOMES = ["changed-but-failed", "no-change-failed", "cancelled"];
 
-function statusTone(operation: OperationTask, result: CliMutationResult | null) {
-  if (isOperationRunning(operation)) return "muted" as const;
-  if (result?.outcome && FAILED_OUTCOMES.includes(result.outcome)) return "warning" as const;
-  return operation.status === "succeeded" ? ("success" as const) : ("warning" as const);
+function statusTone(operation: OperationTask, result: CliMutationResult | null): StatusTone {
+  if (isOperationRunning(operation)) return "neutral";
+  if (result?.outcome && FAILED_OUTCOMES.includes(result.outcome)) return "warning";
+  return operation.status === "succeeded" ? "success" : "warning";
 }
 
 export function CliOperationStatus({
@@ -71,16 +71,12 @@ export function CliOperationStatus({
           the badge off the operation status alone painted "no-change-failed" green and called it
           a success.
         */}
-        <Badge tone={statusTone(operation, result)}>
-          {t(`cli.operationStatus.${operation.status}`)}
-        </Badge>
+        <StatusBadge label={t(`cli.operationStatus.${operation.status}`)} tone={statusTone(operation, result)} />
         {operation.phase ? (
           <span className="text-muted-foreground">{t(`cli.phase.${operation.phase}`)}</span>
         ) : null}
         {result?.outcome ? (
-          <Badge tone={result.warning ? "warning" : "success"}>
-            {t(`cli.outcome.${result.outcome}`)}
-          </Badge>
+          <StatusBadge label={t(`cli.outcome.${result.outcome}`)} tone={result.warning ? "warning" : "success"} />
         ) : null}
         {running && operation.cancellable && onCancel ? (
           <Button className="ml-auto" size="sm" variant="outline" onClick={onCancel}>

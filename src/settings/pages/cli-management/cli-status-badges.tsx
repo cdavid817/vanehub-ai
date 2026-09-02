@@ -1,24 +1,23 @@
 import { AlertTriangle, CheckCircle2, CircleHelp, Clock, ShieldAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { Badge } from "../../../components/ui/badge";
+import { StatusBadge } from "../../../ui/status/StatusBadge";
 import type { CliEnvironmentSnapshot } from "../../../types/cli-environment-snapshot";
 
 /**
- * The status axes, each rendered from the backend's own value.
- *
- * Every badge carries an icon as well as a tone, because colour alone is not a status cue for
- * anyone who cannot distinguish the tones.
+ * The status axes, each rendered from the backend's own value through the shared `StatusBadge`
+ * (task 12.18) -- every badge carries an icon as well as a tone, because colour alone is not a
+ * status cue for anyone who cannot distinguish the tones.
  */
 
-type Tone = "success" | "warning" | "danger" | "muted";
+type Tone = "success" | "warning" | "danger" | "neutral";
 
 /** Icons paired with tones, so the meaning survives without colour. */
-const TONE_ICONS = {
+const TONE_ICONS: Record<Tone, typeof CheckCircle2> = {
   success: CheckCircle2,
   warning: AlertTriangle,
   danger: ShieldAlert,
-  muted: CircleHelp,
-} as const;
+  neutral: CircleHelp,
+};
 
 // The values below are the backend's own `as_str` output. Spelling one differently here does not
 // fail to compile -- it silently renders every value in the neutral tone forever.
@@ -26,25 +25,25 @@ function toneOfExecutable(value: string): Tone {
   if (value === "healthy") return "success";
   if (value === "broken" || value === "unsupported-architecture") return "danger";
   if (value === "timeout" || value === "permission-denied") return "warning";
-  return "muted";
+  return "neutral";
 }
 
 function toneOfAuthentication(value: string): Tone {
   if (value === "authenticated") return "success";
   if (value === "expired" || value === "required") return "warning";
-  return "muted";
+  return "neutral";
 }
 
 function toneOfCompatibility(value: string): Tone {
   if (value === "supported") return "success";
   if (value === "unsupported-version" || value === "unsupported-platform") return "danger";
-  return "muted";
+  return "neutral";
 }
 
 function toneOfUpdate(value: string): Tone {
   if (value === "up-to-date") return "success";
   if (value === "available") return "warning";
-  return "muted";
+  return "neutral";
 }
 
 export function CliStatusBadge({
@@ -57,12 +56,13 @@ export function CliStatusBadge({
   tone: Tone;
 }) {
   const { t } = useTranslation();
-  const Icon = TONE_ICONS[tone];
   return (
-    <Badge className="gap-1" tone={tone} title={t(labelKey)}>
-      <Icon aria-hidden="true" className="h-3 w-3" />
-      {t(value)}
-    </Badge>
+    <StatusBadge
+      description={t(labelKey)}
+      icon={TONE_ICONS[tone]}
+      label={t(value)}
+      tone={tone}
+    />
   );
 }
 
@@ -92,10 +92,12 @@ export function CliStatusBadges({ snapshot }: { snapshot: CliEnvironmentSnapshot
         value={`cli.update.${snapshot.update}`}
       />
       {snapshot.freshness === "stale" ? (
-        <Badge className="gap-1" tone="warning" title={t("cli.axis.freshness")}>
-          <Clock aria-hidden="true" className="h-3 w-3" />
-          {t("cli.freshness.stale")}
-        </Badge>
+        <StatusBadge
+          description={t("cli.axis.freshness")}
+          icon={Clock}
+          label={t("cli.freshness.stale")}
+          tone="warning"
+        />
       ) : null}
     </div>
   );

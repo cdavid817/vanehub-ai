@@ -1,4 +1,3 @@
-import { useTranslation } from "react-i18next";
 import type { CliEnvironmentSnapshot } from "../../../types/cli-environment-snapshot";
 import type { OperationTask } from "../../../types/operation";
 import { CliEnvironmentCard } from "./cli-environment-card";
@@ -6,8 +5,9 @@ import { CliEnvironmentCard } from "./cli-environment-card";
 /**
  * The card grid.
  *
- * A separate component so the page owns state and this owns layout, and so the empty case has one
- * place to live rather than being a conditional inside a map.
+ * A separate component so the page owns state and this owns layout. Emptiness (genuinely no tools,
+ * or a filter matching none) is the page's own shared `AsyncBoundary`'s job now (task 12.18) --
+ * this component only ever receives a non-empty list.
  */
 export function CliEnvironmentList({
   snapshots,
@@ -40,16 +40,6 @@ export function CliEnvironmentList({
   onOpenDetails: (agentId: string, trigger: HTMLElement) => void;
   onCancelOperation: (agentId: string) => void;
 }) {
-  const { t } = useTranslation();
-
-  if (snapshots.length === 0) {
-    return (
-      <p className="ucd-panel rounded-lg p-6 text-center text-sm text-muted-foreground">
-        {t("cli.list.empty")}
-      </p>
-    );
-  }
-
   return (
     <div className="grid gap-4 xl:grid-cols-2">
       {snapshots.map((snapshot) => (
