@@ -1,16 +1,20 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { i18n } from "../i18n";
+import { activateAppLanguage, i18n } from "../i18n";
 import { agentService } from "../services/runtime-agent-client";
 import {
   resetWebMissionControlRunsForTest,
   seedWebMissionControlRunsForTest,
   webAgentClient,
 } from "../services/web-agent-client";
+import { updateWebAgentRun } from "../services/web-agent-run-state";
 import type { MissionControlOverview, MissionControlRunDetail } from "../types/mission-control";
 import { MissionControl } from "./mission-control";
+
+const PAUSED_RUN_ID = "018f0f17-4d6a-7e20-b41d-66c5271a28d0";
+const RUNNING_RUN_ID = "018f0f17-4d6a-7e20-b41d-66c5271a296";
 
 // `sessionStorage.clear()`: mission-control-view-state.ts persists filters there (4.8), and
 // jsdom's storage is one shared global across every test in this file — without clearing it, a
@@ -127,5 +131,76 @@ describe("MissionControl", () => {
     // Longer than the 2s poll interval: proves the interval, not just this test's patience, stopped.
     await new Promise((resolve) => setTimeout(resolve, 2_500));
     expect(overview.mock.calls.length).toBe(callsAtUnmount);
+  });
+
+  // 16.14-16.15: use-mission-control-actions.ts's own per-run mutation registry, exercised through
+  // the full page rather than a hook-isolated renderHook -- matching use-work-board-actions.ts's
+  // own test coverage, which likewise only lives inside work-board.test.tsx.
+  it("disables only the acting run's own buttons while its action is pending, leaving an unrelated run's buttons enabled", async () => {
+    await activateAppLanguage("en");
+    let resolvePause: ((receipt: unknown) => void) | undefined;
+    vi.spyOn(agentService, "performMissionControlAction").mockImplementationOnce(
+      () => new Promise((resolve) => { resolvePause = resolve as (receipt: unknown) => void; }),
+    );
+
+    render(<MissionControl />);
+    const pausedCard = await screen.findByTestId(`mission-run-${PAUSED_RUN_ID}`);
+    const runningCard = await screen.findByTestId(`mission-run-${RUNNING_RUN_ID}`);
+    const resumeButton = within(pausedCard).getByRole("button", { name: "Resume" }) as HTMLButtonElement;
+    const otherCancelButton = within(runningCard).getByRole("button", { name: "Cancel" }) as HTMLButtonElement;
+
+    fireEvent.click(resumeButton);
+
+    await waitFor(() => expect(resumeButton.disabled).toBe(true));
+    expect(within(pausedCard).getByRole("status")).toBeTruthy();
+    // Per-run, not page-wide: the unrelated run's own action stays enabled throughout.
+    expect(otherCancelButton.disabled).toBe(false);
+
+    const receipt = await webAgentClient.getMissionControlRun(PAUSED_RUN_ID);
+    resolvePause?.({ run: { ...receipt.run, state: "running", version: receipt.run.version + 1, actions: ["open", "cancel"] }, operationId: null });
+
+    await waitFor(() => expect(within(pausedCard).queryByRole("status")).toBeNull());
+  });
+
+  it("does not reload the whole board after a single run's own successful action", async () => {
+    await activateAppLanguage("en");
+    const overview = vi.spyOn(agentService, "getMissionControlOverview");
+    render(<MissionControl />);
+    const pausedCard = await screen.findByTestId(`mission-run-${PAUSED_RUN_ID}`);
+    await waitFor(() => expect(overview).toHaveBeenCalledOnce());
+    const loadCallsAfterMount = overview.mock.calls.length;
+
+    // Resume keeps the run within the same (active) section throughout, so the same DOM node can
+    // be checked for its own updated content -- unlike cancel, which (correctly, per
+    // mission-control-run-precedence.ts's own documented "never fabricate a section move" rule)
+    // drops a run out of view once it turns terminal, until the next natural load().
+    fireEvent.click(within(pausedCard).getByRole("button", { name: "Resume" }));
+
+    await waitFor(() => expect(within(pausedCard).getByText("Running")).toBeTruthy());
+    expect(overview.mock.calls.length).toBe(loadCallsAfterMount);
+  });
+
+  it("detects a real version conflict from the Web backend, refreshes the affected run, and explains it on that run alone", async () => {
+    await activateAppLanguage("en");
+    render(<MissionControl />);
+    const pausedCard = await screen.findByTestId(`mission-run-${PAUSED_RUN_ID}`);
+    const runningCard = await screen.findByTestId(`mission-run-${RUNNING_RUN_ID}`);
+    await waitFor(() => expect(within(pausedCard).getByRole("button", { name: "Resume" })).toBeTruthy());
+
+    // Simulate the run being resumed elsewhere (another window, another operation) after this page
+    // already loaded it -- the rendered card still carries the pre-change version in its own
+    // closure, so acting on it below goes through the real Web backend's own conflict guard
+    // (web-mission-control-client.ts / updateWebAgentRun), not a mocked rejection. Resuming (rather
+    // than cancelling) keeps the run in the same "active" section throughout, so this test can
+    // check the one card's own content in place -- see the "no full reload" test above.
+    updateWebAgentRun(PAUSED_RUN_ID, 4, "running");
+
+    fireEvent.click(within(pausedCard).getByRole("button", { name: "Resume" }));
+
+    await waitFor(() => expect(within(pausedCard).getByText("This Run changed elsewhere. It has been refreshed to the latest state.")).toBeTruthy());
+    expect(within(pausedCard).getByText("Running")).toBeTruthy();
+    expect(within(pausedCard).queryByRole("button", { name: "Resume" })).toBeNull();
+    // Attributed to this one run -- an unrelated run's own card shows no such explanation.
+    expect(within(runningCard).queryByText(/changed elsewhere/)).toBeNull();
   });
 });

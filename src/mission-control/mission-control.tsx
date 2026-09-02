@@ -2,14 +2,18 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 import { agentService } from "../services/runtime-agent-client";
+import { MutationStatus } from "../ui/async/MutationStatus";
+import type { MutationState } from "../ui/async/mutation-state";
 import type { MissionControlAction, MissionControlFacet, MissionControlNavigationTarget, MissionControlOverview, MissionControlRunDetail, MissionControlRunSummary, MissionControlSort } from "../types/mission-control";
 import { MissionControlFacetPanel } from "./mission-control-facets";
+import { mergeMissionControlOverview } from "./mission-control-run-precedence";
 import {
   readMissionControlScrollTop,
   readMissionControlViewState,
   writeMissionControlScrollTop,
   writeMissionControlViewState,
 } from "./mission-control-view-state";
+import { useMissionControlActions } from "./use-mission-control-actions";
 
 const states = ["", "running", "waiting_approval", "waiting_user", "retrying", "stuck", "failed", "completed"] as const;
 const facets = ["overview", "timeline", "tools", "files", "review", "verification", "context", "usage", "logs"] as const;
@@ -43,7 +47,10 @@ export function MissionControl({
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setOverview(await agentService.getMissionControlOverview({ agentId: agentId || undefined, cursor, limit: 20, projectId: projectId || undefined, runner: runner || undefined, sort, states: status ? [status as MissionControlRunSummary["state"]] : undefined }));
+      const fresh = await agentService.getMissionControlOverview({ agentId: agentId || undefined, cursor, limit: 20, projectId: projectId || undefined, runner: runner || undefined, sort, states: status ? [status as MissionControlRunSummary["state"]] : undefined });
+      // 16.15: never let a slow poll response regress a run this page already knows to be newer
+      // (e.g. terminal after a just-applied action) -- see mission-control-run-precedence.ts.
+      setOverview((current) => mergeMissionControlOverview(current, fresh));
       setError(null);
     } catch { setError(t("missionControl.loadError")); } finally { setLoading(false); }
   }, [agentId, cursor, projectId, runner, sort, status, t]);
@@ -83,16 +90,10 @@ export function MissionControl({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- see comment above
   }, [Boolean(overview)]);
 
-  async function act(run: MissionControlRunSummary, action: MissionControlAction) {
-    if (action === "open" || action === "approval" || action === "review") {
-      if (run.navigation) onNavigate?.(run.navigation, run.runId);
-      return;
-    }
-    try {
-      const receipt = await agentService.performMissionControlAction({ runId: run.runId, version: run.version, action });
-      setSelected((current) => current ? { ...current, run: receipt.run } : current); await load();
-    } catch { setError(t("missionControl.actionError")); }
-  }
+  // 16.14-16.15: state-aware actions/target-local pending/conflict reconciliation, all in one
+  // place -- see the hook's own doc comment for why (registry choice, reconcile-only, conflict
+  // detection, terminal-state precedence).
+  const { act, mutations } = useMissionControlActions({ onNavigate, setOverview, setSelected });
 
   const counts = overview?.counts;
   return <div className="ucd-panel flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg" data-testid="mission-control">
@@ -113,28 +114,29 @@ export function MissionControl({
         onScroll={(event) => writeMissionControlScrollTop(event.currentTarget.scrollTop)}
         ref={listRef}
       >
-        <RunSection title={t("missionControl.attention")} runs={overview?.attention.items ?? []} onAct={act} onInspect={(run) => void inspect(run.runId)} urgent />
-        <RunSection title={t("missionControl.active")} runs={overview?.active.items ?? []} onAct={act} onInspect={(run) => void inspect(run.runId)} />
-        <RunSection title={t("missionControl.recent")} runs={overview?.recent.items ?? []} onAct={act} onInspect={(run) => void inspect(run.runId)} />
+        <RunSection mutations={mutations.registry} onAct={act} onDismissError={(run) => mutations.clear(run.runId)} onInspect={(run) => void inspect(run.runId)} runs={overview?.attention.items ?? []} title={t("missionControl.attention")} urgent />
+        <RunSection mutations={mutations.registry} onAct={act} onDismissError={(run) => mutations.clear(run.runId)} onInspect={(run) => void inspect(run.runId)} runs={overview?.active.items ?? []} title={t("missionControl.active")} />
+        <RunSection mutations={mutations.registry} onAct={act} onDismissError={(run) => mutations.clear(run.runId)} onInspect={(run) => void inspect(run.runId)} runs={overview?.recent.items ?? []} title={t("missionControl.recent")} />
         {overview && [overview.attention.nextCursor, overview.active.nextCursor, overview.recent.nextCursor].some(Boolean) ? <button className="rounded-md border border-input px-3 py-1.5 text-xs" onClick={() => setCursor(overview.attention.nextCursor ?? overview.active.nextCursor ?? overview.recent.nextCursor)} type="button">{t("missionControl.nextPage")}</button> : null}
         {!loading && overview && overview.attention.items.length + overview.active.items.length + overview.recent.items.length === 0 ? <p className="p-8 text-center text-sm text-muted-foreground">{t("missionControl.empty")}</p> : null}
       </div>
       <aside className="min-h-0 overflow-y-auto border-t border-border p-3 min-[900px]:border-l min-[900px]:border-t-0">
         <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t("missionControl.detail")}</h2>
-        {selected ? <><RunCard run={selected.run} onAct={act} onInspect={(run) => void inspect(run.runId)} /><div className="mt-3 flex gap-1 overflow-x-auto" role="tablist">{facets.map((facet) => { const availability = selected.facets.find((item) => item.facet === facet)?.state ?? "unavailable"; return <button aria-disabled={availability !== "available"} aria-selected={activeFacet === facet} className="shrink-0 rounded-md border border-input px-2 py-1 text-xs disabled:opacity-50" disabled={availability !== "available"} key={facet} onClick={() => setActiveFacet(facet)} role="tab" type="button">{t(`missionControl.facet.${facet}`)}{availability === "available" ? null : ` · ${t(`missionControl.availability.${availability}`)}`}</button>; })}</div><MissionControlFacetPanel detail={selected} facet={activeFacet} /></> : <p className="text-sm text-muted-foreground">{t("missionControl.selectRun")}</p>}
+        {selected ? <><RunCard mutation={mutations.get(selected.run.runId)} onAct={act} onDismissError={() => mutations.clear(selected.run.runId)} onInspect={(run) => void inspect(run.runId)} run={selected.run} /><div className="mt-3 flex gap-1 overflow-x-auto" role="tablist">{facets.map((facet) => { const availability = selected.facets.find((item) => item.facet === facet)?.state ?? "unavailable"; return <button aria-disabled={availability !== "available"} aria-selected={activeFacet === facet} className="shrink-0 rounded-md border border-input px-2 py-1 text-xs disabled:opacity-50" disabled={availability !== "available"} key={facet} onClick={() => setActiveFacet(facet)} role="tab" type="button">{t(`missionControl.facet.${facet}`)}{availability === "available" ? null : ` · ${t(`missionControl.availability.${availability}`)}`}</button>; })}</div><MissionControlFacetPanel detail={selected} facet={activeFacet} /></> : <p className="text-sm text-muted-foreground">{t("missionControl.selectRun")}</p>}
       </aside>
     </div>
   </div>;
 }
 
-function RunSection({ onAct, onInspect, runs, title, urgent = false }: { onAct: (run: MissionControlRunSummary, action: MissionControlAction) => void; onInspect: (run: MissionControlRunSummary) => void; runs: MissionControlRunSummary[]; title: string; urgent?: boolean }) {
+function RunSection({ mutations, onAct, onDismissError, onInspect, runs, title, urgent = false }: { mutations: ReadonlyMap<string, MutationState>; onAct: (run: MissionControlRunSummary, action: MissionControlAction) => void; onDismissError: (run: MissionControlRunSummary) => void; onInspect: (run: MissionControlRunSummary) => void; runs: MissionControlRunSummary[]; title: string; urgent?: boolean }) {
   if (!runs.length) return null;
-  return <section className="mb-4"><h2 className="mb-2 flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{urgent ? <AlertTriangle aria-hidden="true" className="h-3.5 w-3.5 text-warning" /> : null}{title}</h2><div className="grid gap-2">{runs.map((run) => <RunCard key={run.runId} onAct={onAct} onInspect={onInspect} run={run} />)}</div></section>;
+  return <section className="mb-4"><h2 className="mb-2 flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{urgent ? <AlertTriangle aria-hidden="true" className="h-3.5 w-3.5 text-warning" /> : null}{title}</h2><div className="grid gap-2">{runs.map((run) => <RunCard key={run.runId} mutation={mutations.get(run.runId)} onAct={onAct} onDismissError={onDismissError} onInspect={onInspect} run={run} />)}</div></section>;
 }
 
-function RunCard({ onAct, onInspect, run }: { onAct: (run: MissionControlRunSummary, action: MissionControlAction) => void; onInspect: (run: MissionControlRunSummary) => void; run: MissionControlRunSummary }) {
+function RunCard({ mutation, onAct, onDismissError, onInspect, run }: { mutation?: MutationState; onAct: (run: MissionControlRunSummary, action: MissionControlAction) => void; onDismissError: (run: MissionControlRunSummary) => void; onInspect: (run: MissionControlRunSummary) => void; run: MissionControlRunSummary }) {
   const { t } = useTranslation();
+  const pending = mutation?.pending ?? false;
   const ended = run.endedAt ?? run.updatedAt;
   const elapsed = Math.max(0, Date.parse(ended) - Date.parse(run.createdAt));
-  return <article className="rounded-md border border-border bg-card p-3" data-testid={`mission-run-${run.runId}`}><button className="w-full text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring" onClick={() => void onInspect(run)} type="button"><div className="flex flex-wrap items-center gap-2"><span className="min-w-0 flex-1 truncate text-sm font-medium">{run.title}</span>{run.runner ? <span className="inline-flex max-w-44 items-center gap-1 rounded border border-primary/30 bg-primary/5 px-1.5 py-0.5 text-[11px] text-primary" data-runner={run.runner.kind}><span>{t(`runner.kind.${run.runner.kind}`)}</span>{run.runner.hostLabel ? <span className="truncate text-muted-foreground">· {run.runner.hostLabel}</span> : null}</span> : null}<span className="rounded border border-border px-1.5 py-0.5 text-[11px]">{t(`missionControl.state.${run.state}`)}</span></div><p className="mt-1 text-xs text-muted-foreground">{run.agentId ?? run.ownerType} · {t("missionControl.elapsed", { seconds: Math.round(elapsed / 1000) })} · {t(`missionControl.verification.${run.verification}`)}</p>{run.reasonCode ? <p className="mt-1 text-xs text-warning">{t(`runner.reason.${run.reasonCode}`, { defaultValue: run.reasonCode })}</p> : null}</button><div className="mt-2 flex flex-wrap gap-1">{run.actions.map((action) => <button className="rounded-md border border-input px-2 py-1 text-xs hover:bg-muted focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring" data-action={action} key={action} onClick={() => void onAct(run, action)} type="button">{t(`missionControl.action.${action}`)}</button>)}</div></article>;
+  return <article className="rounded-md border border-border bg-card p-3" data-testid={`mission-run-${run.runId}`}><button className="w-full text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring" onClick={() => void onInspect(run)} type="button"><div className="flex flex-wrap items-center gap-2"><span className="min-w-0 flex-1 truncate text-sm font-medium">{run.title}</span>{run.runner ? <span className="inline-flex max-w-44 items-center gap-1 rounded border border-primary/30 bg-primary/5 px-1.5 py-0.5 text-[11px] text-primary" data-runner={run.runner.kind}><span>{t(`runner.kind.${run.runner.kind}`)}</span>{run.runner.hostLabel ? <span className="truncate text-muted-foreground">· {run.runner.hostLabel}</span> : null}</span> : null}<span className="rounded border border-border px-1.5 py-0.5 text-[11px]">{t(`missionControl.state.${run.state}`)}</span></div><p className="mt-1 text-xs text-muted-foreground">{run.agentId ?? run.ownerType} · {t("missionControl.elapsed", { seconds: Math.round(elapsed / 1000) })} · {t(`missionControl.verification.${run.verification}`)}</p>{run.reasonCode ? <p className="mt-1 text-xs text-warning">{t(`runner.reason.${run.reasonCode}`, { defaultValue: run.reasonCode })}</p> : null}</button><div className="mt-2 flex flex-wrap items-center gap-2"><div className="flex flex-wrap gap-1">{run.actions.map((action) => <button className="rounded-md border border-input px-2 py-1 text-xs hover:bg-muted focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50" data-action={action} disabled={pending} key={action} onClick={() => void onAct(run, action)} type="button">{t(`missionControl.action.${action}`)}</button>)}</div><MutationStatus onDismiss={() => onDismissError(run)} state={mutation} /></div></article>;
 }
