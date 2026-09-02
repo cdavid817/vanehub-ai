@@ -1,53 +1,30 @@
 import { useEffect, useMemo, useState } from "react";
-import { Play, ShieldCheck, Square } from "lucide-react";
+import { ShieldCheck, Square } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { agentService } from "../services/runtime-agent-client";
-import type { AgentRegistryEntry } from "../types/agent";
-import type { EvaluationArena, EvaluationAttempt, EvaluationTask } from "../types/evaluation";
+import type { EvaluationArena, EvaluationAttempt } from "../types/evaluation";
 import { EvidenceLink } from "../ui/evidence/EvidenceLink";
 import { EvaluationResultsTable } from "./evaluation-results-table";
-
-const TERMINAL = new Set(["succeeded", "task_failed", "agent_failed", "timed_out", "stuck", "cancelled", "benchmark_error"]);
+import { EvaluationRunControls } from "./evaluation-run-controls";
+import { TERMINAL_EVALUATION_OUTCOMES, useEvaluationQuery } from "./use-evaluation-query";
 
 export function EvaluationCenter() {
   const { t } = useTranslation();
-  const [agents, setAgents] = useState<AgentRegistryEntry[]>([]);
-  const [tasks, setTasks] = useState<EvaluationTask[]>([]);
-  const [arenas, setArenas] = useState<EvaluationArena[]>([]);
+  const { agents, tasks, arenas, setArenas, error, setError } = useEvaluationQuery();
   const [taskId, setTaskId] = useState("");
   const [agentIds, setAgentIds] = useState<string[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
   const [running, setRunning] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Seeds the task/Agent selection from whatever useEvaluationQuery last fetched. Runs once at
+  // mount (against the hook's empty initial state -- a no-op) and again whenever a real fetch
+  // lands, reproducing the single combined effect this used to be before the fetch itself moved
+  // into the hook: every fetch (including a re-fetch) still resets the selection to its default.
+  useEffect(() => { setTaskId(tasks[0]?.id ?? ""); }, [tasks]);
   useEffect(() => {
-    async function loadInitial() {
-      try {
-        const [registry, catalog, history] = await Promise.all([
-          agentService.listAgents(), agentService.listEvaluationTasks(), agentService.listEvaluationArenas(),
-        ]);
-        const available = registry.filter((agent) => agent.availabilityState === "available");
-        setAgents(registry); setAgentIds((available.length > 0 ? available : registry).map((agent) => agent.id));
-        setTasks(catalog); setTaskId(catalog[0]?.id ?? ""); setArenas(history);
-      } catch { setError(t("evaluation.loadError")); }
-    }
-    void loadInitial();
-  }, [t]);
-  useEffect(() => {
-    if (!arenas.some((arena) => arena.attempts.some((attempt) => !TERMINAL.has(attempt.outcome)))) return;
-    // design.md Decision 6: polling adjusts for document visibility, matching mission-control.tsx's
-    // reconcile guard — a backgrounded tab skips the fetch, and regaining focus/visibility catches
-    // up immediately rather than waiting out the rest of the interval.
-    const reconcile = () => { if (document.visibilityState === "visible") void agentService.listEvaluationArenas().then(setArenas); };
-    const timer = window.setInterval(reconcile, 1_000);
-    window.addEventListener("focus", reconcile);
-    document.addEventListener("visibilitychange", reconcile);
-    return () => {
-      window.clearInterval(timer);
-      window.removeEventListener("focus", reconcile);
-      document.removeEventListener("visibilitychange", reconcile);
-    };
-  }, [arenas]);
+    const available = agents.filter((agent) => agent.availabilityState === "available");
+    setAgentIds((available.length > 0 ? available : agents).map((agent) => agent.id));
+  }, [agents]);
   const activeTask = useMemo(() => tasks.find((task) => task.id === taskId), [taskId, tasks]);
   // Derived rather than held: an attempt captured at click time is a snapshot of a run still in
   // flight, and the polling below replaces the arena it came from without ever touching it. The
@@ -59,6 +36,9 @@ export function EvaluationCenter() {
   );
   const visible = useMemo(() => arenas.flatMap((arena) => arena.attempts.map((attempt) => ({ arena, attempt })))
     .filter(({ attempt }) => `${attempt.agent.agentId} ${attempt.outcome}`.toLowerCase().includes(filter.toLowerCase())), [arenas, filter]);
+  function toggleAgent(agentId: string) {
+    setAgentIds((items) => items.includes(agentId) ? items.filter((item) => item !== agentId) : [...items, agentId]);
+  }
   async function start() {
     if (!activeTask || agentIds.length === 0) return;
     setRunning(true); setError(null);
@@ -81,9 +61,17 @@ export function EvaluationCenter() {
   return <div className="ucd-panel flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg" data-testid="evaluation-center">
     <header className="flex flex-wrap items-center gap-3 border-b border-border p-3">
       <div className="min-w-48 flex-1"><h1 className="text-sm font-semibold">{t("evaluation.title")}</h1><p className="text-xs text-muted-foreground">{t("evaluation.description")}</p></div>
-      <select aria-label={t("evaluation.task")} className="h-9 rounded-md border border-input bg-background px-2 text-sm" data-testid="evaluation-task" onChange={(event) => setTaskId(event.target.value)} value={taskId}>{tasks.map((task) => <option key={task.id} value={task.id}>{task.id} v{task.version}</option>)}</select>
-      <fieldset className="flex min-h-9 flex-wrap items-center gap-2 rounded-md border border-input px-2"><legend className="sr-only">{t("evaluation.agents")}</legend>{agents.map((agent) => <label className="flex items-center gap-1 text-xs" key={agent.id}><input checked={agentIds.includes(agent.id)} data-testid={`evaluation-agent-${agent.id}`} onChange={() => setAgentIds((items) => items.includes(agent.id) ? items.filter((item) => item !== agent.id) : [...items, agent.id])} type="checkbox" />{agent.displayName}</label>)}</fieldset>
-      <button className="ucd-button-primary flex h-9 items-center gap-2 rounded-md px-3 text-sm" data-testid="evaluation-run" disabled={!activeTask || running || agentIds.length === 0} onClick={() => void start()} type="button"><Play aria-hidden="true" className="h-4 w-4" />{running ? t("evaluation.running") : t("evaluation.run")}</button>
+      <EvaluationRunControls
+        agentIds={agentIds}
+        agents={agents}
+        disabled={!activeTask || running || agentIds.length === 0}
+        onRun={() => void start()}
+        onTaskIdChange={setTaskId}
+        onToggleAgent={toggleAgent}
+        running={running}
+        taskId={taskId}
+        tasks={tasks}
+      />
     </header>
     {error ? <p className="border-b border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive" role="alert">{error}</p> : null}
     <div className="grid min-h-0 flex-1 grid-cols-1 overflow-auto lg:grid-cols-[minmax(420px,1.3fr)_minmax(280px,0.7fr)]">
@@ -94,7 +82,7 @@ export function EvaluationCenter() {
         onSelectAttempt={setSelectedId}
         rows={visible}
       />
-      <aside className="min-w-0 p-3" data-selected-attempt={selected?.id ?? ""} data-selected-outcome={selected?.outcome ?? ""} data-testid="evaluation-detail"><div className="mb-2 flex items-center justify-between"><h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t("evaluation.detail")}</h2>{selected && !TERMINAL.has(selected.outcome) ? <button className="flex items-center gap-1 rounded-md border border-input px-2 py-1 text-xs" data-testid="evaluation-cancel" onClick={() => void cancel()} type="button"><Square className="h-3 w-3" />{t("evaluation.cancel")}</button> : null}</div>
+      <aside className="min-w-0 p-3" data-selected-attempt={selected?.id ?? ""} data-selected-outcome={selected?.outcome ?? ""} data-testid="evaluation-detail"><div className="mb-2 flex items-center justify-between"><h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t("evaluation.detail")}</h2>{selected && !TERMINAL_EVALUATION_OUTCOMES.has(selected.outcome) ? <button className="flex items-center gap-1 rounded-md border border-input px-2 py-1 text-xs" data-testid="evaluation-cancel" onClick={() => void cancel()} type="button"><Square className="h-3 w-3" />{t("evaluation.cancel")}</button> : null}</div>
         {selected ? <div className="space-y-3"><div className="rounded-md border border-border bg-muted/30 p-3"><p className="font-mono text-xs">{selected.agent.providerId} / {selected.agent.modelId ?? t("evaluation.unavailable")}</p><p className="mt-1 text-xs text-muted-foreground">{selected.agent.configurationFingerprint}</p></div>
           <Evidence attempt={selected} title={t("evaluation.verification")} />
           <div>
