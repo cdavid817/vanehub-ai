@@ -1,4 +1,4 @@
-import { Archive, ArrowDown, ArrowUp, CalendarDays, FolderOpen, Pencil, RotateCcw, Trash2 } from "lucide-react";
+import { Archive, CalendarDays, FolderOpen, Pencil, RotateCcw, Trash2 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Badge } from "../components/ui/badge";
@@ -9,7 +9,7 @@ import { cn } from "../lib/utils";
 import { MutationStatus } from "../ui/async/MutationStatus";
 import type { MutationState } from "../ui/async/mutation-state";
 import type { WorkItem, WorkItemStage } from "../types/work-board";
-import { workItemStages } from "../types/work-board";
+import { WorkItemStageMenu } from "./work-item-stage-menu";
 
 const priorityAccent: Record<WorkItem["priority"], string> = {
   urgent: "bg-[hsl(var(--danger))]",
@@ -42,7 +42,6 @@ export function WorkBoardCard({ item, mutation, onArchive, onDelete, onDismissEr
   onRestore: () => void;
 }) {
   const { i18n, t } = useTranslation();
-  const stageIndex = workItemStages.indexOf(item.stage);
   const pending = mutation?.pending ?? false;
   // Stored paths keep the Windows extended-length prefix; every display surface strips it.
   const projectPath = item.projectPath ? normalizeDisplayPath(item.projectPath) : null;
@@ -88,9 +87,7 @@ export function WorkBoardCard({ item, mutation, onArchive, onDelete, onDismissEr
       )}
       <div className="flex flex-wrap items-center gap-1 border-t border-border pt-2">
         {!item.archived ? <>
-          <Button aria-label={t("todoBoard.movePrevious")} disabled={pending || stageIndex === 0} onClick={() => onMove(workItemStages[stageIndex - 1])} size="icon" type="button" variant="ghost"><ArrowUp aria-hidden="true" /></Button>
-          <select aria-label={t("todoBoard.stage")} className="ucd-input min-w-0 flex-1 rounded px-2 py-1 text-xs" disabled={pending} onChange={(event) => onMove(event.target.value as WorkItemStage)} value={item.stage}>{workItemStages.map((stage) => <option key={stage} value={stage}>{t(`todoBoard.stage.${stage}`)}</option>)}</select>
-          <Button aria-label={t("todoBoard.moveNext")} disabled={pending || stageIndex === workItemStages.length - 1} onClick={() => onMove(workItemStages[stageIndex + 1])} size="icon" type="button" variant="ghost"><ArrowDown aria-hidden="true" /></Button>
+          <WorkItemStageMenu disabled={pending} onMove={onMove} stage={item.stage} />
           <Button aria-label={t("todoBoard.edit")} disabled={pending} onClick={onEdit} size="icon" type="button" variant="ghost"><Pencil aria-hidden="true" /></Button>
           <Button aria-label={t("todoBoard.archive")} disabled={pending} onClick={onArchive} size="icon" type="button" variant="ghost"><Archive aria-hidden="true" /></Button>
         </> : <><Button disabled={pending} onClick={onRestore} size="sm" type="button" variant="outline"><RotateCcw aria-hidden="true" />{t("todoBoard.restore")}</Button><Button disabled={pending} onClick={onDelete} size="sm" type="button" variant="outline"><Trash2 aria-hidden="true" />{t("todoBoard.delete")}</Button></>}

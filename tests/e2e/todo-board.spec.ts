@@ -30,8 +30,9 @@ test.describe("Todo Board", () => {
     card = page.getByTestId(/work-item-web-/).filter({ hasText: "发布统一任务看板" });
     await expect(card).toBeVisible();
 
-    await card.getByRole("button", { name: "移至下一阶段" }).click();
-    await expect(card.getByLabel("工作阶段")).toHaveValue("planned");
+    await card.getByRole("button", { name: "收件箱" }).click();
+    await card.getByRole("option", { name: "已计划" }).click();
+    await expect(card.getByRole("button", { name: "已计划" })).toBeVisible();
     await card.getByRole("button", { name: "归档工作项" }).click();
     await expect(card).toHaveCount(0);
 

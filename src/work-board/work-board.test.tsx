@@ -72,6 +72,10 @@ beforeEach(() => {
   });
 });
 
+// The header's own stage filter <select> renders an <option> per stage too, so an unscoped
+// role="option" query collides with it -- scope to the open Move-to listbox by its aria-label.
+const stageOption = (name: string) => within(screen.getByRole("listbox", { name: "移至阶段" })).getByRole("option", { name });
+
 describe("WorkBoard", () => {
   it("keeps multi-source work on one accessible card and supports filtering, movement, and archive", async () => {
     render(<WorkBoard />);
@@ -80,7 +84,8 @@ describe("WorkBoard", () => {
 
     fireEvent.change(screen.getByLabelText("按来源筛选"), { target: { value: "scheduled_task" } });
     expect(screen.getByTestId("work-item-work-1")).toBeTruthy();
-    fireEvent.change(screen.getByLabelText("工作阶段"), { target: { value: "review" } });
+    fireEvent.click(screen.getByRole("button", { name: "收件箱" }));
+    fireEvent.click(stageOption("待审核"));
     await waitFor(() => expect(mocks.move).toHaveBeenCalledWith({ workItemId: "work-1", stage: "review" }));
 
     fireEvent.click(screen.getByRole("button", { name: "归档工作项" }));
@@ -131,15 +136,19 @@ describe("WorkBoard", () => {
     // (matching what a real, server-confirmed move already does), so a stale element reference
     // would silently stop reflecting updates once it is detached.
     const cardOne = () => screen.getByTestId("work-item-work-1");
-    const cardOneStage = () => within(cardOne()).getByLabelText("工作阶段") as HTMLSelectElement;
     const cardOneEdit = () => within(cardOne()).getByRole("button", { name: "编辑工作项" }) as HTMLButtonElement;
+    // WorkItemStageMenu's trigger has no separate aria-label -- its accessible name IS the
+    // currently displayed stage -- so finding it by the stage name being asserted doubles as proof
+    // the trigger already reflects that stage.
+    const cardOneStageTrigger = (name: string) => within(cardOne()).getByRole("button", { name });
 
-    fireEvent.change(cardOneStage(), { target: { value: "review" } });
+    fireEvent.click(cardOneStageTrigger("收件箱"));
+    fireEvent.click(stageOption("待审核"));
 
     // Optimistic: this card's own pending state is applied -- and with it, the new stage -- before
     // the request settles.
     await waitFor(() => expect(cardOneEdit().disabled).toBe(true));
-    expect(cardOneStage().value).toBe("review");
+    expect(cardOneStageTrigger("待审核")).toBeTruthy();
     // Per-card, not page-wide: an unrelated card's own actions stay enabled throughout.
     expect(cardTwoEdit().disabled).toBe(false);
 
@@ -148,7 +157,7 @@ describe("WorkBoard", () => {
     // Rollback: once the rejection lands, the card reverts to its pre-mutation stage and shows
     // its own dismissible error -- not a page-wide banner.
     await waitFor(() => expect(cardOneEdit().disabled).toBe(false));
-    expect(cardOneStage().value).toBe("inbox");
+    expect(cardOneStageTrigger("收件箱")).toBeTruthy();
     expect(within(cardOne()).getByRole("alert").textContent).toContain("移动失败");
 
     fireEvent.click(within(cardOne()).getByRole("button", { name: "关闭" }));
