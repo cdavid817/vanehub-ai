@@ -1,83 +1,98 @@
 import { Edit3, PlayCircle, Power, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Badge } from "../../../components/ui/badge";
-import { Button } from "../../../components/ui/button";
+import { ActionMenu, type ActionMenuItem } from "../../../ui/actions/ActionMenu";
+import { MutationStatus } from "../../../ui/async/MutationStatus";
+import type { MutationState } from "../../../ui/async/mutation-state";
+import { StatusBadge } from "../../../ui/status/StatusBadge";
 import type { McpServerConfig, McpServerStatus } from "../../../types/mcp";
-import { mcpTransportTranslationKey } from "./mcp-presentation";
+import { mcpConnectionStatusKey, mcpConnectionStatusTone, mcpTransportTranslationKey } from "./mcp-presentation";
 import { McpTestResultPanel } from "./mcp-test-result";
 
 export function McpServerCard({
-  server,
-  status,
-  testing,
-  onEdit,
+  deleteState,
   onDelete,
+  onEdit,
   onTest,
   onToggle,
+  server,
+  status,
+  testState,
+  toggleState,
 }: {
-  server: McpServerConfig;
-  status?: McpServerStatus;
-  testing: boolean;
-  onEdit: (server: McpServerConfig) => void;
+  deleteState: MutationState | undefined;
   onDelete: (server: McpServerConfig) => void;
+  onEdit: (server: McpServerConfig) => void;
   onTest: (server: McpServerConfig) => void;
   onToggle: (server: McpServerConfig) => void;
+  server: McpServerConfig;
+  status?: McpServerStatus;
+  testState: MutationState | undefined;
+  toggleState: MutationState | undefined;
 }) {
   const { t } = useTranslation();
   const endpoint = server.transportType === "stdio" ? [server.command, ...(server.args ?? [])].filter(Boolean).join(" ") : server.url;
-  const statusKey = status?.connectionStatus === "disabled"
-    ? "mcp.status.disabled"
-    : status?.connectionStatus === "connected"
-      ? "mcp.status.connected"
-      : status?.connectionStatus === "error"
-        ? "mcp.status.error"
-        : "mcp.status.notTested";
+
+  // Task 12.18: the page previously rendered a standalone toggle button plus three more
+  // (Test/Edit/Delete) -- collapsed into one ActionMenu per card, matching Extensions' own
+  // enable/disable-inside-the-menu precedent for this same kind of active/inactive action.
+  const items: ActionMenuItem[] = [
+    {
+      disabled: toggleState?.pending,
+      icon: Power,
+      id: "toggle",
+      label: t(server.active ? "mcp.toggle.disableNamed" : "mcp.toggle.enableNamed", { name: server.name }),
+      onSelect: () => onToggle(server),
+    },
+    {
+      disabled: testState?.pending,
+      icon: PlayCircle,
+      id: "test",
+      label: testState?.pending ? t("mcp.action.testing") : t("mcp.action.test"),
+      onSelect: () => onTest(server),
+    },
+    {
+      icon: Edit3,
+      id: "edit",
+      label: t("mcp.action.edit"),
+      onSelect: () => onEdit(server),
+    },
+    {
+      confirmation: { title: t("mcp.confirm.delete", { name: server.name }) },
+      disabled: deleteState?.pending,
+      icon: Trash2,
+      id: "delete",
+      label: t("mcp.action.delete"),
+      onSelect: () => onDelete(server),
+      tone: "destructive",
+    },
+  ];
+
   return (
-    <section className="ucd-panel rounded-lg p-4">
-      <div className="mb-3 flex items-start justify-between gap-3">
+    <article className="ucd-panel ucd-interactive grid gap-3 rounded-lg p-4">
+      <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span className={`h-2.5 w-2.5 rounded-full ${server.active ? "bg-[#22c55e]" : "bg-[#94a3b8]"}`} />
-            <h3 className="truncate text-sm font-semibold">{server.name}</h3>
-          </div>
+          <h3 className="truncate text-sm font-semibold">{server.name}</h3>
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
             <Badge tone="muted">{t(mcpTransportTranslationKey(server.transportType))}</Badge>
             <Badge tone={server.scope === "project" ? "warning" : "muted"}>{t(`mcp.scope.${server.scope}`)}</Badge>
-            <span>{t(statusKey)}</span>
           </div>
         </div>
-        <button
-          aria-label={t(server.active ? "mcp.toggle.disableNamed" : "mcp.toggle.enableNamed", { name: server.name })}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border hover:bg-muted"
-          onClick={() => onToggle(server)}
-          title={t(server.active ? "mcp.toggle.disableNamed" : "mcp.toggle.enableNamed", { name: server.name })}
-          type="button"
-        >
-          <Power className="h-4 w-4" aria-hidden="true" />
-        </button>
+        <div className="flex shrink-0 items-center gap-1">
+          <StatusBadge label={t(mcpConnectionStatusKey(status?.connectionStatus))} tone={mcpConnectionStatusTone(status?.connectionStatus)} />
+          <ActionMenu items={items} triggerLabel={t("mcp.rowActions", { name: server.name })} />
+        </div>
       </div>
 
-      {server.description ? <p className="mb-3 text-xs text-muted-foreground">{server.description}</p> : null}
-      <div className="mb-3 min-h-8 rounded border border-border bg-muted p-2 text-[11px] text-muted-foreground">
+      {server.description ? <p className="text-xs text-muted-foreground">{server.description}</p> : null}
+      <div className="min-h-8 rounded border border-border bg-muted p-2 text-[11px] text-muted-foreground">
         <span className="break-all">{endpoint || t("mcp.connection.unconfigured")}</span>
       </div>
 
       <McpTestResultPanel status={status} />
-
-      <div className="mt-3 flex flex-wrap justify-end gap-2">
-        <Button variant="outline" onClick={() => onTest(server)} disabled={testing}>
-          <PlayCircle className="h-4 w-4" aria-hidden="true" />
-          {testing ? t("mcp.action.testing") : t("mcp.action.test")}
-        </Button>
-        <Button variant="outline" onClick={() => onEdit(server)}>
-          <Edit3 className="h-4 w-4" aria-hidden="true" />
-          {t("mcp.action.edit")}
-        </Button>
-        <Button variant="destructive" onClick={() => onDelete(server)}>
-          <Trash2 className="h-4 w-4" aria-hidden="true" />
-          {t("mcp.action.delete")}
-        </Button>
-      </div>
-    </section>
+      <MutationStatus state={toggleState} />
+      <MutationStatus state={testState} />
+      <MutationStatus state={deleteState} />
+    </article>
   );
 }

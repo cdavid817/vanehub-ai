@@ -2,50 +2,36 @@ import { Boxes, Cable, Plus, RefreshCw, Upload, Wrench } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useConfirmation } from "../../components/ui/use-confirmation";
 import { Button } from "../../components/ui/button";
 import { mcpService } from "../../services/runtime-mcp-client";
-import { operationService } from "../../services/runtime-operation-client";
-import type { McpScope, McpServerConfig, McpServerStatus, McpTestResult } from "../../types/mcp";
-import type { OperationTask } from "../../types/operation";
+import { AsyncBoundary } from "../../ui/async/AsyncBoundary";
+import type { AsyncViewState } from "../../ui/async/async-view-state";
+import type { MutationState } from "../../ui/async/mutation-state";
+import { PageHeader } from "../../ui/page-header/PageHeader";
+import type { McpScope, McpServerConfig } from "../../types/mcp";
 import type { SettingsPageStatus } from "../settings-page-types";
-import { PageHeader, SectionPanel, StatCard } from "./page-parts";
+import { StatCard } from "./page-parts";
 import { McpImportExportModal } from "./mcp/mcp-import-export";
-import { formatMcpFailure, mcpErrorFromUnknown } from "./mcp/mcp-presentation";
+import { formatMcpFailure, mcpErrorFromUnknown, mcpMutationErrorMessage } from "./mcp/mcp-presentation";
+import { McpScopeSection } from "./mcp/mcp-scope-section";
 import { McpServerCard } from "./mcp/mcp-server-card";
 import { McpServerForm } from "./mcp/mcp-server-form";
+import { loadMcpServersAndStatuses, type McpServersAndStatuses, mcpServersQueryKey, refreshMcpServers } from "./mcp/mcp-server-query";
+import { useMcpTestOperation } from "./mcp/use-mcp-test-operation";
 
-type StatusMap = Record<string, McpServerStatus>;
-
-const mcpServersQueryKey = ["mcp", "servers"] as const;
 const emptyServers: McpServerConfig[] = [];
-
-async function loadMcpServersAndStatuses() {
-  const servers = await mcpService.listServers();
-  const entries = await Promise.all(
-    servers.map(async (server) => [server.name, await mcpService.getServerStatus(server.name)] as const),
-  );
-
-  return {
-    servers,
-    statuses: Object.fromEntries(entries) as StatusMap,
-  };
-}
 
 export function McpPage({ onStatusChange, searchTerm }: { onStatusChange?: (status: SettingsPageStatus | null) => void; searchTerm: string }) {
   const { t } = useTranslation();
-  const { confirm, confirmationDialog } = useConfirmation();
   const queryClient = useQueryClient();
   const [editingServer, setEditingServer] = useState<McpServerConfig | null | undefined>();
   const [showImportExport, setShowImportExport] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [activeTestOperationId, setActiveTestOperationId] = useState<string | null>(null);
-  const [handledTestOperationId, setHandledTestOperationId] = useState<string | null>(null);
 
   const serversQuery = useQuery({
-    queryKey: mcpServersQueryKey,
     queryFn: loadMcpServersAndStatuses,
+    queryKey: mcpServersQueryKey,
   });
 
   const saveServerMutation = useMutation({
@@ -59,80 +45,38 @@ export function McpPage({ onStatusChange, searchTerm }: { onStatusChange?: (stat
     onSuccess: async () => {
       setEditingServer(undefined);
       setNotice(t("mcp.notice.saved"));
-      await queryClient.invalidateQueries({ queryKey: mcpServersQueryKey });
+      await refreshMcpServers(queryClient);
     },
   });
 
   const toggleServerMutation = useMutation({
     mutationFn: (server: McpServerConfig) => mcpService.toggleServer(server.name, !server.active),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: mcpServersQueryKey }),
+    onSuccess: () => refreshMcpServers(queryClient),
   });
 
   const deleteServerMutation = useMutation({
     mutationFn: (server: McpServerConfig) => mcpService.removeServer(server.name),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: mcpServersQueryKey }),
-  });
-
-  const testServerMutation = useMutation({
-    mutationFn: async (server: McpServerConfig) => ({
-      server,
-      operation: await mcpService.testConnection(server.name),
-    }),
-    onSuccess: ({ operation }) => {
-      setActiveTestOperationId(operation.id);
-      setHandledTestOperationId(null);
-    },
-  });
-
-  const activeTestOperationQuery = useQuery({
-    queryKey: ["operation", activeTestOperationId],
-    queryFn: () => operationService.getOperationStatus(activeTestOperationId ?? ""),
-    enabled: activeTestOperationId !== null,
-    refetchInterval: (query) => (query.state.data?.status === "queued" || query.state.data?.status === "running" ? 600 : false),
+    onSuccess: () => refreshMcpServers(queryClient),
   });
 
   const importServersMutation = useMutation({
     mutationFn: ({ input, scope }: { input: string; scope: McpScope }) => mcpService.importServers(input, scope),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: mcpServersQueryKey }),
+    onSuccess: () => refreshMcpServers(queryClient),
   });
+
+  const { stateFor: testStateFor, testServer } = useMcpTestOperation({ onTestPassed: setNotice, t });
 
   const servers = serversQuery.data?.servers ?? emptyServers;
   const statuses = serversQuery.data?.statuses ?? {};
-  const activeTestStatus = activeTestOperationQuery.data?.status;
-  const testingName = testServerMutation.isPending
-    ? testServerMutation.variables?.name ?? null
-    : activeTestStatus === "queued" || activeTestStatus === "running"
-      ? activeTestOperationQuery.data?.relatedEntityId ?? null
-      : null;
-  const queryFailure = mcpErrorFromUnknown(serversQuery.error);
-  const queryError = serversQuery.error
-    ? formatMcpFailure(t, queryFailure.errorCode, queryFailure.message)
-    : null;
-  const visibleError = error ?? queryError;
 
-  // Task 12.16: the same visibleError banner rendered below, reported for the nav entry.
+  // Task 12.16: the same error banner rendered below (save failures), plus the list query's own
+  // failure now surfaced distinctly via AsyncBoundary -- both reported for the nav entry.
+  // "mcp.status.error" already names a per-server test-result label -- this is the different,
+  // page-level condition, so it uses its own "pageStatus" namespace instead of colliding.
   useEffect(() => {
-    // "mcp.status.error" already names a per-server test-result label -- this is the different,
-    // page-level condition, so it uses its own "pageStatus" namespace instead of colliding.
-    onStatusChange?.(visibleError ? { kind: "error", labelKey: "mcp.pageStatus.error" } : null);
+    onStatusChange?.(error || serversQuery.isError ? { kind: "error", labelKey: "mcp.pageStatus.error" } : null);
     return () => onStatusChange?.(null);
-  }, [onStatusChange, visibleError]);
-
-  useEffect(() => {
-    const operation = activeTestOperationQuery.data;
-    if (!operation || operation.id === handledTestOperationId) return;
-    if (operation.status === "queued" || operation.status === "running") return;
-    setHandledTestOperationId(operation.id);
-    const result = mcpTestResult(operation.result);
-    const name = operation.relatedEntityId ?? testServerMutation.variables?.name ?? "";
-    if (operation.status === "failed" || !result?.success) {
-      setNotice(t("mcp.notice.testFailed", { name }));
-      setError(formatMcpFailure(t, result?.errorCode, operation.error ?? result?.error));
-    } else {
-      setNotice(t("mcp.notice.testPassed", { name, count: result.tools.length }));
-    }
-    void queryClient.invalidateQueries({ queryKey: mcpServersQueryKey });
-  }, [activeTestOperationQuery.data, handledTestOperationId, queryClient, t, testServerMutation.variables?.name]);
+  }, [error, onStatusChange, serversQuery.isError]);
 
   const visibleServers = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
@@ -153,6 +97,23 @@ export function McpPage({ onStatusChange, searchTerm }: { onStatusChange?: (stat
       Math.max(1, Object.values(statuses).filter((status) => status.durationMs).length),
   );
 
+  // Task 12.18: this page's own serversQuery projected into the shared AsyncBoundary's
+  // AsyncViewState shape -- src/ui/ primitives cannot import this service's own error type
+  // (ARCH-FE-005), so the projection lives here rather than in the primitive. A real,
+  // previously-silent gap fixed as a side effect: a list-fetch failure used to just fall through
+  // to the empty-state copy behind the page-level banner; AsyncBoundary now gives it a distinct
+  // error+retry state, matching the same gap Extensions/Plugins found in their own migrations.
+  const listFailure = mcpErrorFromUnknown(serversQuery.error);
+  const asyncState: AsyncViewState<McpServersAndStatuses> = {
+    data: serversQuery.data,
+    error: serversQuery.isError
+      ? { kind: "error", message: formatMcpFailure(t, listFailure.errorCode, listFailure.message), retryable: true }
+      : undefined,
+    initialLoading: serversQuery.isLoading,
+    refreshing: serversQuery.isFetching && !serversQuery.isLoading,
+    stale: serversQuery.isStale,
+  };
+
   async function saveServer(server: McpServerConfig) {
     setError(null);
     await saveServerMutation.mutateAsync(server).catch((err) => {
@@ -161,30 +122,17 @@ export function McpPage({ onStatusChange, searchTerm }: { onStatusChange?: (stat
     });
   }
 
-  async function testServer(server: McpServerConfig) {
-    setError(null);
+  async function runTest(server: McpServerConfig) {
     setNotice(null);
-    await testServerMutation.mutateAsync(server).catch((err) => {
-      const failure = mcpErrorFromUnknown(err);
-      setError(formatMcpFailure(t, failure.errorCode, failure.message));
-    });
+    await testServer(server);
   }
 
   async function toggleServer(server: McpServerConfig) {
-    setError(null);
-    await toggleServerMutation.mutateAsync(server).catch((err) => {
-      const failure = mcpErrorFromUnknown(err);
-      setError(formatMcpFailure(t, failure.errorCode, failure.message));
-    });
+    await toggleServerMutation.mutateAsync(server).catch(() => undefined);
   }
 
   async function deleteServer(server: McpServerConfig) {
-    if (!(await confirm({ title: t("mcp.confirm.delete", { name: server.name }), tone: "danger" }))) return;
-    setError(null);
-    await deleteServerMutation.mutateAsync(server).catch((err) => {
-      const failure = mcpErrorFromUnknown(err);
-      setError(formatMcpFailure(t, failure.errorCode, failure.message));
-    });
+    await deleteServerMutation.mutateAsync(server).catch(() => undefined);
   }
 
   async function importServers(input: string, scope: McpScope) {
@@ -195,54 +143,72 @@ export function McpPage({ onStatusChange, searchTerm }: { onStatusChange?: (stat
     return mcpService.exportServers(names);
   }
 
-  function renderGroup(title: string, group: McpServerConfig[]) {
-    if (!group.length) return null;
+  /** Task 12.18: projects this page's own single-in-flight Toggle/Delete `useMutation`s (react-query
+   *  already tracks `variables`/`isPending`/`error` for each one's own most recent call) into the
+   *  shared `MutationState` shape, keyed to one server at a time -- matching SSH's own precedent,
+   *  a registry alongside `useMutation` would just be a second source of truth for the same fact. */
+  function mutationStateFor(mutation: typeof toggleServerMutation | typeof deleteServerMutation, serverName: string): MutationState | undefined {
+    if (mutation.variables?.name !== serverName) return undefined;
+    if (mutation.isPending) return { pending: true, targetKey: serverName };
+    if (mutation.isError) {
+      return { error: { kind: "error", message: mcpMutationErrorMessage(t, mutation.error), retryable: true }, pending: false, targetKey: serverName };
+    }
+    return undefined;
+  }
+
+  function renderServerCard(server: McpServerConfig) {
     return (
-      <div className="space-y-3">
-        <div className="flex items-center justify-between gap-2 border-b border-border/70 pb-2">
-          <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-          <span className="text-xs text-muted-foreground">{group.length}</span>
-        </div>
-        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
-          {group.map((server) => (
-            <McpServerCard
-              key={server.name}
-              server={server}
-              status={statuses[server.name]}
-              testing={testingName === server.name}
-              onDelete={deleteServer}
-              onEdit={setEditingServer}
-              onTest={(item) => void testServer(item)}
-              onToggle={(item) => void toggleServer(item)}
-            />
-          ))}
-        </div>
-      </div>
+      <McpServerCard
+        deleteState={mutationStateFor(deleteServerMutation, server.name)}
+        key={server.name}
+        onDelete={(item) => void deleteServer(item)}
+        onEdit={setEditingServer}
+        onTest={(item) => void runTest(item)}
+        onToggle={(item) => void toggleServer(item)}
+        server={server}
+        status={statuses[server.name]}
+        testState={testStateFor(server.name)}
+        toggleState={mutationStateFor(toggleServerMutation, server.name)}
+      />
     );
   }
 
+  // Same message and action whether the list is genuinely empty or a search just matched
+  // nothing, matching this page's own pre-existing behavior.
+  const emptyStateSlot = {
+    action: (
+      <button className="text-primary underline-offset-4 hover:underline" onClick={() => setEditingServer(null)} type="button">
+        {t("mcp.emptyAction")}
+      </button>
+    ),
+    title: t("mcp.empty"),
+  };
+
   return (
     <div className="space-y-4">
-      {confirmationDialog}
       <PageHeader
-        actions={
-          <>
-            <Button disabled={serversQuery.isFetching} variant="outline" onClick={() => void serversQuery.refetch()}>
-              <RefreshCw className="h-4 w-4" aria-hidden="true" />
-              {serversQuery.isFetching ? t("mcp.refreshing") : t("mcp.refresh")}
-            </Button>
-            <Button variant="outline" onClick={() => setShowImportExport(true)}>
-              <Upload className="h-4 w-4" aria-hidden="true" />
-              {t("mcp.importExport")}
-            </Button>
-            <Button onClick={() => setEditingServer(null)}>
-              <Plus className="h-4 w-4" aria-hidden="true" />
-              {t("mcp.add")}
-            </Button>
-          </>
-        }
         description={t("mcp.description")}
         icon={Boxes}
+        moreMenuItems={[
+          {
+            icon: RefreshCw,
+            id: "refresh",
+            label: serversQuery.isFetching ? t("mcp.refreshing") : t("mcp.refresh"),
+            onSelect: () => void serversQuery.refetch(),
+          },
+          {
+            icon: Upload,
+            id: "import-export",
+            label: t("mcp.importExport"),
+            onSelect: () => setShowImportExport(true),
+          },
+        ]}
+        primaryAction={
+          <Button onClick={() => setEditingServer(null)}>
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            {t("mcp.add")}
+          </Button>
+        }
         title={t("mcp.title")}
       />
 
@@ -252,29 +218,24 @@ export function McpPage({ onStatusChange, searchTerm }: { onStatusChange?: (stat
         <StatCard icon={Wrench} label={t("mcp.stats.totalTools")} value={String(totalTools)} hint={averageDuration ? t("mcp.stats.average", { duration: averageDuration }) : t("mcp.stats.notTested")} />
       </div>
 
-      {visibleError ? <div className="rounded-md border p-3 text-sm ucd-status-danger">{visibleError}</div> : null}
+      {error ? <div className="rounded-md border p-3 text-sm ucd-status-danger">{error}</div> : null}
       {notice ? <div className="rounded-md border p-3 text-sm ucd-status-success">{notice}</div> : null}
 
-      {serversQuery.isLoading ? (
-        <SectionPanel title={t("mcp.title")}>
-          <div className="py-8 text-center text-sm text-muted-foreground">{t("mcp.loading")}</div>
-        </SectionPanel>
-      ) : visibleServers.length ? (
-        <>
-          {renderGroup(t("mcp.group.user"), userServers)}
-          {renderGroup(t("mcp.group.project"), projectServers)}
-        </>
-      ) : (
-        <SectionPanel title={t("mcp.title")}>
-          <div className="flex min-h-40 flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground">
-            <Boxes className="h-8 w-8" aria-hidden="true" />
-            <div>{t("mcp.empty")}</div>
-            <button className="text-primary underline-offset-4 hover:underline" onClick={() => setEditingServer(null)} type="button">
-              {t("mcp.emptyAction")}
-            </button>
+      <AsyncBoundary
+        emptyState={emptyStateSlot}
+        filtered={Boolean(searchTerm.trim())}
+        filteredEmptyState={emptyStateSlot}
+        isEmpty={() => visibleServers.length === 0}
+        onRetry={() => void serversQuery.refetch()}
+        state={asyncState}
+      >
+        {() => (
+          <div className="space-y-4">
+            <McpScopeSection renderCard={renderServerCard} servers={userServers} title={t("mcp.group.user")} />
+            <McpScopeSection renderCard={renderServerCard} servers={projectServers} title={t("mcp.group.project")} />
           </div>
-        </SectionPanel>
-      )}
+        )}
+      </AsyncBoundary>
 
       {editingServer !== undefined ? (
         <McpServerForm server={editingServer} onCancel={() => setEditingServer(undefined)} onSave={saveServer} />
@@ -289,11 +250,4 @@ export function McpPage({ onStatusChange, searchTerm }: { onStatusChange?: (stat
       ) : null}
     </div>
   );
-}
-
-function mcpTestResult(result: OperationTask["result"]): McpTestResult | null {
-  if (!result || typeof result !== "object") return null;
-  if (typeof result.success !== "boolean") return null;
-  if (!Array.isArray(result.tools)) return null;
-  return result as unknown as McpTestResult;
 }
