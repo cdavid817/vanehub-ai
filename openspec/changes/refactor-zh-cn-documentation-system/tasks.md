@@ -51,15 +51,17 @@
 
 ## 5. Verification
 
+Run after Phase 2, then again after Phase 3. Both rounds green; the results below are the final round.
+
 - [x] 5.1 `npm run docs:check` — PASSED (47 unit tests, README parity, link/media/boundary inventories)
-- [x] 5.2 `npm run docs:test` — PASSED (all four mdBooks)
+- [x] 5.2 `npm run docs:test` — PASSED (all four mdBooks, against the rebuilt `SUMMARY.md` files)
 - [x] 5.3 `npm run docs:build` — PASSED, exit 0, including the assembled-site validation
 - [x] 5.4 `npm run contracts:check` — PASSED (catalog and matrix up to date at the new path, 16 tests)
 - [x] 5.5 `npm run architecture:check` — PASSED, exit 0 (`lint:ci`, `tsc --noEmit`, architecture fitness tests, four Rust suites)
 - [x] 5.6 `npm run docs:unit:test` covers the two new guards — 40 tests before, 47 after
 - [x] 5.7 `openspec validate refactor-zh-cn-documentation-system --strict` — valid; `openspec validate --specs --strict` — 147 passed, 0 failed
-- [x] 5.8 Working tree clean. `src-tauri/gen/schemas/*.json` showed as dirty after the cargo runs but carried no content change, and git's normalization kept them out of the commit
-- [x] 5.9 No failure to classify: every gate passed. The two failures seen during the work were deliberate — the injected defects in 4.7 — and one real miss the link checker caught, the two `tooling.md` links to the moved matrix
+- [x] 5.8 Working tree clean. `src-tauri/gen/schemas/*.json` showed as dirty after the cargo runs but carried no content change, and git's normalization kept them out of every commit
+- [x] 5.9 No failure to classify: every gate passed in both rounds. The failures seen during the work were the injected defects in 4.7, which were the point, and real misses the link checker caught before they could ship — two `tooling.md` links to the moved matrix, then ~90 more across the Phase 3 restructure, each fixed and re-checked to green
 
 ## 6. Phase 3 — structure
 
