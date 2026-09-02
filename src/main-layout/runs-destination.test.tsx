@@ -18,7 +18,9 @@ vi.mock("../components/lazy-feature", () => ({
     useEffect(() => { lazyFeatureMounts.count += 1; }, []);
     return (
       <div
+        data-definition-id={String(componentProps.definitionId)}
         data-initial-run-id={String(componentProps.initialRunId)}
+        data-loop-run-id={String(componentProps.loopRunId)}
         data-props={Object.keys(componentProps).sort().join(",")}
         data-schedule-id={String(componentProps.scheduleId)}
         data-testid="lazy-feature"
@@ -72,7 +74,7 @@ describe("RunsDestination", () => {
     expect(screen.getByTestId("lazy-feature").dataset.props).toBe("initialRunId,onNavigate");
   });
 
-  it("routes loops to LoopCenter with onInspect wired", () => {
+  it("routes loops to LoopCenter with onInspect and selection wired", () => {
     render(
       <RunsDestination
         agents={[]}
@@ -82,7 +84,25 @@ describe("RunsDestination", () => {
         onSectionChange={vi.fn()}
       />,
     );
-    expect(screen.getByTestId("lazy-feature").dataset.props).toBe("onInspect");
+    expect(screen.getByTestId("lazy-feature").dataset.props).toBe("definitionId,loopRunId,onInspect,onSelectionChange");
+  });
+
+  // 17.2: definitionId/loopRunId are RunsSection's own fields (workbench-route.ts) -- this is the
+  // first real consumer of them (runs-destination.tsx wires them from the route; see LoopCenter's
+  // own test for how it consumes them as its initial selection).
+  it("17.2: threads the route's own definitionId/loopRunId through as LoopCenter's current selection", () => {
+    render(
+      <RunsDestination
+        agents={[]}
+        location={{ section: "loops", definitionId: "definition-a", loopRunId: "run-a1" }}
+        onInspectLoop={vi.fn()}
+        onMissionControlNavigate={vi.fn()}
+        onSectionChange={vi.fn()}
+      />,
+    );
+    const lazyFeature = screen.getByTestId("lazy-feature");
+    expect(lazyFeature.dataset.definitionId).toBe("definition-a");
+    expect(lazyFeature.dataset.loopRunId).toBe("run-a1");
   });
 
   it("routes schedules to ScheduledTasksPanel with the agent registry and scheduleId selection wired", () => {
@@ -132,7 +152,7 @@ describe("RunsDestination", () => {
     );
     // +1 for Schedules' own first mount — Loops does not mount a second time.
     expect(lazyFeatureMounts.count).toBe(2);
-    const loopsInstance = screen.getAllByTestId("lazy-feature").find((element) => element.dataset.props === "onInspect");
+    const loopsInstance = screen.getAllByTestId("lazy-feature").find((element) => element.dataset.props === "definitionId,loopRunId,onInspect,onSelectionChange");
     expect(loopsInstance).toBeTruthy();
     expect(loopsInstance?.closest("[hidden]")).toBeTruthy();
 

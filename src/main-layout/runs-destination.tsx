@@ -19,7 +19,12 @@ const TABS: { section: RunsSection["section"]; labelKey: string }[] = [
 type MissionControlProps = { initialRunId?: string; onNavigate?: (target: MissionControlNavigationTarget, sourceRunId: string) => void };
 const loadMissionControl: LazyFeatureLoader<MissionControlProps> = () => import("../mission-control/mission-control")
   .then((module) => ({ default: module.MissionControl }));
-type LoopCenterProps = { onInspect?: (target: LoopInspectionTarget) => void };
+type LoopCenterProps = {
+  onInspect?: (target: LoopInspectionTarget) => void;
+  definitionId?: string;
+  loopRunId?: string;
+  onSelectionChange?: (selection: { definitionId?: string; loopRunId?: string }) => void;
+};
 const loadLoopCenter: LazyFeatureLoader<LoopCenterProps> = () => import("../loop-center/loop-center")
   .then((module) => ({ default: module.LoopCenter }));
 type ScheduledTasksPanelProps = {
@@ -54,14 +59,16 @@ const RUNS_TAB_DRAFT_RETENTION: PageLifecyclePolicy = {
  * Attention/Active/History share one `MissionControl` render: it already shows all three as
  * parallel sections rather than exclusive tabs (confirmed by reading the component directly), so
  * there is no per-section view to route between yet — that split is real content work for a
- * later milestone, not something this shell can fake. `definitionId`/`loopRunId` deep-linking is
- * likewise not implemented: LoopCenter does not accept an initial-selection prop today (real
- * content work for a later milestone, same as above). `scheduleId` is no longer in that boat as of
- * 19.3: `ScheduledTasksPanel` now takes it as its current/initial selection and reports selection
- * changes back through `onSelectSchedule`, wired below to `onSectionChange` the same way the tab
- * buttons already are, so Back/forward and reload restore the same selected task. MissionControl's
- * `runId` is the other exception (4.8): it restores the run last selected before navigating away
- * to an evidence surface and back.
+ * later milestone, not something this shell can fake. `definitionId`/`loopRunId` are no longer
+ * unconsumed either, as of 17.2: `LoopCenter` now takes both as its current/initial selection and
+ * reports every change back through one combined `onSelectionChange` callback rather than two
+ * separate ones — a run belongs to exactly one definition, so the pair is always reported together
+ * (see `loop-center.tsx`'s own doc comment) — wired below to `onSectionChange` the same way the tab
+ * buttons already are. `scheduleId` reached this same state earlier, at 19.3: `ScheduledTasksPanel`
+ * takes it as its current/initial selection and reports selection changes back through
+ * `onSelectSchedule`, wired the same way. Both make Back/forward and reload restore the same
+ * selection. MissionControl's `runId` is the other exception (4.8): it restores the run last
+ * selected before navigating away to an evidence surface and back.
  *
  * Each section keeps its own `LazyFeature` chunk rather than being statically imported here, so
  * navigating within Runs does not pull in code for a section the reader has not opened yet — same
@@ -106,7 +113,17 @@ export function RunsDestination({ location, onSectionChange, agents, onMissionCo
       <div className="min-h-0 flex-1">
         {shouldRenderPage(RUNS_TAB_DRAFT_RETENTION, loopsActive, visitedSections.has("loops")) ? (
           <div className="h-full min-h-0" hidden={!loopsActive}>
-            <LazyFeature className="h-full min-h-0" componentProps={{ onInspect: onInspectLoop }} loader={loadLoopCenter} />
+            <LazyFeature
+              className="h-full min-h-0"
+              componentProps={{
+                definitionId: location.section === "loops" ? location.definitionId : undefined,
+                loopRunId: location.section === "loops" ? location.loopRunId : undefined,
+                onInspect: onInspectLoop,
+                onSelectionChange: (selection: { definitionId?: string; loopRunId?: string }) =>
+                  onSectionChange({ section: "loops", definitionId: selection.definitionId, loopRunId: selection.loopRunId }),
+              }}
+              loader={loadLoopCenter}
+            />
           </div>
         ) : null}
         {shouldRenderPage(RUNS_TAB_DRAFT_RETENTION, schedulesActive, visitedSections.has("schedules")) ? (
