@@ -1,18 +1,19 @@
-import { useTranslation } from "react-i18next";
-import { EmptyState } from "../ui/empty-state/EmptyState";
+import { LazyFeature, type LazyFeatureLoader } from "../components/lazy-feature";
+
+const loadProjects: LazyFeatureLoader<Record<string, never>> = () => import("../projects/projects")
+  .then((module) => ({ default: module.Projects }));
 
 /**
- * design.md Decision 18 frames Projects & Workspaces as a read-only aggregation of existing
- * project/worktree truth — real content work scoped to task group 13 (Milestone 4), not this
- * shell. Honest placeholder rather than a "coming soon" card standing in for content: the nav
- * entry and route exist now so the five-domain structure is stable, and this is replaced with
- * real aggregated content in that milestone rather than left indefinitely.
+ * Task 13.1: real content replacing the former placeholder (design.md Decision 18). Zero-prop for
+ * the same reason as Quality's own shell — `WorkbenchLocation`'s `projectId` (for a future
+ * detail-panel selection, task 13.7) is not consumed here yet; no injectable initial-selection
+ * prop exists on `Projects` because building one is that later task's own design decision to
+ * make, not this shell's.
  */
 export function ProjectsDestination() {
-  const { t } = useTranslation();
   return (
-    <div className="flex h-full min-h-0 items-center justify-center">
-      <EmptyState description={t("layout.projectsPlaceholder.description")} title={t("layout.projectsPlaceholder.title")} variant="unsupported" />
+    <div className="h-full min-h-0 p-2">
+      <LazyFeature className="h-full min-h-0" componentProps={{}} loader={loadProjects} />
     </div>
   );
 }

@@ -1,16 +1,18 @@
 // @vitest-environment jsdom
 
 import { render, screen } from "@testing-library/react";
-import { beforeAll, describe, expect, it } from "vitest";
-import { activateAppLanguage } from "../i18n";
+import { describe, expect, it, vi } from "vitest";
 import { ProjectsDestination } from "./projects-destination";
 
-describe("ProjectsDestination", () => {
-  beforeAll(async () => activateAppLanguage("en"));
+vi.mock("../components/lazy-feature", () => ({
+  LazyFeature: () => <div data-testid="lazy-feature" />,
+}));
 
-  it("shows an honest under-construction state rather than fabricated content", () => {
+describe("ProjectsDestination", () => {
+  it("renders a single lazy-loaded panel and no secondary navigation", () => {
     render(<ProjectsDestination />);
-    expect(screen.getByText("Projects & Workspaces is under construction")).toBeTruthy();
-    expect(screen.getByText(/aggregate your existing projects/)).toBeTruthy();
+    expect(screen.getByTestId("lazy-feature")).toBeTruthy();
+    expect(screen.queryByRole("tablist")).toBeNull();
+    expect(screen.queryByRole("tab")).toBeNull();
   });
 });
