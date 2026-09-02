@@ -632,7 +632,7 @@ Verified: `eslint --max-warnings=0`, `tsc --noEmit`, `npm run build` (chunk budg
 
 - [ ] 19.1 Create `/runs/schedules` page and move Scheduled Tasks secondary navigation under Runs.
 - [ ] 19.2 Keep a legacy activity/dialog entry only as a temporary redirect and remove the large management dialog after parity.
-- [ ] 19.3 Refactor list/detail/editor into separate components and shared management primitives.
+- [x] 19.3 Refactor list/detail/editor into separate components and shared management primitives. — `src/scheduled-tasks/` (8ebd1a57): list/row/detail/form each their own component, plus a shared `scheduled-task-presentation.ts` primitive. Detail is a placeholder showing only already-fetched fields (name/agent/frequency/enabled/next-run/status) — occurrence preview and history need 19.6/19.11's own new service calls, not attempted here. First real consumer of `RunsSection.scheduleId`, wired bidirectionally through `onSectionChange` so Back/forward/reload restore the selected task.
 - [ ] 19.4 Implement bounded search and filters for enabled, Agent, recurrence, status, attention, project/workspace, and next-run range when supported.
 - [ ] 19.5 Show name, Agent, localized recurrence, enabled state, timezone, next run, latest status, and attention in the collection.
 - [ ] 19.6 Create route-backed task detail with configuration, future occurrence preview, capability notice, latest Run, and history.
