@@ -22,7 +22,7 @@ Sessions can be **categorized**, **pinned**, and **archived**. An archived sessi
 
 ## Agent
 
-**An Agent is what actually performs the task.** VaneHub AI ships with six:
+**An Agent is what actually performs the task.** VaneHub AI works with six: five external CLI Agents you install and authenticate yourself, and one native API Agent that ships with the application.
 
 | Agent | Provider | Form |
 | --- | --- | --- |
@@ -84,7 +84,7 @@ See [Loop Engineering](loop-engineering.md).
 
 **An MCP (Model Context Protocol) server gives Agents additional tools.** Register one centrally in VaneHub AI and it can be handed to each Agent, instead of being configured separately inside every CLI.
 
-See [Tools and extensions](tooling.md).
+See [MCP servers](mcp.md).
 
 ## Skill
 

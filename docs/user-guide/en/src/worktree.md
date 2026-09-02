@@ -49,9 +49,11 @@ Several Agents running in parallel against one working directory hit trouble imm
 
 Each Agent's changes converge naturally into a set of commits on one branch. Reviewing is `git diff base..worktree-branch`, which shows exactly what it changed; approve and merge, or reject with `git worktree remove` plus deleting the branch, leaving no trace. That is unlike a shared directory where diffing the whole repository afterwards cannot separate one Agent's work from another's.
 
-**3. The permission boundary coincides with the filesystem boundary**
+**3. A working-directory boundary, not a security boundary**
 
-Giving each task its own worktree and branch as an envelope keeps an Agent working inside that envelope. **No extra sandbox logic is needed** to restrict which files an Agent may touch — directory isolation at the operating-system level is the boundary.
+Giving each task its own worktree and branch as an envelope keeps an Agent's changes converged in its own directory and branch: it will not overwrite a file someone else is editing, and it will not switch someone else's branch out from under them.
+
+But **a worktree is not a sandbox**. It is an ordinary checkout directory and it enforces no access control: a process running inside it can still read and write files outside it, reach the network, and read local credentials. What actually constrains those is permission approval, command restriction, process isolation, and sensitive-data governance (see [Permissions](permissions.md)) — a worktree replaces none of them and makes none of them less necessary.
 
 **4. It supports discard-on-failure optimistic concurrency**
 
@@ -137,4 +139,4 @@ This is deliberate: the output of an automatic run should not be cleaned up befo
 - The automatic cycle that depends on worktrees → [Loop Engineering](loop-engineering.md)
 - A full walkthrough of parallel work in one repository → [Use cases](use-cases.md)
 - Where Git failure detail goes → [Observability](observability.md)
-- Where execution isolation sits in multi-Agent orchestration → [Multi-Agent systems technical architecture](../../../agent-infrastructure/multi-agent-architecture.md) (Simplified Chinese)
+- Where execution isolation sits in multi-Agent orchestration → [Multi-Agent systems technical architecture](../../../agent-infrastructure/patterns/multi-agent.md) (Simplified Chinese)

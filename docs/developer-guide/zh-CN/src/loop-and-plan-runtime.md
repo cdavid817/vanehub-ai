@@ -16,7 +16,7 @@ Loop Engineering 的核心主张是:**不再给编程 Agent 逐句写提示词,�
 
 | 组件 | 作用 | 本项目对应 |
 | --- | --- | --- |
-| **Automations(自动化)** | 循环的心跳,决定何时运行(定时/事件触发+分诊) | 定时任务(见[定时与用量](../../../user-guide/zh-CN/src/automation.md))、IM 入站触发 |
+| **Automations(自动化)** | 循环的心跳,决定何时运行(定时/事件触发+分诊) | 定时任务(见[定时任务与通知](../../../user-guide/zh-CN/src/scheduled-tasks.md))、IM 入站触发 |
 | **Worktrees(隔离工作区)** | 独立工作空间,防止并行 Agent 互相冲突 | Loop 在独立 Git worktree 作业(远程工作区不支持 worktree,故 Loop 不适用) |
 | **Skills(技能)** | 把项目知识/编码规范固化一次写好,循环不必每轮重新摸索 | Skill 体系(见[Skill 管理](skill-management.md)) |
 | **Plugins / Connectors** | 基于 MCP 把循环接入真实系统(打开 PR、更新工单) | MCP 工具(见[MCP 工具与客户端](mcp-tools.md)) |

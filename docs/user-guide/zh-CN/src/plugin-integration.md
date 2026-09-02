@@ -15,7 +15,7 @@
 | 页面 | 管什么 |
 | --- | --- |
 | **插件集成** | 内置产品集成的就绪检测（当前只有 GitHub） |
-| [扩展能力](tooling.md#扩展能力) | 本地多模态 AI 能力（OCR、语音识别、语音合成）的安装与启停 |
+| [扩展能力](extensions.md#扩展能力) | 本地多模态 AI 能力（OCR、语音识别、语音合成）的安装与启停 |
 | [MCP 服务器](mcp.md) | 把外部工具通过 MCP 协议接给 Agent |
 | [Skill 管理](skill-management.md) | Skill 的安装与绑定 |
 
@@ -100,5 +100,5 @@ gh auth status
 ## 相关
 
 - 工具接入的其他途径 → [MCP 服务器](mcp.md)、[Skill 管理](skill-management.md)
-- 本地多模态能力 → [工具与扩展](tooling.md#扩展能力)
+- 本地多模态能力 → [工具与扩展](extensions.md#扩展能力)
 - 代码评审工作流 → [代码评审](code-review.md)

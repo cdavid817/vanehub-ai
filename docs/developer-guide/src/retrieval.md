@@ -8,7 +8,11 @@ Retrieval searches the same host-level memory pool that recency-based memory inj
 
 - A memory saved under a different agent is recallable from any agent's session.
 - Recall never returns a strict subset of what memory injection already placed in the system prompt.
-- The recall tool input schema exposes exactly `query` and `limit` — no agent id, folder, or scope parameter, because the shared pool has no slice for the model to name.
+- The recall tool input schema exposes exactly `query` and `limit` — no agent id, folder, or scope parameter.
+
+Memory governance later introduced a per-record scope (global or workspace) and audience (all Agents or named Agents), so "the shared pool has no slice" no longer holds. That filtering happens on the **injection** path — `personalization::domain::memory::eligibility` excludes records by status, read policy, scope, then audience — and not here: the `retrieval` context neither reads an audience nor calls `eligibility`, and `vector_candidates` and `keyword_candidates` span the whole shared pool.
+
+This is deliberate (see the [`retrieval-vector-search`](../../../openspec/specs/retrieval-vector-search/spec.md) main specification: recall must not return a strict subset of what injection already placed in the system prompt). The cost is that **an audience is not a confidentiality boundary**: a memory excluded by audience is not injected for an Agent, but that Agent may still find it through `recall`. Read where the two specifications meet before changing either side.
 
 ## Graceful degradation
 

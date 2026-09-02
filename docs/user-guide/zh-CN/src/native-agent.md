@@ -95,6 +95,6 @@ OnePiece 准备开始操作时会请求 `exit_plan_mode`。批准只让后续轮
 
 ## 相关
 
-- provider 配置与凭据保管 → [工具与扩展](tooling.md#agent-配置)
+- provider 配置与凭据保管 → [工具与扩展](agent-configuration.md#agent-配置)
 - 记忆提取与上下文压缩 → [记忆与上下文](memory-and-context.md)
-- 工具调用技术本身：调用循环、约束解码、并行调用与跨 Provider 适配 → [Function Calling 技术架构](../../../agent-infrastructure/function-calling-architecture.md)
+- 工具调用技术本身：调用循环、约束解码、并行调用与跨 Provider 适配 → [Function Calling 技术架构](../../../agent-infrastructure/protocols/function-calling.md)

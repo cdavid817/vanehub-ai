@@ -70,7 +70,7 @@
 2. 创建会话时选**多 Agent**，给每个席位分配 Agent 与角色。
 3. 在对话中用 `@` 把话交给对应席位。
 
-一条完整的「架构师 → 实现者 → 审查者」接力见[群聊协作案例](multi-agent-testing-tutorial.md)。
+一条完整的「架构师 → 实现者 → 审查者」接力见[群聊协作案例](../../../developer-guide/zh-CN/src/multi-agent-acceptance.md)。
 
 ## 注意事项与限制
 

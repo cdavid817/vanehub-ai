@@ -142,12 +142,12 @@ The retention policy is equally explicit: **only approved counters, enums, versi
 - **Deleting a memory cannot be undone**, and revokes its retrieval index along with it.
 - **Changing the compaction switch does not affect a running generation.**
 - **The token measure outranks the character threshold** when it is available; the character count is only a fallback.
-- **Context health figures are not billing data**; for usage and billing see [Scheduled and usage](automation.md).
+- **Context health figures are not billing data**; for usage and billing see [Usage statistics](usage-statistics.md).
 
 ## Related
 
 - The settings page the memory toggles live on → [Personalization](personalization.md)
 - Toggling long context with `/longcontext` → [Slash commands](slash-commands.md)
-- How "memory extraction" and "context compaction" are counted in usage → [Scheduled and usage](automation.md)
+- How "memory extraction" and "context compaction" are counted in usage → [Usage statistics](usage-statistics.md)
 - OnePiece's own execution modes and switches → [Native API Agent](native-agent.md)
-- The retrieval technology itself: indexing pipelines, semantic-versus-keyword retrieval trade-offs, hybrid retrieval and reranking → [RAG technical architecture](../../../agent-infrastructure/rag-architecture.md) (Simplified Chinese)
+- The retrieval technology itself: indexing pipelines, semantic-versus-keyword retrieval trade-offs, hybrid retrieval and reranking → [RAG technical architecture](../../../agent-infrastructure/patterns/rag.md) (Simplified Chinese)

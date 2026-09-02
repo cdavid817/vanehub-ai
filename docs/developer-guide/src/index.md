@@ -17,7 +17,7 @@ If you're new to this codebase, read these in order before anything else — the
 | --- | --- |
 | [Repository orientation](repository-orientation.md) | Where frontend, native, and specification work lives |
 | [Runtime and service boundaries](runtime-boundaries.md) | The service layer, and which behavior is real on desktop |
-| [Native bounded contexts](native-contexts.md) | What each of the 21 contexts owns, and how they talk to each other |
+| [Native bounded contexts](native-contexts.md) | What each context owns, and how they talk to each other |
 
 ## Agent execution
 
@@ -42,7 +42,7 @@ If you're new to this codebase, read these in order before anything else — the
 | Chapter | What it covers |
 | --- | --- |
 | [Context compaction](context-compaction.md) | The token-aware trigger and character fallback, summarization compaction, cooldown and circuit breaking |
-| [Cross-session memory](cross-session-memory.md) | Host-level shared pool, provenance metadata, OnePiece tool vs CLI auto-extraction |
+| [Cross-session memory](cross-session-memory.md) | Host-level shared pool, per-record scope and audience, provenance metadata, OnePiece tool vs CLI auto-extraction |
 | [Retrieval and vector search](retrieval.md) | Host-level shared memory pool, workspace code index, graceful degradation |
 | [Tree-sitter code indexing](tree-sitter-code-indexing.md) | Grammar parsing, bounded chunks, symbol metadata, grammar version, redaction |
 | [LSP code intelligence](lsp-code-intelligence.md) | In-session LSP integration, workspace trust, and capability negotiation |
@@ -64,7 +64,8 @@ If you're new to this codebase, read these in order before anything else — the
 | --- | --- |
 | [Permission model](permission-model.md) | Unified decision point, explicit-Deny-first, approval broker, CLI flag projection, Claude Code hook bridge |
 | [Execution observability and Agent evaluation](execution-observability.md) | Runs/spans/timelines, the four fidelity tiers and sanitization caps, and the evaluation arena's judgment rules |
-| [Persistence and unified logging](persistence-and-logging.md) | SQLite, migrations, and the redaction rules |
+| [Persistence ownership](persistence-ownership.md) | SQLite ownership, migrations, and database constants |
+| [Unified logging](unified-logging.md) | The single write pipeline, redaction before disk, and trace correlation |
 | [Usage statistics](usage-statistics.md) | Reported tokens vs. estimated characters, time ranges, per-Agent breakdown |
 
 ## Engineering process
@@ -72,7 +73,8 @@ If you're new to this codebase, read these in order before anything else — the
 | Chapter | What it covers |
 | --- | --- |
 | [OpenSpec workflow](openspec-workflow.md) | Proposing, applying, and archiving a change |
-| [Testing, packaging, and release](testing-and-release.md) | Gates, coverage thresholds, and packaging targets |
+| [Testing](testing.md) | Test tiers, coverage thresholds, and what each tier proves |
+| [Release](release.md) | Packaging targets, signing credentials, and version synchronization |
 
 ## Reference
 
