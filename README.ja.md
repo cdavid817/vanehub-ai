@@ -129,7 +129,7 @@ VaneHub AI は Claude Code、OpenCode、Codex CLI、Gemini CLI、Antigravity CLI
 | --- | --- |
 | リポジトリ構成 | [リポジトリレイアウトとモジュール帰属](docs/developer-guide/src/repository-orientation.md) |
 | ランタイム境界 | [フロントエンドサービス境界、Web/mock と Tauri アダプタ](docs/developer-guide/src/runtime-boundaries.md) |
-| ボウンデッドコンテキスト | [21 の native bounded context が何を所有するか](docs/developer-guide/src/native-contexts.md) |
+| ボウンデッドコンテキスト | [各 native bounded context が何を所有するか](docs/developer-guide/src/native-contexts.md) |
 | Agent ライフサイクルと provider ランタイム | [登録 Agent 編集、安定 provider 解決、能力宣言](docs/developer-guide/src/agent-lifecycle.md) |
 | ターミナルと PTY ランタイム | [セッション単位 Agent Terminal、自動起動/アタッチ、リモートターミナル](docs/developer-guide/src/terminal-runtime.md) |
 | ツールレジストリと実行 | [固定ネイティブツールカタログ、interface_format 変換、マルチターンツールループ](docs/developer-guide/src/tool-registry.md) |
@@ -198,7 +198,7 @@ npm run dev -- --host 127.0.0.1
 
 ```powershell
 $env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"
-npm run tauri -- dev
+npm run tauri:dev
 ```
 
 Web/mock は決定的なブラウザシミュレーションです。ローカル CLI 実行、SQLite 永続化、ファイル変更、OS side effect が発生したことを意味しません。
@@ -242,7 +242,7 @@ npm run docs:build
 
 ## ロードマップ
 
-実装済みの振る舞いと現在の contract は [OpenSpec main specifications](openspec/specs/) に記録されています。直近の方向性には、custom Agent、plugin marketplace、ローカル OCR/音声機能の拡張があります。
+実装済みの振る舞いと現在の contract は [OpenSpec main specifications](openspec/specs/) に記録されています。直近の方向性には、custom Agent と plugin marketplace があります。ローカル OCR、音声認識、音声合成はすでにローカルマシン上で動作しており、この領域に残るのはエンジンとプラットフォームの対応範囲、インストール自動化、実機での資格検証です。
 
 <!-- docs-section:contributing -->
 

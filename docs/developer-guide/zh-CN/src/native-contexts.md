@@ -2,7 +2,7 @@
 
 native 代码按**所有权**组织，而非按 UI 页面组织。一个功能出现在哪个页面上，和它的代码归谁管，是两回事。
 
-`src-tauri/src/contexts/` 下当前有 **24 个上下文**。下表是完整地图——**目录与表格必须一一对应**，`npm run docs:links:check` 会比对两者，新增一个上下文却不在这里加一行，校验直接失败。
+`src-tauri/src/contexts/` 下当前有 **27 个上下文**。下表是完整地图——**目录与表格必须一一对应**，`npm run docs:links:check` 会比对两者，新增一个上下文却不在这里加一行，校验直接失败。
 
 ```mermaid
 flowchart TB

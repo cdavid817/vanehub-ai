@@ -2,7 +2,7 @@
 
 Native code is organized by **ownership**, not by UI page. Where a feature shows up on screen and who owns its code are two different questions.
 
-`src-tauri/src/contexts/` currently holds **24 contexts**. The table below is the complete map — **the directory listing and the table must match one-for-one**; `npm run docs:links:check` compares them, and adding a context without adding its row here fails validation outright.
+`src-tauri/src/contexts/` currently holds **27 contexts**. The table below is the complete map — **the directory listing and the table must match one-for-one**; `npm run docs:links:check` compares them, and adding a context without adding its row here fails validation outright.
 
 ```mermaid
 flowchart TB

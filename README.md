@@ -129,7 +129,7 @@ Verify downloads against the published `SHA256SUMS`, SPDX SBOM, and GitHub attes
 | --- | --- |
 | Repository layout | [Repository layout and module ownership](docs/developer-guide/src/repository-orientation.md) |
 | Runtime boundaries | [Frontend service boundaries, Web/mock and Tauri adapters](docs/developer-guide/src/runtime-boundaries.md) |
-| Bounded contexts | [What each of the 21 native bounded contexts owns](docs/developer-guide/src/native-contexts.md) |
+| Bounded contexts | [What each native bounded context owns](docs/developer-guide/src/native-contexts.md) |
 | Agent lifecycle & provider runtime | [Registered Agent edits, stable provider resolution, capability declarations](docs/developer-guide/src/agent-lifecycle.md) |
 | Terminal & PTY runtime | [Session-scoped Agent Terminal, auto-start/attach, remote terminals](docs/developer-guide/src/terminal-runtime.md) |
 | Tool registry & execution | [Fixed native tool catalog, per-interface_format translation, multi-turn tool loop](docs/developer-guide/src/tool-registry.md) |
@@ -198,7 +198,7 @@ Run the desktop application:
 
 ```powershell
 $env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"
-npm run tauri -- dev
+npm run tauri:dev
 ```
 
 Web/mock is a deterministic browser simulation. It does not claim local CLI execution, SQLite persistence, filesystem changes, or operating-system side effects.
@@ -242,7 +242,7 @@ The documentation build requires the mdBook version pinned in `docs/toolchain.js
 
 ## Roadmap
 
-Implemented work and current contracts are recorded in [OpenSpec main specifications](openspec/specs/). Near-term product work includes custom Agents, a plugin marketplace, and extended local OCR/speech capabilities.
+Implemented work and current contracts are recorded in [OpenSpec main specifications](openspec/specs/). Near-term product work includes custom Agents and a plugin marketplace. Local OCR, speech-to-text, and text-to-speech already run on the local machine; the remaining work there is engine and platform coverage, install automation, and real-device qualification.
 
 <!-- docs-section:contributing -->
 
