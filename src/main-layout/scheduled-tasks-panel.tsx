@@ -2,14 +2,24 @@ import { useEffect, useMemo, useState } from "react";
 import { Loader2, Plus, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../components/ui/button";
-import { formatScheduledTaskFrequency } from "../lib/scheduled-task-recurrence";
+import { formatAppWeekdayNames } from "../i18n/format";
+import { formatScheduledTaskFrequency, type ScheduledTaskFrequencyLabel } from "../lib/scheduled-task-recurrence";
 import { agentService } from "../services/runtime-agent-client";
 import type { AgentRegistryEntry, ScheduledTask, ScheduledTaskFrequency } from "../types/agent";
 
 type FrequencyKind = ScheduledTaskFrequency["kind"];
 
 const frequencyKinds: FrequencyKind[] = ["minutes", "hours", "daily", "weekly", "monthly"];
-const weekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/**
+ * The lib's `weekday` field stays a raw 0-6 index (framework-agnostic contract); resolving it to
+ * a locale-native name is this component's job before handing the result to `t()`.
+ */
+function frequencySummaryParams(label: ScheduledTaskFrequencyLabel, weekdayNames: string[]) {
+  return label.key === "scheduledTasks.frequency.summary.weekly"
+    ? { ...label, weekday: weekdayNames[label.weekday] }
+    : label;
+}
 
 function initialFrequency(kind: FrequencyKind): ScheduledTaskFrequency {
   switch (kind) {
@@ -60,6 +70,7 @@ export function ScheduledTasksPanel({ agents }: { agents: AgentRegistryEntry[] }
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
+  const weekdayNames = useMemo(() => formatAppWeekdayNames(i18n.language), [i18n.language]);
 
   const selectableAgents = useMemo(
     () => agents.filter((agent) => agent.id === "onepiece" || agent.supportedInteractionModes.includes("cli")),
@@ -137,6 +148,7 @@ export function ScheduledTasksPanel({ agents }: { agents: AgentRegistryEntry[] }
           ) : null}
           {tasks.map((task) => {
             const agent = agents.find((candidate) => candidate.id === task.agentId);
+            const frequencyLabel = formatScheduledTaskFrequency(task.frequency);
             return (
               <div className="ucd-list-row grid gap-2 rounded-lg p-3" key={task.id}>
                 <div className="flex items-start justify-between gap-3">
@@ -166,7 +178,7 @@ export function ScheduledTasksPanel({ agents }: { agents: AgentRegistryEntry[] }
                   </div>
                 </div>
                 <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-3">
-                  <span>{formatScheduledTaskFrequency(task.frequency, weekdayLabels)}</span>
+                  <span>{t(frequencyLabel.key, frequencySummaryParams(frequencyLabel, weekdayNames))}</span>
                   <span>{t("scheduledTasks.nextRun", { time: formatDateTime(task.nextRunAt, i18n.language) })}</span>
                   <span className={statusClass(task.latestStatus)}>
                     {t(`scheduledTasks.status.${task.latestStatus}`)}
@@ -194,7 +206,7 @@ export function ScheduledTasksPanel({ agents }: { agents: AgentRegistryEntry[] }
             {selectableAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.displayName}</option>)}
           </select>
         </label>
-        <FrequencyControls frequency={frequency} onChange={setFrequency} t={t} />
+        <FrequencyControls frequency={frequency} onChange={setFrequency} t={t} weekdayNames={weekdayNames} />
         <p className="text-xs text-muted-foreground">{t("scheduledTasks.runtimeHint")}</p>
         <div className="flex items-start justify-between gap-3">
           <p className="min-w-0 flex-1 wrap-break-word text-xs leading-5 text-destructive" role="alert">{error}</p>
@@ -212,10 +224,12 @@ function FrequencyControls({
   frequency,
   onChange,
   t,
+  weekdayNames,
 }: {
   frequency: ScheduledTaskFrequency;
   onChange: (frequency: ScheduledTaskFrequency) => void;
   t: (key: string) => string;
+  weekdayNames: string[];
 }) {
   return (
     <div className="grid gap-2">
@@ -233,8 +247,8 @@ function FrequencyControls({
       ) : null}
       {frequency.kind === "weekly" ? (
         <div className="grid grid-cols-2 gap-2">
-          <select className="ucd-input h-9 rounded px-2 text-sm" onChange={(event) => onChange({ ...frequency, weekday: Number(event.target.value) })} value={frequency.weekday}>
-            {weekdayLabels.map((label, index) => <option key={label} value={index}>{label}</option>)}
+          <select className="ucd-input h-9 rounded px-2 text-sm" data-testid="scheduled-task-weekday" onChange={(event) => onChange({ ...frequency, weekday: Number(event.target.value) })} value={frequency.weekday}>
+            {weekdayNames.map((label, index) => <option key={index} value={index}>{label}</option>)}
           </select>
           <input className="ucd-input h-9 rounded px-2 text-sm" onChange={(event) => onChange({ ...frequency, timeOfDay: event.target.value })} type="time" value={frequency.timeOfDay} />
         </div>

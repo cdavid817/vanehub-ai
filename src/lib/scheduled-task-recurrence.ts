@@ -103,17 +103,31 @@ export function computeNextScheduledRun(frequency: ScheduledTaskFrequency, from 
   }
 }
 
-export function formatScheduledTaskFrequency(frequency: ScheduledTaskFrequency, weekdayLabels: string[]) {
+export type ScheduledTaskFrequencyLabel =
+  | { key: "scheduledTasks.frequency.summary.minutes"; count: number }
+  | { key: "scheduledTasks.frequency.summary.hours"; count: number }
+  | { key: "scheduledTasks.frequency.summary.daily"; timeOfDay: string }
+  | { key: "scheduledTasks.frequency.summary.weekly"; weekday: number; timeOfDay: string }
+  | { key: "scheduledTasks.frequency.summary.monthly"; dayOfMonth: number; timeOfDay: string };
+
+/**
+ * Returns i18next-ready `{ key, ...interpolation }` data instead of a pre-formatted string, so
+ * this module can stay framework-agnostic (no i18next/React import here) while the caller does
+ * `t(result.key, result)`. Weekday naming is deliberately left as the raw 0-6 domain index —
+ * turning it into a locale-native name is the caller's job, e.g. via `formatAppWeekdayNames` in
+ * `src/i18n/format.ts`.
+ */
+export function formatScheduledTaskFrequency(frequency: ScheduledTaskFrequency): ScheduledTaskFrequencyLabel {
   switch (frequency.kind) {
     case "minutes":
-      return frequency.interval === 1 ? "Every minute" : `Every ${frequency.interval} minutes`;
+      return { key: "scheduledTasks.frequency.summary.minutes", count: frequency.interval };
     case "hours":
-      return frequency.interval === 1 ? "Every hour" : `Every ${frequency.interval} hours`;
+      return { key: "scheduledTasks.frequency.summary.hours", count: frequency.interval };
     case "daily":
-      return `Daily at ${frequency.timeOfDay}`;
+      return { key: "scheduledTasks.frequency.summary.daily", timeOfDay: frequency.timeOfDay };
     case "weekly":
-      return `Weekly ${weekdayLabels[frequency.weekday] ?? String(frequency.weekday)} at ${frequency.timeOfDay}`;
+      return { key: "scheduledTasks.frequency.summary.weekly", weekday: frequency.weekday, timeOfDay: frequency.timeOfDay };
     case "monthly":
-      return `Monthly on day ${frequency.dayOfMonth} at ${frequency.timeOfDay}`;
+      return { key: "scheduledTasks.frequency.summary.monthly", dayOfMonth: frequency.dayOfMonth, timeOfDay: frequency.timeOfDay };
   }
 }
