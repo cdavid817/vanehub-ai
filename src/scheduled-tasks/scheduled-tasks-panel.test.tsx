@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { activateAppLanguage, i18n } from "../i18n";
 import type { AgentRegistryEntry, ScheduledTask, ScheduledTaskFrequency } from "../types/agent";
 
 const mocks = vi.hoisted(() => ({
   listScheduledTasks: vi.fn(),
+  runScheduledTaskNow: vi.fn(),
 }));
 
 vi.mock("../services/runtime-agent-client", () => ({
@@ -15,6 +16,7 @@ vi.mock("../services/runtime-agent-client", () => ({
     createScheduledTask: vi.fn(),
     setScheduledTaskEnabled: vi.fn(),
     deleteScheduledTask: vi.fn(),
+    runScheduledTaskNow: mocks.runScheduledTaskNow,
   },
 }));
 
@@ -47,6 +49,7 @@ describe("ScheduledTasksPanel", () => {
 
   beforeEach(() => {
     mocks.listScheduledTasks.mockReset().mockResolvedValue([]);
+    mocks.runScheduledTaskNow.mockReset();
   });
 
   it("loads the task list on mount without needing a dialog `open` prop", async () => {
@@ -126,5 +129,56 @@ describe("ScheduledTasksPanel", () => {
     render(<ScheduledTasksPanel agents={agents} onSelectSchedule={onSelectSchedule} />);
     fireEvent.click(await screen.findByTestId("scheduled-task-select-t-a"));
     expect(onSelectSchedule).toHaveBeenCalledWith("t-a");
+  });
+
+  // 19.10: Run now -- disabled while its own request is in flight, re-enabled once it settles,
+  // and an error surfaces inline without disturbing the task's own displayed fields.
+  describe("Run now", () => {
+    async function selectTaskA() {
+      mocks.listScheduledTasks.mockResolvedValueOnce([buildTask("t-a", { kind: "daily", timeOfDay: "09:00" })]);
+      render(<ScheduledTasksPanel agents={agents} />);
+      fireEvent.click(await screen.findByTestId("scheduled-task-select-t-a"));
+      const detail = screen.getByTestId("scheduled-task-detail");
+      return within(detail).getByRole("button", { name: "Run now" }) as HTMLButtonElement;
+    }
+
+    it("calls the service with the selected task's id", async () => {
+      mocks.runScheduledTaskNow.mockResolvedValueOnce({
+        run: { id: "scheduled-run-1", taskId: "t-a", sessionId: "session-1", status: "succeeded", error: null, startedAt: "2026-08-31T09:00:00.000Z", completedAt: "2026-08-31T09:00:00.000Z" },
+        operationId: null,
+      });
+      const button = await selectTaskA();
+
+      fireEvent.click(button);
+
+      await waitFor(() => expect(mocks.runScheduledTaskNow).toHaveBeenCalledWith("t-a"));
+    });
+
+    it("disables the button while the request is pending and re-enables it once it resolves", async () => {
+      let resolveRun: (value: unknown) => void = () => {};
+      mocks.runScheduledTaskNow.mockImplementation(() => new Promise((resolve) => { resolveRun = resolve; }));
+      const button = await selectTaskA();
+
+      fireEvent.click(button);
+      await waitFor(() => expect(button.disabled).toBe(true));
+
+      resolveRun({
+        run: { id: "scheduled-run-1", taskId: "t-a", sessionId: "session-1", status: "succeeded", error: null, startedAt: "2026-08-31T09:00:00.000Z", completedAt: "2026-08-31T09:00:00.000Z" },
+        operationId: null,
+      });
+      await waitFor(() => expect(button.disabled).toBe(false));
+    });
+
+    it("surfaces a rejected run inline without touching the task's own displayed status", async () => {
+      mocks.runScheduledTaskNow.mockRejectedValueOnce(new Error("Agent is unavailable"));
+      const button = await selectTaskA();
+      const detail = screen.getByTestId("scheduled-task-detail");
+
+      fireEvent.click(button);
+
+      expect(await within(detail).findByText("Agent is unavailable")).toBeTruthy();
+      expect(within(detail).getByText("Never run")).toBeTruthy();
+      await waitFor(() => expect(button.disabled).toBe(false));
+    });
   });
 });

@@ -1,6 +1,7 @@
 import type {
   AutomaticArchivalSettings,
   CreateScheduledTaskInput,
+  RunScheduledTaskNowResult,
   ScheduledTask,
   ScheduledTaskRun,
   SetScheduledTaskEnabledInput,
@@ -25,6 +26,7 @@ export interface ScheduledTaskService {
   createScheduledTask(input: CreateScheduledTaskInput): Promise<ScheduledTask>;
   setScheduledTaskEnabled(input: SetScheduledTaskEnabledInput): Promise<ScheduledTask>;
   deleteScheduledTask(taskId: string): Promise<void>;
+  runScheduledTaskNow(taskId: string): Promise<RunScheduledTaskNowResult>;
 }
 
 export interface ContextQualityService {

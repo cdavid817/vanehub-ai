@@ -1,11 +1,7 @@
-use crate::contexts::agent_runtime::api::{
-    AgentChatConfiguration, AgentRuntimeApi, InteractionMode, SendMessageRequest,
-};
+use crate::contexts::agent_runtime::api::AgentRuntimeApi;
 use crate::contexts::operations::application::{DiagnosticLog, DiagnosticLogPort, LogSeverity};
 use crate::contexts::operations::infrastructure::UnifiedLoggingAdapter;
-use crate::contexts::sessions::api::{
-    NewSessionRequest, NewSessionWorkspace, SessionActivation, SessionOwner, SessionsApi,
-};
+use crate::contexts::sessions::api::SessionsApi;
 use crate::contexts::sessions::infrastructure::scheduled_tasks;
 use crate::platform::database::NativeDatabase;
 use chrono::Utc;
@@ -98,7 +94,7 @@ fn run_due_tasks(
             );
             continue;
         }
-        match run_one_task(sessions, agents, &task) {
+        match scheduled_tasks::run_one_task(sessions, agents, &task) {
             Ok(session_id) => {
                 if let Err(error) =
                     scheduled_tasks::mark_task_succeeded(database, &task, &session_id)
@@ -134,55 +130,6 @@ fn run_due_tasks(
     }
 }
 
-fn run_one_task(
-    sessions: &SessionsApi,
-    agents: &AgentRuntimeApi,
-    task: &scheduled_tasks::ScheduledTask,
-) -> Result<String, Box<dyn std::error::Error>> {
-    let interaction_mode = scheduled_task_interaction_mode(&task.agent_id);
-    // A scheduled run has no user in front of it to choose a mode, and inventing one would make
-    // the setting mean something different depending on who started the turn.
-    let prepared = sessions.prepare_creation(NewSessionRequest {
-        personalization_mode: None,
-        agent_id: task.agent_id.clone(),
-        seats: Vec::new(),
-        interaction_mode: interaction_mode.as_str().to_string(),
-        title: Some(task.name.clone()),
-        workspace: NewSessionWorkspace::default(),
-        owner: SessionOwner::desktop(),
-        activation: SessionActivation::PreserveActive,
-    })?;
-    let session = sessions.execute_creation(prepared)?;
-    agents.send_message(SendMessageRequest {
-        source: crate::contexts::agent_runtime::application::AgentMessageSource::Scheduled {
-            task_id: task.id.clone(),
-        },
-        session_id: session.id().to_string(),
-        content: task.content.clone(),
-        configuration: AgentChatConfiguration {
-            agent_id: task.agent_id.clone(),
-            interaction_mode,
-            execution_mode: "inherit".to_string(),
-            provider_id: None,
-            model_id: None,
-            reasoning_depth: None,
-            streaming: true,
-            thinking: false,
-            long_context: false,
-        },
-        file_references: Vec::new(),
-    })?;
-    Ok(session.id().to_string())
-}
-
-fn scheduled_task_interaction_mode(agent_id: &str) -> InteractionMode {
-    if agent_id == "onepiece" {
-        InteractionMode::Api
-    } else {
-        InteractionMode::Cli
-    }
-}
-
 fn log_scheduled_task(
     fallback_log_directory: &Path,
     severity: LogSeverity,
@@ -202,21 +149,4 @@ fn log_scheduled_task(
         message: message.to_string(),
         context,
     });
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{scheduled_task_interaction_mode, InteractionMode};
-
-    #[test]
-    fn onepiece_scheduled_tasks_use_api_and_cli_agents_keep_cli_mode() {
-        assert_eq!(
-            scheduled_task_interaction_mode("onepiece"),
-            InteractionMode::Api
-        );
-        assert_eq!(
-            scheduled_task_interaction_mode("codex-cli"),
-            InteractionMode::Cli
-        );
-    }
 }

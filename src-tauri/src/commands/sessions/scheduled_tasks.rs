@@ -1,5 +1,7 @@
 use super::dto;
 use crate::commands::error::CommandError;
+use crate::contexts::agent_runtime::api::AgentRuntimeApi;
+use crate::contexts::sessions::api::SessionsApi;
 use crate::contexts::sessions::infrastructure::scheduled_tasks::{self, ScheduledTaskLogDirectory};
 use crate::platform::database::NativeDatabase;
 use tauri::State;
@@ -42,4 +44,20 @@ pub(crate) fn delete_scheduled_task(
     task_id: String,
 ) -> Result<(), CommandError> {
     scheduled_tasks::delete_scheduled_task(&database, &task_id, Some(log_directory.path()))
+}
+
+/// 19.10: dispatches a task's content on demand, independent of its recurrence.
+///
+/// `SessionsApi` and `AgentRuntimeApi` are already registered as managed state in their own
+/// right (`bootstrap/runtime.rs` `.manage()`s both, the same instances `start_scheduled_task_jobs`
+/// hands to the due-task sweep), so this takes them directly as `State<'_, T>` alongside the
+/// database rather than introducing a new composed API type for a single call site.
+#[tauri::command]
+pub(crate) fn run_scheduled_task_now(
+    database: State<'_, NativeDatabase>,
+    sessions: State<'_, SessionsApi>,
+    agents: State<'_, AgentRuntimeApi>,
+    task_id: String,
+) -> Result<dto::RunScheduledTaskNowResult, CommandError> {
+    scheduled_tasks::run_scheduled_task_now(&database, &sessions, &agents, &task_id)
 }

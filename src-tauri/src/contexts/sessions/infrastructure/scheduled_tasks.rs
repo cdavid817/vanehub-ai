@@ -1,7 +1,13 @@
 use crate::commands::error::CommandError;
 use crate::commands::sessions::dto;
+use crate::contexts::agent_runtime::api::{
+    AgentChatConfiguration, AgentRuntimeApi, InteractionMode, SendMessageRequest,
+};
 use crate::contexts::operations::application::{DiagnosticLog, DiagnosticLogPort, LogSeverity};
 use crate::contexts::operations::infrastructure::UnifiedLoggingAdapter;
+use crate::contexts::sessions::api::{
+    NewSessionRequest, NewSessionWorkspace, SessionActivation, SessionOwner, SessionsApi,
+};
 use crate::platform::database::NativeDatabase;
 use chrono::{DateTime, Datelike, Duration, Local, NaiveTime, TimeZone, Utc};
 use rusqlite::{params, OptionalExtension};
@@ -180,6 +186,123 @@ pub(crate) fn delete_scheduled_task(
         );
     }
     Ok(())
+}
+
+/// Looks up the task, dispatches its content exactly as the due-task sweep's own `run_one_task`
+/// would (below), then records the outcome as its own `scheduled_task_runs` row -- but leaves
+/// `next_run_at`, `latest_status`, `latest_run_at`, and `latest_run_session_id` on the
+/// `scheduled_tasks` row alone. Those four columns are the sweep's own bookkeeping
+/// (`mark_task_running_with_trigger` / `mark_task_succeeded` / `mark_task_failed`, all below); an
+/// on-demand run does not own the task's recurrence and must not advance it, which is the entire
+/// point of "Run now" over waiting for the next tick.
+///
+/// A dispatch failure is returned as a command error rather than a persisted row: nothing durable
+/// happened, so there is nothing honest to record.
+pub(crate) fn run_scheduled_task_now(
+    database: &NativeDatabase,
+    sessions: &SessionsApi,
+    agents: &AgentRuntimeApi,
+    task_id: &str,
+) -> Result<dto::RunScheduledTaskNowResult, CommandError> {
+    let connection = database.connection().map_err(command_error)?;
+    let task = load_task(&connection, task_id)?;
+    drop(connection);
+
+    let session_id = run_one_task(sessions, agents, &task)?;
+    record_manual_run(database, task_id, &session_id)
+}
+
+/// The database half of a successful on-demand run: one new, already-complete
+/// `scheduled_task_runs` row. Inserted complete (both timestamps set up front) rather than left
+/// open for a later step to close -- there is nothing to close, because `run_one_task`'s own
+/// "succeeded" already means "the message reached the Agent," not "the Agent finished," which is
+/// exactly what the sweep treats it as too (`run_due_tasks` marks a task succeeded immediately
+/// after dispatch, without waiting for a reply). Inserting it complete also means this row can
+/// never be the "most recent incomplete run" the sweep's own completion queries
+/// (`update_task_run_metadata`) pick up, so a manual run can never race a concurrent sweep tick
+/// for the same row -- the two code paths never contend for the same mutable state.
+fn record_manual_run(
+    database: &NativeDatabase,
+    task_id: &str,
+    session_id: &str,
+) -> Result<dto::RunScheduledTaskNowResult, CommandError> {
+    let run_id = format!("scheduled-run-{}", Uuid::new_v4());
+    let timestamp = Utc::now().to_rfc3339();
+    let connection = database.connection().map_err(command_error)?;
+    connection
+        .execute(
+            "INSERT INTO scheduled_task_runs (id,task_id,session_id,status,error,started_at,completed_at) VALUES (?1,?2,?3,'succeeded',NULL,?4,?5)",
+            params![run_id, task_id, session_id, timestamp, timestamp],
+        )
+        .map_err(command_error)?;
+    Ok(dto::RunScheduledTaskNowResult {
+        run: dto::ScheduledTaskRun {
+            id: run_id,
+            task_id: task_id.to_string(),
+            session_id: Some(session_id.to_string()),
+            status: "succeeded".to_string(),
+            error: None,
+            started_at: timestamp.clone(),
+            completed_at: Some(timestamp),
+        },
+        operation_id: None,
+    })
+}
+
+/// The actual "run one scheduled task" behavior: create a session on the task's own Agent, and
+/// send its content as the first message. Shared by the due-task sweep (`run_due_tasks`, in
+/// `bootstrap::scheduled_tasks`) and `run_scheduled_task_now` above -- the sweep decides *when*
+/// this runs and what to do with `next_run_at`/`latest_status` afterward; this function only
+/// knows how to run it once. Moved here (from `bootstrap::scheduled_tasks`, its only caller until
+/// now) rather than duplicated, so the on-demand path and the sweep can never quietly drift into
+/// dispatching a task two different ways.
+pub(crate) fn run_one_task(
+    sessions: &SessionsApi,
+    agents: &AgentRuntimeApi,
+    task: &ScheduledTask,
+) -> Result<String, CommandError> {
+    let interaction_mode = scheduled_task_interaction_mode(&task.agent_id);
+    // A scheduled run has no user in front of it to choose a mode, and inventing one would make
+    // the setting mean something different depending on who started the turn.
+    let prepared = sessions.prepare_creation(NewSessionRequest {
+        personalization_mode: None,
+        agent_id: task.agent_id.clone(),
+        seats: Vec::new(),
+        interaction_mode: interaction_mode.as_str().to_string(),
+        title: Some(task.name.clone()),
+        workspace: NewSessionWorkspace::default(),
+        owner: SessionOwner::desktop(),
+        activation: SessionActivation::PreserveActive,
+    })?;
+    let session = sessions.execute_creation(prepared)?;
+    agents.send_message(SendMessageRequest {
+        source: crate::contexts::agent_runtime::application::AgentMessageSource::Scheduled {
+            task_id: task.id.clone(),
+        },
+        session_id: session.id().to_string(),
+        content: task.content.clone(),
+        configuration: AgentChatConfiguration {
+            agent_id: task.agent_id.clone(),
+            interaction_mode,
+            execution_mode: "inherit".to_string(),
+            provider_id: None,
+            model_id: None,
+            reasoning_depth: None,
+            streaming: true,
+            thinking: false,
+            long_context: false,
+        },
+        file_references: Vec::new(),
+    })?;
+    Ok(session.id().to_string())
+}
+
+fn scheduled_task_interaction_mode(agent_id: &str) -> InteractionMode {
+    if agent_id == "onepiece" {
+        InteractionMode::Api
+    } else {
+        InteractionMode::Cli
+    }
 }
 
 fn load_task(
@@ -782,5 +905,109 @@ mod tests {
             .expect("log content");
         assert!(log_content.contains("scheduled-tasks.delete"));
         assert!(log_content.contains("task-1"));
+    }
+
+    /// Moved from `bootstrap::scheduled_tasks` along with `scheduled_task_interaction_mode`
+    /// itself (19.10): OnePiece is the one Agent scheduled tasks dispatch through the API
+    /// runner, every other supported Agent goes through CLI.
+    #[test]
+    fn onepiece_scheduled_tasks_use_api_and_cli_agents_keep_cli_mode() {
+        assert_eq!(
+            scheduled_task_interaction_mode("onepiece"),
+            InteractionMode::Api
+        );
+        assert_eq!(
+            scheduled_task_interaction_mode("codex-cli"),
+            InteractionMode::Cli
+        );
+    }
+
+    /// 19.10's own stated requirement: an on-demand run must not change recurrence. This exercises
+    /// the real database code `run_scheduled_task_now` calls after a successful dispatch --
+    /// `run_one_task` itself needs a live `SessionsApi`/`AgentRuntimeApi` this file has no fixture
+    /// for, so this pins the half that actually touches `next_run_at`, the same way `run_one_task`
+    /// and `run_due_tasks` are exercised elsewhere rather than unit-tested directly here.
+    #[test]
+    fn record_manual_run_leaves_recurrence_and_latest_status_untouched() {
+        let (_directory, database) = database();
+        insert_task(&database, "task-1", true, "2026-07-19T00:00:00Z");
+        let before = list_scheduled_tasks(&database).expect("tasks").remove(0);
+
+        let receipt =
+            record_manual_run(&database, "task-1", "session-manual").expect("record manual run");
+
+        assert_eq!(receipt.run.task_id, "task-1");
+        assert_eq!(receipt.run.session_id.as_deref(), Some("session-manual"));
+        assert_eq!(receipt.run.status, "succeeded");
+        assert!(receipt.run.error.is_none());
+        assert!(receipt.run.completed_at.is_some());
+        assert!(receipt.operation_id.is_none());
+
+        let after = list_scheduled_tasks(&database).expect("tasks").remove(0);
+        assert_eq!(after.next_run_at, before.next_run_at);
+        assert_eq!(after.latest_status, before.latest_status);
+        assert_eq!(after.latest_run_at, before.latest_run_at);
+        assert_eq!(after.latest_run_session_id, before.latest_run_session_id);
+        assert_eq!(after.updated_at, before.updated_at);
+
+        let history = list_scheduled_task_runs(&database, "task-1").expect("history");
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].id, receipt.run.id);
+        assert_eq!(history[0].session_id.as_deref(), Some("session-manual"));
+        assert_eq!(history[0].status, "succeeded");
+    }
+
+    /// The concurrency claim in `record_manual_run`'s own doc comment, made concrete: a manual run
+    /// recorded while the sweep has its own run "open" (`mark_task_running_with_trigger`, not yet
+    /// completed) must not be the row `mark_task_succeeded` later completes, and the sweep's own
+    /// open row must not be disturbed by the manual insert either.
+    #[test]
+    fn record_manual_run_does_not_disturb_a_concurrently_open_sweep_run() {
+        let (_directory, database) = database();
+        insert_task(&database, "task-1", true, "2026-07-19T00:00:00Z");
+        let task = list_scheduled_tasks(&database).expect("tasks").remove(0);
+
+        mark_task_running_with_trigger(&database, &task.id, false).expect("sweep run opens");
+        record_manual_run(&database, &task.id, "session-manual").expect("manual run recorded");
+
+        let mid_flight = list_scheduled_task_runs(&database, &task.id).expect("history");
+        assert_eq!(mid_flight.len(), 2);
+        let sweep_row = mid_flight
+            .iter()
+            .find(|run| run.session_id.is_none())
+            .expect("the sweep's own row is still open with no session yet");
+        assert_eq!(sweep_row.status, "running");
+        assert!(sweep_row.completed_at.is_none());
+        let manual_row = mid_flight
+            .iter()
+            .find(|run| run.session_id.as_deref() == Some("session-manual"))
+            .expect("the manual row recorded its own session");
+        assert_eq!(manual_row.status, "succeeded");
+        assert!(manual_row.completed_at.is_some());
+
+        database.connection().expect("connection").execute(
+            "INSERT INTO sessions (id, title, agent_id, interaction_mode, lifecycle_state, pinned, archived, created_at, updated_at) VALUES ('session-sweep', 'Sweep run', 'codex-cli', 'cli', 'idle', 0, 0, '2026-07-19T03:00:00Z', '2026-07-19T03:00:00Z')",
+            [],
+        ).expect("session");
+        mark_task_succeeded(&database, &task, "session-sweep").expect("sweep completes");
+
+        let settled = list_scheduled_task_runs(&database, &task.id).expect("history");
+        let manual_row = settled
+            .iter()
+            .find(|run| run.session_id.as_deref() == Some("session-manual"))
+            .expect("the manual row is untouched by the sweep's own completion");
+        assert_eq!(manual_row.status, "succeeded");
+        let sweep_row = settled
+            .iter()
+            .find(|run| run.session_id.as_deref() == Some("session-sweep"))
+            .expect("the sweep's own open row -- not the manual one -- was the row completed");
+        assert_eq!(sweep_row.status, "succeeded");
+
+        let after = list_scheduled_tasks(&database).expect("tasks").remove(0);
+        assert!(after.next_run_at > task.next_run_at);
+        assert_eq!(
+            after.latest_run_session_id.as_deref(),
+            Some("session-sweep")
+        );
     }
 }

@@ -12,6 +12,7 @@ import type {
 let automaticArchivalSettings: AutomaticArchivalSettings = { enabled: true, inactiveDays: 10 };
 let scheduledTasks: ScheduledTask[] = [];
 let nextScheduledTaskId = 1;
+let nextScheduledTaskRunId = 1;
 
 function findScheduledTask(taskId: string) {
   const task = scheduledTasks.find((candidate) => candidate.id === taskId);
@@ -96,5 +97,26 @@ export const webScheduledTaskClient: ScheduledTaskService = {
   async deleteScheduledTask(taskId) {
     findScheduledTask(taskId);
     scheduledTasks = scheduledTasks.filter((task) => task.id !== taskId);
+  },
+
+  // 19.10: a plausible dispatch receipt, the same way every other mock in this file synthesizes
+  // realistic ids/timestamps rather than deferring to Tauri. Deliberately does not touch
+  // `scheduledTasks` -- the task's own `nextRunAt`/`latestStatus`/etc. stay exactly as they were,
+  // matching the Tauri command's own "does not change recurrence" contract.
+  async runScheduledTaskNow(taskId) {
+    const task = findScheduledTask(taskId);
+    const timestamp = nowIso();
+    const runId = nextScheduledTaskRunId++;
+    const sessionId = `web-scheduled-run-session-${runId}`;
+    const run: ScheduledTaskRun = {
+      id: `scheduled-run-${task.id}-${runId}`,
+      taskId: task.id,
+      sessionId,
+      status: "succeeded",
+      error: null,
+      startedAt: timestamp,
+      completedAt: timestamp,
+    };
+    return { run, operationId: null };
   },
 };

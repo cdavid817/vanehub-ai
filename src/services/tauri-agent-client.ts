@@ -45,6 +45,7 @@ import type {
   Session,
   SessionCategory,
   SessionDetails,
+  RunScheduledTaskNowResult,
   ScheduledTask,
   ScheduledTaskRun,
   SetScheduledTaskEnabledInput,
@@ -712,6 +713,10 @@ export const tauriAgentClient: AgentService = {
 
   async deleteScheduledTask(taskId: string) {
     await invoke<void>("delete_scheduled_task", { taskId });
+  },
+
+  runScheduledTaskNow(taskId: string) {
+    return invoke<RunScheduledTaskNowResult>("run_scheduled_task_now", { taskId });
   },
 
   listLoopDefinitions() {

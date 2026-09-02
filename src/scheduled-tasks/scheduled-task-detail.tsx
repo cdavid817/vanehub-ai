@@ -1,4 +1,6 @@
+import { Loader2, Play } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { Button } from "../components/ui/button";
 import { formatScheduledTaskFrequency } from "../lib/scheduled-task-recurrence";
 import type { AgentRegistryEntry, ScheduledTask } from "../types/agent";
 import { formatDateTime, frequencySummaryParams, statusClass } from "./scheduled-task-presentation";
@@ -8,6 +10,12 @@ export interface ScheduledTaskDetailProps {
   agent?: AgentRegistryEntry;
   weekdayNames: string[];
   language: string;
+  /** 19.10: true only while this task's own on-demand run is in flight -- the panel tracks at
+   *  most one running task id at a time, the same shape `confirmingDeleteId` already uses for
+   *  "at most one row has this pending action." */
+  isRunningNow: boolean;
+  runNowError: string | null;
+  onRunNow: () => void;
 }
 
 /**
@@ -18,7 +26,7 @@ export interface ScheduledTaskDetailProps {
  * and `formatScheduledTaskFrequency` exactly as `ScheduledTaskRow` does, rather than re-deriving
  * the same facts a second way.
  */
-export function ScheduledTaskDetail({ agent, language, task, weekdayNames }: ScheduledTaskDetailProps) {
+export function ScheduledTaskDetail({ agent, isRunningNow, language, onRunNow, runNowError, task, weekdayNames }: ScheduledTaskDetailProps) {
   const { t } = useTranslation();
 
   if (!task) {
@@ -50,6 +58,15 @@ export function ScheduledTaskDetail({ agent, language, task, weekdayNames }: Sch
           {t(`scheduledTasks.status.${task.latestStatus}`)}
         </span>
       </div>
+      <div className="flex items-center justify-between gap-3">
+        <Button className="h-8 px-3 text-xs" disabled={isRunningNow} onClick={onRunNow} type="button">
+          {isRunningNow ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <Play className="h-3.5 w-3.5" aria-hidden="true" />}
+          {t("scheduledTasks.runNow")}
+        </Button>
+      </div>
+      {runNowError ? (
+        <p className="text-xs text-destructive" data-testid="scheduled-task-run-now-error" role="alert">{runNowError}</p>
+      ) : null}
     </div>
   );
 }

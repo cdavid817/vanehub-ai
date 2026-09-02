@@ -40,6 +40,8 @@ export function ScheduledTasksPanel({ agents, onSelectSchedule, scheduleId }: Sc
   const [error, setError] = useState<string | null>(null);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(scheduleId ?? null);
+  const [runningTaskId, setRunningTaskId] = useState<string | null>(null);
+  const [runNowError, setRunNowError] = useState<string | null>(null);
   const weekdayNames = useMemo(() => formatAppWeekdayNames(i18n.language), [i18n.language]);
 
   const selectableAgents = useMemo(
@@ -105,6 +107,25 @@ export function ScheduledTasksPanel({ agents, onSelectSchedule, scheduleId }: Sc
     }
   }
 
+  /**
+   * 19.10: unlike `setEnabled`/`deleteTask`, a successful run does not change anything about the
+   * task itself (deliberately -- recurrence and latest-status stay the sweep's own bookkeeping),
+   * so there is no `tasks`/`setTasks` update to make here. Only the pending/error state around
+   * the button moves, the same way `confirmingDeleteId` is the only state a delete click owns
+   * before it actually resolves.
+   */
+  async function runTaskNow(task: ScheduledTask) {
+    setRunningTaskId(task.id);
+    setRunNowError(null);
+    try {
+      await agentService.runScheduledTaskNow(task.id);
+    } catch (reason) {
+      setRunNowError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setRunningTaskId(null);
+    }
+  }
+
   async function deleteTask(task: ScheduledTask) {
     setConfirmingDeleteId(null);
     setError(null);
@@ -136,7 +157,15 @@ export function ScheduledTasksPanel({ agents, onSelectSchedule, scheduleId }: Sc
         weekdayNames={weekdayNames}
       />
       <div className="grid content-start gap-4">
-        <ScheduledTaskDetail agent={selectedAgent} language={i18n.language} task={selected} weekdayNames={weekdayNames} />
+        <ScheduledTaskDetail
+          agent={selectedAgent}
+          isRunningNow={selected !== null && runningTaskId === selected.id}
+          language={i18n.language}
+          onRunNow={() => selected && void runTaskNow(selected)}
+          runNowError={runNowError}
+          task={selected}
+          weekdayNames={weekdayNames}
+        />
         <ScheduledTaskForm
           agentId={agentId}
           agents={selectableAgents}

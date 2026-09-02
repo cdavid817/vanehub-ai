@@ -253,6 +253,18 @@ pub(crate) struct ScheduledTaskRun {
     pub(crate) completed_at: Option<String>,
 }
 
+/// The receipt for an on-demand "Run now": the durable `ScheduledTaskRun` row the dispatch just
+/// created, in the same `{run, operationId}` shape `MissionControlActionReceipt` (types/
+/// mission-control.ts) already uses for "here is the thing that happened, and here is an
+/// operation id if one exists." Nothing here is execution-observability-shaped, so `operationId`
+/// is always `None` rather than a value invented to fill the field.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RunScheduledTaskNowResult {
+    pub(crate) run: ScheduledTaskRun,
+    pub(crate) operation_id: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CreateScheduledTaskInput {

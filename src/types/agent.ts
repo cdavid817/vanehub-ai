@@ -482,6 +482,17 @@ export interface ScheduledTaskRun {
   completedAt: string | null;
 }
 
+/**
+ * The receipt for an on-demand "Run now" (19.10): the `ScheduledTaskRun` the dispatch just
+ * created, in the same `{run, operationId}` shape `MissionControlActionReceipt` uses. There is no
+ * execution-observability operation behind a scheduled task run, so `operationId` is always
+ * `null` rather than a value invented to fill the field.
+ */
+export interface RunScheduledTaskNowResult {
+  run: ScheduledTaskRun;
+  operationId: string | null;
+}
+
 export interface CreateScheduledTaskInput {
   name: string;
   content: string;
