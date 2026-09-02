@@ -3,6 +3,8 @@ import { type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../components/ui/button";
 import { normalizeDisplayPath } from "../lib/session-path";
+import { MutationStatus } from "../ui/async/MutationStatus";
+import type { MutationState } from "../ui/async/mutation-state";
 import type { Goal, GoalLinkTarget } from "../contracts/goal";
 import { linkableGoalTargets } from "../contracts/goal";
 import {
@@ -13,22 +15,29 @@ const fieldClass = "ucd-input rounded-md px-3 py-2 text-sm outline-hidden focus-
 
 export interface GoalDetailProps {
   goal: Goal;
-  busy: boolean;
+  /** This goal's own in-flight activate/accept/reopen/abandon/edit/delete/link/unlink, if any --
+   *  shared across all of those actions (they all mutate the same goal and would race each
+   *  other), so the detail pane disables only its own goal's controls while pending rather than
+   *  the whole page. Matches work-board-card.tsx's own `busy: boolean` -> `mutation?: MutationState`
+   *  change. */
+  mutation?: MutationState;
   onActivate: () => void;
   onAccept: () => void;
   onReopen: () => void;
   onAbandon: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onDismissError: () => void;
   onLink: (targetKind: GoalLinkTarget, targetId: string) => void;
   onUnlink: (targetKind: GoalLinkTarget, targetId: string) => void;
 }
 
 export function GoalDetail(props: GoalDetailProps) {
-  const { busy, goal, onAbandon, onAccept, onActivate, onDelete, onEdit, onLink, onReopen, onUnlink } = props;
+  const { goal, mutation, onAbandon, onAccept, onActivate, onDelete, onDismissError, onEdit, onLink, onReopen, onUnlink } = props;
   const { t } = useTranslation();
   const reason = blockingReason(goal);
   const stranded = unresolvableLinks(goal);
+  const pending = mutation?.pending ?? false;
 
   const submitLink = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -53,20 +62,21 @@ export function GoalDetail(props: GoalDetailProps) {
 
     <div aria-label={t("goals.actionsLabel")} className="flex flex-wrap gap-2 rounded-md border border-border bg-muted/20 p-2" role="group">
       {goal.status === "draft" || goal.status === "abandoned"
-        ? <Button disabled={busy} onClick={onActivate} size="sm" type="button"><Play aria-hidden="true" />{t("goals.actions.activate")}</Button>
+        ? <Button disabled={pending} onClick={onActivate} size="sm" type="button"><Play aria-hidden="true" />{t("goals.actions.activate")}</Button>
         : null}
       {goal.status === "active"
-        ? <Button disabled={busy || !canAccept(goal)} onClick={onAccept} size="sm" title={canAccept(goal) ? undefined : t(`goals.blocked.${reason}`)} type="button"><Check aria-hidden="true" />{t("goals.actions.accept")}</Button>
+        ? <Button disabled={pending || !canAccept(goal)} onClick={onAccept} size="sm" title={canAccept(goal) ? undefined : t(`goals.blocked.${reason}`)} type="button"><Check aria-hidden="true" />{t("goals.actions.accept")}</Button>
         : null}
       {goal.status === "achieved"
-        ? <Button disabled={busy} onClick={onReopen} size="sm" type="button" variant="outline"><RotateCcw aria-hidden="true" />{t("goals.actions.reopen")}</Button>
+        ? <Button disabled={pending} onClick={onReopen} size="sm" type="button" variant="outline"><RotateCcw aria-hidden="true" />{t("goals.actions.reopen")}</Button>
         : null}
       {goal.status === "abandoned"
         ? null
-        : <Button disabled={busy} onClick={onAbandon} size="sm" type="button" variant="outline">{t("goals.actions.abandon")}</Button>}
-      <Button disabled={busy} onClick={onEdit} size="sm" type="button" variant="outline">{t("goals.actions.edit")}</Button>
-      <Button disabled={busy} onClick={onDelete} size="sm" type="button" variant="outline"><Trash2 aria-hidden="true" />{t("goals.actions.delete")}</Button>
+        : <Button disabled={pending} onClick={onAbandon} size="sm" type="button" variant="outline">{t("goals.actions.abandon")}</Button>}
+      <Button disabled={pending} onClick={onEdit} size="sm" type="button" variant="outline">{t("goals.actions.edit")}</Button>
+      <Button disabled={pending} onClick={onDelete} size="sm" type="button" variant="outline"><Trash2 aria-hidden="true" />{t("goals.actions.delete")}</Button>
     </div>
+    <MutationStatus onDismiss={onDismissError} state={mutation} />
 
     <div className="grid gap-2 rounded-md border border-border bg-muted/10 p-3">
       <div className="flex items-baseline justify-between gap-2">
@@ -97,7 +107,7 @@ export function GoalDetail(props: GoalDetailProps) {
             <span className={`text-xs ${link.progress === "unresolvable" ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}`}>
               {t(group.kind === "session" ? "goals.linkProgress.notCounted" : `goals.linkProgress.${link.progress}`)}
             </span>
-            <Button aria-label={t("goals.actions.unlink")} disabled={busy} onClick={() => onUnlink(link.targetKind, link.targetId)} size="icon" type="button" variant="ghost"><X aria-hidden="true" /></Button>
+            <Button aria-label={t("goals.actions.unlink")} disabled={pending} onClick={() => onUnlink(link.targetKind, link.targetId)} size="icon" type="button" variant="ghost"><X aria-hidden="true" /></Button>
           </span>
         </div>)}
       </div>)}
@@ -107,7 +117,7 @@ export function GoalDetail(props: GoalDetailProps) {
           {linkableGoalTargets.map((kind) => <option key={kind} value={kind}>{t(`goals.target.${kind}`)}</option>)}
         </select>
         <input aria-label={t("goals.fields.targetId")} className={`${fieldClass} min-w-0 flex-1`} name="targetId" placeholder={t("goals.fields.targetId")} />
-        <Button disabled={busy} size="sm" type="submit"><Plus aria-hidden="true" />{t("goals.actions.link")}</Button>
+        <Button disabled={pending} size="sm" type="submit"><Plus aria-hidden="true" />{t("goals.actions.link")}</Button>
       </form>
     </div>
   </section>;

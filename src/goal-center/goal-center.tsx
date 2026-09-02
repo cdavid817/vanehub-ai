@@ -1,12 +1,13 @@
-import { Loader2, Plus } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { AlertTriangle, Loader2, Plus } from "lucide-react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../components/ui/button";
-import type { Goal, GoalInput, GoalLinkTarget } from "../contracts/goal";
-import { goalService } from "../services/runtime-goal-client";
+import type { Goal } from "../contracts/goal";
+import type { MutationState } from "../ui/async/mutation-state";
 import { GoalDetail } from "./goal-detail";
 import { GoalForm } from "./goal-form";
 import { progressLabel, progressRatio, statusTone } from "./goal-presentation";
+import { CREATE_MUTATION_KEY, useGoalCenterActions } from "./use-goal-center-actions";
 
 function GoalProgressMeter({ goal }: { goal: Goal }) {
   const { t } = useTranslation();
@@ -29,58 +30,51 @@ function GoalProgressMeter({ goal }: { goal: Goal }) {
   );
 }
 
+/**
+ * A quiet, decorative cue that this row's own goal has an in-flight mutation or a leftover
+ * error, even while a different goal's detail pane (or none) is showing. Goal Center is
+ * Master-Detail -- only the selected goal's actions and errors render in `GoalDetail` -- but
+ * every row in this list stays visible regardless of selection, and every mutation here is
+ * reconcile-only (see use-goal-center-actions.ts), so nothing about a pending goal's row changes
+ * on its own until the response lands. Without this cue a background mutation on a non-selected
+ * goal would look like nothing happened until the user re-selects it.
+ *
+ * Deliberately `aria-hidden` with a `title` instead of an `aria-label`/`role="status"`: folding
+ * live status text into the row's own accessible name would make that name change while the
+ * mutation is pending, and the row button's name is also how tests and assistive tech find it by
+ * title text (see goal-center.test.tsx). The fully accessible version of this same state
+ * (`role="status"` / `role="alert"`, dismissible) already renders in `GoalDetail` once the goal
+ * is selected; this badge is a sighted-user hint layered on top, not a duplicate announcement.
+ */
+function GoalRowMutationBadge({ mutation }: { mutation: MutationState | undefined }) {
+  const { t } = useTranslation();
+  // `title` goes on a wrapping <span>, not the icon itself: lucide-react's own props don't
+  // include `title`, and putting the hover text on a plain element also keeps it out of the
+  // accessibility tree cleanly via this span's own `aria-hidden`, rather than relying on the
+  // icon's internal SVG structure.
+  if (mutation?.pending) {
+    return <span aria-hidden="true" className="shrink-0" title={t("workbenchUi.mutation.pending")}>
+      <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+    </span>;
+  }
+  if (mutation?.error) {
+    return <span aria-hidden="true" className="shrink-0" title={mutation.error.message}>
+      <AlertTriangle className="h-3 w-3 text-destructive" />
+    </span>;
+  }
+  return null;
+}
+
 export function GoalCenter() {
   const { t } = useTranslation();
-  const [goals, setGoals] = useState<Goal[]>([]);
+  const {
+    abandon, accept, activate, create, error, goals, link, loading, mutations, remove, reopen, unlink, update,
+  } = useGoalCenterActions();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [busy, setBusy] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    setBusy(true);
-    try {
-      setGoals(await goalService.listGoals());
-      setError(null);
-    } catch (reason: unknown) {
-      setError(reason instanceof Error ? reason.message : String(reason));
-    } finally {
-      setBusy(false);
-    }
-  }, []);
-  useEffect(() => { void load(); }, [load]);
-
-  const perform = async (action: () => Promise<unknown>) => {
-    setBusy(true);
-    try {
-      await action();
-      setError(null);
-      await load();
-    } catch (reason: unknown) {
-      setError(reason instanceof Error ? reason.message : String(reason));
-      setBusy(false);
-    }
-  };
 
   const selected = goals.find((goal) => goal.id === selectedId) ?? null;
-  const create = (input: GoalInput) => perform(async () => {
-    const goal = await goalService.createGoal(input);
-    setSelectedId(goal.id);
-    setCreating(false);
-  });
-  const update = (input: GoalInput) => perform(async () => {
-    if (selected) await goalService.updateGoal(selected.id, input);
-    setEditing(false);
-  });
-  const link = (targetKind: GoalLinkTarget, targetId: string) =>
-    perform(() => goalService.linkGoalTarget(String(selectedId), targetKind, targetId));
-  const unlink = (targetKind: GoalLinkTarget, targetId: string) =>
-    perform(() => goalService.unlinkGoalTarget(String(selectedId), targetKind, targetId));
-  const remove = () => perform(async () => {
-    await goalService.deleteGoal(String(selectedId));
-    setSelectedId(null);
-  });
 
   return <section aria-labelledby="goal-center-title" className="ucd-panel flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-lg" id="goal-center">
     <header className="grid shrink-0 gap-3 border-b border-border p-3 md:p-4">
@@ -93,13 +87,28 @@ export function GoalCenter() {
           <Plus aria-hidden="true" />{t("goals.new")}
         </Button>
       </div>
-      {creating ? <GoalForm busy={busy} onCancel={() => setCreating(false)} onSubmit={create} submitLabel={t("goals.actions.create")} /> : null}
-      {editing && selected ? <GoalForm busy={busy} goal={selected} onCancel={() => setEditing(false)} onSubmit={update} submitLabel={t("goals.actions.save")} /> : null}
+      {creating
+        ? <GoalForm
+            mutation={mutations.get(CREATE_MUTATION_KEY)}
+            onCancel={() => setCreating(false)}
+            onSubmit={(input) => void create(input, (goal) => { setSelectedId(goal.id); setCreating(false); })}
+            submitLabel={t("goals.actions.create")}
+          />
+        : null}
+      {editing && selected
+        ? <GoalForm
+            goal={selected}
+            mutation={mutations.get(selected.id)}
+            onCancel={() => setEditing(false)}
+            onSubmit={(input) => void update(selected, input, () => setEditing(false))}
+            submitLabel={t("goals.actions.save")}
+          />
+        : null}
     </header>
 
     {error ? <p className="m-3 rounded border border-destructive/50 bg-destructive/10 p-2 text-sm text-destructive" role="alert">{error}</p> : null}
 
-    {busy && !goals.length
+    {loading && !goals.length
       ? <div className="grid flex-1 place-items-center"><Loader2 aria-label={t("goals.loading")} className="animate-spin" /></div>
       : <div className="grid min-h-0 flex-1 gap-3 overflow-y-auto p-3 md:grid-cols-[minmax(14rem,20rem)_1fr] md:overflow-hidden">
           <ul className="grid content-start gap-2 max-md:max-h-64 max-md:overflow-y-auto md:overflow-y-auto" aria-label={t("goals.listLabel")}>
@@ -117,8 +126,11 @@ export function GoalCenter() {
                 {goal.id === selectedId ? <span aria-hidden="true" className="absolute inset-y-2 left-0 w-0.5 rounded bg-primary" /> : null}
                 <span className="flex items-start justify-between gap-2">
                   <span className="min-w-0 flex-1 truncate text-sm font-semibold">{goal.title}</span>
-                  <span className={`shrink-0 rounded px-1.5 py-0.5 text-[0.6875rem] ${statusTone(goal.derivedStatus)}`}>
-                    {t(`goals.status.${goal.derivedStatus}`)}
+                  <span className="flex shrink-0 items-center gap-1">
+                    <GoalRowMutationBadge mutation={mutations.get(goal.id)} />
+                    <span className={`rounded px-1.5 py-0.5 text-[0.6875rem] ${statusTone(goal.derivedStatus)}`}>
+                      {t(`goals.status.${goal.derivedStatus}`)}
+                    </span>
                   </span>
                 </span>
                 <GoalProgressMeter goal={goal} />
@@ -130,16 +142,17 @@ export function GoalCenter() {
           <div className="min-h-0 rounded-md border border-border md:overflow-hidden">
             {selected
               ? <GoalDetail
-                  busy={busy}
                   goal={selected}
-                  onAbandon={() => void perform(() => goalService.abandonGoal(selected.id))}
-                  onAccept={() => void perform(() => goalService.acceptGoal(selected.id))}
-                  onActivate={() => void perform(() => goalService.activateGoal(selected.id))}
-                  onDelete={() => void remove()}
+                  mutation={mutations.get(selected.id)}
+                  onAbandon={() => void abandon(selected)}
+                  onAccept={() => void accept(selected)}
+                  onActivate={() => void activate(selected)}
+                  onDelete={() => void remove(selected, () => setSelectedId(null))}
+                  onDismissError={() => mutations.clear(selected.id)}
                   onEdit={() => { setCreating(false); setEditing(true); }}
-                  onLink={(kind, id) => void link(kind, id)}
-                  onReopen={() => void perform(() => goalService.reopenGoal(selected.id))}
-                  onUnlink={(kind, id) => void unlink(kind, id)}
+                  onLink={(kind, id) => void link(selected, kind, id)}
+                  onReopen={() => void reopen(selected)}
+                  onUnlink={(kind, id) => void unlink(selected, kind, id)}
                 />
               : <p className="grid h-full place-items-center p-4 text-center text-xs text-muted-foreground">{t("goals.detail.empty")}</p>}
           </div>

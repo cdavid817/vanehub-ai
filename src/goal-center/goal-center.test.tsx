@@ -1,12 +1,15 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import "../i18n";
 import type { Goal } from "../contracts/goal";
 
 const mocks = vi.hoisted(() => ({
   accept: vi.fn(),
+  activate: vi.fn(),
+  create: vi.fn(),
+  deleteGoal: vi.fn(),
   goals: [] as Goal[],
   link: vi.fn(),
   list: vi.fn(),
@@ -16,9 +19,9 @@ vi.mock("../services/runtime-goal-client", () => ({
   goalService: {
     abandonGoal: vi.fn(),
     acceptGoal: mocks.accept,
-    activateGoal: vi.fn(),
-    createGoal: vi.fn(),
-    deleteGoal: vi.fn(),
+    activateGoal: mocks.activate,
+    createGoal: mocks.create,
+    deleteGoal: mocks.deleteGoal,
     getGoal: vi.fn(),
     linkGoalTarget: mocks.link,
     listGoals: mocks.list,
@@ -50,6 +53,9 @@ async function openFirstGoal() {
 describe("GoalCenter", () => {
   beforeEach(() => {
     mocks.accept.mockReset();
+    mocks.activate.mockReset();
+    mocks.create.mockReset();
+    mocks.deleteGoal.mockReset();
     mocks.link.mockReset();
     mocks.list.mockReset();
     mocks.goals = [fixture()];
@@ -118,5 +124,82 @@ describe("GoalCenter", () => {
     render(<GoalCenter />);
 
     expect(await screen.findByText("选择一个目标查看其子项。")).toBeTruthy();
+  });
+
+  it("does not reload the goal list after a single goal's own successful mutation", async () => {
+    mocks.accept.mockResolvedValue(fixture({
+      derivedStatus: "awaiting_acceptance", terminal: 1,
+      links: [{ targetKind: "plan", targetId: "plan-1", progress: "terminal" }],
+    }));
+    mocks.goals = [fixture({
+      derivedStatus: "awaiting_acceptance", terminal: 1,
+      links: [{ targetKind: "plan", targetId: "plan-1", progress: "terminal" }],
+    })];
+    await openFirstGoal();
+    const loadCallsAfterMount = mocks.list.mock.calls.length;
+
+    fireEvent.click(await screen.findByRole("button", { name: "验收" }));
+    await waitFor(() => expect(mocks.accept).toHaveBeenCalledWith("goal-1"));
+
+    expect(mocks.list.mock.calls.length).toBe(loadCallsAfterMount);
+  });
+
+  it("creates a goal by appending the server's response, without a full list reload", async () => {
+    mocks.create.mockResolvedValue(fixture({ id: "goal-2", title: "新目标", counted: 0, terminal: 0, links: [] }));
+    render(<GoalCenter />);
+    await screen.findByRole("button", { name: /发布目标系统/ });
+    const loadCallsAfterMount = mocks.list.mock.calls.length;
+
+    fireEvent.click(screen.getByRole("button", { name: "新建目标" }));
+    fireEvent.change(screen.getByLabelText("标题"), { target: { value: "新目标" } });
+    fireEvent.click(screen.getByRole("button", { name: "创建" }));
+
+    await screen.findByRole("button", { name: /新目标/ });
+    expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ title: "新目标" }));
+    expect(mocks.list.mock.calls.length).toBe(loadCallsAfterMount);
+  });
+
+  it("does not disable a newly selected goal's own actions while a different goal's mutation is still pending", async () => {
+    const first = fixture({ status: "draft", derivedStatus: "draft" });
+    const second = fixture({ id: "goal-2", title: "第二个目标", status: "achieved", derivedStatus: "achieved" });
+    mocks.goals = [first, second];
+    let resolveActivate: (goal: Goal) => void = () => {};
+    mocks.activate.mockImplementation(() => new Promise((resolve) => { resolveActivate = resolve; }));
+
+    render(<GoalCenter />);
+    const rowOne = () => screen.getByRole("button", { name: /发布目标系统/ });
+    fireEvent.click(await screen.findByRole("button", { name: /发布目标系统/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "启用" }));
+
+    // goal-1's own activate is pending -- its own row shows the ambient (decorative) pending cue.
+    await waitFor(() => expect(within(rowOne()).getByTitle("保存中...")).toBeTruthy());
+
+    // Switching to goal-2 must not carry goal-1's pending state along: its own action is enabled.
+    fireEvent.click(screen.getByRole("button", { name: /第二个目标/ }));
+    const reopen = (await screen.findByRole("button", { name: "重开" })) as HTMLButtonElement;
+    expect(reopen.disabled).toBe(false);
+
+    // goal-1's own row still shows it is pending even though it is no longer the selected goal.
+    expect(within(rowOne()).getByTitle("保存中...")).toBeTruthy();
+
+    resolveActivate(fixture({ status: "active", derivedStatus: "active" }));
+    await waitFor(() => expect(within(rowOne()).queryByTitle("保存中...")).toBeNull());
+  });
+
+  it("rolls back an optimistic delete and shows the goal's own dismissible error on failure", async () => {
+    let rejectDelete: (reason: unknown) => void = () => {};
+    mocks.deleteGoal.mockImplementation(() => new Promise((_resolve, reject) => { rejectDelete = reject; }));
+    await openFirstGoal();
+
+    fireEvent.click(await screen.findByRole("button", { name: "删除" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: /发布目标系统/ })).toBeNull());
+
+    rejectDelete(new Error("删除失败"));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: /发布目标系统/ })).toBeTruthy());
+    expect(screen.getByRole("alert").textContent).toContain("删除失败");
+
+    fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
   });
 });
