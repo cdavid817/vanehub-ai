@@ -42,6 +42,7 @@ const fixture = (): WorkItem => ({
 });
 
 beforeEach(() => {
+  localStorage.clear();
   mocks.compact = false;
   mocks.items = [fixture()];
   mocks.list.mockReset().mockImplementation(async ({ archived = false }: WorkItemFilters = {}) => mocks.items.filter((item) => item.archived === archived));
@@ -75,6 +76,26 @@ beforeEach(() => {
 // The header's own stage filter <select> renders an <option> per stage too, so an unscoped
 // role="option" query collides with it -- scope to the open Move-to listbox by its aria-label.
 const stageOption = (name: string) => within(screen.getByRole("listbox", { name: "移至阶段" })).getByRole("option", { name });
+// 14.1/14.4: filters now live behind FilterPopover's own trigger, not a permanently-visible grid.
+// Idempotent rather than a bare click: FilterPopover/ActionMenu/WorkBoardSavedViewMenu each close
+// on an outside *pointerdown*, which plain `fireEvent.click` never dispatches, so a naive second
+// click on an already-open trigger would toggle it shut instead of being a harmless no-op.
+function openByTrigger(name: string | RegExp) {
+  const trigger = screen.getByRole("button", { name });
+  if (trigger.getAttribute("aria-expanded") !== "true") fireEvent.click(trigger);
+}
+// A regex, not the exact label: FilterPopover folds a "N active filters" sr-only span into its
+// own trigger's accessible name once any filter is active, which would break an exact-string match.
+const openFilters = () => openByTrigger(/筛选条件/);
+const openSavedViews = () => openByTrigger("已保存视图");
+// 14.6: Edit/Archive/Delete now live in each card's own More menu rather than as bare buttons.
+// Takes the testid, not an element, and re-queries fresh every time: an optimistic stage move
+// re-parents a card into a different stage column's own DOM subtree, so a `card` element handle
+// captured before such a move would silently be stale (detached) by the time this runs.
+function openCardMore(testId: string) {
+  const trigger = within(screen.getByTestId(testId)).getByRole("button", { name: "更多操作" });
+  if (trigger.getAttribute("aria-expanded") !== "true") fireEvent.click(trigger);
+}
 
 describe("WorkBoard", () => {
   it("keeps multi-source work on one accessible card and supports filtering, movement, and archive", async () => {
@@ -82,13 +103,15 @@ describe("WorkBoard", () => {
     const card = await screen.findByTestId("work-item-work-1");
     expect(within(card).getAllByRole("listitem")).toHaveLength(2);
 
+    openFilters();
     fireEvent.change(screen.getByLabelText("按来源筛选"), { target: { value: "scheduled_task" } });
     expect(screen.getByTestId("work-item-work-1")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "收件箱" }));
     fireEvent.click(stageOption("待审核"));
     await waitFor(() => expect(mocks.move).toHaveBeenCalledWith({ workItemId: "work-1", stage: "review" }));
 
-    fireEvent.click(screen.getByRole("button", { name: "归档工作项" }));
+    openCardMore("work-item-work-1");
+    fireEvent.click(screen.getByRole("menuitem", { name: "归档工作项" }));
     await waitFor(() => expect(screen.queryByTestId("work-item-work-1")).toBeNull());
   });
 
@@ -100,6 +123,7 @@ describe("WorkBoard", () => {
     expect(within(card).getByTitle("D:\\cdavid\\Documents\\code\\cc-switch")).toBeTruthy();
     expect(card.textContent).not.toContain("\\\\?\\");
 
+    openFilters();
     const projectFilter = screen.getByLabelText("按项目筛选") as HTMLSelectElement;
     const option = within(projectFilter).getByRole("option", { name: "D:\\cdavid\\Documents\\code\\cc-switch" });
     // The label is normalized but the value stays the stored path, or filtering stops matching.
@@ -114,7 +138,8 @@ describe("WorkBoard", () => {
     await screen.findByTestId("work-item-work-1");
     expect(screen.getAllByRole("heading", { level: 2 })).toHaveLength(1);
 
-    fireEvent.click(screen.getByRole("button", { name: "编辑工作项" }));
+    openCardMore("work-item-work-1");
+    fireEvent.click(screen.getByRole("menuitem", { name: "编辑工作项" }));
     const title = screen.getByLabelText("标题");
     fireEvent.change(title, { target: { value: "已编辑版本" } });
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
@@ -130,34 +155,32 @@ describe("WorkBoard", () => {
     render(<WorkBoard />);
     await screen.findByTestId("work-item-work-1");
     const cardTwo = await screen.findByTestId("work-item-work-2");
-    const cardTwoEdit = () => within(cardTwo).getByRole("button", { name: "编辑工作项" }) as HTMLButtonElement;
+    const cardTwoStageTrigger = (name: string) => within(cardTwo).getByRole("button", { name }) as HTMLButtonElement;
     // Re-queried by testid fresh each time rather than captured once -- an *optimistic* stage
     // change re-parents the card into a different stage column's own DOM subtree immediately
     // (matching what a real, server-confirmed move already does), so a stale element reference
     // would silently stop reflecting updates once it is detached.
     const cardOne = () => screen.getByTestId("work-item-work-1");
-    const cardOneEdit = () => within(cardOne()).getByRole("button", { name: "编辑工作项" }) as HTMLButtonElement;
     // WorkItemStageMenu's trigger has no separate aria-label -- its accessible name IS the
     // currently displayed stage -- so finding it by the stage name being asserted doubles as proof
-    // the trigger already reflects that stage.
-    const cardOneStageTrigger = (name: string) => within(cardOne()).getByRole("button", { name });
+    // the trigger already reflects that stage, and (14.6) it is now also the one always-visible
+    // per-card control whose own disabled state reflects this card's pending mutation.
+    const cardOneStageTrigger = (name: string) => within(cardOne()).getByRole("button", { name }) as HTMLButtonElement;
 
     fireEvent.click(cardOneStageTrigger("收件箱"));
     fireEvent.click(stageOption("待审核"));
 
     // Optimistic: this card's own pending state is applied -- and with it, the new stage -- before
     // the request settles.
-    await waitFor(() => expect(cardOneEdit().disabled).toBe(true));
-    expect(cardOneStageTrigger("待审核")).toBeTruthy();
+    await waitFor(() => expect(cardOneStageTrigger("待审核").disabled).toBe(true));
     // Per-card, not page-wide: an unrelated card's own actions stay enabled throughout.
-    expect(cardTwoEdit().disabled).toBe(false);
+    expect(cardTwoStageTrigger("收件箱").disabled).toBe(false);
 
     rejectMove(new Error("移动失败"));
 
     // Rollback: once the rejection lands, the card reverts to its pre-mutation stage and shows
     // its own dismissible error -- not a page-wide banner.
-    await waitFor(() => expect(cardOneEdit().disabled).toBe(false));
-    expect(cardOneStageTrigger("收件箱")).toBeTruthy();
+    await waitFor(() => expect(cardOneStageTrigger("收件箱").disabled).toBe(false));
     expect(within(cardOne()).getByRole("alert").textContent).toContain("移动失败");
 
     fireEvent.click(within(cardOne()).getByRole("button", { name: "关闭" }));
@@ -169,7 +192,8 @@ describe("WorkBoard", () => {
     await screen.findByTestId("work-item-work-1");
     const loadCallsAfterMount = mocks.list.mock.calls.length;
 
-    fireEvent.click(screen.getByRole("button", { name: "归档工作项" }));
+    openCardMore("work-item-work-1");
+    fireEvent.click(screen.getByRole("menuitem", { name: "归档工作项" }));
     await waitFor(() => expect(screen.queryByTestId("work-item-work-1")).toBeNull());
 
     expect(mocks.list.mock.calls.length).toBe(loadCallsAfterMount);
@@ -187,5 +211,58 @@ describe("WorkBoard", () => {
     await screen.findByTestId("work-item-work-new");
     expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ title: "新工作项" }));
     expect(mocks.list.mock.calls.length).toBe(loadCallsAfterMount);
+  });
+
+  it("narrows the board by the due-date bucket filter (task 14.3)", async () => {
+    const overdue: WorkItem = { ...fixture(), id: "work-overdue", title: "逾期项", dueAt: "2000-01-01", sources: [] };
+    mocks.items = [fixture(), overdue];
+    render(<WorkBoard />);
+    await screen.findByTestId("work-item-work-1");
+    await screen.findByTestId("work-item-work-overdue");
+
+    openFilters();
+    fireEvent.change(screen.getByLabelText("按截止日期筛选"), { target: { value: "overdue" } });
+
+    await waitFor(() => expect(screen.queryByTestId("work-item-work-1")).toBeNull());
+    expect(screen.getByTestId("work-item-work-overdue")).toBeTruthy();
+  });
+
+  it("clears a single active filter via its own chip without disturbing the others (task 14.4)", async () => {
+    render(<WorkBoard />);
+    await screen.findByTestId("work-item-work-1");
+
+    openFilters();
+    fireEvent.change(screen.getByLabelText("按优先级筛选"), { target: { value: "urgent" } });
+    fireEvent.change(screen.getByLabelText("按来源筛选"), { target: { value: "session" } });
+    await waitFor(() => expect(screen.queryByTestId("work-item-work-1")).toBeNull());
+
+    fireEvent.click(screen.getByRole("button", { name: "清除按优先级筛选" }));
+
+    await waitFor(() => expect(screen.getByTestId("work-item-work-1")).toBeTruthy());
+    // The other filter (source) is untouched -- clear-one, not clear-all.
+    openFilters();
+    expect((screen.getByLabelText("按来源筛选") as HTMLSelectElement).value).toBe("session");
+  });
+
+  it("saves the current filters as a named view, then applying it restores them after Clear filters (task 14.5)", async () => {
+    render(<WorkBoard />);
+    await screen.findByTestId("work-item-work-1");
+
+    openFilters();
+    fireEvent.change(screen.getByLabelText("按优先级筛选"), { target: { value: "high" } });
+
+    openSavedViews();
+    fireEvent.change(screen.getByLabelText("视图名称"), { target: { value: "我的高优先级" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存当前筛选" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "清除筛选" }));
+    openFilters();
+    expect((screen.getByLabelText("按优先级筛选") as HTMLSelectElement).value).toBe("all");
+
+    openSavedViews();
+    fireEvent.click(screen.getByRole("button", { name: "我的高优先级" }));
+
+    openFilters();
+    expect((screen.getByLabelText("按优先级筛选") as HTMLSelectElement).value).toBe("high");
   });
 });

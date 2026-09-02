@@ -145,3 +145,75 @@ describe("WorkBoardCard stage control scoped within a card", () => {
     expect(within(cardTwo).queryByRole("listbox")).toBeNull();
   });
 });
+
+// Task 14.6: "one open action, and More" -- the stage picker is the one open action for a
+// non-archived card (Edit/Archive collapse into More); Restore is the one open action for an
+// archived card (Delete collapses into its own More).
+describe("WorkBoardCard action grouping", () => {
+  it("keeps only the stage trigger directly visible for a non-archived card, with Edit and Archive behind More", () => {
+    renderCard({ archived: false });
+    expect(screen.queryByRole("button", { name: "编辑工作项" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "归档工作项" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    expect(screen.getByRole("menuitem", { name: "编辑工作项" })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "归档工作项" })).toBeTruthy();
+    // Delete only ever applies to an archived item -- it must not leak into the active More menu.
+    expect(screen.queryByRole("menuitem", { name: "永久删除" })).toBeNull();
+  });
+
+  it("keeps only Restore directly visible for an archived card, with Delete behind its own More", () => {
+    renderCard({ archived: true });
+    expect(screen.getByRole("button", { name: "恢复" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "永久删除" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    expect(screen.getByRole("menuitem", { name: "永久删除" })).toBeTruthy();
+    expect(screen.queryByRole("menuitem", { name: "编辑工作项" })).toBeNull();
+  });
+
+  it("calls the right handler for each More item and closes the menu afterward", () => {
+    const onEdit = vi.fn();
+    const onArchive = vi.fn();
+    render(<WorkBoardCard item={fixture()} onArchive={onArchive} onDelete={vi.fn()} onDismissError={vi.fn()} onEdit={onEdit} onMove={vi.fn()} onRestore={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "编辑工作项" }));
+    expect(onEdit).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("menu")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "归档工作项" }));
+    expect(onArchive).toHaveBeenCalledOnce();
+  });
+
+  it("disables both the stage trigger and the More trigger's own items while this card's mutation is pending", () => {
+    renderCard({ archived: false }, { targetKey: "work-1", pending: true });
+    expect((screen.getByRole("button", { name: "收件箱" }) as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    expect(screen.getByRole("menuitem", { name: "编辑工作项" }).getAttribute("aria-disabled")).toBe("true");
+  });
+});
+
+describe("WorkBoardCard sources display bound", () => {
+  const manySources = Array.from({ length: 5 }, (_unused, index) => ({
+    sourceKind: "session" as const, sourceId: `s${index}`, relation: "execution" as const,
+    title: `会话 ${index}`, status: "idle", available: true, projectPath: null, updatedAt: null,
+  }));
+
+  it("shows every source when the count is within the display bound", () => {
+    renderCard({ sources: manySources.slice(0, 3) });
+    expect(screen.getAllByRole("listitem")).toHaveLength(3);
+    expect(screen.queryByText("还有 2 项")).toBeNull();
+  });
+
+  it("caps the visible sources and shows a +N more affordance beyond the bound", () => {
+    renderCard({ sources: manySources });
+    const items = screen.getAllByRole("listitem");
+    // 3 real source rows plus one "+N more" row -- the cap is a display bound, not data loss:
+    // nothing about the underlying item or its sources array is truncated, only this list's render.
+    expect(items).toHaveLength(4);
+    expect(screen.getByText("还有 2 项")).toBeTruthy();
+  });
+});

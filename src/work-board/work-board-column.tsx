@@ -4,7 +4,10 @@ import type { MutationState } from "../ui/async/mutation-state";
 import type { WorkItem, WorkItemStage } from "../types/work-board";
 import { WorkBoardCard } from "./work-board-card";
 
-export function WorkBoardColumn({ filtersActive, items, mutations, onArchive, onDelete, onDismissError, onDrop, onEdit, onMove, onRestore, stage }: {
+export function WorkBoardColumn({ filterSummary, filtersActive, items, mutations, onArchive, onDelete, onDismissError, onDrop, onEdit, onMove, onRestore, stage }: {
+  /** Human-readable "why nothing matches" text (e.g. "Priority: High, Due: Overdue"), built once
+   *  from the active query and shared across every column -- undefined when no filter is active. */
+  filterSummary?: string;
   filtersActive: boolean;
   items: WorkItem[];
   /** Every card's own mutation state, keyed by work item id -- see use-work-board-actions.ts. */
@@ -46,7 +49,9 @@ export function WorkBoardColumn({ filtersActive, items, mutations, onArchive, on
         ))}
         {items.length === 0 ? (
           <p className="rounded-md border border-dashed border-border/70 p-4 text-center text-xs text-muted-foreground">
-            {filtersActive ? t("todoBoard.emptyFiltered") : t("todoBoard.empty")}
+            {filtersActive
+              ? (filterSummary ? t("todoBoard.emptyFilteredReason", { reason: filterSummary }) : t("todoBoard.emptyFiltered"))
+              : t("todoBoard.empty")}
           </p>
         ) : null}
       </div>
