@@ -4,6 +4,15 @@
 
 Packaging and release are in [Release](release.md).
 
+A documentation change additionally runs these four. `docs:screenshots:check` is not in `AGENTS.md`'s core list; it applies when documentation screenshots change:
+
+```powershell
+npm run docs:check
+npm run docs:test
+npm run docs:screenshots:check
+npm run docs:build
+```
+
 
 Frontend tests cover pure contracts and visible component behavior. Playwright covers the browser Web/mock runtime; passing it does not claim that the Tauri desktop runtime passed. Native tests cover domain invariants, application port orchestration, persistence/migrations, command mapping, process safety, and lifecycle behavior.
 

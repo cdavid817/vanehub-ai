@@ -4,6 +4,15 @@
 
 打包与发布见[发布](release.md)。
 
+文档改动还需额外运行下面四条——`docs:screenshots:check` 不在 `AGENTS.md` 的核心清单里，改了文档截图才需要它：
+
+```powershell
+npm run docs:check
+npm run docs:test
+npm run docs:screenshots:check
+npm run docs:build
+```
+
 
 前端测试覆盖纯契约与可见的组件行为。Playwright 覆盖浏览器 Web/mock 运行时;通过它并不代表 Tauri 桌面运行时也通过了。native 测试覆盖领域不变量、应用端口编排、持久化/迁移、命令映射、进程安全与生命周期行为。
 

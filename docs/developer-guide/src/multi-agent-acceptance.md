@@ -4,6 +4,13 @@ This chapter is an **acceptance procedure**, not a usage tutorial. It walks an a
 
 For day-to-day use of multi-Agent group chat see the user guide's [Multi-Agent group chat](../../user-guide/en/src/multi-agent-workflow.md); for how it is built see [Multi-Agent group chat](multi-agent-group-chat.md).
 
+Working through it should answer four questions:
+
+1. Can you choose an Agent per role when creating the session?
+2. Once inside, can you see all members and the current speaker at the same time?
+3. When a member joins or leaves, is the speaker identity of existing messages preserved?
+4. Does a single-Agent session keep its original interface and behavior?
+
 ## The case goal
 
 This case only asks the Agents to review a small change proposal; it does not ask them to modify the repository:

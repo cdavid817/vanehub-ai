@@ -4,6 +4,8 @@ How an execution trace is recorded and layered, which nodes carry visible fideli
 
 The Agent evaluation arena runs on the same Operation lifecycle but is a separate problem domain; see [Evaluation runtime](evaluation-runtime.md).
 
+Traces and evaluation share one principle: **record only what can be substantiated, and state honestly how much is actually known**.
+
 ## Execution traces
 
 ### Four core types

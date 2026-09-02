@@ -30,5 +30,4 @@ The session workspace's **Terminal** and **Shell** tabs connect to the remote ho
 
 ## Notes and limits
 
-- **Desktop only**, and it depends on the native network stack and the system credential store.
-- **A remote workspace does not support Git worktrees**, so Loop is unavailable there. That is a capability boundary, not a configuration problem.
+- **Desktop only**, and it depends on the native network stack and the system credential store.

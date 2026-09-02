@@ -4,6 +4,8 @@ The Agent evaluation arena: run several Agents against one task and compare pass
 
 Traces themselves are in [Execution observability](execution-observability.md).
 
+Evaluation and traces share one principle: **record only what can be substantiated, and state honestly how much is actually known**.
+
 ## The Agent evaluation arena
 
 Evaluation runs in the same context because at its core it is **one controlled execution plus one deterministic acceptance check**.
