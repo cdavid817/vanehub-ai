@@ -44,7 +44,15 @@ describe("MCP user-visible behavior", () => {
     expect(screen.getByRole("option", { name: "Streamable HTTP" })).toBeTruthy();
 
     form.unmount();
-    render(<McpServerCard {...callbacks} server={legacyServer} testing={false} />);
+    render(
+      <McpServerCard
+        {...callbacks}
+        deleteState={undefined}
+        server={legacyServer}
+        testState={undefined}
+        toggleState={undefined}
+      />,
+    );
     expect(screen.getByText("旧版 SSE")).toBeTruthy();
     expect(screen.queryByText("Streamable HTTP")).toBeNull();
   });

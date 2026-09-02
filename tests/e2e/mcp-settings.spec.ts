@@ -13,7 +13,10 @@ test.describe("MCP server settings", () => {
     await page.keyboard.press("Escape");
     await expect(addDialog).toBeHidden();
 
-    await page.getByRole("button", { name: /导入\/导出|Import\/Export/ }).click();
+    // Task 12.18: Import/Export moved from a standalone header button into the shared
+    // PageHeader's own "more actions" overflow menu (exactly one primaryAction per page).
+    await page.getByRole("button", { name: /更多操作|More actions/ }).click();
+    await page.getByRole("menuitem", { name: /导入\/导出|Import\/Export/ }).click();
     const importExportDialog = page.getByRole("dialog");
     await expect(importExportDialog).toBeVisible();
     await page.keyboard.press("Escape");
@@ -33,10 +36,14 @@ test.describe("MCP server settings", () => {
     await addDialog.getByRole("button", { name: /^(保存|Save)$/ }).click();
     await expect(addDialog).toBeHidden();
 
-    // The nearest `section` ancestor specifically -- `.filter({ has })` would also match an outer
-    // wrapping section that contains every card, not just this one.
-    const card = page.getByRole("heading", { name: "secret-server", exact: true }).locator("xpath=ancestor::section[1]");
-    await card.getByRole("button", { name: /^(编辑|Edit)$/ }).click();
+    // The nearest `article` ancestor specifically -- `.filter({ has })` would also match an outer
+    // wrapping element that contains every card, not just this one. Task 12.18: the card root
+    // moved from `<section>` to `<article>` to match SSH/Extensions/Plugins' own card convention.
+    const card = page.getByRole("heading", { name: "secret-server", exact: true }).locator("xpath=ancestor::article[1]");
+    // Task 12.18: Edit moved from a standalone card button into the card's own row-level
+    // ActionMenu, matching SSH's own precedent for collapsing per-card actions behind one menu.
+    await card.getByRole("button", { name: /secret-server的操作|Actions for secret-server/ }).click();
+    await card.getByRole("menuitem", { name: /^(编辑|Edit)$/ }).click();
     const editDialog = page.getByRole("dialog");
     await expect(editDialog).toBeVisible();
 
@@ -54,8 +61,14 @@ test.describe("MCP server settings", () => {
     await page.getByRole("button", { name: /设置|Settings/ }).click();
     await page.getByText(/^(MCP 服务器|MCP Servers)$/).click();
 
-    await expect(page.getByRole("button", { name: /^(禁用|Disable) filesystem-tools$/ }).or(
-      page.getByRole("button", { name: /^(启用|Enable) filesystem-tools$/ }),
+    // Task 12.18: the standalone toggle button moved into the card's own row-level ActionMenu,
+    // matching Extensions' own enable/disable-inside-the-menu precedent for this exact kind of
+    // action -- still asserting a real, distinct accessible name, just as a menuitem now.
+    const card = page.getByRole("heading", { name: "filesystem-tools", exact: true }).locator("xpath=ancestor::article[1]");
+    await card.getByRole("button", { name: /filesystem-tools的操作|Actions for filesystem-tools/ }).click();
+
+    await expect(page.getByRole("menuitem", { name: /^(禁用|Disable) filesystem-tools$/ }).or(
+      page.getByRole("menuitem", { name: /^(启用|Enable) filesystem-tools$/ }),
     )).toBeVisible();
   });
 });
