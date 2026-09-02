@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, ArrowRight, Loader2, Play, Save, X } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Button } from "../components/ui/button";
+import { loopQueryKeys } from "../hooks/loop-query";
 import { useLoopBranchesQuery, useLoopProjectChoicesQuery } from "../hooks/use-loop-queries";
+import { i18n } from "../i18n";
 import { agentService } from "../services/runtime-agent-client";
 import type { AgentRegistryEntry } from "../types/agent";
 import type { LoopBranchChoice, LoopDefinition, LoopLimits, LoopProjectChoice } from "../types/loop";
@@ -18,8 +20,28 @@ interface LoopDefinitionDialogProps {
 
 const steps = ["scope", "agents", "verification", "review"] as const;
 
+/**
+ * Detects the stale-`expectedVersion` conflict thrown by both backends' `updateLoopDefinition`
+ * (web-loop-client.ts, loop_service.rs's `update_definition`). Neither crosses the boundary this
+ * dialog actually calls through with a structured signal: Tauri's `CommandError` carries a
+ * `category` field (src-tauri/src/commands/error.rs) but its `Serialize` impl emits only the
+ * message string, and this specific Rust error is plain prose (`AgentRuntimeApplicationError::
+ * Validation`) rather than a dedicated stable code the way personalization's own save conflict is
+ * (`use-instruction-drafts.ts`'s `CONFLICT_CODE = "personalization-revision-conflict"`). So this
+ * matches message text on both backends: the Web mock's message is whatever
+ * `loops.web.error.versionConflict` translates to right now (computed live, so a wording edit
+ * cannot desync the two sides); Tauri's is always the fixed English validation prose regardless of
+ * UI locale (Rust never localizes error text), matched by a distinctive substring of
+ * loop_service.rs's `update_definition`'s literal message.
+ */
+export function isLoopVersionConflict(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message === i18n.t("loops.web.error.versionConflict") || message.includes("updated by another operation");
+}
+
 export function LoopDefinitionDialog({ definition, onClose, onSaved }: LoopDefinitionDialogProps) {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const panelRef = useRef<HTMLDivElement>(null);
   const agents = useQuery({ queryKey: ["agents", "loops"], queryFn: () => agentService.listAgents() });
   const projects = useLoopProjectChoicesQuery();
@@ -30,6 +52,11 @@ export function LoopDefinitionDialog({ definition, onClose, onSaved }: LoopDefin
   const [error, setError] = useState<string | null>(null);
   const [showStepErrors, setShowStepErrors] = useState(false);
   const [persistedDefinition, setPersistedDefinition] = useState<LoopDefinition | null>(null);
+  // The record `expectedVersion` is computed against for the next save attempt. Starts as the
+  // opened `definition` prop (itself only read once, like `draft` above) and only ever moves
+  // forward, to the canonical row a version conflict just fetched -- never silently reset by the
+  // prop, which this dialog otherwise treats as fixed for its own mount lifetime.
+  const [baseline, setBaseline] = useState(definition);
   // Editing invalidates whatever the footer complained about, so the message must not outlive the
   // input it described; the inline per-command errors keep re-validating live on their own.
   const updateDraft = (next: LoopDefinitionDraft) => { setDraft(next); setPersistedDefinition(null); setError(null); };
@@ -95,7 +122,7 @@ export function LoopDefinitionDialog({ definition, onClose, onSaved }: LoopDefin
     try {
       let saved = persistedDefinition;
       if (!saved) {
-        const input = toSaveLoopDefinitionInput(draft, definition);
+        const input = toSaveLoopDefinitionInput(draft, baseline);
         saved = definition
           ? await agentService.updateLoopDefinition(definition.id, input)
           : await agentService.createLoopDefinition(input);
@@ -103,11 +130,13 @@ export function LoopDefinitionDialog({ definition, onClose, onSaved }: LoopDefin
       }
       onSaved(saved, start);
     } catch (submitError) {
-      const message = submitError instanceof Error ? submitError.message : String(submitError);
       // The backend refuses agents that cannot run (loop_service.rs validate_agent) with an
       // untranslated message and no hint about where to act. Send the user to the step that can
       // fix it and keep the backend detail as the explanation.
-      if (message.startsWith("agent is unavailable")) {
+      const message = submitError instanceof Error ? submitError.message : String(submitError);
+      if (definition && isLoopVersionConflict(submitError)) {
+        await handleVersionConflict(definition.id);
+      } else if (message.startsWith("agent is unavailable")) {
         setStep(1);
         setError(t("loops.editor.error.agentUnavailable", { detail: `${message.slice("agent is unavailable:".length).trim()} ` }));
       } else {
@@ -116,6 +145,24 @@ export function LoopDefinitionDialog({ definition, onClose, onSaved }: LoopDefin
     } finally {
       setSaving(false);
     }
+  }
+
+  /**
+   * design.md Decision 14: "冲突时刷新 canonical state 并解释" (on conflict, refresh canonical
+   * state and explain). Re-fetches the live list (there is no single-definition getter -- see
+   * `LoopService`), writes it into the shared cache so every other view of this definition (the
+   * overview behind this modal, the navigation list) also stops showing the stale row, and moves
+   * `baseline` forward so a retried save carries the current `expectedVersion` instead of repeating
+   * the same conflict. The draft itself is left untouched -- this dialog never silently discards
+   * what the user has typed, only what it privately compares against.
+   */
+  async function handleVersionConflict(definitionId: string) {
+    const fresh = await agentService.listLoopDefinitions().catch(() => null);
+    if (!fresh) { setError(t("loops.editor.error.versionConflict")); return; }
+    queryClient.setQueryData(loopQueryKeys.definitions, fresh);
+    const match = fresh.find((item) => item.id === definitionId) ?? null;
+    setBaseline(match);
+    setError(t(match ? "loops.editor.error.versionConflict" : "loops.editor.error.versionConflictRemoved"));
   }
 
   return (

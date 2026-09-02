@@ -1,10 +1,19 @@
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
-import type { LoopRun } from "../types/loop";
-import { applyLoopRunUpdate, loopQueryKeys, preserveLoopRuns } from "./loop-query";
+import type { LoopDefinition, LoopRun } from "../types/loop";
+import {
+  applyLoopDefinitionUpdate,
+  applyLoopRunUpdate,
+  insertLoopDefinition,
+  loopQueryKeys,
+  preserveLoopRuns,
+  removeLoopDefinition,
+} from "./loop-query";
 
 const first = { id: "run-1", status: "running" } as LoopRun;
 const second = { id: "run-2", status: "succeeded" } as LoopRun;
+const definitionA = { id: "definition-1", name: "A" } as LoopDefinition;
+const definitionB = { id: "definition-2", name: "B" } as LoopDefinition;
 
 describe("Loop query model", () => {
   it("uses stable hierarchical keys", () => {
@@ -50,5 +59,29 @@ describe("Loop query model", () => {
     const unrelated = [second];
     expect(applyLoopRunUpdate(unrelated, updated)).toBe(unrelated);
     expect(applyLoopRunUpdate(undefined, updated)).toBeUndefined();
+  });
+
+  // Task 17.14: these three back `use-loop-mutations.ts`'s cache patches, replacing a whole
+  // -collection `invalidateQueries` refetch (which would swap every row's object identity) with an
+  // update targeted at just the row each mutation actually touched.
+  it("updates a loaded definition without dropping surrounding rows", () => {
+    const updated = { ...definitionA, name: "A renamed" };
+    expect(applyLoopDefinitionUpdate([definitionA, definitionB], updated)).toEqual([updated, definitionB]);
+    const unrelated = [definitionB];
+    expect(applyLoopDefinitionUpdate(unrelated, updated)).toBe(unrelated);
+    expect(applyLoopDefinitionUpdate(undefined, updated)).toBeUndefined();
+  });
+
+  it("inserts a newly created definition at the front without disturbing other rows", () => {
+    const created = { id: "definition-3", name: "C" } as LoopDefinition;
+    expect(insertLoopDefinition([definitionA, definitionB], created)).toEqual([created, definitionA, definitionB]);
+    expect(insertLoopDefinition(undefined, created)).toBeUndefined();
+  });
+
+  it("removes a deleted definition without disturbing other rows", () => {
+    expect(removeLoopDefinition([definitionA, definitionB], definitionA.id)).toEqual([definitionB]);
+    const unrelated = [definitionB];
+    expect(removeLoopDefinition(unrelated, "missing-id")).toEqual([definitionB]);
+    expect(removeLoopDefinition(undefined, definitionA.id)).toBeUndefined();
   });
 });

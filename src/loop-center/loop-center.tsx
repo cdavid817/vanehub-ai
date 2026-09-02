@@ -75,7 +75,11 @@ export function LoopCenter({ onInspect }: { onInspect?: (target: LoopInspectionT
           {!error && !definitions.isLoading && definitions.data?.length === 0 ? (
             <EmptyDefinitions onCreate={() => setEditorDefinitionId("new")} />
           ) : null}
-          {!error && selectedDefinition && !runId && !runs.isLoading ? <LoopDefinitionOverview definition={selectedDefinition} onDeleted={() => { setDefinitionId(null); setRunId(null); void definitions.refetch(); }} onEdit={() => setEditorDefinitionId(selectedDefinition.id)} onPreflight={() => setPreflightDefinition(selectedDefinition)} runs={runs.data ?? []} /> : null}
+          {/* No `definitions.refetch()` here: `useDeleteLoopDefinitionMutation`'s own `onSuccess`
+              (use-loop-mutations.ts) already removes this row from the cache directly (task
+              17.14), and a refetch here would re-introduce the whole-collection reload that patch
+              exists to avoid. */}
+          {!error && selectedDefinition && !runId && !runs.isLoading ? <LoopDefinitionOverview definition={selectedDefinition} onDeleted={() => { setDefinitionId(null); setRunId(null); }} onEdit={() => setEditorDefinitionId(selectedDefinition.id)} onPreflight={() => setPreflightDefinition(selectedDefinition)} runs={runs.data ?? []} /> : null}
           {!error && runId && run.data ? <LoopTimeline onInspect={onInspect} refreshing={run.isFetching} run={run.data} /> : null}
         </div>
       </div>

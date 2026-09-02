@@ -8,7 +8,11 @@ import { agentService } from "../services/runtime-agent-client";
 import type { LoopRun } from "../types/loop";
 
 export type LoopControlAction = "pause" | "resume" | "cancel" | "accept" | "continue" | "reject";
-type ConfirmAction = "pause" | "cancel" | "reject";
+// `resume` is the only action exempt: it reverses pause rather than committing the run further, so
+// it keeps executing immediately. Every other action that changes or ends the run's outcome
+// (including accept/continue, per design.md Decision 14: "Accept/Continue/Reject 前显示后果") goes
+// through this same preview-then-confirm step first.
+type ConfirmAction = "pause" | "cancel" | "reject" | "accept" | "continue";
 
 export function availableLoopActions(run: Pick<LoopRun, "status">): LoopControlAction[] {
   if (run.status === "queued" || run.status === "running") return ["pause", "cancel"];
@@ -62,12 +66,12 @@ export function LoopRunControls({ run }: { run: LoopRun }) {
         {actions.includes("cancel") ? <Button className="text-destructive hover:text-destructive" disabled={busy} onClick={() => setConfirming("cancel")} size="sm" type="button" variant="outline"><Square aria-hidden="true" />{t("loops.controls.stop")}</Button> : null}
       </div> : null}
       {actions.includes("accept") ? <div className="grid gap-2">
-        <Button disabled={busy} onClick={() => void execute("accept")} size="sm" type="button"><Check aria-hidden="true" />{t("loops.controls.accept")}</Button>
+        <Button disabled={busy} onClick={() => setConfirming("accept")} size="sm" type="button"><Check aria-hidden="true" />{t("loops.controls.accept")}</Button>
         <label className="grid gap-1.5"><span className="text-xs font-medium text-muted-foreground">{t("loops.controls.feedback")}</span><textarea className="ucd-input min-h-20 w-full rounded p-2 text-xs outline-hidden focus-visible:ring-2 focus-visible:ring-ring" disabled={busy || !canContinue} onChange={(event) => setFeedback(event.target.value)} value={feedback} /></label>
         {!canContinue ? <p className="text-xs text-warning">{t("loops.controls.iterationLimitReached")}</p> : null}
-        <div className="grid grid-cols-2 gap-2"><Button disabled={busy || !canContinue || !feedback.trim()} onClick={() => void execute("continue")} size="sm" type="button" variant="outline"><MessageSquareMore aria-hidden="true" />{t("loops.controls.continue")}</Button><Button className="text-destructive hover:text-destructive" disabled={busy} onClick={() => setConfirming("reject")} size="sm" type="button" variant="outline"><X aria-hidden="true" />{t("loops.controls.reject")}</Button></div>
+        <div className="grid grid-cols-2 gap-2"><Button disabled={busy || !canContinue || !feedback.trim()} onClick={() => setConfirming("continue")} size="sm" type="button" variant="outline"><MessageSquareMore aria-hidden="true" />{t("loops.controls.continue")}</Button><Button className="text-destructive hover:text-destructive" disabled={busy} onClick={() => setConfirming("reject")} size="sm" type="button" variant="outline"><X aria-hidden="true" />{t("loops.controls.reject")}</Button></div>
       </div> : null}
-      {confirming ? <div aria-describedby="loop-control-confirm-description" aria-labelledby="loop-control-confirm-title" className="grid gap-2 rounded-md border border-warning/50 bg-warning/5 p-3" role="alertdialog"><p className="text-xs font-medium" id="loop-control-confirm-title">{t(`loops.controls.confirm.${confirming}.title`)}</p><p className="text-xs text-muted-foreground" id="loop-control-confirm-description">{t(`loops.controls.confirm.${confirming}.description`)}</p><div className="grid grid-cols-2 gap-2"><Button disabled={busy} onClick={() => setConfirming(null)} size="sm" type="button" variant="ghost">{t("loops.controls.dismiss")}</Button><Button disabled={busy} onClick={() => void execute(confirming)} size="sm" type="button">{t("loops.controls.confirmAction")}</Button></div></div> : null}
+      {confirming ? <div aria-describedby="loop-control-confirm-description" aria-labelledby="loop-control-confirm-title" className="grid gap-2 rounded-md border border-warning/50 bg-warning/5 p-3" role="alertdialog"><p className="text-xs font-medium" id="loop-control-confirm-title">{t(`loops.controls.confirm.${confirming}.title`)}</p><p className="text-xs text-muted-foreground" id="loop-control-confirm-description">{t(`loops.controls.confirm.${confirming}.description`)}</p><div className="grid grid-cols-2 gap-2"><Button disabled={busy} onClick={() => setConfirming(null)} size="sm" type="button" variant="ghost">{t("loops.controls.dismiss")}</Button>{/* The feedback textarea above stays editable while confirming, so re-check continue's own precondition here too -- otherwise clearing it after opening this step would make Confirm a silent no-op instead of a disabled button. */}<Button disabled={busy || (confirming === "continue" && !feedback.trim())} onClick={() => void execute(confirming)} size="sm" type="button">{t("loops.controls.confirmAction")}</Button></div></div> : null}
       {pending ? <p aria-live="polite" className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />{t("loops.controls.pending", { action: t(`loops.controls.${pending}`) })}</p> : null}
       {error ? <p aria-live="assertive" className="text-xs text-destructive">{error}</p> : null}
     </section>

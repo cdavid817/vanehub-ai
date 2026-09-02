@@ -37,7 +37,14 @@ export function LoopDefinitionOverview({
   const [confirmation, setConfirmation] = useState<"duplicate" | "delete" | null>(null);
   const [duplicateName, setDuplicateName] = useState("");
   const activeRun = runs.find((run) => activeStatuses.includes(run.status));
-  const pending = toggle.isPending || duplicate.isPending || remove.isPending;
+  // Toggle and delete both mutate or remove this exact definition row (and Edit opens a form that
+  // saves back onto it), so the three genuinely race the same resource and must disable each other.
+  // Duplicate only reads `definition` as a snapshot template for a brand-new row -- it neither
+  // blocks nor is blocked by the other three (design.md Decision 11: a mutation only disables its
+  // own target action; the bug this fixes was `pending = toggle.isPending || duplicate.isPending ||
+  // remove.isPending` disabling Edit while an unrelated Duplicate was in flight).
+  const selfPending = toggle.isPending || remove.isPending;
+  const pending = selfPending || duplicate.isPending;
   const error = toggle.error ?? duplicate.error ?? remove.error;
 
   useEffect(() => {
@@ -72,12 +79,12 @@ export function LoopDefinitionOverview({
       </header>
 
       <div className="flex flex-wrap gap-2" aria-label={t("loops.definition.actions")}>
-        <Button disabled={pending} onClick={onEdit} size="sm" type="button" variant="outline"><Pencil aria-hidden="true" />{t("loops.definition.edit")}</Button>
-        <Button disabled={pending || Boolean(activeRun)} onClick={() => toggle.mutate({ definition, enabled: !definition.enabled })} size="sm" type="button" variant="outline">
+        <Button disabled={selfPending} onClick={onEdit} size="sm" type="button" variant="outline"><Pencil aria-hidden="true" />{t("loops.definition.edit")}</Button>
+        <Button disabled={selfPending || Boolean(activeRun)} onClick={() => toggle.mutate({ definition, enabled: !definition.enabled })} size="sm" type="button" variant="outline">
           {definition.enabled ? <PowerOff aria-hidden="true" /> : <Power aria-hidden="true" />}{t(definition.enabled ? "loops.definition.disable" : "loops.definition.enable")}
         </Button>
-        <Button disabled={pending} onClick={() => setConfirmation("duplicate")} size="sm" type="button" variant="outline"><Copy aria-hidden="true" />{t("loops.definition.duplicate")}</Button>
-        <Button className="text-destructive hover:text-destructive" disabled={pending || Boolean(activeRun)} onClick={() => setConfirmation("delete")} size="sm" type="button" variant="outline"><Trash2 aria-hidden="true" />{t("loops.definition.delete")}</Button>
+        <Button disabled={duplicate.isPending} onClick={() => setConfirmation("duplicate")} size="sm" type="button" variant="outline"><Copy aria-hidden="true" />{t("loops.definition.duplicate")}</Button>
+        <Button className="text-destructive hover:text-destructive" disabled={selfPending || Boolean(activeRun)} onClick={() => setConfirmation("delete")} size="sm" type="button" variant="outline"><Trash2 aria-hidden="true" />{t("loops.definition.delete")}</Button>
       </div>
 
       {activeRun ? <p className="rounded-md border border-warning/40 bg-warning/5 px-3 py-2 text-xs text-warning">{t("loops.definition.activeGuard", { status: t(`loops.status.${activeRun.status}`) })}</p> : null}
