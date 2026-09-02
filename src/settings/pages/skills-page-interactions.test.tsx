@@ -800,7 +800,8 @@ describe("SkillsPage interactions", () => {
     renderPage();
     await screen.findByText("Reliable Skill");
 
-    await user.click(screen.getByRole("button", { name: "导入 Skill" }));
+    await user.click(screen.getByRole("button", { name: "更多操作" }));
+    await user.click(screen.getByRole("menuitem", { name: "导入 Skill" }));
     const importModal = modalFor("导入 Skill");
     await user.type(within(importModal).getByPlaceholderText("外部 Skill 目录"), "D:/external/imported-skill");
     await user.click(within(importModal).getByRole("button", { name: "导入" }));
@@ -818,7 +819,8 @@ describe("SkillsPage interactions", () => {
     renderPage();
     await screen.findByText("Reliable Skill");
 
-    await user.click(screen.getByRole("button", { name: "恢复内置" }));
+    await user.click(screen.getByRole("button", { name: "更多操作" }));
+    await user.click(screen.getByRole("menuitem", { name: "恢复内置" }));
     const restoreModal = modalFor("恢复内置 Skill");
     expect(within(restoreModal).getByRole("option", { name: "code-review" })).toBeTruthy();
     await user.click(within(restoreModal).getByRole("button", { name: "恢复" }));

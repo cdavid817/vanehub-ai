@@ -12,7 +12,10 @@ test.describe("Skills management", () => {
     await page.goto("/settings");
     await page.getByRole("button", { name: "Skills", exact: true }).click();
 
-    await expect(page.getByRole("heading", { name: "Skills", exact: true, level: 2 })).toBeVisible();
+    // Task 12.18: migrated to the shared `src/ui/page-header/PageHeader.tsx`, whose `<h1>` is the
+    // semantically correct level now that task 12.8 removed the competing `SettingsTopBar` `<h1>`
+    // -- the local `page-parts.tsx` header's own `<h2>` this page used before no longer is.
+    await expect(page.getByRole("heading", { name: "Skills", exact: true, level: 1 })).toBeVisible();
     await expect(page.getByRole("button", { name: /^All Skills/ })).toBeVisible();
     await expect(page.getByRole("button", { name: /^Unassigned/ })).toBeVisible();
     await expect(page.getByRole("button", { name: /^Global$/ })).toHaveCount(0);
@@ -147,14 +150,20 @@ test.describe("Skills management", () => {
     const hasHorizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
     expect(hasHorizontalOverflow).toBe(false);
 
-    const restoreButton = page.getByRole("button", { name: /Restore Built-in/ });
-    await restoreButton.click();
+    // Task 12.18: Restore Built-in moved off the header's own button row into the shared
+    // PageHeader's single `moreMenuItems` menu (exactly one `primaryAction` allowed) -- reached
+    // through the "More actions" trigger, which also becomes the focus-return target once the
+    // dialog closes, since `ActionMenu` already refocuses its own trigger the instant the menu
+    // item is activated, before the dialog it opens even mounts.
+    const moreActions = page.getByRole("button", { name: "More actions" });
+    await moreActions.click();
+    await page.getByRole("menuitem", { name: /Restore Built-in/ }).click();
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
     await expect(dialog.locator("select")).toBeFocused();
     await page.keyboard.press("Escape");
     await expect(dialog).toBeHidden();
-    await expect(restoreButton).toBeFocused();
+    await expect(moreActions).toBeFocused();
   });
 
   test("inspects exact tool governance while Web keeps native actions unavailable", async ({ page }) => {
