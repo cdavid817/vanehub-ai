@@ -28,7 +28,9 @@ async function openCliManagement(page: Page) {
   await page.goto("/");
   await page.getByRole("button", { name: /设置|Settings/ }).click();
   await page.getByRole("button", { name: /^CLI 管理/ }).click();
-  await expect(page.getByRole("heading", { name: "CLI 管理", level: 2 })).toBeVisible();
+  // task 12.18: this page now renders its title through the shared `ui/page-header/PageHeader`
+  // (an `<h1>`), not the local `page-parts.tsx` one (an `<h2>`) the other unmigrated pages still use.
+  await expect(page.getByRole("heading", { name: "CLI 管理", level: 1 })).toBeVisible();
   await expect(page.locator('[data-cli-agent="claude-code"]')).toBeVisible();
 }
 
@@ -61,7 +63,7 @@ test.describe("CLI Management navigation and inventory", () => {
     await page.getByRole("button", { name: /设置|Settings/ }).click();
     await page.getByRole("button", { name: /^CLI 管理/ }).click();
 
-    await expect(page.getByRole("heading", { name: "CLI 管理", level: 2 })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "CLI 管理", level: 1 })).toBeVisible();
     expect(chunkRequests.length).toBeGreaterThan(0);
   });
 
@@ -391,7 +393,7 @@ test.describe("CLI Management presentation", () => {
     await page.getByRole("button", { name: /^Switch settings page/ }).click();
     await page.getByRole("button", { name: /^CLI Management/ }).click();
 
-    await expect(page.getByRole("heading", { name: "CLI Management", level: 2 })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "CLI Management", level: 1 })).toBeVisible();
     await expect(page.locator("[data-cli-agent]")).toHaveCount(5);
     await expect(page.getByRole("button", { name: /Conflicts/ })).toBeVisible();
     await expect(page.getByText("Detect only")).toBeVisible();
