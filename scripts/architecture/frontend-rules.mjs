@@ -310,8 +310,14 @@ const COLOR_STYLE_PROPERTIES = new Set([
 // document-visibility 守卫(隐藏时跳过 fetch,focus/visibilitychange 时立即补一次追赶),全部落在
 // `loop-run-polling.ts` 同一个订阅函数里——没有新文件,也没有复制既有分支。上限按实测值 24148
 // 记录,不留余量。
+//
+// 上调理由(redesign-unified-workbench-ui,19.10):Scheduled Tasks 新增 Run Now 能力,按上面同一条
+// "service 接口 + Tauri 客户端 + Web/mock 客户端" 三件套模式新增 +29 行——`scheduled-task-service.ts`
+// +2(接口方法签名)、`tauri-agent-client.ts` +5(invoke 调用)、`web-scheduled-task-client.ts` +22
+// (合成一条真实感的 dispatch 回执,不改动既有的 `scheduledTasks` 数组)。没有新文件,也没有复制既有
+// 分支。上限按实测值 24177 记录,不留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 24148, owner: "redesign-unified-workbench-ui" },
+  { root: "src/services", budget: 24177, owner: "redesign-unified-workbench-ui" },
 ]);
 
 const STATE_PACKAGES = new Set([
