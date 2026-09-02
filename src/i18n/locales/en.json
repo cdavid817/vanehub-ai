@@ -4670,6 +4670,7 @@
   "evaluation.unavailable": "Unavailable",
   "evaluation.verification": "Verification",
   "evaluation.diff": "Bounded diff artifacts",
+  "evaluation.artifactPreviewUnavailable": "Artifact preview is not available yet.",
   "evaluation.metrics": "Metrics and provenance",
   "evaluation.timeline": "Context and tool timeline",
   "evaluation.selectResult": "Select a result to inspect its evidence.",

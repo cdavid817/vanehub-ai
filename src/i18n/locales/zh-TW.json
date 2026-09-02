@@ -4737,6 +4737,7 @@
   "evaluation.unavailable": "不可用",
   "evaluation.verification": "驗證",
   "evaluation.diff": "受限差異工件",
+  "evaluation.artifactPreviewUnavailable": "工件預覽尚不可用。",
   "evaluation.metrics": "指標與來源",
   "evaluation.timeline": "上下文與工具時間線",
   "evaluation.selectResult": "選擇結果以檢視證據。",

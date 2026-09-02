@@ -4737,6 +4737,7 @@
   "evaluation.unavailable": "利用不可",
   "evaluation.verification": "検証",
   "evaluation.diff": "制限付き差分成果物",
+  "evaluation.artifactPreviewUnavailable": "成果物のプレビューはまだ利用できません。",
   "evaluation.metrics": "メトリクスと出所",
   "evaluation.timeline": "コンテキストとツールのタイムライン",
   "evaluation.selectResult": "証拠を確認する結果を選択してください。",
