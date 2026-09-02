@@ -221,7 +221,7 @@ New features and architecture changes require an OpenSpec proposal before implem
 | A2A | [AgentCard/Task/Message/Artifact data model, task state machine, discovery, asynchronous update channels](docs/agent-infrastructure/a2a-architecture.md) |
 | Multi-Agent systems | [orchestration topologies and role frameworks, communication, context management, execution isolation, failure modes](docs/agent-infrastructure/multi-agent-architecture.md) |
 | Agent Skills | [the open specification and file format, progressive-disclosure loading, triggering and execution, comparison with MCP and prompts](docs/agent-infrastructure/agent-skills-architecture.md) |
-| AI coding CLI parameter reference | [every parameter family across the five CLIs, and the matrix projecting host task models onto each](docs/agent-infrastructure/builtin-cli-reference.md) |
+| AI coding CLI parameter reference | [every parameter family across the five CLIs, and the matrix projecting host task models onto each](docs/reference/cli/builtin-cli-reference.md) |
 | RAG | [indexing and retrieval pipelines, semantic versus keyword retrieval, hybrid retrieval and reranking, evaluation](docs/agent-infrastructure/rag-architecture.md) |
 | Tree-sitter | [GLR incremental parsing, grammar toolchain and ABI, the query system, structured code chunking and repo maps](docs/agent-infrastructure/tree-sitter-architecture.md) |
 | OpenSpec | [the knowledge model behind spec-driven development, change-package artifact chains, the opsx command family, delta spec merging](docs/agent-infrastructure/openspec-architecture.md) |

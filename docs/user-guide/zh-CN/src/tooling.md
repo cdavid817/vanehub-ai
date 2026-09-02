@@ -172,7 +172,7 @@ Gemini CLI、OpenCode 与 Antigravity CLI 没有对应的受管 SDK。
 
 > **权限参数是重点**：五款 CLI 都有"跳过确认/自动批准"类参数。VaneHub 的权限模板（只读/标准/信任/Yolo）决定是否附加这些高风险参数，**安全策略优先于便利性配置**——详见[权限审批](permissions.md)。
 
-上表只列高频项。**由注册表生成、随代码更新的完整矩阵**——每个参数的字面标志、参数槽、启动场景、控件类型、归属、最低版本与核验状态——见[CLI 参数矩阵](../../../agent-infrastructure/cli-parameter-matrix.md)。**逐个参数族的完全参考**——调用形态、会话管理、模型选择、权限与沙箱、输出格式、配置注入，以及宿主按统一任务模型向各 CLI 投影参数的映射矩阵——见[AI 编码 CLI 参数完全参考](../../../agent-infrastructure/builtin-cli-reference.md)。
+上表只列高频项。**由注册表生成、随代码更新的完整矩阵**——每个参数的字面标志、参数槽、启动场景、控件类型、归属、最低版本与核验状态——见[CLI 参数矩阵](../../../reference/cli/parameter-matrix.md)。**逐个参数族的完全参考**——调用形态、会话管理、模型选择、权限与沙箱、输出格式、配置注入，以及宿主按统一任务模型向各 CLI 投影参数的映射矩阵——见[AI 编码 CLI 参数完全参考](../../../reference/cli/builtin-cli-reference.md)。
 
 #### OnePiece 的等价配置
 

@@ -221,7 +221,7 @@ Web/mock は決定的なブラウザシミュレーションです。ローカ�
 | A2A | [AgentCard/Task/Message/Artifact データモデル、タスク状態機械、発見機構、非同期更新チャネル](docs/agent-infrastructure/a2a-architecture.md) |
 | マルチ Agent システム | [オーケストレーション位相と役割フレームワーク、通信と協調、コンテキスト管理、実行分離、失敗モード](docs/agent-infrastructure/multi-agent-architecture.md) |
 | Agent Skills | [オープン仕様とファイル形式、漸進的開示ローディング、トリガーと実行、MCP/Prompt との位置づけ比較](docs/agent-infrastructure/agent-skills-architecture.md) |
-| AI コーディング CLI パラメータ完全リファレンス | [5 種類の CLI のパラメータ族を網羅し、ホストが各 CLI へ投影するマッピング行列](docs/agent-infrastructure/builtin-cli-reference.md) |
+| AI コーディング CLI パラメータ完全リファレンス | [5 種類の CLI のパラメータ族を網羅し、ホストが各 CLI へ投影するマッピング行列](docs/reference/cli/builtin-cli-reference.md) |
 | RAG | [インデックスと検索パイプライン、セマンティック検索とキーワード検索の取捨、ハイブリッド検索と再ランキング、評価手法](docs/agent-infrastructure/rag-architecture.md) |
 | Tree-sitter | [GLR 増分解析、文法ツールチェーンと ABI、クエリシステム、構造化コード分割と Repo Map](docs/agent-infrastructure/tree-sitter-architecture.md) |
 | OpenSpec | [仕様駆動開発の知識モデル、変更パッケージの成果物チェーン、opsx コマンド族、Delta 仕様のマージ](docs/agent-infrastructure/openspec-architecture.md) |

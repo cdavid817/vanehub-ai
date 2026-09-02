@@ -121,6 +121,14 @@ Verdicts: **采纳** adopt as proposed · **调整** adopt with correction · **
 | Lint for "共 N 个/支持 N 种" phrases with an allowlist | **拒绝** | A phrase-shaped lint over Chinese prose flags every legitimate enumeration. The two totals that drifted are now checked against their real source, which is stronger and produces no allowlist. |
 | `last_verified` staleness warnings at 180 days | **拒绝 (this change)** | Depends on the rejected frontmatter. |
 
+### Decision 6: `docs/reference/cli/` overlaps a build-time namespace — accepted, with the trap written down
+
+The brief and the audit both name `docs/reference/cli/` as the destination for the three CLI documents, and that is where they now live. One thing to know before adding more there:
+
+`docs/reference/` did not exist in source. It is assembled by `build-docs.mjs`, which copies exactly two files into it — `docs/release-signing.md` and `src-tauri/ARCHITECTURE.md` — and `validate-docs.mjs` special-cases `../reference/release-signing.md` and `../reference/native-architecture.md` in developer-guide files so those authored links resolve. So `../reference/X` written in the developer guide and `docs/reference/X` on disk are now two different namespaces that happen to share a name.
+
+This is survivable because the special cases are exact-match on two filenames and only apply to developer-guide files, so the new directory resolves normally from everywhere else. It becomes a problem if someone adds a third build-time `reference/` entry whose name collides with a real file under `docs/reference/`. Neither location is published to the assembled site today — `docs/agent-infrastructure/` was not either — so the move changed the GitHub browsing path and nothing else.
+
 ## Deferred work
 
 Recorded so the next change does not rediscover it:

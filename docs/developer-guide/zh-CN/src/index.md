@@ -17,7 +17,7 @@
 | --- | --- |
 | [仓库结构与模块导览](repository-orientation.md) | 前端、native 与规范工作各自落在何处 |
 | [运行时与服务边界](runtime-boundaries.md) | 服务层，以及桌面端上哪些行为是真实的 |
-| [Native 限界上下文](native-contexts.md) | 21 个上下文各自拥有什么，以及它们之间怎么说话 |
+| [Native 限界上下文](native-contexts.md) | 每个上下文各自拥有什么，以及它们之间怎么说话 |
 
 ## Agent 执行
 
@@ -42,7 +42,7 @@
 | 章节 | 覆盖内容 |
 | --- | --- |
 | [上下文压缩](context-compaction.md) | Token-aware 触发与字符回退、摘要式压缩、冷却与熔断 |
-| [跨会话记忆](cross-session-memory.md) | 主机级共享池、provenance 元数据、自动提取 |
+| [跨会话记忆](cross-session-memory.md) | 主机级共享池、每条记忆的作用域与受众、provenance 元数据、自动提取 |
 | [检索与向量搜索](retrieval.md) | 记忆池与工作区代码索引、优雅降级 |
 | [Tree-sitter 代码索引](tree-sitter-code-indexing.md) | 语法解析、bounded chunk、符号元数据、grammar 版本与脱敏 |
 | [LSP 代码智能](lsp-code-intelligence.md) | 会话内 LSP 集成、工作区信任与能力协商 |

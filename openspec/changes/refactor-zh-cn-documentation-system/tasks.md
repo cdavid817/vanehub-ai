@@ -41,12 +41,13 @@
 
 ## 4. Phase 3 — structure and guards
 
-- [ ] 4.1 Rewrite `docs/agent-infrastructure/README.md` on the protocols / patterns / methods boundary, with sourcing and maintenance rules
-- [ ] 4.2 `git mv` the three CLI references to `docs/reference/cli/`, then update every inbound link, the README table, and any script inventory
-- [ ] 4.3 Extend `validate-docs.mjs`: a bounded-context chapter's prose total must equal the directory count, or be absent
-- [ ] 4.4 Extend `validate-docs.mjs`: every `npm run <script>` in a README must exist in `package.json`
-- [ ] 4.5 Add unit tests for both guards, covering the wrong-total, no-total, and unknown-script cases
-- [ ] 4.6 Update `docs/developer-guide/zh-CN/src/index.md` and `docs/user-guide/zh-CN/src/index.md` where they restate a corrected fact
+- [x] 4.1 Rewrite `docs/agent-infrastructure/README.md` on the protocols / patterns / methods boundary, with sourcing and maintenance rules
+- [x] 4.2 `git mv` the three CLI references to `docs/reference/cli/`, then update every inbound link, the README table, and any script inventory — also the generator's `TARGET` and the `.gitattributes` eol rule; the link checker caught two `tooling.md` links the manual sweep had missed
+- [x] 4.3 Extend `validate-docs.mjs`: a bounded-context chapter's prose total must equal the directory count, or be absent
+- [x] 4.4 Extend `validate-docs.mjs`: every `npm run <script>` in a README must exist in `package.json`
+- [x] 4.5 Add unit tests for both guards, covering the wrong-total, no-total, and unknown-script cases
+- [x] 4.6 Update the developer-guide index chapters in both languages, which carried a third copy of the "21 contexts" claim. `user-guide/zh-CN/src/index.md`'s "九个标签页" was checked against `sessionTabDefinitions` and is correct — left alone
+- [x] 4.7 Prove both guards fail on the real defects, not only on synthetic input: reintroduce "24 个上下文" and `npm run tauri -- dev`, confirm `validate-docs.mjs` reports both, then revert
 
 ## 5. Verification
 
