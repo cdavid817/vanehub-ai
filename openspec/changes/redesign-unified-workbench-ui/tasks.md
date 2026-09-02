@@ -542,9 +542,9 @@ Verified (both themes + remaining secret safety, run consolidated after all thre
 
 ## 15. Goal Center
 
-- [ ] 15.1 Refactor Goal Center into shared MasterDetail layout with route-backed selected goal.
-- [ ] 15.2 Move create and edit forms from the Header into an accessible goal editor sheet.
-- [ ] 15.3 Show one state-appropriate primary action and move permitted secondary/destructive actions into More.
+- [x] 15.1 Refactor Goal Center into shared MasterDetail layout with route-backed selected goal. — Goal Center already had a real list+detail split; this pass (84435dc7) conformed its header to the shared `PageHeader` (design.md Decision 11's title/bounded-summary/one-primary-action/More shape) and wired `PlanSection.goalId` (parsed since Decision 1, never consumed until now) bidirectionally through `onSectionChange`, mirroring `ScheduledTasksPanel`'s own `scheduleId` precedent (19.3).
+- [x] 15.2 Move create and edit forms from the Header into an accessible goal editor sheet. — `GoalForm` now mounts inside `Sheet` (84435dc7) instead of inline in the header region; the form component and its per-mutation pending/error wiring are unchanged, only where it mounts.
+- [x] 15.3 Show one state-appropriate primary action and move permitted secondary/destructive actions into More. — `GoalDetail`'s always-visible action row (84435dc7) collapses to one primary action (Activate/Accept/Reopen — already mutually exclusive by status in the pre-existing disjoint guards) plus an `ActionMenu` "More" for Abandon/Edit/Delete. No availability condition changed, only the grouping.
 - [ ] 15.4 Create typed search providers for Session, Run, Loop, and Work Item target pickers.
 - [ ] 15.5 Replace ordinary raw target-id input with the picker; keep any diagnostic raw-id path explicitly advanced and validated.
 - [ ] 15.6 Show target type, safe title, project, status, and stable identity before linking.
