@@ -90,5 +90,17 @@ test.describe("Agent global CLI configuration", () => {
     const profile = page.locator("article").filter({ hasText: "Gemini Official" });
     await expect(profile).toBeVisible();
     await expect(page.locator("body")).not.toContainText("gemini-e2e-secret");
+
+    // Task 12.20 secret safety: `not.toContainText` above only proves the raw value never leaks
+    // into rendered text -- an `<input value="...">` doesn't expose it that way regardless (the
+    // same reason `type="password"` fields need `getByLabel`, not text-content assertions). The
+    // property that actually matters is that the *form which collected it* never shows it again,
+    // matching the already-proven SSH/IM/Observability/OnePiece pattern (see
+    // onepiece-agent.spec.ts's own `toHaveValue("")` check on this exact dialog family).
+    await profile.getByRole("button", { name: /更多配置操作|More profile actions/ }).click();
+    await profile.getByRole("menuitem", { name: /编辑配置|Edit profile/ }).click();
+    const editDialog = page.getByRole("dialog");
+    await expect(editDialog.getByLabel(/API Key 或 Token|API key or token/)).toHaveValue("");
+    await expect(page.locator("body")).not.toContainText("gemini-e2e-secret");
   });
 });
