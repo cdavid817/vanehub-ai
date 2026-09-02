@@ -191,7 +191,9 @@ describe("GoalCenter", () => {
     mocks.deleteGoal.mockImplementation(() => new Promise((_resolve, reject) => { rejectDelete = reject; }));
     await openFirstGoal();
 
-    fireEvent.click(await screen.findByRole("button", { name: "删除" }));
+    // 15.3: Delete moved from an always-visible button into the More menu.
+    fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "删除" }));
     await waitFor(() => expect(screen.queryByRole("button", { name: /发布目标系统/ })).toBeNull());
 
     rejectDelete(new Error("删除失败"));
@@ -201,5 +203,77 @@ describe("GoalCenter", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "关闭" }));
     await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  });
+
+  describe("15.3: primary action and More menu", () => {
+    it.each([
+      ["draft", "启用"],
+      ["active", "验收"],
+      ["achieved", "重开"],
+      ["abandoned", "启用"],
+    ] as const)("shows the %s goal's primary action as %s, not as a row of every permitted action", async (status, primaryLabel) => {
+      mocks.goals = [fixture({ status, derivedStatus: status })];
+      await openFirstGoal();
+
+      expect(await screen.findByRole("button", { name: primaryLabel })).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "编辑" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "删除" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "放弃" })).toBeNull();
+    });
+
+    it("reaches edit, delete, and abandon through the More menu for an active goal", async () => {
+      await openFirstGoal();
+
+      fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+      expect(screen.getByRole("menuitem", { name: "编辑" })).toBeTruthy();
+      expect(screen.getByRole("menuitem", { name: "删除" })).toBeTruthy();
+      expect(screen.getByRole("menuitem", { name: "放弃" })).toBeTruthy();
+    });
+
+    it("omits Abandon from the More menu once a goal is already abandoned", async () => {
+      mocks.goals = [fixture({ status: "abandoned", derivedStatus: "abandoned" })];
+      await openFirstGoal();
+
+      fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+      expect(screen.queryByRole("menuitem", { name: "放弃" })).toBeNull();
+    });
+
+    it("opens the edit sheet pre-filled with the goal's own values from the More menu", async () => {
+      await openFirstGoal();
+
+      fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+      fireEvent.click(screen.getByRole("menuitem", { name: "编辑" }));
+
+      expect((await screen.findByLabelText("标题") as HTMLInputElement).value).toBe("发布目标系统");
+    });
+  });
+
+  describe("15.1: route-backed selection", () => {
+    it("reports a clicked goal's id back through onSelectGoal", async () => {
+      const onSelectGoal = vi.fn();
+      render(<GoalCenter onSelectGoal={onSelectGoal} />);
+
+      fireEvent.click(await screen.findByRole("button", { name: /发布目标系统/ }));
+      expect(onSelectGoal).toHaveBeenCalledWith("goal-1");
+    });
+
+    it("pre-selects the goal named by the goalId prop on initial render", async () => {
+      mocks.goals = [fixture(), fixture({ id: "goal-2", title: "第二个目标" })];
+      render(<GoalCenter goalId="goal-2" />);
+
+      expect(await screen.findByRole("heading", { name: "第二个目标" })).toBeTruthy();
+    });
+
+    it("clears the reported selection through onSelectGoal when the selected goal is deleted", async () => {
+      const onSelectGoal = vi.fn();
+      mocks.deleteGoal.mockResolvedValue(undefined);
+      render(<GoalCenter onSelectGoal={onSelectGoal} />);
+      fireEvent.click(await screen.findByRole("button", { name: /发布目标系统/ }));
+
+      fireEvent.click(screen.getByRole("button", { name: "更多操作" }));
+      fireEvent.click(screen.getByRole("menuitem", { name: "删除" }));
+
+      await waitFor(() => expect(onSelectGoal).toHaveBeenCalledWith(undefined));
+    });
   });
 });

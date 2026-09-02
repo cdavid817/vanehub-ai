@@ -1,9 +1,11 @@
 import { AlertTriangle, Loader2, Plus } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../components/ui/button";
 import type { Goal } from "../contracts/goal";
 import type { MutationState } from "../ui/async/mutation-state";
+import { PageHeader } from "../ui/page-header/PageHeader";
+import { Sheet } from "../ui/sheet/Sheet";
 import { GoalDetail } from "./goal-detail";
 import { GoalForm } from "./goal-form";
 import { progressLabel, progressRatio, statusTone } from "./goal-presentation";
@@ -65,46 +67,104 @@ function GoalRowMutationBadge({ mutation }: { mutation: MutationState | undefine
   return null;
 }
 
-export function GoalCenter() {
+/**
+ * 15.1: the Page Header's own bounded summary slot (design.md Decision 11) -- a real total count
+ * plus, when non-zero, how many goals are awaiting the user's own acceptance decision (reusing
+ * the same status label/tone already shown per-row, not a fabricated metric).
+ */
+function GoalCenterSummary({ goals }: { goals: Goal[] }) {
+  const { t } = useTranslation();
+  const awaitingCount = goals.filter((goal) => goal.derivedStatus === "awaiting_acceptance").length;
+  return (
+    <span className="flex flex-wrap items-center gap-2 text-sm font-normal text-muted-foreground">
+      <span>{t("goals.summary.total", { count: goals.length })}</span>
+      {awaitingCount > 0
+        ? <span className={`rounded px-1.5 py-0.5 text-[0.6875rem] ${statusTone("awaiting_acceptance")}`}>
+            {awaitingCount} · {t("goals.status.awaiting_acceptance")}
+          </span>
+        : null}
+    </span>
+  );
+}
+
+export interface GoalCenterProps {
+  /** The route's own current selection (`PlanSection`'s `goalId`, `workbench-route.ts`) -- 15.1,
+   *  the first real consumer of that field (it existed unread since Decision 1 landed; see
+   *  `plan-destination.tsx`'s prior audit note). Mirrors `ScheduledTasksPanel`'s `scheduleId`
+   *  (19.3): both props are optional so this component still works standalone (e.g. tests, or an
+   *  unrouted embedding) without a routed parent. */
+  goalId?: string;
+  onSelectGoal?: (goalId: string | undefined) => void;
+}
+
+export function GoalCenter({ goalId, onSelectGoal }: GoalCenterProps) {
   const { t } = useTranslation();
   const {
     abandon, accept, activate, create, error, goals, link, loading, mutations, remove, reopen, unlink, update,
   } = useGoalCenterActions();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(goalId ?? null);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState(false);
 
+  // 15.1: restores the goal selected the last time this section was left, or follows a deep link
+  // -- the same "route drives selection" shape as `ScheduledTasksPanel`'s own `scheduleId` effect.
+  useEffect(() => {
+    if (goalId) setSelectedId(goalId);
+  }, [goalId]);
+
+  function selectGoal(id: string | undefined) {
+    setSelectedId(id ?? null);
+    setEditing(false);
+    onSelectGoal?.(id);
+  }
+
   const selected = goals.find((goal) => goal.id === selectedId) ?? null;
+  const showSummary = !(loading && !goals.length);
 
   return <section aria-labelledby="goal-center-title" className="ucd-panel flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-lg" id="goal-center">
-    <header className="grid shrink-0 gap-3 border-b border-border p-3 md:p-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-base font-semibold" id="goal-center-title">{t("goals.title")}</h1>
-          <p className="text-xs text-muted-foreground">{t("goals.subtitle")}</p>
-        </div>
-        <Button onClick={() => { setEditing(false); setCreating((value) => !value); }} size="sm" type="button">
+    <PageHeader
+      className="shrink-0 p-3 md:p-4"
+      description={t("goals.subtitle")}
+      primaryAction={
+        <Button onClick={() => { setEditing(false); setCreating(true); }} size="sm" type="button">
           <Plus aria-hidden="true" />{t("goals.new")}
         </Button>
-      </div>
-      {creating
-        ? <GoalForm
+      }
+      statusSummary={showSummary ? <GoalCenterSummary goals={goals} /> : null}
+      title={t("goals.title")}
+    />
+
+    {creating
+      ? <Sheet
+          closeDisabled={mutations.get(CREATE_MUTATION_KEY)?.pending}
+          onClose={() => setCreating(false)}
+          placement="right"
+          title={t("goals.new")}
+        >
+          <GoalForm
             mutation={mutations.get(CREATE_MUTATION_KEY)}
             onCancel={() => setCreating(false)}
-            onSubmit={(input) => void create(input, (goal) => { setSelectedId(goal.id); setCreating(false); })}
+            onSubmit={(input) => void create(input, (goal) => { selectGoal(goal.id); setCreating(false); })}
             submitLabel={t("goals.actions.create")}
           />
-        : null}
-      {editing && selected
-        ? <GoalForm
+        </Sheet>
+      : null}
+    {editing && selected
+      ? <Sheet
+          closeDisabled={mutations.get(selected.id)?.pending}
+          onClose={() => setEditing(false)}
+          placement="right"
+          title={t("goals.form.editTitle", { title: selected.title })}
+        >
+          <GoalForm
             goal={selected}
             mutation={mutations.get(selected.id)}
             onCancel={() => setEditing(false)}
             onSubmit={(input) => void update(selected, input, () => setEditing(false))}
             submitLabel={t("goals.actions.save")}
           />
-        : null}
-    </header>
+        </Sheet>
+      : null}
 
     {error ? <p className="m-3 rounded border border-destructive/50 bg-destructive/10 p-2 text-sm text-destructive" role="alert">{error}</p> : null}
 
@@ -120,7 +180,7 @@ export function GoalCenter() {
                     ? "border-primary bg-[hsl(var(--nav-active-soft))] shadow-[0_0_0_1px_hsl(var(--primary))]"
                     : "border-border hover:bg-muted/40"
                 }`}
-                onClick={() => { setSelectedId(goal.id); setEditing(false); }}
+                onClick={() => selectGoal(goal.id)}
                 type="button"
               >
                 {goal.id === selectedId ? <span aria-hidden="true" className="absolute inset-y-2 left-0 w-0.5 rounded bg-primary" /> : null}
@@ -147,7 +207,7 @@ export function GoalCenter() {
                   onAbandon={() => void abandon(selected)}
                   onAccept={() => void accept(selected)}
                   onActivate={() => void activate(selected)}
-                  onDelete={() => void remove(selected, () => setSelectedId(null))}
+                  onDelete={() => void remove(selected, () => selectGoal(undefined))}
                   onDismissError={() => mutations.clear(selected.id)}
                   onEdit={() => { setCreating(false); setEditing(true); }}
                   onLink={(kind, id) => void link(selected, kind, id)}

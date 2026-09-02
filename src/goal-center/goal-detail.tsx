@@ -1,8 +1,9 @@
-import { AlertTriangle, Check, Play, Plus, RotateCcw, Trash2, X } from "lucide-react";
-import { type FormEvent } from "react";
+import { AlertTriangle, Ban, Check, Pencil, Play, Plus, RotateCcw, Trash2, X } from "lucide-react";
+import { type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../components/ui/button";
 import { normalizeDisplayPath } from "../lib/session-path";
+import { ActionMenu, type ActionMenuItem } from "../ui/actions/ActionMenu";
 import { MutationStatus } from "../ui/async/MutationStatus";
 import type { MutationState } from "../ui/async/mutation-state";
 import type { Goal, GoalLinkTarget } from "../contracts/goal";
@@ -39,6 +40,39 @@ export function GoalDetail(props: GoalDetailProps) {
   const stranded = unresolvableLinks(goal);
   const pending = mutation?.pending ?? false;
 
+  /**
+   * 15.3: exactly one of Activate/Accept/Reopen ever applies to a given `status` -- each is
+   * guarded below by the same disjoint `status` checks the old always-visible row used, so there
+   * is never a second candidate to weigh, only whichever one already applies. Accept keeps its
+   * pre-existing disabled/title behavior verbatim (visible but disabled with a reason until
+   * `canAccept`) -- this only changes how the applicable action is presented, not whether it is
+   * available.
+   */
+  let primaryAction: ReactNode = null;
+  if (goal.status === "draft" || goal.status === "abandoned") {
+    primaryAction = <Button disabled={pending} onClick={onActivate} size="sm" type="button"><Play aria-hidden="true" />{t("goals.actions.activate")}</Button>;
+  } else if (goal.status === "active") {
+    primaryAction = (
+      <Button disabled={pending || !canAccept(goal)} onClick={onAccept} size="sm" title={canAccept(goal) ? undefined : t(`goals.blocked.${reason}`)} type="button">
+        <Check aria-hidden="true" />{t("goals.actions.accept")}
+      </Button>
+    );
+  } else if (goal.status === "achieved") {
+    primaryAction = <Button disabled={pending} onClick={onReopen} size="sm" type="button" variant="outline"><RotateCcw aria-hidden="true" />{t("goals.actions.reopen")}</Button>;
+  }
+
+  // Everything else permitted for this status -- Abandon (unless already abandoned), Edit,
+  // Delete -- same visibility/disabled conditions as the row this replaces, just grouped into
+  // "More" instead of their own always-visible buttons.
+  const moreItems: ActionMenuItem[] = [];
+  if (goal.status !== "abandoned") {
+    moreItems.push({ disabled: pending, icon: Ban, id: "abandon", label: t("goals.actions.abandon"), onSelect: onAbandon });
+  }
+  moreItems.push(
+    { disabled: pending, icon: Pencil, id: "edit", label: t("goals.actions.edit"), onSelect: onEdit },
+    { disabled: pending, icon: Trash2, id: "delete", label: t("goals.actions.delete"), onSelect: onDelete, tone: "destructive" },
+  );
+
   const submitLink = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
@@ -60,21 +94,9 @@ export function GoalDetail(props: GoalDetailProps) {
       {goal.description ? <p className="whitespace-pre-wrap text-sm text-muted-foreground">{goal.description}</p> : null}
     </header>
 
-    <div aria-label={t("goals.actionsLabel")} className="flex flex-wrap gap-2 rounded-md border border-border bg-muted/20 p-2" role="group">
-      {goal.status === "draft" || goal.status === "abandoned"
-        ? <Button disabled={pending} onClick={onActivate} size="sm" type="button"><Play aria-hidden="true" />{t("goals.actions.activate")}</Button>
-        : null}
-      {goal.status === "active"
-        ? <Button disabled={pending || !canAccept(goal)} onClick={onAccept} size="sm" title={canAccept(goal) ? undefined : t(`goals.blocked.${reason}`)} type="button"><Check aria-hidden="true" />{t("goals.actions.accept")}</Button>
-        : null}
-      {goal.status === "achieved"
-        ? <Button disabled={pending} onClick={onReopen} size="sm" type="button" variant="outline"><RotateCcw aria-hidden="true" />{t("goals.actions.reopen")}</Button>
-        : null}
-      {goal.status === "abandoned"
-        ? null
-        : <Button disabled={pending} onClick={onAbandon} size="sm" type="button" variant="outline">{t("goals.actions.abandon")}</Button>}
-      <Button disabled={pending} onClick={onEdit} size="sm" type="button" variant="outline">{t("goals.actions.edit")}</Button>
-      <Button disabled={pending} onClick={onDelete} size="sm" type="button" variant="outline"><Trash2 aria-hidden="true" />{t("goals.actions.delete")}</Button>
+    <div aria-label={t("goals.actionsLabel")} className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/20 p-2" role="group">
+      {primaryAction}
+      <ActionMenu items={moreItems} triggerLabel={t("workbenchUi.pageHeader.moreActions")} />
     </div>
     <MutationStatus onDismiss={onDismissError} state={mutation} />
 

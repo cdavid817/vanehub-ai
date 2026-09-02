@@ -10,7 +10,8 @@ const TABS: { section: PlanSection["section"]; labelKey: string }[] = [
 
 const loadWorkBoard: LazyFeatureLoader<Record<string, never>> = () => import("../work-board/work-board")
   .then((module) => ({ default: module.WorkBoard }));
-const loadGoalCenter: LazyFeatureLoader<Record<string, never>> = () => import("../goal-center/goal-center")
+type GoalCenterProps = { goalId?: string; onSelectGoal?: (goalId: string | undefined) => void };
+const loadGoalCenter: LazyFeatureLoader<GoalCenterProps> = () => import("../goal-center/goal-center")
   .then((module) => ({ default: module.GoalCenter }));
 
 export interface PlanDestinationProps {
@@ -19,10 +20,17 @@ export interface PlanDestinationProps {
 }
 
 /**
- * `WorkBoard`/`GoalCenter` are zero-prop, fully self-contained components today (confirmed by
- * reading both directly) — `viewId`/`workItemId`/`goalId` on `PlanSection` are not consumed here.
- * That is a real gap, not an oversight: neither component has an injectable initial-selection
- * prop, so making the URL drive the selected item is content work for a later milestone.
+ * `WorkBoard` is a zero-prop, fully self-contained component today (confirmed by reading it
+ * directly) — `viewId`/`workItemId` on `PlanSection` are not consumed here. That is a real gap,
+ * not an oversight: it has no injectable initial-selection prop, so making the URL drive its
+ * selected item is content work for a later milestone, the same reasoning as `RunsDestination`'s
+ * own `definitionId`/`loopRunId` gap for LoopCenter.
+ *
+ * 15.1: `goalId` is no longer in that boat — `GoalCenter` now takes it as its current/initial
+ * selection and reports selection changes back through `onSelectGoal`, wired below to
+ * `onSectionChange` the same way the tab buttons already are and the same way `scheduleId`/
+ * `onSelectSchedule` are wired in `RunsDestination` (19.3), so Back/forward and reload restore
+ * the same selected goal.
  */
 export function PlanDestination({ location, onSectionChange }: PlanDestinationProps) {
   const { t } = useTranslation();
@@ -50,7 +58,14 @@ export function PlanDestination({ location, onSectionChange }: PlanDestinationPr
         {location.section === "board" ? (
           <LazyFeature className="h-full min-h-0" componentProps={{}} loader={loadWorkBoard} />
         ) : (
-          <LazyFeature className="h-full min-h-0" componentProps={{}} loader={loadGoalCenter} />
+          <LazyFeature
+            className="h-full min-h-0"
+            componentProps={{
+              goalId: location.section === "goals" ? location.goalId : undefined,
+              onSelectGoal: (nextGoalId: string | undefined) => onSectionChange({ section: "goals", goalId: nextGoalId }),
+            }}
+            loader={loadGoalCenter}
+          />
         )}
       </div>
     </div>
