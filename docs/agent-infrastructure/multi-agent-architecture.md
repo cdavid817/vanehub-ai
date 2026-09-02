@@ -16,7 +16,7 @@
 
 ### 1.2 何时用多 Agent（决策框架）
 
-多 Agent 不是默认选项——它引入协调开销、通信损耗与数倍的 token 成本（Anthropic 公开的研究系统数据：多 Agent 消耗约为单次对话的 **15 倍** token）。判断依据：
+多 Agent 不是默认选项——它引入协调开销、通信损耗与数倍的 token 成本（[Anthropic 公开的研究系统数据](https://www.anthropic.com/engineering/multi-agent-research-system)：单 Agent 约为对话的 4 倍，多 Agent 约为 **15 倍** token；2025-06 发布，核对于 2026-09-02）。判断依据：
 
 | 信号 | 倾向 |
 |------|------|

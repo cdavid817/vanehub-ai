@@ -74,7 +74,9 @@ Claude Code does not express permissions through launch flags. It uses a **separ
 
 When the hook is unavailable it falls back to an offline decision based on risk classification, rather than failing the whole chain.
 
-The other three CLIs each have their own mechanism — OpenCode uses environment variables, Codex CLI uses command-line options. You do not need to care about these differences; configuring the template is enough.
+Gemini CLI, Codex CLI, and OpenCode project the template into their own native approval or sandbox launch flags, each expressing it differently — OpenCode uses environment variables, Codex CLI uses command-line options. You do not need to care about these differences; configuring the template is enough.
+
+**Antigravity CLI has no native flags to project into.** It stays bound by VaneHub AI's own policy layer — approval cards and audit records work as usual — but it will not additionally enforce an equivalent restriction inside its own process the way the three above do. Which layer a policy takes effect in depends on each Agent's declared capabilities, not on all CLIs being alike.
 
 ## Notes and limits
 

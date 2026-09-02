@@ -22,7 +22,7 @@
 
 ## Agent
 
-**Agent 是执行任务的主体**。VaneHub AI 内置 6 个：
+**Agent 是执行任务的主体**。VaneHub AI 接入 6 个：5 个需要你自己安装并认证的外部 CLI Agent，以及 1 个随应用交付的原生 API Agent。
 
 | Agent | 提供方 | 形态 |
 | --- | --- | --- |

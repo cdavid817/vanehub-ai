@@ -17,21 +17,27 @@
 
 ## 3. Phase 2 — capability calibration
 
-- [ ] 3.1 `core-concepts.md`: 5 external CLI Agents + 1 built-in OnePiece, with the in-process/out-of-process distinction stated once
-- [ ] 3.2 `use-cases.md`: replace the time-only correlation instruction with `runId`/`traceId`/`spanId`, keeping time as the fallback for paths that carry no ids
-- [ ] 3.3 `worktree.md`: state what a worktree isolates and what it does not; remove "no extra sandbox logic is needed"
-- [ ] 3.4 `troubleshooting.md`: replace the "memory is a host-level shared pool, isolation only by turning it off" answer with the scope/audience model
-- [ ] 3.5 `cross-session-memory.md`: `name` is display metadata; the filename is `{id}.md`
-- [ ] 3.6 `retrieval.md`: keep the tool-schema fact, replace the stale reason ("the shared pool has no slices") with the eligibility filter's real order
-- [ ] 3.7 `skill-management.md` (dev): replace "无状态,纯文本,无需权限系统" with the governed-runtime posture
-- [ ] 3.8 `agent-skills-architecture.md`: description is the primary discovery signal a host may use, not the only possible one
-- [ ] 3.9 `lsp-code-intelligence.md` (user): one settings entry point, one tool count, both matching the registry
-- [ ] 3.10 `permissions.md`: name all three projecting CLIs and state that Antigravity CLI has no native projection while remaining under host policy
-- [ ] 3.11 `remote-and-im.md`: state the text-DM-only inbound execution scope
-- [ ] 3.12 `runtime-boundaries.md` (zh **and** en): replace ACP-stdio with JSON-RPC over stdio throughout; keep ACP only where a real Agent Client Protocol is meant
-- [ ] 3.13 `function-calling-architecture.md`: Assistants API sunset in past tense with Responses as the migration target
-- [ ] 3.14 `multi-agent-architecture.md`: add the source link for the 15x token figure
-- [ ] 3.15 Search for surviving instances of every corrected wording across `docs/`, both languages, and the OpenSpec specs
+- [x] 3.1 `core-concepts.md`: 5 external CLI Agents + 1 built-in OnePiece, with the in-process/out-of-process distinction stated once
+- [x] 3.2 `use-cases.md`: replace the time-only correlation instruction with `runId`/`traceId`/`spanId`, keeping time as the fallback for paths that carry no ids
+- [x] 3.3 `worktree.md`: state what a worktree isolates and what it does not; remove "no extra sandbox logic is needed"
+- [x] 3.4 `troubleshooting.md`: replace the "memory is a host-level shared pool, isolation only by turning it off" answer with the scope/audience model
+- [x] 3.5 `cross-session-memory.md`: `name` is display metadata; the filename is `{id}.md`
+- [x] 3.6 `retrieval.md`: keep the tool-schema fact, replace the stale reason ("the shared pool has no slices") with the eligibility filter's real order
+- [x] 3.7 `skill-management.md` (dev): replace "无状态,纯文本,无需权限系统" with the governed-runtime posture, linking the two chapters that document it
+- [x] 3.8 `agent-skills-architecture.md`: description is the primary discovery signal a host may use, not the only possible one
+- [x] 3.9 `lsp-code-intelligence.md` (user): one settings entry point, one tool count, both matching the registry. `语言服务器智能` is real (`lspSettings.title`) — it is the section inside the 代码智能 page, so only the page group was wrong
+- [x] 3.10 `permissions.md`: name all three projecting CLIs and state that Antigravity CLI has no native projection while remaining under host policy
+- [x] 3.11 `remote-and-im.md`: state the text-DM-only inbound execution scope
+- [x] 3.12 `runtime-boundaries.md` (zh **and** en): replace ACP-stdio with JSON-RPC over stdio throughout; keep ACP only in the note that says what it actually is
+- [x] 3.13 `function-calling-architecture.md`: Assistants API sunset in past tense with Responses as the migration target, verified against OpenAI's own deprecation announcement
+- [x] 3.14 `multi-agent-architecture.md`: add the source link for the 15x token figure
+- [x] 3.15 Search for surviving instances of every corrected wording across `docs/`, both languages, and the OpenSpec specs
+
+### Found while doing 3.6 and 3.12 — not in the audit
+
+- [x] 3.16 Record the memory-audience/recall boundary as an unresolved cross-capability conflict (`design.md`, Decision 5) and state it in all four documents that offer audience as isolation
+- [x] 3.17 Correct the claim that LSP and MCP share one `Content-Length` framing. `read_bounded_frame` delimits MCP frames on `\n`; only LSP uses `Content-Length`
+- [x] 3.18 Apply every Phase 2 correction to the English user guide and developer guide, which carried each defect verbatim — a false security boundary and a wrong diagnostic technique cannot be left standing in one language because the brief named another
 
 ## 4. Phase 3 — structure and guards
 

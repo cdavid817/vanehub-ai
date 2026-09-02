@@ -24,7 +24,7 @@ VaneHub AI 的界面按功能讲解界面里能做什么。每个功能讲它是
 
 ## Agent 类型
 
-VaneHub AI 内置 6 个 Agent，分两类：
+VaneHub AI 接入 6 个 Agent，分两类：
 
 ### 外部 CLI Agent
 

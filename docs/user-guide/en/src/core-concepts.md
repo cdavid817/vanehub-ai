@@ -22,7 +22,7 @@ Sessions can be **categorized**, **pinned**, and **archived**. An archived sessi
 
 ## Agent
 
-**An Agent is what actually performs the task.** VaneHub AI ships with six:
+**An Agent is what actually performs the task.** VaneHub AI works with six: five external CLI Agents you install and authenticate yourself, and one native API Agent that ships with the application.
 
 | Agent | Provider | Form |
 | --- | --- | --- |

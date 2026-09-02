@@ -109,7 +109,9 @@ skill-name/
 
 ## 4. 触发机制：description 工程学
 
-技能系统没有路由算法、没有向量检索、没有规则引擎——**description 是唯一的触发信号**，由模型在推理中语义匹配。因此 description 的质量直接等于触发准确率，值得当作接口契约来写。
+规范本身不定义路由算法、向量检索或规则引擎，**description 是它规定的主要发现信号**，由模型在推理中语义匹配。因此 description 的质量直接影响触发准确率，值得当作接口契约来写。
+
+这是规范的下限，不是宿主的上限：宿主可以在 description 之上叠加显式绑定、策略路由或检索，规范并不禁止。VaneHub AI 的做法见[开发者指南的 Skill 管理](../developer-guide/zh-CN/src/skill-management.md)。
 
 ### 4.1 写法模式
 

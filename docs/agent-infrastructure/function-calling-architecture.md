@@ -2,7 +2,7 @@
 
 > 本文介绍 Function Calling 的完整技术体系：通用调用循环与约束解码原理、Anthropic Tool Use 与 OpenAI Function Calling 的 API 细节对比、并行调用与流式组装、结构化输出、以及多 Provider 适配层的设计。适用于实现工具执行引擎、跨 Provider 消息格式转换层时参考。
 >
-> API 基准：Anthropic Messages API（tool use，含 2025-11 后的 advanced tool use 能力族）与 OpenAI Responses API / Chat Completions API（2026 年现状：新项目官方推荐 Responses API，Assistants API 已废弃并定于 2026-08-26 关停）。
+> API 基准：Anthropic Messages API（tool use，含 2025-11 后的 advanced tool use 能力族）与 OpenAI Responses API / Chat Completions API（2026 年现状：新项目官方推荐 Responses API；Assistants API 已于 2026-08-26 关停）。
 
 ---
 
@@ -199,7 +199,7 @@ OpenAI 当前并存两个端点，**新项目官方推荐 Responses API**：
 | strict 默认 | 非严格（须显式 `strict: true`） | **默认尝试严格**：schema 可归一化则自动 strict，否则回退并标注 `strict: false` |
 | 缓存效率 | 基线 | 官方称缓存利用率显著优于前者 |
 
-（Assistants API 已废弃，定于 2026-08-26 关停，存量应迁移 Responses。）
+（Assistants API 已于 2026-08-26 关停。新集成使用 Responses API，需要服务端持久会话时配合 Conversations API。）
 
 ### 4.2 工具定义与格式差异
 

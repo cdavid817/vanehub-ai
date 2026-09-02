@@ -54,6 +54,27 @@ This is the minimum code change that satisfies "fix the documentation checker to
 
 Until decided, the capability is described as `security-gap-under-review`, and no document in this change asserts encrypted evidence storage.
 
+### Decision 5: state the memory-audience boundary instead of repeating the product promise
+
+Correcting `troubleshooting.md`'s "you cannot isolate memory per Agent" turned up something the audit did not look for. Two capabilities govern two different paths, and only one of them enforces audience:
+
+| Path | Enforcement | Authority |
+| --- | --- | --- |
+| Injection into a prompt (OnePiece context assembly, CLI index) | `personalization::domain::memory::eligibility()` excludes by status, read policy, scope, then audience — before budgeting or relevance selection | `agent-cross-session-memory` |
+| The `recall` tool | None. `retrieval` contains no reference to audience or `eligibility`; `vector_candidates` and `keyword_candidates` span the whole shared pool, and `ports.rs:66` documents that as intentional | `retrieval-vector-search` |
+
+The two main specs do not literally contradict each other — `agent-cross-session-memory`'s exclusion scenarios are all about injection (the CLI index, the Context Engine budget, the Web mock), and `retrieval-vector-search` explicitly requires that "recall SHALL NOT return a strict subset of what memory injection already placed in the system prompt". The design is deliberate: a recall tool that re-filtered by audience could only return what injection already supplied.
+
+What is wrong is the documentation. `faq.md` answered "can one Agent have separate memory?" with an unqualified yes, and `personalization.md` presented restricted audience as the solution to per-Agent isolation. Neither said that the restriction governs injection only, so a reader would reasonably conclude that an excluded Agent cannot reach the memory. It can, through `recall`.
+
+| | |
+| --- | --- |
+| **Current implementation** | Audience and scope filter injection. The recall tool searches the entire host-level pool. |
+| **Current specification** | Both behaviours are specified, in two capabilities, with no requirement reconciling them at the boundary. |
+| **Impact** | A user who restricts a memory's audience for confidentiality is not getting confidentiality. The exposure is local (same host, same user account) but it is not what the guide promised. |
+| **Proposed resolution** | Either (a) accept the boundary and keep it stated wherever audience is offered — which is what this change does — or (b) add a requirement that recall respects audience for records whose audience is explicitly restricted, leaving all-Agent records unfiltered. Option (b) preserves the "not a strict subset" property while closing the gap. |
+| **Business code change required** | No under (a); yes under (b). This change makes neither choice, and documents the boundary in `troubleshooting.md`, `faq.md`, `personalization.md`, and `retrieval.md` so it is not discovered by accident. |
+
 ### Decision 4: keep the settings entry point that the registry proves
 
 `lsp-code-intelligence.md` names two entry points. `src/settings/settings-pages.ts:96` registers `id: "code-intelligence"` with `labelKey: "settings.pages.codeIntelligence"`, which `src/i18n/locales/zh-CN.json:46` resolves to **代码智能**. "设置 → Agent 配置 → 语言服务器智能" matches no registered page. The registry wins; the second reference is corrected, not the first.

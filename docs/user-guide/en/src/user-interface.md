@@ -24,7 +24,7 @@ The activity bar to the left of the session list switches between the main desti
 
 ## Agent types
 
-VaneHub AI ships six built-in Agents, in two categories.
+VaneHub AI works with six Agents, in two categories.
 
 ### External CLI Agents
 

@@ -82,6 +82,8 @@ They are displayed separately and never conflated.
 
 ### Sessions triggered from IM
 
+**Only a text direct message triggers execution in this first release.** Each connector accepts text direct messages only; group messages and non-text content are acknowledged or consumed but create no session and start no Agent generation. Mentioning the bot in a group will not put it to work — send it a text message in a direct chat.
+
 A session created by a connector is marked with its source, distinguishing it from sessions you created by hand on the desktop. The execution trace also records which connector triggered it.
 
 ## Notes and limits

@@ -87,6 +87,8 @@ Saved memories are listed a page at a time, with names and metadata only; a body
 
 **"Recorded by" and "readable by" are two different things**: something one Agent recorded can be readable only by another, or by none. This is also the answer to the old limitation that memory could only be switched on and off as a whole, with no way to isolate it per Agent.
 
+**That restriction applies to the injection path.** Scope and audience decide whether a memory is carried into an Agent's context automatically; they do not filter the `recall` tool, which searches the whole shared pool by design. A restricted audience therefore means "it will not be put in front of that Agent" rather than "that Agent cannot retrieve it" — it is relevance and noise control, not a confidentiality boundary.
+
 From a memory's detail view you can also mark it **sensitive**, **archive** it (no longer injected, still kept), or **delete** it (the file goes too, and that is not reversible).
 
 ### Pending review: automatic extraction only proposes
