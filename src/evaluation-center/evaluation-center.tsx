@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { agentService } from "../services/runtime-agent-client";
 import type { EvaluationArena, EvaluationAttempt } from "../types/evaluation";
 import { EvidenceLink } from "../ui/evidence/EvidenceLink";
+import { EvaluationArenaList } from "./evaluation-arena-list";
 import { EvaluationResultsTable } from "./evaluation-results-table";
 import { EvaluationRunControls } from "./evaluation-run-controls";
 import { TERMINAL_EVALUATION_OUTCOMES, useEvaluationQuery } from "./use-evaluation-query";
@@ -74,6 +75,7 @@ export function EvaluationCenter() {
       />
     </header>
     {error ? <p className="border-b border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive" role="alert">{error}</p> : null}
+    <EvaluationArenaList arenas={arenas} tasks={tasks} />
     <div className="grid min-h-0 flex-1 grid-cols-1 overflow-auto lg:grid-cols-[minmax(420px,1.3fr)_minmax(280px,0.7fr)]">
       <EvaluationResultsTable
         filter={filter}
