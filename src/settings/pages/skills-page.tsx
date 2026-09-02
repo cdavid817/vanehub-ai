@@ -6,10 +6,13 @@ import { Button } from "../../components/ui/button";
 import { effectiveSkillInventory, filterGlobalSkillInventory, isSkillAssigned, isSkillAssignedToAgent, skillIdentity, type SkillInventoryFilters, type SkillInventoryView } from "../../lib/skill-management";
 import { useMediaQuery } from "../../hooks/use-media-query";
 import { agentService } from "../../services/runtime-agent-client";
+import { AsyncBoundary } from "../../ui/async/AsyncBoundary";
+import type { AsyncViewState } from "../../ui/async/async-view-state";
+import { PageHeader } from "../../ui/page-header/PageHeader";
 import type { SkillCompatibleAgent, SkillOverview, SkillScopeInput } from "../../types/skill";
 import type { SkillOverlayTargetInput } from "../../types/skill-overlay";
 import type { SettingsPageStatus } from "../settings-page-types";
-import { PageHeader, SettingsDisclosure } from "./page-parts";
+import { SettingsDisclosure } from "./page-parts";
 import { SkillAgentMountPathsPanel } from "./skills/skill-agent-mount-paths-panel";
 import { SkillAgentNavigation } from "./skills/skill-agent-navigation";
 import { SkillCardList } from "./skills/skill-card-list";
@@ -78,11 +81,50 @@ export function SkillsPage({ onStatusChange, searchTerm }: { onStatusChange?: (s
     return () => onStatusChange?.(null);
   }, [manager.dialogOperationError, manager.overviewQuery.isError, manager.rowOperationError, mountError, onStatusChange]);
 
+  // Task 12.18: this page's own overviewQuery projected into the shared AsyncBoundary's
+  // AsyncViewState shape -- src/ui/ primitives cannot import this service's own error type
+  // (ARCH-FE-005), so the projection lives here rather than in the primitive. `loadingFallback`
+  // keeps this page's own pre-existing "Skill 加载中..." copy instead of AsyncBoundary's generic
+  // spinner text -- unlike SSH/Extensions/Plugins, this page's own loading-state test asserts that
+  // exact string, so the override is load-bearing, not cosmetic.
+  const asyncState: AsyncViewState<SkillOverview> = {
+    data: overview,
+    error: manager.overviewQuery.isError
+      ? { kind: "error", message: manager.overviewQuery.error.message, retryable: true }
+      : undefined,
+    initialLoading: manager.overviewQuery.isLoading,
+    refreshing: manager.overviewQuery.isFetching && !manager.overviewQuery.isLoading,
+    stale: manager.overviewQuery.isStale,
+  };
+
   return <div className="space-y-4">
-    <PageHeader actions={<><Button onClick={() => manager.setDialog({ mode: "restore", skill: null, preview: null })} variant="outline"><RotateCcw />{t("skills.restoreBuiltIn")}</Button><Button onClick={() => manager.setDialog({ mode: "import", skill: null, preview: null })} variant="outline"><Upload />{t("skills.importSkill")}</Button><Button onClick={() => manager.setDialog({ mode: "create", skill: null, preview: null })}><Plus />{t("skills.createSkill")}</Button></>} description={t("skills.descriptionGlobal")} icon={Puzzle} title={t("skills.title")} />
-    {manager.overviewQuery.isLoading ? <Status>{t("skills.loading")}</Status> : null}
-    {manager.overviewQuery.isError ? <Status danger><div className="flex flex-wrap items-center justify-between gap-3"><span>{manager.overviewQuery.error.message}</span><Button onClick={() => void manager.overviewQuery.refetch()} size="sm" variant="outline">{t("featureLoad.retry")}</Button></div></Status> : null}
-    {overview ? <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
+    <PageHeader
+      description={t("skills.descriptionGlobal")}
+      icon={Puzzle}
+      moreMenuItems={[
+        {
+          icon: RotateCcw,
+          id: "restore",
+          label: t("skills.restoreBuiltIn"),
+          onSelect: () => manager.setDialog({ mode: "restore", skill: null, preview: null }),
+        },
+        {
+          icon: Upload,
+          id: "import",
+          label: t("skills.importSkill"),
+          onSelect: () => manager.setDialog({ mode: "import", skill: null, preview: null }),
+        },
+      ]}
+      primaryAction={
+        <Button onClick={() => manager.setDialog({ mode: "create", skill: null, preview: null })}>
+          <Plus />
+          {t("skills.createSkill")}
+        </Button>
+      }
+      title={t("skills.title")}
+    />
+    <AsyncBoundary loadingFallback={<Status>{t("skills.loading")}</Status>} onRetry={() => void manager.overviewQuery.refetch()} state={asyncState}>
+      {(overview) => <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
       <SkillAgentNavigation agents={overview.agents} counts={counts} onSelect={setView} selected={view} />
       <div className="min-w-0 space-y-4">
         <section className="ucd-panel rounded-lg p-4"><div><h3 className="text-base font-semibold">{viewTitle(view, activeAgent, t)}</h3><p className="mt-1 text-xs text-muted-foreground">{activeAgent ? t(activeAgent.kind === "api" ? "skills.assignment.apiExplanation" : "skills.assignment.cliExplanation") : t("skills.enablementExplanation")}</p></div><div className="mt-3 border-t border-border pt-3"><SkillInventorySummary overview={overview} view={view} /></div></section>
@@ -95,7 +137,8 @@ export function SkillsPage({ onStatusChange, searchTerm }: { onStatusChange?: (s
         {activeAgent?.kind === "cli" && (mountError || activeMigration?.failed.length) ? <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive" role="alert">{mountError ?? t("skills.mountPaths.failed", { count: activeMigration?.failed.length ?? 0 })}</div> : null}
         {activeAgent?.kind === "cli" ? <SettingsDisclosure description={t("skills.mountPaths.description")} title={t("skills.mountPaths.title")}><SkillAgentMountPathsPanel agents={[activeAgent]} drafts={mountDrafts} error={mountError} migration={activeMigration} mountPaths={overview.mountPaths} onDraftChange={(agentId, value) => setMountDrafts((current) => ({ ...current, [agentId]: value }))} onSave={(agentId) => mountMutation.mutate({ agentId, mountPath: mountDrafts[agentId] ?? overview.mountPaths.find((path) => path.agentId === agentId)?.mountPath ?? "" })} savingAgentId={mountMutation.isPending ? mountMutation.variables?.agentId ?? null : null} /></SettingsDisclosure> : null}
       </div>
-    </div> : null}
+    </div>}
+    </AsyncBoundary>
     <SkillDialogs editConflict={Boolean(manager.updateMutation.error?.message.toLowerCase().includes("skill changed since it was loaded"))} editError={editError} onClose={() => { manager.setDialog(closedSkillDialog); manager.deleteMutation.reset(); }} onCreate={(metadata, body, source) => manager.createMutation.mutate({ metadata, body, source })} onDelete={(skill) => manager.deleteMutation.mutate(skill)} onImport={(sourcePath) => manager.importMutation.mutate(sourcePath)} onReloadEdit={(skill) => manager.editReloadMutation.mutate(skill)} onRestore={(skillId) => manager.restoreMutation.mutate(skillId)} onUpdate={(skill, metadata, body) => manager.updateMutation.mutate({ skill, metadata, body })} operationError={manager.dialogOperationError} operationPending={manager.dialogPending} reloadingEdit={manager.editReloadMutation.isPending} restoreCandidates={overview?.restoreCandidates} scope="global" state={manager.dialog} workspacePath={null} />
   </div>;
 }
@@ -118,6 +161,6 @@ function viewTitle(view: SkillInventoryView, agent: SkillCompatibleAgent | null,
   return t(view.kind === "unassigned" ? "skills.navigation.unassigned" : "skills.navigation.all");
 }
 
-function Status({ children, danger }: { children: ReactNode; danger?: boolean }) {
-  return <div className={`ucd-panel rounded-lg p-4 text-sm ${danger ? "text-destructive" : "text-muted-foreground"}`}>{children}</div>;
+function Status({ children }: { children: ReactNode }) {
+  return <div className="ucd-panel rounded-lg p-4 text-sm text-muted-foreground">{children}</div>;
 }
