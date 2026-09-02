@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 import { agentService } from "../services/runtime-agent-client";
 import type { MissionControlAction, MissionControlFacet, MissionControlNavigationTarget, MissionControlOverview, MissionControlRunDetail, MissionControlRunSummary, MissionControlSort } from "../types/mission-control";
+import { MissionControlFacetPanel } from "./mission-control-facets";
 import {
   readMissionControlScrollTop,
   readMissionControlViewState,
@@ -120,7 +121,7 @@ export function MissionControl({
       </div>
       <aside className="min-h-0 overflow-y-auto border-t border-border p-3 min-[900px]:border-l min-[900px]:border-t-0">
         <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t("missionControl.detail")}</h2>
-        {selected ? <><RunCard run={selected.run} onAct={act} onInspect={(run) => void inspect(run.runId)} /><div className="mt-3 flex gap-1 overflow-x-auto" role="tablist">{facets.map((facet) => { const availability = selected.facets.find((item) => item.facet === facet)?.state ?? "unavailable"; return <button aria-disabled={availability !== "available"} aria-selected={activeFacet === facet} className="shrink-0 rounded-md border border-input px-2 py-1 text-xs disabled:opacity-50" disabled={availability !== "available"} key={facet} onClick={() => setActiveFacet(facet)} role="tab" type="button">{t(`missionControl.facet.${facet}`)}{availability === "available" ? null : ` · ${t(`missionControl.availability.${availability}`)}`}</button>; })}</div><p className="mt-4 text-xs text-muted-foreground">{t("missionControl.facetSelected", { facet: t(`missionControl.facet.${activeFacet}`) })} · {t("missionControl.lazyDetail")}</p></> : <p className="text-sm text-muted-foreground">{t("missionControl.selectRun")}</p>}
+        {selected ? <><RunCard run={selected.run} onAct={act} onInspect={(run) => void inspect(run.runId)} /><div className="mt-3 flex gap-1 overflow-x-auto" role="tablist">{facets.map((facet) => { const availability = selected.facets.find((item) => item.facet === facet)?.state ?? "unavailable"; return <button aria-disabled={availability !== "available"} aria-selected={activeFacet === facet} className="shrink-0 rounded-md border border-input px-2 py-1 text-xs disabled:opacity-50" disabled={availability !== "available"} key={facet} onClick={() => setActiveFacet(facet)} role="tab" type="button">{t(`missionControl.facet.${facet}`)}{availability === "available" ? null : ` · ${t(`missionControl.availability.${availability}`)}`}</button>; })}</div><MissionControlFacetPanel detail={selected} facet={activeFacet} /></> : <p className="text-sm text-muted-foreground">{t("missionControl.selectRun")}</p>}
       </aside>
     </div>
   </div>;
