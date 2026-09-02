@@ -51,12 +51,19 @@
 
 ## 5. Verification
 
-- [ ] 5.1 `npm run docs:check`
-- [ ] 5.2 `npm run docs:test`
-- [ ] 5.3 `npm run docs:build`
-- [ ] 5.4 `npm run contracts:check`
-- [ ] 5.5 `npm run architecture:check`
-- [ ] 5.6 `npm run docs:unit:test` covers the two new guards
-- [ ] 5.7 `openspec validate refactor-zh-cn-documentation-system --strict` and `openspec validate --specs --strict`
-- [ ] 5.8 Confirm the working tree is clean and no generated artifact is left modified
-- [ ] 5.9 Classify every failure as introduced-here, pre-existing on `main`, or environmental, with the evidence for the classification
+- [x] 5.1 `npm run docs:check` — PASSED (47 unit tests, README parity, link/media/boundary inventories)
+- [x] 5.2 `npm run docs:test` — PASSED (all four mdBooks)
+- [x] 5.3 `npm run docs:build` — PASSED, exit 0, including the assembled-site validation
+- [x] 5.4 `npm run contracts:check` — PASSED (catalog and matrix up to date at the new path, 16 tests)
+- [x] 5.5 `npm run architecture:check` — PASSED, exit 0 (`lint:ci`, `tsc --noEmit`, architecture fitness tests, four Rust suites)
+- [x] 5.6 `npm run docs:unit:test` covers the two new guards — 40 tests before, 47 after
+- [x] 5.7 `openspec validate refactor-zh-cn-documentation-system --strict` — valid; `openspec validate --specs --strict` — 147 passed, 0 failed
+- [x] 5.8 Working tree clean. `src-tauri/gen/schemas/*.json` showed as dirty after the cargo runs but carried no content change, and git's normalization kept them out of the commit
+- [x] 5.9 No failure to classify: every gate passed. The two failures seen during the work were deliberate — the injected defects in 4.7 — and one real miss the link checker caught, the two `tooling.md` links to the moved matrix
+
+## 6. Not done here
+
+- [ ] 6.1 Decide the `skill_evolution_evidence` encryption conflict: implement at-rest encryption, or amend `openspec/project.md:66` to state the real boundary (`design.md`, Decision 3)
+- [ ] 6.2 Decide whether `recall` should respect an explicitly restricted memory audience (`design.md`, Decision 5). Until then the documentation states the boundary rather than the promise
+- [ ] 6.3 Phase 3 of the audit's own program: split `user-interface.md`, `tooling.md`, `remote-and-im.md`, `automation.md`; merge `goal-management.md` with `todo-board.md`; split `execution-observability.md` and `persistence-and-logging.md`. Deferred because each rewrites documents whose content is currently accurate
+- [ ] 6.4 Regroup `docs/agent-infrastructure/` into `protocols/`, `patterns/`, `methods/` subdirectories. The README now states the grouping, which is the reader-visible part; moving ten files changes forty-odd inbound links for no further gain
