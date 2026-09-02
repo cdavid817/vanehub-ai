@@ -125,4 +125,39 @@ describe("DataTableBody", () => {
     expect(screen.getByText("No runs yet")).toBeTruthy();
     expect(screen.queryByRole("table")).toBeNull();
   });
+
+  it("spreads per-row attributes and fires the row click handler, in both densities", () => {
+    const onClick = vi.fn();
+    const getRowMeta = (row: Run) => ({ attributes: { "data-testid": "run-row", "data-run-id": row.id }, onClick: () => onClick(row.id) });
+    const { rerender } = render(<DataTableBody ariaLabel="Runs" columns={COLUMNS} compact={false} getRowMeta={getRowMeta} rowKey={(row) => row.id} rows={RUNS} />);
+    const rows = screen.getAllByTestId("run-row");
+    expect(rows.map((row) => row.getAttribute("data-run-id"))).toEqual(["r1", "r2"]);
+    fireEvent.click(rows[0]);
+    expect(onClick).toHaveBeenCalledWith("r1");
+
+    onClick.mockClear();
+    rerender(<DataTableBody ariaLabel="Runs" columns={COLUMNS} compact getRowMeta={getRowMeta} rowKey={(row) => row.id} rows={RUNS} />);
+    fireEvent.click(screen.getAllByTestId("run-row")[1]);
+    expect(onClick).toHaveBeenCalledWith("r2");
+  });
+
+  it("does not also activate the row when a selection checkbox inside it is clicked", () => {
+    const onRowClick = vi.fn();
+    const onSelectedRowKeysChange = vi.fn();
+    render(
+      <DataTableBody
+        ariaLabel="Runs"
+        columns={COLUMNS}
+        compact={false}
+        getRowMeta={() => ({ onClick: onRowClick })}
+        onSelectedRowKeysChange={onSelectedRowKeysChange}
+        rowKey={(row) => row.id}
+        rows={RUNS}
+        selectedRowKeys={new Set()}
+      />,
+    );
+    fireEvent.click(screen.getAllByRole("checkbox", { name: "Select row" })[0]);
+    expect(onSelectedRowKeysChange).toHaveBeenCalledWith(new Set(["r1"]));
+    expect(onRowClick).not.toHaveBeenCalled();
+  });
 });

@@ -1,11 +1,20 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { i18n } from "../i18n";
 import { agentService } from "../services/runtime-agent-client";
 import type { EvaluationArena } from "../types/evaluation";
 import { EvaluationCenter } from "./evaluation-center";
+
+beforeAll(() => {
+  // jsdom does not implement ResizeObserver; this repo's convention (DataTable.test.tsx) is a
+  // no-op stub, which also pins `useTableCompactMode` to its non-compact default for these tests.
+  globalThis.ResizeObserver = class {
+    observe() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+});
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
@@ -119,13 +128,52 @@ describe("EvaluationCenter", () => {
 
   it("provides every evaluation label in all registered locales", () => {
     for (const locale of ["en", "zh-CN", "zh-TW", "ja", "ko"]) {
-      for (const key of ["agents", "filter", "cancel", "diff", "metrics", "loadError", "runError", "cancelError"]) {
+      for (const key of ["agents", "filter", "cancel", "diff", "metrics", "loadError", "runError", "cancelError", "artifactPreviewUnavailable"]) {
         expect(i18n.getFixedT(locale)(`evaluation.${key}`)).not.toBe(`evaluation.${key}`);
       }
     }
+  });
+
+  // 18.13: raw artifact ids used to render inside a copyable <pre> block. There is no
+  // navigation/preview target for them anywhere yet, so the honest replacement is a typed,
+  // explicitly-unavailable EvidenceLink per id -- never a fabricated working link.
+  it("renders artifact ids as unavailable evidence links, not a raw copyable block", async () => {
+    await i18n.changeLanguage("zh-CN");
+    // Isolates from web-evaluation-client.ts's own module-level `webEvaluationArenas`, which an
+    // earlier test in this file (the only one that calls the real, unmocked `startEvaluation`)
+    // leaves populated -- without this, the initial load can render leftover rows alongside this
+    // test's own, and `findByTestId("evaluation-row")` (singular) fails against the full suite.
+    vi.spyOn(agentService, "listEvaluationArenas").mockResolvedValue([]);
+    vi.spyOn(agentService, "startEvaluation").mockResolvedValue(arenaWithArtifacts(["diff-alpha", "diff-beta"]));
+    render(<EvaluationCenter />);
+    const run = await screen.findByRole("button", { name: "运行竞技场" });
+    await waitFor(() => expect((run as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(run);
+    fireEvent.click(await screen.findByTestId("evaluation-row"));
+    const detail = screen.getByTestId("evaluation-detail");
+    expect(within(detail).getByText("diff-alpha")).toBeTruthy();
+    expect(within(detail).getByText("diff-beta")).toBeTruthy();
+    expect(within(detail).queryByRole("link")).toBeNull();
+    expect(within(detail).getAllByText("不可用")).toHaveLength(2);
+  });
+
+  it("falls back to the unavailable message when an attempt carries no artifacts at all", async () => {
+    await i18n.changeLanguage("zh-CN");
+    vi.spyOn(agentService, "listEvaluationArenas").mockResolvedValue([]);
+    vi.spyOn(agentService, "startEvaluation").mockResolvedValue(arenaWithArtifacts([]));
+    render(<EvaluationCenter />);
+    const run = await screen.findByRole("button", { name: "运行竞技场" });
+    await waitFor(() => expect((run as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(run);
+    fireEvent.click(await screen.findByTestId("evaluation-row"));
+    expect(within(screen.getByTestId("evaluation-detail")).getByText("不可用")).toBeTruthy();
   });
 });
 
 function arena(outcome: "queued" | "cancelled"): EvaluationArena {
   return { id: "arena-cancel", operationId: "operation-cancel", taskId: "fix-null-auth-token", taskVersion: 1, rankingVersion: "deterministic-v2", attempts: [{ id: "attempt-cancel", arenaId: "arena-cancel", canonicalRunId: "run-cancel", taskId: "fix-null-auth-token", taskVersion: 1, agent: { agentId: "onepiece", providerId: "onepiece", modelId: null, interactionMode: "api", configurationFingerprint: "safe" }, outcome, checks: [], metrics: [{ name: "input_tokens", value: null, unit: "tokens", quality: "unavailable", source: "provider" }], contextEvidenceManifestId: null, artifactIds: [], timeline: [] }] };
+}
+
+function arenaWithArtifacts(artifactIds: string[]): EvaluationArena {
+  return { id: "arena-artifacts", operationId: "operation-artifacts", taskId: "fix-null-auth-token", taskVersion: 1, rankingVersion: "deterministic-v2", attempts: [{ id: "attempt-artifacts", arenaId: "arena-artifacts", canonicalRunId: "run-artifacts", taskId: "fix-null-auth-token", taskVersion: 1, agent: { agentId: "onepiece", providerId: "onepiece", modelId: null, interactionMode: "api", configurationFingerprint: "safe" }, outcome: "succeeded", checks: [], metrics: [], contextEvidenceManifestId: null, artifactIds, timeline: [] }] };
 }
