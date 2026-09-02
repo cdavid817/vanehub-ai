@@ -12,7 +12,10 @@ import { CliConfigProfileList } from "./cli-config-profile-list";
 import { CliConfigStatusSummary } from "./cli-config-status-summary";
 import { CliConfigToolbar } from "./cli-config-toolbar";
 
-const queryKey = (agentId: CliConfigAgentId) => ["agents", "global-config", agentId] as const;
+// Exported so `AgentConfigurationsPage` can re-subscribe to the same cache entry for its own
+// page-level diagnostics summary without refetching -- the same "already-exported query key"
+// mechanism `code-intelligence-page.tsx` uses to read `LspConfigurationSection`'s own cache.
+export const agentGlobalConfigQueryKey = (agentId: CliConfigAgentId) => ["agents", "global-config", agentId] as const;
 
 function draftFromProfile(profile: CliConfigProfile): CliConfigProfileDraft {
   return { agentId: profile.agentId, profile, preset: null, payload: structuredClone(profile.payload) };
@@ -32,7 +35,7 @@ export function AgentGlobalConfigPanel({ agentId, searchTerm = "", service = def
   const [profileSearch, setProfileSearch] = useState("");
 
   const overviewQuery = useQuery({
-    queryKey: queryKey(agentId),
+    queryKey: agentGlobalConfigQueryKey(agentId),
     queryFn: async () => {
       const [presets, profiles, status] = await Promise.all([
         service.listCliConfigPresets(agentId),
@@ -42,7 +45,7 @@ export function AgentGlobalConfigPanel({ agentId, searchTerm = "", service = def
       return { presets, profiles, status };
     },
   });
-  const refresh = () => queryClient.invalidateQueries({ queryKey: queryKey(agentId) });
+  const refresh = () => queryClient.invalidateQueries({ queryKey: agentGlobalConfigQueryKey(agentId) });
 
   useEffect(() => {
     setDraft(null);

@@ -14,7 +14,11 @@ import { OnePieceProviderDialog } from "./onepiece-provider-dialog";
 import { OnePieceToolReadiness } from "./onepiece-tool-readiness";
 import { HybridLocalRuntimeSection } from "./hybrid-local-runtime-section";
 
-const queryKey = ["agents", "onepiece-provider-profiles"] as const;
+// Exported so `AgentConfigurationsPage` and `OnePieceParametersPanel` can both re-subscribe to the
+// same cache entry rather than re-deriving their own literal copy of this key -- a prior literal
+// duplication of this exact key (see `onepiece-parameters-panel.tsx`'s own comment) already once
+// hid a real bug where a divergent queryFn shape got written under it.
+export const onePieceProviderProfilesQueryKey = ["agents", "onepiece-provider-profiles"] as const;
 
 export function OnePieceConfigurationPanel({ onChanged, searchTerm = "", service = defaultAgentService }: { onChanged: () => Promise<void>; searchTerm?: string; service?: AgentService }) {
   const { t } = useTranslation();
@@ -24,7 +28,7 @@ export function OnePieceConfigurationPanel({ onChanged, searchTerm = "", service
   const [notice, setNotice] = useState<string | null>(null);
   const [profileSearch, setProfileSearch] = useState("");
   const [view, setView] = useState<"providers" | "runtime" | "tools">("providers");
-  const profilesQuery = useQuery({ queryKey, queryFn: async () => {
+  const profilesQuery = useQuery({ queryKey: onePieceProviderProfilesQueryKey, queryFn: async () => {
     const [overview, presets] = await Promise.all([
       service.listOnePieceProviderProfiles(),
       service.listOnePieceProviderPresets(),
@@ -44,7 +48,7 @@ export function OnePieceConfigurationPanel({ onChanged, searchTerm = "", service
   const ready = Boolean(activeProfile?.credentialPresent);
 
   async function updateOverview(value: OnePieceProviderProfiles, message: string) {
-    queryClient.setQueryData(queryKey, { overview: value, presets });
+    queryClient.setQueryData(onePieceProviderProfilesQueryKey, { overview: value, presets });
     setNotice(message);
     setEditingProfile(undefined);
     setPendingAction(null);
