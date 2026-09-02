@@ -168,12 +168,11 @@ Web/mock 是确定性的浏览器模拟，不代表真实发生了本地 CLI 执
 | A2A | [AgentCard/Task/Message/Artifact 数据模型、任务状态机、发现机制、异步更新通道](docs/agent-infrastructure/a2a-architecture.md) |
 | 多 Agent 系统 | [编排拓扑与角色框架、通信与协调、上下文管理、执行隔离、失败模式与评估](docs/agent-infrastructure/multi-agent-architecture.md) |
 | Agent Skills | [开放规范与文件格式、渐进式披露加载、触发与执行、与 MCP/Prompt 的定位对比](docs/agent-infrastructure/agent-skills-architecture.md) |
-| AI 编码 CLI 参数完全参考 | [五种 CLI 的参数族逐一覆盖，以及宿主向各 CLI 投影参数的映射矩阵](docs/reference/cli/builtin-cli-reference.md) |
 | RAG | [索引与检索管线、语义与关键字检索取舍、混合检索与重排序、评估方法](docs/agent-infrastructure/rag-architecture.md) |
 | Tree-sitter | [GLR 增量解析、语法工具链与 ABI、查询系统、结构化代码切分与 Repo Map](docs/agent-infrastructure/tree-sitter-architecture.md) |
 | OpenSpec | [规范驱动开发的知识模型、变更包工件链、opsx 命令族、Delta 规格合并](docs/agent-infrastructure/openspec-architecture.md) |
 
-参考：[Native 架构清单](src-tauri/ARCHITECTURE.md) · [贡献指南](CONTRIBUTING.md) · [原生构建性能](docs/build-performance.md) · [发布签名](docs/release-signing.md)
+参考：[Native 架构清单](src-tauri/ARCHITECTURE.md) · [CLI 参数参考](docs/reference/cli/builtin-cli-reference.md) · [贡献指南](CONTRIBUTING.md) · [原生构建性能](docs/build-performance.md) · [发布签名](docs/release-signing.md)
 
 构建 mdBook 指南与 Rustdoc Reference：
 
