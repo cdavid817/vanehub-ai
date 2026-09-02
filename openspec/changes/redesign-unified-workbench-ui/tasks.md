@@ -559,8 +559,8 @@ Verified (both themes + remaining secret safety, run consolidated after all thre
 
 ## 16. Runs and Mission Control
 
-- [ ] 16.1 Create the Runs destination shell with Attention, Active, History, Loops, and Schedules routes.
-- [ ] 16.2 Move Mission Control to the Attention/Active/History route model without changing canonical Run ownership.
+- [x] 16.1 Create the Runs destination shell with Attention, Active, History, Loops, and Schedules routes. — `RunsSection` (`workbench-route.ts`) is a real, working discriminated union with exactly these 5 route values (`"attention"|"active"|"history"`, `"loops"`, `"schedules"`), each independently addressable and round-tripping through `parseRunsSection`/`runsPath`; `runs-destination.tsx` renders a tab per value.
+- [ ] 16.2 Move Mission Control to the Attention/Active/History route model without changing canonical Run ownership. — Partial: the 3 tabs are real, independently addressable URL states with correct active-tab highlighting (`runs-destination.tsx`), and canonical Run ownership genuinely hasn't moved (still `AgentRun`/Mission Control's own service). But clicking between them is currently cosmetic — all 3 conditions render the identical shared `MissionControl` component showing every section (Attention+Active+Recent) at once, not a route-driven view scoped to just that tab's own runs. The route model exists; the content doesn't yet follow it.
 - [ ] 16.3 Refactor the page into query model, compact summary, Run collection, detail, section navigation, action region, and EvidenceLink components.
 - [ ] 16.4 Reduce large metric-card competition and make reliable summary counts act as filters.
 - [ ] 16.5 Migrate text, Agent, project, runner, status, attention, and ordering controls to the shared Toolbar and FilterPopover.
