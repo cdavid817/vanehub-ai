@@ -23,6 +23,7 @@ vi.mock("../components/lazy-feature", () => ({
         data-loop-run-id={String(componentProps.loopRunId)}
         data-props={Object.keys(componentProps).sort().join(",")}
         data-schedule-id={String(componentProps.scheduleId)}
+        data-section={String(componentProps.section)}
         data-testid="lazy-feature"
       />
     );
@@ -71,7 +72,10 @@ describe("RunsDestination", () => {
         onSectionChange={vi.fn()}
       />,
     );
-    expect(screen.getByTestId("lazy-feature").dataset.props).toBe("agents,initialRunId,onNavigate");
+    // 16.2: MissionControl's own new `section` prop, threaded verbatim from `location.section` so
+    // it scopes rendering to just this route tab's own Attention/Active/History bucket.
+    expect(screen.getByTestId("lazy-feature").dataset.props).toBe("agents,initialRunId,onNavigate,section");
+    expect(screen.getByTestId("lazy-feature").dataset.section).toBe(section);
   });
 
   it("routes loops to LoopCenter with onInspect and selection wired", () => {
