@@ -257,6 +257,18 @@ pub(crate) struct ScheduledTaskRun {
     pub(crate) completed_at: Option<String>,
 }
 
+/// 19.11: the frontend-facing shape for `list_scheduled_task_runs`, cursor-shaped like
+/// `EvaluationArenaPage` (`commands/evaluation/dto.rs`) rather than raw offset/limit -- see that
+/// command's own doc comment, and `list_scheduled_task_runs`'s (`commands/sessions/
+/// scheduled_tasks.rs`), for why the query underneath is genuinely OFFSET/LIMIT, not a keyset
+/// cursor.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ScheduledTaskRunPage {
+    pub(crate) items: Vec<ScheduledTaskRun>,
+    pub(crate) next_cursor: Option<String>,
+}
+
 /// The receipt for an on-demand "Run now": the durable `ScheduledTaskRun` row the dispatch just
 /// created, in the same `{run, operationId}` shape `MissionControlActionReceipt` (types/
 /// mission-control.ts) already uses for "here is the thing that happened, and here is an

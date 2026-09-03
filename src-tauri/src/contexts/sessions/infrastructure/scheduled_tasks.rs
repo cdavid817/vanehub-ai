@@ -17,6 +17,12 @@ use uuid::Uuid;
 
 pub(crate) use crate::commands::sessions::dto::ScheduledTask;
 
+/// 19.11: the hard ceiling `list_scheduled_task_runs` clamps `limit` to, mirroring
+/// `evaluation_repository.rs`'s own identical `MAX_PAGE` -- a defense-in-depth bound at the SQL
+/// layer itself, independent of whatever smaller `MAX_RUN_HISTORY_LIMIT` the Tauri command layer
+/// (`commands/sessions/scheduled_tasks.rs`) already clamps a caller's requested page size to.
+const MAX_RUN_HISTORY_PAGE: usize = 100;
+
 pub(crate) struct ScheduledTaskLogDirectory(PathBuf);
 
 impl ScheduledTaskLogDirectory {
@@ -52,16 +58,29 @@ pub(crate) fn list_scheduled_tasks(
     Ok(tasks)
 }
 
+/// 19.11: real `OFFSET`/`LIMIT` pagination -- this query previously hard-coded `LIMIT 100` with no
+/// parameter anywhere that could reach a second page. Mirrors `evaluation_repository.rs`'s own
+/// `list(offset, limit)` shape (this same OpenSpec change's 18.6 precedent for an identical gap):
+/// plain `usize` offset/limit here, `limit` clamped to `MAX_RUN_HISTORY_PAGE` so a caller can never
+/// force an unbounded scan regardless of what it asks for. The cursor-shaped `{ items, nextCursor
+/// }` contract the frontend actually sees is assembled one layer up, in the Tauri command
+/// (`commands/sessions/scheduled_tasks.rs`) -- this function only knows SQL paging, the same
+/// division of labor `list_evaluation_arenas.rs` keeps from its own repository.
 pub(crate) fn list_scheduled_task_runs(
     database: &NativeDatabase,
     task_id: &str,
+    offset: usize,
+    limit: usize,
 ) -> Result<Vec<dto::ScheduledTaskRun>, CommandError> {
     let connection = database.connection().map_err(command_error)?;
     let mut statement = connection.prepare(
-        "SELECT id, task_id, session_id, status, error, started_at, completed_at FROM scheduled_task_runs WHERE task_id = ?1 ORDER BY started_at DESC, id DESC LIMIT 100",
+        "SELECT id, task_id, session_id, status, error, started_at, completed_at FROM scheduled_task_runs WHERE task_id = ?1 ORDER BY started_at DESC, id DESC LIMIT ?2 OFFSET ?3",
     ).map_err(command_error)?;
+    let bounded_limit =
+        i64::try_from(limit.clamp(1, MAX_RUN_HISTORY_PAGE)).map_err(command_error)?;
+    let bounded_offset = i64::try_from(offset).map_err(command_error)?;
     let runs = statement
-        .query_map([task_id], |row| {
+        .query_map(params![task_id, bounded_limit, bounded_offset], |row| {
             Ok(dto::ScheduledTaskRun {
                 id: row.get(0)?,
                 task_id: row.get(1)?,
@@ -969,11 +988,78 @@ mod tests {
         mark_task_succeeded(&database, &task, "session-backfill").expect("finish backfill");
         record_task_skipped(&database, &task.id, "already claimed").expect("record skip");
 
-        let history = list_scheduled_task_runs(&database, &task.id).expect("history");
+        let history = list_scheduled_task_runs(&database, &task.id, 0, 100).expect("history");
         assert_eq!(history[0].status, "skipped");
         assert_eq!(history[0].error.as_deref(), Some("already claimed"));
         assert_eq!(history[1].status, "backfilled");
         assert_eq!(history[1].session_id.as_deref(), Some("session-backfill"));
+    }
+
+    /// 19.11: the real gap this task closed -- before this pass `limit`/`offset` did not exist as
+    /// parameters at all, so a caller could never reach anything past the hard-coded newest 100
+    /// rows. Five distinct rows (`record_task_skipped`, called five times in a tight loop) prove
+    /// `LIMIT ?2 OFFSET ?3` actually slides the window. Deliberately does not assert a specific
+    /// `reason-N` value per page: `ORDER BY started_at DESC, id DESC` ties on `id` (a random UUID)
+    /// whenever two rows land on the same wall-clock instant, which a tight loop with no artificial
+    /// delay cannot rule out -- asserting content order would make this test flaky on a fast enough
+    /// machine for a reason that has nothing to do with whether paging itself is correct. Instead
+    /// this checks the property pagination actually promises: concatenating consecutive pages under
+    /// the query's own order reproduces the unpaginated result exactly, with the right page sizes
+    /// and no duplicate or dropped row.
+    #[test]
+    fn list_scheduled_task_runs_pages_with_real_offset_and_limit() {
+        let (_directory, database) = database();
+        insert_task(&database, "task-paged", true, "2026-07-19T00:00:00Z");
+        for index in 0..5 {
+            record_task_skipped(&database, "task-paged", &format!("reason-{index}"))
+                .expect("record skip");
+        }
+
+        let full = list_scheduled_task_runs(&database, "task-paged", 0, 100).expect("full history");
+        assert_eq!(full.len(), 5);
+        let full_ids: Vec<String> = full.iter().map(|run| run.id.clone()).collect();
+
+        let first_page =
+            list_scheduled_task_runs(&database, "task-paged", 0, 2).expect("first page");
+        let second_page =
+            list_scheduled_task_runs(&database, "task-paged", 2, 2).expect("second page");
+        let last_page = list_scheduled_task_runs(&database, "task-paged", 4, 2).expect("last page");
+        assert_eq!(first_page.len(), 2);
+        assert_eq!(second_page.len(), 2);
+        assert_eq!(last_page.len(), 1);
+
+        let paged_ids: Vec<String> = first_page
+            .iter()
+            .chain(second_page.iter())
+            .chain(last_page.iter())
+            .map(|run| run.id.clone())
+            .collect();
+        assert_eq!(
+            paged_ids, full_ids,
+            "paging must reproduce the unpaginated order exactly"
+        );
+
+        let past_the_end =
+            list_scheduled_task_runs(&database, "task-paged", 5, 2).expect("past the end");
+        assert!(past_the_end.is_empty());
+    }
+
+    /// The other half of 19.11's own contract: `limit` is a ceiling a caller cannot exceed, not a
+    /// suggestion -- mirrors `evaluation_repository.rs`'s own `MAX_PAGE` clamp test for the
+    /// identical shape.
+    #[test]
+    fn list_scheduled_task_runs_clamps_limit_to_the_max_run_history_page() {
+        let (_directory, database) = database();
+        insert_task(&database, "task-many-runs", true, "2026-07-19T00:00:00Z");
+        for index in 0..3 {
+            record_task_skipped(&database, "task-many-runs", &format!("reason-{index}"))
+                .expect("record skip");
+        }
+
+        let runs =
+            list_scheduled_task_runs(&database, "task-many-runs", 0, 10_000).expect("clamped page");
+
+        assert_eq!(runs.len(), 3);
     }
 
     #[test]
@@ -1037,7 +1123,7 @@ mod tests {
         assert_eq!(after.latest_run_session_id, before.latest_run_session_id);
         assert_eq!(after.updated_at, before.updated_at);
 
-        let history = list_scheduled_task_runs(&database, "task-1").expect("history");
+        let history = list_scheduled_task_runs(&database, "task-1", 0, 100).expect("history");
         assert_eq!(history.len(), 1);
         assert_eq!(history[0].id, receipt.run.id);
         assert_eq!(history[0].session_id.as_deref(), Some("session-manual"));
@@ -1057,7 +1143,7 @@ mod tests {
         mark_task_running_with_trigger(&database, &task.id, false).expect("sweep run opens");
         record_manual_run(&database, &task.id, "session-manual").expect("manual run recorded");
 
-        let mid_flight = list_scheduled_task_runs(&database, &task.id).expect("history");
+        let mid_flight = list_scheduled_task_runs(&database, &task.id, 0, 100).expect("history");
         assert_eq!(mid_flight.len(), 2);
         let sweep_row = mid_flight
             .iter()
@@ -1078,7 +1164,7 @@ mod tests {
         ).expect("session");
         mark_task_succeeded(&database, &task, "session-sweep").expect("sweep completes");
 
-        let settled = list_scheduled_task_runs(&database, &task.id).expect("history");
+        let settled = list_scheduled_task_runs(&database, &task.id, 0, 100).expect("history");
         let manual_row = settled
             .iter()
             .find(|run| run.session_id.as_deref() == Some("session-manual"))
