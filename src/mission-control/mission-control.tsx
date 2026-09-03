@@ -24,6 +24,7 @@ import {
   writeMissionControlViewState,
 } from "./mission-control-view-state";
 import { useMissionControlActions } from "./use-mission-control-actions";
+import { useMissionControlPolling } from "./use-mission-control-polling";
 
 export function MissionControl({
   agents = [],
@@ -63,24 +64,30 @@ export function MissionControl({
     setCursor(null);
   }, []);
 
-  const load = useCallback(async () => {
+  // 16.16: returns whether the fetch changed anything observable, so the polling hook's own bounded
+  // backoff can widen on a no-op reconcile and reset the instant something real changes.
+  const load = useCallback(async (): Promise<boolean> => {
     setLoading(true);
+    let changed = true;
     try {
       const fresh = await agentService.getMissionControlOverview(toMissionControlQuery(filter, cursor));
       // 16.15: never let a slow poll response regress a run this page already knows to be newer
       // (e.g. terminal after a just-applied action) -- see mission-control-run-precedence.ts.
-      setOverview((current) => mergeMissionControlOverview(current, fresh));
+      setOverview((current) => {
+        const merged = mergeMissionControlOverview(current, fresh);
+        changed = JSON.stringify(current) !== JSON.stringify(merged);
+        return merged;
+      });
       setError(null);
-    } catch { setError(t("missionControl.loadError")); } finally { setLoading(false); }
+    } catch { setError(t("missionControl.loadError")); changed = true; } finally { setLoading(false); }
+    return changed;
   }, [cursor, filter, t]);
 
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => {
-    const reconcile = () => { if (document.visibilityState === "visible") void load(); };
-    const polling = window.setInterval(reconcile, 2_000);
-    window.addEventListener("focus", reconcile); document.addEventListener("visibilitychange", reconcile);
-    return () => { window.clearInterval(polling); window.removeEventListener("focus", reconcile); document.removeEventListener("visibilitychange", reconcile); };
-  }, [load]);
+  // 16.16: stop-while-hidden/offline, bounded backoff, and online/offline reconnect reconciliation
+  // -- see use-mission-control-polling.ts's own doc comment for what replaced the previous flat
+  // `setInterval` here and why coalesced backend events are not attempted in this same pass.
+  const { reconcileNow } = useMissionControlPolling(load);
   useEffect(() => { writeMissionControlViewState(filter); }, [filter]);
 
   const inspect = useCallback(async (runId: string) => {
@@ -148,7 +155,7 @@ export function MissionControl({
         onClearFilters={() => updateFilter(clearMissionControlFilters(filter))}
         onDeleteSavedView={deleteSavedView}
         onFilterChange={updateFilter}
-        onRefresh={() => void load()}
+        onRefresh={reconcileNow}
         onSaveCurrentView={saveCurrentView}
         savedViews={savedViews}
         searchInputRef={searchInputRef}
