@@ -21,6 +21,21 @@ describe("Loop presentation selectors", () => {
     expect(selectRecoveryGuidance(loopRunFixture("paused", { terminalReason: "recovery-required" }))).toBe("inspect");
   });
 
+  it("marks the time budget exhausted once real elapsed time crosses the definition's own total timeout", () => {
+    // 17.16: distinct from iteration-*count* exhaustion (loop-run-workspace.test.tsx's
+    // "shows exhausted continuation..." case, which sets `maxIterations` and never touches this
+    // selector at all) -- this exercises `selectLoopBudget`'s own time branch (`elapsedMs >=
+    // totalMs`) specifically, with a real nonzero elapsed value crossing a real nonzero budget.
+    // Same 600s fixture budget as the "not exhausted" case above, pushed 1s past the boundary --
+    // not a `totalTimeoutSeconds: 0` degenerate case (loop-acceptance-panel.test.tsx's own
+    // "exhausted warning" test), which is trivially exhausted at any elapsed time and so never
+    // actually proves the crossing behaviour.
+    const run = loopRunFixture("running", { startedAt: "2026-08-21T00:00:00Z" });
+    expect(selectLoopBudget(run, Date.parse("2026-08-21T00:10:01Z"))).toEqual({
+      elapsedMs: 601_000, remainingMs: 0, consumedPercent: 100, exhausted: true,
+    });
+  });
+
   it("keeps absent check and change evidence unknown", () => {
     const iteration = loopIterationFixture({ evidence: [] });
     const run = loopRunFixture("running", { iterations: [iteration] });
