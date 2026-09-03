@@ -11,16 +11,21 @@ import { BrowserHandoffControl } from "./browser-handoff-control";
 const terminalStatuses = new Set(["succeeded", "failed", "cancelled"]);
 
 export function BuiltinToolActivity({
+  isVisible = true,
   service = defaultAgentService,
   sessionId,
 }: {
+  /** False while the owning panel stays mounted behind another tab. */
+  isVisible?: boolean;
   service?: AgentService;
   sessionId: string | null;
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const operations = useQuery({
-    enabled: Boolean(sessionId),
+    // Held rather than refetched while the tab is hidden: the rows stay cached and the in-flight
+    // operations list stops being re-read behind another panel.
+    enabled: Boolean(sessionId) && isVisible,
     queryKey: ["sessions", sessionId, "builtin-tool-operations"],
     queryFn: () => service.listBuiltinToolOperations({ sessionId: sessionId ?? "", limit: 50 }),
   });

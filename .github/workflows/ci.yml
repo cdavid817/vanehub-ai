@@ -5,6 +5,15 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      desktop_full_suite:
+        description: >-
+          Run every native desktop layer on all three platforms, not just the smoke contract.
+          Off by default because the full suite costs roughly fifteen minutes per runner, which is
+          more than the PR gate is worth paying on every push.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -392,10 +401,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - ubuntu-latest
-          - macos-latest
-          - windows-latest
+        include:
+          - os: ubuntu-latest
+            test_threads: 4
+          - os: macos-latest
+            test_threads: 4
+          - os: windows-latest
+            test_threads: 1
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -478,12 +490,15 @@ jobs:
       # Path-list normalization, executable status, argv token preservation, and profile
       # persistence with revision and catalog CAS. No provider is launched, no credential is read,
       # and the only executable involved is the repository's own stub, which is inspected rather
-      # than run.
+      # than run. Each test creates and migrates an isolated SQLite database. Windows serializes
+      # that work because even four concurrent migrations can exhaust r2d2's five-second
+      # connection acquisition window on a hosted runner; the other platforms retain bounded
+      # parallelism.
       - name: Native CLI parameter fixtures
-        run: cargo test --workspace platform_fixture_tests
+        run: cargo test --workspace platform_fixture_tests -- --test-threads=${{ matrix.test_threads }}
 
       - name: Native CLI parameter subdomain
-        run: cargo test --workspace cli_parameters
+        run: cargo test --workspace cli_parameters -- --test-threads=${{ matrix.test_threads }}
 
       - name: Install npm dependencies
         run: npm ci
@@ -630,6 +645,226 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: desktop-smoke-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
+          path: test-results/desktop/
+          if-no-files-found: warn
+          retention-days: 14
+
+  # The complete native desktop suite, on the same three runners the smoke job uses.
+  #
+  # Opt-in rather than automatic. `test-desktop.mjs` keeps the PR gate on the smoke contract on
+  # purpose -- the expanded layers are release coverage and cost roughly fifteen minutes a runner
+  # -- so this asks for them explicitly instead of changing what every push pays for.
+  #
+  # Two ways to ask, because one of them does not work until this file is on the default branch:
+  # `workflow_dispatch` inputs are validated against the default branch's copy of the workflow, so
+  # a branch that adds an input cannot be dispatched with it. The label is what a pull request
+  # opened from such a branch can actually use.
+  #
+  # Evidence is uploaded whether it passes or fails: a platform result with no evidence directory
+  # is not a platform result.
+  desktop-full:
+    name: Desktop Full Suite (${{ matrix.os }})
+    if: >-
+      inputs.desktop_full_suite ||
+      contains(github.event.pull_request.labels.*.name, 'desktop-full-suite')
+    runs-on: ${{ matrix.os }}
+    # Higher than the smoke job's 60. This builds the desktop artifact twice -- once for the
+    # targeted CLI layer and once for the full run -- on runners slower than a developer machine.
+    timeout-minutes: 150
+    env:
+      VANEHUB_DESKTOP_FULL_SUITE: "1"
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - macos-latest
+          - ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The commit under test, recorded beside the results. A platform result that cannot name the
+      # code it ran against is not evidence for any particular commit.
+      - name: Record the commit under test
+        shell: bash
+        run: |
+          mkdir -p test-results/desktop
+          {
+            echo "commit=${{ github.event.pull_request.head.sha || github.sha }}"
+            echo "checked_out=$(git rev-parse HEAD)"
+            echo "ref=${{ github.ref }}"
+            echo "runner=${{ runner.os }}/${{ runner.arch }}"
+            echo "run_id=${{ github.run_id }}"
+            echo "job_attempt=${{ github.run_attempt }}"
+          } | tee test-results/desktop/commit-under-test.txt
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+
+      - name: Install Linux desktop prerequisites
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            clang \
+            curl \
+            dbus-x11 \
+            file \
+            gnome-keyring \
+            libasound2-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libsecret-1-0 \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            mold \
+            patchelf \
+            wget \
+            xvfb
+
+      # An empty credential store, which a hosted runner does not have. Several specs store and
+      # then clear a value of their own -- an IM connector token, a provider config -- and without
+      # any store at all the platform reports "A default keychain could not be found" or "No
+      # default store has been set", which fails them for the absence of the store rather than for
+      # anything about the code.
+      #
+      # Empty and throwaway on purpose: nothing real is put in it. Provisioning a *credential*
+      # would break this gate's rules; provisioning somewhere to put one does not.
+      - name: Create an empty keychain
+        if: runner.os == 'macOS'
+        run: |
+          security create-keychain -p "" vanehub-e2e.keychain
+          security set-keychain-settings -lut 21600 vanehub-e2e.keychain
+          security unlock-keychain -p "" vanehub-e2e.keychain
+          security default-keychain -s vanehub-e2e.keychain
+          security list-keychains -d user -s vanehub-e2e.keychain
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      # Serial from here down, and nothing else heavy runs beside them. Every step below drives or
+      # inspects the same machine, and a desktop layer's result is only attributable if it owned
+      # that machine while it ran.
+      - name: Verify desktop automation boundaries
+        run: npm run desktop:unit:test
+
+      - name: Rust workspace check
+        run: cargo check --workspace
+
+      - name: CLI context tests
+        run: cargo test --workspace tooling::cli
+
+      # One invocation, not a build and a targeted layer and then this. `npm run test:desktop`
+      # already builds the artifact and runs all six layers, CLI management among them, so running
+      # the pieces first only built the desktop app twice in one job. That was not free: on the
+      # macOS and Windows runners the second build left the suite failing on persistence -- no
+      # session surviving in the database, a workspace still on its bootstrap shell -- while the
+      # same layers passed in the smoke job that built once.
+      # `dbus-run-session` gives gnome-keyring a bus to register its secret service on; without one
+      # the daemon starts and nothing can reach it, which reads exactly like having no store.
+      - name: Run every native desktop layer on Linux
+        if: runner.os == 'Linux'
+        run: |
+          xvfb-run -a dbus-run-session -- bash -c '
+            # The daemon prints the addresses its clients need on stdout. Discarding them starts a
+            # secret service nothing can reach, which fails as "result not returned from SS API"
+            # rather than as a missing store -- the same symptom one step further along.
+            eval "$(echo -n "" | gnome-keyring-daemon --unlock --components=secrets)"
+            export GNOME_KEYRING_CONTROL SSH_AUTH_SOCK
+            npm run test:desktop
+          '
+
+      - name: Run every native desktop layer
+        if: runner.os != 'Linux'
+        run: npm run test:desktop
+
+      - name: Upload desktop evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: desktop-full-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
+          path: test-results/desktop/
+          if-no-files-found: warn
+          retention-days: 14
+
+  # The specs that verify what no fixture can: a real package manager changing a real global
+  # install, a real host Python environment, a real SSH server.
+  #
+  # Never a required check. It cannot be one -- a hosted runner has no real CLI Agent and no
+  # credential, and giving it either is exactly what this change's side-effect rules forbid. On a
+  # runner without the prerequisites it records BLOCKED and exits zero, because a suite with nothing
+  # to verify is not a suite that failed. What it must never do is report PASSED there.
+  desktop-external-provider:
+    name: Desktop External Provider (${{ matrix.os }})
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
+      contains(github.event.pull_request.labels.*.name, 'desktop-external-provider')
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - macos-latest
+          - ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Record the commit under test
+        shell: bash
+        run: |
+          mkdir -p test-results/desktop
+          {
+            echo "commit=${{ github.event.pull_request.head.sha || github.sha }}"
+            echo "checked_out=$(git rev-parse HEAD)"
+            echo "runner=${{ runner.os }}/${{ runner.arch }}"
+            echo "run_id=${{ github.run_id }}"
+          } | tee test-results/desktop/commit-under-test.txt
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+
+      - name: Install Linux desktop prerequisites
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential clang curl file libasound2-dev libayatana-appindicator3-dev librsvg2-dev \
+            libssl-dev libwebkit2gtk-4.1-dev mold patchelf wget xvfb
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Run the external provider suite on Linux
+        if: runner.os == 'Linux'
+        run: xvfb-run -a npm run test:desktop:external-provider
+
+      - name: Run the external provider suite
+        if: runner.os != 'Linux'
+        run: npm run test:desktop:external-provider
+
+      - name: Upload external provider evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: desktop-external-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
           path: test-results/desktop/
           if-no-files-found: warn
           retention-days: 14

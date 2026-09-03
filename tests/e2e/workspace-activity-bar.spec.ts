@@ -238,6 +238,8 @@ test.describe("workspace activity bar", () => {
     await page.keyboard.press("Tab");
     await expect(page.getByRole("button", { name: "Agent 评测" })).toBeFocused();
     await page.keyboard.press("Tab");
+    await expect(page.getByRole("button", { name: "系统活动" })).toBeFocused();
+    await page.keyboard.press("Tab");
     await expect(page.getByRole("button", { name: "任务控制台" })).toBeFocused();
     await page.keyboard.press("Tab");
     await expect(scheduledTasks).toBeFocused();
@@ -258,10 +260,10 @@ test.describe("workspace activity bar", () => {
     await expect(taskRow).toBeVisible();
     await expect(taskRow.getByText("Codex CLI")).toBeVisible();
     await expect(taskRow.getByText("尚未运行")).toBeVisible();
-    await taskRow.getByLabel("已启用").uncheck();
-    await expect(taskRow.getByLabel("已停用")).toBeVisible();
-    await taskRow.getByLabel("已停用").check();
-    await expect(taskRow.getByLabel("已启用")).toBeVisible();
+    await taskRow.getByRole("switch", { name: "停用任务“每日整理项目进度”" }).click();
+    await expect(taskRow.getByRole("switch", { name: "启用任务“每日整理项目进度”" })).toBeVisible();
+    await taskRow.getByRole("switch", { name: "启用任务“每日整理项目进度”" }).click();
+    await expect(taskRow.getByRole("switch", { name: "停用任务“每日整理项目进度”" })).toBeVisible();
 
     // Deletion is confirmed inline in the row now, not by a browser-native dialog.
     await taskRow.getByRole("button", { name: /删除定时任务/ }).click();

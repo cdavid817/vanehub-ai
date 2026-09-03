@@ -30,6 +30,7 @@ pub type BoxedAsyncIo = Box<dyn AsyncIo>;
 pub const DEFAULT_BYPASS: &str = "localhost,127.0.0.1,::1";
 
 static PROXY_STATE: OnceLock<RwLock<NetworkProxyState>> = OnceLock::new();
+static RUSTLS_PROVIDER_INIT: OnceLock<()> = OnceLock::new();
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct NetworkProxyState {
@@ -188,9 +189,18 @@ fn build_routed_client<B: RoutableClientBuilder>(builder: B) -> Result<B::Client
 }
 
 pub async fn websocket_stream(target: &Url) -> Result<BoxedAsyncIo, AppError> {
+    ensure_rustls_crypto_provider();
     tokio::time::timeout(Duration::from_secs(10), websocket_stream_inner(target))
         .await
         .map_err(|_| AppError::LaunchFailed("WebSocket connection timed out".to_string()))?
+}
+
+fn ensure_rustls_crypto_provider() {
+    RUSTLS_PROVIDER_INIT.get_or_init(|| {
+        // Multiple dependencies enable different rustls providers, so implicit selection panics.
+        // Install the provider already used by reqwest/tokio-rustls before WebSocket TLS starts.
+        let _ = tokio_rustls::rustls::crypto::aws_lc_rs::default_provider().install_default();
+    });
 }
 
 async fn websocket_stream_inner(target: &Url) -> Result<BoxedAsyncIo, AppError> {
@@ -714,13 +724,13 @@ mod tests {
         apply(&format!("http://{proxy_address}"), DEFAULT_BYPASS).expect("apply proxy");
 
         let client = blocking_http_client(Duration::from_secs(5)).expect("client");
-        let _ = client.get("http://routed.example/probe").send();
+        let _ = client.get("https://routed.example/probe").send();
 
         let request = proxy_fixture.join().expect("proxy fixture thread");
         apply("", DEFAULT_BYPASS).expect("reset proxy");
 
         assert!(
-            request.starts_with("GET http://routed.example/probe "),
+            request.starts_with("CONNECT routed.example:443 "),
             "expected a proxied request, got: {request}"
         );
     }
@@ -770,6 +780,12 @@ mod tests {
             mask_proxy_url("http://user:pass@127.0.0.1:7890"),
             "http://127.0.0.1:7890"
         );
+    }
+
+    #[test]
+    fn websocket_crypto_provider_is_installed_explicitly() {
+        ensure_rustls_crypto_provider();
+        assert!(tokio_rustls::rustls::crypto::CryptoProvider::get_default().is_some());
     }
 
     #[test]

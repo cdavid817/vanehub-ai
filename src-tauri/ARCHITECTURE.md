@@ -121,7 +121,7 @@ The names below are compatibility contracts and MUST remain registered until a s
 | Owner | Registered command names | Frontend contract owners |
 | --- | --- | --- |
 | `agent_runtime` | `list_agents`, `get_agent_by_id`, `get_workflow_state`, `select_agent`, `check_browser_readiness`, `launch_active_workflow`, `get_session_details`, `send_message`, `stop_generation` | `src/services/agent-service.ts`, `src/types/agent.ts`, `src/types/chat.ts`, `src/contracts/agent.ts`, `src/contracts/chat.ts` |
-| `tooling::cli` | `list_cli_tools`, `refresh_cli_detections`, `install_cli_version`, `upgrade_all_cli_versions`, `list_cli_parameter_profiles`, `save_cli_parameter_profile`, `reset_cli_parameter_profile` | `src/services/agent-service.ts`, `src/types/agent.ts`, `src/contracts/agent.ts` |
+| `tooling::cli` | `list_cli_environments`, `refresh_cli_environment`, `prepare_cli_action`, `get_cli_action_plan`, `execute_cli_action`, `prepare_cli_bulk_action`, `get_cli_bulk_action_plan`, `execute_cli_bulk_action`, `run_cli_doctor`, `list_cli_parameter_profiles`, `save_cli_parameter_profile`, `reset_cli_parameter_profile` | `src/services/cli-service.ts`, `src/services/tauri-cli-environment-client.ts`, `src/services/web-cli-environment-client.ts`, `src/types/cli-environment.ts`, `src/types/cli-environment-snapshot.ts`, `src/contracts/cli-environment.ts`, `src/contracts/cli-environment-snapshot.ts` |
 | `sessions` | `create_session`, `list_sessions`, `list_archived_sessions`, `search_sessions`, `list_session_categories`, `create_session_category`, `rename_session_category`, `delete_session_category`, `assign_session_category`, `get_active_session`, `get_session_chat_config`, `save_session_chat_config`, `switch_session`, `rename_session`, `pin_session`, `unpin_session`, `archive_session`, `unarchive_session`, `export_session`, `delete_session`, `list_messages`, `get_usage_statistics` | `src/services/agent-service.ts`, `src/types/agent.ts`, `src/types/chat.ts`, `src/contracts/agent.ts`, `src/contracts/chat.ts` |
 | `workspaces` | `list_known_projects`, `list_known_remote_workspaces`, `inspect_project`, `select_project_directory`, `list_session_directory`, `read_session_file`, `list_session_documents`, `get_session_git_status`, `get_session_git_diff`, `list_session_logs`, `export_session_logs`, `shell_create`, `shell_input`, `shell_cd`, `shell_resize`, `shell_kill` | `src/services/agent-service.ts`, `src/types/session-workspace.ts`, `src/contracts/session-workspace.ts` |
 | `desktop` | `get_settings`, `save_setting`, `get_automatic_archival_settings`, `save_automatic_archival_settings`, `set_launch_on_startup`, `get_floating_assistant_runtime_info`, `get_floating_assistant_config`, `set_floating_assistant_enabled`, `set_floating_assistant_surface`, `start_floating_assistant_drag`, `save_floating_assistant_anchor`, `persist_floating_assistant_position`, `show_main_window`, `exit_application`, `test_network_proxy`, `scan_network_proxies`, `get_data_management_info`, `open_database_directory`, `open_log_directory`, `report_client_log_event`, `get_node_info` | `src/services/settings-service.ts`, `src/services/agent-service.ts`, `src/services/floating-assistant-service.ts`, corresponding `src/types/*` |
@@ -173,8 +173,8 @@ Migration order stays global; migration SQL moves to its owning context without 
 | --- | --- | --- |
 | Session startup recovery | Bootstrap starts a worker and immediately returns; the worker invokes the `sessions` maintenance API | Implemented non-blocking sessions maintenance use case |
 | Hourly automatic archival | Bootstrap worker reloads the published desktop archival policy before each sessions maintenance cycle | Implemented scheduled sessions maintenance adapter |
-| Initial and requested CLI refresh | `commands::tooling::cli::background` schedules prepared `tooling::cli` application jobs | Implemented through status, detection, operation, logging, and clock ports |
-| CLI install/upgrade/bulk upgrade | `commands::tooling::cli::background` schedules prepared jobs serialized by `CliMutationAdapter` | Implemented through package, process, operation, logging, and mutation ports |
+| Initial and requested CLI refresh | `bootstrap::cli` starts one on first run; `commands::tooling::cli_environment::background` schedules requested ones | Implemented through discovery, probe, repository, operation, diagnostics, and clock ports; each refresh also sweeps expired plans |
+| CLI plan preparation, execution, and bulk upgrade | `commands::tooling::cli_environment::background` schedules prepared jobs serialized by `CliEnvironmentMutationCoordinator` | Implemented through distribution, process, repository, operation, coordinator, and diagnostics ports |
 | SDK install/update/rollback/uninstall | `commands::tooling::sdk::background` schedules prepared application jobs | Implemented through package, process, operation, repository, logging, and clock ports |
 | MCP connection test | `commands::tooling::mcp::background` schedules the prepared application job | Implemented `tooling::mcp` use case through connection/operation ports |
 | Extension refresh/install/start/stop/test | `commands::tooling::extensions::background` schedules prepared application jobs | Implemented through repository, installation, process, runtime, operation, logging, clock, and mutation ports |
@@ -232,3 +232,123 @@ CLI parameter catalogs and persisted selections remain a Tooling subdomain publi
 ### ADR-005: Generate TypeScript model contracts from Rust with `ts-rs`
 
 Frontend service interfaces stay hand-authored because they express UI/runtime semantics, but command payload/result models are generated from Rust models with `ts-rs`. Each serializable Rust model that crosses the frontend/backend boundary derives `TS` alongside `Serialize` and `Deserialize`; generated files live under a stable frontend contract directory, and a verification command regenerates contracts and fails when committed contract files are stale. This keeps React components behind service interfaces while reducing silent drift between Rust command models and TypeScript types. `specta` / `tauri-specta` were rejected for tighter Tauri coupling and a broader integration surface; manual TypeScript-only was rejected because parallel Rust/TypeScript models drift silently as Agent, MCP, SDK, and operation models grow.
+
+### ADR-005b: Resolve a CLI launch from the same snapshot the management page renders
+
+The Agent Runtime asks `CliApi::resolve_executable`, which reads the source-aware snapshot and
+follows its recommended installation, falling back to the PATH-selected one. A conflict that blocks
+launching, or a recommended installation that cannot run, refuses outright rather than reaching for
+a live candidate: falling back there would start the installation the backend just declined to pick.
+A tool that has never been scanned still gets one bounded live lookup, so a first launch after an
+install does not wait for a refresh.
+
+The answer is always an absolute path or nothing. A bare command name would re-enter PATH resolution
+inside the child process, and PATH is exactly what the conflict contract exists to arbitrate.
+
+This replaces reading the pre-change `cli_tool_status` row. That table is still created and still
+readable so an upgrading install sees its tools before the first refresh, but it is read-only and
+never authoritative -- a leftover row becomes a *stale* snapshot only when no real one exists, and
+`the_legacy_cli_table_has_exactly_one_reader_and_no_writer` fails the build if a second reader or
+any writer appears.
+
+### ADR-006: Route every CLI machine change through a declared source adapter
+
+Each distribution source (npm, WinGet, an audited vendor installer) is a `CliDistributionPort`
+adapter registered in `bootstrap/cli_environment.rs` under the id it reports for itself. The
+application never names a concrete source: it looks one up by the id a plan recorded. A plan naming
+a source that is not registered resolves to `source-unavailable`, a typed refusal.
+
+This replaces the previous behaviour, where a failed npm path could fall through to a vendor script
+and vice versa. Fallback made the source that actually ran unknowable after the fact, and produced
+the specific failure this change exists to remove: a user selecting version 1.2.3 from npm's catalog
+and receiving whatever a vendor installer considered latest. Each adapter stamps its own catalog
+with its own source id, so borrowing another source's version list is not expressible rather than
+merely discouraged.
+
+### ADR-007: Make an action plan single-use, revisioned, and bound to the environment
+
+A mutation is prepared as a persisted `cli_action_plans` row carrying a revision, a ten-minute
+expiry, the exact argv that will run, and a fingerprint of the environment it was built against.
+Execution submits only `{planId, expectedRevision}`. There is no parameter a command could be
+rebuilt from at execution time, so the version the user reviewed is structurally the version that
+runs.
+
+Admission takes an immediate SQLite transaction and moves `draft -> executing` before any external
+effect, so two callers cannot both be admitted. The `state` column is authoritative over the state
+embedded in the stored document: maintenance sweeps move the column alone, and a read that trusted
+the document could re-admit a plan that had already run.
+
+### ADR-008: Sequence external effects so nothing claims a rollback that did not happen
+
+A package manager is an external effect. It cannot be undone by writing an older row, so the
+lifecycle never restores the pre-operation snapshot on failure. Post-mutation detection runs after
+success, failure, timeout, and cancellation alike, and what it observes is what gets persisted.
+
+Detection runs on an uncancelled token even when the operation was cancelled: cancelling an upgrade
+stops the package manager, and must not also stop VaneHub from observing what the package manager
+already did. It asks the mutation coordinator first, and waits rather than probing a tree another
+operation is halfway through writing.
+
+Only positive evidence counts as a change -- two observed versions that differ, or an
+installation-count change from a detection that completed. A version that could not be re-read is
+not a version that vanished.
+
+### ADR-009: Report partial completion as its own outcome rather than as success or failure
+
+Five outcomes, not two: `verified`, `applied-unverified`, `changed-but-failed`, `no-change-failed`,
+and `cancelled`. `applied-unverified` covers a command that exited zero while verification could not
+confirm it; `changed-but-failed` covers a command that failed or was interrupted after the machine
+had already moved. Collapsing either into success or failure is how a half-applied change gets
+reported as a completed one.
+
+The persisted operation record keeps termination (`exited` with a code, `timed-out`, `cancelled`)
+separate from outcome for the same reason: both statements can be true at once. Every field of that
+record is an identifier, a version, or an enum, so no path, credential, or process fragment is
+representable in it -- process output belongs on the operation log, where it has already been
+bounded and redacted.
+
+### ADR-010: The evidence journal records observations and never claims
+
+> Recorded as ADR-006 through ADR-009 in the archived `upgrade-session-workspace-evidence-console`
+> change, and renumbered to 010-013 on merge because the CLI-management work had published its own
+> 006-009 first. The archive keeps the old numbers: it is a record of what was proposed and done at
+> the time, not an index of what the file says now. The migrations those decisions describe moved
+> the same way, from 81-84 to 91-94, for the same reason.
+
+`execution_observability` owns an append-only journal (migration 91) of events the runtime watched, plus a projection derived from it. Producers report their own work through ports in their own vocabulary; translation into journal shape happens in `bootstrap/evidence_bridge.rs` and nowhere else, over a bounded channel with a non-blocking send, so a producer never waits on the journal and a slow journal never becomes a latency spike in the work it is recording.
+
+The rule that shapes everything else is that the journal holds only what was observed. Historical `message.toolUse` activity is *not* backfilled into it: a `toolUse` block is what an assistant said it was doing, and once that sits beside events the runtime witnessed, nothing downstream can separate them again — not the fidelity column, which a backfill would have to invent, and not the reader, who has no reason to suspect the question is worth asking. Historical activity is instead projected in the frontend from loaded messages, as its own list, always `inferred`, always partial coverage. Guards in `tests/evidence_bridge_architecture.rs` fail any file that both appends to the journal and reads the chat corpus, and no Tauri command may write evidence at all, since a client assertion is not an observation.
+
+Coverage travels with every answer rather than being fetched separately. Dropped events, source conflicts, retention trimming, and a projection that is behind each degrade it to a named state with a stable reason code, so a short answer is never mistaken for a small session.
+
+### ADR-011: The log index is a rebuildable projection, keyset-paged
+
+`operations` owns a query index (migration 92) over the redacted JSONL files `platform::logging` retains. Nothing in it is a second source of truth: every row is derivable again from the files, which is what lets the schema be shaped for reading rather than for durability.
+
+The index is brought up to date by a repair job started after the window exists, spawned rather than run, and handed to the blocking pool rather than executed on an async worker — synchronous SQLite on a runtime worker parks it for the length of the scan and queues every unrelated command behind it, with no symptom beyond "a few commands were slow once after launch". Progress is a persisted checkpoint keyed by directory generation rather than by path, so a rotated file resumes from zero instead of mid-file into bytes the offset was never written for. Reads happen outside any write transaction, batches commit rows, gaps, and checkpoint together, and every prune is bounded so a tidy-up never holds the write lock across the corpus.
+
+Paging is keyset and stays keyset: this result set grows underneath the reader, and an offset renumbers with every insert, so offset paging silently skips exactly the rows that arrived while the reader was reading. Expiry — the one deletion here that cannot be undone, because the file it would be re-read from is gone — records a `log_source_expired` gap in the same transaction as the delete, so a query after a rotation reports partial coverage rather than a short answer that calls itself complete.
+
+### ADR-012: Report is composed by the backend, from evidence
+
+Session Report figures come from an aggregate query over the journal rather than from whatever `ChatMessage[]` happens to be mounted. The React aggregation it replaced made every number a function of scrolling: paging older messages in changed the totals, and a trimmed history reported a smaller session with no field anywhere saying so. Coverage is per section rather than per report, because a report stays useful while one of its sections cannot be substantiated, and the reader needs to know which one.
+
+The retired aggregation is kept in `src/session-workspace/report-utils.ts`, uncalled, because `report-legacy-parity.test.ts` holds the divergences between the two as tests — those divergences are the reason for the replacement, and deleting the old code would delete the record of what its numbers meant, which is what invites somebody to make the backend agree with them again. A guard requires the only file mentioning it to be the one defining it.
+
+### ADR-013: One workspace provider per session, capability by capability
+
+`workspaces` answers file, search, diff, and shell questions for a session through one provider chosen by where the workspace is, and reports what that provider can do capability by capability rather than as a single flag. A remote host with Git but no ripgrep is ordinary, and one flag would either hide the search gap or disable the four things that work. Unsupported actions render disabled with a reason rather than vanishing: a control that disappears makes a reader think they misremembered where it was.
+
+Session Shell has exactly one lifecycle owner, `SessionShellRegistry`, so a shell survives a tab switch, a session switch, and a remount, and stops only when someone says so. Its runtime descriptor is an internally tagged union — the frontend narrows on `kind`, and the string union it replaced let the UI offer resize to a simulated shell and reconnect to a PTY, because a string carries no constraints.
+
+### ADR-014: Workspace inspection is bounded by work, and its cancellation is generation-safe
+
+A search id comes from the caller and is reused on every keystroke, so two registrations under one id is the normal case rather than the exception. Registered by id alone, cleanup could not tell whose registration it was removing: request A finishing after B superseded it removed B's slot, and B kept running with no cancel able to reach it. Every registration now carries a non-zero generation and its own token allocation, and completion or drop compare-removes — it releases the slot only while it still holds that generation and that token. `Drop` also signals, so a future that is aborted rather than completed stops the walk it left on the blocking pool instead of letting it run to its natural end. The guard lives in the async caller and a worker receives only a token clone, so nothing on the blocking pool can reach the registry at all.
+
+Result caps bound the answer, not the effort. A traversal can visit any number of entries, canonicalize every one, open any number of files and read any number of bytes while producing three matches, and none of those dimensions was counted. `WorkspaceInspectionBudget` charges directories, entries — including the ignored, unreadable and non-matching ones — files, bytes, metadata calls, retained candidates, results, depth, and a deadline read from an injected monotonic clock. Everything is charged before the operation it pays for, through one consume path, because the off-by-one at each limit is the same off-by-one and writing it eight times is writing it wrong at least once. Coverage carries one stable reason code from a vocabulary shared by the local and remote providers, plus a counter summary that is counts only: the type has nowhere to put a path.
+
+Traversals stream rather than collect. Content search opens files as it reaches them and reads them in chunks, so cancellation is observed inside a large file and the only things held at once are the breadth-first frontier, one file, and the bounded result list. Quick Open and directory listing select their page through a bounded max-heap of the best `limit + 1` candidates. Without an index each still has to visit every eligible entry to know which ones belong on the page — that cost is real and the entry budget is what bounds it — but visiting is no longer keeping.
+
+`WorkspaceIgnorePolicy` states once what a recursive walk is looking for. Three walks previously carried their own copy of the same exclusion list and document discovery had none, so the Documents tab offered vendored READMEs that no other surface would. The matcher reads the repository's own `.gitignore` and `.ignore` through the `ignore` crate rather than a hand-rolled glob pass, because gitignore syntax is not what it looks like. The mode is what keeps this a discovery rule rather than an authorization one: a reader who names an ignored path still lists and reads it under the unchanged root, type and size rules.
+
+Known limitations, recorded rather than discovered later. Only the root's ignore files are read; honouring nested `.gitignore` files would cost an open and a parse per directory entered, on every walk. Admission is acquired before `spawn_blocking` for content search only, and its permit is released when the caller's future ends rather than when the blocking worker exits, so a caller aborted mid-walk frees its slot slightly early. Directory pages still carry the V1 cursor, which detects a wrong directory but not a directory that changed between pages.

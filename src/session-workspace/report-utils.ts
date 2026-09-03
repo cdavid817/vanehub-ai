@@ -1,3 +1,15 @@
+//! Retained for comparison only. Nothing in the product calls this.
+//
+// The Report tab used to build its figures here, from whatever `ChatMessage[]` happened to be
+// mounted. That made every number a function of scrolling: paging older messages in changed the
+// totals, and a session whose history had been trimmed reported a smaller session — with no field
+// anywhere saying so. The backend report replaced it.
+//
+// It stays because `report-legacy-parity.test.ts` holds the divergences between the two as tests,
+// and those divergences are the reason for the replacement. Deleting this would delete the record
+// of what the old numbers meant, which is exactly what invites somebody to "fix" the backend by
+// making it agree with them again.
+
 import type { ChatMessage, MessageStatus } from "../types/chat";
 
 export interface SessionReportTimelineItem {

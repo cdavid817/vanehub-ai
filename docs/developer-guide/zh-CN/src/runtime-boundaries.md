@@ -72,7 +72,7 @@ flowchart TD
 
 ### AgentService 聚合接口
 
-`AgentService`(`src/services/agent-service.ts`,第 214 行起)是一个超大的聚合接口,覆盖 Agent 生命周期、会话、MCP、工具、IM、扩展、权限、工作板、SDK、SSH 连接等子域。每个子域对应一个 `runtime-*-client.ts` 文件,内部各自调用 `createRuntimeAdapter`,传入成对的实现。
+`AgentService`(`src/services/agent-service.ts`)是一个超大的聚合接口,覆盖 Agent 生命周期、会话、MCP、工具、IM、扩展、权限、工作板、SDK、SSH 连接等子域。每个子域对应一个 `runtime-*-client.ts` 文件,内部各自调用 `createRuntimeAdapter`,传入成对的实现。
 
 ### 成对实现
 

@@ -220,9 +220,21 @@ globalThis.describe("VaneHub AI desktop session behaviour", () => {
       interactionMode: "cli",
       title: "Multi-Agent roster",
     });
+    // Read the version immediately before writing, rather than reusing the one `create_session`
+    // returned. Creating a session starts work that touches the row again -- the runtime seats the
+    // first Agent and the projection follows -- so the create response's `updatedAt` can already be
+    // one revision behind by the time the seats are sent, and the optimistic-concurrency guard
+    // rejects it with "Session participants changed since they were loaded". That is the guard
+    // doing its job, not a flake: a real caller re-reads too.
+    const currentVersion = async () => {
+      const sessions = await invoke(({ core }) => core.invoke("list_sessions"));
+      const current = sessions.find((item) => item.id === session.id);
+      assert.ok(current, "the session disappeared before its seats could be set");
+      return current.updatedAt;
+    };
     const seated = await invoke(({ core }, input) => core.invoke("update_session_seats", { input }), {
       sessionId: session.id,
-      expectedUpdatedAt: session.updatedAt,
+      expectedUpdatedAt: await currentVersion(),
       seats: usable.map((entry) => ({ agentId: entry.id, roleId: null })),
     });
 

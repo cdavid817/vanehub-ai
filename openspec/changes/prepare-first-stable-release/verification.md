@@ -53,7 +53,7 @@ Earlier rehearsals exposed and verified corrections for the ARM64 runner's missi
 | Gate | Status | Evidence |
 | --- | --- | --- |
 | Protected `release` environment | PASSED | Environment exists and accepts only the `v*` tag policy. |
-| Required environment secret names | BLOCKED | GitHub API reports 0 of 11 required names. No secret values were requested or exposed. |
+| Required environment secret names | BLOCKED | Verified on 2026-08-21: GitHub API reports 2 of 11 required names (`TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`). The nine required Windows and Apple names are absent. No secret values were requested or exposed. |
 | Non-publishing package rehearsal | PASSED | Run `32331092008` passed all five package jobs and skipped publication. |
 | Source ready to merge | PASSED | Commit `f0a71ca3621305f377b3ba33e81c8566db126931` is pushed, locally validated, and reproduced by the successful package rehearsal. |
 | Annotated `v1.0.0` tag | NOT RUN | Prohibited until rehearsal, credentials, merge, and explicit maintainer approval are complete. |

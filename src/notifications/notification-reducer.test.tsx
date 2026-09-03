@@ -36,6 +36,16 @@ describe("notificationReducer", () => {
     });
   });
 
+  it("preserves navigation-only actions", () => {
+    const record = createNotificationRecord({
+      type: "info",
+      title: "Review",
+      navigation: { label: "Open review", path: "/settings?section=skills" },
+    }, "notification-navigation", 1);
+
+    expect(record.navigation).toEqual({ label: "Open review", path: "/settings?section=skills" });
+  });
+
   it("shows global and active-session toasts without losing other session records", () => {
     const globalNotification = publish([], 1)[0];
     const scopedNotification = publish([], 2, "session-a")[0];

@@ -1,7 +1,8 @@
 use super::tools::{ToolExecutionOutcome, MAX_TOOL_OUTPUT_BYTES};
 use crate::contexts::agent_runtime::application::{
-    AgentCodeDiagnostic, AgentCodeHover, AgentCodeIntelligenceMetadata,
+    AgentCodeCallRelation, AgentCodeDiagnostic, AgentCodeHover, AgentCodeIntelligenceMetadata,
     AgentCodeIntelligenceOutcome, AgentCodeIntelligenceStatus, AgentCodeLocation, AgentCodeRange,
+    AgentCodeSymbol,
 };
 use serde_json::{json, Value};
 
@@ -11,6 +12,8 @@ const MAX_PREVIEW_BYTES: usize = 512;
 const MAX_HOVER_SIGNATURE_BYTES: usize = 1_024;
 const MAX_HOVER_DOCUMENTATION_BYTES: usize = 4_096;
 const MAX_DIAGNOSTIC_MESSAGE_BYTES: usize = 4_096;
+const MAX_SYMBOL_NAME_BYTES: usize = 256;
+const MAX_CALL_SITES: usize = 20;
 
 pub(super) fn locations_outcome(
     key: &str,
@@ -35,6 +38,48 @@ pub(super) fn locations_outcome(
         .collect::<Vec<_>>();
     outcome.metadata.truncated |= outcome.metadata.returned_count > values.len();
     bounded_collection(key, &mut outcome.metadata, &mut values)
+}
+
+pub(super) fn symbols_outcome(
+    mut outcome: AgentCodeIntelligenceOutcome<Vec<AgentCodeSymbol>>,
+    limit: usize,
+) -> ToolExecutionOutcome {
+    let mut values = outcome
+        .value
+        .take()
+        .unwrap_or_default()
+        .into_iter()
+        .take(limit)
+        .map(symbol_json)
+        .collect::<Vec<_>>();
+    outcome.metadata.truncated |= outcome.metadata.returned_count > values.len();
+    bounded_collection("symbols", &mut outcome.metadata, &mut values)
+}
+
+pub(super) fn call_relations_outcome(
+    mut outcome: AgentCodeIntelligenceOutcome<Vec<AgentCodeCallRelation>>,
+    limit: usize,
+) -> ToolExecutionOutcome {
+    let mut values = outcome
+        .value
+        .take()
+        .unwrap_or_default()
+        .into_iter()
+        .take(limit)
+        .map(|relation| {
+            json!({
+                "symbol": symbol_json(relation.symbol),
+                "call_sites": relation
+                    .call_sites
+                    .into_iter()
+                    .take(MAX_CALL_SITES)
+                    .map(range_json)
+                    .collect::<Vec<_>>(),
+            })
+        })
+        .collect::<Vec<_>>();
+    outcome.metadata.truncated |= outcome.metadata.returned_count > values.len();
+    bounded_collection("relations", &mut outcome.metadata, &mut values)
 }
 
 pub(super) fn diagnostics_outcome(
@@ -143,6 +188,17 @@ fn location_json(location: AgentCodeLocation) -> Value {
         "file": location.file,
         "range": range_json(location.range),
         "preview": bounded_option(location.preview, MAX_PREVIEW_BYTES),
+    })
+}
+
+fn symbol_json(symbol: AgentCodeSymbol) -> Value {
+    json!({
+        "name": truncate_utf8(&symbol.name, MAX_SYMBOL_NAME_BYTES),
+        "kind": truncate_utf8(&symbol.kind, MAX_IDENTITY_BYTES),
+        "container": bounded_option(symbol.container, MAX_SYMBOL_NAME_BYTES),
+        "file": symbol.file,
+        "range": range_json(symbol.range),
+        "preview": bounded_option(symbol.preview, MAX_PREVIEW_BYTES),
     })
 }
 

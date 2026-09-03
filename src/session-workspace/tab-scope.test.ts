@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import type { SessionSeat } from "../types/agent";
 import { sessionTabDefinitions, type SessionTabId } from "./session-tab-bar";
-import { tabScope, showsSeatSwitcher } from "./tab-scope";
+import { effectiveSeatId, tabScope, showsSeatSwitcher } from "./tab-scope";
 
 describe("tabScope", () => {
   // What one Agent ran belongs to that Agent; what the project looks like does not.
@@ -40,5 +41,41 @@ describe("showsSeatSwitcher", () => {
   // A single-seat session must look exactly as it does today.
   it("hides the switcher when there is only one seat", () => {
     expect(showsSeatSwitcher("terminal", 1)).toBe(false);
+  });
+});
+
+describe("effectiveSeatId", () => {
+  const seats: SessionSeat[] = [
+    { seatId: "seat-planner", agentId: "claude-code", roleId: "planner" },
+    { seatId: "seat-builder", agentId: "codex-cli", roleId: "builder" },
+  ];
+
+  // The switcher used to be rendered next to these tabs without reaching their queries, so
+  // choosing a seat changed the highlighted button and nothing else.
+  it("resolves the selected seat for a seat-scoped tab", () => {
+    expect(effectiveSeatId("logs", seats, 1)).toBe("seat-builder");
+    expect(effectiveSeatId("terminal", seats, 0)).toBe("seat-planner");
+    expect(effectiveSeatId("shell", seats, 1)).toBe("seat-builder");
+  });
+
+  it("returns no seat for a session-scoped tab even while a seat is selected", () => {
+    expect(effectiveSeatId("changes", seats, 1)).toBeNull();
+    expect(effectiveSeatId("traces", seats, 1)).toBeNull();
+    expect(effectiveSeatId("report", seats, 1)).toBeNull();
+  });
+
+  // One seat is the whole session; scoping the query would only invite an empty result.
+  it("returns no seat for a single-seat session", () => {
+    expect(effectiveSeatId("logs", [seats[0]], 0)).toBeNull();
+  });
+
+  // A seat persisted before stable seat ids existed cannot be used as a filter, and guessing an
+  // id would silently scope the query to the wrong participant.
+  it("returns no seat when the selected seat has no stable id", () => {
+    expect(effectiveSeatId("logs", [{ agentId: "claude-code", roleId: null }, seats[1]], 0)).toBeNull();
+  });
+
+  it("returns no seat when the selection is out of range", () => {
+    expect(effectiveSeatId("logs", seats, 7)).toBeNull();
   });
 });

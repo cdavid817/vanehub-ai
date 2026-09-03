@@ -25,6 +25,8 @@ const CONNECTION_TIMEOUT: Duration = Duration::from_secs(5);
 /// after SQLite reports commit success; physical media destruction remains outside this boundary.
 const SQLITE_SYNCHRONOUS_FULL: i64 = 2;
 
+#[cfg(test)]
+pub(crate) use migrations::expected_migration_versions;
 pub(crate) use migrations::{migrate, table_has_column};
 
 const DATABASE_FILE_NAME: &str = "vanehub.sqlite";
@@ -257,7 +259,13 @@ mod tests {
 
         // Row count rather than maximum version. They agree only while history is dense, so a
         // branch that reserves a number ahead of an unmerged one will see these diverge.
-        assert_eq!(migration_count, 82);
+        //
+        // Derived from the migration list rather than a literal: a hardcoded count means every new
+        // migration fails this assertion for a reason unrelated to what it is testing.
+        assert_eq!(
+            migration_count,
+            i64::try_from(expected_migration_versions().len()).expect("migration count fits")
+        );
         assert_eq!(foreign_keys, 1);
         assert_eq!(synchronous, SQLITE_SYNCHRONOUS_FULL);
         assert_eq!(agent_count, 6);
@@ -319,7 +327,12 @@ mod tests {
             .expect("migration count");
 
         assert_eq!(value, "preserved");
-        assert_eq!(migration_count, 82);
+        // Derived, not literal: reopening must replay nothing, and a hardcoded count turns every
+        // future migration into a failure of this test rather than of what it actually asserts.
+        assert_eq!(
+            migration_count,
+            i64::try_from(expected_migration_versions().len()).expect("migration count fits")
+        );
     }
 
     #[test]

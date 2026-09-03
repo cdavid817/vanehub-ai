@@ -1,29 +1,8 @@
 # user-guide-documentation Specification
 
 ## Purpose
-Govern the localized, task-oriented user guides for VaneHub AI: their locale set, chapter equivalence across languages, runtime labeling, feature-state truthfulness, and the determinism and safety of screenshots and media. The Simplified Chinese guide is the authoritative complete set; the English guide mirrors its chapter topology and is allowed an explicit, declared partial state during a transition.
+Govern the localized, task-oriented user guides for VaneHub AI: their locale set, chapter equivalence across languages, truthful coverage of delivered workflows, and the determinism and safety of screenshots and media. Both guides are complete and equivalent sets describing the installed desktop application; neither is subordinate to the other, neither opens its chapters with a runtime or feature-state status line, and neither documents Web/mock browser-preview behavior as a user workflow.
 ## Requirements
-### Requirement: Localized task-oriented user guides
-The repository SHALL provide English and Simplified Chinese user guides organized around user goals, with equivalent navigation, commands, runtime applicability, prerequisites, results, and troubleshooting coverage. The Simplified Chinese guide SHALL be the authoritative complete set; the English guide SHALL be rebuilt to the same chapter topology.
-
-During a declared transition period recorded in an OpenSpec change, the English guide MAY be partial, but every missing chapter SHALL be marked explicitly as a known gap in the guide's navigation, and the English guide SHALL NOT silently diverge from the Simplified Chinese guide in navigation structure, runtime labeling, or truthful feature-state labeling. Outside any declared transition period, the unconditional equivalence requirement applies in full.
-
-#### Scenario: Follow a guide in either supported language
-- **WHEN** a reader selects English or Simplified Chinese
-- **THEN** the user guide SHALL expose equivalent task chapters and workflow outcomes in that language
-- **AND** product names, stable Agent ids, commands, paths, and configuration keys SHALL remain technically accurate
-
-#### Scenario: English guide is partial during a declared transition
-- **WHEN** an OpenSpec change declares a transition period during which the English guide is not yet complete
-- **THEN** every English chapter absent from the complete Simplified Chinese set SHALL be represented in the English navigation as an explicit known-gap marker
-- **AND** the English guide SHALL NOT silently omit a chapter that exists in the Simplified Chinese guide
-- **AND** chapters that ARE present SHALL match the Simplified Chinese guide in navigation order, runtime labels, and feature-state labels
-
-#### Scenario: Guide step differs by runtime
-- **WHEN** a task has different desktop-native and Web/mock behavior
-- **THEN** the guide SHALL label each runtime path before the divergent steps
-- **AND** Web/mock instructions SHALL not claim native process, SQLite, filesystem, or operating-system side effects
-
 ### Requirement: User-guide locale set is distinct from application UI locales
 The user-guide locale set SHALL be exactly English and Simplified Chinese. Application UI resource locales that are not in the user-guide locale set (for example, Japanese, Traditional Chinese, Korean) SHALL NOT be advertised as having a user guide, and README localization claims SHALL distinguish between delivered application UI resources and delivered user guides.
 
@@ -36,18 +15,6 @@ The user-guide locale set SHALL be exactly English and Simplified Chinese. Appli
 - **WHEN** a reader who uses the Japanese UI looks for a Japanese user guide
 - **THEN** the documentation SHALL state that user guides are available in English and Simplified Chinese only
 - **AND** the documentation SHALL NOT present the absence of a Japanese guide as a defect or a broken promise
-
-### Requirement: Truthful feature-state labeling
-Every user-guide workflow SHALL identify whether it is delivered, preview, Web/mock-only, desktop-only, or planned, and normal step-by-step instructions SHALL be limited to user-visible paths that can be exercised in the documented runtime.
-
-#### Scenario: User-visible path is unavailable
-- **WHEN** a service contract exists but its product UI is disabled or absent
-- **THEN** the user guide SHALL omit fictitious control instructions
-- **AND** any retained discussion SHALL be labeled as developer-facing or preview behavior
-
-#### Scenario: Delivered workflow is documented
-- **WHEN** a workflow is labeled delivered
-- **THEN** an automated or recorded verification path SHALL exercise its user-visible controls from prerequisites through the documented result
 
 ### Requirement: Deterministic documentation screenshots
 User-guide screenshots SHALL be produced by named Playwright scenarios with fixed fixtures, viewport, locale, visual style, reduced motion, and sanitized dynamic content.
@@ -82,38 +49,6 @@ Every documentation screenshot SHALL have localized descriptive alternative text
 - **WHEN** a screenshot scenario renders user, project, operation, or log data
 - **THEN** it SHALL use synthetic values suitable for publication
 - **AND** it SHALL not read sensitive local runtime state to populate the image
-
-### Requirement: Authoritative guide covers delivered user-facing capabilities
-
-The authoritative user guide SHALL carry coverage for every delivered capability that a user exercises directly through the application. Coverage SHALL be a dedicated chapter or a named section of the chapter that already owns the subject; an incidental mention SHALL NOT count as coverage.
-
-A delivered capability MAY be excluded only as a stated, reviewable decision recording why it is not user-facing. An unstated omission SHALL NOT be treated as an exclusion.
-
-Coverage SHALL describe the capability's user-visible behavior using the labels the application actually renders, and SHALL NOT describe behavior that the capability's specification does not establish.
-
-#### Scenario: A delivered capability has no coverage
-
-- **WHEN** a capability that a user exercises directly through the application has shipped and the authoritative guide contains no chapter or named section covering it
-- **THEN** the guide SHALL be considered non-compliant with this requirement
-- **AND** an incidental mention of the capability elsewhere in the guide SHALL NOT satisfy it
-
-#### Scenario: A capability is deliberately excluded
-
-- **WHEN** a delivered capability is judged not user-facing
-- **THEN** the exclusion SHALL be recorded as an explicit decision naming the capability and the reason
-- **AND** the absence of that record SHALL be treated as a coverage gap rather than as an exclusion
-
-#### Scenario: Coverage uses rendered labels
-
-- **WHEN** guide coverage names a control, status, or surface of a capability
-- **THEN** it SHALL use the label the application renders for that element in the guide's language
-- **AND** it SHALL NOT assert behavior beyond what that capability's specification establishes
-
-#### Scenario: A partial-locale guide inherits the coverage obligation
-
-- **WHEN** the authoritative guide gains coverage for a capability while another locale's guide is in a declared transition
-- **THEN** that locale SHALL represent the new chapter in its navigation as an explicit known gap
-- **AND** it SHALL NOT silently omit the chapter
 
 ### Requirement: Guide media resolves from the authored source
 
@@ -163,3 +98,78 @@ A link SHALL be authored for the surface that entry points direct readers to. Wh
 - **WHEN** entry points direct readers to documentation in one form and the project publishes no other form
 - **THEN** cross-document links SHALL resolve in that form
 - **AND** any transformation needed by a generated form SHALL be applied when generating it, not by authoring against it
+
+### Requirement: Two complete, equivalent user guides
+The repository SHALL provide English and Simplified Chinese user guides organized around user goals, with equivalent navigation, chapter topology, commands, prerequisites, results, and troubleshooting coverage. Both guides SHALL be complete sets, and neither SHALL be subordinate to the other: a chapter that exists in one SHALL exist in the other, under the same navigation order.
+
+The user guides SHALL describe the desktop application a reader installs. Neither guide SHALL open a chapter with a runtime or feature-state status line, and neither SHALL document Web/mock browser-preview behavior as a user workflow. Where a step depends on something the reader must supply, install, or authorize — an authenticated CLI, a granted permission, a reachable host — the guide SHALL state that dependency in prose at the step it affects, rather than in a chapter-level label.
+
+#### Scenario: Follow a guide in either supported language
+- **WHEN** a reader selects English or Simplified Chinese
+- **THEN** the user guide SHALL expose equivalent task chapters and workflow outcomes in that language
+- **AND** product names, stable Agent ids, commands, paths, and configuration keys SHALL remain technically accurate
+
+#### Scenario: Chapter sets stay equivalent
+- **WHEN** a chapter is added to, removed from, or reordered in one guide
+- **THEN** the other guide SHALL receive the same change in the same navigation position
+- **AND** a chapter present in one guide and absent from the other SHALL be treated as a defect rather than as a declared partial state
+
+#### Scenario: A chapter opens without a status line
+- **WHEN** a reader opens any chapter of either guide
+- **THEN** the chapter SHALL begin with its content rather than with a runtime or feature-state label
+- **AND** the guide SHALL NOT describe browser-preview behavior, deterministic mock data, or simulated results as something the reader can do
+
+#### Scenario: A step depends on the reader's environment
+- **WHEN** a documented step cannot succeed without an installed CLI, a granted permission, or a reachable remote host
+- **THEN** the guide SHALL state that dependency in prose at that step
+- **AND** it SHALL NOT assert native process, SQLite, filesystem, or operating-system side effects that the step does not produce
+
+### Requirement: Guides document delivered, user-visible workflows
+Step-by-step instructions in either user guide SHALL be limited to user-visible paths a reader can exercise in the installed desktop application. A capability whose product UI is absent or disabled SHALL be omitted from the guides rather than documented under a label, and neither guide SHALL carry per-chapter or per-workflow delivered, preview, planned, desktop-only, or Web/mock-only labels.
+
+#### Scenario: User-visible path is unavailable
+- **WHEN** a service contract exists but its product UI is disabled or absent
+- **THEN** the user guide SHALL omit fictitious control instructions
+- **AND** the capability SHALL be left out of the guide rather than retained under a preview or planned label
+
+#### Scenario: Delivered workflow is documented
+- **WHEN** a workflow is documented as a task chapter or named section
+- **THEN** an automated or recorded verification path SHALL exercise its user-visible controls from prerequisites through the documented result
+
+#### Scenario: A documented workflow loses its user-visible path
+- **WHEN** a capability's product UI is withdrawn after its workflow was documented
+- **THEN** the corresponding instructions SHALL be removed from both guides in the same change
+- **AND** leaving the instructions in place under a label SHALL NOT satisfy this requirement
+
+### Requirement: Both guides cover delivered user-facing capabilities
+
+Each user guide SHALL carry coverage for every delivered capability that a user exercises directly through the application. Coverage SHALL be a dedicated chapter or a named section of the chapter that already owns the subject; an incidental mention SHALL NOT count as coverage.
+
+A delivered capability MAY be excluded only as a stated, reviewable decision recording why it is not user-facing. An unstated omission SHALL NOT be treated as an exclusion.
+
+Coverage SHALL describe the capability's user-visible behavior using the labels the application actually renders, and SHALL NOT describe behavior that the capability's specification does not establish.
+
+#### Scenario: A delivered capability has no coverage
+
+- **WHEN** a capability that a user exercises directly through the application has shipped and a guide contains no chapter or named section covering it
+- **THEN** that guide SHALL be considered non-compliant with this requirement
+- **AND** an incidental mention of the capability elsewhere in the guide SHALL NOT satisfy it
+
+#### Scenario: A capability is deliberately excluded
+
+- **WHEN** a delivered capability is judged not user-facing
+- **THEN** the exclusion SHALL be recorded as an explicit decision naming the capability and the reason
+- **AND** the absence of that record SHALL be treated as a coverage gap rather than as an exclusion
+
+#### Scenario: Coverage uses rendered labels
+
+- **WHEN** guide coverage names a control, status, or surface of a capability
+- **THEN** it SHALL use the label the application renders for that element in the guide's language
+- **AND** it SHALL NOT assert behavior beyond what that capability's specification establishes
+
+#### Scenario: Coverage lands in both guides together
+
+- **WHEN** one guide gains coverage for a newly delivered capability
+- **THEN** the other guide SHALL gain equivalent coverage in the same change
+- **AND** deferring the second guide SHALL NOT be recorded as a declared transition
+

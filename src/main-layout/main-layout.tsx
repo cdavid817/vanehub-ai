@@ -7,6 +7,7 @@ import { SessionTabs } from "../session-workspace/session-tabs";
 import { ApiSessionComposer } from "../session-workspace/api-session-composer";
 import type { SessionTabId } from "../session-workspace/session-tab-bar";
 import { agentService } from "../services/runtime-agent-client";
+import { useSystemActivityUnread } from "../system-activity/use-system-activity-badge";
 import type { Session } from "../types/agent";
 import type { ChatMessage } from "../types/chat";
 import type { LoopInspectionTarget } from "../types/loop";
@@ -42,6 +43,8 @@ const loadGoalCenter: LazyFeatureLoader<Record<string, never>> = () => import(".
   .then((module) => ({ default: module.GoalCenter }));
 const loadEvaluationCenter: LazyFeatureLoader<Record<string, never>> = () => import("../evaluation-center/evaluation-center")
   .then((module) => ({ default: module.EvaluationCenter }));
+const loadSystemActivity: LazyFeatureLoader<Record<string, never>> = () => import("../system-activity/system-activity-view")
+  .then((module) => ({ default: module.SystemActivityView }));
 type MissionControlProps = { onNavigate?: (target: import("../types/mission-control").MissionControlNavigationTarget) => void };
 const loadMissionControl: LazyFeatureLoader<MissionControlProps> = () => import("../mission-control/mission-control")
   .then((module) => ({ default: module.MissionControl }));
@@ -85,6 +88,14 @@ export function MainLayout({
   const [conversationFocusMode, setConversationFocusMode] = useState(false);
   const [infoPanelCollapsed, setInfoPanelCollapsed] = useState(narrowLayout);
   const [requestedInfoTab, setRequestedInfoTab] = useState<"im" | null>(null);
+  /**
+   * A tab the information panel asked for.
+   *
+   * The nonce is why this is a pair rather than a bare tab: a reader who clicks Changes, walks
+   * back to Chat, and clicks Changes again means it both times, and a request keyed only on the
+   * tab would be a no-op the second time.
+   */
+  const [panelTabRequest, setPanelTabRequest] = useState<{ nonce: number; tab: SessionTabId } | null>(null);
   const [sessionSidebarCollapsed, setSessionSidebarCollapsed] = useState(false);
   const [workspaceTabsCollapsed, setWorkspaceTabsCollapsed] = useState(false);
   const [sessionSidebarWidth, setSessionSidebarWidth] = useState(readSessionSidebarWidth);
@@ -95,6 +106,8 @@ export function MainLayout({
   const [goalCenterVisited, setGoalCenterVisited] = useState(false);
   const [evaluationCenterVisited, setEvaluationCenterVisited] = useState(false);
   const [missionControlVisited, setMissionControlVisited] = useState(false);
+  const [systemActivityVisited, setSystemActivityVisited] = useState(false);
+  const systemActivityUnread = useSystemActivityUnread(destination);
   // Nonce, not just the tab id: requesting the same tab twice in a row (e.g. `/logs` again after
   // the user manually switched back to chat) must still re-trigger `SessionTabs`' activation effect.
   const [slashTabRequest, setSlashTabRequest] = useState<SlashTabRequest | null>(null);
@@ -138,6 +151,7 @@ export function MainLayout({
     if (destination === "goals") setGoalCenterVisited(true);
     if (destination === "evaluations") setEvaluationCenterVisited(true);
     if (destination === "mission-control") setMissionControlVisited(true);
+    if (destination === "system-activity") setSystemActivityVisited(true);
   }, [destination]);
 
   // The URL and the backend's active session are two claims about the same thing.
@@ -211,9 +225,12 @@ export function MainLayout({
   }
 
   const displayedMessages = loopInspection?.messages ?? model.messages;
+  // Loop inspection wins: it is showing another session's transcript, and a panel row that moved
+  // the tab out from under it would leave the reader looking at this session's workspace beside
+  // that one's messages.
   const requestedWorkspaceTab: SessionTabId | null = loopInspection
     ? loopInspection.target.surface === "usage" ? "chat" : loopInspection.target.surface
-    : slashTabRequest?.tab ?? null;
+    : panelTabRequest?.tab ?? slashTabRequest?.tab ?? null;
   const usesStructuredChat = Boolean(
     displayedSession && (displayedSession.interactionMode === "api" || seatsFromSession(displayedSession).length > 1),
   );
@@ -257,6 +274,8 @@ export function MainLayout({
             onGoals={() => goTo({ destination: "goals" })}
             onEvaluations={() => goTo({ destination: "evaluations" })}
             onMissionControl={() => goTo({ destination: "mission-control" })}
+            onSystemActivity={() => goTo({ destination: "system-activity" })}
+            systemActivityUnread={systemActivityUnread}
             onSessions={() => {
               if (destination !== "sessions") goTo({ destination: "sessions" });
               else if (conversationFocusMode) setConversationFocusMode(false);
@@ -358,7 +377,7 @@ export function MainLayout({
                     />
                   ) : null}
                   requestedTab={requestedWorkspaceTab}
-                  requestedTabNonce={slashTabRequest?.nonce ?? 0}
+                  requestedTabNonce={(panelTabRequest?.nonce ?? 0) + (slashTabRequest?.nonce ?? 0)}
                   sessionActivationKey={sessionActivationKey}
                   turnStatus={loopInspection ? null : model.turnStatus}
                   visibilityControls={{
@@ -396,6 +415,12 @@ export function MainLayout({
               collapsed={effectiveInfoPanelCollapsed}
               currentSpeakerSeatId={loopInspection || model.turnStatus?.kind !== "agent" ? null : model.turnStatus.seatId ?? null}
               messages={loopInspection ? [] : model.messages}
+              onNavigateToTab={(tab) => {
+                // Focus mode hides the workspace entirely, so a request to show a tab has to leave
+                // it first or the reader clicks a row and nothing appears to happen.
+                if (conversationFocusMode) setConversationFocusMode(false);
+                setPanelTabRequest((current) => ({ nonce: (current?.nonce ?? 0) + 1, tab }));
+              }}
               onOpenImSettings={() => onOpenSettings("im")}
               onOpenSkillSettings={() => onOpenSettings("skills")}
               requestedTab={loopInspection?.target.surface === "usage" ? "usage" : requestedInfoTab}
@@ -423,6 +448,9 @@ export function MainLayout({
               if (target.kind === "review") setSlashTabRequest((current) => ({ tab: "changes", nonce: (current?.nonce ?? 0) + 1 }));
               goTo({ destination: "sessions", sessionId: target.sessionId ?? target.id });
             } }} loader={loadMissionControl} /> : null}
+          </section>
+          <section aria-label={t("layout.activityBar.systemActivity")} className={cn("min-h-0 min-w-0 flex-1 p-2", destination === "system-activity" ? "flex" : "hidden")} id="system-activity">
+            {systemActivityVisited ? <LazyFeature className="h-full min-h-0 flex-1" componentProps={{}} loader={loadSystemActivity} /> : null}
           </section>
           <section
             aria-label={t("layout.activityBar.loops")}

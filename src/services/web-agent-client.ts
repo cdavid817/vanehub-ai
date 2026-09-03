@@ -9,16 +9,22 @@ import { webOnePieceProfileClient } from "./web-onepiece-profile-client";
 import { webHybridRoutingClient } from "./web-hybrid-routing-client";
 import { deleteWebApiAgentProviderConfig } from "./web-api-provider-state";
 import { webCodeIndexClient } from "./web-code-index-client";
-import { webCliToolClient } from "./web-cli-tool-client";
+import { webCliEnvironmentClient } from "./web-cli-environment-client";
 import { webCliParameterClient } from "./web-cli-parameter-client";
 import { webCliConfigClient } from "./web-cli-config-client";
 import { webScheduledTaskClient } from "./web-scheduled-task-client";
 import { webContextQualityClient } from "./web-context-quality-client";
 import { webSkillGovernanceClient } from "./web-skill-governance-client";
 import { webSkillEvidenceClient } from "./web-skill-evidence-client";
+import { webSkillAssessmentClient } from "./web-skill-assessment-client";
+import { webSkillGenerationClient } from "./web-skill-generation-client";
+import { webSkillEvolutionOrchestrationClient } from "./web-skill-evolution-orchestration-client";
+import { webSystemActivityClient } from "./web-system-activity-client";
+import { webSkillCuratorClient } from "../adapters/web-skill-curator-client";
 import { webAgentRegistryClient } from "./web-agent-registry-client";
 
 export { resetWebEvidenceForTest } from "./web-skill-evidence-client";
+export { resetWebSkillCuratorForTest } from "../adapters/web-skill-curator-client";
 import {
   findWebCliConfigProfile,
   requireCliConfigAgentId,
@@ -31,6 +37,7 @@ import {
 export { resetWebRetrievalForTest, searchWebCodeIndex } from "./web-code-index-state";
 import { nowIso } from "./web-mock-clock";
 import { webSessionWorkspaceClient } from "./web-session-workspace-client";
+import { webSessionWorkspaceEvidenceService } from "./web-session-workspace-evidence-client";
 import { webLspClient } from "./web-lsp-client";
 import { webBuiltinToolClient } from "./web-builtin-tool-client";
 import { createWebCodeReviewClient } from "./web-code-review-client";
@@ -51,7 +58,7 @@ export {
   setWebLoopPhaseDelayForTest,
   simulateWebLoopRestartForTest,
 } from "./web-loop-state";
-import { webAgentMemoryClient } from "./web-agent-memory-client";
+import { webPersonalizationClient } from "./web-personalization-client";
 
 export { resetWebAgentMemoriesForTest } from "./web-agent-memory-state";
 import { listWebAgentMemories } from "./web-agent-memory-state";
@@ -103,7 +110,7 @@ export function seedWebImSessionForTest(connector: ImSessionConnector): Session 
     title: `IM ${connector}`,
     agentId: "codex-cli",
     interactionMode: "cli",
-    lifecycleState: "idle",
+    personalizationMode: "standard", lifecycleState: "idle",
     recoveryStatus: "clean",
     recoveryRevision: 0,
     stateRevision: 0,
@@ -134,6 +141,9 @@ export function seedWebImSessionForTest(connector: ImSessionConnector): Session 
 const webCodeReviewClient = createWebCodeReviewClient(webSessionWorkspaceClient);
 
 export const webAgentClient: AgentService = {
+  ...webSkillCuratorClient,
+  ...webSkillEvolutionOrchestrationClient,
+  ...webSystemActivityClient,
   ...webEvaluationClient,
   ...webPromptHookClient,
   ...webApiAgentClient,
@@ -141,13 +151,15 @@ export const webAgentClient: AgentService = {
   ...webOnePieceProfileClient,
   ...webHybridRoutingClient,
   ...webCodeIndexClient,
-  ...webCliToolClient,
+  ...webCliEnvironmentClient,
   ...webCliParameterClient,
   ...webCliConfigClient,
   ...webScheduledTaskClient,
   ...webContextQualityClient,
   ...webSkillGovernanceClient,
   ...webSkillEvidenceClient,
+  ...webSkillAssessmentClient,
+  ...webSkillGenerationClient,
   ...webAgentRegistryClient,
   getDesktopUpdateSnapshot: webDesktopUpdateClient.getSnapshot,
   getDesktopUpdatePreferences: webDesktopUpdateClient.getPreferences,
@@ -157,6 +169,7 @@ export const webAgentClient: AgentService = {
   restartAfterDesktopUpdate: webDesktopUpdateClient.restart,
   ...webBuiltinToolClient,
   ...webSessionWorkspaceClient,
+  ...webSessionWorkspaceEvidenceService,
   ...webCodeReviewClient,
   ...webLspClient,
   ...webMissionControlClient,
@@ -188,7 +201,7 @@ export const webAgentClient: AgentService = {
     replaceWebSkillMountPaths(listWebSkillMountPaths().filter((path) => path.agentId !== agentId));
   },
 
-  ...webAgentMemoryClient,
+  ...webPersonalizationClient,
 
   async applyCliConfigProfile(input) {
     const supportedAgentId = requireCliConfigAgentId(input.agentId);

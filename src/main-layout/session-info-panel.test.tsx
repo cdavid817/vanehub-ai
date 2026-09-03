@@ -16,7 +16,7 @@ function session(): Session {
     title: "CLI work",
     agentId: "codex-cli",
     interactionMode: "cli",
-    lifecycleState: "running",
+    personalizationMode: "standard", lifecycleState: "running",
     recoveryStatus: "clean",
     recoveryRevision: 0,
     stateRevision: 0,
@@ -174,6 +174,9 @@ describe("SessionInfoPanel", () => {
     expect(html).toContain("Token Usage");
     expect(html).toContain("Skill");
     expect(html).toContain('id="info-tab-im"');
+    expect(html).toContain('data-testid="session-im-access"');
+    expect(html).toContain("max-[900px]:absolute");
+    expect(html).toContain("max-[900px]:w-[min(320px,90vw)]");
     expect(html).not.toContain(">Files<");
     expect(html).not.toContain(">Changes<");
     expect(html).not.toContain(">Logs<");

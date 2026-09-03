@@ -21,8 +21,6 @@ That produces a continuous chain of role handoffs without introducing unrelated 
 
 **Verifying real Agent replies and automatic handoff requires desktop**, with the CLIs you plan to use installed and authenticated.
 
-The browser preview is fine for verifying the interface, adding and removing members, and `@` completion, but it **starts no real CLI**, so a genuine handoff never happens there. See [Runtime and feature labels](runtime-labels.md) for how to tell which you are in.
-
 With only one CLI available you can bind all three roles to the same Agent; seat identity still comes from the role.
 
 ## Step 2: create a session with three roles
@@ -99,7 +97,7 @@ Review the design above, list blocking issues and suggestions, then end the roun
 - The message header shows "role name · Agent name", and user messages never impersonate a seat.
 - All three roles' messages appear in one timeline; three separate chat pages should not open.
 
-> A model does not always emit the requested `@` exactly. If no handoff triggers, restate the requirement that the final line contain only the target handle, and confirm you are on desktop rather than Web/mock.
+> A model does not always emit the requested `@` exactly. If no handoff triggers, restate the requirement that the final line contain only the target handle.
 
 ## Step 5: verify joining, leaving, and history attribution
 

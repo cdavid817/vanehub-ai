@@ -1,4 +1,5 @@
-use crate::contexts::code_intelligence::domain::models::LanguageFamily;
+use crate::contexts::code_intelligence::domain::models::Language;
+use crate::contexts::code_intelligence::domain::registry::definition_for_extension;
 use crate::platform::filesystem::{BoundaryError, BoundedFilesystem};
 use std::fs::File;
 use std::io::Read;
@@ -38,7 +39,7 @@ pub(crate) enum DocumentAdmissionError {
 pub(crate) struct DiskDocumentSnapshot {
     canonical_path: PathBuf,
     relative_path: String,
-    language: LanguageFamily,
+    language: Language,
     language_id: &'static str,
     text: String,
 }
@@ -52,7 +53,7 @@ impl DiskDocumentSnapshot {
         &self.relative_path
     }
 
-    pub(crate) const fn language(&self) -> LanguageFamily {
+    pub(crate) const fn language(&self) -> Language {
         self.language
     }
 
@@ -130,22 +131,13 @@ impl DocumentAdmission {
     }
 }
 
-fn identify_language(
-    path: &Path,
-) -> Result<(LanguageFamily, &'static str), DocumentAdmissionError> {
+fn identify_language(path: &Path) -> Result<(Language, &'static str), DocumentAdmissionError> {
     let extension = path
         .extension()
         .and_then(|extension| extension.to_str())
         .map(str::to_ascii_lowercase)
         .ok_or(DocumentAdmissionError::UnsupportedLanguage)?;
-    match extension.as_str() {
-        "rs" => Ok((LanguageFamily::Rust, "rust")),
-        "ts" => Ok((LanguageFamily::TypeScriptJavaScript, "typescript")),
-        "tsx" => Ok((LanguageFamily::TypeScriptJavaScript, "typescriptreact")),
-        "js" | "mjs" | "cjs" => Ok((LanguageFamily::TypeScriptJavaScript, "javascript")),
-        "jsx" => Ok((LanguageFamily::TypeScriptJavaScript, "javascriptreact")),
-        _ => Err(DocumentAdmissionError::UnsupportedLanguage),
-    }
+    definition_for_extension(&extension).ok_or(DocumentAdmissionError::UnsupportedLanguage)
 }
 
 fn normalize_relative(relative: &str) -> String {

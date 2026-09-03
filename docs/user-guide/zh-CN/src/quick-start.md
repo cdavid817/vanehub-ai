@@ -2,6 +2,8 @@
 
 五分钟从零到第一次 Agent 执行。已经装好 CLI 的话，直接从第 2 步开始。
 
+> **不想安装任何 CLI**？内置的原生 Agent OnePiece 不需要 CLI：跳过第 1 步和官方登录，直接看 [1.5 → 原生 Agent OnePiece](#原生-agent-onepiece) 配好模型服务，再从第 3 步继续。
+
 ## 1. 准备一个 CLI
 
 VaneHub AI **驱动已安装的 Coding Agent CLI**，本身不代管各家的订阅登录。至少装一个。装法有两种：
@@ -51,9 +53,9 @@ claude
 | **Codex CLI** | 支持 | `~/.codex/config.toml` |
 | **OpenCode** | 支持 | `~/.config/opencode/opencode.json` |
 | **Gemini CLI** | 端点可改，但目录里只有 Google 官方预设 | `~/.gemini/.env` |
-| **Antigravity CLI** | **不支持** | `~/.gemini/antigravity-cli/settings.json` |
+| **Antigravity CLI** | **VaneHub 暂未纳管** | `~/.gemini/antigravity-cli/settings.json` |
 
-> **Antigravity CLI 不接受自定义端点**。它只走 Google 登录、凭据存系统钥匙串，配置面板里没有端点和密钥字段——能调的是模型与审批行为。
+> **VaneHub 当前未纳管 Antigravity 的端点与密钥字段**：它的配置面板里没有这两项，能调的是模型与审批行为；Google 登录凭据由 CLI 自己存在系统钥匙串。这是 VaneHub 当前的纳管范围，不等于 Antigravity CLI 本身不支持 API Key 或自定义端点——上游能力以 Antigravity 官方文档为准，需要时可在 CLI 自身环境中按官方方式配置。
 
 字段清单、凭据存放位置与漂移处理见[工具与扩展 → Agent 配置](tooling.md#agent-配置)。
 
@@ -83,18 +85,7 @@ claude
 
 界面分三块：左侧**会话列表**、中间**工作区**、右侧**信息面板**（会话、CLI 工具、运行状态、本次模型、工作区路径）。
 
-顶部有 9 个标签页：
-
-| 标签 | 用途 |
-| --- | --- |
-| **工作区** | 主界面，与 Agent 对话并查看其 CLI 终端 |
-| **变更** | 本次会话产生的 Git 变更 |
-| **文档** / **文件** | 浏览工作目录 |
-| **终端记录** | Agent 的工具执行记录 |
-| **Shell** | 独立的交互式终端 |
-| **日志** | 会话日志（可搜索、可按时间定位） |
-| **链路** | 执行追踪 |
-| **报告** | Token 用量与工具排行 |
+顶部有 9 个标签页（工作区、变更、文档、文件、终端记录、Shell、日志、链路、报告），逐个说明见[创建第一个会话 → 会话工作区的九个标签页](first-session.md#会话工作区的九个标签页)。
 
 在**工作区**标签的输入框里写下你的任务，**Enter 发送、Shift+Enter 换行**。
 

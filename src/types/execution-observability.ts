@@ -41,10 +41,40 @@ export interface ExecutionRunSummary {
   agentId?: string | null;
 }
 
+/**
+ * What a span is, decided on the native side from what its producer asserted.
+ *
+ * Sent rather than inferred here. The view has only the name to go on, and a name is a label
+ * somebody chose: classifying by substring reads `chat.completion.tool_choice` as a tool call and
+ * `list_resources` as nothing at all, and neither mistake is visible from the screen.
+ *
+ * `unknown` is a real answer — it says the producer did not declare a kind and carried no
+ * conventional attribute that implies one.
+ */
+export type ExecutionSpanKind =
+  | "model"
+  | "tool"
+  | "mcp"
+  | "process"
+  | "delegation"
+  | "file"
+  | "network"
+  | "container"
+  | "unknown";
+
+/** One relationship between spans or runs. Identifiers only, never what they point at. */
+export interface ExecutionLink {
+  runId: string;
+  traceId: string;
+  spanId?: string | null;
+  relationship: string;
+}
+
 export interface ExecutionSpanSummary {
   spanId: string;
   parentSpanId?: string | null;
   name: string;
+  kind: ExecutionSpanKind;
   status: ExecutionStatus;
   fidelity: ExecutionFidelity;
   startedAt: string;
@@ -52,6 +82,31 @@ export interface ExecutionSpanSummary {
   durationMs?: number | null;
   errorClassification?: string | null;
   attributes: Record<string, SafeAttribute>;
+  /** Distance from a root span. Zero for a root. */
+  depth: number;
+  /**
+   * Milliseconds from the run's start to this span's start.
+   *
+   * Absent when either timestamp could not be read. A bar placed at zero because a timestamp
+   * failed to parse would put work at the beginning of the run that did not happen there.
+   */
+  startOffsetMs?: number;
+  /**
+   * Duration of a span that finished. Absent while it is still running — elapsed-so-far would make
+   * a running span indistinguishable from one that finished in exactly that time.
+   */
+  completedDurationMs?: number;
+  /** Which attempt this was, when a producer counted. Absent when nobody did. */
+  attempt?: number;
+  delegated: boolean;
+  /**
+   * Whether this span is on the chain that determined the run's duration.
+   *
+   * Only ever true once every span in the run has finished: a critical path through work that is
+   * still running is a prediction, and this field reports an observation.
+   */
+  criticalPath: boolean;
+  links: ExecutionLink[];
 }
 
 export interface ExecutionEvent {

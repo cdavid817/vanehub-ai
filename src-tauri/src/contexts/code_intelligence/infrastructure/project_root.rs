@@ -1,12 +1,8 @@
-use crate::contexts::code_intelligence::domain::models::{
-    ConfigurationFingerprint, LanguageFamily, ServerKind,
-};
+use crate::contexts::code_intelligence::domain::models::{ConfigurationFingerprint, Language};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 const MAX_ANCESTORS: usize = 128;
-const RUST_MARKERS: &[&str] = &["Cargo.toml"];
-const TYPESCRIPT_MARKERS: &[&str] = &["tsconfig.json", "jsconfig.json", "package.json"];
 
 #[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ProjectRootError {
@@ -20,6 +16,10 @@ pub(crate) enum ProjectRootError {
     TraversalLimit,
     #[error("project root is unavailable")]
     ProjectRootUnavailable,
+    /// Kept distinct from `ProjectRootUnavailable` on purpose: "no compilation database" tells a
+    /// user what to do and "project root unavailable" does not.
+    #[error("the language requires a project marker and none was found in the workspace")]
+    RequiredMarkerMissing,
 }
 
 pub(crate) struct ProjectRootResolver;
@@ -28,7 +28,7 @@ impl ProjectRootResolver {
     pub(crate) fn resolve(
         session_root: &Path,
         document: &Path,
-        language: LanguageFamily,
+        language: Language,
     ) -> Result<PathBuf, ProjectRootError> {
         let session_root =
             canonical_directory(session_root).ok_or(ProjectRootError::SessionRootUnavailable)?;
@@ -46,13 +46,23 @@ impl ProjectRootResolver {
             return Err(ProjectRootError::OutsideSessionRoot);
         }
 
-        let markers = markers_for(language);
+        let markers = language.root_markers;
         for _ in 0..MAX_ANCESTORS {
+            // A marker may name a path inside the candidate directory rather than a file directly
+            // in it, which is how C/C++ finds `build/compile_commands.json` without a second
+            // detection mechanism.
             if markers.iter().any(|marker| current.join(marker).is_file()) {
                 return Ok(current);
             }
             if current == session_root {
-                return Ok(session_root);
+                // Falling back to the workspace root is right for a server that degrades
+                // gracefully without a manifest. A server that instead answers confidently wrong
+                // gets a refusal, because an unavailable result is the better answer.
+                return if language.requires_root_marker {
+                    Err(ProjectRootError::RequiredMarkerMissing)
+                } else {
+                    Ok(session_root)
+                };
             }
             let Some(parent) = current.parent() else {
                 return Err(ProjectRootError::OutsideSessionRoot);
@@ -70,7 +80,7 @@ impl ProjectRootResolver {
 pub(crate) struct ProcessKey {
     session_root: PathBuf,
     project_root: PathBuf,
-    server_kind: ServerKind,
+    language: Language,
     configuration_fingerprint: ConfigurationFingerprint,
 }
 
@@ -78,7 +88,7 @@ impl ProcessKey {
     pub(crate) fn new(
         session_root: &Path,
         project_root: &Path,
-        server_kind: ServerKind,
+        language: Language,
         configuration_fingerprint: ConfigurationFingerprint,
     ) -> Result<Self, ProjectRootError> {
         let session_root =
@@ -91,7 +101,7 @@ impl ProcessKey {
         Ok(Self {
             session_root,
             project_root,
-            server_kind,
+            language,
             configuration_fingerprint,
         })
     }
@@ -112,24 +122,17 @@ impl ProcessKey {
         &self.project_root
     }
 
-    pub(crate) const fn server_kind(&self) -> ServerKind {
-        self.server_kind
+    pub(crate) const fn language(&self) -> Language {
+        self.language
     }
 
     pub(crate) fn same_instance_scope(&self, other: &Self) -> bool {
         self.session_root == other.session_root
             && self.project_root == other.project_root
-            && self.server_kind == other.server_kind
+            && self.language == other.language
     }
 }
 
 fn canonical_directory(path: &Path) -> Option<PathBuf> {
     path.canonicalize().ok().filter(|path| path.is_dir())
-}
-
-const fn markers_for(language: LanguageFamily) -> &'static [&'static str] {
-    match language {
-        LanguageFamily::Rust => RUST_MARKERS,
-        LanguageFamily::TypeScriptJavaScript => TYPESCRIPT_MARKERS,
-    }
 }

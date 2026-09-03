@@ -15,11 +15,14 @@ import { scheduleWebSendMessageResponse } from "./web-send-message-response-sche
 import { scheduleWebSendMessageApiTools } from "./web-send-message-api-scheduler";
 import { findWebSession, updateWebSession } from "./web-session-state";
 import {
+  revokeWebReusableGuidanceAuthorization,
+  saveWebMessageFeedback,
+} from "./web-chat-feedback";
+import {
   cancelWebActiveStream,
   createWebMessageId,
   getWebSessionMessages,
   hasWebActiveStream,
-  listWebSessionMessageBuckets,
   publishWebChatEvent,
   setWebActiveStream,
   setWebSessionMessages,
@@ -222,33 +225,8 @@ export const webChatClient: ChatMessagingService = {
     return messages.slice(Math.max(0, boundedEndIndex - limit), boundedEndIndex);
   },
 
-  async saveMessageFeedback(input) {
-    const message = listWebSessionMessageBuckets()
-      .flat()
-      .find((candidate) => candidate.id === input.messageId);
-    if (!message || message.role !== "assistant" || message.status !== "completed") {
-      throw new Error("message-not-eligible");
-    }
-    const currentRevision = message.feedback?.revision ?? 0;
-    if (currentRevision !== input.expectedRevision) {
-      throw new Error(`feedback-conflict:${currentRevision}`);
-    }
-    if (input.state === "corrected" && !input.correctionNote?.trim()) {
-      throw new Error("invalid-feedback");
-    }
-    if (input.state === null) {
-      message.feedback = { state: null, revision: currentRevision + 1 };
-      return message.feedback;
-    }
-    message.feedback = {
-      state: input.state,
-      revision: currentRevision + 1,
-      ...(input.correctionNote?.trim()
-        ? { correctionNote: input.correctionNote.trim().slice(0, 1_000) }
-        : {}),
-    };
-    return message.feedback;
-  },
+  saveMessageFeedback: saveWebMessageFeedback,
+  revokeReusableGuidanceAuthorization: revokeWebReusableGuidanceAuthorization,
 
   /**
    * The Web runtime simulates the round trip: nothing is actually blocked on the answer, so this

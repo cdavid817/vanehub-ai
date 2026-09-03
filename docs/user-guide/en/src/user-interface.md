@@ -1,9 +1,5 @@
 # User interface
 
-**Status: Implemented — the interface is identical on desktop and in Web/mock; execution-type operations are desktop only.**
-
-VaneHub AI's interface is one React codebase serving two runtimes: the desktop application and the browser preview. **They look the same**, so you cannot tell which runtime you are in by appearance — see [Runtime and feature labels](runtime-labels.md). Anything involving execution (starting a CLI, writing files, connecting over SSH) only really happens on desktop; in the browser preview it is simulated.
-
 This chapter walks the interface feature by feature: what each one is and how to use it.
 
 ## Session management
@@ -24,7 +20,7 @@ The session list on the left supports three display modes: **list / by category 
 
 ### Activity bar navigation
 
-The activity bar to the left of the session list switches between the main destinations: **Sessions / Loops / Goal Center / Todo Board / Agent evaluation / Scheduled tasks / Settings / Help**.
+The activity bar to the left of the session list switches between the main destinations: **Sessions / Loops / Todo Board / Goal Center / Evaluations / Mission Control / Scheduled tasks / Settings / Help**.
 
 ## Agent types
 
@@ -141,28 +137,30 @@ When you reopen a session after a crash or an abnormal exit, a **recovery banner
 
 ## Settings center
 
-**Settings** in the activity bar opens the settings center: navigation on the left, the configuration page on the right. There are 18 settings pages:
+**Settings** in the activity bar opens the settings center: navigation on the left, the configuration page on the right. There are 20 settings pages:
 
 | Settings page | What it holds |
 | --- | --- |
 | **Basic Configuration** | See [the next section](#basic-configuration) |
 | **CLI Management** | Install detection, conflict diagnostics, and upgrades for each CLI — see [Install and authenticate a CLI](getting-started.md) |
 | **CLI Parameters** | Launch flags per CLI Agent — see [Tools and extensions](tooling.md#cli-parameters) |
-| **SDK Dependencies** | Version management for the managed SDKs — see [Tools and extensions](tooling.md#sdk-dependencies) |
 | **Extension Capabilities** | Installing and enabling local multimodal capabilities — see [Tools and extensions](tooling.md#extension-capabilities) |
-| **Plugin Integration** | Built-in product integrations and readiness checks — see [Plugin integration](plugin-integration.md) |
+| **Plugin Integrations** | Built-in product integrations and readiness checks — see [Plugin integration](plugin-integration.md) |
 | **MCP Servers** | MCP server configuration and per-Agent binding — see [MCP servers](mcp.md) |
 | **Agent Configurations** | Provider, endpoint, and model per Agent, including OnePiece — see [Tools and extensions](tooling.md#agent-configurations) |
 | **Agent Policies** | Permission policy and approval templates — see [Permission approvals](permissions.md) |
 | **Expert Roles** | Role fields, responsibilities, and review policy — see [Expert roles](expert-roles.md) |
-| **Personalization** | Custom instructions and cross-session memory — see [Personalization](personalization.md) |
+| **AI Personalization** | Overview, Instructions, Memory, and Runtime Preview — see [Personalization](personalization.md) |
 | **Skills** | Skill installation and binding — see [Manage Skills](skill-management.md) |
 | **Prompt Hooks** | Hook management — see [Prompt Hooks](prompt-hooks.md) |
 | **IM Connectors** | IM connector configuration — see [Remote and IM](remote-and-im.md#im-connectors) |
 | **SSH Connections** | Saved SSH connections — see [Remote and IM](remote-and-im.md#ssh-remote-workspace) |
 | **Execution Observability** | Execution tracing and log collection policy — see [Observability](observability.md) |
 | **Usage Statistics** | Token usage statistics — see [Scheduled and usage](automation.md) |
+| **Code Intelligence** | Language server enablement, discovery, and workspace trust — see [LSP code intelligence](lsp-code-intelligence.md) |
+| **Local Media** | Local OCR, speech recognition, and speech synthesis engines — see [Local media](local-media.md) |
 | **About** | Version, update check, changelog, and repository links — see [Application updates](app-updates.md) |
+| **Documentation** | Renders the bundled product documentation in your interface language |
 
 ### Basic configuration
 
@@ -213,4 +211,3 @@ On desktop there is a system tray icon: show/hide the main window, with the laun
 
 - Unfamiliar terminology → [Core concepts](core-concepts.md)
 - First time using it → [Create your first session](first-session.md)
-- Desktop versus browser preview → [Runtime and feature labels](runtime-labels.md)

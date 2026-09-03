@@ -90,6 +90,10 @@ pub(crate) struct Session {
     pub(crate) archived: bool,
     pub(crate) created_at: String,
     pub(crate) updated_at: String,
+    /// `standard`, `project-only` or `temporary`. Read back rather than assumed: a session
+    /// keeps the mode it was created with, and a screen that guessed would tell the user
+    /// their temporary session is retaining things it is not.
+    pub(crate) personalization_mode: String,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -176,6 +180,10 @@ pub(crate) struct CreateSessionInput {
     pub(crate) seats: Vec<SessionSeat>,
     pub(crate) interaction_mode: InteractionMode,
     pub(crate) title: Option<String>,
+    /// `standard`, `project-only`, or `temporary`. Omitted by a caller that predates the mode,
+    /// which gets the behaviour it had.
+    #[serde(default)]
+    pub(crate) personalization_mode: Option<String>,
     pub(crate) folder: Option<String>,
     pub(crate) project_path: Option<String>,
     pub(crate) remote_workspace: Option<CreateRemoteWorkspaceInput>,
@@ -398,6 +406,15 @@ pub(crate) struct MessageFeedback {
     pub(crate) state: Option<String>,
     pub(crate) revision: u64,
     pub(crate) correction_note: Option<String>,
+    pub(crate) reusable_guidance_authorization: Option<ReusableGuidanceAuthorization>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ReusableGuidanceAuthorization {
+    pub(crate) authorization_id: String,
+    pub(crate) feedback_revision: u64,
+    pub(crate) disclosure_version: String,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]

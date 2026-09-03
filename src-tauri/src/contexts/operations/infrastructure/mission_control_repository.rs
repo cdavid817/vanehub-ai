@@ -139,7 +139,6 @@ mod tests {
     use crate::contexts::operations::domain::{
         RunOwner, RunRecoveryPolicy, RunRunner, RunRunnerKind, RunRunnerRecovery,
     };
-    use crate::contexts::operations::infrastructure::persistent_run_service;
     use crate::test_support::TempDirectory;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
@@ -192,7 +191,9 @@ mod tests {
     fn overview_is_bounded_for_large_history_and_uses_safe_projection() {
         let directory = TempDirectory::new("mission-control-history");
         let database = NativeDatabase::new(directory.path().to_path_buf()).expect("database");
-        let runs = persistent_run_service(database.clone());
+        let runs = crate::contexts::operations::infrastructure::persistent_run_service_for_test(
+            database.clone(),
+        );
         for index in 0..125 {
             runs.create(CreateAgentRun {
                 id: Some(format!("018f0f17-4d6a-7e20-b41d-{index:012x}")),
@@ -245,7 +246,9 @@ mod tests {
     fn runner_filter_projects_metadata_and_preserves_legacy_missing_fields() {
         let directory = TempDirectory::new("mission-control-runner-filter");
         let database = NativeDatabase::new(directory.path().to_path_buf()).expect("database");
-        let runs = persistent_run_service(database.clone());
+        let runs = crate::contexts::operations::infrastructure::persistent_run_service_for_test(
+            database.clone(),
+        );
         for (suffix, runner) in [
             ("000000000001", None),
             (
@@ -326,7 +329,9 @@ mod tests {
         for run_count in [100_usize, 1_000] {
             let directory = TempDirectory::new(&format!("mission-control-{run_count}"));
             let database = NativeDatabase::new(directory.path().to_path_buf()).expect("database");
-            let runs = persistent_run_service(database.clone());
+            let runs = crate::contexts::operations::infrastructure::persistent_run_service_for_test(
+                database.clone(),
+            );
             for index in 0..run_count {
                 runs.create(CreateAgentRun {
                     id: Some(format!("018f0f17-4d6a-7e20-b41d-{index:012x}")),

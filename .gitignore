@@ -44,3 +44,12 @@ yarn.lock
 # that nobody reviewed and that are invalid for any interpreter but the one that wrote them.
 __pycache__/
 *.pyc
+
+# Desktop fixture binaries are built by the layer that uses them, never committed.
+tests/desktop/fixtures/agent-mcp/*.exe
+tests/desktop/fixtures/agent-mcp/*.pdb
+tests/desktop/fixtures/cli/*.exe
+tests/desktop/fixtures/cli/*.pdb
+
+# Runtime binaries captured by the desktop agent-mcp layer; never commit them.
+tests/desktop/fixtures/agent-mcp-support/

@@ -9,18 +9,15 @@ import {
   normalizeLspWorkspaceTrustUpdate,
 } from "./lsp-contract";
 import {
-  lspLanguageIds,
   lspServerTestPhases,
   type LspConfiguration,
+  type LspLanguageDescriptor,
   type LspLanguageId,
   type LspNegotiatedCapabilities,
   type LspProcessState,
   type LspServerDiscovery,
   type LspServerKind,
   type LspServerStatus,
-  type LspToolName,
-  type LspToolResult,
-  type LspToolResultMetadata,
   type LspWorkspaceTrust,
 } from "../types/lsp";
 
@@ -31,34 +28,110 @@ type WebLspClient = Pick<AgentService,
   | "updateLspWorkspaceTrust"
   | "discoverLspServers"
   | "testLspServer"
+  | "installLspServer"
+  | "uninstallLspServer"
   | "getLspServerStatus"
 >;
 
 const maximumTrustRecords = 128;
 const readyTimestamp = "2026-01-01T00:00:00Z";
-const virtualExecutables: Record<LspLanguageId, string> = {
-  rust: "/mock/lsp/rust-analyzer",
-  typescript_javascript: "/mock/lsp/typescript-language-server",
-};
 
+/**
+ * Web mode has no backend registry to ask, so this mirrors it. Adding a language here is a
+ * mock-data edit; no component or contract code changes with it, which is the parity the desktop
+ * registry is supposed to buy.
+ */
+const mockRegistry: readonly (LspLanguageDescriptor & { executable: string })[] = [
+  {
+    language: "rust",
+    server: "rust_analyzer",
+    supportedOnHost: true,
+    defaultStartupArguments: [],
+    overrideTarget: "executable_file",
+    prerequisite: null,
+    distribution: null,
+    installed: false,
+    executable: "/mock/lsp/rust-analyzer",
+  },
+  {
+    language: "typescript_javascript",
+    server: "typescript_language_server",
+    supportedOnHost: true,
+    defaultStartupArguments: ["--stdio"],
+    overrideTarget: "executable_file",
+    prerequisite: null,
+    distribution: null,
+    installed: false,
+    executable: "/mock/lsp/typescript-language-server",
+  },
+  {
+    // The mock's one install-directory language, so the Web adapter exercises the same branch the
+    // desktop one does rather than only ever reporting the executable shape.
+    language: "java",
+    server: "jdtls",
+    supportedOnHost: true,
+    defaultStartupArguments: [],
+    overrideTarget: "install_directory",
+    prerequisite: "Java 17 or newer",
+    // Declared so the Web adapter renders the install action and reports it unavailable, rather
+    // than never reaching that branch at all.
+    distribution: { verified: false },
+    installed: false,
+    executable: "/mock/lsp/jdtls",
+  },
+];
+
+function descriptors(): LspLanguageDescriptor[] {
+  return mockRegistry.map((entry) => ({
+    language: entry.language,
+    server: entry.server,
+    supportedOnHost: entry.supportedOnHost,
+    defaultStartupArguments: [...entry.defaultStartupArguments],
+    overrideTarget: entry.overrideTarget,
+    prerequisite: entry.prerequisite,
+    distribution: entry.distribution,
+    installed: entry.installed,
+  }));
+}
+
+function entryFor(language: LspLanguageId) {
+  return mockRegistry.find((entry) => entry.language === language)
+    ?? invalidLanguage(language);
+}
+
+function invalidLanguage(language: string): never {
+  throw new Error(`The Web LSP mock does not register the language "${language}".`);
+}
+
+// Mirrors what the desktop registry declares it implements. Adding a method there means adding
+// an entry here, which is the same mock-registry arrangement the languages use.
 const capabilities: LspNegotiatedCapabilities = {
   positionEncoding: "utf16",
   documentSync: "incremental",
-  definition: true,
-  references: true,
-  hover: true,
-  diagnostics: true,
+  methods: [
+    { method: "definition", supported: true },
+    { method: "references", supported: true },
+    { method: "hover", supported: true },
+    { method: "diagnostics", supported: true },
+    { method: "type_definition", supported: true },
+    { method: "implementation", supported: true },
+    { method: "workspace_symbols", supported: true },
+    { method: "document_symbols", supported: true },
+    { method: "call_hierarchy", supported: true },
+  ],
 };
 
 function defaultConfiguration(): LspConfiguration {
   return {
     enabled: false,
-    languages: lspLanguageIds.map((language) => ({
-      language,
+    languages: mockRegistry.map((entry) => ({
+      language: entry.language,
       enabled: false,
       executableOverride: null,
+      startupArguments: null,
       initializationOptions: {},
     })),
+    descriptors: descriptors(),
   };
 }
 
@@ -77,22 +150,26 @@ function normalizeRoot(root: string): string {
 }
 
 function serverFor(language: LspLanguageId): LspServerKind {
-  return language === "rust" ? "rust_analyzer" : "typescript_language_server";
+  return entryFor(language).server;
 }
 
+/** Configured arguments replace the declared default, and an empty list is a choice. */
 function argumentsFor(language: LspLanguageId): string[] {
-  return language === "typescript_javascript" ? ["--stdio"] : [];
+  const configured = configuration.languages
+    .find((entry) => entry.language === language)?.startupArguments;
+  return configured ?? [...entryFor(language).defaultStartupArguments];
 }
 
 function discoveryFor(language: LspLanguageId): LspServerDiscovery {
+  const entry = entryFor(language);
   const languageConfiguration = configuration.languages.find(
-    (entry) => entry.language === language,
+    (candidate) => candidate.language === language,
   );
   return {
     language,
-    server: serverFor(language),
+    server: entry.server,
     availability: "available",
-    executablePath: languageConfiguration?.executableOverride ?? virtualExecutables[language],
+    executablePath: languageConfiguration?.executableOverride ?? entry.executable,
     arguments: argumentsFor(language),
     reasonCode: null,
   };
@@ -148,7 +225,11 @@ export const webLspClient: WebLspClient = {
   },
 
   async saveLspConfiguration(nextConfiguration) {
-    configuration = clone(normalizeLspConfiguration(nextConfiguration));
+    const normalized = normalizeLspConfiguration(nextConfiguration);
+    for (const entry of normalized.languages) entryFor(entry.language);
+    // Descriptors describe the runtime, so they are regenerated rather than stored: accepting the
+    // caller's copy would let a stale one outlive the mock registry it claims to describe.
+    configuration = clone({ ...normalized, descriptors: descriptors() });
     lifecyclePolls.clear();
   },
 
@@ -176,64 +257,34 @@ export const webLspClient: WebLspClient = {
   },
 
   async discoverLspServers() {
-    return clone(normalizeLspServerDiscoveries(lspLanguageIds.map(discoveryFor)));
+    return clone(normalizeLspServerDiscoveries(
+      mockRegistry.map((entry) => discoveryFor(entry.language)),
+    ));
   },
 
   async testLspServer(language) {
-    return clone(normalizeLspServerTestResult(
-      {
-        server: serverFor(language),
-        phases: lspServerTestPhases.map((phase) => ({
-          phase,
-          status: "succeeded",
-          reasonCode: null,
-        })),
-        negotiatedCapabilities: capabilities,
-      },
-      language,
-    ));
+    return clone(normalizeLspServerTestResult({
+      server: serverFor(language),
+      phases: lspServerTestPhases.map((phase) => ({
+        phase,
+        status: "succeeded",
+        reasonCode: null,
+      })),
+      negotiatedCapabilities: capabilities,
+    }));
+  },
+
+  async installLspServer() {
+    // Honest rather than simulated: there is no filesystem to install into, and reporting success
+    // would make the Web adapter the one surface where an install appears to work and does not.
+    throw new Error("Installing a language server requires the desktop runtime.");
+  },
+
+  async uninstallLspServer() {
+    throw new Error("Removing a language server requires the desktop runtime.");
   },
 
   async getLspServerStatus() {
     return clone(normalizeLspServerStatuses(enabledLanguages().map(statusFor)));
-  },
-};
-
-export interface WebLspToolClient {
-  execute(tool: LspToolName): Promise<LspToolResult>;
-}
-
-function unavailableToolMetadata(): LspToolResultMetadata {
-  return {
-    status: "unavailable",
-    server: null,
-    language: null,
-    document_version: null,
-    stale: false,
-    returned_count: 0,
-    total: 0,
-    truncated: false,
-    filtered_count: 0,
-    reason_code: "web_runtime_unavailable",
-  };
-}
-
-function unavailableToolResult(tool: LspToolName): LspToolResult {
-  const metadata = unavailableToolMetadata();
-  switch (tool) {
-    case "find_definition":
-      return { metadata, definitions: [] };
-    case "find_references":
-      return { metadata, references: [] };
-    case "get_hover":
-      return { metadata, hover: null };
-    case "get_diagnostics":
-      return { metadata, diagnostics: [] };
-  }
-}
-
-export const webLspToolClient: WebLspToolClient = {
-  async execute(tool) {
-    return clone(unavailableToolResult(tool));
   },
 };

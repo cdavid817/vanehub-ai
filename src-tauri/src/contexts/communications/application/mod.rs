@@ -6,10 +6,10 @@ mod service;
 
 pub(crate) use error::CommunicationsApplicationError;
 pub(crate) use models::{
-    AgentExecutionRequest, AgentExecutionResult, CommunicationsLog, CommunicationsLogLevel,
-    CommunicationsOperation, ConnectorCredential, ConnectorRuntimeDefinition,
-    ConnectorStartupResult, ConnectorSummary, InboundRouteOutcome, PairingStartResult,
-    SaveConnectorRequest, SessionBindingSnapshot,
+    AgentExecutionOutcome, AgentExecutionRequest, AgentExecutionResult, CommunicationsLog,
+    CommunicationsLogLevel, CommunicationsOperation, ConnectorCredential,
+    ConnectorRuntimeDefinition, ConnectorStartupResult, ConnectorSummary, InboundRouteOutcome,
+    PairingStartResult, SaveConnectorRequest, SessionBindingSnapshot,
 };
 pub(crate) use ports::{
     CommunicationsAgentExecutionPort, CommunicationsClockPort, CommunicationsCredentialPort,

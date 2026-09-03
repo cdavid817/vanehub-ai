@@ -137,6 +137,17 @@ globalThis.describe("VaneHub Agent MCP desktop runtime", () => {
       });
       throw new Error(`${error.message}: ${JSON.stringify(diagnostic)}`, { cause: error });
     }
+    // Wait for CLI detection to finish before anything asks whether an Agent is available.
+    // Creating a session consults the environment snapshot, and the refresh that builds it starts
+    // in the background at launch: querying before it lands reports whichever Agents happened to
+    // resolve already and `Command 'codex' was not found on PATH` for the rest, with the fixture
+    // binaries sitting on PATH the whole time.
+    const detection = await invoke(({ core }, agentIds) => core.invoke("refresh_cli_environment", {
+      agentIds,
+      forceCatalog: false,
+    }), CLI_AGENTS);
+    await settle({ id: detection.operationId }, "CLI detection never settled");
+
     repository = await mkdtemp(join(tmpdir(), "vanehub-agent-mcp-"));
     await startOnePieceFixture();
     const settings = await invoke(({ core }) => core.invoke("get_observability_settings"));
@@ -145,10 +156,18 @@ globalThis.describe("VaneHub Agent MCP desktop runtime", () => {
       mcpRelayEnabled: false,
       otlpAuthToken: null,
     });
+    // WDIO retries relaunch the app against the same isolated database. If an earlier attempt
+    // persisted the server but failed while starting its process, make setup idempotent so the
+    // retry tests the original failure instead of stopping at a duplicate-name validation error.
+    await invoke(({ core }, name) => core.invoke("remove_mcp_server", { name }), MCP_NAME)
+      .catch(() => undefined);
     await invoke(({ core }, config) => core.invoke("add_mcp_server", { config }), {
       name: MCP_NAME,
       transportType: "stdio",
-      command: "node",
+      // Agent isolation may deliberately remove the host directory containing `node` from PATH
+      // when it also contains a real managed Agent. The current runner is the exact runtime that
+      // should execute this JavaScript fixture, so address it directly.
+      command: process.execPath,
       args: [MCP_FIXTURE, "normal"],
       env: {},
       url: null,

@@ -28,10 +28,27 @@ export interface MeasuredVirtualListProps<T> {
   getItemKey: (item: T, index: number) => string;
   itemClassName?: string;
   items: readonly T[];
+  /**
+   * Reports whether the viewport sits at the start of the list.
+   *
+   * Optional, and every existing caller ignores it. A list that follows new rows needs to know
+   * whether the reader is still at the edge those rows arrive at, and that is a fact only the
+   * scroll container has — inferring it from row counts would be wrong the moment a row is taller
+   * than the estimate.
+   */
+  onAtStartChange?: (atStart: boolean) => void;
   overscan: number;
   renderItem: (item: T, index: number) => ReactNode;
   testId?: string;
 }
+
+/**
+ * How far from the top still counts as "at the start".
+ *
+ * Not zero: a scroll container settles a pixel or two off, and a reader who is visibly at the top
+ * would otherwise be treated as having scrolled away.
+ */
+const AT_START_TOLERANCE_PX = 8;
 
 function MeasuredVirtualListInner<T>(
   {
@@ -42,6 +59,7 @@ function MeasuredVirtualListInner<T>(
     getItemKey,
     itemClassName,
     items,
+    onAtStartChange,
     overscan,
     renderItem,
     testId,
@@ -71,6 +89,9 @@ function MeasuredVirtualListInner<T>(
       data-rendered-count={virtualItems.length}
       data-testid={testId}
       data-virtual-count={items.length}
+      onScroll={onAtStartChange
+        ? (event) => onAtStartChange(event.currentTarget.scrollTop <= AT_START_TOLERANCE_PX)
+        : undefined}
       ref={scrollElementRef}
       role="list"
       tabIndex={0}

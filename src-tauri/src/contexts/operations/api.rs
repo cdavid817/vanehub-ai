@@ -3,6 +3,7 @@
 //! Native contexts use this boundary to start and finish operations, append page-visible output,
 //! correlate execution traces, and emit redacted diagnostics without owning the logging storage.
 
+pub(crate) use super::application::{OperationsEvidencePort, OperationsEvidenceSignal};
 use crate::contexts::operations::application::{ApplicationError, OperationService};
 use serde_json::Value;
 use std::sync::atomic::AtomicBool;
@@ -28,7 +29,9 @@ pub(crate) use crate::contexts::operations::domain::{
     AgentRun, RunEvent, RunLink, RunOwner, RunRecoveryPolicy, RunRunner, RunRunnerKind,
     RunRunnerRecovery, RunState, RunTrigger,
 };
-pub(crate) use crate::contexts::operations::domain::{OperationKind, OperationTask};
+pub(crate) use crate::contexts::operations::domain::{
+    OperationKind, OperationProgress, OperationTask,
+};
 
 #[derive(Clone)]
 /// Application facade for operation lifecycle and correlation.
@@ -135,6 +138,14 @@ impl OperationsApi {
         line: String,
     ) -> Result<OperationTask, ApplicationError> {
         self.service.append_log(operation_id, line)
+    }
+
+    pub(crate) fn report_progress(
+        &self,
+        operation_id: &str,
+        progress: OperationProgress,
+    ) -> Result<OperationTask, ApplicationError> {
+        self.service.report_progress(operation_id, progress)
     }
 
     pub(crate) fn correlate_execution(

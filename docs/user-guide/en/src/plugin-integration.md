@@ -2,7 +2,7 @@
 
 ## Overview
 
-**Settings → Plugin integration** manages VaneHub AI's built-in product integrations and runs a **readiness check** on each one — confirming the external tool it depends on is installed, authenticated, and usable right now.
+**Settings → Plugin Integrations** manages VaneHub AI's built-in product integrations and runs a **readiness check** on each one — confirming the external tool it depends on is installed, authenticated, and usable right now.
 
 ![The Plugin integration settings page, the GitHub integration card, and three counts](assets/screenshots/settings-plugins-en.png)
 
@@ -87,16 +87,12 @@ Before it's ever tested, a card reads "GitHub readiness has not been checked yet
 
 ## Desktop only
 
-**Live readiness checks require the desktop runtime.** In the browser preview (Web/mock), the page shows deterministic simulated data, the status is always **Unavailable**, and the UI states this explicitly:
-
-> Live plugin readiness checks require the desktop runtime. The browser preview shows only deterministic simulated data.
-
-In other words, **the status you see in Web mode reflects no fact about this machine** — it never ran `gh`, and never read your credentials.
+**Live readiness checks require the desktop runtime**, which runs `gh` on your machine and reads its result.
 
 ## Notes and limits
 
 - **Does not install third-party plugin packages** — integrations are built into VaneHub AI and cannot be added by users.
-- **Only the desktop can run the real check**; Web/mock shows deterministic simulated data only.
+- **Only the desktop can run the real check.**
 - **Authentication happens in the terminal**; VaneHub AI only checks the result — it does not custody GitHub credentials, and doesn't go through `gh`'s own login flow.
 - **The check has a 10-second timeout**, so a network hiccup is more likely to land on "Error" than to hang for a long time.
 - **The check is a one-time snapshot**, not continuous monitoring. After logging in again from the terminal, you need to come back and click **Test** once more to refresh it.

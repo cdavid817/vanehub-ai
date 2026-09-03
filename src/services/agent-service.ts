@@ -1,12 +1,10 @@
 import type { Session } from "../types/agent";
-
 export interface EvidenceQueryInput {
   workspace?: string;
   skillId?: string;
   limit?: number;
   cursor?: string;
 }
-
 export interface EvidenceSignalSummary {
   signalId: string;
   sourceKind: string;
@@ -25,7 +23,6 @@ export interface EvidenceSignalSummary {
   associationTruncatedCount: number;
   sourceLinkTruncatedCount: number;
 }
-
 export interface EvidenceSeedSummary {
   seedId: string;
   category: string;
@@ -93,21 +90,12 @@ import type {
   OnePieceProviderService,
 } from "./api-provider-service";
 import type {
-  CreateShellInput,
-  DirectoryListing,
-  DocumentListing,
-  FileContent,
-  FileSearchListing,
-  GitDiffResult,
-  GitDiffSource,
-  GitStatusResult,
-  ResizeShellInput,
   SessionLogExportResult,
+  SessionLogEntry,
   SessionLogPage,
   SessionLogQuery,
-  ShellEvent,
-  ShellSession,
 } from "../types/session-workspace";
+import type { SessionWorkspaceInspectionService } from "./session-workspace-inspection-service";
 import type { SkillBindingService, SkillCatalogService, SkillOverlayService } from "./skill-service";
 import type { PromptHookService } from "./prompt-hook-service";
 import type { FolderOpenerAvailability, FolderOpenerId, FolderOpenerPreferences, OpenSessionFolderResult, SaveFolderOpenerPreferencesInput } from "../types/folder-opener";
@@ -124,19 +112,11 @@ import type { AgentTerminalService } from "./agent-terminal-service";
 import type { MissionControlService } from "./mission-control-service";
 import type { LoopService } from "./loop-service";
 import type { UsageStatisticsService } from "./usage-statistics-service";
-import type {
-  LspConfiguration,
-  LspLanguageId,
-  LspServerDiscovery,
-  LspServerStatus,
-  LspServerTestResult,
-  LspWorkspaceTrust,
-  LspWorkspaceTrustUpdate,
-} from "../types/lsp";
+import type { LspService } from "./lsp-service";
 import type { BuiltinToolService } from "./builtin-tool-service";
 import type { CliConfigService, CliParameterService, CliToolService } from "./cli-service";
 import type { AgentRegistryService } from "./agent-registry-service";
-import type { AgentMemoryService } from "./agent-memory-service";
+import type { PersonalizationService } from "./personalization-service";
 import type { ChatMessagingService } from "./chat-messaging-service";
 import type { SessionChatConfigService } from "./session-chat-config-service";
 import type { SessionLifecycleService, SessionSeatService } from "./session-lifecycle-service";
@@ -144,12 +124,18 @@ import type { SessionQueryService } from "./session-query-service";
 import type { SessionRecoveryService } from "./session-recovery-service";
 import type { CodeIndexService } from "./code-index-service";
 import type { SkillEvidenceService, SkillGovernanceService } from "./skill-governance-service";
+import type { SkillAssessmentService } from "./skill-assessment-service";
+import type { SkillCuratorService } from "./skill-curator-service";
+import type { SkillGenerationService } from "./skill-generation-service";
 import type { ContextQualityService, ScheduledTaskService } from "./scheduled-task-service";
-import type { AddReviewCommentInput, CodeReview, ReviewAction, ReviewComment, ReviewDecision, ReviewDiffFile, ReviewRevertReceipt, RevertReviewChangeInput } from "../types/code-review";
+import type { CodeReviewService } from "./code-review-service";
+import type { SessionWorkspaceEvidenceService } from "./session-workspace-evidence-service";
 
 export interface AgentService extends
   ApiAgentService,
   BuiltinToolService,
+  CodeReviewService,
+  SessionWorkspaceEvidenceService,
   CliConfigService,
   CliParameterService,
   CliToolService,
@@ -163,7 +149,7 @@ export interface AgentService extends
   ContextQualityService,
   AgentRegistryService,
   SkillGovernanceService,
-  SkillEvidenceService,
+  SkillEvidenceService, SkillAssessmentService, SkillCuratorService, SkillGenerationService,
   SkillCatalogService,
   SkillBindingService,
   SkillOverlayService,
@@ -173,13 +159,15 @@ export interface AgentService extends
   AgentTerminalService,
   UsageStatisticsService,
   MissionControlService,
-  AgentMemoryService,
+  PersonalizationService,
   ChatMessagingService,
   SessionChatConfigService,
   SessionLifecycleService,
   SessionQueryService,
   SessionRecoveryService,
   SessionSeatService,
+  LspService,
+  SessionWorkspaceInspectionService,
   LoopService {
   getDesktopUpdateSnapshot(): Promise<DesktopUpdateSnapshot>;
   getDesktopUpdatePreferences(): Promise<UpdatePreferences>;
@@ -187,45 +175,30 @@ export interface AgentService extends
   checkForDesktopUpdate(): Promise<UpdateOperationReceipt>;
   downloadAndInstallDesktopUpdate(): Promise<UpdateOperationReceipt>;
   restartAfterDesktopUpdate(): Promise<void>;
-  openCodeReview(sessionId: string): Promise<CodeReview>;
-  getCodeReview(reviewId: string): Promise<CodeReview>;
-  loadCodeReviewFile(sessionId: string, path: string, expectedSnapshot: string): Promise<ReviewDiffFile>;
-  addCodeReviewComment(input: AddReviewCommentInput): Promise<ReviewComment>;
-  resolveCodeReviewComment(reviewId: string, commentId: string): Promise<CodeReview>;
-  selectCodeReviewComment(reviewId: string, commentId: string, selected: boolean): Promise<CodeReview>;
-  setCodeReviewDecision(reviewId: string, decision: ReviewDecision): Promise<CodeReview>;
-  revertCodeReviewChange(input: RevertReviewChangeInput): Promise<ReviewRevertReceipt>;
-  sendCodeReviewFeedback(reviewId: string, acknowledgeStale: boolean): Promise<{ messageId: string }>;
-  startCodeReviewAction(reviewId: string, action: ReviewAction): Promise<{ operationId: string }>;
   deleteApiAgent(agentId: string): Promise<void>;
-  getLspConfiguration(): Promise<LspConfiguration>;
-  saveLspConfiguration(configuration: LspConfiguration): Promise<void>;
-  listLspWorkspaceTrust(): Promise<LspWorkspaceTrust[]>;
-  updateLspWorkspaceTrust(update: LspWorkspaceTrustUpdate): Promise<LspWorkspaceTrust>;
-  discoverLspServers(): Promise<LspServerDiscovery[]>;
-  testLspServer(language: LspLanguageId): Promise<LspServerTestResult>;
-  getLspServerStatus(): Promise<LspServerStatus[]>;
   applyCliConfigProfile(input: ApplyCliConfigProfileInput): Promise<CliConfigApplyResult>;
-  listSessionDirectory(sessionId: string, path?: string): Promise<DirectoryListing>;
-  readSessionFile(sessionId: string, path: string): Promise<FileContent>;
-  listSessionDocuments(sessionId: string): Promise<DocumentListing>;
-  searchSessionFiles(sessionId: string, query: string, maxResults?: number): Promise<FileSearchListing>;
-  getSessionGitStatus(sessionId: string): Promise<GitStatusResult>;
-  getSessionGitDiff(sessionId: string, path: string, source: GitDiffSource): Promise<GitDiffResult>;
   listSessionLogs(input: SessionLogQuery): Promise<SessionLogPage>;
+  /** One row by id, which is how a live notice becomes a row without the event carrying one. */
+  getSessionLogRecord(recordId: string): Promise<SessionLogEntry | null>;
   exportSessionLogs(input: SessionLogQuery): Promise<SessionLogExportResult>;
   listFolderOpeners(): Promise<FolderOpenerAvailability[]>;
   refreshFolderOpeners(): Promise<FolderOpenerAvailability[]>;
   getFolderOpenerPreferences(): Promise<FolderOpenerPreferences>;
   saveFolderOpenerPreferences(input: SaveFolderOpenerPreferencesInput): Promise<FolderOpenerPreferences>;
-  openSessionFolder(sessionId: string, openerId: FolderOpenerId): Promise<OpenSessionFolderResult>;
+  /**
+   * Reveals a session's workspace in an external tool.
+   *
+   * `relativePath` narrows it to a subdirectory. Optional rather than required so every existing
+   * caller keeps meaning "the workspace root", and resolved against the canonical root on the
+   * native side — a file manager opens whatever absolute path it is handed, so that is the last
+   * place a path assembled from a stale tree row can be checked.
+   */
+  openSessionFolder(
+    sessionId: string,
+    openerId: FolderOpenerId,
+    relativePath?: string,
+  ): Promise<OpenSessionFolderResult>;
   subscribeFolderOpenerEvents(handler: () => void): Promise<() => void>;
-  createShell(input: CreateShellInput): Promise<ShellSession>;
-  writeShellInput(shellId: string, content: string): Promise<void>;
-  resetShellDirectory(shellId: string): Promise<void>;
-  resizeShell(input: ResizeShellInput): Promise<void>;
-  killShell(shellId: string): Promise<void>;
-  subscribeShellEvents(shellId: string, handler: (event: ShellEvent) => void): Promise<() => void>;
   subscribeSessionEvents(handler: (event: SessionStateEvent) => void): Promise<() => void>;
 }
 

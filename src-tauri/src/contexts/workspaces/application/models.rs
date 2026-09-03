@@ -68,8 +68,15 @@ pub(crate) struct DirectoryListing {
     pub(crate) context: SessionWorkspaceContext,
     pub(crate) path: String,
     pub(crate) items: Vec<DirectoryEntry>,
+    /// Whether another page follows. Nothing more than that.
     pub(crate) truncated: bool,
     pub(crate) next_cursor: Option<String>,
+    /// How much of the directory the scan actually saw.
+    ///
+    /// Separate from `truncated`, and the separation is the point: one says "ask for the next page",
+    /// the other says "some of this folder was never examined, and paging will not reach it". A
+    /// reader who was shown only the first reads a stopped scan as the end of the directory.
+    pub(crate) coverage: super::inspection::WorkspaceSearchCoverage,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -83,8 +90,15 @@ pub(crate) struct SessionDocument {
 pub(crate) struct DocumentListing {
     pub(crate) context: SessionWorkspaceContext,
     pub(crate) items: Vec<SessionDocument>,
+    /// Whether the document limit was reached, so more documents exist than are listed.
     pub(crate) truncated: bool,
     pub(crate) next_cursor: Option<String>,
+    /// How much of the project the walk actually reached.
+    ///
+    /// Separate from `truncated`, and for the same reason it is separate on a directory listing: one
+    /// says the list was cut at its own ceiling, the other says the walk never got to part of the
+    /// tree. A reader shown only the first reads a stopped walk as a project with fewer documents.
+    pub(crate) coverage: super::inspection::WorkspaceSearchCoverage,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -107,6 +121,13 @@ pub(crate) struct FileContent {
     pub(crate) status: &'static str,
     pub(crate) size: u64,
     pub(crate) content: Option<String>,
+    /// `utf-8` or `utf-8-bom`, and absent for anything that is not text.
+    ///
+    /// Absent rather than defaulted: a binary file has no encoding this application established,
+    /// and reporting one would be describing a decode that never happened.
+    pub(crate) encoding: Option<&'static str>,
+    /// `lf`, `crlf`, `mixed`, or `none`. Absent for anything that is not text.
+    pub(crate) newline: Option<&'static str>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -181,6 +202,9 @@ pub(crate) struct SessionLogQuery {
     pub(crate) session_id: String,
     pub(crate) levels: Vec<WorkspaceLogLevel>,
     pub(crate) search: String,
+    /// `None` means every seat. A concrete seat matches only records carrying that correlation;
+    /// a record written without one is not attributed to whichever seat happens to be selected.
+    pub(crate) seat_id: Option<String>,
     pub(crate) cursor: Option<String>,
     pub(crate) limit: Option<usize>,
 }
@@ -213,6 +237,8 @@ pub(crate) struct CreateShellRequest {
     pub(crate) session_id: String,
     pub(crate) rows: u16,
     pub(crate) cols: u16,
+    /// Which participant asked for the shell. `None` in a single-seat session.
+    pub(crate) seat_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -269,7 +295,7 @@ pub(crate) struct ShellSession {
     pub(crate) shell_id: String,
     pub(crate) session_id: String,
     pub(crate) state: &'static str,
-    pub(crate) capability: &'static str,
+    pub(crate) runtime: ShellRuntimeDescriptor,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -292,6 +318,9 @@ pub(crate) struct ShellLog {
     pub(crate) level: WorkspaceLogLevel,
     pub(crate) session_id: String,
     pub(crate) shell_id: String,
+    /// Present only where the caller genuinely knows the owning seat. The registry does not track
+    /// it yet, so a lifecycle log raised from the runtime leaves it absent rather than guessing.
+    pub(crate) seat_id: Option<String>,
     pub(crate) message: String,
 }
-use crate::contexts::workspaces::domain::TerminalDimensions;
+use crate::contexts::workspaces::domain::{ShellRuntimeDescriptor, TerminalDimensions};

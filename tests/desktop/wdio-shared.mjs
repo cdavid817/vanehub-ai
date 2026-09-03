@@ -4,11 +4,16 @@ import path from "node:path";
 import process from "node:process";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import {
+  ensureOwnedProcessesStopped,
+  readProcessMarker,
+} from "../../scripts/desktop/process-ownership.mjs";
 
 const configDir = path.dirname(fileURLToPath(import.meta.url));
 const EMBEDDED_DRIVER_SHUTDOWN_POLL_MS = 100;
 const EMBEDDED_DRIVER_SHUTDOWN_TIMEOUT_MS = 10_000;
 const EMBEDDED_DRIVER_PROCESS_REAP_MS = 2_000;
+const EXITED_DESKTOP_PROCESS_GRACE_MS = 500;
 const APPLICATION_EXIT_WAIT_MS = 2_500;
 
 function isTcpPortOpen(port) {
@@ -27,25 +32,80 @@ function isTcpPortOpen(port) {
   });
 }
 
-function createEmbeddedDriverShutdownWaiter(port) {
+async function stopPreviousOwnedDesktopProcess() {
+  const dataDir = process.env.VANEHUB_APP_DATA_DIR;
+  const runId = process.env.VANEHUB_TEST_RUN_ID;
+  if (!dataDir || !runId) return { forced: false, remaining: [] };
+
+  const marker = await readProcessMarker(dataDir);
+  const cleanExitRecorded = marker.state === "exited";
+  const result = await ensureOwnedProcessesStopped({
+    marker,
+    runId,
+    ...(cleanExitRecorded ? { timeoutMs: EXITED_DESKTOP_PROCESS_GRACE_MS } : {}),
+  });
+  if (result.forced) {
+    process.stderr.write(
+      cleanExitRecorded
+        ? `Desktop driver recovery reaped the exited test-owned process ${marker.pid}.\n`
+        : `Desktop driver recovery stopped the unresponsive test-owned process ${marker.pid}.\n`,
+    );
+  }
+  return result;
+}
+
+export function createEmbeddedDriverShutdownWaiter(port, options = {}) {
+  const isPortOpen = options.isPortOpen ?? isTcpPortOpen;
+  const pause = options.delay ?? delay;
+  const stopOwnedProcess = options.stopOwnedProcess ?? stopPreviousOwnedDesktopProcess;
+  const shutdownTimeoutMs = options.shutdownTimeoutMs ?? EMBEDDED_DRIVER_SHUTDOWN_TIMEOUT_MS;
+  const processReapMs = options.processReapMs ?? EMBEDDED_DRIVER_PROCESS_REAP_MS;
   let hasStartedWorker = false;
   return async () => {
     if (!hasStartedWorker) {
       hasStartedWorker = true;
       return;
     }
-    const deadline = Date.now() + EMBEDDED_DRIVER_SHUTDOWN_TIMEOUT_MS;
-    while (Date.now() < deadline && await isTcpPortOpen(port)) {
-      await delay(EMBEDDED_DRIVER_SHUTDOWN_POLL_MS);
+    await stopOwnedProcess();
+    const deadline = Date.now() + shutdownTimeoutMs;
+    while (Date.now() < deadline && await isPortOpen(port)) {
+      await pause(EMBEDDED_DRIVER_SHUTDOWN_POLL_MS);
+    }
+    if (await isPortOpen(port)) {
+      throw new Error(
+        `Desktop driver lifecycle failure: test-owned WebDriver port ${port} remained open after shutdown.`,
+      );
     }
     // The native port closes before Tauri has fully reaped the old application process. Starting
     // its replacement immediately can hit the single-instance process while it is shutting down.
-    await delay(EMBEDDED_DRIVER_PROCESS_REAP_MS);
+    await pause(processReapMs);
   };
 }
 
 function isFailedTest(result) {
   return !result.passed && result.skipped !== true;
+}
+
+/**
+ * The isolated OS home the orchestrator created for this run, mapped onto the real variable names
+ * for the application under test.
+ *
+ * `run-context.mjs` passes these under `VANEHUB_DESKTOP_*` precisely so they do not apply to this
+ * process; it owns the run root and has already validated that it does not alias real application
+ * data. Absent when wdio was invoked directly rather than through `test-desktop.mjs`, which keeps
+ * a bare `wdio run` working against the developer's own profile.
+ */
+function homeEnvironment() {
+  const home = process.env.VANEHUB_DESKTOP_HOME;
+  if (!home) return {};
+  return {
+    // Both names for one directory: `HOME` is what POSIX APIs read and `USERPROFILE` is what
+    // Windows APIs read, so setting both keeps one environment shape across the three runners.
+    HOME: home,
+    USERPROFILE: home,
+    APPDATA: process.env.VANEHUB_DESKTOP_APPDATA,
+    LOCALAPPDATA: process.env.VANEHUB_DESKTOP_LOCALAPPDATA,
+  };
 }
 
 function proxyEnvironment() {
@@ -64,6 +124,9 @@ export async function closeDesktopSession(browser, waitForExit = () => delay(APP
     await browser.tauri.execute(({ core }) => core.invoke("exit_application"));
   } catch {
     // A layer may already have exited explicitly; the process marker remains authoritative.
+    process.stderr.write(
+      "Desktop session exit request was unavailable; worker-start ownership recovery will verify cleanup.\n",
+    );
     return;
   }
 
@@ -88,7 +151,27 @@ export async function closeDesktopSession(browser, waitForExit = () => delay(APP
  * environment — notably the CLI-terminal layer's fixture `PATH` — can never leak into another
  * and silently change what that layer tests.
  */
-export async function createDesktopConfig({ specDirectory, specFiles, environment = {} }) {
+export async function createDesktopConfig({
+  specDirectory,
+  specFiles,
+  environment = {},
+  captureFailureScreenshots = true,
+  captureServiceLogs = true,
+  // Every WebDriver command, script execution included. The first `execute/sync` of a session is
+  // the Tauri service's plugin-initialization wait, and it runs while a cold WebKitGTK WebView is
+  // still warming -- so it is the one command in the run that is systematically slowest, and at
+  // 30s it was the tightest budget in a config whose `startTimeout` and `connectionRetryTimeout`
+  // both allow 120s. On a loaded Linux runner that inversion fails the whole spec: CI run
+  // 33262390405 lost `Desktop Smoke (ubuntu-latest)` when session creation alone took 30s and the
+  // plugin-init script then timed out twice, while the identical commit passed in 7m45s on a
+  // quieter runner. The `agent-evaluation` and `feishu-live` layers had already raised this to 90s
+  // for their own slow work; this lifts the shared default far enough that a cold start is not a
+  // coin flip, while staying well inside `mochaTimeout` so a genuinely hung command still fails.
+  commandTimeout = 60_000,
+  logLevel = "info",
+  mochaTimeout = 300_000,
+  beforeExit,
+}) {
   const artifactPath = process.env.VANEHUB_DESKTOP_ARTIFACT;
   const resultDir = process.env.VANEHUB_DESKTOP_RESULT_DIR;
   if (!artifactPath || !resultDir) throw new Error("Desktop artifact and result directory are required.");
@@ -112,9 +195,8 @@ export async function createDesktopConfig({ specDirectory, specFiles, environmen
       embeddedPort: embeddedDriverPort,
       startTimeout: 120_000,
       statusPollTimeout: 5_000,
-      commandTimeout: 30_000,
-      captureBackendLogs: true,
-      captureFrontendLogs: true,
+      captureBackendLogs: captureServiceLogs,
+      captureFrontendLogs: captureServiceLogs,
       backendLogLevel: "debug",
       frontendLogLevel: "debug",
       logDir,
@@ -123,6 +205,10 @@ export async function createDesktopConfig({ specDirectory, specFiles, environmen
         VANEHUB_CLI_CONFIG_HOME: process.env.VANEHUB_CLI_CONFIG_HOME,
         VANEHUB_TEST_RUN_ID: process.env.VANEHUB_TEST_RUN_ID,
         VANEHUB_DESKTOP_RESULT_DIR: resultDir,
+        // The run context's isolated OS home, so anything the application resolves through the
+        // platform home lands inside the run root instead of the developer's profile. A layer that
+        // owns a fixture home -- CLI management -- overrides these below.
+        ...homeEnvironment(),
         ...proxyEnvironment(),
         ...environment,
       },
@@ -130,16 +216,21 @@ export async function createDesktopConfig({ specDirectory, specFiles, environmen
     capabilities: [{
       browserName: "tauri",
       "tauri:options": { application: artifactPath },
+      "wdio:tauriServiceOptions": { commandTimeout },
     }],
-    logLevel: "info",
+    logLevel,
     outputDir: logDir,
     bail: 0,
     waitforTimeout: 20_000,
     connectionRetryTimeout: 120_000,
     connectionRetryCount: 1,
+    // The embedded Linux driver can briefly release its port while one Tauri application
+    // session exits and the next spec starts. Retry the whole spec after that handoff settles.
+    specFileRetries: 2,
+    specFileRetriesDelay: 5,
     framework: "mocha",
     reporters: ["spec"],
-    mochaOpts: { ui: "bdd", timeout: 300_000 },
+    mochaOpts: { ui: "bdd", timeout: mochaTimeout },
     // WDIO runs this launcher hook before the Tauri service hook. Wait until the prior worker's
     // clean app exit has really closed the port, so the service observes the stopped driver and
     // restarts it before creating the next session.
@@ -150,6 +241,13 @@ export async function createDesktopConfig({ specDirectory, specFiles, environmen
           .replaceAll(/[^\p{L}\p{N}]+/gu, "-")
           .replaceAll(/^-|-$/g, "")
           .slice(0, 120);
+        if (!captureFailureScreenshots) {
+          await writeFile(
+            path.join(resultDir, "screenshots", `${slug}-suppressed.txt`),
+            "Failure screenshot suppressed by the layer evidence policy.\n",
+          );
+          return;
+        }
         try {
           await globalThis.browser.saveScreenshot(path.join(resultDir, "screenshots", `${slug}.png`));
         } catch (error) {
@@ -164,7 +262,14 @@ export async function createDesktopConfig({ specDirectory, specFiles, environmen
       await mkdir(path.join(resultDir, "screenshots"), { recursive: true });
     },
     after: async () => {
+      let cleanupError;
+      try {
+        await beforeExit?.();
+      } catch (error) {
+        cleanupError = error;
+      }
       await closeDesktopSession(globalThis.browser);
+      if (cleanupError) throw cleanupError;
     },
     onComplete: async (exitCode, _config, _capabilities, results) => {
       await writeFile(path.join(resultDir, "wdio-result.json"), `${JSON.stringify({

@@ -2,6 +2,12 @@
 
 本章覆盖运行时如何在不引入应用层 provider 身份分支的前提下,将一个稳定的 Agent id 解析为具体的 provider 契约,以及 Agent 从注册表条目到可被启动所经过的解析、能力声明与可用性评估。
 
+## 编辑已注册的 API Agent
+
+用户创建的 API Agent,其显示名、model id、Base URL 与已存 API Key 都可编辑。Agent 的 `id`、`provider` 与 interface format 在普通编辑操作下不可变。编辑与注册走同一套校验:一个 `openai-compatible` Agent 若遗漏了必填的 Base URL,整次编辑被拒绝,不会只持久化其中一部分。轮换 API Key 会替换已存凭据,并在下一次生成时生效。
+
+OnePiece 是例外:它使用由目录支持的专用 provider **Profile** 操作,在保持稳定 id `onepiece` 的同时,允许配置多个独立受保护的 provider/endpoint/model 组合与一个显式活跃 Profile。OnePiece 的 provider、endpoint 类型、interface format 与 Base URL 都从所选内置目录条目解析,不直接编辑。
+
 ## 稳定的 provider 解析
 
 Agent 运行时通过一个 **provider registry** 来解析受支持的内置 CLI 运行时行为,该 registry 以 Agent registry 条目的稳定 id 为键。与 provider 无关的应用与 Session 模块不会根据 provider 身份分支来选择行为。一个没有兼容 provider 注册的 Agent id 会返回一个分类好的 `unsupported-provider` 错误,且不会回退到其他 provider。

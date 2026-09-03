@@ -26,6 +26,7 @@
 - [代码索引](code-indexing.md)
 - [LSP 代码智能](lsp-code-intelligence.md)
 - [工具与扩展](tooling.md)
+- [本地媒体](local-media.md)
 - [MCP 服务器](mcp.md)
 - [插件集成](plugin-integration.md)
 - [Prompt Hook](prompt-hooks.md)

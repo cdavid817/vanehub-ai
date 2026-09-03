@@ -19,8 +19,20 @@ export function DiffView({ file, mode }: { file: GitDiffFile; mode: DiffViewMode
   if (mode === "split") {
     return <div className="grid gap-3">{file.hunks.map((hunk) => <section className="overflow-auto rounded border border-border" key={hunk.header}><HunkHeader header={hunk.header} /><div className="grid min-w-[640px] grid-cols-2">{buildSplitRows({ ...file, hunks: [hunk] }).map((row) => <div className="col-span-2 grid grid-cols-2" key={row.key}><DiffCell {...row.left} /><DiffCell {...row.right} /></div>)}</div></section>)}</div>;
   }
-  return <div className="grid gap-3">{file.hunks.map((hunk) => <section className="overflow-auto rounded border border-border" key={hunk.header}><HunkHeader header={hunk.header} />{hunk.lines.map((line, index) => <div className={cn("grid min-w-[520px] grid-cols-[48px_48px_minmax(0,1fr)] font-mono text-xs", line.kind === "addition" && "bg-[hsl(var(--success-soft))]", line.kind === "deletion" && "bg-destructive/10")} key={`${hunk.header}-${index}`}><span className="border-r border-border px-2 py-1 text-right text-muted-foreground">{line.oldLineNumber}</span><span className="border-r border-border px-2 py-1 text-right text-muted-foreground">{line.newLineNumber}</span><span className="whitespace-pre px-2 py-1">{line.kind === "addition" ? "+" : line.kind === "deletion" ? "-" : " "}{line.content}</span></div>)}</section>)}</div>;
+  return <div className="grid gap-3">{file.hunks.map((hunk) => <section className="overflow-auto rounded border border-border" key={hunk.header}><HunkHeader header={hunk.header} />{hunk.lines.map((line, index) => <div className={cn("grid min-w-[520px] grid-cols-[48px_48px_minmax(0,1fr)] font-mono text-xs", line.kind === "addition" && "bg-[hsl(var(--success-soft))]", line.kind === "deletion" && "bg-destructive/10")} key={`${hunk.header}-${index}`}><span className="border-r border-border px-2 py-1 text-right text-muted-foreground">{line.oldLineNumber}</span><span className="border-r border-border px-2 py-1 text-right text-muted-foreground">{line.newLineNumber}</span><span className="whitespace-pre px-2 py-1">{signOf(line.kind)}{line.content}</span></div>)}</section>)}</div>;
 }
 
+/**
+ * The character that says which side of the change a line is on.
+ *
+ * Not decoration. Strip it and the only thing separating an added line from a deleted one is the
+ * background tint, which is no separation at all for a reader who cannot tell the two tints apart
+ * or who is having the diff read aloud. The unified view here has carried the sign since it was
+ * written; the split view rendered bare content, and both of the review center's views did too —
+ * where each line is a button whose accessible name was the number and the text, so the one thing
+ * a reviewer needs to know about a line was the one thing it did not say. Shared from here so the
+ * four views cannot drift apart again.
+ */
+export function signOf(kind: string) { return kind === "addition" ? "+" : kind === "deletion" ? "-" : " "; }
 function HunkHeader({ header }: { header: string }) { return <div className="bg-muted px-2 py-1 font-mono text-xs text-primary">{header}</div>; }
-function DiffCell({ content, kind, number }: { content: string; kind: string; number: number | null }) { return <div className={cn("grid grid-cols-[48px_minmax(0,1fr)] border-r border-border font-mono text-xs", kind === "addition" && "bg-[hsl(var(--success-soft))]", kind === "deletion" && "bg-destructive/10")}><span className="border-r border-border px-2 py-1 text-right text-muted-foreground">{number}</span><span className="whitespace-pre px-2 py-1">{content}</span></div>; }
+function DiffCell({ content, kind, number }: { content: string; kind: string; number: number | null }) { return <div className={cn("grid grid-cols-[48px_minmax(0,1fr)] border-r border-border font-mono text-xs", kind === "addition" && "bg-[hsl(var(--success-soft))]", kind === "deletion" && "bg-destructive/10")}><span className="border-r border-border px-2 py-1 text-right text-muted-foreground">{number}</span><span className="whitespace-pre px-2 py-1">{signOf(kind)}{content}</span></div>; }

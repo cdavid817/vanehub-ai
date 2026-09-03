@@ -60,6 +60,7 @@ export function ImPage({ onReturn, searchTerm }: { onReturn?: () => void; search
   async function connectorAction(kind: ImConnectorKind, action: string, credentials?: Record<string, string>): Promise<boolean> {
     setPending((current) => ({ ...current, [kind]: action }));
     setError(null);
+    setNotice(null);
     try {
       const view = connectors.find((item) => item.descriptor.kind === kind);
       if (!view) return false;

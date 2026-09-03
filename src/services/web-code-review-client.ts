@@ -5,8 +5,16 @@ import type {
   ReviewComment,
   ReviewDecision,
   ReviewDiffFile,
+  GetReviewPatchInput,
+  ReviewFileSummary,
+  ReviewFileViewedReceipt,
+  ReviewHunkDecisionReceipt,
+  ReviewPatch,
   ReviewRevertReceipt,
+  ReviewSummary,
   RevertReviewChangeInput,
+  SetReviewFileViewedInput,
+  SetReviewHunkDecisionInput,
 } from "../types/code-review";
 import type { GitDiffResult, GitDiffSource, GitStatusResult } from "../types/session-workspace";
 import { createWebMockOperation } from "./web-operation-client";
@@ -24,11 +32,46 @@ function fingerprint(value: string) {
 
 export function createWebCodeReviewClient(workspace: WorkspaceReviewSource) {
   const reviews = new Map<string, CodeReview>();
+  // Keyed by review, path, and hunk fingerprint so a decision cannot leak across hunks.
+  const hunkDecisions = new Map<string, ReviewDecision>();
+  /** Keyed by review and path, holding the witness the mark was made against. */
+  const fileViews = new Map<string, { fileWitness: string; viewed: boolean; viewedAt?: string }>();
   let sequence = 0;
+  /**
+   * The witness a Viewed mark has to still match, computed the way the native side computes it.
+   *
+   * The fixture reproduces the rule rather than storing a boolean, because the rule is the
+   * behaviour: a mark survives an edit to another file and does not survive an edit to its own.
+   */
+  const witnessOf = (file: ReviewFileSummary) =>
+    fingerprint(
+      [file.path, file.previousPath ?? "", file.changeType, file.oldHash ?? "", file.newHash ?? ""].join("\u0000"),
+    );
+  /** Recomputed on every read: the marks and the files both move, and a stored count would not. */
+  const summarize = (review: CodeReview): ReviewSummary => ({
+    changedFiles: review.files.length,
+    viewedFiles: review.files.filter((file) => isViewed(review, file)).length,
+    unresolvedComments: review.comments.filter((comment) => comment.status !== "resolved").length,
+    unresolvedFindings: review.findings.filter((finding) => !finding.resolved).length,
+  });
+  const isViewed = (review: CodeReview, file: ReviewFileSummary) => {
+    const mark = fileViews.get(JSON.stringify([review.id, file.path]));
+    return Boolean(mark?.viewed) && mark?.fileWitness === witnessOf(file);
+  };
+  const withSummary = (review: CodeReview) => {
+    const clone = structuredClone(review);
+    clone.files = clone.files.map((file) => ({ ...file, viewed: isViewed(clone, file) }));
+    clone.summary = summarize(clone);
+    clone.hunkDecisions = [...hunkDecisions.entries()].flatMap(([key, decision]) => {
+      const [reviewId, relativePath, hunkFingerprint] = JSON.parse(key) as [string, string, string];
+      return reviewId === clone.id ? [{ decision, hunkFingerprint, relativePath }] : [];
+    });
+    return clone;
+  };
   const find = (reviewId: string) => {
     const review = reviews.get(reviewId);
     if (!review) throw new Error("review-not-found");
-    return structuredClone(review);
+    return withSummary(review);
   };
   return {
     async openCodeReview(sessionId: string) {
@@ -37,6 +80,7 @@ export function createWebCodeReviewClient(workspace: WorkspaceReviewSource) {
         path: item.path,
         previousPath: item.previousPath ?? undefined,
         changeType: item.worktree !== "unmodified" ? item.worktree : item.index,
+        viewed: false,
       }));
       const snapshot = fingerprint(JSON.stringify(files));
       const recovered = [...reviews.values()].find((review) => review.sessionId === sessionId && review.status === "active");
@@ -51,7 +95,7 @@ export function createWebCodeReviewClient(workspace: WorkspaceReviewSource) {
           recovered.fingerprint = snapshot;
           recovered.updatedAt = new Date().toISOString();
         }
-        return structuredClone(recovered);
+        return withSummary(recovered);
       }
       const now = new Date().toISOString();
       const review: CodeReview = {
@@ -66,9 +110,13 @@ export function createWebCodeReviewClient(workspace: WorkspaceReviewSource) {
         files,
         comments: [],
         findings: [],
+        hunkDecisions: [],
+        // Replaced on the way out by `withSummary`. Present here only because the type requires a
+        // review to carry one, and a review with no files has read none of them.
+        summary: { changedFiles: files.length, viewedFiles: 0, unresolvedComments: 0, unresolvedFindings: 0 },
       };
       reviews.set(review.id, review);
-      return structuredClone(review);
+      return withSummary(review);
     },
     async getCodeReview(reviewId: string) {
       return find(reviewId);
@@ -136,6 +184,56 @@ export function createWebCodeReviewClient(workspace: WorkspaceReviewSource) {
       review.decision = decision;
       review.status = decision === "accepted" ? "completed" : "active";
       return find(reviewId);
+    },
+    async setCodeReviewHunkDecision(input: SetReviewHunkDecisionInput): Promise<ReviewHunkDecisionReceipt> {
+      const review = reviews.get(input.reviewId);
+      if (!review) throw new Error("review-not-found");
+      // Refusing a stale witness here keeps the mock honest about the one guarantee that matters:
+      // a decision belongs to the snapshot the reviewer was actually looking at.
+      if (review.fingerprint !== input.expectedSnapshotFingerprint) throw new Error("stale_witness");
+      if (!review.files.some((file) => file.path === input.relativePath)) throw new Error("review-file-not-found");
+      // Only this key changes. The review decision, status, and every other hunk are untouched,
+      // and no Git index or working tree exists to touch in Web mode.
+      hunkDecisions.set(JSON.stringify([input.reviewId, input.relativePath, input.hunkFingerprint]), input.decision);
+      return {
+        reviewId: input.reviewId,
+        relativePath: input.relativePath,
+        hunkFingerprint: input.hunkFingerprint,
+        decision: input.decision,
+        simulated: true,
+      };
+    },
+    async setCodeReviewFileViewed(input: SetReviewFileViewedInput): Promise<ReviewFileViewedReceipt> {
+      const review = reviews.get(input.reviewId);
+      if (!review) throw new Error("review-not-found");
+      if (review.fingerprint !== input.expectedSnapshotFingerprint) throw new Error("stale_witness");
+      const file = review.files.find((entry) => entry.path === input.relativePath);
+      if (!file) throw new Error("review-file-not-found");
+      // Witnessed to the file, not to the review, so the fixture reproduces the behaviour that
+      // matters: an edit to one file leaves the marks on the others standing.
+      const fileWitness = witnessOf(file);
+      const viewedAt = input.viewed ? new Date().toISOString() : undefined;
+      fileViews.set(JSON.stringify([input.reviewId, input.relativePath]), { fileWitness, viewed: input.viewed, viewedAt });
+      return { reviewId: input.reviewId, relativePath: input.relativePath, fileWitness, viewed: input.viewed, viewedAt, simulated: true };
+    },
+    async getCodeReviewPatch(input: GetReviewPatchInput): Promise<ReviewPatch> {
+      const review = [...reviews.values()].find((value) => value.sessionId === input.sessionId && value.status === "active");
+      if (!review || review.fingerprint !== input.expectedSnapshot) throw new Error("stale_witness");
+      const diff = await this.loadCodeReviewFile(input.sessionId, input.path, input.expectedSnapshot);
+      const selected = input.hunkFingerprint
+        ? diff.hunks.filter((hunk) => hunk.fingerprint === input.hunkFingerprint)
+        : diff.hunks;
+      if (selected.length !== (input.hunkFingerprint ? 1 : selected.length) || selected.length === 0) {
+        throw new Error("review-hunk-unavailable");
+      }
+      // Real headers even in the fixture. A mock that returned the displayed lines would let the
+      // difference between "readable" and "appliable" disappear on the one adapter where nothing
+      // can run `git apply` to notice.
+      const body = selected
+        .map((hunk) => [hunk.header, ...hunk.lines.map((line) => `${line.kind === "addition" ? "+" : line.kind === "deletion" ? "-" : " "}${line.content}`)].join("\n"))
+        .join("\n");
+      const patch = `diff --git a/${input.path} b/${input.path}\n--- a/${input.path}\n+++ b/${input.path}\n${body}\n`;
+      return { path: input.path, snapshot: review.fingerprint, fingerprint: fingerprint(patch), hunks: selected.length, patch };
     },
     async revertCodeReviewChange(input: RevertReviewChangeInput): Promise<ReviewRevertReceipt> {
       if (!input.confirmed) throw new Error("review-revert-confirmation-required");

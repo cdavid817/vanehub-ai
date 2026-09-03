@@ -160,18 +160,6 @@ impl RetrievalApi {
         })
     }
 
-    pub(crate) fn remove(
-        &self,
-        source_kind: SourceKind,
-        source_id: &str,
-    ) -> Result<(), RetrievalError> {
-        self.documents.delete_by_source_scoped(
-            source_kind,
-            &RetrievalScope::GlobalMemory,
-            source_id,
-        )
-    }
-
     /// 每次生成的工具集解析路径上都会调用（Task 13），所以只做一次单行配置读取，且**永不**
     /// 返回错误：把一个可选增强能力的读配置故障冒泡出去，会牵连用户发出的每一条消息。
     pub(crate) fn is_configured(&self) -> bool {
@@ -722,19 +710,6 @@ mod tests {
         let mut calls = documents.recall_calls.lock().expect("lock").clone();
         calls.sort_unstable();
         assert_eq!(calls, vec!["keyword", "vector"]);
-    }
-
-    #[test]
-    fn remove_delegates_to_the_repository_delete() {
-        let (api, documents, _wakeups) = api(FakeConfigurationRepository::Configured);
-
-        api.remove(SourceKind::AgentMemory, "memory-1")
-            .expect("remove");
-
-        assert_eq!(
-            *documents.deleted.lock().expect("lock"),
-            vec![("agent_memory", "memory-1".to_string())]
-        );
     }
 
     #[test]

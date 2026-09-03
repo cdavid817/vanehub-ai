@@ -46,6 +46,17 @@ function text(locale: Locale, zh: string, en: string) {
 
 async function visit(page: Page, path: string) {
   await page.goto(path, { waitUntil: "domcontentloaded" });
+  const root = page.locator("#root");
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await expect
+      .poll(() => root.getAttribute("data-vanehub-bootstrap"), { timeout: 15_000 })
+      .toMatch(/^(failed|ready)$/);
+    if ((await root.getAttribute("data-vanehub-bootstrap")) === "ready") break;
+    if (attempt === 1) {
+      throw new Error("The documentation surface failed to bootstrap after one recovery reload.");
+    }
+    await page.reload({ waitUntil: "domcontentloaded" });
+  }
   await page.addStyleTag({ content: deterministicCss });
 }
 
@@ -73,6 +84,27 @@ async function openSettings(page: Page, section: string, heading: string): Promi
   await expect(shell).toBeVisible();
   // The top bar repeats the section name as an h1, so match the content heading by level.
   await waitForFeature(shell, shell.getByRole("heading", { level: 2, name: heading }));
+  return shell;
+}
+
+/**
+ * Opens a surface from the activity bar and waits for that surface's own h1.
+ *
+ * The h1 is matched rather than any text because the top bar also renders the entry's name:
+ * asserting on the label alone would pass while the surface itself is still a lazy fallback.
+ * The activity-bar label and the surface heading differ on several entries (Goal Center opens
+ * "Goals"), so both are passed in.
+ */
+async function openActivitySurface(
+  page: Page,
+  activityLabel: string,
+  heading: string,
+): Promise<Locator> {
+  await visit(page, "/");
+  await page.getByRole("button", { name: activityLabel, exact: true }).first().click();
+  const shell = page.locator("main").first();
+  await expect(shell).toBeVisible();
+  await waitForFeature(shell, shell.getByRole("heading", { level: 1, name: heading }));
   return shell;
 }
 
@@ -226,8 +258,23 @@ const scenarios: Record<string, (page: Page, locale: Locale) => Promise<Locator>
     return shell;
   },
 
-  "settings-personalization": (page, locale) =>
-    openSettings(page, "personalization", text(locale, "个性化", "Personalization")),
+  "settings-personalization": async (page, locale) => {
+    const shell = await openSettings(
+      page,
+      "personalization",
+      text(locale, "AI 个性化", "AI Personalization"),
+    );
+    // The page opens on Overview; the surrounding chapter is about the instruction fields, so the
+    // capture has to be of the destination the prose describes.
+    await shell.getByTestId("personalization-view-tab-instructions").click();
+    await expect(
+      shell.getByRole("heading", {
+        level: 3,
+        name: text(locale, "自定义指令", "Custom Instructions"),
+      }),
+    ).toBeVisible();
+    return shell;
+  },
 
   "settings-expert-roles": (page, locale) =>
     openSettings(page, "expert-roles", text(locale, "专家角色", "Expert roles")),
@@ -258,6 +305,17 @@ const scenarios: Record<string, (page: Page, locale: Locale) => Promise<Locator>
 
   "settings-observability": (page, locale) =>
     openSettings(page, "observability", text(locale, "执行可观测性", "Execution observability")),
+
+  // The page's own h2 is the section name; "Language server intelligence" below it is an h3, so
+  // matching that instead finds nothing and the capture never resolves.
+  "settings-code-intelligence": (page, locale) =>
+    openSettings(page, "code-intelligence", text(locale, "代码智能", "Code Intelligence")),
+
+  "settings-about": (page, locale) =>
+    openSettings(page, "about", text(locale, "关于 VaneHub AI", "About VaneHub AI")),
+
+  "settings-local-media": (page, locale) =>
+    openSettings(page, "local-media", text(locale, "本地媒体", "Local Media")),
 
   /** A globally configured connector reaching "connected" before session binding. */
   "im-connected": async (page, locale) => {
@@ -342,6 +400,30 @@ const scenarios: Record<string, (page: Page, locale: Locale) => Promise<Locator>
     );
     return shell;
   },
+
+  "todo-board": (page, locale) =>
+    openActivitySurface(
+      page,
+      text(locale, "任务看板", "Todo Board"),
+      text(locale, "任务看板", "Todo Board"),
+    ),
+
+  "goal-center": (page, locale) =>
+    openActivitySurface(page, text(locale, "目标中心", "Goal Center"), text(locale, "目标", "Goals")),
+
+  evaluations: (page, locale) =>
+    openActivitySurface(
+      page,
+      text(locale, "Agent 评测", "Evaluations"),
+      text(locale, "Agent 评测", "Agent evaluations"),
+    ),
+
+  "mission-control": (page, locale) =>
+    openActivitySurface(
+      page,
+      text(locale, "任务控制台", "Mission Control"),
+      text(locale, "Agent 任务控制台", "Agent Mission Control"),
+    ),
 };
 
 /**

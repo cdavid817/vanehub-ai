@@ -1,7 +1,5 @@
 # Install and authenticate a CLI
 
-**Status: Implemented — desktop setup.**
-
 VaneHub AI **drives CLIs you have already installed**. **Each vendor's subscription login (OAuth) is always completed by the CLI itself** — VaneHub AI never does it for you, and never asks for your subscription account password.
 
 But **"configuring a third-party model" is a separate matter** — if you want a given CLI to call a compatible endpoint like DeepSeek or OpenRouter, you can configure and apply that under **Settings → Agent configurations**, without hand-editing any file. See [Quick Start → Authenticate / configure a model](quick-start.md#15-authenticate--configure-a-model) for how the two divide.
@@ -19,14 +17,14 @@ There are two routes to installing a CLI, and **they produce the same result —
 
 ### Method A: install it inside VaneHub AI
 
-Open **Settings → CLI management**; each CLI card offers an action based on its current detection status: **Install**, **Upgrade**, **Downgrade**, **Up to date**, **Unavailable**, or **Handle manually**. Click **Install**, and VaneHub AI installs it for you through npm, then automatically refreshes detection.
+Open **Settings → CLI management**; each CLI card offers whatever its source supports — install, upgrade, downgrade, or nothing at all. Pick a version, review the plan VaneHub shows you, and confirm; detection refreshes when it finishes and reports whether the change was verified.
 
-Good for: you already have Node.js 22+ on this machine, and you're fine with the CLI coming from npm.
+Good for: you already have Node.js 22+ on this machine, and you're fine with the CLI coming from npm or, on Windows, from WinGet.
 
 **Two things to know going in:**
 
-- **It only goes through npm.** VaneHub AI never calls a vendor's official install script, and never uses Homebrew, winget, or scoop.
-- **Antigravity CLI has no npm package**, so the UI offers no install/upgrade/downgrade action for it — it can only go through Method B.
+- **The source decides what is possible.** VaneHub AI drives npm, WinGet on Windows, and per-CLI audited vendor installers. Homebrew, Bun, Volta, desktop bundles, and system packages are detected and reported but never changed. It never pipes a downloaded script into a shell, and it never installs a second copy beside someone else's and calls that an upgrade.
+- **Antigravity CLI has no npm package.** Its only source is the vendor installer, which pins no exact version, so the UI offers an upgrade to latest rather than a version list.
 
 ### Method B: install it from the terminal
 
@@ -194,12 +192,6 @@ If an Agent asks you to sign in during a session, complete authentication in tha
 ## CLI launch parameters
 
 Each CLI's own command-line parameters and how to configure launch parameters inside VaneHub AI are collected under [Tools and extensions → CLI parameters](tooling.md#cli-parameters). OnePiece has no CLI and therefore no launch parameters; its equivalent configuration lives under [Agent configurations](tooling.md#agent-configurations).
-
-## Web preview
-
-**Status: Web/mock only.** The browser preview shows deterministic availability and execution fixtures. It **neither detects nor authenticates local CLIs**. Seeing "Installed" does not mean anything is installed on your machine.
-
-See [Runtime and feature labels](runtime-labels.md) for how to tell which runtime you are in.
 
 ## Next
 

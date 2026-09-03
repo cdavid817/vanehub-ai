@@ -17,13 +17,28 @@ import type { Skill, SkillCompatibleAgent, SkillScopeInput } from "../types/skil
 type SkillSubview = "effective" | "global" | "project";
 const globalScope: SkillScopeInput = { scope: "global", workspacePath: null };
 
-export function SessionSkillsPane({ activeSession, onOpenSkillSettings }: { activeSession: Session | null; onOpenSkillSettings?: () => void }) {
+export function SessionSkillsPane({ active = true, activeSession, onOpenSkillSettings }: {
+  /**
+   * Whether this pane is the one on screen.
+   *
+   * Mounted either way — these panes hold local form state, and a reader who typed something,
+   * checked another tab, and came back must find it still there. What stops is the reading: a
+   * hidden pane polling its own service costs a request per pane per session open, for answers
+   * nobody is looking at.
+   *
+   * Mutations are unaffected. React Query runs one to completion regardless of this flag, so a
+   * write that was in flight when the reader switched away still finishes and still invalidates.
+   */
+  active?: boolean;
+  activeSession: Session | null;
+  onOpenSkillSettings?: () => void;
+}) {
   const { t } = useTranslation();
   const [activeView, setActiveView] = useState<SkillSubview>("effective");
   const workspacePath = resolveSessionSkillWorkspace(activeSession);
   const projectScope = useMemo<SkillScopeInput>(() => ({ scope: "workspace", workspacePath }), [workspacePath]);
-  const project = useSkillManagement(projectScope, Boolean(activeSession && workspacePath));
-  const global = useQuery({ enabled: Boolean(activeSession), queryKey: skillOverviewQueryKey(globalScope), queryFn: () => agentService.getSkillOverview(globalScope) });
+  const project = useSkillManagement(projectScope, active && Boolean(activeSession && workspacePath));
+  const global = useQuery({ enabled: active && Boolean(activeSession), queryKey: skillOverviewQueryKey(globalScope), queryFn: () => agentService.getSkillOverview(globalScope) });
   const agent = useMemo<SkillCompatibleAgent | null>(() => {
     if (!activeSession) return null;
     return global.data?.agents.find((candidate) => candidate.id === activeSession.agentId)

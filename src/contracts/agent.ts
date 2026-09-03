@@ -8,6 +8,8 @@ export type AgentOrigin = "builtin" | "user";
 export type SessionLifecycleState =
   "idle" | "starting" | "running" | "failed" | "stopped";
 
+export type SessionPersonalizationMode = "standard" | "project-only" | "temporary";
+
 export type SessionRecoveryStatus =
   "clean" | "reconciling" | "action_required" | "quarantined";
 
@@ -283,6 +285,8 @@ export interface Session {
   id: string;
   title: string;
   agentId: string;
+  /** The mode this session was created with. It never changes for an existing session. */
+  personalizationMode: SessionPersonalizationMode;
   /**
    * Optional because sessions predate seats. When absent the session is a one-seat session whose
    * seat is `agentId`; when present, `agentId` mirrors `seats[0].agentId`.
@@ -348,6 +352,8 @@ export interface CreateSessionInput {
    */
   seats?: SessionSeat[];
   interactionMode: InteractionMode;
+  /** Absent means `standard`, matching what the native side defaults an omitted mode to. */
+  personalizationMode?: SessionPersonalizationMode;
   title?: string;
   folder?: string | null;
   projectPath?: string | null;
@@ -383,64 +389,6 @@ export interface SessionDetails {
   lifecycleState: SessionLifecycleState;
   adapter: "browser" | "native-desktop" | "cli" | "api" | "none";
   details: Record<string, string>;
-}
-
-export type CliVersionCheckStatus =
-  "unsupported" | "not-detected" | "succeeded" | "failed";
-export type CliEnvironmentType = "windows" | "macos" | "linux" | "unknown";
-export type CliInstallSource =
-  | "npm"
-  | "winget"
-  | "desktop"
-  | "homebrew"
-  | "volta"
-  | "bun"
-  | "vendor"
-  | "system"
-  | "unknown";
-export type CliConflictState =
-  "none" | "multiple" | "version-mismatch" | "runnable-mismatch";
-export type CliLifecycleEligibility =
-  "npm" | "wget" | "winget" | "manual" | "unavailable";
-
-export interface CliInstallation {
-  path: string;
-  version: string | null;
-  runnable: boolean;
-  error: string | null;
-  source: CliInstallSource;
-  environmentType: CliEnvironmentType;
-  isActive: boolean;
-}
-
-export interface CliToolStatus {
-  agentId: string;
-  displayName: string;
-  provider: string;
-  executableName: string;
-  /** Null for CLIs distributed only by installer script, which have no npm package. */
-  packageName: string | null;
-  installed: boolean | null;
-  currentVersion: string | null;
-  latestVersion: string | null;
-  availableVersions: string[];
-  detectedPath: string | null;
-  installCommand: string;
-  lastCheckedAt: string | null;
-  lastError: string | null;
-  lastOperationId: string | null;
-  versionCheckStatus: CliVersionCheckStatus;
-  environmentType: CliEnvironmentType;
-  installations: CliInstallation[];
-  activeInstallationPath: string | null;
-  conflictState: CliConflictState;
-  lifecycleEligibility: CliLifecycleEligibility;
-}
-
-export interface CliPackageOperationInput {
-  agentId: string;
-  targetVersion: string;
-  confirmedActivePath?: string | null;
 }
 
 export const managedCliAgentIds = [

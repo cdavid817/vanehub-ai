@@ -7,17 +7,19 @@ use crate::contexts::operations::infrastructure::UnifiedLoggingAdapter;
 use crate::contexts::sessions::api::{ArchivalPolicy, SessionsApi};
 use crate::contexts::sessions::application::{
     PreparedReviewFeedback, ReviewAction, ReviewApplicationError, ReviewApplicationService,
-    ReviewFeedbackPort, ReviewLogEvent, ReviewLoggingPort, ReviewOperationPort, ReviewSnapshotPort,
-    SessionApplicationPorts, SessionRecoveryCoordinator, SessionsApplicationService,
+    ReviewFeedbackPort, ReviewHunkWitnessPort, ReviewLogEvent, ReviewLoggingPort,
+    ReviewOperationPort, ReviewSnapshotPort, SessionApplicationPorts, SessionRecoveryCoordinator,
+    SessionsApplicationService,
 };
 use crate::contexts::sessions::infrastructure::{
     AgentSessionRuntimeAdapter, SessionAgentEligibilityAdapter, SessionCreationContextAdapter,
-    SessionFileAdapter, SessionOperationAdapter, SqliteReviewRepository,
-    SqliteSessionChatProfileAdapter, SqliteSessionsRepository, SystemReviewClock,
-    SystemSessionClock, UnifiedSessionLoggingAdapter, UuidReviewIds, UuidSessionIdentities,
+    SessionFileAdapter, SessionOperationAdapter, SqliteReviewDecisionRepository,
+    SqliteReviewRepository, SqliteSessionChatProfileAdapter, SqliteSessionsRepository,
+    SystemReviewClock, SystemSessionClock, UnifiedSessionLoggingAdapter, UuidReviewIds,
+    UuidSessionIdentities,
 };
 use crate::contexts::tooling::api::CliParameterRuntimeApi;
-use crate::contexts::tooling::cli::application::NativeConfigPort;
+use crate::contexts::tooling::cli::application::native_config::NativeConfigPort;
 use crate::contexts::workspaces::api::WorkspaceApi;
 use crate::platform::database::NativeDatabase;
 use std::collections::BTreeMap;
@@ -42,6 +44,7 @@ pub(crate) fn assemble_sessions_api(
     native_config: Arc<dyn NativeConfigPort>,
     agent_registry: Arc<dyn AgentRegistryRepository>,
     fallback_log_directory: PathBuf,
+    evidence: Arc<dyn crate::contexts::sessions::api::SessionEvidencePort>,
 ) -> (
     SessionsApi,
     AgentSessionRuntimeAdapter,
@@ -68,41 +71,47 @@ pub(crate) fn assemble_sessions_api(
         session_logging.clone(),
     )
     .with_events(recovery_events.clone());
-    let service = SessionsApplicationService::new(SessionApplicationPorts {
-        sessions: repository.clone(),
-        messages: repository.clone(),
-        categories: repository.clone(),
-        configurations: repository.clone(),
-        usage: repository.clone(),
-        accounting: repository.clone(),
-        transactions: repository.clone(),
-        recovery_reports: repository,
-        recovery_events,
-        clock,
-        identities: Arc::new(UuidSessionIdentities),
-        files: Arc::new(SessionFileAdapter::new(workspaces.clone(), logging.clone())),
-        operations: Arc::new(SessionOperationAdapter::new(operations.clone())),
-        logging: session_logging,
-        chat_profiles: Arc::new(SqliteSessionChatProfileAdapter::new(
-            database.clone(),
-            cli_parameter_runtime,
-            native_config,
-        )),
-        creation: Arc::new(SessionCreationContextAdapter::new(
-            database.clone(),
-            workspaces.clone(),
-        )),
-        eligibility: Arc::new(SessionAgentEligibilityAdapter::new(agent_registry)),
-        runtime: Arc::new(runtime_adapter.clone()),
-    });
+    let service = SessionsApplicationService::new(
+        SessionApplicationPorts {
+            sessions: repository.clone(),
+            messages: repository.clone(),
+            categories: repository.clone(),
+            configurations: repository.clone(),
+            usage: repository.clone(),
+            accounting: repository.clone(),
+            transactions: repository.clone(),
+            recovery_reports: repository,
+            recovery_events,
+            clock,
+            identities: Arc::new(UuidSessionIdentities),
+            files: Arc::new(SessionFileAdapter::new(workspaces.clone(), logging.clone())),
+            operations: Arc::new(SessionOperationAdapter::new(operations.clone())),
+            logging: session_logging,
+            chat_profiles: Arc::new(SqliteSessionChatProfileAdapter::new(
+                database.clone(),
+                cli_parameter_runtime,
+                native_config,
+            )),
+            creation: Arc::new(SessionCreationContextAdapter::new(
+                database.clone(),
+                workspaces.clone(),
+            )),
+            eligibility: Arc::new(SessionAgentEligibilityAdapter::new(agent_registry)),
+            runtime: Arc::new(runtime_adapter.clone()),
+        },
+        evidence.clone(),
+    );
     let review = ReviewApplicationService::new(
-        Arc::new(SqliteReviewRepository::new(database)),
+        Arc::new(SqliteReviewRepository::new(database.clone())),
+        Arc::new(SqliteReviewDecisionRepository::new(database)),
+        Arc::new(WorkspaceReviewHunkWitnessAdapter(workspaces.clone())),
         Arc::new(SystemReviewClock),
         Arc::new(UuidReviewIds),
         Arc::new(SessionReviewFeedbackAdapter(service.clone())),
         Arc::new(WorkspaceReviewSnapshotAdapter(workspaces.clone())),
         Arc::new(SessionReviewOperationAdapter(operations.clone())),
         Arc::new(SessionReviewLoggingAdapter(logging)),
+        evidence.clone(),
     );
     (
         SessionsApi::new(service).with_review(review),
@@ -187,6 +196,31 @@ impl ReviewSnapshotPort for WorkspaceReviewSnapshotAdapter {
                 files,
             },
         )
+    }
+}
+
+struct WorkspaceReviewHunkWitnessAdapter(WorkspaceApi);
+
+impl ReviewHunkWitnessPort for WorkspaceReviewHunkWitnessAdapter {
+    fn hunk_fingerprints(
+        &self,
+        session_id: &str,
+        path: &str,
+        expected_snapshot: &str,
+    ) -> Result<Vec<String>, ReviewApplicationError> {
+        // The same bounded load the Review Center renders from, so the fingerprints checked here
+        // are the ones the reviewer was shown. A second way of computing them would eventually
+        // disagree with the first, and the disagreement would look like every decision being
+        // stale.
+        let file = self
+            .0
+            .load_review_file(session_id, path, expected_snapshot)
+            .map_err(|error| ReviewApplicationError::Repository(error.to_string()))?;
+        Ok(file
+            .hunks
+            .into_iter()
+            .map(|hunk| hunk.fingerprint)
+            .collect())
     }
 }
 

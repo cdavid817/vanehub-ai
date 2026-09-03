@@ -1,9 +1,6 @@
 //! Native tool implementations: skills, registered tools, shell, code intelligence, memory.
 
 use super::super::agent_image::{prepare_image, AgentImage, MAX_IMAGES_PER_REQUEST};
-use super::super::code_intelligence_tool_output::{
-    diagnostics_outcome, hover_outcome, locations_outcome,
-};
 use super::super::tools::{
     background_shell_registry, execute_edit, execute_file, execute_glob, execute_grep,
     execute_notebook, execute_shell, is_reviewed_image_path, render_task_list, task_list_store,
@@ -11,28 +8,24 @@ use super::super::tools::{
     ToolExecutionOutcome, MAX_BACKGROUND_COMMANDS_PER_SESSION, OUTPUT_MODE_FILES,
 };
 use super::super::SqliteNativeToolRepository;
+use super::code_intelligence::execute_code_intelligence_tool;
 use super::interactive::{await_approval, plan_mode_denial, ApprovalOutcome};
 use super::{failed_non_retryable, failed_retryable, PendingApprovals, REQUEST_TIMEOUT};
 use crate::contexts::agent_runtime::application::{
-    AgentClockPort, AgentCodeIntelligenceContext, AgentCodeIntelligencePort,
-    AgentCodeRetrievalOutcome, AgentDocumentInput, AgentDocumentPositionInput, AgentLog,
-    AgentLogLevel, AgentLoggingPort, AgentMcpToolPort, AgentMemoryPort, AgentPermissionPort,
-    AgentProcessEventSink, AgentRetrievalOutcome, AgentRetrievalPort, AgentSkillPort,
-    AgentSkillReadRequest, AgentWorkspaceMutation, AgentWorkspaceMutationPort, ExistingToolHandler,
-    ExistingToolHandlerRegistry, GenerationProcessEvent, GenerationProcessRequest, MemorySource,
-    NativeToolAuthorizationStatus, NativeToolDispatchRequest, NativeToolDispatcher,
-    NativeToolExecutionContext, NativeToolExecutionMode, NativeToolProgress,
+    AgentClockPort, AgentCodeIntelligencePort, AgentCodeRetrievalOutcome, AgentLog, AgentLogLevel,
+    AgentLoggingPort, AgentMcpToolPort, AgentPermissionPort, AgentProcessEventSink,
+    AgentRetrievalOutcome, AgentRetrievalPort, AgentSkillPort, AgentSkillReadRequest,
+    AgentWorkspaceChangeKind, AgentWorkspaceMutation, AgentWorkspaceMutationPort,
+    ExistingToolHandler, ExistingToolHandlerRegistry, GenerationProcessEvent,
+    GenerationProcessRequest, NativeToolAuthorizationStatus, NativeToolDispatchRequest,
+    NativeToolDispatcher, NativeToolExecutionContext, NativeToolExecutionMode, NativeToolProgress,
     NativeToolProgressPhase, NativeToolProgressSink, NativeToolRegistry, NativeToolResultEnvelope,
-    NativeToolResultStatus, SaveMemoryInput, StoredToolOperation, StoredToolOperationStatus,
-    ToolEligibilityContext, ToolUseBlock, UtilityDelegationApplicationService,
-    DELEGATE_UTILITY_SKILL_TOOL_NAME, FILE_TOOL_NAME, FIND_DEFINITION_TOOL_NAME,
-    FIND_REFERENCES_TOOL_NAME, GET_DIAGNOSTICS_TOOL_NAME, GET_HOVER_TOOL_NAME,
-    IMAGE_ARTIFACT_METADATA_KEY, LIST_SKILLS_TOOL_NAME, LOAD_SKILL_TOOL_NAME,
+    NativeToolResultStatus, StoredToolOperation, StoredToolOperationStatus, ToolEligibilityContext,
+    ToolUseBlock, UtilityDelegationApplicationService, DELEGATE_UTILITY_SKILL_TOOL_NAME,
+    FILE_TOOL_NAME, IMAGE_ARTIFACT_METADATA_KEY, LIST_SKILLS_TOOL_NAME, LOAD_SKILL_TOOL_NAME,
     READ_SKILL_RESOURCE_TOOL_NAME,
 };
-use crate::contexts::agent_runtime::domain::{
-    MemoryType, UtilityDelegationLimits, UtilityDelegationRequest,
-};
+use crate::contexts::agent_runtime::domain::{UtilityDelegationLimits, UtilityDelegationRequest};
 use crate::contexts::artifacts::application::ArtifactService;
 use crate::platform::filesystem::BoundedFilesystem;
 use serde::Deserialize;
@@ -592,8 +585,6 @@ pub(super) fn execute_tool_call_with_runtime_ports(
     input: &Value,
     workspace_folder: Option<&str>,
     cancelled: Arc<AtomicBool>,
-    agent_id: &str,
-    memories: &dyn AgentMemoryPort,
     mcp: &dyn AgentMcpToolPort,
     retrieval: &dyn AgentRetrievalPort,
     code_intelligence: &dyn AgentCodeIntelligencePort,
@@ -611,8 +602,6 @@ pub(super) fn execute_tool_call_with_runtime_ports(
         input,
         workspace_folder,
         cancelled,
-        agent_id,
-        memories,
         mcp,
         retrieval,
         Some(code_intelligence),
@@ -959,8 +948,6 @@ pub(super) fn execute_tool_call_impl(
     input: &Value,
     workspace_folder: Option<&str>,
     cancelled: Arc<AtomicBool>,
-    agent_id: &str,
-    memories: &dyn AgentMemoryPort,
     mcp: &dyn AgentMcpToolPort,
     retrieval: &dyn AgentRetrievalPort,
     code_intelligence: Option<&dyn AgentCodeIntelligencePort>,
@@ -976,12 +963,15 @@ pub(super) fn execute_tool_call_impl(
     if registered_handler == Some(ExistingToolHandler::SkillRead) {
         return execute_skill_read(name, input, workspace_folder, skills);
     }
-    // `remember` has no dependency on a workspace folder — unlike shell/file, it only ever
-    // touches this app's own storage — so it's handled before the workspace-folder gate below,
-    // and a folder-less session can still save agent-global memories (`add-agent-cross-session-memory`).
-    // It is also the one tool plan mode never restricts — see `tool_catalog::plan_mode_tool_catalog`.
+    // `remember` is not dispatched here. It became a personalization operation when model-
+    // originated writes started producing candidates, and this dispatcher has no snapshot to judge
+    // one against — so the generation loop handles it before reaching this point. Reaching it here
+    // would mean the interception was removed, and a proposal would silently become a write again.
     if registered_handler == Some(ExistingToolHandler::Remember) {
-        return execute_remember(input, agent_id, workspace_folder, memories, retrieval);
+        return ToolExecutionOutcome {
+            output: "Memory proposals are not available on this path.".to_string(),
+            is_error: true,
+        };
     }
     // `recall` is handled in the same spot for the same reason: it only ever reads this app's own
     // storage, never the workspace filesystem, so it needs neither a workspace folder nor a
@@ -1111,9 +1101,22 @@ pub(super) fn execute_tool_call_impl(
                 Ok(limit) => limit,
                 Err(outcome) => return outcome,
             };
+            // Determined before the write, because "did this file exist" is only answerable
+            // before it does. Reading it afterwards would race every other writer on the machine.
+            let existed = Path::new(folder).join(path).exists();
             let outcome = execute_file(operation, path, content, offset, limit, folder);
             if operation == "write" && !outcome.is_error {
-                publish_workspace_mutation(folder, path, workspace_mutations);
+                publish_workspace_mutation(
+                    folder,
+                    path,
+                    session_id.unwrap_or_default(),
+                    if existed {
+                        AgentWorkspaceChangeKind::Modified
+                    } else {
+                        AgentWorkspaceChangeKind::Created
+                    },
+                    workspace_mutations,
+                );
             }
             outcome
         }
@@ -1183,7 +1186,13 @@ pub(super) fn execute_tool_call_impl(
                 folder,
             );
             if !outcome.is_error && operation != "read" {
-                publish_workspace_mutation(folder, path, workspace_mutations);
+                publish_workspace_mutation(
+                    folder,
+                    path,
+                    session_id.unwrap_or_default(),
+                    AgentWorkspaceChangeKind::Modified,
+                    workspace_mutations,
+                );
             }
             outcome
         }
@@ -1209,7 +1218,13 @@ pub(super) fn execute_tool_call_impl(
                 folder,
             );
             if !outcome.is_error {
-                publish_workspace_mutation(folder, path, workspace_mutations);
+                publish_workspace_mutation(
+                    folder,
+                    path,
+                    session_id.unwrap_or_default(),
+                    AgentWorkspaceChangeKind::Modified,
+                    workspace_mutations,
+                );
             }
             outcome
         }
@@ -1223,6 +1238,8 @@ pub(super) fn execute_tool_call_impl(
 fn publish_workspace_mutation(
     workspace_folder: &str,
     relative_path: &str,
+    session_id: &str,
+    change_kind: AgentWorkspaceChangeKind,
     workspace_mutations: Option<&dyn AgentWorkspaceMutationPort>,
 ) {
     let Some(workspace_mutations) = workspace_mutations else {
@@ -1240,127 +1257,9 @@ fn publish_workspace_mutation(
     workspace_mutations.publish(AgentWorkspaceMutation {
         canonical_workspace,
         relative_path: relative_path.to_string_lossy().replace('\\', "/"),
+        session_id: session_id.to_string(),
+        change_kind,
     });
-}
-
-fn execute_code_intelligence_tool(
-    name: &str,
-    input: &Value,
-    folder: &str,
-    cancelled: Arc<AtomicBool>,
-    code_intelligence: &dyn AgentCodeIntelligencePort,
-) -> ToolExecutionOutcome {
-    let relative_path = input
-        .get("path")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_owned();
-    if relative_path.is_empty() {
-        return invalid_code_intelligence_input("path must be a non-empty relative string");
-    }
-    let context = AgentCodeIntelligenceContext::from_session_workspace(folder);
-    if name == GET_DIAGNOSTICS_TOOL_NAME {
-        return diagnostics_outcome(code_intelligence.get_diagnostics(
-            &context,
-            &AgentDocumentInput { relative_path },
-            cancelled,
-        ));
-    }
-    let Some(line) = one_based_u32(input, "line") else {
-        return invalid_code_intelligence_input("line must be a one-based integer");
-    };
-    let Some(column) = one_based_u32(input, "column") else {
-        return invalid_code_intelligence_input("column must be a one-based integer");
-    };
-    let position = AgentDocumentPositionInput {
-        relative_path,
-        line,
-        column,
-    };
-    match name {
-        FIND_DEFINITION_TOOL_NAME => locations_outcome(
-            "definitions",
-            code_intelligence.find_definition(&context, &position, cancelled),
-            20,
-        ),
-        FIND_REFERENCES_TOOL_NAME => locations_outcome(
-            "references",
-            code_intelligence.find_references(&context, &position, cancelled),
-            50,
-        ),
-        GET_HOVER_TOOL_NAME => {
-            hover_outcome(code_intelligence.get_hover(&context, &position, cancelled))
-        }
-        _ => invalid_code_intelligence_input("unsupported code-intelligence operation"),
-    }
-}
-
-fn one_based_u32(input: &Value, field: &str) -> Option<u32> {
-    let value = input.get(field)?.as_u64()?;
-    (value > 0).then(|| u32::try_from(value).ok()).flatten()
-}
-
-fn invalid_code_intelligence_input(message: &str) -> ToolExecutionOutcome {
-    ToolExecutionOutcome {
-        output: message.to_owned(),
-        is_error: true,
-    }
-}
-
-/// After a successful save, wakes the background indexing worker (`retrieval.
-/// notify_source_changed()`) so the new memory is indexed promptly instead of waiting up to one
-/// reconcile poll period. That call writes nothing, waits for nothing, and cannot fail by
-/// construction (`AgentRetrievalPort::notify_source_changed` returns `()`) — it is skipped
-/// entirely on the empty-content rejection path above, since there is no new memory to index and
-/// waking the worker would just burn a full two-table reconcile scan for nothing.
-pub(super) fn execute_remember(
-    input: &Value,
-    agent_id: &str,
-    folder: Option<&str>,
-    memories: &dyn AgentMemoryPort,
-    retrieval: &dyn AgentRetrievalPort,
-) -> ToolExecutionOutcome {
-    let content = input
-        .get("content")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .trim();
-    if content.is_empty() {
-        return ToolExecutionOutcome {
-            output: "No content was provided to remember.".to_string(),
-            is_error: true,
-        };
-    }
-    // `name` addresses the memory: saving under one that already exists replaces that file rather
-    // than adding a second memory for the same fact. Both stay optional so an older prompt that
-    // sends content alone still saves, with the store deriving what it needs.
-    let name = input.get("name").and_then(Value::as_str);
-    let description = input.get("description").and_then(Value::as_str);
-    let memory_type = input
-        .get("type")
-        .and_then(Value::as_str)
-        .and_then(MemoryType::parse);
-    match memories.save(SaveMemoryInput {
-        agent_id,
-        folder,
-        name,
-        description,
-        memory_type,
-        content,
-        source: MemorySource::Explicit,
-    }) {
-        Ok(()) => {
-            retrieval.notify_source_changed();
-            ToolExecutionOutcome {
-                output: "Saved.".to_string(),
-                is_error: false,
-            }
-        }
-        Err(error) => ToolExecutionOutcome {
-            output: format!("Failed to save memory: {error}"),
-            is_error: true,
-        },
-    }
 }
 
 /// Retrieval failure **never** returns `Err` here — it returns a normal tool result telling the

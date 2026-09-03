@@ -9,6 +9,13 @@ import {
   simulateWebLoopRestartForTest,
   webAgentClient,
 } from "./web-agent-client";
+// Read straight from the mock's own state. The pool is the mock's internals, and the service
+// methods that used to expose it were the pre-governance surface this change removes.
+import {
+  clearWebAgentMemories,
+  deleteWebAgentMemory,
+  listWebAgentMemories,
+} from "./web-agent-memory-state";
 import { webOperationClient } from "./web-operation-client";
 import { webPermissionsClient } from "./web-permissions-client";
 import { webPrincipalTemplates } from "./web-permissions-mock-state";
@@ -245,19 +252,37 @@ describe("webAgentClient", () => {
     expect(browserAgents.every((agent) => agent.capabilityTags.includes("browser"))).toBe(true);
   });
 
-  it("does not fake local CLI installation status in Web runtime", async () => {
-    vi.useFakeTimers();
-    const cliTools = await webAgentClient.listCliTools();
+  it("serves deterministic CLI snapshots without claiming to have read the host", async () => {
+    const snapshots = await webAgentClient.listCliEnvironments();
 
-    expect(cliTools.map((tool) => tool.agentId)).toEqual(["claude-code", "codex-cli", "gemini-cli", "opencode", "antigravity-cli"]);
-    expect(cliTools.every((tool) => tool.installed === null)).toBe(true);
-    expect(cliTools.every((tool) => tool.versionCheckStatus === "unsupported")).toBe(true);
-    expect(cliTools.every((tool) => tool.installations.length === 0 && tool.lifecycleEligibility === "unavailable")).toBe(true);
-    const operation = await webAgentClient.refreshCliDetections("codex-cli");
+    expect(snapshots.map((snapshot) => snapshot.agentId)).toEqual([
+      "claude-code",
+      "codex-cli",
+      "gemini-cli",
+      "opencode",
+      "antigravity-cli",
+    ]);
+    // Invented, and obviously so. A realistic home directory would read as a real finding on a
+    // page that cannot have looked at one.
+    expect(snapshots.flatMap((snapshot) => snapshot.installations)
+      .every((installation) => installation.executablePath.startsWith("/mock/"))).toBe(true);
+
+    vi.useFakeTimers();
+    const operation = await webAgentClient.refreshCliEnvironments(["codex-cli"], false);
     expect(operation).toMatchObject({ status: "queued", relatedEntityId: "codex-cli" });
 
+    // A refresh runs for seconds, so the mock does too: it is still running at a second, which is
+    // what makes the refreshing state and the chance to cancel it observable at all.
     await vi.advanceTimersByTimeAsync(950);
-    await expect(webOperationClient.getOperationStatus(operation.id)).resolves.toMatchObject({ status: "failed" });
+    await expect(webOperationClient.getOperationStatus(operation.id)).resolves.toMatchObject({
+      status: "running",
+      cancellable: true,
+    });
+
+    await vi.advanceTimersByTimeAsync(2000);
+    await expect(webOperationClient.getOperationStatus(operation.id)).resolves.toMatchObject({
+      status: "succeeded",
+    });
   });
 
   it("persists and resets structured CLI parameter profiles", async () => {
@@ -1739,7 +1764,7 @@ describe("webAgentClient", () => {
       interfaceFormat: "anthropic",
       baseUrl: null,
     });
-    expect(await webAgentClient.listAllMemories()).toEqual([]);
+    expect(listWebAgentMemories()).toEqual([]);
 
     const session = await createMockSession({ agentId: agent.id, interactionMode: "api", title: "Remember tool" });
     const config = await webAgentClient.getSessionChatConfig(session.id);
@@ -1757,12 +1782,12 @@ describe("webAgentClient", () => {
     expect(rememberEvent).toBeDefined();
     unsubscribe();
 
-    const memories = await webAgentClient.listAllMemories();
+    const memories = listWebAgentMemories();
     expect(memories).toHaveLength(1);
     expect(memories[0]).toMatchObject({ agentId: agent.id, source: "explicit" });
 
-    await webAgentClient.deleteAgentMemory(memories[0].id);
-    expect(await webAgentClient.listAllMemories()).toEqual([]);
+    deleteWebAgentMemory(memories[0].id);
+    expect(listWebAgentMemories()).toEqual([]);
   });
 
   it("reports index injection and body selection without any embedding configured (add-two-tier-memory-recall)", async () => {
@@ -1784,7 +1809,7 @@ describe("webAgentClient", () => {
     // First turn seeds a memory; the second is the one that has a pool to inject.
     await webAgentClient.sendMessage({ sessionId: session.id, content: "hello", config });
     await vi.advanceTimersByTimeAsync(3_000);
-    expect(await webAgentClient.listAllMemories()).not.toHaveLength(0);
+    expect(listWebAgentMemories()).not.toHaveLength(0);
 
     const events: ChatStreamEvent[] = [];
     const unsubscribe = await webAgentClient.subscribeMessageEvents(session.id, (event) => {
@@ -1823,7 +1848,7 @@ describe("webAgentClient", () => {
       // Seed a memory first, so the pool is non-empty and only the toggle can explain the silence.
       await webAgentClient.sendMessage({ sessionId: session.id, content: "hello", config });
       await vi.advanceTimersByTimeAsync(3_000);
-      expect(await webAgentClient.listAllMemories()).not.toHaveLength(0);
+      expect(listWebAgentMemories()).not.toHaveLength(0);
 
       await webSettingsClient.saveSetting({ key: "memoryEnabled", value: false });
       const events: ChatStreamEvent[] = [];
@@ -1874,14 +1899,14 @@ describe("webAgentClient", () => {
 
     // Unlike the pre-`add-cli-memory-support` per-agent isolation, both agents' memories now show
     // up together in the one shared pool.
-    const beforeReset = await webAgentClient.listAllMemories();
+    const beforeReset = listWebAgentMemories();
     expect(beforeReset).toHaveLength(2);
     expect(beforeReset.some((memory) => memory.agentId === firstAgent.id)).toBe(true);
     expect(beforeReset.some((memory) => memory.agentId === secondAgent.id)).toBe(true);
 
-    await webAgentClient.resetAllMemories();
+    clearWebAgentMemories();
 
-    expect(await webAgentClient.listAllMemories()).toEqual([]);
+    expect(listWebAgentMemories()).toEqual([]);
   });
 
   it("simulates an MCP-sourced tool call that requires approval before completing", async () => {
@@ -1914,7 +1939,7 @@ describe("webAgentClient", () => {
     const callId = awaitingEvent && awaitingEvent.type === "tool_use" ? awaitingEvent.toolUse.id : "";
 
     const resolved = await webPermissionsClient.resolvePendingApproval(callId, true, "once");
-    expect(resolved).toBe(true);
+    expect(resolved).toBe("delivered");
 
     const completedEvent = events.find(
       (event) =>
@@ -1966,7 +1991,7 @@ describe("webAgentClient", () => {
       (event) => event.type === "rich_block" && event.block.id.startsWith("web-memory-extracted-"),
     );
     expect(extractionEvent).toBeDefined();
-    const memoriesAfterExtraction = await webAgentClient.listAllMemories();
+    const memoriesAfterExtraction = listWebAgentMemories();
     expect(memoriesAfterExtraction.some((memory: AgentMemory) => memory.source === "automatic")).toBe(true);
 
     const secondTurnEvents: ChatStreamEvent[] = [];
@@ -2013,7 +2038,7 @@ describe("webAgentClient", () => {
       expect(
         events.find((event) => event.type === "rich_block" && event.block.id.startsWith("web-memory-extracted-")),
       ).toBeUndefined();
-      expect(await webAgentClient.listAllMemories()).toEqual([]);
+      expect(listWebAgentMemories()).toEqual([]);
     } finally {
       await webSettingsClient.saveSetting({ key: "memoryEnabled", value: true });
       vi.unstubAllGlobals();
@@ -2050,7 +2075,7 @@ describe("webAgentClient", () => {
       expect(
         events.find((event) => event.type === "rich_block" && event.block.id.startsWith("web-memory-extracted-")),
       ).toBeUndefined();
-      const memories = await webAgentClient.listAllMemories();
+      const memories = listWebAgentMemories();
       expect(memories.some((memory: AgentMemory) => memory.source === "explicit")).toBe(true);
       expect(memories.some((memory: AgentMemory) => memory.source === "automatic")).toBe(false);
     } finally {
@@ -2078,7 +2103,7 @@ describe("webAgentClient", () => {
       (event) => event.type === "rich_block" && event.block.id.startsWith("web-memory-extracted-"),
     );
     expect(extractionEvent).toBeDefined();
-    const memories = await webAgentClient.listAllMemories();
+    const memories = listWebAgentMemories();
     expect(memories).toContainEqual(expect.objectContaining({ agentId: "codex-cli", source: "automatic" }));
   });
 
@@ -2101,7 +2126,7 @@ describe("webAgentClient", () => {
       expect(
         events.find((event) => event.type === "rich_block" && event.block.id.startsWith("web-memory-extracted-")),
       ).toBeUndefined();
-      expect(await webAgentClient.listAllMemories()).toEqual([]);
+      expect(listWebAgentMemories()).toEqual([]);
     } finally {
       await webSettingsClient.saveSetting({ key: "memoryEnabled", value: true });
       vi.unstubAllGlobals();
@@ -2148,7 +2173,7 @@ describe("webAgentClient", () => {
     const apiConfig = await webAgentClient.getSessionChatConfig(apiSession.id);
     await webAgentClient.sendMessage({ sessionId: apiSession.id, content: "hello", config: apiConfig });
     await vi.advanceTimersByTimeAsync(3_000);
-    expect(await webAgentClient.listAllMemories()).toContainEqual(
+    expect(listWebAgentMemories()).toContainEqual(
       expect.objectContaining({ agentId: apiAgent.id, source: "explicit" }),
     );
 

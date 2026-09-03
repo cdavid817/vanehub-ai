@@ -6,6 +6,9 @@ mod path;
 mod project;
 mod remote_terminal_limits;
 mod remote_workspace;
+mod session_shell;
+mod session_shell_lifecycle;
+mod session_shell_replay;
 mod shell;
 mod worktree;
 
@@ -27,5 +30,15 @@ pub(crate) use remote_terminal_limits::{
     TERMINAL_SEARCH_MAX_QUERY_BYTES,
 };
 pub(crate) use remote_workspace::RemoteWorkspace;
-pub(crate) use shell::{reset_directory_command, ShellHost, TerminalDimensions};
+pub(crate) use session_shell::{
+    SessionShellError, SessionShellState, ShellAttachmentId, ShellCapacityScope,
+    ShellCreateRequestId, ShellForegroundProcessState, ShellId, ShellOutputFrame, ShellReasonCode,
+    ShellReplayGap, ShellStream, ShellTitle,
+};
+pub(crate) use session_shell_lifecycle::{shell_reason_code, ShellCloseBudget, ShellGeneration};
+pub(crate) use session_shell_replay::{shell_reason, ShellReplayBuffer, ShellReplaySnapshot};
+pub(crate) use shell::{ShellRuntimeDescriptor, TerminalDimensions};
 pub(crate) use worktree::{ensure_worktree_compatible, GitReference, WorktreeName};
+
+#[cfg(test)]
+mod session_shell_replay_tests;

@@ -1,21 +1,23 @@
 use crate::contexts::agent_runtime::application::{
-    AgentCodeDiagnostic, AgentCodeHover, AgentCodeIntelligenceContext,
-    AgentCodeIntelligenceMetadata, AgentCodeIntelligenceOutcome, AgentCodeIntelligencePending,
-    AgentCodeIntelligenceResponderPort, AgentCodeIntelligenceStatus, AgentCodeLocation,
-    AgentCodeRange, AgentDocumentInput, AgentDocumentPositionInput, AgentWorkspaceMutation,
-    AgentWorkspaceMutationPort,
+    AgentCallDirection, AgentCallHierarchyInput, AgentCodeCallRelation, AgentCodeDiagnostic,
+    AgentCodeHover, AgentCodeIntelligenceContext, AgentCodeIntelligenceMetadata,
+    AgentCodeIntelligenceOutcome, AgentCodeIntelligencePending, AgentCodeIntelligenceResponderPort,
+    AgentCodeIntelligenceStatus, AgentCodeLocation, AgentCodeRange, AgentCodeSymbol,
+    AgentDocumentInput, AgentDocumentPositionInput, AgentWorkspaceMutation,
+    AgentWorkspaceMutationPort, AgentWorkspaceSymbolInput,
 };
 use crate::contexts::code_intelligence::api::{
-    CodeIntelligenceApi, DiagnosticSeverity, LanguageFamily, NormalizedDiagnostic, NormalizedHover,
-    NormalizedLocation, NormalizedRange, QueryOutcome, QueryStatus,
+    CallDirection, CodeIntelligenceApi, DiagnosticSeverity, NormalizedCallRelation,
+    NormalizedDiagnostic, NormalizedHover, NormalizedLocation, NormalizedRange, NormalizedSymbol,
+    QueryOutcome, QueryStatus,
 };
 use crate::contexts::operations::api::DiagnosticLogPort;
 use crate::contexts::operations::infrastructure::UnifiedLoggingAdapter;
 use crate::contexts::retrieval::api::CodeIndexApi;
 use crate::platform::database::NativeDatabase;
 use std::future::Future;
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::sync::OnceLock;
@@ -23,10 +25,11 @@ use std::sync::OnceLock;
 pub(crate) fn assemble_code_intelligence_api(
     database: NativeDatabase,
     fallback_log_directory: PathBuf,
+    data_directory: PathBuf,
 ) -> CodeIntelligenceApi {
     let logging: Arc<dyn DiagnosticLogPort> =
         Arc::new(UnifiedLoggingAdapter::active(fallback_log_directory));
-    CodeIntelligenceApi::from_database(database, logging)
+    CodeIntelligenceApi::from_database(database, logging, data_directory)
 }
 
 pub(crate) struct NativeCodeIntelligenceResponder {
@@ -164,6 +167,133 @@ impl AgentCodeIntelligenceResponderPort for NativeCodeIntelligenceResponder {
             cancelled,
         )
     }
+
+    fn start_find_type_definition(
+        &self,
+        context: AgentCodeIntelligenceContext,
+        input: AgentDocumentPositionInput,
+    ) -> AgentCodeIntelligencePending<Vec<AgentCodeLocation>> {
+        let api = self.api.clone();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let request_cancelled = cancelled.clone();
+        Self::pending(
+            async move {
+                map_locations(
+                    api.find_type_definition(
+                        std::path::Path::new(context.session_workspace()),
+                        &input.relative_path,
+                        input.line,
+                        input.column,
+                        request_cancelled,
+                    )
+                    .await,
+                )
+            },
+            cancelled,
+        )
+    }
+
+    fn start_find_implementations(
+        &self,
+        context: AgentCodeIntelligenceContext,
+        input: AgentDocumentPositionInput,
+    ) -> AgentCodeIntelligencePending<Vec<AgentCodeLocation>> {
+        let api = self.api.clone();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let request_cancelled = cancelled.clone();
+        Self::pending(
+            async move {
+                map_locations(
+                    api.find_implementations(
+                        std::path::Path::new(context.session_workspace()),
+                        &input.relative_path,
+                        input.line,
+                        input.column,
+                        request_cancelled,
+                    )
+                    .await,
+                )
+            },
+            cancelled,
+        )
+    }
+
+    fn start_find_workspace_symbols(
+        &self,
+        context: AgentCodeIntelligenceContext,
+        input: AgentWorkspaceSymbolInput,
+    ) -> AgentCodeIntelligencePending<Vec<AgentCodeSymbol>> {
+        let api = self.api.clone();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let request_cancelled = cancelled.clone();
+        Self::pending(
+            async move {
+                map_symbols(
+                    api.find_workspace_symbols(
+                        std::path::Path::new(context.session_workspace()),
+                        &input.relative_path,
+                        &input.query,
+                        request_cancelled,
+                    )
+                    .await,
+                )
+            },
+            cancelled,
+        )
+    }
+
+    fn start_get_document_symbols(
+        &self,
+        context: AgentCodeIntelligenceContext,
+        input: AgentDocumentInput,
+    ) -> AgentCodeIntelligencePending<Vec<AgentCodeSymbol>> {
+        let api = self.api.clone();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let request_cancelled = cancelled.clone();
+        Self::pending(
+            async move {
+                map_symbols(
+                    api.get_document_symbols(
+                        std::path::Path::new(context.session_workspace()),
+                        &input.relative_path,
+                        request_cancelled,
+                    )
+                    .await,
+                )
+            },
+            cancelled,
+        )
+    }
+
+    fn start_find_call_hierarchy(
+        &self,
+        context: AgentCodeIntelligenceContext,
+        input: AgentCallHierarchyInput,
+    ) -> AgentCodeIntelligencePending<Vec<AgentCodeCallRelation>> {
+        let api = self.api.clone();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let request_cancelled = cancelled.clone();
+        let direction = match input.direction {
+            AgentCallDirection::Incoming => CallDirection::Incoming,
+            AgentCallDirection::Outgoing => CallDirection::Outgoing,
+        };
+        Self::pending(
+            async move {
+                map_call_relations(
+                    api.find_call_hierarchy(
+                        std::path::Path::new(context.session_workspace()),
+                        &input.position.relative_path,
+                        input.position.line,
+                        input.position.column,
+                        direction,
+                        request_cancelled,
+                    )
+                    .await,
+                )
+            },
+            cancelled,
+        )
+    }
 }
 
 fn map_locations(
@@ -172,6 +302,39 @@ fn map_locations(
     map_outcome(outcome, |locations| {
         locations.into_iter().map(map_location).collect()
     })
+}
+
+fn map_symbols(
+    outcome: QueryOutcome<Vec<NormalizedSymbol>>,
+) -> AgentCodeIntelligenceOutcome<Vec<AgentCodeSymbol>> {
+    map_outcome(outcome, |symbols| {
+        symbols.into_iter().map(map_symbol).collect()
+    })
+}
+
+fn map_call_relations(
+    outcome: QueryOutcome<Vec<NormalizedCallRelation>>,
+) -> AgentCodeIntelligenceOutcome<Vec<AgentCodeCallRelation>> {
+    map_outcome(outcome, |relations| {
+        relations
+            .into_iter()
+            .map(|relation| AgentCodeCallRelation {
+                symbol: map_symbol(relation.symbol),
+                call_sites: relation.call_sites.into_iter().map(map_range).collect(),
+            })
+            .collect()
+    })
+}
+
+fn map_symbol(symbol: NormalizedSymbol) -> AgentCodeSymbol {
+    AgentCodeSymbol {
+        name: symbol.name,
+        kind: symbol.kind.to_owned(),
+        container: symbol.container,
+        file: symbol.location.file().to_owned(),
+        range: map_range(symbol.location.range),
+        preview: symbol.location.preview,
+    }
 }
 
 fn map_hover(
@@ -225,11 +388,10 @@ fn map_outcome<T, U>(
             QueryStatus::Unavailable => AgentCodeIntelligenceStatus::Unavailable,
             QueryStatus::Failed => AgentCodeIntelligenceStatus::Failed,
         },
-        server: outcome.server.map(|server| server.as_id().to_owned()),
-        language: outcome
+        server: outcome
             .language
-            .map(LanguageFamily::as_id)
-            .map(str::to_owned),
+            .map(|language| language.server_id.to_owned()),
+        language: outcome.language.map(|language| language.id.to_owned()),
         document_version: outcome.document_version().map(|version| version.value()),
         stale: outcome.stale,
         returned_count: outcome.returned_count,
@@ -264,13 +426,35 @@ fn map_range(range: NormalizedRange) -> AgentCodeRange {
 pub(crate) struct WorkspaceMutationFanout {
     code_intelligence: CodeIntelligenceApi,
     code_index: OnceLock<CodeIndexApi>,
+    evidence: Arc<dyn crate::contexts::workspaces::api::WorkspaceEvidencePort>,
+    /// Where a change is reported so the console can refresh what it is showing.
+    ///
+    /// Bound after construction for the same reason the code index is: the workspaces API is
+    /// assembled later in the startup order, and reordering startup to satisfy a notification
+    /// would be letting the tail wag the dog. Absent means nothing is listening yet, not that the
+    /// mutation should be dropped.
+    changes: OnceLock<Arc<dyn crate::contexts::workspaces::api::WorkspaceChangeObserverPort>>,
+    /// This runtime's observation ordinal. The fanout is the single point every successful
+    /// mutation passes through, so its own count is an authoritative order for the observations
+    /// it makes — and the only part of the witness that cannot repeat.
+    observations: AtomicU64,
 }
 
 impl WorkspaceMutationFanout {
-    pub(crate) fn new(code_intelligence: CodeIntelligenceApi) -> Self {
+    /// The fanout is already the single point every successful mutation passes through, so
+    /// evidence joins the existing targets rather than adding a second observation path that
+    /// could disagree with them. The publisher is required rather than defaulted: a fanout
+    /// assembled without one would compile, run, and record nothing.
+    pub(crate) fn new(
+        code_intelligence: CodeIntelligenceApi,
+        evidence: Arc<dyn crate::contexts::workspaces::api::WorkspaceEvidencePort>,
+    ) -> Self {
         Self {
             code_intelligence,
             code_index: OnceLock::new(),
+            evidence,
+            changes: OnceLock::new(),
+            observations: AtomicU64::new(0),
         }
     }
 
@@ -279,9 +463,20 @@ impl WorkspaceMutationFanout {
             .set(code_index)
             .map_err(|_| "workspace mutation code-index target is already bound".to_string())
     }
+
+    pub(crate) fn bind_workspace_changes(
+        &self,
+        changes: Arc<dyn crate::contexts::workspaces::api::WorkspaceChangeObserverPort>,
+    ) -> Result<(), String> {
+        self.changes
+            .set(changes)
+            .map_err(|_| "workspace mutation change target is already bound".to_string())
+    }
 }
 
 impl AgentWorkspaceMutationPort for WorkspaceMutationFanout {
+    /// Reached only after a mutation succeeded: the tool handlers publish on the success branch
+    /// and nowhere else, so a rejected or failed write produces no evidence at all.
     fn publish(&self, mutation: AgentWorkspaceMutation) {
         self.code_intelligence
             .invalidate_document_lease(&mutation.canonical_workspace, &mutation.relative_path);
@@ -289,13 +484,130 @@ impl AgentWorkspaceMutationPort for WorkspaceMutationFanout {
             code_index
                 .notify_targeted_change(&mutation.canonical_workspace, &mutation.relative_path);
         }
+        if let Some(changes) = self.changes.get() {
+            // The exact path, which no poll could produce: a fingerprint says a directory changed,
+            // and this says which file did. Reported before the evidence signal because the console
+            // is waiting on it, while the journal is not.
+            changes.observe(
+                &mutation.session_id,
+                crate::contexts::workspaces::api::WorkspaceInvalidationSource::ExecutionEvidence,
+                crate::contexts::workspaces::api::WorkspaceInvalidationScope::Path {
+                    relative_path: mutation.relative_path.clone(),
+                    change: match mutation.change_kind {
+                        crate::contexts::agent_runtime::application::AgentWorkspaceChangeKind::Created => {
+                            crate::contexts::workspaces::api::WorkspaceInvalidationChange::Created
+                        }
+                        crate::contexts::agent_runtime::application::AgentWorkspaceChangeKind::Modified => {
+                            crate::contexts::workspaces::api::WorkspaceInvalidationChange::Modified
+                        }
+                    },
+                },
+            );
+        }
+        let observed_at = chrono::Utc::now().to_rfc3339();
+        let Some(basename) = mutation
+            .relative_path
+            .rsplit('/')
+            .next()
+            .filter(|value| !value.is_empty())
+        else {
+            return;
+        };
+        self.evidence.try_publish(
+            crate::contexts::workspaces::api::WorkspaceEvidenceSignal::FileMutationObserved {
+                session_id: mutation.session_id.clone(),
+                // The file's own name. The directory it sits in stays here: a workspace path says
+                // where someone works, which is not what "this file changed" needs to say.
+                basename: basename.to_string(),
+                path_fingerprint: workspace_path_fingerprint(
+                    &mutation.canonical_workspace,
+                    &mutation.relative_path,
+                ),
+                change_kind: match mutation.change_kind {
+                    crate::contexts::agent_runtime::application::AgentWorkspaceChangeKind::Created => {
+                        crate::contexts::workspaces::api::WorkspaceFileChangeKind::Created
+                    }
+                    crate::contexts::agent_runtime::application::AgentWorkspaceChangeKind::Modified => {
+                        crate::contexts::workspaces::api::WorkspaceFileChangeKind::Modified
+                    }
+                },
+                // The runtime performed this write itself, so the witness is the write: there is
+                // no earlier snapshot to compare against, and inventing one would imply a
+                // comparison nobody made.
+                witness_fingerprint: mutation_witness(
+                    &mutation,
+                    &observed_at,
+                    self.observations.fetch_add(1, Ordering::Relaxed),
+                ),
+                observed_directly: true,
+                occurred_at: observed_at.clone(),
+            },
+        );
     }
+}
+
+/// A stable digest of the workspace-relative path.
+///
+/// Groups two changes to one file without the path ever being stored. Truncated to the identifier
+/// bound the journal enforces, which is far more entropy than a workspace has files.
+/// Workspace-scoped, so two workspaces each holding a `src/main.rs` do not share one identity.
+///
+/// The workspace path is hashed with the relative path rather than stored beside it: what a reader
+/// needs is that two changes to one file group together, and a digest gives that without the
+/// journal ever holding a location. The separator is a NUL so no workspace-and-path pair can
+/// collide with a different pair that happens to concatenate the same way.
+pub(crate) fn workspace_path_fingerprint(
+    canonical_workspace: &Path,
+    relative_path: &str,
+) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(canonical_workspace.to_string_lossy().as_bytes());
+    hasher.update([0u8]);
+    hasher.update(relative_path.as_bytes());
+    hasher
+        .finalize()
+        .iter()
+        .take(16)
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+/// What this observation was made against.
+///
+/// A direct write witnesses itself, so the witness is the change kind, the moment, and this
+/// runtime's observation ordinal.
+///
+/// Two writes to one file are two observations, and a witness carrying only the path would
+/// collapse them into one. The moment alone is not enough either: a clock has a resolution, and
+/// two writes inside one tick would produce one witness and the second would be filed as a replay
+/// of the first. The ordinal makes that structurally impossible rather than merely unlikely, and a
+/// counter is safe here where a random value would not be — `publish` is reached once per
+/// successful write from the tool handlers' success branch and is never replayed, so the ordinal
+/// is minted per observation rather than per delivery attempt.
+///
+/// It needs no cross-restart namespace of its own: the moment supplies that axis, and the ordinal
+/// supplies the within-tick one.
+fn mutation_witness(
+    mutation: &AgentWorkspaceMutation,
+    observed_at: &str,
+    observation: u64,
+) -> String {
+    format!(
+        "{}:{observed_at}:{observation}",
+        match mutation.change_kind {
+            crate::contexts::agent_runtime::application::AgentWorkspaceChangeKind::Created =>
+                "created",
+            crate::contexts::agent_runtime::application::AgentWorkspaceChangeKind::Modified =>
+                "modified",
+        }
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::contexts::code_intelligence::api::{LanguageFamily, LspConfiguration};
+    use crate::contexts::code_intelligence::api::{LspConfiguration, LspLanguageId};
     use crate::contexts::operations::infrastructure::UnifiedLoggingAdapter;
     use crate::test_support::TempDirectory;
 
@@ -306,6 +618,7 @@ mod tests {
         let api = CodeIntelligenceApi::from_database(
             database,
             Arc::new(UnifiedLoggingAdapter::new(directory.path().join("logs"))),
+            directory.path().join("state"),
         );
         let responder = NativeCodeIntelligenceResponder::new(api.clone());
         let context = AgentCodeIntelligenceContext::from_session_workspace(
@@ -319,7 +632,7 @@ mod tests {
         };
         let rust = configuration
             .languages
-            .get_mut(&LanguageFamily::Rust)
+            .get_mut(&LspLanguageId::new("rust").expect("rust language id"))
             .expect("Rust configuration");
         rust.enabled = true;
         rust.executable_override = Some(

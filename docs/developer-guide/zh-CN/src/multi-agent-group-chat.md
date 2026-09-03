@@ -119,6 +119,16 @@ flowchart TB
 
 两个强制终止原因(`seat_turn.rs:11-14` 的 `ChainEndReason`):`TooManyMentions` 和 `MaxDepth`。**正常结束不是失败**(`seat_turn.rs:18-23` 的 `NextTurn`):`ended_reason` 为 `None` 表示链条用尽了提及。把两者混为一谈会让每一次正常结束看起来都像错误。
 
+### 用户消息去往何处
+
+人类寻址席位的方式,与 Agent 之间互相寻址完全一致。`route_user_message`(在 `seat_turn.rs` 中,紧邻 `next_turn_targets`)按三步解析一轮的首个回合:行首 `@handle` 派发给该席位;未寻址的消息交给上一轮持有回合的那个席位;还没有人发过言的线程交给第一个席位。**目标只有一个**——一个人同时点名两个席位,等于要求两轮,而第二轮会针对一条第一轮已经推进过的线程启动。解析规则与 Agent 交接完全相同,所以人类写在行中或代码块里的 `@` 同样不寻址任何人。
+
+**被寻址的席位用它自己的 Agent 作答,而不是会话的 Agent**。会话的 `agent_id` 镜像第一个席位,因此 `send_message_internal` 会围绕被路由席位的 Agent 构建本回合配置(`seat_chat_configuration`);调用被镜像的那个 Agent,等于让一个参与者顶着另一个参与者的名字发言。在 2026-08 之前,`initial_seat_turn_context` 无条件取 `roster.first()`——每一条用户消息都由一号席位作答,而前端的 `routeUserMessage` 根本没有调用方。这个缺陷正是被下文的桌面套件抓到的。
+
+### 消息归属按稳定席位 id
+
+`start_generation` 给每一条 assistant 行打上 `speaker_seat_id`,并**刻意**把数字型的 `seat_index` 留空;该索引只作为读侧兼容保留,用于迁移 59 之前写入的行。任何解析活跃线程发言人的代码都必须走 `seat_speaker`(`application/seat_turn.rs`),它优先用稳定 id,再回退到索引。只按 `seat_index` 取值的读取方会把每一条活跃消息都看成未归属——正是这个故障曾让 `seat_turn_prompt` 在下一个席位的上下文里把每个队友的回合都标成人类的发言,而它之所以能躲过单元测试,是因为 fixture 把两个字段都填了,生产只填一个。
+
 ## 交回给人类
 
 handle 是 `seat_turn.rs:42` 的 `USER_MENTION` 常量。三种意图(`seat_turn.rs:28-32` 的 `HumanHandoffIntent`)由其后的单词决定(`seat_turn.rs:212-229` 的 `parse_human_handoff`,大小写不敏感),每一种产生不同的轮次效果(`seat_turn.rs:36-40` 的 `HumanHandoffEffect`):
@@ -192,6 +202,61 @@ npx playwright show-trace test-results\<failing-spec-directory>\trace.zip
 用户指南中的[群组聊天协作案例](../../../user-guide/zh-CN/src/multi-agent-testing-tutorial.md)以手工方式走查同样的内容,其检查点与本套件的用例对应。除此之外,此处的改动需运行仓库的完整验证集合——见 [测试、打包与发布](testing-and-release.md)。
 
 **Web/mock 验证接口、席位变更和 `@` 补全,但不启动 CLI**。真实的 Agent 回复和自动交接需要 Tauri 桌面运行时。
+
+## 真实桌面端验证(WebdriverIO)
+
+`tests/desktop/specs/` 下的桌面套件用真实安装的 CLI(本机:claude-code、codex-cli、opencode)驱动真实 Tauri 客户端,上文那些路由与归属缺陷就是在这里被发现并被证明修复的。六个 spec 按深度递进覆盖群聊:
+
+| Spec | 它在真实环境中证明了什么 |
+|---|---|
+| `domain-multi-agent.e2e.mjs` | 被安排的角色产出可寻址的句柄;一个 Agent 的回复把回合接力给另一个 |
+| `domain-multi-agent-routing.e2e.mjs` | 人类按提及路由、上一持有者回退、三席位链路(人 → 席位 → 席位)、claude+codex+opencode 三方各自回应自己被提及的那条,以及席位离场后的回退 |
+| `domain-multi-agent-business.e2e.mjs` | 一个真实编码任务穿过架构师 → 实现者 → 代码审查三个异构 CLI:实现者的文件落进会话仓库,审查者读到它,`@用户 done` 收束该轮 |
+| `domain-multi-agent-project.e2e.mjs` | 一个三文件项目走完**两轮**接力:审查把工作退回,实现者在同一线程上第二次发言(链深 3,已发言席位被再次派发)。正确性由 harness 跑 `python3 -m unittest` 判定,而非 Agent 自称 |
+| `domain-multi-agent-human-decision.e2e.mjs` | 阻塞式 `@用户 handoff` 让该轮真的停下——包括压制**同一条回复里**点名的队友——且一条未寻址的人类答复会用提问的那个席位恢复该轮 |
+| `ui-multi-agent.e2e.mjs` | 同一套运行时经 DOM 驱动:成员面板把名单增加一个席位(后端已核实,含角色),输入 `@` 会列出每个席位,用指针选中其一即路由本次发送,回复气泡绘制该席位的角色标签与颜色点 |
+
+这些 spec 从失败运行中沉淀下来的约定:
+
+- **断言派发,而不是断言回复文本**。assistant 行在调用 provider **之前**就带着 `speakerSeatId` 写入,因此那一行就是路由判决;等模型输出等于在测量 provider 的心情。
+- **一旦任何席位可能发言两次,就按序数寻址回合**——在多轮线程里,「该席位的那一行」不再能唯一标识一个回合。
+- **被指定的接力断言为线程的前缀,而非全部**。尾巴归 Agent 所有:一次诚实的运行里,实现者主动把返工交回去做第二次审查,那正是协作在起作用。
+- **provider 拒绝执行指令报 `BLOCKED`,绝不报失败**——套件无法强制模型遵守指令,只能观察。
+- **暂停是一种「不存在」,所以要在一个时间窗上断言,而不是在某个瞬间断言**。协调器每 200ms 轮询一次终端,因此一轮没停下来的话一两秒内就会派发;human-decision spec 观察三十秒的静默,这才让「不存在」成为证据而不是运气。
+- **失败时保留证据**:失败的流程把它的会话留在本次运行的隔离数据库里,而不是在 `after` 中删掉。`VANEHUB_DESKTOP_KEEP_SESSIONS=1` 连成功的会话也一并保留,这样人可以用测试客户端打开该次运行的 `VANEHUB_APP_DATA_DIR`(外加 `VANEHUB_CLI_CONFIG_HOME`)用肉眼检查线程。
+
+再写 UI 用例之前值得知道两个 WebKitGTK 驱动的怪癖:`selectByVisibleText` 会点击选项但不触发 `change`,于是 React 状态还是旧值而 DOM 已显示新值(改为经原型的 value setter 派发一个真实 `change`);以及 `list_agents` 在启动后数秒内会与 CLI 检测竞争,所以要对可用性做门控,而不是只问一次。
+
+## 真实验证揭示的环境约束
+
+以下是宿主与权限模板的性质,不是路由的缺陷——但一个被期望**动手做事**的群聊会全部撞上:
+
+- **席位回合是无人值守的,所以 `standard` 模板走不通**。`standard` 意味着动手前先问,而此刻没有人在提示符前:claude-code 在 `permissionMode=default` 下直接拒绝写入。要动手的席位需要 `trusted`。
+- **claude-code 的 `trusted` 与 `yolo` 都投影为 `acceptEdits`**——文件编辑自动批准,shell 命令不会。一个被要求自己跑测试的 claude 席位会(正确地)用行首 `@用户 handoff` 中止该轮;命令批准属于 permission-hook 中继,而隔离的测试运行刻意不安装它。请把任务设计成由 harness 来跑验证命令。
+- **codex-cli 的 `workspace-write` 沙箱在受限非特权用户命名空间的机器上起不来**(`kernel.apparmor_restrict_unprivileged_userns=1`,Ubuntu 24.04+ 的默认值):bwrap 报 `loopback: Failed RTM_NEWADDR: Operation not permitted`,而 `standard` 与 `trusted` 都把 codex 映射到 `workspace-write`,因此在这类宿主上没有任何可分配的模板能让 codex 席位写文件——而且是静默的。在这个缺口有诊断之前,把 codex 安排在只需说话的位置。
+- **CLI 全局配置属于正常的用户状态,绝不能从测试里泄漏出去**。给 claude-code 分配模板会把 permission hook 装进 `~/.claude/settings.json`;曾有一次 e2e 运行写进了用户的真实文件,那个 hook 活得比测试应用还久,导致之后每一次工具调用都被一个已死的审批服务器挡住。现在 `VANEHUB_CLI_CONFIG_HOME`(由 `NativeCliGlobalConfigAdapter` 支持,桌面运行上下文提供)像 `VANEHUB_APP_DATA_DIR` 隔离数据库那样隔离这些写入。
+
+## 为什么没有 orchestrator
+
+群聊是刻意去中心化的:规范中「不提供派发控制」这条需求把路由交给 Agent 与提及,协调由协议承载——行首 `@` 交接、两次提及与深度 15 的上界,以及三种 `@用户` 意图。`seat_turn_coordinator` 是基础设施(串行驱动回合的那个线程),`loop_orchestrator` 属于 Loop 运行时——两者都不是 orchestrator 席位。
+
+业界的多 Agent 模式与本设计的对应关系:
+
+| 模式 | 代表 | 机制 | 与 VaneHub 的距离 |
+|---|---|---|---|
+| 去中心化交接 | OpenAI Swarm / Agents SDK handoffs | 一个 Agent 结束回合时显式把控制权交给下一个 | **VaneHub 就是这一种**——`@` 就是 handoff |
+| 中心化 supervisor | LangGraph supervisor 模式、CrewAI hierarchical(manager agent) | 一个 manager 节点接收每份产出,每轮挑选下一个执行者,并收敛结果 | 会破坏当前「不提供派发控制」的需求 |
+| 发言人选择 | AutoGen GroupChat(manager 用 LLM 或轮转挑下一个发言人) | 弱编排:只选谁说话,不下指令 | 介于两者之间 |
+| Orchestrator–worker | Anthropic 的多 Agent 研究系统、Claude Code 的 subagent 派发 | orchestrator 拆解任务,把 worker **并行**扇出,再汇合结果;worker 之间不对话 | 距离最远:VaneHub 的席位刻意串行,因为后面的席位必须读到前面席位产出的东西 |
+| SOP 流水线 | MetaGPT | 固定角色按固定阶段顺序传递工件 | 架构师 → 实现者 → 代码审查这个约定本身已经是一条软 SOP |
+
+业界的粗略经验是:中心化编排在**并行研究与检索**这类形态上收益明显(Anthropic 的研究系统是典型案例),而**顺序协作**——比如写代码,每一手都依赖上一手的工件——更适合 handoff:更简单、token 消耗线性、线程对人保持可读。中心化 orchestrator 反复出现的代价是:它成为单点故障(一次糊涂的回合就能带偏整轮),每一跳都多一次模型往返(延迟与成本大致翻倍),而且长任务里 orchestrator 自身的上下文会膨胀。
+
+本章记录的建议是继续用 handoff,并按顺序走三步:
+
+1. **零改动、今天就能用:把「orchestrator」做成一个自定义专家角色**。它的职责与指令写明:拆解 → 每次 `@` 一个地派发 → 校验工件 → `@用户 done`。它不持有任何运行时特权——同样的提及规则、深度上界与两次提及截断都适用——而真实的项目流 spec 已经展示了一个普通的架构师角色正在承担这种轻量编排,轮次自然收敛,甚至还多出一次自愿的额外审查。对顺序性工作而言,这已经覆盖了 orchestrator 的大部分用途。
+2. **值得做的小协议补充**。`MAX_MENTIONS_PER_REPLY=2` 是串行执行的,但没有 join 语义——没有「两个都做完了再回到我这里」。一条轻量的回传规则(被派发的席位若没有点名任何人,就把回合交回给派发它的那一方)是一处一行的路由扩展,且保持去中心化。`@用户 handoff` 路径中「暂停 → 人做决定 → 该轮恢复」的那一半原本也是缺口,已由 `domain-multi-agent-human-decision.e2e.mjs` 补上;join 语义仍然开放。
+3. **只在有真实证据时才考虑 supervisor**。触发条件应该是观察到的协议失效——链路反复撞上深度上限、人类不断手动救场,或者出现真正并行的任务形态(跨多仓库的研究)。那是架构变更而非新增角色:它要从一份修订「不提供派发控制」需求的 OpenSpec proposal 开始,并且必须回答 orchestrator 自身失败时这一轮该怎么办。
 
 ## 席位 Agent 的运行时形态
 

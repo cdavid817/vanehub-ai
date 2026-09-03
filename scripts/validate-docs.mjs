@@ -389,6 +389,83 @@ function validateContextMapChapters(errors, actual) {
   }
 }
 
+/**
+ * Walks the link graph from a fixed root set and returns the documents no root reaches.
+ *
+ * Counting inbound links is not enough, and the failure it misses is not hypothetical: before
+ * this check existed, `docs/reports/` held two documents that linked only to each other. Both
+ * had an inbound link, and neither was reachable from anything a reader opens. A traversal from
+ * roots is what distinguishes "linked" from "reachable".
+ *
+ * `linksOf` yields already-resolved absolute targets, so this function stays a pure graph walk
+ * and can be tested without a filesystem.
+ */
+export function unreachableDocuments(roots, documents, linksOf) {
+  const seen = new Set(roots);
+  const queue = [...roots];
+  while (queue.length > 0) {
+    for (const target of linksOf(queue.pop())) {
+      if (seen.has(target)) continue;
+      seen.add(target);
+      queue.push(target);
+    }
+  }
+  return documents.filter((document) => !seen.has(document));
+}
+
+/**
+ * Roots are the surfaces a reader actually arrives from: each book's navigation and the
+ * repository entry points. Specs count too — a specification that mandates a documentation
+ * location, as `provider-plugin-sdk` does for `docs/provider-sdk/`, is a legitimate way in.
+ */
+function reachabilityRoots() {
+  const entryPoints = [
+    "docs/developer-guide/src/SUMMARY.md",
+    "docs/developer-guide/zh-CN/src/SUMMARY.md",
+    "docs/user-guide/en/src/SUMMARY.md",
+    "docs/user-guide/zh-CN/src/SUMMARY.md",
+    "README.md",
+    "README.zh-CN.md",
+    "README.ja.md",
+    "CONTRIBUTING.md",
+    "AGENTS.md",
+    "SUPPORT.md",
+    "SECURITY.md",
+    "CODE_OF_CONDUCT.md",
+  ].map((path) => resolve(repositoryRoot, path));
+  const specs = markdownFiles(resolve(repositoryRoot, "openspec", "specs"));
+  return [...entryPoints, ...specs].filter((path) => existsSync(path));
+}
+
+function validateReachability(errors) {
+  const linksOf = (file) => {
+    let content;
+    try {
+      content = readFileSync(file, "utf8");
+    } catch {
+      return [];
+    }
+    const targets = [];
+    for (const match of content.matchAll(/(!?)\[[^\]]*]\(([^)\s]+)(?:\s+"[^"]*")?\)/g)) {
+      const [, imageMarker, rawTarget] = match;
+      if (imageMarker === "!") continue;
+      if (/^(?:https?:|mailto:|data:)/i.test(rawTarget)) continue;
+      const { path: target } = splitTarget(rawTarget);
+      if (!target || extname(target).toLowerCase() !== ".md") continue;
+      const resolved = resolveAuthoredTarget(file, target);
+      if (resolved !== null && existsSync(resolved)) targets.push(resolved);
+    }
+    return targets;
+  };
+
+  const documents = markdownFiles(resolve(repositoryRoot, "docs"));
+  for (const document of unreachableDocuments(reachabilityRoots(), documents, linksOf)) {
+    errors.push(
+      `${relative(repositoryRoot, document)}: no documentation entry point reaches this file. Link it, fold it in, or remove it.`,
+    );
+  }
+}
+
 function validateAssembled(errors) {
   const expected = [
     ".docs-build/index.html",
@@ -409,6 +486,7 @@ export function validateDocs({ assembled = false } = {}) {
   validateScreenshotInventory(errors);
   validateNativeBoundaries(errors);
   validateBoundedContexts(errors);
+  validateReachability(errors);
   if (assembled) validateAssembled(errors);
   if (errors.length > 0) throw new Error(`Documentation validation failed:\n${errors.join("\n")}`);
 }

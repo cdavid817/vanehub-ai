@@ -1,12 +1,19 @@
 # Git worktrees: let an Agent edit code in its own working copy
 
-**Status: Implemented — desktop only; available for Git projects, and not supported for a remote workspace.**
-
 ## What a Git worktree is
 
 **A Git worktree is a second working copy of the same repository**, with its own directory and its own branch, sharing one Git history.
 
 It is not a second copy of the repository. `git clone` copies all history; a worktree only checks out another branch into another directory — small on disk, and both sides commit into the same repository.
+
+## Traditional uses
+
+Outside of Agents, worktrees already solve several common problems:
+
+- **Working several branches in parallel** — an urgent hotfix while the main branch is running tests or compiling needs no stash of your existing changes; open a new directory and handle it there.
+- **Avoiding the cost of constant branch switching** — in a large repository, switching branches rewrites many files and reinstalls dependencies (`node_modules`, Rust's `target/`). Worktrees keep different branches physically separate.
+- **Building or testing in parallel processes** — different worktrees can run CI and tests at the same time without colliding.
+- **Reviewing without interrupting your work** — check the branch under review out into its own directory to read the code, leaving your in-progress work untouched.
 
 ## What it solves in VaneHub AI
 
@@ -21,6 +28,34 @@ With one:
 - **If it goes wrong, throw that worktree away** and your main working copy is unaffected
 
 That is what makes "two Agents working on unrelated tasks in one repository" in [Use cases](use-cases.md) possible.
+
+## Why it is essential in the Agent era
+
+Once several Agents work at the same time, **physically isolated filesystems** become mandatory — without them, nobody would let an Agent write code autonomously. In multi-Agent orchestration a worktree is close to infrastructure:
+
+**1. A natural isolation layer for concurrent Agents**
+
+Several Agents running in parallel against one working directory hit trouble immediately: file writes overwrite each other, Git index and HEAD state collide (one is checking out while another commits), and there is no way to tell which Agent made a given change. A worktree gives each Agent **its own physical directory and its own branch**, which isolates at the task level without cloning the whole repository per Agent — cloning is slow and large, while worktrees share the `.git` object store and are created in seconds.
+
+```text
+        Shared Git database (commits · blobs · refs)
+              ▲            ▲            ▲
+              │            │            │
+          Session A    Session B     Loop run
+        worktree-a   worktree-b   worktree-c
+```
+
+**2. Review and rollback become trivial**
+
+Each Agent's changes converge naturally into a set of commits on one branch. Reviewing is `git diff base..worktree-branch`, which shows exactly what it changed; approve and merge, or reject with `git worktree remove` plus deleting the branch, leaving no trace. That is unlike a shared directory where diffing the whole repository afterwards cannot separate one Agent's work from another's.
+
+**3. The permission boundary coincides with the filesystem boundary**
+
+Giving each task its own worktree and branch as an envelope keeps an Agent working inside that envelope. **No extra sandbox logic is needed** to restrict which files an Agent may touch — directory isolation at the operating-system level is the boundary.
+
+**4. It supports discard-on-failure optimistic concurrency**
+
+Agent-generated code is not always right. Several Agents can attack the same problem differently, each in its own worktree without interference, and you merge one and discard the rest entirely. Without worktrees, that explore-several-then-pick approach costs far more: either run them serially, or clone the repository once per attempt.
 
 ## When it is available
 
@@ -86,6 +121,15 @@ This is deliberate: the output of an automatic run should not be cleaned up befo
 - **An existing target path is rejected**, never overwritten or reused.
 - **A Loop's worktree is never cleaned up automatically**, so accumulated directories are yours to manage.
 - **VaneHub AI does not commit, merge, or push** the changes in a worktree for you.
+
+### Things to watch once you have several
+
+| Concern | Detail |
+| --- | --- |
+| **Cap the number** | Disk I/O and file handles are finite. In a repository with heavy directories such as `node_modules` or `target`, every worktree installs its own copy by default — use a global pnpm or cargo cache, or share dependency directories through symlinks |
+| **Name them traceably** | A worktree directory name should map back to a task or session, so a leftover is easy to attribute. VaneHub AI's `project-worktree` and `vanehub/worktree-name` conventions exist for exactly that |
+| **Clean up deliberately** | A Loop's worktree is never cleaned up automatically and accumulates over a long run. Check `git worktree list` periodically, and after deleting a directory run `git worktree prune` to sync the records |
+| **A branch cannot be reused** | The same branch cannot be checked out in two worktrees at once, so every task needs its own branch name |
 
 ## Related
 

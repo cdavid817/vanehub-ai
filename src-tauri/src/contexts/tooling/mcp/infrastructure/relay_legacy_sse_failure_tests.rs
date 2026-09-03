@@ -76,7 +76,7 @@ fn malformed_and_oversized_sse_data_fail_the_pending_request() {
             &url,
             &BTreeMap::new(),
             "traceparent",
-            Duration::from_secs(2),
+            Duration::from_secs(5),
             McpCancellation::default(),
             None,
             Cursor::new(

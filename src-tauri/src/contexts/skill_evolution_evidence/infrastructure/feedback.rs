@@ -1,15 +1,19 @@
-use chrono::Utc;
-use rusqlite::{params, params_from_iter, OptionalExtension, Transaction, TransactionBehavior};
+use super::{
+    create_authorization, current_authorization, revoke_authorizations,
+    AuthorizedCorrectionGuidance, EvidenceRepositoryError, ReusableGuidanceAuthorizationSummary,
+    SqliteEvolutionEvidenceRepository,
+};
+use crate::contexts::skill_evolution_evidence::domain::{
+    canonical_workspace_scope, EvidenceSanitizer, FeedbackState, TaskFingerprintBuilder,
+};
+use rusqlite::{params_from_iter, TransactionBehavior};
 use std::collections::BTreeMap;
 use thiserror::Error;
-use uuid::Uuid;
 
-use super::sqlite_repository::persist_transaction;
-use super::{EvidenceRepositoryError, SqliteEvolutionEvidenceRepository};
-use crate::contexts::skill_evolution_evidence::domain::{
-    canonical_workspace_scope, extract_registered_signals, EnvelopeCommon, EvidenceSanitizer,
-    EvidenceSourceEnvelope, FeedbackState, SourceFidelity, TaskFingerprintBuilder,
-    EVIDENCE_ENVELOPE_SCHEMA_V1, EVIDENCE_SANITIZER_V1,
+use super::feedback_storage::{
+    current_feedback, feedback_envelope, latest_revision, load_message_source,
+    parse_feedback_state, persist_feedback_signal, record_feedback_event, supersede_previous,
+    update_current, validate_request,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,6 +22,7 @@ pub(crate) struct SaveFeedbackRequest {
     pub(crate) expected_revision: u64,
     pub(crate) state: Option<FeedbackState>,
     pub(crate) correction_note: Option<String>,
+    pub(crate) authorize_reusable_guidance: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -26,6 +31,9 @@ pub(crate) struct SavedFeedback {
     pub(crate) revision: u64,
     pub(crate) state: Option<FeedbackState>,
     pub(crate) sanitized_note: Option<String>,
+    pub(crate) reusable_guidance_authorization: Option<ReusableGuidanceAuthorizationSummary>,
+    pub(crate) workspace_id: Option<String>,
+    pub(crate) authorization_event_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,6 +41,21 @@ pub(crate) struct StoredFeedbackSummary {
     pub(crate) state: Option<FeedbackState>,
     pub(crate) revision: u64,
     pub(crate) sanitized_note: Option<String>,
+    pub(crate) reusable_guidance_authorization: Option<ReusableGuidanceAuthorizationSummary>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RevokeReusableGuidanceAuthorizationRequest {
+    pub(crate) message_id: String,
+    pub(crate) expected_feedback_revision: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RevokedReusableGuidanceAuthorization {
+    pub(crate) message_id: String,
+    pub(crate) feedback_revision: u64,
+    pub(crate) workspace_id: Option<String>,
+    pub(crate) authorization_event_id: String,
 }
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
@@ -54,6 +77,17 @@ impl From<EvidenceRepositoryError> for FeedbackTransitionError {
 }
 
 impl SqliteEvolutionEvidenceRepository {
+    pub(crate) fn authorized_correction_guidance(
+        &self,
+        authorization_id: &str,
+    ) -> Result<Option<AuthorizedCorrectionGuidance>, FeedbackTransitionError> {
+        let connection = self
+            .database
+            .connection()
+            .map_err(|_| FeedbackTransitionError::Storage)?;
+        super::authorized_correction_guidance(&connection, authorization_id)
+    }
+
     pub(crate) fn feedback_for_messages(
         &self,
         message_ids: &[String],
@@ -85,12 +119,17 @@ impl SqliteEvolutionEvidenceRepository {
                 let (message_id, state, revision, sanitized_note) = row?;
                 let state =
                     parse_feedback_state(&state).ok_or(EvidenceRepositoryError::CorruptFeedback)?;
+                let revision = u64::try_from(revision).unwrap_or_default();
+                let reusable_guidance_authorization =
+                    current_authorization(&connection, &message_id, revision)
+                        .map_err(|_| EvidenceRepositoryError::Storage)?;
                 summaries.insert(
                     message_id,
                     StoredFeedbackSummary {
                         state: Some(state),
-                        revision: u64::try_from(revision).unwrap_or_default(),
+                        revision,
                         sanitized_note,
+                        reusable_guidance_authorization,
                     },
                 );
             }
@@ -112,6 +151,7 @@ impl SqliteEvolutionEvidenceRepository {
                             state: None,
                             revision: u64::try_from(revision).unwrap_or_default(),
                             sanitized_note: None,
+                            reusable_guidance_authorization: None,
                         },
                     );
                 }
@@ -138,6 +178,12 @@ impl SqliteEvolutionEvidenceRepository {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| FeedbackTransitionError::Storage)?;
         let source = load_message_source(&transaction, &request.message_id)?;
+        let workspace_id = source
+            .workspace
+            .as_deref()
+            .map(|value| canonical_workspace_scope(installation_key, value))
+            .transpose()
+            .map_err(|_| FeedbackTransitionError::Storage)?;
         let current = current_feedback(&transaction, &request.message_id)?;
         let current_revision = latest_revision(&transaction, &request.message_id)?;
         if current_revision != request.expected_revision {
@@ -155,6 +201,8 @@ impl SqliteEvolutionEvidenceRepository {
             None
         };
         supersede_previous(&transaction, current.as_ref(), signal_id.as_deref())?;
+        let revoked_authorization_ids =
+            revoke_authorizations(&transaction, &request.message_id, None)?;
         record_feedback_event(
             &transaction,
             request,
@@ -170,214 +218,82 @@ impl SqliteEvolutionEvidenceRepository {
             sanitized_note.as_deref(),
             signal_id.as_deref(),
         )?;
+        let reusable_guidance_authorization = if request.authorize_reusable_guidance {
+            Some(create_authorization(
+                &transaction,
+                &request.message_id,
+                revision,
+                sanitized_note
+                    .as_deref()
+                    .ok_or(FeedbackTransitionError::InvalidInput)?,
+            )?)
+        } else {
+            None
+        };
         transaction
             .commit()
             .map_err(|_| FeedbackTransitionError::Storage)?;
         let _ = self.rebuild_dirty_seeds();
+        let authorization_event_id = reusable_guidance_authorization
+            .as_ref()
+            .map(|authorization| format!("{}:granted", authorization.authorization_id))
+            .or_else(|| {
+                revoked_authorization_ids
+                    .first()
+                    .map(|authorization_id| format!("{authorization_id}:revoked"))
+            });
         Ok(SavedFeedback {
             message_id: request.message_id.clone(),
             revision,
             state: request.state,
             sanitized_note,
+            reusable_guidance_authorization,
+            workspace_id,
+            authorization_event_id,
         })
     }
-}
 
-fn parse_feedback_state(value: &str) -> Option<FeedbackState> {
-    match value {
-        "helpful" => Some(FeedbackState::Helpful),
-        "unhelpful" => Some(FeedbackState::Unhelpful),
-        "corrected" => Some(FeedbackState::Corrected),
-        _ => None,
-    }
-}
-
-struct MessageSource {
-    session_id: String,
-    agent_id: String,
-    run_id: Option<String>,
-    workspace: Option<String>,
-}
-
-struct CurrentFeedback {
-    state: String,
-    signal_id: Option<String>,
-}
-
-fn validate_request(request: &SaveFeedbackRequest) -> Result<(), FeedbackTransitionError> {
-    let has_note = request
-        .correction_note
-        .as_ref()
-        .is_some_and(|note| !note.trim().is_empty());
-    match request.state {
-        Some(FeedbackState::Corrected) if !has_note => Err(FeedbackTransitionError::InvalidInput),
-        Some(FeedbackState::Helpful | FeedbackState::Unhelpful)
-            if request.correction_note.is_some() =>
-        {
-            Err(FeedbackTransitionError::InvalidInput)
+    pub(crate) fn revoke_reusable_guidance_authorization(
+        &self,
+        request: &RevokeReusableGuidanceAuthorizationRequest,
+        installation_key: &[u8],
+    ) -> Result<RevokedReusableGuidanceAuthorization, FeedbackTransitionError> {
+        if request.message_id.trim().is_empty() {
+            return Err(FeedbackTransitionError::InvalidInput);
         }
-        None if request.correction_note.is_some() => Err(FeedbackTransitionError::InvalidInput),
-        _ => Ok(()),
-    }
-}
-
-fn load_message_source(
-    transaction: &Transaction<'_>,
-    message_id: &str,
-) -> Result<MessageSource, FeedbackTransitionError> {
-    transaction
-        .query_row(
-            r#"SELECT messages.session_id, sessions.agent_id, messages.execution_run_id,
-                      COALESCE(sessions.worktree_path, sessions.project_path, sessions.folder)
-               FROM messages JOIN sessions ON sessions.id = messages.session_id
-               WHERE messages.id = ?1 AND messages.role = 'assistant'
-                 AND messages.status = 'completed'"#,
-            [message_id],
-            |row| {
-                Ok(MessageSource {
-                    session_id: row.get(0)?,
-                    agent_id: row.get(1)?,
-                    run_id: row.get(2)?,
-                    workspace: row.get(3)?,
-                })
-            },
-        )
-        .optional()
-        .map_err(|_| FeedbackTransitionError::Storage)?
-        .ok_or(FeedbackTransitionError::MessageNotEligible)
-}
-
-fn current_feedback(
-    transaction: &Transaction<'_>,
-    message_id: &str,
-) -> Result<Option<CurrentFeedback>, FeedbackTransitionError> {
-    transaction
-        .query_row(
-            "SELECT feedback_state, active_signal_id FROM evolution_feedback_current WHERE message_id = ?1",
-            [message_id],
-            |row| Ok(CurrentFeedback {
-                state: row.get(0)?,
-                signal_id: row.get(1)?,
-            }),
-        )
-        .optional()
-        .map_err(|_| FeedbackTransitionError::Storage)
-}
-
-fn latest_revision(
-    transaction: &Transaction<'_>,
-    message_id: &str,
-) -> Result<u64, FeedbackTransitionError> {
-    let revision: i64 = transaction
-        .query_row(
-            "SELECT COALESCE(MAX(feedback_revision), 0) FROM evolution_feedback_events WHERE message_id = ?1",
-            [message_id],
-            |row| row.get(0),
-        )
-        .map_err(|_| FeedbackTransitionError::Storage)?;
-    Ok(u64::try_from(revision).unwrap_or_default())
-}
-
-fn feedback_envelope(
-    request: &SaveFeedbackRequest,
-    revision: u64,
-    source: MessageSource,
-    installation_key: &[u8],
-) -> Result<EvidenceSourceEnvelope, FeedbackTransitionError> {
-    let workspace = source
-        .workspace
-        .as_deref()
-        .map(|value| canonical_workspace_scope(installation_key, value))
-        .transpose()
-        .map_err(|_| FeedbackTransitionError::Storage)?;
-    Ok(EvidenceSourceEnvelope::ExplicitFeedback {
-        schema_version: EVIDENCE_ENVELOPE_SCHEMA_V1,
-        common: EnvelopeCommon {
-            source_event_id: format!("feedback:{}:{revision}", request.message_id),
-            occurred_at: Utc::now().to_rfc3339(),
-            stable_agent_id: Some(source.agent_id),
-            session_id: Some(source.session_id),
-            message_id: Some(request.message_id.clone()),
-            run_id: source.run_id,
-            attempt_id: None,
-            workspace,
-            fidelity: SourceFidelity::Native,
-            observed_skill_revisions: Vec::new(),
-        },
-        feedback: request.state.unwrap_or(FeedbackState::Helpful),
-        feedback_revision: revision,
-        correction_note: request.correction_note.clone(),
-    })
-}
-
-fn persist_feedback_signal(
-    transaction: &Transaction<'_>,
-    envelope: &EvidenceSourceEnvelope,
-    sanitized: Option<&crate::contexts::skill_evolution_evidence::domain::SanitizationResult>,
-    fingerprints: &TaskFingerprintBuilder,
-) -> Result<Option<String>, FeedbackTransitionError> {
-    let signal = extract_registered_signals(envelope, sanitized)
-        .into_iter()
-        .next();
-    signal
-        .map(|signal| {
-            persist_transaction(transaction, &signal, fingerprints)
-                .map(|outcome| outcome.signal_id().to_string())
-                .map_err(Into::into)
+        let mut connection = self
+            .database
+            .connection()
+            .map_err(|_| FeedbackTransitionError::Storage)?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| FeedbackTransitionError::Storage)?;
+        let source = load_message_source(&transaction, &request.message_id)?;
+        let current_revision = latest_revision(&transaction, &request.message_id)?;
+        if current_revision != request.expected_feedback_revision {
+            return Err(FeedbackTransitionError::Conflict { current_revision });
+        }
+        let current = current_feedback(&transaction, &request.message_id)?
+            .ok_or(FeedbackTransitionError::InvalidInput)?;
+        let revoked_ids =
+            revoke_authorizations(&transaction, &request.message_id, Some(current_revision))?;
+        if current.state != "corrected" || revoked_ids.len() != 1 {
+            return Err(FeedbackTransitionError::InvalidInput);
+        }
+        let workspace_id = source
+            .workspace
+            .as_deref()
+            .map(|value| canonical_workspace_scope(installation_key, value))
+            .transpose()
+            .map_err(|_| FeedbackTransitionError::Storage)?;
+        transaction
+            .commit()
+            .map_err(|_| FeedbackTransitionError::Storage)?;
+        Ok(RevokedReusableGuidanceAuthorization {
+            message_id: request.message_id.clone(),
+            feedback_revision: current_revision,
+            workspace_id,
+            authorization_event_id: format!("{}:revoked", revoked_ids[0]),
         })
-        .transpose()
-}
-
-fn supersede_previous(
-    transaction: &Transaction<'_>,
-    current: Option<&CurrentFeedback>,
-    replacement: Option<&str>,
-) -> Result<(), FeedbackTransitionError> {
-    if let Some(signal_id) = current.and_then(|value| value.signal_id.as_deref()) {
-        transaction
-            .execute(
-                "UPDATE evolution_signals SET lineage_status = 'superseded', superseded_by_signal_id = ?2 WHERE signal_id = ?1",
-                params![signal_id, replacement],
-            )
-            .map_err(|_| FeedbackTransitionError::Storage)?;
     }
-    Ok(())
-}
-
-fn record_feedback_event(
-    transaction: &Transaction<'_>,
-    request: &SaveFeedbackRequest,
-    revision: u64,
-    current: Option<&CurrentFeedback>,
-    note: Option<&str>,
-    signal_id: Option<&str>,
-) -> Result<(), FeedbackTransitionError> {
-    transaction.execute(
-        "INSERT INTO evolution_feedback_events (feedback_event_id, message_id, feedback_revision, previous_state, next_state, sanitized_note, sanitizer_version, signal_id, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
-        params![Uuid::new_v4().to_string(), request.message_id, revision as i64, current.map(|value| value.state.as_str()), request.state.map(super::storage_values::feedback), note, i64::from(EVIDENCE_SANITIZER_V1), signal_id],
-    ).map_err(|_| FeedbackTransitionError::Storage)?;
-    Ok(())
-}
-
-fn update_current(
-    transaction: &Transaction<'_>,
-    request: &SaveFeedbackRequest,
-    revision: u64,
-    note: Option<&str>,
-    signal_id: Option<&str>,
-) -> Result<(), FeedbackTransitionError> {
-    if let Some(state) = request.state {
-        transaction.execute(
-            "INSERT INTO evolution_feedback_current (message_id, feedback_state, feedback_revision, sanitized_note, sanitizer_version, active_signal_id, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) ON CONFLICT(message_id) DO UPDATE SET feedback_state = excluded.feedback_state, feedback_revision = excluded.feedback_revision, sanitized_note = excluded.sanitized_note, sanitizer_version = excluded.sanitizer_version, active_signal_id = excluded.active_signal_id, updated_at = excluded.updated_at",
-            params![request.message_id, super::storage_values::feedback(state), revision as i64, note, i64::from(EVIDENCE_SANITIZER_V1), signal_id],
-        ).map_err(|_| FeedbackTransitionError::Storage)?;
-    } else {
-        transaction
-            .execute(
-                "DELETE FROM evolution_feedback_current WHERE message_id = ?1",
-                [&request.message_id],
-            )
-            .map_err(|_| FeedbackTransitionError::Storage)?;
-    }
-    Ok(())
 }

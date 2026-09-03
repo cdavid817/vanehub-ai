@@ -1,27 +1,29 @@
 use super::model_category::{is_chat_model, is_embedding_model};
 use super::{
-    format_memory_index, AgentChatConfiguration, AgentCliProfileGateway, AgentClockPort,
+    format_memory_index, memory_from_ref, proposals_from_actions, render_existing_manifest,
+    AgentCandidateSubmission, AgentChatConfiguration, AgentCliProfileGateway, AgentClockPort,
     AgentEvent, AgentEventPort, AgentGenerationPort, AgentInvocationUsage, AgentLog, AgentLogLevel,
-    AgentLoggingPort, AgentMessage, AgentMessageTerminal, AgentMessageTerminalCompletionPort,
-    AgentMessageTerminalOutcome, AgentProcessEventSink, AgentProcessGateway,
-    AgentRegistryRepository, AgentRuntimeApplicationError, AgentSession, AgentSessionDetails,
-    AgentSessionGateway, AgentTaskPort, AgentUsageAccountingKind, AgentUsageOverlap,
-    AgentUsageRecord, AgentView, ApiAgentGateway, ApiCredentialPort, ApiProviderConfig,
-    CanonicalRunLinks, CanonicalRunOutcome, CanonicalRunSignal, CliProfileSnapshot,
-    CompleteAgentMessage, ConversationHistoryPort, DiscoverOnePieceProviderModelsInput,
-    DurableAgentGenerationStart, EffectivePrompt, EffectivePromptGateway, EmbeddingEndpointView,
-    FrozenEndpointProfile, GenerationLease, GenerationProcessEvent, GenerationProcessRequest,
+    AgentLoggingPort, AgentMemory, AgentMemoryDelivery, AgentMessage, AgentMessageTerminal,
+    AgentMessageTerminalCompletionPort, AgentMessageTerminalOutcome, AgentProcessEventSink,
+    AgentProcessGateway, AgentProposalOrigin, AgentRegistryRepository,
+    AgentRuntimeApplicationError, AgentSession, AgentSessionDetails, AgentSessionGateway,
+    AgentTaskPort, AgentUsageAccountingKind, AgentUsageOverlap, AgentUsageRecord, AgentView,
+    ApiAgentGateway, ApiCredentialPort, ApiProviderConfig, CanonicalRunLinks, CanonicalRunOutcome,
+    CanonicalRunSignal, CliProfileSnapshot, CompleteAgentMessage, ConversationHistoryPort,
+    DiscoverOnePieceProviderModelsInput, DurableAgentGenerationStart, EffectivePrompt,
+    EffectivePromptGateway, EmbeddingEndpointView, FrozenEndpointProfile, GenerationLease,
+    GenerationPersonalizationContext, GenerationProcessEvent, GenerationProcessRequest,
     HybridRoutePreview, HybridRoutePreviewInput, LaunchWorkflowResult, LoopGenerationControlPort,
     LoopRoleGenerationCompletionPort, LoopRoleGenerationOutcome, LoopRoleGenerationTerminal,
-    LoopVerifierGenerationPort, LoopWorkerGenerationPort, MemorySource, MessageTokenUsage,
-    NewAgentMessage, OnePieceModelDiscoveryPort, OnePieceModelDiscoveryRequest,
-    OnePieceProviderConfig, OnePieceProviderModelDiscoveryResult, OnePieceProviderModelOption,
-    OnePieceProviderPreset, OnePieceProviderProfile, OnePieceProviderProfiles,
-    PendingPromptExecution, PersonalizationSettings, PromptExecutionOutcome, PromptExecutionReport,
-    PromptVersionReference, ProviderCredentialProbeAuthentication, ProviderCredentialProbeProtocol,
+    LoopVerifierGenerationPort, LoopWorkerGenerationPort, MessageTokenUsage, NewAgentMessage,
+    OnePieceModelDiscoveryPort, OnePieceModelDiscoveryRequest, OnePieceProviderConfig,
+    OnePieceProviderModelDiscoveryResult, OnePieceProviderModelOption, OnePieceProviderPreset,
+    OnePieceProviderProfile, OnePieceProviderProfiles, PendingPromptExecution,
+    PromptExecutionOutcome, PromptExecutionReport, PromptVersionReference,
+    ProviderCredentialProbeAuthentication, ProviderCredentialProbeProtocol,
     ProviderCredentialProbeRequest, ProviderCredentialValidationResult, ReadinessView,
     RecoverSessionResult, RegisterApiAgentInput, ReportedUsageTotals, RunnerDescriptor,
-    RunnerDiscoveryPort, RunnerSelection, SaveCustomOnePieceProviderProfileInput, SaveMemoryInput,
+    RunnerDiscoveryPort, RunnerSelection, SaveCustomOnePieceProviderProfileInput,
     SaveOnePieceProviderConfigInput, SaveOnePieceProviderProfileInput, SeatTurnCompletionPort,
     SeatTurnTerminal, SendMessageRequest, StartedAgentMessage, StopGenerationResult,
     StoredEndpointProfileMetadata, StoredHybridRoutingRule, StoredOnePieceProviderConfig,
@@ -35,8 +37,8 @@ use crate::contexts::agent_runtime::domain::{
     AuthenticationMode, AutomaticCompactionMode, CapabilityProvenance, CapabilityState,
     ContextCapacityProvenance, DataPolicy, EndpointCapabilities, EndpointProfileSnapshot,
     EndpointSource, HybridRouteDecision, HybridRouteReason, HybridRouteRequest, HybridRoutingRule,
-    InteractionMode, MemoryActionKind, ProfileCapability, ProfileContextCapacity, ProfilePrivacy,
-    ProfileRuntimeKind, RequiredCapabilities, RouteCandidate, TaskClass,
+    InteractionMode, ProfileCapability, ProfileContextCapacity, ProfilePrivacy, ProfileRuntimeKind,
+    RequiredCapabilities, RouteCandidate, TaskClass,
 };
 use crate::contexts::execution_observability::api::{
     ExecutionContext, ExecutionFidelity, ExecutionIdentityPort, ExecutionLink, ExecutionRun,
@@ -334,21 +336,37 @@ pub(crate) struct AgentRuntimeApplicationPorts {
     pub(crate) api_credentials: Arc<dyn ApiCredentialPort>,
     pub(crate) onepiece_model_discovery: Arc<dyn OnePieceModelDiscoveryPort>,
     pub(crate) tool_approvals: Arc<dyn ToolApprovalPort>,
-    pub(crate) memories: Arc<dyn super::AgentMemoryPort>,
     pub(crate) memory_extraction: Arc<dyn super::AgentMemoryExtractionPort>,
-    pub(crate) personalization: Arc<dyn super::AgentPersonalizationPort>,
+    /// The one governed answer per CLI message and per completed CLI turn. Replaces reading flat
+    /// settings and then listing every memory: those were two decisions taken at two moments, and
+    /// a policy change between them produced a message whose instructions and whose memory index
+    /// disagreed about what was permitted.
+    pub(crate) personalization: Arc<dyn super::AgentPersonalizationSnapshotPort>,
     pub(crate) runner_discovery: Arc<dyn RunnerDiscoveryPort>,
 }
 
 #[derive(Clone)]
 pub(crate) struct AgentRuntimeApplicationService {
     pub(super) ports: AgentRuntimeApplicationPorts,
+    /// Separate from `ports` so adding it does not touch the dozens of sites that build that
+    /// struct, and so a build with no evidence bridge assembled keeps the no-op.
+    pub(super) evidence: Arc<dyn super::AgentEvidencePort>,
 }
 
 /// Whether the human who triggered this turn is positioned to answer a question it asks
 /// (`add-agent-user-question` D4). A scheduled run has no human at all. An IM-sourced turn has one,
 /// but they are in a chat connector that cannot render a choice card -- the question would surface
 /// on a desktop surface they are not looking at, so the wait would burn the turn either way.
+/// Maps a terminal execution status to the outcome the producer port speaks. Only terminal
+/// statuses reach here; anything else would be a caller bug rather than an unknown outcome.
+fn tool_evidence_outcome(status: ExecutionStatus) -> super::AgentRunEvidenceOutcome {
+    match status {
+        ExecutionStatus::Succeeded => super::AgentRunEvidenceOutcome::Succeeded,
+        ExecutionStatus::Cancelled => super::AgentRunEvidenceOutcome::Cancelled,
+        _ => super::AgentRunEvidenceOutcome::Failed,
+    }
+}
+
 fn interactive_message_source(source: &super::AgentMessageSource) -> bool {
     matches!(source, super::AgentMessageSource::Desktop)
 }
@@ -425,8 +443,17 @@ fn normalize_api_provider_config(
 }
 
 impl AgentRuntimeApplicationService {
-    pub(crate) fn new(ports: AgentRuntimeApplicationPorts) -> Self {
-        Self { ports }
+    pub(crate) fn new(
+        ports: AgentRuntimeApplicationPorts,
+        evidence: Arc<dyn super::AgentEvidencePort>,
+    ) -> Self {
+        Self { ports, evidence }
+    }
+
+    /// A service that records nothing, for tests whose subject is not evidence.
+    #[cfg(test)]
+    pub(crate) fn new_for_test_without_evidence(ports: AgentRuntimeApplicationPorts) -> Self {
+        Self::new(ports, Arc::new(super::NoAgentEvidence))
     }
 
     pub(crate) fn take_seat_turn_completion(
@@ -1888,6 +1915,24 @@ impl AgentRuntimeApplicationService {
         Ok(())
     }
 
+    /// Whether this session still has a live generation that a tool approval could reach.
+    ///
+    /// Asks the same question `resolve_tool_approval` answers first, without the second half that
+    /// resumes the waiter. The `permissions` context needs to know a generation is current *before*
+    /// it commits a decision — a decision committed for a generation that has already ended is
+    /// evidence, not authority — and it cannot find that out by attempting delivery, because
+    /// attempting delivery is the thing that must not happen first.
+    pub(crate) fn has_live_tool_approval_waiter(
+        &self,
+        session_id: &str,
+    ) -> Result<bool, AgentRuntimeApplicationError> {
+        Ok(self
+            .ports
+            .generations
+            .active_process_id(session_id)?
+            .is_some())
+    }
+
     /// Delivers a user's approve/deny decision for a native-agent tool call awaiting approval.
     /// Returns `false` if no such pending approval exists.
     pub(crate) fn resolve_tool_approval(
@@ -1902,23 +1947,6 @@ impl AgentRuntimeApplicationService {
         self.ports
             .tool_approvals
             .resolve(&process_id, call_id, decision)
-    }
-
-    pub(crate) fn list_all_memories(
-        &self,
-    ) -> Result<Vec<super::AgentMemory>, AgentRuntimeApplicationError> {
-        self.ports.memories.list_all()
-    }
-
-    pub(crate) fn delete_agent_memory(
-        &self,
-        memory_id: &str,
-    ) -> Result<(), AgentRuntimeApplicationError> {
-        self.ports.memories.delete(memory_id)
-    }
-
-    pub(crate) fn reset_all_memories(&self) -> Result<(), AgentRuntimeApplicationError> {
-        self.ports.memories.delete_all()
     }
 
     fn unique_api_agent_id(
@@ -2179,7 +2207,8 @@ impl AgentRuntimeApplicationService {
                 "Archived sessions cannot accept messages.".to_string(),
             ));
         }
-        let initial_seat_context = self.initial_seat_turn_context(&session, &content)?;
+        let initial_seat_context =
+            self.initial_seat_turn_context(&session, &content, &request.source)?;
         // The addressed seat runs its own Agent, which is not necessarily the session's: the
         // session mirrors the *first* seat, so honouring a mention while still invoking
         // `session.agent_id` would answer as one participant in another's name.
@@ -2330,6 +2359,18 @@ impl AgentRuntimeApplicationService {
             "start_run",
             self.ports.telemetry.start_run(&run),
         );
+        // Identifiers and a timestamp. The prompt that started this run, the agent's instructions,
+        // and every attribute assembled above stay where they are; none of them is reachable from
+        // the signal's shape.
+        self.evidence
+            .try_publish(super::AgentEvidenceSignal::RunStarted {
+                session_id: session.id.clone(),
+                run_id: root_context.run_id.as_str().to_string(),
+                trace_id: root_context.trace_id.as_str().to_string(),
+                agent_id: Some(agent.id().as_str().to_string()),
+                seat_id: None,
+                occurred_at: started_at.clone(),
+            });
         record_telemetry_result(
             &self.ports,
             &root_context,
@@ -2380,6 +2421,7 @@ impl AgentRuntimeApplicationService {
                         ),
                     );
                     self.finish_execution_root(
+                        &session.id,
                         &root_context,
                         ExecutionStatus::Failed,
                         Some("prompt_compose_failed"),
@@ -2439,6 +2481,7 @@ impl AgentRuntimeApplicationService {
                 Ok(messages) => messages,
                 Err(error) => {
                     self.finish_execution_root(
+                        &session.id,
                         &root_context,
                         ExecutionStatus::Failed,
                         Some("generation_start_persistence_failed"),
@@ -2457,6 +2500,7 @@ impl AgentRuntimeApplicationService {
                     "Generation control reservation failed.",
                 );
                 self.finish_execution_root(
+                    &session.id,
                     &root_context,
                     ExecutionStatus::Failed,
                     Some("generation_control_reservation_failed"),
@@ -2472,6 +2516,7 @@ impl AgentRuntimeApplicationService {
             );
             let _ = self.ports.generations.release(&lease);
             self.finish_execution_root(
+                &session.id,
                 &root_context,
                 ExecutionStatus::Failed,
                 Some("generation_correlation_failed"),
@@ -2576,42 +2621,43 @@ impl AgentRuntimeApplicationService {
             // degrades to safe defaults (mirroring `resolve_personalization_settings` on the
             // OnePiece side) rather than blocking the message — this codebase's established
             // philosophy of never letting an optional personalization lookup fail delivery.
-            let personalization_settings = match self.ports.personalization.settings() {
-                Ok(settings) => settings,
-                Err(error) => {
-                    self.record_log(
-                        AgentLogLevel::Warn,
-                        "session.runtime.personalization",
-                        format!(
-                            "Failed to resolve personalization settings; continuing with safe defaults: {error}"
-                        ),
-                        Some(agent.id().as_str()),
-                        Some(&session.id),
-                        None,
-                    );
-                    PersonalizationSettings::safe_fallback()
+            let governed = self
+                .ports
+                .personalization
+                .snapshot(GenerationPersonalizationContext {
+                    agent_id: agent.id().as_str().to_string(),
+                    session_id: session.id.clone(),
+                    folder: session.folder.clone(),
+                    personalization_mode: session.personalization_mode.clone(),
+                });
+            if let Some(reason) = governed.memory.blocked_reason.as_deref() {
+                self.record_log(
+                    AgentLogLevel::Warn,
+                    "session.runtime.personalization",
+                    format!(
+                        "Personalization unavailable ({reason}); continuing without custom instructions or memory."
+                    ),
+                    Some(agent.id().as_str()),
+                    Some(&session.id),
+                    None,
+                );
+            }
+            let custom_instructions = governed.instruction_block.clone();
+            // The index and nothing more. A CLI has nowhere to put a memory body that is not also
+            // the message it is about to answer, so the resolver downgrades delivery for a runtime
+            // that has not declared the capability — and this surface never asks for bodies even
+            // when it has. That stays true here rather than being re-decided per Agent.
+            let memory_section = match governed.memory.delivery {
+                AgentMemoryDelivery::None => None,
+                AgentMemoryDelivery::IndexOnly | AgentMemoryDelivery::IndexWithSelectedBodies => {
+                    let eligible: Vec<AgentMemory> = governed
+                        .memory
+                        .eligible
+                        .iter()
+                        .map(memory_from_ref)
+                        .collect();
+                    format_memory_index(&eligible, CLI_MEMORY_INDEX_BOUNDS)
                 }
-            };
-            let custom_instructions = personalization_settings.custom_instructions_block();
-            let memory_section = if personalization_settings.memory_enabled {
-                match self.ports.memories.list_all() {
-                    Ok(memories) => format_memory_index(&memories, CLI_MEMORY_INDEX_BOUNDS),
-                    Err(error) => {
-                        self.record_log(
-                            AgentLogLevel::Warn,
-                            "session.runtime.memory",
-                            format!(
-                                "Failed to resolve stored memories; continuing without them: {error}"
-                            ),
-                            Some(agent.id().as_str()),
-                            Some(&session.id),
-                            None,
-                        );
-                        None
-                    }
-                }
-            } else {
-                None
             };
             let leading_sections: Vec<String> = [custom_instructions, memory_section]
                 .into_iter()
@@ -2945,6 +2991,7 @@ impl AgentRuntimeApplicationService {
         let sink: Arc<dyn AgentProcessEventSink> = Arc::new(GenerationEventHandler::new(
             self.ports.clone(),
             GenerationEventHandlerInput {
+                evidence: self.evidence.clone(),
                 session_id: session.id.clone(),
                 agent_id: agent.id().as_str().to_string(),
                 message_id: assistant.id.clone(),
@@ -2955,6 +3002,7 @@ impl AgentRuntimeApplicationService {
                 root_context: root_context.clone(),
                 agent_context: agent_context.clone(),
                 loop_ownership: session.loop_ownership.clone(),
+                personalization_mode: session.personalization_mode.clone(),
                 seat_ownership,
                 prompt_versions: prompt_versions.clone(),
                 prompt_started_at,
@@ -3018,6 +3066,7 @@ impl AgentRuntimeApplicationService {
         failure: GenerationFailure,
     ) -> Result<AgentMessage, AgentRuntimeApplicationError> {
         self.finish_execution_root(
+            &session.id,
             execution_context,
             ExecutionStatus::Failed,
             Some("agent_generation_failed"),
@@ -3068,8 +3117,15 @@ impl AgentRuntimeApplicationService {
         Ok(failed)
     }
 
+    /// Takes the session explicitly rather than deriving it from the context.
+    ///
+    /// `ExecutionContext` carries a run and a trace but no session, and a run recorded without one
+    /// cannot be joined to the work a user is looking at. Threading it here is what lets the
+    /// journal close the lifecycle it opened at `start_run` instead of leaving every run
+    /// permanently `incomplete`.
     fn finish_execution_root(
         &self,
+        session_id: &str,
         context: &ExecutionContext,
         status: ExecutionStatus,
         error_classification: Option<&str>,
@@ -3108,6 +3164,23 @@ impl AgentRuntimeApplicationService {
                 error_classification,
             ),
         );
+        self.evidence
+            .try_publish(super::AgentEvidenceSignal::RunFinished {
+                session_id: session_id.to_string(),
+                run_id: context.run_id.as_str().to_string(),
+                trace_id: context.trace_id.as_str().to_string(),
+                agent_id: None,
+                seat_id: None,
+                occurred_at: ended_at,
+                outcome: match status {
+                    ExecutionStatus::Succeeded => super::AgentRunEvidenceOutcome::Succeeded,
+                    ExecutionStatus::Cancelled => super::AgentRunEvidenceOutcome::Cancelled,
+                    _ => super::AgentRunEvidenceOutcome::Failed,
+                },
+                // The runtime does not measure a wall-clock duration here, so none is reported.
+                // Subtracting the two timestamps would invent one.
+                duration_ms: None,
+            });
     }
 
     pub(crate) fn stop_generation(
@@ -3178,6 +3251,7 @@ impl AgentRuntimeApplicationService {
             .and_then(|outcome| outcome.execution_context.as_ref())
         {
             self.finish_execution_root(
+                session_id,
                 execution_context,
                 ExecutionStatus::Cancelled,
                 Some("user_cancelled"),
@@ -3437,11 +3511,16 @@ struct GenerationEventHandler {
     seat_ownership: Option<super::SeatTurnOwnership>,
     prompt_versions: Vec<PromptVersionReference>,
     prompt_started_at: Instant,
+    /// The one publisher for this generation's tool and delegation evidence.
+    evidence: Arc<dyn super::AgentEvidencePort>,
     /// `add-cli-memory-support` — gates the post-completion memory-extraction attempt to
     /// CLI-wrapped agents only (`agent.launch().kind_str() == "cli"` at construction time),
     /// mirroring the same gate the CLI send path already uses for injection.
     is_cli_kind: bool,
     folder: Option<String>,
+    /// Carried so the completed turn resolves under the same mode the message went out under. A
+    /// second read of the session could see a different one if the user switched it mid-turn.
+    personalization_mode: String,
     user_prompt: String,
     originated_from_im: bool,
     resumed_thread_id: Option<String>,
@@ -3462,8 +3541,10 @@ struct GenerationEventHandlerInput {
     seat_ownership: Option<super::SeatTurnOwnership>,
     prompt_versions: Vec<PromptVersionReference>,
     prompt_started_at: Instant,
+    evidence: Arc<dyn super::AgentEvidencePort>,
     is_cli_kind: bool,
     folder: Option<String>,
+    personalization_mode: String,
     user_prompt: String,
     originated_from_im: bool,
     /// The provider thread this turn asked to resume, if any. Kept so a turn that fails without
@@ -3546,8 +3627,10 @@ impl GenerationEventHandler {
             seat_ownership: input.seat_ownership,
             prompt_versions: input.prompt_versions,
             prompt_started_at: input.prompt_started_at,
+            evidence: input.evidence,
             is_cli_kind: input.is_cli_kind,
             folder: input.folder,
+            personalization_mode: input.personalization_mode,
             user_prompt: input.user_prompt,
             originated_from_im: input.originated_from_im,
             resumed_thread_id: input.resumed_thread_id,
@@ -3767,12 +3850,110 @@ impl GenerationEventHandler {
         self.ports
             .sessions
             .append_tool_use(&self.message_id, event.tool_use.clone())?;
+        // After `append_tool_use` commits, never before. The append is the owning state change;
+        // an observation filed ahead of it would survive a failure that rolled the tool call back.
+        //
+        // This is the one place tool evidence is published. Every provider funnels its lifecycle
+        // through this sink, so putting it here instead of in each adapter is what keeps a CLI
+        // tool call and a native one from being reported by two sets of rules.
+        self.publish_tool_evidence(&event, is_new, terminal_status, span_id);
         let _ = self.ports.events.publish(AgentEvent::MessageToolUse {
             session_id: self.session_id.clone(),
             message_id: self.message_id.clone(),
             tool_use: Box::new(event.tool_use),
         });
         Ok(())
+    }
+
+    /// Maps one lifecycle transition to at most one evidence signal.
+    ///
+    /// `is_new` and `terminal_status` come from the same guards the telemetry spans use, so the
+    /// journal sees exactly the transitions the runtime acted on: a re-delivered `Started` for a
+    /// call already tracked publishes nothing, and a call already in `terminal_tool_calls` never
+    /// reaches here at all. That is what makes a duplicate completion callback idempotent without
+    /// the journal needing to de-duplicate it.
+    fn publish_tool_evidence(
+        &self,
+        event: &ToolLifecycleEvent,
+        is_new: bool,
+        terminal_status: Option<ExecutionStatus>,
+        span_id: SpanId,
+    ) {
+        let observation = match event.fidelity {
+            ExecutionFidelity::Native => super::AgentEvidenceObservation::Direct,
+            ExecutionFidelity::Proxied => super::AgentEvidenceObservation::Reported,
+            // Inferred and opaque both mean the runtime did not watch this happen. Reporting them
+            // as anything stronger would present a reconstruction as an observation.
+            _ => super::AgentEvidenceObservation::Reconstructed,
+        };
+        let run_id = self.agent_context.run_id.as_str().to_string();
+        let trace_id = self.agent_context.trace_id.as_str().to_string();
+        let span_id = Some(span_id.as_str().to_string());
+        let seat_id = self
+            .seat_ownership
+            .as_ref()
+            .map(|ownership| ownership.seat_id.clone());
+        let occurred_at = event
+            .provider_timestamp
+            .clone()
+            .unwrap_or_else(|| self.ports.clock.now());
+
+        let signal = match (terminal_status, &event.delegation_id) {
+            (None, _) if !is_new => return,
+            (None, Some(delegation_id)) => super::AgentEvidenceSignal::DelegationStarted {
+                session_id: self.session_id.clone(),
+                run_id,
+                trace_id,
+                span_id,
+                parent_agent_id: Some(self.agent_id.clone()),
+                seat_id,
+                delegation_id: delegation_id.clone(),
+                call_id: event.call_id.clone(),
+                attempt: event.attempt,
+                occurred_at,
+            },
+            (None, None) => super::AgentEvidenceSignal::ToolStarted {
+                session_id: self.session_id.clone(),
+                run_id,
+                trace_id,
+                span_id,
+                agent_id: Some(self.agent_id.clone()),
+                seat_id,
+                call_id: event.call_id.clone(),
+                tool_name: event.tool_use.name.clone(),
+                observation,
+                attempt: event.attempt,
+                occurred_at,
+            },
+            (Some(status), Some(delegation_id)) => super::AgentEvidenceSignal::DelegationFinished {
+                session_id: self.session_id.clone(),
+                run_id,
+                trace_id,
+                span_id,
+                parent_agent_id: Some(self.agent_id.clone()),
+                seat_id,
+                delegation_id: delegation_id.clone(),
+                call_id: event.call_id.clone(),
+                attempt: event.attempt,
+                outcome: tool_evidence_outcome(status),
+                occurred_at,
+            },
+            (Some(status), None) => super::AgentEvidenceSignal::ToolFinished {
+                session_id: self.session_id.clone(),
+                run_id,
+                trace_id,
+                span_id,
+                agent_id: Some(self.agent_id.clone()),
+                seat_id,
+                call_id: event.call_id.clone(),
+                tool_name: event.tool_use.name.clone(),
+                observation,
+                attempt: event.attempt,
+                outcome: tool_evidence_outcome(status),
+                occurred_at,
+            },
+        };
+        self.evidence.try_publish(signal);
     }
 
     fn rich_block(&self, block: serde_json::Value) -> Result<(), AgentRuntimeApplicationError> {
@@ -3920,15 +4101,17 @@ impl GenerationEventHandler {
             invocation_usage: (self.configuration.interaction_mode != InteractionMode::Api)
                 .then_some(invocation_usage),
         })?;
-        let _ = self
-            .ports
-            .message_completions
-            .deliver(AgentMessageTerminal {
-                session_id: self.session_id.clone(),
-                message_id: self.message_id.clone(),
-                outcome: AgentMessageTerminalOutcome::Completed,
-                content: Some(response.clone()),
-            });
+        if self.seat_ownership.is_none() {
+            let _ = self
+                .ports
+                .message_completions
+                .deliver(AgentMessageTerminal {
+                    session_id: self.session_id.clone(),
+                    message_id: self.message_id.clone(),
+                    outcome: AgentMessageTerminalOutcome::Completed,
+                    content: Some(response.clone()),
+                });
+        }
         self.ports
             .sessions
             .update_lifecycle(&self.session_id, AgentLifecycle::Idle)?;
@@ -3958,91 +4141,87 @@ impl GenerationEventHandler {
         // was already published by `message_completions.deliver`/`events.publish` earlier in this
         // function (design.md D3/task 6.3).
         if self.is_cli_kind {
-            self.extract_and_save_memory(&response);
+            self.propose_memories_from_turn(&response);
         }
         Ok(())
     }
 
-    /// `add-cli-memory-support` D3/D4: best-effort, independent memory extraction for a
-    /// CLI-wrapped agent's just-completed turn. Every failure mode (personalization lookup,
-    /// missing OnePiece credential, the extraction call itself) logs and returns — this must
-    /// never propagate an error, since the CLI message it's attached to has already succeeded.
-    fn extract_and_save_memory(&self, response: &str) {
-        let memory_enabled = match self.ports.personalization.settings() {
-            Ok(settings) => settings.memory_enabled,
-            Err(error) => {
-                self.record_memory_extraction_log(format!(
-                    "Failed to resolve personalization settings for CLI memory extraction; skipping: {error}"
-                ));
-                return;
-            }
-        };
-        if !memory_enabled {
+    /// Best-effort extraction for a CLI-wrapped Agent's just-completed turn, as proposals.
+    ///
+    /// It cannot change an active memory. Every failure mode — an unresolvable policy, a missing
+    /// OnePiece credential, the extraction call itself, a review queue that will not take the
+    /// batch — logs and returns. The CLI response this hangs off has already succeeded, and none
+    /// of this may retract it.
+    ///
+    /// One snapshot, and two of its answers matter. `automatic_extraction` is the resolved policy
+    /// of the Agent that actually ran — not OnePiece, whose model merely performs the extraction —
+    /// and `candidate_creation` is separately false in a temporary session, which forbids
+    /// proposing one even where the extractor would have been allowed to run.
+    fn propose_memories_from_turn(&self, response: &str) {
+        let governed = self
+            .ports
+            .personalization
+            .snapshot(GenerationPersonalizationContext {
+                agent_id: self.agent_id.clone(),
+                session_id: self.session_id.clone(),
+                folder: self.folder.clone(),
+                personalization_mode: self.personalization_mode.clone(),
+            });
+        if !governed.memory.automatic_extraction || !governed.memory.candidate_creation {
             return;
         }
         let exchange = format!("User: {}\n\nAssistant: {response}", self.user_prompt);
-        // The manifest lets the extraction name an existing memory to correct or retract. A
-        // listing failure degrades to an empty manifest — the extraction can then only create,
-        // which is exactly the behavior before this change, rather than not running at all.
-        let existing = self.render_memory_manifest();
-        match self.ports.memory_extraction.extract(&exchange, &existing) {
-            Ok(parsed) => {
-                for action in &parsed.actions {
-                    let outcome = match action.kind {
-                        MemoryActionKind::Delete => {
-                            self.ports.memories.delete(&format!("{}.md", action.name))
-                        }
-                        MemoryActionKind::Create | MemoryActionKind::Update => {
-                            self.ports.memories.save(SaveMemoryInput {
-                                agent_id: &self.agent_id,
-                                folder: self.folder.as_deref(),
-                                name: Some(&action.name),
-                                description: action.description.as_deref(),
-                                memory_type: action.memory_type,
-                                content: action.body.as_deref().unwrap_or_default(),
-                                source: MemorySource::Automatic,
-                            })
-                        }
-                    };
-                    if let Err(error) = outcome {
-                        self.record_memory_extraction_log(format!(
-                            "One extracted memory action could not be applied; continuing: {error}"
-                        ));
-                    }
-                }
-            }
+        // The manifest lets the extraction name an existing memory to correct or retract, and is
+        // built from what this session may actually see. It is part of a prompt: a manifest listing
+        // everything would show a session the names and descriptions of memories its own policy
+        // excluded, and would invite proposals against them.
+        let existing = render_existing_manifest(&governed.memory.eligible);
+        let parsed = match self.ports.memory_extraction.extract(&exchange, &existing) {
+            Ok(parsed) => parsed,
             Err(AgentRuntimeApplicationError::Credential(message)) => {
-                // Expected, common condition (OnePiece isn't configured) — distinct wording and
-                // log category from a genuine call failure below (task 6.2).
+                // Expected, common condition (OnePiece isn't configured) — worded differently from
+                // a genuine call failure below, because an operator reading the log needs to tell
+                // "nothing to extract with" from "extraction broke".
                 self.record_memory_extraction_log(format!(
                     "Skipping CLI memory extraction; OnePiece has no usable credential: {message}"
                 ));
+                return;
             }
             Err(error) => {
                 self.record_memory_extraction_log(format!(
                     "CLI memory extraction call failed; continuing without it: {error}"
                 ));
+                return;
             }
-        }
-    }
-
-    /// The existing pool rendered as `- [type] name — description` lines. Descriptions only: the
-    /// manifest's cost must scale with how many memories exist, not with how large they are.
-    fn render_memory_manifest(&self) -> String {
-        let Ok(existing) = self.ports.memories.list_all() else {
-            return String::new();
         };
-        existing
-            .iter()
-            .map(|memory| {
-                let tag = memory
-                    .memory_type
-                    .map(|memory_type| format!("[{}] ", memory_type.as_str()))
-                    .unwrap_or_default();
-                format!("- {tag}{} — {}", memory.name, memory.description)
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
+        let proposals = proposals_from_actions(&parsed, &governed.memory.eligible);
+        if proposals.is_empty() {
+            return;
+        }
+        let outcome = self
+            .ports
+            .personalization
+            .propose_memories(AgentCandidateSubmission {
+                proposals,
+                origin: AgentProposalOrigin::AutomaticExtraction,
+                // The Agent that actually ran, taken from the session rather than from a built-in
+                // list, so a dynamically registered CLI Agent is attributed to itself.
+                agent_id: self.agent_id.clone(),
+                session_id: self.session_id.clone(),
+                folder: self.folder.clone(),
+                source_message_id: Some(self.message_id.clone()),
+                eligible: governed.memory.eligible.clone(),
+            });
+        // Counts, never content: a proposal is the text nobody has approved yet.
+        match outcome {
+            Ok(outcome) => self.record_memory_extraction_log(format!(
+                "CLI memory extraction proposed {} candidate(s) for review; {} were refused.",
+                outcome.accepted, outcome.rejected
+            )),
+            Err(error) => self.record_memory_extraction_log(format!(
+                "CLI memory extraction could not queue its proposals: {error}"
+            )),
+        }
     }
 
     fn record_memory_extraction_log(&self, message: String) {
@@ -4162,15 +4341,17 @@ impl GenerationEventHandler {
         self.ports
             .sessions
             .fail_message(&self.message_id, &self.session_id, safe_error)?;
-        let _ = self
-            .ports
-            .message_completions
-            .deliver(AgentMessageTerminal {
-                session_id: self.session_id.clone(),
-                message_id: self.message_id.clone(),
-                outcome: AgentMessageTerminalOutcome::Failed,
-                content: None,
-            });
+        if self.seat_ownership.is_none() {
+            let _ = self
+                .ports
+                .message_completions
+                .deliver(AgentMessageTerminal {
+                    session_id: self.session_id.clone(),
+                    message_id: self.message_id.clone(),
+                    outcome: AgentMessageTerminalOutcome::Failed,
+                    content: None,
+                });
+        }
         self.ports
             .sessions
             .update_lifecycle(&self.session_id, AgentLifecycle::Failed)?;
@@ -4235,6 +4416,7 @@ impl GenerationEventHandler {
             return;
         };
         let _ = self.ports.seat_completions.deliver(SeatTurnTerminal {
+            source: ownership.source.clone(),
             session_id: self.session_id.clone(),
             message_id: self.message_id.clone(),
             seat_id: ownership.seat_id.clone(),

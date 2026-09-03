@@ -1,7 +1,9 @@
 mod dto;
 pub(crate) mod export_session_logs;
+pub(crate) mod get_file_evidence_links;
 pub(crate) mod get_session_git_diff;
 pub(crate) mod get_session_git_status;
+pub(crate) mod get_workspace_inspection_capabilities;
 pub(crate) mod inspect_project;
 pub(crate) mod list_known_projects;
 pub(crate) mod list_known_remote_workspaces;
@@ -11,9 +13,12 @@ pub(crate) mod list_session_logs;
 mod mapper;
 pub(crate) mod read_session_file;
 pub(crate) mod search_session_files;
+pub(crate) mod search_workspace_content;
+pub(crate) mod search_workspace_paths;
 pub(crate) mod select_project_directory;
-pub(crate) mod shell_cd;
-pub(crate) mod shell_create;
-pub(crate) mod shell_input;
-pub(crate) mod shell_kill;
-pub(crate) mod shell_resize;
+pub(crate) mod session_log_index;
+pub(crate) mod session_log_mapper;
+#[cfg(test)]
+mod session_log_mapper_tests;
+pub(crate) mod session_shell;
+mod session_shell_dto;

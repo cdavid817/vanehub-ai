@@ -145,6 +145,7 @@ impl AgentSessionGateway for SessionsAgentRuntimeAdapter {
                 )
                 .collect(),
             interaction_mode,
+            personalization_mode: session.personalization_mode.as_str().to_string(),
             lifecycle: AgentLifecycle::from_storage_lossy(&session.lifecycle),
             folder: session.folder,
             runtime_session_id: session.runtime_session_id,

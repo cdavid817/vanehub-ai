@@ -6,6 +6,7 @@ import type { Skill, SkillLoadOutcome, SkillShadowSummary } from "../../../types
 import type { SkillOverlayDetail, SkillOverlayTargetInput } from "../../../types/skill-overlay";
 import { SkillOverlayOverview } from "./skill-overlay-overview";
 import { SkillEvolutionEvidence } from "./skill-evolution-evidence";
+import { SkillEvolutionAssessment } from "./skill-evolution-assessment";
 import { SkillToolsPanel } from "./skill-tools-panel";
 
 export function SkillDetailBody({
@@ -64,6 +65,7 @@ export function SkillDetailBody({
     </section>
 
     <SkillEvolutionEvidence skill={skill} />
+    <SkillEvolutionAssessment skill={skill} />
 
     <SkillOverlayOverview
       detail={overlayDetail}

@@ -8,7 +8,9 @@ use crate::contexts::communications::domain::{
 };
 use async_trait::async_trait;
 use chrono::Utc;
+use futures_util::FutureExt;
 use std::collections::HashMap;
+use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -20,9 +22,28 @@ const INBOUND_BUFFER: usize = 256;
 const STOP_TIMEOUT: Duration = Duration::from_secs(5);
 #[cfg(test)]
 const STOP_TIMEOUT: Duration = Duration::from_millis(50);
-const STARTUP_TIMEOUT: Duration = Duration::from_secs(15);
+#[cfg(not(test))]
+const SHUTDOWN_DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
+#[cfg(test)]
+const SHUTDOWN_DRAIN_TIMEOUT: Duration = Duration::from_millis(250);
+// The Feishu startup path includes a bounded endpoint lookup plus the WebSocket/TLS handshake.
+// A 15-second outer deadline could expire while either individually bounded network phase was
+// still making progress, especially immediately after a connection-test socket closed.
+const STARTUP_TIMEOUT: Duration = Duration::from_secs(45);
 pub(crate) const MAX_TOTAL_PENDING_IM_MESSAGES: usize = 64;
 pub(crate) const MAX_ACTIVE_IM_GENERATIONS: usize = 8;
+
+fn contain_connector_panic(
+    result: std::thread::Result<Result<(), ConnectorRuntimeError>>,
+) -> Result<(), ConnectorRuntimeError> {
+    result.unwrap_or_else(|_| {
+        Err(ConnectorRuntimeError {
+            safe_code: "connector-runtime-panicked".to_string(),
+            user_message: None,
+            class: ConnectorErrorClass::Permanent,
+        })
+    })
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConnectorDiagnostic {
@@ -407,7 +428,7 @@ impl ConnectorRuntimeManager {
             let mut startup_sender = Some(startup_sender);
             runtime.diagnostic(kind, DiagnosticLevel::Info, "start", "connecting", 0);
             let mut retry_count = 0_u32;
-            let result = loop {
+            let mut result = loop {
                 if *shutdown_receiver.borrow() {
                     if let Some(startup_sender) = startup_sender.take() {
                         let _ = startup_sender
@@ -416,10 +437,15 @@ impl ConnectorRuntimeManager {
                     break Ok(());
                 }
                 let (ready_sender, ready_receiver) = oneshot::channel();
-                let run = adapter.run(sender.clone(), shutdown_receiver.clone(), ready_sender);
+                let run = AssertUnwindSafe(adapter.run(
+                    sender.clone(),
+                    shutdown_receiver.clone(),
+                    ready_sender,
+                ))
+                .catch_unwind();
                 tokio::pin!(run);
                 let run_result = tokio::select! {
-                    result = &mut run => result,
+                    result = &mut run => contain_connector_panic(result),
                     ready = ready_receiver => {
                         match ready {
                             Ok(()) => {
@@ -442,7 +468,7 @@ impl ConnectorRuntimeManager {
                                     "connected",
                                     0,
                                 );
-                                run.await
+                                contain_connector_panic(run.await)
                             }
                             Err(_) => Err(ConnectorRuntimeError::new("connector-readiness-closed")),
                         }
@@ -480,6 +506,14 @@ impl ConnectorRuntimeManager {
                     }
                 }
             };
+            if let Some(startup_sender) = startup_sender.take() {
+                let error = match &result {
+                    Ok(()) => ConnectorRuntimeError::new("connector-exited-before-ready"),
+                    Err(error) => error.clone(),
+                };
+                let _ = startup_sender.send(Err(error.clone()));
+                result = Err(error);
+            }
             processor.abort();
             let mut state = worker.state.lock().await;
             if !state.status.is_generation(generation) {
@@ -562,7 +596,27 @@ impl ConnectorRuntimeManager {
             .keys()
             .copied()
             .collect::<Vec<_>>();
-        let mut first_error = None;
+        let drained = tokio::time::timeout(SHUTDOWN_DRAIN_TIMEOUT, async {
+            while self.pending.current.load(Ordering::Acquire) != 0 {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .is_ok();
+        let mut first_error = if drained {
+            None
+        } else {
+            for kind in &kinds {
+                self.diagnostic(
+                    *kind,
+                    DiagnosticLevel::Warn,
+                    "shutdown",
+                    "pending-delivery-timeout",
+                    0,
+                );
+            }
+            Some(ConnectorRuntimeError::new("pending-delivery-timeout"))
+        };
         for kind in kinds {
             if let Err(error) = self.stop(kind).await {
                 self.diagnostic(
@@ -861,6 +915,17 @@ impl ConnectorRuntimeManager {
                     message_id: message_id.clone(),
                 })?;
         }
+        self.handler.diagnostic(ConnectorDiagnostic {
+            level: DiagnosticLevel::Info,
+            connector,
+            operation: "deliver-final",
+            safe_code: "delivered".to_string(),
+            retry_count: 0,
+            internal_session_id: session_id,
+            internal_message_id: message_id,
+            platform_status_code: None,
+            retry_classification: None,
+        });
         Ok(())
     }
 }
@@ -918,6 +983,7 @@ mod tests {
     use super::*;
     use std::collections::{HashMap, HashSet};
     use std::sync::atomic::AtomicUsize;
+    use tokio::sync::Notify;
 
     struct FakeAgent {
         seen: AsyncMutex<HashSet<(ConnectorKind, String)>>,
@@ -991,6 +1057,11 @@ mod tests {
         sends: AtomicUsize,
     }
 
+    struct GatedSendAdapter {
+        started: Arc<Notify>,
+        release: Arc<Notify>,
+    }
+
     struct TrackingRuntimeAdapter {
         kind: ConnectorKind,
         starts: AtomicUsize,
@@ -1000,6 +1071,10 @@ mod tests {
     }
 
     struct StubbornRuntimeAdapter;
+
+    struct EarlyExitAdapter;
+
+    struct PanickingAdapter;
 
     #[async_trait]
     impl InboundAgent for BlockingAgent {
@@ -1211,6 +1286,62 @@ mod tests {
         }
     }
 
+    #[async_trait]
+    impl ConnectorAdapter for EarlyExitAdapter {
+        fn kind(&self) -> ConnectorKind {
+            ConnectorKind::Feishu
+        }
+
+        fn max_outbound_chars(&self) -> usize {
+            20_000
+        }
+
+        async fn test_connection(&self) -> Result<(), ConnectorRuntimeError> {
+            Ok(())
+        }
+
+        async fn run(
+            &self,
+            _inbound: mpsc::Sender<InboundDelivery>,
+            _shutdown: watch::Receiver<bool>,
+            _ready: oneshot::Sender<()>,
+        ) -> Result<(), ConnectorRuntimeError> {
+            Ok(())
+        }
+
+        async fn send_text(&self, _outbound: OutboundText) -> Result<(), ConnectorRuntimeError> {
+            Ok(())
+        }
+    }
+
+    #[async_trait]
+    impl ConnectorAdapter for PanickingAdapter {
+        fn kind(&self) -> ConnectorKind {
+            ConnectorKind::Feishu
+        }
+
+        fn max_outbound_chars(&self) -> usize {
+            20_000
+        }
+
+        async fn test_connection(&self) -> Result<(), ConnectorRuntimeError> {
+            Ok(())
+        }
+
+        async fn run(
+            &self,
+            _inbound: mpsc::Sender<InboundDelivery>,
+            _shutdown: watch::Receiver<bool>,
+            _ready: oneshot::Sender<()>,
+        ) -> Result<(), ConnectorRuntimeError> {
+            panic!("fixture transport panic");
+        }
+
+        async fn send_text(&self, _outbound: OutboundText) -> Result<(), ConnectorRuntimeError> {
+            Ok(())
+        }
+    }
+
     fn inbound(event_id: &str) -> NormalizedInbound {
         inbound_chat(event_id, "same-chat")
     }
@@ -1342,6 +1473,23 @@ mod tests {
             .any(
                 |event| event.operation == "ignore-inbound" && event.safe_code == "duplicate-event"
             ));
+        {
+            let diagnostics = agent.diagnostics.lock().unwrap();
+            let deliveries = diagnostics
+                .iter()
+                .filter(|event| {
+                    event.operation == "deliver-final" && event.safe_code == "delivered"
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(deliveries.len(), 5);
+            assert!(deliveries.iter().all(|event| {
+                event.level == DiagnosticLevel::Info
+                    && event.internal_session_id.is_some()
+                    && event.internal_message_id.is_some()
+                    && event.platform_status_code.is_none()
+                    && event.retry_classification.is_none()
+            }));
+        }
         assert!(runtime
             .health()
             .await
@@ -1497,6 +1645,86 @@ mod tests {
         assert_eq!(adapter.attempts.load(Ordering::Acquire), 1);
     }
 
+    #[async_trait]
+    impl ConnectorAdapter for GatedSendAdapter {
+        fn kind(&self) -> ConnectorKind {
+            ConnectorKind::Feishu
+        }
+
+        fn max_outbound_chars(&self) -> usize {
+            2_000
+        }
+
+        async fn test_connection(&self) -> Result<(), ConnectorRuntimeError> {
+            Ok(())
+        }
+
+        async fn run(
+            &self,
+            _inbound: mpsc::Sender<InboundDelivery>,
+            mut shutdown: watch::Receiver<bool>,
+            ready: oneshot::Sender<()>,
+        ) -> Result<(), ConnectorRuntimeError> {
+            let _ = ready.send(());
+            let _ = shutdown.changed().await;
+            Ok(())
+        }
+
+        async fn send_text(&self, _outbound: OutboundText) -> Result<(), ConnectorRuntimeError> {
+            self.started.notify_one();
+            self.release.notified().await;
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn exit_before_readiness_returns_a_specific_startup_error() {
+        let agent = Arc::new(FakeAgent {
+            seen: AsyncMutex::new(HashSet::new()),
+            bindings: AsyncMutex::new(HashMap::new()),
+            diagnostics: Mutex::new(Vec::new()),
+        });
+        let runtime = ConnectorRuntimeManager::new(agent);
+        runtime.register(Arc::new(EarlyExitAdapter)).await;
+
+        assert_eq!(
+            runtime
+                .start(ConnectorKind::Feishu)
+                .await
+                .expect_err("early exit")
+                .safe_code,
+            "connector-exited-before-ready"
+        );
+        assert_eq!(
+            runtime.health().await[0].safe_error_code.as_deref(),
+            Some("connector-exited-before-ready")
+        );
+    }
+
+    #[tokio::test]
+    async fn panic_before_readiness_is_contained_and_returns_a_safe_error() {
+        let agent = Arc::new(FakeAgent {
+            seen: AsyncMutex::new(HashSet::new()),
+            bindings: AsyncMutex::new(HashMap::new()),
+            diagnostics: Mutex::new(Vec::new()),
+        });
+        let runtime = ConnectorRuntimeManager::new(agent);
+        runtime.register(Arc::new(PanickingAdapter)).await;
+
+        assert_eq!(
+            runtime
+                .start(ConnectorKind::Feishu)
+                .await
+                .expect_err("panic must fail startup")
+                .safe_code,
+            "connector-runtime-panicked"
+        );
+        assert_eq!(
+            runtime.health().await[0].safe_error_code.as_deref(),
+            Some("connector-runtime-panicked")
+        );
+    }
+
     #[tokio::test]
     async fn coordinated_replace_never_orphans_workers_and_restores_previous_on_start_failure() {
         let agent = Arc::new(FakeAgent {
@@ -1582,6 +1810,38 @@ mod tests {
             "shutdown-timeout"
         );
         assert_eq!(responsive.active.load(Ordering::Acquire), 0);
+    }
+
+    #[tokio::test]
+    async fn shutdown_waits_for_an_admitted_final_delivery() {
+        let agent = Arc::new(CountingAgent {
+            handles: AtomicUsize::new(0),
+            diagnostics: Mutex::new(Vec::new()),
+        });
+        let started = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let adapter = Arc::new(GatedSendAdapter {
+            started: Arc::clone(&started),
+            release: Arc::clone(&release),
+        });
+        let runtime = ConnectorRuntimeManager::new(agent);
+        runtime.register(adapter.clone()).await;
+        runtime
+            .accept_inbound(adapter, inbound("shutdown-drain"))
+            .await
+            .expect("admit final delivery");
+        tokio::time::timeout(Duration::from_secs(1), started.notified())
+            .await
+            .expect("send started");
+
+        let shutdown_runtime = Arc::clone(&runtime);
+        let shutdown = tokio::spawn(async move { shutdown_runtime.shutdown().await });
+        tokio::time::sleep(Duration::from_millis(25)).await;
+        assert!(!shutdown.is_finished());
+
+        release.notify_one();
+        shutdown.await.expect("join shutdown").expect("shutdown");
+        assert_eq!(runtime.capacity_snapshot().total_pending, 0);
     }
 
     #[tokio::test]

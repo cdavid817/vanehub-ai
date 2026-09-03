@@ -20,7 +20,7 @@ VaneHub AI 的界面按功能讲解界面里能做什么。每个功能讲它是
 
 ### 活动栏导航
 
-会话列表左侧的活动栏切换主要功能区：**会话 / 循环工程 / 目标中心 / 任务看板 / Agent 评测 / 定时任务 / 设置 / 帮助**。
+会话列表左侧的活动栏切换主要功能区：**会话 / 循环工程 / 任务看板 / 目标中心 / Agent 评测 / 任务控制台 / 定时任务 / 设置 / 帮助**。
 
 ## Agent 类型
 
@@ -137,28 +137,30 @@ Agent 回复支持富内容渲染：代码块（语法高亮）、Mermaid 图（
 
 ## 设置中心
 
-左侧活动栏的**设置**进入设置中心，左侧是设置项导航，右侧是配置页。共 18 个设置页：
+左侧活动栏的**设置**进入设置中心，左侧是设置项导航，右侧是配置页。共 20 个设置页：
 
 | 设置页 | 内容 |
 | --- | --- |
 | **基础配置** | 见[下一节](#基础配置) |
 | **CLI 管理** | 各 CLI 的安装检测、冲突诊断与升级，见 [安装并认证 CLI](getting-started.md) |
 | **CLI 参数** | 按 CLI Agent 配置启动参数，见 [工具与扩展](tooling.md#cli-参数) |
-| **SDK 依赖** | 受管 SDK 的版本管理，见 [工具与扩展](tooling.md#sdk-依赖) |
 | **扩展能力** | 本地多模态能力的安装与启停，见 [工具与扩展](tooling.md#扩展能力) |
 | **插件集成** | 内置产品集成与就绪检测，见 [插件集成](plugin-integration.md) |
 | **MCP 服务器** | MCP server 配置与按 Agent 绑定，见 [MCP 服务器](mcp.md) |
 | **Agent 配置** | 按 Agent 配置 provider、端点与模型（含 OnePiece），见 [工具与扩展](tooling.md#agent-配置) |
 | **Agent 权限策略** | 权限策略与审批模板，见 [权限审批](permissions.md) |
 | **专家角色** | 角色与评审策略，见 [专家角色](expert-roles.md) |
-| **个性化** | Custom Instructions 与跨会话记忆，见 [个性化](personalization.md) |
+| **AI 个性化** | Custom Instructions 与跨会话记忆，见 [个性化](personalization.md) |
 | **Skill 管理** | Skill 安装与绑定，见 [Skill 管理](skill-management.md) |
 | **Prompt Hook** | 钩子管理，见 [Prompt Hook](prompt-hooks.md) |
 | **IM 能力** | IM 连接器配置，见 [远程与 IM](remote-and-im.md#im-连接器) |
 | **SSH 连接** | 保存的 SSH 连接，见 [远程与 IM](remote-and-im.md#ssh-远程工作区) |
 | **执行可观测性** | 执行追踪与日志采集策略，见 [可观测性](observability.md) |
 | **使用统计** | Token 用量统计，见 [定时与用量](automation.md) |
+| **代码智能** | 语言服务器启用、发现与工作区信任，见 [LSP 代码智能](lsp-code-intelligence.md) |
+| **本地媒体** | 本地 OCR、语音识别与语音合成引擎，见 [本地媒体](local-media.md) |
 | **关于** | 版本、更新检查、changelog、仓库链接，见 [版本更新](app-updates.md) |
+| **使用文档** | 以你的界面语言渲染随应用附带的产品文档 |
 
 ### 基础配置
 

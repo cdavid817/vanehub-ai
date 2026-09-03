@@ -11,6 +11,7 @@ import { ThinkingBlock } from "./ThinkingBlock";
 import { ToolUseBlock } from "./ToolUseBlock";
 import { WaitingIndicator } from "./WaitingIndicator";
 import { MessageFeedbackControls } from "./MessageFeedbackControls";
+import { MessageMemoryMenu, type MessageMemoryContext } from "./MessageMemoryMenu";
 import { ParticipantAvatar } from "../session-roster-presence";
 import { AgentRunOwnerStatus } from "../ui/agent-run-owner-status";
 
@@ -36,9 +37,12 @@ function safeRoleColor(color: string) {
 // references for unchanged messages, so memo lets historical rows skip re-rendering
 // (and re-parsing markdown / mermaid) on every token — only the streaming row updates.
 export const MessageItem = memo(function MessageItem({
+  memoryContext,
   message,
   speaker,
 }: {
+  /** Absent outside a session, where a message has no Agent or project to remember against. */
+  memoryContext?: MessageMemoryContext | null;
   message: ChatMessage;
   /**
    * Present only in a multi-seat session. When absent the message renders exactly as it did before
@@ -115,6 +119,9 @@ export const MessageItem = memo(function MessageItem({
           <RichBlocks blocks={message.richBlocks ?? []} />
           {!isUser && message.status === "completed" ? (
             <MessageFeedbackControls feedback={message.feedback} messageId={message.id} />
+          ) : null}
+          {message.status === "completed" && message.content && memoryContext ? (
+            <MessageMemoryMenu content={message.content} context={memoryContext} />
           ) : null}
         </div>
       </div>

@@ -5,7 +5,7 @@ use crate::contexts::agent_runtime::application::{
 };
 use crate::contexts::agent_runtime::infrastructure::RuntimeAgentCodeIntelligenceAdapter;
 use crate::contexts::code_intelligence::api::{
-    CodeIntelligenceApi, LanguageFamily, LspConfiguration, ProcessState,
+    resolve_language, CodeIntelligenceApi, LspConfiguration, ProcessState,
 };
 use crate::contexts::operations::api::{DiagnosticLog, DiagnosticLogPort, OperationsError};
 use crate::platform::database::NativeDatabase;
@@ -23,6 +23,7 @@ async fn native_lsp_runtime_covers_tools_reconfiguration_trust_and_desktop_shutd
     let api = CodeIntelligenceApi::from_database(
         NativeDatabase::new(fixture.data.path().to_path_buf()).expect("database"),
         logs.clone(),
+        fixture.data.path().join("state"),
     );
     let adapter = Arc::new(RuntimeAgentCodeIntelligenceAdapter::new(Arc::new(
         NativeCodeIntelligenceResponder::new(api.clone()),
@@ -39,9 +40,14 @@ async fn native_lsp_runtime_covers_tools_reconfiguration_trust_and_desktop_shutd
     assert_eq!(
         tool_names,
         [
+            "find_call_hierarchy",
             "find_definition",
+            "find_implementations",
             "find_references",
+            "find_type_definition",
+            "find_workspace_symbols",
             "get_diagnostics",
+            "get_document_symbols",
             "get_hover",
         ]
     );
@@ -353,7 +359,11 @@ impl NativeLspFixture {
         };
         let rust = configuration
             .languages
-            .get_mut(&LanguageFamily::Rust)
+            .get_mut(
+                &resolve_language("rust")
+                    .expect("rust is registered")
+                    .language_id(),
+            )
             .expect("Rust configuration");
         rust.enabled = true;
         rust.executable_override = Some(self.executable.to_string_lossy().into_owned());

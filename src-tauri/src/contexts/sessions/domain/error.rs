@@ -11,11 +11,14 @@ pub(crate) enum ArchivedSessionAction {
 pub(crate) enum SessionsDomainError {
     IdentityRequired(&'static str),
     IdentityContainsControl(&'static str),
+    SystemActivitySessionRefused,
     SessionTitleRequired,
     CategoryNameRequired,
     ConnectorRequired,
     ConnectorCannotActivate,
     InvalidLoopRole(String),
+    UnknownPersonalizationMode(String),
+    ProjectOnlySessionRequiresWorkspace,
     ArchivedSession {
         session_id: String,
         action: ArchivedSessionAction,
@@ -55,6 +58,9 @@ impl fmt::Display for SessionsDomainError {
             Self::IdentityContainsControl(kind) => {
                 write!(formatter, "{kind} contains invalid control characters.")
             }
+            Self::SystemActivitySessionRefused => formatter.write_str(
+                "System activity sessions are read-only projections and accept no interactive session commands.",
+            ),
             Self::SessionTitleRequired => formatter.write_str("Session title cannot be empty."),
             Self::CategoryNameRequired => formatter.write_str("Category name cannot be empty."),
             Self::ConnectorRequired => {
@@ -64,6 +70,13 @@ impl fmt::Display for SessionsDomainError {
                 formatter.write_str("Connector-owned sessions cannot replace the active session.")
             }
             Self::InvalidLoopRole(role) => write!(formatter, "Unsupported Loop role: {role}"),
+            Self::UnknownPersonalizationMode(mode) => {
+                write!(formatter, "Unsupported session personalization mode: {mode}")
+            }
+            Self::ProjectOnlySessionRequiresWorkspace => write!(
+                formatter,
+                "A project-only session needs a workspace to be isolated to."
+            ),
             Self::ArchivedSession { session_id, action } => match action {
                 ArchivedSessionAction::Activate => {
                     write!(formatter, "Cannot switch to archived session: {session_id}")

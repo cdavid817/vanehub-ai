@@ -8,6 +8,7 @@ mod context_reinjection;
 #[cfg(test)]
 mod context_reinjection_tests;
 mod error;
+mod evidence;
 mod execution_policy;
 mod existing_tool_registry;
 mod expert_role;
@@ -25,6 +26,7 @@ mod loop_verification;
 mod loop_verifier;
 mod loop_worker;
 mod loop_worker_prompt;
+mod memory_proposals;
 mod model_category;
 mod models;
 mod native_tools;
@@ -40,6 +42,7 @@ mod seat_turn;
 #[cfg(test)]
 mod seat_turn_tests;
 mod service;
+mod structured_model_evaluation;
 mod terminal_service;
 mod tool_catalog;
 mod utility_delegation;
@@ -62,6 +65,11 @@ pub(crate) use context_reinjection::{
     ContextReinjectionService, ReinjectedContextValue,
 };
 pub(crate) use error::AgentRuntimeApplicationError;
+#[cfg(test)]
+pub(crate) use evidence::NoAgentEvidence;
+pub(crate) use evidence::{
+    AgentEvidenceObservation, AgentEvidencePort, AgentEvidenceSignal, AgentRunEvidenceOutcome,
+};
 pub(crate) use execution_policy::{resolve_effective_execution_policy, SessionExecutionMode};
 pub(crate) use existing_tool_registry::{ExistingToolHandler, ExistingToolHandlerRegistry};
 pub(crate) use expert_role::{
@@ -95,21 +103,24 @@ pub(crate) use loop_verification::{
 };
 pub(crate) use loop_verifier::{LoopVerifierApplicationPorts, LoopVerifierApplicationService};
 pub(crate) use loop_worker::{LoopWorkerApplicationPorts, LoopWorkerApplicationService};
+pub(crate) use memory_proposals::{proposals_from_actions, render_existing_manifest};
 #[cfg(test)]
 pub(crate) use models::AgentLaunchView;
 // `format_memory_bodies` and `MemoryIndexBounds` are consumed by tasks 2 and 3, which add the
 // relevance selection that produces bodies. Until then only the index half of the split is wired.
 #[allow(unused_imports)]
 pub(crate) use models::{
-    format_memory_bodies, format_memory_index, resume_thread_for, ActiveGenerationCorrelation,
-    AgentChatConfiguration, AgentCoreInstructions, AgentEvent, AgentFileReference,
-    AgentInvocationUsage, AgentLog, AgentLogLevel, AgentMemory, AgentMessage, AgentMessageSource,
+    format_memory_bodies, format_memory_index, memory_from_ref, resume_thread_for,
+    ActiveGenerationCorrelation, AgentChatConfiguration, AgentCoreInstructions, AgentEvent,
+    AgentFileReference, AgentInvocationUsage, AgentLog, AgentLogLevel, AgentMemory,
+    AgentMemoryAccess, AgentMemoryDelivery, AgentMemoryRef, AgentMessage, AgentMessageSource,
     AgentMessageTerminal, AgentMessageTerminalOutcome, AgentMessageTerminalReceiver,
-    AgentOperation, AgentSession, AgentSessionDetails, AgentSessionRunnerTarget, AgentSessionSeat,
-    AgentSkillReadRequest, AgentTerminalCapability, AgentTerminalEvent, AgentTerminalInputRequest,
-    AgentTerminalProcessRequest, AgentTerminalSession, AgentTerminalSize, AgentTerminalState,
-    AgentToolCallOutcome, AgentUsageAccountingKind, AgentUsageOverlap, AgentUsageRecord, AgentView,
-    ApiProviderConfig, BoundSkillPrompt, CliProfileSnapshot, CompleteAgentMessage,
+    AgentOperation, AgentPersonalizationSnapshot, AgentSession, AgentSessionDetails,
+    AgentSessionRunnerTarget, AgentSessionSeat, AgentSkillReadRequest, AgentTerminalCapability,
+    AgentTerminalEvent, AgentTerminalInputRequest, AgentTerminalProcessRequest,
+    AgentTerminalSession, AgentTerminalSize, AgentTerminalState, AgentToolCallOutcome,
+    AgentUsageAccountingKind, AgentUsageOverlap, AgentUsageRecord, AgentView, ApiProviderConfig,
+    BoundSkillPrompt, CliProfileSnapshot, CompleteAgentMessage,
     DiscoverOnePieceProviderModelsInput, DurableAgentGenerationMessages,
     DurableAgentGenerationStart, EffectivePrompt, EmbeddingEndpointView, FrozenEndpointProfile,
     GenerationCancellation, GenerationLease, GenerationProcessEvent, GenerationProcessFailure,
@@ -122,20 +133,20 @@ pub(crate) use models::{
     OnePieceModelDiscoveryRequest, OnePieceProviderConfig, OnePieceProviderEndpoint,
     OnePieceProviderModelDiscoveryResult, OnePieceProviderModelOption, OnePieceProviderPreset,
     OnePieceProviderProfile, OnePieceProviderProfiles, OpenAgentTerminalRequest,
-    PendingPromptExecution, PersonalizationSettings, ProcessStopInitiator, PromptExecutionOutcome,
-    PromptExecutionReport, PromptTrace, PromptVersionReference,
-    ProviderCredentialProbeAuthentication, ProviderCredentialProbeProtocol,
-    ProviderCredentialProbeRequest, ProviderCredentialValidationResult,
-    ProviderCredentialValidationStatus, ReadinessView, RecoverSessionResult, RegisterApiAgentInput,
-    ReportedUsageTotals, ResizeAgentTerminalRequest, SaveCustomOnePieceProviderProfileInput,
-    SaveMemoryInput, SaveOnePieceProviderConfigInput, SaveOnePieceProviderProfileInput,
-    SeatTurnOwnership, SeatTurnTerminal, SendMessageRequest, SkillToolUseProvenance,
-    StartedAgentMessage, StartedGenerationProcess, StopAgentTerminalRequest, StopGenerationResult,
-    StoredEndpointProfileMetadata, StoredHybridRoutingRule, StoredOnePieceProviderConfig,
-    StoredOnePieceProviderProfile, ToolApprovalDecision, ToolDefinition, ToolLifecycleEvent,
-    ToolLifecyclePhase, ToolUseBlock, UpdateApiAgentInput, ValidateOnePieceProviderCredentialInput,
-    WorkflowLaunchOutcome, WorkflowLaunchRequest, WorkflowView, CLI_MEMORY_INDEX_BOUNDS,
-    INTERFACE_FORMAT_ANTHROPIC, INTERFACE_FORMAT_OPENAI_COMPATIBLE, ONEPIECE_MEMORY_INDEX_BOUNDS,
+    PendingPromptExecution, ProcessStopInitiator, PromptExecutionOutcome, PromptExecutionReport,
+    PromptTrace, PromptVersionReference, ProviderCredentialProbeAuthentication,
+    ProviderCredentialProbeProtocol, ProviderCredentialProbeRequest,
+    ProviderCredentialValidationResult, ProviderCredentialValidationStatus, ReadinessView,
+    RecoverSessionResult, RegisterApiAgentInput, ReportedUsageTotals, ResizeAgentTerminalRequest,
+    SaveCustomOnePieceProviderProfileInput, SaveMemoryInput, SaveOnePieceProviderConfigInput,
+    SaveOnePieceProviderProfileInput, SeatTurnOwnership, SeatTurnTerminal, SendMessageRequest,
+    SkillToolUseProvenance, StartedAgentMessage, StartedGenerationProcess,
+    StopAgentTerminalRequest, StopGenerationResult, StoredEndpointProfileMetadata,
+    StoredHybridRoutingRule, StoredOnePieceProviderConfig, StoredOnePieceProviderProfile,
+    ToolApprovalDecision, ToolDefinition, ToolLifecycleEvent, ToolLifecyclePhase, ToolUseBlock,
+    UpdateApiAgentInput, ValidateOnePieceProviderCredentialInput, WorkflowLaunchOutcome,
+    WorkflowLaunchRequest, WorkflowView, CLI_MEMORY_INDEX_BOUNDS, INTERFACE_FORMAT_ANTHROPIC,
+    INTERFACE_FORMAT_OPENAI_COMPATIBLE, ONEPIECE_MEMORY_INDEX_BOUNDS,
 };
 pub(crate) use ports::ContextQualityRepository;
 
@@ -171,16 +182,18 @@ pub(crate) use native_tools::{
 };
 pub(crate) use ports::SeatTurnCompletionPort;
 pub(crate) use ports::{
-    AgentAuthenticationPolicyPort, AgentAvailabilityGateway, AgentCliProfileGateway,
-    AgentClockPort, AgentCodeRetrievalHit, AgentCodeRetrievalOutcome, AgentCodeRetrievalPort,
-    AgentCoreInstructionsPort, AgentEventPort, AgentGenerationPort, AgentLoggingPort,
-    AgentMcpToolPort, AgentMemoryExtractionPort, AgentMemoryPort, AgentMemorySelectionPort,
-    AgentMessageTerminalCompletionPort, AgentPermissionPort, AgentPersonalizationPort,
-    AgentProcessEventSink, AgentProcessGateway, AgentRegistryRepository, AgentRetrievalHit,
-    AgentRetrievalOutcome, AgentRetrievalPort, AgentSessionGateway, AgentSkillPort, AgentTaskPort,
-    AgentTerminalEventPort, AgentTerminalGateway, AgentWorkflowRepository, ApiAgentGateway,
-    ApiCredentialPort, AuthoritativeContextPort, CanonicalLoopSignal, CanonicalRunLinks,
-    CanonicalRunOutcome, CanonicalRunSignal, ConversationHistoryPort, EffectivePromptGateway,
+    AgentAuthenticationPolicyPort, AgentAvailabilityGateway, AgentCandidateOutcome,
+    AgentCandidateSubmission, AgentCliProfileGateway, AgentClockPort, AgentCodeRetrievalHit,
+    AgentCodeRetrievalOutcome, AgentCodeRetrievalPort, AgentCoreInstructionsPort, AgentEventPort,
+    AgentGenerationPort, AgentLoggingPort, AgentMcpToolPort, AgentMemoryBody,
+    AgentMemoryExtractionPort, AgentMemoryPort, AgentMemoryProposal, AgentMemorySelectionPort,
+    AgentMessageTerminalCompletionPort, AgentPermissionPort, AgentPersonalizationSnapshotPort,
+    AgentProcessEventSink, AgentProcessGateway, AgentProposalOrigin, AgentRegistryRepository,
+    AgentRetrievalHit, AgentRetrievalOutcome, AgentRetrievalPort, AgentSessionGateway,
+    AgentSkillPort, AgentTaskPort, AgentTerminalEventPort, AgentTerminalGateway,
+    AgentWorkflowRepository, ApiAgentGateway, ApiCredentialPort, AuthoritativeContextPort,
+    CanonicalLoopSignal, CanonicalRunLinks, CanonicalRunOutcome, CanonicalRunSignal,
+    ConversationHistoryPort, EffectivePromptGateway, GenerationPersonalizationContext,
     LocalModelDiscoveryPort, LoopExecutionControlPort, LoopExecutionLeasePort,
     LoopGenerationControlPort, LoopGitStatePort, LoopIterationRepository, LoopLoggingPort,
     LoopProjectPort, LoopRepository, LoopRoleGenerationCompletionPort, LoopRoleSessionPort,
@@ -190,11 +203,13 @@ pub(crate) use ports::{
 };
 #[allow(unused_imports)]
 pub(crate) use ports::{
-    AgentCodeDiagnostic, AgentCodeHover, AgentCodeIntelligenceContext,
-    AgentCodeIntelligenceMetadata, AgentCodeIntelligenceOutcome, AgentCodeIntelligencePending,
-    AgentCodeIntelligencePort, AgentCodeIntelligenceResponderPort, AgentCodeIntelligenceStatus,
-    AgentCodeLocation, AgentCodeRange, AgentDocumentInput, AgentDocumentPositionInput,
-    AgentWorkspaceMutation, AgentWorkspaceMutationPort,
+    AgentCallDirection, AgentCallHierarchyInput, AgentCodeCallRelation, AgentCodeDiagnostic,
+    AgentCodeHover, AgentCodeIntelligenceContext, AgentCodeIntelligenceMetadata,
+    AgentCodeIntelligenceOutcome, AgentCodeIntelligencePending, AgentCodeIntelligencePort,
+    AgentCodeIntelligenceResponderPort, AgentCodeIntelligenceStatus, AgentCodeLocation,
+    AgentCodeRange, AgentCodeSymbol, AgentDocumentInput, AgentDocumentPositionInput,
+    AgentWorkspaceChangeKind, AgentWorkspaceMutation, AgentWorkspaceMutationPort,
+    AgentWorkspaceSymbolInput,
 };
 pub(crate) use provider::{
     AgentProvider, AgentProviderError, ProviderGenerationInvocationRequest,
@@ -211,18 +226,25 @@ pub(crate) use runner::{
 };
 pub(crate) use seat_turn::{SeatTurnAssignment, SeatTurnStop};
 pub(crate) use service::{AgentRuntimeApplicationPorts, AgentRuntimeApplicationService};
+pub(crate) use structured_model_evaluation::{
+    StructuredModelEvaluationError, StructuredModelEvaluationRequest,
+    StructuredModelEvaluationResult, StructuredModelEvaluationService, StructuredModelPurpose,
+    StructuredModelTransport, StructuredModelTransportRequest,
+};
 pub(crate) use terminal_service::{AgentTerminalApplicationPorts, AgentTerminalApplicationService};
 pub(crate) use tool_catalog::{
     ask_user_question_tool_definition, code_intelligence_tool_definitions,
     delegate_utility_skill_tool_definition, plan_mode_tool_catalog, recall_tool_definition,
     search_code_tool_definition, tool_catalog, ASK_USER_QUESTION_TOOL_NAME,
     DELEGATE_UTILITY_SKILL_TOOL_NAME, EDIT_TOOL_NAME, EXIT_PLAN_MODE_TOOL_NAME, FILE_TOOL_NAME,
-    FIND_DEFINITION_TOOL_NAME, FIND_REFERENCES_TOOL_NAME, GET_DIAGNOSTICS_TOOL_NAME,
-    GET_HOVER_TOOL_NAME, GLOB_TOOL_NAME, GREP_TOOL_NAME, LIST_SKILLS_TOOL_NAME,
-    LOAD_SKILL_TOOL_NAME, MAX_PLAN_CHARS, MAX_QUESTION_CHARS, MAX_QUESTION_OPTIONS,
-    MAX_QUESTION_OPTION_CHARS, MCP_TOOL_NAME_PREFIX, MIN_QUESTION_OPTIONS, NOTEBOOK_TOOL_NAME,
-    READ_SKILL_RESOURCE_TOOL_NAME, RECALL_TOOL_NAME, REMEMBER_TOOL_NAME, SEARCH_CODE_TOOL_NAME,
-    SHELL_KILL_TOOL_NAME, SHELL_OUTPUT_TOOL_NAME, SHELL_TOOL_NAME, TODO_WRITE_TOOL_NAME,
+    FIND_CALL_HIERARCHY_TOOL_NAME, FIND_DEFINITION_TOOL_NAME, FIND_IMPLEMENTATIONS_TOOL_NAME,
+    FIND_REFERENCES_TOOL_NAME, FIND_TYPE_DEFINITION_TOOL_NAME, FIND_WORKSPACE_SYMBOLS_TOOL_NAME,
+    GET_DIAGNOSTICS_TOOL_NAME, GET_DOCUMENT_SYMBOLS_TOOL_NAME, GET_HOVER_TOOL_NAME, GLOB_TOOL_NAME,
+    GREP_TOOL_NAME, LIST_SKILLS_TOOL_NAME, LOAD_SKILL_TOOL_NAME, MAX_PLAN_CHARS,
+    MAX_QUESTION_CHARS, MAX_QUESTION_OPTIONS, MAX_QUESTION_OPTION_CHARS, MCP_TOOL_NAME_PREFIX,
+    MIN_QUESTION_OPTIONS, NOTEBOOK_TOOL_NAME, READ_SKILL_RESOURCE_TOOL_NAME, RECALL_TOOL_NAME,
+    REMEMBER_TOOL_NAME, SEARCH_CODE_TOOL_NAME, SHELL_KILL_TOOL_NAME, SHELL_OUTPUT_TOOL_NAME,
+    SHELL_TOOL_NAME, TODO_WRITE_TOOL_NAME,
 };
 pub(crate) use utility_delegation::{
     UtilityChildExecutionOutcome, UtilityChildExecutionPort, UtilityDelegationApplicationPorts,

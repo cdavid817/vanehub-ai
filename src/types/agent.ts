@@ -1,3 +1,5 @@
+import type { SessionPersonalizationMode } from "./personalization";
+
 export type InteractionMode = "browser" | "native-desktop" | "cli" | "api";
 
 export type AvailabilityState =
@@ -349,6 +351,8 @@ export interface UpdateSessionSeatsInput {
 
 export interface Session {
   id: string;
+  /** The mode this session was created with. It never changes for an existing session. */
+  personalizationMode: SessionPersonalizationMode;
   title: string;
   agentId: string;
   /**
@@ -525,6 +529,8 @@ export interface CreateSessionInput {
    */
   seats?: SessionSeat[];
   interactionMode: InteractionMode;
+  /** Absent means `standard`, matching what the native side defaults an omitted mode to. */
+  personalizationMode?: SessionPersonalizationMode;
   title?: string;
   folder?: string | null;
   projectPath?: string | null;
@@ -596,64 +602,6 @@ export type AgentTerminalEvent =
       sessionId: string;
       runtimeSessionId: string;
     };
-
-export type CliVersionCheckStatus =
-  "unsupported" | "not-detected" | "succeeded" | "failed";
-export type CliEnvironmentType = "windows" | "macos" | "linux" | "unknown";
-export type CliInstallSource =
-  | "npm"
-  | "winget"
-  | "desktop"
-  | "homebrew"
-  | "volta"
-  | "bun"
-  | "vendor"
-  | "system"
-  | "unknown";
-export type CliConflictState =
-  "none" | "multiple" | "version-mismatch" | "runnable-mismatch";
-export type CliLifecycleEligibility =
-  "npm" | "wget" | "winget" | "manual" | "unavailable";
-
-export interface CliInstallation {
-  path: string;
-  version: string | null;
-  runnable: boolean;
-  error: string | null;
-  source: CliInstallSource;
-  environmentType: CliEnvironmentType;
-  isActive: boolean;
-}
-
-export interface CliToolStatus {
-  agentId: string;
-  displayName: string;
-  provider: string;
-  executableName: string;
-  /** Null for CLIs distributed only by installer script, which have no npm package. */
-  packageName: string | null;
-  installed: boolean | null;
-  currentVersion: string | null;
-  latestVersion: string | null;
-  availableVersions: string[];
-  detectedPath: string | null;
-  installCommand: string;
-  lastCheckedAt: string | null;
-  lastError: string | null;
-  lastOperationId: string | null;
-  versionCheckStatus: CliVersionCheckStatus;
-  environmentType: CliEnvironmentType;
-  installations: CliInstallation[];
-  activeInstallationPath: string | null;
-  conflictState: CliConflictState;
-  lifecycleEligibility: CliLifecycleEligibility;
-}
-
-export interface CliPackageOperationInput {
-  agentId: string;
-  targetVersion: string;
-  confirmedActivePath?: string | null;
-}
 
 export const managedCliAgentIds = [
   "claude-code",

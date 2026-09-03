@@ -25,6 +25,8 @@ const fixtureRoot = process.env.VANEHUB_APP_DATA_DIR
 const stamp = Date.now().toString(36);
 const definitions = [];
 let repository = null;
+let workerAgentId = null;
+let verifierAgentId = null;
 
 /**
  * Loop Engineering's durable side: definitions, their validation rules, and the guards on the run
@@ -60,8 +62,8 @@ function definitionInput(overrides = {}) {
     acceptanceCriteria: ["The seed file still exists."],
     allowedPaths: ["seed.txt"],
     protectedPaths: [],
-    workerAgentId: "codex-cli",
-    verifierAgentId: "claude-code",
+    workerAgentId,
+    verifierAgentId,
     verificationCommands: [{
       id: "verify-seed",
       program: "git",
@@ -89,6 +91,27 @@ globalThis.describe("VaneHub AI desktop Loop Engineering domain", () => {
       async () => (await root.getAttribute("data-vanehub-bootstrap")) === "ready",
       { timeout: 120_000, timeoutMsg: "React bootstrap did not become ready." },
     );
+    // Bootstrap starts CLI discovery in the background. Loop validation checks both selected
+    // Agents synchronously, so wait for a forced snapshot instead of racing whichever Agent the
+    // startup operation happened to probe first.
+    const refresh = await invoke(({ core }) => core.invoke("refresh_cli_environment", {
+      agentIds: ["claude-code", "codex-cli", "gemini-cli", "opencode", "antigravity-cli"],
+      forceCatalog: false,
+    }));
+    const settled = await globalThis.browser.waitUntil(async () => {
+      const status = await invoke(
+        ({ core }, operationId) => core.invoke("get_operation_status", { operationId }),
+        refresh.operationId,
+      );
+      return ["succeeded", "failed", "cancelled"].includes(status.status) ? status : false;
+    }, { timeout: 120_000, interval: 500, timeoutMsg: "Loop Agent detection never settled." });
+    assert.equal(settled.status, "succeeded", settled.error ?? "Loop Agent detection failed");
+    const agents = await invoke(({ core }) => core.invoke("list_agents", { capabilityTag: null }));
+    const available = agents.filter((agent) => agent.availabilityState === "available"
+      && agent.supportedInteractionModes.includes("cli"));
+    assert.ok(available.length >= 2,
+      `Loop CRUD requires two available fixture Agents, found ${available.map((agent) => agent.id).join(", ")}`);
+    [workerAgentId, verifierAgentId] = available.slice(0, 2).map((agent) => agent.id);
     repository = await createRepository();
   });
 
@@ -99,8 +122,8 @@ globalThis.describe("VaneHub AI desktop Loop Engineering domain", () => {
 
     assert.equal(created.name, input.name);
     assert.equal(comparableFilesystemPath(created.projectPath), comparableFilesystemPath(repository));
-    assert.equal(created.workerAgentId, "codex-cli");
-    assert.equal(created.verifierAgentId, "claude-code");
+    assert.equal(created.workerAgentId, workerAgentId);
+    assert.equal(created.verifierAgentId, verifierAgentId);
     assert.deepEqual(created.acceptanceCriteria, input.acceptanceCriteria);
     assert.equal(created.verificationCommands.length, 1);
     assert.equal(created.verificationCommands[0].program, "git");

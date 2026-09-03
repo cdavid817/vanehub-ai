@@ -14,6 +14,7 @@ pub(crate) struct NativeCopy {
     pub(crate) communications_pairing_invalid: &'static str,
     pub(crate) communications_pairing_established: &'static str,
     pub(crate) communications_completion: &'static str,
+    pub(crate) communications_invalid_seat: &'static str,
 }
 
 impl NativeCopy {
@@ -32,6 +33,7 @@ impl NativeCopy {
                 communications_pairing_invalid: "配对码无效或已过期。",
                 communications_pairing_established: "IM 连接已建立。",
                 communications_completion: "会话任务已完成。",
+                communications_invalid_seat: "提及的席位不可用。可用席位：",
             },
             ApplicationLanguage::English => Self {
                 tray_show: "Show VaneHub AI",
@@ -46,6 +48,7 @@ impl NativeCopy {
                 communications_pairing_invalid: "The pairing code is invalid or expired.",
                 communications_pairing_established: "IM connection established.",
                 communications_completion: "The session task has completed.",
+                communications_invalid_seat: "The mentioned seat is unavailable. Valid seats:",
             },
             ApplicationLanguage::ChineseTraditional => Self {
                 tray_show: "顯示 VaneHub AI",
@@ -60,6 +63,7 @@ impl NativeCopy {
                 communications_pairing_invalid: "配對碼無效或已過期。",
                 communications_pairing_established: "IM 連線已建立。",
                 communications_completion: "工作階段任務已完成。",
+                communications_invalid_seat: "提及的席位無法使用。可用席位：",
             },
             ApplicationLanguage::Japanese => Self {
                 tray_show: "VaneHub AI を表示",
@@ -74,6 +78,7 @@ impl NativeCopy {
                 communications_pairing_invalid: "ペアリングコードが無効か、期限切れです。",
                 communications_pairing_established: "IM 接続が確立されました。",
                 communications_completion: "セッションタスクが完了しました。",
+                communications_invalid_seat: "指定された席は利用できません。利用可能な席：",
             },
             ApplicationLanguage::Korean => Self {
                 tray_show: "VaneHub AI 표시",
@@ -88,6 +93,7 @@ impl NativeCopy {
                 communications_pairing_invalid: "페어링 코드가 잘못되었거나 만료되었습니다.",
                 communications_pairing_established: "IM 연결이 설정되었습니다.",
                 communications_completion: "세션 작업이 완료되었습니다.",
+                communications_invalid_seat: "언급한 좌석을 사용할 수 없습니다. 사용 가능한 좌석:",
             },
         }
     }
@@ -117,6 +123,7 @@ mod tests {
             assert!(!copy.communications_pairing_invalid.is_empty(), "{id}");
             assert!(!copy.communications_pairing_established.is_empty(), "{id}");
             assert!(!copy.communications_completion.is_empty(), "{id}");
+            assert!(!copy.communications_invalid_seat.is_empty(), "{id}");
         }
     }
 

@@ -10,6 +10,7 @@
 
 # Agent 执行
 
+- [单 Agent 治理：五控制面模型](single-agent-control-planes.md)
 - [Agent 生命周期与 provider 运行时](agent-lifecycle.md)
 - [OnePiece native Agent](onepiece-native-agent.md)
 - [OnePiece 内置工具](onepiece-builtin-tools.md)
@@ -28,6 +29,7 @@
 # 上下文与检索
 
 - [上下文压缩](context-compaction.md)
+- [个性化治理](personalization-governance.md)
 - [跨会话记忆](cross-session-memory.md)
 - [检索与向量搜索](retrieval.md)
 - [Tree-sitter 代码索引](tree-sitter-code-indexing.md)
@@ -41,11 +43,13 @@
 - [Skill 演进证据](skill-evolution-evidence.md)
 - [MCP 工具与客户端](mcp-tools.md)
 - [IM connector](im-connectors.md)
+- [飞书真实环境资格验证](feishu-live-qualification.md)
 
 # 策略与可观测
 
 - [权限模型](permission-model.md)
 - [执行可观测性与 Agent 评测](execution-observability.md)
+- [会话工作区证据控制台](session-workspace-console.md)
 - [持久化与统一日志](persistence-and-logging.md)
 - [使用统计](usage-statistics.md)
 
@@ -57,3 +61,4 @@
 # 参考
 
 - [Native API 参考](native-api-reference.md)
+- [Skill Tool 运行时安全](skill-tool-runtime-security.md)

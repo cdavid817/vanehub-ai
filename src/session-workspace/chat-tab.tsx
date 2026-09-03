@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import type { Session } from "../types/agent";
 import type { ChatMessage } from "../types/chat";
 import { MessageList } from "../components/chat/MessageList";
@@ -19,12 +19,22 @@ export function ChatTab({
   turnStatus?: TurnStatus | null;
 }) {
   const speakers = useSessionSpeakers(activeSession);
+  // Memoized on the two fields it carries. A fresh object each render would defeat `MessageItem`'s
+  // `memo`, and every historical row would re-render -- and re-parse its markdown -- on every
+  // streamed token, which is exactly what that memo exists to prevent.
+  const agentId = activeSession?.agentId ?? null;
+  const projectPath = activeSession?.projectPath ?? null;
+  const memoryContext = useMemo(
+    () => (agentId ? { agentId, projectPath } : null),
+    [agentId, projectPath],
+  );
   return (
     <div className="flex h-full min-h-0 flex-col bg-[hsl(var(--panel-muted))]" data-testid="contiguous-chat-workspace">
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {turnStatus ? <TurnStatusBar status={turnStatus} /> : null}
         <MessageList
           hasActiveSession={Boolean(activeSession)}
+          memoryContext={memoryContext}
           hasMore={messages.length >= 50}
           messages={messages}
           onLoadEarlier={onLoadEarlier}

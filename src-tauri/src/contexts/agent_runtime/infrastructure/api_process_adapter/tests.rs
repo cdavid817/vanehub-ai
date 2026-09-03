@@ -1,10 +1,11 @@
 use super::super::tools::{MAX_TASK_ITEMS, STATUS_COMPLETED, STATUS_IN_PROGRESS, STATUS_PENDING};
 use super::*;
 use crate::contexts::agent_runtime::application::{
-    AgentCodeDiagnostic, AgentCodeHover, AgentCodeIntelligenceMetadata,
-    AgentCodeIntelligenceOutcome, AgentCodeIntelligenceStatus, AgentCodeLocation,
-    AgentCodeRetrievalHit, AgentCodeRetrievalPort, AgentLaunchView, AgentRetrievalHit,
-    AgentSession, AgentView, AgentWorkspaceMutation, CliProfileSnapshot, ContextQualityRepository,
+    AgentCallHierarchyInput, AgentCodeCallRelation, AgentCodeDiagnostic, AgentCodeHover,
+    AgentCodeIntelligenceMetadata, AgentCodeIntelligenceOutcome, AgentCodeIntelligenceStatus,
+    AgentCodeLocation, AgentCodeRetrievalHit, AgentCodeRetrievalPort, AgentCodeSymbol,
+    AgentLaunchView, AgentRetrievalHit, AgentSession, AgentView, AgentWorkspaceMutation,
+    AgentWorkspaceSymbolInput, CliProfileSnapshot, ContextQualityRepository,
     GenerationProcessFailureKind, INTERFACE_FORMAT_ANTHROPIC,
 };
 use crate::contexts::agent_runtime::domain::{
@@ -18,6 +19,9 @@ use crate::contexts::skill_evolution_evidence::application::{
 };
 use crate::contexts::skill_evolution_evidence::domain::EvidenceSourceEnvelope;
 use std::collections::BTreeMap;
+use std::time::SystemTime;
+
+use super::prompt::{propose_remembered_memory, GenerationPersonalization};
 
 const MESSAGES_ENDPOINT: &str = "https://api.anthropic.com/v1/messages";
 
@@ -46,12 +50,16 @@ fn execute(
     mcp: &dyn AgentMcpToolPort,
     permissions: &dyn AgentPermissionPort,
     retrieval: &dyn AgentRetrievalPort,
-    personalization: &dyn AgentPersonalizationPort,
+    personalization: &dyn PreGovernancePersonalization,
 ) -> GenerationProcessEvent {
     let code_intelligence = super::super::RuntimeAgentCodeIntelligenceAdapter::new(Arc::new(
         super::super::UnavailableAgentCodeIntelligenceResponder,
     ));
     let mut ignored_observations = Vec::new();
+    let governed = SnapshotFromLegacyPorts {
+        personalization,
+        memories,
+    };
     execute_with_code_intelligence(
         request,
         cancelled,
@@ -64,13 +72,12 @@ fn execute(
         clock,
         skills,
         core_instructions,
-        memories,
         mcp,
         permissions,
         retrieval,
         &code_intelligence,
         &NOOP_WORKSPACE_MUTATIONS,
-        personalization,
+        &governed,
         None,
         None,
         None,
@@ -123,7 +130,7 @@ fn resolve_tool_catalog(
 fn resolve_system_prompt(
     agent_id: &str,
     core_instructions: &dyn AgentCoreInstructionsPort,
-    personalization: &dyn AgentPersonalizationPort,
+    personalization: &dyn PreGovernancePersonalization,
     skills: &dyn AgentSkillPort,
     memories: &dyn AgentMemoryPort,
     selection: &dyn AgentMemorySelectionPort,
@@ -150,7 +157,7 @@ fn resolve_system_prompt(
 fn resolve_system_prompt_with_observations(
     agent_id: &str,
     core_instructions: &dyn AgentCoreInstructionsPort,
-    personalization: &dyn AgentPersonalizationPort,
+    personalization: &dyn PreGovernancePersonalization,
     skills: &dyn AgentSkillPort,
     memories: &dyn AgentMemoryPort,
     selection: &dyn AgentMemorySelectionPort,
@@ -159,20 +166,200 @@ fn resolve_system_prompt_with_observations(
     request: &GenerationProcessRequest,
     observed_skill_revisions: &mut Vec<ObservedSkillRevision>,
 ) -> Option<String> {
-    let personalization_settings =
-        resolve_personalization_settings(personalization, logging, clock, request);
+    let governed = SnapshotFromLegacyPorts {
+        personalization,
+        memories,
+    };
+    let snapshot = governed.snapshot(GenerationPersonalizationContext {
+        agent_id: request.agent.id.clone(),
+        session_id: request.session.id.clone(),
+        folder: request.session.folder.clone(),
+        personalization_mode: "standard".to_string(),
+    });
     resolve_system_prompt_with_settings(
         agent_id,
         core_instructions,
-        &personalization_settings,
+        &snapshot,
         skills,
-        memories,
+        &governed,
         selection,
         logging,
         clock,
         request,
         observed_skill_revisions,
     )
+}
+
+/// The pre-governance settings read, as the tests below still drive it.
+///
+/// A fixture trait, not a port: the production one is gone. These tests describe a user's stored
+/// settings and expect the harness to turn them into the snapshot a runtime now resolves.
+trait PreGovernancePersonalization: Send + Sync {
+    fn settings(&self) -> Result<PreGovernanceSettings, AgentRuntimeApplicationError>;
+}
+
+/// The flat settings shape the runtime used before governance.
+///
+/// A test fixture now, not a production type: nothing reads settings this way any more. It stays
+/// because what the tests below assert — section order, budgets, degradation — is unchanged by
+/// governance, and restating each of them against a hand-built snapshot would obscure that.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PreGovernanceSettings {
+    custom_instructions_about_user: String,
+    custom_instructions_style_rules: String,
+    custom_instructions_enabled: bool,
+    memory_enabled: bool,
+    memory_tool_assisted_chats_enabled: bool,
+    automatic_context_compaction_enabled: bool,
+    context_quality_retention_days: i64,
+}
+
+impl PreGovernanceSettings {
+    fn safe_fallback() -> Self {
+        Self {
+            custom_instructions_about_user: String::new(),
+            custom_instructions_style_rules: String::new(),
+            // Enabled with nothing in it: the pre-governance fallback degraded to the behaviour
+            // before settings existed, which was an empty block rather than a disabled one.
+            custom_instructions_enabled: true,
+            memory_enabled: true,
+            memory_tool_assisted_chats_enabled: true,
+            automatic_context_compaction_enabled: true,
+            context_quality_retention_days: 30,
+        }
+    }
+
+    /// Style before the description of the user, and the heading spacing the governed renderer is
+    /// held to being byte-identical with.
+    fn custom_instructions_block(&self) -> Option<String> {
+        if !self.custom_instructions_enabled {
+            return None;
+        }
+        let mut parts = Vec::new();
+        let style = self.custom_instructions_style_rules.trim();
+        let about = self.custom_instructions_about_user.trim();
+        if !style.is_empty() {
+            parts.push(format!("### Response style\n{style}"));
+        }
+        if !about.is_empty() {
+            parts.push(format!("### About the user\n{about}"));
+        }
+        (!parts.is_empty()).then(|| format!("## Custom Instructions\n{}", parts.join("\n\n")))
+    }
+}
+
+/// Presents the pre-governance fakes through the governed snapshot port.
+///
+/// What the prompt-assembly tests in this file assert — section order, budgets, degradation on a
+/// failing dependency — is unchanged by personalization governance, so they keep their existing
+/// fixtures and reach the new call shape through this translation instead of being restated
+/// against hand-built snapshots. The translation is deliberately mechanical and decides nothing:
+/// where it does map one thing to another (an unavailable settings read to the fail-closed
+/// snapshot, the memory switch to a delivery mode), that mapping is the composition root's rule
+/// and is asserted where it lives, in `bootstrap::personalization_bridge_tests`.
+struct SnapshotFromLegacyPorts<'a> {
+    personalization: &'a dyn PreGovernancePersonalization,
+    memories: &'a dyn AgentMemoryPort,
+}
+
+impl AgentPersonalizationSnapshotPort for SnapshotFromLegacyPorts<'_> {
+    fn snapshot(&self, _context: GenerationPersonalizationContext) -> AgentPersonalizationSnapshot {
+        let Ok(settings) = self.personalization.settings() else {
+            return AgentPersonalizationSnapshot::fail_closed("policy_unavailable");
+        };
+        // Not fetched when the switch is off. The pre-governance path skipped the lookup entirely,
+        // and a test asserting that would otherwise be defeated by the harness rather than by the
+        // code it is about.
+        let stored = if settings.memory_enabled {
+            self.memories.list_all().unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        snapshot_from_legacy_settings(Ok(settings), &stored)
+    }
+
+    fn pinned_bodies(
+        &self,
+        refs: &[AgentMemoryRef],
+    ) -> Result<Vec<AgentMemoryBody>, AgentRuntimeApplicationError> {
+        let stored = self.memories.list_all()?;
+        Ok(pinned_bodies_from(refs, &stored))
+    }
+
+    fn propose_memories(
+        &self,
+        submission: AgentCandidateSubmission,
+    ) -> Result<AgentCandidateOutcome, AgentRuntimeApplicationError> {
+        Ok(AgentCandidateOutcome {
+            accepted: submission.proposals.len(),
+            rejected: 0,
+        })
+    }
+}
+
+fn snapshot_from_legacy_settings(
+    settings: Result<PreGovernanceSettings, AgentRuntimeApplicationError>,
+    stored: &[AgentMemory],
+) -> AgentPersonalizationSnapshot {
+    {
+        let Ok(settings) = settings else {
+            return AgentPersonalizationSnapshot::fail_closed("policy_unavailable");
+        };
+        let eligible: Vec<AgentMemoryRef> = if settings.memory_enabled {
+            stored
+                .iter()
+                .map(|memory| AgentMemoryRef {
+                    id: memory.id.clone(),
+                    revision: 1,
+                    name: memory.name.clone(),
+                    description: memory.description.clone(),
+                    memory_type: memory.memory_type,
+                    updated_at: memory.modified_at,
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        AgentPersonalizationSnapshot {
+            revision_token: "test-snapshot".to_string(),
+            instruction_block: settings.custom_instructions_block(),
+            memory: AgentMemoryAccess {
+                read: settings.memory_enabled,
+                explicit_save: settings.memory_enabled,
+                automatic_extraction: settings.memory_enabled,
+                automatic_extraction_in_tool_assisted_turns: settings.memory_enabled
+                    && settings.memory_tool_assisted_chats_enabled,
+                candidate_creation: settings.memory_enabled,
+                retrieval_write: settings.memory_enabled,
+                delivery: if settings.memory_enabled {
+                    AgentMemoryDelivery::IndexWithSelectedBodies
+                } else {
+                    AgentMemoryDelivery::None
+                },
+                eligible_total: eligible.len(),
+                eligible,
+                blocked_reason: (!settings.memory_enabled).then(|| "policy_denied".to_string()),
+            },
+            automatic_context_compaction_enabled: settings.automatic_context_compaction_enabled,
+            context_quality_retention_days: settings.context_quality_retention_days,
+        }
+    }
+}
+
+fn pinned_bodies_from(refs: &[AgentMemoryRef], stored: &[AgentMemory]) -> Vec<AgentMemoryBody> {
+    refs.iter()
+        .filter_map(|entry| {
+            let memory = stored.iter().find(|memory| memory.id == entry.id)?;
+            Some(AgentMemoryBody {
+                id: entry.id.clone(),
+                revision: entry.revision,
+                name: memory.name.clone(),
+                memory_type: memory.memory_type,
+                content: memory.content.clone(),
+                updated_at: entry.updated_at,
+            })
+        })
+        .collect()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -189,7 +376,53 @@ fn maybe_compact(
     clock: &dyn AgentClockPort,
     request: &GenerationProcessRequest,
     memories: &dyn AgentMemoryPort,
-    personalization: &dyn AgentPersonalizationPort,
+    personalization: &dyn PreGovernancePersonalization,
+    tool_assisted: bool,
+) -> Option<GenerationProcessEvent> {
+    let governed = SnapshotFromLegacyPorts {
+        personalization,
+        memories,
+    };
+    let snapshot = governed.snapshot(GenerationPersonalizationContext {
+        agent_id: request.agent.id.clone(),
+        session_id: request.session.id.clone(),
+        folder: request.session.folder.clone(),
+        personalization_mode: "standard".to_string(),
+    });
+    maybe_compact_with_snapshot(
+        turns,
+        wire_format,
+        client,
+        api_key,
+        model,
+        system,
+        cancelled,
+        sink,
+        logging,
+        clock,
+        request,
+        GenerationPersonalization {
+            snapshot: &snapshot,
+            port: &governed,
+        },
+        tool_assisted,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn maybe_compact_with_snapshot(
+    turns: &mut Vec<Value>,
+    wire_format: &WireFormat,
+    client: &reqwest::blocking::Client,
+    api_key: &str,
+    model: &str,
+    system: Option<&str>,
+    cancelled: &AtomicBool,
+    sink: &dyn AgentProcessEventSink,
+    logging: &dyn AgentLoggingPort,
+    clock: &dyn AgentClockPort,
+    request: &GenerationProcessRequest,
+    personalization: GenerationPersonalization<'_>,
     tool_assisted: bool,
 ) -> Option<GenerationProcessEvent> {
     if !should_compact(turns_character_count(turns)) {
@@ -217,7 +450,6 @@ fn maybe_compact(
         logging,
         clock,
         request,
-        memories,
         personalization,
         tool_assisted,
         None,
@@ -266,9 +498,7 @@ fn extract_memories(
     system: Option<&str>,
     turns_to_extract_from: &[Value],
     cancelled: &AtomicBool,
-    agent_id: &str,
-    folder: Option<&str>,
-    memories: &dyn AgentMemoryPort,
+    personalization: GenerationPersonalization<'_>,
     logging: &dyn AgentLoggingPort,
     clock: &dyn AgentClockPort,
     request: &GenerationProcessRequest,
@@ -290,9 +520,8 @@ fn extract_memories(
         system,
         turns_to_extract_from,
         cancelled,
-        agent_id,
-        folder,
-        memories,
+        personalization.port,
+        personalization.snapshot,
         logging,
         clock,
         request,
@@ -312,8 +541,6 @@ fn execute_tool_call(
     input: &Value,
     workspace_folder: Option<&str>,
     cancelled: Arc<AtomicBool>,
-    agent_id: &str,
-    memories: &dyn AgentMemoryPort,
     mcp: &dyn AgentMcpToolPort,
     retrieval: &dyn AgentRetrievalPort,
     plan_mode: bool,
@@ -323,8 +550,6 @@ fn execute_tool_call(
         input,
         workspace_folder,
         cancelled,
-        agent_id,
-        memories,
         mcp,
         retrieval,
         None,
@@ -341,8 +566,6 @@ fn execute_tool_call_with_code_intelligence(
     input: &Value,
     workspace_folder: Option<&str>,
     cancelled: Arc<AtomicBool>,
-    agent_id: &str,
-    memories: &dyn AgentMemoryPort,
     mcp: &dyn AgentMcpToolPort,
     retrieval: &dyn AgentRetrievalPort,
     code_intelligence: &dyn AgentCodeIntelligencePort,
@@ -353,8 +576,6 @@ fn execute_tool_call_with_code_intelligence(
         input,
         workspace_folder,
         cancelled,
-        agent_id,
-        memories,
         mcp,
         retrieval,
         Some(code_intelligence),
@@ -371,8 +592,6 @@ fn execute_tool_call_with_workspace_mutations(
     input: &Value,
     workspace_folder: Option<&str>,
     cancelled: Arc<AtomicBool>,
-    agent_id: &str,
-    memories: &dyn AgentMemoryPort,
     mcp: &dyn AgentMcpToolPort,
     retrieval: &dyn AgentRetrievalPort,
     workspace_mutations: &dyn AgentWorkspaceMutationPort,
@@ -383,8 +602,6 @@ fn execute_tool_call_with_workspace_mutations(
         input,
         workspace_folder,
         cancelled,
-        agent_id,
-        memories,
         mcp,
         retrieval,
         None,
@@ -401,8 +618,6 @@ fn execute_tool_call_with_skills(
     input: &Value,
     workspace_folder: Option<&str>,
     cancelled: Arc<AtomicBool>,
-    agent_id: &str,
-    memories: &dyn AgentMemoryPort,
     mcp: &dyn AgentMcpToolPort,
     retrieval: &dyn AgentRetrievalPort,
     plan_mode: bool,
@@ -413,8 +628,6 @@ fn execute_tool_call_with_skills(
         input,
         workspace_folder,
         cancelled,
-        agent_id,
-        memories,
         mcp,
         retrieval,
         None,
@@ -822,24 +1035,47 @@ impl AgentSkillPort for RecordingSkills {
     }
 }
 
-/// Always reports memory on, no custom instructions — exactly `PersonalizationSettings::
+/// Always reports memory on, no custom instructions — exactly `PreGovernanceSettings::
 /// safe_fallback()` — so every pre-existing test unaware of personalization keeps its prior
 /// behavior unchanged.
 struct NoopPersonalization;
 
-impl AgentPersonalizationPort for NoopPersonalization {
-    fn settings(&self) -> Result<PersonalizationSettings, AgentRuntimeApplicationError> {
-        Ok(PersonalizationSettings::safe_fallback())
+impl PreGovernancePersonalization for NoopPersonalization {
+    fn settings(&self) -> Result<PreGovernanceSettings, AgentRuntimeApplicationError> {
+        Ok(PreGovernanceSettings::safe_fallback())
     }
 }
 
-/// Reports a caller-chosen `PersonalizationSettings` snapshot, for tests that need specific
+impl AgentPersonalizationSnapshotPort for NoopPersonalization {
+    fn snapshot(&self, _context: GenerationPersonalizationContext) -> AgentPersonalizationSnapshot {
+        snapshot_from_legacy_settings(Ok(PreGovernanceSettings::safe_fallback()), &[])
+    }
+
+    fn pinned_bodies(
+        &self,
+        _refs: &[AgentMemoryRef],
+    ) -> Result<Vec<AgentMemoryBody>, AgentRuntimeApplicationError> {
+        Ok(Vec::new())
+    }
+
+    fn propose_memories(
+        &self,
+        submission: AgentCandidateSubmission,
+    ) -> Result<AgentCandidateOutcome, AgentRuntimeApplicationError> {
+        Ok(AgentCandidateOutcome {
+            accepted: submission.proposals.len(),
+            rejected: 0,
+        })
+    }
+}
+
+/// Reports a caller-chosen `PreGovernanceSettings` snapshot, for tests that need specific
 /// custom-instructions content or a disabled toggle rather than `NoopPersonalization`'s fixed
 /// defaults.
-struct FixedPersonalization(PersonalizationSettings);
+struct FixedPersonalization(PreGovernanceSettings);
 
-impl AgentPersonalizationPort for FixedPersonalization {
-    fn settings(&self) -> Result<PersonalizationSettings, AgentRuntimeApplicationError> {
+impl PreGovernancePersonalization for FixedPersonalization {
+    fn settings(&self) -> Result<PreGovernanceSettings, AgentRuntimeApplicationError> {
         Ok(self.0.clone())
     }
 }
@@ -847,9 +1083,9 @@ impl AgentPersonalizationPort for FixedPersonalization {
 /// Always fails, for tests asserting graceful degradation on a personalization lookup error.
 struct FailingPersonalization;
 
-impl AgentPersonalizationPort for FailingPersonalization {
-    fn settings(&self) -> Result<PersonalizationSettings, AgentRuntimeApplicationError> {
-        Err(AgentRuntimeApplicationError::Personalization(
+impl PreGovernancePersonalization for FailingPersonalization {
+    fn settings(&self) -> Result<PreGovernanceSettings, AgentRuntimeApplicationError> {
+        Err(AgentRuntimeApplicationError::Memory(
             "lookup failed".to_string(),
         ))
     }
@@ -926,6 +1162,55 @@ impl AgentCodeIntelligencePort for ReadyCodeIntelligence {
         _: &AgentDocumentInput,
         _: Arc<AtomicBool>,
     ) -> AgentCodeIntelligenceOutcome<Vec<AgentCodeDiagnostic>> {
+        ready_code_intelligence(Vec::new())
+    }
+
+    fn find_type_definition(
+        &self,
+        context: &AgentCodeIntelligenceContext,
+        input: &AgentDocumentPositionInput,
+        _: Arc<AtomicBool>,
+    ) -> AgentCodeIntelligenceOutcome<Vec<AgentCodeLocation>> {
+        self.calls
+            .lock()
+            .expect("calls")
+            .push((context.session_workspace().to_owned(), input.clone()));
+        ready_code_intelligence(Vec::new())
+    }
+
+    fn find_implementations(
+        &self,
+        _: &AgentCodeIntelligenceContext,
+        _: &AgentDocumentPositionInput,
+        _: Arc<AtomicBool>,
+    ) -> AgentCodeIntelligenceOutcome<Vec<AgentCodeLocation>> {
+        ready_code_intelligence(Vec::new())
+    }
+
+    fn find_workspace_symbols(
+        &self,
+        _: &AgentCodeIntelligenceContext,
+        _: &AgentWorkspaceSymbolInput,
+        _: Arc<AtomicBool>,
+    ) -> AgentCodeIntelligenceOutcome<Vec<AgentCodeSymbol>> {
+        ready_code_intelligence(Vec::new())
+    }
+
+    fn get_document_symbols(
+        &self,
+        _: &AgentCodeIntelligenceContext,
+        _: &AgentDocumentInput,
+        _: Arc<AtomicBool>,
+    ) -> AgentCodeIntelligenceOutcome<Vec<AgentCodeSymbol>> {
+        ready_code_intelligence(Vec::new())
+    }
+
+    fn find_call_hierarchy(
+        &self,
+        _: &AgentCodeIntelligenceContext,
+        _: &AgentCallHierarchyInput,
+        _: Arc<AtomicBool>,
+    ) -> AgentCodeIntelligenceOutcome<Vec<AgentCodeCallRelation>> {
         ready_code_intelligence(Vec::new())
     }
 }
@@ -1072,8 +1357,6 @@ impl AgentRetrievalPort for NoopRetrieval {
     fn search(&self, _query: &str, _limit: usize) -> Result<AgentRetrievalOutcome, String> {
         Err("NoopRetrieval cannot search.".to_string())
     }
-
-    fn notify_source_changed(&self) {}
 }
 
 /// `(agent_id, folder, query, limit)` per `search` call, as recorded by `FakeRetrieval::search`.
@@ -1082,13 +1365,10 @@ type RecordedRetrievalCall = (String, usize);
 /// Records one `RecordedRetrievalCall` per `search` call and hands back a configurable
 /// outcome — used where a test needs to observe or control the retrieval path rather than
 /// just satisfy the trait bound (`NoopRetrieval` covers the latter), mirroring `FakeMcp`.
-/// `wake_calls` counts `notify_source_changed()` invocations for the `remember`/save-hook
-/// tests (Task 14) — unrelated to `calls`, which is `search`-only.
 struct FakeRetrieval {
     configured: bool,
     outcome: Result<AgentRetrievalOutcome, String>,
     calls: Mutex<Vec<RecordedRetrievalCall>>,
-    wake_calls: AtomicUsize,
 }
 
 impl FakeRetrieval {
@@ -1097,7 +1377,6 @@ impl FakeRetrieval {
             configured: true,
             outcome,
             calls: Mutex::new(Vec::new()),
-            wake_calls: AtomicUsize::new(0),
         }
     }
 }
@@ -1113,10 +1392,6 @@ impl AgentRetrievalPort for FakeRetrieval {
             .expect("calls")
             .push((query.to_string(), limit));
         self.outcome.clone()
-    }
-
-    fn notify_source_changed(&self) {
-        self.wake_calls.fetch_add(1, Ordering::SeqCst);
     }
 }
 
@@ -1157,8 +1432,6 @@ impl AgentRetrievalPort for CodeOnlyRetrieval {
     fn search(&self, _query: &str, _limit: usize) -> Result<AgentRetrievalOutcome, String> {
         Err("memory retrieval is unused".to_string())
     }
-
-    fn notify_source_changed(&self) {}
 
     fn code_retrieval(&self) -> Option<&dyn AgentCodeRetrievalPort> {
         Some(&self.code)
@@ -1216,26 +1489,8 @@ impl FakeMemories {
 }
 
 impl AgentMemoryPort for FakeMemories {
-    fn save(&self, input: SaveMemoryInput<'_>) -> Result<(), AgentRuntimeApplicationError> {
-        self.saved.lock().expect("saved memories").push((
-            input.agent_id.to_string(),
-            input.folder.map(str::to_string),
-            input.content.to_string(),
-            input.source,
-        ));
-        Ok(())
-    }
-
     fn list_all(&self) -> Result<Vec<AgentMemory>, AgentRuntimeApplicationError> {
         Ok(self.to_list.clone())
-    }
-
-    fn delete(&self, _memory_id: &str) -> Result<(), AgentRuntimeApplicationError> {
-        Ok(())
-    }
-
-    fn delete_all(&self) -> Result<(), AgentRuntimeApplicationError> {
-        Ok(())
     }
 }
 
@@ -1342,6 +1597,7 @@ fn sample_request(launch_kind: &str) -> GenerationProcessRequest {
             agent_id: "my-claude-agent".to_string(),
             seats: Vec::new(),
             interaction_mode: InteractionMode::Api,
+            personalization_mode: "standard".to_string(),
             lifecycle: AgentLifecycle::Running,
             folder: None,
             runtime_session_id: None,
@@ -1419,7 +1675,6 @@ fn adapter() -> RuntimeAgentApiAdapter {
         Arc::new(
             crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
         ),
-        Arc::new(FakeMemories::default()),
         Arc::new(NoopMcp),
         Arc::new(FakePermissions::default_classification()),
         Arc::new(NoopRetrieval),
@@ -1961,9 +2216,9 @@ fn remember_tool_call_is_rejected_without_persisting_when_memory_is_disabled() {
     };
     let sink = CapturingSink::default();
     let memories = FakeMemories::default();
-    let personalization = FixedPersonalization(PersonalizationSettings {
+    let personalization = FixedPersonalization(PreGovernanceSettings {
         memory_enabled: false,
-        ..PersonalizationSettings::safe_fallback()
+        ..PreGovernanceSettings::safe_fallback()
     });
 
     let _event = execute(
@@ -2445,8 +2700,6 @@ fn execute_tool_call_rejects_unknown_tool_names() {
         &json!({}),
         Some("."),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         false,
@@ -2589,8 +2842,6 @@ fn fixed_skill_tools_dispatch_closed_requests_and_remain_available_in_plan_mode(
         }),
         Some("D:/code/project"),
         not_cancelled(),
-        "onepiece",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         true,
@@ -2646,8 +2897,6 @@ fn fixed_skill_tool_validation_rejects_unknown_fields_and_malformed_identity_bef
             &input,
             Some("D:/code/project"),
             not_cancelled(),
-            "onepiece",
-            &FakeMemories::default(),
             &NoopMcp,
             &NoopRetrieval,
             false,
@@ -2682,8 +2931,6 @@ fn fixed_skill_tool_preserves_structured_unavailable_and_stale_outcomes() {
             &input,
             None,
             not_cancelled(),
-            "onepiece",
-            &FakeMemories::default(),
             &NoopMcp,
             &NoopRetrieval,
             true,
@@ -2841,8 +3088,6 @@ fn execute_tool_call_routes_the_background_command_lifecycle() {
         &json!({"command": "echo backgrounded", "run_in_background": true}),
         Some(&folder),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         false,
@@ -2861,8 +3106,6 @@ fn execute_tool_call_routes_the_background_command_lifecycle() {
         &json!({"shell_id": handle}),
         Some(&folder),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         false,
@@ -2879,8 +3122,6 @@ fn execute_tool_call_routes_the_background_command_lifecycle() {
         &json!({"shell_id": handle}),
         Some(&folder),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         false,
@@ -2896,8 +3137,6 @@ fn background_tools_reject_an_unknown_handle_instead_of_returning_an_empty_resul
             &json!({"shell_id": "bg_not_a_real_handle"}),
             Some("."),
             not_cancelled(),
-            "test-agent",
-            &FakeMemories::default(),
             &NoopMcp,
             &NoopRetrieval,
             false,
@@ -2919,8 +3158,6 @@ fn background_tools_reject_a_missing_or_empty_handle() {
             &input,
             Some("."),
             not_cancelled(),
-            "test-agent",
-            &FakeMemories::default(),
             &NoopMcp,
             &NoopRetrieval,
             false,
@@ -2939,8 +3176,6 @@ fn plan_mode_denies_background_termination_but_allows_reading_output() {
         &json!({"shell_id": "bg_1"}),
         Some("."),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         true,
@@ -2957,8 +3192,6 @@ fn plan_mode_denies_background_termination_but_allows_reading_output() {
         &json!({"shell_id": "bg_1"}),
         Some("."),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         true,
@@ -2976,8 +3209,6 @@ fn background_start_is_unavailable_without_an_owning_session() {
         &json!({"command": "echo hi", "run_in_background": true}),
         Some(&folder),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         None,
@@ -3043,8 +3274,6 @@ fn write_todos(session_id: &str, todos: Value, plan_mode: bool) -> ToolExecution
         &json!({ "todos": todos }),
         None,
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         None,
@@ -4010,8 +4239,6 @@ fn execute_tool_call_fails_closed_without_a_workspace_folder() {
         &json!({"command": "echo hi"}),
         None,
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         false,
@@ -4031,8 +4258,6 @@ fn execute_tool_call_routes_shell_and_file_by_name() {
         &json!({"command": "echo hi"}),
         Some(&folder),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         false,
@@ -4044,8 +4269,6 @@ fn execute_tool_call_routes_shell_and_file_by_name() {
         &json!({"operation": "read", "path": "a.txt"}),
         Some(&folder),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         false,
@@ -4057,90 +4280,127 @@ fn execute_tool_call_routes_shell_and_file_by_name() {
     assert_eq!(file_outcome.output, "1\thello");
 }
 
+/// The tool keeps its name and its place, and stops writing a memory.
+///
+/// What the model asked to remember becomes a proposal a person decides about. The model is told
+/// so: reporting "Saved." for something awaiting review would have it act, later in the same
+/// session, as though the fact were settled.
 #[test]
-fn execute_tool_call_routes_remember_and_works_without_a_workspace_folder() {
-    let memories = FakeMemories::default();
+fn the_memory_tool_proposes_a_candidate_rather_than_writing_a_memory() {
+    let request = onepiece_session("session-remember-proposes");
+    let snapshots =
+        ScriptedSnapshots::new(snapshot_with(None, Vec::new(), AgentMemoryDelivery::None));
+    let snapshot = snapshots.snapshot(GenerationPersonalizationContext {
+        agent_id: request.agent.id.clone(),
+        session_id: request.session.id.clone(),
+        folder: request.session.folder.clone(),
+        personalization_mode: "standard".to_string(),
+    });
 
-    let outcome = execute_tool_call(
-        REMEMBER_TOOL_NAME,
+    let outcome = propose_remembered_memory(
+        &json!({"content": "Uses pnpm.", "name": "npm-only", "description": "Package manager"}),
+        GenerationPersonalization {
+            snapshot: &snapshot,
+            port: &snapshots,
+        },
+        &request,
+    );
+
+    assert!(!outcome.is_error);
+    assert!(outcome.output.contains("Proposed for review"));
+    assert_eq!(
+        snapshots.proposals(),
+        vec![AgentMemoryProposal::Create {
+            name: "npm-only".to_string(),
+            description: "Package manager".to_string(),
+            memory_type: None,
+            content: "Uses pnpm.".to_string(),
+        }]
+    );
+}
+
+/// A queue is read by a person, so an unnamed proposal takes the first line of what it holds
+/// rather than a placeholder that describes nothing.
+#[test]
+fn an_unnamed_proposal_is_labelled_from_its_own_first_line() {
+    let request = onepiece_session("session-remember-unnamed");
+    let snapshots =
+        ScriptedSnapshots::new(snapshot_with(None, Vec::new(), AgentMemoryDelivery::None));
+    let snapshot = snapshots.snapshot(GenerationPersonalizationContext {
+        agent_id: request.agent.id.clone(),
+        session_id: request.session.id.clone(),
+        folder: request.session.folder.clone(),
+        personalization_mode: "standard".to_string(),
+    });
+
+    let _ = propose_remembered_memory(
+        &json!({"content": "Uses pnpm.\nAnd never npm."}),
+        GenerationPersonalization {
+            snapshot: &snapshot,
+            port: &snapshots,
+        },
+        &request,
+    );
+
+    assert!(matches!(
+        snapshots.proposals().as_slice(),
+        [AgentMemoryProposal::Create { name, .. }] if name == "Uses pnpm."
+    ));
+}
+
+#[test]
+fn the_memory_tool_rejects_empty_content_before_proposing_anything() {
+    let request = onepiece_session("session-remember-empty");
+    let snapshots =
+        ScriptedSnapshots::new(snapshot_with(None, Vec::new(), AgentMemoryDelivery::None));
+    let snapshot = snapshots.snapshot(GenerationPersonalizationContext {
+        agent_id: request.agent.id.clone(),
+        session_id: request.session.id.clone(),
+        folder: request.session.folder.clone(),
+        personalization_mode: "standard".to_string(),
+    });
+
+    let outcome = propose_remembered_memory(
+        &json!({"content": "   "}),
+        GenerationPersonalization {
+            snapshot: &snapshot,
+            port: &snapshots,
+        },
+        &request,
+    );
+
+    assert!(outcome.is_error);
+    assert!(snapshots.proposals().is_empty());
+}
+
+/// 6.8 — a temporary session proposes nothing either.
+///
+/// Denying the write while allowing the proposal would leave the session's content in a queue the
+/// user reads later, which is exactly what "do not retain this" was asking not to happen.
+#[test]
+fn a_temporary_session_proposes_no_candidate_from_the_memory_tool() {
+    let request = onepiece_session("session-remember-temporary");
+    let snapshots = ScriptedSnapshots::new(AgentPersonalizationSnapshot::fail_closed(
+        "session_temporary",
+    ));
+    let snapshot = snapshots.snapshot(GenerationPersonalizationContext {
+        agent_id: request.agent.id.clone(),
+        session_id: request.session.id.clone(),
+        folder: request.session.folder.clone(),
+        personalization_mode: "standard".to_string(),
+    });
+
+    let outcome = propose_remembered_memory(
         &json!({"content": "Uses pnpm."}),
-        None,
-        not_cancelled(),
-        "test-agent",
-        &memories,
-        &NoopMcp,
-        &NoopRetrieval,
-        false,
-    );
-
-    assert!(!outcome.is_error);
-    let saved = memories.saved.lock().expect("saved memories");
-    assert_eq!(saved.len(), 1);
-    assert_eq!(saved[0].0, "test-agent");
-    assert_eq!(saved[0].1, None);
-    assert_eq!(saved[0].2, "Uses pnpm.");
-    assert_eq!(saved[0].3, MemorySource::Explicit);
-}
-
-#[test]
-fn execute_tool_call_remember_rejects_empty_content() {
-    let outcome = execute_tool_call(
-        REMEMBER_TOOL_NAME,
-        &json!({"content": "   "}),
-        Some("."),
-        not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
-        &NoopMcp,
-        &NoopRetrieval,
-        false,
-    );
-    assert!(outcome.is_error);
-}
-
-/// Task 14: a successful save must wake the background indexing worker so the new memory is
-/// indexed promptly instead of waiting up to one reconcile poll period.
-#[test]
-fn saving_a_memory_wakes_the_indexing_worker() {
-    let memories = FakeMemories::default();
-    let retrieval = FakeRetrieval::configured(Ok(AgentRetrievalOutcome {
-        hits: Vec::new(),
-        degraded: None,
-    }));
-
-    let outcome = execute_remember(
-        &json!({"content": "Uses npm."}),
-        "test-agent",
-        None,
-        &memories,
-        &retrieval,
-    );
-
-    assert!(!outcome.is_error);
-    assert_eq!(retrieval.wake_calls.load(Ordering::SeqCst), 1);
-}
-
-/// Task 14: an empty/whitespace-only `content` is rejected before `memories.save` is ever
-/// called — there is no new memory to index, so waking the worker would just burn a full
-/// two-table reconcile scan for nothing.
-#[test]
-fn a_rejected_memory_does_not_wake_the_worker() {
-    let memories = FakeMemories::default();
-    let retrieval = FakeRetrieval::configured(Ok(AgentRetrievalOutcome {
-        hits: Vec::new(),
-        degraded: None,
-    }));
-
-    let outcome = execute_remember(
-        &json!({"content": "   "}),
-        "test-agent",
-        None,
-        &memories,
-        &retrieval,
+        GenerationPersonalization {
+            snapshot: &snapshot,
+            port: &snapshots,
+        },
+        &request,
     );
 
     assert!(outcome.is_error);
-    assert_eq!(retrieval.wake_calls.load(Ordering::SeqCst), 0);
+    assert!(snapshots.proposals().is_empty());
 }
 
 #[test]
@@ -4158,8 +4418,6 @@ fn execute_tool_call_routes_mcp_prefixed_names_to_the_mcp_port_and_maps_the_outc
         &json!({"query": "hello"}),
         Some("D:\\code\\fixture"),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &mcp,
         &NoopRetrieval,
         false,
@@ -4193,8 +4451,6 @@ fn execute_tool_call_routes_mcp_calls_even_without_a_workspace_folder() {
         &json!({}),
         None,
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &mcp,
         &NoopRetrieval,
         false,
@@ -4224,8 +4480,6 @@ fn execute_tool_call_passes_generation_cancellation_to_the_mcp_port() {
         &json!({}),
         None,
         cancellation.clone(),
-        "test-agent",
-        &FakeMemories::default(),
         &mcp,
         &NoopRetrieval,
         false,
@@ -4245,8 +4499,6 @@ fn execute_tool_call_rejects_shell_in_plan_mode() {
         &json!({"command": "echo hi"}),
         Some("."),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         true,
@@ -4270,8 +4522,6 @@ fn execute_tool_call_rejects_mcp_calls_in_plan_mode_without_reaching_the_port() 
         &json!({"query": "hello"}),
         Some("."),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &mcp,
         &NoopRetrieval,
         true,
@@ -4301,8 +4551,6 @@ fn execute_tool_call_reads_but_never_edits_a_notebook_in_plan_mode() {
         &json!({"operation": "read", "path": "a.ipynb"}),
         Some(&folder),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         true,
@@ -4316,8 +4564,6 @@ fn execute_tool_call_reads_but_never_edits_a_notebook_in_plan_mode() {
             &json!({"operation": operation, "path": "a.ipynb", "cell_index": 0, "source": "y = 2\n"}),
             Some(&folder),
             not_cancelled(),
-            "test-agent",
-            &FakeMemories::default(),
             &NoopMcp,
             &NoopRetrieval,
             true,
@@ -4373,8 +4619,6 @@ fn execute_tool_call_still_allows_file_read_in_plan_mode() {
         &json!({"operation": "read", "path": "a.txt"}),
         Some(&folder),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         true,
@@ -4395,8 +4639,6 @@ fn execute_tool_call_rejects_file_write_in_plan_mode() {
         &json!({"operation": "write", "path": "a.txt", "content": "x"}),
         Some(&folder),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         true,
@@ -4419,8 +4661,6 @@ fn workspace_mutation_successful_file_write_publishes_one_normalized_path() {
         &json!({"operation": "write", "path": "src\\new.rs", "content": "fn new() {}\n"}),
         Some(&folder),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         &mutations,
@@ -4436,6 +4676,9 @@ fn workspace_mutation_successful_file_write_publishes_one_normalized_path() {
                 .canonicalize()
                 .expect("canonical workspace"),
             relative_path: "src/new.rs".to_string(),
+            session_id: "test-session".to_string(),
+            change_kind:
+                crate::contexts::agent_runtime::application::AgentWorkspaceChangeKind::Created,
         }]
     );
 }
@@ -4458,8 +4701,6 @@ fn workspace_mutation_successful_edit_publishes_one_normalized_path() {
         }),
         Some(&folder),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         &mutations,
@@ -4475,6 +4716,9 @@ fn workspace_mutation_successful_edit_publishes_one_normalized_path() {
                 .canonicalize()
                 .expect("canonical workspace"),
             relative_path: "src/lib.rs".to_string(),
+            session_id: "test-session".to_string(),
+            change_kind:
+                crate::contexts::agent_runtime::application::AgentWorkspaceChangeKind::Modified,
         }]
     );
 }
@@ -4514,8 +4758,6 @@ fn workspace_mutation_failed_and_denied_operations_publish_nothing() {
             &input,
             Some(&folder),
             not_cancelled(),
-            "test-agent",
-            &FakeMemories::default(),
             &NoopMcp,
             &NoopRetrieval,
             &mutations,
@@ -4538,8 +4780,6 @@ fn workspace_mutation_notification_failure_does_not_change_successful_tool_resul
         &json!({"operation": "write", "path": "a.rs", "content": "fn main() {}\n"}),
         Some(&folder),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         &mutations,
@@ -4565,8 +4805,6 @@ fn execute_tool_call_routes_the_search_and_edit_tools_by_name() {
         &json!({"pattern": "needle"}),
         Some(&folder),
         Arc::new(AtomicBool::new(false)),
-        "onepiece",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         false,
@@ -4579,8 +4817,6 @@ fn execute_tool_call_routes_the_search_and_edit_tools_by_name() {
         &json!({"pattern": "**/*.rs"}),
         Some(&folder),
         Arc::new(AtomicBool::new(false)),
-        "onepiece",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         false,
@@ -4593,8 +4829,6 @@ fn execute_tool_call_routes_the_search_and_edit_tools_by_name() {
         &json!({"path": "a.rs", "old_string": "needle = 1", "new_string": "needle = 2"}),
         Some(&folder),
         Arc::new(AtomicBool::new(false)),
-        "onepiece",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         false,
@@ -4619,8 +4853,6 @@ fn execute_tool_call_rejects_edit_in_plan_mode() {
         &json!({"path": "a.rs", "old_string": "a = 1", "new_string": "a = 2"}),
         Some(&directory.path().to_string_lossy()),
         Arc::new(AtomicBool::new(false)),
-        "onepiece",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         true,
@@ -4643,8 +4875,6 @@ fn execute_tool_call_still_allows_search_tools_in_plan_mode() {
         &json!({"pattern": "needle"}),
         Some(&directory.path().to_string_lossy()),
         Arc::new(AtomicBool::new(false)),
-        "onepiece",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         true,
@@ -4750,8 +4980,6 @@ fn execute_tool_call_honors_a_file_limit_argument_that_arrived_as_an_integral_fl
         &json!({"operation": "read", "path": "a.txt", "limit": 3.0}),
         Some(&folder),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         false,
@@ -4776,8 +5004,6 @@ fn execute_tool_call_still_rejects_an_explicit_zero_file_limit_argument() {
         &json!({"operation": "read", "path": "a.txt", "limit": 0}),
         Some(&folder),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         false,
@@ -4798,8 +5024,6 @@ fn execute_tool_call_rejects_a_string_grep_head_limit_argument_instead_of_silent
         &json!({"pattern": "needle", "head_limit": "5"}),
         Some(&folder),
         not_cancelled(),
-        "onepiece",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         false,
@@ -4820,8 +5044,6 @@ fn execute_tool_call_rejects_a_negative_grep_context_argument() {
         &json!({"pattern": "needle", "context": -1}),
         Some(&folder),
         not_cancelled(),
-        "onepiece",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         false,
@@ -5179,8 +5401,6 @@ fn lsp_execution_derives_scope_from_session_and_returns_visible_json() {
         &json!({"path": "src/lib.rs", "line": 3, "column": 7}),
         Some("C:/workspace"),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         &code_intelligence,
@@ -5213,8 +5433,6 @@ fn lsp_workspace_scope_injection_cannot_override_the_session_context() {
         }),
         Some("C:/trusted-workspace"),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &NoopRetrieval,
         &code_intelligence,
@@ -5260,8 +5478,6 @@ fn plan_mode_executes_all_four_read_only_lsp_tools() {
             &input,
             Some("C:/workspace"),
             not_cancelled(),
-            "test-agent",
-            &FakeMemories::default(),
             &NoopMcp,
             &NoopRetrieval,
             &code_intelligence,
@@ -5288,8 +5504,6 @@ fn plan_mode_rejects_workspace_edits_and_unadvertised_mutating_lsp_tools() {
             &json!({"path": "src/lib.rs", "line": 1, "column": 1}),
             Some("C:/workspace"),
             not_cancelled(),
-            "test-agent",
-            &FakeMemories::default(),
             &NoopMcp,
             &NoopRetrieval,
             &code_intelligence,
@@ -5350,8 +5564,6 @@ fn search_code_uses_the_session_workspace_and_returns_read_file_coordinates() {
         }),
         Some(&folder),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &retrieval,
         false,
@@ -5378,8 +5590,6 @@ fn search_code_uses_the_session_workspace_and_returns_read_file_coordinates() {
         }),
         Some(&folder),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &retrieval,
         false,
@@ -5398,8 +5608,6 @@ fn recall_returns_a_successful_result_when_retrieval_fails_so_generation_continu
         &json!({"query": "npm"}),
         Some("."),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &retrieval,
         false,
@@ -5427,8 +5635,6 @@ fn recall_ignores_scope_properties_the_model_invents_because_the_pool_is_shared(
         &json!({"query": "x", "agent_id": "other-agent", "folder": "/other/project"}),
         Some("D:\\real\\project"),
         not_cancelled(),
-        "real-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &retrieval,
         false,
@@ -5462,8 +5668,6 @@ fn recall_clamps_its_limit_to_the_documented_bounds() {
             &input,
             Some("."),
             not_cancelled(),
-            "test-agent",
-            &FakeMemories::default(),
             &NoopMcp,
             &retrieval,
             false,
@@ -5492,8 +5696,6 @@ fn recall_projects_away_internal_fields() {
         &json!({"query": "npm"}),
         Some("."),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &retrieval,
         false,
@@ -5530,8 +5732,6 @@ fn recall_surfaces_degradation_only_when_degraded() {
         &json!({"query": "npm"}),
         Some("."),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &healthy,
         false,
@@ -5541,8 +5741,6 @@ fn recall_surfaces_degradation_only_when_degraded() {
         &json!({"query": "npm"}),
         Some("."),
         not_cancelled(),
-        "test-agent",
-        &FakeMemories::default(),
         &NoopMcp,
         &degraded,
         false,
@@ -5869,8 +6067,14 @@ fn resolve_system_prompt_includes_custom_instructions_between_core_and_skills() 
     assert!(core < custom && custom < skill && skill < memory);
 }
 
+/// Personalization that cannot be established costs personalization, never the answer.
+///
+/// The generation still assembles: core instructions and Skills are present, and only the two
+/// surfaces personalization governs are absent. Memory is among them — a snapshot that could not
+/// be resolved is not evidence that reading is permitted, so this now denies memory where the
+/// pre-governance safe fallback left it on.
 #[test]
-fn resolve_system_prompt_falls_back_to_safe_defaults_when_personalization_lookup_fails() {
+fn resolve_system_prompt_omits_instructions_and_memory_when_personalization_is_unavailable() {
     let request = sample_request("api");
     let memories = FakeMemories::seeded(vec![fake_memory("memory-1", "Uses pnpm.")]);
     let logging = RecordingLogging::default();
@@ -5891,13 +6095,416 @@ fn resolve_system_prompt_falls_back_to_safe_defaults_when_personalization_lookup
         &request,
     )
     .expect("system prompt");
-    assert!(!system.contains("## Custom Instructions"));
     assert!(system.contains("## Reviewer"));
+    assert!(!system.contains("## Custom Instructions"));
+    assert!(!system.contains("## Memory"));
+    assert!(!system.contains("memory-1"));
+}
+
+/// A snapshot port that answers with one prepared snapshot and records what it was asked.
+struct ScriptedSnapshots {
+    snapshot: AgentPersonalizationSnapshot,
+    bodies: Vec<AgentMemory>,
+    calls: AtomicUsize,
+    body_requests: Mutex<Vec<Vec<AgentMemoryRef>>>,
+    proposed: Mutex<Vec<Vec<AgentMemoryProposal>>>,
+    /// Makes the review queue refuse the whole batch, standing in for a locked candidate table.
+    refuse_proposals: bool,
+}
+
+impl ScriptedSnapshots {
+    fn new(snapshot: AgentPersonalizationSnapshot) -> Self {
+        Self {
+            snapshot,
+            bodies: Vec::new(),
+            calls: AtomicUsize::new(0),
+            body_requests: Mutex::new(Vec::new()),
+            proposed: Mutex::new(Vec::new()),
+            refuse_proposals: false,
+        }
+    }
+
+    fn refusing(snapshot: AgentPersonalizationSnapshot) -> Self {
+        Self {
+            refuse_proposals: true,
+            ..Self::new(snapshot)
+        }
+    }
+
+    fn with_bodies(snapshot: AgentPersonalizationSnapshot, bodies: Vec<AgentMemory>) -> Self {
+        Self {
+            bodies,
+            ..Self::new(snapshot)
+        }
+    }
+
+    fn proposals(&self) -> Vec<AgentMemoryProposal> {
+        self.proposed
+            .lock()
+            .expect("proposed")
+            .iter()
+            .flatten()
+            .cloned()
+            .collect()
+    }
+
+    fn offered_bodies(&self) -> Vec<String> {
+        self.body_requests
+            .lock()
+            .expect("body requests")
+            .iter()
+            .flatten()
+            .map(|entry| entry.name.clone())
+            .collect()
+    }
+}
+
+/// Records what relevance selection was offered, and answers with a scripted list.
+struct RecordingSelection {
+    returns: Vec<String>,
+    offered: Mutex<Vec<Vec<String>>>,
+}
+
+impl RecordingSelection {
+    fn returning(names: &[&str]) -> Self {
+        Self {
+            returns: names.iter().map(|name| name.to_string()).collect(),
+            offered: Mutex::new(Vec::new()),
+        }
+    }
+
+    fn last_offered(&self) -> Vec<String> {
+        self.offered
+            .lock()
+            .expect("offered")
+            .last()
+            .cloned()
+            .unwrap_or_default()
+    }
+}
+
+impl AgentMemorySelectionPort for RecordingSelection {
+    fn select(
+        &self,
+        _query: &str,
+        candidates: &[AgentMemory],
+    ) -> Result<Vec<String>, AgentRuntimeApplicationError> {
+        self.offered.lock().expect("offered").push(
+            candidates
+                .iter()
+                .map(|memory| memory.name.clone())
+                .collect(),
+        );
+        Ok(self.returns.clone())
+    }
+}
+
+impl AgentPersonalizationSnapshotPort for ScriptedSnapshots {
+    fn snapshot(&self, _context: GenerationPersonalizationContext) -> AgentPersonalizationSnapshot {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        self.snapshot.clone()
+    }
+
+    fn pinned_bodies(
+        &self,
+        refs: &[AgentMemoryRef],
+    ) -> Result<Vec<AgentMemoryBody>, AgentRuntimeApplicationError> {
+        self.body_requests
+            .lock()
+            .expect("body requests")
+            .push(refs.to_vec());
+        Ok(pinned_bodies_from(refs, &self.bodies))
+    }
+
+    fn propose_memories(
+        &self,
+        submission: AgentCandidateSubmission,
+    ) -> Result<AgentCandidateOutcome, AgentRuntimeApplicationError> {
+        if self.refuse_proposals {
+            return Err(AgentRuntimeApplicationError::Memory(
+                "candidate table unavailable".to_string(),
+            ));
+        }
+        let accepted = submission.proposals.len();
+        self.proposed
+            .lock()
+            .expect("proposed")
+            .push(submission.proposals);
+        Ok(AgentCandidateOutcome {
+            accepted,
+            rejected: 0,
+        })
+    }
+}
+
+/// The snapshot the pre-governance defaults resolve to: memory on, no instructions.
+fn noop_snapshot() -> AgentPersonalizationSnapshot {
+    NoopPersonalization.snapshot(GenerationPersonalizationContext {
+        agent_id: "onepiece".to_string(),
+        session_id: "session-1".to_string(),
+        folder: None,
+        personalization_mode: "standard".to_string(),
+    })
+}
+
+fn dated_memory_ref(id: &str, description: &str, updated_at: SystemTime) -> AgentMemoryRef {
+    AgentMemoryRef {
+        updated_at: Some(updated_at),
+        ..memory_ref(id, description)
+    }
+}
+
+fn memory_body(id: &str, content: &str) -> AgentMemory {
+    AgentMemory {
+        content: content.to_string(),
+        ..fake_memory(id, content)
+    }
+}
+
+/// A snapshot that allows extraction and offers one eligible memory to correct.
+fn extraction_snapshots() -> ScriptedSnapshots {
+    ScriptedSnapshots::new(snapshot_with(
+        None,
+        vec![memory_ref("existing", "Already stored.")],
+        AgentMemoryDelivery::IndexOnly,
+    ))
+}
+
+fn memory_ref(id: &str, description: &str) -> AgentMemoryRef {
+    AgentMemoryRef {
+        id: format!("{id}.md"),
+        revision: 1,
+        name: id.to_string(),
+        description: description.to_string(),
+        memory_type: None,
+        updated_at: None,
+    }
+}
+
+fn snapshot_with(
+    instruction_block: Option<&str>,
+    eligible: Vec<AgentMemoryRef>,
+    delivery: AgentMemoryDelivery,
+) -> AgentPersonalizationSnapshot {
+    AgentPersonalizationSnapshot {
+        revision_token: "personalization-snapshot-v2:test".to_string(),
+        instruction_block: instruction_block.map(str::to_string),
+        memory: AgentMemoryAccess {
+            read: true,
+            explicit_save: true,
+            automatic_extraction: true,
+            automatic_extraction_in_tool_assisted_turns: true,
+            candidate_creation: true,
+            retrieval_write: true,
+            delivery,
+            eligible_total: eligible.len(),
+            eligible,
+            blocked_reason: None,
+        },
+        automatic_context_compaction_enabled: true,
+        context_quality_retention_days: 30,
+    }
+}
+
+fn resolve_prompt_from_snapshot(
+    snapshots: &ScriptedSnapshots,
+    request: &GenerationProcessRequest,
+) -> Option<String> {
+    resolve_prompt_with_selection(snapshots, &NoSelection, request)
+}
+
+fn resolve_prompt_with_selection(
+    snapshots: &ScriptedSnapshots,
+    selection: &dyn AgentMemorySelectionPort,
+    request: &GenerationProcessRequest,
+) -> Option<String> {
+    let mut ignored_observations = Vec::new();
+    let snapshot = snapshots.snapshot(GenerationPersonalizationContext {
+        agent_id: request.agent.id.clone(),
+        session_id: request.session.id.clone(),
+        folder: request.session.folder.clone(),
+        personalization_mode: "standard".to_string(),
+    });
+    resolve_system_prompt_with_settings(
+        &request.agent.id,
+        &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
+        &snapshot,
+        &NoopSkills,
+        snapshots,
+        selection,
+        &NoopLogging,
+        &FixedClock,
+        request,
+        &mut ignored_observations,
+    )
+}
+
+/// A OnePiece request with a session id of its own.
+///
+/// The already-surfaced tracker is a process-global keyed by session id, so two tests sharing
+/// `sample_request`'s fixed id would silently inherit each other's exclusions.
+fn onepiece_session(session_id: &str) -> GenerationProcessRequest {
+    let mut request = onepiece_request();
+    request.session.id = session_id.to_string();
+    request
+}
+
+#[allow(clippy::too_many_arguments)]
+fn execute_with_snapshot_port(
+    request: &GenerationProcessRequest,
+    personalization: &dyn AgentPersonalizationSnapshotPort,
+    logging: &dyn AgentLoggingPort,
+) -> GenerationProcessEvent {
+    let mut ignored_observations = Vec::new();
+    let code_intelligence = super::super::RuntimeAgentCodeIntelligenceAdapter::new(Arc::new(
+        super::super::UnavailableAgentCodeIntelligenceResponder,
+    ));
+    execute_with_code_intelligence(
+        request,
+        not_cancelled(),
+        &FakeCredentials {
+            value: Some("sk-ant-test".to_string()),
+        },
+        &anthropic_config("claude-opus-4-8"),
+        // Fails right after the snapshot is taken, which is all these two tests need: no endpoint
+        // is contacted, and the generation still reaches the point where personalization applies.
+        &FakeHistory(FakeHistoryOutcome::Error),
+        &CapturingSink::default(),
+        &no_pending_approvals(),
+        logging,
+        &FixedClock,
+        &NoopSkills,
+        &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
+        &NoopMcp,
+        &FakePermissions::default_classification(),
+        &NoopRetrieval,
+        &code_intelligence,
+        &NOOP_WORKSPACE_MUTATIONS,
+        personalization,
+        None,
+        None,
+        None,
+        None,
+        &mut ignored_observations,
+        None,
+        &NativeToolRegistry::empty(),
+        None,
+        None,
+        None,
+    )
+}
+
+/// 6.2 — the resolved block is placed, not re-derived.
+///
+/// Whatever policy merged arrives verbatim, in one deterministic position. Assembly no longer
+/// reads a global toggle, so a block that is present is present because policy resolved it.
+#[test]
+fn resolved_instruction_block_is_placed_verbatim_after_core_instructions() {
+    let mut request = sample_request("api");
+    request.agent.id = "onepiece".to_string();
+    let snapshots = ScriptedSnapshots::new(snapshot_with(
+        Some("## Custom Instructions\n### Response style\nBe terse."),
+        Vec::new(),
+        AgentMemoryDelivery::None,
+    ));
+    let system = resolve_prompt_from_snapshot(&snapshots, &request).expect("system prompt");
+
+    assert!(system.contains("## Custom Instructions\n### Response style\nBe terse."));
+    let core = system.find("# OnePiece Core Instructions").expect("core");
+    let custom = system.find("## Custom Instructions").expect("custom");
+    assert!(core < custom);
+}
+
+/// 6.2 — no block resolved means no section, not an empty one.
+#[test]
+fn absent_instruction_block_leaves_no_custom_instructions_section() {
+    let mut request = sample_request("api");
+    request.agent.id = "onepiece".to_string();
+    let snapshots =
+        ScriptedSnapshots::new(snapshot_with(None, Vec::new(), AgentMemoryDelivery::None));
+    let system = resolve_prompt_from_snapshot(&snapshots, &request).expect("system prompt");
+
+    assert!(!system.contains("## Custom Instructions"));
+}
+
+/// 6.3 — the index is the eligible set and nothing else.
+///
+/// The unscoped listing is gone: assembly has no store to reach past the snapshot into, so a
+/// record the snapshot did not rule eligible cannot appear however it got into the store.
+#[test]
+fn memory_index_carries_exactly_the_eligible_records_from_the_snapshot() {
+    let mut request = sample_request("api");
+    request.agent.id = "onepiece".to_string();
+    let snapshots = ScriptedSnapshots::new(snapshot_with(
+        None,
+        vec![
+            memory_ref("in-scope", "Eligible under this policy."),
+            memory_ref("also-in-scope", "Also eligible."),
+        ],
+        AgentMemoryDelivery::IndexOnly,
+    ));
+    let system = resolve_prompt_from_snapshot(&snapshots, &request).expect("system prompt");
+
     assert!(system.contains("## Memory"));
+    assert!(system.contains("- [in-scope](in-scope.md) - Eligible under this policy."));
+    assert!(system.contains("- [also-in-scope](also-in-scope.md) - Also eligible."));
+}
+
+/// 6.3 — denied delivery fetches nothing rather than fetching and discarding.
+#[test]
+fn memory_index_is_absent_when_the_snapshot_delivers_no_memory() {
+    let mut request = sample_request("api");
+    request.agent.id = "onepiece".to_string();
+    let snapshots = ScriptedSnapshots::new(snapshot_with(
+        None,
+        vec![memory_ref("in-scope", "Eligible under this policy.")],
+        AgentMemoryDelivery::None,
+    ));
+    let system = resolve_prompt_from_snapshot(&snapshots, &request).unwrap_or_default();
+
+    assert!(!system.contains("## Memory"));
+    assert!(!system.contains("in-scope"));
+    assert!(snapshots
+        .body_requests
+        .lock()
+        .expect("body requests")
+        .is_empty());
+}
+
+/// 6.1 — one snapshot for the whole generation.
+///
+/// Taken before anything that could observe it, and never retaken: a policy edit made mid-turn
+/// reaches the next turn rather than rewriting a prompt already assembled under the previous one.
+#[test]
+fn execute_requests_exactly_one_personalization_snapshot_per_generation() {
+    let request = sample_request("api");
+    let snapshots =
+        ScriptedSnapshots::new(snapshot_with(None, Vec::new(), AgentMemoryDelivery::None));
+
+    let event = execute_with_snapshot_port(&request, &snapshots, &NoopLogging);
+
+    assert!(matches!(event, GenerationProcessEvent::Failed(_)));
+    assert_eq!(snapshots.calls.load(Ordering::SeqCst), 1);
+}
+
+/// 6.1 — a lost snapshot is reported once, by code and nothing else.
+#[test]
+fn execute_logs_the_reason_when_personalization_is_unavailable() {
+    let request = sample_request("api");
+    let logging = RecordingLogging::default();
+    let snapshots = ScriptedSnapshots::new(AgentPersonalizationSnapshot::fail_closed(
+        "policy_unavailable",
+    ));
+
+    let _ = execute_with_snapshot_port(&request, &snapshots, &logging);
+
     let logs = logging.logs.lock().expect("logs");
-    assert!(logs
+    let personalization: Vec<_> = logs
         .iter()
-        .any(|log| log.category == "session.runtime.api.personalization"));
+        .filter(|log| log.category == "session.runtime.api.personalization")
+        .collect();
+    assert_eq!(personalization.len(), 1);
+    assert!(personalization[0].message.contains("policy_unavailable"));
 }
 
 #[test]
@@ -6054,9 +6661,9 @@ fn memory_disabled_runs_no_selection_at_all() {
     let system = resolve_system_prompt(
         "my-agent",
         &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
-        &FixedPersonalization(PersonalizationSettings {
+        &FixedPersonalization(PreGovernanceSettings {
             memory_enabled: false,
-            ..PersonalizationSettings::safe_fallback()
+            ..PreGovernanceSettings::safe_fallback()
         }),
         &FakeSkills(Ok(Vec::new())),
         &memories,
@@ -6160,18 +6767,18 @@ fn format_memory_section_returns_none_for_no_memories() {
     assert_eq!(format_memory_section(&[]), None);
 }
 
-fn personalization_settings(about_user: &str, style_rules: &str) -> PersonalizationSettings {
-    PersonalizationSettings {
+fn personalization_settings(about_user: &str, style_rules: &str) -> PreGovernanceSettings {
+    PreGovernanceSettings {
         custom_instructions_about_user: about_user.to_string(),
         custom_instructions_style_rules: style_rules.to_string(),
-        ..PersonalizationSettings::safe_fallback()
+        ..PreGovernanceSettings::safe_fallback()
     }
 }
 
 #[test]
 fn format_custom_instructions_section_orders_style_rules_before_about_user() {
     let settings = personalization_settings("Works on VaneHub AI.", "Always answer in Chinese.");
-    let section = format_custom_instructions_section(&settings).expect("section");
+    let section = settings.custom_instructions_block().expect("section");
     assert_eq!(
         section,
         "## Custom Instructions\n### Response style\nAlways answer in Chinese.\n\n### About the user\nWorks on VaneHub AI."
@@ -6180,23 +6787,23 @@ fn format_custom_instructions_section_orders_style_rules_before_about_user() {
 
 #[test]
 fn format_custom_instructions_section_omits_the_section_when_disabled() {
-    let settings = PersonalizationSettings {
+    let settings = PreGovernanceSettings {
         custom_instructions_enabled: false,
         ..personalization_settings("About.", "Style.")
     };
-    assert_eq!(format_custom_instructions_section(&settings), None);
+    assert_eq!(settings.custom_instructions_block(), None);
 }
 
 #[test]
 fn format_custom_instructions_section_omits_the_section_when_both_fields_are_empty() {
     let settings = personalization_settings("", "");
-    assert_eq!(format_custom_instructions_section(&settings), None);
+    assert_eq!(settings.custom_instructions_block(), None);
 }
 
 #[test]
 fn format_custom_instructions_section_includes_only_the_non_empty_field() {
     let settings = personalization_settings("Works on VaneHub AI.", "");
-    let section = format_custom_instructions_section(&settings).expect("section");
+    let section = settings.custom_instructions_block().expect("section");
     assert_eq!(
         section,
         "## Custom Instructions\n### About the user\nWorks on VaneHub AI."
@@ -6439,7 +7046,7 @@ fn summarize_turns_returns_err_when_the_http_call_fails() {
 }
 
 #[test]
-fn extract_memories_applies_the_returned_action_list() {
+fn extraction_proposes_candidates_and_writes_no_memory() {
     let (address, server) = http_fixture(
         "200 OK",
         sse_body(&[
@@ -6450,9 +7057,15 @@ fn extract_memories_applies_the_returned_action_list() {
     let wire_format = openai_compatible_wire_format(&address);
     let client = blocking_http_client(Duration::from_secs(5)).expect("client");
     let cancelled = not_cancelled();
-    let memories = FakeMemories::default();
     let logging = RecordingLogging::default();
     let request = sample_request("api");
+    let snapshots = extraction_snapshots();
+    let snapshot = snapshots.snapshot(GenerationPersonalizationContext {
+        agent_id: request.agent.id.clone(),
+        session_id: request.session.id.clone(),
+        folder: request.session.folder.clone(),
+        personalization_mode: "standard".to_string(),
+    });
 
     extract_memories(
         &wire_format,
@@ -6462,30 +7075,38 @@ fn extract_memories_applies_the_returned_action_list() {
         None,
         &[json!({ "role": "user", "content": "hello" })],
         &cancelled,
-        "my-agent",
-        Some("my-folder"),
-        &memories,
+        GenerationPersonalization {
+            snapshot: &snapshot,
+            port: &snapshots,
+        },
         &logging,
         &FixedClock,
         &request,
     );
 
     server.join().expect("fixture server");
-    let saved = memories.saved.lock().expect("saved memories");
-    assert_eq!(saved.len(), 2);
     assert_eq!(
-        saved[0],
-        (
-            "my-agent".to_string(),
-            Some("my-folder".to_string()),
-            "Uses pnpm.".to_string(),
-            MemorySource::Automatic,
-        )
+        snapshots.proposals(),
+        vec![
+            AgentMemoryProposal::Create {
+                name: "npm-only".to_string(),
+                description: "Uses npm".to_string(),
+                memory_type: None,
+                content: "Uses pnpm.".to_string(),
+            },
+            AgentMemoryProposal::Create {
+                name: "dark-mode".to_string(),
+                description: "Prefers dark mode".to_string(),
+                memory_type: None,
+                content: "Prefers dark mode.".to_string(),
+            },
+        ]
     );
-    assert_eq!(saved[1].2, "Prefers dark mode.");
-    assert!(logging.logs.lock().expect("logs").is_empty());
-    // The response is an action list now, not one memory per line: a line can only ever
-    // create, which is what made the pool grow without ever being corrected.
+    // One Debug line recording how many were queued, and nothing about what any of them said.
+    let logs = logging.logs.lock().expect("logs");
+    assert_eq!(logs.len(), 1);
+    assert_eq!(logs[0].level, AgentLogLevel::Debug);
+    assert!(!logs[0].message.contains("Uses pnpm"));
 }
 
 #[test]
@@ -6494,9 +7115,15 @@ fn extract_memories_saves_nothing_and_logs_nothing_when_the_response_is_empty() 
     let wire_format = openai_compatible_wire_format(&address);
     let client = blocking_http_client(Duration::from_secs(5)).expect("client");
     let cancelled = not_cancelled();
-    let memories = FakeMemories::default();
     let logging = RecordingLogging::default();
     let request = sample_request("api");
+    let snapshots = extraction_snapshots();
+    let snapshot = snapshots.snapshot(GenerationPersonalizationContext {
+        agent_id: request.agent.id.clone(),
+        session_id: request.session.id.clone(),
+        folder: request.session.folder.clone(),
+        personalization_mode: "standard".to_string(),
+    });
 
     extract_memories(
         &wire_format,
@@ -6506,16 +7133,17 @@ fn extract_memories_saves_nothing_and_logs_nothing_when_the_response_is_empty() 
         None,
         &[json!({ "role": "user", "content": "hello" })],
         &cancelled,
-        "my-agent",
-        None,
-        &memories,
+        GenerationPersonalization {
+            snapshot: &snapshot,
+            port: &snapshots,
+        },
         &logging,
         &FixedClock,
         &request,
     );
 
     server.join().expect("fixture server");
-    assert!(memories.saved.lock().expect("saved memories").is_empty());
+    assert!(snapshots.proposals().is_empty());
     // "Nothing worth remembering" is a normal outcome, not a failure — unlike the HTTP
     // failure case below, it must not be logged.
     assert!(logging.logs.lock().expect("logs").is_empty());
@@ -6527,9 +7155,15 @@ fn extract_memories_saves_nothing_and_logs_a_warning_when_the_http_call_fails() 
     let wire_format = openai_compatible_wire_format(&address);
     let client = blocking_http_client(Duration::from_secs(5)).expect("client");
     let cancelled = not_cancelled();
-    let memories = FakeMemories::default();
     let logging = RecordingLogging::default();
     let request = sample_request("api");
+    let snapshots = extraction_snapshots();
+    let snapshot = snapshots.snapshot(GenerationPersonalizationContext {
+        agent_id: request.agent.id.clone(),
+        session_id: request.session.id.clone(),
+        folder: request.session.folder.clone(),
+        personalization_mode: "standard".to_string(),
+    });
 
     extract_memories(
         &wire_format,
@@ -6539,16 +7173,17 @@ fn extract_memories_saves_nothing_and_logs_a_warning_when_the_http_call_fails() 
         None,
         &[json!({ "role": "user", "content": "hello" })],
         &cancelled,
-        "my-agent",
-        None,
-        &memories,
+        GenerationPersonalization {
+            snapshot: &snapshot,
+            port: &snapshots,
+        },
         &logging,
         &FixedClock,
         &request,
     );
 
     server.join().expect("fixture server");
-    assert!(memories.saved.lock().expect("saved memories").is_empty());
+    assert!(snapshots.proposals().is_empty());
     let logs = logging.logs.lock().expect("logs");
     assert_eq!(logs.len(), 1);
     assert_eq!(logs[0].level, AgentLogLevel::Warn);
@@ -6592,7 +7227,7 @@ fn run_optimizer_compaction(
     client: &reqwest::blocking::Client,
     config: &ApiProviderConfig,
     sink: &dyn AgentProcessEventSink,
-    personalization: &dyn AgentPersonalizationPort,
+    personalization: &dyn PreGovernancePersonalization,
 ) -> Option<GenerationProcessEvent> {
     run_optimizer_compaction_with_logging(
         turns,
@@ -6613,12 +7248,23 @@ fn run_optimizer_compaction_with_logging(
     client: &reqwest::blocking::Client,
     config: &ApiProviderConfig,
     sink: &dyn AgentProcessEventSink,
-    personalization: &dyn AgentPersonalizationPort,
+    personalization: &dyn PreGovernancePersonalization,
     logging: &dyn AgentLoggingPort,
     context_quality: Option<&ContextQualityRecorder>,
 ) -> Option<GenerationProcessEvent> {
     let mut request_sequence = 0;
     let mut compaction_state = AutomaticCompactionState::default();
+    let empty_memories = FakeMemories::default();
+    let governed = SnapshotFromLegacyPorts {
+        personalization,
+        memories: &empty_memories,
+    };
+    let snapshot = governed.snapshot(GenerationPersonalizationContext {
+        agent_id: "onepiece".to_string(),
+        session_id: "session-1".to_string(),
+        folder: None,
+        personalization_mode: "standard".to_string(),
+    });
     maybe_compact_accounted(
         turns,
         wire_format,
@@ -6634,8 +7280,10 @@ fn run_optimizer_compaction_with_logging(
         logging,
         &FixedClock,
         &sample_request("api"),
-        &FakeMemories::default(),
-        personalization,
+        GenerationPersonalization {
+            snapshot: &snapshot,
+            port: &governed,
+        },
         false,
         None,
         &mut request_sequence,
@@ -6696,8 +7344,10 @@ fn run_controlled_compaction_with_quality(
         logging,
         &FixedClock,
         request,
-        &FakeMemories::default(),
-        &NoopPersonalization,
+        GenerationPersonalization {
+            snapshot: &noop_snapshot(),
+            port: &NoopPersonalization,
+        },
         false,
         None,
         &mut request_sequence,
@@ -7384,7 +8034,7 @@ fn malformed_optimizer_summary_falls_back_using_original_turns() {
     for index in 0..COMPACTION_KEEP_RECENT_TURNS {
         turns.push(json!({ "role": "user", "content": format!("recent-{index}") }));
     }
-    let personalization = FixedPersonalization(PersonalizationSettings {
+    let personalization = FixedPersonalization(PreGovernanceSettings {
         custom_instructions_about_user: String::new(),
         custom_instructions_style_rules: String::new(),
         custom_instructions_enabled: true,
@@ -7624,7 +8274,7 @@ fn maybe_compact_falls_back_to_leaving_turns_untouched_when_summarization_fails(
 }
 
 #[test]
-fn maybe_compact_triggers_extraction_and_saves_memories_when_it_succeeds() {
+fn maybe_compact_triggers_extraction_without_writing_a_memory() {
     let (address, server) = http_fixture_sequence(
         "200 OK",
         vec![
@@ -7681,12 +8331,10 @@ fn maybe_compact_triggers_extraction_and_saves_memories_when_it_succeeds() {
         2,
         "compaction's own summarization call, then extraction's"
     );
-    let saved = memories.saved.lock().expect("saved memories");
-    assert_eq!(saved.len(), 1);
-    assert_eq!(saved[0].0, request.agent.id);
-    assert_eq!(saved[0].1, request.session.folder);
-    assert_eq!(saved[0].2, "Uses pnpm.");
-    assert_eq!(saved[0].3, MemorySource::Automatic);
+    // What extraction produces is a proposal, asserted in
+    // `extraction_proposes_candidates_and_writes_no_memory`. What it must never produce is a
+    // write, and this is the path where one used to happen.
+    assert!(memories.saved.lock().expect("saved memories").is_empty());
 }
 
 fn history_message(
@@ -7777,10 +8425,10 @@ fn tool_assisted_flag_reflects_a_tool_call_made_earlier_in_the_same_generation()
         }),
     };
     let memories = FakeMemories::default();
-    let personalization = FixedPersonalization(PersonalizationSettings {
+    let personalization = FixedPersonalization(PreGovernanceSettings {
         memory_enabled: true,
         memory_tool_assisted_chats_enabled: false,
-        ..PersonalizationSettings::safe_fallback()
+        ..PreGovernanceSettings::safe_fallback()
     });
 
     let _event = execute(
@@ -7850,9 +8498,9 @@ fn maybe_compact_skips_extraction_when_memory_is_disabled() {
     let sink = CapturingSink::default();
     let request = sample_request("api");
     let memories = FakeMemories::default();
-    let personalization = FixedPersonalization(PersonalizationSettings {
+    let personalization = FixedPersonalization(PreGovernanceSettings {
         memory_enabled: false,
-        ..PersonalizationSettings::safe_fallback()
+        ..PreGovernanceSettings::safe_fallback()
     });
     let mut turns = compactable_turns();
 
@@ -7900,10 +8548,10 @@ fn maybe_compact_skips_extraction_for_a_tool_assisted_session_when_the_sub_toggl
     let sink = CapturingSink::default();
     let request = sample_request("api");
     let memories = FakeMemories::default();
-    let personalization = FixedPersonalization(PersonalizationSettings {
+    let personalization = FixedPersonalization(PreGovernanceSettings {
         memory_enabled: true,
         memory_tool_assisted_chats_enabled: false,
-        ..PersonalizationSettings::safe_fallback()
+        ..PreGovernanceSettings::safe_fallback()
     });
     let mut turns = compactable_turns();
 
@@ -7952,10 +8600,10 @@ fn maybe_compact_still_extracts_for_a_non_tool_assisted_session_when_the_sub_tog
     let sink = CapturingSink::default();
     let request = sample_request("api");
     let memories = FakeMemories::default();
-    let personalization = FixedPersonalization(PersonalizationSettings {
+    let personalization = FixedPersonalization(PreGovernanceSettings {
         memory_enabled: true,
         memory_tool_assisted_chats_enabled: false,
-        ..PersonalizationSettings::safe_fallback()
+        ..PreGovernanceSettings::safe_fallback()
     });
     let mut turns = compactable_turns();
 
@@ -7983,9 +8631,7 @@ fn maybe_compact_still_extracts_for_a_non_tool_assisted_session_when_the_sub_tog
         2,
         "the sub-toggle only gates tool-assisted sessions"
     );
-    let saved = memories.saved.lock().expect("saved memories");
-    assert_eq!(saved.len(), 1);
-    assert_eq!(saved[0].2, "Uses pnpm.");
+    assert!(memories.saved.lock().expect("saved memories").is_empty());
 }
 
 /// Panics if `list` is ever called — proves the memory-disabled path in `resolve_system_prompt`
@@ -7993,29 +8639,17 @@ fn maybe_compact_still_extracts_for_a_non_tool_assisted_session_when_the_sub_tog
 struct PanicsOnListMemories;
 
 impl AgentMemoryPort for PanicsOnListMemories {
-    fn save(&self, _input: SaveMemoryInput<'_>) -> Result<(), AgentRuntimeApplicationError> {
-        unreachable!("not exercised by this test")
-    }
-
     fn list_all(&self) -> Result<Vec<AgentMemory>, AgentRuntimeApplicationError> {
         panic!("memory-disabled resolve_system_prompt must not query the repository");
-    }
-
-    fn delete(&self, _memory_id: &str) -> Result<(), AgentRuntimeApplicationError> {
-        unreachable!("not exercised by this test")
-    }
-
-    fn delete_all(&self) -> Result<(), AgentRuntimeApplicationError> {
-        unreachable!("not exercised by this test")
     }
 }
 
 #[test]
 fn resolve_system_prompt_omits_memory_section_and_skips_the_lookup_when_memory_is_disabled() {
     let request = sample_request("api");
-    let personalization = FixedPersonalization(PersonalizationSettings {
+    let personalization = FixedPersonalization(PreGovernanceSettings {
         memory_enabled: false,
-        ..PersonalizationSettings::safe_fallback()
+        ..PreGovernanceSettings::safe_fallback()
     });
     let system = resolve_system_prompt(
         "my-agent",
@@ -8543,4 +9177,442 @@ fn an_endpoint_profile_context_window_smaller_than_the_request_fails_the_generat
         "unexpected diagnostic: {}",
         failure.diagnostic
     );
+}
+
+/// 6.4 — relevance selection sees the eligible set, and only the eligible set.
+///
+/// Selection narrows what policy allowed; it has no way to widen it. What it is offered is the
+/// snapshot's own list, so there is no store lookup on this path for a scope check to have to
+/// police afterwards.
+#[test]
+fn relevance_selection_is_offered_exactly_the_records_the_snapshot_ruled_eligible() {
+    let request = onepiece_session("session-selection-offered");
+    let snapshots = ScriptedSnapshots::with_bodies(
+        snapshot_with(
+            None,
+            vec![
+                dated_memory_ref("in-scope", "Eligible.", SystemTime::UNIX_EPOCH),
+                dated_memory_ref("also-in-scope", "Also eligible.", SystemTime::UNIX_EPOCH),
+            ],
+            AgentMemoryDelivery::IndexWithSelectedBodies,
+        ),
+        vec![memory_body("in-scope", "Uses npm.")],
+    );
+    let selection = RecordingSelection::returning(&["in-scope"]);
+
+    let system =
+        resolve_prompt_with_selection(&snapshots, &selection, &request).expect("system prompt");
+
+    assert_eq!(
+        selection.last_offered(),
+        vec!["in-scope".to_string(), "also-in-scope".to_string()]
+    );
+    assert!(system.contains("## Relevant memories"));
+    assert!(system.contains("Uses npm."));
+}
+
+/// 6.4 — a name the selector invented reaches nothing.
+///
+/// The lookup runs against the offered candidates rather than any store, so a selector that
+/// returns something it was never shown gets no body rather than a body from outside the scope.
+#[test]
+fn a_selected_name_the_selector_was_never_offered_reaches_no_body() {
+    let request = onepiece_session("session-selection-invented");
+    let snapshots = ScriptedSnapshots::with_bodies(
+        snapshot_with(
+            None,
+            vec![dated_memory_ref(
+                "in-scope",
+                "Eligible.",
+                SystemTime::UNIX_EPOCH,
+            )],
+            AgentMemoryDelivery::IndexWithSelectedBodies,
+        ),
+        vec![
+            memory_body("in-scope", "Uses npm."),
+            memory_body("out-of-scope", "A secret from another workspace."),
+        ],
+    );
+    let selection = RecordingSelection::returning(&["out-of-scope"]);
+
+    let system =
+        resolve_prompt_with_selection(&snapshots, &selection, &request).expect("system prompt");
+
+    assert!(!system.contains("## Relevant memories"));
+    assert!(!system.contains("A secret from another workspace."));
+    assert!(snapshots.offered_bodies().is_empty());
+}
+
+/// 6.5 — the age line and the staleness caveat reach the prompt.
+///
+/// They were inert on the production path before this change: the bridge built every `AgentMemory`
+/// with no modification time, so `render_memory_age` and `memory_staleness_caveat` returned `None`
+/// for every memory the runtime had ever injected. The snapshot now carries the time through.
+#[test]
+fn selected_bodies_carry_their_age_and_a_staleness_caveat_when_they_are_old() {
+    let request = onepiece_session("session-age-line");
+    let snapshots = ScriptedSnapshots::with_bodies(
+        snapshot_with(
+            None,
+            vec![dated_memory_ref(
+                "ancient",
+                "Eligible.",
+                SystemTime::UNIX_EPOCH,
+            )],
+            AgentMemoryDelivery::IndexWithSelectedBodies,
+        ),
+        vec![memory_body("ancient", "Uses npm.")],
+    );
+    let selection = RecordingSelection::returning(&["ancient"]);
+
+    let system =
+        resolve_prompt_with_selection(&snapshots, &selection, &request).expect("system prompt");
+
+    assert!(
+        system.contains("### ancient ("),
+        "expected an age line: {system}"
+    );
+    assert!(system.contains("years ago"));
+    assert!(system.contains(crate::contexts::agent_runtime::domain::MEMORY_STALENESS_CAVEAT));
+}
+
+/// 6.5 — a body this session has already been shown is not offered again.
+#[test]
+fn a_body_surfaced_earlier_in_the_session_is_not_offered_to_selection_again() {
+    let request = onepiece_session("session-already-surfaced");
+    let snapshots = ScriptedSnapshots::with_bodies(
+        snapshot_with(
+            None,
+            vec![
+                dated_memory_ref("shown", "Eligible.", SystemTime::UNIX_EPOCH),
+                dated_memory_ref("unshown", "Also eligible.", SystemTime::UNIX_EPOCH),
+            ],
+            AgentMemoryDelivery::IndexWithSelectedBodies,
+        ),
+        vec![
+            memory_body("shown", "Uses npm."),
+            memory_body("unshown", "Prefers tabs."),
+        ],
+    );
+    let first = RecordingSelection::returning(&["shown"]);
+    let _ = resolve_prompt_with_selection(&snapshots, &first, &request).expect("first prompt");
+
+    let second = RecordingSelection::returning(&["unshown"]);
+    let system = resolve_prompt_with_selection(&snapshots, &second, &request).expect("second");
+
+    assert_eq!(second.last_offered(), vec!["unshown".to_string()]);
+    assert!(system.contains("Prefers tabs."));
+    assert!(!system.contains("Uses npm."));
+}
+
+/// 6.5 — a memory corrected since it was surfaced becomes offerable again.
+///
+/// Its content is no longer the content the model was shown, so continuing to exclude it would
+/// hide the correction for the rest of the session.
+#[test]
+fn a_memory_corrected_since_it_was_surfaced_is_offered_again() {
+    let request = onepiece_session("session-corrected-body");
+    let before = ScriptedSnapshots::with_bodies(
+        snapshot_with(
+            None,
+            vec![dated_memory_ref(
+                "npm-only",
+                "Eligible.",
+                SystemTime::UNIX_EPOCH,
+            )],
+            AgentMemoryDelivery::IndexWithSelectedBodies,
+        ),
+        vec![memory_body("npm-only", "Uses npm.")],
+    );
+    let _ = resolve_prompt_with_selection(
+        &before,
+        &RecordingSelection::returning(&["npm-only"]),
+        &request,
+    )
+    .expect("first prompt");
+
+    let corrected = SystemTime::UNIX_EPOCH + Duration::from_secs(60 * 60 * 24 * 365 * 40);
+    let after = ScriptedSnapshots::with_bodies(
+        snapshot_with(
+            None,
+            vec![dated_memory_ref("npm-only", "Eligible.", corrected)],
+            AgentMemoryDelivery::IndexWithSelectedBodies,
+        ),
+        vec![memory_body("npm-only", "Uses pnpm after all.")],
+    );
+    let selection = RecordingSelection::returning(&["npm-only"]);
+
+    let system = resolve_prompt_with_selection(&after, &selection, &request).expect("second");
+
+    assert_eq!(selection.last_offered(), vec!["npm-only".to_string()]);
+    assert!(system.contains("Uses pnpm after all."));
+}
+
+/// 6.8 — a session that may not read memory is not offered `recall`.
+///
+/// `recall` searches the same long-term pool the index draws from. Suppressing the index while
+/// leaving the search tool in the catalog would leave the door open, and a temporary session
+/// would have kept a working search over everything it was told would not be retained.
+#[test]
+fn a_session_denied_memory_reads_is_not_offered_the_recall_tool() {
+    let request = onepiece_session("session-recall-denied");
+    let retrieval = FakeRetrieval::configured(Ok(AgentRetrievalOutcome {
+        hits: Vec::new(),
+        degraded: None,
+    }));
+    let code_intelligence = super::super::RuntimeAgentCodeIntelligenceAdapter::new(Arc::new(
+        super::super::UnavailableAgentCodeIntelligenceResponder,
+    ));
+    let catalog_for = |memory_read_allowed: bool| {
+        super::prompt::resolve_generation_tool_catalog(
+            &request,
+            &NoopMcp,
+            &NoopLogging,
+            &FixedClock,
+            &retrieval,
+            &code_intelligence,
+            &NativeToolRegistry::empty(),
+            None,
+            false,
+            memory_read_allowed,
+        )
+    };
+
+    let denied = catalog_for(false);
+    let allowed = catalog_for(true);
+
+    assert!(!denied.iter().any(|tool| tool.name == RECALL_TOOL_NAME));
+    assert!(allowed.iter().any(|tool| tool.name == RECALL_TOOL_NAME));
+}
+
+/// 6.8 — a temporary session keeps its instructions and loses every long-term memory surface.
+///
+/// The two are governed separately on purpose: a session the user asked not to retain is still
+/// their session, and how they want to be answered is not something the mode was meant to discard.
+#[test]
+fn a_temporary_session_keeps_custom_instructions_and_loses_every_memory_surface() {
+    let request = onepiece_session("session-temporary");
+    let snapshots = ScriptedSnapshots::with_bodies(
+        AgentPersonalizationSnapshot {
+            instruction_block: Some(
+                "## Custom Instructions\n### Response style\nBe terse.".to_string(),
+            ),
+            ..AgentPersonalizationSnapshot::fail_closed("session_temporary")
+        },
+        vec![memory_body("in-scope", "Uses npm.")],
+    );
+    let selection = RecordingSelection::returning(&["in-scope"]);
+
+    let system =
+        resolve_prompt_with_selection(&snapshots, &selection, &request).expect("system prompt");
+
+    assert!(system.contains("## Custom Instructions"));
+    assert!(system.contains("Be terse."));
+    assert!(!system.contains("## Memory"));
+    assert!(!system.contains("## Relevant memories"));
+    assert!(!system.contains("Uses npm."));
+    assert!(selection.last_offered().is_empty());
+    assert!(snapshots.offered_bodies().is_empty());
+}
+
+/// 6.8 — a temporary session still compacts. Only what would outlive it is suppressed.
+///
+/// Compaction is how the current session keeps running; extraction is how a session leaves
+/// something behind. Conflating them would make "do not remember this" mean "run out of context",
+/// which is not what the mode is for and not what a user choosing it is asking for.
+#[test]
+fn a_temporary_session_still_compacts_while_nothing_is_extracted() {
+    let (address, server) = http_fixture(
+        "200 OK",
+        sse_body(&[
+            r#"{"choices":[{"index":0,"delta":{"content":"Condensed summary."},"finish_reason":null}]}"#,
+            "[DONE]",
+        ]),
+    );
+    let wire_format = openai_compatible_wire_format(&address);
+    let client = blocking_http_client(Duration::from_secs(5)).expect("client");
+    let request = onepiece_session("session-temporary-compaction");
+    let snapshots = ScriptedSnapshots::new(AgentPersonalizationSnapshot::fail_closed(
+        "session_temporary",
+    ));
+    let temporary = AgentPersonalizationSnapshot::fail_closed("session_temporary");
+    let mut turns = compactable_turns();
+
+    let result = maybe_compact_with_snapshot(
+        &mut turns,
+        &wire_format,
+        &client,
+        "sk-test",
+        "deepseek-chat",
+        None,
+        &not_cancelled(),
+        &CapturingSink::default(),
+        &NoopLogging,
+        &FixedClock,
+        &request,
+        GenerationPersonalization {
+            snapshot: &temporary,
+            port: &snapshots,
+        },
+        false,
+    );
+    server.join().expect("fixture server");
+
+    assert!(result.is_none());
+    assert_eq!(turns.len(), 1 + COMPACTION_KEEP_RECENT_TURNS);
+    assert_eq!(turns[0]["content"], "Condensed summary.");
+    assert!(
+        snapshots.proposals().is_empty(),
+        "a temporary session must leave nothing behind, not even a proposal"
+    );
+}
+
+/// 6.8 — a denied session writes nothing to the retrieval index either.
+///
+/// The wake signal sits downstream of the save, so a rejected `remember` cannot reach it. That is
+/// worth pinning rather than inferring: the index is the one memory surface that outlives the
+/// process, and a wake that fired anyway would be a write a temporary session was promised it
+/// would not make.
+#[test]
+fn a_rejected_remember_never_wakes_the_retrieval_index() {
+    let sse_body = concat!(
+        "data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"remember\",\"arguments\":\"\"}}]},\"finish_reason\":null}]}\n",
+        "\n",
+        "data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"content\\\": \\\"Uses pnpm.\\\"}\"}}]},\"finish_reason\":null}]}\n",
+        "\n",
+        "data: [DONE]\n",
+        "\n",
+    )
+    .to_string();
+    let (address, _server) = http_fixture("200 OK", sse_body);
+    let request = onepiece_session("session-denied-retrieval-write");
+    let config = FakeConfig {
+        provider_config: Some(ApiProviderConfig {
+            source_provider_id: None,
+            model_id: "test-model".to_string(),
+            interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
+            base_url: Some(address),
+            auto_approve_tools: true,
+        }),
+    };
+    let memories = FakeMemories::default();
+    let retrieval = FakeRetrieval::configured(Ok(AgentRetrievalOutcome {
+        hits: Vec::new(),
+        degraded: None,
+    }));
+    let personalization = FixedPersonalization(PreGovernanceSettings {
+        memory_enabled: false,
+        ..PreGovernanceSettings::safe_fallback()
+    });
+    let sink = CapturingSink::default();
+
+    let _event = execute(
+        &request,
+        not_cancelled(),
+        &FakeCredentials {
+            value: Some("sk-test".to_string()),
+        },
+        &config,
+        &FakeHistory(FakeHistoryOutcome::Messages(Vec::new())),
+        &sink,
+        &no_pending_approvals(),
+        &NoopLogging,
+        &FixedClock,
+        &NoopSkills,
+        &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
+        &memories,
+        &NoopMcp,
+        &FakePermissions::default_classification(),
+        &retrieval,
+        &personalization,
+    );
+
+    // Asserted first, so a change that stopped emitting the tool call at all cannot make the two
+    // assertions below pass by never reaching the gate they are about.
+    let events = sink.events.lock().expect("events");
+    assert!(
+        events.iter().any(|event| matches!(
+            event,
+            GenerationProcessEvent::ToolUse(tool_use) if tool_use.status == "failed"
+        )),
+        "the remember call must have reached dispatch and been rejected there"
+    );
+    assert!(memories.saved.lock().expect("saved").is_empty());
+    assert!(
+        retrieval.calls.lock().expect("calls").is_empty(),
+        "a denied session must not reach the memory search either"
+    );
+}
+
+/// 6.9 — a review queue that refuses the batch costs the proposals and nothing else.
+///
+/// Extraction hangs off a compaction that has already succeeded. A queue that cannot take what it
+/// produced must not undo the compaction, fail the generation, or leave the turns half-replaced.
+#[test]
+fn a_refused_proposal_batch_leaves_the_compaction_it_hung_off_intact() {
+    let (address, server) = http_fixture_sequence(
+        "200 OK",
+        vec![
+            sse_body(&[
+                r#"{"choices":[{"index":0,"delta":{"content":"Condensed summary."},"finish_reason":null}]}"#,
+                "[DONE]",
+            ]),
+            sse_body(&[
+                r#"{"choices":[{"index":0,"delta":{"content":"[{\"action\":\"create\",\"name\":\"npm-only\",\"description\":\"Uses npm\",\"body\":\"Uses pnpm.\"}]"},"finish_reason":null}]}"#,
+                "[DONE]",
+            ]),
+        ],
+    );
+    let wire_format = openai_compatible_wire_format(&address);
+    let client = blocking_http_client(Duration::from_secs(5)).expect("client");
+    let request = onepiece_session("session-refused-proposals");
+    let logging = RecordingLogging::default();
+    let snapshots = ScriptedSnapshots::refusing(snapshot_with(
+        None,
+        Vec::new(),
+        AgentMemoryDelivery::IndexOnly,
+    ));
+    let snapshot = snapshots.snapshot(GenerationPersonalizationContext {
+        agent_id: request.agent.id.clone(),
+        session_id: request.session.id.clone(),
+        folder: request.session.folder.clone(),
+        personalization_mode: "standard".to_string(),
+    });
+    let mut turns = compactable_turns();
+
+    let result = maybe_compact_with_snapshot(
+        &mut turns,
+        &wire_format,
+        &client,
+        "sk-test",
+        "deepseek-chat",
+        None,
+        &not_cancelled(),
+        &CapturingSink::default(),
+        &logging,
+        &FixedClock,
+        &request,
+        GenerationPersonalization {
+            snapshot: &snapshot,
+            port: &snapshots,
+        },
+        false,
+    );
+    let requests = server.join().expect("fixture server");
+
+    assert!(result.is_none());
+    assert_eq!(
+        requests.len(),
+        2,
+        "compaction summarized, then extraction ran"
+    );
+    assert_eq!(turns.len(), 1 + COMPACTION_KEEP_RECENT_TURNS);
+    assert_eq!(turns[0]["content"], "Condensed summary.");
+    assert!(snapshots.proposals().is_empty());
+    // Reported, and content-free: what could not be queued is still the text nobody approved.
+    let logs = logging.logs.lock().expect("logs");
+    assert!(logs
+        .iter()
+        .any(|log| log.message.contains("could not queue its proposals")));
+    assert!(!logs.iter().any(|log| log.message.contains("Uses pnpm")));
 }

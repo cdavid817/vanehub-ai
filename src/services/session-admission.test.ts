@@ -9,7 +9,7 @@ function session(overrides: Partial<Session> = {}): Session {
     title: "Session",
     agentId: "onepiece",
     interactionMode: "api",
-    lifecycleState: "idle",
+    personalizationMode: "standard", lifecycleState: "idle",
     recoveryStatus: "clean",
     recoveryRevision: 0,
     stateRevision: 0,

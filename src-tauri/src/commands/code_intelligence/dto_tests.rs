@@ -1,5 +1,22 @@
 use super::dto::*;
+use crate::contexts::code_intelligence::api::{
+    LanguageConfiguration, LspConfiguration, LspLanguageId, SemanticMethod, LANGUAGE_DEFINITIONS,
+};
 use serde_json::json;
+use std::collections::BTreeMap;
+
+/// The negotiated record is a list now, so a test that only cares that everything is supported
+/// says so once instead of restating the method set. A method added later reaches these fixtures
+/// through `SemanticMethod::ALL` rather than through an edit here.
+fn every_method_supported() -> Vec<LspNegotiatedMethodDto> {
+    SemanticMethod::ALL
+        .iter()
+        .map(|method| LspNegotiatedMethodDto {
+            method: method.id().to_owned(),
+            supported: true,
+        })
+        .collect()
+}
 
 #[test]
 fn configuration_contract_uses_stable_language_ids_and_camel_case_fields() {
@@ -7,18 +24,21 @@ fn configuration_contract_uses_stable_language_ids_and_camel_case_fields() {
         enabled: true,
         languages: vec![
             LspLanguageConfigurationDto {
-                language: LspLanguageIdDto::Rust,
+                language: "rust".to_owned(),
                 enabled: true,
                 executable_override: Some("C:/tools/rust-analyzer.exe".to_string()),
+                startup_arguments: None,
                 initialization_options: json!({"check": {"command": "clippy"}}),
             },
             LspLanguageConfigurationDto {
-                language: LspLanguageIdDto::TypeScriptJavaScript,
+                language: "typescript_javascript".to_owned(),
                 enabled: false,
                 executable_override: None,
+                startup_arguments: Some(vec!["--stdio".to_owned()]),
                 initialization_options: json!({}),
             },
         ],
+        descriptors: Vec::new(),
     };
 
     let value = serde_json::to_value(&configuration).expect("serialize configuration");
@@ -32,6 +52,74 @@ fn configuration_contract_uses_stable_language_ids_and_camel_case_fields() {
         serde_json::from_value::<LspConfigurationDto>(value.clone())
             .expect("deserialize configuration"),
         configuration
+    );
+}
+
+#[test]
+fn a_caller_may_omit_descriptors_and_startup_arguments_when_saving() {
+    // The desktop end-to-end layer calls `save_lsp_configuration` through `core.invoke` directly,
+    // without going through the frontend adapter, so its payload carries neither field. Requiring
+    // `descriptors` would reject that caller for restating a fact the backend authored, and
+    // requiring `startupArguments` would reject one written before the field existed.
+    let configuration = serde_json::from_value::<LspConfigurationDto>(json!({
+        "enabled": true,
+        "languages": [{
+            "language": "rust",
+            "enabled": true,
+            "executableOverride": null,
+            "initializationOptions": {}
+        }]
+    }))
+    .expect("a payload without descriptors or startup arguments deserializes");
+
+    assert!(configuration.enabled);
+    assert!(configuration.descriptors.is_empty());
+    assert_eq!(configuration.languages[0].startup_arguments, None);
+
+    // Descriptors are output only: a caller that sends them is not trusted to define them.
+    let ignored = serde_json::from_value::<LspConfigurationDto>(json!({
+        "enabled": false,
+        "languages": [],
+        "descriptors": [{
+            "language": "go",
+            "server": "gopls",
+            "supportedOnHost": true,
+            "defaultStartupArguments": []
+        }]
+    }))
+    .expect("descriptors sent by a caller are accepted and discarded");
+    assert!(ignored.descriptors.is_empty());
+}
+
+#[test]
+fn unset_and_empty_startup_arguments_are_distinguishable_on_the_wire() {
+    // The whole point of the nullable column is that these two survive a round trip as different
+    // values. If serde collapsed them, clearing the field in the UI would silently mean "use the
+    // registry default" and `--stdio` would come back.
+    let unset = LspLanguageConfigurationDto {
+        language: "rust".to_owned(),
+        enabled: true,
+        executable_override: None,
+        startup_arguments: None,
+        initialization_options: json!({}),
+    };
+    let empty = LspLanguageConfigurationDto {
+        startup_arguments: Some(Vec::new()),
+        ..unset.clone()
+    };
+
+    let unset_value = serde_json::to_value(&unset).expect("serialize unset");
+    let empty_value = serde_json::to_value(&empty).expect("serialize empty");
+    assert!(unset_value["startupArguments"].is_null());
+    assert_eq!(empty_value["startupArguments"], json!([]));
+    assert_ne!(unset_value, empty_value);
+    assert_eq!(
+        serde_json::from_value::<LspLanguageConfigurationDto>(unset_value).expect("round trip"),
+        unset
+    );
+    assert_eq!(
+        serde_json::from_value::<LspLanguageConfigurationDto>(empty_value).expect("round trip"),
+        empty
     );
 }
 
@@ -63,8 +151,8 @@ fn trust_and_discovery_contracts_use_camel_case_and_safe_reason_codes() {
     );
 
     let discovery = LspServerDiscoveryDto {
-        language: LspLanguageIdDto::Rust,
-        server: LspServerKindDto::RustAnalyzer,
+        language: "rust".to_owned(),
+        server: "rust_analyzer".to_owned(),
         availability: LspDiscoveryAvailabilityDto::Unavailable,
         executable_path: None,
         arguments: Vec::new(),
@@ -84,11 +172,11 @@ fn server_test_contract_serializes_phases_and_optional_negotiated_capabilities()
         }))
         .expect("deserialize server test input"),
         LspServerTestInputDto {
-            language: LspLanguageIdDto::TypeScriptJavaScript,
+            language: "typescript_javascript".to_owned(),
         }
     );
     let result = LspServerTestResultDto {
-        server: LspServerKindDto::TypeScriptLanguageServer,
+        server: "typescript_language_server".to_owned(),
         phases: vec![LspServerTestPhaseResultDto {
             phase: LspServerTestPhaseDto::Initialize,
             status: LspServerTestPhaseStatusDto::Failed,
@@ -102,6 +190,215 @@ fn server_test_contract_serializes_phases_and_optional_negotiated_capabilities()
     assert_eq!(value["phases"][0]["status"], "failed");
     assert_eq!(value["phases"][0]["reasonCode"], "initialize_timed_out");
     assert!(value["negotiatedCapabilities"].is_null());
+}
+
+// The assertions above check individual fields, so an added field passes them silently. These
+// three pin the whole serialized object for each command result instead, which is what makes a
+// contract change show up as a reviewable diff rather than as nothing at all.
+#[test]
+fn get_lsp_configuration_result_serializes_to_an_exact_object() {
+    // One configured language, pinned exactly. The list used to hold every registered language,
+    // which meant this expectation had to be rewritten each time one was added and grew a table
+    // that nobody would read. What it needs to catch is a field appearing, disappearing, or
+    // changing shape, and one entry catches that as well as five.
+    let mut configuration = LspConfiguration {
+        enabled: true,
+        languages: BTreeMap::new(),
+    };
+    configuration.languages.insert(
+        LspLanguageId::new("rust").expect("rust language id"),
+        LanguageConfiguration {
+            enabled: true,
+            executable_override: Some("C:/tools/rust-analyzer.exe".to_owned()),
+            startup_arguments: None,
+            initialization_options: json!({"check": {"command": "clippy"}}),
+        },
+    );
+
+    let value = serde_json::to_value(LspConfigurationDto::from(configuration)).expect("serialize");
+    assert_eq!(
+        value["languages"],
+        json!([{
+            "language": "rust",
+            "enabled": true,
+            "executableOverride": "C:/tools/rust-analyzer.exe",
+            "startupArguments": null,
+            "initializationOptions": {"check": {"command": "clippy"}}
+        }])
+    );
+    assert_eq!(value["enabled"], json!(true));
+    assert_eq!(
+        // serde_json orders object keys, so this is the key set rather than the field order.
+        value
+            .as_object()
+            .expect("object")
+            .keys()
+            .collect::<Vec<_>>(),
+        vec!["descriptors", "enabled", "languages"]
+    );
+}
+
+#[test]
+fn get_lsp_configuration_describes_every_registered_language() {
+    // The descriptor list comes from the registry, so asserting a literal here would only restate
+    // the registry and would have to be edited whenever it changed. What is worth pinning is the
+    // relationship: one descriptor per registered language, in the same order, each with the
+    // fields the settings page renders from.
+    let value = serde_json::to_value(LspConfigurationDto::from(LspConfiguration::default()))
+        .expect("serialize");
+    let descriptors = value["descriptors"].as_array().expect("descriptor array");
+
+    assert_eq!(descriptors.len(), LANGUAGE_DEFINITIONS.len());
+    for (descriptor, definition) in descriptors.iter().zip(LANGUAGE_DEFINITIONS) {
+        assert_eq!(descriptor["language"], json!(definition.id));
+        assert_eq!(descriptor["server"], json!(definition.server_id));
+        assert_eq!(
+            descriptor["supportedOnHost"],
+            json!(definition.supports_host())
+        );
+        assert_eq!(
+            descriptor["defaultStartupArguments"],
+            json!(definition.default_startup_arguments)
+        );
+        assert_eq!(
+            descriptor["overrideTarget"],
+            json!(match definition.launch.interpreter() {
+                Some(_) => "install_directory",
+                None => "executable_file",
+            })
+        );
+        assert_eq!(
+            descriptor["prerequisite"],
+            json!(definition
+                .launch
+                .interpreter()
+                .map(|launch| launch.prerequisite))
+        );
+        // The presence of a distribution is what the settings page branches on, and its
+        // `verified` flag is what decides whether the user is warned. A language that declares
+        // none must serialize `null` rather than an object claiming unverified bytes for a
+        // download that cannot happen.
+        assert_eq!(
+            descriptor["distribution"],
+            json!(definition
+                .distribution
+                .map(|distribution| json!({ "verified": distribution.is_verified() })))
+        );
+        // `LspConfiguration::default()` carries no filesystem answer, so nothing is installed --
+        // which is the state the card has to render before the backend has looked.
+        assert_eq!(descriptor["installed"], json!(false));
+        // Alphabetical, because `serde_json::Value` keys a map by `BTreeMap` rather than by
+        // declaration order.
+        assert_eq!(
+            descriptor
+                .as_object()
+                .expect("descriptor object")
+                .keys()
+                .collect::<Vec<_>>(),
+            vec![
+                "defaultStartupArguments",
+                "distribution",
+                "installed",
+                "language",
+                "overrideTarget",
+                "prerequisite",
+                "server",
+                "supportedOnHost"
+            ]
+        );
+    }
+}
+
+#[test]
+fn discover_lsp_servers_result_serializes_to_an_exact_object() {
+    let discovered = vec![
+        LspServerDiscoveryDto {
+            language: "rust".to_owned(),
+            server: "rust_analyzer".to_owned(),
+            availability: LspDiscoveryAvailabilityDto::Available,
+            executable_path: Some("C:/tools/rust-analyzer.exe".to_string()),
+            arguments: Vec::new(),
+            reason_code: None,
+        },
+        LspServerDiscoveryDto {
+            language: "typescript_javascript".to_owned(),
+            server: "typescript_language_server".to_owned(),
+            availability: LspDiscoveryAvailabilityDto::Unavailable,
+            executable_path: None,
+            arguments: vec!["--stdio".to_string()],
+            reason_code: Some(LspSafeReasonCodeDto::ExecutableNotFound),
+        },
+    ];
+
+    assert_eq!(
+        serde_json::to_value(&discovered).expect("serialize discovery"),
+        json!([
+            {
+                "language": "rust",
+                "server": "rust_analyzer",
+                "availability": "available",
+                "executablePath": "C:/tools/rust-analyzer.exe",
+                "arguments": [],
+                "reasonCode": null
+            },
+            {
+                "language": "typescript_javascript",
+                "server": "typescript_language_server",
+                "availability": "unavailable",
+                "executablePath": null,
+                "arguments": ["--stdio"],
+                "reasonCode": "executable_not_found"
+            }
+        ])
+    );
+}
+
+#[test]
+fn list_lsp_server_status_result_serializes_to_an_exact_object() {
+    let statuses = vec![LspServerStatusDto {
+        language: "rust".to_owned(),
+        server: "rust_analyzer".to_owned(),
+        relative_project_root: "crates/core".to_string(),
+        state: LspProcessStateDto::Ready,
+        restart_count: 1,
+        last_response_at: Some("2026-08-10T08:01:02Z".to_string()),
+        diagnostic_count: 4,
+        reason_code: None,
+        negotiated_capabilities: Some(LspNegotiatedCapabilitiesDto {
+            position_encoding: LspPositionEncodingDto::Utf16,
+            document_sync: LspDocumentSyncDto::Incremental,
+            methods: every_method_supported(),
+        }),
+    }];
+
+    assert_eq!(
+        serde_json::to_value(&statuses).expect("serialize status"),
+        json!([{
+            "language": "rust",
+            "server": "rust_analyzer",
+            "relativeProjectRoot": "crates/core",
+            "state": "ready",
+            "restartCount": 1,
+            "lastResponseAt": "2026-08-10T08:01:02Z",
+            "diagnosticCount": 4,
+            "reasonCode": null,
+            "negotiatedCapabilities": {
+                "positionEncoding": "utf16",
+                "documentSync": "incremental",
+                "methods": [
+                    {"method": "definition", "supported": true},
+                    {"method": "references", "supported": true},
+                    {"method": "hover", "supported": true},
+                    {"method": "diagnostics", "supported": true},
+                    {"method": "type_definition", "supported": true},
+                    {"method": "implementation", "supported": true},
+                    {"method": "workspace_symbols", "supported": true},
+                    {"method": "document_symbols", "supported": true},
+                    {"method": "call_hierarchy", "supported": true}
+                ]
+            }
+        }])
+    );
 }
 
 #[test]
@@ -129,8 +426,8 @@ fn status_contract_covers_every_process_state_and_optional_capabilities() {
     );
 
     let status = LspServerStatusDto {
-        language: LspLanguageIdDto::Rust,
-        server: LspServerKindDto::RustAnalyzer,
+        language: "rust".to_owned(),
+        server: "rust_analyzer".to_owned(),
         relative_project_root: "crates/core".to_string(),
         state: LspProcessStateDto::Ready,
         restart_count: 1,
@@ -140,10 +437,7 @@ fn status_contract_covers_every_process_state_and_optional_capabilities() {
         negotiated_capabilities: Some(LspNegotiatedCapabilitiesDto {
             position_encoding: LspPositionEncodingDto::Utf16,
             document_sync: LspDocumentSyncDto::Incremental,
-            definition: true,
-            references: true,
-            hover: true,
-            diagnostics: true,
+            methods: every_method_supported(),
         }),
     };
     let value = serde_json::to_value(status).expect("serialize status");

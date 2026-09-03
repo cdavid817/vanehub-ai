@@ -1,5 +1,7 @@
 # 版本更新：签名校验与发布通道
 
+![设置中的关于 VaneHub AI 页面，版本更新与发布通道都在这里](assets/screenshots/settings-about-zh-CN.png)
+
 ## 功能概述
 
 桌面端从 GitHub Releases 检查新版本，下载前后都做签名校验，**验证不通过就不装**。

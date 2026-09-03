@@ -26,6 +26,7 @@
 - [Code indexing](code-indexing.md)
 - [LSP code intelligence](lsp-code-intelligence.md)
 - [Tools and extensions](tooling.md)
+- [Local media](local-media.md)
 - [MCP servers](mcp.md)
 - [Plugin integration](plugin-integration.md)
 - [Prompt Hooks](prompt-hooks.md)
@@ -39,6 +40,5 @@
 
 - [Use cases](use-cases.md)
 - [FAQ](faq.md)
-- [Runtime and feature labels](runtime-labels.md)
 - [Troubleshooting](troubleshooting.md)
 - [Reporting issues](reporting-issues.md)

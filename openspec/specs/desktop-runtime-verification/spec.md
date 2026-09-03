@@ -2,7 +2,9 @@
 
 ## Purpose
 Defines a safe, repeatable verification contract for building, launching, exercising, and diagnosing the real VaneHub AI desktop runtime on each supported operating system.
+
 ## Requirements
+
 ### Requirement: Current-platform native verification
 The verification system SHALL detect the host operating system and architecture, build a compatible native VaneHub AI desktop test artifact, and report only platforms that were actually executed.
 
@@ -90,6 +92,19 @@ The orchestrator MUST track the root application process and test-owned child pr
 - **WHEN** a user-owned or separately launched VaneHub AI process exists during cleanup
 - **THEN** the orchestrator leaves that process running
 
+### Requirement: Stable desktop automation worker lifecycle
+The desktop verification harness SHALL ensure its automation driver is accepting sessions before each isolated worker starts, including after a preceding worker has cleanly closed the native application.
+
+#### Scenario: Start a worker after native shutdown
+- **WHEN** a desktop verification worker starts after the preceding worker has completed owned-process shutdown
+- **THEN** the harness verifies that the automation driver accepts a new session before executing the worker's spec
+- **AND** it recovers the test-owned driver when the previous shutdown invalidated it
+
+#### Scenario: Driver cannot be restored
+- **WHEN** the automation driver cannot accept a session within the configured readiness deadline
+- **THEN** the affected worker reports `FAILED`
+- **AND** its run-scoped evidence identifies the driver readiness failure rather than attributing it to application behavior
+
 ### Requirement: Reviewable failure evidence
 Failed desktop verification SHALL retain a run-scoped summary, assertion details, screenshot when a window is available, frontend and driver diagnostics, process state, and the existing redacted unified native logs. Evidence collection MUST NOT create a parallel unredacted native log sink.
 
@@ -101,6 +116,19 @@ Failed desktop verification SHALL retain a run-scoped summary, assertion details
 #### Scenario: Evidence contains application diagnostics
 - **WHEN** native application logs are collected
 - **THEN** they come from the isolated unified log directory and retain its required redaction behavior
+
+### Requirement: Diagnosable frontend failure evidence
+The desktop verification harness SHALL preserve redacted details for the browser error or unhandled rejection that triggers a fatal frontend marker, so test results can distinguish an application failure from test instrumentation.
+
+#### Scenario: Browser error triggers the fatal marker
+- **WHEN** a browser error or unhandled rejection occurs during native desktop verification
+- **THEN** the run-scoped evidence records the event type and a redacted diagnostic message or reason
+- **AND** the failing assertion identifies that captured diagnostic detail
+
+#### Scenario: No frontend error details are available
+- **WHEN** the browser supplies no serializable message or rejection reason
+- **THEN** the evidence records that the detail was unavailable
+- **AND** it does not claim a specific application root cause
 
 ### Requirement: Stable verification entry points and results
 The repository SHALL provide independent npm entry points for desktop artifact construction and desktop smoke, plus a composed desktop verification entry point. Every requested verification layer MUST report one of `PASSED`, `FAILED`, `BLOCKED`, `NOT RUN`, or `NOT REQUIRED`, and `NOT REQUIRED` MUST include an impact-based reason.
@@ -135,7 +163,7 @@ Desktop verification SHALL prove, against the real native runtime, that a manage
 - **AND** each desktop verification layer SHALL report its own `PASSED`, `FAILED`, `BLOCKED`, or `NOT RUN` result and its own evidence directory
 
 ### Requirement: Native UI interaction coverage
-Desktop verification SHALL exercise the client's primary interactive surfaces in the real desktop runtime rather than only asserting that they mount. Coverage SHALL include the session workspace tab set and the main-path dialogs, and SHALL assert rendered content and focus behavior produced by the desktop webview.
+Desktop verification SHALL exercise the client's primary interactive surfaces in the real desktop runtime rather than only asserting that they mount. Coverage SHALL include the session workspace tab set, main-path dialogs, and scheduled-task management, and SHALL assert rendered content, focus behavior, and native persistence produced through the desktop webview.
 
 #### Scenario: Session workspace tabs carry their own content
 - **WHEN** the layer opens a real session and selects each workspace tab in turn
@@ -148,6 +176,17 @@ Desktop verification SHALL exercise the client's primary interactive surfaces in
 - **THEN** the dialog SHALL be exposed as a dialog to assistive technology
 - **AND** focus SHALL move into the dialog
 - **AND** Escape SHALL close it and return focus to the surface that opened it
+
+#### Scenario: Startup activity differs from the tested surface
+- **WHEN** a native UI test starts while an unrelated activity is selected
+- **THEN** the test SHALL navigate explicitly through a stable accessible control before interacting with the target surface
+- **AND** it SHALL NOT assume that a content-specific control exists on every startup activity
+
+#### Scenario: Scheduled task native lifecycle
+- **WHEN** the layer opens Scheduled Tasks and submits a valid task for a stable CLI Agent id
+- **THEN** the rendered list and native scheduled-task service SHALL expose the created record and recurrence
+- **AND** disabling and enabling the task through the UI SHALL persist the corresponding native state
+- **AND** confirming deletion through the UI SHALL remove the native record
 
 #### Scenario: Interaction coverage cannot substitute a mock runtime
 - **WHEN** a requirement in this section is verified
@@ -282,3 +321,168 @@ a device, or an operating-system permission prompt.
 * WHEN a scenario requires speaking, listening, or changing an operating-system setting
 * THEN it SHALL be recorded as NOT RUN or BLOCKED until a person performs it
 * AND no fixture or automated substitute SHALL be recorded in its place
+
+### Requirement: Two desktop verification gates with distinct prerequisites
+
+Desktop verification SHALL be split into a Required Hermetic Desktop Gate and an External Provider Desktop Suite, and every desktop spec SHALL belong to exactly one of them.
+
+The split exists because a single suite cannot be both. A gate every pull request must pass cannot depend on a real CLI Agent, a real credential, or a real vendor download, and a suite that verifies the real thing cannot be hermetic. Merging them means either the gate silently requires a developer's machine — which is what made `desktop-smoke` fail on all three hosted runners for want of `codex` on PATH — or the real-integration cases quietly stop running.
+
+#### Scenario: Required gate runs on an ordinary pull request
+
+- **WHEN** the Required Hermetic Desktop Gate runs on Windows, macOS, or Linux
+- **THEN** it SHALL run against a temporary HOME, PATH, user-data directory, and SQLite database
+- **AND** it SHALL resolve every CLI Agent to a fixture executable rather than a host installation
+- **AND** it SHALL NOT contact a real provider, read a credential store, download from a vendor, or read the user's application state
+- **AND** any failing required spec SHALL fail the gate
+
+#### Scenario: Required gate cannot silently degrade
+
+- **WHEN** a required spec cannot run because a CLI Agent, package manager, or other fixture-resolvable prerequisite is missing
+- **THEN** the gate SHALL report `FAILED` rather than skipping the spec
+- **AND** the missing prerequisite SHALL be treated as a defect in the fixture, not as an environment block
+
+#### Scenario: Required spec reports a genuinely external prerequisite
+
+- **WHEN** part of a required spec depends on something no fixture can stand in for, such as a live vendor release endpoint
+- **THEN** that part MAY record a `BLOCKED` reason and continue
+- **AND** the reason SHALL name the prerequisite
+- **AND** the gate SHALL still report `PASSED` only if no required assertion failed
+
+#### Scenario: External provider suite runs outside the gate
+
+- **WHEN** the External Provider Desktop Suite is dispatched
+- **THEN** it SHALL be triggered manually, on a schedule, or by a protected label rather than by an ordinary pull request
+- **AND** it SHALL NOT be a required check for merging
+
+#### Scenario: External provider suite lacks its prerequisites
+
+- **WHEN** a real CLI Agent, credential, or provider endpoint the suite needs is absent
+- **THEN** it SHALL record `BLOCKED` with the specific missing prerequisite
+- **AND** it SHALL NOT record `PASSED`
+- **AND** the `BLOCKED` result SHALL NOT count toward the Required Hermetic Desktop Gate
+
+### Requirement: Every desktop spec is classified and the classification is enforced
+
+Each desktop spec SHALL carry exactly one classification of `required-fixture`, `external-provider`, or `duplicate-replaced`, recorded in a manifest that automated tests check.
+
+A classification kept only in prose drifts the first time a spec is added or renamed. Enforcing it mechanically is what keeps "every spec is classified" true rather than aspirational.
+
+#### Scenario: A spec is added without a classification
+
+- **WHEN** a desktop spec file exists that the manifest does not classify
+- **THEN** the desktop verification tests SHALL fail and name the unclassified spec
+
+#### Scenario: The manifest names a spec that no longer exists
+
+- **WHEN** a manifest entry has no corresponding spec file
+- **THEN** the desktop verification tests SHALL fail and name the stale entry
+
+#### Scenario: A required spec declares an external prerequisite
+
+- **WHEN** a spec classified `required-fixture` declares a real credential, a real provider, or vendor network access
+- **THEN** the desktop verification tests SHALL fail
+
+#### Scenario: An external spec reaches the required command
+
+- **WHEN** a spec classified `external-provider` is included in the Required Hermetic Desktop Gate's spec set
+- **THEN** the desktop verification tests SHALL fail
+
+#### Scenario: A replaced spec names no replacement
+
+- **WHEN** a spec is classified `duplicate-replaced`
+- **THEN** the manifest SHALL name the spec or layer that covers the same behaviour
+- **AND** the desktop verification tests SHALL fail if that replacement does not exist
+
+### Requirement: Fixture-resolvable behaviour belongs to the required gate
+
+A desktop spec that verifies CLI process lifecycle, standard output or error handling, session creation, tab, drawer or dialog behaviour, operations, cancellation, error reporting, persistence, PATH resolution, or the Agent Runtime call boundary SHALL be classified `required-fixture` and driven by a fixture CLI.
+
+These behaviours are properties of this application, not of any vendor's binary. Verifying them against a real CLI Agent buys nothing and costs the ability to run the gate anywhere.
+
+#### Scenario: A spec needs an installed Agent to exercise application behaviour
+
+- **WHEN** a required spec needs a CLI Agent to be present
+- **THEN** the gate SHALL place fixture executables for the managed Agent names ahead of the inherited PATH
+- **AND** the spec SHALL exercise the same production resolution, launch, and persistence paths against them
+
+#### Scenario: Only vendor-specific truth is external
+
+- **WHEN** a spec verifies a real provider login, real account permissions, a real server response, real model output, or a real vendor CLI's current-version compatibility
+- **THEN** it SHALL be classified `external-provider`
+- **AND** it SHALL declare its prerequisites and the reason it is blocked without them
+
+### Requirement: Feishu IM desktop verification layer
+Desktop verification SHALL provide a WebdriverIO layer that launches the native Tauri client with isolated state and deterministically exercises the session IM switch and Feishu delivery boundaries without requiring live credentials for its default run.
+
+#### Scenario: Verify default-off opt-in
+- **WHEN** the Feishu IM desktop layer opens a new single-Agent or multi-Agent session
+- **THEN** it SHALL observe the information-panel IM switch as off through the real desktop WebView
+- **AND** it SHALL verify through the native service boundary that inbound delivery is ineligible
+
+#### Scenario: Verify single-Agent delivery
+- **WHEN** the layer enables IM, establishes a fixture Feishu binding, and injects a unique direct-message event
+- **THEN** it SHALL observe exactly one Agent turn and one ordered final-response delivery through deterministic fixtures
+
+#### Scenario: Verify multi-Agent routing
+- **WHEN** the layer injects messages with a valid seat mention, no seat mention, and an invalid seat mention into an enabled multi-Agent session
+- **THEN** it SHALL verify the required stable-seat routing, default routing, and safe rejection behaviors
+
+#### Scenario: Verify resilience boundaries
+- **WHEN** the layer exercises duplicate events, disabled sessions, connector interruption, oversized output, malformed events, and application restart
+- **THEN** it SHALL verify idempotency, no execution while disabled, safe recovery, ordered chunking, redacted failure evidence, and persisted switch state
+
+### Requirement: Live Feishu qualification is reported separately
+Verification results SHALL distinguish deterministic connector fixtures from tests executed against a real Feishu tenant and SHALL never report fixture success as live-platform success.
+
+#### Scenario: Live credentials are unavailable
+- **WHEN** no explicitly supplied Feishu test tenant and credentials are available
+- **THEN** deterministic desktop scenarios MAY pass
+- **AND** live Feishu authentication, event reception, acknowledgement, and reply delivery SHALL be reported as `NOT RUN` or `BLOCKED` with the missing prerequisite
+
+#### Scenario: Live qualification is authorized
+- **WHEN** an operator explicitly supplies a Feishu test tenant, application credentials, and a permitted test chat
+- **THEN** the qualification SHALL exercise authentication, connection lifecycle, direct-message receipt, duplicate delivery, single-Agent reply, multi-Agent routing, and outbound reply
+- **AND** retained evidence SHALL exclude credentials, external identifiers, and message contents
+
+### Requirement: Multi-connector session authorization verification
+Desktop verification SHALL exercise connector-scoped session authorization through the rendered Tauri client and native persistence boundary without requiring live external credentials.
+
+#### Scenario: Verify non-Feishu default denial
+- **WHEN** the deterministic desktop layer injects a Telegram, DingTalk, WeCom, or personal WeChat direct message for a session without matching enabled access
+- **THEN** it SHALL observe no Agent execution and a safe disabled outcome
+
+#### Scenario: Verify selected connector isolation
+- **WHEN** the layer enables one connector for a session while another connector remains disabled
+- **THEN** pairing and inbound delivery SHALL succeed only for the enabled connector
+
+#### Scenario: Verify persisted connector choice
+- **WHEN** the layer selects and enables a non-Feishu connector and relaunches the desktop client
+- **THEN** the information panel SHALL restore that connector's native persisted access state
+- **AND** the layer SHALL NOT use browser storage as persistence evidence
+
+### Requirement: Agent evaluation has a focused WebdriverIO layer
+The desktop verification orchestrator SHALL expose an independently runnable Agent-evaluation layer that builds or reuses the test desktop artifact, starts with isolated application state, drives the rendered evaluation workflow through WebdriverIO, and reports `PASSED`, `FAILED`, `BLOCKED`, or `NOT RUN` with a bounded evidence directory.
+
+#### Scenario: Required fixture gate runs
+- **WHEN** CI or a developer runs the required Agent-evaluation fixture path
+- **THEN** the layer uses the repository OpenCode fixture, exercises IPC and rendered UI behavior, and requires no model credential
+
+#### Scenario: Live-provider qualification runs
+- **WHEN** a developer opts into live Agent-evaluation qualification
+- **THEN** the layer preserves the host Agent executable path, checks provider-specific prerequisites before launch, and never joins the hermetic required gate
+
+#### Scenario: One focused spec is diagnosed
+- **WHEN** the operator selects the evaluation domain or UI spec for diagnosis
+- **THEN** the layer runs only the selected allowlisted evaluation spec without allowing arbitrary filesystem paths
+
+### Requirement: Agent evaluation qualification isolates credentials and state
+The Agent-evaluation WebdriverIO layer SHALL use a fresh application data directory, SHALL pass live credentials only through a process-scoped environment boundary, and SHALL audit generated logs, screenshots, reports, and result metadata so credentials cannot be persisted as evidence.
+
+#### Scenario: Provider credential is supplied
+- **WHEN** a live OnePiece credential is available to the launcher
+- **THEN** the desktop process can configure the isolated OnePiece profile without writing the credential to command arguments, repository files, or result metadata
+
+#### Scenario: Qualification completes
+- **WHEN** the WebdriverIO process exits in any status
+- **THEN** the run context preserves only bounded safe evidence and cleans isolated runtime state according to the desktop harness policy

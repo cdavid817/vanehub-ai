@@ -580,7 +580,10 @@ mod tests {
     fn canonical_generation_projects_normal_waiting_and_terminal_paths() {
         let directory = TempDirectory::new("agent-canonical-run");
         let database = NativeDatabase::new(directory.path().to_path_buf()).expect("database");
-        let runs = crate::bootstrap::assemble_agent_runs_api(database.clone());
+        let runs = crate::bootstrap::assemble_agent_runs_api(
+            database.clone(),
+            std::sync::Arc::new(crate::contexts::operations::application::NoOperationsEvidence),
+        );
         let adapter = AgentRuntimeOperationAdapter::new(
             OperationsApi::new(persistent_operation_service(database)),
             runs.clone(),

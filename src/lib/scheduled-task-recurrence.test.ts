@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { computeNextScheduledRun, validateScheduledTaskFrequency } from "./scheduled-task-recurrence";
+import {
+  computeNextScheduledRun,
+  formatScheduledTaskFrequency,
+  validateScheduledTaskFrequency,
+} from "./scheduled-task-recurrence";
 
 describe("scheduled task recurrence", () => {
   it("computes interval schedules from the current time", () => {
@@ -13,5 +17,11 @@ describe("scheduled task recurrence", () => {
     expect(() => validateScheduledTaskFrequency({ kind: "minutes", interval: 0 })).toThrow();
     expect(() => validateScheduledTaskFrequency({ kind: "weekly", weekday: 7, timeOfDay: "09:00" })).toThrow();
     expect(() => validateScheduledTaskFrequency({ kind: "monthly", dayOfMonth: 32, timeOfDay: "09:00" })).toThrow();
+  });
+
+  it("formats recurrence through localized labels", () => {
+    const translate = (key: string, values?: Record<string, number | string>) => `${key}:${JSON.stringify(values)}`;
+    expect(formatScheduledTaskFrequency({ kind: "weekly", weekday: 1, timeOfDay: "09:30" }, translate, ["Sun", "Mon"]))
+      .toBe('scheduledTasks.summary.weekly:{"time":"09:30","weekday":"Mon"}');
   });
 });

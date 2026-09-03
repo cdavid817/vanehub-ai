@@ -1,5 +1,7 @@
 mod action;
 mod approval_request;
+mod approval_resolution;
+mod canonical_grant_key;
 mod effect;
 mod error;
 mod grant;
@@ -19,6 +21,13 @@ pub(crate) const CLAUDE_CODE_AGENT_ID: &str = "claude-code";
 pub(crate) use action::Action;
 pub(crate) use approval_request::{
     ApprovalDecision, ApprovalRequest, SkillApprovalInvalidation, SkillApprovalProvenance,
+};
+pub(crate) use approval_resolution::{
+    ApprovalDecisionRecord, ApprovalResolution, ApprovalResolutionId, ApprovalResolutionState,
+    ResolutionChannel, ResolutionDecider, ALL_RESOLUTION_STATES,
+};
+pub(crate) use canonical_grant_key::{
+    CanonicalGrantKey, GrantActivationState, PersistedEffect, RememberedScope,
 };
 pub(crate) use effect::Effect;
 pub(crate) use error::PermissionsDomainError;

@@ -2,7 +2,9 @@
 
 ## Purpose
 Defines the application-wide notification publishing contract, lifecycle, scope, presentation, localization, and first-version persistence boundary.
+
 ## Requirements
+
 ### Requirement: Unified notification publishing contract
 The application SHALL expose a typed, application-wide notification API through React context that allows descendant components to publish success, error, warning, and informational notifications without depending on presentation markup or runtime-specific APIs.
 
@@ -78,3 +80,92 @@ The first version SHALL keep notification records in frontend memory and SHALL N
 - **WHEN** durable notification storage is introduced later
 - **THEN** desktop storage is accessed through the frontend service boundary and Rust-managed SQLite while the Web adapter exposes interface-aligned behavior
 
+### Requirement: Curator governance notifications
+The notification system SHALL publish sanitized, deduplicated events for new reviewable candidates, deferral review dates, supersession, rejection, successful application, and application failure with navigation to the relevant Curator candidate.
+
+#### Scenario: Reviewable candidate is enqueued
+- **WHEN** a candidate first becomes ready for human review
+- **THEN** the system publishes at most one pending-review notification for that candidate revision
+
+#### Scenario: Application succeeds
+- **WHEN** an approved draft commits to an Overlay
+- **THEN** the system publishes a success notification containing safe Skill identity, scope, candidate id, and Overlay history navigation
+
+#### Scenario: Sensitive reason data exists
+- **WHEN** a candidate or failure contains bounded user notes or sensitive source context
+- **THEN** the notification excludes that content and uses a stable localized summary
+
+### Requirement: Curator notification actions are non-mutating
+Curator notifications SHALL navigate to review or history but MUST NOT approve, reject, retry, apply, resume, or otherwise mutate a candidate directly.
+
+#### Scenario: User opens pending review notification
+- **WHEN** the user activates the notification
+- **THEN** the application opens the candidate review surface without performing a decision
+
+### Requirement: Evolution orchestration notifications
+The notification system SHALL publish sanitized, deduplicated notifications for partial or failed runs requiring attention, successful automatic application, probation regression, and circuit-breaker opening or recovery, with navigation to the relevant Skill Evolution view.
+
+#### Scenario: Automatic application succeeds
+- **WHEN** learned guidance commits automatically
+- **THEN** one notification identifies the safe Skill, application id, probation end, and navigation target without including guidance or diff content
+
+#### Scenario: Routine run completes
+- **WHEN** a run completes without mutation or attention-required outcome
+- **THEN** the system does not produce repetitive success notifications unless policy explicitly requests them
+
+### Requirement: Orchestration notification actions are non-mutating
+Notification actions SHALL only navigate and MUST NOT enable policy, close a breaker, cancel a run, approve Curator work, or revert an Overlay.
+
+#### Scenario: User opens breaker notification
+- **WHEN** the notification is activated
+- **THEN** the application opens breaker health details without acknowledging it
+
+### Requirement: Generation notifications
+The notification system SHALL publish sanitized, deduplicated notifications for review-ready generation, generation failure requiring attention, cancellation, and supersession with navigation to the generation job or Curator candidate.
+
+#### Scenario: Draft becomes reviewable
+- **WHEN** a generation job packages a validated draft
+- **THEN** one notification identifies safe Skill or proposal identity, draft kind, job id, and Curator navigation without including generated content
+
+#### Scenario: Routine stage advances
+- **WHEN** a job moves between normal internal stages
+- **THEN** the system does not emit repetitive notifications
+
+### Requirement: Generation notification actions are non-mutating
+Generation notification actions SHALL only navigate and MUST NOT enable consent, regenerate, cancel, approve, install, or apply a draft.
+
+#### Scenario: User activates review-ready notification
+- **WHEN** the notification is opened
+- **THEN** the application navigates to the review surface without changing job or Curator state
+
+### Requirement: Canonical evolution projection notifications
+Evolution notifications SHALL be derived from the same canonical safe activity envelope used by system sessions and dashboards, with independent target delivery receipts and user threshold/digest policy.
+
+#### Scenario: Attention event is projected
+- **WHEN** an event meets notification policy
+- **THEN** the notification references the same event id, safe parameters, severity, and navigation descriptor as the system timeline
+
+#### Scenario: Event was already notified
+- **WHEN** catch-up or rebuild sees its source again
+- **THEN** the existing notification receipt prevents duplicate publication
+
+### Requirement: Notification and activity read coordination
+Opening a notification SHALL navigate to its activity or detail target and MAY advance the associated system-session read cursor only after the referenced item becomes visible. Dismissing a notification MUST NOT delete activity.
+
+#### Scenario: Notification target is not yet projected
+- **WHEN** the user opens a notification while timeline delivery is delayed
+- **THEN** the UI opens the relevant detail or pending state without falsely marking unseen activity read
+
+### Requirement: Evolution notification digests
+The notification service SHALL support bounded per-scope digests for non-urgent evolution outcomes while security, integrity, apply failure, regression, and breaker events remain individually attention eligible according to policy.
+
+#### Scenario: Several informational results occur
+- **WHEN** digest mode is enabled
+- **THEN** the system emits one bounded summary with counts and navigation rather than repetitive individual notifications
+
+### Requirement: Projected notification actions remain non-mutating
+Notifications derived from activity envelopes SHALL only navigate or adjust notification/read presentation state. They MUST NOT execute any evolution action.
+
+#### Scenario: Automatic application notification is opened
+- **WHEN** the user activates it
+- **THEN** the application opens its system activity or Overlay history without reverting or approving content

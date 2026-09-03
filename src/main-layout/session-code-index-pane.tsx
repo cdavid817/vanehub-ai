@@ -22,7 +22,22 @@ function Progress({ label, processed, total }: { label: string; processed: numbe
   return <div><div className="mb-1 flex justify-between gap-2 text-[11px]"><span className="text-muted-foreground">{label}</span><span className="tabular-nums">{processed}/{total}</span></div><progress aria-label={label} className="h-1.5 w-full accent-primary" max={Math.max(total, 1)} value={processed} /></div>;
 }
 
-export function SessionCodeIndexPane({ workspacePath, service = defaultAgentService }: { workspacePath: string; service?: AgentService }) {
+export function SessionCodeIndexPane({ active = true, workspacePath, service = defaultAgentService }: {
+  /**
+   * Whether this pane is the one on screen.
+   *
+   * Mounted either way — these panes hold local form state, and a reader who typed something,
+   * checked another tab, and came back must find it still there. What stops is the reading: a
+   * hidden pane polling its own service costs a request per pane per session open, for answers
+   * nobody is looking at.
+   *
+   * Mutations are unaffected. React Query runs one to completion regardless of this flag, so a
+   * write that was in flight when the reader switched away still finishes and still invalidates.
+   */
+  active?: boolean;
+  workspacePath: string;
+  service?: AgentService;
+}) {
   const { i18n, t } = useTranslation();
   const [editing, setEditing] = useState<CodeIndexWorkspace | null>(null);
   const [confirmingEmbedding, setConfirmingEmbedding] = useState<CodeIndexWorkspace | null>(null);
@@ -30,6 +45,7 @@ export function SessionCodeIndexPane({ workspacePath, service = defaultAgentServ
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const workspaces = useQuery({
+    enabled: active,
     queryKey: ["session-code-index", workspacePath],
     queryFn: () => service.listCodeIndexWorkspaces(),
     refetchInterval: 3_000,

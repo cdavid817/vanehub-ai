@@ -2,9 +2,18 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { tauriSkillAssessmentClient } from "./tauri-skill-assessment-client";
+import { tauriSkillGenerationClient } from "./tauri-skill-generation-client";
+import { tauriSkillEvolutionOrchestrationClient } from "./tauri-skill-evolution-orchestration-client";
+import { tauriSkillCuratorClient } from "../adapters/tauri-skill-curator-client";
+import {
+  revokeTauriReusableGuidanceAuthorization,
+  saveTauriMessageFeedback,
+} from "./tauri-chat-feedback";
 import type { AgentService, SessionStateEvent } from "./agent-service";
+import { tauriPersonalizationClient } from "./tauri-personalization-client";
+import { tauriSystemActivityClient } from "./tauri-system-activity-client";
 import type {
-  AgentMemory,
   AgentRegistryEntry,
   ApiAgentProviderConfig,
   AgentTerminalEvent,
@@ -12,8 +21,6 @@ import type {
   AgentTerminalSize,
   AssignSessionCategoryInput,
   AutomaticArchivalSettings,
-  CliPackageOperationInput,
-  CliToolStatus,
   CreateSessionCategoryInput,
   CreateScheduledTaskInput,
   DiscoverOnePieceProviderModelsInput,
@@ -55,6 +62,7 @@ import type {
   SessionSearchResult,
   WorkflowState,
 } from "../types/agent";
+import { tauriCliEnvironmentClient } from "./tauri-cli-environment-client";
 import type {
   CliParameterPreview,
   CliParameterProfile,
@@ -63,7 +71,7 @@ import type {
   SaveCliParameterProfileInput,
 } from "../types/cli-parameter-profile";
 import { tauriSessionRecoveryClient } from "./tauri-session-recovery-client";
-import type { ChatConfig, ChatMessage, ChatStreamEvent, MessageFeedback } from "../types/chat";
+import type { ChatConfig, ChatMessage, ChatStreamEvent } from "../types/chat";
 import type {
   ContextQualityHistoryPage,
   ContextQualityHistoryQuery,
@@ -140,6 +148,7 @@ import type {
 import type { SkillOverlayReconciliationPreview } from "../types/skill-overlay-reconciliation";
 import { normalizeSkillOverlayError } from "./skill-overlay-error";
 import { tauriSessionWorkspaceClient } from "./tauri-session-workspace-client";
+import { tauriSessionWorkspaceEvidenceClient } from "./tauri-session-workspace-evidence-client";
 import { normalizeTauriSessionUsageSummary, normalizeTauriUsageStatistics } from "./tauri-usage-statistics";
 import { subscribeLoopRunPolling } from "./loop-run-polling";
 import type {
@@ -186,7 +195,7 @@ import {
   normalizeLspWorkspaceTrustUpdate,
 } from "./lsp-contract";
 import { tauriBuiltinToolClient } from "./tauri-builtin-tool-client";
-import type { AddReviewCommentInput, CodeReview, ReviewAction, ReviewComment, ReviewDecision, ReviewDiffFile, ReviewRevertReceipt, RevertReviewChangeInput } from "../types/code-review";
+import type { AddReviewCommentInput, CodeReview, GetReviewPatchInput, ReviewAction, ReviewComment, ReviewDecision, ReviewDiffFile, ReviewFileViewedReceipt, ReviewHunkDecisionReceipt, ReviewPatch, ReviewRevertReceipt, RevertReviewChangeInput, SetReviewFileViewedInput, SetReviewHunkDecisionInput } from "../types/code-review";
 
 function invokeSkillOverlay<TResult>(command: string, input: unknown): Promise<TResult> {
   return invoke<TResult>(command, { input }).catch((error: unknown) =>
@@ -194,11 +203,22 @@ function invokeSkillOverlay<TResult>(command: string, input: unknown): Promise<T
   );
 }
 
+/**
+ * A `Result<_, String>` command rejects with the bare string, not with an `Error`.
+ *
+ * Callers of the service boundary are not supposed to know that, and a caller that assumes `Error`
+ * silently loses the reason code and reports a generic failure instead.
+ */
+function rejectWithReasonCode(pending: Promise<void>): Promise<void> {
+  return pending.catch((error: unknown) =>
+    Promise.reject(typeof error === "string" ? new Error(error) : error),
+  );
+}
+
 function requireCliConfigAgentId(agentId: string): CliConfigAgentId {
   if (cliConfigAgentIds.some((candidate) => candidate === agentId)) return agentId as CliConfigAgentId;
   throw new Error(`Unsupported CLI configuration Agent: ${agentId}`);
 }
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -221,8 +241,7 @@ function isSessionStateEvent(value: unknown): value is SessionStateEvent {
     && Number.isSafeInteger(value.recoveryRevision)
     && value.recoveryRevision >= 0;
 }
-
-export const tauriAgentClient: AgentService = {
+export const tauriAgentClient: AgentService = { ...tauriSkillCuratorClient,
   listEvaluationTasks: () => invoke<EvaluationTask[]>("list_evaluation_tasks"),
   startEvaluation: (input) => invoke<EvaluationArena>("start_evaluation", { input }),
   listEvaluationArenas: () => invoke<EvaluationArena[]>("list_evaluation_arenas"),
@@ -255,8 +274,19 @@ export const tauriAgentClient: AgentService = {
   selectCodeReviewComment(reviewId, commentId, selected) {
     return invoke<CodeReview>("select_code_review_comment", { reviewId, commentId, selected });
   },
+  setCodeReviewHunkDecision(input: SetReviewHunkDecisionInput) {
+    // Its own command, never a fall-back to the review-level mutation. That fall-back is the
+    // defect this method exists to remove: accepting one hunk accepted the whole review.
+    return invoke<ReviewHunkDecisionReceipt>("set_code_review_hunk_decision", { input });
+  },
+  setCodeReviewFileViewed(input: SetReviewFileViewedInput) {
+    return invoke<ReviewFileViewedReceipt>("set_code_review_file_viewed", { input });
+  },
   setCodeReviewDecision(reviewId, decision: ReviewDecision) {
     return invoke<CodeReview>("set_code_review_decision", { reviewId, decision });
+  },
+  getCodeReviewPatch(input: GetReviewPatchInput) {
+    return invoke<ReviewPatch>("get_code_review_patch", { input });
   },
   revertCodeReviewChange(input: RevertReviewChangeInput) {
     return invoke<ReviewRevertReceipt>("revert_code_review_change", { input });
@@ -280,7 +310,6 @@ export const tauriAgentClient: AgentService = {
   async openExternalUrl(url) {
     await openUrl(requireHttpsExternalUrl(url));
   },
-
   listAgents(capabilityTag) {
     return invoke<AgentRegistryEntry[]>("list_agents", { capabilityTag: capabilityTag ?? null });
   },
@@ -288,7 +317,6 @@ export const tauriAgentClient: AgentService = {
   registerApiAgent(input: RegisterApiAgentInput) {
     return invoke<AgentRegistryEntry>("register_api_agent", { input });
   },
-
   getApiAgentProviderConfig(agentId: string) {
     return invoke<ApiAgentProviderConfig | null>("get_api_agent_provider_config", { agentId });
   },
@@ -371,11 +399,6 @@ export const tauriAgentClient: AgentService = {
     return invoke<void>("delete_api_agent", { agentId });
   },
 
-
-  listAllMemories() {
-    return invoke<AgentMemory[]>("list_agent_memories");
-  },
-
   listContextQualityHistory(input: ContextQualityHistoryQuery) {
     return invoke<ContextQualityHistoryPage>("list_context_quality_history", { input })
       .catch((error: unknown) => Promise.reject(normalizeContextQualityError(error)));
@@ -392,14 +415,6 @@ export const tauriAgentClient: AgentService = {
 
   getContextEvidenceManifest(generationId: string) {
     return invoke<ContextEvidenceManifest | null>("get_context_evidence_manifest", { generationId });
-  },
-
-  deleteAgentMemory(memoryId: string) {
-    return invoke<void>("delete_agent_memory", { memoryId });
-  },
-
-  resetAllMemories() {
-    return invoke<void>("reset_agent_memories");
   },
 
   getRetrievalConfiguration() {
@@ -511,34 +526,25 @@ export const tauriAgentClient: AgentService = {
 
   async testLspServer(language: LspLanguageId) {
     const input = normalizeLspServerTestInput({ language });
-    return normalizeLspServerTestResult(
-      await invoke<unknown>("test_lsp_server", { input }),
-      input.language,
+    return normalizeLspServerTestResult(await invoke<unknown>("test_lsp_server", { input }));
+  },
+
+  async installLspServer(language: LspLanguageId) {
+    // The same input shape the test command validates, so an unregistered id is refused by the
+    // one validator rather than by two that could disagree.
+    await rejectWithReasonCode(
+      invoke<void>("install_lsp_server", { input: normalizeLspServerTestInput({ language }) }),
+    );
+  },
+
+  async uninstallLspServer(language: LspLanguageId) {
+    await rejectWithReasonCode(
+      invoke<void>("uninstall_lsp_server", { input: normalizeLspServerTestInput({ language }) }),
     );
   },
 
   async getLspServerStatus() {
     return normalizeLspServerStatuses(await invoke<unknown>("list_lsp_server_status"));
-  },
-
-  listCliTools() {
-    return invoke<CliToolStatus[]>("list_cli_tools");
-  },
-
-  refreshCliDetections(agentId) {
-    return invoke<OperationTask>("refresh_cli_detections", { agentId: agentId ?? null });
-  },
-
-  installCliVersion(input: CliPackageOperationInput) {
-    return invoke<OperationTask>("install_cli_version", {
-      agentId: input.agentId,
-      targetVersion: input.targetVersion,
-      confirmedActivePath: input.confirmedActivePath ?? null,
-    });
-  },
-
-  upgradeAllCliVersions() {
-    return invoke<OperationTask>("upgrade_all_cli_versions");
   },
 
   listCliParameterProfiles() {
@@ -868,19 +874,8 @@ export const tauriAgentClient: AgentService = {
     });
   },
 
-  async saveMessageFeedback(input) {
-    const saved = await invoke<{
-      messageId: string;
-      revision: number;
-      state: MessageFeedback["state"] | null;
-      correctionNote: string | null;
-    }>("save_message_feedback", { input });
-    return {
-      state: saved.state,
-      revision: saved.revision,
-      ...(saved.correctionNote ? { correctionNote: saved.correctionNote } : {}),
-    };
-  },
+  saveMessageFeedback: saveTauriMessageFeedback,
+  revokeReusableGuidanceAuthorization: revokeTauriReusableGuidanceAuthorization,
 
   querySkillEvolutionEvidence(input) {
     return invoke("query_skill_evolution_evidence", { input });
@@ -893,6 +888,10 @@ export const tauriAgentClient: AgentService = {
   purgeSkillEvolutionEvidence(input) {
     return invoke("purge_skill_evolution_evidence", { input });
   },
+
+  ...tauriSkillAssessmentClient,
+  ...tauriSkillGenerationClient,
+  ...tauriSkillEvolutionOrchestrationClient,
 
   async getUsageStatistics(input) {
     const statistics = await invoke<unknown>("get_usage_statistics", {
@@ -961,8 +960,12 @@ export const tauriAgentClient: AgentService = {
     return unlisten;
   },
 
+  ...tauriCliEnvironmentClient,
+  ...tauriPersonalizationClient,
+  ...tauriSystemActivityClient,
   ...tauriSessionRecoveryClient,
   ...tauriSessionWorkspaceClient,
+  ...tauriSessionWorkspaceEvidenceClient,
   async subscribeSessionEvents(handler) {
     return listen<unknown>("session:event", (event) => {
       if (isSessionStateEvent(event.payload)) handler(event.payload);

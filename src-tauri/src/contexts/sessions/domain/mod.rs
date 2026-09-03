@@ -4,6 +4,7 @@ mod error;
 pub(crate) mod evidence;
 mod identity;
 mod message;
+mod personalization_mode;
 pub(crate) mod recovery;
 pub(crate) mod recovery_decision;
 pub(crate) mod review;
@@ -21,14 +22,15 @@ pub(crate) use identity::{CategoryId, MessageId, SessionId};
 pub(crate) use message::{
     FileLineRange, FileReference, FileReferenceSet, MessageRole, MessageStatus, SessionMessage,
 };
+pub(crate) use personalization_mode::SessionPersonalizationMode;
 pub(crate) use recovery::{
     RecoveryDecision, RecoveryEvidenceReference, RecoveryReasonCode, RecoveryTrigger,
     SessionRecoveryReport, SessionRecoveryStatus,
 };
 pub(crate) use review::{
     ReviewAnchor, ReviewAnchorState, ReviewComment, ReviewCommentStatus, ReviewDecision,
-    ReviewDomainError, ReviewFile, ReviewFinding, ReviewFindingSeverity, ReviewSession,
-    ReviewStatus,
+    ReviewDomainError, ReviewFile, ReviewFileViewState, ReviewFinding, ReviewFindingSeverity,
+    ReviewHunkDecision, ReviewSession, ReviewStatus,
 };
 pub(crate) use session::{
     LoopSessionRole, SessionActivation, SessionAggregate, SessionLifecycle, SessionOwner,

@@ -60,6 +60,19 @@ describe("i18n resources", () => {
     }
   });
 
+  it.each(appLanguages)("keeps %s free of codepoints that render as a blank box", (language) => {
+    // Private-use and unpaired-surrogate codepoints have no glyph in any shipped font, so a string
+    // carrying one renders as a box and reads as a font problem rather than as corrupt text. They
+    // arrive from hand-edited escapes, and nothing else in the bundle would notice.
+    for (const [key, value] of Object.entries(resources[language])) {
+      const suspect = [...value].find((character) => {
+        const code = character.codePointAt(0) ?? 0;
+        return (code >= 0xe000 && code <= 0xf8ff) || (code >= 0xd800 && code <= 0xdfff);
+      });
+      expect(suspect, `${language}:${key}`).toBeUndefined();
+    }
+  });
+
   it.each(appLanguages)("has no duplicate keys in the raw %s locale source", (language) => {
     expect(findDuplicateKeys(`src/i18n/locales/${language}.json`)).toEqual([]);
   });
@@ -72,6 +85,41 @@ describe("i18n resources", () => {
       }
     },
   );
+
+  it.each(appLanguages.filter((language) => language !== "en" && language !== "zh-CN"))(
+    "localizes CLI management copy in %s instead of copying a reference locale",
+    (language) => {
+      // Copying English or Simplified Chinese into every locale passes the key-parity check above
+      // and still ships an untranslated page. These are sentences rather than terms, so an honest
+      // translation cannot come out byte-identical to either reference.
+      const sentences = [
+        "cli.outcome.guidance.changed-but-failed",
+        "cli.conflict.path-shadowing",
+        "cli.guidance.homebrew",
+        "cli.plan.description",
+        "cli.planWarning.downgrade-may-lose-state",
+        "cli.error.plan-revision-mismatch",
+      ];
+      const simplified = resources["zh-CN"];
+      for (const key of sentences) {
+        expect(resources[language][key], `${language}:${key} copies English`).not.toBe(canonicalResource[key]);
+        expect(resources[language][key], `${language}:${key} copies Simplified Chinese`).not.toBe(simplified[key]);
+      }
+    },
+  );
+
+  it.each(appLanguages)("keeps every CLI placeholder intact in %s", (language) => {
+    // The parity check above compares variable names across locales; this one is about the CLI
+    // surface specifically, where a dropped `{{count, number}}` renders a bare label next to a
+    // number that never arrives.
+    for (const key of Object.keys(canonicalResource).filter((name) => name.startsWith("cli."))) {
+      const expected = interpolationVariables(canonicalResource[key]);
+      expect(interpolationVariables(resources[language][key]), `${language}:${key}`).toEqual(expected);
+      if (expected.includes("count")) {
+        expect(resources[language][key], `${language}:${key}`).toContain("{{count, number}}");
+      }
+    }
+  });
 
   it("uses complete i18next v4 plural pairs for count-sensitive messages", () => {
     const pluralKeys = Object.keys(canonicalResource).filter((key) => /_(?:one|other)$/.test(key));

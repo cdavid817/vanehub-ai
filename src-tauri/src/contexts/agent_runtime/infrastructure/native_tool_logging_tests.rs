@@ -77,7 +77,7 @@ fn private_tool_material_is_removed_before_the_logging_port() {
     for secret in private_secrets() {
         assert!(
             !rendered.contains(secret),
-            "pre-persistence log leaked {secret}"
+            "pre-persistence log leaked a protected value"
         );
     }
     assert!(!rendered.contains("safe-field-secret"));
@@ -148,7 +148,10 @@ fn unified_persistence_keeps_the_pre_persistence_privacy_boundary() {
     let raw = std::fs::read_to_string(directory.path().join(logging::LOG_FILE_NAME))
         .expect("native tool log");
     for secret in private_secrets().into_iter().chain(["safe-field-secret"]) {
-        assert!(!raw.contains(secret), "persisted log leaked {secret}");
+        assert!(
+            !raw.contains(secret),
+            "persisted log leaked a protected value"
+        );
     }
     assert!(raw.contains("external_process_failed"));
     assert!(raw.contains("operation-safe-1"));
@@ -207,7 +210,10 @@ fn durable_log_redaction_matrix_excludes_every_private_content_class() {
         "authorization-header-secret",
         "hidden-reasoning-secret",
     ] {
-        assert!(!raw.contains(secret), "durable log leaked {secret}");
+        assert!(
+            !raw.contains(secret),
+            "durable log leaked a protected value"
+        );
     }
     assert!(raw.contains("external_process_failed"));
 }

@@ -6,7 +6,7 @@ const LEGACY_V1_FIXTURE: &str = include_str!("../tests/fixtures/database/legacy-
 const CURRENT_V20_DATA_FIXTURE: &str =
     include_str!("../tests/fixtures/database/current-v20-data.sql");
 
-/// Contiguous through 81. Migration 53 reconciles Plan execution and workspace code indexing,
+/// Contiguous through 110. Migration 53 reconciles Plan execution and workspace code indexing,
 /// migrations 54-58 add Loop, recovery, and LSP foundations, migration 59 introduces stable
 /// shared-session participant identity, migration 60 adds effective Skill reconciliation, and
 /// migration 61 resets legacy session execution preferences and governed CLI security selections;
@@ -20,12 +20,28 @@ const CURRENT_V20_DATA_FIXTURE: &str =
 /// adds context-engine manifests, migration 75 adds Agent Code Review persistence, and migration
 /// 76 adds the canonical Agent Run state, migration 77 adds bounded evaluation persistence, and
 /// migration 78 adds Hybrid local/private Profile metadata and routing rules, migration 79 adds
-/// nullable Agent Runner projections, migration 80 retires standalone Plan execution,
-/// migration 81 adds CLI parameter profile metadata (revision, selection schema, catalog version)
-/// beside the existing per-parameter rows without deleting any of them, and migration 82 adds the
-/// local-media engine profile.
+/// nullable Agent Runner projections, migration 80 retires standalone Plan execution, migration 81
+/// adds CLI parameter profile metadata beside the existing per-parameter rows, migration 82 adds
+/// the local-media engine profile, migrations 83-85 add the source-aware CLI environment
+/// tables, and migration 86 rebuilds the LSP language configuration table so the supported
+/// language set no longer lives in a storage CHECK constraint. Migration 87 adds per-session IM
+/// connector access. Migrations 88-90 add personalization governance, its per-session mode, and the
+/// reconciliation watermark. Migration 91 adds the execution evidence journal, its record
+/// projection, and coverage metadata; migration 92 adds the rebuildable redacted log query index
+/// with its correlation indexes, source checkpoints, gaps, and repair state; migration 93 adds
+/// review hunk decisions and per-file Viewed state, each witnessed to the snapshot it was recorded
+/// against; and migration 94 adds the per-file witness that decides whether a Viewed mark still
+/// applies. Migrations 95-110 add Skill evolution assessment, system activity, Curator, generation,
+/// orchestration persistence, single-use automatic preflight witnesses, Curator system-policy
+/// authorization, breaker failures, rollback candidates, probation baselines, notifications, source
+/// outboxes, and the activity query schema.
+/// Derived from the migration list rather than hardcoded.
+///
+/// A literal upper bound here means every new migration breaks this file for a reason that has
+/// nothing to do with the fixture under test, and neither the compiler nor clippy catches it --
+/// the failure only shows up as a mismatched vector at test time.
 fn expected_versions() -> Vec<i64> {
-    (1..=82).collect()
+    crate::platform::database::expected_migration_versions()
 }
 
 fn applied_versions(conn: &Connection) -> Vec<i64> {
@@ -347,7 +363,7 @@ fn current_schema_adds_disabled_lsp_configuration_and_empty_workspace_trust() {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, i64>(1)?,
-                row.get::<_, String>(2)?,
+                row.get::<_, Option<String>>(2)?,
                 row.get::<_, String>(3)?,
             ))
         })
@@ -366,22 +382,28 @@ fn current_schema_adds_disabled_lsp_configuration_and_empty_workspace_trust() {
             |row| row.get(0),
         )
         .expect("LSP foundation migration");
+    let registry_migration_name: String = conn
+        .query_row(
+            "SELECT name FROM schema_migrations WHERE version = 86",
+            [],
+            |row| row.get(0),
+        )
+        .expect("LSP language registry migration");
 
     assert_eq!(master_enabled, 0);
+    // Startup arguments read back as NULL rather than as the seeded constants: migration 86
+    // rebuilds the table and clears them, because "unset" has to stay distinguishable from a
+    // user who deliberately chose no arguments.
     assert_eq!(
         languages,
         vec![
-            ("rust".into(), 0, "[]".into(), "{}".into()),
-            (
-                "typescript_javascript".into(),
-                0,
-                "[\"--stdio\"]".into(),
-                "{}".into()
-            ),
+            ("rust".into(), 0, None, "{}".into()),
+            ("typescript_javascript".into(), 0, None, "{}".into()),
         ]
     );
     assert_eq!(trusted_workspaces, 0);
     assert_eq!(migration_name, "lsp-code-intelligence-foundation");
+    assert_eq!(registry_migration_name, "lsp-language-registry");
 }
 
 #[test]

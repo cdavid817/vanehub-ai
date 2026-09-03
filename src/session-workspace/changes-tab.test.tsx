@@ -151,16 +151,17 @@ describe("ChangesTab", () => {
     });
   });
 
-  it("shows a partial notice when the diff is truncated", async () => {
+  it("says the diff was cut rather than that results are partial", async () => {
     mockAgentService.getSessionGitStatus.mockReturnValue(makeStatus());
     mockAgentService.getSessionGitDiff.mockReturnValue(makeDiff({ truncated: true }));
 
     renderWithAppProviders(<ChangesTab sessionId="session-1" />);
 
-    // After the diff loads, a truncation notice should be visible.
-    // BUG: currently, diff.truncated is never checked.
+    // The message names this cause specifically. A generic "results are partial" was true of four
+    // different surfaces and told a reader nothing about which one, or what to do next — and a
+    // truncated diff in particular is the one way a change can be wrong without looking wrong.
     await waitFor(() => {
-      expect(screen.getByText(/partial/i)).toBeTruthy();
+      expect(screen.getByText(/cut at its size limit|在大小上限处被截断/)).toBeTruthy();
     });
   });
 });

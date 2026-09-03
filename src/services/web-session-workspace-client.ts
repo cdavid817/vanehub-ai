@@ -1,21 +1,39 @@
 import type { AgentService } from "./agent-service";
 import { rankFileCandidates } from "./file-search-ranking";
+import { runWebPathSearch } from "./web-workspace-path-search-mock";
+import { runWebWorkspaceSearch } from "./web-workspace-search-mock";
+import { cancelWebWorkspaceSearch } from "./web-workspace-search-registry";
+import { pageWebDirectory } from "./web-workspace-directory-mock";
 import {
   availableContext,
   diffFixture,
   directoryFixtures,
   documentFixtures,
   fileFixtures,
+  inspectionCapabilitiesFixture,
   logFixtures,
+  pathSearchFixture,
   searchFixtures,
   statusFixture,
 } from "./web-session-workspace-fixtures";
 import { sessionWorkspaceLimits } from "../session-workspace/session-workspace-limits";
-import type { FileContent, ShellEvent, ShellSession } from "../types/session-workspace";
+import type {
+  FileContent,
+  SessionLogCoverage,
+  SessionLogCoverageState,
+  SessionLogEntry,
+  SessionLogQuery,
+} from "../types/session-workspace";
 import type { FolderOpenerAvailability, FolderOpenerId, FolderOpenerPreferences } from "../types/folder-opener";
 
 type SessionWorkspaceMethods = Pick<
   AgentService,
+  | "getWorkspaceInspectionCapabilities"
+  | "subscribeWorkspaceInvalidation"
+  | "searchWorkspacePaths"
+  | "getFileEvidenceLinks"
+  | "searchWorkspaceContent"
+  | "cancelWorkspaceSearch"
   | "listSessionDirectory"
   | "readSessionFile"
   | "listSessionDocuments"
@@ -23,13 +41,8 @@ type SessionWorkspaceMethods = Pick<
   | "getSessionGitStatus"
   | "getSessionGitDiff"
   | "listSessionLogs"
+  | "getSessionLogRecord"
   | "exportSessionLogs"
-  | "createShell"
-  | "writeShellInput"
-  | "resetShellDirectory"
-  | "resizeShell"
-  | "killShell"
-  | "subscribeShellEvents"
   | "listFolderOpeners"
   | "refreshFolderOpeners"
   | "getFolderOpenerPreferences"
@@ -38,10 +51,6 @@ type SessionWorkspaceMethods = Pick<
   | "subscribeFolderOpenerEvents"
 >;
 
-
-let nextShellId = 1;
-const shells = new Map<string, ShellSession>();
-const shellSubscribers = new Map<string, Set<(event: ShellEvent) => void>>();
 
 const mockOpeners: FolderOpenerAvailability[] = [
   ["vscode", "editor", true],
@@ -69,10 +78,6 @@ let mockPreferences: FolderOpenerPreferences = {
 };
 const openerSubscribers = new Set<() => void>();
 
-function publishShellEvent(event: ShellEvent) {
-  shellSubscribers.get(event.shellId)?.forEach((handler) => handler(event));
-}
-
 export const webSessionWorkspaceClient: SessionWorkspaceMethods = {
   async listFolderOpeners() { return mockOpeners.map((item) => ({ ...item })); },
   async refreshFolderOpeners() { return mockOpeners.map((item) => ({ ...item })); },
@@ -88,26 +93,111 @@ export const webSessionWorkspaceClient: SessionWorkspaceMethods = {
   },
   async openSessionFolder(_sessionId, openerId) { return { status: "unavailable", openerId, reason: "web-runtime" }; },
   async subscribeFolderOpenerEvents(handler) { openerSubscribers.add(handler); return () => openerSubscribers.delete(handler); },
-  async listSessionDirectory(_sessionId, path = "") {
-    return {
-      context: availableContext,
+  /**
+   * Ranked from the same fixture the tree renders, so the browser build cannot offer a path that is
+   * not in its own workspace. Coverage is `complete` because the fixture really is all of it — the
+   * honest gap in this build is the provider, not a scan that stopped early.
+   */
+  async searchWorkspacePaths(input) {
+    return runWebPathSearch(input, pathSearchFixture);
+  },
+  /**
+   * Scanned from the same file fixtures the preview renders, so a result the browser build offers
+   * is a result it can then open.
+   *
+   * Routed through the simulation rather than scanned inline, so this adapter stops early for the
+   * same reasons the native one does. A mock that only ever answered `complete` would let a panel be
+   * written as though a search cannot give up, and the first time one did the panel would report "no
+   * matches" about a workspace it never finished reading.
+   */
+  async searchWorkspaceContent(input) {
+    return runWebWorkspaceSearch(input, fileFixtures);
+  },
+  /**
+   * Stops a running search, and says whether one was there to stop.
+   *
+   * `false` means "nothing to stop", not "you did something wrong" — the same answer the desktop
+   * build gives for a search that completed first.
+   */
+  async cancelWorkspaceSearch(searchId) {
+    return cancelWebWorkspaceSearch(searchId);
+  },
+  /**
+   * Nothing is retained, and saying so is the honest answer.
+   *
+   * The browser build has no execution journal, so every file genuinely has zero observations —
+   * and a fixture that invented some would put a link on screen leading to records that do not
+   * exist, which is a worse demo than an absent link.
+   */
+  async getFileEvidenceLinks() {
+    return { observations: 0, runIds: [], commandIds: [], truncated: false };
+  },
+  async listSessionDirectory(_sessionId, path = "", cursor = null, limit) {
+    return pageWebDirectory(
+      availableContext,
       path,
-      items: directoryFixtures[path] ?? [],
-      truncated: false,
-      nextCursor: null,
-    };
+      directoryFixtures[path] ?? [],
+      cursor,
+      limit ?? sessionWorkspaceLimits.directoryEntries,
+    );
   },
   async readSessionFile(_sessionId, path): Promise<FileContent> {
     const content = fileFixtures[path];
     if (content === undefined) return { path, name: path.split("/").pop() ?? path, status: "missing", size: 0, content: null };
-    return { path, name: path.split("/").pop() ?? path, status: "text", size: content.length, content };
+    return {
+      path,
+      name: path.split("/").pop() ?? path,
+      status: "text",
+      size: content.length,
+      content,
+      // Classified from the fixture rather than hard-coded, so the browser build reports what its
+      // own content actually is. A constant here would be a metadata line that never changes and
+      // therefore never tells anyone anything.
+      encoding: content.startsWith("\ufeff") ? "utf-8-bom" : "utf-8",
+      newline: content.includes("\r\n")
+        ? content.replace(/\r\n/g, "").includes("\n")
+          ? "mixed"
+          : "crlf"
+        : content.includes("\n")
+          ? "lf"
+          : "none",
+    };
   },
   async listSessionDocuments() {
-    return { context: availableContext, items: documentFixtures, truncated: false, nextCursor: null };
+    return {
+      context: availableContext,
+      items: documentFixtures,
+      truncated: false,
+      nextCursor: null,
+      // The fixture is the whole set and all of it was read.
+      coverage: { state: "complete" as const },
+    };
   },
   async searchSessionFiles(_sessionId, query, maxResults = 8) {
     const items = rankFileCandidates(query, searchFixtures, maxResults);
     return { context: availableContext, items, truncated: items.length < searchFixtures.length };
+  },
+  /**
+   * The browser build inspects a fixture, and says so.
+   *
+   * `simulated` is its own provider rather than `local`: a demo that claimed to be reading this
+   * machine would send somebody looking for files that are not there. Everything it can answer is
+   * available, because the fixture really does contain all of it - the honest gap is the provider
+   * name, not a pretend missing prerequisite.
+   */
+  async getWorkspaceInspectionCapabilities() {
+    return structuredClone(inspectionCapabilitiesFixture);
+  },
+  /**
+   * The browser build publishes no notices, and that is deliberate.
+   *
+   * Its fixtures never change, so any notice it emitted would describe an event that did not
+   * happen — and a timer-driven fake would make the invalidation routing look exercised while
+   * nothing had ever gone stale. The capability fixture already reports `watchMode: "none"`, so a
+   * panel reading it knows not to wait for one.
+   */
+  async subscribeWorkspaceInvalidation() {
+    return () => {};
   },
   async getSessionGitStatus() {
     return statusFixture;
@@ -119,6 +209,7 @@ export const webSessionWorkspaceClient: SessionWorkspaceMethods = {
     const normalizedSearch = input.search.trim().toLocaleLowerCase();
     const filtered = logFixtures.filter((entry) => {
       if (input.levels.length > 0 && !input.levels.includes(entry.level)) return false;
+      if (!matchesMockCorrelation(entry, input)) return false;
       if (!normalizedSearch) return true;
       return `${entry.category} ${entry.message} ${JSON.stringify(entry.context)}`.toLocaleLowerCase().includes(normalizedSearch);
     });
@@ -130,54 +221,70 @@ export const webSessionWorkspaceClient: SessionWorkspaceMethods = {
       items,
       truncated: nextOffset < filtered.length,
       nextCursor: nextOffset < filtered.length ? String(nextOffset) : null,
+      coverage: mockLogCoverage(input.sessionId),
     };
+  },
+  async getSessionLogRecord(recordId) {
+    return logFixtures.find((entry) => entry.id === recordId) ?? null;
   },
   async exportSessionLogs() {
     return { status: "unavailable", path: null };
   },
-  async createShell(input) {
-    const shell: ShellSession = {
-      shellId: `web-shell-${nextShellId}`,
-      sessionId: input.sessionId,
-      state: "connected",
-      capability: "simulated",
-    };
-    nextShellId += 1;
-    shells.set(shell.shellId, shell);
-    return shell;
-  },
-  async writeShellInput(shellId, content) {
-    const shell = shells.get(shellId);
-    if (!shell) throw new Error(`Mock shell not found: ${shellId}`);
-    publishShellEvent({
-      type: "output",
-      shellId,
-      sessionId: shell.sessionId,
-      content: `\r\n[WEB MOCK] ${content.replace(/[\r\n]+$/u, "")}\r\nmock> `,
-    });
-  },
-  async resetShellDirectory(shellId) {
-    const shell = shells.get(shellId);
-    if (!shell) throw new Error(`Mock shell not found: ${shellId}`);
-    publishShellEvent({ type: "output", shellId, sessionId: shell.sessionId, content: "\r\n[WEB MOCK] cd <session-root>\r\nmock> " });
-  },
-  async resizeShell(input) {
-    if (!shells.has(input.shellId)) throw new Error(`Mock shell not found: ${input.shellId}`);
-  },
-  async killShell(shellId) {
-    const shell = shells.get(shellId);
-    if (!shell) return;
-    shells.delete(shellId);
-    publishShellEvent({ type: "state", shellId, sessionId: shell.sessionId, state: "disconnected" });
-  },
-  async subscribeShellEvents(shellId, handler) {
-    const subscribers = shellSubscribers.get(shellId) ?? new Set<(event: ShellEvent) => void>();
-    subscribers.add(handler);
-    shellSubscribers.set(shellId, subscribers);
-    return () => {
-      const current = shellSubscribers.get(shellId);
-      current?.delete(handler);
-      if (current?.size === 0) shellSubscribers.delete(shellId);
-    };
-  },
 };
+
+/**
+ * Which correlation each filter reads off a fixture record.
+ *
+ * Named here rather than derived from the key, because the query field and the context key are two
+ * separate vocabularies that only happen to look alike — and a mapping that guessed would silently
+ * match nothing the day one of them changed.
+ */
+const MOCK_CORRELATION_KEYS = {
+  seatId: "seatId",
+  runId: "runId",
+  traceId: "traceId",
+  spanId: "spanId",
+  operationId: "operationId",
+  agentId: "agentId",
+} as const;
+
+/**
+ * A record matches only when it carries the correlation asked for.
+ *
+ * A record emitted without one is excluded rather than admitted. The alternative reads as evidence:
+ * a reader filtering by run would see records that have nothing to do with that run and conclude it
+ * touched them.
+ */
+function matchesMockCorrelation(
+  entry: SessionLogEntry,
+  input: SessionLogQuery,
+): boolean {
+  for (const [field, contextKey] of Object.entries(MOCK_CORRELATION_KEYS)) {
+    const wanted = input[field as keyof typeof MOCK_CORRELATION_KEYS];
+    if (typeof wanted !== "string" || wanted.trim().length === 0) continue;
+    if (entry.context[contextKey] !== wanted) return false;
+  }
+  return true;
+}
+
+/**
+ * Coverage the browser build can actually be driven through.
+ *
+ * The design requires the mock to exercise all four states, and a mock that always answered
+ * `complete` would make the browser the one runtime where the incomplete-coverage rendering is
+ * never seen. Selected by a session-id suffix so it is deterministic and needs no extra API: a
+ * fixture session named `…#partial` reports `partial`, and anything else reports `complete`.
+ */
+function mockLogCoverage(sessionId: string): SessionLogCoverage {
+  const requested = sessionId.split("#")[1];
+  const state: SessionLogCoverageState =
+    requested === "indexing" || requested === "partial" || requested === "unavailable"
+      ? requested
+      : "complete";
+  return {
+    state,
+    droppedCount: state === "partial" ? 3 : 0,
+    truncated: false,
+    reasonCodes: state === "partial" ? ["log_receipt_dropped"] : [],
+  };
+}

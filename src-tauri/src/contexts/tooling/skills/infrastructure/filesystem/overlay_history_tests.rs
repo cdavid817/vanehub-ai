@@ -35,6 +35,8 @@ fn event(index: u64, scope: OverlayScope, outcome_size: usize) -> OverlayHistory
         safe_outcome: format!("outcome-{index}-{}", "x".repeat(outcome_size)),
         prior_event_hash: None,
         event_hash: String::new(),
+        curator_application_id: None,
+        committed_effective_diff_hash: None,
     }
 }
 
@@ -108,6 +110,34 @@ fn history_events_persist_safe_fields_and_link_event_hashes() {
         repository.verified_tail_hash(&key).expect("tail hash"),
         Some(page.entries[0].event_hash.clone())
     );
+}
+
+#[test]
+fn governed_history_provenance_round_trips_and_is_queryable_by_application() {
+    let home = TempDirectory::new("overlay-history-curator-application");
+    let repository = FilesystemOverlayHistoryRepository::with_home_root(home.path().to_path_buf());
+    let key = key(OverlayScope::System);
+    let mut governed = event(1, OverlayScope::System, 0);
+    governed.curator_application_id = Some("curator-application-1".to_string());
+    governed.committed_effective_diff_hash = Some("effective-hash-1".to_string());
+    let appended = repository
+        .append_verified(&key, governed)
+        .expect("append governed event");
+
+    let found = repository
+        .find_curator_application(&key, "curator-application-1")
+        .expect("query application")
+        .expect("governed event");
+
+    assert_eq!(found, appended);
+    assert_eq!(
+        found.committed_effective_diff_hash.as_deref(),
+        Some("effective-hash-1")
+    );
+    assert!(repository
+        .find_curator_application(&key, "unknown-application")
+        .expect("query missing application")
+        .is_none());
 }
 
 #[test]

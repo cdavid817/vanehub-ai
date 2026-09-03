@@ -19,6 +19,21 @@ impl ExecutionStatus {
             Self::Succeeded | Self::Failed | Self::Cancelled | Self::Incomplete
         )
     }
+
+    /// The stable wire token, matching the DTO's serde rename.
+    ///
+    /// Written once here rather than derived at each boundary, because a status a client switches
+    /// on has to mean the same thing on every channel it can arrive over.
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Accepted => "accepted",
+            Self::Running => "running",
+            Self::Succeeded => "succeeded",
+            Self::Failed => "failed",
+            Self::Cancelled => "cancelled",
+            Self::Incomplete => "incomplete",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

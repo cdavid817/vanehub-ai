@@ -2,7 +2,7 @@
 
 <a href="../../zh-CN/src/index.md">简体中文</a>
 
-This guide is written for **developers using VaneHub AI**: how to install it, how to use it, and what to check when something goes wrong.
+This guide is written for **individuals and teams using VaneHub AI for software development work**: how to install it, how to use it, and what to check when something goes wrong. To develop, test, or contribute to VaneHub AI itself, read the [Developer Guide](../../../developer-guide/src/index.md) instead.
 
 ## Five steps to get going
 
@@ -52,7 +52,6 @@ In a hurry, chapter 1 is enough; come back to the rest as needed.
 | --- | --- |
 | [Use cases](use-cases.md) | Five end-to-end scenarios, walked from the start |
 | [FAQ](faq.md) | Direct answers to frequent questions |
-| [Runtime and feature labels](runtime-labels.md) | How to read the "desktop only" and "Web/mock only" labels |
 | [Troubleshooting](troubleshooting.md) | Start here when something breaks |
 | [Reporting issues](reporting-issues.md) | Which entry point to use, what the forms need, and how to redact before submitting |
 
@@ -60,11 +59,8 @@ In a hurry, chapter 1 is enough; come back to the rest as needed.
 
 - **Implemented** — a user-visible path is implemented and verified.
 - **Preview** — a service or mock contract exists, but the normal product workflow is incomplete.
-- **Web/mock only** — deterministic browser behavior; no native side effects occurred.
 - **Desktop only** — requires the Tauri runtime and local operating-system access.
 - **Planned** — not yet available.
-
-How to read each label is covered in [Runtime and feature labels](runtime-labels.md).
 
 ## What this guide does not cover
 
@@ -83,4 +79,4 @@ The division of labour:
 
 ## Simplified Chinese
 
-The Simplified Chinese user guide covers the same full set of chapters as this one. See <a href="../../zh-CN/src/index.md">简体中文</a>.
+The Simplified Chinese and English user guides share the same overall table of contents; individual chapters may briefly differ in translation progress. See <a href="../../zh-CN/src/index.md">简体中文</a>.

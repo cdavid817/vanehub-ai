@@ -105,6 +105,14 @@ impl SshExecutionChannel {
         self.channel.write(content).await
     }
 
+    /// Ends the input stream so a one-shot remote program can start reading.
+    ///
+    /// Published because the helper protocol needs it and nothing else in the exec contract does:
+    /// a caller that used `close` here would tear the channel down before the answer came back.
+    pub(crate) async fn send_eof(&self) -> Result<(), RemoteSshError> {
+        self.channel.send_eof().await
+    }
+
     pub(crate) async fn resize(&self, columns: u16, rows: u16) -> Result<(), RemoteSshError> {
         self.channel
             .resize(RemotePtyRequest::bounded(columns, rows))

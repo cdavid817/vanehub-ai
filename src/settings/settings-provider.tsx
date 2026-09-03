@@ -130,7 +130,11 @@ export function SettingsProvider({ children, activateLanguage = activateAppLangu
       try {
         await applySettings(optimisticSettings, activateLanguage);
         setSettings(optimisticSettings);
-        const nextSettings = normalizeAppSettings(await settingsService.saveSetting({ key, value }));
+        const nextSettings = normalizeAppSettings(
+          // The revision this screen was rendered from, not one re-read at save time. Sending a
+          // fresh read would make every write succeed and the check meaningless.
+          await settingsService.saveSetting({ key, value, expectedPersonalizationRevision: previousSettings.personalizationRevision }),
+        );
         await applySettings(nextSettings, activateLanguage);
         setSettings(nextSettings);
       } catch (err) {

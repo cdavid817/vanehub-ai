@@ -4,6 +4,17 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadDesktopMetadata, resolveDesktopArtifact } from "./desktop/artifact.mjs";
 import { collectUnifiedLogs, writeRunSummary } from "./desktop/evidence.mjs";
+import { auditAgentEvaluationEvidence } from "./desktop/agent-evaluation-evidence-safety.mjs";
+import {
+  evaluateAgentEvaluationPrerequisites,
+  writeAgentEvaluationPreflight,
+} from "./desktop/agent-evaluation-qualification.mjs";
+import { auditFeishuEvidence } from "./desktop/feishu-evidence-safety.mjs";
+import { auditFeishuLiveEvidence } from "./desktop/feishu-live-evidence-safety.mjs";
+import {
+  evaluateFeishuLivePrerequisites,
+  writeFeishuLivePreflight,
+} from "./desktop/feishu-live-qualification.mjs";
 import { detectHost } from "./desktop/platform.mjs";
 import { ensureOwnedProcessesStopped, readProcessMarker } from "./desktop/process-ownership.mjs";
 import { createLayerResult, verificationExitCode } from "./desktop/result.mjs";
@@ -22,6 +33,30 @@ const generatedSchemas = path.join(repoRoot, "src-tauri", "gen", "schemas");
 // hosted runner. Keep the PR gate on the cross-platform smoke contract; developers and release
 // workflows can opt into the complete suite explicitly.
 const runFullSuite = process.env.VANEHUB_DESKTOP_FULL_SUITE === "1" || !process.env.CI;
+
+/** Without all of these there is no real integration for the external suite to verify. */
+const EXTERNAL_PREREQUISITES = [
+  "VANEHUB_DESKTOP_LIVE_AGENTS",
+  "VANEHUB_DESKTOP_MUTATE_HOST",
+  "VANEHUB_SSH_HOST",
+  "VANEHUB_SSH_USER",
+  "VANEHUB_SSH_PASSWORD",
+];
+
+/**
+ * Records a BLOCKED external run as evidence in its own right.
+ *
+ * A job that uploads nothing looks the same as a job that never ran, and "never ran" is the reading
+ * that quietly becomes "passed" when someone summarises a matrix later.
+ */
+async function writeExternalBlockedEvidence(reason, missing) {
+  const resultDir = path.join(repoRoot, "test-results", "desktop", "external-provider-blocked");
+  await mkdir(resultDir, { recursive: true });
+  await writeFile(path.join(resultDir, "summary.json"), `${JSON.stringify({
+    layers: [{ layer: "desktop-external-provider", status: "BLOCKED", reason, missingPrerequisites: missing }],
+    coverage: null,
+  }, null, 2)}\n`);
+}
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { cwd: repoRoot, stdio: "inherit", ...options });
@@ -85,19 +120,30 @@ async function readWdioCoverage(resultDir) {
  * process cleanup, evidence collection, and a layer result. Every layer gets its own run context
  * and its own wdio configuration, so one layer's environment cannot change what another tests.
  */
-async function runDesktopLayer({ layer, config, label, artifact }) {
+async function runDesktopLayer({
+  layer,
+  config,
+  label,
+  artifact,
+  environment = {},
+  evidenceAudit,
+  contextOptions,
+  successStatus = "PASSED",
+  successReason,
+  resultDetails = {},
+}) {
   artifact ??= await loadArtifact();
   if (!artifact.testBuild || !path.isAbsolute(artifact.executablePath)) {
     throw new DesktopVerificationError("BLOCKED", `${label} requires an absolute test-build artifact path.`);
   }
-  const context = await createRunContext(repoRoot);
+  const context = await createRunContext(repoRoot, contextOptions);
   const startedAt = new Date().toISOString();
   let status = "FAILED";
   let errorDetails;
   let processCleanup;
   let processState;
   try {
-    const env = { ...process.env, ...context.environment, VANEHUB_DESKTOP_ARTIFACT: artifact.executablePath };
+    const env = { ...process.env, ...context.environment, ...environment, VANEHUB_DESKTOP_ARTIFACT: artifact.executablePath };
     const result = spawnSync(process.execPath, [npmCli, "exec", "--", "wdio", "run", config], {
       cwd: repoRoot,
       env,
@@ -117,7 +163,7 @@ async function runDesktopLayer({ layer, config, label, artifact }) {
         marker: processState,
       });
     }
-    status = "PASSED";
+    status = successStatus;
   } catch (error) {
     errorDetails = { message: error.message, status: error.status ?? "FAILED", details: error.details ?? {} };
     try {
@@ -135,6 +181,8 @@ async function runDesktopLayer({ layer, config, label, artifact }) {
   const layerResult = createLayerResult({
     layer,
     status,
+    ...(status === successStatus && successReason ? { reason: successReason } : {}),
+    ...resultDetails,
     platform: artifact.platform,
     architecture: artifact.architecture,
     artifact: artifact.executablePath,
@@ -147,7 +195,22 @@ async function runDesktopLayer({ layer, config, label, artifact }) {
     ...(errorDetails ? { error: errorDetails } : {}),
   });
   const coverage = await readWdioCoverage(context.resultDir);
-  const summaryPath = await writeRunSummary(context.resultDir, { layers: [layerResult], coverage });
+  let summaryPath = await writeRunSummary(context.resultDir, { layers: [layerResult], coverage });
+  if (evidenceAudit) {
+    const evidenceSafety = await evidenceAudit(context.resultDir);
+    layerResult.evidenceSafety = evidenceSafety;
+    if (evidenceSafety.status !== "PASSED") {
+      status = "FAILED";
+      layerResult.status = status;
+      delete layerResult.reason;
+      layerResult.error = {
+        message: "Retained desktop evidence failed the safe-metadata policy.",
+        status,
+        details: { findingCount: evidenceSafety.findings.length },
+      };
+    }
+    summaryPath = await writeRunSummary(context.resultDir, { layers: [layerResult], coverage });
+  }
   await disposeRunContext(context);
   const skipped = coverage?.skipped ? ` (${coverage.skipped} skipped — see BLOCKED above)` : "";
   process.stdout.write(`${label}: ${status}${skipped}\nEvidence: ${context.resultDir}\n`);
@@ -160,6 +223,45 @@ function smokeDesktop(artifact) {
     layer: "desktop-smoke",
     config: "tests/desktop/wdio.conf.mjs",
     label: "Desktop smoke",
+    artifact,
+  });
+}
+
+function coreSmokeDesktop(artifact) {
+  return runDesktopLayer({
+    layer: "desktop-core-smoke",
+    config: "tests/desktop/wdio.conf.mjs",
+    label: "Desktop core smoke",
+    artifact,
+    environment: { VANEHUB_DESKTOP_CORE_SMOKE: "1" },
+  });
+}
+
+/**
+ * The suite that needs a real package manager, host environment, or SSH server.
+ *
+ * Reports `BLOCKED` rather than running when its prerequisites are absent. A suite that verifies
+ * real integrations has nothing to say on a runner that has none, and saying `PASSED` there would
+ * be the most misleading result available.
+ */
+function missingExternalPrerequisites() {
+  return EXTERNAL_PREREQUISITES.filter((variable) => !process.env[variable]);
+}
+
+async function externalProviderDesktop(artifact) {
+  const missing = missingExternalPrerequisites();
+  if (missing.length > 0) {
+    const reason = `External provider suite: no real prerequisites on this host (${missing.join(", ")}).`;
+    process.stdout.write(`Desktop external provider: BLOCKED\n${reason}\n`);
+    await writeExternalBlockedEvidence(reason, missing);
+    // Deliberately not an error exit. This suite never gates, so an unconfigured runner reports
+    // what it is rather than failing a pipeline that was never asking it for a verdict.
+    return { status: "BLOCKED", resultDir: null };
+  }
+  return runDesktopLayer({
+    layer: "desktop-external-provider",
+    config: "tests/desktop/wdio.external-provider.conf.mjs",
+    label: "Desktop external provider",
     artifact,
   });
 }
@@ -182,6 +284,15 @@ function sessionWorkspaceDesktop(artifact) {
   });
 }
 
+function sessionShellDesktop(artifact) {
+  return runDesktopLayer({
+    layer: "desktop-session-shell",
+    config: "tests/desktop/wdio.session-shell.conf.mjs",
+    label: "Desktop session shell",
+    artifact,
+  });
+}
+
 function dialogsDesktop(artifact) {
   return runDesktopLayer({
     layer: "desktop-dialogs",
@@ -191,8 +302,20 @@ function dialogsDesktop(artifact) {
   });
 }
 
+function cliManagementDesktop(artifact) {
+  return runDesktopLayer({
+    layer: "desktop-cli-management",
+    config: "tests/desktop/wdio.cli-management.conf.mjs",
+    label: "Desktop CLI management",
+    artifact,
+  });
+}
+
 // Opt-in only, never part of `all`: it drives the REAL codex-cli and claude-code against a real
 // requirement, so it spends model tokens and needs both CLIs authenticated on the host.
+//
+// External-provider layers in the sense the desktop spec now defines: real Agent, real login, real
+// model output. They stay out of the required gate for the same reason `native-flows` does.
 function multiAgentRequirementDesktop(artifact) {
   return runDesktopLayer({
     layer: "desktop-multi-agent-requirement",
@@ -220,6 +343,15 @@ function loopDesktop(artifact) {
     layer: "desktop-loop",
     config: "tests/desktop/wdio.loop.conf.mjs",
     label: "Desktop Loop Engineering",
+    artifact,
+  });
+}
+
+function scheduledTasksDesktop(artifact) {
+  return runDesktopLayer({
+    layer: "desktop-scheduled-tasks",
+    config: "tests/desktop/wdio.scheduled-tasks.conf.mjs",
+    label: "Desktop scheduled tasks",
     artifact,
   });
 }
@@ -267,36 +399,137 @@ function skillsDesktop(artifact) {
   });
 }
 
+function feishuImDesktop(artifact) {
+  return runDesktopLayer({
+    layer: "desktop-feishu-im",
+    config: "tests/desktop/wdio.feishu-im.conf.mjs",
+    label: "Desktop Feishu IM",
+    artifact,
+    evidenceAudit: auditFeishuEvidence,
+  });
+}
+
+async function feishuLiveQualification() {
+  const preflight = evaluateFeishuLivePrerequisites();
+  if (preflight.status !== "READY") {
+    const result = await writeFeishuLivePreflight(repoRoot);
+    process.stdout.write(`Desktop Feishu live: ${result.status}\nReason: ${result.reason}\nEvidence: ${result.resultDir}\n`);
+    process.exitCode = verificationExitCode(result.status);
+    return result;
+  }
+  // A live run must exercise the code under qualification. Reusing latest-artifact.json can
+  // silently launch a desktop-e2e binary built before credential-isolation changes landed.
+  const artifact = await buildDesktop();
+  const operatorPhase = process.env.VANEHUB_FEISHU_LIVE_OPERATOR === "1";
+  return runDesktopLayer({
+    layer: "desktop-feishu-live",
+    config: "tests/desktop/wdio.feishu-live.conf.mjs",
+    label: "Desktop Feishu live",
+    artifact,
+    contextOptions: { resultScope: "desktop-live" },
+    successStatus: operatorPhase ? "BLOCKED" : "NOT RUN",
+    successReason: operatorPhase
+      ? "feishu-platform-retry-not-observed"
+      : "live-inbound-operator-phase-pending",
+    resultDetails: { livePlatform: true, fixture: false, preflight },
+    evidenceAudit: (resultDir) => auditFeishuLiveEvidence(resultDir, process.env),
+  });
+}
+
+async function agentEvaluationQualification(mode = "fixture-opencode") {
+  const preflight = evaluateAgentEvaluationPrerequisites({ mode });
+  if (preflight.status !== "READY") {
+    const result = await writeAgentEvaluationPreflight(repoRoot, preflight);
+    process.stdout.write(
+      `Desktop Agent evaluation (${mode}): ${result.status}\nReason: ${preflight.reason}\nEvidence: ${result.resultDir}\n`,
+    );
+    process.exitCode = verificationExitCode(result.status);
+    return result;
+  }
+  // Provider qualification must run the code in this worktree. Reusing an older artifact can turn
+  // a fixed harness into evidence for a binary that never contained the fix.
+  const artifact = await buildDesktop();
+  return runDesktopLayer({
+    layer: "desktop-agent-evaluation",
+    config: "tests/desktop/wdio.agent-evaluation.conf.mjs",
+    label: `Desktop Agent evaluation (${mode})`,
+    artifact,
+    environment: { VANEHUB_AGENT_EVALUATION_MODE: mode },
+    contextOptions: { resultScope: mode === "fixture-opencode" ? "desktop" : "desktop-live" },
+    resultDetails: { mode, fixture: preflight.fixture, preflightReason: preflight.reason },
+    evidenceAudit: (resultDir) => auditAgentEvaluationEvidence(resultDir, process.env),
+  });
+}
+
+/** The layers the required hermetic gate runs. Every one of them must pass. */
+const fullSuiteLayers = [
+  smokeDesktop,
+  cliTerminalDesktop,
+  cliManagementDesktop,
+  sessionWorkspaceDesktop,
+  sessionShellDesktop,
+  dialogsDesktop,
+  scheduledTasksDesktop,
+  settingsPersistenceDesktop,
+  agentMcpDesktop,
+];
+
+async function runLayers(layers, artifact) {
+  const results = [];
+  // Sequential rather than concurrent: the layers share one desktop artifact, and a layer's
+  // evidence is only attributable if it owned the machine while it ran.
+  for (const layer of layers) {
+    results.push(await layer(artifact));
+  }
+  return results;
+}
+
 async function main() {
   const mode = process.argv[2] ?? "all";
   if (mode === "build") await buildDesktop();
   else if (mode === "smoke") await smokeDesktop();
+  else if (mode === "core-smoke") await coreSmokeDesktop();
   else if (mode === "cli-terminal") await cliTerminalDesktop();
   else if (mode === "session-workspace") await sessionWorkspaceDesktop();
+  else if (mode === "session-shell") await sessionShellDesktop();
   else if (mode === "dialogs") await dialogsDesktop();
+  else if (mode === "scheduled-tasks") await scheduledTasksDesktop();
   else if (mode === "settings-persistence") await settingsPersistenceDesktop();
+  else if (mode === "cli-management") await cliManagementDesktop();
   else if (mode === "agent-mcp") await agentMcpDesktop();
   else if (mode === "local-media") await localMediaDesktop();
   else if (mode === "skills") await skillsDesktop();
+  else if (mode === "feishu-im") await feishuImDesktop();
+  else if (mode === "feishu-live") await feishuLiveQualification();
+  else if (mode === "agent-evaluation") await agentEvaluationQualification();
+  else if (mode === "agent-evaluation-live-opencode") await agentEvaluationQualification("live-opencode");
+  else if (mode === "agent-evaluation-live-onepiece") await agentEvaluationQualification("live-onepiece");
   else if (mode === "multi-agent-requirement") await multiAgentRequirementDesktop();
   else if (mode === "multi-agent-longrun") await multiAgentLongrunDesktop();
   else if (mode === "loop") await loopDesktop();
-  else if (mode === "all") {
+  else if (mode === "external-provider") {
+    // Prerequisites before the build. A runner with no real Agent has nothing for this suite to
+    // verify, and spending ten minutes compiling the application to say so buys nothing.
+    const blocked = missingExternalPrerequisites().length > 0;
+    const result = await externalProviderDesktop(blocked ? null : await buildDesktop());
+    // BLOCKED is a reportable outcome here, not a failure: this suite never gates.
+    process.exitCode = result.status === "FAILED" ? 1 : 0;
+  } else if (mode === "all" || mode === "everything") {
     const artifact = await buildDesktop();
-    const fullSuiteLayers = [smokeDesktop, cliTerminalDesktop, sessionWorkspaceDesktop, dialogsDesktop, settingsPersistenceDesktop, agentMcpDesktop];
-    const layers = runFullSuite ? fullSuiteLayers : [smokeDesktop];
+    const layers = runFullSuite ? fullSuiteLayers : [coreSmokeDesktop];
     if (!runFullSuite) {
-      process.stdout.write("Desktop verification: CI gate runs smoke only; set VANEHUB_DESKTOP_FULL_SUITE=1 for all layers.\n");
+      process.stdout.write("Desktop verification: CI gate runs the core smoke contract; set VANEHUB_DESKTOP_FULL_SUITE=1 for every required layer.\n");
     }
-    const results = [];
-    // Sequential rather than concurrent: the layers share one webdriver port and one desktop
-    // artifact, and a layer's evidence is only attributable if it owned the machine while it ran.
-    for (const layer of layers) {
-      results.push(await layer(artifact));
-    }
+    const results = await runLayers(layers, artifact);
     // Each layer sets its own exit code as it finishes; the run as a whole is only green when
     // every layer is, so the worst result has to win rather than the last one.
     process.exitCode = Math.max(...results.map((result) => verificationExitCode(result.status)));
+    if (mode === "everything") {
+      // Appended, never folded in: a BLOCKED external result must not turn the required verdict
+      // red, and a passing external result must not make a failed required layer look green.
+      const external = await externalProviderDesktop(artifact);
+      if (external.status === "FAILED") process.exitCode = 1;
+    }
   } else throw new DesktopVerificationError("BLOCKED", `Unknown desktop test mode: ${mode}`);
 }
 

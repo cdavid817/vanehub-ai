@@ -4,6 +4,9 @@
 //! Runtime repositories or provider infrastructure. It coordinates interactive execution, Agent
 //! terminals, loop engineering, and durable Multi-Agent runs.
 
+pub(crate) use super::application::{
+    AgentEvidenceObservation, AgentEvidencePort, AgentEvidenceSignal, AgentRunEvidenceOutcome,
+};
 use super::application::{
     AgentRuntimeApplicationService, AgentTerminalApplicationService, BrowserHandoffControlPort,
     ContextManifestQueryService, ContextQualityQueryService, ExpertRoleApplicationService,
@@ -18,8 +21,8 @@ use super::infrastructure::{
 use std::sync::Arc;
 
 pub(crate) use super::application::{
-    ActiveGenerationCorrelation, AgentChatConfiguration, AgentFileReference, AgentMemory,
-    AgentMessage, AgentMessageSource, AgentMessageTerminalOutcome, AgentRuntimeApplicationError,
+    ActiveGenerationCorrelation, AgentChatConfiguration, AgentFileReference, AgentMessage,
+    AgentMessageSource, AgentMessageTerminalOutcome, AgentRuntimeApplicationError,
     AgentSessionDetails, AgentTerminalInputRequest, AgentTerminalSession, AgentTerminalSize,
     AgentView, ApiProviderConfig, ChangeSetApplyPort, ChangeSetApplyRecord, ChangeSetFileRecord,
     ChangeSetRecord, ChangeSetStatus, CliDelegationPort, ContinueLoopRequest,
@@ -37,7 +40,9 @@ pub(crate) use super::application::{
     SaveCustomOnePieceProviderProfileInput, SaveLoopDefinitionRequest,
     SaveOnePieceProviderConfigInput, SaveOnePieceProviderProfileInput, SendMessageRequest,
     StartLoopResultView, StartedAgentMessage, StopAgentTerminalRequest, StopGenerationResult,
-    StoredEndpointProfileMetadata, StoredHybridRoutingRule, ToolApprovalDecision,
+    StoredEndpointProfileMetadata, StoredHybridRoutingRule, StructuredModelEvaluationError,
+    StructuredModelEvaluationRequest, StructuredModelEvaluationResult,
+    StructuredModelEvaluationService, StructuredModelPurpose, ToolApprovalDecision,
     UpdateApiAgentInput, ValidateOnePieceProviderCredentialInput, WorkflowView,
 };
 
@@ -110,6 +115,7 @@ pub(crate) struct AgentRuntimeApiServices {
     pub(crate) browser_handoff: Option<std::sync::Arc<dyn BrowserHandoffControlPort>>,
     pub(crate) manual_native_tools: ManualNativeToolControl,
     pub(crate) local_discovery: LocalModelDiscoveryService,
+    pub(crate) structured_evaluation: StructuredModelEvaluationService,
 }
 
 #[derive(Clone)]
@@ -133,6 +139,7 @@ pub(crate) struct AgentRuntimeApi {
     browser_handoff: Option<std::sync::Arc<dyn BrowserHandoffControlPort>>,
     manual_native_tools: ManualNativeToolControl,
     local_discovery: LocalModelDiscoveryService,
+    structured_evaluation: StructuredModelEvaluationService,
 }
 
 impl AgentRuntimeApi {
@@ -153,6 +160,7 @@ impl AgentRuntimeApi {
             browser_handoff,
             manual_native_tools,
             local_discovery,
+            structured_evaluation,
         } = services;
         Self {
             service,
@@ -170,7 +178,15 @@ impl AgentRuntimeApi {
             browser_handoff,
             manual_native_tools,
             local_discovery,
+            structured_evaluation,
         }
+    }
+
+    pub(crate) fn evaluate_structured_model(
+        &self,
+        request: StructuredModelEvaluationRequest,
+    ) -> Result<StructuredModelEvaluationResult, StructuredModelEvaluationError> {
+        self.structured_evaluation.evaluate(request)
     }
 
     pub(crate) fn list_context_quality_history(
@@ -716,6 +732,20 @@ impl AgentRuntimeApi {
         self.resolve_tool_approval(session_id, call_id, decision)
     }
 
+    /// Whether a tool approval for this session could still reach a live waiter.
+    ///
+    /// The narrow published contract `permissions` needs to reserve a waiter without resuming it
+    /// (`permissions-approval`'s "Stale generation is detected before commit"). Deliberately
+    /// answers one boolean rather than exposing a generation handle: a caller holding one would be
+    /// able to decide for itself whether the waiter is still valid, which is the judgement this
+    /// context owns.
+    pub(crate) fn has_live_tool_approval_waiter(
+        &self,
+        session_id: &str,
+    ) -> Result<bool, AgentRuntimeApplicationError> {
+        self.service.has_live_tool_approval_waiter(session_id)
+    }
+
     pub(crate) fn resolve_tool_approval(
         &self,
         session_id: &str,
@@ -729,23 +759,6 @@ impl AgentRuntimeApi {
             .manual_native_tools
             .resolve_approval(session_id, call_id, decision);
         Ok(generation || manual)
-    }
-
-    pub(crate) fn list_all_memories(
-        &self,
-    ) -> Result<Vec<AgentMemory>, AgentRuntimeApplicationError> {
-        self.service.list_all_memories()
-    }
-
-    pub(crate) fn delete_agent_memory(
-        &self,
-        memory_id: &str,
-    ) -> Result<(), AgentRuntimeApplicationError> {
-        self.service.delete_agent_memory(memory_id)
-    }
-
-    pub(crate) fn reset_all_memories(&self) -> Result<(), AgentRuntimeApplicationError> {
-        self.service.reset_all_memories()
     }
 
     pub(crate) fn workflow(&self) -> Result<WorkflowView, AgentRuntimeApplicationError> {
@@ -817,7 +830,12 @@ impl AgentRuntimeApi {
         &self,
         request: SendMessageRequest,
     ) -> Result<StartedAgentMessage, AgentRuntimeApplicationError> {
-        self.service.send_message_with_completion(request)
+        let session_id = request.session_id.clone();
+        let message = self.service.send_message_with_completion(request)?;
+        if self.service.is_multi_seat_session(&session_id) {
+            self.seat_turns.schedule(&session_id)?;
+        }
+        Ok(message)
     }
 
     pub(crate) fn send_evaluation_message_with_completion(
@@ -912,22 +930,4 @@ fn bounded_validation_output(stdout: &str, stderr: &str) -> (Option<String>, boo
         ),
         truncated,
     )
-}
-
-/// Boundary `commands::agent_runtime::delete_agent_memory` needs from this facade to delete one
-/// stored memory (`add-onepiece-vector-search` Task 14). A trait — rather than that command
-/// calling the inherent `delete_agent_memory` method directly — so the command's own tests can
-/// substitute a fake instead of constructing a full `AgentRuntimeApi`, which would otherwise
-/// require every one of this facade's concrete application services just to delete one row.
-pub(crate) trait AgentMemoryDeletionGateway: Send + Sync {
-    fn delete_agent_memory(&self, memory_id: &str) -> Result<(), AgentRuntimeApplicationError>;
-}
-
-impl AgentMemoryDeletionGateway for AgentRuntimeApi {
-    fn delete_agent_memory(&self, memory_id: &str) -> Result<(), AgentRuntimeApplicationError> {
-        // Calls the inherent method above, not this trait method — method resolution always
-        // prefers an inherent impl over a trait impl for the same receiver type, so this cannot
-        // recurse.
-        self.delete_agent_memory(memory_id)
-    }
 }

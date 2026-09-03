@@ -2,7 +2,9 @@
 
 ## Purpose
 Defines durable session records, active-session selection, session listing, mutation operations, and runtime persistence expectations shared by the Tauri desktop runtime and browser Web runtime.
+
 ## Requirements
+
 ### Requirement: Session entity contract
 The system SHALL expose sessions as durable records with id, title, an ordered participant list, a stable agent id, interaction mode, lifecycle state, folder, optional project/worktree metadata, pinned, archived, created timestamp, and updated timestamp fields. Each participant SHALL carry a stable seat id, stable Agent id, captured expert-role presentation, join timestamp, and optional leave timestamp. A single-Agent session SHALL be represented as a session holding exactly one active participant, and the record's agent id SHALL equal the first active participant's agent id for compatibility.
 
@@ -616,3 +618,72 @@ The system SHALL persist an origin kind and optional origin identifier for Sessi
 - **WHEN** a Session predating lineage metadata is loaded
 - **THEN** it SHALL remain readable and default to user origin unless an existing durable relationship proves another origin
 
+### Requirement: Session personalization mode
+The system SHALL persist a `personalizationMode` value of `standard`, `project-only`, or `temporary` on every session and SHALL provide that value to every generation and active participant seat as part of the session runtime context.
+
+#### Scenario: Create a standard session by default
+- **WHEN** session creation does not explicitly provide a personalization mode
+- **THEN** the system SHALL create the session with `personalizationMode = standard`
+
+#### Scenario: Create a project-only session
+- **WHEN** session creation provides `personalizationMode = project-only` and a resolvable local or remote workspace
+- **THEN** the system SHALL persist the mode and workspace identity
+- **AND** later generations SHALL resolve project-only memory behavior through the personalization service
+
+#### Scenario: Reject project-only without a workspace
+- **WHEN** session creation provides `personalizationMode = project-only` without a resolvable workspace
+- **THEN** desktop and Web/mock service boundaries SHALL reject the request without creating the session
+- **AND** SHALL return a typed localized validation reason
+
+#### Scenario: Create a temporary session
+- **WHEN** session creation provides `personalizationMode = temporary`
+- **THEN** the system SHALL persist the mode
+- **AND** later generations SHALL suppress VaneHub long-term memory read, write, and extraction while preserving current-session history and runtime-owned internal compaction
+
+#### Scenario: Persist mode across restart and lifecycle operations
+- **WHEN** a session is restarted, selected, archived, unarchived, renamed, pinned, or restored after application restart
+- **THEN** its personalization mode SHALL remain unchanged unless an explicit supported session update changes it
+
+#### Scenario: Migrate an existing session
+- **WHEN** a session persisted before this field existed is read
+- **THEN** the system SHALL project and persist `personalizationMode = standard`
+- **AND** the session SHALL remain readable in desktop and Web/mock runtimes
+
+#### Scenario: Propagate mode to a multi-Agent session
+- **WHEN** a multi-Agent session starts a turn for any participant seat
+- **THEN** the system SHALL provide the session's common personalization mode and workspace context to the resolver
+- **AND** SHALL resolve Agent-specific policy using that seat's stable Agent id
+
+#### Scenario: Propagate mode to a worktree session
+- **WHEN** a session operates in a Git worktree
+- **THEN** the personalization resolver SHALL use the effective worktree/project workspace identity defined by the workspace identity service
+- **AND** SHALL retain the selected personalization mode
+
+#### Scenario: Preserve Web runtime parity
+- **WHEN** sessions are created, listed, restored, or used in Web/mock mode
+- **THEN** the adapter SHALL preserve the same personalization-mode values, validation, defaults, and runtime context shape
+
+### Requirement: Separately listed system activity sessions
+The session service SHALL expose system activity sessions through a separate listing operation and discriminated session kind. They SHALL NOT be included in interactive active/archived lists, categories, automatic inactive archival, multi-session deletion, Agent discovery, or workflow selection.
+
+#### Scenario: List all session groups
+- **WHEN** the UI requests interactive and system session collections
+- **THEN** it receives separately typed collections without inferring system identity from titles
+
+#### Scenario: Select system activity view
+- **WHEN** a system session is opened
+- **THEN** view selection changes without updating active interactive session or workflow Agent state
+
+### Requirement: System session mutation refusal
+The session service SHALL reject normal create, rename, pin, unpin, archive, restore, category assignment, delete, send, stop, terminal, provider-resume, and chat-configuration operations for system activity sessions.
+
+#### Scenario: Bulk delete includes system session
+- **WHEN** a client includes a system activity id in an interactive deletion request
+- **THEN** the service rejects or excludes it with an explicit immutable-system-session result and preserves the session
+
+### Requirement: System activity search separation
+Ordinary historical Agent-session message search SHALL exclude system activity by default. System activity SHALL use its dedicated safe search and MAY appear in global search only under an explicit system-activity result kind.
+
+#### Scenario: Ordinary session search matches an activity label
+- **WHEN** the user searches interactive session history without enabling system activity
+- **THEN** system activity is not returned as an Agent session result

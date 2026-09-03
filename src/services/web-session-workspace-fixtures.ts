@@ -6,7 +6,9 @@ import type {
   SessionDocument,
   SessionLogEntry,
   SessionLogLevel,
+  WorkspaceInspectionCapabilities,
 } from "../types/session-workspace";
+import type { WorkspacePathMatch } from "../types/session-workspace-inspection";
 
 export const availableContext = { availability: "available" as const, rootName: "vanehub-demo", reason: null };
 
@@ -23,6 +25,18 @@ export const directoryFixtures: Record<string, DirectoryEntry[]> = {
   ],
   src: [{ name: "main.ts", path: "src/main.ts", kind: "file", size: 128 }],
 };
+
+/**
+ * Everything the tree fixture contains, flattened, for Quick Open.
+ *
+ * Derived from `directoryFixtures` rather than written out again: a second list is one that
+ * eventually offers a path the tree does not have, and a result that opens nothing is worse than
+ * no result.
+ */
+export const pathSearchFixture: WorkspacePathMatch[] = Object.values(directoryFixtures)
+  .flat()
+  .map((entry) => ({ name: entry.name, path: entry.path, kind: entry.kind }))
+  .sort((left, right) => left.path.localeCompare(right.path));
 
 // Line N reads `export const valueN`, so a preview that mislabels a line is visible at a
 // glance — and long enough that selecting across it requires the line list to scroll.
@@ -41,6 +55,10 @@ export const fileFixtures: Record<string, string> = {
   "package.json": "{\n  \"name\": \"vanehub-web-preview\",\n  \"private\": true\n}",
   "src/main.ts": "export const runtime = \"web-mock\";\n",
   "src/long-module.ts": longModule,
+  // Inside a tree a recursive search skips, and containing a word the other fixtures also contain.
+  // Without it the browser build can never show a search that deliberately did not look somewhere,
+  // and a panel gets written as though every file in the workspace is a file the search read.
+  "node_modules/vendored/runtime.ts": "export const runtime = \"vendored\";\n",
 };
 
 export const documentFixtures: SessionDocument[] = [
@@ -137,3 +155,24 @@ export const logFixtures: SessionLogEntry[] = [
     };
   }),
 ];
+
+/**
+ * What the browser build can be asked, and the one thing it is honest about.
+ *
+ * Every capability is available because the fixture really does contain all of it. The gap is the
+ * provider name: `simulated` rather than `local`, so a demo does not claim to be reading this
+ * machine and send somebody looking for files that are not there.
+ *
+ * `watchMode: "none"` for the same reason. A fixture never changes, and saying `native` would
+ * describe a watcher that does not exist.
+ */
+export const inspectionCapabilitiesFixture: WorkspaceInspectionCapabilities = {
+  provider: "simulated",
+  targetLabel: "Simulated workspace",
+  listFiles: { available: true },
+  readTextFiles: { available: true },
+  searchFiles: { available: true },
+  gitStatus: { available: true },
+  gitDiff: { available: true },
+  watchMode: "none",
+};

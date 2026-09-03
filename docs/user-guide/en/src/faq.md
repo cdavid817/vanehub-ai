@@ -10,11 +10,11 @@
 
 Most likely because **no provider is configured for OnePiece**.
 
-Memory extraction for CLI Agents is performed by OnePiece, and with it unconfigured no memories are produced at all. Even if you mainly use Claude Code, you have to configure OnePiece first. See [Personalization](personalization.md#two-prerequisites-you-have-to-know).
+Memory extraction for CLI Agents is performed by OnePiece, and with it unconfigured no memories are produced at all. Even if you mainly use Claude Code, you have to configure OnePiece first. See [Personalization](personalization.md#when-memories-are-extracted).
 
 ## Can one Agent have its own separate memory?
 
-**No.** Memory is currently a host-level shared pool, and what one Agent records is available to the others. If you need isolation, the only option is to turn memory off entirely.
+**Yes, per memory.** Each memory has an audience: every Agent by default, or only the ones you name. Set it when you approve a proposal or from the memory's detail view. See [Personalization](personalization.md#scope-source-and-audience-of-a-single-memory).
 
 ## Can recall search my project code?
 
@@ -46,7 +46,7 @@ For a fully expandable call chain, use OnePiece. See [Observability](observabili
 
 ## Can I search the logs by a trace id?
 
-**No.** Logs deliberately contain no execution identifiers, which is a privacy design. The two are lined up by **time**.
+**Yes.** A log entry carries `runId`, `traceId`, and `spanId` in its context whenever the source supplies them. What logs deliberately exclude is **content** — prompts, Agent output, source, stderr, credentials, private absolute paths — not identifiers. If a search finds nothing, the entry most likely came from a source with no identifier to attach; line those up by **time**.
 
 ## Can a Loop run in a remote workspace?
 
@@ -65,12 +65,6 @@ The interface explains: a run missed because the application was closed is **mad
 ## Does configuring MCP once cover every Agent?
 
 **Only Claude Code and Codex CLI go through the relay today.** Gemini CLI, OpenCode, and Antigravity CLI need their own configuration, and their MCP calls do not appear in the execution trace.
-
-## Is opening it in a browser the same as the desktop application?
-
-The interface is the same; **the capabilities are not**. The browser preview (Web/mock) uses deterministic mock data and **starts no process, writes no database, and touches no filesystem**.
-
-See [Runtime and feature labels](runtime-labels.md) for how to tell.
 
 ## Which languages does the interface support?
 

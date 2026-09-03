@@ -400,8 +400,8 @@ impl SessionRepository for SqliteSessionsRepository {
             .query_map(params![message_query, pattern, query.limit as i64], |row| {
                 Ok((
                     SessionRow::read(row)?,
-                    row.get::<_, Option<String>>(38)?,
                     row.get::<_, Option<String>>(39)?,
+                    row.get::<_, Option<String>>(40)?,
                 ))
             })
             .map_err(repository_error)?

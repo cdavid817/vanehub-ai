@@ -1,12 +1,13 @@
 use crate::contexts::agent_runtime::api::AgentRuntimeApplicationError;
 use crate::contexts::communications::api::CommunicationsApplicationError;
+#[cfg(feature = "desktop-e2e")]
+use crate::contexts::communications::infrastructure::FeishuFixtureError;
 use crate::contexts::desktop::api::{DesktopSettingsError, FloatingAssistantError};
 use crate::contexts::operations::application::ApplicationError;
 use crate::contexts::permissions::api::PermissionsApplicationError;
 use crate::contexts::sessions::api::SessionsError;
 use crate::contexts::ssh_connections::api::SshConnectionsError;
 use crate::contexts::ssh_connections::api::SshRuntimeError;
-use crate::contexts::tooling::cli::api::CliError;
 use crate::contexts::tooling::cli_config::domain::CliConfigError;
 use crate::contexts::tooling::extensions::api::ExtensionError;
 use crate::contexts::tooling::mcp::api::McpError;
@@ -15,7 +16,7 @@ use crate::contexts::tooling::prompt_hooks::api::PromptHookError;
 use crate::contexts::tooling::sdk::api::SdkError;
 use crate::contexts::tooling::skill_tools::api::SkillToolApplicationError;
 use crate::contexts::tooling::skills::api::{OverlayError, SkillDomainError, SkillError};
-use crate::contexts::workspaces::api::WorkspaceError;
+use crate::contexts::workspaces::api::{SessionShellError, WorkspaceError};
 use crate::platform::error::InfrastructureError;
 use crate::platform::logging::redact_text;
 use serde::Serialize;
@@ -55,6 +56,18 @@ impl CommandError {
         }
     }
 
+    /// One category with a message the caller wrote itself.
+    ///
+    /// For errors whose message is a stable code the frontend matches on rather than prose for a
+    /// human. `validation` and `storage` prefix theirs; this one does not, because a prefix in
+    /// front of a code is one more thing every matcher has to strip.
+    pub(crate) fn typed(category: CommandErrorCategory, message: impl Into<String>) -> Self {
+        Self {
+            category,
+            message: message.into(),
+        }
+    }
+
     pub(crate) fn storage(message: impl Into<String>) -> Self {
         Self {
             category: CommandErrorCategory::Infrastructure,
@@ -75,7 +88,7 @@ impl CommandError {
     }
 
     /// For lower-layer messages forwarded verbatim that may carry absolute filesystem paths
-    /// or provider diagnostics (e.g. `CliError::Internal`, `SdkError::Package`,
+    /// or provider diagnostics (e.g. `SdkError::Package`,
     /// `SessionsError::Repository`). Applied at the `From` boundary rather than at the
     /// `Serialize` boundary so category-level error codes (`connector-credentials-required`
     /// etc.) — which are safe, structured, and matched by the frontend — are not mangled by
@@ -171,6 +184,16 @@ impl From<CommunicationsApplicationError> for CommandError {
     }
 }
 
+#[cfg(feature = "desktop-e2e")]
+impl From<FeishuFixtureError> for CommandError {
+    fn from(error: FeishuFixtureError) -> Self {
+        match error {
+            FeishuFixtureError::Validation(message) => Self::validation(message),
+            FeishuFixtureError::Storage(message) => Self::storage(message),
+        }
+    }
+}
+
 impl From<SkillToolApplicationError> for CommandError {
     fn from(error: SkillToolApplicationError) -> Self {
         let code = error.code().to_string();
@@ -217,6 +240,9 @@ impl From<AgentRuntimeApplicationError> for CommandError {
                 category: CommandErrorCategory::Unavailable,
                 message: format!("agent is unavailable: {message}"),
             },
+            AgentRuntimeApplicationError::InvalidSeatMention { .. } => {
+                Self::validation("mentioned seat is unavailable")
+            }
             AgentRuntimeApplicationError::UnsupportedInteractionMode(mode) => Self {
                 category: CommandErrorCategory::Unsupported,
                 message: format!("unsupported interaction mode: {mode}"),
@@ -262,8 +288,7 @@ impl From<AgentRuntimeApplicationError> for CommandError {
             | AgentRuntimeApplicationError::Memory(message)
             | AgentRuntimeApplicationError::Mcp(message)
             | AgentRuntimeApplicationError::Permission(message)
-            | AgentRuntimeApplicationError::ContextQuality(message)
-            | AgentRuntimeApplicationError::Personalization(message) => Self::storage(message),
+            | AgentRuntimeApplicationError::ContextQuality(message) => Self::storage(message),
             AgentRuntimeApplicationError::Credential(message) => Self {
                 category: CommandErrorCategory::Infrastructure,
                 message: format!("credential error: {}", redact_text(&message)),
@@ -290,6 +315,19 @@ impl From<DesktopSettingsError> for CommandError {
                 CommandErrorCategory::Unavailable,
                 message,
                 "native localization failed: ",
+            ),
+            // Its own category so the page can keep the user's draft and offer a reload, which it
+            // cannot decide to do if a conflict looks like a disk failure.
+            DesktopSettingsError::PersonalizationConflict { expected, current } => Self {
+                category: CommandErrorCategory::Conflict,
+                message: format!(
+                    "This setting changed since it was loaded (expected revision {expected}, current {current})."
+                ),
+            },
+            DesktopSettingsError::Personalization(message) => command_error_with_default(
+                CommandErrorCategory::Unavailable,
+                message,
+                "personalization is unavailable: ",
             ),
             DesktopSettingsError::LogDirectory(message)
             | DesktopSettingsError::Startup(message)
@@ -326,6 +364,10 @@ impl From<WorkspaceError> for CommandError {
         match error {
             WorkspaceError::Domain(error) => Self::validation(error.to_string()),
             WorkspaceError::Validation(message) => Self::validation(message),
+            // The message is the stable reason code and nothing else — `validation` above prefixes
+            // its own, and a prefix in front of a code makes the frontend match a substring rather
+            // than a value.
+            WorkspaceError::Conflict(code) => Self::typed(CommandErrorCategory::Conflict, code),
             WorkspaceError::Repository(message) => command_error_with_default(
                 CommandErrorCategory::Infrastructure,
                 message,
@@ -357,6 +399,46 @@ impl From<WorkspaceError> for CommandError {
                 message: format!(
                     "Verifier session {session_id} cannot perform workspace action: {action}"
                 ),
+            },
+        }
+    }
+}
+
+/// The message is the error's stable token rather than prose.
+///
+/// The frontend has to tell these apart to act on them: a stale attachment is a race the view
+/// recovers from by reattaching, a capacity failure is something the user must act on, and a
+/// disconnect is a state the UI keeps showing alongside the replay it still holds. A sentence would
+/// make each of those a string-matching exercise that breaks on translation.
+impl From<SessionShellError> for CommandError {
+    fn from(error: SessionShellError) -> Self {
+        let message = error.code().to_string();
+        match error {
+            SessionShellError::NotFound => Self {
+                category: CommandErrorCategory::NotFound,
+                message,
+            },
+            SessionShellError::AttachmentStale
+            | SessionShellError::CapacityReached { .. }
+            | SessionShellError::NotAcceptingInput { .. } => Self {
+                category: CommandErrorCategory::Conflict,
+                message,
+            },
+            SessionShellError::PolicyDenied => Self {
+                category: CommandErrorCategory::Unsupported,
+                message,
+            },
+            SessionShellError::WorkspaceUnavailable
+            | SessionShellError::RuntimeUnavailable { .. }
+            | SessionShellError::Runtime { .. } => Self {
+                category: CommandErrorCategory::Unavailable,
+                message,
+            },
+            SessionShellError::InvalidIdentifier { .. }
+            | SessionShellError::InvalidTitle
+            | SessionShellError::SeatRequired => Self {
+                category: CommandErrorCategory::Validation,
+                message,
             },
         }
     }
@@ -491,6 +573,14 @@ impl From<SshRuntimeError> for CommandError {
     }
 }
 
+/// An infrastructure message with its category inferred and its private paths removed.
+///
+/// The redaction is here rather than at each arm because the messages that reach it are the ones
+/// nobody wrote deliberately: an OS error, a repository failure, a launch that did not happen. Today
+/// they carry no path — a `std::io::Error` reports the OS message and not the file it was about —
+/// but that is a property of the standard library rather than of this code, and the first
+/// `format!("... {path}")` somebody adds would ship an absolute path to a UI that then puts it on
+/// screen and into a bug report.
 fn command_error_with_default(
     fallback_category: CommandErrorCategory,
     message: String,
@@ -508,7 +598,9 @@ fn command_error_with_default(
     } else {
         format!("{default_prefix}{message}")
     };
-    CommandError { category, message }
+    // Prefixed first, then redacted: the prefix is this side's own vocabulary and a redactor that
+    // ran before it would have to be told to leave it alone.
+    CommandError::redacted(category, message)
 }
 
 fn command_error_has_prefix(message: &str) -> bool {
@@ -549,32 +641,6 @@ impl From<McpError> for CommandError {
                 category: CommandErrorCategory::Infrastructure,
                 message: format!("storage error: {message}"),
             },
-        }
-    }
-}
-
-impl From<CliError> for CommandError {
-    fn from(error: CliError) -> Self {
-        match error {
-            CliError::Validation(message) => Self {
-                category: CommandErrorCategory::Validation,
-                message: format!("validation error: {message}"),
-            },
-            CliError::Database(message) => Self {
-                category: CommandErrorCategory::Infrastructure,
-                message: format!("database error: {message}"),
-            },
-            CliError::Storage(message) => Self {
-                category: CommandErrorCategory::Infrastructure,
-                message: format!("storage error: {message}"),
-            },
-            CliError::Detection(message) | CliError::Package(message) => {
-                Self::redacted(CommandErrorCategory::Internal, message)
-            }
-            CliError::Operation(message) | CliError::Logging(message) => {
-                Self::redacted(CommandErrorCategory::Infrastructure, message)
-            }
-            CliError::Internal(message) => Self::redacted(CommandErrorCategory::Internal, message),
         }
     }
 }
@@ -913,26 +979,6 @@ mod tests {
     }
 
     #[test]
-    fn cli_application_errors_preserve_legacy_tauri_strings() {
-        let validation = map_command_error(CliError::Validation("invalid fixture".to_string()));
-        let database = map_command_error(CliError::Database("fixture failure".to_string()));
-        let storage = map_command_error(CliError::Storage("lock unavailable".to_string()));
-
-        assert_eq!(
-            serde_json::to_value(validation).expect("validation"),
-            serde_json::json!("validation error: invalid fixture")
-        );
-        assert_eq!(
-            serde_json::to_value(database).expect("database"),
-            serde_json::json!("database error: fixture failure")
-        );
-        assert_eq!(
-            serde_json::to_value(storage).expect("storage"),
-            serde_json::json!("storage error: lock unavailable")
-        );
-    }
-
-    #[test]
     fn sdk_application_errors_preserve_legacy_tauri_strings() {
         let validation = map_command_error(SdkError::Validation("invalid fixture".to_string()));
         let repository = map_command_error(SdkError::Repository("lock unavailable".to_string()));
@@ -1234,5 +1280,70 @@ mod tests {
         );
         assert_eq!(domain.message(), "communications-domain-invalid");
         assert_eq!(domain.category(), CommandErrorCategory::Validation);
+    }
+}
+
+#[cfg(test)]
+mod redaction_tests {
+    use super::*;
+
+    /// An infrastructure failure must not carry a private path to the frontend.
+    ///
+    /// Today the messages that reach this path are OS strings with no file in them, which is a
+    /// property of `std::io::Error` rather than of this code. The first `format!("... {path}")`
+    /// somebody adds would otherwise ship an absolute path to a surface that puts it on screen and
+    /// into a bug report.
+    #[test]
+    fn an_infrastructure_message_loses_its_private_paths() {
+        let error = CommandError::from(WorkspaceError::Storage(
+            r"could not read C:\Users\someone\project\secret.txt".to_string(),
+        ));
+
+        assert_eq!(error.category, CommandErrorCategory::Infrastructure);
+        // The failure messages name what went wrong and never quote the value. A test that echoed
+        // the message would put the very thing under test into the CI log on the one run where the
+        // redaction did not work — which is the run whose log gets pasted into an issue.
+        assert!(
+            !error.message.contains("someone"),
+            "redaction left a path component in the message"
+        );
+        assert!(
+            error.message.contains("[REDACTED_PATH]"),
+            "redaction produced no placeholder"
+        );
+        // The prefix is this side's own vocabulary and survives, so the category is still readable
+        // from the message a caller logs.
+        assert!(
+            error.message.starts_with("storage error: "),
+            "redaction removed this side's own category prefix"
+        );
+    }
+
+    #[test]
+    fn a_message_without_a_path_is_left_alone() {
+        let error = CommandError::from(WorkspaceError::Storage(
+            "The system cannot find the file specified. (os error 2)".to_string(),
+        ));
+
+        // Redaction that rewrote ordinary text would make every infrastructure failure unreadable,
+        // which is how a redactor stops being used.
+        assert!(
+            error.message.contains("os error 2"),
+            "redaction rewrote a message that contains no path"
+        );
+    }
+
+    /// A validation message is the caller's own words back. Redacting it would blank a relative
+    /// path the caller supplied in the request it is being told about.
+    #[test]
+    fn a_validation_message_is_returned_as_written() {
+        let error = CommandError::from(WorkspaceError::Validation(
+            "Referenced file is not readable text: src/main.rs".to_string(),
+        ));
+
+        assert!(
+            error.message.contains("src/main.rs"),
+            "a validation message lost the relative path the caller supplied"
+        );
     }
 }

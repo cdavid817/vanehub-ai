@@ -1,5 +1,7 @@
 # Agent 评测
 
+![Agent 评测页面，列出评测运行及其结果](assets/screenshots/evaluations-zh-CN.png)
+
 ## 功能概述
 
 左侧活动栏的 **Agent 评测**在**同一道题、同一份初始代码**上跑多个 Agent，然后把结果并排摆出来比。
@@ -45,7 +47,7 @@
 
 运行中列表每秒刷新一次，直到所有尝试进入终态。选中某一行后可以**取消**——只对还没进终态的尝试有效。
 
-> **目前只能选 onepiece 和 codex-cli 两个 Agent**。界面上的 Agent 勾选框是固定的这两项，其余三个 CLI 还不能参赛。
+> **目前只能选 onepiece 和 codex-cli 两个 Agent**。界面上的 Agent 勾选框是固定的这两项，其余 CLI 还不能参赛。
 
 ## 读结果表
 

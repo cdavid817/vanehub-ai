@@ -1,11 +1,11 @@
 use super::{
-    AgentExecutionRequest, AgentExecutionResult, CommunicationsApplicationError, CommunicationsLog,
-    CommunicationsOperation, ConnectorCredential, ConnectorRuntimeDefinition,
+    AgentExecutionOutcome, AgentExecutionRequest, CommunicationsApplicationError,
+    CommunicationsLog, CommunicationsOperation, ConnectorCredential, ConnectorRuntimeDefinition,
 };
 use crate::contexts::communications::domain::{
     BindingState, ChatBindingKey, CheckpointKey, ConnectorCheckpoint, ConnectorConfig,
     ConnectorHealth, ConnectorKind, InboundEventIdentity, PairingIntent, RoutingSettings,
-    SessionBinding,
+    SessionBinding, SessionConnectorAccess,
 };
 use async_trait::async_trait;
 
@@ -68,6 +68,20 @@ pub(crate) trait CommunicationsRepository: Send + Sync {
         &self,
         key: &ChatBindingKey,
     ) -> Result<Option<SessionBinding>, CommunicationsApplicationError>;
+
+    fn session_access(
+        &self,
+        session_id: &str,
+        connector: ConnectorKind,
+    ) -> Result<SessionConnectorAccess, CommunicationsApplicationError>;
+
+    fn set_session_access(
+        &self,
+        session_id: &str,
+        connector: ConnectorKind,
+        enabled: bool,
+        updated_at: &str,
+    ) -> Result<SessionConnectorAccess, CommunicationsApplicationError>;
 
     fn save_pairing_intent(
         &self,
@@ -211,7 +225,7 @@ pub(crate) trait CommunicationsAgentExecutionPort: Send + Sync {
     fn execute(
         &self,
         request: AgentExecutionRequest,
-    ) -> Result<AgentExecutionResult, CommunicationsApplicationError>;
+    ) -> Result<AgentExecutionOutcome, CommunicationsApplicationError>;
 }
 
 pub(crate) trait CommunicationsSessionBindingPort: Send + Sync {

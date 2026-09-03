@@ -103,17 +103,32 @@ export function computeNextScheduledRun(frequency: ScheduledTaskFrequency, from 
   }
 }
 
-export function formatScheduledTaskFrequency(frequency: ScheduledTaskFrequency, weekdayLabels: string[]) {
+export type ScheduledTaskFrequencyTranslator = (
+  key: string,
+  values?: Record<string, number | string>,
+) => string;
+
+export function formatScheduledTaskFrequency(
+  frequency: ScheduledTaskFrequency,
+  translate: ScheduledTaskFrequencyTranslator,
+  weekdayLabels: string[],
+) {
   switch (frequency.kind) {
     case "minutes":
-      return frequency.interval === 1 ? "Every minute" : `Every ${frequency.interval} minutes`;
+      return translate("scheduledTasks.summary.minutes", { count: frequency.interval });
     case "hours":
-      return frequency.interval === 1 ? "Every hour" : `Every ${frequency.interval} hours`;
+      return translate("scheduledTasks.summary.hours", { count: frequency.interval });
     case "daily":
-      return `Daily at ${frequency.timeOfDay}`;
+      return translate("scheduledTasks.summary.daily", { time: frequency.timeOfDay });
     case "weekly":
-      return `Weekly ${weekdayLabels[frequency.weekday] ?? String(frequency.weekday)} at ${frequency.timeOfDay}`;
+      return translate("scheduledTasks.summary.weekly", {
+        time: frequency.timeOfDay,
+        weekday: weekdayLabels[frequency.weekday] ?? String(frequency.weekday),
+      });
     case "monthly":
-      return `Monthly on day ${frequency.dayOfMonth} at ${frequency.timeOfDay}`;
+      return translate("scheduledTasks.summary.monthly", {
+        day: frequency.dayOfMonth,
+        time: frequency.timeOfDay,
+      });
   }
 }

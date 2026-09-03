@@ -10,6 +10,7 @@
 
 # Agent execution
 
+- [Single-Agent governance: the five control planes](single-agent-control-planes.md)
 - [Agent lifecycle and provider runtime](agent-lifecycle.md)
 - [OnePiece native Agent](onepiece-native-agent.md)
 - [OnePiece built-in tools](onepiece-builtin-tools.md)
@@ -28,6 +29,7 @@
 # Context and retrieval
 
 - [Context compaction](context-compaction.md)
+- [Personalization governance](personalization-governance.md)
 - [Cross-session memory](cross-session-memory.md)
 - [Retrieval and vector search](retrieval.md)
 - [Tree-sitter code indexing](tree-sitter-code-indexing.md)
@@ -41,11 +43,13 @@
 - [Skill evolution evidence](skill-evolution-evidence.md)
 - [MCP tools and clients](mcp-tools.md)
 - [IM connectors](im-connectors.md)
+- [Live Feishu qualification](feishu-live-qualification.md)
 
 # Policy and observability
 
 - [Permission model](permission-model.md)
 - [Execution observability and Agent evaluation](execution-observability.md)
+- [The session workspace evidence console](session-workspace-console.md)
 - [Persistence and unified logging](persistence-and-logging.md)
 - [Usage statistics](usage-statistics.md)
 
@@ -57,3 +61,4 @@
 # Reference
 
 - [Native API reference](native-api-reference.md)
+- [Skill Tool runtime security](skill-tool-runtime-security.md)

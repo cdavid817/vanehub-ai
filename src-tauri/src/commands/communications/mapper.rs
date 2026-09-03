@@ -35,5 +35,6 @@ pub(super) fn binding(snapshot: SessionBindingSnapshot) -> SessionBindingView {
     SessionBindingView {
         binding: snapshot.binding,
         pending_connector: snapshot.pending_connector,
+        access: snapshot.access,
     }
 }

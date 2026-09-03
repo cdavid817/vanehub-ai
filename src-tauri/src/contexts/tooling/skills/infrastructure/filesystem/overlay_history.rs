@@ -194,6 +194,19 @@ impl OverlayHistoryRepository for FilesystemOverlayHistoryRepository {
     ) -> Result<Option<String>, SkillApplicationError> {
         self.verify(key).map(|verified| verified.tail_hash)
     }
+
+    fn find_curator_application(
+        &self,
+        key: &OverlayKey,
+        application_id: &str,
+    ) -> Result<Option<OverlayHistoryEntry>, SkillApplicationError> {
+        validate_application_id(application_id)?;
+        Ok(self
+            .verify(key)?
+            .entries
+            .into_iter()
+            .find(|entry| entry.curator_application_id.as_deref() == Some(application_id)))
+    }
 }
 
 #[derive(Default)]
@@ -250,6 +263,10 @@ struct EventWire {
     next_document_hash: String,
     scanner_version: String,
     safe_outcome: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    curator_application_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    committed_effective_diff_hash: Option<String>,
     prior_event_hash: Option<String>,
     event_hash: String,
 }
@@ -269,6 +286,8 @@ impl From<&OverlayHistoryEntry> for EventWire {
             next_document_hash: entry.next_document_hash.clone(),
             scanner_version: entry.scanner_version.clone(),
             safe_outcome: entry.safe_outcome.clone(),
+            curator_application_id: entry.curator_application_id.clone(),
+            committed_effective_diff_hash: entry.committed_effective_diff_hash.clone(),
             prior_event_hash: entry.prior_event_hash.clone(),
             event_hash: entry.event_hash.clone(),
         }
@@ -294,6 +313,8 @@ impl TryFrom<EventWire> for OverlayHistoryEntry {
             next_document_hash: wire.next_document_hash,
             scanner_version: wire.scanner_version,
             safe_outcome: wire.safe_outcome,
+            curator_application_id: wire.curator_application_id,
+            committed_effective_diff_hash: wire.committed_effective_diff_hash,
             prior_event_hash: wire.prior_event_hash,
             event_hash: wire.event_hash,
         })
@@ -388,6 +409,49 @@ fn event_hash(entry: &OverlayHistoryEntry) -> Result<String, SkillApplicationErr
         safe_outcome: &'a str,
         prior_event_hash: Option<&'a str>,
     }
+    #[derive(Serialize)]
+    struct GovernedMaterial<'a> {
+        event_id: &'a str,
+        canonical_skill_id: &'a str,
+        scope: &'a str,
+        prior_revision: Option<u64>,
+        next_revision: u64,
+        actor: &'a str,
+        action: &'a str,
+        timestamp: &'a str,
+        prior_document_hash: Option<&'a str>,
+        next_document_hash: &'a str,
+        scanner_version: &'a str,
+        safe_outcome: &'a str,
+        curator_application_id: &'a str,
+        committed_effective_diff_hash: &'a str,
+        prior_event_hash: Option<&'a str>,
+    }
+    if let (Some(application_id), Some(effective_diff_hash)) = (
+        entry.curator_application_id.as_deref(),
+        entry.committed_effective_diff_hash.as_deref(),
+    ) {
+        let material = GovernedMaterial {
+            event_id: &entry.event_id,
+            canonical_skill_id: entry.canonical_skill_id.as_str(),
+            scope: entry.scope.as_str(),
+            prior_revision: entry.prior_revision,
+            next_revision: entry.next_revision,
+            actor: actor_name(entry.actor),
+            action: action_name(entry.action),
+            timestamp: &entry.timestamp,
+            prior_document_hash: entry.prior_document_hash.as_deref(),
+            next_document_hash: &entry.next_document_hash,
+            scanner_version: &entry.scanner_version,
+            safe_outcome: &entry.safe_outcome,
+            curator_application_id: application_id,
+            committed_effective_diff_hash: effective_diff_hash,
+            prior_event_hash: entry.prior_event_hash.as_deref(),
+        };
+        return serde_json::to_vec(&material)
+            .map_err(json_error)
+            .map(|bytes| sha256(&bytes));
+    }
     let material = Material {
         event_id: &entry.event_id,
         canonical_skill_id: entry.canonical_skill_id.as_str(),
@@ -444,8 +508,29 @@ fn validate_event_fields(entry: &OverlayHistoryEntry) -> Result<(), SkillApplica
         || entry.next_document_hash.trim().is_empty()
         || entry.scanner_version.trim().is_empty()
         || entry.safe_outcome.trim().is_empty()
+        || entry.curator_application_id.is_some() != entry.committed_effective_diff_hash.is_some()
+        || entry
+            .curator_application_id
+            .as_deref()
+            .is_some_and(|value| validate_application_id(value).is_err())
+        || entry
+            .committed_effective_diff_hash
+            .as_deref()
+            .is_some_and(|value| value.trim().is_empty() || value.len() > 160)
     {
         return Err(integrity(OverlayIntegrityCode::HistoryEventChainBroken));
+    }
+    Ok(())
+}
+
+fn validate_application_id(value: &str) -> Result<(), SkillApplicationError> {
+    if value.is_empty()
+        || value.len() > 160
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_' | b':'))
+    {
+        return Err(history_validation("invalid-curator-application-id"));
     }
     Ok(())
 }

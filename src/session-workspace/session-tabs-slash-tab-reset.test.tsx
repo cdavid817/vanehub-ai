@@ -10,8 +10,8 @@ import type { Session } from "../types/agent";
 import { SessionTabs } from "./session-tabs";
 
 vi.mock("./agent-terminal-tab", () => ({
-  AgentTerminalTab: ({ active }: { active: boolean }) => (
-    <div data-active={String(active)} data-testid="agent-terminal" />
+  AgentTerminalTab: ({ isVisible }: { isVisible: boolean }) => (
+    <div data-active={String(isVisible)} data-testid="agent-terminal" />
   ),
 }));
 
@@ -29,7 +29,7 @@ function session(id: string): Session {
     title: id,
     agentId: "opencode",
     interactionMode: "cli",
-    lifecycleState: "running",
+    personalizationMode: "standard", lifecycleState: "running",
     recoveryStatus: "clean",
     recoveryRevision: 0,
     stateRevision: 0,
@@ -134,8 +134,8 @@ describe("SessionTabs slash-tab request reset on session switch", () => {
     expectActiveTab("Logs");
 
     // A caller that fails to clear the request (pre-fix MainLayout) leaves requestedTab truthy
-    // across the switch. SessionTabs' reset-to-chat effect and its tab-request effect are both
-    // keyed on sessionId and run in declaration order, so the tab-request effect re-fires and wins.
+    // across the switch. The reset to chat happens during the scope provider's render and the
+    // tab-request effect runs afterwards, keyed on sessionId, so the request re-fires and wins.
     rerenderTabs(
       <SessionTabs
         activeSession={session("session-b")}

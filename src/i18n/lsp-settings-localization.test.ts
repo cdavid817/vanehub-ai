@@ -22,11 +22,20 @@ const requiredKeys = [
   "lspSettings.configuration.saving", "lspSettings.configuration.saved",
   "lspSettings.configuration.saveError", "lspSettings.language.rust",
   "lspSettings.language.typescript_javascript", "lspSettings.language.enabled",
+  "lspSettings.language.go", "lspSettings.language.python", "lspSettings.language.cpp",
+  "lspSettings.language.java", "lspSettings.language.prerequisite",
+  "lspSettings.language.unsupportedOnHost",
+  "lspSettings.startupArguments.title", "lspSettings.startupArguments.description",
+  "lspSettings.startupArguments.none", "lspSettings.startupArguments.placeholder",
+  "lspSettings.startupArguments.tooMany", "lspSettings.startupArguments.tooLarge",
   "lspSettings.discovery.title", "lspSettings.discovery.description",
   "lspSettings.discovery.automatic", "lspSettings.discovery.manual",
   "lspSettings.discovery.available", "lspSettings.discovery.unavailable",
   "lspSettings.discovery.refresh", "lspSettings.discovery.override",
-  "lspSettings.discovery.overridePlaceholder", "lspSettings.initialization.title",
+  "lspSettings.discovery.overridePlaceholder",
+  "lspSettings.discovery.installDirectory",
+  "lspSettings.discovery.installDirectoryPlaceholder",
+  "lspSettings.initialization.title",
   "lspSettings.initialization.description", "lspSettings.initialization.placeholder",
   "lspSettings.initialization.invalidJson", "lspSettings.initialization.objectRequired",
   "lspSettings.initialization.tooLarge", "lspSettings.trust.title",
@@ -52,6 +61,9 @@ const requiredKeys = [
   "lspSettings.capability.positionEncoding", "lspSettings.capability.documentSync",
   "lspSettings.capability.definition", "lspSettings.capability.references",
   "lspSettings.capability.hover", "lspSettings.capability.diagnostics",
+  "lspSettings.capability.type_definition", "lspSettings.capability.implementation",
+  "lspSettings.capability.workspace_symbols", "lspSettings.capability.document_symbols",
+  "lspSettings.capability.call_hierarchy",
   "lspSettings.capability.enabled", "lspSettings.capability.disabled",
   "lspSettings.reason.executable_not_found", "lspSettings.reason.override_missing",
   "lspSettings.reason.override_not_executable", "lspSettings.reason.executable_unavailable",
@@ -62,6 +74,18 @@ const requiredKeys = [
   "lspSettings.reason.protocol_limit", "lspSettings.reason.request_timeout",
   "lspSettings.reason.cancelled", "lspSettings.reason.untrusted",
   "lspSettings.reason.unsupported_method", "lspSettings.reason.invalid_configuration",
+  "lspSettings.reason.unsupported_on_this_platform",
+  "lspSettings.reason.prerequisite_missing",
+  "lspSettings.reason.install_directory_not_set",
+  "lspSettings.reason.launcher_not_found",
+  "lspSettings.reason.ambiguous_install",
+  "lspSettings.reason.install_refused", "lspSettings.reason.install_failed",
+  "lspSettings.reason.install_timed_out",
+  "lspSettings.reason.checksum_mismatch",
+  "lspSettings.install.title", "lspSettings.install.installed",
+  "lspSettings.install.notInstalled", "lspSettings.install.unverified",
+  "lspSettings.install.action", "lspSettings.install.remove",
+  "lspSettings.install.working",
 ] as const;
 
 describe("LSP settings localization", () => {
@@ -82,5 +106,16 @@ describe("LSP settings localization", () => {
   ] as const)("states the trust boundary explicitly in %s", (language, permission, sandbox) => {
     expect(resources[language]["lspSettings.trust.explanation"]).toContain(permission);
     expect(resources[language]["lspSettings.trust.notSandboxed"]).toContain(sandbox);
+  });
+
+  // A translation that drops the negation reads as a reassurance about a download nobody verified.
+  it.each([
+    ["en", "not checksum-verified"],
+    ["zh-CN", "未做校验和验证"],
+    ["zh-TW", "未做總和檢查碼驗證"],
+    ["ja", "検証されていません"],
+    ["ko", "검증되지 않습니다"],
+  ] as const)("says the managed download is unverified in %s", (language, negation) => {
+    expect(resources[language]["lspSettings.install.unverified"]).toContain(negation);
   });
 });

@@ -90,6 +90,12 @@ fn is_test_source(relative: &str) -> bool {
         || file_name.ends_with("_tests.rs")
         || normalized.starts_with("tests/")
         || normalized.contains("/tests/")
+        // `lib.rs` declares `test_support` under `#[cfg(test)]`, so everything beneath it is test
+        // code a per-file visitor cannot recognise as such — the same blind spot the comment at
+        // the ARCH-NATIVE-004 call site describes. Without this, a fixture that spawns `git` to
+        // check whether a generated patch applies reads as production process construction.
+        || normalized == "test_support.rs"
+        || normalized.starts_with("test_support/")
 }
 
 #[test]
@@ -100,6 +106,8 @@ fn test_sources_are_recognized_as_files_and_as_directories() {
         "contexts/agent_runtime/application/tests/message_dispatch.rs",
         "contexts/sessions/infrastructure/tests/recovery.rs",
         "tests/architecture.rs",
+        "test_support.rs",
+        "test_support/git_patch_fixture.rs",
     ] {
         assert!(
             is_test_source(relative),
@@ -114,6 +122,9 @@ fn test_sources_are_recognized_as_files_and_as_directories() {
         "contexts/sessions/infrastructure/sqlite_repository.rs",
         "contexts/agent_runtime/application/service.rs",
         "contexts/agent_runtime/application/contest.rs",
+        // Not any path containing the words. A production module named for the support it gives
+        // to testing would still be production, and would still have to use the shared adapters.
+        "contexts/tooling/test_support_catalog.rs",
     ] {
         assert!(
             !is_test_source(relative),
@@ -1161,6 +1172,93 @@ fn native_context_dependencies_point_inward() {
     );
 }
 
+/// Every bounded context that may exist. The context map is closed by project standard, so a new
+/// directory here is a design decision that has to be argued in a proposal rather than a side
+/// effect of needing somewhere to put a new type. Read projections that span existing owners —
+/// the execution-evidence journal, the log query index, the session-run report — belong to the
+/// context that already owns their lifecycle, not to a new one.
+const BOUNDED_CONTEXTS: &[&str] = &[
+    "agent_runtime",
+    "artifacts",
+    "browser_automation",
+    "cli_delegation",
+    "code_execution",
+    "code_intelligence",
+    "communications",
+    "desktop",
+    "execution_observability",
+    "goals",
+    // Added by `add-local-composer-media-tools`, which argued for it: OCR, STT, and TTS run on
+    // locally installed engines with their own lifecycle, and no existing context owns that.
+    // Recorded here on merge rather than by relaxing the rule — the point of the list is that
+    // growing the context map is a decision somebody wrote down.
+    "local_media",
+    "operations",
+    // Added by `add-unified-personalization-governance`, which argued for it: scoped instructions,
+    // reviewed memory, and per-session limits are one governed lifecycle, and it previously lived
+    // split across agent_runtime and sessions with neither owning the policy.
+    "personalization",
+    "permissions",
+    "retrieval",
+    "sessions",
+    // Added by the four archived skill-evolution changes (target-selection, curator-governance,
+    // generation-agent, orchestration-auto-apply-gate) and by
+    // `add-skill-evolution-system-sessions-and-result-projection`, each of which argued for its
+    // own governed lifecycle: assessment witnesses, Curator decisions, constrained generation,
+    // durable orchestration, and the read-only activity projection are five separate lifecycles
+    // that evidence alone does not own.
+    "skill_evolution_assessment",
+    "skill_evolution_curation",
+    "skill_evolution_evidence",
+    "skill_evolution_generation",
+    "skill_evolution_orchestration",
+    "skill_evolution_system_activity",
+    "ssh_connections",
+    "tooling",
+    "web_research",
+    "work_board",
+    "workspaces",
+];
+
+#[test]
+fn the_bounded_context_map_stays_closed() {
+    let contexts_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("contexts");
+    let mut present = BTreeSet::new();
+    for entry in fs::read_dir(&contexts_root).expect("read the contexts directory") {
+        let entry = entry.expect("read a contexts directory entry");
+        if entry
+            .file_type()
+            .expect("stat a contexts directory entry")
+            .is_dir()
+        {
+            present.insert(entry.file_name().to_string_lossy().into_owned());
+        }
+    }
+
+    let expected = BOUNDED_CONTEXTS
+        .iter()
+        .map(|context| (*context).to_string())
+        .collect::<BTreeSet<_>>();
+    let added = present.difference(&expected).cloned().collect::<Vec<_>>();
+    let removed = expected.difference(&present).cloned().collect::<Vec<_>>();
+
+    assert!(
+        added.is_empty(),
+        "new bounded context directories are not allowed without a proposal that argues the \
+         context map should grow: {}. Repair: put the behaviour in the context that already owns \
+         its lifecycle and reach it through that context's published `api` module.",
+        added.join(", ")
+    );
+    assert!(
+        removed.is_empty(),
+        "bounded contexts disappeared from the source tree but are still listed here: {}. \
+         Repair: update BOUNDED_CONTEXTS in the same commit that removes the context.",
+        removed.join(", ")
+    );
+}
+
 #[test]
 fn detector_reports_framework_and_private_context_dependencies_with_lines() {
     let source = r#"
@@ -1610,6 +1708,105 @@ fn lsp_and_retrieval_communicate_only_through_owned_ports_and_public_apis() {
     );
 }
 
+/// Whether a `permissions` source line reaches into `agent_runtime` at all.
+///
+/// Nothing inside the context may, including its published `api`. The delivery adapter that needs
+/// both lives in bootstrap, satisfying a port `permissions` declared — which is what keeps the
+/// dependency pointing from the composition root inward, rather than from one context into another.
+fn permissions_reaches_agent_runtime(segments: &[String]) -> bool {
+    matches!(segments.first().map(String::as_str), Some("crate"))
+        && segments.get(1).map(String::as_str) == Some("contexts")
+        && segments.get(2).map(String::as_str) == Some("agent_runtime")
+}
+
+/// Whether a bootstrap line reaches past `agent_runtime`'s published surface.
+fn bootstrap_bypasses_agent_runtime_api(segments: &[String]) -> bool {
+    permissions_reaches_agent_runtime(segments)
+        && !matches!(
+            segments.get(3).map(String::as_str),
+            Some("api") | Some("application")
+        )
+}
+
+/// `fix-permission-decision-atomicity-and-grant-precedence` group 9.1.
+///
+/// The change made resolving an approval span two contexts: `permissions` decides, `agent_runtime`
+/// holds the waiter. The safe shape for that is one narrow published contract consumed by an
+/// adapter in the composition root — and the unsafe shape, which this pins shut, is `permissions`
+/// growing its own import of another context's generation internals in order to check a waiter.
+#[test]
+fn permissions_reaches_agent_runtime_only_through_the_bootstrap_delivery_adapter() {
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let permissions_root = source_root.join("contexts/permissions");
+    let mut violations = Vec::new();
+
+    for path in rust_files(&permissions_root).expect("enumerate permissions context") {
+        let source = fs::read_to_string(&path).expect("read permissions source");
+        let relative = path
+            .strip_prefix(&source_root)
+            .expect("relative permissions path");
+        for (line, segments) in path_dependencies(&source).expect("parse permissions source") {
+            if permissions_reaches_agent_runtime(&segments) {
+                violations.push(format!(
+                    "{}:{line}: {}",
+                    relative.display(),
+                    segments.join("::")
+                ));
+            }
+        }
+    }
+
+    let bridge_path = source_root.join("bootstrap/permissions.rs");
+    let bridge = fs::read_to_string(&bridge_path).expect("read permissions composition root");
+    let bridge_dependencies =
+        path_dependencies(&bridge).expect("parse permissions composition root");
+    for required in [
+        "crate::contexts::agent_runtime::api::AgentRuntimeApi",
+        "crate::contexts::permissions::application::ApprovalDeliveryPort",
+    ] {
+        assert!(
+            bridge_dependencies
+                .iter()
+                .any(|(_, segments)| segments.join("::") == required),
+            "the composition root must retain the reviewed delivery boundary `{required}`"
+        );
+    }
+    for (line, segments) in bridge_dependencies {
+        if bootstrap_bypasses_agent_runtime_api(&segments) {
+            violations.push(format!(
+                "bootstrap/permissions.rs:{line}: {}",
+                segments.join("::")
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "approval delivery must cross contexts only through a published API in bootstrap:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn the_permissions_delivery_detector_rejects_a_direct_context_import() {
+    assert!(permissions_reaches_agent_runtime(&path_segments(
+        "crate::contexts::agent_runtime::api::AgentRuntimeApi"
+    )));
+    assert!(permissions_reaches_agent_runtime(&path_segments(
+        "crate::contexts::agent_runtime::infrastructure::RuntimeAgentApiAdapter"
+    )));
+    assert!(!permissions_reaches_agent_runtime(&path_segments(
+        "crate::contexts::permissions::domain::Grant"
+    )));
+    // Bootstrap may hold the published surface and nothing beneath it.
+    assert!(!bootstrap_bypasses_agent_runtime_api(&path_segments(
+        "crate::contexts::agent_runtime::api::AgentRuntimeApi"
+    )));
+    assert!(bootstrap_bypasses_agent_runtime_api(&path_segments(
+        "crate::contexts::agent_runtime::infrastructure::RuntimeAgentApiAdapter"
+    )));
+}
+
 #[test]
 fn lsp_architecture_detectors_reject_direct_boundary_bypasses() {
     assert!(forbidden_lsp_retrieval_context_link(
@@ -1776,6 +1973,13 @@ fn runtime_processes_and_append_logs_use_shared_adapters() {
             .expect("relative source path")
             .to_string_lossy()
             .replace('\\', "/");
+        // The visitor exempts `#[cfg(test)]` modules, but it parses one file at a time and so
+        // cannot see the `#[cfg(test)] mod` declaration that gates a whole test file from its
+        // parent. Without the shared predicate a fixture that appends to a log file reads as
+        // production I/O — the exact drift `is_test_source` exists to stop.
+        if is_test_source(&relative) {
+            continue;
+        }
         let source = fs::read_to_string(&path).expect("read native Rust source");
         for usage in runtime_io_uses(&source).expect("parse native Rust source") {
             let allowed = match usage.kind {
@@ -1818,6 +2022,14 @@ mod tests {
 
     assert_eq!(uses.len(), 3);
     assert!(uses.iter().all(|usage| usage.line <= 4));
+
+    // The detector cannot see the `#[cfg(test)] mod` that gates a whole test file, because it
+    // parses one file at a time. A fixture that appends to a log file — which is how a log
+    // reader is tested at all — must therefore be excluded by path, not by attribute.
+    assert!(
+        is_test_source("contexts/operations/infrastructure/log_source_identity_tests.rs"),
+        "ARCH-NATIVE-004 would report a test fixture as production I/O"
+    );
 }
 
 #[test]
@@ -2214,10 +2426,17 @@ const NATIVE_PATH_BUDGETS: &[PathBudget] = &[
     // The other residual `split-api-adapter-modules` left above 1,000 lines: 43 native tool
     // implementations, the largest of which is `execute_tool_call_impl`'s 266-line dispatch.
     // Every other module the split produced is small enough for the subtree budget alone.
+    //
+    // Raised from 1,478 by `upgrade-session-workspace-evidence-console` (4.6). A workspace
+    // mutation now carries the session that made it and whether the write created or modified the
+    // file, because the evidence fanout cannot recover either afterwards: a path does not name a
+    // session, and "did this file exist" is only answerable before the write. The three call sites
+    // each gained the two arguments and one of them the existence check. No branch was duplicated;
+    // the growth is the two facts themselves.
     PathBudget {
         path:
             "src-tauri/src/contexts/agent_runtime/infrastructure/api_process_adapter/native_tools.rs",
-        budget: 1_478,
+        budget: 1_507,
         owner: "split-api-adapter-modules",
     },
     // Lowered from 5,110 by `relocate-heavyweight-inline-tests`, which split seven subject
@@ -2225,10 +2444,12 @@ const NATIVE_PATH_BUDGETS: &[PathBudget] = &[
     // record builders, and the evidence/logging port doubles — plus the tests interleaved with
     // it. The entry survives the split rather than being deleted: the file is still real, and
     // nothing else bounds its regrowth (this subtree has no registered subtree budget).
-    // Raised by 1 for `provider_thread_id` on the one `SessionSeat` literal this file builds.
+    // Raised by 1 for `provider_thread_id` on the one `SessionSeat` literal this file builds, then
+    // by 3 for `personalization_mode` on the one `SessionRecord` literal, its import, and the
+    // module declaration for the mode's own persistence tests.
     PathBudget {
         path: "src-tauri/src/contexts/sessions/infrastructure/tests.rs",
-        budget: 844,
+        budget: 847,
         owner: "relocate-heavyweight-inline-tests",
     },
     // Lowered from 4,628 by the same change. ~1,600 of what remains is the single `FakeWorld`
@@ -2239,9 +2460,19 @@ const NATIVE_PATH_BUDGETS: &[PathBudget] = &[
     // these per seat, not just accept them: a stub that dropped the write would let both the
     // seat-scoped capture and the discard pass while storing nothing, which is exactly the defect
     // they exist to catch.
+    // Raised to 2,011 by `add-unified-personalization-governance`. `FakeWorld` reads
+    // personalization through the governed snapshot port now, so it carries the translation the
+    // production adapter performs (+75) and a `PreGovernanceSettings` fixture (+45) that keeps
+    // each CLI test stating what it is about — the settings a user had — rather than hand-building
+    // a snapshot per test. Against that, the flat port impl and the fake's write path are gone:
+    // nothing in the runtime writes an active memory any more. A further +14 records the
+    // attribution each proposal batch carried, which is what the per-Agent contract tests assert.
+    // A further +1 is the session mode every `AgentSession` fixture now records, and +14 the
+    // record of what each resolution was asked about — Agent, session, mode and workspace — which
+    // is what makes "no path reaches a provider without resolving" assertable rather than assumed.
     PathBudget {
         path: "src-tauri/src/contexts/agent_runtime/application/tests.rs",
-        budget: 1_903,
+        budget: 2_040,
         owner: "relocate-heavyweight-inline-tests",
     },
     PathBudget {
@@ -2407,15 +2638,52 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // `cli_profile.rs` its duplicate `default` interpretation, both now owned by the tooling
     // resolver.
     //
+    // `add-unified-personalization-governance` moves it again, and neither side's arithmetic
+    // survives the merge: this branch measured 61,601 against a base without the LSP expansion,
+    // `main` measured 61,799 against a base without the governed snapshot. The number below is a
+    // direct measurement of the merged tree.
+    //
+    // What this change adds here is the runtime reading one governed snapshot per generation where
+    // it read three independent global toggles: the snapshot has to be taken, carried and
+    // reported, and the two test fixtures the new call shape needs -- one presenting the
+    // pre-governance fakes through the snapshot port so the existing assembly tests keep their
+    // setup, one answering with a prepared snapshot and recording what it was asked.
     // Two rationales, both true, neither number usable. This branch measured 61,304 after taking
     // `origin/main`'s CLI parameter work; `main` then measured 60,665 after adding the provider
     // output framer's skip-and-resume path. They are increments over different bases against
     // different files, so the merged tree is neither figure and not their sum. The number below is
     // a direct measurement of the merged tree.
+    //
+    // `expand-lsp-read-only-methods` raises it to 61,799 for five new read-only LSP tools. The
+    // Agent-facing cost of a tool here is not one function: `AgentCodeIntelligencePort` and
+    // `AgentCodeIntelligenceResponderPort` each gain a method, the runtime adapter and the
+    // unavailable responder each implement it, and three test doubles do the same. Five tools
+    // across seven implementations is where the +375 goes; there is no duplication in it to
+    // remove. What was removable was removed in the same commit: `execute_code_intelligence_tool`
+    // moved out of `native_tools.rs` into its own module, which is why the per-path budget below
+    // did not have to move.
+    // Raised from 61,799 to the merged tree's measurement on merging
+    // `upgrade-session-workspace-evidence-console`. The +23 is the evidence a tool call now reports
+    // about itself as it runs; both branches touched this subtree and neither duplicated the
+    // other's code, so the number is measured here rather than summed from two branch-local ones.
+    // Re-measured on each subsequent merge, most recently at 62,647:
+    // `add-unified-personalization-governance` moved agent memory behind the governed store, and
+    // the CodeQL logging and transport fixes added eight lines. Same rule every time: measured on
+    // the merged tree, because each branch had already recorded its own increment against a
+    // baseline the other also carries, so summing them counts that baseline twice.
+    // Raised to 62,796 by `fix/bounded-terminal-reap-on-quit`. The +149 is a second reap helper
+    // for the quit path, which cannot reuse the reader thread's unbounded one, plus the three
+    // tests that pin its deadline -- including a live PTY child, which needs its own fixture
+    // because `dummy_child` exits immediately by design. Nothing was duplicated: the unbounded
+    // reap stays, because waiting forever is still correct on the thread that blocks nobody.
     SubtreeBudget {
         root: "src-tauri/src/contexts/agent_runtime/infrastructure",
-        budget: 61_424,
-        owner: "decompose-api-tool-use-loop",
+        // Skill Evolution adds the structured model transport at the existing Agent runtime
+        // boundary; measured on the merged tree because main changed the same subtree
+        // independently (the bounded terminal reap landed there in parallel); merged-tree
+        // measurement: 62,879.
+        budget: 62_879,
+        owner: "add-skill-evolution-system-sessions-and-result-projection",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
     // directory module. The +51 is entirely per-file boilerplate: +29 module headers (the `mod`
@@ -2423,8 +2691,59 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
     // doc and imports), +28 for rustfmt wrapping 14 `pub(super) fn` signatures that now exceed
     // 100 columns, less 5 for the `mod tests { … }` wrapper disappearing and 1 blank separator.
     // No migration body was duplicated — every one of them moved byte-identically.
+    //
+    // Raised from 2,965 by +23 for `upgrade-session-workspace-evidence-console`. Migration 83's
+    // registration, repair call, and history entry are 8 of those, and the collision note above 81
+    // is net +4 now that main has landed 81 through 86 and the comment names the versions this
+    // branch renumbers past on merge instead of guessing how many claim them. No migration body
+    // lives here — the schema is in the context that owns the review aggregate.
+    //
+    // The remaining +11 replaced three hardcoded migration counts with the declared list. Those
+    // literals had to be retyped by every change that added a migration, in three tests that are
+    // about neither migrations nor counting — one of them is nominally about Skill reliability —
+    // so the failure always arrived looking like a regression in whatever was being changed. Two
+    // of the three were found only by a full `cargo test`, which is the argument for the change:
+    // grep does not find a number, and the third one is always in the file you did not open.
+    //
+    // Raised again from 2,988 by +8 for migration 84, which adds the per-file witness Viewed marks
+    // are keyed on: 6 lines of registration, 1 repair call, 1 history entry. Same shape as 83, and
+    // the schema again lives in the context that owns the review.
+    //
+    // Raised from 2,996 by +133, of which 131 are the upgrade fixture for versions 81 through 84
+    // and 2 are migration 82's repair call and its comment correction. The fixture is a test and
+    // could have gone anywhere; it lives here because the thing it exercises is `migrate` itself —
+    // drop all nine tables, leave `schema_migrations` intact, migrate again, and require every one
+    // back. Splitting it into the four owning contexts would give four tests that each prove their
+    // own repair runs and none that proves the sequence recovers, which is the failure mode: the
+    // one migration whose repair was missing was invisible precisely because its own schema
+    // function was already idempotent.
+    //
+    // Raised from 3,129 by +58 for the no-backfill migration test: a database holding a `toolUse`
+    // message is upgraded and the journal is required to come out empty. It sits beside `migrate`
+    // for the same reason the fixture above does — the claim is about what running the migrations
+    // does to an existing installation, and there is no context that owns "the journal was not
+    // filled from somebody else's table".
+    // Raised from 2,965 by +64 for `add-source-aware-cli-environment-management`: +24 registering
+    // migrations 82-84 for `cli_environment_snapshots`, `cli_version_catalogs`, and
+    // `cli_action_plans` (the schema bodies live in the owning context, not here), and +40 for
+    // `migration_versions_are_unique_and_dense` plus the derived `expected_migration_versions`.
+    // Raised again from 3,029 to 3,036 on merging `upgrade-cli-parameter-management`, which
+    // registers migration 81 beside these three. Measured on the merged tree, not summed.
+    //
+    // The test is the point of the raise. Every worktree shares one `ai.vanehub.app` database, and
+    // a duplicate version number is silently skipped rather than rejected -- it surfaces much later
+    // as an opaque "no such table" at startup. Three unmerged branches already claim 81. This makes
+    // that collision fail a test instead of a user's launch.
     SubtreeBudget {
+        // Raised from 2,965 by `add-unified-personalization-governance`: migration 84 adds one
+        // registry call, one expected-sequence entry, and the three version assertions that move
+        // with them. Registering a migration anywhere costs those lines here; nothing was copied.
         root: "src-tauri/src/platform/database",
+        // Raised again by `add-unified-personalization-governance` for migrations 87-89: the
+        // personalization schema, the session personalization mode column, and the reconciliation
+        // timestamp. Registering a migration costs a fixed six-line call and one inventory entry, so
+        // this budget moves by that amount per migration -- it bounds this subtree's growth, not the
+        // migration count.
         // Raised from 2,965 to the merged tree's measurement. `add-local-composer-media-tools`
         // adds migration 82 -- five lines of registration and one inventory entry -- plus the two
         // tests for the upgrade paths its renumber created, and the reconciliation one of them
@@ -2432,8 +2751,44 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // carrying this branch's unmerged 81 must regain the CLI parameter schema the version gate
         // legitimately skips. Nearly every line here is those three; without them the renumber's
         // own failure modes have no coverage, and the second one is silent.
-        budget: 3_126,
-        owner: "split-database-migrations",
+        // Re-measured on the merged tree. `add-local-composer-media-tools` took 3,126 on its own
+        // base and this branch took 3,036 on a different one; the merged total is neither, because
+        // both added migrations and neither figure saw the other's.
+        // +26 for reconciling both renumber tests with a third branch in the history: each has to
+        // rewind past this branch's 83-85 as well, and both now derive their totals from the
+        // migration list instead of naming a number that the next migration would falsify.
+        // +7 for migration 86 (`lsp-language-registry`): the six-line
+        // `apply_transactional_migration` call and its one-line `EXPECTED_MIGRATIONS` entry. That
+        // is the fixed cost of registering any migration here, so this budget moves by the same
+        // amount every time one lands -- it bounds this subtree's own growth, not the migration
+        // count.
+        //
+        // Raised from 3,252 to the merged tree's measurement on merging
+        // `upgrade-session-workspace-evidence-console`, which registers four more migrations here
+        // (renumbered 91-94 on merge) and adds the two fixtures for them: the four-way version
+        // collision, and the check that a database holding chat history comes out with an empty
+        // journal. Measured on the merged tree rather than summed -- both branches raised this
+        // number for their own migrations and neither copied the other's.
+        //
+        // Re-measured at 3,515 on merging `add-unified-personalization-governance`, whose three
+        // migrations take 88-90 and push this change's four to 91-94. That is the second renumber
+        // for those four and it stays cheap because none of them has shipped; a version that has
+        // reached an installation is the one that can never move again.
+        //
+        // +11 for migration 111 (`permission-grant-canonical-identity`) from
+        // `fix-permission-decision-atomicity-and-grant-precedence`: the seven-line
+        // `apply_transactional_migration` call, the three-line comment saying why this one is
+        // transactional rather than additive, and its one-line `EXPECTED_MIGRATIONS` entry. The
+        // migration's own SQL lives in `permissions` infrastructure, so only the registration is
+        // counted here — which is the fixed cost of landing any migration in this subtree.
+        //
+        // Re-measured on merging the Skill evolution branch, whose sixteen migrations (renumbered
+        // 95-110 on that merge) each pay the same fixed registration cost, and which pushed this
+        // change's one migration from 95 to 111. Measured on the merged tree rather than summed:
+        // both branches raised this number for their own migrations and neither copied the other's.
+        // Merged-tree measurement: 3,634.
+        budget: 3_634,
+        owner: "merge/openspec-permission-shell-search",
     },
 ];
 
@@ -2451,6 +2806,14 @@ const NATIVE_PRODUCTION_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // top and continue with production code below. That discarded 5,966 real production lines
         // and left the subtree that much silent headroom — the opposite of what a ceiling is for.
         //
+        // `add-unified-personalization-governance` raises it again, and as above the merged figure is
+        // measured rather than derived: this branch reached 33,060 without the LSP expansion, `main`
+        // reached 33,742 without the governed snapshot.
+        //
+        // The production growth this change contributes is the snapshot itself -- taken once per
+        // generation, carried through assembly, and reported when it degrades -- plus the two proposal
+        // paths and their translation, which is where "the model suggested this" stops being able to
+        // become "the user keeps this" without a person in between.
         // Both sides then raised it for their own reason. This branch to 33,372, for
         // `local_media_ocr_adapter.rs` -- the OnePiece OCR tool re-pointed at the shared
         // local-media runtime, relocation rather than growth, except that the PaddleOCR runtime it
@@ -2458,8 +2821,21 @@ const NATIVE_PRODUCTION_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // `main` to 33,049, for the provider framer's skip-and-resume path and its post-stream
         // discarded-records log. Different files, so the merged tree is measured rather than
         // guessed at from either.
-        budget: 33_457,
-        owner: "decompose-api-tool-use-loop",
+        //
+        // `expand-lsp-read-only-methods` raises it to 33,742. Every line of the +285 is production:
+        // port methods, adapter implementations, and the symbol and call-relation result shapes.
+        // The three test doubles that also gained methods are counted by the aggregate above and
+        // deliberately not by this one.
+        //
+        // `fix/bounded-terminal-reap-on-quit` raises it to 33,803. The +53 is production: the
+        // bounded exit-path reap, the deadline decision split out of its loop so the moment it
+        // gives up is testable at all, two constants, and the rationale for why the unbounded
+        // sibling stays. The tests that pin the deadline are counted by the aggregate above and
+        // deliberately not by this one.
+        // The structured model transport contributes the remaining production-only delta on the
+        // merged tree (measured 33,866); its test doubles are counted by the aggregate above.
+        budget: 33_866,
+        owner: "add-skill-evolution-system-sessions-and-result-projection",
     },
 ];
 
@@ -3179,4 +3555,530 @@ fn routed_supplemental_commands(source: &str) -> Vec<String> {
         })
         .map(str::to_string)
         .collect()
+}
+
+/// Where `CliIdentifier::trusted` may be called, and with what.
+///
+/// The constructor skips validation, so it is only ever correct for a value this repository
+/// produced itself. Visibility already keeps it out of `commands/` -- it is scoped to the CLI
+/// context. This covers the half visibility cannot: a call *inside* that context that hands it a
+/// stored row, a DTO field, a PATH entry, or a package manager's stdout.
+///
+/// Each entry is (file suffix, exact argument text). Adding a call site means adding a line here
+/// and stating why the value cannot come from outside.
+const TRUSTED_IDENTIFIER_CALL_SITES: &[(&str, &str)] = &[
+    // Fixed source names owned by this repository, one per adapter.
+    ("infrastructure/npm_source.rs", "\"npm\""),
+    ("infrastructure/winget_source.rs", "\"winget\""),
+    ("infrastructure/vendor_source.rs", "\"vendor\""),
+    // A match over `CliSourceKind`'s own variants. Every arm is a literal in that file, so the
+    // argument cannot carry a stored row or a package manager's output no matter where the kind
+    // itself came from.
+    ("domain/source.rs", "self.as_str()"),
+    // Fallback literals. The dynamic value goes through the fallible `new` first; only the
+    // last-resort constant is trusted.
+    ("infrastructure/environment_discovery.rs", "\"i-unknown\""),
+    ("infrastructure/environment_serde.rs", "\"legacy\""),
+    // Generated in-process from an ASCII prefix, a counter, and a UUID. No caller supplies any
+    // part of it, and a fallback constant here would let two plans share an id.
+    (
+        "infrastructure/environment_runtime_adapters.rs",
+        "self.next(\"cli-plan\")",
+    ),
+    (
+        "infrastructure/environment_runtime_adapters.rs",
+        "self.next(\"cli-bulk\")",
+    ),
+    // Every `id` in `LANGUAGE_DEFINITIONS` is a literal in that same table, so the argument cannot
+    // carry a stored row or a wire field whichever entry the reference points at. A language id
+    // that did come from outside resolves through `registry::definition` first, and an
+    // unregistered one gets no reference at all -- so nothing external can reach this.
+    ("code_intelligence/domain/registry.rs", "self.id"),
+];
+
+/// The text between `trusted(` and the paren that closes it.
+///
+/// Depth-aware because the argument may itself be a call -- `self.next("cli-plan")` -- and because
+/// the whole thing may sit inside another call, as it does in an `unwrap_or_else` fallback.
+fn trusted_argument(rest: &str) -> String {
+    let mut depth = 0_i32;
+    for (index, character) in rest.char_indices() {
+        match character {
+            '(' => depth += 1,
+            ')' if depth == 0 => return rest[..index].trim().to_string(),
+            ')' => depth -= 1,
+            _ => {}
+        }
+    }
+    rest.trim().to_string()
+}
+
+#[test]
+fn the_trusted_argument_scanner_stops_at_the_closing_paren() {
+    assert_eq!(trusted_argument("\"npm\")"), "\"npm\"");
+    // Nested call: the inner `)` is part of the argument.
+    assert_eq!(
+        trusted_argument("self.next(\"cli-plan\"))"),
+        "self.next(\"cli-plan\")"
+    );
+    // Wrapped in an outer call, as a fallback inside `unwrap_or_else` is.
+    assert_eq!(trusted_argument("\"legacy\"));"), "\"legacy\"");
+}
+
+/// The one file allowed to name the pre-change CLI table, and the one that creates it.
+///
+/// `cli_tool_status` survives so an upgrading install still sees its tools before the first
+/// refresh. It is read-only and it is *not* authoritative: a legacy row becomes a stale snapshot
+/// only when no real one exists. A second reader would put the old table back in the running as a
+/// source of truth, which is exactly how the Agent Runtime and the CLI Management page came to
+/// disagree about which installation a tool has.
+const LEGACY_CLI_TABLE_READERS: &[&str] = &[
+    "contexts/tooling/cli/infrastructure/environment_repository.rs",
+    "contexts/tooling/cli/infrastructure/environment_schema.rs",
+    "contexts/tooling/cli/infrastructure/environment_serde.rs",
+    // Creates the table and registers that migration. Neither is a read of a live row.
+    "platform/database/migrations/inline_schema.rs",
+    "platform/database/migrations/mod.rs",
+];
+
+#[test]
+fn the_legacy_cli_table_has_exactly_one_reader_and_no_writer() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let files = rust_files(&root).expect("native sources");
+
+    let mut unexpected = Vec::new();
+    let mut writers = Vec::new();
+    for file in &files {
+        let display = file.display().to_string().replace('\\', "/");
+        // Tests seed a legacy row on purpose: proving the compatibility reader works means writing
+        // one first, and proving nothing else reads it means the assertion is about production.
+        if display.ends_with("_tests.rs") || display.ends_with("/tests.rs") {
+            continue;
+        }
+        let source = fs::read_to_string(file).expect("read native source");
+        for (index, line) in source.lines().enumerate() {
+            if !line.contains("cli_tool_status") {
+                continue;
+            }
+            // A comment naming the table is history, not a dependency on it.
+            let code = line.trim_start();
+            if code.starts_with("//") || code.starts_with("///") || code.starts_with("*") {
+                continue;
+            }
+            let allowed = LEGACY_CLI_TABLE_READERS
+                .iter()
+                .any(|suffix| display.ends_with(suffix));
+            if !allowed {
+                unexpected.push(format!("{display}:{}", index + 1));
+            }
+            let upper = line.to_ascii_uppercase();
+            if (upper.contains("INSERT INTO")
+                || upper.contains("UPDATE ")
+                || upper.contains("DELETE FROM"))
+                && !display.ends_with("inline_schema.rs")
+            {
+                writers.push(format!("{display}:{}", index + 1));
+            }
+        }
+    }
+
+    assert!(
+        unexpected.is_empty(),
+        "the legacy `cli_tool_status` table is read-only compatibility, not a second source of \
+         truth. These files reach for it outside the one reader that maps a leftover row to a \
+         stale snapshot: {}",
+        unexpected.join(", ")
+    );
+    assert!(
+        writers.is_empty(),
+        "nothing may write `cli_tool_status` after the cutover; a write would revive a model the \
+         CLI Management page does not read: {}",
+        writers.join(", ")
+    );
+}
+
+#[test]
+fn no_external_input_reaches_the_trusted_identifier_constructor() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let files = rust_files(&root).expect("native sources");
+
+    let mut unexpected = Vec::new();
+    for file in &files {
+        let display = file.display().to_string().replace('\\', "/");
+        // The definition itself and its own unit tests are not call sites.
+        if display.ends_with("domain/ids.rs") {
+            continue;
+        }
+        let source = fs::read_to_string(file).expect("read native source");
+        for (index, line) in source.lines().enumerate() {
+            let Some(position) = line.find("::trusted(") else {
+                continue;
+            };
+            let argument = trusted_argument(&line[position + "::trusted(".len()..]);
+            let allowed = TRUSTED_IDENTIFIER_CALL_SITES
+                .iter()
+                .any(|(suffix, expected)| display.ends_with(suffix) && argument == *expected);
+            if !allowed {
+                unexpected.push(format!("{display}:{}: `{argument}`", index + 1));
+            }
+        }
+    }
+
+    assert!(
+        unexpected.is_empty(),
+        "these `trusted` identifier constructions are not on the audited list. `trusted` skips \
+         validation, so a value that can be shaped by a DTO field, a SQLite column, a PATH entry, \
+         a package manager's output, or the network must use the fallible `new` instead: {}",
+        unexpected.join(", ")
+    );
+}
+
+#[test]
+fn the_retained_shell_lifecycle_never_waits_without_a_ceiling() {
+    // [ARCH-NATIVE-012] A regression guard, not a style rule, and the regression is specific:
+    // closing a Shell used to remove its registry entry, kill the child, then call `child.wait()`
+    // and `JoinHandle::join()` — both unbounded — while discarding every kill, wait and join result
+    // with `let _ =`. On a child that ignored the kill, the window closed and the process stayed,
+    // and the entry that could have retried it was already gone.
+    //
+    // Each forbidden shape reintroduces one half of that, and each is a single line that looks
+    // harmless at its own call site.
+    //
+    // Matched on the trimmed line rather than on a multi-line pattern, because a regex anchored on
+    // a newline reads differently on a CRLF checkout than on the file that was just written — and
+    // that failure is silent, which is worse than the drift it would be guarding against.
+    const FORBIDDEN: &[(&str, &str)] = &[
+        (
+            ".join()",
+            "an unbounded thread join; use `ShellWorker::try_join`, which joins only a worker that \
+             has already reported itself complete",
+        ),
+        (
+            ".wait()",
+            "an unbounded child wait; observe termination through `ShellProcessHandle::try_reap` \
+             inside a `ShellCloseBudget`",
+        ),
+        (
+            "let _ = ",
+            "a discarded lifecycle result; map it into a `ShellRuntimeCloseOutcome` or a \
+             `SessionShellCloseResult`",
+        ),
+    ];
+    // The one file that is allowed to hold a `JoinHandle::join()` is the one that owns the seam:
+    // `ShellWorker::try_join` joins a thread that has already set its completion flag, which is the
+    // only join in the subsystem that is bounded by construction. It is exempted by name rather
+    // than by an inline escape hatch, and the exemption is paid for by the assertion below.
+    const WORKER_SEAM: &str =
+        "src-tauri/src/contexts/workspaces/infrastructure/retained_shell_process.rs";
+    let lifecycle = [
+        "src-tauri/src/contexts/workspaces/infrastructure/retained_shell_runtime.rs",
+        WORKER_SEAM,
+        "src-tauri/src/contexts/workspaces/infrastructure/retained_remote_shell.rs",
+        "src-tauri/src/contexts/workspaces/application/session_shell_registry.rs",
+        "src-tauri/src/contexts/workspaces/application/session_shell_store.rs",
+    ];
+    let mut violations = Vec::new();
+
+    for (relative, source) in production_native_sources() {
+        if !lifecycle.contains(&relative.as_str()) {
+            continue;
+        }
+        for (index, line) in source.lines().enumerate() {
+            let trimmed = line.trim();
+            // Prose about the rule is not a breach of it, and this rule is worth explaining in the
+            // files it governs.
+            if trimmed.starts_with("//") {
+                continue;
+            }
+            for (shape, repair) in FORBIDDEN {
+                if relative == WORKER_SEAM && *shape == ".join()" {
+                    continue;
+                }
+                if trimmed.contains(shape) {
+                    violations.push(format!(
+                        "[ARCH-NATIVE-012] {relative}:{}: `{shape}` is {repair}",
+                        index + 1
+                    ));
+                }
+            }
+        }
+    }
+
+    violations.sort();
+    assert!(violations.is_empty(), "{}", violations.join("\n"));
+
+    // What makes the exemption above safe. Remove the guard and the seam becomes the unbounded join
+    // every other file is forbidden from writing, with the exemption still in place.
+    let seam = fs::read_to_string(project_root().join(WORKER_SEAM)).expect("read the worker seam");
+    let guarded = seam
+        .split("fn try_join")
+        .nth(1)
+        .expect("the worker seam still defines try_join");
+    assert!(
+        guarded
+            .split("handle.join()")
+            .next()
+            .is_some_and(|before| before.contains("if !self.is_complete()")),
+        "[ARCH-NATIVE-012] `ShellWorker::try_join` joins without first checking the completion \
+         flag, which makes it the unbounded join the rest of the subsystem is forbidden to write"
+    );
+}
+
+/// A Tauri command translates a Shell close; it does not decide one.
+///
+/// If the command starts naming lifecycle states, budgets, or the reaper, the lifecycle has two
+/// authorities and the transport layer is one of them.
+#[test]
+fn the_shell_commands_translate_rather_than_orchestrate_cleanup() {
+    let source = fs::read_to_string(
+        project_root().join("src-tauri/src/commands/workspaces/session_shell.rs"),
+    )
+    .expect("read the session shell commands");
+    let mut violations = Vec::new();
+
+    for forbidden in [
+        "Reaping",
+        "CloseFailed",
+        "ShellCloseBudget",
+        "ShellGeneration",
+        "reaper",
+    ] {
+        if source.contains(forbidden) {
+            violations.push(format!(
+                "[ARCH-NATIVE-012] the close command names `{forbidden}`; lifecycle decisions \
+                 belong to the workspaces application layer"
+            ));
+        }
+    }
+
+    assert!(violations.is_empty(), "{}", violations.join("\n"));
+}
+
+#[test]
+fn command_adapters_cannot_construct_identifiers_without_validating_them() {
+    // Visibility is the real guard; this fails with a readable message rather than a privacy error
+    // if someone widens it.
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("commands");
+    let files = rust_files(&root).expect("command sources");
+
+    let offenders: Vec<String> = files
+        .iter()
+        .filter(|file| {
+            fs::read_to_string(file)
+                .map(|source| source.contains("::trusted("))
+                .unwrap_or(false)
+        })
+        .map(|file| file.display().to_string())
+        .collect();
+
+    assert!(
+        offenders.is_empty(),
+        "a command adapter builds an identifier without validating it. Everything a command \
+         receives came from outside the process: {}",
+        offenders.join(", ")
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// Workspace inspection: who owns the walk, the policy, and the admission
+// ---------------------------------------------------------------------------------------------
+
+/// Every source file under one directory, with its inline test module removed.
+fn production_sources_under(relative_dir: &str) -> Vec<(String, String)> {
+    let root = project_root().join(relative_dir);
+    let mut sources = Vec::new();
+    let Ok(entries) = fs::read_dir(&root) else {
+        return sources;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|value| value.to_str()) != Some("rs") {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        // A file whose whole purpose is tests, and the inline module inside a file that is not.
+        if name.ends_with("_tests.rs") || name == "tests.rs" {
+            continue;
+        }
+        let source = fs::read_to_string(&path).expect("read a workspaces source");
+        let production = source
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap_or(&source)
+            .to_string();
+        sources.push((format!("{relative_dir}/{name}"), production));
+    }
+    sources
+}
+
+/// The application layer decides what a walk may spend; it never walks.
+///
+/// The two are easy to confuse because both are "the search". Keeping the filesystem out of the
+/// application layer is what makes a budget testable without a disk and a policy readable without
+/// a workspace — and the first `fs::read_dir` there would put a second walk beside the one the
+/// providers own, with its own bounds and its own idea of what to skip.
+#[test]
+fn the_workspaces_application_layer_never_touches_the_filesystem() {
+    const FORBIDDEN: &[(&str, &str)] = &[
+        (
+            "std::fs",
+            "the filesystem belongs to a provider in infrastructure",
+        ),
+        (
+            "fs::read_dir",
+            "directory enumeration belongs to a provider",
+        ),
+        ("File::open", "opening a file belongs to a provider"),
+        (
+            "native_pty_system",
+            "acquiring a terminal belongs to a provider",
+        ),
+        (
+            "std::process::Command",
+            "starting a process belongs to a provider",
+        ),
+    ];
+    let mut violations = Vec::new();
+
+    for (relative, source) in
+        production_sources_under("src-tauri/src/contexts/workspaces/application")
+    {
+        for line in source.lines() {
+            let trimmed = line.trim();
+            // Prose about the rule is not a breach of it, and this rule is worth explaining where
+            // it applies.
+            if trimmed.starts_with("//") || trimmed.starts_with("///") {
+                continue;
+            }
+            for (shape, reason) in FORBIDDEN {
+                if trimmed.contains(shape) {
+                    violations.push(format!(
+                        "[ARCH-NATIVE-001] {relative}: `{shape}` — {reason}"
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(violations.is_empty(), "{}", violations.join("\n"));
+}
+
+/// One place decides whether an inspection may start.
+///
+/// Admission exists to refuse *before* a blocking task or a remote process exists. A second caller
+/// would be a second such decision, and the one that is wrong is always the one that acquired after
+/// the cost had already been paid. Pinned to the published API rather than counted, because the
+/// number of entry points is meant to grow.
+#[test]
+fn inspection_admission_is_acquired_only_by_the_published_workspace_api() {
+    let mut holders = Vec::new();
+
+    for (relative, source) in production_native_sources() {
+        if !relative.starts_with("src-tauri/src/contexts/workspaces/") {
+            continue;
+        }
+        // The admission type's own file implements it; every other file would be using it.
+        if relative.ends_with("application/inspection_admission.rs") {
+            continue;
+        }
+        if source.contains("admission.acquire") {
+            holders.push(relative);
+        }
+    }
+
+    assert_eq!(
+        holders,
+        vec!["src-tauri/src/contexts/workspaces/api.rs".to_string()],
+        "admission is acquired outside the published workspace API"
+    );
+}
+
+/// The search commands carry DTOs; they do not run a search.
+///
+/// A command that names a token, a budget, or a registration is a second place deciding when work
+/// starts and stops — and the transport layer is the worst place for that, because it is the one
+/// layer with no way to observe what it started.
+#[test]
+fn the_search_commands_translate_rather_than_orchestrate() {
+    const COMMANDS: &[&str] = &[
+        "src-tauri/src/commands/workspaces/search_workspace_content.rs",
+        "src-tauri/src/commands/workspaces/search_workspace_paths.rs",
+        "src-tauri/src/commands/workspaces/list_session_directory.rs",
+        "src-tauri/src/commands/workspaces/list_session_documents.rs",
+    ];
+    const FORBIDDEN: &[&str] = &[
+        "WorkspaceInspectionAdmission",
+        "SearchCancellationToken",
+        "SearchRegistration",
+        "WorkspaceInspectionBudget",
+        "DirectoryCursor",
+        "spawn_blocking",
+    ];
+    let mut violations = Vec::new();
+
+    for relative in COMMANDS {
+        let source = fs::read_to_string(project_root().join(relative))
+            .unwrap_or_else(|_| panic!("read {relative}"));
+        let production = source.split("#[cfg(test)]").next().unwrap_or(&source);
+        for forbidden in FORBIDDEN {
+            if production.contains(forbidden) {
+                violations.push(format!(
+                    "[ARCH-NATIVE-002] {relative} names `{forbidden}`; deciding when inspection \
+                     work starts belongs to the workspaces application layer"
+                ));
+            }
+        }
+    }
+
+    assert!(violations.is_empty(), "{}", violations.join("\n"));
+}
+
+/// One list of directories a workspace search skips.
+///
+/// Three walks each had their own copy and a fourth had none, so a file was findable by name and
+/// not by content. The remote helper had a fifth copy that had already fallen three entries behind,
+/// which is what a second list does: it does not disagree loudly, it disagrees about the entries
+/// nobody added to it.
+///
+/// Scoped to this context and to the helper it ships. Other subsystems name `node_modules` for
+/// unrelated reasons — locating a bundled CLI, bounding a Skills scan — and folding them in would
+/// make this rule about the string rather than about who decides what a workspace search covers.
+#[test]
+fn the_default_workspace_exclusions_have_exactly_one_owner() {
+    const OWNER: &str = "src-tauri/src/contexts/workspaces/application/ignore_policy.rs";
+    let mut holders = Vec::new();
+
+    for (relative, source) in production_native_sources() {
+        if relative == OWNER || !relative.starts_with("src-tauri/src/contexts/workspaces/") {
+            continue;
+        }
+        let production = source.split("#[cfg(test)]").next().unwrap_or(&source);
+        // One representative name rather than the whole list: a second copy that omitted this one
+        // would be a copy nobody would call a copy.
+        if production.contains("\"node_modules\"") {
+            holders.push(relative);
+        }
+    }
+
+    // The helper is a Python script this binary ships and sends; it held the copy that drifted.
+    let helper = fs::read_to_string(
+        project_root()
+            .join("src-tauri/src/contexts/workspaces/infrastructure/remote_helper/helper.py"),
+    )
+    .expect("read the remote helper");
+    assert!(
+        !helper.contains("\"node_modules\""),
+        "the remote helper restates the exclusion list; it receives it in the request so the two \
+         sides cannot drift"
+    );
+
+    assert!(
+        holders.is_empty(),
+        "the default exclusion list is restated in {holders:?}; it belongs to {OWNER} and travels \
+         to the remote helper in the request"
+    );
 }

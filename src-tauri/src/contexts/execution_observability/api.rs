@@ -10,6 +10,61 @@ pub(crate) use super::domain::{
 };
 use std::sync::Arc;
 
+/// The published evidence surface.
+///
+/// Only the names below cross the context boundary. The SQLite rows, the repository, the
+/// projection SQL, the cursor's internals, the migration schema, and the replay/retention
+/// statements stay private: a consumer able to reach them could issue a query whose coverage
+/// nobody vouches for, and a page whose completeness nobody can attest to is exactly what this
+/// capability exists to eliminate.
+///
+/// The recorder is here for the in-process producer adapters Task Group 4 will add. It is
+/// deliberately not reachable from a Tauri command — evidence is written by the runtime observing
+/// its own work, never by a client asserting what happened.
+pub(crate) mod evidence {
+    pub(crate) use crate::contexts::execution_observability::application::evidence::models::{
+        EvidenceCorrelationCounts, EvidenceQueryScope, EvidenceRecordPage,
+        EvidenceSubscriptionBootstrap, ExecutionRecordDetailFields, ExecutionRecordDetailQuery,
+        ExecutionRecordDetailView, ExecutionRecordFilters, ExecutionRecordKind,
+        ExecutionRecordProjection, ExecutionRecordQuery, WorkspaceEvidenceSummary,
+        WorkspaceEvidenceSummaryQuery, DEFAULT_EVIDENCE_PAGE_SIZE, MAX_EVIDENCE_PAGE_SIZE,
+    };
+    pub(crate) use crate::contexts::execution_observability::application::evidence::file_links::{
+        FileEvidenceLinkPort, FileEvidenceLinkQuery, FileEvidenceLinks,
+    };
+    pub(crate) use crate::contexts::execution_observability::application::evidence::ports::EvidenceApplicationError;
+    /// What a session-run report may ask this context for, and the shapes it answers with.
+    ///
+    /// Aggregates rather than records: a consumer that paged records to build a session total would
+    /// either read everything or report a page total under a session total's name.
+    pub(crate) use crate::contexts::execution_observability::application::evidence::report_models::EvidenceReportQuery;
+    /// The answers, named only where a caller has to write the type down.
+    ///
+    /// The report adapter maps their fields the moment it receives them and never names either, so
+    /// the only consumers that need the names are the doubles that stand in for the repository.
+    #[cfg(test)]
+    pub(crate) use crate::contexts::execution_observability::application::evidence::report_models::{
+        EvidenceLatencyAggregate, EvidenceReportAggregate,
+    };
+    pub(crate) use crate::contexts::execution_observability::application::evidence::service::{
+        ProjectionRepair, RecordEvidenceInput,
+    };
+    /// The vocabulary a producer adapter needs to build one `RecordEvidenceInput`, and no more.
+    ///
+    /// These are the value types the payload enum is made of, so an adapter can construct a
+    /// correlation and a safe payload without ever naming an event, a row, or the repository.
+    pub(crate) use crate::contexts::execution_observability::domain::{
+        fidelity_token, parse_fidelity_token, parse_status_token, status_token, BoundedLabel,
+        CommandRuntimeKind, EvidenceAgentId, EvidenceCorrelation, EvidenceFileMutationId,
+        EvidenceOperationId, EvidenceOutcome, EvidenceSeatId, EvidenceSessionId,
+        EvidenceSourceContext, EvidenceToolCallId, ExecutionFidelity, ExecutionStatus,
+        FileChangeKind, QueryCoverage, RedactionReceipt, ReviewDecisionScope, ReviewDecisionValue,
+        SafeBasename, SafeEvidencePayload, SafeFingerprint, SafeReasonCode, SourceEventId, SpanId,
+        UsageQuality, VerificationOutcome, MAX_IDENTIFIER_LENGTH,
+    };
+    pub(crate) use crate::contexts::execution_observability::ExecutionEvidenceApi;
+}
+
 #[derive(Clone)]
 pub(crate) struct ExecutionObservabilityApi {
     repository: Arc<dyn ExecutionObservabilityRepositoryPort>,
@@ -136,3 +191,6 @@ pub(crate) use super::infrastructure::RandomExecutionIdentity;
 #[cfg(test)]
 #[path = "api_tests.rs"]
 mod tests;
+
+pub(crate) use super::application::{derive_waterfall, SpanWaterfallMetadata};
+pub(crate) use super::domain::classify_span_kind;

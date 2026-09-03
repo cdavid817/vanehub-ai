@@ -17,7 +17,7 @@ function normalizePath(filename, root = process.cwd()) {
   return filename.replaceAll("\\", "/").replace(/^\.\//, "");
 }
 
-function globRegex(pattern) {
+export function globRegex(pattern) {
   const normalized = pattern.replaceAll("\\", "/");
   let expression = "^";
   for (let index = 0; index < normalized.length; index += 1) {

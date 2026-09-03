@@ -11,6 +11,7 @@ pub(crate) enum AgentRuntimeApplicationError {
     MessageNotFound(String),
     NoActiveAgent,
     AgentUnavailable(String),
+    InvalidSeatMention { valid_mentions: Vec<String> },
     UnsupportedInteractionMode(String),
     GenerationConflict(String),
     PolicyDenied { session_id: String, action: String },
@@ -32,7 +33,6 @@ pub(crate) enum AgentRuntimeApplicationError {
     Memory(String),
     Mcp(String),
     Permission(String),
-    Personalization(String),
     ContextQuality(String),
     Provider(AgentProviderError),
 }
@@ -51,6 +51,11 @@ impl fmt::Display for AgentRuntimeApplicationError {
             }
             Self::NoActiveAgent => formatter.write_str("No active agent selected."),
             Self::AgentUnavailable(message) => write!(formatter, "Agent unavailable: {message}"),
+            Self::InvalidSeatMention { valid_mentions } => write!(
+                formatter,
+                "Mentioned seat is unavailable; valid seat count: {}",
+                valid_mentions.len()
+            ),
             Self::UnsupportedInteractionMode(mode) => {
                 write!(formatter, "Unsupported interaction mode: {mode}")
             }
@@ -87,9 +92,6 @@ impl fmt::Display for AgentRuntimeApplicationError {
             Self::Memory(message) => write!(formatter, "agent memory error: {message}"),
             Self::Mcp(message) => write!(formatter, "agent MCP tool error: {message}"),
             Self::Permission(message) => write!(formatter, "agent permission error: {message}"),
-            Self::Personalization(message) => {
-                write!(formatter, "agent personalization error: {message}")
-            }
             Self::ContextQuality(message) => {
                 write!(formatter, "context quality persistence error: {message}")
             }

@@ -1,4 +1,4 @@
-export type OperationKind = "sdk" | "mcp" | "agent" | "workspace" | "extension";
+export type OperationKind = "sdk" | "mcp" | "agent" | "workspace" | "extension" | "cli";
 
 export type OperationStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
 
@@ -21,4 +21,14 @@ export interface OperationTask {
   error?: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Descriptive stage. `status` stays authoritative for whether the work finished. */
+  phase?: string | null;
+  completedUnits?: number | null;
+  totalUnits?: number | null;
+  /**
+   * Whether cancellation can be requested right now. Absent means the operation never declared
+   * one way or the other, and cancelling never implies an already-applied external effect was
+   * undone.
+   */
+  cancellable?: boolean | null;
 }

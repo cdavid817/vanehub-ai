@@ -1,6 +1,6 @@
 use super::ApplicationError;
 use crate::contexts::operations::domain::{
-    OperationKind, OperationRecoveryEvidence, OperationTask,
+    OperationKind, OperationProgress, OperationRecoveryEvidence, OperationTask,
 };
 use serde_json::Value;
 use std::collections::HashMap;
@@ -101,6 +101,18 @@ impl OperationService {
         let updated_at = self.clock.now();
         let mut mutation = |operation: &mut OperationTask| {
             operation.append_log(line.clone(), log_timestamp.clone(), updated_at.clone());
+        };
+        self.repository.update(operation_id, &mut mutation)
+    }
+
+    pub(crate) fn report_progress(
+        &self,
+        operation_id: &str,
+        progress: OperationProgress,
+    ) -> Result<OperationTask, ApplicationError> {
+        let updated_at = self.clock.now();
+        let mut mutation = |operation: &mut OperationTask| {
+            operation.report_progress(progress.clone(), updated_at.clone());
         };
         self.repository.update(operation_id, &mut mutation)
     }

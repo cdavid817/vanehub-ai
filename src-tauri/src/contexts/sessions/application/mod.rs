@@ -1,13 +1,21 @@
 mod error;
+mod evidence;
 mod models;
 mod ports;
 mod recovery_coordinator;
+mod report;
 mod review;
 mod service;
 mod usage_accounting;
 mod usage_accounting_ports;
 
 pub(crate) use error::SessionsApplicationError;
+#[cfg(test)]
+pub(crate) use evidence::NoSessionEvidence;
+pub(crate) use evidence::{
+    SessionEvidencePort, SessionEvidenceSignal, SessionReviewDecision, SessionUsageEvidenceQuality,
+    SessionVerificationOutcome,
+};
 pub(crate) use models::{
     AcknowledgeRecoveryRequest, AcknowledgeRecoveryResult, ArchivalPolicy, CategoryRecord,
     ChatConfigurationValues, ClaimRecoveryCandidateRequest, CompleteMessageRequest,
@@ -38,11 +46,25 @@ pub(crate) use ports::{
     SessionUsageRepository,
 };
 pub(crate) use recovery_coordinator::SessionRecoveryCoordinator;
+pub(crate) use report::{
+    AgentReportRow, ChangeSummary, ChangeSummaryPort, CommandReport, ExecutionEvidencePort,
+    ExecutionEvidenceSummary, FailureReportRow, LogFailurePort, LogFailureSummary,
+    ObservabilityTimingPort, ReportClock, ReportCoverage, ReportCoverageState, ReportEvidenceLink,
+    ReportExportPort, ReportScope, ReportScopeRequest, ReportSectionCoverage, ReportSourceError,
+    ReportSourceResult, ReportUsagePort, ReportUsageSummary, RunOutcomePort, RunOutcomeSummary,
+    SessionRunReport, SessionRunReportService, TimingSummary, ToolReportRow, VerificationReport,
+};
+/// Exported for the boundary test that proves all three witnesses cross as one reason code. The
+/// command layer matches the error, not the witness; 13.10 renders the distinction from state the
+/// Review Center already holds, so nothing in production needs to name this yet.
+#[cfg(test)]
+pub(crate) use review::StaleReviewWitness;
 pub(crate) use review::{
     AddReviewCommentRequest, CreateReviewRequest, PreparedReviewFeedback, ReviewAction,
     ReviewActionFindingInput, ReviewApplicationError, ReviewApplicationService, ReviewClockPort,
-    ReviewFeedbackPort, ReviewIdPort, ReviewLogEvent, ReviewLoggingPort, ReviewOperationPort,
-    ReviewRepository, ReviewSnapshotPort,
+    ReviewDecisionRepository, ReviewFeedbackPort, ReviewHunkWitnessPort, ReviewIdPort,
+    ReviewLogEvent, ReviewLoggingPort, ReviewOperationPort, ReviewRepository, ReviewSnapshotPort,
+    ReviewSummary, ReviewView, SetFileViewedRequest, SetHunkDecisionRequest,
 };
 pub(crate) use service::{SessionApplicationPorts, SessionsApplicationService};
 pub(crate) use usage_accounting::{

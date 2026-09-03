@@ -1,7 +1,5 @@
 # Code review: review what the Agent produced
 
-**Status: Implemented — desktop reads and writes a real Git working tree; Web/mock is a deterministic simulation, and a revert there says explicitly "Simulated revert completed; no local files were changed."**
-
 ## Overview
 
 After an Agent has changed a batch of files, you need somewhere to read the diff line by line, mark problems, and send your comments back. The **Changes** tab in the session workspace is that place, and [`/changes`](slash-commands.md) opens it.
@@ -64,8 +62,6 @@ The effect of rule 3: **if an external edit changed the file after the snapshot,
 
 Reverting a single hunk **leaves the other changes in the same file untouched**.
 
-In Web/mock a revert only changes in-memory fixture state, and the receipt says so plainly: "Simulated revert completed; no local files were changed." **The interface never claims a real Git write happened.**
-
 ## Send comments back to the Agent
 
 Tick **Include comment in feedback**, then choose **Send feedback**.
@@ -100,7 +96,6 @@ Review actions emit **redacted, metadata-only events**: safe ids, counts, operat
 - **Revert does change files**, and rejects the whole operation the moment the working tree disagrees with the snapshot — it never applies partially.
 - **Stale comments do not vanish**; they are preserved, marked, and require your acknowledgement when sending.
 - **Binary and oversized files get no text diff**, only metadata markers.
-- **Every write in Web/mock is simulated**, and the receipt says so — see [Runtime and feature labels](runtime-labels.md).
 - Automated actions depend on the existing Agent, tool, and operation runtimes; failures surface explicitly rather than returning quietly empty.
 
 ## Related

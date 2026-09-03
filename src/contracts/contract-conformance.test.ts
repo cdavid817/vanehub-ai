@@ -9,6 +9,10 @@ import type * as SkillConfigurationContracts from "./skill-configuration";
 import type * as SkillOverlayContracts from "./skill-overlay";
 import type * as SkillOverlayReconciliationContracts from "./skill-overlay-reconciliation";
 import type * as OperationContracts from "./operation";
+import type * as CliEnvironmentContracts from "./cli-environment";
+import type * as CliEnvironmentTypes from "../types/cli-environment";
+import type * as CliSnapshotContracts from "./cli-environment-snapshot";
+import type * as CliSnapshotTypes from "../types/cli-environment-snapshot";
 import type * as OnePieceToolContracts from "./onepiece-tools";
 import type * as ObservabilityContracts from "./execution-observability";
 import type * as AgentTypes from "../types/agent";
@@ -98,14 +102,6 @@ type AgentAssertions = [
   Assert<Equal<AgentContracts.ReadinessStatus, AgentTypes.ReadinessStatus>>,
   Assert<Equal<AgentContracts.LaunchResult, AgentTypes.LaunchResult>>,
   Assert<Equal<AgentContracts.SessionDetails, AgentTypes.SessionDetails>>,
-  Assert<Equal<AgentContracts.CliVersionCheckStatus, AgentTypes.CliVersionCheckStatus>>,
-  Assert<Equal<AgentContracts.CliEnvironmentType, AgentTypes.CliEnvironmentType>>,
-  Assert<Equal<AgentContracts.CliInstallSource, AgentTypes.CliInstallSource>>,
-  Assert<Equal<AgentContracts.CliConflictState, AgentTypes.CliConflictState>>,
-  Assert<Equal<AgentContracts.CliLifecycleEligibility, AgentTypes.CliLifecycleEligibility>>,
-  Assert<Equal<AgentContracts.CliInstallation, AgentTypes.CliInstallation>>,
-  Assert<Equal<AgentContracts.CliToolStatus, AgentTypes.CliToolStatus>>,
-  Assert<Equal<AgentContracts.CliPackageOperationInput, AgentTypes.CliPackageOperationInput>>,
   Assert<Equal<AgentContracts.ManagedCliAgentId, AgentTypes.ManagedCliAgentId>>,
 ];
 
@@ -234,6 +230,54 @@ type OperationAssertions = [
   Assert<Equal<OperationContracts.OperationStatus, OperationTypes.OperationStatus>>,
   Assert<Equal<OperationContracts.OperationLogEntry, OperationTypes.OperationLogEntry>>,
   Assert<Equal<OperationContracts.OperationTask, OperationTypes.OperationTask>>,
+];
+
+type CliEnvironmentAssertions = [
+  Assert<Equal<CliEnvironmentContracts.CliMutationOutcome, CliEnvironmentTypes.CliMutationOutcome>>,
+  Assert<Equal<CliEnvironmentContracts.CliPlanRejectionCode, CliEnvironmentTypes.CliPlanRejectionCode>>,
+  Assert<Equal<CliEnvironmentContracts.CliRejection, CliEnvironmentTypes.CliRejection>>,
+  Assert<Equal<CliEnvironmentContracts.CliMutationResult, CliEnvironmentTypes.CliMutationResult>>,
+  Assert<Equal<CliEnvironmentContracts.CliOperationPhase, CliEnvironmentTypes.CliOperationPhase>>,
+  Assert<
+    Equal<
+      CliEnvironmentContracts.CliOperationTermination,
+      CliEnvironmentTypes.CliOperationTermination
+    >
+  >,
+  Assert<
+    Equal<
+      CliEnvironmentContracts.CliVerificationWarning,
+      CliEnvironmentTypes.CliVerificationWarning
+    >
+  >,
+];
+
+type CliBulkAssertions = [
+  Assert<Equal<CliEnvironmentContracts.CliBulkSkipReason, CliEnvironmentTypes.CliBulkSkipReason>>,
+  Assert<Equal<CliEnvironmentContracts.CliBulkItemResult, CliEnvironmentTypes.CliBulkItemResult>>,
+  Assert<
+    Equal<
+      CliEnvironmentContracts.CliBulkExecutionResult,
+      CliEnvironmentTypes.CliBulkExecutionResult
+    >
+  >,
+];
+
+type CliSnapshotAssertions = [
+  Assert<Equal<CliSnapshotContracts.CliInstallation, CliSnapshotTypes.CliInstallation>>,
+  Assert<Equal<CliSnapshotContracts.CliConflict, CliSnapshotTypes.CliConflict>>,
+  Assert<Equal<CliSnapshotContracts.CliSourceSummary, CliSnapshotTypes.CliSourceSummary>>,
+  Assert<Equal<CliSnapshotContracts.CliSourceCapabilities, CliSnapshotTypes.CliSourceCapabilities>>,
+  Assert<Equal<CliSnapshotContracts.CliAllowedAction, CliSnapshotTypes.CliAllowedAction>>,
+  Assert<Equal<CliSnapshotContracts.CliMutationSummary, CliSnapshotTypes.CliMutationSummary>>,
+  Assert<Equal<CliSnapshotContracts.CliEnvironmentSnapshot, CliSnapshotTypes.CliEnvironmentSnapshot>>,
+  Assert<Equal<CliSnapshotContracts.CliCommandPreview, CliSnapshotTypes.CliCommandPreview>>,
+  Assert<Equal<CliSnapshotContracts.CliActionPlan, CliSnapshotTypes.CliActionPlan>>,
+  Assert<Equal<CliSnapshotContracts.CliBulkActionItem, CliSnapshotTypes.CliBulkActionItem>>,
+  Assert<Equal<CliSnapshotContracts.CliBulkSkip, CliSnapshotTypes.CliBulkSkip>>,
+  Assert<Equal<CliSnapshotContracts.CliBulkActionPlan, CliSnapshotTypes.CliBulkActionPlan>>,
+  Assert<Equal<CliSnapshotContracts.PrepareCliActionInput, CliSnapshotTypes.PrepareCliActionInput>>,
+  Assert<Equal<CliSnapshotContracts.ExecuteCliActionInput, CliSnapshotTypes.ExecuteCliActionInput>>,
 ];
 
 type OnePieceToolAssertions = [
@@ -395,8 +439,7 @@ type SessionWorkspaceAssertions = [
   Assert<Equal<SessionWorkspaceContracts.SessionLogQuery, SessionWorkspaceTypes.SessionLogQuery>>,
   Assert<Equal<SessionWorkspaceContracts.SessionLogPage, SessionWorkspaceTypes.SessionLogPage>>,
   Assert<Equal<SessionWorkspaceContracts.SessionLogExportResult, SessionWorkspaceTypes.SessionLogExportResult>>,
-  Assert<Equal<SessionWorkspaceContracts.ShellSession, SessionWorkspaceTypes.ShellSession>>,
-  Assert<Equal<SessionWorkspaceContracts.ShellEvent, SessionWorkspaceTypes.ShellEvent>>,
+  Assert<Equal<SessionWorkspaceContracts.ShellRuntimeDescriptor, SessionWorkspaceTypes.ShellRuntimeDescriptor>>,
 ];
 
 type ContextQualityAssertions = [
@@ -433,6 +476,9 @@ void (0 as unknown as TokenUsageAssertions);
 void (0 as unknown as McpAssertions);
 void (0 as unknown as SdkAssertions);
 void (0 as unknown as OperationAssertions);
+void (0 as unknown as CliEnvironmentAssertions);
+void (0 as unknown as CliSnapshotAssertions);
+void (0 as unknown as CliBulkAssertions);
 void (0 as unknown as OnePieceToolAssertions);
 void (0 as unknown as ObservabilityAssertions);
 void (0 as unknown as LoopAssertions);

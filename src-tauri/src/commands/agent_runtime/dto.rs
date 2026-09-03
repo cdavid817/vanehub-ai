@@ -470,40 +470,6 @@ pub(crate) struct LocalModelDiscoveryResult {
     pub(crate) candidates: Vec<LocalModelEndpointCandidate>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
-pub(crate) enum AgentMemorySource {
-    Explicit,
-    Automatic,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-/// Since `migrate-agent-memory-to-file-store`, `id` is the memory file's directory-relative path,
-/// and `name`/`description`/`memory_type` let a management view tell entries apart without
-/// rendering every body in full. `memory_type` is absent for a migrated or hand-written memory
-/// that declares none.
-pub(crate) struct AgentMemoryEntry {
-    pub(crate) id: String,
-    pub(crate) agent_id: String,
-    pub(crate) folder: Option<String>,
-    pub(crate) name: String,
-    pub(crate) description: String,
-    pub(crate) memory_type: Option<AgentMemoryType>,
-    pub(crate) content: String,
-    pub(crate) source: AgentMemorySource,
-    pub(crate) created_at: String,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub(crate) enum AgentMemoryType {
-    User,
-    Feedback,
-    Project,
-    Reference,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WorkflowState {
@@ -680,6 +646,15 @@ pub(crate) struct MessageFeedback {
     pub(crate) state: Option<String>,
     pub(crate) revision: u64,
     pub(crate) correction_note: Option<String>,
+    pub(crate) reusable_guidance_authorization: Option<ReusableGuidanceAuthorization>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ReusableGuidanceAuthorization {
+    pub(crate) authorization_id: String,
+    pub(crate) feedback_revision: u64,
+    pub(crate) disclosure_version: String,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

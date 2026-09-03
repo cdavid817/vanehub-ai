@@ -23,6 +23,7 @@
 
 | 章节 | 覆盖内容 |
 | --- | --- |
+| [单 Agent 治理：五控制面模型](single-agent-control-planes.md) | 五个 CLI 与 OnePiece 统一治理的分析模型、三条执行路径、配置生效规则 |
 | [Agent 生命周期与 provider 运行时](agent-lifecycle.md) | 注册 Agent 编辑、稳定 provider 解析、能力声明 |
 | [OnePiece native Agent](onepiece-native-agent.md) | 内置 API Agent 身份、Profile 生命周期与 provider 目录 |
 | [OnePiece 内置工具](onepiece-builtin-tools.md) | 扩展原生工具集的发布门控、依赖与回退触发条件 |
@@ -41,11 +42,24 @@
 
 | 章节 | 覆盖内容 |
 | --- | --- |
-| [上下文压缩](context-compaction.md) | Token-aware 触发与字符回退、摘要式压缩、冷却与熔断 |
-| [跨会话记忆](cross-session-memory.md) | 主机级共享池、provenance 元数据、自动提取 |
-| [检索与向量搜索](retrieval.md) | 记忆池与工作区代码索引、优雅降级 |
-| [Tree-sitter 代码索引](tree-sitter-code-indexing.md) | 语法解析、bounded chunk、符号元数据、grammar 版本与脱敏 |
-| [LSP 代码智能](lsp-code-intelligence.md) | 会话内 LSP 集成、工作区信任与能力协商 |
+| [上下文压缩](context-compaction.md) | Token-aware 触发与字符回退、优化器优先的分类与低成本削减、按需结构化摘要、后置验证与兼容回退、冷却与熔断 |
+| [跨会话记忆](cross-session-memory.md) | 主机级共享池、作用域与受众、候选审批生命周期、注入与召回的两条读取边界、四条产生路径 |
+| [检索与向量搜索](retrieval.md) | 记忆召回与工作区代码检索两条独立链路、顺序双路 RRF 融合、后台对账、降级与日志边界 |
+| [Tree-sitter 代码索引](tree-sitter-code-indexing.md) | 本地与语义两条流水线、文件准入、错误容忍解析、代码块（chunk）与可选符号、脱敏、嵌入确认 |
+| [LSP 代码智能](lsp-code-intelligence.md) | 注册表驱动的支持矩阵、进程与协议生命周期、只读工具、工作区信任与供应链限制 |
+
+Tree-sitter 代码索引与 LSP 解决不同问题，职责对比如下（细节见各自章节）：
+
+| 对比维度 | Tree-sitter 代码索引（`search_code`） | LSP 代码智能 |
+| --- | --- | --- |
+| 主要用途 | 按文本或语义检索工作区代码块 | 精确位置的定义/引用/类型/悬停/诊断 |
+| 依赖外部进程 | 否（解析器内置） | 是（第三方语言服务器子进程） |
+| 维护持久索引 | 是（按工作区的清单、代码块、FTS 与可选向量） | 否（临时进程、文档租约与诊断缓存） |
+| 离线检索能力 | local 模式完全离线；语义通道才需向量嵌入 | 不适用（不做检索；服务器本身在本地运行） |
+| 跨文件语义能力 | 语法结构级，无类型解析 | 编译器/语言服务器级的跨文件语义 |
+| 工作区要求 | 本地工作区，按工作区启用索引 | 本地工作区，需显式 workspace trust |
+| 安全边界 | 未脱敏代码块不得入索引/嵌入/日志/结果 | 只读工具目录 + 工作区过滤；但服务器是未沙箱化的第三方进程 |
+| 降级方式 | 缺向量退全文（local 不算降级），失败软化为"暂不可用" | 按方法能力协商，失败软化为 warming/timeout/unavailable |
 
 ## 工具与扩展
 
@@ -93,6 +107,21 @@
 | [Agent 基础设施技术文档](../../../agent-infrastructure/README.md) | MCP、LSP、Function Calling、RAG 等**协议与技术本身**，不是 VaneHub AI 的实现 |
 | [Native 构建性能](../../../build-performance.md) | 各平台链接器要求、release profile 行为与实测构建证据 |
 | [发布签名](../../../release-signing.md) | 已发布产物的签名与验证链 |
+| [桌面端发布验证](../../../desktop-release-verification.md) | 一次桌面端发布在发布前必须逐平台通过的验证流程 |
+| [运行时性能预算](../../../runtime-performance-budgets.md) | 已声明的运行时预算,以及针对它们的回归如何被报告 |
+| [CLI Agent 全局配置](../../../cli-agent-global-configuration.md) | VaneHub AI 如何写入各 CLI 自己的全局配置,以及测试如何隔离它 |
+
+### Provider SDK
+
+Provider SDK 文档位于 `docs/provider-sdk/`,是第三方 provider 插件要实现的契约。`openspec/specs/provider-plugin-sdk` 要求它们存在于该位置。
+
+| 文档 | 讲什么 |
+| --- | --- |
+| [Provider 契约](../../../provider-sdk/contract.md) | provider 要实现的接口,以及它必须维持的保证 |
+| [Manifest](../../../provider-sdk/manifest.md) | manifest schema、必填字段与版本兼容性 |
+| [示例 provider](../../../provider-sdk/example-provider.md) | 一个仅供测试的参考实现,端到端走一遍 |
+| [一致性测试](../../../provider-sdk/conformance-testing.md) | provider 提交前要跑的一致性流程 |
+| [安全规则](../../../provider-sdk/security-rules.md) | provider 插件运行时所受的限制 |
 
 ### 时间点快照
 

@@ -15,6 +15,7 @@ pub(crate) mod events;
 pub(crate) mod export_session;
 pub(crate) mod get_active_session;
 pub(crate) mod get_code_review;
+pub(crate) mod get_code_review_patch;
 pub(crate) mod get_session;
 pub(crate) mod get_session_chat_config;
 pub(crate) mod get_session_recovery_summary;
@@ -38,6 +39,8 @@ pub(crate) mod resolve_code_review_comment;
 pub(crate) mod revert_code_review_change;
 #[cfg(test)]
 mod review_contracts;
+#[cfg(test)]
+mod review_decision_isolation;
 mod review_dto;
 mod review_error;
 pub(crate) mod save_session_chat_config;
@@ -46,6 +49,8 @@ pub(crate) mod search_sessions;
 pub(crate) mod select_code_review_comment;
 pub(crate) mod send_code_review_feedback;
 pub(crate) mod set_code_review_decision;
+pub(crate) mod set_code_review_file_viewed;
+pub(crate) mod set_code_review_hunk_decision;
 pub(crate) mod start_code_review_action;
 pub(crate) mod switch_session;
 pub(crate) mod unarchive_session;

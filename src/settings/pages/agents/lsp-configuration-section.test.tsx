@@ -6,6 +6,7 @@ import { activateAppLanguage } from "../../../i18n";
 import { createAgentServiceDouble, renderWithAppProviders } from "../../../test/render";
 import type { LspConfiguration, LspServerDiscovery } from "../../../types/lsp";
 import { LspConfigurationSection } from "./lsp-configuration-section";
+import { lspTestDescriptors } from "../../../test/lsp-fixtures";
 
 const configuration: LspConfiguration = {
   enabled: false,
@@ -14,15 +15,18 @@ const configuration: LspConfiguration = {
       language: "rust",
       enabled: false,
       executableOverride: null,
+      startupArguments: null,
       initializationOptions: {},
     },
     {
       language: "typescript_javascript",
       enabled: false,
       executableOverride: "C:/tools/typescript-language-server.exe",
+      startupArguments: null,
       initializationOptions: { preferences: { includeCompletionsForModuleExports: true } },
     },
   ],
+  descriptors: lspTestDescriptors(),
 };
 
 const discoveries: LspServerDiscovery[] = [
@@ -124,10 +128,22 @@ describe("LspConfigurationSection", () => {
           language: "rust",
           enabled: true,
           executableOverride: "C:/custom/rust-analyzer.exe",
+          startupArguments: null,
           initializationOptions: { cargo: { allTargets: true } },
         },
         configuration.languages[1],
+        // Described by the backend but absent from stored configuration, which is what a language
+        // registered after this installation was set up looks like. It has to render and save with
+        // defaults rather than be dropped.
+        {
+          language: "java",
+          enabled: false,
+          executableOverride: null,
+          startupArguments: null,
+          initializationOptions: {},
+        },
       ],
+      descriptors: lspTestDescriptors(),
     }));
     expect((await screen.findByRole("status")).textContent).toContain("LSP 配置已保存。");
   });
@@ -152,5 +168,35 @@ describe("LspConfigurationSection", () => {
     expect(options.getAttribute("aria-invalid")).toBe("true");
     expect(options.getAttribute("aria-describedby")).toContain(alert.id);
     expect(saveLspConfiguration).not.toHaveBeenCalled();
+  });
+
+  it("takes the override control's meaning from the descriptor, not from the language name", async () => {
+    // Deliberately not "java". If the card branched on a language id this would render an
+    // executable override, and the property the registry was built to have -- a second
+    // install-directory language needing no frontend change -- would already be lost.
+    const service = createAgentServiceDouble({
+      getLspConfiguration: async () => ({
+        enabled: false,
+        languages: [],
+        descriptors: [{
+          language: "elixir",
+          server: "elixir_ls",
+          supportedOnHost: true,
+          defaultStartupArguments: [],
+          overrideTarget: "install_directory" as const,
+          prerequisite: "Erlang/OTP 26 or newer",
+          distribution: null,
+          installed: false,
+        }],
+      }),
+      discoverLspServers: async () => [],
+    });
+    renderWithAppProviders(<LspConfigurationSection service={service} />);
+
+    expect(await screen.findByRole("textbox", { name: /服务器安装目录/ })).toBeDefined();
+    expect(screen.queryByRole("textbox", { name: /可执行文件覆盖路径/ })).toBeNull();
+    // The prerequisite is the backend's string, rendered rather than mapped through a table the
+    // frontend would have to extend for every new runtime.
+    expect(screen.getByRole("note").textContent).toContain("Erlang/OTP 26 or newer");
   });
 });

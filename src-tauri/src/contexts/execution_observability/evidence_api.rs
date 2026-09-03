@@ -1,0 +1,392 @@
+#[cfg(test)]
+use super::application::evidence::EvidenceCorrelationCounts;
+use super::application::evidence::{
+    EvidenceApplicationError, EvidenceClockPort, EvidenceGapDiagnosticsPort,
+    EvidenceIdGeneratorPort, EvidenceRecordPage, EvidenceRedactionValidatorPort,
+    EvidenceRepositoryPort, EvidenceRetentionSummary, EvidenceSubscriptionBootstrap,
+    ExecutionEvidenceService, ExecutionRecordDetailQuery, ExecutionRecordDetailView,
+    ExecutionRecordQuery, PostCommitEvidenceNoticePublisherPort, ProjectionRepair,
+    RecordEvidenceInput, RecordEvidenceOutcome, WorkspaceEvidenceSummary,
+    WorkspaceEvidenceSummaryQuery,
+};
+pub(crate) use super::application::evidence::{
+    EvidenceLatencyAggregate, EvidenceReportAggregate, EvidenceReportQuery,
+};
+use super::domain::EvidenceSessionId;
+use std::sync::Arc;
+
+/// The published evidence contract.
+///
+/// Everything the rest of the application may touch passes through here. The repository, the row
+/// types, the SQLite schema, the migration, and the cursor encoding stay private to the context:
+/// a consumer that could reach them would be able to write a query the coverage rules do not
+/// know about, and a page whose completeness nobody can vouch for is exactly what this capability
+/// exists to eliminate.
+///
+/// The recorder is intentionally not reachable from a Tauri command. Evidence is written by
+/// producers inside the process, never by the frontend, so no client can inject an observation.
+#[derive(Clone)]
+pub(crate) struct ExecutionEvidenceApi {
+    service: ExecutionEvidenceService,
+}
+
+impl ExecutionEvidenceApi {
+    pub(crate) fn new(
+        repository: Arc<dyn EvidenceRepositoryPort>,
+        clock: Arc<dyn EvidenceClockPort>,
+        ids: Arc<dyn EvidenceIdGeneratorPort>,
+        redaction: Arc<dyn EvidenceRedactionValidatorPort>,
+        notices: Arc<dyn PostCommitEvidenceNoticePublisherPort>,
+        diagnostics: Arc<dyn EvidenceGapDiagnosticsPort>,
+    ) -> Self {
+        Self {
+            service: ExecutionEvidenceService::new(
+                repository,
+                clock,
+                ids,
+                redaction,
+                notices,
+                diagnostics,
+            ),
+        }
+    }
+
+    /// In-process producers only. Task Group 4 supplies the bootstrap adapters that call this.
+    pub(crate) fn record(
+        &self,
+        input: RecordEvidenceInput,
+    ) -> Result<RecordEvidenceOutcome, EvidenceApplicationError> {
+        self.service.record(input)
+    }
+
+    pub(crate) fn record_dropped_events(&self, session_id: &EvidenceSessionId, dropped: u32) {
+        self.service.record_dropped_events(session_id, dropped);
+    }
+
+    /// Reports evidence lost with no session to attribute it to.
+    ///
+    /// There is no marker to write, because a marker needs a session and filing one under a
+    /// placeholder would attribute the loss to work that lost nothing. What it does instead is
+    /// stop every session from reporting `complete` — the one that lost the evidence is among
+    /// them, and this is the only honest thing left to say.
+    pub(crate) fn report_unattributed_gap(&self, count: u32) {
+        self.service.report_unattributed_gap(count);
+    }
+
+    pub(crate) fn summary(
+        &self,
+        query: WorkspaceEvidenceSummaryQuery,
+    ) -> Result<WorkspaceEvidenceSummary, EvidenceApplicationError> {
+        self.service.summary(query)
+    }
+
+    pub(crate) fn list_records(
+        &self,
+        query: ExecutionRecordQuery,
+    ) -> Result<EvidenceRecordPage, EvidenceApplicationError> {
+        self.service.list_records(query)
+    }
+
+    pub(crate) fn record_detail(
+        &self,
+        query: ExecutionRecordDetailQuery,
+    ) -> Result<ExecutionRecordDetailView, EvidenceApplicationError> {
+        self.service.record_detail(query)
+    }
+
+    pub(crate) fn subscription_bootstrap(
+        &self,
+        session_id: &EvidenceSessionId,
+    ) -> Result<EvidenceSubscriptionBootstrap, EvidenceApplicationError> {
+        self.service.subscription_bootstrap(session_id)
+    }
+
+    /// Counts a session's tools, commands, verifications, and failures.
+    ///
+    /// Published rather than left to a consumer's paging loop: the counting is this context's job
+    /// because only it can bound the read. A consumer that summed a page would report a page total
+    /// under a session total's name, and the answer would carry nothing that said so.
+    pub(crate) fn report_aggregate(
+        &self,
+        query: &EvidenceReportQuery,
+    ) -> Result<EvidenceReportAggregate, EvidenceApplicationError> {
+        self.service.report_aggregate(query)
+    }
+
+    pub(crate) fn report_latency(
+        &self,
+        query: &EvidenceReportQuery,
+    ) -> Result<EvidenceLatencyAggregate, EvidenceApplicationError> {
+        self.service.report_latency(query)
+    }
+
+    /// Repairs the projection at startup if, and only if, it disagrees with the journal.
+    ///
+    /// A projection is a cache of the journal, and a process that died mid-write can leave one
+    /// that lags it. Detecting that costs two index lookups; rebuilding when nothing is wrong
+    /// costs a full scan and changes nothing.
+    pub(crate) fn repair_projections_if_needed(
+        &self,
+    ) -> Result<ProjectionRepair, EvidenceApplicationError> {
+        self.service.repair_projections_if_needed()
+    }
+
+    pub(crate) fn maintain_retention(
+        &self,
+        cutoff: &str,
+    ) -> Result<EvidenceRetentionSummary, EvidenceApplicationError> {
+        self.service.maintain_retention(cutoff)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::contexts::execution_observability::application::evidence::models::{
+        EvidenceQueryScope, ExecutionRecordFilters,
+    };
+    use crate::contexts::execution_observability::application::evidence::ports::EvidenceAppendOutcome;
+    use crate::contexts::execution_observability::domain::evidence::builders::CoverageBuilder;
+    use crate::contexts::execution_observability::domain::{
+        EvidenceSourceContext, ExecutionEvidenceEvent, QueryCoverage, SourceEventId,
+    };
+    use crate::contexts::execution_observability::ExecutionEvidenceApi as PublishedApi;
+    use std::sync::Mutex;
+
+    #[derive(Default)]
+    struct StubRepository {
+        calls: Mutex<Vec<&'static str>>,
+    }
+
+    impl EvidenceRepositoryPort for StubRepository {
+        fn append(
+            &self,
+            _event: &ExecutionEvidenceEvent,
+            _fingerprint: &str,
+            _recorded_at: &str,
+        ) -> Result<EvidenceAppendOutcome, EvidenceApplicationError> {
+            self.calls.lock().expect("calls").push("append");
+            Ok(EvidenceAppendOutcome::Appended { sequence: 1 })
+        }
+
+        fn list_records(
+            &self,
+            _query: &ExecutionRecordQuery,
+        ) -> Result<EvidenceRecordPage, EvidenceApplicationError> {
+            self.calls.lock().expect("calls").push("list");
+            Ok(EvidenceRecordPage {
+                items: Vec::new(),
+                next_cursor: None,
+                coverage: CoverageBuilder::capture_not_initialized(),
+            })
+        }
+
+        fn record_detail(
+            &self,
+            _query: &ExecutionRecordDetailQuery,
+        ) -> Result<ExecutionRecordDetailView, EvidenceApplicationError> {
+            self.calls.lock().expect("calls").push("detail");
+            Err(EvidenceApplicationError::RecordNotFound)
+        }
+
+        fn summary(
+            &self,
+            query: &WorkspaceEvidenceSummaryQuery,
+        ) -> Result<WorkspaceEvidenceSummary, EvidenceApplicationError> {
+            self.calls.lock().expect("calls").push("summary");
+            Ok(WorkspaceEvidenceSummary {
+                session_id: query.session_id.clone(),
+                generated_at: "2026-01-01T00:00:00Z".to_string(),
+                coverage: CoverageBuilder::capture_not_initialized(),
+                run_status: None,
+                run_id: None,
+                run_started_at: None,
+                running_records: 0,
+                failed_records: 0,
+                verification_passed: 0,
+                verification_failed: 0,
+                unowned_sources: Vec::new(),
+            })
+        }
+
+        fn correlation_counts(
+            &self,
+            _session_id: &EvidenceSessionId,
+            _run_id: Option<&str>,
+        ) -> Result<EvidenceCorrelationCounts, EvidenceApplicationError> {
+            self.calls.lock().expect("calls").push("counts");
+            Ok(EvidenceCorrelationCounts::default())
+        }
+
+        fn subscription_bootstrap(
+            &self,
+            session_id: &EvidenceSessionId,
+        ) -> Result<EvidenceSubscriptionBootstrap, EvidenceApplicationError> {
+            self.calls.lock().expect("calls").push("bootstrap");
+            Ok(EvidenceSubscriptionBootstrap {
+                session_id: session_id.clone(),
+                watermark_sequence: 0,
+                coverage: QueryCoverage::complete(),
+            })
+        }
+
+        fn report_aggregate(
+            &self,
+            _query: &EvidenceReportQuery,
+        ) -> Result<EvidenceReportAggregate, EvidenceApplicationError> {
+            self.calls.lock().expect("calls").push("aggregate");
+            Ok(EvidenceReportAggregate::default())
+        }
+
+        fn report_latency(
+            &self,
+            _query: &EvidenceReportQuery,
+        ) -> Result<EvidenceLatencyAggregate, EvidenceApplicationError> {
+            self.calls.lock().expect("calls").push("latency");
+            Ok(EvidenceLatencyAggregate::default())
+        }
+
+        fn report_unattributed_gap(&self, _count: u32) {}
+
+        fn projection_is_stale(&self) -> Result<bool, EvidenceApplicationError> {
+            self.calls.lock().expect("calls").push("stale?");
+            Ok(false)
+        }
+
+        fn replay_projections(
+            &self,
+            _session_id: Option<&EvidenceSessionId>,
+        ) -> Result<usize, EvidenceApplicationError> {
+            self.calls.lock().expect("calls").push("replay");
+            Ok(0)
+        }
+
+        fn maintain_retention(
+            &self,
+            _cutoff: &str,
+            _now: &str,
+        ) -> Result<EvidenceRetentionSummary, EvidenceApplicationError> {
+            Ok(EvidenceRetentionSummary::default())
+        }
+    }
+
+    struct StubClock;
+    impl EvidenceClockPort for StubClock {
+        fn now_rfc3339(&self) -> String {
+            "2026-01-01T00:00:00.000Z".to_string()
+        }
+    }
+
+    struct StubIds;
+    impl EvidenceIdGeneratorPort for StubIds {
+        fn next_event_id(&self) -> String {
+            "event-1".to_string()
+        }
+    }
+
+    struct StubValidator;
+    impl EvidenceRedactionValidatorPort for StubValidator {
+        fn validate(
+            &self,
+            _event: &ExecutionEvidenceEvent,
+        ) -> Result<(), EvidenceApplicationError> {
+            Ok(())
+        }
+    }
+
+    struct StubNotices;
+    impl PostCommitEvidenceNoticePublisherPort for StubNotices {
+        fn publish(
+            &self,
+            _notice: &crate::contexts::execution_observability::application::evidence::models::EvidenceNotice,
+        ) {
+        }
+    }
+
+    struct StubDiagnostics;
+    impl EvidenceGapDiagnosticsPort for StubDiagnostics {
+        fn record_conflict(&self, _context: EvidenceSourceContext, _id: &SourceEventId) {}
+        fn record_dropped(&self, _session_id: &EvidenceSessionId, _dropped: u32) {}
+    }
+
+    fn api(repository: Arc<StubRepository>) -> PublishedApi {
+        PublishedApi::new(
+            repository,
+            Arc::new(StubClock),
+            Arc::new(StubIds),
+            Arc::new(StubValidator),
+            Arc::new(StubNotices),
+            Arc::new(StubDiagnostics),
+        )
+    }
+
+    /// The published surface is exactly the six reads plus the in-process recorder. If a query
+    /// stopped reaching the service this would keep passing only if the delegation were removed
+    /// entirely, which is the mistake worth catching.
+    #[test]
+    fn every_published_query_reaches_the_service() {
+        let repository = Arc::new(StubRepository::default());
+        let api = api(repository.clone());
+        let session = EvidenceSessionId::parse("session-1").expect("session");
+
+        api.summary(WorkspaceEvidenceSummaryQuery {
+            session_id: session.clone(),
+            seat_id: None,
+        })
+        .expect("summary");
+        api.list_records(ExecutionRecordQuery {
+            scope: EvidenceQueryScope {
+                session_id: Some(session.clone()),
+                ..EvidenceQueryScope::default()
+            },
+            filters: ExecutionRecordFilters::default(),
+            cursor: None,
+            limit: 10,
+        })
+        .expect("records");
+        api.record_detail(ExecutionRecordDetailQuery {
+            session_id: session.clone(),
+            record_id: "record-1".to_string(),
+        })
+        .expect_err("record is absent in the stub");
+        api.subscription_bootstrap(&session).expect("bootstrap");
+        let report_query = EvidenceReportQuery::new(session.clone());
+        api.report_aggregate(&report_query).expect("aggregate");
+        api.report_latency(&report_query).expect("latency");
+
+        assert_eq!(
+            *repository.calls.lock().expect("calls"),
+            vec![
+                "summary",
+                "list",
+                "detail",
+                "bootstrap",
+                "aggregate",
+                "latency"
+            ]
+        );
+    }
+
+    /// An over-long filter list never reaches storage.
+    ///
+    /// The refusal is the service's, not the repository's: a repository that clamped would answer a
+    /// narrower question under the asked question's name, and the answer carries no field that
+    /// could say which runs it actually covered.
+    #[test]
+    fn an_over_long_filter_list_is_refused_before_storage() {
+        let repository = Arc::new(StubRepository::default());
+        let api = api(repository.clone());
+        let session = EvidenceSessionId::parse("session-1").expect("session");
+
+        let refused = api.report_aggregate(&EvidenceReportQuery {
+            run_ids: (0..500).map(|index| format!("run-{index}")).collect(),
+            ..EvidenceReportQuery::new(session)
+        });
+
+        assert!(refused.is_err());
+        assert!(
+            repository.calls.lock().expect("calls").is_empty(),
+            "the refused query still reached storage"
+        );
+    }
+}

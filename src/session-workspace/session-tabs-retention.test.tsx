@@ -8,8 +8,8 @@ import type { Session } from "../types/agent";
 import { SessionTabs } from "./session-tabs";
 
 vi.mock("./agent-terminal-tab", () => ({
-  AgentTerminalTab: ({ active }: { active: boolean }) => (
-    <div data-active={String(active)} data-testid="retained-agent-terminal" />
+  AgentTerminalTab: ({ isVisible }: { isVisible: boolean }) => (
+    <div data-active={String(isVisible)} data-testid="retained-agent-terminal" />
   ),
 }));
 
@@ -26,7 +26,7 @@ const session: Session = {
   title: "Retained terminal",
   agentId: "opencode",
   interactionMode: "cli",
-  lifecycleState: "running",
+  personalizationMode: "standard", lifecycleState: "running",
   recoveryStatus: "clean",
   recoveryRevision: 0,
   stateRevision: 0,
