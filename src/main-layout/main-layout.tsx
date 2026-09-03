@@ -17,6 +17,7 @@ import type { LoopInspectionTarget } from "../types/loop";
 import type { MissionControlNavigationTarget } from "../types/mission-control";
 import { CreateCategoryDialog } from "./create-category-dialog";
 import { CreateSessionDialog } from "./create-session-dialog";
+import type { CreateSessionWorkspacePrefill } from "./create-session-workspace-prefill";
 import { PlanDestination } from "./plan-destination";
 import { ProjectsDestination } from "./projects-destination";
 import { QualityDestination } from "./quality-destination";
@@ -79,6 +80,15 @@ export function MainLayout({
       : { destination: "sessions", sessionId: activeSessionId, creatingSession: false };
     onNavigate({ ...base, ...next }, options);
   };
+  // Task 13.8: Projects' own Continue Session / New Session actions reach into this same
+  // goToSessions mechanism, mirroring navigateFromMissionControl's own cross-destination pattern
+  // below rather than inventing a second one.
+  const continueSessionFromWorkspace = (sessionId: string) =>
+    goToSessions({ sessionId, creatingSession: false }, { returnTo: { destination: "projects" } });
+  const newSessionForWorkspace = (workspace: CreateSessionWorkspacePrefill) => {
+    setSessionPrefillWorkspace(workspace);
+    goToSessions({ creatingSession: true });
+  };
   const { t } = useTranslation();
   const { notify } = useNotifications();
   const { recoverSession, recoveringSessionId } = useSessionRuntimeRecovery();
@@ -86,6 +96,9 @@ export function MainLayout({
   // landing in between them and seed the sidebar and inspector from inconsistent snapshots.
   const [initialSessionsLayout] = useState(readInitialSessionsLayout);
   const [conversationFocusMode, setConversationFocusMode] = useState(false);
+  // Task 13.9: cleared on every CreateSessionDialog close/create below, so a plain "New Session"
+  // click from the sidebar/command center never inherits a stale prefill from a prior Projects visit.
+  const [sessionPrefillWorkspace, setSessionPrefillWorkspace] = useState<CreateSessionWorkspacePrefill | null>(null);
   const [inspectorTier, setInspectorTier] = useState<LayoutTier>("wide");
   const [infoPanelOpenState, setInfoPanelOpenState] = useState(initialSessionsLayout.inspectorOpen);
   const [requestedInfoTab, setRequestedInfoTab] = useState<"im" | null>(null);
@@ -470,7 +483,13 @@ export function MainLayout({
               `keepAlive: "never"` (destination-lifecycle.ts's default for all four) with nothing
               extra needed to make it so. */}
           <div className={cn("min-h-0 min-w-0 flex-1", destination === "sessions" ? "hidden" : "flex")} id="workbench-route-outlet">
-            {location.destination === "projects" ? <ProjectsDestination /> : null}
+            {location.destination === "projects" ? (
+              <ProjectsDestination
+                onContinueSession={continueSessionFromWorkspace}
+                onNewSessionForWorkspace={newSessionForWorkspace}
+                onOpenSettings={onOpenSettings}
+              />
+            ) : null}
             {location.destination === "runs" ? (
               <RunsDestination
                 agents={model.agents}
@@ -512,14 +531,16 @@ export function MainLayout({
       />
       <CreateSessionDialog
         agents={model.agents}
-        onClose={() => goToSessions({ creatingSession: false })}
-        onConfigureOnePiece={() => { goToSessions({ creatingSession: false }); (onConfigureOnePiece ?? onOpenSettings)(); }}
+        onClose={() => { setSessionPrefillWorkspace(null); goToSessions({ creatingSession: false }); }}
+        onConfigureOnePiece={() => { setSessionPrefillWorkspace(null); goToSessions({ creatingSession: false }); (onConfigureOnePiece ?? onOpenSettings)(); }}
         onCreated={(session) => {
+          setSessionPrefillWorkspace(null);
           setLoopInspection(null);
           model.sessionCreated(session);
           goToSessions({ sessionId: session.id, creatingSession: false }, { replace: true });
         }}
         open={location.destination === "sessions" && location.creatingSession}
+        prefillWorkspace={sessionPrefillWorkspace}
       />
       {categoryDialogSession ? (
         <CreateCategoryDialog

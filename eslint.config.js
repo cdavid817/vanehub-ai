@@ -12,7 +12,13 @@ export const LEGACY_LINE_BUDGET_EXEMPTIONS = [
   // 528 -> 536: 接入全局 Command Center(§6)——一行 import、一次 `useCommandCenterContext` 调用
   // (聚合 navigate/onOpenSettings 与三个面板 toggle handler 为 WorkbenchCommandContext)、一行条件
   // 渲染。上下文对象的构造本身已抽到 use-command-center-context.ts,这里只留调用点。
-  ["src/main-layout/main-layout.tsx", 536],
+  // 536 -> 557: task 13.8/13.9,Projects 目的地的 Continue Session / New Session 需要跨到这里
+  // 已有的 goToSessions 机制,而 CreateSessionDialog 是这里唯一持有的实例。新增的是一份短暂的
+  // prefill state(`sessionPrefillWorkspace`,在 dialog 每次关闭/创建成功时清空,避免侧栏的普通
+  // "New Session" 继承上一次从 Projects 发起的 prefill)、两个转发 goToSessions 的 handler、
+  // 传给 ProjectsDestination 的三个 prop,以及 CreateSessionDialog 自己的一个新 prop。没有
+  // 复制既有分支——两个 handler 都是 goToSessions 已有能力的直接调用。
+  ["src/main-layout/main-layout.tsx", 557],
   ["src/contracts/agent.ts", 504],
   ["src/settings/pages/sdk-page.tsx", 396],
   // 318 -> 335: 会话创建需要选一个个性化模式，而这个选择又必须在没有工作区时被纠正——

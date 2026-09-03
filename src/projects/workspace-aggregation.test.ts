@@ -92,6 +92,7 @@ describe("buildRemoteWorkspaceSummary", () => {
     expect(summary.trust).toBe("trusted");
     expect(summary.availability).toBe("available");
     expect(summary.recentSession?.id).toBe("s-linked");
+    expect(summary.connectionId).toBe(conn.id);
   });
 
   it("reports unknown/disconnected for a matched-but-untested connection rather than guessing available", () => {
@@ -102,6 +103,11 @@ describe("buildRemoteWorkspaceSummary", () => {
 
     expect(summary.trust).toBe("unknown");
     expect(summary.availability).toBe("disconnected");
+    // A match still exists even though it is untested -- trust/availability are about *how much
+    // to believe* the match, connectionId is about whether one exists at all. Task 13.8's Reconnect
+    // action needs exactly this row to still carry an id: "not yet tested" is the normal, expected
+    // state for a Reconnect button to act on.
+    expect(summary.connectionId).toBe(conn.id);
   });
 
   it("falls back to the session's own embedded remoteWorkspace.uri when no connection profile matches at all", () => {
@@ -114,6 +120,10 @@ describe("buildRemoteWorkspaceSummary", () => {
     expect(summary.trust).toBe("unknown");
     expect(summary.availability).toBe("disconnected");
     expect(summary.recentSession?.id).toBe("s-embedded");
+    // No connection matched this row at all (different host) -- task 13.8's Reconnect action has
+    // nothing to call SshConnectionService.testConnection with, so this must stay undefined rather
+    // than pointing at some other host's connection id.
+    expect(summary.connectionId).toBeUndefined();
   });
 });
 

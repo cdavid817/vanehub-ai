@@ -82,6 +82,17 @@ export interface WorkspaceSummary {
   lastOpenedAt?: string;
   availability: WorkspaceAvailability;
   /**
+   * The `SshConnection.id` `workspace-aggregation.ts`'s own `matchConnection` already found for
+   * this row while deriving `trust`/`availability`/`recentSession` above -- surfaced here (task
+   * 13.8's Reconnect action) rather than re-derived a second time, since no shared foreign key
+   * exists between `KnownRemoteWorkspace` and `SshConnection` for a caller outside that function to
+   * redo the match safely (see `matchConnection`'s own doc comment). Present only for `kind: "ssh"`
+   * rows where a match was found; absent both for `kind: "local"` rows (no concept of a connection
+   * at all) and for unmatched `kind: "ssh"` rows (a remembered path with no saved profile for its
+   * host/port/user) -- callers must treat "absent" as "nothing to reconnect", never guess an id.
+   */
+  connectionId?: string;
+  /**
    * design.md sketches a required `activeRuns: number`. Deliberately omitted here rather than
    * kept and hardcoded to 0: `MissionControlRunSummary.projectId` is hardcoded `null` in both the
    * Web mock (`web-mission-control-client.ts`) and the real Rust backend

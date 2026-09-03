@@ -6,6 +6,7 @@ import { AsyncBoundary } from "../ui/async/AsyncBoundary";
 import type { AsyncViewState } from "../ui/async/async-view-state";
 import { EmptyState } from "../ui/empty-state/EmptyState";
 import { useProjectWorkspaces } from "./use-project-workspaces";
+import { useWorkspaceReconnect } from "./use-workspace-reconnect";
 import { selectWorkspaceView, workspaceViews, type WorkspaceView } from "./workspace-filter";
 import { WorkspaceCard } from "./workspace-card";
 import { WorkspaceDetail } from "./workspace-detail";
@@ -71,12 +72,24 @@ function WorkspaceViewList({ onSelect, selectedWorkspaceId, view, workspaces }: 
  * navigation/reload is what 13.12's own "list-then-detail composition, restore filters and scroll
  * anchor on Back" already owns; wiring `projectId` here now would duplicate that decision ahead of
  * it rather than follow the same precedent this codebase already chose for Goals.
+ *
+ * Task 13.8's three cross-cutting actions (Continue Session, New Session, Settings) are forwarded
+ * straight through from `projects-destination.tsx` -- this component has no reason to know about
+ * `goToSessions`/`SettingsPageId`. Reconnect is the one action this component itself owns end to
+ * end (`use-workspace-reconnect.ts`), the same split `goal-center.tsx`/`use-goal-center-actions.ts`
+ * already establish: mutations that belong to *this* list's own selection live here, navigation
+ * that leaves this destination entirely is somebody else's to own.
  */
-export function Projects() {
+export function Projects({ onContinueSession, onNewSession, onOpenSshSettings }: {
+  onContinueSession: (sessionId: string) => void;
+  onNewSession: (workspace: Pick<WorkspaceSummary, "workspaceId" | "kind">) => void;
+  onOpenSshSettings: () => void;
+}) {
   const { t } = useTranslation();
   const { data, error, loading, reload } = useProjectWorkspaces();
   const [view, setView] = useState<WorkspaceView>("recent");
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
+  const { mutations: reconnectMutations, reconnect } = useWorkspaceReconnect(() => void reload());
 
   const asyncState: AsyncViewState<WorkspaceSummary[]> = {
     data,
@@ -134,7 +147,15 @@ export function Projects() {
                   workspaces={list}
                 />
                 <div className="rounded-md border border-border">
-                  <WorkspaceDetail workspace={selected} />
+                  <WorkspaceDetail
+                    onContinueSession={onContinueSession}
+                    onDismissReconnectError={() => selected && reconnectMutations.clear(selected.workspaceId)}
+                    onNewSession={onNewSession}
+                    onOpenSshSettings={onOpenSshSettings}
+                    onReconnect={(connectionId) => selected && void reconnect(selected.workspaceId, connectionId)}
+                    reconnectMutation={selected ? reconnectMutations.get(selected.workspaceId) : undefined}
+                    workspace={selected}
+                  />
                 </div>
               </div>
             );

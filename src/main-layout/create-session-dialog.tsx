@@ -1,5 +1,6 @@
 import { CreateSessionDialogContent } from "./create-session-dialog-content";
 import { useCreateSessionDraft } from "./use-create-session-draft";
+import type { CreateSessionWorkspacePrefill } from "./create-session-workspace-prefill";
 import type { AgentRegistryEntry, Session } from "../types/agent";
 
 /**
@@ -14,14 +15,17 @@ export function CreateSessionDialog({
   onConfigureOnePiece,
   onCreated,
   open,
+  prefillWorkspace,
 }: {
   agents: AgentRegistryEntry[];
   onClose: () => void;
   onConfigureOnePiece: () => void;
   onCreated: (session: Session) => void;
   open: boolean;
+  /** Task 13.9: forwarded to `useCreateSessionDraft` verbatim -- see its own prop doc comment. */
+  prefillWorkspace?: CreateSessionWorkspacePrefill | null;
 }) {
-  const model = useCreateSessionDraft({ agents, onCreated, open });
+  const model = useCreateSessionDraft({ agents, onCreated, open, prefillWorkspace });
 
   if (!open) return null;
 

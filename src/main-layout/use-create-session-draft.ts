@@ -21,6 +21,12 @@ import {
   resolveCreatedSession,
   submitCreateSession,
 } from "./create-session-dialog-utils";
+import {
+  applyLocalWorkspacePrefill,
+  applyRemoteWorkspacePrefill,
+  findPrefillRemoteWorkspace,
+  type CreateSessionWorkspacePrefill,
+} from "./create-session-workspace-prefill";
 import { validateCreateSessionDraft } from "./create-session-validation";
 import type { ExpertRole } from "../types/expert-role";
 import type {
@@ -61,10 +67,13 @@ export function useCreateSessionDraft({
   agents,
   onCreated,
   open,
+  prefillWorkspace,
 }: {
   agents: AgentRegistryEntry[];
   onCreated: (session: Session) => void;
   open: boolean;
+  /** Task 13.9: a validated workspace id/kind, applied below (see create-session-workspace-prefill.ts). */
+  prefillWorkspace?: CreateSessionWorkspacePrefill | null;
 }) {
   const { t } = useTranslation();
   const availableAgents = useMemo(() => selectSessionAgents(agents), [agents]);
@@ -97,13 +106,18 @@ export function useCreateSessionDraft({
       .catch(() => setKnownProjects([]));
     void agentService
       .listKnownRemoteWorkspaces()
-      .then(setKnownRemoteWorkspaces)
+      .then((remoteWorkspaces) => {
+        setKnownRemoteWorkspaces(remoteWorkspaces);
+        const match = findPrefillRemoteWorkspace(prefillWorkspace, remoteWorkspaces);
+        if (match) applyRemoteWorkspacePrefill(match, dispatch);
+      })
       .catch(() => setKnownRemoteWorkspaces([]));
     void sshConnectionService
       .listConnections()
       .then(setSshConnections)
       .catch(() => setSshConnections([]));
-  }, [availableAgents, open]);
+    if (prefillWorkspace?.kind === "local") void applyLocalWorkspacePrefill(prefillWorkspace.workspaceId, dispatch, setInspection);
+  }, [availableAgents, open, prefillWorkspace]);
 
   useEffect(() => {
     if (!lifecycle.createOperationId || lifecycle.handledCreateOperationId === lifecycle.createOperationId) {

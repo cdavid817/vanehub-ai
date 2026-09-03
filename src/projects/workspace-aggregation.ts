@@ -101,6 +101,11 @@ export function buildRemoteWorkspaceSummary(
     // host key has never been confirmed" (`hostTrust === null`) — neither one is evidence of
     // `"trusted"`, and nothing anywhere records `"untrusted"`/`"revoked"` (see workspace-summary.ts).
     availability: connectionAvailability(connection),
+    // Same `connection` this function already matched to derive trust/availability/recentSession
+    // above -- not a second lookup, just also kept for task 13.8's Reconnect action (see
+    // `WorkspaceSummary.connectionId`'s own doc comment for why it cannot be safely re-derived
+    // anywhere else).
+    connectionId: connection?.id,
     displayName: remote.displayName,
     displayPath: remoteDisplayPath(remote),
     kind: "ssh",

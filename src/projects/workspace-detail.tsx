@@ -1,8 +1,12 @@
-import { Folder, FolderGit2, Server } from "lucide-react";
+import { Folder, FolderGit2, Play, Plus, RefreshCw, Server, Settings } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Badge } from "../components/ui/badge";
+import { Button } from "../components/ui/button";
 import { formatAppDateTime } from "../i18n/format";
 import { lifecycleDotClass, lifecycleLabelKey, lifecycleTone } from "../lib/session-lifecycle";
+import { ActionMenu, type ActionMenuItem } from "../ui/actions/ActionMenu";
+import { MutationStatus } from "../ui/async/MutationStatus";
+import type { MutationState } from "../ui/async/mutation-state";
 import { useWorkspacePlanLinks } from "./use-workspace-plan-links";
 import type { WorkspaceAvailability, WorkspaceSummary, WorkspaceTrust } from "./workspace-summary";
 
@@ -88,13 +92,34 @@ function WorkspacePlanSection({ workspaceId }: { workspaceId: string }) {
 
 export interface WorkspaceDetailProps {
   workspace: WorkspaceSummary | null;
+  /** Navigates to an existing session by id -- "Continue Session" (task 13.8). */
+  onContinueSession: (sessionId: string) => void;
+  /** Opens the create-session wizard prefilled from this workspace (tasks 13.8/13.9). */
+  onNewSession: (workspace: Pick<WorkspaceSummary, "workspaceId" | "kind">) => void;
+  /** The one real Settings destination a workspace row has today -- SSH rows only, see below. */
+  onOpenSshSettings: () => void;
+  /** Re-tests the SSH connection `workspace.connectionId` names -- matched-connection case only. */
+  onReconnect: (connectionId: string) => void;
+  reconnectMutation?: MutationState;
+  onDismissReconnectError?: () => void;
 }
 
 /**
  * Task 13.7: identity, trust, Git/worktree, recent Session, active Runs, and related Plan/Quality
  * links for the workspace selected in `projects.tsx`'s own master-detail split (mirrors
- * `GoalCenter`/`GoalDetail`'s established layout, `goal-center.tsx`/`goal-detail.tsx`). Read-only:
- * no actions, no mutations -- state-aware actions are task 13.8's own separate, larger scope.
+ * `GoalCenter`/`GoalDetail`'s established layout, `goal-center.tsx`/`goal-detail.tsx`).
+ *
+ * Task 13.8 added a real, state-aware actions region beneath the header, mirroring
+ * `goal-detail.tsx`'s own primary-plus-`ActionMenu`-More pattern (15.3): Continue Session is
+ * primary whenever a recent session exists (resuming what is already there beats starting over),
+ * New Session is primary only when there is nothing to resume (and moves into More once a session
+ * exists), and Reconnect/Settings always sit in More since neither is ever the reader's first move.
+ * Open Shell, Create Worktree, Relocate, and Remove History are deliberately not built here -- see
+ * this increment's own report for the confirmed gap behind each (no Shell interaction mode exists
+ * to prefill toward, and no backing service method exists for the other three). Reconnect and
+ * Settings render only for `kind: "ssh"` rows: no service anywhere lets a caller re-test a local
+ * path's "connection", and Settings has no local-project destination to point at at all (grepped
+ * every `SettingsPageId` -- only `"ssh-connections"` is workspace-shaped).
  *
  * Every field renders *something* rather than silently disappearing when the underlying data is
  * absent -- trust for local rows, git detail for SSH rows, active Runs, and Quality links are all
@@ -102,7 +127,9 @@ export interface WorkspaceDetailProps {
  * file's section components below), not bugs, and each one says so explicitly instead of reading
  * like an unfinished feature.
  */
-export function WorkspaceDetail({ workspace }: WorkspaceDetailProps) {
+export function WorkspaceDetail({
+  onContinueSession, onDismissReconnectError, onNewSession, onOpenSshSettings, onReconnect, reconnectMutation, workspace,
+}: WorkspaceDetailProps) {
   const { i18n, t } = useTranslation();
 
   if (!workspace) {
@@ -114,6 +141,34 @@ export function WorkspaceDetail({ workspace }: WorkspaceDetailProps) {
   }
 
   const session = workspace.recentSession;
+  const primaryAction = session ? (
+    <Button onClick={() => onContinueSession(session.id)} size="sm" type="button">
+      <Play aria-hidden="true" className="h-3.5 w-3.5" />{t("projects.actions.continueSession")}
+    </Button>
+  ) : (
+    <Button onClick={() => onNewSession(workspace)} size="sm" type="button">
+      <Plus aria-hidden="true" className="h-3.5 w-3.5" />{t("projects.actions.newSession")}
+    </Button>
+  );
+  const moreItems: ActionMenuItem[] = [];
+  if (session) {
+    moreItems.push({ icon: Plus, id: "new-session", label: t("projects.actions.newSession"), onSelect: () => onNewSession(workspace) });
+  }
+  if (workspace.kind === "ssh") {
+    const canReconnect = workspace.connectionId !== undefined;
+    moreItems.push({
+      // A definite boolean, not `undefined`, so `ActionMenu`'s own `aria-disabled={item.disabled}`
+      // reliably renders "false" rather than omitting the attribute -- callers/tests need to be
+      // able to tell "confirmed enabled" apart from "never set".
+      disabled: !canReconnect || (reconnectMutation?.pending ?? false),
+      disabledReason: canReconnect ? undefined : t("projects.actions.reconnectUnavailable"),
+      icon: RefreshCw,
+      id: "reconnect",
+      label: reconnectMutation?.pending ? t("projects.actions.reconnecting") : t("projects.actions.reconnect"),
+      onSelect: () => { if (workspace.connectionId) onReconnect(workspace.connectionId); },
+    });
+    moreItems.push({ icon: Settings, id: "settings", label: t("projects.actions.openSshSettings"), onSelect: onOpenSshSettings });
+  }
 
   return (
     <section aria-labelledby="workspace-detail-title" className="grid content-start gap-3 overflow-y-auto p-3" data-testid="workspace-detail">
@@ -135,6 +190,12 @@ export function WorkspaceDetail({ workspace }: WorkspaceDetailProps) {
           </p>
         ) : null}
       </header>
+
+      <div aria-label={t("projects.actionsLabel")} className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/20 p-2" role="group">
+        {primaryAction}
+        <ActionMenu items={moreItems} triggerLabel={t("workbenchUi.pageHeader.moreActions")} />
+      </div>
+      <MutationStatus onDismiss={onDismissReconnectError} state={reconnectMutation} />
 
       <div className="grid gap-1 rounded-md border border-border bg-muted/10 p-3">
         <h3 className="text-sm font-semibold">{t("projects.detail.trust.title")}</h3>
