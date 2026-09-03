@@ -97,7 +97,9 @@ describe("SessionContextPanel recovery entry", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /恢复会话/ }));
+    // `role="menuitem"` (not "button") since this recover entry lives inside the panel's
+    // `role="menu"` -- an explicit role overrides a `<button>`'s implicit one.
+    fireEvent.click(screen.getByRole("menuitem", { name: /恢复会话/ }));
     expect(onRecover).toHaveBeenCalledWith(target);
   });
 
@@ -111,6 +113,6 @@ describe("SessionContextPanel recovery entry", () => {
       />,
     );
 
-    expect(screen.queryByRole("button", { name: /恢复会话/ })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /恢复会话/ })).toBeNull();
   });
 });
