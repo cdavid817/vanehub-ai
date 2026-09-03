@@ -132,3 +132,63 @@ test.describe("Todo Board", () => {
     await expect(card.getByRole("button", { name: "已计划" })).toBeVisible();
   });
 });
+
+/**
+ * 20.2/20.17: Work Board had no theme-paired visual coverage at all before this pass (unlike the 7
+ * files task 20.2's own research found already carrying it), and its own compact breakpoint
+ * (`work-board.tsx`'s `useMediaQuery("(max-width: 900px)")`, 20.1's own evidence) sits on a named
+ * width from that task's own list (1600/1440/1280/1100/1024/900/768/640, plus the Tauri minWidth
+ * that duplicates 1100 in that same list) -- 1600 and 1100 stay in the wide Kanban mode (1100
+ * additionally proving no breakage at this app's real Tauri floor, src-tauri/tauri.conf.json's own
+ * `minWidth`), 900 and 640 both land in the compact Stage List mode (900 exactly at the threshold,
+ * 640 the narrowest named width). 1440/1280/1024/768 are deliberately not each given their own
+ * entry: every one of them falls inside a mode a kept width already demonstrates, so a dedicated
+ * screenshot for each would only re-capture an already-proven mode at a slightly different total
+ * width, not a new state.
+ *
+ * Kanban vs. Stage List is asserted structurally, not just visually: `WorkBoardColumn` (Kanban)
+ * always renders all 5 stage headers, even an empty one (its own empty-state branch) --
+ * `WorkBoardList` in `grouping="stage"` mode (the compact Stage List, work-board.tsx's own 14.13)
+ * calls `groupWorkItemsByStage`, which filters empty stages out entirely (work-board-query.ts). A
+ * single seeded item (left in "收件箱") makes this a real, checkable difference: Kanban must still
+ * show "已完成" (done, empty) as its own column; Stage List must not.
+ */
+test.describe("Work Board visual theme/width matrix (20.2/20.17)", () => {
+  for (const variant of [
+    { compact: false, name: "futuristic-wide", theme: "futuristic" as const, width: 1600 },
+    { compact: false, name: "minimal-wide", theme: "minimal" as const, width: 1600 },
+    { compact: false, name: "futuristic-floor", theme: "futuristic" as const, width: 1100 },
+    { compact: false, name: "minimal-floor", theme: "minimal" as const, width: 1100 },
+    { compact: true, name: "futuristic-compact-edge", theme: "futuristic" as const, width: 900 },
+    { compact: true, name: "minimal-compact-edge", theme: "minimal" as const, width: 900 },
+    { compact: true, name: "futuristic-narrow", theme: "futuristic" as const, width: 640 },
+    { compact: true, name: "minimal-narrow", theme: "minimal" as const, width: 640 },
+  ]) {
+    test(`Work Board visual ${variant.name}`, async ({ page }, testInfo) => {
+      await page.setViewportSize({ width: variant.width, height: 900 });
+      await page.addInitScript((theme) => window.localStorage.setItem("vanehub.appSettings", JSON.stringify({ applicationLanguage: "zh-CN", theme })), variant.theme);
+      await page.goto("/");
+      await page.getByRole("button", { name: "计划", exact: true }).click();
+      await page.getByRole("tab", { name: "任务看板" }).click();
+      await expect(page.locator("html")).toHaveAttribute("data-theme", variant.theme);
+
+      await page.getByRole("button", { name: "新建工作项" }).click();
+      await page.getByLabel("标题").fill("响应式矩阵任务");
+      await page.getByRole("button", { name: "创建", exact: true }).click();
+      const card = page.getByTestId(/work-item-web-/).filter({ hasText: "响应式矩阵任务" });
+      await expect(card).toBeVisible();
+
+      const doneHeading = page.getByRole("heading", { name: "已完成", level: 2 });
+      if (variant.compact) {
+        // Stage List: an empty stage's own group section is filtered out entirely.
+        await expect(doneHeading).toHaveCount(0);
+        await expect(page.getByRole("heading", { name: "收件箱", level: 2 })).toBeVisible();
+      } else {
+        // Kanban: every stage renders its own column, even an empty one.
+        await expect(doneHeading).toBeVisible();
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      await page.locator("#todo-board").screenshot({ path: testInfo.outputPath(`${variant.name}.png`) });
+    });
+  }
+});
