@@ -3,8 +3,10 @@ import { ShieldCheck, Square } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { agentService } from "../services/runtime-agent-client";
 import type { EvaluationArena, EvaluationAttempt } from "../types/evaluation";
+import { StatusBadge } from "../ui/status/StatusBadge";
 import { EvidenceLink } from "../ui/evidence/EvidenceLink";
 import { EvaluationArenaList } from "./evaluation-arena-list";
+import { OUTCOME_TONE } from "./evaluation-arena-summary";
 import { EvaluationComparisonPanel } from "./evaluation-comparison-panel";
 import { EvaluationResultsTable } from "./evaluation-results-table";
 import { EvaluationRunControls } from "./evaluation-run-controls";
@@ -34,6 +36,15 @@ export function EvaluationCenter() {
   const selected = useMemo(
     () => arenas.flatMap((arena) => arena.attempts).find((attempt) => attempt.id === selectedId) ?? null,
     [arenas, selectedId],
+  );
+  // 18.12 "thresholds": the only real threshold-like value anywhere in the evaluation domain is
+  // `EvaluationTask.timeoutSeconds` -- `EvaluationCheck`/`EvaluationMetric` carry no target/threshold
+  // field of their own (checked both types fully), so this is a task-level lookup, not per-check or
+  // per-metric. `null` (never a fabricated "Unavailable" line) when the catalog has no matching
+  // task/version, mirroring `findTaskPrompt`'s own established "omit rather than fabricate" choice.
+  const selectedTask = useMemo(
+    () => (selected ? tasks.find((task) => task.id === selected.taskId && task.version === selected.taskVersion) ?? null : null),
+    [tasks, selected],
   );
   const visible = useMemo(() => arenas.flatMap((arena) => arena.attempts.map((attempt) => ({ arena, attempt })))
     .filter(({ attempt }) => `${attempt.agent.agentId} ${attempt.outcome}`.toLowerCase().includes(filter.toLowerCase())), [arenas, filter]);
@@ -91,6 +102,18 @@ export function EvaluationCenter() {
       />
       <aside className="min-w-0 p-3" data-selected-attempt={selected?.id ?? ""} data-selected-outcome={selected?.outcome ?? ""} data-testid="evaluation-detail"><div className="mb-2 flex items-center justify-between"><h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t("evaluation.detail")}</h2>{selected && !TERMINAL_EVALUATION_OUTCOMES.has(selected.outcome) ? <button className="flex items-center gap-1 rounded-md border border-input px-2 py-1 text-xs" data-testid="evaluation-cancel" onClick={() => void cancel()} type="button"><Square className="h-3 w-3" />{t("evaluation.cancel")}</button> : null}</div>
         {selected ? <div className="space-y-3"><div className="rounded-md border border-border bg-muted/30 p-3"><p className="font-mono text-xs">{selected.agent.providerId} / {selected.agent.modelId ?? t("evaluation.unavailable")}</p><p className="mt-1 text-xs text-muted-foreground">{selected.agent.configurationFingerprint}</p></div>
+          {/* 18.12: failure classification -- which one of the 9 EvaluationOutcome values this
+             attempt has, plus a real per-outcome explanation (not a generic pass/fail badge), a
+             task-level threshold when one exists, and an honest disclosure that no judge role is
+             ever recorded (the `judge` field is structurally optional but has zero real producers
+             or consumers anywhere in this codebase -- see evaluation.ts and the grep this task's
+             own evidence in tasks.md cites). */}
+          <div className="rounded-md border border-border bg-muted/30 p-3" data-testid="evaluation-outcome-detail">
+            <StatusBadge label={t(`evaluation.outcome.${selected.outcome}`)} tone={OUTCOME_TONE[selected.outcome]} />
+            <p className="mt-1 text-xs text-muted-foreground">{t(`evaluation.outcomeExplanation.${selected.outcome}`)}</p>
+            {selectedTask ? <p className="mt-1 text-xs text-muted-foreground">{t("evaluation.timeoutLabel")}: {t("evaluation.timeoutValue", { seconds: selectedTask.timeoutSeconds })}</p> : null}
+            <p className="mt-1 text-xs text-muted-foreground">{t("evaluation.judgeUnavailable")}</p>
+          </div>
           <Evidence attempt={selected} title={t("evaluation.verification")} />
           <div>
             <h3 className="text-xs font-semibold">{t("evaluation.diff")}</h3>
@@ -115,4 +138,27 @@ export function EvaluationCenter() {
   </div>;
 }
 
-function Evidence({ attempt, title }: { attempt: EvaluationAttempt; title: string }) { return <div><h3 className="flex items-center gap-2 text-xs font-semibold"><ShieldCheck aria-hidden="true" className="h-4 w-4" />{title}</h3>{attempt.checks.map((check) => <p className="mt-1 text-xs" key={check.checkId}>{check.passed ? "PASS" : "FAIL"} · {check.summary}</p>)}</div>; }
+// 18.12 "bounded reason": `check.summary` is free-text from the harness with no length constraint
+// in `EvaluationCheck`, and the fixture generator (`evaluation-fixtures.ts`) already produces up to
+// 20 checks per attempt. A "+N more" cap (Work Board's own `MAX_VISIBLE_SOURCES` precedent) was
+// considered and rejected here specifically: checks are the primary pass/fail signal, and hiding
+// some behind "+N more" could hide a *failing* check from view -- actively unsafe for a QA surface.
+// Scroll-bound instead, mirroring the artifact list two sections below in this same detail pane:
+// every check stays reachable, only the rendered height is capped. Each summary is additionally
+// `line-clamp`-truncated with the full text kept in `title` (hover/long-press), never silently lost.
+function Evidence({ attempt, title }: { attempt: EvaluationAttempt; title: string }) {
+  return (
+    <div>
+      <h3 className="flex items-center gap-2 text-xs font-semibold"><ShieldCheck aria-hidden="true" className="h-4 w-4" />{title}</h3>
+      <ul className="mt-1 flex max-h-48 flex-col gap-1 overflow-auto">
+        {attempt.checks.map((check) => (
+          <li className="text-xs" key={check.checkId}>
+            <span className="font-medium">{check.passed ? "PASS" : "FAIL"}</span>
+            {" · "}
+            <span className="line-clamp-2 align-bottom" title={check.summary}>{check.summary}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}

@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { i18n } from "../i18n";
 import { agentService } from "../services/runtime-agent-client";
-import type { EvaluationArena } from "../types/evaluation";
+import type { EvaluationArena, EvaluationCheck } from "../types/evaluation";
 import { EvaluationCenter } from "./evaluation-center";
 
 beforeAll(() => {
@@ -76,9 +76,15 @@ describe("EvaluationCenter", () => {
     await openWizardAndRun();
     expect((screen.getByRole("button", { name: "运行中" }) as HTMLButtonElement).disabled).toBe(true);
     resolveStart?.(queued);
-    fireEvent.click((await screen.findByText("已排队")).closest("tr")!);
+    // Scoped to the results table body: 18.12 added an outcome badge to the detail pane too, and
+    // `start()` auto-selects the arena's first attempt, so an unscoped lookup would find this same
+    // text in both places once that pane renders.
+    const tableBody = document.querySelector("tbody") as HTMLElement;
+    fireEvent.click((await within(tableBody).findByText("已排队")).closest("tr")!);
     fireEvent.click(screen.getByRole("button", { name: "取消" }));
-    await waitFor(() => expect(screen.getByText("已取消")).toBeTruthy());
+    // Scoped to the detail pane -- this is what the test is actually about (the pane following the
+    // polled state, not the table row, which updates independently either way).
+    await waitFor(() => expect(within(screen.getByTestId("evaluation-detail")).getByText("已取消")).toBeTruthy());
     cleanup();
     vi.spyOn(agentService, "listEvaluationTasks").mockRejectedValue(new Error("secret must not surface"));
     render(<EvaluationCenter />);
@@ -146,13 +152,51 @@ describe("EvaluationCenter", () => {
         "agentSelection.capabilityLabel", "agentSelection.capabilityAll", "agentSelection.resultCount", "agentSelection.selectVisible",
         "agentSelection.maxAgents", "agentSelection.maxAgentsExceeded", "agentSelection.empty",
         "agentStatus.available", "agentStatus.unavailable", "agentStatus.needs-auth", "agentStatus.unknown",
+        // 18.12: per-outcome failure-classification explanations, the task-level timeout threshold, and the judge-role disclosure.
+        "outcomeExplanation.queued", "outcomeExplanation.running", "outcomeExplanation.succeeded", "outcomeExplanation.task_failed",
+        "outcomeExplanation.agent_failed", "outcomeExplanation.timed_out", "outcomeExplanation.stuck", "outcomeExplanation.cancelled",
+        "outcomeExplanation.benchmark_error", "timeoutLabel", "judgeUnavailable",
       ]) {
         expect(i18n.getFixedT(locale)(`evaluation.${key}`)).not.toBe(`evaluation.${key}`);
       }
       for (const key of ["selectedCount_one", "selectedCount_other"]) {
         expect(i18n.getFixedT(locale)(`evaluation.${key}`, { count: 1 })).not.toBe(`evaluation.${key}`);
       }
+      expect(i18n.getFixedT(locale)("evaluation.timeoutValue", { seconds: 120 })).not.toBe("evaluation.timeoutValue");
     }
+  });
+
+  // 18.12: the detail pane's own outcome badge, per-outcome explanation, task timeout threshold,
+  // and honest judge-role disclosure -- distinct from the results table's own outcome column.
+  // zh-CN throughout, matching this file's own convention: `openWizardAndRun` clicks
+  // hardcoded-Chinese button labels ("配置评测"/"下一步"/"运行竞技场"), the same as every other
+  // test in this file that renders a full run.
+  it("surfaces failure classification, the task timeout threshold, and an honest judge-role disclosure in the detail pane", async () => {
+    await i18n.changeLanguage("zh-CN");
+    vi.spyOn(agentService, "listEvaluationArenas").mockResolvedValue([]);
+    vi.spyOn(agentService, "startEvaluation").mockResolvedValue(arenaWithArtifacts([]));
+    render(<EvaluationCenter />);
+    await openWizardAndRun();
+    fireEvent.click(await screen.findByTestId("evaluation-row"));
+    const outcomeDetail = within(screen.getByTestId("evaluation-outcome-detail"));
+    expect(outcomeDetail.getByText("通过")).toBeTruthy();
+    expect(outcomeDetail.getByText("所有确定性检查均已通过。")).toBeTruthy();
+    // fix-null-auth-token v1's own real catalog timeout (web-evaluation-client.ts), not a fabricated value.
+    expect(outcomeDetail.getByText(/120/)).toBeTruthy();
+    expect(outcomeDetail.getByText("此次尝试未记录裁判角色。")).toBeTruthy();
+  });
+
+  // 18.12 "bounded reason": the checks list must stay reachable in full (scroll-bound), never
+  // silently cut down to a fixed count the way a "+N more" cap would.
+  it("keeps the checks list scroll-bound rather than unbounded", async () => {
+    await i18n.changeLanguage("zh-CN");
+    vi.spyOn(agentService, "listEvaluationArenas").mockResolvedValue([]);
+    vi.spyOn(agentService, "startEvaluation").mockResolvedValue(arenaWithChecks([{ checkId: "a", passed: true, summary: "42/42" }]));
+    render(<EvaluationCenter />);
+    await openWizardAndRun();
+    fireEvent.click(await screen.findByTestId("evaluation-row"));
+    const checksList = within(screen.getByTestId("evaluation-detail")).getByText("PASS").closest("ul");
+    expect(checksList?.className).toContain("overflow-auto");
   });
 
   // 18.13: raw artifact ids used to render inside a copyable <pre> block. There is no
@@ -226,6 +270,10 @@ function arena(outcome: "queued" | "cancelled"): EvaluationArena {
 
 function arenaWithArtifacts(artifactIds: string[]): EvaluationArena {
   return { id: "arena-artifacts", operationId: "operation-artifacts", taskId: "fix-null-auth-token", taskVersion: 1, rankingVersion: "deterministic-v2", attempts: [{ id: "attempt-artifacts", arenaId: "arena-artifacts", canonicalRunId: "run-artifacts", taskId: "fix-null-auth-token", taskVersion: 1, agent: { agentId: "onepiece", providerId: "onepiece", modelId: null, interactionMode: "api", configurationFingerprint: "safe" }, outcome: "succeeded", checks: [], metrics: [], contextEvidenceManifestId: null, artifactIds, timeline: [] }] };
+}
+
+function arenaWithChecks(checks: EvaluationCheck[]): EvaluationArena {
+  return { id: "arena-checks", operationId: "operation-checks", taskId: "fix-null-auth-token", taskVersion: 1, rankingVersion: "deterministic-v2", attempts: [{ id: "attempt-checks", arenaId: "arena-checks", canonicalRunId: "run-checks", taskId: "fix-null-auth-token", taskVersion: 1, agent: { agentId: "onepiece", providerId: "onepiece", modelId: null, interactionMode: "api", configurationFingerprint: "safe" }, outcome: "succeeded", checks, metrics: [], contextEvidenceManifestId: null, artifactIds: [], timeline: [] }] };
 }
 
 // Two attempts sharing task+version, both terminal with different outcomes -- the minimal real

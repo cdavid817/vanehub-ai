@@ -39,10 +39,19 @@ test("runs, compares, filters, inspects, and exports the complete mock benchmark
     await page.getByTestId("evaluation-agent-onepiece").check();
     await page.getByTestId("evaluation-agent-codex-cli").check();
   });
-  await expect(page.getByText("Passed", { exact: true })).toBeVisible();
-  await expect(page.getByText("Task failed", { exact: true })).toBeVisible();
+  // Scoped to result rows via the shared "evaluation-row" testid (present on both the desktop
+  // <table> and the narrow-viewport compact-card fallback -- `DataTableBody.tsx` spreads
+  // `getRowMeta`'s attributes onto whichever element it renders): 18.12 added an outcome badge to
+  // the detail pane too, and `start()` auto-selects the arena's first attempt, so an unscoped text
+  // locator can resolve to two elements (the row and the now-rendered detail pane) once that first
+  // attempt succeeded. Each mock outcome is unique per row (`web-evaluation-client.ts`: only index 0
+  // ever succeeds), so filtering rows by outcome text stays unambiguous.
+  const passedRow = page.getByTestId("evaluation-row").filter({ hasText: "Passed" });
+  const taskFailedRow = page.getByTestId("evaluation-row").filter({ hasText: "Task failed" });
+  await expect(passedRow).toBeVisible();
+  await expect(taskFailedRow).toBeVisible();
   await page.getByLabel("Filter results").fill("codex-cli");
-  await page.getByText("Task failed", { exact: true }).click();
+  await taskFailedRow.click();
   await expect(page.getByText("Metrics and provenance")).toBeVisible();
   await expect(page.getByText(/unavailable · provider/)).toBeVisible();
   const download = page.waitForEvent("download");
@@ -59,7 +68,9 @@ for (const variant of [
   test(`evaluation workspace visual ${variant.name}`, async ({ page }, testInfo) => {
     await openEvaluation(page, variant.theme, variant.width);
     await openWizardAndRun(page);
-    await page.getByText("Passed", { exact: true }).click();
+    // Scoped to the result row -- see the same-named comment in the functional test above. This
+    // must work in the 390px-narrow compact-card fallback too, where there is no <table> at all.
+    await page.getByTestId("evaluation-row").filter({ hasText: "Passed" }).click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", variant.theme);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.getByTestId("evaluation-center").screenshot({ path: testInfo.outputPath(`${variant.name}.png`) });
