@@ -4903,6 +4903,8 @@
   "evaluation.timeoutLabel": "超时时间",
   "evaluation.timeoutValue": "{{seconds}} 秒",
   "evaluation.judgeUnavailable": "此次尝试未记录裁判角色。",
+  "evaluation.loadMore": "加载更多",
+  "evaluation.loadingMore": "加载中...",
   "layout.activityBar.missionControl": "任务控制台",
   "missionControl.title": "Agent 任务控制台",
   "missionControl.description": "监控运行、待处理事项与最近结果。",

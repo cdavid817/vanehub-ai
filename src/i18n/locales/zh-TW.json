@@ -4976,6 +4976,8 @@
   "evaluation.timeoutLabel": "逾時時間",
   "evaluation.timeoutValue": "{{seconds}} 秒",
   "evaluation.judgeUnavailable": "此次嘗試未記錄裁判角色。",
+  "evaluation.loadMore": "載入更多",
+  "evaluation.loadingMore": "載入中...",
   "missionControl.filterRunner": "依 Runner 篩選",
   "missionControl.allRunners": "全部 Runner",
   "missionControl.savedViews.trigger": "已儲存檢視",

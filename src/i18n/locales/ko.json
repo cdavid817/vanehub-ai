@@ -4976,6 +4976,8 @@
   "evaluation.timeoutLabel": "제한 시간",
   "evaluation.timeoutValue": "{{seconds}}초",
   "evaluation.judgeUnavailable": "이 시도에는 심사자 역할이 기록되어 있지 않습니다.",
+  "evaluation.loadMore": "더 불러오기",
+  "evaluation.loadingMore": "불러오는 중...",
   "missionControl.filterRunner": "Runner로 필터링",
   "missionControl.allRunners": "모든 Runner",
   "missionControl.savedViews.trigger": "저장된 보기",

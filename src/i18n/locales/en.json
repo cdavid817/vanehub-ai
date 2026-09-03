@@ -4903,6 +4903,8 @@
   "evaluation.timeoutLabel": "Timeout",
   "evaluation.timeoutValue": "{{seconds}}s",
   "evaluation.judgeUnavailable": "No judge role is recorded for this attempt.",
+  "evaluation.loadMore": "Load more",
+  "evaluation.loadingMore": "Loading...",
   "layout.activityBar.missionControl": "Mission Control",
   "missionControl.title": "Agent Mission Control",
   "missionControl.description": "Monitor active Runs, attention, and recent outcomes.",

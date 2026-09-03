@@ -4976,6 +4976,8 @@
   "evaluation.timeoutLabel": "タイムアウト",
   "evaluation.timeoutValue": "{{seconds}}秒",
   "evaluation.judgeUnavailable": "この試行には判定者ロールが記録されていません。",
+  "evaluation.loadMore": "さらに読み込む",
+  "evaluation.loadingMore": "読み込み中...",
   "missionControl.filterRunner": "Runner で絞り込む",
   "missionControl.allRunners": "すべての Runner",
   "missionControl.savedViews.trigger": "保存済みビュー",
