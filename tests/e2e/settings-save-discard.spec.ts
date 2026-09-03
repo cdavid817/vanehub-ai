@@ -106,6 +106,30 @@ test.describe("settings draft guard: save/discard and leave protection (task 12.
     await expect(page.getByText("1 项未保存的更改")).toHaveCount(0);
   });
 
+  // 20.19: drives the same toggle-then-save flow above with no pointer at all. The switch is a real
+  // `<button role="switch">` (cli-parameter-control.tsx), so Enter/Space toggle it the same as a
+  // click would; `.focus()` establishes each step's own starting point, matching the house style
+  // this task's other new keyboard tests already use (see e.g. loop-engineering.spec.ts's "accepts
+  // an acceptance-ready Loop..." test).
+  test("keyboard-only: toggling a draft field and saving it through the DraftActionBar persists", async ({ page }) => {
+    await openCliParameters(page);
+    const toggle = safeModeSwitch(page);
+    await toggle.focus();
+    await expect(toggle).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(toggle).toHaveAttribute("aria-checked", "true");
+
+    const draftBar = page.getByRole("region").filter({ hasText: "1 项未保存的更改" });
+    await expect(draftBar).toBeVisible();
+    const saveButton = draftBar.getByRole("button", { name: "保存", exact: true });
+    await saveButton.focus();
+    await expect(saveButton).toBeFocused();
+    await page.keyboard.press("Enter");
+
+    await expect(page.getByText("CLI 参数已保存")).toBeVisible();
+    await expect(page.getByText("1 项未保存的更改")).toHaveCount(0);
+  });
+
   test("switching to a different settings page while dirty neither shows a guard dialog nor discards the edit", async ({ page }) => {
     await openCliParameters(page);
     const toggle = safeModeSwitch(page);
