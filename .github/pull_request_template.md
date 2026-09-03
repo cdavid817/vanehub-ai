@@ -16,6 +16,7 @@ Describe affected platforms, migrations, security considerations, and rollback o
 - [ ] Every command in the AGENTS.md「校验命令」section passes locally (verbatim flags — `lint:ci`, `clippy --all-targets -- -D warnings`, `fmt --check`)
 - [ ] `npx playwright test` (when UI behavior changes)
 - [ ] Conditional checks per AGENTS.md when applicable: coverage, contracts, and `openspec validate <change-name> --strict` for each active change touched
+- [ ] If any `tests/e2e-visual-regression/*-snapshots/*.png` baseline changed: ran `npm run visual:update` then `npm run visual:test` twice, and added a "Visual baseline update" note per changed image below (see CONTRIBUTING.md § Visual regression baselines)
 
 ## Screenshots or diagnostics
 

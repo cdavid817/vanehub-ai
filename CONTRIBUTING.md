@@ -36,6 +36,32 @@ Every weaker variant above passes locally and is rejected by CI.
 
 When your change touches the corresponding area, also run the conditional commands listed below that section: `npx playwright test` for UI behavior changes, the coverage and contract checks, and `openspec validate <change-name> --strict` for every active change you modify.
 
+## Visual regression baselines
+
+`npm run visual:test` runs the real Playwright `toHaveScreenshot()` baseline-comparison suite
+(`playwright.visual.config.ts`, `tests/e2e-visual-regression/`). This is distinct from the
+`page.screenshot()` capture-as-evidence tests under `tests/e2e/` (including the `*.visual.spec.ts`
+files there), which write to the gitignored, per-run-wiped `test-results/e2e/` directory and prove a
+surface renders without crashing, not that it matches a prior appearance. Baseline PNGs live in
+`tests/e2e-visual-regression/*-snapshots/` and are committed to the repository.
+
+These baselines are only valid for the OS that captured them — Playwright embeds the platform in the
+filename (for example `-win32.png`) — see `playwright.visual.config.ts`'s own doc comment for why
+this suite is not wired into CI's `e2e` job yet.
+
+When a change intentionally alters a surface's appearance:
+
+1. Run `npm run visual:update` to regenerate the affected baseline PNG(s) only — check the diff to
+   confirm no unrelated baseline moved.
+2. Run `npm run visual:test` at least twice in a row to confirm the new baseline is stable rather
+   than flaky. A baseline that fails its own second run is worse than no baseline.
+3. In the pull request description, add a short "Visual baseline update" note for every changed PNG:
+   which surface/theme/locale/width changed and why the new appearance is correct. GitHub renders a
+   diff view for changed PNGs directly in the "Files changed" tab — that rendered diff is the
+   before/after reference; the note is the reviewer-facing judgment that the diff is an intentional
+   change, not a regression slipping through as an accepted baseline.
+4. Do not regenerate a baseline to silence a failing test without first reading why it changed.
+
 ## Commits and pull requests
 
 - Write an imperative, scoped commit subject.
