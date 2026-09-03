@@ -236,3 +236,53 @@ test("completes a single-Agent CLI session against a remote workspace", async ({
 
   await expect(page.getByRole("textbox", { name: "Terminal input" })).toBeEnabled({ timeout: 15_000 });
 });
+
+/**
+ * 20.19: every test above drives the wizard via `.click()` on Next/Back/mode buttons -- the
+ * `.press("Tab")` calls in `session-helpers.ts`'s own `createSession` (reused throughout this file)
+ * only trigger the project-path field's own blur validation, and the one `page.keyboard.press
+ * ("Escape")` in the submission-safety test above is a negative check that dismissal stays blocked,
+ * not a real navigation step. This is the first full pass: all 4 steps (mode, participant,
+ * workspace, review) advance via a focused button and a real `Enter`, and both text fields are
+ * filled with real keystrokes (`page.keyboard.type`), not `.fill()`. `.focus()` establishes each
+ * step's own starting point, the same house style this whole task's other new keyboard tests use.
+ */
+test("creates a session end to end using only the keyboard", async ({ page }) => {
+  await page.goto("/");
+  const trigger = page.getByRole("button", { name: "新建" });
+  await trigger.focus();
+  await page.keyboard.press("Enter");
+
+  const dialog = page.getByRole("dialog");
+  const next = dialog.getByRole("button", { name: "下一步" });
+
+  // Step 1 (mode) -> Step 2, single-Agent/CLI defaults left as-is.
+  await next.focus();
+  await expect(next).toBeFocused();
+  await page.keyboard.press("Enter");
+  // Step 2 (participant) -> Step 3, defaults left as-is.
+  await next.focus();
+  await page.keyboard.press("Enter");
+
+  // Step 3 (workspace): real keystrokes into the project-path field, then Tab to blur it -- the
+  // same field/trigger `createSession` (session-helpers.ts) establishes Next's own enablement
+  // gates on.
+  const projectPath = dialog.getByPlaceholder(/code.*project/);
+  await projectPath.focus();
+  await page.keyboard.type("D:\\keyboard-only-wizard-test");
+  await page.keyboard.press("Tab");
+  await expect(next).toBeEnabled({ timeout: 10_000 });
+  await next.focus();
+  await page.keyboard.press("Enter");
+
+  // Step 4 (review): real keystrokes into the session-title field, then Enter on Create.
+  const title = dialog.getByPlaceholder("新会话");
+  await title.focus();
+  await page.keyboard.type("键盘创建会话");
+  const create = dialog.getByRole("button", { name: "创建", exact: true });
+  await create.focus();
+  await expect(create).toBeEnabled();
+  await page.keyboard.press("Enter");
+
+  await expect(page.getByRole("textbox", { name: "Terminal input" })).toBeEnabled({ timeout: 15_000 });
+});
