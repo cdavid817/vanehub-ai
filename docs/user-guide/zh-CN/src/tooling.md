@@ -200,9 +200,9 @@ OnePiece 不走外部 CLI，没有上述命令行参数，因此它不是 CLI �
 | **Codex CLI** | 支持 | `~/.codex/config.toml`（`auth.json` 另需确认） | provider id、端点、模型、协议（Responses/Chat）、推理强度 |
 | **OpenCode** | 支持 | `~/.config/opencode/opencode.json` | provider 定义、端点、npm 适配包、模型列表与默认模型 |
 | **Gemini CLI** | 端点可改，但目录里只有 Google 官方预设 | `~/.gemini/.env` | 端点、模型、认证方式 |
-| **Antigravity CLI** | **不支持** | `~/.gemini/antigravity-cli/settings.json` | 模型、工具审批模式、输出详细度、终端沙箱 |
+| **Antigravity CLI** | **VaneHub 暂未纳管** | `~/.gemini/antigravity-cli/settings.json` | 模型、工具审批模式、输出详细度、终端沙箱 |
 
-> **Antigravity CLI 不接受自定义端点**。它只走 Google 登录、凭据存系统钥匙串，配置面板里没有端点和密钥字段——能调的是模型与审批行为。
+> **VaneHub 当前未纳管 Antigravity 的端点与密钥字段**：它的配置面板里没有这两项，能调的是模型与审批行为；Google 登录凭据由 CLI 自己存在系统钥匙串。这是 VaneHub 当前的纳管范围，不等于 Antigravity CLI 本身不支持 API Key 或自定义端点——上游能力以 Antigravity 官方文档为准。
 
 Claude Code 与 Codex 是**互斥模式**：可以存很多份配置，但同一时刻只有一份处于「已应用」。OpenCode 是**累加模式**：provider 定义叠加保留，切换的只是全局默认的 `provider/model`。
 

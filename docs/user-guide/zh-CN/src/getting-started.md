@@ -8,8 +8,15 @@ VaneHub AI **驱动你已经装好的 CLI**。**各家的订阅登录（OAuth）
 
 ## 前置条件
 
-- Node.js 22+ 与 npm
+必须具备：
+
 - 至少一个受支持的 CLI，以及对应的订阅或 API 凭据
+
+按需具备：
+
+- **Node.js 与 npm**——仅当选择 npm 安装源时需要（各 CLI 要求的最低 Node.js 版本见下文各自小节）；用官方原生安装器装的 CLI 不依赖 Node.js
+- **Git**——使用变更视图、代码评审或 [Git Worktree](worktree.md) 时需要
+- **SSH**——连接[远端工作区](remote-and-im.md#ssh-远程工作区)时需要
 
 ## 两种安装方式
 

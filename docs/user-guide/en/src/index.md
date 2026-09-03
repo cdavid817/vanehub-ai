@@ -2,7 +2,7 @@
 
 <a href="../../zh-CN/src/index.md">简体中文</a>
 
-This guide is written for **developers using VaneHub AI**: how to install it, how to use it, and what to check when something goes wrong.
+This guide is written for **individuals and teams using VaneHub AI for software development work**: how to install it, how to use it, and what to check when something goes wrong. To develop, test, or contribute to VaneHub AI itself, read the [Developer Guide](../../../developer-guide/src/index.md) instead.
 
 ## Five steps to get going
 
@@ -79,4 +79,4 @@ The division of labour:
 
 ## Simplified Chinese
 
-The Simplified Chinese user guide covers the same full set of chapters as this one. See <a href="../../zh-CN/src/index.md">简体中文</a>.
+The Simplified Chinese and English user guides share the same overall table of contents; individual chapters may briefly differ in translation progress. See <a href="../../zh-CN/src/index.md">简体中文</a>.
