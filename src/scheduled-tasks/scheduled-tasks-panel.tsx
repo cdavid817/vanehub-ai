@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { formatAppWeekdayNames } from "../i18n/format";
-import { agentService } from "../services/runtime-agent-client";
-import type { AgentRegistryEntry, ScheduledTask, ScheduledTaskFrequency } from "../types/agent";
+import type { AgentRegistryEntry } from "../types/agent";
 import { ScheduledTaskDetail } from "./scheduled-task-detail";
-import { ScheduledTaskForm } from "./scheduled-task-form";
+import { ScheduledTaskEditorSheet, type ScheduledTaskEditorMode } from "./scheduled-task-editor-sheet";
 import { ScheduledTaskList } from "./scheduled-task-list";
-import { initialFrequency } from "./scheduled-task-presentation";
+import { SCHEDULED_TASK_CREATE_MUTATION_KEY, useScheduledTasksActions } from "./use-scheduled-tasks-actions";
 
 export interface ScheduledTasksPanelProps {
   agents: AgentRegistryEntry[];
@@ -21,51 +20,25 @@ export interface ScheduledTasksPanelProps {
 }
 
 /**
- * 19.3: the composing container left behind after splitting list/detail/create-form into separate
- * components and a shared `scheduled-task-presentation.ts` primitive -- this file used to hold all
- * three inline (265 lines). It still owns every piece of state (task collection, create-form
- * draft, and now selection); only the rendering moved out. State reset and the initial task load
- * used to depend on the dialog's `open` prop; here they run once on mount instead, since a routed
- * page is only ever rendered while "open."
+ * 19.3's composing container, restructured by 19.7/19.9/19.16/19.17: mutation state (per-task
+ * pending/error, including Create/Duplicate's own slot) now lives in `useScheduledTasksActions`
+ * instead of this component's own ad hoc `saving`/`error`/`confirmingDeleteId`/`runningTaskId`
+ * state, so selection, the open editor sheet, and every *other* row's own state all survive any
+ * one row's mutation untouched -- see that hook's own doc comment for why one grouping bug
+ * (Enable/Disable and Delete errors funneling into the create form's single `error` slot,
+ * regardless of which row actually failed) motivated the change (19.17).
  */
 export function ScheduledTasksPanel({ agents, onSelectSchedule, scheduleId }: ScheduledTasksPanelProps) {
   const { i18n } = useTranslation();
-  const [tasks, setTasks] = useState<ScheduledTask[]>([]);
-  const [name, setName] = useState("");
-  const [content, setContent] = useState("");
-  const [agentId, setAgentId] = useState("");
-  const [frequency, setFrequency] = useState<ScheduledTaskFrequency>(initialFrequency("daily"));
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
+  const { create, error, load, loading, mutations, remove, runNow, setEnabled, tasks, update } = useScheduledTasksActions();
   const [selectedId, setSelectedId] = useState<string | null>(scheduleId ?? null);
-  const [runningTaskId, setRunningTaskId] = useState<string | null>(null);
-  const [runNowError, setRunNowError] = useState<string | null>(null);
+  const [editorMode, setEditorMode] = useState<ScheduledTaskEditorMode | null>(null);
   const weekdayNames = useMemo(() => formatAppWeekdayNames(i18n.language), [i18n.language]);
 
   const selectableAgents = useMemo(
     () => agents.filter((agent) => agent.id === "onepiece" || agent.supportedInteractionModes.includes("cli")),
     [agents],
   );
-
-  async function loadTasks() {
-    setLoading(true);
-    setError(null);
-    try {
-      setTasks(await agentService.listScheduledTasks());
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    setAgentId(selectableAgents[0]?.id ?? "");
-    void loadTasks();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once on mount, matching the dialog's former "on open" reset
-  }, []);
 
   // 19.3: restores the task selected the last time this section was left -- the same "route drives
   // selection" shape as MissionControl's own `initialRunId` effect. Re-runs if the route's own
@@ -80,76 +53,34 @@ export function ScheduledTasksPanel({ agents, onSelectSchedule, scheduleId }: Sc
     onSelectSchedule?.(taskId);
   }
 
-  async function createTask() {
-    if (!name.trim() || !content.trim() || !agentId) return;
-    setSaving(true);
-    setError(null);
-    try {
-      await agentService.createScheduledTask({ name, content, agentId, frequency });
-      setName("");
-      setContent("");
-      setFrequency(initialFrequency("daily"));
-      await loadTasks();
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function setEnabled(task: ScheduledTask, enabled: boolean) {
-    setError(null);
-    try {
-      const updated = await agentService.setScheduledTaskEnabled({ taskId: task.id, enabled });
-      setTasks((current) => current.map((candidate) => (candidate.id === task.id ? updated : candidate)));
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
-    }
-  }
-
-  /**
-   * 19.10: unlike `setEnabled`/`deleteTask`, a successful run does not change anything about the
-   * task itself (deliberately -- recurrence and latest-status stay the sweep's own bookkeeping),
-   * so there is no `tasks`/`setTasks` update to make here. Only the pending/error state around
-   * the button moves, the same way `confirmingDeleteId` is the only state a delete click owns
-   * before it actually resolves.
-   */
-  async function runTaskNow(task: ScheduledTask) {
-    setRunningTaskId(task.id);
-    setRunNowError(null);
-    try {
-      await agentService.runScheduledTaskNow(task.id);
-    } catch (reason) {
-      setRunNowError(reason instanceof Error ? reason.message : String(reason));
-    } finally {
-      setRunningTaskId(null);
-    }
-  }
-
-  async function deleteTask(task: ScheduledTask) {
-    setConfirmingDeleteId(null);
-    setError(null);
-    try {
-      await agentService.deleteScheduledTask(task.id);
-      setTasks((current) => current.filter((candidate) => candidate.id !== task.id));
-      if (task.id === selectedId) selectTask(undefined);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
-    }
+  /** Opening any editor mode clears whatever this target's mutation slot last held, so a stale
+   *  error from an earlier, unrelated action (e.g. a previous failed Delete) never leaks into a
+   *  freshly opened sheet that has not attempted anything yet. */
+  function openEditor(next: ScheduledTaskEditorMode) {
+    mutations.clear(next.kind === "edit" ? next.task.id : SCHEDULED_TASK_CREATE_MUTATION_KEY);
+    setEditorMode(next);
   }
 
   const selected = tasks.find((task) => task.id === selectedId) ?? null;
   const selectedAgent = selected ? agents.find((agent) => agent.id === selected.agentId) : undefined;
+  const selectedMutation = selected ? mutations.get(selected.id) : undefined;
+  const editorMutation = editorMode
+    ? mutations.get(editorMode.kind === "edit" ? editorMode.task.id : SCHEDULED_TASK_CREATE_MUTATION_KEY)
+    : undefined;
 
   return (
     <div className="grid min-h-0 gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+      {error ? <p className="rounded border border-destructive/50 bg-destructive/10 p-2 text-sm text-destructive lg:col-span-2" role="alert">{error}</p> : null}
       <ScheduledTaskList
         agents={agents}
-        confirmingDeleteId={confirmingDeleteId}
+        getMutation={mutations.get}
         language={i18n.language}
         loading={loading}
-        onConfirmDelete={(task) => void deleteTask(task)}
-        onRequestDelete={setConfirmingDeleteId}
+        onDelete={(task) => void remove(task, () => { if (task.id === selectedId) selectTask(undefined); })}
+        onDismissError={mutations.clear}
+        onDuplicate={(task) => openEditor({ kind: "duplicate", source: task })}
+        onEdit={(task) => openEditor({ kind: "edit", task })}
+        onNew={() => openEditor({ kind: "create" })}
         onSelect={selectTask}
         onSetEnabled={(task, enabled) => void setEnabled(task, enabled)}
         selectedId={selectedId}
@@ -159,29 +90,27 @@ export function ScheduledTasksPanel({ agents, onSelectSchedule, scheduleId }: Sc
       <div className="grid content-start gap-4">
         <ScheduledTaskDetail
           agent={selectedAgent}
-          isRunningNow={selected !== null && runningTaskId === selected.id}
+          isRunningNow={selected !== null && (selectedMutation?.pending ?? false)}
           language={i18n.language}
-          onRunNow={() => selected && void runTaskNow(selected)}
-          runNowError={runNowError}
+          onRunNow={() => selected && void runNow(selected)}
+          runNowError={selectedMutation?.error?.message ?? null}
           task={selected}
           weekdayNames={weekdayNames}
         />
-        <ScheduledTaskForm
-          agentId={agentId}
+      </div>
+      {editorMode ? (
+        <ScheduledTaskEditorSheet
           agents={selectableAgents}
-          content={content}
-          error={error}
-          frequency={frequency}
-          name={name}
-          onAgentIdChange={setAgentId}
-          onContentChange={setContent}
-          onFrequencyChange={setFrequency}
-          onNameChange={setName}
-          onSubmit={() => void createTask()}
-          saving={saving}
+          mode={editorMode}
+          mutation={editorMutation}
+          onClose={() => setEditorMode(null)}
+          onCreate={create}
+          onCreated={(task) => selectTask(task.id)}
+          onReload={load}
+          onUpdate={update}
           weekdayNames={weekdayNames}
         />
-      </div>
+      ) : null}
     </div>
   );
 }

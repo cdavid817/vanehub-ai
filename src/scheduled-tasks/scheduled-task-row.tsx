@@ -1,7 +1,9 @@
-import { Trash2 } from "lucide-react";
+import { Copy, Pencil, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { Button } from "../components/ui/button";
 import { formatScheduledTaskFrequency } from "../lib/scheduled-task-recurrence";
+import { ActionMenu, type ActionMenuItem } from "../ui/actions/ActionMenu";
+import { MutationStatus } from "../ui/async/MutationStatus";
+import type { MutationState } from "../ui/async/mutation-state";
 import type { AgentRegistryEntry, ScheduledTask } from "../types/agent";
 import { formatDateTime, frequencySummaryParams, statusClass } from "./scheduled-task-presentation";
 
@@ -11,27 +13,51 @@ export interface ScheduledTaskRowProps {
   selected: boolean;
   weekdayNames: string[];
   language: string;
-  confirmingDelete: boolean;
+  /** This row's own in-flight Enable/Disable, Delete, Run now, or Edit save, if any -- see
+   *  `use-scheduled-tasks-actions.ts`'s own doc comment for why all four share one slot per task
+   *  id rather than each other's own. */
+  mutation?: MutationState;
   onSelect: (taskId: string) => void;
   onSetEnabled: (task: ScheduledTask, enabled: boolean) => void;
-  onRequestDelete: (taskId: string | null) => void;
-  onConfirmDelete: (task: ScheduledTask) => void;
+  onEdit: (task: ScheduledTask) => void;
+  onDuplicate: (task: ScheduledTask) => void;
+  onDelete: (task: ScheduledTask) => void;
+  onDismissError: (taskId: string) => void;
 }
 
 /**
- * 19.3 structural extraction: moved verbatim out of `scheduled-tasks-panel.tsx`'s own `.map()` --
- * same `.ucd-list-row` class the existing Playwright spec locates rows by
- * (workspace-activity-bar.spec.ts), same enable/disable checkbox and inline delete-confirmation,
- * same text and classNames throughout. The only real addition is the name/agent `<button>`: it
- * cannot also wrap the checkbox or delete controls (a `<button>` cannot validly nest another
- * interactive control), so this is the smallest read-only region that makes the row genuinely
- * selectable without restructuring anything else about the row.
+ * 19.16: Delete moves from this row's own bespoke inline Trash2-button + Cancel/Confirm-button
+ * pair into `ActionMenu`'s built-in `confirmation`, alongside Edit (19.7) and Duplicate (19.9) --
+ * one `More` menu per row rather than a growing set of always-visible icon buttons, matching
+ * `work-board-card.tsx`'s own per-card `ActionMenu` precedent (this list is "many independently
+ * actionable rows," the same shape, not Goal Center's single always-selected detail pane).
+ * Enable/Disable and the row's own select button stay directly visible -- routine, frequent
+ * actions, not "consequence-aware confirmation" candidates the way Delete is.
  */
 export function ScheduledTaskRow({
-  agent, confirmingDelete, language, onConfirmDelete, onRequestDelete, onSelect, onSetEnabled, selected, task, weekdayNames,
+  agent, language, mutation, onDelete, onDismissError, onDuplicate, onEdit, onSelect, onSetEnabled, selected, task, weekdayNames,
 }: ScheduledTaskRowProps) {
   const { t } = useTranslation();
   const frequencyLabel = formatScheduledTaskFrequency(task.frequency);
+  const pending = mutation?.pending ?? false;
+
+  const moreItems: ActionMenuItem[] = [
+    { disabled: pending, icon: Pencil, id: "edit", label: t("scheduledTasks.edit"), onSelect: () => onEdit(task) },
+    { disabled: pending, icon: Copy, id: "duplicate", label: t("scheduledTasks.duplicate"), onSelect: () => onDuplicate(task) },
+    {
+      confirmation: {
+        confirmLabel: t("scheduledTasks.confirmDeleteAction"),
+        description: t("scheduledTasks.deleteConsequence"),
+        title: t("scheduledTasks.confirmDelete", { name: task.name }),
+      },
+      disabled: pending,
+      icon: Trash2,
+      id: "delete",
+      label: t("scheduledTasks.delete"),
+      onSelect: () => onDelete(task),
+      tone: "destructive",
+    },
+  ];
 
   return (
     <li className="ucd-list-row grid gap-2 rounded-lg p-3">
@@ -48,23 +74,10 @@ export function ScheduledTaskRow({
         </button>
         <div className="flex shrink-0 items-center gap-2">
           <label className="flex items-center gap-1 text-xs text-muted-foreground">
-            <input checked={task.enabled} onChange={(event) => onSetEnabled(task, event.target.checked)} type="checkbox" />
+            <input checked={task.enabled} disabled={pending} onChange={(event) => onSetEnabled(task, event.target.checked)} type="checkbox" />
             {task.enabled ? t("scheduledTasks.enabled") : t("scheduledTasks.disabled")}
           </label>
-          {confirmingDelete ? (
-            <span className="flex items-center gap-1">
-              <Button className="h-8 px-2 text-xs" onClick={() => onRequestDelete(null)} size="sm" variant="outline">
-                {t("scheduledTasks.cancelDelete")}
-              </Button>
-              <Button autoFocus className="h-8 bg-destructive px-2 text-xs text-destructive-foreground" onClick={() => onConfirmDelete(task)} size="sm">
-                {t("scheduledTasks.confirmDeleteAction")}
-              </Button>
-            </span>
-          ) : (
-            <Button aria-label={t("scheduledTasks.confirmDelete", { name: task.name })} className="h-8 w-8 px-0" onClick={() => onRequestDelete(task.id)} title={t("scheduledTasks.delete")} variant="outline">
-              <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-            </Button>
-          )}
+          <ActionMenu items={moreItems} triggerLabel={t("workbenchUi.pageHeader.moreActions")} />
         </div>
       </div>
       <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-3">
@@ -74,6 +87,7 @@ export function ScheduledTaskRow({
           {t(`scheduledTasks.status.${task.latestStatus}`)}
         </span>
       </div>
+      <MutationStatus onDismiss={() => onDismissError(task.id)} state={mutation} />
     </li>
   );
 }

@@ -1,62 +1,65 @@
-import { Loader2, Plus } from "lucide-react";
+import { useId } from "react";
 import { useTranslation } from "react-i18next";
-import { Button } from "../components/ui/button";
 import type { AgentRegistryEntry, ScheduledTaskFrequency } from "../types/agent";
+import type { ScheduledTaskDraft, ScheduledTaskDraftIssue } from "./scheduled-task-draft";
 import { frequencyKinds, initialFrequency, type FrequencyKind } from "./scheduled-task-presentation";
 
 export interface ScheduledTaskFormProps {
   agents: AgentRegistryEntry[];
-  name: string;
-  onNameChange: (value: string) => void;
-  content: string;
-  onContentChange: (value: string) => void;
-  agentId: string;
-  onAgentIdChange: (value: string) => void;
-  frequency: ScheduledTaskFrequency;
-  onFrequencyChange: (value: ScheduledTaskFrequency) => void;
+  draft: ScheduledTaskDraft;
+  onChange: (draft: ScheduledTaskDraft) => void;
   weekdayNames: string[];
-  error: string | null;
-  saving: boolean;
-  onSubmit: () => void;
+  /** 19.7: adjacent (inline, next-to-field) validation -- `null` once the draft is fully valid.
+   *  Computed once by the caller (`scheduled-task-editor-sheet.tsx`, via
+   *  `validateScheduledTaskDraft`) rather than re-derived here, so the Save button's own
+   *  disabled state and these hints can never disagree about which field is the problem. */
+  issue: ScheduledTaskDraftIssue | null;
 }
 
 /**
- * 19.3 structural extraction only, matching `EvaluationRunControls`'s own precedent
- * (evaluation-run-controls.tsx, 18.2): moved verbatim out of `scheduled-tasks-panel.tsx`, same
- * fields, same classNames, same validation, same test ids. State ownership does not move -- the
- * container still holds name/content/agentId/frequency, and this stays a controlled,
- * presentation-only view over them.
+ * 19.7: the fields-only half of the editor -- Create and Edit both render this over a
+ * `ScheduledTaskDraft`, extracted from the former create-only, panel-owned-state version (19.3)
+ * so the same markup, validation, and test ids serve both modes instead of a second copy. The
+ * Save/Cancel controls and the Review restatement live in `scheduled-task-editor-sheet.tsx`,
+ * which is the only thing that changes between the two modes.
  */
-export function ScheduledTaskForm({
-  agentId, agents, content, error, frequency, name, onAgentIdChange, onContentChange, onFrequencyChange, onNameChange, onSubmit, saving, weekdayNames,
-}: ScheduledTaskFormProps) {
+export function ScheduledTaskForm({ agents, draft, issue, onChange, weekdayNames }: ScheduledTaskFormProps) {
   const { t } = useTranslation();
+  const nameErrorId = useId();
+  const contentErrorId = useId();
+  const agentErrorId = useId();
   return (
-    <section className="grid content-start gap-3 rounded-lg border border-border p-3">
-      <h4 className="text-xs font-semibold uppercase text-muted-foreground">{t("scheduledTasks.createTitle")}</h4>
-      <label className="grid gap-1">
-        <span className="text-xs font-medium text-muted-foreground">{t("scheduledTasks.name")}</span>
-        <input className="ucd-input h-9 rounded px-2 text-sm" onChange={(event) => onNameChange(event.target.value)} placeholder={t("scheduledTasks.namePlaceholder")} value={name} />
-      </label>
-      <label className="grid gap-1">
-        <span className="text-xs font-medium text-muted-foreground">{t("scheduledTasks.content")}</span>
-        <textarea className="ucd-input min-h-24 rounded p-2 text-sm" onChange={(event) => onContentChange(event.target.value)} placeholder={t("scheduledTasks.contentPlaceholder")} value={content} />
-      </label>
-      <label className="grid gap-1">
-        <span className="text-xs font-medium text-muted-foreground">{t("scheduledTasks.agent")}</span>
-        <select className="ucd-input h-9 rounded px-2 text-sm" onChange={(event) => onAgentIdChange(event.target.value)} value={agentId}>
-          {agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.displayName}</option>)}
-        </select>
-      </label>
-      <FrequencyControls frequency={frequency} onChange={onFrequencyChange} weekdayNames={weekdayNames} />
-      <p className="text-xs text-muted-foreground">{t("scheduledTasks.runtimeHint")}</p>
-      <div className="flex items-start justify-between gap-3">
-        <p className="min-w-0 flex-1 wrap-break-word text-xs leading-5 text-destructive" role="alert">{error}</p>
-        <Button className="h-8 shrink-0 px-3 text-xs" disabled={!name.trim() || !content.trim() || !agentId || saving} onClick={onSubmit} type="button">
-          {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <Plus className="h-3.5 w-3.5" aria-hidden="true" />}
-          {t("scheduledTasks.create")}
-        </Button>
+    <section className="grid content-start gap-3">
+      {/* The inline error is a sibling of the `<label>`, not nested inside it: nesting would fold
+          its text into the input's own computed accessible NAME (via implicit label
+          association) instead of staying a separate DESCRIPTION, confusing both screen readers
+          and any `getByLabelText`-style lookup. `aria-describedby` links them correctly instead. */}
+      <div className="grid gap-1">
+        <label className="grid gap-1">
+          <span className="text-xs font-medium text-muted-foreground">{t("scheduledTasks.name")}</span>
+          <input aria-describedby={issue === "name" ? nameErrorId : undefined} className="ucd-input h-9 rounded px-2 text-sm" onChange={(event) => onChange({ ...draft, name: event.target.value })} placeholder={t("scheduledTasks.namePlaceholder")} value={draft.name} />
+        </label>
+        {issue === "name" ? <span className="text-xs text-destructive" id={nameErrorId} role="alert">{t("scheduledTasks.validation.name")}</span> : null}
       </div>
+      <div className="grid gap-1">
+        <label className="grid gap-1">
+          <span className="text-xs font-medium text-muted-foreground">{t("scheduledTasks.content")}</span>
+          <textarea aria-describedby={issue === "content" ? contentErrorId : undefined} className="ucd-input min-h-24 rounded p-2 text-sm" onChange={(event) => onChange({ ...draft, content: event.target.value })} placeholder={t("scheduledTasks.contentPlaceholder")} value={draft.content} />
+        </label>
+        {issue === "content" ? <span className="text-xs text-destructive" id={contentErrorId} role="alert">{t("scheduledTasks.validation.content")}</span> : null}
+      </div>
+      <div className="grid gap-1">
+        <label className="grid gap-1">
+          <span className="text-xs font-medium text-muted-foreground">{t("scheduledTasks.agent")}</span>
+          <select aria-describedby={issue === "agent" ? agentErrorId : undefined} className="ucd-input h-9 rounded px-2 text-sm" onChange={(event) => onChange({ ...draft, agentId: event.target.value })} value={draft.agentId}>
+            {agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.displayName}</option>)}
+          </select>
+        </label>
+        {issue === "agent" ? <span className="text-xs text-destructive" id={agentErrorId} role="alert">{t("scheduledTasks.validation.agent")}</span> : null}
+      </div>
+      <FrequencyControls frequency={draft.frequency} onChange={(frequency) => onChange({ ...draft, frequency })} weekdayNames={weekdayNames} />
+      {issue === "frequency" ? <span className="text-xs text-destructive" role="alert">{t("scheduledTasks.validation.frequency")}</span> : null}
+      <p className="text-xs text-muted-foreground">{t("scheduledTasks.runtimeHint")}</p>
     </section>
   );
 }

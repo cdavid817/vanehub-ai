@@ -265,6 +265,9 @@ test.describe("workspace activity bar", () => {
     await scheduledTasksTab.click();
     await expect(scheduledTasksTab).toHaveAttribute("aria-selected", "true");
     await expect(page).toHaveURL(/\/workspace\/runs\/schedules/);
+
+    // 19.7: Create is a Sheet now, not an always-inline form.
+    await page.getByRole("button", { name: "新建任务" }).click();
     await expect(page.getByPlaceholder("例如：每日整理项目进度")).toBeVisible();
 
     await page.getByLabel("任务名称").fill("每日整理项目进度");
@@ -273,6 +276,7 @@ test.describe("workspace activity bar", () => {
     await page.getByLabel("执行频率").selectOption("minutes");
     await page.getByRole("spinbutton").fill("15");
     await page.getByRole("button", { name: "创建任务" }).click();
+    await expect(page.getByPlaceholder("例如：每日整理项目进度")).toHaveCount(0);
 
     const taskRow = page.locator(".ucd-list-row").filter({ hasText: "每日整理项目进度" });
     await expect(taskRow).toBeVisible();
@@ -283,9 +287,12 @@ test.describe("workspace activity bar", () => {
     await taskRow.getByLabel("已停用").check();
     await expect(taskRow.getByLabel("已启用")).toBeVisible();
 
-    // Deletion is confirmed inline in the row now, not by a browser-native dialog.
-    await taskRow.getByRole("button", { name: /删除定时任务/ }).click();
-    await taskRow.getByRole("button", { name: "确认删除" }).click();
+    // 19.16: Delete lives in the row's own More menu now, behind a consequence-aware confirmation
+    // dialog -- not the old always-visible inline Trash2 button with its own inline Cancel/Confirm.
+    await taskRow.getByRole("button", { name: "更多操作" }).click();
+    await taskRow.getByRole("menuitem", { name: "删除任务" }).click();
+    await expect(page.getByRole("dialog").getByText("此操作将永久删除该任务。它会停止按计划运行，且无法恢复。")).toBeVisible();
+    await page.getByRole("button", { name: "确认删除" }).click();
     await expect(page.getByText("每日整理项目进度")).toHaveCount(0);
     await expect(page.getByText("还没有定时任务。")).toBeVisible();
     await expect(page.getByRole("button", { name: "帮助" })).toBeVisible();
@@ -294,20 +301,84 @@ test.describe("workspace activity bar", () => {
     await expect(page).toHaveURL(/\/settings$/);
   });
 
-  test("5.13: keeps an in-progress new-scheduled-task draft when switching Runs tabs and back", async ({ page }) => {
+  test("19.9: Duplicate opens the same editor sheet prefilled from the source task, in create mode", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("button", { name: "运行", exact: true }).click();
     await page.getByRole("tab", { name: "定时任务" }).click();
 
+    await page.getByRole("button", { name: "新建任务" }).click();
+    await page.getByLabel("任务名称").fill("每周报告");
+    await page.getByLabel("任务内容").fill("汇总本周进展");
+    await page.getByRole("button", { name: "创建任务" }).click();
+
+    const taskRow = page.locator(".ucd-list-row").filter({ hasText: "每周报告" });
+    await taskRow.getByRole("button", { name: "更多操作" }).click();
+    await taskRow.getByRole("menuitem", { name: "复制任务" }).click();
+
+    // A fresh, still-uncommitted draft, not an immediate server-side duplicate: the reader sees
+    // and can still edit the full form before anything is created.
+    await expect(page.getByRole("heading", { name: "新建任务" })).toBeVisible();
+    await expect(page.getByLabel("任务名称")).toHaveValue("每周报告 副本");
+    await expect(page.getByLabel("任务内容")).toHaveValue("汇总本周进展");
+    await page.getByRole("button", { name: "创建任务" }).click();
+
+    await expect(page.locator(".ucd-list-row").filter({ hasText: "每周报告 副本" })).toBeVisible();
+    await expect(page.locator(".ucd-list-row").filter({ hasText: "每周报告", hasNotText: "副本" })).toBeVisible();
+  });
+
+  test("19.7: Edit opens the same sheet prefilled from the row and saves through the version-aware update", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "运行", exact: true }).click();
+    await page.getByRole("tab", { name: "定时任务" }).click();
+
+    await page.getByRole("button", { name: "新建任务" }).click();
+    await page.getByLabel("任务名称").fill("发布检查");
+    await page.getByLabel("任务内容").fill("检查发布前状态");
+    await page.getByRole("button", { name: "创建任务" }).click();
+
+    const taskRow = page.locator(".ucd-list-row").filter({ hasText: "发布检查" });
+    await taskRow.getByRole("button", { name: "更多操作" }).click();
+    await taskRow.getByRole("menuitem", { name: "编辑任务" }).click();
+    await expect(page.getByRole("heading", { name: "编辑任务 发布检查" })).toBeVisible();
+
+    await page.getByLabel("任务名称").fill("发布检查 v2");
+    await page.getByRole("button", { name: "保存" }).click();
+    await expect(page.getByRole("heading", { name: /编辑任务/ })).toHaveCount(0);
+    await expect(page.locator(".ucd-list-row").filter({ hasText: "发布检查 v2" })).toBeVisible();
+  });
+
+  // 5.13 originally covered an always-inline create form: switching to a different Runs tab left
+  // it visible-but-hidden (`keepAlive: "draft-only"`), so a reader's in-progress typing survived
+  // the round trip. 19.7 moved Create into a Sheet (this codebase's established pattern -- Goal
+  // Center's GoalForm, Work Board's create/edit sheets, both unconditionally modal at every
+  // viewport, same as this one), which changes what there is to lose: `Sheet`'s own
+  // `fixed inset-0 z-50` backdrop covers the *entire* viewport, including the Runs tab strip
+  // above the content it visually nests under, positioned in the DOM tree but not in paint order
+  // -- confirmed by actually driving this test against the old assertion, which timed out unable
+  // to click "循环工程" at all, the backdrop intercepting the click. There is no longer an
+  // in-app path to leave a half-typed create sheet open and unattended while looking at a
+  // different Runs section, so there is nothing left to silently lose. This replaces the old
+  // "survives switching away and back" claim with the guarantee that supersedes it.
+  test("5.13: the new-task sheet blocks navigating to a different Runs tab while a draft is in progress", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "运行", exact: true }).click();
+    await page.getByRole("tab", { name: "定时任务" }).click();
+    await page.getByRole("button", { name: "新建任务" }).click();
+
     await page.getByLabel("任务名称").fill("草稿任务名称");
     await page.getByLabel("任务内容").fill("草稿任务内容，尚未提交");
 
-    await page.getByRole("tab", { name: "循环工程" }).click();
-    await expect(page.getByTestId("loop-center")).toBeVisible();
+    // A short timeout, not the default: this must reject (the backdrop blocks it), and should do
+    // so quickly rather than burning the test's full 60s budget waiting for a click that can
+    // never land.
+    await expect(page.getByRole("tab", { name: "循环工程" }).click({ timeout: 2_000 })).rejects.toThrow();
 
-    await page.getByRole("tab", { name: "定时任务" }).click();
-    await expect(page.getByLabel("任务名称")).toHaveValue("草稿任务名称");
-    await expect(page.getByLabel("任务内容")).toHaveValue("草稿任务内容，尚未提交");
+    // The reader's own explicit Cancel is still how a draft is abandoned -- unaffected by the
+    // above, and starts the next "New task" open fresh, matching every other Sheet-mounted form
+    // in this codebase (GoalForm/WorkItemForm never persist a cancelled draft either).
+    await page.getByRole("button", { name: "取消" }).click();
+    await page.getByRole("button", { name: "新建任务" }).click();
+    await expect(page.getByLabel("任务名称")).toHaveValue("");
   });
 
   for (const viewport of [

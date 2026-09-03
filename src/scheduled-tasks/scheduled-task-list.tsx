@@ -1,5 +1,7 @@
-import { Loader2 } from "lucide-react";
+import { Loader2, Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { Button } from "../components/ui/button";
+import type { MutationState } from "../ui/async/mutation-state";
 import type { AgentRegistryEntry, ScheduledTask } from "../types/agent";
 import { ScheduledTaskRow } from "./scheduled-task-row";
 
@@ -10,28 +12,37 @@ export interface ScheduledTaskListProps {
   selectedId: string | null;
   weekdayNames: string[];
   language: string;
-  confirmingDeleteId: string | null;
+  getMutation: (taskId: string) => MutationState | undefined;
   onSelect: (taskId: string) => void;
   onSetEnabled: (task: ScheduledTask, enabled: boolean) => void;
-  onRequestDelete: (taskId: string | null) => void;
-  onConfirmDelete: (task: ScheduledTask) => void;
+  onNew: () => void;
+  onEdit: (task: ScheduledTask) => void;
+  onDuplicate: (task: ScheduledTask) => void;
+  onDelete: (task: ScheduledTask) => void;
+  onDismissError: (taskId: string) => void;
 }
 
 /**
- * 19.3 structural extraction: the list half of what used to be one 265-line
- * `scheduled-tasks-panel.tsx` (list, create form, and `FrequencyControls` all inline in one file).
- * Row markup moved verbatim into `ScheduledTaskRow`; this component keeps only the heading,
- * loading spinner, and empty state that used to sit directly around the `.map()`.
+ * 19.3 structural extraction, extended by 19.7/19.16: the list half of what used to be one
+ * 265-line `scheduled-tasks-panel.tsx`. `onNew` replaces the old always-visible inline create
+ * form (moved into `ScheduledTaskEditorSheet`, 19.7) with a single trigger button here, matching
+ * `GoalCenter`'s own `PageHeader primaryAction` "New" button precedent -- this list has no
+ * `PageHeader` of its own, so the trigger sits in this header row instead.
  */
 export function ScheduledTaskList({
-  agents, confirmingDeleteId, language, loading, onConfirmDelete, onRequestDelete, onSelect, onSetEnabled, selectedId, tasks, weekdayNames,
+  agents, getMutation, language, loading, onDelete, onDismissError, onDuplicate, onEdit, onNew, onSelect, onSetEnabled, selectedId, tasks, weekdayNames,
 }: ScheduledTaskListProps) {
   const { t } = useTranslation();
   return (
     <section className="min-h-0">
-      <div className="mb-3 flex items-center justify-between">
-        <h4 className="text-xs font-semibold uppercase text-muted-foreground">{t("scheduledTasks.listTitle")}</h4>
-        {loading ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden="true" /> : null}
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <span className="flex items-center gap-2">
+          <h4 className="text-xs font-semibold uppercase text-muted-foreground">{t("scheduledTasks.listTitle")}</h4>
+          {loading ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden="true" /> : null}
+        </span>
+        <Button className="h-7 px-2 text-xs" onClick={onNew} size="sm" type="button">
+          <Plus className="h-3.5 w-3.5" aria-hidden="true" />{t("scheduledTasks.createTitle")}
+        </Button>
       </div>
       <ul aria-label={t("scheduledTasks.listTitle")} className="grid gap-2">
         {tasks.length === 0 && !loading ? (
@@ -42,11 +53,13 @@ export function ScheduledTaskList({
         {tasks.map((task) => (
           <ScheduledTaskRow
             agent={agents.find((candidate) => candidate.id === task.agentId)}
-            confirmingDelete={confirmingDeleteId === task.id}
             key={task.id}
             language={language}
-            onConfirmDelete={onConfirmDelete}
-            onRequestDelete={onRequestDelete}
+            mutation={getMutation(task.id)}
+            onDelete={onDelete}
+            onDismissError={onDismissError}
+            onDuplicate={onDuplicate}
+            onEdit={onEdit}
             onSelect={onSelect}
             onSetEnabled={onSetEnabled}
             selected={task.id === selectedId}
