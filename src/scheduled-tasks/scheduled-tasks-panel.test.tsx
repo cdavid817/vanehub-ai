@@ -60,6 +60,14 @@ function openMoreMenu(taskId: string) {
   return row;
 }
 
+// 19.4: mirrors `work-board.test.tsx`'s own `openByTrigger` -- checks `aria-expanded` first so a
+// second call is a harmless no-op instead of toggling an already-open popover shut (FilterPopover
+// closes on outside pointerdown, which a naive second click never dispatches).
+function openFilters() {
+  const trigger = screen.getByRole("button", { name: /Filters/ });
+  if (trigger.getAttribute("aria-expanded") !== "true") fireEvent.click(trigger);
+}
+
 describe("ScheduledTasksPanel", () => {
   beforeAll(async () => activateAppLanguage("en"));
 
@@ -324,6 +332,154 @@ describe("ScheduledTasksPanel", () => {
       expect(await within(detail).findByText("Agent is unavailable")).toBeTruthy();
       expect(within(detail).getByText("Never run")).toBeTruthy();
       await waitFor(() => expect(button.disabled).toBe(false));
+    });
+  });
+
+  // 19.4/19.5: search + filters, and the collection's own once-per-list (not per-row) timezone
+  // caption. Field-by-field narrowing is already exhaustively covered at the pure-function level
+  // (scheduled-task-query.test.ts) -- these prove the real DOM wiring end to end, mirroring
+  // work-board.test.tsx's own `openFilters()` + `fireEvent.change(screen.getByLabelText(...))`
+  // pattern for its own FilterPopover-backed toolbar.
+  describe("search and filters (19.4/19.5)", () => {
+    const multiAgents: AgentRegistryEntry[] = [
+      { id: "onepiece", displayName: "OnePiece", supportedInteractionModes: ["cli"] } as AgentRegistryEntry,
+      { id: "claude-code", displayName: "Claude Code", supportedInteractionModes: ["cli"] } as AgentRegistryEntry,
+    ];
+
+    it("narrows the list by free-text search over name and content", async () => {
+      mocks.listScheduledTasks.mockResolvedValueOnce([
+        buildTask("t-a", { name: "Weekly report" }),
+        buildTask("t-b", { name: "Nightly digest", content: "Send the report summary" }),
+        buildTask("t-c", { name: "Unrelated task" }),
+      ]);
+      render(<ScheduledTasksPanel agents={agents} />);
+      await screen.findByTestId("scheduled-task-select-t-a");
+
+      fireEvent.change(screen.getByLabelText("Search tasks"), { target: { value: "report" } });
+
+      expect(screen.getByTestId("scheduled-task-select-t-a")).toBeTruthy();
+      expect(screen.getByTestId("scheduled-task-select-t-b")).toBeTruthy();
+      expect(screen.queryByTestId("scheduled-task-select-t-c")).toBeNull();
+    });
+
+    it("narrows the list by Agent", async () => {
+      mocks.listScheduledTasks.mockResolvedValueOnce([
+        buildTask("t-a", { agentId: "onepiece" }),
+        buildTask("t-b", { agentId: "claude-code" }),
+      ]);
+      render(<ScheduledTasksPanel agents={multiAgents} />);
+      await screen.findByTestId("scheduled-task-select-t-a");
+
+      openFilters();
+      fireEvent.change(screen.getByLabelText("Filter by Agent"), { target: { value: "claude-code" } });
+
+      expect(screen.queryByTestId("scheduled-task-select-t-a")).toBeNull();
+      expect(screen.getByTestId("scheduled-task-select-t-b")).toBeTruthy();
+    });
+
+    it("narrows the list by enabled state", async () => {
+      mocks.listScheduledTasks.mockResolvedValueOnce([
+        buildTask("t-a", { enabled: true }),
+        buildTask("t-b", { enabled: false }),
+      ]);
+      render(<ScheduledTasksPanel agents={agents} />);
+      await screen.findByTestId("scheduled-task-select-t-a");
+
+      openFilters();
+      fireEvent.change(screen.getByLabelText("Filter by enabled state"), { target: { value: "false" } });
+
+      expect(screen.queryByTestId("scheduled-task-select-t-a")).toBeNull();
+      expect(screen.getByTestId("scheduled-task-select-t-b")).toBeTruthy();
+    });
+
+    it("narrows the list by latest status", async () => {
+      mocks.listScheduledTasks.mockResolvedValueOnce([
+        buildTask("t-a", { latestStatus: "succeeded" }),
+        buildTask("t-b", { latestStatus: "failed" }),
+      ]);
+      render(<ScheduledTasksPanel agents={agents} />);
+      await screen.findByTestId("scheduled-task-select-t-a");
+
+      openFilters();
+      fireEvent.change(screen.getByLabelText("Filter by status"), { target: { value: "failed" } });
+
+      expect(screen.queryByTestId("scheduled-task-select-t-a")).toBeNull();
+      expect(screen.getByTestId("scheduled-task-select-t-b")).toBeTruthy();
+    });
+
+    it("narrows the list by recurrence (frequency kind)", async () => {
+      mocks.listScheduledTasks.mockResolvedValueOnce([
+        buildTask("t-a", { frequency: { kind: "daily", timeOfDay: "09:00" } }),
+        buildTask("t-b", { frequency: { kind: "weekly", weekday: 1, timeOfDay: "09:00" } }),
+      ]);
+      render(<ScheduledTasksPanel agents={agents} />);
+      await screen.findByTestId("scheduled-task-select-t-a");
+
+      openFilters();
+      fireEvent.change(screen.getByLabelText("Filter by frequency"), { target: { value: "weekly" } });
+
+      expect(screen.queryByTestId("scheduled-task-select-t-a")).toBeNull();
+      expect(screen.getByTestId("scheduled-task-select-t-b")).toBeTruthy();
+    });
+
+    it("narrows the list by next-run range", async () => {
+      mocks.listScheduledTasks.mockResolvedValueOnce([
+        buildTask("t-a", { nextRunAt: "2020-01-01T00:00:00.000Z" }),
+        buildTask("t-b", { nextRunAt: "2099-01-01T00:00:00.000Z" }),
+      ]);
+      render(<ScheduledTasksPanel agents={agents} />);
+      await screen.findByTestId("scheduled-task-select-t-a");
+
+      openFilters();
+      fireEvent.change(screen.getByLabelText("Filter by next run"), { target: { value: "overdue" } });
+
+      expect(screen.getByTestId("scheduled-task-select-t-a")).toBeTruthy();
+      expect(screen.queryByTestId("scheduled-task-select-t-b")).toBeNull();
+    });
+
+    it("shows a distinct filtered-empty message (not the unfiltered-empty message) when filters narrow the list to zero, and Clear filters restores it", async () => {
+      mocks.listScheduledTasks.mockResolvedValueOnce([buildTask("t-a", { enabled: true })]);
+      render(<ScheduledTasksPanel agents={agents} />);
+      await screen.findByTestId("scheduled-task-select-t-a");
+
+      openFilters();
+      fireEvent.change(screen.getByLabelText("Filter by enabled state"), { target: { value: "false" } });
+
+      expect(await screen.findByText("No tasks match the current filters.")).toBeTruthy();
+      expect(screen.queryByText("No scheduled tasks yet.")).toBeNull();
+
+      fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+      expect(await screen.findByTestId("scheduled-task-select-t-a")).toBeTruthy();
+    });
+
+    // 19.5: timezone is real but device-wide, not per-task (confirmed absent as a field on
+    // ScheduledTask/dto::ScheduledTask) -- it must render once for the whole collection, never
+    // inside any one row. `getByText` (singular) on the caption already fails loudly if it were
+    // accidentally duplicated per row; the `within(rowA)` check additionally proves it is not
+    // *inside* a row's own markup.
+    it("shows a shared, once-per-list time zone caption rather than a per-row column", async () => {
+      mocks.listScheduledTasks.mockResolvedValueOnce([buildTask("t-a"), buildTask("t-b")]);
+      render(<ScheduledTasksPanel agents={agents} />);
+      const rowA = (await screen.findByTestId("scheduled-task-select-t-a")).closest("li");
+      if (!rowA) throw new Error("row t-a not found");
+
+      const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const caption = i18n.t("scheduledTasks.listTimezoneCaption", { zone });
+      expect(screen.getByText(caption)).toBeTruthy();
+      expect(within(rowA).queryByText(caption)).toBeNull();
+    });
+
+    // 19.4: confirms the absent concepts stay absent in the real rendered UI, not just in the
+    // query module -- mirrors 16.5's own "Attention" filter investigation
+    // (mission-control-query.ts) and this task's own "when supported" qualifier.
+    it("offers no attention or project/workspace filter, since neither concept exists on a scheduled task", async () => {
+      render(<ScheduledTasksPanel agents={agents} />);
+      await screen.findByText("No scheduled tasks yet.");
+
+      openFilters();
+      expect(screen.queryByLabelText(/attention/i)).toBeNull();
+      expect(screen.queryByLabelText(/project/i)).toBeNull();
+      expect(screen.queryByLabelText(/workspace/i)).toBeNull();
     });
   });
 });

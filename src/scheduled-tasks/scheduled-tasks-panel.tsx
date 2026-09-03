@@ -1,10 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { formatAppWeekdayNames } from "../i18n/format";
 import type { AgentRegistryEntry } from "../types/agent";
 import { ScheduledTaskDetail } from "./scheduled-task-detail";
 import { ScheduledTaskEditorSheet, type ScheduledTaskEditorMode } from "./scheduled-task-editor-sheet";
+import { ScheduledTaskFilters } from "./scheduled-task-filters";
 import { ScheduledTaskList } from "./scheduled-task-list";
+import {
+  defaultScheduledTaskFilterState, filterScheduledTasks, isScheduledTaskFilterActive,
+  type ScheduledTaskFilterState,
+} from "./scheduled-task-query";
 import { SCHEDULED_TASK_CREATE_MUTATION_KEY, useScheduledTasksActions } from "./use-scheduled-tasks-actions";
 import { useScheduledTaskHistory } from "./use-scheduled-task-history";
 
@@ -38,8 +43,16 @@ export function ScheduledTasksPanel({ agents, onOpenSession, onSelectSchedule, s
   const { create, error, load, loading, mutations, remove, runNow, setEnabled, tasks, update } = useScheduledTasksActions();
   const [selectedId, setSelectedId] = useState<string | null>(scheduleId ?? null);
   const [editorMode, setEditorMode] = useState<ScheduledTaskEditorMode | null>(null);
+  const [filter, setFilter] = useState<ScheduledTaskFilterState>(defaultScheduledTaskFilterState);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const weekdayNames = useMemo(() => formatAppWeekdayNames(i18n.language), [i18n.language]);
   const history = useScheduledTaskHistory(selectedId);
+  const visibleTasks = useMemo(() => filterScheduledTasks(tasks, filter), [tasks, filter]);
+  const filtersActive = isScheduledTaskFilterActive(filter);
+
+  function updateFilter(patch: Partial<ScheduledTaskFilterState>) {
+    setFilter((current) => ({ ...current, ...patch }));
+  }
 
   const selectableAgents = useMemo(
     () => agents.filter((agent) => agent.id === "onepiece" || agent.supportedInteractionModes.includes("cli")),
@@ -75,37 +88,56 @@ export function ScheduledTasksPanel({ agents, onOpenSession, onSelectSchedule, s
     : undefined;
 
   return (
-    <div className="grid min-h-0 gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-      {error ? <p className="rounded border border-destructive/50 bg-destructive/10 p-2 text-sm text-destructive lg:col-span-2" role="alert">{error}</p> : null}
-      <ScheduledTaskList
+    // 19.4: a plain, unconstrained grid (not `flex h-full ... flex-1`) deliberately -- the
+    // original single-grid root this replaces (19.3) never forced its own height either, letting
+    // content determine it. Forcing `flex-1` here previously starved the list's own row down to a
+    // measured 0px at a compact viewport: `ScheduledTaskList`'s root already carries `min-h-0`
+    // (needed so *its own* children can shrink), and squeezing an insufficiently-tall ancestor
+    // makes an auto grid row whose sole item has `min-height: 0` receive none of the shortfall,
+    // while the sibling detail row (no `min-h-0` of its own) claims all of it and overflows --
+    // confirmed by a live compact-viewport e2e run before this fix, not assumed from reading the
+    // CSS alone.
+    <div className="grid min-h-0 gap-4 p-4">
+      <ScheduledTaskFilters
         agents={agents}
-        getMutation={mutations.get}
-        language={i18n.language}
-        loading={loading}
-        onDelete={(task) => void remove(task, () => { if (task.id === selectedId) selectTask(undefined); })}
-        onDismissError={mutations.clear}
-        onDuplicate={(task) => openEditor({ kind: "duplicate", source: task })}
-        onEdit={(task) => openEditor({ kind: "edit", task })}
-        onNew={() => openEditor({ kind: "create" })}
-        onSelect={selectTask}
-        onSetEnabled={(task, enabled) => void setEnabled(task, enabled)}
-        selectedId={selectedId}
-        tasks={tasks}
-        weekdayNames={weekdayNames}
+        filter={filter}
+        onClearFilters={() => setFilter(defaultScheduledTaskFilterState)}
+        onFilterChange={updateFilter}
+        searchInputRef={searchInputRef}
       />
-      <div className="grid content-start gap-4">
-        <ScheduledTaskDetail
-          agent={selectedAgent}
-          history={history}
-          isRunningNow={selected !== null && (selectedMutation?.pending ?? false)}
+      <div className="grid min-h-0 gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+        {error ? <p className="rounded border border-destructive/50 bg-destructive/10 p-2 text-sm text-destructive lg:col-span-2" role="alert">{error}</p> : null}
+        <ScheduledTaskList
+          agents={agents}
+          filtersActive={filtersActive}
+          getMutation={mutations.get}
           language={i18n.language}
-          onOpenSession={onOpenSession}
-          onRetryHistory={history.reload}
-          onRunNow={() => selected && void runNow(selected)}
-          runNowError={selectedMutation?.error?.message ?? null}
-          task={selected}
+          loading={loading}
+          onDelete={(task) => void remove(task, () => { if (task.id === selectedId) selectTask(undefined); })}
+          onDismissError={mutations.clear}
+          onDuplicate={(task) => openEditor({ kind: "duplicate", source: task })}
+          onEdit={(task) => openEditor({ kind: "edit", task })}
+          onNew={() => openEditor({ kind: "create" })}
+          onSelect={selectTask}
+          onSetEnabled={(task, enabled) => void setEnabled(task, enabled)}
+          selectedId={selectedId}
+          tasks={visibleTasks}
           weekdayNames={weekdayNames}
         />
+        <div className="grid content-start gap-4">
+          <ScheduledTaskDetail
+            agent={selectedAgent}
+            history={history}
+            isRunningNow={selected !== null && (selectedMutation?.pending ?? false)}
+            language={i18n.language}
+            onOpenSession={onOpenSession}
+            onRetryHistory={history.reload}
+            onRunNow={() => selected && void runNow(selected)}
+            runNowError={selectedMutation?.error?.message ?? null}
+            task={selected}
+            weekdayNames={weekdayNames}
+          />
+        </div>
       </div>
       {editorMode ? (
         <ScheduledTaskEditorSheet

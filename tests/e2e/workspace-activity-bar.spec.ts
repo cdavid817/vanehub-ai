@@ -381,6 +381,45 @@ test.describe("workspace activity bar", () => {
     await expect(page.getByLabel("任务名称")).toHaveValue("");
   });
 
+  // 19.18: the generic narrow-viewport loop below only exercises the activity bar/session sidebar
+  // chrome, not any one destination's own content. Scheduled Tasks' list+detail grid collapses
+  // from `lg:grid-cols-[minmax(0,1fr)_320px]` to a single stacked column below that breakpoint
+  // (pre-existing, unchanged by 19.4/19.5) -- this proves the new search/filter toolbar (19.4) and
+  // the list/detail split both stay usable, not just visually present, once stacked.
+  test("keeps the Scheduled Tasks toolbar, list, and detail usable at a compact 900px viewport", async ({ page }) => {
+    await page.setViewportSize({ width: 900, height: 720 });
+    await page.goto("/");
+    await page.getByRole("button", { name: "运行", exact: true }).click();
+    await page.getByRole("tab", { name: "定时任务" }).click();
+    await expect(page).toHaveURL(/\/workspace\/runs\/schedules/);
+
+    await page.getByRole("button", { name: "新建任务" }).click();
+    await page.getByLabel("任务名称").fill("紧凑布局任务");
+    await page.getByLabel("任务内容").fill("验证紧凑布局下的任务列表");
+    await page.getByRole("button", { name: "创建任务" }).click();
+    await expect(page.getByPlaceholder("例如：每日整理项目进度")).toHaveCount(0);
+
+    const searchInput = page.getByPlaceholder("搜索任务");
+    const filtersTrigger = page.getByRole("button", { name: "筛选条件" });
+    await expect(searchInput).toBeVisible();
+    await expect(filtersTrigger).toBeVisible();
+
+    const taskRow = page.locator(".ucd-list-row").filter({ hasText: "紧凑布局任务" });
+    await expect(taskRow).toBeVisible();
+
+    // Search really narrows the list at this width, not just visually present next to it.
+    await searchInput.fill("does not match anything");
+    await expect(taskRow).toHaveCount(0);
+    await expect(page.getByText("没有符合当前筛选条件的任务。")).toBeVisible();
+    await searchInput.fill("");
+    await expect(taskRow).toBeVisible();
+
+    // Selecting a task still reaches the detail pane once list and detail stack vertically
+    // instead of sitting side by side.
+    await taskRow.getByText("紧凑布局任务").click();
+    await expect(page.getByTestId("scheduled-task-detail").getByText("紧凑布局任务")).toBeVisible();
+  });
+
   for (const viewport of [
     { name: "900px", width: 900, height: 720 },
     { name: "640px", width: 640, height: 720 },
