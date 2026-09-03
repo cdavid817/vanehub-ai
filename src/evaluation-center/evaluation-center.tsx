@@ -26,7 +26,6 @@ export function EvaluationCenter() {
     const available = agents.filter((agent) => agent.availabilityState === "available");
     setAgentIds((available.length > 0 ? available : agents).map((agent) => agent.id));
   }, [agents]);
-  const activeTask = useMemo(() => tasks.find((task) => task.id === taskId), [taskId, tasks]);
   // Derived rather than held: an attempt captured at click time is a snapshot of a run still in
   // flight, and the polling below replaces the arena it came from without ever touching it. The
   // detail pane went on showing `queued` -- Cancel button and all -- beside a row that had already
@@ -37,16 +36,19 @@ export function EvaluationCenter() {
   );
   const visible = useMemo(() => arenas.flatMap((arena) => arena.attempts.map((attempt) => ({ arena, attempt })))
     .filter(({ attempt }) => `${attempt.agent.agentId} ${attempt.outcome}`.toLowerCase().includes(filter.toLowerCase())), [arenas, filter]);
-  function toggleAgent(agentId: string) {
-    setAgentIds((items) => items.includes(agentId) ? items.filter((item) => item !== agentId) : [...items, agentId]);
-  }
-  async function start() {
-    if (!activeTask || agentIds.length === 0) return;
+  // Takes the wizard's own draft values as parameters rather than reading page state, so there is
+  // no stale-closure race against the `setTaskId`/`setAgentIds` commit below (state updates are
+  // not synchronous, and `EvaluationRunControls` calls this the instant Review's Run is clicked).
+  async function start(nextTaskId: string, nextAgentIds: string[]): Promise<boolean> {
+    const task = tasks.find((item) => item.id === nextTaskId);
+    if (!task || nextAgentIds.length === 0) return false;
+    setTaskId(nextTaskId); setAgentIds(nextAgentIds);
     setRunning(true); setError(null);
     try {
-      const arena = await agentService.startEvaluation({ taskId: activeTask.id, taskVersion: activeTask.version, agentIds });
+      const arena = await agentService.startEvaluation({ taskId: task.id, taskVersion: task.version, agentIds: nextAgentIds });
       setArenas((items) => [arena, ...items]); setSelectedId(arena.attempts[0]?.id ?? null);
-    } catch { setError(t("evaluation.runError")); } finally { setRunning(false); }
+      return true;
+    } catch { setError(t("evaluation.runError")); return false; } finally { setRunning(false); }
   }
   async function cancel() {
     if (!selected) return;
@@ -65,10 +67,9 @@ export function EvaluationCenter() {
       <EvaluationRunControls
         agentIds={agentIds}
         agents={agents}
-        disabled={!activeTask || running || agentIds.length === 0}
-        onRun={() => void start()}
-        onTaskIdChange={setTaskId}
-        onToggleAgent={toggleAgent}
+        error={error}
+        onOpen={() => setError(null)}
+        onRun={start}
         running={running}
         taskId={taskId}
         tasks={tasks}

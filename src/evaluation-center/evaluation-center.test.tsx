@@ -18,6 +18,24 @@ beforeAll(() => {
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
+/**
+ * 18.4 moved task/Agent configuration out of the header and into `EvaluationRunWizard`'s own
+ * guided Sheet (task -> Agents -> Review). Every test here that used to click the header's own
+ * Run button directly now opens that wizard first and advances to Review before clicking the same
+ * (relocated) Run action -- `customizeAgentStep` is the hook the one test that actually changes
+ * the Agent selection (rather than accepting the page's own default) uses to do that from inside
+ * the wizard's own Agent step.
+ */
+async function openWizardAndRun(customizeAgentStep?: () => void) {
+  const configure = await screen.findByRole("button", { name: "配置评测" });
+  await waitFor(() => expect((configure as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(configure);
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  customizeAgentStep?.();
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  fireEvent.click(screen.getByRole("button", { name: "运行竞技场" }));
+}
+
 describe("EvaluationCenter", () => {
   it("configures, compares, filters, inspects, and exports a mock arena", async () => {
     await i18n.changeLanguage("zh-CN");
@@ -25,15 +43,16 @@ describe("EvaluationCenter", () => {
     const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
     vi.stubGlobal("URL", { createObjectURL: () => "blob:evaluation", revokeObjectURL: vi.fn() });
     render(<EvaluationCenter />);
-    const run = await screen.findByRole("button", { name: "运行竞技场" });
-    await waitFor(() => expect((run as HTMLButtonElement).disabled).toBe(false));
-    expect(screen.getByTestId("evaluation-agent-opencode")).toBeTruthy();
-    for (const agentId of ["claude-code", "opencode", "gemini-cli", "antigravity-cli"]) {
-      fireEvent.click(screen.getByTestId(`evaluation-agent-${agentId}`));
-    }
-    fireEvent.click(run);
+    await openWizardAndRun(() => {
+      expect(screen.getByTestId("evaluation-agent-opencode")).toBeTruthy();
+      // The Agent picker's own display name -- unlike the results table below, which identifies
+      // an Agent by its raw id (`evaluation-results-table.tsx`'s Agent column).
+      expect(screen.getByText("Codex CLI")).toBeTruthy();
+      for (const agentId of ["claude-code", "opencode", "gemini-cli", "antigravity-cli"]) {
+        fireEvent.click(screen.getByTestId(`evaluation-agent-${agentId}`));
+      }
+    });
     expect(await screen.findByText("onepiece")).toBeTruthy();
-    expect(screen.getByText("Codex CLI")).toBeTruthy();
     expect(screen.getByText("codex-cli")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("筛选结果"), { target: { value: "codex-cli" } });
     expect(document.querySelectorAll("tbody tr")).toHaveLength(1);
@@ -54,9 +73,7 @@ describe("EvaluationCenter", () => {
     vi.spyOn(agentService, "startEvaluation").mockReturnValue(new Promise((resolve) => { resolveStart = resolve; }));
     vi.spyOn(agentService, "cancelEvaluation").mockResolvedValue(arena("cancelled"));
     render(<EvaluationCenter />);
-    const run = await screen.findByRole("button", { name: "运行竞技场" });
-    await waitFor(() => expect((run as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(run);
+    await openWizardAndRun();
     expect((screen.getByRole("button", { name: "运行中" }) as HTMLButtonElement).disabled).toBe(true);
     resolveStart?.(queued);
     fireEvent.click((await screen.findByText("已排队")).closest("tr")!);
@@ -76,9 +93,7 @@ describe("EvaluationCenter", () => {
     const list = vi.spyOn(agentService, "listEvaluationArenas").mockResolvedValue([]);
     vi.spyOn(agentService, "startEvaluation").mockResolvedValue(arena("queued"));
     render(<EvaluationCenter />);
-    const run = await screen.findByRole("button", { name: "运行竞技场" });
-    await waitFor(() => expect((run as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(run);
+    await openWizardAndRun();
     await waitFor(() => expect(screen.getByTestId("evaluation-detail").dataset.selectedOutcome).toBe("queued"));
     expect(screen.getByTestId("evaluation-cancel")).toBeTruthy();
 
@@ -95,9 +110,7 @@ describe("EvaluationCenter", () => {
     const list = vi.spyOn(agentService, "listEvaluationArenas").mockResolvedValue([]);
     vi.spyOn(agentService, "startEvaluation").mockResolvedValue(arena("queued"));
     render(<EvaluationCenter />);
-    const run = await screen.findByRole("button", { name: "运行竞技场" });
-    await waitFor(() => expect((run as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(run);
+    await openWizardAndRun();
     await waitFor(() => expect(screen.getByTestId("evaluation-detail").dataset.selectedOutcome).toBe("queued"));
 
     const callsBeforeHiding = list.mock.calls.length;
@@ -115,9 +128,7 @@ describe("EvaluationCenter", () => {
     const list = vi.spyOn(agentService, "listEvaluationArenas").mockResolvedValue([]);
     vi.spyOn(agentService, "startEvaluation").mockResolvedValue(arena("queued"));
     const { unmount } = render(<EvaluationCenter />);
-    const run = await screen.findByRole("button", { name: "运行竞技场" });
-    await waitFor(() => expect((run as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(run);
+    await openWizardAndRun();
     await waitFor(() => expect(screen.getByTestId("evaluation-detail").dataset.selectedOutcome).toBe("queued"));
 
     unmount();
@@ -128,8 +139,18 @@ describe("EvaluationCenter", () => {
 
   it("provides every evaluation label in all registered locales", () => {
     for (const locale of ["en", "zh-CN", "zh-TW", "ja", "ko"]) {
-      for (const key of ["agents", "filter", "cancel", "diff", "metrics", "loadError", "runError", "cancelError", "artifactPreviewUnavailable"]) {
+      for (const key of [
+        "agents", "filter", "cancel", "diff", "metrics", "loadError", "runError", "cancelError", "artifactPreviewUnavailable",
+        "configure", "wizard.step", "wizard.back", "wizard.next", "wizard.cancel", "wizard.review",
+        "agentSelection.searchLabel", "agentSelection.searchPlaceholder", "agentSelection.statusLabel", "agentSelection.statusAll",
+        "agentSelection.capabilityLabel", "agentSelection.capabilityAll", "agentSelection.resultCount", "agentSelection.selectVisible",
+        "agentSelection.maxAgents", "agentSelection.maxAgentsExceeded", "agentSelection.empty",
+        "agentStatus.available", "agentStatus.unavailable", "agentStatus.needs-auth", "agentStatus.unknown",
+      ]) {
         expect(i18n.getFixedT(locale)(`evaluation.${key}`)).not.toBe(`evaluation.${key}`);
+      }
+      for (const key of ["selectedCount_one", "selectedCount_other"]) {
+        expect(i18n.getFixedT(locale)(`evaluation.${key}`, { count: 1 })).not.toBe(`evaluation.${key}`);
       }
     }
   });
@@ -146,9 +167,7 @@ describe("EvaluationCenter", () => {
     vi.spyOn(agentService, "listEvaluationArenas").mockResolvedValue([]);
     vi.spyOn(agentService, "startEvaluation").mockResolvedValue(arenaWithArtifacts(["diff-alpha", "diff-beta"]));
     render(<EvaluationCenter />);
-    const run = await screen.findByRole("button", { name: "运行竞技场" });
-    await waitFor(() => expect((run as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(run);
+    await openWizardAndRun();
     fireEvent.click(await screen.findByTestId("evaluation-row"));
     const detail = screen.getByTestId("evaluation-detail");
     expect(within(detail).getByText("diff-alpha")).toBeTruthy();
@@ -162,9 +181,7 @@ describe("EvaluationCenter", () => {
     vi.spyOn(agentService, "listEvaluationArenas").mockResolvedValue([]);
     vi.spyOn(agentService, "startEvaluation").mockResolvedValue(arenaWithArtifacts([]));
     render(<EvaluationCenter />);
-    const run = await screen.findByRole("button", { name: "运行竞技场" });
-    await waitFor(() => expect((run as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(run);
+    await openWizardAndRun();
     fireEvent.click(await screen.findByTestId("evaluation-row"));
     expect(within(screen.getByTestId("evaluation-detail")).getByText("不可用")).toBeTruthy();
   });

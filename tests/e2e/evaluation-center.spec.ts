@@ -16,14 +16,29 @@ async function openEvaluation(page: Page, theme: Theme, width: number) {
   await expect(page.getByTestId("evaluation-center")).toBeVisible();
 }
 
+/**
+ * 18.4 moved task/Agent configuration out of the header and into `EvaluationRunWizard`'s own
+ * guided Sheet (task -> Agents -> Review) -- opens it, optionally adjusts the Agent step's own
+ * selection (18.5), then advances to Review and clicks the (relocated, but same-labeled) Run
+ * action.
+ */
+async function openWizardAndRun(page: Page, customizeAgentStep?: () => Promise<void>) {
+  await page.getByRole("button", { name: "Configure evaluation" }).click();
+  await page.getByRole("button", { name: "Next" }).click();
+  if (customizeAgentStep) await customizeAgentStep();
+  await page.getByRole("button", { name: "Next" }).click();
+  await page.getByRole("button", { name: "Run arena" }).click();
+}
+
 test("runs, compares, filters, inspects, and exports the complete mock benchmark", async ({ page }) => {
   await openEvaluation(page, "futuristic", 1440);
-  for (const agentId of ["claude-code", "opencode", "codex-cli", "gemini-cli", "antigravity-cli", "onepiece"]) {
-    await page.getByTestId(`evaluation-agent-${agentId}`).uncheck();
-  }
-  await page.getByTestId("evaluation-agent-onepiece").check();
-  await page.getByTestId("evaluation-agent-codex-cli").check();
-  await page.getByRole("button", { name: "Run arena" }).click();
+  await openWizardAndRun(page, async () => {
+    for (const agentId of ["claude-code", "opencode", "codex-cli", "gemini-cli", "antigravity-cli", "onepiece"]) {
+      await page.getByTestId(`evaluation-agent-${agentId}`).uncheck();
+    }
+    await page.getByTestId("evaluation-agent-onepiece").check();
+    await page.getByTestId("evaluation-agent-codex-cli").check();
+  });
   await expect(page.getByText("Passed", { exact: true })).toBeVisible();
   await expect(page.getByText("Task failed", { exact: true })).toBeVisible();
   await page.getByLabel("Filter results").fill("codex-cli");
@@ -43,7 +58,7 @@ for (const variant of [
 ]) {
   test(`evaluation workspace visual ${variant.name}`, async ({ page }, testInfo) => {
     await openEvaluation(page, variant.theme, variant.width);
-    await page.getByRole("button", { name: "Run arena" }).click();
+    await openWizardAndRun(page);
     await page.getByText("Passed", { exact: true }).click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", variant.theme);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);

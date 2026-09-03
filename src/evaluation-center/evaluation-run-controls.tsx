@@ -1,55 +1,72 @@
-import { Play } from "lucide-react";
+import { Settings2 } from "lucide-react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { AgentRegistryEntry } from "../types/agent";
 import type { EvaluationTask } from "../types/evaluation";
+import { EvaluationRunWizard } from "./evaluation-run-wizard";
 
 export interface EvaluationRunControlsProps {
   tasks: EvaluationTask[];
-  taskId: string;
-  onTaskIdChange: (taskId: string) => void;
   agents: AgentRegistryEntry[];
+  /** The page's own last-committed selection -- read-only from here, only ever written back by
+   *  the page itself once `onRun` succeeds. See `EvaluationRunWizard`'s own doc comment. */
+  taskId: string;
   agentIds: string[];
-  onToggleAgent: (agentId: string) => void;
   running: boolean;
-  disabled: boolean;
-  onRun: () => void;
+  error: string | null;
+  /** Fires the moment the wizard opens, before any draft state exists -- lets the page clear a
+   *  stale `error` left over from an unrelated prior cancel/load failure so it can't bleed into a
+   *  fresh configuration attempt (see `EvaluationRunWizard`'s own `error` doc comment). */
+  onOpen: () => void;
+  /** Resolves to whether the run actually started. `EvaluationRunControls` only closes the wizard
+   *  on `true`, so a failed attempt leaves the draft (and the error) exactly where the reader can
+   *  still see and retry it. */
+  onRun: (taskId: string, agentIds: string[]) => Promise<boolean>;
 }
 
 /**
- * 18.2 structural extraction only: the task `<select>` and Agent `<fieldset>` of checkboxes that
- * used to sit directly in `evaluation-center.tsx`'s own `<header>`, moved verbatim here -- same
- * test ids, same classNames, same interaction. State ownership does not move: the page still holds
- * `taskId`/`agentIds`/`running`, and this component is a controlled, presentation-only view over
- * them.
- *
- * This is NOT the guided wizard/Sheet-with-Review 18.4 asks for, and NOT the searchable
- * status/capability-filtered Agent selector with select-visible, selected summary, and
- * incompatibility reasons 18.5 asks for -- both remain real, separate, unstarted feature work.
- * This pass only gives the page's `<header>` room to grow into that later without also being the
- * page's own task/Agent markup.
+ * 18.4/18.5: the header's own entry point into the guided wizard/Sheet-with-Review
+ * (`EvaluationRunWizard`) -- task and Agent configuration no longer live inline here. State
+ * ownership split: this component and the page above it only ever hold the *committed* selection
+ * (`taskId`/`agentIds`, unchanged until a run actually starts); the wizard owns its own draft of
+ * that same selection while it is open, exactly like `GoalForm`'s Sheet-mounted draft never
+ * touching `GoalCenter`'s real state until submit.
  */
 export function EvaluationRunControls({
-  tasks, taskId, onTaskIdChange, agents, agentIds, onToggleAgent, running, disabled, onRun,
+  agentIds, agents, error, onOpen, onRun, running, taskId, tasks,
 }: EvaluationRunControlsProps) {
   const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+
+  async function handleRun(nextTaskId: string, nextAgentIds: string[]) {
+    const succeeded = await onRun(nextTaskId, nextAgentIds);
+    if (succeeded) setOpen(false);
+  }
+
   return (
     <>
-      <select aria-label={t("evaluation.task")} className="h-9 rounded-md border border-input bg-background px-2 text-sm" data-testid="evaluation-task" onChange={(event) => onTaskIdChange(event.target.value)} value={taskId}>
-        {tasks.map((task) => <option key={task.id} value={task.id}>{task.id} v{task.version}</option>)}
-      </select>
-      <fieldset className="flex min-h-9 flex-wrap items-center gap-2 rounded-md border border-input px-2">
-        <legend className="sr-only">{t("evaluation.agents")}</legend>
-        {agents.map((agent) => (
-          <label className="flex items-center gap-1 text-xs" key={agent.id}>
-            <input checked={agentIds.includes(agent.id)} data-testid={`evaluation-agent-${agent.id}`} onChange={() => onToggleAgent(agent.id)} type="checkbox" />
-            {agent.displayName}
-          </label>
-        ))}
-      </fieldset>
-      <button className="ucd-button-primary flex h-9 items-center gap-2 rounded-md px-3 text-sm" data-testid="evaluation-run" disabled={disabled} onClick={onRun} type="button">
-        <Play aria-hidden="true" className="h-4 w-4" />
-        {running ? t("evaluation.running") : t("evaluation.run")}
+      <button
+        className="ucd-button-primary flex h-9 items-center gap-2 rounded-md px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+        data-testid="evaluation-configure"
+        disabled={running || tasks.length === 0}
+        onClick={() => { onOpen(); setOpen(true); }}
+        type="button"
+      >
+        <Settings2 aria-hidden="true" className="h-4 w-4" />
+        {t("evaluation.configure")}
       </button>
+      {open ? (
+        <EvaluationRunWizard
+          agents={agents}
+          error={error}
+          initialAgentIds={agentIds}
+          initialTaskId={taskId}
+          onClose={() => setOpen(false)}
+          onRun={(nextTaskId, nextAgentIds) => { void handleRun(nextTaskId, nextAgentIds); }}
+          running={running}
+          tasks={tasks}
+        />
+      ) : null}
     </>
   );
 }

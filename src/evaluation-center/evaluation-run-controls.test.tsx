@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { activateAppLanguage } from "../i18n";
 import type { AgentRegistryEntry } from "../types/agent";
 import type { EvaluationTask } from "../types/evaluation";
@@ -19,112 +19,96 @@ function buildAgent(id: string, displayName: string): AgentRegistryEntry {
 }
 
 const TASK_A = buildTask("fix-null-auth-token");
-const TASK_B = buildTask("add-retry-policy", 2);
 const AGENT_A = buildAgent("claude-code", "Claude Code");
-const AGENT_B = buildAgent("codex-cli", "Codex CLI");
 
 describe("EvaluationRunControls", () => {
   beforeAll(async () => {
     await activateAppLanguage("en");
   });
 
-  it("renders every task as a select option and reports a change without owning taskId itself", () => {
-    const onTaskIdChange = vi.fn();
-    render(
-      <EvaluationRunControls
-        agentIds={[]}
-        agents={[]}
-        disabled={false}
-        onRun={vi.fn()}
-        onTaskIdChange={onTaskIdChange}
-        onToggleAgent={vi.fn()}
-        running={false}
-        taskId={TASK_A.id}
-        tasks={[TASK_A, TASK_B]}
-      />,
-    );
-    const select = screen.getByTestId("evaluation-task") as HTMLSelectElement;
-    expect(select.value).toBe(TASK_A.id);
-    expect(Array.from(select.options).map((option) => option.textContent)).toEqual([
-      `${TASK_A.id} v${TASK_A.version}`, `${TASK_B.id} v${TASK_B.version}`,
-    ]);
-    fireEvent.change(select, { target: { value: TASK_B.id } });
-    expect(onTaskIdChange).toHaveBeenCalledWith(TASK_B.id);
-  });
+  afterEach(() => { cleanup(); });
 
-  it("renders one checkbox per Agent reflecting the given selection and reports toggles by id", () => {
-    const onToggleAgent = vi.fn();
+  it("renders a closed trigger and opens the wizard, notifying onOpen, when clicked", () => {
+    const onOpen = vi.fn();
     render(
-      <EvaluationRunControls
-        agentIds={[AGENT_A.id]}
-        agents={[AGENT_A, AGENT_B]}
-        disabled={false}
-        onRun={vi.fn()}
-        onTaskIdChange={vi.fn()}
-        onToggleAgent={onToggleAgent}
-        running={false}
-        taskId={TASK_A.id}
-        tasks={[TASK_A]}
-      />,
-    );
-    const checkboxA = screen.getByTestId(`evaluation-agent-${AGENT_A.id}`) as HTMLInputElement;
-    const checkboxB = screen.getByTestId(`evaluation-agent-${AGENT_B.id}`) as HTMLInputElement;
-    expect(checkboxA.checked).toBe(true);
-    expect(checkboxB.checked).toBe(false);
-    expect(screen.getByText(AGENT_A.displayName)).toBeTruthy();
-    fireEvent.click(checkboxB);
-    expect(onToggleAgent).toHaveBeenCalledWith(AGENT_B.id);
-  });
-
-  it("disables the run button exactly as told and fires onRun on click", () => {
-    const onRun = vi.fn();
-    const { rerender } = render(
       <EvaluationRunControls
         agentIds={[AGENT_A.id]}
         agents={[AGENT_A]}
-        disabled
-        onRun={onRun}
-        onTaskIdChange={vi.fn()}
-        onToggleAgent={vi.fn()}
+        error={null}
+        onOpen={onOpen}
+        onRun={vi.fn()}
         running={false}
         taskId={TASK_A.id}
         tasks={[TASK_A]}
       />,
     );
-    const button = screen.getByTestId("evaluation-run") as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
+    expect(screen.queryByTestId(`evaluation-task-${TASK_A.id}`)).toBeNull();
+    fireEvent.click(screen.getByTestId("evaluation-configure"));
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId(`evaluation-task-${TASK_A.id}`)).toBeTruthy();
+  });
+
+  it("disables the trigger while no tasks are loaded, and while a run is already in flight", () => {
+    const { rerender } = render(
+      <EvaluationRunControls agentIds={[]} agents={[]} error={null} onOpen={vi.fn()} onRun={vi.fn()} running={false} taskId="" tasks={[]} />,
+    );
+    expect((screen.getByTestId("evaluation-configure") as HTMLButtonElement).disabled).toBe(true);
     rerender(
       <EvaluationRunControls
         agentIds={[AGENT_A.id]}
         agents={[AGENT_A]}
-        disabled={false}
+        error={null}
+        onOpen={vi.fn()}
+        onRun={vi.fn()}
+        running
+        taskId={TASK_A.id}
+        tasks={[TASK_A]}
+      />,
+    );
+    expect((screen.getByTestId("evaluation-configure") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("closes the wizard once onRun resolves true, delegating the wizard's own committed draft verbatim", async () => {
+    const onRun = vi.fn().mockResolvedValue(true);
+    render(
+      <EvaluationRunControls
+        agentIds={[AGENT_A.id]}
+        agents={[AGENT_A]}
+        error={null}
+        onOpen={vi.fn()}
         onRun={onRun}
-        onTaskIdChange={vi.fn()}
-        onToggleAgent={vi.fn()}
         running={false}
         taskId={TASK_A.id}
         tasks={[TASK_A]}
       />,
     );
-    expect(button.disabled).toBe(false);
-    fireEvent.click(button);
-    expect(onRun).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByTestId("evaluation-configure"));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByTestId("evaluation-run"));
+    expect(onRun).toHaveBeenCalledWith(TASK_A.id, [AGENT_A.id]);
+    await waitFor(() => expect(screen.queryByTestId(`evaluation-task-${TASK_A.id}`)).toBeNull());
   });
 
-  it("shows the running label instead of the run label while running", () => {
+  it("keeps the wizard open, with its draft and Review step intact, once onRun resolves false", async () => {
+    const onRun = vi.fn().mockResolvedValue(false);
     render(
       <EvaluationRunControls
-        agentIds={[]}
-        agents={[]}
-        disabled
-        onRun={vi.fn()}
-        onTaskIdChange={vi.fn()}
-        onToggleAgent={vi.fn()}
-        running
-        taskId=""
-        tasks={[]}
+        agentIds={[AGENT_A.id]}
+        agents={[AGENT_A]}
+        error={null}
+        onOpen={vi.fn()}
+        onRun={onRun}
+        running={false}
+        taskId={TASK_A.id}
+        tasks={[TASK_A]}
       />,
     );
-    expect(screen.getByTestId("evaluation-run").textContent).toContain("Running");
+    fireEvent.click(screen.getByTestId("evaluation-configure"));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByTestId("evaluation-run"));
+    await waitFor(() => expect(onRun).toHaveBeenCalledTimes(1));
+    expect(screen.getByText("Review")).toBeTruthy();
   });
 });
