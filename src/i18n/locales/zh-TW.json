@@ -4807,6 +4807,7 @@
   "missionControl.recent": "最近完成",
   "missionControl.empty": "沒有相符的 Run。",
   "missionControl.detail": "Run 詳情",
+  "missionControl.actions.backToList": "返回 Run 清單",
   "missionControl.selectRun": "選擇 Run 以檢視可用證據。",
   "missionControl.lazyDetail": "僅在選取後從所屬工作區載入證據。",
   "missionControl.elapsed": "{{seconds}} 秒",

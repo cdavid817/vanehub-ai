@@ -4928,6 +4928,7 @@
   "missionControl.recent": "Recently completed",
   "missionControl.empty": "No matching Runs.",
   "missionControl.detail": "Run detail",
+  "missionControl.actions.backToList": "Back to Runs",
   "missionControl.selectRun": "Select a Run to inspect available evidence.",
   "missionControl.lazyDetail": "Evidence is loaded from its owning workspace only when selected.",
   "missionControl.elapsed": "{{seconds}}s",

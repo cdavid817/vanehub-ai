@@ -4807,6 +4807,7 @@
   "missionControl.recent": "最近完了",
   "missionControl.empty": "一致する Run はありません。",
   "missionControl.detail": "Run 詳細",
+  "missionControl.actions.backToList": "Run 一覧に戻る",
   "missionControl.selectRun": "Run を選択して証拠を確認します。",
   "missionControl.lazyDetail": "証拠は選択時に所有ワークスペースから読み込まれます。",
   "missionControl.elapsed": "{{seconds}}秒",

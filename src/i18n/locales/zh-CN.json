@@ -4928,6 +4928,7 @@
   "missionControl.recent": "最近完成",
   "missionControl.empty": "没有匹配的运行。",
   "missionControl.detail": "运行详情",
+  "missionControl.actions.backToList": "返回运行列表",
   "missionControl.selectRun": "选择运行以查看可用证据。",
   "missionControl.lazyDetail": "仅在选择后从所属工作区加载证据。",
   "missionControl.elapsed": "{{seconds}} 秒",
