@@ -292,6 +292,40 @@ test.describe("OnePiece composer streaming, stop, focus, touch, and high-risk af
     await expect(assistantArticle.getByText("已停止", { exact: true })).toBeVisible();
   });
 
+  // 20.19: the test above sends via a click on "发送" and stops via a click on the header's own
+  // Stop button -- this drives the same send-then-stop flow with no pointer at all. `ChatInputBox.tsx`
+  // submits on a plain Enter keydown (no Shift, not IME-composing) itself, so `page.keyboard.press
+  // ("Enter")` after typing is the real send affordance, not a substitute for clicking "发送"; the
+  // composer's own Stop button (ButtonArea.tsx, accessible name "停止") replaces "发送" the instant
+  // `isStreaming` is true and carries no `disabled` condition, so it is reachable and operable via
+  // `.focus()` + Enter as soon as it renders. `.focus()` establishes each step's own starting point,
+  // the same house style as this file's own "selects a message via keyboard focus and Enter" test
+  // just above and loop-engineering.spec.ts's "accepts an acceptance-ready Loop..." test.
+  test("sends a message and stops generation using only the keyboard", async ({ page }) => {
+    const composer = await createOnePieceChat(page, "键盘发送停止会话");
+    // Same long, repeated message and the same reasoning as the click-driven test above: a real,
+    // multi-second streaming window to interact with, not a race against a ~1.6s reply.
+    await composer.focus();
+    await expect(composer).toBeFocused();
+    await page.keyboard.type("检查当前会话状态".repeat(25));
+    await expect(composer).toHaveValue("检查当前会话状态".repeat(25));
+    await page.keyboard.press("Enter");
+
+    const header = page.getByTestId("session-conversation-header");
+    const assistantArticle = page.locator("article").last();
+    await expect(assistantArticle.getByText("生成中", { exact: true })).toBeVisible();
+    await expect(header.getByText("生成中", { exact: true })).toBeVisible();
+
+    const composerStop = page.getByRole("button", { name: "停止", exact: true });
+    await composerStop.focus();
+    await expect(composerStop).toBeFocused();
+    await page.keyboard.press("Enter");
+
+    await expect(composerStop).toHaveCount(0);
+    await expect(header.getByText("已停止", { exact: true })).toBeVisible();
+    await expect(assistantArticle.getByText("已停止", { exact: true })).toBeVisible();
+  });
+
   test("selects a message via keyboard focus and Enter, the same as a click would", async ({ page }) => {
     const composer = await createOnePieceChat(page, "键盘选择会话");
     await composer.fill("键盘选择测试消息");
