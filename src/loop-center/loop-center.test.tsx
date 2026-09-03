@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
 
-import { forwardRef } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -40,13 +39,16 @@ vi.mock("./loop-timeline", () => ({
     <div data-run-id={run.id} data-testid="loop-timeline" />
   ),
 }));
-// LoopInspector renders AgentRunOwnerStatus, which calls agentService.listAgentRuns -- a service
-// method unrelated to 17.2's own selection wiring and out of scope for this file's mock. It
-// always renders regardless of selection, so stubbing it (still forwardRef, matching its real
-// signature, since loop-center.tsx passes it a ref) keeps these tests isolated to LoopCenter's own
-// definition/run selection instead of the inspector panel's content.
-vi.mock("./loop-inspector", () => ({
-  LoopInspector: forwardRef<HTMLElement, Record<string, unknown>>((_props, ref) => <aside ref={ref} />),
+// 17.3 Piece B: the inspector column is now the shared Inspector shell, whose "loop-iteration"
+// detail is the lazily-loaded LoopIterationInspectorProvider (registered in
+// inspector-provider-registry.ts) -- it renders LoopInspectorBody, which renders
+// AgentRunOwnerStatus, which calls agentService.listAgentRuns, a service method unrelated to
+// 17.2's own selection wiring and out of scope for this file's mock. Stubbing the provider itself
+// (rather than loop-inspector.tsx, which loop-center.tsx no longer imports at all) keeps these
+// tests isolated to LoopCenter's own definition/run selection instead of the inspector panel's
+// content, the same isolation the LoopDefinitionOverview/LoopTimeline mocks above already use.
+vi.mock("./loop-iteration-inspector-provider", () => ({
+  LoopIterationInspectorProvider: () => <div data-testid="loop-iteration-inspector-provider-stub" />,
 }));
 
 const definitionA = loopDefinitionFixture({ id: "definition-a", name: "Definition A" });
@@ -148,5 +150,44 @@ describe("LoopCenter route-driven selection (17.2)", () => {
 
     expect((await screen.findByTestId("loop-definition-overview")).dataset.definitionOverviewId).toBe("definition-b");
     expect(screen.queryByTestId("loop-timeline")).toBeNull();
+  });
+});
+
+describe("LoopCenter inspector selection (17.3 Piece B)", () => {
+  beforeAll(async () => activateAppLanguage("en"));
+
+  beforeEach(() => {
+    mocks.listLoopDefinitions.mockReset().mockResolvedValue([definitionA, definitionB]);
+    mocks.listLoopRuns.mockReset().mockImplementation((definitionId?: string) =>
+      Promise.resolve(definitionId === "definition-a" ? [runA1] : []));
+    mocks.getLoopRun.mockReset().mockResolvedValue(runA1);
+    mocks.subscribeLoopEvents.mockReset().mockResolvedValue(() => {});
+  });
+
+  it("drives the shared Inspector's loop-iteration provider once a run is selected, and drops it once none is", async () => {
+    const { rerender } = render(
+      <QueryClientProvider client={buildQueryClient()}>
+        <LoopCenter definitionId="definition-a" loopRunId="run-a1" />
+      </QueryClientProvider>,
+    );
+
+    // useLoopInspection's own effect follows {kind:"loop-iteration", loopRunId, iterationId} once
+    // the run loads, which resolves the registered provider (inspector-provider-registry.ts) --
+    // stubbed above to a bare, identifiable div, so its mere presence proves the follow/registry/
+    // LazyFeature chain actually connected end to end, not just that nothing crashed.
+    expect(await screen.findByTestId("loop-iteration-inspector-provider-stub")).toBeTruthy();
+
+    // Clearing the run selection (back to a definition-only view) returns the Inspector to its own
+    // overview state -- the same "no run selected" outcome LoopInspector's own `!run` branch used
+    // to render directly, now reached through useWorkbenchInspection's `returnToOverview` instead.
+    const client = buildQueryClient();
+    rerender(
+      <QueryClientProvider client={client}>
+        <LoopCenter definitionId="definition-b" />
+      </QueryClientProvider>,
+    );
+    await screen.findByTestId("loop-definition-overview");
+    expect(screen.queryByTestId("loop-iteration-inspector-provider-stub")).toBeNull();
+    expect(screen.getByText("No run selected")).toBeTruthy();
   });
 });

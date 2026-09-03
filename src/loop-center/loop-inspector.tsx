@@ -17,10 +17,7 @@ interface LoopInspectorProps {
 }
 
 export const LoopInspector = forwardRef<HTMLElement, LoopInspectorProps>(function LoopInspector({ className, id, loading, onClose, onInspect, run }, ref) {
-  const { i18n, t } = useTranslation();
-  const operationEvidence = run ? latestLoopOperationEvidence(run) : null;
-  const latestIteration = run?.iterations.at(-1) ?? null;
-  const inspectionSessionId = latestIteration?.workerSessionId ?? latestIteration?.verifierSessionId ?? null;
+  const { t } = useTranslation();
   return (
     <aside aria-label={t("loops.inspector.title")} className={cn("ucd-panel min-h-0 min-w-0 overflow-y-auto rounded-lg p-3", className)} id={id} ref={ref} tabIndex={-1}>
       <header className="mb-3 flex min-h-8 items-center justify-between gap-2">
@@ -38,33 +35,49 @@ export const LoopInspector = forwardRef<HTMLElement, LoopInspectorProps>(functio
           <p className="text-[11px] leading-5 text-muted-foreground">{t("loops.states.noSelectionDescription")}</p>
         </div>
       ) : null}
-      {run ? (
-        <div className="grid gap-5">
-          <InspectorSection title={t("loops.inspector.run")}>
-            <AgentRunOwnerStatus ownerId={run.id} ownerType="loop_run" />
-            <Field label={t("loops.monitor.operation")} value={run.activeOperationId && ["queued", "running"].includes(run.status) ? t("loops.operation.active") : operationEvidence ? t(`loops.evidence.status.${operationEvidence.status}`) : t("loops.operation.none")} />
-            {run.activeOperationId || operationEvidence?.operationId ? <Field label={t("loops.monitor.operationId")} value={run.activeOperationId ?? operationEvidence?.operationId ?? ""} /> : null}
-            {run.activeOperationId || operationEvidence?.operationId ? <LoopInspectionActions onInspect={onInspect} sessionId={inspectionSessionId} surfaces={["logs"]} /> : null}
-            {run.terminalReason ? <Field label={t("loops.inspector.reason")} value={t(`loops.reason.${run.terminalReason}`)} /> : null}
-          </InspectorSection>
-          <InspectorSection title={t("loops.inspector.limits")}>
-            <Field label={t("loops.editor.field.stepTimeoutSeconds")} value={t("loops.inspector.seconds", { seconds: run.definitionSnapshot.limits.stepTimeoutSeconds })} />
-            <Field label={t("loops.editor.field.totalTimeoutSeconds")} value={t("loops.inspector.seconds", { seconds: run.definitionSnapshot.limits.totalTimeoutSeconds })} />
-            <Field label={t("loops.editor.field.maxConsecutiveRuntimeErrors")} value={`${run.consecutiveRuntimeErrors} / ${run.definitionSnapshot.limits.maxConsecutiveRuntimeErrors}`} />
-            <Field label={t("loops.editor.field.maxConsecutiveNoProgress")} value={`${run.consecutiveNoProgress} / ${run.definitionSnapshot.limits.maxConsecutiveNoProgress}`} />
-          </InspectorSection>
-          <InspectorSection title={t("loops.inspector.workspace")}>
-            <Field label={t("loops.inspector.project")} value={run.projectPath} />
-            <Field label={t("loops.inspector.branch")} value={run.worktreeBranch ?? run.definitionSnapshot.baseBranch} />
-            <Field label={t("loops.inspector.worktree")} value={run.worktreePath ?? t("loops.inspector.pending")} />
-            {run.worktreePath ? <LoopInspectionActions onInspect={onInspect} sessionId={inspectionSessionId} surfaces={["changes", "files"]} /> : null}
-            <Field label={t("loops.inspector.updated")} value={new Date(run.updatedAt).toLocaleString(i18n.resolvedLanguage)} />
-          </InspectorSection>
-        </div>
-      ) : null}
+      {run ? <LoopInspectorBody onInspect={onInspect} run={run} /> : null}
     </aside>
   );
 });
+
+/**
+ * The run/limits/workspace content only, extracted from `LoopInspector` above (17.3) so the
+ * registered `loop-iteration` Inspector provider (loop-iteration-inspector-provider.tsx) can
+ * reuse the exact same data-derivation and markup inside the shared `Inspector` shell, instead of
+ * this file's own `<aside>`/header/close button -- `Inspector` already renders an equivalent
+ * header of its own. `LoopInspector` above still renders this unchanged, so its own byte-level
+ * output (asserted directly by loop-center-states.test.tsx) is unaffected by this split.
+ */
+export function LoopInspectorBody({ onInspect, run }: { onInspect?: (target: LoopInspectionTarget) => void; run: LoopRun }) {
+  const { i18n, t } = useTranslation();
+  const operationEvidence = latestLoopOperationEvidence(run);
+  const latestIteration = run.iterations.at(-1) ?? null;
+  const inspectionSessionId = latestIteration?.workerSessionId ?? latestIteration?.verifierSessionId ?? null;
+  return (
+    <div className="grid gap-5">
+      <InspectorSection title={t("loops.inspector.run")}>
+        <AgentRunOwnerStatus ownerId={run.id} ownerType="loop_run" />
+        <Field label={t("loops.monitor.operation")} value={run.activeOperationId && ["queued", "running"].includes(run.status) ? t("loops.operation.active") : operationEvidence ? t(`loops.evidence.status.${operationEvidence.status}`) : t("loops.operation.none")} />
+        {run.activeOperationId || operationEvidence?.operationId ? <Field label={t("loops.monitor.operationId")} value={run.activeOperationId ?? operationEvidence?.operationId ?? ""} /> : null}
+        {run.activeOperationId || operationEvidence?.operationId ? <LoopInspectionActions onInspect={onInspect} sessionId={inspectionSessionId} surfaces={["logs"]} /> : null}
+        {run.terminalReason ? <Field label={t("loops.inspector.reason")} value={t(`loops.reason.${run.terminalReason}`)} /> : null}
+      </InspectorSection>
+      <InspectorSection title={t("loops.inspector.limits")}>
+        <Field label={t("loops.editor.field.stepTimeoutSeconds")} value={t("loops.inspector.seconds", { seconds: run.definitionSnapshot.limits.stepTimeoutSeconds })} />
+        <Field label={t("loops.editor.field.totalTimeoutSeconds")} value={t("loops.inspector.seconds", { seconds: run.definitionSnapshot.limits.totalTimeoutSeconds })} />
+        <Field label={t("loops.editor.field.maxConsecutiveRuntimeErrors")} value={`${run.consecutiveRuntimeErrors} / ${run.definitionSnapshot.limits.maxConsecutiveRuntimeErrors}`} />
+        <Field label={t("loops.editor.field.maxConsecutiveNoProgress")} value={`${run.consecutiveNoProgress} / ${run.definitionSnapshot.limits.maxConsecutiveNoProgress}`} />
+      </InspectorSection>
+      <InspectorSection title={t("loops.inspector.workspace")}>
+        <Field label={t("loops.inspector.project")} value={run.projectPath} />
+        <Field label={t("loops.inspector.branch")} value={run.worktreeBranch ?? run.definitionSnapshot.baseBranch} />
+        <Field label={t("loops.inspector.worktree")} value={run.worktreePath ?? t("loops.inspector.pending")} />
+        {run.worktreePath ? <LoopInspectionActions onInspect={onInspect} sessionId={inspectionSessionId} surfaces={["changes", "files"]} /> : null}
+        <Field label={t("loops.inspector.updated")} value={new Date(run.updatedAt).toLocaleString(i18n.resolvedLanguage)} />
+      </InspectorSection>
+    </div>
+  );
+}
 
 function InspectorSection({ children, title }: { children: ReactNode; title: string }) {
   return <section><h3 className="mb-2 text-[11px] font-semibold uppercase text-muted-foreground">{title}</h3><dl className="grid gap-3">{children}</dl></section>;

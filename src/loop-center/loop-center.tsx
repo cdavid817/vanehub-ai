@@ -10,7 +10,7 @@ import { LoopTimeline } from "./loop-timeline";
 import { DestinationLayout } from "../ui/destination-layout/DestinationLayout";
 import type { LayoutTier } from "../ui/destination-layout/use-layout-tier";
 import type { LoopDefinition, LoopInspectionTarget } from "../types/loop";
-import { LOOP_INSPECTOR_PANE_BOUNDS, LOOP_NAVIGATION_PANE_BOUNDS, useLoopInspectorRegion, useLoopNavigationRegion } from "./loop-center-regions";
+import { LOOP_INSPECTOR_PANE_BOUNDS, LOOP_NAVIGATION_PANE_BOUNDS, useLoopInspection, useLoopInspectorRegion, useLoopNavigationRegion } from "./loop-center-regions";
 
 export interface LoopCenterProps {
   onInspect?: (target: LoopInspectionTarget) => void;
@@ -90,6 +90,7 @@ export function LoopCenter({ definitionId, loopRunId, onInspect, onSelectionChan
   }, [definitionId, loopRunId]);
 
   const error = definitions.error ?? runs.error ?? run.error;
+  const inspection = useLoopInspection({ onInspect, run: run.data ?? null, runId: selectedRunId });
 
   const navigationRegion = useLoopNavigationRegion({
     definitions: definitions.data ?? [],
@@ -108,12 +109,10 @@ export function LoopCenter({ definitionId, loopRunId, onInspect, onSelectionChan
     width: navigationWidth,
   });
   const inspectorRegion = useLoopInspectorRegion({
-    loading: run.isLoading,
-    onInspect,
+    inspection,
     onOpenChange: setInspectorOpen,
     onWidthChange: setInspectorWidth,
     open: inspectorOpen,
-    run: run.data ?? null,
     tier,
     width: inspectorWidth,
   });

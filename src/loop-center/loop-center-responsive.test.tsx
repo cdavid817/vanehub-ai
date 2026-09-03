@@ -12,11 +12,12 @@ describe("LoopCenter responsive navigation", () => {
    * 17.3: the fixed three-column CSS grid + hand-rolled drawer/backdrop/focus-trap this used to
    * assert on (literal `min-[1024px]:grid-cols-` strings, a `translate-x-full` closed-transform
    * class) is gone, replaced by the shared `DestinationLayout`/`HorizontalPaneRegion` primitive
-   * Session Work already uses. No SSR/jsdom `ResizeObserver` ever fires (see
-   * `DestinationLayout.test.tsx`'s own note, and `DestinationLayoutBody.test.tsx` for tier
-   * composition covered generically rather than re-proven per caller), so this always renders at
-   * its initial "wide" tier -- both panes inline with a real resize gutter each, no Sheet trigger
-   * needed yet.
+   * Session Work already uses, with the inspector column itself now the shared `Inspector`
+   * component (Piece B) rather than the former bespoke `LoopInspector` render. No SSR/jsdom
+   * `ResizeObserver` ever fires (see `DestinationLayout.test.tsx`'s own note, and
+   * `DestinationLayoutBody.test.tsx` for tier composition covered generically rather than
+   * re-proven per caller), so this always renders at its initial "wide" tier -- both panes inline
+   * with a real resize gutter each, no Sheet trigger needed yet.
    */
   it("renders navigation and inspector as labelled, bounded, resizable panes at the default (wide) tier", () => {
     const queryClient = new QueryClient({
@@ -29,7 +30,6 @@ describe("LoopCenter responsive navigation", () => {
     );
 
     expect(html).toContain('id="loop-navigation-drawer"');
-    expect(html).toContain('id="loop-inspector-drawer"');
     // One real `SplitPane` resize gutter per pane (role="separator"), each labelled with what it
     // resizes and bounded to this destination's own former fixed-grid min/max
     // (loop-center-regions.tsx's LOOP_NAVIGATION_PANE_BOUNDS/LOOP_INSPECTOR_PANE_BOUNDS) --
@@ -37,6 +37,12 @@ describe("LoopCenter responsive navigation", () => {
     expect(html).toContain('aria-label="循环工程" aria-orientation="vertical" aria-valuemax="280" aria-valuemin="220"');
     expect(html).toContain('aria-label="检查器" aria-orientation="vertical" aria-valuemax="340" aria-valuemin="260"');
     expect(html).toContain('role="separator"');
+
+    // The inspector column is the shared Inspector shell (no run selected yet, so it is in
+    // overview mode showing Loop Center's own reused "no selection" copy) -- not a bespoke render.
+    expect(html).toContain('data-testid="workbench-inspector"');
+    expect(html).toContain("未选择运行记录");
+    expect(html).toContain("选择一条运行记录后");
 
     // Both panes are inline at the wide tier -- no Sheet-open trigger exists yet to find.
     expect(html).not.toContain('title="打开循环列表"');

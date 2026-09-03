@@ -1,5 +1,6 @@
 import type { LazyFeatureLoader } from "../../components/lazy-feature";
 import type { ChatMessage } from "../../types/chat";
+import type { LoopInspectionTarget } from "../../types/loop";
 import type { WorkbenchSelection, WorkbenchSelectionKind } from "../../types/workbench-selection";
 
 /**
@@ -38,6 +39,16 @@ export interface InspectorProviderContext {
    */
   currentSpeakerSeatId?: string | null;
   messages?: ChatMessage[];
+  /**
+   * Cross-navigates to the session backing a loop iteration's worker/verifier evidence -- Loop
+   * Center's own pre-existing "inspect this session's logs/changes/files" affordance
+   * (`LoopInspectionActions`), threaded through so the `loop-iteration` provider can keep offering
+   * it from inside the shared Inspector shell. Unlike `onNavigateToSessionTab` above,
+   * `LoopInspectionTarget` is imported directly rather than widened to a plain shape: it lives in
+   * `src/types/loop.ts`, not a `src/loop-center/`-owned module, so importing it here does not cross
+   * the ARCH-FE-005 feature boundary the way importing a `src/session-workspace/`-owned type would.
+   */
+  onInspectLoop?: (target: LoopInspectionTarget) => void;
 }
 
 /** What every Inspector provider component receives — never more than its own kind's selection. */
@@ -75,6 +86,11 @@ export const INSPECTOR_PROVIDERS: { [K in WorkbenchSelectionKind]?: InspectorPro
     kind: "session",
     titleKey: "workbenchUi.inspector.title.session",
     loader: () => import("../../main-layout/session-overview").then((module) => ({ default: module.SessionOverview })),
+  },
+  "loop-iteration": {
+    kind: "loop-iteration",
+    titleKey: "workbenchUi.inspector.title.loop-iteration",
+    loader: () => import("../../loop-center/loop-iteration-inspector-provider").then((module) => ({ default: module.LoopIterationInspectorProvider })),
   },
 };
 
