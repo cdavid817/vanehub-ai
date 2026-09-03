@@ -2,7 +2,7 @@
 
 ## Does VaneHub AI manage my API keys?
 
-**Not for the external CLIs.** Provider authentication for Claude Code, Codex CLI, Gemini CLI, OpenCode, and Antigravity CLI is managed by each CLI, with credentials stored in their own locations, and VaneHub AI never asks you for a provider password. Antigravity CLI goes further — it signs in through Google and stores its credential in the system keychain, so its configuration profile has no key field at all.
+**Not for the external CLIs.** Provider authentication for Claude Code, Codex CLI, Gemini CLI, OpenCode, and Antigravity CLI is managed by each CLI, with credentials stored in their own locations, and VaneHub AI never asks you for a provider password. Antigravity CLI defaults to Google sign-in with its credential in the system keychain; it also officially supports API keys and similar modes, but those fields are managed by the CLI itself and are not yet managed by VaneHub.
 
 **Yes for OnePiece.** The native API Agent's API key is stored by VaneHub AI — see [Native API Agent](native-agent.md).
 

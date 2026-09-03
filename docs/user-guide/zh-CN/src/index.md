@@ -19,7 +19,7 @@ VaneHub AI 是统一运行、管理和协作多个 AI 编码 Agent 的桌面工�
 
 两条路都从这些章节开始：
 
-- **下载安装**：预构建安装包与校验方式见 [README 的「下载」一节](../../../../README.zh-CN.md#下载)
+- **下载安装**：预构建安装包与校验方式见 [README 的下载一节](../../../../README.zh-CN.md#下载平台与发布完整性)
 - [快速开始](quick-start.md)——最短成功路径，五分钟发出第一条任务
 - [安装并认证 CLI](getting-started.md)——走外部 CLI 路线时的安装、认证与检测（OnePiece 路线可跳过）
 - [OnePiece（原生 Agent）](native-agent.md)——走 OnePiece 路线时的模型服务配置
