@@ -187,6 +187,7 @@ export function MissionControl({
           onDismissError={() => { if (selected) mutations.clear(selected.run.runId); }}
           onInspect={(run) => void inspect(run.runId)}
           onSelectFacet={setActiveFacet}
+          section={section}
           selected={selected}
         />
       </aside>

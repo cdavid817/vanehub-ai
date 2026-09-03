@@ -13,13 +13,18 @@ export interface RunSectionProps {
   onDismissError: (run: MissionControlRunSummary) => void;
   onInspect: (run: MissionControlRunSummary) => void;
   runs: MissionControlRunSummary[];
+  /** 16.13: this bucket's own real identity (attention/active/history) -- passed to each `RunCard`
+   *  regardless of whether the page-level `section` filter is scoping rendering to just one bucket,
+   *  since a run shown under e.g. "Attention" genuinely belongs there either way. Used only to build
+   *  the "review" action's own safe `returnTo`; unrelated to the pre-existing `urgent` styling. */
+  section: MissionControlRunListSection;
   title: string;
   urgent?: boolean;
 }
 
 /** 16.3's own "Run collection": one labeled group of `RunCard`s (Attention/Active/Recent) --
  *  unchanged from the original inline version beyond threading `agents` through for 16.7. */
-export function RunSection({ agents, mutations, onAct, onDismissError, onInspect, runs, title, urgent = false }: RunSectionProps) {
+export function RunSection({ agents, mutations, onAct, onDismissError, onInspect, runs, section, title, urgent = false }: RunSectionProps) {
   if (!runs.length) return null;
   return (
     <section className="mb-4">
@@ -29,7 +34,7 @@ export function RunSection({ agents, mutations, onAct, onDismissError, onInspect
       </h2>
       <div className="grid gap-2">
         {runs.map((run) => (
-          <RunCard agents={agents} key={run.runId} mutation={mutations.get(run.runId)} onAct={onAct} onDismissError={onDismissError} onInspect={onInspect} run={run} />
+          <RunCard agents={agents} key={run.runId} mutation={mutations.get(run.runId)} onAct={onAct} onDismissError={onDismissError} onInspect={onInspect} run={run} section={section} />
         ))}
       </div>
     </section>
@@ -78,9 +83,9 @@ export function MissionControlRunList({ agents, listRef, loading, mutations, onA
   const empty = Boolean(!loading && overview && visibleCount === 0);
   return (
     <div className="min-h-0 overflow-y-auto p-3" onScroll={(event) => onScroll(event.currentTarget.scrollTop)} ref={listRef}>
-      {showAttention ? <RunSection agents={agents} mutations={mutations} onAct={onAct} onDismissError={onDismissError} onInspect={onInspect} runs={overview?.attention.items ?? []} title={t("missionControl.attention")} urgent /> : null}
-      {showActive ? <RunSection agents={agents} mutations={mutations} onAct={onAct} onDismissError={onDismissError} onInspect={onInspect} runs={overview?.active.items ?? []} title={t("missionControl.active")} /> : null}
-      {showHistory ? <RunSection agents={agents} mutations={mutations} onAct={onAct} onDismissError={onDismissError} onInspect={onInspect} runs={overview?.recent.items ?? []} title={t("missionControl.recent")} /> : null}
+      {showAttention ? <RunSection agents={agents} mutations={mutations} onAct={onAct} onDismissError={onDismissError} onInspect={onInspect} runs={overview?.attention.items ?? []} section="attention" title={t("missionControl.attention")} urgent /> : null}
+      {showActive ? <RunSection agents={agents} mutations={mutations} onAct={onAct} onDismissError={onDismissError} onInspect={onInspect} runs={overview?.active.items ?? []} section="active" title={t("missionControl.active")} /> : null}
+      {showHistory ? <RunSection agents={agents} mutations={mutations} onAct={onAct} onDismissError={onDismissError} onInspect={onInspect} runs={overview?.recent.items ?? []} section="history" title={t("missionControl.recent")} /> : null}
       {nextCursor ? <button className="rounded-md border border-input px-3 py-1.5 text-xs" onClick={() => onNextPage(nextCursor)} type="button">{t("missionControl.nextPage")}</button> : null}
       {empty ? <p className="p-8 text-center text-sm text-muted-foreground">{t("missionControl.empty")}</p> : null}
     </div>

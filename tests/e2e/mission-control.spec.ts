@@ -47,7 +47,8 @@ test("monitors multiple Runs, attention, failure, bounded filters, detail, and r
   // real browser, not just in the component-level tests that force `compact={true}` directly.
   await page.getByLabel("Run detail sections").selectOption("timeline");
   await expect(page.getByTestId("mission-control-timeline-facet")).toBeVisible();
-  await failed.locator("[data-action='review']").click();
+  // 16.13: "review" is now a real EvidenceLink (an `<a>`, not a `[data-action]` button).
+  await failed.getByRole("link", { name: "Review changes" }).click();
   await expect(page).toHaveURL(/\/workspace\/sessions\//);
 });
 
@@ -72,7 +73,10 @@ test("4.8: returns to the same run, with the same filter, after an evidence-navi
   await openFilters(page);
   await page.getByLabel("Filter by status", { exact: true }).selectOption("failed");
   const failed = page.getByTestId("mission-run-018f0f17-4d6a-7e20-b41d-66c5271a294").first();
-  await failed.locator("[data-action='review']").click();
+  // 16.13: "review" is now a real EvidenceLink (an `<a>`, not a `[data-action]` button) whose `href`
+  // already carries a real `?returnTo=` token (`withReturnTo`, mirroring `App.tsx`'s own navigate
+  // handler byte-for-byte) -- the round trip below is exercising that token, not a fabricated one.
+  await failed.getByRole("link", { name: "Review changes" }).click();
   await expect(page).toHaveURL(/\/workspace\/sessions\//);
 
   const returnButton = page.getByRole("button", { name: "Back to Mission Control" });

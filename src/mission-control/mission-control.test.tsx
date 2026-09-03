@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 
+import type { ReactElement } from "react";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { activateAppLanguage, i18n } from "../i18n";
 import { agentService } from "../services/runtime-agent-client";
@@ -32,6 +34,14 @@ function openByTrigger(name: string | RegExp) {
   if (trigger.getAttribute("aria-expanded") !== "true") fireEvent.click(trigger);
 }
 
+// 16.13: `RunCard` now renders a real `EvidenceLink` (a react-router `Link`) for any run whose
+// "review" action has a resolvable session -- the small fixed Web demo fixture's own review-linked
+// run (index 4) is present by default across most of this file's tests, not just the one that
+// interacts with it directly, so every render needs a Router ancestor, not just that one test.
+function withRouter(ui: ReactElement) {
+  return <MemoryRouter>{ui}</MemoryRouter>;
+}
+
 function agentFixture(id: string, displayName: string): AgentRegistryEntry {
   return {
     id, displayName, provider: "test", launch: { kind: "cli" }, supportedInteractionModes: ["cli"],
@@ -45,7 +55,7 @@ describe("MissionControl", () => {
     seedWebMissionControlRunsForTest(1_000);
     const detail = vi.spyOn(webAgentClient, "getMissionControlRun");
 
-    render(<MissionControl />);
+    render(withRouter(<MissionControl />));
 
     await waitFor(() => expect(document.querySelectorAll("[data-testid^='mission-run-']")).toHaveLength(60));
     expect(detail).not.toHaveBeenCalled();
@@ -72,7 +82,7 @@ describe("MissionControl", () => {
     // does not have that same accidental immunity, so it needs the real fix instead.
     await activateAppLanguage("en"); const navigate = vi.fn();
     const overview = vi.spyOn(agentService, "getMissionControlOverview");
-    render(<MissionControl onNavigate={navigate} />);
+    render(withRouter(<MissionControl onNavigate={navigate} />));
     await waitFor(() => expect(document.querySelectorAll("[data-testid^='mission-run-']").length).toBeGreaterThan(0));
     expect(document.querySelector("[data-runner='ssh']")?.textContent).toContain("build.example.test");
 
@@ -86,25 +96,32 @@ describe("MissionControl", () => {
     const failed = await screen.findAllByTestId("mission-run-018f0f17-4d6a-7e20-b41d-66c5271a294");
     fireEvent.click(failed[0].querySelector("button")!);
     await waitFor(() => expect(document.querySelector("[role='tablist']")).toBeTruthy());
-    fireEvent.click(document.querySelector("[data-action='review']")!);
-    expect(navigate).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: "review" }),
-      "018f0f17-4d6a-7e20-b41d-66c5271a294",
+    // 16.13: "review" is now a real EvidenceLink (a react-router `Link` to the linked review's own
+    // session), not an `onAct`/`onNavigate` trigger -- proven here via its real `href` the same way
+    // EvidenceLink.test.tsx's own "links to the authoritative page" case does, not by asserting the
+    // old callback fired (it no longer does; this action is pure declarative navigation now). The
+    // `?returnTo=` token is this run's own real Attention-bucket location (`withReturnTo`, reusing
+    // the same safe, validated mechanism `navigateFromMissionControl` already relies on for this
+    // exact action) -- not fabricated, and not lost by moving off the old callback path.
+    const reviewLink = within(failed[0]).getByRole("link", { name: "Review changes" });
+    expect(reviewLink.getAttribute("href")).toBe(
+      "/workspace/sessions/web-session-4?returnTo=%2Fworkspace%2Fruns%2Fattention%2F018f0f17-4d6a-7e20-b41d-66c5271a294",
     );
+    expect(navigate).not.toHaveBeenCalled();
   });
 
   it("16.2: scopes rendering to one section's own RunSection when a route tab is given, and shows all three when it is not", async () => {
     await activateAppLanguage("en");
-    const { rerender } = render(<MissionControl section="attention" />);
+    const { rerender } = render(withRouter(<MissionControl section="attention" />));
     await waitFor(() => expect(screen.getByRole("heading", { name: "Attention inbox" })).toBeTruthy());
     expect(screen.queryByRole("heading", { name: "Active Runs" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "Recently completed" })).toBeNull();
 
-    rerender(<MissionControl section="active" />);
+    rerender(withRouter(<MissionControl section="active" />));
     await waitFor(() => expect(screen.getByRole("heading", { name: "Active Runs" })).toBeTruthy());
     expect(screen.queryByRole("heading", { name: "Attention inbox" })).toBeNull();
 
-    rerender(<MissionControl />);
+    rerender(withRouter(<MissionControl />));
     await waitFor(() => expect(screen.getByRole("heading", { name: "Attention inbox" })).toBeTruthy());
     expect(screen.getByRole("heading", { name: "Active Runs" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Recently completed" })).toBeTruthy();
@@ -113,7 +130,7 @@ describe("MissionControl", () => {
   it("does not let a slower inspect() response overwrite a more recently selected run's detail", async () => {
     await i18n.changeLanguage("en");
     seedWebMissionControlRunsForTest(100);
-    render(<MissionControl />);
+    render(withRouter(<MissionControl />));
     await waitFor(() => expect(document.querySelectorAll("[data-testid^='mission-run-']").length).toBeGreaterThanOrEqual(2));
 
     const rows = Array.from(document.querySelectorAll("[data-testid^='mission-run-']"));
@@ -148,7 +165,7 @@ describe("MissionControl", () => {
   it("shows safe errors and does not expose backend diagnostics", async () => {
     await i18n.changeLanguage("en");
     vi.spyOn(agentService, "getMissionControlOverview").mockRejectedValue(new Error("token=secret"));
-    render(<MissionControl />);
+    render(withRouter(<MissionControl />));
     await waitFor(() => expect(document.querySelector("[aria-live='polite']")).toBeTruthy());
     expect(document.body.textContent).not.toContain("secret");
   });
@@ -164,13 +181,13 @@ describe("MissionControl", () => {
   it("renders an explicit empty state", async () => {
     const empty: MissionControlOverview = { counts: { running: 0, waitingApproval: 0, waitingUser: 0, retrying: 0, blocked: 0, failed: 0, completedRecently: 0 }, attention: { items: [], nextCursor: null }, active: { items: [], nextCursor: null }, recent: { items: [], nextCursor: null } };
     vi.spyOn(agentService, "getMissionControlOverview").mockResolvedValue(empty);
-    render(<MissionControl />); await waitFor(() => expect(document.querySelector("[data-testid='mission-control'] .p-8")).toBeTruthy());
+    render(withRouter(<MissionControl />)); await waitFor(() => expect(document.querySelector("[data-testid='mission-control'] .p-8")).toBeTruthy());
   });
 
   it("stops polling once unmounted", async () => {
     const empty: MissionControlOverview = { counts: { running: 0, waitingApproval: 0, waitingUser: 0, retrying: 0, blocked: 0, failed: 0, completedRecently: 0 }, attention: { items: [], nextCursor: null }, active: { items: [], nextCursor: null }, recent: { items: [], nextCursor: null } };
     const overview = vi.spyOn(agentService, "getMissionControlOverview").mockResolvedValue(empty);
-    const { unmount } = render(<MissionControl />);
+    const { unmount } = render(withRouter(<MissionControl />));
     await waitFor(() => expect(overview).toHaveBeenCalled());
 
     unmount();
@@ -190,7 +207,7 @@ describe("MissionControl", () => {
       () => new Promise((resolve) => { resolvePause = resolve as (receipt: unknown) => void; }),
     );
 
-    render(<MissionControl />);
+    render(withRouter(<MissionControl />));
     const pausedCard = await screen.findByTestId(`mission-run-${PAUSED_RUN_ID}`);
     const runningCard = await screen.findByTestId(`mission-run-${RUNNING_RUN_ID}`);
     const resumeButton = within(pausedCard).getByRole("button", { name: "Resume" }) as HTMLButtonElement;
@@ -212,7 +229,7 @@ describe("MissionControl", () => {
   it("does not reload the whole board after a single run's own successful action", async () => {
     await activateAppLanguage("en");
     const overview = vi.spyOn(agentService, "getMissionControlOverview");
-    render(<MissionControl />);
+    render(withRouter(<MissionControl />));
     const pausedCard = await screen.findByTestId(`mission-run-${PAUSED_RUN_ID}`);
     await waitFor(() => expect(overview).toHaveBeenCalledOnce());
     const loadCallsAfterMount = overview.mock.calls.length;
@@ -229,7 +246,7 @@ describe("MissionControl", () => {
 
   it("detects a real version conflict from the Web backend, refreshes the affected run, and explains it on that run alone", async () => {
     await activateAppLanguage("en");
-    render(<MissionControl />);
+    render(withRouter(<MissionControl />));
     const pausedCard = await screen.findByTestId(`mission-run-${PAUSED_RUN_ID}`);
     const runningCard = await screen.findByTestId(`mission-run-${RUNNING_RUN_ID}`);
     await waitFor(() => expect(within(pausedCard).getByRole("button", { name: "Resume" })).toBeTruthy());
@@ -255,7 +272,7 @@ describe("MissionControl", () => {
   it("applies the exact mapped filter when a metric card is clicked, including the two-state 'blocked' card, and toggles off on a second click", async () => {
     await activateAppLanguage("en");
     const overview = vi.spyOn(agentService, "getMissionControlOverview");
-    render(<MissionControl />);
+    render(withRouter(<MissionControl />));
     await waitFor(() => expect(document.querySelectorAll("[data-testid^='mission-run-']").length).toBeGreaterThan(0));
 
     const blockedCard = await screen.findByTestId("mission-control-count-blocked");
@@ -272,7 +289,7 @@ describe("MissionControl", () => {
 
   it("shows a single-state metric card as pressed when the same state is set manually from the status dropdown -- one shared filter, two entry points", async () => {
     await activateAppLanguage("en");
-    render(<MissionControl />);
+    render(withRouter(<MissionControl />));
     await waitFor(() => expect(document.querySelectorAll("[data-testid^='mission-run-']").length).toBeGreaterThan(0));
 
     openByTrigger(/Filters/);
@@ -286,7 +303,7 @@ describe("MissionControl", () => {
   it("filters by exact Agent id via the new dropdown, by free-text project id, and keeps Sort working outside the popover", async () => {
     await activateAppLanguage("en");
     const overview = vi.spyOn(agentService, "getMissionControlOverview");
-    render(<MissionControl agents={[agentFixture("web-owner-6", "Test Agent Six")]} />);
+    render(withRouter(<MissionControl agents={[agentFixture("web-owner-6", "Test Agent Six")]} />));
     await waitFor(() => expect(document.querySelectorAll("[data-testid^='mission-run-']").length).toBeGreaterThan(0));
 
     openByTrigger(/Filters/);
@@ -304,7 +321,7 @@ describe("MissionControl", () => {
   it("saves the current filters under a name and reapplies them exactly on Apply", async () => {
     await activateAppLanguage("en");
     const overview = vi.spyOn(agentService, "getMissionControlOverview");
-    render(<MissionControl />);
+    render(withRouter(<MissionControl />));
     await waitFor(() => expect(document.querySelectorAll("[data-testid^='mission-run-']").length).toBeGreaterThan(0));
 
     openByTrigger(/Filters/);
@@ -326,7 +343,7 @@ describe("MissionControl", () => {
   // 16.7: safe Agent/owner labels.
   it("resolves a matching Agent's own display name, translates a non-Agent owner type, and falls back to the raw id when no registry entry matches", async () => {
     await activateAppLanguage("en");
-    const { rerender } = render(<MissionControl />);
+    const { rerender } = render(withRouter(<MissionControl />));
     const runningCard = await screen.findByTestId(`mission-run-${RUNNING_RUN_ID}`);
     // No agents supplied yet: an honest fallback to the raw owner id, not a blank or a crash.
     // Scoped to the owner-label <p> specifically -- the run's own title ("Run web-owner-6", from
@@ -340,7 +357,7 @@ describe("MissionControl", () => {
     // as the raw internal token.
     expect(within(pausedCard).getByText(/Web demo/, { selector: "p" })).toBeTruthy();
 
-    rerender(<MissionControl agents={[agentFixture("web-owner-6", "Test Agent Six")]} />);
+    rerender(withRouter(<MissionControl agents={[agentFixture("web-owner-6", "Test Agent Six")]} />));
     await waitFor(() => expect(within(screen.getByTestId(`mission-run-${RUNNING_RUN_ID}`)).getByText(/Test Agent Six/, { selector: "p" })).toBeTruthy());
   });
 });
