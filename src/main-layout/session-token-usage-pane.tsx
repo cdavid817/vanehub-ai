@@ -95,7 +95,7 @@ export function SessionTokenUsagePane({ active = true, lifecycle, sessionId }: {
               <article className="rounded-md border border-border bg-background p-3 text-xs" key={invocation.id}>
                 <div className="flex flex-wrap items-center gap-1.5"><Badge tone="muted">{t(`usage.purpose.${invocation.purpose}`)}</Badge><Badge tone={invocation.status === "failed" ? "danger" : "muted"}>{t(`usage.status.${invocation.status}`)}</Badge></div>
                 <p className="mt-2 wrap-break-word text-muted-foreground">{invocation.providerId ?? t("usage.unknown")} · {invocation.modelId ?? t("usage.unknown")}</p>
-                <p className="mt-1 font-medium tabular-nums">{observation?.dimensions.providerTotal ?? t("usage.unknown")} {observation?.unit === "characters" ? t("usage.units.characters") : t("usage.units.tokens")}</p>
+                <p className="mt-1 font-medium tabular-nums">{observation && observation.dimensions.providerTotal !== null ? formatAppNumber(observation.dimensions.providerTotal, i18n.language) : t("usage.unknown")} {observation?.unit === "characters" ? t("usage.units.characters") : t("usage.units.tokens")}</p>
               </article>
             );
           })}
