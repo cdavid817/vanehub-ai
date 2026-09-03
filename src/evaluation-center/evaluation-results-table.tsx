@@ -101,15 +101,21 @@ function sortRows(rows: readonly EvaluationResultRow[], sort: DataTableSort | un
 }
 
 /**
- * 18.6/18.7: the shared `DataTable` migration for Evaluation's result list. Service-side pagination
- * and row selection are deliberately not wired — there is no `offset`/`limit` on
- * `EvaluationService.listEvaluationArenas()` today (the Tauri command hard-codes `api.list(0, 100)`
- * server-side with nothing exposed to the frontend to change it), and no bulk row action exists yet
- * for a selection checkbox column to drive. Every current column (Agent, Outcome, Tests, Tokens,
- * Time) is core at-a-glance information, not a raw id or a low-frequency fingerprint, so none of
- * them are hidden behind `visibleColumnIds` — the primitive has no way to mark a column
- * non-hideable, and blanket-enabling the menu would let a reader hide Agent/Outcome identity
- * columns along with the rest.
+ * 18.6/18.7: the shared `DataTable` migration for Evaluation's result list. Row selection is
+ * deliberately not wired — no bulk row action exists yet for a selection checkbox column to drive.
+ * Every current column (Agent, Outcome, Tests, Tokens, Time) is core at-a-glance information, not a
+ * raw id or a low-frequency fingerprint, so none of them are hidden behind `visibleColumnIds` — the
+ * primitive has no way to mark a column non-hideable, and blanket-enabling the menu would let a
+ * reader hide Agent/Outcome identity columns along with the rest.
+ *
+ * Service-side pagination has a real home now, but not directly on this table: `rows` here is
+ * always the full attempt-level flattening of whatever `EvaluationArena`s the page has currently
+ * loaded (`evaluation-center.tsx`'s own `visible`), and there is no separate, independently
+ * paginated attempts endpoint underneath it -- attempts only ever exist inside an arena. Real
+ * `offset`/`nextCursor` pagination for `EvaluationService.listEvaluationArenas()` landed in 18.6
+ * itself (`list_evaluation_arenas.rs`, `use-evaluation-query.ts`'s own `loadMoreArenas`), which
+ * grows that same pool of loaded arenas -- and therefore the rows available here -- one page at a
+ * time instead of the old hard-coded `list(0, 100)`.
  */
 export function EvaluationResultsTable({ rows, filter, onFilterChange, onSelectAttempt, onExportArena }: EvaluationResultsTableProps) {
   const { t } = useTranslation();

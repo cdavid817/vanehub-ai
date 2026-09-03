@@ -32,11 +32,12 @@ export interface ScheduledTaskHistoryProps {
  * rather than guessing a "manual" label onto data that cannot actually support it.
  *
  * No real pagination: the underlying query, service contract, and Web mock all hard-code the
- * newest 100 rows with no cursor/offset anywhere (mirroring this same OpenSpec change's own 18.6
- * precedent for `listEvaluationArenas`'s identical `list(0, 100)` shape -- building real cursor
- * pagination across three layers is its own later increment, not attempted here). Landing exactly
- * on the cap is the one honest signal that there may be more than what is shown, so it is
- * surfaced as a bounded note, never a "load more" that has nowhere real to go.
+ * newest 100 rows with no cursor/offset anywhere. `listEvaluationArenas` had an identical
+ * `list(0, 100)` gap before this same OpenSpec change's own 18.6 closed it -- see that task's
+ * tasks.md evidence for the cross-layer shape (Tauri command cursor/limit params, a
+ * `{ items, nextCursor }` service contract, real slicing in the Web mock) a future pass here could
+ * follow. Landing exactly on the cap is the one honest signal that there may be more than what is
+ * shown, so it is surfaced as a bounded note, never a "load more" that has nowhere real to go.
  */
 export function ScheduledTaskHistory({ language, onOpenSession, onRetry, state }: ScheduledTaskHistoryProps) {
   const { t } = useTranslation();
