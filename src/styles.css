@@ -284,7 +284,16 @@
   --border: 221 39% 11% / 0.26;
   --input: 221 39% 11% / 0.26;
   --ring: 221 83% 53%;
-  --primary: 221 83% 53%;
+  /* 20.18: lightness lowered from an axe-core-confirmed failing 53% -- `text-primary` paired with
+     `bg-nav-active-soft` (the active-tab highlight in plan-destination.tsx/runs-destination.tsx)
+     read at 4.39:1 against WCAG AA's 4.5:1 for normal text, the exact same underlying number
+     `--information` had before its own fix above (both were independently authored at this same
+     H/S/L). A saturated blue this light on a near-white background cannot clear 4.5:1 without
+     darkening the text itself -- widening the background's own alpha only pulls it *toward* this
+     same blue, which would reduce contrast further, not add it. `--ring` (focus outlines, a
+     different contrast pairing not shown failing) and `--primary-foreground` (white text on a
+     solid `--primary` background, also unaffected by 2 points of lightness) are both left alone. */
+  --primary: 221 83% 51%;
   --primary-foreground: 0 0% 100%;
   --destructive: 0 72% 44%;
   --destructive-foreground: 0 0% 100%;
@@ -295,8 +304,12 @@
   --panel-hover: 220 14% 94%;
   --panel-glass: 0 0% 100% / 0.92;
   --border-strong: 221 39% 11% / 0.38;
-  --nav-active: 221 83% 53%;
-  --nav-active-soft: 221 83% 53% / 0.12;
+  /* 20.18: kept identical to the now-fixed `--primary` above (both independently authored as "the
+     brand blue", same as `--information`'s own relationship to `--primary` elsewhere in this block)
+     -- `--nav-active` itself has no real consumer today (confirmed by grep), but `--nav-active-soft`
+     is the active-tab background this exact violation was found on, paired with `text-primary`. */
+  --nav-active: 221 83% 51%;
+  --nav-active-soft: 221 83% 51% / 0.12;
   /* 20.18: lightness lowered from an axe-core-confirmed failing 34%/44% (3.73:1/2.78:1 against
      `--background`, both short of WCAG AA's 4.5:1 for normal text) -- see the futuristic theme
      block above for the verification method and target-ratio rationale, mirrored here. `--danger`
