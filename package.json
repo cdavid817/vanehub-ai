@@ -49,6 +49,8 @@
     "local-media:python:test": "node scripts/test-local-media-python.mjs",
     "local-media:e2e": "playwright test --config playwright.local-media.config.ts",
     "local-media:fake:check": "node scripts/check-local-media-fake-bundle.mjs",
+    "visual:test": "playwright test --config playwright.visual.config.ts",
+    "visual:update": "playwright test --config playwright.visual.config.ts --update-snapshots",
     "test:coverage": "vitest run --coverage --maxWorkers=4 --testTimeout=15000",
     "coverage:check:frontend": "node scripts/check-coverage-policy.mjs --kind frontend --report coverage/frontend/coverage-summary.json",
     "coverage:native": "node scripts/run-native-coverage.mjs",

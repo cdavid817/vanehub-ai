@@ -92,6 +92,9 @@ export default defineConfig({
       "tests/e2e/**",
       // Playwright specs for the local-media fake build; Vitest must not collect them.
       "tests/e2e-local-media/**",
+      // Playwright specs for the real toHaveScreenshot() visual-regression suite (tasks
+      // 21.17-21.19); same reason as tests/e2e-local-media/** above.
+      "tests/e2e-visual-regression/**",
       // Nested git worktrees under .claude ship their own node_modules and e2e
       // specs; keep the test runner from descending into those copies.
       "**/.claude/**",
