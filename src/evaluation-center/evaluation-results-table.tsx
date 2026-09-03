@@ -36,7 +36,9 @@ const OUTCOME_TONE: Record<EvaluationOutcome, StatusTone> = {
 
 // Ascending puts a passing result first and reads as "best first" — cancelled sits last since it
 // is neither a pass nor a verdict on the Agent, not a rank between the two failure clusters.
-const OUTCOME_RANK: Record<EvaluationOutcome, number> = {
+// Exported: `evaluation-comparison.ts` (18.9) reuses this exact order for its outcome-tier verdict
+// rather than inventing a second ranking.
+export const OUTCOME_RANK: Record<EvaluationOutcome, number> = {
   succeeded: 0,
   running: 1,
   queued: 2,
@@ -65,7 +67,9 @@ function metricValue(attempt: EvaluationAttempt, name: string): number | null {
   return findMetric(attempt, name)?.value ?? null;
 }
 
-function checkRatio(attempt: EvaluationAttempt): number {
+// Exported: `evaluation-comparison.ts` (18.9) reuses this as the honest "reliability" signal (check
+// pass rate) rather than reimplementing it a second time.
+export function checkRatio(attempt: EvaluationAttempt): number {
   // No checks ran at all carries less information than any real ratio, including 0/1 — sorts last.
   return attempt.checks.length === 0 ? -1 : attempt.checks.filter((item) => item.passed).length / attempt.checks.length;
 }

@@ -5,6 +5,7 @@ import { agentService } from "../services/runtime-agent-client";
 import type { EvaluationArena, EvaluationAttempt } from "../types/evaluation";
 import { EvidenceLink } from "../ui/evidence/EvidenceLink";
 import { EvaluationArenaList } from "./evaluation-arena-list";
+import { EvaluationComparisonPanel } from "./evaluation-comparison-panel";
 import { EvaluationResultsTable } from "./evaluation-results-table";
 import { EvaluationRunControls } from "./evaluation-run-controls";
 import { TERMINAL_EVALUATION_OUTCOMES, useEvaluationQuery } from "./use-evaluation-query";
@@ -36,6 +37,9 @@ export function EvaluationCenter() {
   );
   const visible = useMemo(() => arenas.flatMap((arena) => arena.attempts.map((attempt) => ({ arena, attempt })))
     .filter(({ attempt }) => `${attempt.agent.agentId} ${attempt.outcome}`.toLowerCase().includes(filter.toLowerCase())), [arenas, filter]);
+  // Independent of `visible`/`filter` on purpose (18.8): comparing two results is not scoped to
+  // whatever text the results table happens to be filtered to.
+  const allAttempts = useMemo(() => arenas.flatMap((arena) => arena.attempts), [arenas]);
   // Takes the wizard's own draft values as parameters rather than reading page state, so there is
   // no stale-closure race against the `setTaskId`/`setAgentIds` commit below (state updates are
   // not synchronous, and `EvaluationRunControls` calls this the instant Review's Run is clicked).
@@ -107,6 +111,7 @@ export function EvaluationCenter() {
           <div><h3 className="text-xs font-semibold">{t("evaluation.timeline")}</h3>{selected.timeline.map((item) => <p className="mt-1 border-l-2 border-primary/50 pl-2 text-xs" key={item.id}>{item.label} · {item.status}</p>)}</div></div> : <p className="text-sm text-muted-foreground">{t("evaluation.selectResult")}</p>}
       </aside>
     </div>
+    <EvaluationComparisonPanel attempts={allAttempts} />
   </div>;
 }
 

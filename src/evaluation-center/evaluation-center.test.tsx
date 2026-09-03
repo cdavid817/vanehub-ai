@@ -185,6 +185,39 @@ describe("EvaluationCenter", () => {
     fireEvent.click(await screen.findByTestId("evaluation-row"));
     expect(within(screen.getByTestId("evaluation-detail")).getByText("不可用")).toBeTruthy();
   });
+
+  // 18.8/18.9/18.10: wiring-level proof that `EvaluationComparisonPanel` actually receives every
+  // attempt across all arenas (not the results table's own filtered `visible` subset) and that
+  // picking a real baseline/candidate pair renders a real comparison -- the panel's own behavior is
+  // already covered thoroughly in isolation (`evaluation-comparison-panel.test.tsx`), this only
+  // proves the page composes it correctly.
+  it("wires the comparison panel to every loaded attempt and renders a real comparison once two are chosen", async () => {
+    await i18n.changeLanguage("zh-CN");
+    vi.spyOn(agentService, "listEvaluationArenas").mockResolvedValue([]);
+    vi.spyOn(agentService, "startEvaluation").mockResolvedValue(arenaWithTwoAttempts());
+    render(<EvaluationCenter />);
+    await openWizardAndRun();
+    await screen.findByTestId("evaluation-comparison");
+    fireEvent.change(screen.getByTestId("evaluation-comparison-baseline"), { target: { value: "attempt-one" } });
+    fireEvent.change(screen.getByTestId("evaluation-comparison-candidate"), { target: { value: "attempt-two" } });
+    expect(screen.getByTestId("evaluation-comparison-result")).toBeTruthy();
+  });
+
+  it("provides every evaluation.comparison label in all registered locales", () => {
+    for (const locale of ["en", "zh-CN", "zh-TW", "ja", "ko"]) {
+      for (const key of [
+        "title", "description", "baselineLabel", "candidateLabel", "choosePlaceholder", "attemptOption",
+        "needsTwoResults", "selectBoth", "notComparable", "outcomeTier", "outcomeTierReason", "metricDeltas",
+        "uncomparedMetrics", "reliability", "reliabilityUnavailable", "evidence", "checksCount", "artifactsCount",
+        "sameConfiguration", "differentConfiguration",
+        "reason.sameAttempt", "reason.differentTask", "reason.differentVersion", "reason.inProgress",
+        "verdict.improved", "verdict.regressed", "verdict.unchanged", "verdict.notRankable",
+        "uncomparedReason.missingOnBaseline", "uncomparedReason.missingOnCandidate", "uncomparedReason.unavailableQuality", "uncomparedReason.unitMismatch",
+      ]) {
+        expect(i18n.getFixedT(locale)(`evaluation.comparison.${key}`)).not.toBe(`evaluation.comparison.${key}`);
+      }
+    }
+  });
 });
 
 function arena(outcome: "queued" | "cancelled"): EvaluationArena {
@@ -193,4 +226,17 @@ function arena(outcome: "queued" | "cancelled"): EvaluationArena {
 
 function arenaWithArtifacts(artifactIds: string[]): EvaluationArena {
   return { id: "arena-artifacts", operationId: "operation-artifacts", taskId: "fix-null-auth-token", taskVersion: 1, rankingVersion: "deterministic-v2", attempts: [{ id: "attempt-artifacts", arenaId: "arena-artifacts", canonicalRunId: "run-artifacts", taskId: "fix-null-auth-token", taskVersion: 1, agent: { agentId: "onepiece", providerId: "onepiece", modelId: null, interactionMode: "api", configurationFingerprint: "safe" }, outcome: "succeeded", checks: [], metrics: [], contextEvidenceManifestId: null, artifactIds, timeline: [] }] };
+}
+
+// Two attempts sharing task+version, both terminal with different outcomes -- the minimal real
+// shape `checkEligibility` (18.8) reports as comparable.
+function arenaWithTwoAttempts(): EvaluationArena {
+  const base = { arenaId: "arena-compare", canonicalRunId: "run-compare", taskId: "fix-null-auth-token", taskVersion: 1, checks: [], metrics: [], contextEvidenceManifestId: null, artifactIds: [], timeline: [] };
+  return {
+    id: "arena-compare", operationId: "operation-compare", taskId: "fix-null-auth-token", taskVersion: 1, rankingVersion: "deterministic-v2",
+    attempts: [
+      { ...base, id: "attempt-one", agent: { agentId: "onepiece", providerId: "onepiece", modelId: null, interactionMode: "api", configurationFingerprint: "safe" }, outcome: "task_failed" },
+      { ...base, id: "attempt-two", agent: { agentId: "codex-cli", providerId: "openai", modelId: null, interactionMode: "cli", configurationFingerprint: "other" }, outcome: "succeeded" },
+    ],
+  };
 }
