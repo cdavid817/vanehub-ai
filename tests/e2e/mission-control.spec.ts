@@ -138,8 +138,21 @@ test("keyboard-only: opens a Run's detail and navigates the section-nav tablist 
 for (const variant of [
   { name: "futuristic-desktop", theme: "futuristic" as const, width: 1440 },
   { name: "minimal-desktop", theme: "minimal" as const, width: 1440 },
-  { name: "futuristic-narrow", theme: "futuristic" as const, width: 390 },
-  { name: "minimal-narrow", theme: "minimal" as const, width: 390 },
+  // 20.2: 1100 is this app's own declared Tauri minWidth (src-tauri/tauri.conf.json's own
+  // `minWidth`) -- both stay in the wide, two-column `min-[900px]:grid-cols-[...]` mode
+  // (mission-control.tsx's own `compact` query is `max-width: 899px`), so the shared body below
+  // still applies unchanged; this only proves the page doesn't clip or break at the real floor,
+  // not a second layout mode.
+  { name: "futuristic-floor", theme: "futuristic" as const, width: 1100 },
+  { name: "minimal-floor", theme: "minimal" as const, width: 1100 },
+  // 20.2: 900 is the exact top edge of that same grid breakpoint -- still two-column here; the
+  // real mode change (list replaced by detail, see the dedicated 768 test below) starts one named
+  // width down. 1280/1024/768 are deliberately not each given their own entry here: every one of
+  // them falls inside a mode a kept width already demonstrates (1280/1024 alongside 1440/1100/900's
+  // two-column mode, 768 in its own dedicated test below), so a dedicated screenshot for each would
+  // only re-capture an already-proven mode at a slightly different total width.
+  { name: "futuristic-grid-edge", theme: "futuristic" as const, width: 900 },
+  { name: "minimal-grid-edge", theme: "minimal" as const, width: 900 },
 ]) {
   test(`Mission Control visual ${variant.name}`, async ({ page }, testInfo) => {
     await openMissionControl(page, variant.theme, variant.width);
@@ -164,5 +177,87 @@ for (const variant of [
       return bounds.height > 0 && bounds.width > 0;
     })).toBe(true);
     await page.getByTestId("mission-control").screenshot({ path: testInfo.outputPath(`${variant.name}.png`) });
+  });
+}
+
+// 20.2: pre-existing regression fix, found while extending this same loop above -- not itself part
+// of 20.2/20.17's own scope, but in the same file/loop and root-caused during that work, so fixed
+// here rather than left broken. `futuristic-narrow`/`minimal-narrow` (390px, below the compact
+// breakpoint) used to share the wide loop's own body above, which asserts list-only content (a
+// different run's own SSH-runner badge, a "user_question" reason code) is visible alongside the
+// selected run's detail -- correct back when a compact grid stacked both panes, but task 20.3's
+// concurrent "swap list for detail below 900px instead of stacking" fix (commit ae7abb80) means
+// selecting a Run now genuinely replaces the list, so that list-only content is no longer on
+// screen. Confirmed pre-existing, not caused by this task's own diff, via `git stash` against the
+// unmodified baseline before touching this loop. Split into its own loop with assertions matching
+// the current, correct swap behavior -- the same discriminator the new dedicated 768px test above
+// uses (a different, non-selected run's testid to prove the list itself is gone).
+for (const variant of [
+  { name: "futuristic-narrow", theme: "futuristic" as const, width: 390 },
+  { name: "minimal-narrow", theme: "minimal" as const, width: 390 },
+]) {
+  test(`Mission Control visual ${variant.name}`, async ({ page }, testInfo) => {
+    await openMissionControl(page, variant.theme, variant.width);
+    const otherRunCard = page.getByTestId("mission-run-018f0f17-4d6a-7e20-b41d-66c5271a290");
+    await expect(otherRunCard).toBeVisible();
+    await page.getByTestId("mission-run-018f0f17-4d6a-7e20-b41d-66c5271a291").first().locator("button").first().click();
+    await expect(page.locator("html")).toHaveAttribute("data-theme", variant.theme);
+
+    await expect(otherRunCard).toHaveCount(0);
+    await expect(page.locator("aside").getByTestId("mission-run-018f0f17-4d6a-7e20-b41d-66c5271a291")).toBeVisible();
+    await expect(page.getByTestId("mission-control-overview-facet")).toBeVisible();
+    await expect(page.locator("aside").getByTestId("mission-control-section-nav")).toBeAttached();
+    await expect(page.getByText("Select a Run to inspect available details.")).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    expect(await page.getByTestId("mission-control").evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      return bounds.height > 0 && bounds.width > 0;
+    })).toBe(true);
+    await page.getByTestId("mission-control").screenshot({ path: testInfo.outputPath(`${variant.name}.png`) });
+  });
+}
+
+// 20.2/20.17: 768 is the one width in this task's own named list (1600/1440/1280/1100/1024/900/
+// 768/640) that actually falls below mission-control.tsx's own compact breakpoint
+// (`useMediaQuery("(max-width: 899px)")`, backing the `min-[900px]:grid-cols-[...]` split the loop
+// above stays inside of at 900 and up) -- at 768, selecting a Run genuinely replaces the list with
+// its detail (`showingList`/`showingDetail`, mission-control.tsx) rather than merely narrowing both
+// columns, so it gets its own real assertions instead of the wide loop's shared body, plus a themed
+// screenshot pair -- closing 20.17's theme-paired coverage for this destination's one other real
+// layout mode (it already had theme-paired coverage at the wide/narrow-select modes above).
+for (const theme of ["futuristic", "minimal"] as const) {
+  test(`Mission Control visual futuristic/minimal parity at the compact 768px grid breakpoint (${theme})`, async ({ page }, testInfo) => {
+    await openMissionControl(page, theme, 768);
+    const card = page.getByTestId("mission-run-018f0f17-4d6a-7e20-b41d-66c5271a291").first();
+    await expect(card).toBeVisible();
+    // A different, non-selected run's card -- proves the *list* itself is gone, not just narrowed.
+    // `mission-run-{id}` is not a list-exclusive marker: `MissionControlDetailPanel` (mission-
+    // control-detail-panel.tsx) reuses the same `RunCard` to show the selected run's own summary at
+    // the top of the detail pane, so the selected run's own testid relocates into `aside` rather
+    // than disappearing -- checking a *different* run's testid (one never selected, so it can only
+    // ever exist inside the list) is what actually proves the list unmounted.
+    const otherRunCard = page.getByTestId("mission-run-018f0f17-4d6a-7e20-b41d-66c5271a290");
+    await expect(otherRunCard).toBeVisible();
+    await card.locator("button").first().click();
+
+    // Compact replaces, it does not stack: the list is gone, not merely pushed off-screen below a
+    // tall detail pane.
+    await expect(otherRunCard).toHaveCount(0);
+    await expect(page.locator("aside").getByTestId("mission-run-018f0f17-4d6a-7e20-b41d-66c5271a291")).toBeVisible();
+    await expect(page.getByTestId("mission-control-overview-facet")).toBeVisible();
+    // Structural, not text-based: `t("missionControl.actions.backToList")` (mission-control.tsx)
+    // has no entry in any of the 5 shipped locale files (confirmed by grep -- a real, disclosed gap
+    // in the concurrent commit that added this button, out of this task's own scope to fix), so it
+    // renders as the raw i18next key today rather than real text. The Back button is still reliably
+    // findable structurally: it is the one direct-child `<button>` of `aside` (mission-control.tsx's
+    // own compact-only branch), rendered before `MissionControlDetailPanel`'s own nested buttons.
+    const backButton = page.locator("aside > button").first();
+    await expect(backButton).toBeVisible();
+
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.getByTestId("mission-control").screenshot({ path: testInfo.outputPath(`mission-control-${theme}-grid-narrow.png`) });
+
+    await backButton.click();
+    await expect(otherRunCard).toBeVisible();
   });
 }
