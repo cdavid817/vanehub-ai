@@ -144,7 +144,14 @@ describe("CommandCenter", () => {
     // called) before resolving it, or this resolves a promise that does not exist yet.
     await waitFor(() => expect(screen.getByText("Searching...")).toBeTruthy());
     resolveSearch?.({ items: [fakeResult({ title: "session helper" })], nextCursor: null });
-    await waitFor(() => expect(screen.getByRole("option", { name: "session helper" })).toBeTruthy());
+    // The new option appearing only proves `search.results` itself has landed -- the reset effect
+    // (`useEffect(() => setActive(0), [query, search.results])`) is a separate, effect-driven
+    // update that can still be pending in the same instant this first assertion passes, since
+    // React flushes passive effects after the commit that satisfies it. Waiting for this option's
+    // own `aria-selected` too, not just its presence, proves the reset has actually settled before
+    // the Enter below fires against it -- without this the highlighted index can still be the
+    // pre-reset one for a moment, aiming Enter at the wrong entry.
+    await waitFor(() => expect(screen.getByRole("option", { name: "session helper" }).getAttribute("aria-selected")).toBe("true"));
 
     // The result's arrival inserted a new row ahead of every command, shifting New Session down a
     // slot. Without the reset, the still-highlighted index would now land on Go to Sessions instead
