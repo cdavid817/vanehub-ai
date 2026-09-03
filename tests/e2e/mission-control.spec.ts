@@ -37,7 +37,16 @@ test("monitors multiple Runs, attention, failure, bounded filters, detail, and r
   await page.getByLabel("Filter by status", { exact: true }).selectOption("failed");
   const failed = page.getByTestId("mission-run-018f0f17-4d6a-7e20-b41d-66c5271a294").first();
   await expect(failed).toContainText("Runner interrupted"); await failed.locator("button").first().click();
-  await expect(page.getByRole("tab", { name: "Overview" })).toBeVisible();
+  // 16.8: the section nav's own container width, not the viewport, decides whether this renders as
+  // a readable role="tab" strip or a compact <select> (mission-control-section-nav.tsx) -- checking
+  // for the Overview facet's own real content, rendered either way, proves detail actually rendered
+  // without depending on which nav variant this viewport happens to land on.
+  await expect(page.getByTestId("mission-control-overview-facet")).toBeVisible();
+  // 16.8: this viewport's own aside width lands the section nav in its compact <select> form (see
+  // mission-control-section-nav.tsx) -- proves the fallback itself actually switches facets in a
+  // real browser, not just in the component-level tests that force `compact={true}` directly.
+  await page.getByLabel("Run detail sections").selectOption("timeline");
+  await expect(page.getByTestId("mission-control-timeline-facet")).toBeVisible();
   await failed.locator("[data-action='review']").click();
   await expect(page).toHaveURL(/\/workspace\/sessions\//);
 });
@@ -96,9 +105,12 @@ for (const variant of [
     await expect(page.getByLabel("Filter by Runner", { exact: true })).toBeVisible();
     await expect(page.locator("[data-runner='ssh']").first()).toContainText("SSH");
     await expect(page.getByText("user_question", { exact: true }).first()).toBeVisible();
-    // Two tablists exist now that Mission Control lives inside Runs' own tab bar (runs-destination.tsx)
-    // — scoped to the detail pane's facet tabs specifically, the one this assertion always meant.
-    await expect(page.locator("aside").getByRole("tablist")).toBeAttached();
+    // Scoped to the detail pane's own section nav specifically -- Runs' own tab bar
+    // (runs-destination.tsx) has an unrelated tablist outside this `aside`. 16.8: the detail pane's
+    // section nav can render as either a readable role="tab" strip or a compact <select>, decided by
+    // its own container width, so this checks the shared wrapper both variants render rather than
+    // the tablist role, which only the readable variant has.
+    await expect(page.locator("aside").getByTestId("mission-control-section-nav")).toBeAttached();
     await expect(page.getByText("Select a Run to inspect available details.")).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     expect(await page.getByTestId("mission-control").evaluate((element) => {
