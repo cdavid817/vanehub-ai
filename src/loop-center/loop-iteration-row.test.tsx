@@ -38,6 +38,14 @@ describe("LoopIterationRow", () => {
     expect(screen.getByText("Implemented the change.")).toBeTruthy();
   });
 
+  it("keeps its own toggle clear of the sticky run header/Decision Panel stack when focused (20.9)", () => {
+    // loop-center.tsx's scroll container has `LoopRunHeader` and (while awaiting acceptance)
+    // `LoopAcceptancePanel` sticky above it -- without its own `scroll-margin-top`, Tab-focusing
+    // this toggle could leave it scrolled to a position hidden underneath them.
+    render(<LoopIterationRow iteration={loopIterationFixture()} open={false} previousIteration={null} />);
+    expect(screen.getByRole("button", { expanded: false }).className).toContain("scroll-mt-[360px]");
+  });
+
   it("collapses the detail again on a second click of the same toggle", async () => {
     const user = userEvent.setup();
     render(<LoopIterationRow iteration={loopIterationFixture()} open={false} previousIteration={null} />);
@@ -55,6 +63,7 @@ describe("LoopIterationRow", () => {
     // summary field, so its absence/presence is a direct signal of that nested disclosure's state.
     expect(screen.queryByText(/Worker completed\./)).toBeNull();
     const nestedToggle = screen.getByRole("button", { expanded: false, name: "证据时间线" });
+    expect(nestedToggle.className).toContain("scroll-mt-[360px]");
     await user.click(nestedToggle);
     expect(screen.getByText(/Worker completed\./)).toBeTruthy();
   });

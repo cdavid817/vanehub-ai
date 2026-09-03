@@ -8,6 +8,23 @@ import { evidenceDetailNumber, formatLoopDuration } from "./loop-monitoring";
 import { compareConsecutiveIterations } from "./loop-presentation";
 
 /**
+ * Task 20.9: clears the sticky `LoopRunHeader` + (while awaiting acceptance) `LoopAcceptancePanel`
+ * "Decision Panel" stack above this list's own scroll container (`loop-center.tsx`'s
+ * `overflow-y-auto` region) so Tab-focusing a row's toggle never leaves it focused-but-visually-
+ * hidden underneath them -- browsers scroll a newly focused element into view using *that
+ * element's own* `scroll-margin`, not an ancestor's, which is why this lives on the toggle buttons
+ * themselves rather than on `<li>`/`<ol>`. Unlike `LoopAcceptancePanel`'s own `top` offsets
+ * (loop-acceptance-panel.tsx), which only need to clear the header's fixed-shape metrics, the
+ * panel's *own* height also varies with how many acceptance criteria/checks/findings a run has, so
+ * there is no single exact number here. These values are a deliberately generous estimate (the
+ * header's own documented height plus a typical, not worst-case, panel height) rather than a tight
+ * one -- safe to over-shoot, since `scroll-margin-top` only changes how far a browser scrolls to
+ * reveal a newly focused element, never layout, so a run with an unusually long acceptance panel
+ * degrades to "scrolls a bit less far than ideal," not a regression from today's zero clearance.
+ */
+const ITERATION_FOCUS_SCROLL_MARGIN = "scroll-mt-[360px] sm:scroll-mt-[300px] lg:scroll-mt-[260px]";
+
+/**
  * Task 17.10: replaces the former literal `<details>`/`<summary>` accordion
  * (loop-iteration-details.tsx) with a compact, verdict-first row. The row itself always shows
  * the decision-relevant facts (outcome, status, verifier recommendation, duration, a checks
@@ -36,7 +53,7 @@ export function LoopIterationRow({ iteration, onInspect, open, previousIteration
   const duration = formatLoopDuration(Date.parse(iteration.completedAt ?? new Date().toISOString()) - Date.parse(iteration.startedAt));
   return (
     <li className="rounded-md border border-border/70 bg-background/30">
-      <button aria-controls={detailId} aria-expanded={expanded} className="flex min-h-12 w-full items-center gap-3 px-3 py-2 text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring" onClick={() => setExpanded((current) => !current)} type="button">
+      <button aria-controls={detailId} aria-expanded={expanded} className={cn("flex min-h-12 w-full items-center gap-3 px-3 py-2 text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring", ITERATION_FOCUS_SCROLL_MARGIN)} onClick={() => setExpanded((current) => !current)} type="button">
         <StatusIcon status={iteration.status} />
         <span className="min-w-0 flex-1">
           <span className="flex items-baseline gap-2">
@@ -84,7 +101,7 @@ function AllEvidenceDisclosure({ evidence, onInspect, verifierSessionId, workerS
   const contentId = useId();
   return (
     <section className="border-t border-border/60 pt-3">
-      <button aria-controls={contentId} aria-expanded={open} className="flex items-center gap-1 text-[11px] font-semibold uppercase text-muted-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring" onClick={() => setOpen((current) => !current)} type="button">
+      <button aria-controls={contentId} aria-expanded={open} className={cn("flex min-h-11 items-center gap-1 text-[11px] font-semibold uppercase text-muted-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring", ITERATION_FOCUS_SCROLL_MARGIN)} onClick={() => setOpen((current) => !current)} type="button">
         <ChevronDown aria-hidden="true" className={cn("h-3 w-3 shrink-0 transition-transform", open && "rotate-180")} />
         {t("loops.iterations.allEvidence")}
       </button>
