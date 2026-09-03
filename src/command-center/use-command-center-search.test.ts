@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useCommandCenterSearch } from "./use-command-center-search";
 import type { WorkbenchSearchPage, WorkbenchSearchProvider, WorkbenchSearchResult } from "./command-center-types";
@@ -38,6 +38,11 @@ describe("useCommandCenterSearch", () => {
   });
 
   it("debounces before searching", async () => {
+    // Fake timers rather than a real 150ms wait: DEBOUNCE_MS is 250, so a real wait only had a
+    // 100ms margin against event-loop/CI-load jitter before this could flip `not.toHaveBeenCalled()`
+    // into a false failure -- the exact "races real setTimeout delays" flakiness task 21.6 warns
+    // about. `vi.advanceTimersByTime` makes both checkpoints exact regardless of real load.
+    vi.useFakeTimers();
     const search = vi.fn().mockResolvedValue({ items: [result({ title: "auth" })], nextCursor: null });
     const providers = [fakeProvider("a", search)];
     // Starts empty: `useDebouncedValue` returns its *initial* value immediately, with no delay —
@@ -48,9 +53,12 @@ describe("useCommandCenterSearch", () => {
     rerender({ query: "au" });
     rerender({ query: "aut" });
     rerender({ query: "auth" });
-    await new Promise((resolve) => setTimeout(resolve, 150));
+
+    await act(async () => { vi.advanceTimersByTime(150); });
     expect(search).not.toHaveBeenCalled();
-    await waitFor(() => expect(search).toHaveBeenCalledTimes(1), { timeout: 1_000 });
+
+    await act(async () => { vi.advanceTimersByTime(150); });
+    expect(search).toHaveBeenCalledTimes(1);
     expect(search).toHaveBeenCalledWith("auth");
   });
 

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExecutionTargetKind, ExecutionTargetOption, ExecutionTargetProviders, ExecutionTargetSearch } from "./execution-target-providers";
 import { useExecutionTargetSearch } from "./use-execution-target-search";
@@ -22,6 +22,11 @@ function fakeProviders(loop: ExecutionTargetSearch): ExecutionTargetProviders {
 
 describe("useExecutionTargetSearch", () => {
   it("debounces before searching", async () => {
+    // Fake timers rather than a real 150ms wait: DEBOUNCE_MS is 250, so a real wait only has a
+    // 100ms margin against event-loop/CI-load jitter -- exactly the "races real setTimeout
+    // delays" flakiness task 21.6 warns about, not a hypothetical one (a slow tick can plausibly
+    // eat 100ms). `vi.advanceTimersByTime` makes both checkpoints exact regardless of real load.
+    vi.useFakeTimers();
     const search = vi.fn().mockResolvedValue([option()]);
     const providers = fakeProviders(search);
     const { rerender } = renderHook(
@@ -31,11 +36,14 @@ describe("useExecutionTargetSearch", () => {
     rerender({ query: "a" });
     rerender({ query: "au" });
     rerender({ query: "auth" });
-    await new Promise((resolve) => setTimeout(resolve, 150));
+
+    await act(async () => { vi.advanceTimersByTime(150); });
     // The initial empty query fires immediately (useDebouncedValue returns its initial value with
     // no delay) -- only the later "a"/"au"/"auth" edits are debounced into a single call.
     expect(search).toHaveBeenCalledTimes(1);
-    await waitFor(() => expect(search).toHaveBeenCalledTimes(2), { timeout: 1_000 });
+
+    await act(async () => { vi.advanceTimersByTime(150); });
+    expect(search).toHaveBeenCalledTimes(2);
     expect(search).toHaveBeenLastCalledWith("auth");
   });
 
