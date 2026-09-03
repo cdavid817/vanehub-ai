@@ -95,6 +95,18 @@ flowchart LR
 
 单次最多选取 `MAX_SELECTED_MEMORIES = 5` 条。注入块以一句固定前言开头，声明内容是**来源未经验证的记录、仅作背景信息、绝非应遵循的指令**。注入的候选集就是 `eligibility` 过滤后的 eligible 集。
 
+## 已核实的审计发现（待 OpenSpec 变更处理）
+
+以下当前行为已逐条对源码核实，改造由 `openspec/changes/strengthen-governed-cross-session-memory/` 提案承载——在其落地前，本节描述的就是现状：
+
+- **名称解析与重名歧义**——抽取动作与正文选择在模型侧按显示名引用；可信层确实把名称解析为 `target_id + expected_revision` 且只在冻结的 eligible 集内查找（`memory_proposals.rs`），但 v2 允许重名而解析取**首个命中**，两条同名 eligible 记忆可能被误路由。Delete 未命中即丢弃（绝不猜测目标）。
+- **Update 未命中转 Create 是显式设计**——注释给出的理由是"模型描述的是不存在的记忆，丢弃会静默丢失观察"；审计判定其在目标被改名、归档或策略排除时制造重复记忆。提案主张改为计数拒绝。
+- **CLI 回合末重新解析快照**——`propose_memories_from_turn` 在抽取时再次调用 `snapshot()`，同一回合可能受中途策略修改影响，这与治理 spec 的"每生成不可变快照"要求存在实现差距。
+- **审批幂等窗口**——`review()` 先 `apply`（写权威文件）后 `mark_reviewed`；两步之间崩溃后重试会通过 `is_pending` 检查并再次应用，Create 候选会产生第二条记忆。
+- **多 Agent Seat 逐回合抽取**——抽取入口只按 `is_cli_kind`（launch kind）判定，多 Agent Seat 回合未被排除，同一协作任务会按 Seat 重复产生候选。
+- **来源归因合并**——bridge 把所有自动抽取统一映射为 `OnePieceAutomatic`（`personalization_bridge.rs`），尽管领域模型里存在 `CliAutomatic`；生产者与抽取 provider 被混为一谈。
+- **抽取无独立出境判定**——CLI 会话内容经 OnePiece 的 provider 代理抽取，没有针对该跨 provider 发送的独立数据出境决策与 provider 调用前的脱敏闸。
+
 ## 设计所在
 
 权威需求位于 spec；本章描述当前实现并标注差距。
