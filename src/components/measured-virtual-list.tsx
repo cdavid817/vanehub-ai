@@ -48,6 +48,19 @@ export interface MeasuredVirtualListProps<T> {
   /** For a `role="listbox"` caller managing `aria-activedescendant` instead of per-item DOM focus. */
   onKeyDown?: (event: React.KeyboardEvent) => void;
   activeDescendantId?: string;
+  /**
+   * Opts into `@tanstack/react-virtual`'s own edge-key-anchored repositioning (its `anchorTo`
+   * option, default `"start"` -- i.e. off). When the item at index 0 or the last index changes
+   * identity (a prepend, or any count change that shifts every existing item's index), the
+   * virtualizer recomputes `scrollOffset` so whichever item was sitting under the viewport's edge
+   * stays there, instead of leaving a stale pixel offset that now points at different content.
+   * Task 21.8: `VirtualizedMessageList`'s own "load earlier messages" prepends older messages
+   * ahead of the currently visible ones while the reader may be mid-history (not following the
+   * bottom) -- without this, the raw `scrollOffset` this list already holds would not move, and the
+   * reader would see a jump the moment the prepended rows' heights are measured in. Every other
+   * caller leaves this unset (the library's own default), so their behavior is unchanged.
+   */
+  anchorTo?: "start" | "end";
 }
 
 /**
@@ -70,6 +83,7 @@ const AT_END_TOLERANCE_PX = 96;
 function MeasuredVirtualListInner<T>(
   {
     activeDescendantId,
+    anchorTo,
     ariaLabel,
     className,
     contentStyle,
@@ -89,6 +103,7 @@ function MeasuredVirtualListInner<T>(
 ) {
   const scrollElementRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
+    anchorTo,
     count: items.length,
     estimateSize,
     getItemKey: (index) => getItemKey(items[index], index),

@@ -24,6 +24,15 @@ type VirtualMessageItem =
  * history beyond what's loaded — dropping that affordance once virtualized, rather than moving
  * it, would be a real reachability regression, not just a cosmetic one. Mirrors `logs-tab.tsx`'s
  * own `VirtualLogItem` union for the identical "one more row kind besides the real ones" problem.
+ *
+ * `anchorTo="end"` (task 21.8): loading earlier messages prepends rows ahead of whatever the
+ * reader is currently looking at, which is not always the bottom (`useVirtualizedMessageWindow`'s
+ * own `scrollToIndex`-on-append effect only re-anchors when `autoScroll` is true). Without this,
+ * `MeasuredVirtualList`'s held `scrollOffset` would not move to compensate, and the reader would
+ * see a jump the instant the prepended rows are measured in — this opts into
+ * `@tanstack/react-virtual`'s own built-in edge-key-anchored repositioning to prevent exactly that,
+ * the same mechanism the non-virtualized path gets for free from `useConversationWindowModel`'s
+ * own `ResizeObserver`-driven `anchoredScrollTop`.
  */
 export function VirtualizedMessageList({
   currentSelectionKey = null,
@@ -54,6 +63,7 @@ export function VirtualizedMessageList({
   return (
     <div className="relative min-h-0 flex-1 overflow-hidden">
       <MeasuredVirtualList
+        anchorTo="end"
         ariaLabel={t("chat.conversationTranscript")}
         className="h-full px-3 py-5 sm:px-4 lg:px-6 xl:px-8"
         estimateSize={() => 96}
