@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { activateAppLanguage } from "../../i18n";
 import { AsyncBoundary } from "./AsyncBoundary";
 import type { AsyncViewState } from "./async-view-state";
@@ -10,8 +10,55 @@ function state(overrides: Partial<AsyncViewState<string[]>>): AsyncViewState<str
   return { initialLoading: false, refreshing: false, stale: false, ...overrides };
 }
 
+/** Mirrors `projects.test.tsx`'s own `stubMatchMedia` -- keyed by query so only the
+ *  reduced-motion query this component reads is affected, not every `matchMedia` caller. */
+function stubMatchMedia(matches: (query: string) => boolean) {
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    value: (query: string): MediaQueryList => ({
+      matches: matches(query),
+      media: query,
+      onchange: null,
+      addEventListener: () => undefined,
+      addListener: () => undefined,
+      dispatchEvent: () => false,
+      removeEventListener: () => undefined,
+      removeListener: () => undefined,
+    }),
+  });
+}
+
+const defaultMatchMedia = window.matchMedia;
+
 describe("AsyncBoundary", () => {
   beforeAll(async () => activateAppLanguage("en"));
+
+  afterEach(() => {
+    Object.defineProperty(window, "matchMedia", { configurable: true, value: defaultMatchMedia });
+  });
+
+  it("spins the loading icon by default", () => {
+    stubMatchMedia(() => false);
+    const { container } = render(
+      <AsyncBoundary state={state({ initialLoading: true })}>
+        {() => <p>content</p>}
+      </AsyncBoundary>,
+    );
+    expect(container.querySelector("svg")?.getAttribute("class")).toContain("animate-spin");
+  });
+
+  it("does not animate the loading icon when the reader prefers reduced motion", () => {
+    stubMatchMedia((query) => query === "(prefers-reduced-motion: reduce)");
+    const { container } = render(
+      <AsyncBoundary state={state({ initialLoading: true })}>
+        {() => <p>content</p>}
+      </AsyncBoundary>,
+    );
+    const icon = container.querySelector("svg");
+    expect(icon?.getAttribute("class")).not.toContain("animate-spin");
+    // Still shows the same status role and text -- reduced motion drops the animation, not the state.
+    expect(screen.getByRole("status").textContent).toContain("Loading");
+  });
 
   it("shows a loading state before any data has arrived", () => {
     render(

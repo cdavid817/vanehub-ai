@@ -637,6 +637,23 @@ body.floating-assistant-surface {
     --motion-base: 0ms;
     --motion-slow: 0ms;
   }
+
+  /* Task 20.12: Tailwind's `animate-spin`/`animate-pulse`/`animate-bounce` keyframe animations
+     ignore `prefers-reduced-motion` on their own -- unlike the `--motion-*` custom properties
+     above, an animation's spin/pulse/bounce keeps running at full speed regardless of the
+     preference unless something explicitly stops it. A blanket rule here, not a per-callsite
+     `motion-reduce:animate-none`, because an audit found ~60 existing call sites (loading
+     spinners across nearly every async panel, plus a handful of streaming/recording pulses) and
+     new ones appear routinely; a rule scoped to these three Tailwind-generated classes covers all
+     of them, present and future, the same way the custom-property reset above already does for
+     `.ucd-pane-transition`. A handful of call sites also carry an explicit `motion-safe:animate-*`
+     or `motion-reduce:animate-none` variant already (kept, not removed) -- redundant with this
+     rule, not in conflict with it. */
+  .animate-spin,
+  .animate-pulse,
+  .animate-bounce {
+    animation: none;
+  }
 }
 
 /* Shared by split-pane/sheet/runtime-panel for programmatic size or open/close transitions.

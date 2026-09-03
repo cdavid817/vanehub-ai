@@ -3,7 +3,7 @@
 import { render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { activateAppLanguage } from "../../i18n";
-import { RefreshIndicator } from "./RefreshIndicator";
+import { WaitingIndicator } from "./WaitingIndicator";
 
 /** Mirrors `projects.test.tsx`'s own `stubMatchMedia` -- keyed by query so only the
  *  reduced-motion query this component reads is affected, not every `matchMedia` caller. */
@@ -25,44 +25,25 @@ function stubMatchMedia(matches: (query: string) => boolean) {
 
 const defaultMatchMedia = window.matchMedia;
 
-describe("RefreshIndicator", () => {
+describe("WaitingIndicator", () => {
   beforeAll(async () => activateAppLanguage("en"));
 
   afterEach(() => {
     Object.defineProperty(window, "matchMedia", { configurable: true, value: defaultMatchMedia });
   });
 
-  it("spins the refresh icon by default", () => {
+  it("spins the loading icon by default", () => {
     stubMatchMedia(() => false);
-    const { container } = render(<RefreshIndicator refreshing />);
+    const { container } = render(<WaitingIndicator />);
     expect(container.querySelector("svg")?.getAttribute("class")).toContain("animate-spin");
   });
 
-  it("does not animate the refresh icon when the reader prefers reduced motion", () => {
+  it("does not animate the loading icon when the reader prefers reduced motion", () => {
     stubMatchMedia((query) => query === "(prefers-reduced-motion: reduce)");
-    const { container } = render(<RefreshIndicator refreshing />);
+    const { container } = render(<WaitingIndicator />);
     const icon = container.querySelector("svg");
     expect(icon?.getAttribute("class")).not.toContain("animate-spin");
-    expect(screen.getByRole("status").textContent).toContain("Refreshing");
-  });
-
-  it("renders nothing when neither refreshing nor stale", () => {
-    const { container } = render(<RefreshIndicator refreshing={false} />);
-    expect(container.firstChild).toBeNull();
-  });
-
-  it("announces an active refresh", () => {
-    render(<RefreshIndicator refreshing />);
-    expect(screen.getByRole("status").textContent).toContain("Refreshing");
-  });
-
-  it("announces stale data distinctly from an active refresh", () => {
-    render(<RefreshIndicator refreshing={false} stale />);
-    expect(screen.getByRole("status").textContent).toContain("Showing saved data");
-  });
-
-  it("prioritizes the refreshing message when both refreshing and stale are true", () => {
-    render(<RefreshIndicator refreshing stale />);
-    expect(screen.getByRole("status").textContent).toContain("Refreshing");
+    // Still renders the same icon and label -- reduced motion drops the animation, not the status.
+    expect(screen.getByText("Waiting for response")).toBeTruthy();
   });
 });

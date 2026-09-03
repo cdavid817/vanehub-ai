@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { AlertTriangle, LoaderCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { useReducedMotion } from "../../hooks/use-reduced-motion";
 import { cn } from "../../lib/utils";
 import { EmptyState, type EmptyStateProps } from "../empty-state/EmptyState";
 import { isAsyncViewLoading, type AsyncViewState } from "./async-view-state";
@@ -42,13 +43,14 @@ export function AsyncBoundary<T>({
   className,
 }: AsyncBoundaryProps<T>) {
   const { t } = useTranslation();
+  const reducedMotion = useReducedMotion();
 
   if (isAsyncViewLoading(state)) {
     return loadingFallback !== undefined ? (
       <>{loadingFallback}</>
     ) : (
       <div className={cn("flex min-h-40 items-center justify-center gap-2 p-6 text-sm text-muted-foreground", className)} role="status">
-        <LoaderCircle aria-hidden="true" className="h-5 w-5 animate-spin" />
+        <LoaderCircle aria-hidden="true" className={cn("h-5 w-5", !reducedMotion && "animate-spin")} />
         {t("workbenchUi.async.loading")}
       </div>
     );
