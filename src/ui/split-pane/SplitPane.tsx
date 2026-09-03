@@ -97,8 +97,18 @@ export function SplitPane({
           aria-valuemin={min}
           aria-valuenow={clamped}
           className={cn(
-            "ucd-focus-ring shrink-0 touch-none bg-border-subtle hover:bg-accent",
-            direction === "row" ? "w-2 cursor-col-resize" : "h-2 cursor-row-resize",
+            // 20.6: the painted bar stays thin (w-2/h-2) so it doesn't eat pane space, but a
+            // resize handle is still a pointer target -- `before:` widens the invisible hit area
+            // to the same ~44px minimum other controls use, via a slop pseudo-element rather than
+            // real layout size (a real 44px gutter would visibly steal that much width/height from
+            // whichever pane sits next to it). Pointer/keyboard handlers stay on this element, so
+            // a pointerdown anywhere in that painted-but-invisible slop still resolves to this same
+            // node -- pseudo-elements are not part of the DOM and always report their host as the
+            // event target.
+            "ucd-focus-ring relative shrink-0 touch-none bg-border-subtle hover:bg-accent before:absolute before:z-10 before:content-['']",
+            direction === "row"
+              ? "w-2 cursor-col-resize before:inset-y-0 before:-left-[18px] before:-right-[18px]"
+              : "h-2 cursor-row-resize before:inset-x-0 before:-top-[18px] before:-bottom-[18px]",
           )}
           onKeyDown={handleKeyDown}
           onPointerDown={handlePointerDown}

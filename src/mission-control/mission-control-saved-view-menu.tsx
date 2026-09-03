@@ -78,6 +78,7 @@ export function MissionControlSavedViewMenu({ savedViews, onApply, onDelete, onS
                 </button>
                 <Button
                   aria-label={t("missionControl.savedViews.delete", { name: view.name })}
+                  className="min-h-11 min-w-11"
                   onClick={() => onDelete(view.id)}
                   size="icon"
                   type="button"

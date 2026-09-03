@@ -54,7 +54,7 @@ export function ActionMenu({ items, triggerLabel, triggerIcon: TriggerIcon = Mor
         aria-expanded={open}
         aria-haspopup="menu"
         aria-label={triggerLabel}
-        className="ucd-focus-ring inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-accent"
+        className="ucd-focus-ring inline-flex min-h-11 min-w-11 items-center justify-center rounded-md hover:bg-accent"
         onClick={() => setOpen((value) => !value)}
         onKeyDown={handleTriggerKeyDown}
         ref={triggerRef}

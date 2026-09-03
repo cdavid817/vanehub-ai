@@ -61,7 +61,7 @@ export function LoopPreflightDialog({
             <p className="truncate text-xs text-muted-foreground">{definition.name}</p>
           </div>
           {readiness.data?.simulated ? <span className="rounded border border-warning/50 px-2 py-1 text-[11px] text-warning">{t("loops.simulated")}</span> : null}
-          <Button aria-label={t("loops.preflight.close")} disabled={start.isPending} onClick={onClose} size="icon" title={t("loops.preflight.close")} type="button" variant="ghost"><X aria-hidden="true" /></Button>
+          <Button aria-label={t("loops.preflight.close")} className="min-h-11 min-w-11" disabled={start.isPending} onClick={onClose} size="icon" title={t("loops.preflight.close")} type="button" variant="ghost"><X aria-hidden="true" /></Button>
         </header>
         <div className="min-h-0 overflow-y-auto p-4">
           {readiness.isLoading ? <LoadingState /> : null}

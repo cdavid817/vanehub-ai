@@ -47,7 +47,7 @@ export function GoalRelationshipSections({ links, onUnlink, pending }: GoalRelat
                   <span className={`text-xs ${link.progress === "unresolvable" ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}`}>
                     {t(group.kind === "session" ? "goals.linkProgress.notCounted" : `goals.linkProgress.${link.progress}`)}
                   </span>
-                  <Button aria-label={t("goals.actions.unlink")} disabled={pending} onClick={() => onUnlink(link.targetKind, link.targetId)} size="icon" type="button" variant="ghost">
+                  <Button aria-label={t("goals.actions.unlink")} className="min-h-11 min-w-11" disabled={pending} onClick={() => onUnlink(link.targetKind, link.targetId)} size="icon" type="button" variant="ghost">
                     <X aria-hidden="true" />
                   </Button>
                 </span>

@@ -78,6 +78,7 @@ export function WorkBoardSavedViewMenu({ savedViews, onApply, onDelete, onSave }
                 </button>
                 <Button
                   aria-label={t("todoBoard.savedViews.delete", { name: view.name })}
+                  className="min-h-11 min-w-11"
                   onClick={() => onDelete(view.id)}
                   size="icon"
                   type="button"

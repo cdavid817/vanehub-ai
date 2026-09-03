@@ -175,7 +175,7 @@ export function LoopDefinitionDialog({ definition, onClose, onSaved }: LoopDefin
             <h2 className="truncate text-sm font-semibold" id="loop-editor-title">{t(definition ? "loops.editor.editTitle" : "loops.editor.createTitle")}</h2>
             <p className="truncate text-xs text-muted-foreground">{t(`loops.editor.step.${steps[step]}`)}</p>
           </div>
-          <Button aria-label={t("loops.editor.close")} disabled={saving} onClick={onClose} size="icon" title={t("loops.editor.close")} type="button" variant="ghost"><X aria-hidden="true" /></Button>
+          <Button aria-label={t("loops.editor.close")} className="min-h-11 min-w-11" disabled={saving} onClick={onClose} size="icon" title={t("loops.editor.close")} type="button" variant="ghost"><X aria-hidden="true" /></Button>
         </header>
         <ol aria-label={t("loops.editor.progress")} className="grid grid-cols-4 border-b border-border bg-muted/25 px-2 sm:px-4">
           {steps.map((value, index) => <li className={`border-b-2 px-1 py-2 text-center text-[11px] font-medium sm:text-xs ${index === step ? "border-primary text-foreground" : "border-transparent text-muted-foreground"}`} key={value}>{index + 1}. {t(`loops.editor.step.${value}`)}</li>)}
