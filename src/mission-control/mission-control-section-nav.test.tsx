@@ -80,6 +80,28 @@ describe("MissionControlSectionNavView", () => {
     expect(screen.getByRole("tab", { name: "Overview" }).getAttribute("aria-selected")).toBe("true");
   });
 
+  it("moves real DOM focus to the newly active tab, not just aria-selected/tabIndex (WAI-ARIA roving tabindex)", () => {
+    // useTabList's own focusAndActivate() calls the target tab's .focus() (use-tab-list.ts) --
+    // load-bearing for a keyboard-only or screen-reader user, since Tab/Shift+Tab from outside the
+    // strip must land back on whichever tab is now current, not the one that was current before the
+    // arrow-key press. Neither this file's own prior keyboard test nor RuntimePanel.test.tsx (the
+    // hook's other real consumer) asserted this before -- both only checked aria-selected.
+    render(<ControlledNav compact={false} />);
+    const overview = screen.getByRole("tab", { name: "Overview" });
+    overview.focus();
+    expect(document.activeElement).toBe(overview);
+
+    fireEvent.keyDown(overview, { key: "ArrowRight" });
+    const timeline = screen.getByRole("tab", { name: "Timeline" });
+    expect(document.activeElement).toBe(timeline);
+    expect(timeline.getAttribute("tabIndex")).toBe("0");
+    expect(overview.getAttribute("tabIndex")).toBe("-1");
+
+    fireEvent.keyDown(timeline, { key: "End" });
+    const logs = screen.getByRole("tab", { name: /^Logs/ });
+    expect(document.activeElement).toBe(logs);
+  });
+
   it("renders a labeled select with all nine facets when compact, disabling unavailable/restricted options", () => {
     render(<ControlledNav compact={true} />);
     const select = screen.getByRole("combobox", { name: "Run detail sections" }) as HTMLSelectElement;
