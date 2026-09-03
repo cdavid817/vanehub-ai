@@ -1,6 +1,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { Check, ChevronDown } from "lucide-react";
 import { cn } from "../../../lib/utils";
+import { useMenuList } from "../../../ui/actions/use-menu-list";
 
 export interface SelectorOption<T extends string> {
   value: T;
@@ -61,6 +62,9 @@ export function SelectorDropdown<T extends string>({
   value?: T;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const items = options ?? [];
+  const { activeIndex, handleMenuKeyDown, setActiveIndex } = useMenuList(items);
+  const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   useEffect(() => {
     function handlePointerDown(event: MouseEvent) {
@@ -78,13 +82,22 @@ export function SelectorDropdown<T extends string>({
     };
   }, [onClose]);
 
+  // This component is only ever mounted while open (the caller renders it behind its own
+  // `open ?` check), so a fresh mount always starts at `activeIndex === 0` -- focusing it here
+  // both places initial keyboard focus on the first option and keeps focus following Arrow/Home/
+  // End as `useMenuList`'s own roving index changes.
+  useEffect(() => {
+    itemRefs.current[activeIndex]?.focus();
+  }, [activeIndex]);
+
   return (
     <div
       className="absolute bottom-full left-0 z-50 mb-1 min-w-52 max-w-[min(28rem,calc(100vw-2rem))] rounded-md border border-border bg-background p-1 shadow-xl"
+      onKeyDown={handleMenuKeyDown}
       ref={ref}
       role="menu"
     >
-      {options?.map((option) => (
+      {options?.map((option, index) => (
         <button
           className={cn(
             "flex w-full items-start gap-2 rounded px-2 py-2 text-left text-xs hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
@@ -97,6 +110,9 @@ export function SelectorDropdown<T extends string>({
             onSelect(option.value);
             onClose();
           }}
+          onFocus={() => setActiveIndex(index)}
+          ref={(element) => { itemRefs.current[index] = element; }}
+          tabIndex={index === activeIndex ? 0 : -1}
           type="button"
           role="menuitemradio"
           aria-checked={option.value === value}

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { PlugZap, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { Session, SessionCategory, SessionExportFormat } from "../types/agent";
@@ -50,6 +50,23 @@ export function SessionContextPanel({ categories, onArchive, onAssignCategory, o
       if (returnTo instanceof HTMLElement && returnTo.isConnected) returnTo.focus();
     };
   }, [value]);
+
+  // This menu's item count varies (recover is conditional, one button per category), so it is
+  // queried live off the real DOM at keypress time rather than tracked as a React index -- the
+  // same technique `use-focus-trap.ts` already uses for Tab-wrapping, which sidesteps having to
+  // keep a hand-counted item total in sync with the JSX below.
+  function handleMenuKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp" && event.key !== "Home" && event.key !== "End") return;
+    const items = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]') ?? []);
+    if (items.length === 0) return;
+    event.preventDefault();
+    const currentIndex = items.indexOf(document.activeElement as HTMLButtonElement);
+    const nextIndex = event.key === "ArrowDown" ? (currentIndex + 1) % items.length
+      : event.key === "ArrowUp" ? (currentIndex - 1 + items.length) % items.length
+        : event.key === "End" ? items.length - 1
+          : 0;
+    items[nextIndex]?.focus();
+  }
   const rawX = value?.position?.x ?? 224;
   const rawY = value?.position?.y ?? 80;
   const [menuPosition, setMenuPosition] = useState({ x: rawX, y: rawY, ready: false });
@@ -87,18 +104,20 @@ export function SessionContextPanel({ categories, onArchive, onAssignCategory, o
         aria-label={t("layout.sessionActions")}
         className="ucd-panel fixed grid max-h-[70vh] w-56 gap-1 overflow-y-auto rounded-md p-1 text-sm shadow-lg"
         onClick={(event) => event.stopPropagation()}
+        onKeyDown={handleMenuKeyDown}
         ref={menuRef}
         role="menu"
         style={{ left: menuPosition.x, top: menuPosition.y, visibility: menuPosition.ready ? "visible" : "hidden" }}
       >
-    <button className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => onChange({ ...value, mode: "rename" })} type="button">{t("layout.rename")}</button>
-    <button className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => { onPin(value.session); onDismiss(); }} type="button">{value.session.pinned ? t("layout.unpin") : t("layout.pinned")}</button>
-    <button className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => { onArchive(value.session); onDismiss(); }} type="button">{value.session.archived ? <><RotateCcw className="mr-1 inline h-3.5 w-3.5" />{t("layout.restore")}</> : t("layout.archive")}</button>
+    <button className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => onChange({ ...value, mode: "rename" })} role="menuitem" type="button">{t("layout.rename")}</button>
+    <button className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => { onPin(value.session); onDismiss(); }} role="menuitem" type="button">{value.session.pinned ? t("layout.unpin") : t("layout.pinned")}</button>
+    <button className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => { onArchive(value.session); onDismiss(); }} role="menuitem" type="button">{value.session.archived ? <><RotateCcw className="mr-1 inline h-3.5 w-3.5" />{t("layout.restore")}</> : t("layout.archive")}</button>
     {value.session.archived ? null : (
       <button
         className="flex items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
         disabled={recovering}
         onClick={() => { onRecover(value.session); onDismiss(); }}
+        role="menuitem"
         type="button"
       >
         <PlugZap aria-hidden="true" className="h-3.5 w-3.5" />
@@ -107,15 +126,15 @@ export function SessionContextPanel({ categories, onArchive, onAssignCategory, o
     )}
     <div className="my-1 border-t border-border" />
     <p className="px-2 py-1 text-xs text-muted-foreground">{t("layout.moveToCategory")}</p>
-    <button className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => { onAssignCategory(value.session, null); onDismiss(); }} type="button">{t("layout.uncategorized")}</button>
-    {categories.map((category) => <button className="rounded px-2 py-1.5 text-left hover:bg-muted" key={category.id} onClick={() => { onAssignCategory(value.session, category.id); onDismiss(); }} type="button">{category.name}</button>)}
-    <button className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => { onCreateCategory(value.session); onDismiss(); }} type="button">{t("layout.newCategory")}</button>
+    <button className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => { onAssignCategory(value.session, null); onDismiss(); }} role="menuitem" type="button">{t("layout.uncategorized")}</button>
+    {categories.map((category) => <button className="rounded px-2 py-1.5 text-left hover:bg-muted" key={category.id} onClick={() => { onAssignCategory(value.session, category.id); onDismiss(); }} role="menuitem" type="button">{category.name}</button>)}
+    <button className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => { onCreateCategory(value.session); onDismiss(); }} role="menuitem" type="button">{t("layout.newCategory")}</button>
     <div className="my-1 border-t border-border" />
     <p className="px-2 py-1 text-xs text-muted-foreground">{t("layout.exportSession")}</p>
-    <button className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => { onExport(value.session, "json"); onDismiss(); }} type="button">{t("layout.exportJson")}</button>
-    <button className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => { onExport(value.session, "markdown"); onDismiss(); }} type="button">{t("layout.exportMarkdown")}</button>
+    <button className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => { onExport(value.session, "json"); onDismiss(); }} role="menuitem" type="button">{t("layout.exportJson")}</button>
+    <button className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => { onExport(value.session, "markdown"); onDismiss(); }} role="menuitem" type="button">{t("layout.exportMarkdown")}</button>
     <div className="my-1 border-t border-border" />
-    <button className="rounded px-2 py-1.5 text-left text-destructive hover:bg-muted" onClick={() => onChange({ ...value, mode: "delete" })} type="button">{t("layout.delete")}</button>
+    <button className="rounded px-2 py-1.5 text-left text-destructive hover:bg-muted" onClick={() => onChange({ ...value, mode: "delete" })} role="menuitem" type="button">{t("layout.delete")}</button>
       </div>
     </div>;
   }
