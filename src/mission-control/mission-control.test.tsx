@@ -215,6 +215,45 @@ describe("MissionControl", () => {
     expect(overview.mock.calls.length).toBe(callsAtUnmount);
   });
 
+  // 21.10 query-count budget: the first test in this file ("renders a bounded page from 1,000 Web
+  // Runs...") already proves `getMissionControlRun` (detail) is not called until inspection, but
+  // never inspects `getMissionControlOverview` (the list/page call) itself -- this is that missing
+  // half, at the same 1,000-Run scale.
+  it("fetches the 1,000-Run overview exactly once on mount, not once per rendered row", async () => {
+    await i18n.changeLanguage("en");
+    seedWebMissionControlRunsForTest(1_000);
+    const overview = vi.spyOn(agentService, "getMissionControlOverview");
+
+    render(withRouter(<MissionControl />));
+
+    await waitFor(() => expect(document.querySelectorAll("[data-testid^='mission-run-']")).toHaveLength(60));
+    expect(overview).toHaveBeenCalledTimes(1);
+  });
+
+  // 21.10 hidden-page budget: "stops polling once unmounted" above already covers the unmount case,
+  // and use-mission-control-polling.test.ts already exhaustively covers the hidden-tab-stops-the-
+  // timer behavior in isolation -- but only ever against a hand-fed boolean `reconcile` mock, never
+  // through the real page at any data scale, let alone this one. Genuinely untested before this.
+  it("stops polling while the tab is hidden, even at 1,000-Run scale", async () => {
+    await i18n.changeLanguage("en");
+    seedWebMissionControlRunsForTest(1_000);
+    const overview = vi.spyOn(agentService, "getMissionControlOverview");
+    render(withRouter(<MissionControl />));
+    await waitFor(() => expect(overview).toHaveBeenCalledTimes(1));
+
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    document.dispatchEvent(new Event("visibilitychange"));
+    const callsWhileVisible = overview.mock.calls.length;
+    // Longer than the 2s base poll interval, same margin as "stops polling once unmounted" above:
+    // proves the interval itself stopped (the pending timer was cleared, not merely that no tick
+    // happened to land within the wait), same distinction use-mission-control-polling.test.ts's own
+    // "does not arm a new timer at all while hidden" test already draws for the isolated hook.
+    await new Promise((resolve) => setTimeout(resolve, 2_500));
+    expect(overview.mock.calls.length).toBe(callsWhileVisible);
+
+    visibility.mockRestore();
+  });
+
   // 16.14-16.15: use-mission-control-actions.ts's own per-run mutation registry, exercised through
   // the full page rather than a hook-isolated renderHook -- matching use-work-board-actions.ts's
   // own test coverage, which likewise only lives inside work-board.test.tsx.
