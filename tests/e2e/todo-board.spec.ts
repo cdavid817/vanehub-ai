@@ -59,16 +59,34 @@ test.describe("Todo Board", () => {
     await expect(card).toHaveCount(0);
   });
 
-  test("keeps every stage reachable on a compact viewport", async ({ page }) => {
+  // 14.13: compact width shows a grouped Stage List (every non-empty stage as its own vertical,
+  // labeled section) instead of one Kanban column behind a stage-select dropdown -- movement goes
+  // through the same WorkItemStageMenu the wide Board uses, with no horizontal drag/scroll at all.
+  test("shows a compact grouped Stage List and moves a card between stage groups without a dropdown or drag", async ({ page }) => {
     await page.setViewportSize({ width: 700, height: 720 });
     await page.goto("/");
     await page.getByRole("button", { name: "计划", exact: true }).click();
 
-    const stage = page.getByLabel("工作阶段").first();
-    await expect(stage).toBeVisible();
-    await stage.selectOption("done");
+    // The old single-column stage-select dropdown is gone entirely.
+    await expect(page.getByLabel("工作阶段")).toHaveCount(0);
+
+    await page.getByRole("button", { name: "新建工作项" }).click();
+    await page.getByLabel("标题").fill("压缩视图任务");
+    await page.getByRole("button", { name: "创建", exact: true }).click();
+
+    let card = page.getByTestId(/work-item-web-/).filter({ hasText: "压缩视图任务" });
+    await expect(card).toBeVisible();
+    await expect(page.getByRole("heading", { name: "收件箱", level: 2 })).toBeVisible();
+
+    await card.getByRole("button", { name: "收件箱" }).click();
+    await card.getByRole("option", { name: "已完成" }).click();
+
+    card = page.getByTestId(/work-item-web-/).filter({ hasText: "压缩视图任务" });
+    await expect(card).toBeVisible();
+    // A second, independently labeled stage group is now visible alongside the first -- proving
+    // this is a grouped list (every stage reachable at once), not one column at a time.
     await expect(page.getByRole("heading", { name: "已完成", level: 2 })).toBeVisible();
-    await expect(page.getByRole("heading", { level: 2 })).toHaveCount(1);
+
     // 14.1/14.4: filters (including on a compact viewport) live behind FilterPopover's trigger.
     await page.getByRole("button", { name: "筛选条件" }).click();
     await expect(page.getByLabel("按来源筛选")).toBeVisible();

@@ -35,7 +35,12 @@ function MetaChip({ children, icon, title }: { children: ReactNode; icon: ReactN
   );
 }
 
-export function WorkBoardCard({ item, mutation, onArchive, onDelete, onDismissError, onEdit, onMove, onRestore }: {
+export function WorkBoardCard({ batchMode, item, mutation, onArchive, onDelete, onDismissError, onEdit, onMove, onRestore, onToggleSelected, selected }: {
+  /** 14.12: while true, this card shows a checkbox instead of its normal stage-menu/More action
+   *  row, and cannot be dragged -- mirrors `SessionCard`'s own established `batchMode` swap
+   *  (src/main-layout/session-card.tsx), so a reader cannot fire an individual mutation on a card
+   *  that a batch action might be mutating at the same time. */
+  batchMode?: boolean;
   item: WorkItem;
   /** This card's own in-flight move/edit/archive/restore/delete, if any -- shared across all of
    *  those actions (they all mutate the same item and would race each other), so the card
@@ -47,6 +52,9 @@ export function WorkBoardCard({ item, mutation, onArchive, onDelete, onDismissEr
   onEdit: () => void;
   onMove: (stage: WorkItemStage) => void;
   onRestore: () => void;
+  /** Only meaningful while `batchMode` is true. */
+  onToggleSelected?: () => void;
+  selected?: boolean;
 }) {
   const { i18n, t } = useTranslation();
   const pending = mutation?.pending ?? false;
@@ -64,11 +72,20 @@ export function WorkBoardCard({ item, mutation, onArchive, onDelete, onDismissEr
     <article
       className="ucd-card relative grid gap-2.5 overflow-hidden rounded-lg p-3 pl-3.5"
       data-testid={`work-item-${item.id}`}
-      draggable={!item.archived && !pending}
+      draggable={!item.archived && !pending && !batchMode}
       onDragStart={(event) => event.dataTransfer.setData("text/work-item", item.id)}
     >
       <span aria-hidden="true" className={cn("absolute inset-y-0 left-0 w-1", priorityAccent[item.priority])} />
       <div className="flex items-start justify-between gap-2">
+        {batchMode ? (
+          <input
+            aria-label={t("todoBoard.batch.selectItem")}
+            checked={selected ?? false}
+            className="mt-1 h-4 w-4 shrink-0 accent-[hsl(var(--primary))]"
+            onChange={onToggleSelected}
+            type="checkbox"
+          />
+        ) : null}
         <h3 className="min-w-0 flex-1 text-sm font-semibold leading-5">{item.title}</h3>
         {item.priority === "none" ? null : (
           <Badge tone={item.priority === "urgent" || item.priority === "high" ? "danger" : item.priority === "medium" ? "warning" : "muted"}>
@@ -103,21 +120,27 @@ export function WorkBoardCard({ item, mutation, onArchive, onDelete, onDismissEr
       ) : (
         <div><Badge tone="muted">{t("todoBoard.manual")}</Badge></div>
       )}
-      <div className="flex flex-wrap items-center gap-1 border-t border-border pt-2">
-        {/* 14.6: one open action plus More. For a non-archived card the stage picker is the one
-            open action (it already opens its own popover), and Edit/Archive move into More --
-            matching goal-detail.tsx's own primary-action-plus-ActionMenu split (15.3). For an
-            archived card, Restore is the one action most readers want and stays directly visible;
-            Delete (destructive, rarer) moves into its own More, kept for layout consistency with
-            the non-archived case even though it holds a single item. */}
-        {!item.archived ? <>
-          <WorkItemStageMenu disabled={pending} onMove={onMove} stage={item.stage} />
-          <ActionMenu items={moreItems} triggerLabel={t("workbenchUi.pageHeader.moreActions")} />
-        </> : <>
-          <Button disabled={pending} onClick={onRestore} size="sm" type="button" variant="outline"><RotateCcw aria-hidden="true" />{t("todoBoard.restore")}</Button>
-          <ActionMenu items={moreItems} triggerLabel={t("workbenchUi.pageHeader.moreActions")} />
-        </>}
-      </div>
+      {!batchMode ? (
+        <div className="flex flex-wrap items-center gap-1 border-t border-border pt-2">
+          {/* 14.6: one open action plus More. For a non-archived card the stage picker is the one
+              open action (it already opens its own popover), and Edit/Archive move into More --
+              matching goal-detail.tsx's own primary-action-plus-ActionMenu split (15.3). For an
+              archived card, Restore is the one action most readers want and stays directly visible;
+              Delete (destructive, rarer) moves into its own More, kept for layout consistency with
+              the non-archived case even though it holds a single item.
+              14.12: hidden entirely in batch mode -- a card selected for a batch action must not
+              also be individually mutable at the same time (that race is exactly what
+              use-work-board-actions.ts's own per-id mutation slot cannot itself distinguish from a
+              legitimate concurrent edit), mirroring SessionCard's own batch-mode swap. */}
+          {!item.archived ? <>
+            <WorkItemStageMenu disabled={pending} onMove={onMove} stage={item.stage} />
+            <ActionMenu items={moreItems} triggerLabel={t("workbenchUi.pageHeader.moreActions")} />
+          </> : <>
+            <Button disabled={pending} onClick={onRestore} size="sm" type="button" variant="outline"><RotateCcw aria-hidden="true" />{t("todoBoard.restore")}</Button>
+            <ActionMenu items={moreItems} triggerLabel={t("workbenchUi.pageHeader.moreActions")} />
+          </>}
+        </div>
+      ) : null}
       <MutationStatus onDismiss={onDismissError} state={mutation} />
     </article>
   );

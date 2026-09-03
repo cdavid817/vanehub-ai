@@ -10,6 +10,8 @@ import { Sheet } from "../ui/sheet/Sheet";
 import type { WorkItem, WorkItemStage } from "../types/work-board";
 import { workItemStages } from "../types/work-board";
 import { CREATE_MUTATION_KEY, useWorkBoardActions } from "./use-work-board-actions";
+import { useWorkBoardBatch } from "./use-work-board-batch";
+import { WorkBoardBatchPanel } from "./work-board-batch-panel";
 import { filterWorkItems, matchesDueBucket } from "./work-board-filter";
 import { WorkItemForm } from "./work-board-form";
 import { WorkBoardColumn } from "./work-board-column";
@@ -23,6 +25,7 @@ import {
   type WorkBoardSavedView,
 } from "./work-board-saved-views";
 import { WorkBoardToolbar } from "./work-board-toolbar";
+import { readWorkBoardWipLimits, writeWorkBoardWipLimits, type WorkBoardWipLimits } from "./work-board-wip-limits";
 
 /**
  * 14.1: the Page Header's own bounded summary slot (design.md Decision 11), matching
@@ -60,10 +63,10 @@ export function WorkBoard() {
   const compact = useMediaQuery("(max-width: 900px)");
   const [query, setQuery] = useState<WorkBoardQuery>(defaultWorkBoardQuery);
   const [archived, setArchived] = useState(false);
-  const [compactStage, setCompactStage] = useState<WorkItemStage>("inbox");
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<WorkItem | null>(null);
   const [savedViews, setSavedViews] = useState<WorkBoardSavedView[]>(() => readWorkBoardSavedViews());
+  const [wipLimits, setWipLimits] = useState<WorkBoardWipLimits>(() => readWorkBoardWipLimits());
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const { archive, create, error, items, loading, move, mutations, remove, restore, update } = useWorkBoardActions(archived);
@@ -91,7 +94,15 @@ export function WorkBoard() {
   const filtersActive = isWorkBoardFilterActive(query);
   const filterSummary = filtersActive ? describeActiveFilters(query, projectLabel, t) : undefined;
   const clearFilters = () => updateQuery({ text: "", project: ALL_PROJECTS, source: "all", priority: "all", due: "all", stage: "all" });
-  const stages = compact ? [compactStage] : workItemStages;
+
+  // 14.12: eligible items are whatever the reader can currently see selecting -- `sorted`, not the
+  // unfiltered `items` -- so a filter change prunes stale selections the same way
+  // session-sidebar.tsx's own batch mode already does.
+  const batch = useWorkBoardBatch({ archive, move, visibleItems: sorted });
+  function saveWipLimits(next: WorkBoardWipLimits) {
+    setWipLimits(next);
+    writeWorkBoardWipLimits(next);
+  }
 
   function applySavedView(view: WorkBoardSavedView) {
     setQuery(applyWorkBoardSavedView(view));
@@ -122,25 +133,38 @@ export function WorkBoard() {
     <div className="shrink-0 border-b border-border p-3 md:p-4">
       <WorkBoardToolbar
         archived={archived}
+        batchMode={batch.batchMode}
         filtersActive={filtersActive}
         onApplySavedView={applySavedView}
         onClearFilters={clearFilters}
         onDeleteSavedView={deleteSavedView}
         onQueryChange={updateQuery}
         onSaveCurrentView={saveCurrentView}
+        onSaveWipLimits={saveWipLimits}
         onToggleArchived={() => setArchived((value) => !value)}
+        onToggleBatchMode={() => (batch.batchMode ? batch.exit() : batch.enter())}
         projects={projects}
         query={query}
         savedViews={savedViews}
         searchInputRef={searchInputRef}
+        wipLimits={wipLimits}
       />
       {filtersActive ? <p className="mt-2 text-[11px] text-muted-foreground" role="status">{t("todoBoard.filtersActive", { count: visible.length })}</p> : null}
-      {compact ? (
-        <select aria-label={t("todoBoard.stage")} className="ucd-input mt-2 w-full rounded-md px-3 py-2 text-sm" onChange={(event) => setCompactStage(event.target.value as WorkItemStage)} value={compactStage}>
-          {workItemStages.map((stage) => <option key={stage} value={stage}>{t(`todoBoard.stage.${stage}`)}</option>)}
-        </select>
-      ) : null}
     </div>
+
+    {batch.batchMode ? (
+      <WorkBoardBatchPanel
+        items={sorted}
+        onArchive={() => void batch.run({ kind: "archive" })}
+        onClearSelection={batch.clearSelection}
+        onExit={batch.exit}
+        onMove={(stage) => void batch.run({ kind: "move", stage })}
+        onSelectAllVisible={batch.selectAllVisible}
+        outcome={batch.outcome}
+        running={batch.running}
+        selectedIds={batch.selectedIds}
+      />
+    ) : null}
 
     {creating
       ? <Sheet closeDisabled={mutations.get(CREATE_MUTATION_KEY)?.pending} onClose={() => setCreating(false)} placement="right" title={t("todoBoard.new")}>
@@ -156,30 +180,16 @@ export function WorkBoard() {
     {error ? <p className="m-3 rounded border border-destructive/50 bg-destructive/10 p-2 text-sm text-destructive" role="alert">{error}</p> : null}
     {loading && !items.length
       ? <div className="grid flex-1 place-items-center"><Loader2 aria-label={t("todoBoard.loading")} className="animate-spin" /></div>
-      : compact || query.presentation === "board"
-        ? <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-3">
-            {stages.map((stage) => (
-              <WorkBoardColumn
-                filterSummary={filterSummary}
-                filtersActive={filtersActive}
-                items={sorted.filter((item) => item.stage === stage)}
-                key={stage}
-                mutations={mutations.registry}
-                onArchive={(item) => void archive(item)}
-                onDelete={(item) => void remove(item)}
-                onDismissError={(item) => mutations.clear(item.id)}
-                onDrop={drop}
-                onEdit={(item) => { setCreating(false); setEditing(item); }}
-                onMove={(item, target) => void move(item, target)}
-                onRestore={(item) => void restore(item)}
-                stage={stage}
-              />
-            ))}
-          </div>
-        : <WorkBoardList
+      // 14.13: at a compact width, the grouped Stage List (vertical, no drag target) replaces the
+      // side-by-side Kanban columns entirely -- forcing `grouping="stage"` regardless of
+      // `query.presentation`/`query.grouping` matches this branch's own pre-existing precedent of
+      // overriding the wide layout's presentation choice at compact widths.
+      : compact
+        ? <WorkBoardList
+            batchMode={batch.batchMode}
             filterSummary={filterSummary}
             filtersActive={filtersActive}
-            grouping={query.grouping}
+            grouping="stage"
             items={sorted}
             mutations={mutations.registry}
             onArchive={(item) => void archive(item)}
@@ -188,6 +198,50 @@ export function WorkBoard() {
             onEdit={(item) => { setCreating(false); setEditing(item); }}
             onMove={(item, target) => void move(item, target)}
             onRestore={(item) => void restore(item)}
-          />}
+            onToggleSelected={(item) => batch.toggle(item.id)}
+            selectedIds={batch.selectedIds}
+            wipLimits={wipLimits}
+          />
+        : query.presentation === "board"
+          ? <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-3">
+              {workItemStages.map((stage) => (
+                <WorkBoardColumn
+                  batchMode={batch.batchMode}
+                  filterSummary={filterSummary}
+                  filtersActive={filtersActive}
+                  items={sorted.filter((item) => item.stage === stage)}
+                  key={stage}
+                  mutations={mutations.registry}
+                  onArchive={(item) => void archive(item)}
+                  onDelete={(item) => void remove(item)}
+                  onDismissError={(item) => mutations.clear(item.id)}
+                  onDrop={drop}
+                  onEdit={(item) => { setCreating(false); setEditing(item); }}
+                  onMove={(item, target) => void move(item, target)}
+                  onRestore={(item) => void restore(item)}
+                  onToggleSelected={(item) => batch.toggle(item.id)}
+                  selectedIds={batch.selectedIds}
+                  stage={stage}
+                  wipLimit={wipLimits[stage]}
+                />
+              ))}
+            </div>
+          : <WorkBoardList
+              batchMode={batch.batchMode}
+              filterSummary={filterSummary}
+              filtersActive={filtersActive}
+              grouping={query.grouping}
+              items={sorted}
+              mutations={mutations.registry}
+              onArchive={(item) => void archive(item)}
+              onDelete={(item) => void remove(item)}
+              onDismissError={(item) => mutations.clear(item.id)}
+              onEdit={(item) => { setCreating(false); setEditing(item); }}
+              onMove={(item, target) => void move(item, target)}
+              onRestore={(item) => void restore(item)}
+              onToggleSelected={(item) => batch.toggle(item.id)}
+              selectedIds={batch.selectedIds}
+              wipLimits={wipLimits}
+            />}
   </section>;
 }

@@ -1,10 +1,29 @@
 import { useTranslation } from "react-i18next";
+import { Badge } from "../components/ui/badge";
 import type { MutationState } from "../ui/async/mutation-state";
 import type { WorkItem, WorkItemStage } from "../types/work-board";
 import { WorkBoardCard } from "./work-board-card";
+import { WorkBoardItemList } from "./work-board-item-list";
 import { groupWorkItemsByStage, type WorkBoardGrouping } from "./work-board-query";
+import { isOverWipLimit, type WorkBoardWipLimits } from "./work-board-wip-limits";
+
+// `min-h-0` matters here the same way it does for WorkBoardColumn's own item region (14.15): it is
+// what lets this grid child shrink below its content size inside the section's flex column, so
+// WorkBoardItemList's virtualized branch gets a real bounded viewport rather than one that just
+// grows to fit every row.
+const UNGROUPED_REGION_CLASS = "grid min-h-0 flex-1 content-start gap-2 overflow-y-auto p-3";
+const GROUP_SECTION_CLASS = "grid gap-2";
+// A stage group is normally left to its own natural height (many small stacked sections read as
+// one continuous page, the existing pre-14.15 behavior) -- `max-h`+`overflow-y-auto` only starts
+// doing anything once a single group's content actually exceeds it, which is also exactly the
+// case where WorkBoardItemList's virtualized branch needs a real bounded viewport to virtualize
+// against. A small group renders identically to before: nothing here is visually active for it.
+const GROUP_ITEM_REGION_CLASS = "grid max-h-[28rem] gap-2 overflow-y-auto";
 
 export interface WorkBoardListProps {
+  /** 14.12: forwarded straight through to every rendered `WorkBoardCard` -- see that component's
+   *  own doc comment. */
+  batchMode?: boolean;
   filterSummary?: string;
   filtersActive: boolean;
   grouping: WorkBoardGrouping;
@@ -16,6 +35,10 @@ export interface WorkBoardListProps {
   onEdit: (item: WorkItem) => void;
   onMove: (item: WorkItem, stage: WorkItemStage) => void;
   onRestore: (item: WorkItem) => void;
+  onToggleSelected?: (item: WorkItem) => void;
+  selectedIds?: ReadonlySet<string>;
+  /** 14.14: optional, presentation-only soft limits, read per stage-group header. */
+  wipLimits?: WorkBoardWipLimits;
 }
 
 /**
@@ -25,14 +48,21 @@ export interface WorkBoardListProps {
  * already-tested parts of WorkBoardColumn's own contract in Board presentation. Movement here
  * goes exclusively through each card's own WorkItemStageMenu -- unchanged from Board presentation,
  * just without a drop target as the alternative path.
+ *
+ * 14.13: also the compact Stage List's own renderer -- `work-board.tsx` calls this with
+ * `grouping="stage"` forced at narrow viewports, since stage-grouped sections stacked vertically
+ * with no drag target *is* "a compact grouped Stage List that does not require horizontal
+ * dragging," and this component already builds exactly that for the wide List presentation. No
+ * second grouped-list component was built to duplicate it.
  */
 export function WorkBoardList({
-  filterSummary, filtersActive, grouping, items, mutations,
-  onArchive, onDelete, onDismissError, onEdit, onMove, onRestore,
+  batchMode, filterSummary, filtersActive, grouping, items, mutations,
+  onArchive, onDelete, onDismissError, onEdit, onMove, onRestore, onToggleSelected, selectedIds, wipLimits,
 }: WorkBoardListProps) {
   const { t } = useTranslation();
   const card = (item: WorkItem) => (
     <WorkBoardCard
+      batchMode={batchMode}
       item={item}
       key={item.id}
       mutation={mutations.get(item.id)}
@@ -42,6 +72,8 @@ export function WorkBoardList({
       onEdit={() => onEdit(item)}
       onMove={(target) => onMove(item, target)}
       onRestore={() => onRestore(item)}
+      onToggleSelected={() => onToggleSelected?.(item)}
+      selected={selectedIds?.has(item.id)}
     />
   );
 
@@ -56,19 +88,25 @@ export function WorkBoardList({
   }
 
   if (grouping === "none") {
-    return <div className="grid min-h-0 flex-1 content-start gap-2 overflow-y-auto p-3">{items.map(card)}</div>;
+    return <WorkBoardItemList ariaLabel={t("todoBoard.title")} className={UNGROUPED_REGION_CLASS} items={items} renderItem={card} />;
   }
 
   return (
     <div className="grid min-h-0 flex-1 content-start gap-4 overflow-y-auto p-3">
-      {groupWorkItemsByStage(items).map((group) => (
-        <section aria-labelledby={`work-board-list-${group.stage}`} className="grid gap-2" key={group.stage}>
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground" id={`work-board-list-${group.stage}`}>
-            {t(`todoBoard.stage.${group.stage}`)} · {group.items.length}
-          </h2>
-          {group.items.map(card)}
-        </section>
-      ))}
+      {groupWorkItemsByStage(items).map((group) => {
+        const overWip = isOverWipLimit(group.items.length, wipLimits?.[group.stage]);
+        return (
+          <section aria-labelledby={`work-board-list-${group.stage}`} className={GROUP_SECTION_CLASS} key={group.stage}>
+            <h2 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground" id={`work-board-list-${group.stage}`}>
+              <span>{t(`todoBoard.stage.${group.stage}`)} · {group.items.length}</span>
+              {overWip ? (
+                <Badge title={t("todoBoard.wip.badgeTitle")} tone="warning">{t("todoBoard.wip.badge", { count: group.items.length, limit: wipLimits?.[group.stage] })}</Badge>
+              ) : null}
+            </h2>
+            <WorkBoardItemList ariaLabel={t(`todoBoard.stage.${group.stage}`)} className={GROUP_ITEM_REGION_CLASS} items={group.items} renderItem={card} />
+          </section>
+        );
+      })}
     </div>
   );
 }

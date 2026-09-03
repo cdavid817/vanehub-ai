@@ -1,4 +1,4 @@
-import { Archive, FilterX, Inbox, Search } from "lucide-react";
+import { Archive, CheckSquare, FilterX, Inbox, Search, X } from "lucide-react";
 import { type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../components/ui/button";
@@ -14,6 +14,8 @@ import {
 } from "./work-board-query";
 import { WorkBoardSavedViewMenu } from "./work-board-saved-view-menu";
 import type { WorkBoardSavedView } from "./work-board-saved-views";
+import { WorkBoardWipLimitMenu } from "./work-board-wip-limit-menu";
+import type { WorkBoardWipLimits } from "./work-board-wip-limits";
 
 export interface WorkBoardToolbarProps {
   archived: boolean;
@@ -28,6 +30,12 @@ export interface WorkBoardToolbarProps {
   onApplySavedView: (view: WorkBoardSavedView) => void;
   onDeleteSavedView: (id: string) => void;
   onSaveCurrentView: (name: string) => void;
+  /** 14.12: whether select/batch mode is currently active. */
+  batchMode: boolean;
+  onToggleBatchMode: () => void;
+  /** 14.14: presentation-only soft limits, read and edited entirely client-side. */
+  wipLimits: WorkBoardWipLimits;
+  onSaveWipLimits: (limits: WorkBoardWipLimits) => void;
 }
 
 /**
@@ -46,6 +54,7 @@ export interface WorkBoardToolbarProps {
 export function WorkBoardToolbar({
   archived, onToggleArchived, query, onQueryChange, filtersActive, onClearFilters,
   projects, searchInputRef, savedViews, onApplySavedView, onDeleteSavedView, onSaveCurrentView,
+  batchMode, onToggleBatchMode, wipLimits, onSaveWipLimits,
 }: WorkBoardToolbarProps) {
   const { t } = useTranslation();
 
@@ -79,6 +88,19 @@ export function WorkBoardToolbar({
 
   return (
     <Toolbar
+      batchModeSlot={
+        <Button
+          aria-pressed={batchMode}
+          className="h-8 px-2.5 text-xs"
+          onClick={onToggleBatchMode}
+          size="sm"
+          type="button"
+          variant={batchMode ? "default" : "outline"}
+        >
+          {batchMode ? <X aria-hidden="true" className="h-3.5 w-3.5" /> : <CheckSquare aria-hidden="true" className="h-3.5 w-3.5" />}
+          {batchMode ? t("todoBoard.batch.exit") : t("todoBoard.batch.trigger")}
+        </Button>
+      }
       activeFilters={
         <div className="flex flex-wrap items-center gap-1.5">
           <FilterPopover fields={fields} triggerLabel={t("todoBoard.filters")} />
@@ -128,6 +150,7 @@ export function WorkBoardToolbar({
             {archived ? t("todoBoard.active") : t("todoBoard.archived")}
           </Button>
           <WorkBoardSavedViewMenu onApply={onApplySavedView} onDelete={onDeleteSavedView} onSave={onSaveCurrentView} savedViews={savedViews} />
+          <WorkBoardWipLimitMenu limits={wipLimits} onSave={onSaveWipLimits} />
         </div>
       }
     />

@@ -217,3 +217,72 @@ describe("WorkBoardCard sources display bound", () => {
     expect(screen.getByText("还有 2 项")).toBeTruthy();
   });
 });
+
+// 14.12: batch mode swaps the card's normal one-open-action-plus-More row for a plain checkbox,
+// mirroring SessionCard's own established batchMode swap (src/main-layout/session-card.tsx).
+describe("WorkBoardCard batch mode (14.12)", () => {
+  it("shows a checkbox instead of the stage trigger and More menu while batchMode is true", () => {
+    const onToggleSelected = vi.fn();
+    render(
+      <WorkBoardCard
+        batchMode
+        item={fixture()}
+        onArchive={vi.fn()}
+        onDelete={vi.fn()}
+        onDismissError={vi.fn()}
+        onEdit={vi.fn()}
+        onMove={vi.fn()}
+        onRestore={vi.fn()}
+        onToggleSelected={onToggleSelected}
+        selected={false}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "收件箱" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "更多操作" })).toBeNull();
+    expect(screen.getByRole("checkbox", { name: "选择工作项" })).toBeTruthy();
+  });
+
+  it("reflects the selected prop and calls onToggleSelected on a tap/click", () => {
+    const onToggleSelected = vi.fn();
+    render(
+      <WorkBoardCard
+        batchMode
+        item={fixture()}
+        onArchive={vi.fn()}
+        onDelete={vi.fn()}
+        onDismissError={vi.fn()}
+        onEdit={vi.fn()}
+        onMove={vi.fn()}
+        onRestore={vi.fn()}
+        onToggleSelected={onToggleSelected}
+        selected
+      />,
+    );
+    const checkbox = screen.getByRole("checkbox", { name: "选择工作项" }) as HTMLInputElement;
+    expect(checkbox.checked).toBe(true);
+    fireEvent.click(checkbox);
+    expect(onToggleSelected).toHaveBeenCalledOnce();
+  });
+
+  it("is not draggable while batchMode is true, even for an eligible card", () => {
+    const { container } = render(
+      <WorkBoardCard
+        batchMode
+        item={fixture()}
+        onArchive={vi.fn()}
+        onDelete={vi.fn()}
+        onDismissError={vi.fn()}
+        onEdit={vi.fn()}
+        onMove={vi.fn()}
+        onRestore={vi.fn()}
+      />,
+    );
+    expect(container.querySelector("article")?.getAttribute("draggable")).toBe("false");
+  });
+
+  it("keeps the normal action row and dragging when batchMode is omitted", () => {
+    renderCard();
+    expect(screen.getByRole("button", { name: "收件箱" })).toBeTruthy();
+    expect(screen.queryByRole("checkbox", { name: "选择工作项" })).toBeNull();
+  });
+});

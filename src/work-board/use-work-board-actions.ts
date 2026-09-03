@@ -67,13 +67,19 @@ export function useWorkBoardActions(archived: boolean) {
    *  race for its single settings object; a per-card list needs the narrower fix). If the
    *  server's response no longer belongs to the current `archived` scope (e.g. an archive/restore
    *  crossing the active/archived boundary), the card is dropped from `items` instead of patched,
-   *  since a fresh fetch of this scope would no longer return it either. */
+   *  since a fresh fetch of this scope would no longer return it either.
+   *
+   *  Returns whether the mutation ultimately succeeded. This never throws -- rollback already
+   *  happens internally, and a successful mutation's own registry entry is deleted rather than
+   *  kept as a tombstone (`mutations.succeed`) -- so the boolean return is the only way a caller
+   *  that runs several of these concurrently (14.12's batch mode, `use-work-board-batch.ts`) can
+   *  learn a given item's own outcome without racing a stale closure over `mutations.registry`. */
   const mutateCard = useCallback(async (
     item: WorkItem,
     optimistic: WorkItem,
     call: () => Promise<WorkItem>,
     onSuccess?: () => void,
-  ) => {
+  ): Promise<boolean> => {
     mutations.begin(item.id);
     setItems((current) => current.map((candidate) => (candidate.id === item.id ? optimistic : candidate)));
     try {
@@ -83,9 +89,11 @@ export function useWorkBoardActions(archived: boolean) {
         : current.filter((candidate) => candidate.id !== item.id)));
       mutations.succeed(item.id);
       onSuccess?.();
+      return true;
     } catch (reason: unknown) {
       setItems((current) => current.map((candidate) => (candidate.id === item.id ? item : candidate)));
       mutations.fail(item.id, toDisplayableError(reason));
+      return false;
     }
   }, [archived, mutations]);
 

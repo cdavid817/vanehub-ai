@@ -132,11 +132,23 @@ describe("WorkBoard", () => {
     expect(screen.getByTestId("work-item-work-1")).toBeTruthy();
   });
 
-  it("uses one stage column on compact layouts and persists edits", async () => {
+  // 14.13: compact width now shows every non-empty stage as its own vertical, labeled group
+  // (WorkBoardList with grouping="stage") instead of one Kanban column behind a stage-select
+  // dropdown -- both stages are visible at once, with no horizontal drag/scroll required.
+  it("shows a compact grouped Stage List with every non-empty stage visible at once, and persists edits", async () => {
     mocks.compact = true;
+    const second: WorkItem = { ...fixture(), id: "work-2", title: "第二项", stage: "done", sources: [] };
+    mocks.items = [fixture(), second];
     render(<WorkBoard />);
     await screen.findByTestId("work-item-work-1");
-    expect(screen.getAllByRole("heading", { level: 2 })).toHaveLength(1);
+    await screen.findByTestId("work-item-work-2");
+
+    // Two stages have items -- both group headings show, not one column at a time.
+    expect(screen.getAllByRole("heading", { level: 2 })).toHaveLength(2);
+    expect(screen.getByRole("heading", { name: "收件箱 · 1", level: 2 })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "已完成 · 1", level: 2 })).toBeTruthy();
+    // The old single-column stage-select dropdown is gone entirely.
+    expect(screen.queryByLabelText("工作阶段")).toBeNull();
 
     openCardMore("work-item-work-1");
     fireEvent.click(screen.getByRole("menuitem", { name: "编辑工作项" }));
@@ -144,6 +156,16 @@ describe("WorkBoard", () => {
     fireEvent.change(title, { target: { value: "已编辑版本" } });
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
     await waitFor(() => expect(mocks.update).toHaveBeenCalledWith(expect.objectContaining({ workItemId: "work-1", title: "已编辑版本" })));
+  });
+
+  it("moves a card between stage groups via WorkItemStageMenu on a compact layout, with no drag target involved", async () => {
+    mocks.compact = true;
+    render(<WorkBoard />);
+    const card = await screen.findByTestId("work-item-work-1");
+
+    fireEvent.click(within(card).getByRole("button", { name: "收件箱" }));
+    fireEvent.click(stageOption("已完成"));
+    await waitFor(() => expect(mocks.move).toHaveBeenCalledWith({ workItemId: "work-1", stage: "done" }));
   });
 
   it("optimistically moves a card, rolls back with a per-card error on failure, and leaves other cards enabled", async () => {
