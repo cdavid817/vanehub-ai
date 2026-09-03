@@ -2,6 +2,7 @@
 
 import { renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { getActivePendingTimerCount } from "../testing/resource-tracking";
 import { useMissionControlPolling } from "./use-mission-control-polling";
 
 afterEach(() => vi.useRealTimers());
@@ -156,7 +157,14 @@ describe("useMissionControlPolling", () => {
     const reconcile = vi.fn<() => Promise<boolean>>().mockResolvedValue(false);
 
     const { unmount } = renderHook(() => useMissionControlPolling(reconcile));
+    // 21.16: the mounted hook holds exactly one pending `setTimeout` -- its own `scheduleNext` --
+    // proven by count, not just inferred from "no further reconcile() calls" the way the rest of
+    // this test already does below.
+    expect(getActivePendingTimerCount()).toBe(1);
     unmount();
+    // The handle itself is gone, not merely skipped -- clearTimeout() ran, so vitest's own
+    // fake-timer queue no longer holds it at all.
+    expect(getActivePendingTimerCount()).toBe(0);
 
     for (const type of ["focus", "online", "offline"]) {
       const [, handler] = addWindowSpy.mock.calls.find(([eventType]) => eventType === type)!;
