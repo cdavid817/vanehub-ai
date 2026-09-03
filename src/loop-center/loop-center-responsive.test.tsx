@@ -37,8 +37,11 @@ describe("LoopCenter responsive navigation", () => {
 
     expect(center).toContain("sticky -top-3");
     expect(center).toContain("暂停");
-    expect(center).toContain("停止");
-    expect(center).toContain("grid-cols-2");
+    // 17.8: Stop is no longer its own always-visible button (Pause is the one primary action for
+    // a running Loop) -- it moved into the closed-by-default More menu, so only the menu's own
+    // trigger is checked here, not "停止" itself. loop-run-controls.test.tsx exercises what's
+    // actually inside the menu once opened.
+    expect(center).toContain('aria-haspopup="menu"');
     expect(inspector).not.toContain("运行控制");
     expect(inspector).not.toContain(">暂停<");
   });

@@ -48,12 +48,20 @@ test.describe("Loop engineering", () => {
     await page.getByRole("button", { name: "返回循环工程" }).click();
     await expect(loopCenter).toBeVisible();
 
+    // 17.8: Continue moved into the More menu (Accept is now the one primary action while
+    // awaiting acceptance) but still opens the same preview-then-confirm step as before -- see
+    // loop-run-controls.tsx's own ConfirmAction comment for why -- so it still needs a "确认" click.
     await loopCenter.getByLabel("下一次迭代的反馈").fill("补充边界条件回归测试");
-    await loopCenter.getByRole("button", { name: "根据反馈继续" }).click();
+    await loopCenter.getByRole("button", { name: "更多操作" }).click();
+    await loopCenter.getByRole("menuitem", { name: "根据反馈继续" }).click();
+    await expect(loopCenter.getByText("根据此反馈继续？")).toBeVisible();
+    await loopCenter.getByRole("button", { name: "确认", exact: true }).click();
     await expect(loopCenter.getByText("补充边界条件回归测试")).toBeVisible();
     await expect(loopCenter.getByText("第 2 次迭代")).toBeVisible();
     await expect(loopCenter.getByText("等待验收", { exact: true }).first()).toBeVisible();
     await loopCenter.getByRole("button", { name: "接受结果" }).click();
+    await expect(loopCenter.getByText("接受此结果？")).toBeVisible();
+    await loopCenter.getByRole("button", { name: "确认", exact: true }).click();
     await expect(loopCenter.getByText("已成功", { exact: true }).first()).toBeVisible();
     await expect(page.getByTestId("agent-run-status")).toHaveAttribute("data-state", "completed");
     await expect(loopCenter.getByText("目标已达成").first()).toBeVisible();
@@ -68,7 +76,11 @@ test.describe("Loop engineering", () => {
     await expect(loopCenter.getByText("等待验收", { exact: true }).first()).toBeVisible();
     const acceptance = loopCenter.getByLabel("人工验收");
     await expect(acceptance.getByText("验证检查")).toBeVisible();
-    await loopCenter.getByRole("button", { name: "拒绝结果" }).click();
+    // 17.8: Reject moved into the More menu (Accept is now the one primary action while awaiting
+    // acceptance) and now confirms via ActionMenu's own dialog rather than the hand-rolled
+    // alertdialog block -- see loop-run-controls.tsx's own ConfirmAction comment for why.
+    await loopCenter.getByRole("button", { name: "更多操作" }).click();
+    await loopCenter.getByRole("menuitem", { name: "拒绝结果" }).click();
     await expect(loopCenter.getByText("拒绝此结果？")).toBeVisible();
     await loopCenter.getByRole("button", { name: "确认", exact: true }).click();
 

@@ -45,7 +45,9 @@ describe("Loop Center states", () => {
     expect(html).toContain("执行");
     expect(html).toContain("operation-worker");
     expect(html).toContain("暂停");
-    expect(html).toContain("停止");
+    // 17.8: Stop moved into the closed-by-default More menu (Pause is the one primary action for
+    // a running Loop) -- see loop-run-controls.test.tsx for coverage of what's inside once opened.
+    expect(html).toContain('aria-haspopup="menu"');
   });
 
   it("renders paused and recovery-required resume boundaries", () => {
@@ -69,8 +71,10 @@ describe("Loop Center states", () => {
     expect(html).toContain("等待验收");
     expect(html).toContain("接受结果");
     expect(html).toContain("下一次迭代的反馈");
-    expect(html).toContain("根据反馈继续");
-    expect(html).toContain("拒绝结果");
+    // 17.8: Continue/Reject moved into the closed-by-default More menu (Accept is the one primary
+    // action while awaiting acceptance) -- see loop-run-controls.test.tsx for coverage of what's
+    // inside once opened.
+    expect(html).toContain('aria-haspopup="menu"');
   });
 
   it.each([
