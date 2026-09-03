@@ -22,7 +22,7 @@
 
 ## Agent
 
-**Agent 是执行任务的主体**。VaneHub AI 内置 6 个：
+**Agent 是执行任务的主体**。VaneHub AI 接入 6 个：5 个需要你自己安装并认证的外部 CLI Agent，以及 1 个随应用交付的原生 API Agent。
 
 | Agent | 提供方 | 形态 |
 | --- | --- | --- |
@@ -84,7 +84,7 @@
 
 **MCP（Model Context Protocol）服务器为 Agent 提供额外工具**。在 VaneHub AI 里集中注册一次，就能按 Agent 下发，不必在每个 CLI 里各配一遍。
 
-详见[工具与扩展](tooling.md)。
+详见[MCP 服务器](mcp.md)。
 
 ## Skill
 

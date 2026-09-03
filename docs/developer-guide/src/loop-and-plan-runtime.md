@@ -16,7 +16,7 @@ A loop that can run unattended has six parts. This is how each maps onto the rep
 
 | Component | Role | Implementation here |
 | --- | --- | --- |
-| **Automations** | The loop's heartbeat, deciding when to run (schedule or event trigger plus triage) | Scheduled tasks (see [Scheduled and usage](../../user-guide/en/src/automation.md)) and IM inbound triggers |
+| **Automations** | The loop's heartbeat, deciding when to run (schedule or event trigger plus triage) | Scheduled tasks (see [Scheduled and usage](../../user-guide/en/src/scheduled-tasks.md)) and IM inbound triggers |
 | **Worktrees** | Isolated workspaces that keep parallel Agents from colliding | A Loop works in its own Git worktree; remote workspaces do not support worktrees, so Loops do not apply there |
 | **Skills** | Project knowledge and coding conventions written once, so the loop does not rediscover them every round | The Skill system (see [Skill management](skill-management.md)) |
 | **Plugins / Connectors** | MCP-based connections to real systems — opening a PR, updating a ticket | MCP tools (see [MCP tools and clients](mcp-tools.md)) |

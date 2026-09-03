@@ -127,7 +127,9 @@ Memory extraction for CLI Agents is performed by OnePiece — with it unconfigur
 
 ### I want one Agent to have its own memory
 
-Not possible. Memory is currently a host-level shared pool, and what one Agent records is available to the others. Isolation is only achievable by turning memory off entirely.
+**Yes, per memory.** Every memory carries a scope (global, or one workspace) and an audience (every Agent by default, or only the ones you name); a memory that does not qualify is not injected into that Agent's prompt. See [Personalization](personalization.md#scope-source-and-audience-of-a-single-memory).
+
+That boundary covers **injection** only. Memory storage is still one shared pool on the host, and the `recall` tool searches all of it by design, without filtering by audience or workspace. So a restricted audience means **it will not be carried into that Agent's context automatically**, not that the Agent cannot retrieve it. Content that no Agent should read must be deleted, not audience-restricted.
 
 ## Remote and automation
 
@@ -141,13 +143,13 @@ Not possible. Memory is currently a host-level shared pool, and what one Agent r
 
 ### An IM connector will not start
 
-**The default route configuration must be saved first.** The interface's message is that this must be configured before any connector can be enabled. See [Remote execution and IM connectors](remote-and-im.md).
+**The default route configuration must be saved first.** The interface's message is that this must be configured before any connector can be enabled. See [IM connectors](im-connectors.md).
 
 ### A scheduled task did not run while the application was closed
 
 The scheduler runs inside the application, not as a system-level service. **It does not run while closed, but missed runs are made up at the next launch — and only the most recent one.**
 
-A once-daily task with the application closed for three days makes up one run on restart. See [Scheduled tasks and usage statistics](automation.md).
+A once-daily task with the application closed for three days makes up one run on restart. See [Scheduled tasks and notifications](scheduled-tasks.md).
 
 ## Observability
 

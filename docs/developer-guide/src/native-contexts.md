@@ -2,7 +2,7 @@
 
 Native code is organized by **ownership**, not by UI page. Where a feature shows up on screen and who owns its code are two different questions.
 
-`src-tauri/src/contexts/` currently holds **24 contexts**. The table below is the complete map — **the directory listing and the table must match one-for-one**; `npm run docs:links:check` compares them, and adding a context without adding its row here fails validation outright.
+`src-tauri/src/contexts/` currently holds **27 contexts**. The table below is the complete map — **the directory listing and the table must match one-for-one**; `npm run docs:links:check` compares them, and adding a context without adding its row here fails validation outright.
 
 ```mermaid
 flowchart TB
@@ -107,9 +107,9 @@ The diagram only draws **call direction** between contexts, not specific command
 | Context | Owns | Chapter |
 | --- | --- | --- |
 | `permissions` | Permission policy evaluation, approval brokering, risk classification, and the Claude Code hook wait registry | [Permission model](permission-model.md) |
-| `operations` | Observable task lifecycle and unified diagnostic/operation logging contracts | [Persistence and unified logging](persistence-and-logging.md) |
+| `operations` | Observable task lifecycle and unified diagnostic/operation logging contracts | [Unified logging](unified-logging.md) |
 | `execution_observability` | Execution runs, spans, timelines, capture policy, and OTLP export settings | [Execution observability and Agent evaluation](execution-observability.md) |
-| `skill_evolution_evidence` | Evidence envelopes, extraction, sanitization, attribution, feedback state, and encrypted evidence storage | [Skill evolution evidence](skill-evolution-evidence.md) |
+| `skill_evolution_evidence` | Evidence envelopes, extraction, sanitization, attribution, feedback state, and evidence storage (sanitized before write, resting on OS and disk protection, no application-level encryption) | [Skill evolution evidence](skill-evolution-evidence.md) |
 | `skill_evolution_assessment` | Immutable assessment witnesses, effective Skill target projection, deterministic ranking and quality gates, evaluator provenance, and non-mutating routing recommendations | [Skill evolution evidence](skill-evolution-evidence.md) |
 | `skill_evolution_curation` | Human-governed Skill improvement candidates, draft review, approval decisions, application receipts, audit chains, and notification delivery | [Skill evolution evidence](skill-evolution-evidence.md) |
 | `skill_evolution_system_activity` | Read-only Skill Evolution activity sessions, canonical result projection, read state, preferences, rebuilds, retention, and exports | [Skill evolution evidence](skill-evolution-evidence.md) |

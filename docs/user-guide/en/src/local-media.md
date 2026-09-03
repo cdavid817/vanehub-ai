@@ -4,7 +4,7 @@ VaneHub AI can read text out of an image, turn what you say into text, and read 
 
 ![The Local Media settings page with independent OCR, speech recognition, and speech synthesis engine cards](assets/screenshots/settings-local-media-en.png)
 
-This chapter covers configuring the three engines and using them. Installing the frameworks themselves is covered under [Tools and extensions → Extension capabilities](tooling.md#extension-capabilities).
+This chapter covers configuring the three engines and using them. Installing the frameworks themselves is covered under [Tools and extensions → Extension capabilities](extensions.md#extension-capabilities).
 
 ## What you supply, and what the application will not do
 
@@ -77,10 +77,10 @@ The same principle governs execution providers generally: **a failed inference i
 - **The engines are independent.** OCR reporting **Unavailable** says nothing about speech recognition.
 - **Cancellation is bounded and isolated** — cancelling one operation does not disturb another that is already running.
 - **Transcription returns the final transcript only** in this version, with bounded language and duration metadata; there is no partial or streaming transcript.
-- **Model acquisition is yours.** See [Tools and extensions](tooling.md#extension-capabilities) for the framework install path and its disk footprint.
+- **Model acquisition is yours.** See [Tools and extensions](extensions.md#extension-capabilities) for the framework install path and its disk footprint.
 
 ## Related
 
-- Installing the frameworks → [Tools and extensions](tooling.md#extension-capabilities)
+- Installing the frameworks → [Tools and extensions](extensions.md#extension-capabilities)
 - Where operation failures are recorded → [Observability](observability.md)
 - Something reports **Unavailable** and you cannot tell why → [Troubleshooting](troubleshooting.md)

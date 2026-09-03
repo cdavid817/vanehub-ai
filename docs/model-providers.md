@@ -81,7 +81,7 @@ VaneHub AI 内置 **25 家模型提供商**的配置模板。选一家、填 API
 - **OnePiece 的 API Key** 由 VaneHub AI 保管，**保存前会实际调用一次校验，不通过不保存**。
 - **CLI 配置的 API Key** 存在操作系统的凭据服务里，按 Agent/配置分账，不落 SQLite，界面上只回显「已配置」。只有在你显式点「应用」时，才会写进那个 CLI 要求明文的配置文件。
 
-完整语义见[工具与扩展 → Agent 配置](user-guide/zh-CN/src/tooling.md#agent-配置)与[原生 API Agent](user-guide/zh-CN/src/native-agent.md)。
+完整语义见[Agent 与 CLI 配置](user-guide/zh-CN/src/agent-configuration.md#agent-配置)与[原生 API Agent](user-guide/zh-CN/src/native-agent.md)。
 
 ## 图标来源
 

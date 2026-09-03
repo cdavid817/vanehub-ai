@@ -13,7 +13,7 @@ Before the details of Skill management, it helps to draw the boundary against MC
 | **Needs a server?** | No — it is only a calling convention | Yes — an MCP server is a running program bridging an external system | No — a Skill is static instruction injected into context |
 | **How it triggers** | The model calls a registered function | The model calls a connected tool | Semantic matching on `description`, loading instructions dynamically |
 | **Problem it solves** | Structuring a single call | Reaching live data and performing effects (query, fetch, current state) | Teaching the model how to think and act appropriately, not which button or API to reach for |
-| **State and permissions** | Stateless, arguments only | Stateful, needs authentication and connection upkeep | Stateless plain text, needing no permission system |
+| **State and permissions** | Stateless, arguments only | Stateful, needs authentication and connection upkeep | An instruction-only Skill is stateless; an executable Skill is governed by provenance, integrity, permissions, and a sandbox |
 | **Portability** | Depends on the implementation, with small differences per vendor | An open protocol, portable across clients | Published as a standard |
 
 ### The core mechanism of a Skill

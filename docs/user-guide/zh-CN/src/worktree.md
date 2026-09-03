@@ -68,9 +68,11 @@ git worktree prune
 
 每个 Agent 的改动天然收敛成一个分支上的一组 commit。审查时 `git diff base..worktree-branch` 就能看清它到底改了什么;通过就合并,不通过就 `git worktree remove` + 删分支,一点痕迹不留——不像"共享目录 + 事后 diff 整个仓库"那样分不清哪些改动来自谁。
 
-**3. 权限边界与文件系统边界重合**
+**3. 工作目录边界,不是安全边界**
 
-给每个任务分配独立 worktree + 独立分支作为"信封",Agent 只在自己的信封里活动。这样**不需要额外写沙箱逻辑**去限制 Agent 只能碰某些文件——操作系统层面的目录隔离本身就是边界。
+给每个任务分配独立 worktree + 独立分支作为"信封",Agent 的改动天然收敛在自己的目录和分支里:不会覆盖别人正在编辑的文件,也不会把别人的分支切走。
+
+但**worktree 不是沙箱**。它只是一个普通检出目录,不施加任何访问控制:跑在里面的进程照样能读写目录之外的文件、访问网络、读取本机凭据。真正约束这些的是权限审批、命令限制、进程隔离与敏感信息治理(见[权限审批](permissions.md))——worktree 不替代其中任何一项,也不降低它们的必要性。
 
 **4. 支撑"失败可丢弃"的乐观并发**
 
@@ -156,4 +158,4 @@ Agent 生成的代码不一定对。可以让多个 Agent 对同一问题给出�
 - 依赖 worktree 的自动循环 → [Loop Engineering 工程](loop-engineering.md)
 - 并行改同一仓库的完整走法 → [使用案例](use-cases.md)
 - Git 失败详情去哪看 → [可观测性](observability.md)
-- 执行隔离在多 Agent 编排里的位置 → [多 Agent 系统技术架构](../../../agent-infrastructure/multi-agent-architecture.md)
+- 执行隔离在多 Agent 编排里的位置 → [多 Agent 系统技术架构](../../../agent-infrastructure/patterns/multi-agent.md)

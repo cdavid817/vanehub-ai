@@ -112,6 +112,6 @@ Hook execution appears in the execution trace as a summary; see [Observability](
 
 ## Related
 
-- The rest of the tool and extension configuration → [Tools and extensions](tooling.md)
+- The rest of the tool and extension configuration → [Local extensions](extensions.md) and [Agent and CLI configuration](agent-configuration.md)
 - The other layer of personal content in a prompt → [Personalization](personalization.md)
 - How Hook execution appears in a trace → [Observability](observability.md)

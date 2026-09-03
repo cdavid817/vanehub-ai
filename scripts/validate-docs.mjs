@@ -305,6 +305,26 @@ export function chapterBoundedContexts(chapter) {
   return [...names].sort();
 }
 
+/**
+ * The total a context-map chapter states in prose, or `null` when it states none.
+ *
+ * The table check below already compares rows against the directory, and its own unit test
+ * pins that a context named only in prose does not count. That is exactly why both chapters
+ * could say "24 contexts" while the tree held 27 and the tables held 27 rows: nothing read the
+ * sentence. A chapter may omit the number and route the reader to the table — that is the
+ * preferred shape and returns `null` here — but a number that is present has to be right.
+ */
+export function chapterStatedContextTotal(chapter) {
+  for (const line of chapter.split(/\r?\n/)) {
+    // Both language chapters introduce the map the same way: the count sits in the sentence
+    // that names `src-tauri/src/contexts/`, emphasised, as either "N 个上下文" or "N contexts".
+    if (!line.includes("src-tauri/src/contexts/")) continue;
+    const stated = line.match(/\*\*\s*(\d+)\s*(?:个上下文|contexts?)\s*\*\*/);
+    if (stated) return Number(stated[1]);
+  }
+  return null;
+}
+
 /** Line-scanned rather than sliced by regex, because the standards file uses CRLF endings. */
 export function documentedBoundedContexts(standards) {
   const lines = standards.split(/\r?\n/);
@@ -374,10 +394,18 @@ function validateContextMapChapters(errors, actual) {
       errors.push(`${relative}: the bounded-context map chapter is missing.`);
       continue;
     }
-    const documented = chapterBoundedContexts(readFileSync(path, "utf8"));
+    const chapter = readFileSync(path, "utf8");
+    const documented = chapterBoundedContexts(chapter);
     if (documented.length === 0) {
       errors.push(`${relative}: no bounded-context table rows could be read.`);
       continue;
+    }
+    const stated = chapterStatedContextTotal(chapter);
+    if (stated !== null && stated !== actual.length) {
+      errors.push(
+        `${relative}: the chapter states ${stated} bounded contexts, but src-tauri/src/contexts/ holds ${actual.length}. ` +
+          "Correct the number or drop it and let the table be the count.",
+      );
     }
     const { stale, undocumented } = boundedContextDrift(documented, actual);
     for (const name of undocumented) {
@@ -385,6 +413,42 @@ function validateContextMapChapters(errors, actual) {
     }
     for (const name of stale) {
       errors.push(`${relative}: bounded context "${name}" is mapped but has no directory in src-tauri/src/contexts/.`);
+    }
+  }
+}
+
+/**
+ * Every package script a document tells the reader to run.
+ *
+ * `--` separates npm's own arguments from the script's, so `npm run dev -- --host` names the
+ * script `dev`. `npm run tauri -- dev` therefore names `tauri`, which is the whole point: all
+ * three READMEs carried it while `package.json` defined only `tauri:dev`, so the documented way
+ * to start the desktop application had never worked. Parity compares command blocks across
+ * languages, so it could not catch a command that was wrong in every language at once.
+ */
+export function documentedNpmScripts(content) {
+  const names = new Set();
+  for (const match of content.matchAll(/\bnpm\s+run\s+([A-Za-z0-9:_-]+)/g)) names.add(match[1]);
+  return [...names].sort();
+}
+
+const readmesWithScripts = ["README.md", "README.zh-CN.md", "README.ja.md"];
+
+function validateDocumentedScripts(errors) {
+  const manifestPath = resolve(repositoryRoot, "package.json");
+  if (!existsSync(manifestPath)) {
+    errors.push("package.json: cannot verify documented scripts; the manifest is missing.");
+    return;
+  }
+  const defined = new Set(Object.keys(JSON.parse(readFileSync(manifestPath, "utf8")).scripts ?? {}));
+  for (const relative of readmesWithScripts) {
+    const path = resolve(repositoryRoot, relative);
+    if (!existsSync(path)) continue;
+    for (const name of documentedNpmScripts(readFileSync(path, "utf8"))) {
+      if (defined.has(name)) continue;
+      errors.push(
+        `${relative}: documents "npm run ${name}", which package.json does not define.`,
+      );
     }
   }
 }
@@ -486,6 +550,7 @@ export function validateDocs({ assembled = false } = {}) {
   validateScreenshotInventory(errors);
   validateNativeBoundaries(errors);
   validateBoundedContexts(errors);
+  validateDocumentedScripts(errors);
   validateReachability(errors);
   if (assembled) validateAssembled(errors);
   if (errors.length > 0) throw new Error(`Documentation validation failed:\n${errors.join("\n")}`);

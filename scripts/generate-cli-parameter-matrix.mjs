@@ -14,7 +14,7 @@ const SOURCE = resolve(
   root,
   "src-tauri/src/contexts/tooling/cli_parameters/catalog/catalog.v2.json",
 );
-const TARGET = resolve(root, "docs/agent-infrastructure/cli-parameter-matrix.md");
+const TARGET = resolve(root, "docs/reference/cli/parameter-matrix.md");
 
 const AGENT_NAMES = {
   "claude-code": "Claude Code",

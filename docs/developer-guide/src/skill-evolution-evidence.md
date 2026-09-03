@@ -87,7 +87,9 @@ Two design choices worth noting:
 
 The evidence purge path is owned by the `purge` module — **once the retention period is up, evidence has to actually be deletable**, not merely marked invisible.
 
-> `openspec/project.md` describes this context's ownership as including "encrypted evidence storage," but the current implementation has no corresponding encryption layer (`storage_values.rs` only maps enums to and from strings, and neither the schema nor the repository calls into any encryption). Before touching this area, confirm which side — the spec or the implementation — reflects current intent.
+> **Evidence carries no application-level encryption.** There was a spec-versus-implementation conflict here: `openspec/project.md` described this context's ownership as including "encrypted evidence storage", while the implementation has no corresponding encryption layer (`storage_values.rs` only maps enums to and from strings, and neither the schema nor the repository calls into any encryption). It was resolved on the implementation side — the specification now states the boundary that exists rather than asserting a protection that did not.
+>
+> Evidence confidentiality therefore rests on **sanitization before write** plus operating-system and disk protection, not on encryption at rest. Raising it to application-level encryption is its own piece of work, with key management, migration of existing rows, and erasure verification — not a wording change.
 
 ## Relationship to the Skill system
 
@@ -102,7 +104,7 @@ The `ObservedSkillRevision` / `MountedSkillRevision` / `CliMountSnapshot` types 
 ## Relationship to other contexts
 
 - Evidence originates from execution, and it's a separate record from the trace in [Execution observability](execution-observability.md): the trace describes "what happened," and the evidence describes "what this means for a given Skill."
-- The sanitization principle matches [Persistence and unified logging](persistence-and-logging.md) — **sanitize before writing to disk, not filtered on read**.
+- The sanitization principle matches [Unified logging](unified-logging.md) — **sanitize before writing to disk, not filtered on read**.
 
 ## Where the design lives
 

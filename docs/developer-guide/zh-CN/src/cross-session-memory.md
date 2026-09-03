@@ -89,7 +89,7 @@ sequenceDiagram
 
 ### MemoryMetadata frontmatter
 
-每条记忆文件的 frontmatter 解析为 `MemoryMetadata`,字段包括 `name`(记忆身份,与文件名 `{name}.md` 对应)、`description`(概述)、`memory_type`(闭集四值 `user`/`feedback`/`project`/`reference`;缺失或未知值降级为 `untyped`,不拒绝写入也不拒绝读取),以及 `provenance` 来源元数据(`agent_id`、`folder`、`source`、`created_at`,迁移场景下另带 `migrated_from`)。frontmatter 只读前 `MAX_FRONTMATTER_LINES=30` 行的窗口,避免把整份正文当 frontmatter 解析。
+每条记忆文件的 frontmatter 解析为 `MemoryMetadata`,字段包括 `name`(可读的展示名称,可修改;**不是文件名**——文件名是上一节说的不可变 `{id}.md`)、`description`(概述)、`memory_type`(闭集四值 `user`/`feedback`/`project`/`reference`;缺失或未知值降级为 `untyped`,不拒绝写入也不拒绝读取),以及 `provenance` 来源元数据(`agent_id`、`folder`、`source`、`created_at`,迁移场景下另带 `migrated_from`)。frontmatter 只读前 `MAX_FRONTMATTER_LINES=30` 行的窗口,避免把整份正文当 frontmatter 解析。
 
 ### 枚举与产生路径
 

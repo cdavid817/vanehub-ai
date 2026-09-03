@@ -89,7 +89,7 @@ The memory store is a host-level shared `memory/` directory, not database rows. 
 
 ### MemoryMetadata frontmatter
 
-Each memory file's frontmatter parses into `MemoryMetadata`, with fields for `name` (the memory's identity, matching the `{name}.md` filename), `description` (a summary), `memory_type` (a closed set of four values — `user`, `feedback`, `project`, `reference` — where a missing or unknown value degrades to `untyped` rather than rejecting the write or the read), and `provenance` origin metadata (`agent_id`, `folder`, `source`, `created_at`, plus `migrated_from` in migration cases). Frontmatter is read from a window of at most `MAX_FRONTMATTER_LINES = 30` lines, so a whole body is never parsed as frontmatter.
+Each memory file's frontmatter parses into `MemoryMetadata`, with fields for `name` (a human-readable display name that may change; **not** the filename — the filename is the immutable `{id}.md` described above), `description` (a summary), `memory_type` (a closed set of four values — `user`, `feedback`, `project`, `reference` — where a missing or unknown value degrades to `untyped` rather than rejecting the write or the read), and `provenance` origin metadata (`agent_id`, `folder`, `source`, `created_at`, plus `migrated_from` in migration cases). Frontmatter is read from a window of at most `MAX_FRONTMATTER_LINES = 30` lines, so a whole body is never parsed as frontmatter.
 
 ### Enumeration and production paths
 

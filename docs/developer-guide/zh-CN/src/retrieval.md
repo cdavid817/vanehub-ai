@@ -8,7 +8,11 @@
 
 - 在另一个 agent 下保存的内存,可从任意 agent 的会话中召回。
 - 召回绝不会返回内存注入已放入系统提示的严格子集。
-- 召回工具的输入 schema 恰好只暴露 `query` 和 `limit`——没有 agent id、文件夹或作用域参数,因为共享池没有可供模型指名的切片。
+- 召回工具的输入 schema 恰好只暴露 `query` 和 `limit`——没有 agent id、文件夹或作用域参数。
+
+记忆治理后来引入了每条记忆的作用域(全局/工作区)与受众(全部 Agent/指定 Agent),所以「共享池没有切片」已不再成立。但那套过滤发生在**注入**路径上——`personalization::domain::memory::eligibility` 依次按状态、读取策略、作用域、受众排除记录——而不发生在这里:`retrieval` 上下文既不读取 audience,也不调用 `eligibility`,`vector_candidates` 与 `keyword_candidates` 覆盖整个共享池。
+
+这是有意的(见 [`retrieval-vector-search`](../../../../openspec/specs/retrieval-vector-search/spec.md) 主规范:召回不得只返回注入已放进系统提示词的严格子集),代价是**受众不是一道保密边界**:被受众排除的记忆不会被注入给某个 Agent,但该 Agent 仍可能通过 `recall` 搜到它。改动任一侧之前,先读这两份规范的交界处。
 
 ## 优雅降级
 

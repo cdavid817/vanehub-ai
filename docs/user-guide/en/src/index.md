@@ -21,11 +21,11 @@ In a hurry, chapter 1 is enough; come back to the rest as needed.
 | Chapter | What it covers |
 | --- | --- |
 | [Multi-Agent group chat](multi-agent-workflow.md) | Several Agents in one session, handing the turn over with `@` |
-| [Group chat collaboration case](multi-agent-testing-tutorial.md) | Walking UI, handoff, and historical identity acceptance with an architect, an implementer, and code review |
+| [Group chat collaboration case](../../../developer-guide/src/multi-agent-acceptance.md) | Walking UI, handoff, and historical identity acceptance with an architect, an implementer, and code review |
 | [Git worktrees](worktree.md) | Let an Agent edit code in its own working copy without touching your branch |
 | [Loop Engineering](loop-engineering.md) | Set a goal and must-pass checks, and let it iterate until it gets there |
-| [Goal management](goal-management.md) | Tracking plans, Loops, and work items under one objective |
-| [Todo Board](todo-board.md) | Manual to-dos and Agent activity on one board |
+| [Goal management](goals-and-work-board.md) | Tracking plans, Loops, and work items under one objective |
+| [Todo Board](goals-and-work-board.md) | Manual to-dos and Agent activity on one board |
 | [Agent evaluation](evaluation.md) | Run several Agents head-to-head on the same task; compare pass rate, tokens, and time |
 | [Slash commands](slash-commands.md) | Switching tabs, flipping switches, and checking usage from the input box |
 | [Code review](code-review.md) | Reading the diff line by line, commenting, and sending feedback to the Agent |
@@ -36,14 +36,17 @@ In a hurry, chapter 1 is enough; come back to the rest as needed.
 | [Manage Skills](skill-management.md) | Installing Skills, binding them to an Agent, drift notices, evolution evidence |
 | [Index workspace code](code-indexing.md) | Vector indexing of workspace code |
 | [Use live LSP code intelligence](lsp-code-intelligence.md) | In-session symbol navigation and diagnostics |
-| [Tools and extensions](tooling.md) | MCP servers, prompt hooks, local OCR and speech extensions, Agent configurations |
+| [Agent and CLI configuration](agent-configuration.md) | Installing and upgrading CLIs, launch parameters, providers and models |
+| [Local extensions](extensions.md) | Installing and toggling local extensions, and product integrations |
 | [MCP servers](mcp.md) | Connect external tools to an Agent, and approve each tool call |
 | [Plugin integration](plugin-integration.md) | Built-in product integrations and readiness checks |
 | [Prompt Hooks](prompt-hooks.md) | Insert content into the prompt assembly pipeline; draft, publish, roll back |
 | [OnePiece (native Agent)](native-agent.md) | Usable with no CLI installed; providers, recall, and notebook editing |
 | [Observability](observability.md) | Execution traces, fidelity, the log directory, and redaction |
-| [Remote and IM](remote-and-im.md) | SSH remote workspaces; Feishu / DingTalk / WeCom / WeChat / Telegram |
-| [Scheduled and usage](automation.md) | Running on a schedule, and how to read token usage |
+| [Remote workspaces and SSH](remote-workspaces.md) | Using a directory on a remote host as a workspace |
+| [IM connectors](im-connectors.md) | Feishu / DingTalk / WeCom / WeChat / Telegram; text direct messages only in this release |
+| [Scheduled tasks and notifications](scheduled-tasks.md) | Running on a schedule, long-running operations, and notifications |
+| [Usage statistics](usage-statistics.md) | Token usage by time, Agent, session, and model |
 | [Application updates](app-updates.md) | Release channels, signature verification, and automatic updates |
 
 ## Reference

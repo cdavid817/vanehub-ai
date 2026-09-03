@@ -130,5 +130,5 @@
 - 活动栏与主界面导航 → [用户界面](user-interface.md)
 - 让多个 Agent 在一个会话里协作，而不是比拼 → [多 Agent 群聊](multi-agent-workflow.md)
 - 执行链路与日志的完整语义 → [可观测性](observability.md)
-- Token 用量的统计口径 → [定时任务与用量统计](automation.md)
-- 评估方法论本身 → [多 Agent 系统技术架构](../../../agent-infrastructure/multi-agent-architecture.md)
+- Token 用量的统计口径 → [使用统计](usage-statistics.md)
+- 评估方法论本身 → [多 Agent 系统技术架构](../../../agent-infrastructure/patterns/multi-agent.md)

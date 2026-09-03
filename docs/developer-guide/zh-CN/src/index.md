@@ -17,7 +17,7 @@
 | --- | --- |
 | [仓库结构与模块导览](repository-orientation.md) | 前端、native 与规范工作各自落在何处 |
 | [运行时与服务边界](runtime-boundaries.md) | 服务层，以及桌面端上哪些行为是真实的 |
-| [Native 限界上下文](native-contexts.md) | 21 个上下文各自拥有什么，以及它们之间怎么说话 |
+| [Native 限界上下文](native-contexts.md) | 每个上下文各自拥有什么，以及它们之间怎么说话 |
 
 ## Agent 执行
 
@@ -42,7 +42,7 @@
 | 章节 | 覆盖内容 |
 | --- | --- |
 | [上下文压缩](context-compaction.md) | Token-aware 触发与字符回退、摘要式压缩、冷却与熔断 |
-| [跨会话记忆](cross-session-memory.md) | 主机级共享池、provenance 元数据、自动提取 |
+| [跨会话记忆](cross-session-memory.md) | 主机级共享池、每条记忆的作用域与受众、provenance 元数据、自动提取 |
 | [检索与向量搜索](retrieval.md) | 记忆池与工作区代码索引、优雅降级 |
 | [Tree-sitter 代码索引](tree-sitter-code-indexing.md) | 语法解析、bounded chunk、符号元数据、grammar 版本与脱敏 |
 | [LSP 代码智能](lsp-code-intelligence.md) | 会话内 LSP 集成、工作区信任与能力协商 |
@@ -64,7 +64,8 @@
 | --- | --- |
 | [权限模型](permission-model.md) | 统一决策点、显式 Deny 优先、审批代理、CLI flag 投影、Claude Code 钩子桥 |
 | [执行可观测性与 Agent 评测](execution-observability.md) | run/span/时间线、四档保真度与脱敏上限，以及评测竞技场的判定规则 |
-| [持久化与统一日志](persistence-and-logging.md) | SQLite、迁移以及脱敏规则 |
+| [持久化所有权](persistence-ownership.md) | SQLite 所有权、迁移与数据库常量 |
+| [统一日志](unified-logging.md) | 统一写入流水线、落盘前脱敏与链路关联 |
 | [使用统计](usage-statistics.md) | 上报 token 与估算字符分离、时间范围、per-Agent 拆分 |
 
 ## 工程流程
@@ -72,7 +73,8 @@
 | 章节 | 覆盖内容 |
 | --- | --- |
 | [OpenSpec 工作流](openspec-workflow.md) | 如何提出、应用与归档一个变更 |
-| [测试、打包与发布](testing-and-release.md) | 关卡、覆盖率门槛与打包目标 |
+| [测试](testing.md) | 测试分层、覆盖率门槛与各层能证明什么 |
+| [发布](release.md) | 打包目标、签名凭据与版本同步 |
 
 ## 参考
 
