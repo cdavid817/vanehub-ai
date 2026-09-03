@@ -40,10 +40,6 @@ export function ConversationOverflowMenu({
 
   useEffect(() => {
     if (!open) return;
-    // Resets the roving index every time the menu opens -- this component (unlike a fresh popup
-    // mount) persists across opens, so without this a stale index from a previous session would
-    // carry over instead of starting back at the first item.
-    setActiveIndex(0);
     const dismiss = (event: PointerEvent) => {
       if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
     };
@@ -56,13 +52,27 @@ export function ConversationOverflowMenu({
       document.removeEventListener("pointerdown", dismiss);
       document.removeEventListener("keydown", closeOnEscape);
     };
-  }, [open, setActiveIndex]);
+  }, [open]);
 
-  // Follows the roving index while open: fires once on open (focusing the first item) and again
-  // on every Arrow/Home/End press (moving real DOM focus along with it).
+  // Follows the roving index while open, moving real DOM focus along with every Arrow/Home/End
+  // press. Deliberately not also responsible for the initial on-open focus (see toggleOpen) --
+  // doing both from one `[open, activeIndex]` effect would read this render's still-stale
+  // `activeIndex` on the open transition, and the resulting `.focus()` call's own `onFocus`
+  // handler would then race the real reset back to a non-zero index.
   useEffect(() => {
     if (open) itemRefs.current[activeIndex]?.focus();
   }, [open, activeIndex]);
+
+  // This component persists across opens (unlike a fresh popup mount), so a stale index from a
+  // previous session would otherwise carry over instead of starting back at the first item.
+  // Resetting it here, in the same event handler that opens the menu, keeps both state updates in
+  // one batch -- an effect keyed on `[open]` would still observe the old `activeIndex` on the
+  // very render where `open` flips true.
+  function toggleOpen() {
+    if (open) { setOpen(false); return; }
+    setActiveIndex(0);
+    setOpen(true);
+  }
 
   return (
     <div className="relative" ref={rootRef}>
@@ -72,7 +82,7 @@ export function ConversationOverflowMenu({
         aria-label={t("layout.conversationMenu")}
         className="grid h-9 w-9 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
         data-testid="conversation-overflow-trigger"
-        onClick={() => setOpen((value) => !value)}
+        onClick={toggleOpen}
         title={t("layout.conversationMenu")}
         type="button"
       >

@@ -42,6 +42,21 @@ describe("PlanDestination", () => {
     expect(onSectionChange).toHaveBeenCalledWith({ section: "goals" });
   });
 
+  // 20.7: this tablist previously had no keyboard model at all beyond native Tab-through-each-
+  // button -- confirms the useTabList wiring, not just its own already-tested algorithm.
+  it("20.7: moves to the next tab and moves focus with it on ArrowRight", () => {
+    const onSectionChange = vi.fn();
+    render(<PlanDestination location={{ section: "board", viewId: undefined, workItemId: undefined }} onSectionChange={onSectionChange} />);
+    const boardTab = screen.getByRole("tab", { name: "Todo Board" });
+    boardTab.focus();
+
+    fireEvent.keyDown(boardTab, { key: "ArrowRight" });
+
+    const goalsTab = screen.getByRole("tab", { name: "Goal Center" });
+    expect(onSectionChange).toHaveBeenCalledWith({ section: "goals" });
+    expect(document.activeElement).toBe(goalsTab);
+  });
+
   it("renders exactly one lazy-loaded panel per section, board or goals but not both", () => {
     const board = render(<PlanDestination location={{ section: "board", viewId: undefined, workItemId: undefined }} onSectionChange={vi.fn()} />);
     expect(board.getAllByTestId("lazy-feature")).toHaveLength(1);

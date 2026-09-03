@@ -1,10 +1,93 @@
 import { Box, Check, ChevronDown, Copy, Globe2, KeyRound, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
 import { managedSettingsPath, payloadSupportsCredential, payloadSupportsEndpointOverride, type CliConfigPreset, type CliConfigProfile } from "../../../types/cli-agent-config";
 import type { ProviderCredentialValidationResult } from "../../../types/provider-credential-validation";
 import { ProviderCredentialValidation } from "../../../components/provider-directory/provider-credential-validation";
+import { useMenuList } from "../../../ui/actions/use-menu-list";
+
+const profileActionItems = [0, 1, 2];
+
+/**
+ * Extracted so `useMenuList` has one component instance per row to call it on -- hooks cannot be
+ * called a variable number of times inside `visibleProfiles.map(...)` in the parent.
+ *
+ * A plain trigger button + conditional popup (matching `ActionMenu.tsx`'s own shape), not the
+ * native `<details>/<summary>` disclosure the other "details" section in this file still uses for
+ * its own read-only connection info -- tried that first here too, but confirmed live that React's
+ * `onToggle` never actually fires for a real user-driven `<details>` toggle in this test
+ * environment (`details.open` itself does flip, the event just never reaches the handler), which
+ * would leave this control's roving focus untestable and, given `toggle` is a famously
+ * inconsistently-supported DOM event, not obviously reliable in a real browser either.
+ */
+function ProfileActionsMenu({ busy, label, onDelete, onDuplicate, onEdit }: {
+  busy: boolean;
+  label: string;
+  onDelete: () => void;
+  onDuplicate: () => void;
+  onEdit: () => void;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const { activeIndex, handleMenuKeyDown, setActiveIndex } = useMenuList(profileActionItems);
+  const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  // Resets the roving index in the same click handler that opens the menu, not a `[open]`-keyed
+  // effect -- an effect would still observe the previous, possibly non-zero index on the very
+  // render where `open` flips true (see the sibling fix in conversation-overflow-menu.tsx for the
+  // race this avoids).
+  function openMenu() {
+    setActiveIndex(0);
+    setOpen(true);
+  }
+
+  function selectAction(action: () => void) {
+    setOpen(false);
+    action();
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    itemRefs.current[0]?.focus();
+    function dismiss(event: PointerEvent) {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    }
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      setOpen(false);
+      triggerRef.current?.focus();
+    }
+    document.addEventListener("pointerdown", dismiss);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", dismiss);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  // Follows the roving index while open, moving real DOM focus along with every Arrow/Home/End
+  // press (the effect above already places the initial on-open focus).
+  useEffect(() => {
+    if (open) itemRefs.current[activeIndex]?.focus();
+  }, [open, activeIndex]);
+
+  return (
+    <div className="relative" ref={rootRef}>
+      <button aria-expanded={open} aria-haspopup="menu" aria-label={label} className="flex h-9 w-9 items-center justify-center rounded-md border border-border hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={openMenu} ref={triggerRef} type="button"><MoreHorizontal className="h-4 w-4" /></button>
+      {open ? (
+        <div className="absolute right-0 z-10 mt-1 grid min-w-40 gap-1 rounded-lg border border-border bg-background p-1 shadow-lg" onKeyDown={handleMenuKeyDown} role="menu">
+          <Button disabled={busy} onClick={() => selectAction(onEdit)} onFocus={() => setActiveIndex(0)} ref={(element) => { itemRefs.current[0] = element; }} role="menuitem" size="sm" tabIndex={activeIndex === 0 ? 0 : -1} variant="ghost"><Pencil className="h-4 w-4" />{t("agents.globalConfig.editProfile")}</Button>
+          <Button disabled={busy} onClick={() => selectAction(onDuplicate)} onFocus={() => setActiveIndex(1)} ref={(element) => { itemRefs.current[1] = element; }} role="menuitem" size="sm" tabIndex={activeIndex === 1 ? 0 : -1} variant="ghost"><Copy className="h-4 w-4" />{t("agents.globalConfig.duplicate")}</Button>
+          <Button disabled={busy} onClick={() => selectAction(onDelete)} onFocus={() => setActiveIndex(2)} ref={(element) => { itemRefs.current[2] = element; }} role="menuitem" size="sm" tabIndex={activeIndex === 2 ? 0 : -1} variant="destructive"><Trash2 className="h-4 w-4" />{t("agents.globalConfig.delete")}</Button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 const avatarTones = [
   "bg-blue-500/15 text-blue-700 dark:text-blue-300",
@@ -91,14 +174,13 @@ export function CliConfigProfileList({
                 </div>
                 <div className="flex shrink-0 items-center gap-2 sm:justify-end">
                   <Button disabled={busy || applied} onClick={() => onApply(profile)}><Check className="h-4 w-4" />{applied ? t("agents.globalConfig.applied") : t("agents.globalConfig.apply")}</Button>
-                  <details className="group/actions relative">
-                    <summary aria-label={`${t("agentConfigurations.profiles.moreActions")}: ${profile.name}`} className="flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-md border border-border hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" role="button"><MoreHorizontal className="h-4 w-4" /></summary>
-                    <div className="absolute right-0 z-10 mt-1 grid min-w-40 gap-1 rounded-lg border border-border bg-background p-1 shadow-lg" role="menu">
-                      <Button disabled={busy} onClick={() => onEdit(profile)} role="menuitem" size="sm" variant="ghost"><Pencil className="h-4 w-4" />{t("agents.globalConfig.editProfile")}</Button>
-                      <Button disabled={busy} onClick={() => onDuplicate(profile)} role="menuitem" size="sm" variant="ghost"><Copy className="h-4 w-4" />{t("agents.globalConfig.duplicate")}</Button>
-                      <Button disabled={busy} onClick={() => onDelete(profile)} role="menuitem" size="sm" variant="destructive"><Trash2 className="h-4 w-4" />{t("agents.globalConfig.delete")}</Button>
-                    </div>
-                  </details>
+                  <ProfileActionsMenu
+                    busy={busy}
+                    label={`${t("agentConfigurations.profiles.moreActions")}: ${profile.name}`}
+                    onDelete={() => onDelete(profile)}
+                    onDuplicate={() => onDuplicate(profile)}
+                    onEdit={() => onEdit(profile)}
+                  />
                 </div>
               </div>
               <details className="group mt-2 border-t border-border/60 pt-2 text-xs text-muted-foreground">

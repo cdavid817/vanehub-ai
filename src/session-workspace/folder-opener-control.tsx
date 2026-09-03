@@ -32,19 +32,25 @@ export function FolderOpenerControl({ session, onOpenSettings }: { session: Sess
   const { activeIndex, handleMenuKeyDown, setActiveIndex } = useMenuList(Array.from({ length: enabled.length + 1 }));
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
-  useEffect(() => {
-    if (!menuOpen) return;
-    // Resets the roving index every time the menu opens -- this component persists across opens,
-    // so without this a stale index from a previous session would carry over instead of starting
-    // back at the first item.
-    setActiveIndex(0);
-  }, [menuOpen, setActiveIndex]);
-
-  // Follows the roving index while open: fires once on open (focusing the first item) and again
-  // on every Arrow/Home/End press (moving real DOM focus along with it).
+  // Follows the roving index while open, moving real DOM focus along with every Arrow/Home/End
+  // press. Deliberately not also responsible for the initial on-open focus (see toggleMenu) --
+  // doing both from one `[menuOpen, activeIndex]` effect would read this render's still-stale
+  // `activeIndex` on the open transition, and the resulting `.focus()` call's own `onFocus`
+  // handler would then race the real reset back to a non-zero index.
   useEffect(() => {
     if (menuOpen) itemRefs.current[activeIndex]?.focus();
   }, [menuOpen, activeIndex]);
+
+  // This component persists across opens (unlike a fresh popup mount), so a stale index from a
+  // previous session would otherwise carry over instead of starting back at the first item.
+  // Resetting it here, in the same event handler that opens the menu, keeps both state updates in
+  // one batch -- an effect keyed on `[menuOpen]` would still observe the old `activeIndex` on the
+  // very render where `menuOpen` flips true.
+  function toggleMenu() {
+    if (menuOpen) { setMenuOpen(false); return; }
+    setActiveIndex(0);
+    setMenuOpen(true);
+  }
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -102,7 +108,7 @@ export function FolderOpenerControl({ session, onOpenSettings }: { session: Sess
     <button aria-label={title} className="flex h-10 items-center gap-1.5 rounded-l-md border border-border bg-background px-2 text-xs hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50" disabled={disabled} onClick={() => effective && void launch(effective)} title={title} type="button">
       {effective ? <FolderOpenerIcon id={effective} /> : null}<span className="hidden xl:inline">{effective ? t(`folderOpeners.name.${effective}`) : t("folderOpeners.open")}</span>
     </button>
-    <button aria-expanded={menuOpen} aria-haspopup="menu" aria-label={t("folderOpeners.menu")} className="flex h-10 w-7 items-center justify-center rounded-r-md border border-l-0 border-border bg-background hover:bg-muted disabled:opacity-50" disabled={!targetAvailable} onClick={() => setMenuOpen((value) => !value)} ref={menuButtonRef} type="button"><ChevronDown className="h-3.5 w-3.5" /></button>
+    <button aria-expanded={menuOpen} aria-haspopup="menu" aria-label={t("folderOpeners.menu")} className="flex h-10 w-7 items-center justify-center rounded-r-md border border-l-0 border-border bg-background hover:bg-muted disabled:opacity-50" disabled={!targetAvailable} onClick={toggleMenu} ref={menuButtonRef} type="button"><ChevronDown className="h-3.5 w-3.5" /></button>
     {menuOpen ? <div className="absolute right-0 top-11 z-50 min-w-56 rounded-md border border-border bg-background p-1 shadow-xl" onKeyDown={(event) => {
       handleMenuKeyDown(event);
       if (event.key !== "Escape") return;
