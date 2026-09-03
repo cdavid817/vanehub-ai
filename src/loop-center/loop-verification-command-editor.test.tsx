@@ -18,5 +18,11 @@ describe("LoopVerificationCommandEditor", () => {
     expect(html).toContain("每条验证命令都必须填写程序");
     expect(html).toContain('title="下移命令"');
     expect(html).toContain('title="删除命令"');
+    // Task 17.5: this error now renders through the shared `FieldError` primitive instead of a
+    // hand-rolled paragraph -- check for markup only that component produces (its own icon plus
+    // `role="alert"` wrapped in its specific layout classes) so a revert to a bespoke lookalike
+    // `<p>` would be caught, not just a check that the message text is present somewhere.
+    expect(html).toContain('role="alert"');
+    expect(html).toContain('class="mt-1 flex items-start gap-1 text-xs text-destructive"');
   });
 });

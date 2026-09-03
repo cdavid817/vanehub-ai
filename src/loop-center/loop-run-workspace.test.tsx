@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import "../i18n";
@@ -20,13 +20,23 @@ describe("Loop run workspace", () => {
     ] });
     const current = loopIterationFixture({ id: "iteration-2", sequence: 2, evidence: [
       loopEvidenceFixture({ id: "new-check", kind: "verification", commandId: "tests", status: "failed", details: null }),
-      loopEvidenceFixture({ id: "new-change", details: { changedFiles: 3, additions: 8, deletions: 1 } }),
+      // A distinct summary, not the shared fixture default: the "new-check" evidence above also
+      // uses the default and is a verification check, which (unlike this one) renders unconditionally
+      // once the row is expanded -- reusing the same text would make this assertion ambiguous.
+      loopEvidenceFixture({ id: "new-change", summary: "Raw worker evidence, only in the full dump.", details: { changedFiles: 3, additions: 8, deletions: 1 } }),
     ] });
-    const { container } = renderWithClient(<LoopTimeline run={loopRunFixture("awaiting-acceptance", { currentIteration: 2, iterations: [previous, current] })} />);
+    renderWithClient(<LoopTimeline run={loopRunFixture("awaiting-acceptance", { currentIteration: 2, iterations: [previous, current] })} />);
     expect(screen.getByText("已解决的失败检查：lint")).toBeTruthy();
     expect(screen.getByText("新增失败检查：tests")).toBeTruthy();
-    const rawEvidence = container.querySelector("details details") as HTMLDetailsElement;
-    expect(rawEvidence.open).toBe(false);
+    // The current iteration's row auto-expands (it's the latest), but its raw evidence dump is a
+    // second, nested disclosure that still starts closed -- same "collapsed by default" claim the
+    // test name makes, now checked against the new nested toggle instead of a former `<details
+    // details>` structural query. Scoped to this iteration's own row: `selectCurrentLoopActivity`
+    // independently surfaces this same evidence's summary in the run header above, so an unscoped
+    // query would find that unrelated match too.
+    const currentIterationRow = screen.getByText("第 2 次迭代").closest("li");
+    if (!currentIterationRow) throw new Error("iteration row not found");
+    expect(within(currentIterationRow).queryByText(/Raw worker evidence/)).toBeNull();
   });
 
   it("shows exhausted continuation and recovery/no-progress guidance", () => {

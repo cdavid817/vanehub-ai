@@ -47,7 +47,7 @@ const checkedFiles = [
   "src/loop-center/loop-definition-dialog.tsx",
   "src/loop-center/loop-inspection-actions.tsx",
   "src/loop-center/loop-inspector.tsx",
-  "src/loop-center/loop-iteration-details.tsx",
+  "src/loop-center/loop-iteration-row.tsx",
   "src/loop-center/loop-navigation.tsx",
   "src/loop-center/loop-run-controls.tsx",
   "src/loop-center/loop-timeline.tsx",

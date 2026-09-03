@@ -2,6 +2,7 @@ import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../components/ui/button";
+import { FieldError } from "../ui/forms/FieldError";
 import { createVerificationCommandDraft, validateVerificationCommand, type LoopVerificationCommandDraft } from "./loop-definition-form";
 
 interface LoopVerificationCommandEditorProps {
@@ -73,7 +74,7 @@ function CommandRow({ command, index, onMove, onRemove, onUpdate, showError, tot
           <label className="flex h-9 items-center gap-2 text-xs font-medium"><input checked={command.required} className="h-4 w-4 accent-primary" onChange={(event) => onUpdate({ ...command, required: event.target.checked })} type="checkbox" />{t("loops.editor.field.required")}</label>
         </div>
       </div>
-      {issue ? <p className="text-xs text-destructive" role="alert">{t(`loops.editor.error.${issue}`)}</p> : null}
+      <FieldError message={issue ? t(`loops.editor.error.${issue}`) : undefined} />
     </fieldset>
   );
 }

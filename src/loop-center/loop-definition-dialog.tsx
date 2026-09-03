@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, Loader2, Play, Save, X } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -7,10 +7,12 @@ import { loopQueryKeys } from "../hooks/loop-query";
 import { useLoopBranchesQuery, useLoopProjectChoicesQuery } from "../hooks/use-loop-queries";
 import { i18n } from "../i18n";
 import { agentService } from "../services/runtime-agent-client";
-import type { AgentRegistryEntry } from "../types/agent";
-import type { LoopBranchChoice, LoopDefinition, LoopLimits, LoopProjectChoice } from "../types/loop";
+import type { LoopDefinition } from "../types/loop";
 import { createLoopDefinitionDraft, toSaveLoopDefinitionInput, validateLoopDefinitionStep, type LoopDefinitionDraft } from "./loop-definition-form";
-import { LoopVerificationCommandEditor } from "./loop-verification-command-editor";
+import { AgentsStep } from "./loop-definition-agents-step";
+import { ReviewStep } from "./loop-definition-review-step";
+import { ScopeStep } from "./loop-definition-scope-step";
+import { VerificationStep } from "./loop-definition-verification-step";
 
 interface LoopDefinitionDialogProps {
   definition: LoopDefinition | null;
@@ -197,96 +199,4 @@ export function LoopDefinitionDialog({ definition, onClose, onSaved }: LoopDefin
       </div>
     </div>
   );
-}
-
-// `<option>` labels can only be plain text, so a discovered-but-simulated (Web mock) choice is
-// distinguished the same textual-suffix way as an unavailable one is, not with the badge
-// `loop-run-header.tsx`/`loop-preflight-dialog.tsx` render for the same `loops.simulated` string
-// once a real selection has been made — 17.6 needs the distinction visible at pick time too, not
-// only after picking.
-function optionSuffix(choice: { available: boolean; simulated: boolean }, t: (key: string) => string): string {
-  const parts = [
-    choice.available ? null : t("loops.editor.unavailable"),
-    choice.simulated ? t("loops.simulated") : null,
-  ].filter((part): part is string => part !== null);
-  return parts.length ? ` — ${parts.join(", ")}` : "";
-}
-
-function ScopeStep({ branches, draft, loading, projects, setDraft }: StepProps & { branches: LoopBranchChoice[]; loading: boolean; projects: LoopProjectChoice[] }) {
-  const { t } = useTranslation();
-  const projectOptions = retainProjectChoice(projects, draft.projectPath);
-  const branchOptions = retainBranchChoice(branches, draft.baseBranch);
-  return <div className="grid gap-4 sm:grid-cols-2">
-    <Field label="loops.editor.field.name"><input className={inputClass} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></Field>
-    <Field label="loops.editor.field.project"><select className={inputClass} disabled={loading && projectOptions.length === 0} value={draft.projectPath} onChange={(event) => setDraft({ ...draft, projectPath: event.target.value })}><option value="">{t("loops.editor.selectProject")}</option>{projectOptions.map((project) => <option key={project.path} value={project.path}>{project.displayName}{optionSuffix(project, t)}</option>)}</select></Field>
-    <Field label="loops.editor.field.branch"><select className={inputClass} disabled={!draft.projectPath || (loading && branchOptions.length === 0)} value={draft.baseBranch} onChange={(event) => setDraft({ ...draft, baseBranch: event.target.value })}><option value="">{t("loops.editor.selectBranch")}</option>{branchOptions.map((branch) => <option key={`${branch.kind}:${branch.name}`} value={branch.name}>{branch.name}{optionSuffix(branch, t)}</option>)}</select></Field>
-    <label className="flex min-h-9 items-center gap-2 text-sm"><input checked={draft.enabled} className="h-4 w-4 accent-primary" onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })} type="checkbox" /><span>{t("loops.editor.field.enabled")}</span></label>
-    <Field className="sm:col-span-2" label="loops.editor.field.goal"><textarea className={`${inputClass} min-h-20 py-2`} value={draft.goal} onChange={(event) => setDraft({ ...draft, goal: event.target.value })} /></Field>
-    <Field className="sm:col-span-2" label="loops.editor.field.acceptance"><textarea className={`${inputClass} min-h-24 py-2`} value={draft.acceptanceCriteria} onChange={(event) => setDraft({ ...draft, acceptanceCriteria: event.target.value })} /></Field>
-    <Field label="loops.editor.field.allowedPaths"><textarea className={`${inputClass} min-h-20 py-2`} value={draft.allowedPaths} onChange={(event) => setDraft({ ...draft, allowedPaths: event.target.value })} /></Field>
-    <Field label="loops.editor.field.protectedPaths"><textarea className={`${inputClass} min-h-20 py-2`} value={draft.protectedPaths} onChange={(event) => setDraft({ ...draft, protectedPaths: event.target.value })} /></Field>
-  </div>;
-}
-
-function AgentsStep({ agents, draft, loading, setDraft }: StepProps & { agents: AgentRegistryEntry[]; loading: boolean }) {
-  const { t } = useTranslation();
-  // Same convention as the project and branch selects: an entry the backend would refuse stays
-  // pickable (its CLI may be installed later) but says so instead of failing at save time.
-  const optionLabel = (agent: AgentRegistryEntry) => agent.availabilityState === "available"
-    ? agent.displayName
-    : `${agent.displayName} — ${t(`createSession.agentAvailability.${agent.availabilityState}`)}`;
-  return <div className="grid gap-4 sm:grid-cols-2">
-    <Field label="loops.editor.field.worker"><select className={inputClass} disabled={loading} value={draft.workerAgentId} onChange={(event) => setDraft({ ...draft, workerAgentId: event.target.value })}><option value="">{t("loops.editor.selectAgent")}</option>{agents.map((agent) => <option key={agent.id} value={agent.id}>{optionLabel(agent)}</option>)}</select></Field>
-    <Field label="loops.editor.field.verifier"><select className={inputClass} disabled={loading} value={draft.verifierAgentId} onChange={(event) => setDraft({ ...draft, verifierAgentId: event.target.value })}><option value="">{t("loops.editor.selectAgent")}</option>{agents.map((agent) => <option key={agent.id} value={agent.id}>{optionLabel(agent)}</option>)}</select></Field>
-  </div>;
-}
-
-function VerificationStep({ draft, setDraft, showErrors }: StepProps & { showErrors: boolean }) {
-  return <div className="grid gap-5">
-    <LoopVerificationCommandEditor commands={draft.verificationCommands} onChange={(verificationCommands) => setDraft({ ...draft, verificationCommands })} showErrors={showErrors} />
-    <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      <NumberField field="maxIterations" max={20} draft={draft} setDraft={setDraft} />
-      <NumberField field="stepTimeoutSeconds" draft={draft} setDraft={setDraft} />
-      <NumberField field="totalTimeoutSeconds" draft={draft} setDraft={setDraft} />
-      <NumberField field="maxConsecutiveRuntimeErrors" draft={draft} setDraft={setDraft} />
-      <NumberField field="maxConsecutiveNoProgress" draft={draft} setDraft={setDraft} />
-    </section>
-  </div>;
-}
-
-function ReviewStep({ agents, draft }: { agents: AgentRegistryEntry[]; draft: LoopDefinitionDraft }) {
-  const { t } = useTranslation();
-  const name = (id: string) => agents.find((agent) => agent.id === id)?.displayName ?? id;
-  const commands = draft.verificationCommands.map((command) => `${command.program} ${command.arguments.split(/\r?\n/).filter(Boolean).join(" ")}`.trim()).join("; ");
-  const rows = [
-    ["name", draft.name], ["enabled", t(draft.enabled ? "loops.definition.enabled" : "loops.definition.disabled")],
-    ["project", draft.projectPath], ["branch", draft.baseBranch], ["goal", draft.goal], ["acceptance", draft.acceptanceCriteria],
-    ["allowedPaths", draft.allowedPaths], ["protectedPaths", draft.protectedPaths], ["worker", name(draft.workerAgentId)],
-    ["verifier", name(draft.verifierAgentId)], ["commands", commands], ["maxIterations", String(draft.limits.maxIterations)],
-    ["stepTimeoutSeconds", String(draft.limits.stepTimeoutSeconds)], ["totalTimeoutSeconds", String(draft.limits.totalTimeoutSeconds)],
-    ["maxConsecutiveRuntimeErrors", String(draft.limits.maxConsecutiveRuntimeErrors)], ["maxConsecutiveNoProgress", String(draft.limits.maxConsecutiveNoProgress)],
-  ];
-  return <div className="grid gap-4"><dl className="grid gap-x-6 gap-y-3 sm:grid-cols-[minmax(8rem,auto)_1fr]">{rows.map(([key, value]) => <div className="contents" key={key}><dt className="text-xs font-medium text-muted-foreground">{t(`loops.editor.field.${key}`)}</dt><dd className="wrap-break-word whitespace-pre-line text-sm">{value}</dd></div>)}</dl><div className="border-t border-border pt-3 text-xs leading-5 text-muted-foreground"><p>{t("loops.editor.review.worktree")}</p><p className="mt-1 font-medium text-foreground">{t("loops.editor.review.humanGate")}</p></div></div>;
-}
-
-interface StepProps { draft: LoopDefinitionDraft; setDraft: (draft: LoopDefinitionDraft) => void }
-const inputClass = "ucd-input h-9 w-full rounded px-2 text-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring";
-
-function Field({ children, className = "", label }: { children: ReactNode; className?: string; label: string }) {
-  const { t } = useTranslation();
-  return <label className={`grid gap-1.5 ${className}`}><span className="text-xs font-medium text-muted-foreground">{t(label)}</span>{children}</label>;
-}
-
-function NumberField({ draft, field, max, setDraft }: StepProps & { field: keyof LoopLimits; max?: number }) {
-  return <Field label={`loops.editor.field.${field}`}><input className={inputClass} max={max} min={1} type="number" value={draft.limits[field]} onChange={(event) => setDraft({ ...draft, limits: { ...draft.limits, [field]: Number(event.target.value) } })} /></Field>;
-}
-
-function retainProjectChoice(choices: LoopProjectChoice[], value: string) {
-  if (!value || choices.some((choice) => choice.path === value)) return choices;
-  return [{ path: value, displayName: value, available: false, simulated: false }, ...choices];
-}
-
-function retainBranchChoice(choices: LoopBranchChoice[], value: string) {
-  if (!value || choices.some((choice) => choice.name === value)) return choices;
-  return [{ name: value, kind: "local" as const, available: false, simulated: false }, ...choices];
 }

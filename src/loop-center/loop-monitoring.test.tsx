@@ -1,5 +1,9 @@
+// @vitest-environment jsdom
+
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import "../i18n";
 import type { LoopEvidence, LoopRun } from "../types/loop";
@@ -31,23 +35,33 @@ describe("Loop monitoring", () => {
     expect(html).toContain("Required checks passed.");
     expect(html).toContain("operation-verifier");
     expect(html).toContain("连续运行错误限制");
-    expect(html).toContain("open=\"\"");
+    // The only (and therefore latest) iteration auto-expands -- task 17.10 replaced the former
+    // native `<details open>` accordion with a controlled row toggle, so the equivalent check is
+    // this attribute on the row's own button rather than a `<details>` boolean attribute.
+    expect(html).toContain('aria-expanded="true"');
   });
 
-  it("links owned role sessions and worktree evidence to existing inspection surfaces", () => {
+  it("links owned role sessions and worktree evidence to existing inspection surfaces", async () => {
+    const user = userEvent.setup();
     const client = new QueryClient();
-    const html = renderToStaticMarkup(
+    render(
       <QueryClientProvider client={client}>
         <LoopTimeline onInspect={() => undefined} run={exampleRun()} />
       </QueryClientProvider>,
     );
 
     ["会话记录", "变更", "文件", "终端记录", "日志", "报告", "用量"].forEach((surface) => {
-      expect(html).toContain(`aria-label="打开${surface}"`);
+      expect(screen.getAllByLabelText(`打开${surface}`).length).toBeGreaterThan(0);
     });
-    expect(html.match(/aria-label="打开日志"/g)?.length).toBeGreaterThan(2);
-    expect(html).toContain("operation-worker");
-    expect(html).toContain("operation-verifier");
+    expect(screen.getAllByLabelText("打开日志").length).toBeGreaterThan(2);
+
+    // The worker/verifier evidence's own operation ids are only reachable through the nested raw
+    // evidence disclosure now (task 17.10 no longer dumps every evidence item unconditionally) --
+    // opening it proves the fact is still available on demand, not silently dropped.
+    expect(screen.queryByText(/operation-worker/)).toBeNull();
+    await user.click(screen.getByRole("button", { name: "证据时间线" }));
+    expect(screen.getByText(/operation-worker/)).toBeTruthy();
+    expect(screen.getByText(/operation-verifier/)).toBeTruthy();
   });
 });
 
