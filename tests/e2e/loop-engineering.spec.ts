@@ -88,4 +88,48 @@ test.describe("Loop engineering", () => {
     await expect(loopCenter.getByText("用户已拒绝").first()).toBeVisible();
     await expect(loopCenter.getByText("验证检查").first()).toBeVisible();
   });
+
+  test("keeps the run header and Decision Panel both visible and non-overlapping after scrolling", async ({ page }) => {
+    // Task 17.13: a short viewport forces real overflow in the `overflow-y-auto` scroll container
+    // even with a single iteration, so scrolling actually exercises `position: sticky` instead of
+    // trivially passing because nothing ever left the initial layout.
+    await page.setViewportSize({ width: 1280, height: 480 });
+    await page.goto("/");
+    await openLoops(page);
+    const loopCenter = page.getByTestId("loop-center");
+    await createAndRunLoop(page, "Playwright 粘性验收面板");
+    await expect(loopCenter.getByText("等待验收", { exact: true }).first()).toBeVisible();
+
+    const timeline = loopCenter.getByRole("main");
+    const header = timeline.locator("header").first();
+    const panel = timeline.getByLabel("人工验收");
+    await expect(header).toBeVisible();
+    await expect(panel).toBeVisible();
+
+    const scrolled = await timeline.evaluate((node) => {
+      const scrollable = node.querySelector(".overflow-y-auto");
+      if (!(scrollable instanceof HTMLElement)) return null;
+      const max = scrollable.scrollHeight - scrollable.clientHeight;
+      // Deliberately not `scrollHeight` (the literal max): once scrolled past the bottom of the
+      // sticky elements' own containing block, `position: sticky` correctly un-sticks them again
+      // (there is nothing left below to stay pinned over) -- 260px is comfortably past the ~183px
+      // this panel's own `lg:top-[96px]` tier needs to start sticking at this test's 1280px width,
+      // without reaching that end-of-container boundary.
+      scrollable.scrollTop = Math.min(max, 260);
+      return { max, moved: scrollable.scrollTop };
+    });
+    if (!scrolled) throw new Error("loop timeline's scroll container not found");
+    // A short scrollable range would make the non-overlap assertion below vacuous (nothing really
+    // scrolled), so assert this test actually exercised a real, meaningful scroll first.
+    expect(scrolled.max).toBeGreaterThan(150);
+    expect(scrolled.moved).toBeGreaterThan(150);
+
+    await expect(header).toBeVisible();
+    await expect(panel).toBeVisible();
+    expect(await panel.evaluate((node) => getComputedStyle(node).position)).toBe("sticky");
+    const headerBox = await header.boundingBox();
+    const panelBox = await panel.boundingBox();
+    if (!headerBox || !panelBox) throw new Error("header or panel reported no box after scrolling");
+    expect(panelBox.y).toBeGreaterThanOrEqual(headerBox.y + headerBox.height - 1);
+  });
 });
