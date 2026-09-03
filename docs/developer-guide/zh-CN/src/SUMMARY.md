@@ -10,6 +10,7 @@
 
 # Agent 执行
 
+- [单 Agent 治理：五控制面模型](single-agent-control-planes.md)
 - [Agent 生命周期与 provider 运行时](agent-lifecycle.md)
 - [OnePiece native Agent](onepiece-native-agent.md)
 - [OnePiece 内置工具](onepiece-builtin-tools.md)
