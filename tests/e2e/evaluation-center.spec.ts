@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { expectNoSeriousAxeViolations } from "./a11y-helpers";
 
 type Theme = "futuristic" | "minimal";
 
@@ -92,6 +93,26 @@ test("keyboard-only: picks a baseline and candidate and reads the comparison res
 
   await expect(comparison.getByTestId("evaluation-comparison-result")).toBeVisible();
 });
+
+// 20.18: scanned in a populated, realistic state (a completed run, a selected result's detail
+// pane, and the comparison panel all rendered at once) rather than the empty initial page, so the
+// scan actually covers the results table, detail pane, and comparison controls this destination is
+// built around -- not just the header/toolbar chrome an empty-state scan would be limited to. Both
+// themes, not just one: the first real run of this test found two genuine, theme-specific
+// `color-contrast` failures (`.ucd-status-neutral` only in futuristic, `.ucd-status-success` only
+// in minimal, since each theme's own tone palette is independently authored) that a single-theme
+// scan would have missed entirely -- both fixed in styles.css, this loop is what actually proves it
+// for both, not just the one theme that happened to get picked.
+for (const theme of ["futuristic", "minimal"] as const) {
+  test(`has no serious or critical automated accessibility violations (${theme})`, async ({ page }) => {
+    await openEvaluation(page, theme, 1440);
+    await openWizardAndRun(page);
+    await page.getByTestId("evaluation-row").filter({ hasText: "Passed" }).click();
+    await expect(page.getByText("Metrics and provenance")).toBeVisible();
+
+    await expectNoSeriousAxeViolations(page);
+  });
+}
 
 for (const variant of [
   { name: "futuristic-desktop", theme: "futuristic" as const, width: 1440 },

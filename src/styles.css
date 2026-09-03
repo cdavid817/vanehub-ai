@@ -238,14 +238,20 @@
   --border-subtle: 218 18% 19%;
   --border-default: var(--border);
 
-  --neutral: 215 12% 58%;
-  --neutral-soft: 215 12% 58% / 0.16;
+  /* 20.18: lightness raised from an axe-core-confirmed failing 58%/62% -- against this theme's own
+     `--panel` surface (the more common real backdrop for a status badge, e.g. inside a card), text
+     at the old value read at 4.34:1/4.25:1, short of WCAG AA's 4.5:1 for normal text. Verified with
+     a small contrast-ratio script (not eyeballed) against both `--background` and `--panel`, with a
+     4.6:1 target rather than exactly 4.5 so real sub-pixel rendering cannot land back under the
+     line; every other tone in this theme already cleared 4.5:1 pre-existingly and is unchanged. */
+  --neutral: 215 12% 61%;
+  --neutral-soft: 215 12% 61% / 0.16;
   --running: 190 85% 58%;
   --running-soft: 190 85% 58% / 0.16;
   --information: 215 88% 66%;
   --information-soft: 215 88% 66% / 0.14;
-  --blocked: 262 24% 62%;
-  --blocked-soft: 262 24% 62% / 0.16;
+  --blocked: 262 24% 65%;
+  --blocked-soft: 262 24% 65% / 0.16;
   --attention: 20 92% 64%;
   --attention-soft: 20 92% 64% / 0.18;
 
@@ -291,10 +297,14 @@
   --border-strong: 221 39% 11% / 0.38;
   --nav-active: 221 83% 53%;
   --nav-active-soft: 221 83% 53% / 0.12;
-  --success: 142 60% 34%;
-  --success-soft: 142 60% 34% / 0.12;
-  --warning: 32 95% 44%;
-  --warning-soft: 32 95% 44% / 0.12;
+  /* 20.18: lightness lowered from an axe-core-confirmed failing 34%/44% (3.73:1/2.78:1 against
+     `--background`, both short of WCAG AA's 4.5:1 for normal text) -- see the futuristic theme
+     block above for the verification method and target-ratio rationale, mirrored here. `--danger`
+     already cleared 4.5:1 pre-existingly and is unchanged. */
+  --success: 142 60% 29%;
+  --success-soft: 142 60% 29% / 0.12;
+  --warning: 32 95% 32%;
+  --warning-soft: 32 95% 32% / 0.12;
   --danger: 0 72% 44%;
   --danger-soft: 0 72% 44% / 0.1;
   --shadow-color: 221 39% 11% / 0.04;
@@ -313,16 +323,24 @@
   --border-subtle: 221 39% 11% / 0.14;
   --border-default: var(--border);
 
+  /* 20.18: running/information/attention lightness lowered from an axe-core-confirmed failing
+     36%/53%/46% (3.47:1/4.39:1/3.54:1 against `--background`) -- see the futuristic theme block
+     above for the verification method and target-ratio rationale, mirrored here. `--information`
+     happens to share `--primary`'s own H/S/L today (both independently authored as "the brand
+     blue"), not a `var(--primary)` reference, so lowering it here does not touch `--primary` itself
+     -- left alone since nothing surfaced a `--primary` text-on-tint contrast failure the way this
+     block's own soft-tint badges have. `--neutral`/`--blocked` already cleared 4.5:1
+     pre-existingly and are unchanged. */
   --neutral: 221 14% 40%;
   --neutral-soft: 221 14% 40% / 0.1;
-  --running: 193 88% 36%;
-  --running-soft: 193 88% 36% / 0.12;
-  --information: 221 83% 53%;
-  --information-soft: 221 83% 53% / 0.12;
+  --running: 193 88% 30%;
+  --running-soft: 193 88% 30% / 0.12;
+  --information: 221 83% 51%;
+  --information-soft: 221 83% 51% / 0.12;
   --blocked: 262 24% 40%;
   --blocked-soft: 262 24% 40% / 0.1;
-  --attention: 16 90% 46%;
-  --attention-soft: 16 90% 46% / 0.13;
+  --attention: 16 90% 38%;
+  --attention-soft: 16 90% 38% / 0.13;
 
   --shadow-overlay: 221 39% 11% / 0.16;
 
