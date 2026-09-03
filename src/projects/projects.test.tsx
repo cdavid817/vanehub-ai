@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import "../i18n";
 import type { KnownProject, KnownRemoteWorkspace, Session } from "../types/agent";
 import type { SshConnection } from "../types/ssh-connection";
@@ -42,6 +42,30 @@ vi.mock("../services/runtime-goal-client", () => ({
 }));
 
 import { Projects } from "./projects";
+
+/**
+ * 13.12 persists `view` (and the shared scroll container's position) to `sessionStorage`
+ * (`projects-view-state.ts`) so it survives a destination switch-and-back, not just component
+ * state -- which means it now also survives *between tests in this file* unless cleared. Mirrors
+ * `mission-control-view-state.test.ts`'s own `afterEach(() => sessionStorage.clear())`.
+ */
+afterEach(() => sessionStorage.clear());
+
+function stubMatchMedia(matches: (query: string) => boolean) {
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    value: (query: string): MediaQueryList => ({
+      matches: matches(query),
+      media: query,
+      onchange: null,
+      addEventListener: () => undefined,
+      addListener: () => undefined,
+      dispatchEvent: () => false,
+      removeEventListener: () => undefined,
+      removeListener: () => undefined,
+    }),
+  });
+}
 
 const localProject: KnownProject = { path: "D:\\repo\\app", displayName: "app", isGit: true, lastOpenedAt: "2026-08-20T00:00:00.000Z" };
 const remoteWorkspace: KnownRemoteWorkspace = {
@@ -221,5 +245,83 @@ describe("Projects", () => {
     // Refresh button -- otherwise the trust/availability badges this test's row shows would stay
     // stale even though the connection was just confirmed reachable.
     await waitFor(() => expect(mocks.projects).toHaveBeenCalledTimes(2));
+  });
+
+  it("restores the previously active view across a remount (13.12)", async () => {
+    const { unmount } = renderProjects();
+    await screen.findByText("app");
+
+    fireEvent.click(screen.getByRole("tab", { name: "不可用" }));
+    await waitFor(() => expect(screen.queryByText("app")).toBeNull());
+    unmount();
+
+    // A fresh mount (mirroring a destination switch-and-back, which unmounts this lazy-loaded
+    // component and would otherwise reset `useState<WorkspaceView>` back to "recent") must read
+    // the same view back from `sessionStorage` rather than default.
+    renderProjects();
+    await screen.findByText("dev.example.com:app");
+    expect(screen.queryByText("app")).toBeNull();
+    expect(screen.getByRole("tab", { name: "不可用" }).getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("persists the shared scroll position and restores it after a remount (13.12)", async () => {
+    const { unmount } = renderProjects();
+    await screen.findByText("app");
+    const scrollRegion = screen.getByTestId("projects-scroll-region");
+
+    // jsdom performs no real layout, so `scrollTop` is a plain settable property here -- this
+    // proves the write-on-scroll/restore-on-mount wiring itself, not a claim about real overflow.
+    scrollRegion.scrollTop = 120;
+    fireEvent.scroll(scrollRegion);
+    expect(sessionStorage.getItem("vanehub.projects.scroll.v1")).toBe("120");
+    unmount();
+
+    renderProjects();
+    await screen.findByText("app");
+    await waitFor(() => expect(screen.getByTestId("projects-scroll-region").scrollTop).toBe(120));
+  });
+
+  describe("compact layout (13.12)", () => {
+    beforeEach(() => stubMatchMedia((query) => query === "(max-width: 767px)"));
+    afterEach(() => stubMatchMedia(() => false));
+
+    it("shows only the list until a workspace is selected, never the detail's empty placeholder", async () => {
+      renderProjects();
+      await screen.findByText("app");
+
+      expect(screen.queryByTestId("workspace-detail-empty")).toBeNull();
+      expect(screen.queryByTestId("workspace-detail")).toBeNull();
+    });
+
+    it("selecting a workspace replaces the list with its detail and a Back control", async () => {
+      renderProjects();
+      await screen.findByText("app");
+
+      fireEvent.click(screen.getByTestId(`workspace-${localProject.path}`));
+
+      const detail = await screen.findByTestId("workspace-detail");
+      expect(within(detail).getByText("app")).toBeTruthy();
+      // Compact never renders both panes at once -- the list must be gone, not merely scrolled
+      // past, once the detail is showing.
+      expect(screen.queryByRole("list", { name: "工作区列表" })).toBeNull();
+      expect(screen.getByRole("button", { name: "返回工作区列表" })).toBeTruthy();
+    });
+
+    it("Back returns to the list, restoring the same view and scroll position", async () => {
+      renderProjects();
+      await screen.findByText("app");
+      const scrollRegion = screen.getByTestId("projects-scroll-region");
+      scrollRegion.scrollTop = 80;
+      fireEvent.scroll(scrollRegion);
+
+      fireEvent.click(screen.getByTestId(`workspace-${localProject.path}`));
+      await screen.findByTestId("workspace-detail");
+
+      fireEvent.click(screen.getByRole("button", { name: "返回工作区列表" }));
+
+      expect(await screen.findByText("app")).toBeTruthy();
+      expect(screen.queryByTestId("workspace-detail")).toBeNull();
+      await waitFor(() => expect(screen.getByTestId("projects-scroll-region").scrollTop).toBe(80));
+    });
   });
 });

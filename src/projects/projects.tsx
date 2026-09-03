@@ -1,16 +1,33 @@
-import { RefreshCw } from "lucide-react";
-import { useState } from "react";
+import { ArrowLeft, RefreshCw } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../components/ui/button";
+import { useMediaQuery } from "../hooks/use-media-query";
 import { AsyncBoundary } from "../ui/async/AsyncBoundary";
 import type { AsyncViewState } from "../ui/async/async-view-state";
 import { EmptyState } from "../ui/empty-state/EmptyState";
+import {
+  readProjectsScrollTop, readProjectsView, writeProjectsScrollTop, writeProjectsView,
+} from "./projects-view-state";
 import { useProjectWorkspaces } from "./use-project-workspaces";
 import { useWorkspaceReconnect } from "./use-workspace-reconnect";
 import { selectWorkspaceView, workspaceViews, type WorkspaceView } from "./workspace-filter";
 import { WorkspaceCard } from "./workspace-card";
 import { WorkspaceDetail } from "./workspace-detail";
 import type { WorkspaceSummary } from "./workspace-summary";
+
+/**
+ * Below this width the list and detail panes never coexist (13.12) -- one replaces the other
+ * rather than stacking, so a long "all" view never buries the detail panel at the bottom of a
+ * full-page scroll. Matches the `md:grid-cols-[...]` breakpoint already on the grid below
+ * (Tailwind's default `md`, 768px) so the JS-driven pane swap and the CSS column split never
+ * disagree about which width counts as "compact". Phrased as `max-width`, mirroring
+ * `work-board.tsx`'s own `compact` query, not `prompt-hook-card-list.tsx`'s `min-width` one --
+ * this file's tests (and jsdom's global `matchMedia` stub, which always reports no match) then
+ * default to `compact === false`, the same "both panes visible" shape every pre-13.12 test in
+ * this file already assumes, with no per-test override required.
+ */
+const COMPACT_QUERY = "(max-width: 767px)";
 
 interface WorkspaceViewListProps {
   view: WorkspaceView;
@@ -63,15 +80,20 @@ function WorkspaceViewList({ onSelect, selectedWorkspaceId, view, workspaces }: 
  * mirroring `GoalCenter`'s established layout); state-aware actions and the remaining views are
  * follow-up work — see this increment's own report for the full list of deferred tasks.
  *
- * Selection is local component state, not route-backed, even though `WorkbenchLocation`'s own
- * `projects.projectId` route slot already exists (`workbench-route.ts`) and `projects-destination.tsx`
- * flags it as this task's own to wire up: `PlanDestination`'s identical situation
- * (`PlanSection.goalId`/`workItemId`, never consumed by `GoalCenter`/`WorkBoard` either) is already
- * on record in this exact codebase as "content work for a later milestone," not an oversight —
- * `plan-destination.tsx`'s own comment says so directly. Route-backed restoration across
- * navigation/reload is what 13.12's own "list-then-detail composition, restore filters and scroll
- * anchor on Back" already owns; wiring `projectId` here now would duplicate that decision ahead of
- * it rather than follow the same precedent this codebase already chose for Goals.
+ * Selection is still local component state, not route-backed, even though `WorkbenchLocation`'s
+ * own `projects.projectId` route slot already exists (`workbench-route.ts`): `PlanDestination`'s
+ * identical situation (`PlanSection.goalId`/`workItemId`, never consumed by `GoalCenter`/
+ * `WorkBoard` either) is already on record in this exact codebase as "content work for a later
+ * milestone," not an oversight — `plan-destination.tsx`'s own comment says so directly, and 13.12
+ * does not change that: it restores the *list* on Back (view/scroll, see below), which is a
+ * different claim from restoring *which detail was open*. Task 13.12's own "restore list filters
+ * and scroll anchor on Back" is real now (`projects-view-state.ts`, mirroring
+ * `mission-control-view-state.ts`'s `sessionStorage` precedent): `view` and the shared scroll
+ * container's position both survive a compact-layout Back (below) and a full destination
+ * switch-and-back (this component unmounting via `LazyFeature` loses every plain `useState`,
+ * which `sessionStorage` does not). Below `md` width, the list and detail panes never coexist —
+ * selecting a workspace replaces the list with its detail, and Back replaces the detail with the
+ * list again, restored to the same view and scroll offset.
  *
  * Task 13.8's three cross-cutting actions (Continue Session, New Session, Settings) are forwarded
  * straight through from `projects-destination.tsx` -- this component has no reason to know about
@@ -87,9 +109,35 @@ export function Projects({ onContinueSession, onNewSession, onOpenSshSettings }:
 }) {
   const { t } = useTranslation();
   const { data, error, loading, reload } = useProjectWorkspaces();
-  const [view, setView] = useState<WorkspaceView>("recent");
+  const [view, setView] = useState<WorkspaceView>(() => readProjectsView() ?? "recent");
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
   const { mutations: reconnectMutations, reconnect } = useWorkspaceReconnect(() => void reload());
+  const compact = useMediaQuery(COMPACT_QUERY);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => { writeProjectsView(view); }, [view]);
+
+  const selected = data?.find((workspace) => workspace.workspaceId === selectedWorkspaceId) ?? null;
+  // Compact: the list and detail panes never coexist -- selecting a workspace replaces the list
+  // with its detail, and Back (below) replaces the detail with the list again. Non-compact: both
+  // always render, unchanged from before 13.12.
+  const showingList = !compact || selected === null;
+  const showingDetail = !compact || selected !== null;
+
+  useEffect(() => {
+    if (!data || !scrollContainerRef.current || !showingList) return;
+    scrollContainerRef.current.scrollTop = readProjectsScrollTop();
+    // Deliberately re-fires whenever the list becomes the visible pane again (initial load, or a
+    // compact Back) rather than only once -- switching to the (usually shorter) detail pane can
+    // clamp this shared scroll container's `scrollTop` even though the container itself never
+    // unmounts, so simply going Back would otherwise land on a clamped, not restored, position.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- see comment above
+  }, [Boolean(data), showingList]);
+
+  function handleBack() {
+    setSelectedWorkspaceId(null);
+    scrollContainerRef.current?.focus();
+  }
 
   const asyncState: AsyncViewState<WorkspaceSummary[]> = {
     data,
@@ -129,24 +177,39 @@ export function Projects({ onContinueSession, onNewSession, onOpenSshSettings }:
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-3">
+      <div
+        className="min-h-0 flex-1 overflow-y-auto p-3 outline-hidden"
+        data-testid="projects-scroll-region"
+        onScroll={(event) => { if (showingList) writeProjectsScrollTop(event.currentTarget.scrollTop); }}
+        ref={scrollContainerRef}
+        tabIndex={-1}
+      >
         <AsyncBoundary
           emptyState={{ description: t("projects.empty.description"), title: t("projects.empty.title") }}
           isEmpty={(list) => list.length === 0}
           onRetry={() => void reload()}
           state={asyncState}
         >
-          {(list) => {
-            const selected = list.find((workspace) => workspace.workspaceId === selectedWorkspaceId) ?? null;
-            return (
-              <div className="grid gap-3 md:grid-cols-[minmax(16rem,22rem)_1fr]">
+          {(list) => (
+            <div className="grid gap-3 md:grid-cols-[minmax(16rem,22rem)_1fr]">
+              {showingList ? (
                 <WorkspaceViewList
                   onSelect={setSelectedWorkspaceId}
                   selectedWorkspaceId={selectedWorkspaceId}
                   view={view}
                   workspaces={list}
                 />
+              ) : null}
+              {showingDetail ? (
                 <div className="rounded-md border border-border">
+                  {compact ? (
+                    <div className="border-b border-border p-1">
+                      <Button onClick={handleBack} size="sm" type="button" variant="ghost">
+                        <ArrowLeft aria-hidden="true" className="h-3.5 w-3.5" />
+                        {t("projects.actions.backToList")}
+                      </Button>
+                    </div>
+                  ) : null}
                   <WorkspaceDetail
                     onContinueSession={onContinueSession}
                     onDismissReconnectError={() => selected && reconnectMutations.clear(selected.workspaceId)}
@@ -157,9 +220,9 @@ export function Projects({ onContinueSession, onNewSession, onOpenSshSettings }:
                     workspace={selected}
                   />
                 </div>
-              </div>
-            );
-          }}
+              ) : null}
+            </div>
+          )}
         </AsyncBoundary>
       </div>
     </section>

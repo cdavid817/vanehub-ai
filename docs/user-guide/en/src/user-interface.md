@@ -20,7 +20,7 @@ The session list on the left supports three display modes: **list / by category 
 
 ### Activity bar navigation
 
-The activity bar to the left of the session list switches between five primary domains: **Sessions / Projects & Workspaces / Runs / Plan / Quality**, plus two utility entries in the lower-right corner: **Settings / Help**. Some domains have their own secondary tabs: **Runs** has Attention inbox, Active Runs, Recently completed (together, [Mission Control](observability.md#mission-control)), [Loops](loop-engineering.md), and [Scheduled tasks](automation.md); **Plan** has [Todo Board](todo-board.md) and [Goal Center](goal-management.md); **Quality** is [Agent evaluation](evaluation.md) directly, with no secondary tabs. **Projects & Workspaces** is a placeholder today — the aggregated project/worktree view has not shipped yet.
+The activity bar to the left of the session list switches between five primary domains: **Sessions / Projects & Workspaces / Runs / Plan / Quality**, plus two utility entries in the lower-right corner: **Settings / Help**. Some domains have their own secondary tabs: **Runs** has Attention inbox, Active Runs, Recently completed (together, [Mission Control](observability.md#mission-control)), [Loops](loop-engineering.md), and [Scheduled tasks](automation.md); **Plan** has [Todo Board](todo-board.md) and [Goal Center](goal-management.md); **Quality** is [Agent evaluation](evaluation.md) directly, with no secondary tabs. **Projects & Workspaces** is a read-only rollup of known projects and remote workspaces — see [below](#projects-and-workspaces).
 
 ## Agent types
 
@@ -188,6 +188,12 @@ Once the floating assistant is enabled in settings, a separate floating window s
 Select **Runs** in the activity bar, then the **Loops** tab, to manage Loop engineering: the run list and inspector, run controls (pause/resume/cancel/accept/reject), the verification command editor, and the timeline. For the concept and how to create one, see [Loop Engineering](loop-engineering.md).
 
 ![The Loop center](assets/screenshots/loop-center-en.png)
+
+## Projects and Workspaces
+
+The **Projects & Workspaces** entry in the activity bar is a read-only rollup of your known local projects and remote SSH workspaces, along with each one's recent session: three views (**Recent / All / Unavailable**), and each row shows availability, a safe display path, a Git-repository marker (local rows), and trust (remote rows only, currently only ever "Trusted" or "Trust unknown"). Selecting a row opens its detail: identity, trust, Git, recent session, and related [Todo Board](todo-board.md)/[Goal management](goal-management.md) items, plus **Continue Session**/**New Session** (remote rows also get **Reconnect**).
+
+Not yet available: a Favorites view, a "Needs attention" view, a per-workspace active-run count, and creating or deleting a worktree from this page — a worktree is still only created by checking the box during [session creation](first-session.md); see [Remote and IM](remote-and-im.md#ssh-remote-workspace) for how to set up an SSH connection.
 
 ## OnePiece Plan mode
 
