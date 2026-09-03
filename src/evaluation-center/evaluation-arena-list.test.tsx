@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import { render, screen, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { i18n } from "../i18n";
 import type { EvaluationArena, EvaluationAttempt, EvaluationOutcome, EvaluationTask } from "../types/evaluation";
 import { EvaluationArenaList } from "./evaluation-arena-list";
@@ -98,5 +98,33 @@ describe("EvaluationArenaList", () => {
     render(<EvaluationArenaList arenas={[]} tasks={[]} />);
     expect(screen.queryByTestId("evaluation-arena-row")).toBeNull();
     expect(screen.getByText("运行基准以比较结果。")).toBeTruthy();
+  });
+
+  // 18.6: the "load more" control is optional-props-driven so every pre-existing caller/test above
+  // (none of which pass `hasMore`) keeps rendering with no pagination control at all.
+  describe("pagination (18.6)", () => {
+    const oneArena = [arena("arena-a", [attempt("succeeded", "claude-code", "arena-a", "attempt-1")])];
+
+    it("renders no load-more control when there is no further page", () => {
+      render(<EvaluationArenaList arenas={oneArena} tasks={[]} />);
+      expect(screen.queryByTestId("evaluation-arena-load-more")).toBeNull();
+    });
+
+    it("renders an enabled load-more control that calls back on click when a further page exists", () => {
+      const onLoadMore = vi.fn();
+      render(<EvaluationArenaList arenas={oneArena} hasMore onLoadMore={onLoadMore} tasks={[]} />);
+      const button = screen.getByTestId("evaluation-arena-load-more") as HTMLButtonElement;
+      expect(button.disabled).toBe(false);
+      expect(button.textContent).toBe("加载更多");
+      fireEvent.click(button);
+      expect(onLoadMore).toHaveBeenCalledTimes(1);
+    });
+
+    it("disables the load-more control and shows a distinct label while a page fetch is in flight", () => {
+      render(<EvaluationArenaList arenas={oneArena} hasMore loadingMore tasks={[]} />);
+      const button = screen.getByTestId("evaluation-arena-load-more") as HTMLButtonElement;
+      expect(button.disabled).toBe(true);
+      expect(button.textContent).toBe("加载中...");
+    });
   });
 });

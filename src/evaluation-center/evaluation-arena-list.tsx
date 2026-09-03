@@ -15,6 +15,11 @@ import {
 export interface EvaluationArenaListProps {
   arenas: EvaluationArena[];
   tasks: EvaluationTask[];
+  /** 18.6: whether the service has a further page beyond `arenas`. Optional so every pre-existing
+   *  caller/test that has no pagination to offer keeps rendering without a "load more" control. */
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  onLoadMore?: () => void;
 }
 
 /**
@@ -38,13 +43,19 @@ export interface EvaluationArenaListProps {
  * fabricated data: no baseline/comparison concept exists anywhere yet (tasks.md 18.8-18.10 are
  * unbuilt), and none of `EvaluationArena`, `EvaluationAttempt`, or `EvaluationTimelineItem` carry a
  * wall-clock timestamp field anywhere (every field on all three was checked). A real timestamp
- * does exist one hop away -- `OperationTask.updatedAt` via
- * `operationService.getOperationStatus(arena.operationId)` -- but wiring that join is a new,
- * uncached, one-call-per-row data-fetching concern of its own, squarely inside the query model
- * 18.2 already extracted (`use-evaluation-query.ts`) and which this task was told not to touch;
- * left for whoever picks up real "updated time" wiring.
+ * does exist one hop away in principle -- `OperationTask.updatedAt` via
+ * `operationService.getOperationStatus(arena.operationId)` -- but wiring that join turned out
+ * messier than "one hop" once actually investigated (18.6 pass): every other Web mock that hands
+ * out an `operationId` (`web-cli-environment-client.ts`, `web-code-review-client.ts`,
+ * `web-extension-client.ts`, `web-mcp-client.ts`, `web-sdk-client.ts`,
+ * `web-session-lifecycle-client.ts`) registers a matching mock operation via
+ * `createWebMockOperation`/`registerWebOperation`; `web-evaluation-client.ts` fabricates
+ * `operationId: \`${id}-operation\`` but never registers one, so `getOperationStatus` would throw
+ * "operation not found" for every arena in Web/browser/test mode today. Fixing that mock-fidelity
+ * gap is its own scope, beyond "wire the join" -- left for whoever picks up real "updated time"
+ * wiring, see tasks.md 18.3's own evidence for the full investigation.
  */
-export function EvaluationArenaList({ arenas, tasks }: EvaluationArenaListProps) {
+export function EvaluationArenaList({ arenas, hasMore = false, loadingMore = false, onLoadMore, tasks }: EvaluationArenaListProps) {
   const { t } = useTranslation();
   const rows = useMemo(
     () => arenas.map((arena) => ({
@@ -99,6 +110,17 @@ export function EvaluationArenaList({ arenas, tasks }: EvaluationArenaListProps)
           ))}
         </ul>
       )}
+      {hasMore ? (
+        <button
+          className="mt-2 w-full rounded-md border border-input px-3 py-1.5 text-xs disabled:opacity-50"
+          data-testid="evaluation-arena-load-more"
+          disabled={loadingMore}
+          onClick={onLoadMore}
+          type="button"
+        >
+          {t(loadingMore ? "evaluation.loadingMore" : "evaluation.loadMore")}
+        </button>
+      ) : null}
     </section>
   );
 }

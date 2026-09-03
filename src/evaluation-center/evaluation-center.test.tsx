@@ -96,14 +96,14 @@ describe("EvaluationCenter", () => {
   // row that had already settled.
   it("follows the polled arena instead of the attempt captured when the row was clicked", async () => {
     await i18n.changeLanguage("zh-CN");
-    const list = vi.spyOn(agentService, "listEvaluationArenas").mockResolvedValue([]);
+    const list = vi.spyOn(agentService, "listEvaluationArenas").mockResolvedValue({ items: [], nextCursor: null });
     vi.spyOn(agentService, "startEvaluation").mockResolvedValue(arena("queued"));
     render(<EvaluationCenter />);
     await openWizardAndRun();
     await waitFor(() => expect(screen.getByTestId("evaluation-detail").dataset.selectedOutcome).toBe("queued"));
     expect(screen.getByTestId("evaluation-cancel")).toBeTruthy();
 
-    list.mockResolvedValue([arena("cancelled")]);
+    list.mockResolvedValue({ items: [arena("cancelled")], nextCursor: null });
     await waitFor(
       () => expect(screen.getByTestId("evaluation-detail").dataset.selectedOutcome).toBe("cancelled"),
       { timeout: 4_000 },
@@ -111,9 +111,28 @@ describe("EvaluationCenter", () => {
     expect(screen.queryByTestId("evaluation-cancel")).toBeNull();
   });
 
+  // 18.6: real service-side pagination for the experiment list, wired end to end through the page.
+  // Both pages use terminal-only outcomes deliberately, so the reconcile-poll effect's own gate
+  // (`arenas.some(non-terminal)`) never opens and this test is not racing that timer.
+  it("loads the next page of arenas on demand and appends it without duplicating what is already shown", async () => {
+    await i18n.changeLanguage("zh-CN");
+    const list = vi.spyOn(agentService, "listEvaluationArenas");
+    list.mockResolvedValueOnce({ items: [arena("cancelled")], nextCursor: "1" });
+    render(<EvaluationCenter />);
+    const loadMore = await screen.findByTestId("evaluation-arena-load-more");
+    expect(screen.getAllByTestId("evaluation-arena-row")).toHaveLength(1);
+
+    list.mockResolvedValueOnce({ items: [arenaWithArtifacts([])], nextCursor: null });
+    fireEvent.click(loadMore);
+    await waitFor(() => expect(screen.getAllByTestId("evaluation-arena-row")).toHaveLength(2));
+    expect(list).toHaveBeenLastCalledWith({ cursor: "1" });
+    // No further page: the control that fetched it is gone, not just disabled.
+    expect(screen.queryByTestId("evaluation-arena-load-more")).toBeNull();
+  });
+
   it("pauses polling while the document is hidden, and reconciles immediately once visible again", async () => {
     await i18n.changeLanguage("zh-CN");
-    const list = vi.spyOn(agentService, "listEvaluationArenas").mockResolvedValue([]);
+    const list = vi.spyOn(agentService, "listEvaluationArenas").mockResolvedValue({ items: [], nextCursor: null });
     vi.spyOn(agentService, "startEvaluation").mockResolvedValue(arena("queued"));
     render(<EvaluationCenter />);
     await openWizardAndRun();
@@ -131,7 +150,7 @@ describe("EvaluationCenter", () => {
 
   it("stops polling once unmounted", async () => {
     await i18n.changeLanguage("zh-CN");
-    const list = vi.spyOn(agentService, "listEvaluationArenas").mockResolvedValue([]);
+    const list = vi.spyOn(agentService, "listEvaluationArenas").mockResolvedValue({ items: [], nextCursor: null });
     vi.spyOn(agentService, "startEvaluation").mockResolvedValue(arena("queued"));
     const { unmount } = render(<EvaluationCenter />);
     await openWizardAndRun();
@@ -147,6 +166,7 @@ describe("EvaluationCenter", () => {
     for (const locale of ["en", "zh-CN", "zh-TW", "ja", "ko"]) {
       for (const key of [
         "agents", "filter", "cancel", "diff", "metrics", "loadError", "runError", "cancelError", "artifactPreviewUnavailable",
+        "loadMore", "loadingMore",
         "configure", "wizard.step", "wizard.back", "wizard.next", "wizard.cancel", "wizard.review",
         "agentSelection.searchLabel", "agentSelection.searchPlaceholder", "agentSelection.statusLabel", "agentSelection.statusAll",
         "agentSelection.capabilityLabel", "agentSelection.capabilityAll", "agentSelection.resultCount", "agentSelection.selectVisible",
@@ -173,7 +193,7 @@ describe("EvaluationCenter", () => {
   // test in this file that renders a full run.
   it("surfaces failure classification, the task timeout threshold, and an honest judge-role disclosure in the detail pane", async () => {
     await i18n.changeLanguage("zh-CN");
-    vi.spyOn(agentService, "listEvaluationArenas").mockResolvedValue([]);
+    vi.spyOn(agentService, "listEvaluationArenas").mockResolvedValue({ items: [], nextCursor: null });
     vi.spyOn(agentService, "startEvaluation").mockResolvedValue(arenaWithArtifacts([]));
     render(<EvaluationCenter />);
     await openWizardAndRun();
@@ -190,7 +210,7 @@ describe("EvaluationCenter", () => {
   // silently cut down to a fixed count the way a "+N more" cap would.
   it("keeps the checks list scroll-bound rather than unbounded", async () => {
     await i18n.changeLanguage("zh-CN");
-    vi.spyOn(agentService, "listEvaluationArenas").mockResolvedValue([]);
+    vi.spyOn(agentService, "listEvaluationArenas").mockResolvedValue({ items: [], nextCursor: null });
     vi.spyOn(agentService, "startEvaluation").mockResolvedValue(arenaWithChecks([{ checkId: "a", passed: true, summary: "42/42" }]));
     render(<EvaluationCenter />);
     await openWizardAndRun();
@@ -208,7 +228,7 @@ describe("EvaluationCenter", () => {
     // earlier test in this file (the only one that calls the real, unmocked `startEvaluation`)
     // leaves populated -- without this, the initial load can render leftover rows alongside this
     // test's own, and `findByTestId("evaluation-row")` (singular) fails against the full suite.
-    vi.spyOn(agentService, "listEvaluationArenas").mockResolvedValue([]);
+    vi.spyOn(agentService, "listEvaluationArenas").mockResolvedValue({ items: [], nextCursor: null });
     vi.spyOn(agentService, "startEvaluation").mockResolvedValue(arenaWithArtifacts(["diff-alpha", "diff-beta"]));
     render(<EvaluationCenter />);
     await openWizardAndRun();
@@ -222,7 +242,7 @@ describe("EvaluationCenter", () => {
 
   it("falls back to the unavailable message when an attempt carries no artifacts at all", async () => {
     await i18n.changeLanguage("zh-CN");
-    vi.spyOn(agentService, "listEvaluationArenas").mockResolvedValue([]);
+    vi.spyOn(agentService, "listEvaluationArenas").mockResolvedValue({ items: [], nextCursor: null });
     vi.spyOn(agentService, "startEvaluation").mockResolvedValue(arenaWithArtifacts([]));
     render(<EvaluationCenter />);
     await openWizardAndRun();
@@ -237,7 +257,7 @@ describe("EvaluationCenter", () => {
   // proves the page composes it correctly.
   it("wires the comparison panel to every loaded attempt and renders a real comparison once two are chosen", async () => {
     await i18n.changeLanguage("zh-CN");
-    vi.spyOn(agentService, "listEvaluationArenas").mockResolvedValue([]);
+    vi.spyOn(agentService, "listEvaluationArenas").mockResolvedValue({ items: [], nextCursor: null });
     vi.spyOn(agentService, "startEvaluation").mockResolvedValue(arenaWithTwoAttempts());
     render(<EvaluationCenter />);
     await openWizardAndRun();

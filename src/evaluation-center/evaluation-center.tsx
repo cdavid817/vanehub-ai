@@ -14,7 +14,7 @@ import { TERMINAL_EVALUATION_OUTCOMES, useEvaluationQuery } from "./use-evaluati
 
 export function EvaluationCenter() {
   const { t } = useTranslation();
-  const { agents, tasks, arenas, setArenas, error, setError } = useEvaluationQuery();
+  const { agents, tasks, arenas, setArenas, error, setError, hasMoreArenas, loadingMoreArenas, loadMoreArenas } = useEvaluationQuery();
   const [taskId, setTaskId] = useState("");
   const [agentIds, setAgentIds] = useState<string[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -91,7 +91,7 @@ export function EvaluationCenter() {
       />
     </header>
     {error ? <p className="border-b border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive" role="alert">{error}</p> : null}
-    <EvaluationArenaList arenas={arenas} tasks={tasks} />
+    <EvaluationArenaList arenas={arenas} hasMore={hasMoreArenas} loadingMore={loadingMoreArenas} onLoadMore={loadMoreArenas} tasks={tasks} />
     <div className="grid min-h-0 flex-1 grid-cols-1 overflow-auto lg:grid-cols-[minmax(420px,1.3fr)_minmax(280px,0.7fr)]">
       <EvaluationResultsTable
         filter={filter}
