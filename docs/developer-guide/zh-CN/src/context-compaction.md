@@ -108,7 +108,7 @@ flowchart TB
 ## 关键字段归属（易混淆）
 
 - `compaction_triggered: bool` 属于 `ContextEvidenceManifest`（context-engine 证据清单），与压缩执行路径无关；当前生产赋值**恒为 `false`**，是一个尚未接线的字段——不要拿它判断是否压缩过。
-- `reserved_recent_turns: u64` 属于 `ContextBudget`（context-engine 证据预算），OnePiece 路径取 `12_288`（total 32 768、reserved_system 8 192、reserved_task 4 096、reserve 2 048）。它是**证据选择预算**的预留额度，与压缩触发阈值（§触发判定）完全无关。
+- `reserved_recent_turns: u64` 属于 `ContextBudget`（context-engine 证据预算），OnePiece 路径取 `12_288`（total 32 768、reserved_system 8 192、reserved_task 4 096、reserve 2 048）。它是**证据选择预算**的预留额度，与压缩触发阈值（§触发判定）完全无关。**已知差距**：这套预算是写死的 32 768，并不随激活 Profile 的实际模型容量推导——压缩触发已经查容量目录，证据预算还没有；改造由 `openspec/changes/harden-onepiece-generation-runtime/` 承载。
 
 ## 设计所在
 

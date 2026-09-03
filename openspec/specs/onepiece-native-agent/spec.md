@@ -1,7 +1,7 @@
 # onepiece-native-agent Specification
 
 ## Purpose
-TBD - created by archiving change add-onepiece-native-agent. Update Purpose after archive.
+Define VaneHub's first-party, host-managed native Agent: a reserved built-in identity (`onepiece`, `launch_kind = api`) whose provider profiles, credentials, context assembly, tool catalog, permissions, and observability are controlled by the host. The model reasons and proposes structured intents; the host validates, authorizes, executes, records, and recovers every effectful operation.
 ## Requirements
 ### Requirement: Stable built-in OnePiece identity
 The system SHALL maintain OnePiece as a built-in Agent with stable id `onepiece`, display name `OnePiece`, `launch_kind = api`, `agent_origin = builtin`, API interaction support, and first-party capability metadata in both desktop and Web/mock registries.

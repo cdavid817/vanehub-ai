@@ -108,7 +108,7 @@ Any optimizer stage failure (`FallbackReason`: `InvalidPlan` / `InsufficientRecl
 ## Field ownership (easy to conflate)
 
 - `compaction_triggered: bool` belongs to `ContextEvidenceManifest` (the context-engine evidence manifest), unrelated to the compaction execution path; the production assignment is currently **always `false`** — an unwired field. Do not use it to tell whether compaction happened.
-- `reserved_recent_turns: u64` belongs to `ContextBudget` (the context-engine evidence budget); the OnePiece path sets `12_288` (total 32,768, reserved_system 8,192, reserved_task 4,096, reserve 2,048). It is a reserved allowance for **evidence selection** and has nothing to do with the compaction trigger threshold above.
+- `reserved_recent_turns: u64` belongs to `ContextBudget` (the context-engine evidence budget); the OnePiece path sets `12_288` (total 32,768, reserved_system 8,192, reserved_task 4,096, reserve 2,048). It is a reserved allowance for **evidence selection** and has nothing to do with the compaction trigger threshold above. **Known gap**: this budget is a hardcoded 32,768 and is not derived from the active profile's actual model capacity — the compaction trigger already consults the capacity catalog, the evidence budget does not yet; the remediation is carried by `openspec/changes/harden-onepiece-generation-runtime/`.
 
 ## Where the design lives
 

@@ -133,6 +133,15 @@ sequenceDiagram
 
 The tool loop runs across multiple rounds: the model returns `tool_use` → the runtime resolves the tool name and looks it up in the catalog (fixed tools / Skill tools / MCP tools) → executes it → fills in `tool_result` → the model continues, until it returns a terminal response with no tool call. `finish_api_invocation` reports usage on completion (writes `reported`+`tokens` when `ReportedUsageTotals` is present, otherwise `estimated`+`characters` — the two are never mixed). OnePiece's tool calls carry native fidelity and can be expanded layer by layer in the execution trace — this is its observability advantage over an external CLI, which is a black box.
 
+## Verified generation-integrity gaps (pending an OpenSpec change)
+
+The following current behaviors are individually source-verified; the remediation is carried by `openspec/changes/harden-onepiece-generation-runtime/` — until it lands, this section is the status quo:
+
+- **No single immutable generation snapshot** — generation inputs are assembled from many independently-injected ports at call time (several `too_many_arguments` allowances across `api_process_adapter`); outside the personalization snapshot, mid-turn configuration edits can be observed by later steps of the same turn.
+- **Retrieved evidence is spliced into the user prompt** — selected evidence is appended to `effective_prompt` inside a `<context-evidence>` block (`generation.rs`), mixing untrusted content into the user's own message.
+- **The evidence budget is a fixed 32,768** — not derived from the active model's actual capacity (see the field-ownership section of [Context compaction](context-compaction.md)).
+- **Effectful tool calls have no durable journal** — after a crash the runtime cannot tell "never ran" from "ran, outcome unknown", so replays risk repeating side effects; observability spans are records, not a recovery contract.
+
 ## Where the design lives
 
 This chapter orients contributors. The authoritative requirements — stable identity, registry seeding, reserved-id collision handling, the Profile lifecycle, and the provider-directory contract — live in the spec.
