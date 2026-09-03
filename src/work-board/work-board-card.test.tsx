@@ -286,3 +286,61 @@ describe("WorkBoardCard batch mode (14.12)", () => {
     expect(screen.queryByRole("checkbox", { name: "选择工作项" })).toBeNull();
   });
 });
+
+/**
+ * 20.17: goes beyond the visual (pixel-screenshot) theme-parity coverage added elsewhere this
+ * session -- proves the batch-mode selected checkbox is structurally, not just visually, identical
+ * between `futuristic` and `minimal`. `WorkBoardCard` never reads a theme at all (confirmed by
+ * grep: no `useTheme`/`data-theme` reference anywhere under src/work-board/) -- theming in this
+ * codebase is pure CSS custom-property scoping on `:root[data-theme]` (styles.css), never a second
+ * JSX tree (design.md Decision 19: "禁止为主题建立两套 JSX"). Rendering the identical props under
+ * each theme's `data-theme` ancestor and diffing the checkbox's own `outerHTML` turns that
+ * architectural guarantee into a real, regression-guarding assertion instead of a claim only a
+ * source-code grep backs -- the same technique `goal-relationship-sections.test.tsx`'s own 20.17
+ * theme-parity block uses for its disabled-unlink-control case.
+ */
+describe("WorkBoardCard batch mode theme parity (20.17)", () => {
+  function renderThemed(theme: "futuristic" | "minimal", selected: boolean) {
+    const container = document.createElement("div");
+    container.dataset.theme = theme;
+    document.body.appendChild(container);
+    return render(
+      <WorkBoardCard batchMode item={fixture()} onArchive={vi.fn()} onDelete={vi.fn()} onDismissError={vi.fn()} onEdit={vi.fn()} onMove={vi.fn()} onRestore={vi.fn()} onToggleSelected={vi.fn()} selected={selected} />,
+      { container },
+    );
+  }
+
+  it("renders a structurally identical checked, selected checkbox under both themes", () => {
+    const futuristic = renderThemed("futuristic", true);
+    const futuristicCheckbox = futuristic.getByRole("checkbox", { name: "选择工作项" }) as HTMLInputElement;
+    expect(futuristicCheckbox.checked).toBe(true);
+    const futuristicHtml = futuristicCheckbox.outerHTML;
+    futuristic.unmount();
+
+    const minimal = renderThemed("minimal", true);
+    const minimalCheckbox = minimal.getByRole("checkbox", { name: "选择工作项" }) as HTMLInputElement;
+    expect(minimalCheckbox.checked).toBe(true);
+    const minimalHtml = minimalCheckbox.outerHTML;
+    minimal.unmount();
+
+    // Same tag, same role, same aria-label, same checked attribute, same class list -- byte for
+    // byte, not just "both look selected."
+    expect(minimalHtml).toBe(futuristicHtml);
+  });
+
+  it("renders a structurally identical unchecked checkbox under both themes", () => {
+    const futuristic = renderThemed("futuristic", false);
+    const futuristicCheckbox = futuristic.getByRole("checkbox", { name: "选择工作项" }) as HTMLInputElement;
+    expect(futuristicCheckbox.checked).toBe(false);
+    const futuristicHtml = futuristicCheckbox.outerHTML;
+    futuristic.unmount();
+
+    const minimal = renderThemed("minimal", false);
+    const minimalCheckbox = minimal.getByRole("checkbox", { name: "选择工作项" }) as HTMLInputElement;
+    expect(minimalCheckbox.checked).toBe(false);
+    const minimalHtml = minimalCheckbox.outerHTML;
+    minimal.unmount();
+
+    expect(minimalHtml).toBe(futuristicHtml);
+  });
+});
