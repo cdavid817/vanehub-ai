@@ -31,7 +31,6 @@ test("monitors multiple Runs, attention, failure, bounded filters, detail, and r
   // checks the section heading inside Mission Control's own content actually rendered.
   await expect(page.getByRole("heading", { name: "Attention inbox" })).toBeVisible();
   await expect(page.getByTestId("mission-run-018f0f17-4d6a-7e20-b41d-66c5271a290").first()).toContainText("Waiting approval");
-  await expect(page.getByText("provider_backoff", { exact: true })).toBeVisible();
   await expect(page.locator("[data-runner='ssh']").first()).toContainText("build.example.test");
   await openFilters(page);
   await page.getByLabel("Filter by Runner", { exact: true }).selectOption("ssh");
@@ -41,6 +40,22 @@ test("monitors multiple Runs, attention, failure, bounded filters, detail, and r
   await expect(page.getByRole("tab", { name: "Overview" })).toBeVisible();
   await failed.locator("[data-action='review']").click();
   await expect(page).toHaveURL(/\/workspace\/sessions\//);
+});
+
+test("16.2: the Active/History route tabs scope Mission Control to their own bucket, not every Run at once", async ({ page }) => {
+  await openMissionControl(page);
+  await expect(page.getByRole("heading", { name: "Attention inbox" })).toBeVisible();
+  // A "Retrying" run this fixture only places in the Active bucket, never Attention.
+  await expect(page.getByText("provider_backoff", { exact: true })).toHaveCount(0);
+
+  await page.getByRole("tab", { name: "Active Runs", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Active Runs" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Attention inbox" })).toHaveCount(0);
+  await expect(page.getByText("provider_backoff", { exact: true })).toBeVisible();
+
+  await page.getByRole("tab", { name: "Recently completed", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Recently completed" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Active Runs" })).toHaveCount(0);
 });
 
 test("4.8: returns to the same run, with the same filter, after an evidence-navigation round trip", async ({ page }) => {

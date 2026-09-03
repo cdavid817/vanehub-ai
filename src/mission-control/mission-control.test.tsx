@@ -93,6 +93,23 @@ describe("MissionControl", () => {
     );
   });
 
+  it("16.2: scopes rendering to one section's own RunSection when a route tab is given, and shows all three when it is not", async () => {
+    await activateAppLanguage("en");
+    const { rerender } = render(<MissionControl section="attention" />);
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Attention inbox" })).toBeTruthy());
+    expect(screen.queryByRole("heading", { name: "Active Runs" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Recently completed" })).toBeNull();
+
+    rerender(<MissionControl section="active" />);
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Active Runs" })).toBeTruthy());
+    expect(screen.queryByRole("heading", { name: "Attention inbox" })).toBeNull();
+
+    rerender(<MissionControl />);
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Attention inbox" })).toBeTruthy());
+    expect(screen.getByRole("heading", { name: "Active Runs" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Recently completed" })).toBeTruthy();
+  });
+
   it("does not let a slower inspect() response overwrite a more recently selected run's detail", async () => {
     await i18n.changeLanguage("en");
     seedWebMissionControlRunsForTest(100);

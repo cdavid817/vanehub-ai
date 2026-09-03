@@ -16,7 +16,12 @@ const TABS: { section: RunsSection["section"]; labelKey: string }[] = [
   { section: "schedules", labelKey: "layout.activityBar.scheduledTasks" },
 ];
 
-type MissionControlProps = { agents: AgentRegistryEntry[]; initialRunId?: string; onNavigate?: (target: MissionControlNavigationTarget, sourceRunId: string) => void };
+type MissionControlProps = {
+  agents: AgentRegistryEntry[];
+  initialRunId?: string;
+  onNavigate?: (target: MissionControlNavigationTarget, sourceRunId: string) => void;
+  section?: "attention" | "active" | "history";
+};
 const loadMissionControl: LazyFeatureLoader<MissionControlProps> = () => import("../mission-control/mission-control")
   .then((module) => ({ default: module.MissionControl }));
 type LoopCenterProps = {
@@ -56,10 +61,10 @@ const RUNS_TAB_DRAFT_RETENTION: PageLifecyclePolicy = {
 };
 
 /**
- * Attention/Active/History share one `MissionControl` render: it already shows all three as
- * parallel sections rather than exclusive tabs (confirmed by reading the component directly), so
- * there is no per-section view to route between yet — that split is real content work for a
- * later milestone, not something this shell can fake. `definitionId`/`loopRunId` are no longer
+ * Attention/Active/History share one `MissionControl` render (16.2): its own `overview` already
+ * fetches all three as independently paginated buckets, so passing `location.section` through
+ * scopes which `RunSection`(s) it renders without touching canonical Run ownership, a second fetch,
+ * or a second mount. `definitionId`/`loopRunId` are no longer
  * unconsumed either, as of 17.2: `LoopCenter` now takes both as its current/initial selection and
  * reports every change back through one combined `onSelectionChange` callback rather than two
  * separate ones — a run belongs to exactly one definition, so the pair is always reported together
@@ -140,7 +145,7 @@ export function RunsDestination({ location, onSectionChange, agents, onMissionCo
           </div>
         ) : null}
         {location.section === "attention" || location.section === "active" || location.section === "history" ? (
-          <LazyFeature className="h-full min-h-0" componentProps={{ agents, initialRunId: location.runId, onNavigate: onMissionControlNavigate }} loader={loadMissionControl} />
+          <LazyFeature className="h-full min-h-0" componentProps={{ agents, initialRunId: location.runId, onNavigate: onMissionControlNavigate, section: location.section }} loader={loadMissionControl} />
         ) : null}
       </div>
     </div>

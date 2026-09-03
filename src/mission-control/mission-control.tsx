@@ -12,7 +12,7 @@ import {
   sameStateSet, toMissionControlQuery, type MissionControlFilterState,
 } from "./mission-control-query";
 import { mergeMissionControlOverview } from "./mission-control-run-precedence";
-import { MissionControlRunList } from "./mission-control-run-list";
+import { MissionControlRunList, type MissionControlRunListSection } from "./mission-control-run-list";
 import {
   applyMissionControlSavedView, captureMissionControlSavedView, readMissionControlSavedViews,
   writeMissionControlSavedViews, type MissionControlSavedView,
@@ -29,11 +29,14 @@ export function MissionControl({
   agents = [],
   initialRunId,
   onNavigate,
+  section,
 }: {
   agents?: AgentRegistryEntry[];
   /** 4.8: the run selected the last time this view was left, restored on the way back in. */
   initialRunId?: string;
   onNavigate?: (target: MissionControlNavigationTarget, sourceRunId: string) => void;
+  /** 16.2: forwarded to `MissionControlRunList` verbatim -- see its own prop doc comment. */
+  section?: MissionControlRunListSection;
 }) {
   const { t } = useTranslation();
   const [savedView] = useState(readMissionControlViewState);
@@ -165,6 +168,7 @@ export function MissionControl({
         onNextPage={(next) => setCursor(next)}
         onScroll={writeMissionControlScrollTop}
         overview={overview}
+        section={section}
       />
       <aside className="min-h-0 overflow-y-auto border-t border-border p-3 min-[900px]:border-l min-[900px]:border-t-0">
         <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t("missionControl.detail")}</h2>
