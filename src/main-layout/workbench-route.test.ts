@@ -38,11 +38,25 @@ describe("workbenchPath / parseWorkbenchLocation round trip", () => {
     ["/workspace/plan/board", { destination: "plan", section: "board", viewId: undefined, workItemId: undefined }],
     ["/workspace/plan/board/item-1", { destination: "plan", section: "board", viewId: undefined, workItemId: "item-1" }],
     ["/workspace/plan/board?view=view-1", { destination: "plan", section: "board", viewId: "view-1", workItemId: undefined }],
+    // Bare list routes for the two destinations whose detail case was already covered above —
+    // these are the section's own index, not a degenerate/malformed form, so they get the same
+    // full parse+serialize round-trip guarantee as every other shape.
+    ["/workspace/plan/goals", { destination: "plan", section: "goals", goalId: undefined }],
     ["/workspace/plan/goals/goal-1", { destination: "plan", section: "goals", goalId: "goal-1" }],
+    [
+      "/workspace/quality/evaluations",
+      { destination: "quality", section: "evaluations", experimentId: undefined, comparisonIds: undefined },
+    ],
     ["/workspace/quality/evaluations/exp-1", { destination: "quality", section: "evaluations", experimentId: "exp-1", comparisonIds: undefined }],
     [
       "/workspace/quality/evaluations/exp-1?compare=a,b",
       { destination: "quality", section: "evaluations", experimentId: "exp-1", comparisonIds: ["a", "b"] },
+    ],
+    // A single id with no comma is still a real, distinct shape from the two-id case above — the
+    // split/join round trip must not silently require at least one comma to work.
+    [
+      "/workspace/quality/evaluations/exp-1?compare=a",
+      { destination: "quality", section: "evaluations", experimentId: "exp-1", comparisonIds: ["a"] },
     ],
   ];
 
@@ -57,6 +71,24 @@ describe("workbenchPath / parseWorkbenchLocation round trip", () => {
     expect(path).not.toContain("a/b c");
     expect(parse(path)).toEqual(location);
   });
+
+  // 21.3: every shape above already proves parse(path) and serialize(location) individually;
+  // this proves the composition is stable too — feeding a parsed location back through
+  // serialization and re-parsing must not drift, which matters because nothing about
+  // `parseWorkbenchLocation`'s implementation guarantees it structurally (it is a hand-written
+  // segment/search parser, not a schema with a derived inverse).
+  it.each(cases)("stays stable across a second parse → serialize → parse cycle for %s", (path) => {
+    const once = parse(path);
+    const reparsed = parse(workbenchPath(once));
+    expect(reparsed).toEqual(once);
+  });
+
+  it.each(["/workspace/sessions/", "/workspace/plan/board/", "/workspace/runs/loops/def-1/"])(
+    "tolerates a trailing slash, parsing %s the same as without it",
+    (pathWithTrailingSlash) => {
+      expect(parse(pathWithTrailingSlash)).toEqual(parse(pathWithTrailingSlash.slice(0, -1)));
+    },
+  );
 });
 
 describe("parseWorkbenchLocation — missing, malformed, and unsupported input", () => {
@@ -79,6 +111,56 @@ describe("parseWorkbenchLocation — missing, malformed, and unsupported input",
 
   it("falls back to the default location for a bare /workspace with no destination", () => {
     expect(parse("/workspace")).toEqual(defaultWorkbenchLocation);
+  });
+
+  it("ignores an empty compare query value instead of producing an empty-array comparisonIds", () => {
+    expect(parse("/workspace/quality/evaluations/exp-1?compare=")).toEqual({
+      destination: "quality",
+      section: "evaluations",
+      experimentId: "exp-1",
+      comparisonIds: undefined,
+    });
+  });
+});
+
+/**
+ * 21.3: `parseRunsSection`/`parsePlanSection` each have their own fallback for a sub-section id
+ * they don't recognize — distinct from `parseWorkbenchLocation`'s own top-level fallback to
+ * Sessions (above), and not covered by it: a syntactically valid `/workspace/<known-destination>/…`
+ * path never reaches that top-level branch at all, since the destination itself *is* recognized.
+ * Pinning this down matters because neither function documents it, and both resolve to a
+ * same-destination default section rather than crashing or producing `undefined`/partial state —
+ * confirmed here as real, current behavior (read from `workbench-route.ts` directly), not assumed.
+ */
+describe("parseWorkbenchLocation — unrecognized sub-section within a known destination", () => {
+  it("falls back to the runs destination's own attention section for an unrecognized runs sub-route", () => {
+    expect(parse("/workspace/runs/not-a-real-section/xyz")).toEqual({
+      destination: "runs",
+      section: "attention",
+      runId: "xyz",
+    });
+  });
+
+  it("falls back to the plan destination's own board section for an unrecognized plan sub-route", () => {
+    expect(parse("/workspace/plan/not-a-real-section/xyz")).toEqual({
+      destination: "plan",
+      section: "board",
+      viewId: undefined,
+      workItemId: "xyz",
+    });
+  });
+
+  it("resolves any quality sub-route to its one real section, evaluations", () => {
+    // Quality has exactly one section today (QualitySection's only variant), so
+    // parseQualitySection does not branch on the sub-route segment at all — any value here, valid
+    // or not, resolves the same way. This pins that down as intentional rather than an oversight
+    // that happens to look harmless only because there is nothing else to fall back to yet.
+    expect(parse("/workspace/quality/not-a-real-section/xyz")).toEqual({
+      destination: "quality",
+      section: "evaluations",
+      experimentId: "xyz",
+      comparisonIds: undefined,
+    });
   });
 });
 
@@ -130,6 +212,35 @@ describe("returnTo token", () => {
 
   it("returns null for an absent token", () => {
     expect(extractReturnTo(new URLSearchParams())).toBeNull();
+  });
+
+  it("joins with & rather than overwriting when the target path already has its own query string", () => {
+    const from: WorkbenchLocation = { destination: "plan", section: "goals", goalId: "goal-1" };
+    const path = withReturnTo("/workspace/plan/board?view=view-1", from);
+    expect(path).toBe(`/workspace/plan/board?view=view-1&returnTo=${encodeURIComponent("/workspace/plan/goals/goal-1")}`);
+    // The target's own param must still be readable — a returnTo token is never allowed to
+    // clobber the query string it rides along on.
+    const [, search] = path.split("?");
+    const params = new URLSearchParams(search);
+    expect(params.get("view")).toBe("view-1");
+    expect(extractReturnTo(params)).toEqual(from);
+  });
+
+  /**
+   * The other cases in this block build a `URLSearchParams` from a manually `.split("?")` string,
+   * matching every other helper in this file — safe here only because `encodeURIComponent` never
+   * emits a raw `?`. This one instead goes through a real `URL` object end to end (construct →
+   * `.pathname`/`.search` → parse), the same shape react-router hands `App.tsx` in production
+   * (`location.pathname`/`location.search`, see `App.tsx`'s own `extractReturnTo` call site) — real
+   * evidence the token survives actual URL embedding, not just this file's own string-splitting
+   * helper.
+   */
+  it("survives being embedded in and re-parsed from a real URL object, including reserved characters in the target id", () => {
+    const from: WorkbenchLocation = { destination: "sessions", sessionId: "run & <escape> #frag = x", creatingSession: false };
+    const target = withReturnTo(workbenchPath({ destination: "runs", section: "active", runId: "run-1" }), from);
+    const url = new URL(target, "https://vanehub.local");
+    expect(extractReturnTo(url.searchParams)).toEqual(from);
+    expect(parseWorkbenchLocation(url.pathname, url.searchParams)).toEqual({ destination: "runs", section: "active", runId: "run-1" });
   });
 });
 
