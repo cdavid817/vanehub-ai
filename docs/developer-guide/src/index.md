@@ -23,6 +23,7 @@ If you're new to this codebase, read these in order before anything else — the
 
 | Chapter | What it covers |
 | --- | --- |
+| [Single-Agent governance: the five control planes](single-agent-control-planes.md) | The analytical model unifying the five CLIs and OnePiece, the three execution paths, configuration effectivity rules |
 | [Agent lifecycle and provider runtime](agent-lifecycle.md) | Registered Agent edits, stable provider resolution, capability declarations |
 | [OnePiece native Agent](onepiece-native-agent.md) | Built-in API Agent identity, Profile lifecycle, provider directory |
 | [OnePiece built-in tools](onepiece-builtin-tools.md) | Release gates, dependencies, and rollback triggers for the extended native toolset |
@@ -41,11 +42,24 @@ If you're new to this codebase, read these in order before anything else — the
 
 | Chapter | What it covers |
 | --- | --- |
-| [Context compaction](context-compaction.md) | The token-aware trigger and character fallback, summarization compaction, cooldown and circuit breaking |
-| [Cross-session memory](cross-session-memory.md) | Host-level shared pool, provenance metadata, OnePiece tool vs CLI auto-extraction |
-| [Retrieval and vector search](retrieval.md) | Host-level shared memory pool, workspace code index, graceful degradation |
-| [Tree-sitter code indexing](tree-sitter-code-indexing.md) | Grammar parsing, bounded chunks, symbol metadata, grammar version, redaction |
-| [LSP code intelligence](lsp-code-intelligence.md) | In-session LSP integration, workspace trust, and capability negotiation |
+| [Context compaction](context-compaction.md) | The token-aware trigger and character fallback, optimizer-first classification and low-cost reductions, on-demand structured summarization, post-verification and the compatibility fallback, cooldown and circuit breaking |
+| [Cross-session memory](cross-session-memory.md) | The host-level shared pool, scope and audience, the candidate review lifecycle, the two read boundaries of injection versus recall, the four production paths |
+| [Retrieval and vector search](retrieval.md) | Memory recall and workspace code search as two independent chains, sequential two-path RRF fusion, background reconciliation, degradation and logging boundaries |
+| [Tree-sitter code indexing](tree-sitter-code-indexing.md) | The local and semantic pipelines, file admission, error-tolerant parsing, chunks with optional symbols, redaction, embedding confirmation |
+| [LSP code intelligence](lsp-code-intelligence.md) | The registry-driven support matrix, process and protocol lifecycle, read-only tools, workspace trust and supply-chain limitations |
+
+Tree-sitter code indexing and LSP solve different problems; their responsibilities compare as follows (details in each chapter):
+
+| Dimension | Tree-sitter code indexing (`search_code`) | LSP code intelligence |
+| --- | --- | --- |
+| Main purpose | Text or semantic search over workspace code chunks | Definitions/references/types/hover/diagnostics at precise positions |
+| External process dependency | No (parsers are built in) | Yes (third-party language-server child processes) |
+| Persistent index | Yes (per-workspace manifests, chunks, FTS, optional vectors) | No (ephemeral processes, document leases, diagnostic caches) |
+| Offline capability | Local mode is fully offline; only the semantic channel needs vector embeddings | Not applicable (no search; the server itself runs locally) |
+| Cross-file semantics | Syntax-structure level, no type resolution | Compiler/language-server-grade cross-file semantics |
+| Workspace requirements | Local workspace with per-workspace index enablement | Local workspace with explicit workspace trust |
+| Security boundary | Unredacted chunks never enter the index/embedding/logs/results | Read-only tool catalog + workspace filtering; the server remains an unsandboxed third-party process |
+| Degradation | Missing vectors fall back to FTS (local mode is not degraded); failures soften to "temporarily unavailable" | Per-method capability negotiation; failures soften to warming/timeout/unavailable |
 
 ## Tools and extensions
 
