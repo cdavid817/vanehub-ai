@@ -8,7 +8,17 @@ import { LoopInspector } from "./loop-inspector";
 import { LoopTimeline } from "./loop-timeline";
 
 describe("LoopCenter responsive navigation", () => {
-  it("renders labelled narrow-width drawer triggers and bounded panels", () => {
+  /**
+   * 17.3: the fixed three-column CSS grid + hand-rolled drawer/backdrop/focus-trap this used to
+   * assert on (literal `min-[1024px]:grid-cols-` strings, a `translate-x-full` closed-transform
+   * class) is gone, replaced by the shared `DestinationLayout`/`HorizontalPaneRegion` primitive
+   * Session Work already uses. No SSR/jsdom `ResizeObserver` ever fires (see
+   * `DestinationLayout.test.tsx`'s own note, and `DestinationLayoutBody.test.tsx` for tier
+   * composition covered generically rather than re-proven per caller), so this always renders at
+   * its initial "wide" tier -- both panes inline with a real resize gutter each, no Sheet trigger
+   * needed yet.
+   */
+  it("renders navigation and inspector as labelled, bounded, resizable panes at the default (wide) tier", () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
@@ -18,15 +28,19 @@ describe("LoopCenter responsive navigation", () => {
       </QueryClientProvider>,
     );
 
-    expect(html).toContain('aria-controls="loop-navigation-drawer"');
-    expect(html).toContain('aria-controls="loop-inspector-drawer"');
-    expect(html).toContain('aria-expanded="false"');
-    expect(html).toContain('title="打开循环列表"');
-    expect(html).toContain('title="打开循环检查器"');
     expect(html).toContain('id="loop-navigation-drawer"');
     expect(html).toContain('id="loop-inspector-drawer"');
-    expect(html).toContain("min-[1024px]:grid-cols-");
-    expect(html).toContain("translate-x-full invisible min-[1024px]:visible");
+    // One real `SplitPane` resize gutter per pane (role="separator"), each labelled with what it
+    // resizes and bounded to this destination's own former fixed-grid min/max
+    // (loop-center-regions.tsx's LOOP_NAVIGATION_PANE_BOUNDS/LOOP_INSPECTOR_PANE_BOUNDS) --
+    // replaces the old CSS `minmax()` track with a real, user-draggable equivalent.
+    expect(html).toContain('aria-label="循环工程" aria-orientation="vertical" aria-valuemax="280" aria-valuemin="220"');
+    expect(html).toContain('aria-label="检查器" aria-orientation="vertical" aria-valuemax="340" aria-valuemin="260"');
+    expect(html).toContain('role="separator"');
+
+    // Both panes are inline at the wide tier -- no Sheet-open trigger exists yet to find.
+    expect(html).not.toContain('title="打开循环列表"');
+    expect(html).not.toContain('title="打开循环检查器"');
   });
 
   it("keeps primary run actions in the responsive center surface instead of the inspector", () => {

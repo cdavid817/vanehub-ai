@@ -1,15 +1,16 @@
-import { forwardRef, useEffect, useRef, useState, type Dispatch, type ReactNode, type RefObject, type SetStateAction } from "react";
+import { forwardRef, useEffect, useState, type ReactNode } from "react";
 import { PanelLeftOpen, PanelRightOpen, Plus, Repeat2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../components/ui/button";
 import { useLoopDefinitionsQuery, useLoopRunQuery, useLoopRunsQuery } from "../hooks/use-loop-queries";
-import { LoopInspector } from "./loop-inspector";
 import { LoopDefinitionDialog } from "./loop-definition-dialog";
 import { LoopDefinitionOverview } from "./loop-definition-overview";
-import { LoopNavigation } from "./loop-navigation";
 import { LoopPreflightDialog } from "./loop-preflight-dialog";
 import { LoopTimeline } from "./loop-timeline";
+import { DestinationLayout } from "../ui/destination-layout/DestinationLayout";
+import type { LayoutTier } from "../ui/destination-layout/use-layout-tier";
 import type { LoopDefinition, LoopInspectionTarget } from "../types/loop";
+import { LOOP_INSPECTOR_PANE_BOUNDS, LOOP_NAVIGATION_PANE_BOUNDS, useLoopInspectorRegion, useLoopNavigationRegion } from "./loop-center-regions";
 
 export interface LoopCenterProps {
   onInspect?: (target: LoopInspectionTarget) => void;
@@ -37,12 +38,11 @@ export function LoopCenter({ definitionId, loopRunId, onInspect, onSelectionChan
   const [selectedRunId, setSelectedRunId] = useState<string | null>(loopRunId ?? null);
   const [navigationOpen, setNavigationOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [navigationWidth, setNavigationWidth] = useState(LOOP_NAVIGATION_PANE_BOUNDS.default);
+  const [inspectorWidth, setInspectorWidth] = useState(LOOP_INSPECTOR_PANE_BOUNDS.default);
+  const [tier, setTier] = useState<LayoutTier>("wide");
   const [editorDefinitionId, setEditorDefinitionId] = useState<string | "new" | null>(null);
   const [preflightDefinition, setPreflightDefinition] = useState<LoopDefinition | null>(null);
-  const navigationRef = useRef<HTMLElement>(null);
-  const inspectorRef = useRef<HTMLElement>(null);
-  const navigationTriggerRef = useRef<HTMLButtonElement>(null);
-  const inspectorTriggerRef = useRef<HTMLButtonElement>(null);
   const definitions = useLoopDefinitionsQuery();
   const runs = useLoopRunsQuery(selectedDefinitionId ?? undefined);
   const run = useLoopRunQuery(selectedRunId);
@@ -90,49 +90,73 @@ export function LoopCenter({ definitionId, loopRunId, onInspect, onSelectionChan
   }, [definitionId, loopRunId]);
 
   const error = definitions.error ?? runs.error ?? run.error;
-  useDrawerFocus(navigationOpen, setNavigationOpen, navigationRef, navigationTriggerRef);
-  useDrawerFocus(inspectorOpen, setInspectorOpen, inspectorRef, inspectorTriggerRef);
-  const closeDrawers = () => { setNavigationOpen(false); setInspectorOpen(false); };
+
+  const navigationRegion = useLoopNavigationRegion({
+    definitions: definitions.data ?? [],
+    loading: definitions.isLoading || runs.isLoading,
+    onCreateDefinition: () => setEditorDefinitionId("new"),
+    onDefinitionChange: (id) => { selectDefinition(id); setNavigationOpen(false); },
+    onEditDefinition: () => { if (selectedDefinitionId) setEditorDefinitionId(selectedDefinitionId); },
+    onOpenChange: setNavigationOpen,
+    onRunChange: (id) => { selectRun(id); setNavigationOpen(false); },
+    onWidthChange: setNavigationWidth,
+    open: navigationOpen,
+    runs: runs.data ?? [],
+    selectedDefinitionId,
+    selectedRunId,
+    tier,
+    width: navigationWidth,
+  });
+  const inspectorRegion = useLoopInspectorRegion({
+    loading: run.isLoading,
+    onInspect,
+    onOpenChange: setInspectorOpen,
+    onWidthChange: setInspectorWidth,
+    open: inspectorOpen,
+    run: run.data ?? null,
+    tier,
+    width: inspectorWidth,
+  });
 
   return (
-    <div className="relative grid h-full min-h-0 w-full min-w-0 grid-cols-1 gap-2 overflow-hidden min-[1024px]:grid-cols-[minmax(220px,280px)_minmax(360px,1fr)_minmax(260px,340px)]" data-testid="loop-center">
-      {navigationOpen || inspectorOpen ? <button aria-label={t("loops.drawers.close")} className="absolute inset-0 z-30 bg-background/70 backdrop-blur-[1px] min-[1024px]:hidden" onClick={closeDrawers} title={t("loops.drawers.close")} type="button" /> : null}
-      <LoopNavigation
-        className={`absolute inset-y-0 left-0 z-40 w-[min(88vw,320px)] border-r border-border/70 shadow-xl transition-transform duration-200 min-[1024px]:static min-[1024px]:w-auto min-[1024px]:translate-x-0 min-[1024px]:shadow-none ${navigationOpen ? "translate-x-0" : "-translate-x-full invisible min-[1024px]:visible"}`}
-        definitions={definitions.data ?? []}
-        id="loop-navigation-drawer"
-        loading={definitions.isLoading || runs.isLoading}
-        onClose={() => setNavigationOpen(false)}
-        onCreateDefinition={() => setEditorDefinitionId("new")}
-        onDefinitionChange={(id) => { selectDefinition(id); setNavigationOpen(false); }}
-        onEditDefinition={() => { if (selectedDefinitionId) setEditorDefinitionId(selectedDefinitionId); }}
-        onRunChange={(id) => { selectRun(id); setNavigationOpen(false); }}
-        ref={navigationRef}
-        runs={runs.data ?? []}
-        selectedDefinitionId={selectedDefinitionId}
-        selectedRunId={selectedRunId}
+    <div className="h-full min-h-0 w-full min-w-0" data-testid="loop-center">
+      <DestinationLayout
+        inspector={inspectorRegion}
+        main={(
+          <div className="ucd-panel flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-lg" role="main">
+            {tier !== "wide" ? (
+              <div className="flex h-11 shrink-0 items-center justify-between border-b border-border/70 px-2">
+                {/* Standard tier keeps navigation inline (DestinationLayoutBody's own
+                    `navigationInline`) -- only compact/narrow need a trigger for it. */}
+                {tier !== "standard" ? (
+                  <IconButton controls="loop-navigation-drawer" label={t("loops.navigation.open")} onClick={() => setNavigationOpen(true)} open={navigationOpen}>
+                    <PanelLeftOpen aria-hidden="true" className="h-4 w-4" />
+                  </IconButton>
+                ) : null}
+                <span className="truncate px-2 text-xs font-semibold">{run.data?.definitionSnapshot.name ?? t("loops.title")}</span>
+                <IconButton controls="loop-inspector-drawer" label={t("loops.inspector.open")} onClick={() => setInspectorOpen(true)} open={inspectorOpen}>
+                  <PanelRightOpen aria-hidden="true" className="h-4 w-4" />
+                </IconButton>
+              </div>
+            ) : null}
+            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-3 sm:p-4">
+              {error ? <StateMessage title={t("loops.states.error")} value={error instanceof Error ? error.message : String(error)} /> : null}
+              {!error && (definitions.isLoading || runs.isLoading) ? <StateMessage title={t("loops.states.loading")} /> : null}
+              {!error && !definitions.isLoading && definitions.data?.length === 0 ? (
+                <EmptyDefinitions onCreate={() => setEditorDefinitionId("new")} />
+              ) : null}
+              {/* No `definitions.refetch()` here: `useDeleteLoopDefinitionMutation`'s own `onSuccess`
+                  (use-loop-mutations.ts) already removes this row from the cache directly (task
+                  17.14), and a refetch here would re-introduce the whole-collection reload that patch
+                  exists to avoid. */}
+              {!error && selectedDefinition && !selectedRunId && !runs.isLoading ? <LoopDefinitionOverview definition={selectedDefinition} onDeleted={() => selectDefinition(null)} onEdit={() => setEditorDefinitionId(selectedDefinition.id)} onPreflight={() => setPreflightDefinition(selectedDefinition)} runs={runs.data ?? []} /> : null}
+              {!error && selectedRunId && run.data ? <LoopTimeline onInspect={onInspect} refreshing={run.isFetching} run={run.data} /> : null}
+            </div>
+          </div>
+        )}
+        navigation={navigationRegion}
+        onTierChange={setTier}
       />
-      <div className="ucd-panel flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg" role="main">
-        <div className="flex h-11 shrink-0 items-center justify-between border-b border-border/70 px-2 min-[1024px]:hidden">
-          <IconButton controls="loop-navigation-drawer" label={t("loops.navigation.open")} onClick={() => { setInspectorOpen(false); setNavigationOpen(true); }} open={navigationOpen} ref={navigationTriggerRef}><PanelLeftOpen aria-hidden="true" className="h-4 w-4" /></IconButton>
-          <span className="truncate px-2 text-xs font-semibold">{run.data?.definitionSnapshot.name ?? t("loops.title")}</span>
-          <IconButton controls="loop-inspector-drawer" label={t("loops.inspector.open")} onClick={() => { setNavigationOpen(false); setInspectorOpen(true); }} open={inspectorOpen} ref={inspectorTriggerRef}><PanelRightOpen aria-hidden="true" className="h-4 w-4" /></IconButton>
-        </div>
-        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-3 sm:p-4">
-          {error ? <StateMessage title={t("loops.states.error")} value={error instanceof Error ? error.message : String(error)} /> : null}
-          {!error && (definitions.isLoading || runs.isLoading) ? <StateMessage title={t("loops.states.loading")} /> : null}
-          {!error && !definitions.isLoading && definitions.data?.length === 0 ? (
-            <EmptyDefinitions onCreate={() => setEditorDefinitionId("new")} />
-          ) : null}
-          {/* No `definitions.refetch()` here: `useDeleteLoopDefinitionMutation`'s own `onSuccess`
-              (use-loop-mutations.ts) already removes this row from the cache directly (task
-              17.14), and a refetch here would re-introduce the whole-collection reload that patch
-              exists to avoid. */}
-          {!error && selectedDefinition && !selectedRunId && !runs.isLoading ? <LoopDefinitionOverview definition={selectedDefinition} onDeleted={() => selectDefinition(null)} onEdit={() => setEditorDefinitionId(selectedDefinition.id)} onPreflight={() => setPreflightDefinition(selectedDefinition)} runs={runs.data ?? []} /> : null}
-          {!error && selectedRunId && run.data ? <LoopTimeline onInspect={onInspect} refreshing={run.isFetching} run={run.data} /> : null}
-        </div>
-      </div>
-      <LoopInspector className={`absolute inset-y-0 right-0 z-40 w-[min(88vw,340px)] border-l border-border/70 shadow-xl transition-transform duration-200 min-[1024px]:static min-[1024px]:w-auto min-[1024px]:translate-x-0 min-[1024px]:shadow-none ${inspectorOpen ? "translate-x-0" : "translate-x-full invisible min-[1024px]:visible"}`} id="loop-inspector-drawer" loading={run.isLoading} onClose={() => setInspectorOpen(false)} onInspect={onInspect} ref={inspectorRef} run={run.data ?? null} />
       {editorDefinitionId ? (
         <LoopDefinitionDialog
           definition={editorDefinitionId === "new" ? null : definitions.data?.find((item) => item.id === editorDefinitionId) ?? null}
@@ -154,34 +178,6 @@ export function LoopCenter({ definitionId, loopRunId, onInspect, onSelectionChan
 const IconButton = forwardRef<HTMLButtonElement, { children: ReactNode; controls: string; label: string; onClick: () => void; open: boolean }>(function IconButton({ children, controls, label, onClick, open }, ref) {
   return <button aria-controls={controls} aria-expanded={open} aria-label={label} className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring" onClick={onClick} ref={ref} title={label} type="button">{children}</button>;
 });
-
-function useDrawerFocus(open: boolean, setOpen: Dispatch<SetStateAction<boolean>>, drawerRef: RefObject<HTMLElement | null>, triggerRef: RefObject<HTMLButtonElement | null>) {
-  const wasOpen = useRef(false);
-  useEffect(() => {
-    if (!open) {
-      if (wasOpen.current) triggerRef.current?.focus();
-      wasOpen.current = false;
-      return;
-    }
-    wasOpen.current = true;
-    const drawer = drawerRef.current;
-    if (!drawer) return;
-    const focusable = () => Array.from(drawer.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'));
-    (focusable()[0] ?? drawer).focus();
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { event.preventDefault(); setOpen(false); triggerRef.current?.focus(); return; }
-      if (event.key !== "Tab") return;
-      const items = focusable();
-      if (items.length === 0) { event.preventDefault(); drawer.focus(); return; }
-      const first = items[0];
-      const last = items[items.length - 1];
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-      if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [drawerRef, open, setOpen, triggerRef]);
-}
 
 function StateMessage({ title, value }: { title: string; value?: string }) {
   return (
