@@ -2,6 +2,7 @@
 
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createTrackedResizeObserver } from "../testing/resource-tracking";
 import { useContainerCompactMode } from "./use-container-compact-mode";
 
 /** Captures the callback each `new ResizeObserver(callback)` call is constructed with, so a test
@@ -79,5 +80,24 @@ describe("useContainerCompactMode", () => {
     installControllableResizeObserver();
     const { result } = renderHook(() => useContainerCompactMode({ current: null }, 640));
     expect(result.current).toBe(false);
+  });
+
+  // 21.16: this hook backs both `useTableCompactMode` (Evaluation's `DataTable`) and Mission
+  // Control's own section-nav (mission-control-section-nav.tsx's own doc comment defers exactly
+  // this proof here) -- proving the shared hook disconnects its observer therefore covers both
+  // destinations "by construction", the same reasoning 21.10 already used for lazy-detail fetch
+  // exclusivity generalizing across run-list scale. None of the other tests in this file (nor the
+  // ~6 other ad hoc `ResizeObserver` stubs elsewhere in the test suite) ever counted disconnect()
+  // calls before this.
+  it("disconnects its ResizeObserver on unmount", () => {
+    const tracked = createTrackedResizeObserver();
+    vi.stubGlobal("ResizeObserver", tracked.Ctor);
+    const container = document.createElement("div");
+
+    const { unmount } = renderHook(() => useContainerCompactMode({ current: container }, 640));
+    expect(tracked.activeCount()).toBe(1);
+
+    unmount();
+    expect(tracked.activeCount()).toBe(0);
   });
 });
