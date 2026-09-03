@@ -11,11 +11,20 @@ const tones: Record<BadgeTone, string> = {
   muted: "border-border bg-muted text-muted-foreground",
 };
 
+/** `children` is required, not just conventionally always passed: 20.11 wants a color-only status
+ *  badge to be structurally impossible, and `StatusBadge`'s own `label: string` (`src/ui/status/
+ *  StatusBadge.tsx`) already makes that guarantee for tone/status the same way — this makes it a
+ *  type error to render a `Badge` carrying only color, mirroring that primitive. */
+export interface BadgeProps extends Omit<React.HTMLAttributes<HTMLSpanElement>, "children"> {
+  tone?: BadgeTone;
+  children: React.ReactNode;
+}
+
 export function Badge({
   className,
   tone = "default",
   ...props
-}: React.HTMLAttributes<HTMLSpanElement> & { tone?: BadgeTone }) {
+}: BadgeProps) {
   return (
     <span
       className={cn(
