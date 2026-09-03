@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { getActivePendingTimerCount } from "../testing/resource-tracking";
 import type { LoopRun } from "../types/loop";
 import { subscribeLoopRunPolling } from "./loop-run-polling";
 
@@ -79,5 +80,19 @@ describe("subscribeLoopRunPolling", () => {
     expect(removeSpy).toHaveBeenCalledWith("visibilitychange", registeredHandler);
     addSpy.mockRestore();
     removeSpy.mockRestore();
+  });
+
+  // 21.16: the two tests above prove "no further activity" (fetch count stays flat, listener
+  // references match on removal) -- this proves the `setInterval` handle itself is deallocated,
+  // by count, the same instrumentation use-mission-control-polling.test.ts's own unmount test uses.
+  it("deallocates its setInterval handle on unsubscribe, not just its listeners", async () => {
+    vi.useFakeTimers();
+    const loadRun = vi.fn<() => Promise<LoopRun>>().mockResolvedValue(run("2026-07-22T10:00:00Z"));
+
+    const unsubscribe = subscribeLoopRunPolling(loadRun, vi.fn(), 100);
+    expect(getActivePendingTimerCount()).toBe(1);
+
+    unsubscribe();
+    expect(getActivePendingTimerCount()).toBe(0);
   });
 });

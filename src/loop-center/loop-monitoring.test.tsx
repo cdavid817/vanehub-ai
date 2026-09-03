@@ -2,16 +2,19 @@
 
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, renderHook, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import "../i18n";
+import { getActivePendingTimerCount } from "../testing/resource-tracking";
 import type { LoopEvidence, LoopRun } from "../types/loop";
 import { LoopInspector } from "./loop-inspector";
-import { formatLoopDuration, latestLoopOperationEvidence } from "./loop-monitoring";
+import { formatLoopDuration, latestLoopOperationEvidence, useLoopElapsed } from "./loop-monitoring";
 import { LoopTimeline } from "./loop-timeline";
 
 describe("Loop monitoring", () => {
+  afterEach(() => vi.useRealTimers());
+
   it("formats bounded elapsed durations", () => {
     expect(formatLoopDuration(65_000)).toBe("1:05");
     expect(formatLoopDuration(3_661_000)).toBe("1:01:01");
@@ -62,6 +65,40 @@ describe("Loop monitoring", () => {
     await user.click(screen.getByRole("button", { name: "证据时间线" }));
     expect(screen.getByText(/operation-worker/)).toBeTruthy();
     expect(screen.getByText(/operation-verifier/)).toBeTruthy();
+  });
+
+  // 21.16: `useLoopElapsed` (loop-run-header.tsx's own per-second ticking clock) had no direct
+  // test at all before this -- `formatLoopDuration`/`latestLoopOperationEvidence` above are the
+  // only two exports of this module previously exercised here. Its own doc comment already
+  // discloses a *different*, real, out-of-scope-here gap (it does not pause while hidden, unlike
+  // Mission Control/Loop-poll/Evaluation's pollers); this only proves the property 21.16 asks for --
+  // the interval handle itself is released, not merely "no longer observed ticking".
+  describe("useLoopElapsed", () => {
+    it("arms exactly one interval for a running run, and releases it on unmount", () => {
+      vi.useFakeTimers();
+      const runningRun = { status: "running", startedAt: "2026-07-23T00:00:00Z", createdAt: "2026-07-23T00:00:00Z" } as LoopRun;
+
+      const { unmount } = renderHook(() => useLoopElapsed(runningRun));
+      expect(getActivePendingTimerCount()).toBe(1);
+
+      unmount();
+      expect(getActivePendingTimerCount()).toBe(0);
+    });
+
+    it("also releases the interval when the run leaves an active status without unmounting", () => {
+      vi.useFakeTimers();
+      const runningRun = { status: "running", startedAt: "2026-07-23T00:00:00Z", createdAt: "2026-07-23T00:00:00Z" } as LoopRun;
+      const completedRun = {
+        status: "succeeded", startedAt: "2026-07-23T00:00:00Z", createdAt: "2026-07-23T00:00:00Z",
+        completedAt: "2026-07-23T00:05:00Z", updatedAt: "2026-07-23T00:05:00Z",
+      } as LoopRun;
+
+      const { rerender } = renderHook(({ run }) => useLoopElapsed(run), { initialProps: { run: runningRun } });
+      expect(getActivePendingTimerCount()).toBe(1);
+
+      rerender({ run: completedRun });
+      expect(getActivePendingTimerCount()).toBe(0);
+    });
   });
 });
 
