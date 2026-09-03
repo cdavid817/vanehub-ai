@@ -43,7 +43,9 @@ test.describe("session recovery review", () => {
     // Recovery is idempotent, so it is offered for any live session rather than only for one that
     // already looks broken — a user who suspects a stuck runtime should not have to prove it first.
     const menu = page.locator("div.ucd-panel.fixed").filter({ hasText: "导出会话" });
-    await menu.getByRole("button", { name: "恢复会话" }).click();
+    // "menuitem", not "button": this entry lives inside the panel's own role="menu" (20.7/20.8),
+    // whose explicit role overrides a <button>'s implicit one.
+    await menu.getByRole("menuitem", { name: "恢复会话" }).click();
 
     await expect(page.getByRole("status").filter({ hasText: "会话已恢复" })).toBeVisible();
     await expect(banner).toHaveCount(0);
@@ -59,7 +61,8 @@ test.describe("session recovery review", () => {
     const sessionCard = page.locator("[data-session-id]").filter({ hasText: "Recovered Web session" });
     await sessionCard.click({ button: "right" });
     await expect(page.getByText("导出会话")).toBeVisible();
-    await expect(page.getByRole("button", { name: "JSON", exact: true })).toBeEnabled();
+    // "menuitem", not "button": lives inside the panel's own role="menu" (20.7/20.8).
+    await expect(page.getByRole("menuitem", { name: "JSON", exact: true })).toBeEnabled();
     await expect(page.getByPlaceholder("请选择会话后发送消息")).toBeDisabled();
   });
 });
