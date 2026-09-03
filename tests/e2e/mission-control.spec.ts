@@ -93,6 +93,48 @@ test("4.8: returns to the same run, with the same filter, after an evidence-navi
   await expect(page.getByLabel("Filter by status", { exact: true })).toHaveValue("failed");
 });
 
+// 20.19: proves Run inspection is keyboard-operable end to end in a real browser -- distinct from
+// mission-control-section-nav.test.tsx's own component-level roving-tabindex coverage (16.8/16.18),
+// which never renders inside a real `aside` column or measures a real container width. A 2200px
+// viewport is required, not the file's usual 1440: 16.8's own comment above (this file's first test)
+// notes the section nav's `aside` column already lands in its compact `<select>` fallback at 1440px
+// -- comfortably wide enough that the `minmax(0,1.4fr)_minmax(280px,1fr)` grid's own `aside` share
+// clears the nav's 640px `COMPACT_MAX_WIDTH` and renders the readable `role="tablist"` this test
+// needs. `overview`/`timeline`/`logs` are unconditionally "available" for every run in the Web mock
+// (web-mission-control-client.ts), so Home/End are safe regardless of which run this test opens.
+test("keyboard-only: opens a Run's detail and navigates the section-nav tablist with arrow keys", async ({ page }) => {
+  await openMissionControl(page, "futuristic", 2200);
+  const card = page.getByTestId("mission-run-018f0f17-4d6a-7e20-b41d-66c5271a290").first();
+  await expect(card).toContainText("Waiting approval");
+  const inspectTrigger = card.getByRole("button").first();
+  await inspectTrigger.focus();
+  await page.keyboard.press("Enter");
+
+  const tablist = page.locator("aside").getByRole("tablist", { name: "Run detail sections" });
+  await expect(tablist).toBeVisible();
+  const overviewTab = tablist.getByRole("tab", { name: "Overview" });
+  await expect(overviewTab).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByTestId("mission-control-overview-facet")).toBeVisible();
+
+  await overviewTab.focus();
+  await page.keyboard.press("ArrowRight");
+  const timelineTab = tablist.getByRole("tab", { name: "Timeline" });
+  await expect(timelineTab).toHaveAttribute("aria-selected", "true");
+  await expect(timelineTab).toBeFocused();
+  await expect(page.getByTestId("mission-control-timeline-facet")).toBeVisible();
+
+  await page.keyboard.press("End");
+  const logsTab = tablist.getByRole("tab", { name: /^Logs/ });
+  await expect(logsTab).toHaveAttribute("aria-selected", "true");
+  await expect(logsTab).toBeFocused();
+  await expect(page.getByTestId("mission-control-logs-facet")).toBeVisible();
+
+  await page.keyboard.press("Home");
+  await expect(overviewTab).toHaveAttribute("aria-selected", "true");
+  await expect(overviewTab).toBeFocused();
+  await expect(page.getByTestId("mission-control-overview-facet")).toBeVisible();
+});
+
 for (const variant of [
   { name: "futuristic-desktop", theme: "futuristic" as const, width: 1440 },
   { name: "minimal-desktop", theme: "minimal" as const, width: 1440 },
