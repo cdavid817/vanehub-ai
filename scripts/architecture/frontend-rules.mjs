@@ -339,8 +339,13 @@ const COLOR_STYLE_PROPERTIES = new Set([
 // `EvaluationArenaQuery`/`EvaluationArenaPage` 类型与方法签名)、`tauri-agent-client.ts`(+cursor/limit
 // 透传)、`web-evaluation-client.ts`(内存数组真实切片分页,不再一次性吐出全部)。没有新文件,也没有
 // 复制既有分支。上限按实测值 24298 记录,不留余量。
+// 上调理由(redesign-unified-workbench-ui,Task 19.11):+32,同一套游标分页三件套固定开销这次落在
+// Scheduled Tasks 的运行历史上——`scheduled-task-service.ts`(`ScheduledTaskRunQuery`/
+// `ScheduledTaskRunPage` 类型与方法签名)、`tauri-agent-client.ts`(+cursor/limit 透传)、
+// `web-scheduled-task-client.ts`(按任务的内存运行历史真实切片分页)。与 18.6 同一模式,没有新文件,
+// 也没有复制既有分支。上限按实测值 24330 记录,不留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 24298, owner: "redesign-unified-workbench-ui" },
+  { root: "src/services", budget: 24330, owner: "redesign-unified-workbench-ui" },
 ]);
 
 const STATE_PACKAGES = new Set([
