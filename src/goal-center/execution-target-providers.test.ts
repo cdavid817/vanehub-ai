@@ -125,6 +125,19 @@ describe("executionTargetSearchProviders.run", () => {
     const options = await executionTargetSearchProviders.run("");
     expect(options).toHaveLength(2);
   });
+
+  // 21.11 picker-query budget: `RESULT_LIMIT` (execution-target-providers.ts) is applied via
+  // `.slice(0, RESULT_LIMIT)` client-side for this provider (unlike session's, which forwards a
+  // `limit` to the real search service instead -- see "forwards the query and limit to the real
+  // search service" above). Only the session half had a candidate-count assertion before this
+  // pass; this proves the client-side truncation itself actually caps a real overflow, not just
+  // that the constant exists in source.
+  it("caps candidates at 20 even when the overview reports more", async () => {
+    const many = Array.from({ length: 35 }, (_unused, index) => run({ runId: `run-${index}`, title: `Run ${index}` }));
+    vi.spyOn(agentService, "getMissionControlOverview").mockResolvedValue(overview({ active: many }));
+    const options = await executionTargetSearchProviders.run("");
+    expect(options).toHaveLength(20);
+  });
 });
 
 describe("executionTargetSearchProviders.loop", () => {
@@ -151,6 +164,17 @@ describe("executionTargetSearchProviders.loop", () => {
     const options = await executionTargetSearchProviders.loop("AUTH");
     expect(options.map((option) => option.id)).toEqual(["loop-1"]);
   });
+
+  // 21.11 picker-query budget: see the run provider's identical case above for why this is
+  // asserted separately from `RESULT_LIMIT`'s own declaration -- `listLoopDefinitions` has no
+  // server-side limit of its own (unlike session search), so this client-side slice is the only
+  // thing standing between a large real definition catalog and an unbounded picker result list.
+  it("caps candidates at 20 even when the registry reports more", async () => {
+    const many = Array.from({ length: 35 }, (_unused, index) => loopDefinition({ id: `loop-${index}`, name: `Loop ${index}` }));
+    vi.spyOn(agentService, "listLoopDefinitions").mockResolvedValue(many);
+    const options = await executionTargetSearchProviders.loop("");
+    expect(options).toHaveLength(20);
+  });
 });
 
 describe("executionTargetSearchProviders.work_item", () => {
@@ -162,6 +186,16 @@ describe("executionTargetSearchProviders.work_item", () => {
       id: "item-1", title: "Fix auth token", projectPath: "D:\\code\\vanehub",
       statusKey: "todoBoard.stage.planned", statusTone: "neutral",
     }]);
+  });
+
+  // 21.11 picker-query budget: `listWorkItems` takes the raw query but this provider still slices
+  // its response client-side -- whatever the backend's own matching behavior returns, a reader
+  // never sees more than 20 rows to pick from.
+  it("caps candidates at 20 even when the backend reports more", async () => {
+    const many = Array.from({ length: 35 }, (_unused, index) => workItem({ id: `item-${index}` }));
+    vi.spyOn(workBoardService, "listWorkItems").mockResolvedValue(many);
+    const options = await executionTargetSearchProviders.work_item("");
+    expect(options).toHaveLength(20);
   });
 
   it.each([
