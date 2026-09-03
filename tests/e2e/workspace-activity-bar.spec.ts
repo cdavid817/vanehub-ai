@@ -347,6 +347,51 @@ test.describe("workspace activity bar", () => {
     await expect(page.locator(".ucd-list-row").filter({ hasText: "发布检查 v2" })).toBeVisible();
   });
 
+  // 20.19: the "19.7: Edit..." test above drives Edit entirely via `.click()`/`.fill()` -- this is
+  // the keyboard-only counterpart. The row's own `ActionMenu` (scheduled-task-row.tsx) shares the
+  // same `useMenuList` roving-focus hook this task's other new tests already exercise for
+  // `WorkItemStageMenu`/`LoopRunControls`' More menu: opening it resets focus to its first item, and
+  // "编辑任务" (Edit) is `moreItems[0]`, so opening the trigger already focuses Edit -- a second
+  // Enter activates it with no arrow-key navigation needed.
+  test("keyboard-only: edits a scheduled task through the row's More menu and saves the update", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "运行", exact: true }).click();
+    await page.getByRole("tab", { name: "定时任务" }).click();
+
+    await page.getByRole("button", { name: "新建任务" }).click();
+    await page.getByLabel("任务名称").fill("键盘编辑任务");
+    await page.getByLabel("任务内容").fill("验证键盘编辑流程");
+    await page.getByRole("button", { name: "创建任务" }).click();
+
+    const taskRow = page.locator(".ucd-list-row").filter({ hasText: "键盘编辑任务" });
+    await expect(taskRow).toBeVisible();
+
+    const moreButton = taskRow.getByRole("button", { name: "更多操作" });
+    await moreButton.focus();
+    await expect(moreButton).toBeFocused();
+    await page.keyboard.press("Enter");
+
+    const editItem = taskRow.getByRole("menuitem", { name: "编辑任务" });
+    await expect(editItem).toBeFocused();
+    await page.keyboard.press("Enter");
+
+    await expect(page.getByRole("heading", { name: "编辑任务 键盘编辑任务" })).toBeVisible();
+    const nameField = page.getByLabel("任务名称");
+    await nameField.focus();
+    // Real keystrokes replacing the field's own content, not `.fill()`: select-all then type, the
+    // standard keyboard-only way to replace a text field's value.
+    await page.keyboard.press("ControlOrMeta+a");
+    await page.keyboard.type("键盘编辑任务 v2");
+
+    const saveButton = page.getByRole("button", { name: "保存" });
+    await saveButton.focus();
+    await expect(saveButton).toBeFocused();
+    await page.keyboard.press("Enter");
+
+    await expect(page.getByRole("heading", { name: /编辑任务/ })).toHaveCount(0);
+    await expect(page.locator(".ucd-list-row").filter({ hasText: "键盘编辑任务 v2" })).toBeVisible();
+  });
+
   // 5.13 originally covered an always-inline create form: switching to a different Runs tab left
   // it visible-but-hidden (`keepAlive: "draft-only"`), so a reader's in-progress typing survived
   // the round trip. 19.7 moved Create into a Sheet (this codebase's established pattern -- Goal
