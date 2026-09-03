@@ -54,3 +54,51 @@ test.describe("Goal Center", () => {
     await expect(page.getByRole("button", { name: "更换" })).toHaveCount(0);
   });
 });
+
+/**
+ * 20.2/20.17: Goal Center had no theme-paired visual coverage at all before this pass. Its own
+ * list/detail split is Tailwind's plain `md:` breakpoint (768px, `goal-center.tsx`'s own
+ * `md:grid-cols-[...]`) -- one of task 20.2's own named widths already, so this reuses it directly
+ * rather than picking an arbitrary "narrow" number: 768 keeps both panes side by side (Tailwind's
+ * `md:` is min-width, inclusive at 768), 640 is the next named width down and switches to the
+ * compact "detail replaces list, with Back" mode (design.md Decision 12's "窄屏 detail 替换 list
+ * 并有明确返回", the same pattern `projects.tsx`'s own 13.12 test already covers for that
+ * destination). Not a full 9-width sweep: Goal Center's own layout has exactly one real
+ * breakpoint, already bracketed tightly by these two named widths.
+ */
+test.describe("Goal Center visual theme/width matrix (20.2/20.17)", () => {
+  for (const variant of [
+    { compact: false, name: "futuristic-wide", theme: "futuristic" as const, width: 768 },
+    { compact: false, name: "minimal-wide", theme: "minimal" as const, width: 768 },
+    { compact: true, name: "futuristic-narrow", theme: "futuristic" as const, width: 640 },
+    { compact: true, name: "minimal-narrow", theme: "minimal" as const, width: 640 },
+  ]) {
+    test(`Goal Center visual ${variant.name}`, async ({ page }, testInfo) => {
+      await page.setViewportSize({ width: variant.width, height: 900 });
+      await page.addInitScript((theme) => window.localStorage.setItem("vanehub.appSettings", JSON.stringify({ applicationLanguage: "zh-CN", theme })), variant.theme);
+      await page.goto("/");
+      await page.getByRole("button", { name: "计划", exact: true }).click();
+      await page.getByRole("tab", { name: "目标中心" }).click();
+      await expect(page.locator("html")).toHaveAttribute("data-theme", variant.theme);
+
+      await page.getByRole("button", { name: "新建目标" }).click();
+      await page.getByLabel("标题").fill("响应式矩阵目标");
+      await page.getByRole("button", { name: "创建", exact: true }).click();
+      // Goal Center auto-selects a just-created goal (goal-center.tsx's own create onSuccess), so
+      // the detail pane is already showing it -- no separate list-item click is needed here.
+      await expect(page.getByRole("heading", { level: 2, name: "响应式矩阵目标" })).toBeVisible();
+
+      const list = page.getByRole("list", { name: "目标列表" });
+      const backButton = page.getByRole("button", { name: "返回列表", exact: true });
+      if (variant.compact) {
+        await expect(list).toHaveCount(0);
+        await expect(backButton).toBeVisible();
+      } else {
+        await expect(list).toBeVisible();
+        await expect(backButton).toHaveCount(0);
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      await page.locator("#goal-center").screenshot({ path: testInfo.outputPath(`${variant.name}.png`) });
+    });
+  }
+});
