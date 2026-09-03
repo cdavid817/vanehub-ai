@@ -334,8 +334,13 @@ const COLOR_STYLE_PROPERTIES = new Set([
 // `ensureWebPromptHookVersion` 先例),并让 `runScheduledTaskNow` 真正记录手动运行——此前只生成回执,
 // 从不落盘,`listScheduledTaskRuns` 永远看不到它。都是新增能力的固定开销,没有复制既有分支。
 // 上限按实测值 24274 记录,不留余量。
+// 上调理由(redesign-unified-workbench-ui,Task 18.6):+24,全部是 `list_evaluation_arenas` 从"返回
+// 全部、硬编码 (0, 100)"改为真游标分页的三件套固定开销——`evaluation-service.ts`(接口新增
+// `EvaluationArenaQuery`/`EvaluationArenaPage` 类型与方法签名)、`tauri-agent-client.ts`(+cursor/limit
+// 透传)、`web-evaluation-client.ts`(内存数组真实切片分页,不再一次性吐出全部)。没有新文件,也没有
+// 复制既有分支。上限按实测值 24298 记录,不留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 24274, owner: "redesign-unified-workbench-ui" },
+  { root: "src/services", budget: 24298, owner: "redesign-unified-workbench-ui" },
 ]);
 
 const STATE_PACKAGES = new Set([
