@@ -1,4 +1,4 @@
-import { AlertTriangle, Loader2, Plus } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Loader2, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../components/ui/button";
@@ -171,7 +171,14 @@ export function GoalCenter({ goalId, onSelectGoal }: GoalCenterProps) {
     {loading && !goals.length
       ? <div className="grid flex-1 place-items-center"><Loader2 aria-label={t("goals.loading")} className="animate-spin" /></div>
       : <div className="grid min-h-0 flex-1 gap-3 overflow-y-auto p-3 md:grid-cols-[minmax(14rem,20rem)_1fr] md:overflow-hidden">
-          <ul className="grid content-start gap-2 max-md:max-h-64 max-md:overflow-y-auto md:overflow-y-auto" aria-label={t("goals.listLabel")}>
+          {/* 15.12: at a compact viewport, the detail replaces the list rather than both being
+              always visible stacked (the old `max-md:max-h-64` cap on the list existed only
+              because both were on screen together) -- `md:` and above are unchanged: both panes
+              stay side by side regardless of selection, same as before this task. */}
+          <ul
+            aria-label={t("goals.listLabel")}
+            className={`grid content-start gap-2 overflow-y-auto md:overflow-y-auto ${selected ? "hidden md:grid" : "grid"}`}
+          >
             {goals.map((goal) => <li key={goal.id}>
               <button
                 aria-current={goal.id === selectedId}
@@ -199,21 +206,36 @@ export function GoalCenter({ goalId, onSelectGoal }: GoalCenterProps) {
             {goals.length === 0 ? <li className="rounded-md border border-dashed border-border p-4 text-center text-xs text-muted-foreground">{t("goals.empty")}</li> : null}
           </ul>
 
-          <div className="min-h-0 rounded-md border border-border md:overflow-hidden">
+          <div className={`min-h-0 gap-2 md:overflow-hidden ${selected ? "grid" : "hidden md:grid"}`}>
             {selected
-              ? <GoalDetail
-                  goal={selected}
-                  mutation={mutations.get(selected.id)}
-                  onAbandon={() => void abandon(selected)}
-                  onAccept={() => void accept(selected)}
-                  onActivate={() => void activate(selected)}
-                  onDelete={() => void remove(selected, () => selectGoal(undefined))}
-                  onDismissError={() => mutations.clear(selected.id)}
-                  onEdit={() => { setCreating(false); setEditing(true); }}
-                  onLink={(kind, id) => void link(selected, kind, id)}
-                  onReopen={() => void reopen(selected)}
-                  onUnlink={(kind, id) => void unlink(selected, kind, id)}
-                />
+              ? <>
+                  {/* 15.12: compact-only Back -- at `md:` and above both panes already show side
+                      by side, so returning to the list has no meaning there and this stays hidden. */}
+                  <Button
+                    className="justify-self-start md:hidden"
+                    onClick={() => selectGoal(undefined)}
+                    size="sm"
+                    type="button"
+                    variant="ghost"
+                  >
+                    <ArrowLeft aria-hidden="true" />{t("goals.actions.back")}
+                  </Button>
+                  <div className="min-h-0 rounded-md border border-border md:overflow-hidden">
+                    <GoalDetail
+                      goal={selected}
+                      mutation={mutations.get(selected.id)}
+                      onAbandon={() => void abandon(selected)}
+                      onAccept={() => void accept(selected)}
+                      onActivate={() => void activate(selected)}
+                      onDelete={() => void remove(selected, () => selectGoal(undefined))}
+                      onDismissError={() => mutations.clear(selected.id)}
+                      onEdit={() => { setCreating(false); setEditing(true); }}
+                      onLink={(kind, id) => void link(selected, kind, id)}
+                      onReopen={() => void reopen(selected)}
+                      onUnlink={(kind, id) => void unlink(selected, kind, id)}
+                    />
+                  </div>
+                </>
               : <p className="grid h-full place-items-center p-4 text-center text-xs text-muted-foreground">{t("goals.detail.empty")}</p>}
           </div>
         </div>}

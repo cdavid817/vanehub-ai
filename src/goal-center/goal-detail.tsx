@@ -1,5 +1,5 @@
-import { AlertTriangle, Ban, Check, Pencil, Play, Plus, RotateCcw, Trash2, X } from "lucide-react";
-import { type FormEvent, type ReactNode } from "react";
+import { AlertTriangle, Ban, Check, Pencil, Play, RotateCcw, Trash2 } from "lucide-react";
+import { type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../components/ui/button";
 import { normalizeDisplayPath } from "../lib/session-path";
@@ -7,12 +7,11 @@ import { ActionMenu, type ActionMenuItem } from "../ui/actions/ActionMenu";
 import { MutationStatus } from "../ui/async/MutationStatus";
 import type { MutationState } from "../ui/async/mutation-state";
 import type { Goal, GoalLinkTarget } from "../contracts/goal";
-import { linkableGoalTargets } from "../contracts/goal";
+import { ExecutionTargetPicker } from "./execution-target-picker";
+import { GoalRelationshipSections } from "./goal-relationship-sections";
 import {
-  blockingReason, canAccept, groupLinks, progressLabel, statusTone, unresolvableLinks,
+  blockingReason, canAccept, progressLabel, statusTone, unresolvableLinks,
 } from "./goal-presentation";
-
-const fieldClass = "ucd-input rounded-md px-3 py-2 text-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring";
 
 export interface GoalDetailProps {
   goal: Goal;
@@ -73,15 +72,6 @@ export function GoalDetail(props: GoalDetailProps) {
     { disabled: pending, icon: Trash2, id: "delete", label: t("goals.actions.delete"), onSelect: onDelete, tone: "destructive" },
   );
 
-  const submitLink = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const data = new FormData(event.currentTarget);
-    const targetId = String(data.get("targetId") ?? "").trim();
-    if (!targetId) return;
-    onLink(String(data.get("targetKind") ?? "loop") as GoalLinkTarget, targetId);
-    event.currentTarget.reset();
-  };
-
   return <section aria-labelledby="goal-detail-title" className="grid content-start gap-4 overflow-y-auto p-4">
     <header className="grid gap-2 rounded-md border border-border bg-muted/10 p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -121,26 +111,8 @@ export function GoalDetail(props: GoalDetailProps) {
     <div className="grid gap-3">
       <h3 className="text-sm font-semibold">{t("goals.links.title")}</h3>
       {goal.links.length === 0 ? <p className="text-xs text-muted-foreground">{t("goals.links.empty")}</p> : null}
-      {groupLinks(goal.links).map((group) => <div className="grid gap-1" key={group.kind}>
-        <h4 className="text-xs font-medium text-muted-foreground">{t(`goals.target.${group.kind}`)}</h4>
-        {group.links.map((link) => <div className="flex items-center justify-between gap-2 rounded border border-border px-2 py-1" key={`${link.targetKind}:${link.targetId}`}>
-          <span className="truncate text-xs">{link.targetId}</span>
-          <span className="flex shrink-0 items-center gap-2">
-            <span className={`text-xs ${link.progress === "unresolvable" ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}`}>
-              {t(group.kind === "session" ? "goals.linkProgress.notCounted" : `goals.linkProgress.${link.progress}`)}
-            </span>
-            <Button aria-label={t("goals.actions.unlink")} disabled={pending} onClick={() => onUnlink(link.targetKind, link.targetId)} size="icon" type="button" variant="ghost"><X aria-hidden="true" /></Button>
-          </span>
-        </div>)}
-      </div>)}
-
-      <form className="flex flex-wrap gap-2" onSubmit={submitLink}>
-        <select aria-label={t("goals.fields.targetKind")} className={fieldClass} defaultValue="loop" name="targetKind">
-          {linkableGoalTargets.map((kind) => <option key={kind} value={kind}>{t(`goals.target.${kind}`)}</option>)}
-        </select>
-        <input aria-label={t("goals.fields.targetId")} className={`${fieldClass} min-w-0 flex-1`} name="targetId" placeholder={t("goals.fields.targetId")} />
-        <Button disabled={pending} size="sm" type="submit"><Plus aria-hidden="true" />{t("goals.actions.link")}</Button>
-      </form>
+      <GoalRelationshipSections links={goal.links} onUnlink={onUnlink} pending={pending} />
+      <ExecutionTargetPicker onLink={onLink} pending={pending} />
     </div>
   </section>;
 }

@@ -110,11 +110,15 @@ describe("GoalCenter", () => {
     expect(await screen.findByText("不计入")).toBeTruthy();
   });
 
-  it("links a target through the service boundary", async () => {
+  it("links a target through the service boundary via the raw-id fallback", async () => {
+    // 15.5: the raw-id path moved behind an explicit "advanced" disclosure once
+    // ExecutionTargetPicker became the ordinary path -- opening it first is the only change to
+    // this test versus its pre-15.4 form; the field names/labels/behavior beyond that are unchanged.
     await openFirstGoal();
     mocks.link.mockResolvedValue(fixture());
 
-    fireEvent.change(await screen.findByLabelText("目标 ID"), { target: { value: " loop-9 " } });
+    fireEvent.click(await screen.findByRole("button", { name: "手动输入 ID" }));
+    fireEvent.change(screen.getByLabelText("目标 ID"), { target: { value: " loop-9 " } });
     fireEvent.click(screen.getByRole("button", { name: "关联" }));
 
     await waitFor(() => expect(mocks.link).toHaveBeenCalledWith("goal-1", "loop", "loop-9"));
@@ -274,6 +278,27 @@ describe("GoalCenter", () => {
       fireEvent.click(screen.getByRole("menuitem", { name: "删除" }));
 
       await waitFor(() => expect(onSelectGoal).toHaveBeenCalledWith(undefined));
+    });
+  });
+
+  describe("15.12: compact list-then-detail", () => {
+    it("shows no Back control before any goal is selected", async () => {
+      render(<GoalCenter />);
+      await screen.findByRole("button", { name: /发布目标系统/ });
+
+      expect(screen.queryByRole("button", { name: "返回列表" })).toBeNull();
+    });
+
+    it("shows a Back control once a goal is selected, and it returns to the list", async () => {
+      const onSelectGoal = vi.fn();
+      render(<GoalCenter onSelectGoal={onSelectGoal} />);
+      fireEvent.click(await screen.findByRole("button", { name: /发布目标系统/ }));
+
+      const back = await screen.findByRole("button", { name: "返回列表" });
+      fireEvent.click(back);
+
+      expect(await screen.findByText("选择一个目标查看其子项。")).toBeTruthy();
+      expect(onSelectGoal).toHaveBeenCalledWith(undefined);
     });
   });
 });

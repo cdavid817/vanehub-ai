@@ -47,7 +47,7 @@ State transitions are constrained: **an abandoned goal can be started again, and
 
 ## Link work to a goal
 
-Select **Link** in the goal detail, then choose a kind and an id:
+Choose a kind (Loop, Work item, Session, or Run), then search by title and select the real target from the results — each result shows its own title, project, and status before you link it. If the search cannot find what you need (for example, you are recording a stale or already-deleted target for tracking), open **Enter an id manually** below the search box to link by a raw id instead.
 
 | Kind | Counts toward progress | Notes |
 | --- | --- | --- |
