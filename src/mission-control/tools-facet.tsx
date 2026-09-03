@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import type { MissionControlRunSummary } from "../types/mission-control";
+import { AsyncBoundary } from "../ui/async/AsyncBoundary";
 import { ExecutionSpanRow } from "./execution-span-row";
 import { useExecutionTimeline } from "./use-execution-timeline";
 
@@ -15,24 +16,32 @@ import { useExecutionTimeline } from "./use-execution-timeline";
  * distinct dimensions, not one. Folding "mcp" into this facet would quietly erase a distinction the
  * native side went out of its way to keep, and this facet does not get to re-decide that behind a
  * filter. `files-facet.tsx` follows the identical one-kind-per-facet rule for `"file"`.
+ *
+ * 16.11: routes through the shared `AsyncBoundary`, same as `timeline-facet.tsx` — the kind filter
+ * itself lives only in `isEmpty` and the `children` render callback, since the underlying
+ * `AsyncViewState<ExecutionTimeline>` from `useExecutionTimeline` is unfiltered.
  */
 export function ToolsFacet({ run }: { run: MissionControlRunSummary }) {
   const { t } = useTranslation();
-  const state = useExecutionTimeline(run);
-  const spans = state.status === "ready" ? state.timeline.spans.filter((span) => span.kind === "tool") : [];
+  const { reload, ...state } = useExecutionTimeline(run, t("missionControl.tools.empty"), t("missionControl.tools.error"));
 
   return (
     <div className="mt-4 space-y-2" data-testid="mission-control-tools-facet">
-      {state.status === "loading" ? <p className="text-xs text-muted-foreground">{t("missionControl.tools.loading")}</p> : null}
-      {state.status === "error" ? <p className="text-xs text-destructive">{t("missionControl.tools.error")}</p> : null}
-      {state.status === "empty" ? <p className="text-xs text-muted-foreground">{t("missionControl.tools.empty")}</p> : null}
-      {state.status === "ready" ? (
-        spans.length ? (
+      <AsyncBoundary
+        emptyState={{ title: t("missionControl.tools.noSpans") }}
+        isEmpty={(timeline) => timeline.spans.every((span) => span.kind !== "tool")}
+        onRetry={reload}
+        state={state}
+        unavailableState={{ title: t("missionControl.tools.empty") }}
+      >
+        {(timeline) => (
           <ul className="space-y-1" data-testid="mission-control-tools-spans">
-            {spans.map((span) => <ExecutionSpanRow key={span.spanId} showKind={false} span={span} />)}
+            {timeline.spans.filter((span) => span.kind === "tool").map((span) => (
+              <ExecutionSpanRow key={span.spanId} showKind={false} span={span} />
+            ))}
           </ul>
-        ) : <p className="text-xs text-muted-foreground">{t("missionControl.tools.noSpans")}</p>
-      ) : null}
+        )}
+      </AsyncBoundary>
     </div>
   );
 }
