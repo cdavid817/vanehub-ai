@@ -74,7 +74,7 @@ describe("ScheduledTasksPanel", () => {
   beforeEach(() => {
     for (const mock of Object.values(mocks)) mock.mockReset();
     mocks.listScheduledTasks.mockResolvedValue([]);
-    mocks.listScheduledTaskRuns.mockResolvedValue([]);
+    mocks.listScheduledTaskRuns.mockResolvedValue({ items: [], nextCursor: null });
   });
 
   it("loads the task list on mount without needing a dialog `open` prop, and offers a New task trigger", async () => {
@@ -150,14 +150,44 @@ describe("ScheduledTasksPanel", () => {
   // isolation against a hand-built state prop.
   it("fetches and renders run history for the selected task", async () => {
     mocks.listScheduledTasks.mockResolvedValueOnce([buildTask("t-a")]);
-    mocks.listScheduledTaskRuns.mockResolvedValueOnce([
-      { id: "run-1", taskId: "t-a", sessionId: "session-1", status: "succeeded", error: null, startedAt: "2026-08-30T09:00:00.000Z", completedAt: "2026-08-30T09:05:00.000Z" },
-    ]);
+    mocks.listScheduledTaskRuns.mockResolvedValueOnce({
+      items: [
+        { id: "run-1", taskId: "t-a", sessionId: "session-1", status: "succeeded", error: null, startedAt: "2026-08-30T09:00:00.000Z", completedAt: "2026-08-30T09:05:00.000Z" },
+      ],
+      nextCursor: null,
+    });
     render(<ScheduledTasksPanel agents={agents} />);
     fireEvent.click(await screen.findByTestId("scheduled-task-select-t-a"));
 
     await waitFor(() => expect(mocks.listScheduledTaskRuns).toHaveBeenCalledWith("t-a"));
     expect(await within(screen.getByTestId("scheduled-task-history")).findByText(i18n.t("scheduledTasks.history.status.succeeded"))).toBeTruthy();
+  });
+
+  // 19.11: proves the panel wires the hook's own hasMore/loadMore through the detail view into a
+  // real "load more" click, not just the initial fetch above.
+  it("loads a further page of history when Load more is clicked", async () => {
+    mocks.listScheduledTasks.mockResolvedValueOnce([buildTask("t-a")]);
+    mocks.listScheduledTaskRuns.mockResolvedValueOnce({
+      items: [
+        { id: "run-1", taskId: "t-a", sessionId: "session-1", status: "succeeded", error: null, startedAt: "2026-08-30T09:00:00.000Z", completedAt: "2026-08-30T09:05:00.000Z" },
+      ],
+      nextCursor: "1",
+    });
+    render(<ScheduledTasksPanel agents={agents} />);
+    fireEvent.click(await screen.findByTestId("scheduled-task-select-t-a"));
+    const loadMoreButton = await within(screen.getByTestId("scheduled-task-history")).findByTestId("scheduled-task-history-load-more");
+
+    mocks.listScheduledTaskRuns.mockResolvedValueOnce({
+      items: [
+        { id: "run-2", taskId: "t-a", sessionId: "session-2", status: "failed", error: "Agent unavailable", startedAt: "2026-08-29T09:00:00.000Z", completedAt: "2026-08-29T09:05:00.000Z" },
+      ],
+      nextCursor: null,
+    });
+    fireEvent.click(loadMoreButton);
+
+    await waitFor(() => expect(mocks.listScheduledTaskRuns).toHaveBeenCalledWith("t-a", { cursor: "1" }));
+    expect(await within(screen.getByTestId("scheduled-task-history")).findByText("Agent unavailable")).toBeTruthy();
+    expect(within(screen.getByTestId("scheduled-task-history")).queryByTestId("scheduled-task-history-load-more")).toBeNull();
   });
 
   // 19.7/19.9: Create and Duplicate both open the same editor sheet.

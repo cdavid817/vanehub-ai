@@ -72,15 +72,29 @@ describe("ScheduledTaskHistory", () => {
     expect(within(screen.getByTestId("scheduled-task-history-row-run-1")).getByText("—")).toBeTruthy();
   });
 
-  // No real pagination exists (18.6's own precedent for the identical shape) -- landing exactly on
-  // the 100-row cap is the one honest signal there may be more, so it gets a bounded note; fewer
-  // than 100 rows gets none, since there is nothing to honestly claim there.
-  it("shows a bounded cap note only when the result lands exactly on the 100-row cap", () => {
-    const { rerender } = render(<ScheduledTaskHistory language="en" onRetry={vi.fn()} state={loadedState([buildRun("run-1")])} />);
-    expect(screen.queryByText(i18n.t("scheduledTasks.history.cappedNote"))).toBeNull();
+  // 19.11: real pagination (closing this same task's own previously-open gap, matching 18.6's
+  // `EvaluationArenaList` "Load more" precedent) -- the control only renders when the caller
+  // reports a further page exists, and calls back through onLoadMore, never a fixed row-count cap.
+  it("shows no load-more control when hasMore is false", () => {
+    render(<ScheduledTaskHistory language="en" onRetry={vi.fn()} state={loadedState([buildRun("run-1")])} />);
+    expect(screen.queryByTestId("scheduled-task-history-load-more")).toBeNull();
+  });
 
-    const hundredRuns = Array.from({ length: 100 }, (_unused, index) => buildRun(`run-${index}`));
-    rerender(<ScheduledTaskHistory language="en" onRetry={vi.fn()} state={loadedState(hundredRuns)} />);
-    expect(screen.getByText(i18n.t("scheduledTasks.history.cappedNote"))).toBeTruthy();
+  it("shows a load-more control when hasMore is true and calls onLoadMore when clicked", () => {
+    const onLoadMore = vi.fn();
+    render(<ScheduledTaskHistory hasMore language="en" onLoadMore={onLoadMore} onRetry={vi.fn()} state={loadedState([buildRun("run-1")])} />);
+    const button = screen.getByTestId("scheduled-task-history-load-more") as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    expect(button.textContent).toBe(i18n.t("scheduledTasks.history.loadMore"));
+
+    fireEvent.click(button);
+    expect(onLoadMore).toHaveBeenCalledOnce();
+  });
+
+  it("disables the load-more control and shows loading copy while a page fetch is in flight", () => {
+    render(<ScheduledTaskHistory hasMore language="en" loadingMore onRetry={vi.fn()} state={loadedState([buildRun("run-1")])} />);
+    const button = screen.getByTestId("scheduled-task-history-load-more") as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(button.textContent).toBe(i18n.t("scheduledTasks.history.loadingMore"));
   });
 });

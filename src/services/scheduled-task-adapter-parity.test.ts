@@ -34,6 +34,7 @@ describe("Scheduled task adapter parity (19.18)", () => {
 
     await tauriAgentClient.listScheduledTasks();
     await tauriAgentClient.listScheduledTaskRuns("task-1");
+    await tauriAgentClient.listScheduledTaskRuns("task-1", { cursor: "20", limit: 10 });
     await tauriAgentClient.createScheduledTask({ agentId: "onepiece", content: "Summarize the week", frequency, name: "Weekly report" });
     await tauriAgentClient.setScheduledTaskEnabled({ enabled: false, taskId: "task-1" });
     await tauriAgentClient.updateScheduledTask({ agentId: "onepiece", content: "Summarize the week", expectedVersion: 1, frequency, name: "Weekly report v2", taskId: "task-1" });
@@ -42,7 +43,8 @@ describe("Scheduled task adapter parity (19.18)", () => {
 
     expect(invokeMock.mock.calls).toEqual([
       ["list_scheduled_tasks"],
-      ["list_scheduled_task_runs", { taskId: "task-1" }],
+      ["list_scheduled_task_runs", { taskId: "task-1", cursor: null, limit: null }],
+      ["list_scheduled_task_runs", { taskId: "task-1", cursor: "20", limit: 10 }],
       ["create_scheduled_task", { input: { agentId: "onepiece", content: "Summarize the week", frequency, name: "Weekly report" } }],
       ["set_scheduled_task_enabled", { input: { enabled: false, taskId: "task-1" } }],
       ["update_scheduled_task", { input: { agentId: "onepiece", content: "Summarize the week", expectedVersion: 1, frequency, name: "Weekly report v2", taskId: "task-1" } }],

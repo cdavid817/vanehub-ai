@@ -128,8 +128,11 @@ export function ScheduledTasksPanel({ agents, onOpenSession, onSelectSchedule, s
           <ScheduledTaskDetail
             agent={selectedAgent}
             history={history}
+            historyHasMore={history.hasMore}
+            historyLoadingMore={history.loadingMore}
             isRunningNow={selected !== null && (selectedMutation?.pending ?? false)}
             language={i18n.language}
+            onLoadMoreHistory={history.loadMore}
             onOpenSession={onOpenSession}
             onRetryHistory={history.reload}
             onRunNow={() => selected && void runNow(selected)}

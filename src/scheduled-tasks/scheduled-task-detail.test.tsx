@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { activateAppLanguage, i18n } from "../i18n";
 import type { AsyncViewState } from "../ui/async/async-view-state";
@@ -28,8 +28,11 @@ function renderDetail(props: Partial<Parameters<typeof ScheduledTaskDetail>[0]> 
     <ScheduledTaskDetail
       agent={buildAgent()}
       history={emptyHistory}
+      historyHasMore={false}
+      historyLoadingMore={false}
       isRunningNow={false}
       language="en"
+      onLoadMoreHistory={vi.fn()}
       onRetryHistory={vi.fn()}
       onRunNow={vi.fn()}
       runNowError={null}
@@ -44,7 +47,7 @@ describe("ScheduledTaskDetail", () => {
   beforeAll(async () => activateAppLanguage("en"));
 
   it("shows the empty placeholder when no task is selected", () => {
-    render(<ScheduledTaskDetail agent={undefined} history={emptyHistory} isRunningNow={false} language="en" onRetryHistory={vi.fn()} onRunNow={vi.fn()} runNowError={null} task={null} weekdayNames={weekdayNames} />);
+    render(<ScheduledTaskDetail agent={undefined} history={emptyHistory} historyHasMore={false} historyLoadingMore={false} isRunningNow={false} language="en" onLoadMoreHistory={vi.fn()} onRetryHistory={vi.fn()} onRunNow={vi.fn()} runNowError={null} task={null} weekdayNames={weekdayNames} />);
     expect(screen.getByText(i18n.t("scheduledTasks.detailEmpty"))).toBeTruthy();
   });
 
@@ -90,4 +93,24 @@ describe("ScheduledTaskDetail", () => {
     });
     expect(within(screen.getByTestId("scheduled-task-history")).getByText("Timed out")).toBeTruthy();
   });
+
+  // 19.11: proves the pagination trio is actually threaded through to ScheduledTaskHistory, not
+  // just accepted and dropped -- mirrors the test just above for the history state itself.
+  it("passes the history pagination trio through to ScheduledTaskHistory", () => {
+    const onLoadMoreHistory = vi.fn();
+    renderDetail({
+      history: loadedRunHistory(),
+      historyHasMore: true,
+      onLoadMoreHistory,
+    });
+    fireEvent.click(screen.getByTestId("scheduled-task-history-load-more"));
+    expect(onLoadMoreHistory).toHaveBeenCalledOnce();
+  });
 });
+
+function loadedRunHistory(): AsyncViewState<ScheduledTaskRun[]> {
+  return {
+    data: [{ id: "run-1", taskId: "t-a", sessionId: null, status: "succeeded", error: null, startedAt: "2026-08-30T09:00:00.000Z", completedAt: "2026-08-30T09:05:00.000Z" }],
+    initialLoading: false, refreshing: false, stale: false,
+  };
+}

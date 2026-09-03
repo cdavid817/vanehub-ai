@@ -24,6 +24,11 @@ export interface ScheduledTaskDetailProps {
   /** 19.11: `useScheduledTaskHistory`'s own state/reload for the currently selected task. */
   history: AsyncViewState<ScheduledTaskRun[]>;
   onRetryHistory: () => void;
+  /** 19.11: `useScheduledTaskHistory`'s own pagination trio, threaded straight through to
+   *  `ScheduledTaskHistory` -- see that component's own doc comment. */
+  historyHasMore: boolean;
+  historyLoadingMore: boolean;
+  onLoadMoreHistory: () => void;
   /** See `ScheduledTaskSessionLink`'s own doc comment: optional, and not wired to any real
    *  navigation by this task batch -- that reaches into `src/main-layout/`, out of scope here. */
   onOpenSession?: (sessionId: string) => void;
@@ -40,7 +45,7 @@ export interface ScheduledTaskDetailProps {
  * already correct -- nothing here recomputes a fact a sibling component already owns.
  */
 export function ScheduledTaskDetail({
-  agent, history, isRunningNow, language, onOpenSession, onRetryHistory, onRunNow, runNowError, task, weekdayNames,
+  agent, history, historyHasMore, historyLoadingMore, isRunningNow, language, onLoadMoreHistory, onOpenSession, onRetryHistory, onRunNow, runNowError, task, weekdayNames,
 }: ScheduledTaskDetailProps) {
   const { t } = useTranslation();
 
@@ -105,7 +110,15 @@ export function ScheduledTaskDetail({
         ) : null}
       </div>
 
-      <ScheduledTaskHistory language={language} onOpenSession={onOpenSession} onRetry={onRetryHistory} state={history} />
+      <ScheduledTaskHistory
+        hasMore={historyHasMore}
+        language={language}
+        loadingMore={historyLoadingMore}
+        onLoadMore={onLoadMoreHistory}
+        onOpenSession={onOpenSession}
+        onRetry={onRetryHistory}
+        state={history}
+      />
     </div>
   );
 }

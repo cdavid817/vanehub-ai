@@ -47,7 +47,8 @@ import type {
   SessionDetails,
   RunScheduledTaskNowResult,
   ScheduledTask,
-  ScheduledTaskRun,
+  ScheduledTaskRunPage,
+  ScheduledTaskRunQuery,
   SetScheduledTaskEnabledInput,
   UpdateScheduledTaskInput,
   SessionExportResult,
@@ -701,8 +702,8 @@ export const tauriAgentClient: AgentService = {
   listScheduledTasks() {
     return invoke<ScheduledTask[]>("list_scheduled_tasks");
   },
-  listScheduledTaskRuns(taskId: string) {
-    return invoke<ScheduledTaskRun[]>("list_scheduled_task_runs", { taskId });
+  listScheduledTaskRuns(taskId: string, query?: ScheduledTaskRunQuery) {
+    return invoke<ScheduledTaskRunPage>("list_scheduled_task_runs", { taskId, cursor: query?.cursor ?? null, limit: query?.limit ?? null });
   },
 
   createScheduledTask(input: CreateScheduledTaskInput) {

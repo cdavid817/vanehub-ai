@@ -5,22 +5,23 @@ import type { ScheduledTaskRun } from "../types/agent";
 import { formatDateTime, historyStatusClass, historyStatusKey } from "./scheduled-task-presentation";
 import { ScheduledTaskSessionLink } from "./scheduled-task-session-link";
 
-/** Mirrors `list_scheduled_task_runs`'s own hard-coded `LIMIT 100` (`scheduled_tasks.rs`) -- the
- *  one honest signal available that there may be more history than shown, since neither the Tauri
- *  command, the service contract, nor the Web mock expose a cursor/offset to page past it. */
-const HISTORY_CAP = 100;
-
 export interface ScheduledTaskHistoryProps {
   state: AsyncViewState<ScheduledTaskRun[]>;
   language: string;
   onRetry: () => void;
   onOpenSession?: (sessionId: string) => void;
+  /** 19.11: whether the service reports a further page beyond `state.data`. Optional so a caller
+   *  with nothing to page (e.g. a hand-built test fixture) still renders without a "load more"
+   *  control -- mirrors `EvaluationArenaList`'s own identical optional trio. */
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  onLoadMore?: () => void;
 }
 
 /**
  * 19.11: run history, one row per `ScheduledTaskRun` returned by `listScheduledTaskRuns` -- a
  * real, multi-row query on the Tauri side (`list_scheduled_task_runs`, `ORDER BY started_at DESC,
- * id DESC LIMIT 100`) and, as of this same pass, a genuinely multi-row Web/mock too
+ * id DESC`) and, as of this same pass, a genuinely multi-row Web/mock too
  * (`web-scheduled-task-client.ts`).
  *
  * Trigger classification is honestly partial, not fabricated: `backfilled`/`backfill_running` are
@@ -31,15 +32,14 @@ export interface ScheduledTaskHistoryProps {
  * both simply read `succeeded`, at the same granularity of timestamp -- so both render identically
  * rather than guessing a "manual" label onto data that cannot actually support it.
  *
- * No real pagination: the underlying query, service contract, and Web mock all hard-code the
- * newest 100 rows with no cursor/offset anywhere. `listEvaluationArenas` had an identical
- * `list(0, 100)` gap before this same OpenSpec change's own 18.6 closed it -- see that task's
- * tasks.md evidence for the cross-layer shape (Tauri command cursor/limit params, a
- * `{ items, nextCursor }` service contract, real slicing in the Web mock) a future pass here could
- * follow. Landing exactly on the cap is the one honest signal that there may be more than what is
- * shown, so it is surfaced as a bounded note, never a "load more" that has nowhere real to go.
+ * Real pagination, closing this same task's own previously-open gap: `listEvaluationArenas` had an
+ * identical `list(0, 100)` hard-coded-window gap before this same OpenSpec change's own 18.6 closed
+ * it, and this follows the exact cross-layer shape that pass established (Tauri command
+ * cursor/limit params, a `{ items, nextCursor }` service contract, real slicing in the Web mock).
+ * `hasMore`/`onLoadMore` render the same "Load more" control `EvaluationArenaList` does, rather
+ * than a bounded note that only ever fired on landing exactly on a hard-coded cap.
  */
-export function ScheduledTaskHistory({ language, onOpenSession, onRetry, state }: ScheduledTaskHistoryProps) {
+export function ScheduledTaskHistory({ hasMore = false, language, loadingMore = false, onLoadMore, onOpenSession, onRetry, state }: ScheduledTaskHistoryProps) {
   const { t } = useTranslation();
   return (
     <div className="grid gap-2" data-testid="scheduled-task-history">
@@ -71,8 +71,16 @@ export function ScheduledTaskHistory({ language, onOpenSession, onRetry, state }
               ))}
             </ul>
             <p className="text-xs text-muted-foreground">{t("scheduledTasks.history.summary", { count: runs.length })}</p>
-            {runs.length === HISTORY_CAP ? (
-              <p className="text-xs text-muted-foreground">{t("scheduledTasks.history.cappedNote")}</p>
+            {hasMore ? (
+              <button
+                className="mt-1 w-full rounded-md border border-input px-3 py-1.5 text-xs disabled:opacity-50"
+                data-testid="scheduled-task-history-load-more"
+                disabled={loadingMore}
+                onClick={onLoadMore}
+                type="button"
+              >
+                {t(loadingMore ? "scheduledTasks.history.loadingMore" : "scheduledTasks.history.loadMore")}
+              </button>
             ) : null}
           </div>
         )}

@@ -7,7 +7,17 @@ import type {
   CreateScheduledTaskInput,
   ScheduledTask,
   ScheduledTaskRun,
+  ScheduledTaskRunPage,
+  ScheduledTaskRunQuery,
 } from "../types/agent";
+
+// 19.11: mirrors `web-evaluation-client.ts`'s own `DEFAULT_EVALUATION_PAGE_LIMIT`/
+// `MAX_EVALUATION_PAGE_LIMIT` (20/50) -- same cursor-is-really-just-the-offset shape as the real
+// Tauri command's own `DEFAULT_RUN_HISTORY_LIMIT`/`MAX_RUN_HISTORY_LIMIT`
+// (`commands/sessions/scheduled_tasks.rs`), so the Web mock's pagination behavior matches what the
+// desktop client actually returns instead of silently diverging.
+const DEFAULT_SCHEDULED_TASK_RUN_PAGE_LIMIT = 20;
+const MAX_SCHEDULED_TASK_RUN_PAGE_LIMIT = 50;
 
 let automaticArchivalSettings: AutomaticArchivalSettings = { enabled: true, inactiveDays: 10 };
 let scheduledTasks: ScheduledTask[] = [];
@@ -73,6 +83,23 @@ function ensureRunHistory(task: ScheduledTask): ScheduledTaskRun[] {
   return seeded;
 }
 
+/**
+ * 19.11: real slicing pagination over the already newest-first `runs` array, mirroring
+ * `web-evaluation-client.ts`'s own `pageEvaluationArenas` -- the cursor is genuinely just the
+ * offset re-exposed as an opaque string (never hand-typed by a reader, only ever round-tripped
+ * from a `nextCursor` this same client issued), so an invalid one is a real bug and throws rather
+ * than silently resetting to page one, matching that same precedent's choice.
+ */
+function pageScheduledTaskRuns(runs: ScheduledTaskRun[], query: ScheduledTaskRunQuery | undefined): ScheduledTaskRunPage {
+  const limit = Math.max(1, Math.min(query?.limit ?? DEFAULT_SCHEDULED_TASK_RUN_PAGE_LIMIT, MAX_SCHEDULED_TASK_RUN_PAGE_LIMIT));
+  const offset = query?.cursor ? Number(query.cursor) : 0;
+  if (!Number.isSafeInteger(offset) || offset < 0) throw new Error("invalid scheduled task run cursor");
+  return {
+    items: runs.slice(offset, offset + limit).map((run) => ({ ...run })),
+    nextCursor: offset + limit < runs.length ? String(offset + limit) : null,
+  };
+}
+
 function validateScheduledTaskInput(input: CreateScheduledTaskInput) {
   const name = input.name.trim();
   const content = input.content.trim();
@@ -102,9 +129,9 @@ export const webScheduledTaskClient: ScheduledTaskService = {
   async listScheduledTasks() {
     return scheduledTasks.map(cloneScheduledTask).sort((left, right) => left.nextRunAt.localeCompare(right.nextRunAt));
   },
-  async listScheduledTaskRuns(taskId) {
+  async listScheduledTaskRuns(taskId, query) {
     const task = findScheduledTask(taskId);
-    return ensureRunHistory(task).map((run) => ({ ...run }));
+    return pageScheduledTaskRuns(ensureRunHistory(task), query);
   },
 
   async createScheduledTask(input) {

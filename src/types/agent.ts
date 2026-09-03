@@ -498,6 +498,19 @@ export interface ScheduledTaskRun {
   completedAt: string | null;
 }
 
+/** 19.11: cursor-shaped like `EvaluationArenaPage` (`types/evaluation.ts`) for consistency with
+ *  this app's other paginated list surfaces, even though the Rust query beneath it is plain
+ *  offset/limit rather than a keyset cursor -- see `list_scheduled_task_runs`'s own doc comment
+ *  (`commands/sessions/scheduled_tasks.rs`). */
+export interface ScheduledTaskRunPage {
+  items: ScheduledTaskRun[];
+  nextCursor: string | null;
+}
+export interface ScheduledTaskRunQuery {
+  cursor?: string | null;
+  limit?: number;
+}
+
 /**
  * The receipt for an on-demand "Run now" (19.10): the `ScheduledTaskRun` the dispatch just
  * created, in the same `{run, operationId}` shape `MissionControlActionReceipt` uses. There is no
