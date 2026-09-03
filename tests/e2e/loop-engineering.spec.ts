@@ -89,6 +89,41 @@ test.describe("Loop engineering", () => {
     await expect(loopCenter.getByText("验证检查").first()).toBeVisible();
   });
 
+  // 20.19: the accept/confirm decision above only ever gets driven by `.click()` -- this proves the
+  // same `LoopRunControls` primary-action-then-confirm shape (loop-run-controls.tsx) is reachable
+  // and operable with no pointer at all. `.focus()` establishes each step's own starting point (the
+  // same house style already used for keyboard tests elsewhere, e.g. cli-parameters-settings.spec.ts
+  // and onepiece-agent.spec.ts's own "selects a message via keyboard focus and Enter" test) rather
+  // than a brittle full-page Tab crawl through the session sidebar and header first -- every
+  // subsequent state change is driven by a real `page.keyboard.press`, not a click.
+  test("accepts an acceptance-ready Loop using only the keyboard", async ({ page }) => {
+    await page.goto("/");
+    await openLoops(page);
+    const loopCenter = page.getByTestId("loop-center");
+    await createAndRunLoop(page, "Playwright 键盘验收循环");
+
+    await expect(loopCenter.getByText("等待验收", { exact: true }).first()).toBeVisible();
+    const acceptButton = loopCenter.getByRole("button", { name: "接受结果" });
+    await acceptButton.focus();
+    await expect(acceptButton).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(loopCenter.getByText("接受此结果？")).toBeVisible();
+
+    const confirmButton = loopCenter.getByRole("button", { name: "确认", exact: true });
+    await confirmButton.focus();
+    await expect(confirmButton).toBeFocused();
+    await page.keyboard.press("Enter");
+
+    // Scoped to Loop Center's own state text, matching the "rejects an acceptance-ready Loop..."
+    // test just above rather than the first test's separate `agent-run-status` check: that widget
+    // (loop-inspector.tsx's `AgentRunOwnerStatus`) polls a second, independent endpoint on its own
+    // 1s timer and needs a session actually selected to be meaningful -- neither of which this
+    // simpler keyboard flow (no `createSession` call) sets up, and Loop Center's own text already
+    // proves the accept action landed.
+    await expect(loopCenter.getByText("已成功", { exact: true }).first()).toBeVisible();
+    await expect(loopCenter.getByText("目标已达成").first()).toBeVisible();
+  });
+
   test("keeps the run header and Decision Panel both visible and non-overlapping after scrolling", async ({ page }) => {
     // Task 17.13: a short viewport forces real overflow in the `overflow-y-auto` scroll container
     // even with a single iteration, so scrolling actually exercises `position: sticky` instead of
