@@ -15,14 +15,17 @@ export interface EvaluationComparisonResultViewProps {
 const VERDICT_TONE: Record<DeltaVerdict, StatusTone> = { improved: "success", regressed: "danger", unchanged: "neutral", notRankable: "information" };
 const VERDICT_ICON = { improved: TrendingUp, regressed: TrendingDown, unchanged: Minus, notRankable: CircleHelp };
 
-function VerdictBadge({ verdict }: { verdict: DeltaVerdict }) {
+/** Exported: `evaluation-comparison-matrix-view.tsx` (18.11) reuses this for every candidate
+ *  column's own verdict rather than reimplementing the icon/tone/label mapping a second time. */
+export function VerdictBadge({ verdict }: { verdict: DeltaVerdict }) {
   const { t } = useTranslation();
   return <StatusBadge icon={VERDICT_ICON[verdict]} label={t(`evaluation.comparison.verdict.${verdict}`)} tone={VERDICT_TONE[verdict]} />;
 }
 
 /** Signed, fixed-precision formatting shared by every numeric delta shown below -- e.g. "+12.5",
- *  "-3", "0" (no sign for exactly zero: there is nothing to signal a direction for). */
-function formatSigned(value: number, digits: number): string {
+ *  "-3", "0" (no sign for exactly zero: there is nothing to signal a direction for). Exported:
+ *  `evaluation-comparison-matrix-view.tsx` (18.11) reuses this for the same metric-delta formatting. */
+export function formatSigned(value: number, digits: number): string {
   const rounded = Number(value.toFixed(digits));
   return rounded > 0 ? `+${rounded}` : String(rounded);
 }

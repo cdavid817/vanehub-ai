@@ -56,4 +56,64 @@ describe("EvaluationComparisonPanel", () => {
     fireEvent.change(screen.getByTestId("evaluation-comparison-candidate"), { target: { value: "b" } });
     expect(within(screen.getByTestId("evaluation-comparison-ineligible")).getByText("Baseline and candidate ran different tasks.")).toBeTruthy();
   });
+
+  // 18.11: 2-4 experiment comparison, built on top of the original baseline/candidate flow above.
+  describe("additional candidates (18.11)", () => {
+    it("does not show the additional-candidates picker with only two results, even once both are chosen", () => {
+      const attempts = [attempt({ id: "a" }), attempt({ id: "b" })];
+      render(<EvaluationComparisonPanel attempts={attempts} />);
+      fireEvent.change(screen.getByTestId("evaluation-comparison-baseline"), { target: { value: "a" } });
+      fireEvent.change(screen.getByTestId("evaluation-comparison-candidate"), { target: { value: "b" } });
+      expect(screen.queryByTestId("evaluation-comparison-additional-list")).toBeNull();
+    });
+
+    it("lists every other attempt as an optional additional candidate, excluding the baseline and candidate themselves", () => {
+      const attempts = [attempt({ id: "a" }), attempt({ id: "b" }), attempt({ id: "c" }), attempt({ id: "d" })];
+      render(<EvaluationComparisonPanel attempts={attempts} />);
+      fireEvent.change(screen.getByTestId("evaluation-comparison-baseline"), { target: { value: "a" } });
+      fireEvent.change(screen.getByTestId("evaluation-comparison-candidate"), { target: { value: "b" } });
+      expect(screen.getByTestId("evaluation-comparison-additional-c")).toBeTruthy();
+      expect(screen.getByTestId("evaluation-comparison-additional-d")).toBeTruthy();
+      expect(screen.queryByTestId("evaluation-comparison-additional-a")).toBeNull();
+      expect(screen.queryByTestId("evaluation-comparison-additional-b")).toBeNull();
+    });
+
+    it("renders the aligned matrix instead of the single-pair view once at least one additional candidate is checked", () => {
+      const attempts = [attempt({ id: "a" }), attempt({ id: "b" }), attempt({ id: "c" })];
+      render(<EvaluationComparisonPanel attempts={attempts} />);
+      fireEvent.change(screen.getByTestId("evaluation-comparison-baseline"), { target: { value: "a" } });
+      fireEvent.change(screen.getByTestId("evaluation-comparison-candidate"), { target: { value: "b" } });
+      expect(screen.getByTestId("evaluation-comparison-result")).toBeTruthy();
+      fireEvent.click(screen.getByTestId("evaluation-comparison-additional-c"));
+      expect(screen.queryByTestId("evaluation-comparison-result")).toBeNull();
+      expect(screen.getByTestId("evaluation-comparison-matrix")).toBeTruthy();
+    });
+
+    it("caps additional candidates at MAX_ADDITIONAL_CANDIDATES, disabling further checkboxes once at capacity", () => {
+      const attempts = [attempt({ id: "a" }), attempt({ id: "b" }), attempt({ id: "c" }), attempt({ id: "d" }), attempt({ id: "e" })];
+      render(<EvaluationComparisonPanel attempts={attempts} />);
+      fireEvent.change(screen.getByTestId("evaluation-comparison-baseline"), { target: { value: "a" } });
+      fireEvent.change(screen.getByTestId("evaluation-comparison-candidate"), { target: { value: "b" } });
+      fireEvent.click(screen.getByTestId("evaluation-comparison-additional-c"));
+      fireEvent.click(screen.getByTestId("evaluation-comparison-additional-d"));
+      expect(screen.getByText("Choose up to 2 additional experiments.")).toBeTruthy();
+      expect((screen.getByTestId("evaluation-comparison-additional-e") as HTMLInputElement).disabled).toBe(true);
+      // Already-checked boxes stay toggleable so a reader can deselect down to make room.
+      expect((screen.getByTestId("evaluation-comparison-additional-c") as HTMLInputElement).disabled).toBe(false);
+    });
+
+    it("drops a stale additional pick that now coincides with a freshly re-chosen candidate", () => {
+      const attempts = [attempt({ id: "a" }), attempt({ id: "b" }), attempt({ id: "c" })];
+      render(<EvaluationComparisonPanel attempts={attempts} />);
+      fireEvent.change(screen.getByTestId("evaluation-comparison-baseline"), { target: { value: "a" } });
+      fireEvent.change(screen.getByTestId("evaluation-comparison-candidate"), { target: { value: "b" } });
+      fireEvent.click(screen.getByTestId("evaluation-comparison-additional-c"));
+      expect(screen.getByTestId("evaluation-comparison-matrix")).toBeTruthy();
+      // Re-picking "c" as the primary candidate makes the stale additional pick coincide with it --
+      // the matrix should fall back to the single-pair view rather than comparing "c" against itself.
+      fireEvent.change(screen.getByTestId("evaluation-comparison-candidate"), { target: { value: "c" } });
+      expect(screen.queryByTestId("evaluation-comparison-matrix")).toBeNull();
+      expect(screen.getByTestId("evaluation-comparison-result")).toBeTruthy();
+    });
+  });
 });
