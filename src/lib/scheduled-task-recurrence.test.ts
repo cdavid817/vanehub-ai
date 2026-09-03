@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { computeNextScheduledRun, formatScheduledTaskFrequency, validateScheduledTaskFrequency } from "./scheduled-task-recurrence";
+import {
+  computeNextScheduledOccurrences, computeNextScheduledRun, formatScheduledTaskFrequency, validateScheduledTaskFrequency,
+} from "./scheduled-task-recurrence";
 
 describe("scheduled task recurrence", () => {
   it("computes interval schedules from the current time", () => {
@@ -7,6 +9,40 @@ describe("scheduled task recurrence", () => {
 
     expect(computeNextScheduledRun({ kind: "minutes", interval: 15 }, from)).toBe("2026-07-19T01:15:00.000Z");
     expect(computeNextScheduledRun({ kind: "hours", interval: 2 }, from)).toBe("2026-07-19T03:00:00.000Z");
+  });
+
+  // 19.12: built on top of computeNextScheduledRun by feeding each result back in as the next
+  // call's `from`, so this is pinned against repeated single-step calls rather than against
+  // hard-coded expected timestamps -- a divergence here would mean the preview and execution have
+  // silently drifted apart, which is the exact bug this shape is meant to make impossible.
+  it("computes the next N occurrences by feeding each result back in as the next `from`", () => {
+    const from = new Date("2026-07-19T01:00:00.000Z");
+    const frequency = { kind: "minutes", interval: 15 } as const;
+
+    const occurrences = computeNextScheduledOccurrences(frequency, 5, from);
+
+    expect(occurrences).toHaveLength(5);
+    let expectedFrom = from;
+    for (const occurrence of occurrences) {
+      const expected = computeNextScheduledRun(frequency, expectedFrom);
+      expect(occurrence).toBe(expected);
+      expectedFrom = new Date(occurrence);
+    }
+  });
+
+  it("returns occurrences for calendar frequencies too, strictly increasing", () => {
+    const from = new Date("2026-07-19T01:00:00.000Z");
+    const occurrences = computeNextScheduledOccurrences({ kind: "weekly", weekday: 1, timeOfDay: "09:00" }, 3, from);
+
+    expect(occurrences).toHaveLength(3);
+    expect(new Date(occurrences[0]).getTime()).toBeGreaterThan(from.getTime());
+    expect(new Date(occurrences[1]).getTime()).toBeGreaterThan(new Date(occurrences[0]).getTime());
+    expect(new Date(occurrences[2]).getTime()).toBeGreaterThan(new Date(occurrences[1]).getTime());
+  });
+
+  it("returns an empty list for a non-positive count instead of throwing", () => {
+    const from = new Date("2026-07-19T01:00:00.000Z");
+    expect(computeNextScheduledOccurrences({ kind: "hours", interval: 1 }, 0, from)).toEqual([]);
   });
 
   it("rejects invalid recurrence values", () => {

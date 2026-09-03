@@ -128,6 +128,30 @@ export function computeNextScheduledRun(frequency: ScheduledTaskFrequency, from 
   }
 }
 
+/**
+ * 19.12: the next N occurrences, built by feeding `computeNextScheduledRun`'s own result back in
+ * as the next call's `from` -- not a second, parallel calculation. This is the only thing that
+ * makes the preview provably share execution's exact semantics: the due-task sweep and this
+ * preview both ultimately reduce to the same single-step function, so a future change to how one
+ * occurrence is computed cannot silently drift the preview out of sync with what will actually
+ * run. `count <= 0` returns an empty list rather than throwing -- there is no invalid input here,
+ * just nothing to preview.
+ */
+export function computeNextScheduledOccurrences(
+  frequency: ScheduledTaskFrequency,
+  count: number,
+  from = new Date(),
+): string[] {
+  const occurrences: string[] = [];
+  let cursor = from;
+  for (let index = 0; index < count; index += 1) {
+    const next = computeNextScheduledRun(frequency, cursor);
+    occurrences.push(next);
+    cursor = new Date(next);
+  }
+  return occurrences;
+}
+
 export type ScheduledTaskFrequencyLabel =
   | { key: "scheduledTasks.frequency.summary.minutes"; count: number }
   | { key: "scheduledTasks.frequency.summary.hours"; count: number }

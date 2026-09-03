@@ -6,6 +6,7 @@ import { ScheduledTaskDetail } from "./scheduled-task-detail";
 import { ScheduledTaskEditorSheet, type ScheduledTaskEditorMode } from "./scheduled-task-editor-sheet";
 import { ScheduledTaskList } from "./scheduled-task-list";
 import { SCHEDULED_TASK_CREATE_MUTATION_KEY, useScheduledTasksActions } from "./use-scheduled-tasks-actions";
+import { useScheduledTaskHistory } from "./use-scheduled-task-history";
 
 export interface ScheduledTasksPanelProps {
   agents: AgentRegistryEntry[];
@@ -17,6 +18,10 @@ export interface ScheduledTasksPanelProps {
    *  `runsPath()`, so Back/forward and reload restore the same selected task. Optional so this
    *  component still works standalone (e.g. in tests) without a routed parent. */
   onSelectSchedule?: (scheduleId: string | undefined) => void;
+  /** 19.6/19.11: threaded straight through to `ScheduledTaskDetail` -- see
+   *  `ScheduledTaskSessionLink`'s own doc comment for why this stays optional and, for this task
+   *  batch, unconnected to any real caller (wiring it reaches into `src/main-layout/`). */
+  onOpenSession?: (sessionId: string) => void;
 }
 
 /**
@@ -28,12 +33,13 @@ export interface ScheduledTasksPanelProps {
  * (Enable/Disable and Delete errors funneling into the create form's single `error` slot,
  * regardless of which row actually failed) motivated the change (19.17).
  */
-export function ScheduledTasksPanel({ agents, onSelectSchedule, scheduleId }: ScheduledTasksPanelProps) {
+export function ScheduledTasksPanel({ agents, onOpenSession, onSelectSchedule, scheduleId }: ScheduledTasksPanelProps) {
   const { i18n } = useTranslation();
   const { create, error, load, loading, mutations, remove, runNow, setEnabled, tasks, update } = useScheduledTasksActions();
   const [selectedId, setSelectedId] = useState<string | null>(scheduleId ?? null);
   const [editorMode, setEditorMode] = useState<ScheduledTaskEditorMode | null>(null);
   const weekdayNames = useMemo(() => formatAppWeekdayNames(i18n.language), [i18n.language]);
+  const history = useScheduledTaskHistory(selectedId);
 
   const selectableAgents = useMemo(
     () => agents.filter((agent) => agent.id === "onepiece" || agent.supportedInteractionModes.includes("cli")),
@@ -90,8 +96,11 @@ export function ScheduledTasksPanel({ agents, onSelectSchedule, scheduleId }: Sc
       <div className="grid content-start gap-4">
         <ScheduledTaskDetail
           agent={selectedAgent}
+          history={history}
           isRunningNow={selected !== null && (selectedMutation?.pending ?? false)}
           language={i18n.language}
+          onOpenSession={onOpenSession}
+          onRetryHistory={history.reload}
           onRunNow={() => selected && void runNow(selected)}
           runNowError={selectedMutation?.error?.message ?? null}
           task={selected}

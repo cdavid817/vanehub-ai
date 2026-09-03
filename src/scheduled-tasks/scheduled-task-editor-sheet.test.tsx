@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeAll, describe, expect, it, vi, type Mock } from "vitest";
 import { activateAppLanguage, i18n } from "../i18n";
 import type { AgentRegistryEntry, ScheduledTask } from "../types/agent";
@@ -179,5 +179,14 @@ describe("ScheduledTaskEditorSheet", () => {
     fireEvent.change(screen.getByLabelText(i18n.t("scheduledTasks.name")), { target: { value: "Weekly report" } });
     const review = screen.getByRole("region", { name: "Review" });
     expect(review.textContent).toContain("Weekly report");
+  });
+
+  // 19.13/19.15: Review restates the same honest execution facts the create/edit form already
+  // shows during editing (`ScheduledTaskForm`'s own `runtimeHint` paragraph) -- shown once more
+  // here so the reader sees them again at the exact point they actually commit.
+  it("shows the honest execution notice (device timezone + catch-up model) inside Review", () => {
+    renderSheet({ kind: "create" });
+    const review = screen.getByRole("region", { name: "Review" });
+    expect(within(review).getByTestId("scheduled-task-execution-notice")).toBeTruthy();
   });
 });

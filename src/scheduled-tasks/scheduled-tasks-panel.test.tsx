@@ -8,6 +8,7 @@ import type { AgentRegistryEntry, ScheduledTask, ScheduledTaskFrequency } from "
 const mocks = vi.hoisted(() => ({
   createScheduledTask: vi.fn(),
   deleteScheduledTask: vi.fn(),
+  listScheduledTaskRuns: vi.fn(),
   listScheduledTasks: vi.fn(),
   runScheduledTaskNow: vi.fn(),
   setScheduledTaskEnabled: vi.fn(),
@@ -17,6 +18,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../services/runtime-agent-client", () => ({
   agentService: {
     listScheduledTasks: mocks.listScheduledTasks,
+    listScheduledTaskRuns: mocks.listScheduledTaskRuns,
     createScheduledTask: mocks.createScheduledTask,
     setScheduledTaskEnabled: mocks.setScheduledTaskEnabled,
     updateScheduledTask: mocks.updateScheduledTask,
@@ -64,6 +66,7 @@ describe("ScheduledTasksPanel", () => {
   beforeEach(() => {
     for (const mock of Object.values(mocks)) mock.mockReset();
     mocks.listScheduledTasks.mockResolvedValue([]);
+    mocks.listScheduledTaskRuns.mockResolvedValue([]);
   });
 
   it("loads the task list on mount without needing a dialog `open` prop, and offers a New task trigger", async () => {
@@ -132,6 +135,21 @@ describe("ScheduledTasksPanel", () => {
     render(<ScheduledTasksPanel agents={agents} onSelectSchedule={onSelectSchedule} />);
     fireEvent.click(await screen.findByTestId("scheduled-task-select-t-a"));
     expect(onSelectSchedule).toHaveBeenCalledWith("t-a");
+  });
+
+  // 19.11: selecting a task is what actually drives the history fetch -- this is the one place
+  // that proves `useScheduledTaskHistory` is really wired into the panel, not just unit-tested in
+  // isolation against a hand-built state prop.
+  it("fetches and renders run history for the selected task", async () => {
+    mocks.listScheduledTasks.mockResolvedValueOnce([buildTask("t-a")]);
+    mocks.listScheduledTaskRuns.mockResolvedValueOnce([
+      { id: "run-1", taskId: "t-a", sessionId: "session-1", status: "succeeded", error: null, startedAt: "2026-08-30T09:00:00.000Z", completedAt: "2026-08-30T09:05:00.000Z" },
+    ]);
+    render(<ScheduledTasksPanel agents={agents} />);
+    fireEvent.click(await screen.findByTestId("scheduled-task-select-t-a"));
+
+    await waitFor(() => expect(mocks.listScheduledTaskRuns).toHaveBeenCalledWith("t-a"));
+    expect(await within(screen.getByTestId("scheduled-task-history")).findByText(i18n.t("scheduledTasks.history.status.succeeded"))).toBeTruthy();
   });
 
   // 19.7/19.9: Create and Duplicate both open the same editor sheet.

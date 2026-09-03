@@ -1,4 +1,4 @@
-import type { ScheduledTask, ScheduledTaskFrequency } from "../types/agent";
+import type { ScheduledTask, ScheduledTaskFrequency, ScheduledTaskRunStatus } from "../types/agent";
 import type { ScheduledTaskFrequencyLabel } from "../lib/scheduled-task-recurrence";
 
 export type FrequencyKind = ScheduledTaskFrequency["kind"];
@@ -52,5 +52,30 @@ export function statusClass(status: ScheduledTask["latestStatus"]) {
   if (status === "failed") return "text-destructive";
   if (status === "succeeded") return "text-[hsl(var(--success))]";
   if (status === "running") return "text-primary";
+  return "text-muted-foreground";
+}
+
+const HISTORY_STATUS_KEYS: Record<ScheduledTaskRunStatus, string> = {
+  backfill_running: "scheduledTasks.history.status.backfillRunning",
+  backfilled: "scheduledTasks.history.status.backfilled",
+  failed: "scheduledTasks.history.status.failed",
+  running: "scheduledTasks.history.status.running",
+  skipped: "scheduledTasks.history.status.skipped",
+  succeeded: "scheduledTasks.history.status.succeeded",
+};
+
+/** 19.11: a run row's own status vocabulary is wider than a task's `latestStatus` (see
+ *  `ScheduledTaskRunStatus`'s own doc comment in types/agent.ts) -- `scheduledTasks.history.*`
+ *  is a deliberately separate key namespace from `scheduledTasks.status.*` above, not a reuse,
+ *  because "Latest succeeded" reads correctly for a single current-status badge but would be
+ *  actively misleading repeated on every row of a multi-row history list. */
+export function historyStatusKey(status: ScheduledTaskRunStatus): string {
+  return HISTORY_STATUS_KEYS[status];
+}
+
+export function historyStatusClass(status: ScheduledTaskRunStatus): string {
+  if (status === "failed") return "text-destructive";
+  if (status === "succeeded" || status === "backfilled") return "text-[hsl(var(--success))]";
+  if (status === "running" || status === "backfill_running") return "text-primary";
   return "text-muted-foreground";
 }

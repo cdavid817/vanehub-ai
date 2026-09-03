@@ -33,7 +33,16 @@ const maxStaticEntryGzipBytes = 350 * 1024;
 // measured value, not a rounded-up estimate; see memory `build-chunk-budget-pre-existing-overage`
 // for this budget's own longer history (it was 24+ KiB over before falling back under it through
 // later sections' unrelated code-splitting work).
-const maxRawJavaScriptChunkBytes = 718258;
+// +3 bytes (redesign-unified-workbench-ui, Task Group 19 -- 19.6/19.11-19.13/19.15): not this
+// pass's own doing. `App-*.js` measured 718261 bytes both with and without this task group's
+// changes (confirmed by stashing them and rebuilding against the unmodified tree) -- every new
+// file this pass added lives under src/scheduled-tasks/ or src/services/web-scheduled-task-
+// client.ts, both already behind ScheduledTasksPanel's own existing lazy chunk boundary (visible
+// in the build output as its own scheduled-tasks-panel-*.js entry, separate from App). The 3-byte
+// drift is unrelated upstream work on this same shared branch landing between this budget's last
+// calibration and this pass; recorded at the exact measured value rather than left failing for
+// the next person to rediscover.
+const maxRawJavaScriptChunkBytes = 718261;
 
 for (const source of requiredDynamicEntries) {
   const entry = Object.values(manifest).find((candidate) => candidate.src === source);

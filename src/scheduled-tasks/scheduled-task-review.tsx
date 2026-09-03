@@ -3,6 +3,7 @@ import { formatScheduledTaskFrequency } from "../lib/scheduled-task-recurrence";
 import type { AgentRegistryEntry } from "../types/agent";
 import type { ScheduledTaskDraft } from "./scheduled-task-draft";
 import { frequencySummaryParams } from "./scheduled-task-presentation";
+import { ScheduledTaskExecutionNotice } from "./scheduled-task-execution-notice";
 
 function SummaryRow({ label, value }: { label: string; value: string }) {
   return (
@@ -38,6 +39,7 @@ export function ScheduledTaskReview({ agent, draft, weekdayNames }: {
         <SummaryRow label={t("scheduledTasks.frequency")} value={t(frequencyLabel.key, frequencySummaryParams(frequencyLabel, weekdayNames))} />
         <SummaryRow label={t("scheduledTasks.content")} value={draft.content.trim() || "—"} />
       </dl>
+      <ScheduledTaskExecutionNotice />
     </section>
   );
 }

@@ -326,8 +326,16 @@ const COLOR_STYLE_PROPERTIES = new Set([
 // 一次纯改名会静默把任务的下次触发时间重置。修复只改判断,不新增分支:`web-scheduled-task-client.ts`
 // +6(按 `sameScheduledTaskFrequency`——新落在 `scheduled-task-recurrence.ts`,不计入本预算——决定是
 // 保留旧值还是重算)。上限按实测值 24218 记录,不留余量。
+// 上调理由(redesign-unified-workbench-ui,Task 19.11):+56,全部在 web-scheduled-task-client.ts。此前
+// `listScheduledTaskRuns` 只从 `task.latestRunAt` 合成一行,而这个字段从未被写入,实际恒返回空数组——
+// 与 Tauri 侧真正的多行 `scheduled_task_runs` 查询完全不对齐。新增 `scheduledTaskRuns` 模块状态、
+// `seedRunHistory`(合成 succeeded/backfilled/failed 三种真实状态,覆盖此前从未被行使的状态词表)、
+// `ensureRunHistory`(首次访问时惰性播种,镜像 `web-prompt-hook-versions.ts` 的
+// `ensureWebPromptHookVersion` 先例),并让 `runScheduledTaskNow` 真正记录手动运行——此前只生成回执,
+// 从不落盘,`listScheduledTaskRuns` 永远看不到它。都是新增能力的固定开销,没有复制既有分支。
+// 上限按实测值 24274 记录,不留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 24218, owner: "redesign-unified-workbench-ui" },
+  { root: "src/services", budget: 24274, owner: "redesign-unified-workbench-ui" },
 ]);
 
 const STATE_PACKAGES = new Set([

@@ -456,6 +456,18 @@ export type ScheduledTaskFrequency =
 export type ScheduledTaskLatestStatus =
   "never-run" | "running" | "succeeded" | "failed" | "skipped";
 
+/**
+ * 19.11: a run row's own `status` column is a strictly wider vocabulary than a task's own
+ * `latestStatus` above. The due-task sweep's own bookkeeping (`mark_task_running_with_trigger` /
+ * `mark_task_succeeded`, `scheduled_tasks.rs`) writes `backfill_running`/`backfilled` onto the
+ * *run* row when an occurrence was caught up at app startup, but never onto the task's own
+ * `latest_status` column, which only ever reads "never-run"/"running"/"succeeded"/"failed". Kept
+ * as its own type instead of widening `ScheduledTaskLatestStatus` itself, so a task's own status
+ * badge stays exhaustively checked against the narrower set it can actually take.
+ */
+export type ScheduledTaskRunStatus =
+  "running" | "backfill_running" | "succeeded" | "backfilled" | "failed" | "skipped";
+
 export interface ScheduledTask {
   id: string;
   name: string;
@@ -480,7 +492,7 @@ export interface ScheduledTaskRun {
   id: string;
   taskId: string;
   sessionId: string | null;
-  status: ScheduledTaskLatestStatus;
+  status: ScheduledTaskRunStatus;
   error: string | null;
   startedAt: string;
   completedAt: string | null;
