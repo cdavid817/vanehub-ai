@@ -16,6 +16,8 @@ Memory extraction for CLI Agents is performed by OnePiece, and with it unconfigu
 
 **Yes, per memory.** Each memory has an audience: every Agent by default, or only the ones you name. Set it when you approve a proposal or from the memory's detail view. See [Personalization](personalization.md#scope-source-and-audience-of-a-single-memory).
 
+The audience governs **injection** — a memory that does not qualify is not carried into that Agent's context automatically. It does not filter the `recall` tool, which spans the whole shared pool by design. Content that no Agent should read must be deleted.
+
 ## Can recall search my project code?
 
 **No.** It retrieves the **memories** you have accumulated; it does not index repository files.

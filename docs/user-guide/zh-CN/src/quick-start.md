@@ -57,7 +57,7 @@ claude
 
 > **VaneHub 当前未纳管 Antigravity 的端点与密钥字段**：它的配置面板里没有这两项，能调的是模型与审批行为；Google 登录凭据由 CLI 自己存在系统钥匙串。这是 VaneHub 当前的纳管范围，不等于 Antigravity CLI 本身不支持 API Key 或自定义端点——上游能力以 Antigravity 官方文档为准，需要时可在 CLI 自身环境中按官方方式配置。
 
-字段清单、凭据存放位置与漂移处理见[工具与扩展 → Agent 配置](tooling.md#agent-配置)。
+字段清单、凭据存放位置与漂移处理见[工具与扩展 → Agent 配置](agent-configuration.md#agent-配置)。
 
 ### 原生 Agent OnePiece
 

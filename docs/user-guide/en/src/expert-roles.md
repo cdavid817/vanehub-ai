@@ -70,7 +70,7 @@ The full semantics of model family and cross-family review are covered in [Multi
 2. When creating a session, choose **Multi-Agent** and assign an Agent and a role to each seat.
 3. In the conversation, use `@` to hand off to the corresponding seat.
 
-For a full "architect → implementer → reviewer" relay, see the [Group chat collaboration case](multi-agent-testing-tutorial.md).
+For a full "architect → implementer → reviewer" relay, see the [Group chat collaboration case](../../../developer-guide/src/multi-agent-acceptance.md).
 
 ## Notes and limits
 

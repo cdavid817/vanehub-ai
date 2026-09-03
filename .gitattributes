@@ -17,4 +17,4 @@ src-tauri/tests/fixtures/skill-tools/** text eol=lf
 # nobody touched. This cannot reproduce locally, because a local file is usually the one the
 # generator just wrote rather than the one git checked out.
 src/generated/** text eol=lf
-docs/agent-infrastructure/cli-parameter-matrix.md text eol=lf
+docs/reference/cli/parameter-matrix.md text eol=lf

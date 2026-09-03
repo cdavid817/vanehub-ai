@@ -29,7 +29,7 @@ When contributing for the first time, read in this order:
 1. This chapter: establish repository coordinates first;
 2. [Runtime and service boundaries](runtime-boundaries.md): understand `tauri`, `web-http`, and `web-mock`;
 3. [Native bounded contexts](native-contexts.md): confirm business ownership;
-4. [Persistence and unified logging](persistence-and-logging.md) when data is involved;
+4. [Persistence ownership](persistence-ownership.md) when data is involved;
 5. [OpenSpec workflow](openspec-workflow.md) and the root `AGENTS.md` before starting implementation.
 
 ## The overall architecture in one minute
@@ -243,7 +243,7 @@ Tests are both co-located with the source and kept in the root `tests/`:
 | `tests/docs/` | Docs build and page behavior |
 | `tests/fixtures/` | Fixtures shared across tests |
 
-Test layers, applicability, and platform evidence rules are in [Testing, packaging, and release](testing-and-release.md). Do not copy the verification commands into this chapter; the root `AGENTS.md` is always the source of truth.
+Test layers, applicability, and platform evidence rules are in [Testing](testing.md). Do not copy the verification commands into this chapter; the root `AGENTS.md` is always the source of truth.
 
 ### Scripts and CI
 
@@ -308,7 +308,7 @@ Concrete debugging steps:
 7. For persistence, confirm the tables and migrations belong to the owning context;
 8. For long-running execution, confirm operation, logging, cancellation, and terminal-state evidence;
 9. Back in the frontend, check that Web/mock and Web/HTTP keep the contract or explicitly fail closed;
-10. Finally pick the smallest test that proves the boundary per [Testing, packaging, and release](testing-and-release.md), then run the full verification in `AGENTS.md`.
+10. Finally pick the smallest test that proves the boundary per [Testing](testing.md), then run the full verification in `AGENTS.md`.
 
 ## Common wrong directions
 
@@ -327,8 +327,8 @@ Concrete debugging steps:
 | --- | --- |
 | How the three frontend runtimes are selected and how adapters stay consistent | [Runtime and service boundaries](runtime-boundaries.md) |
 | What each native context owns and how to call across contexts | [Native bounded contexts](native-contexts.md) |
-| SQLite, migrations, connection pooling, and table ownership | [Persistence and unified logging](persistence-and-logging.md) |
+| SQLite, migrations, connection pooling, and table ownership | [Persistence ownership](persistence-ownership.md) |
 | Agent, provider, and generation lifecycles | [Agent lifecycle and provider runtime](agent-lifecycle.md) |
-| Test layers, desktop evidence, and platform applicability | [Testing, packaging, and release](testing-and-release.md) |
+| Test layers, desktop evidence, and platform applicability | [Testing](testing.md) |
 | Proposals, designs, delta specs, tasks, and archiving | [OpenSpec workflow](openspec-workflow.md) |
 | The complete native facade and module reference | [Native API reference](native-api-reference.md) |

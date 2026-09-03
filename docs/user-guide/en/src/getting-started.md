@@ -187,11 +187,11 @@ The CLI Management page offers different actions depending on status: **Install*
 
 If an Agent asks you to sign in during a session, complete authentication in that CLI, then return to VaneHub AI and refresh detection.
 
-**Switching to a third-party model works the other way around** — build and apply a configuration under **Settings → Agent configurations**, without hand-editing the CLI's own file. See [Tools and extensions → Agent configurations](tooling.md#agent-configurations).
+**Switching to a third-party model works the other way around** — build and apply a configuration under **Settings → Agent configurations**, without hand-editing the CLI's own file. See [Tools and extensions → Agent configurations](agent-configuration.md#agent-configurations).
 
 ## CLI launch parameters
 
-Each CLI's own command-line parameters and how to configure launch parameters inside VaneHub AI are collected under [Tools and extensions → CLI parameters](tooling.md#cli-parameters). OnePiece has no CLI and therefore no launch parameters; its equivalent configuration lives under [Agent configurations](tooling.md#agent-configurations).
+Each CLI's own command-line parameters and how to configure launch parameters inside VaneHub AI are collected under [Tools and extensions → CLI parameters](agent-configuration.md#cli-parameters). OnePiece has no CLI and therefore no launch parameters; its equivalent configuration lives under [Agent configurations](agent-configuration.md#agent-configurations).
 
 ## Next
 

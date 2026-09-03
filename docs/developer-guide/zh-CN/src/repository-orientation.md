@@ -29,7 +29,7 @@ VaneHub AI 是一个以桌面端为主的 AI 编程 Agent 工作台。它使用�
 1. 本章：先建立仓库坐标；
 2. [运行时与服务边界](runtime-boundaries.md)：理解 `tauri`、`web-http` 与 `web-mock`；
 3. [Native 限界上下文](native-contexts.md)：确认业务所有权；
-4. 涉及数据时再读[持久化与统一日志](persistence-and-logging.md)；
+4. 涉及数据时再读[持久化所有权](persistence-ownership.md)；
 5. 开始实现前阅读 [OpenSpec 工作流](openspec-workflow.md)与根目录 `AGENTS.md`。
 
 ## 一分钟理解总体架构
@@ -243,7 +243,7 @@ openspec/
 | `tests/docs/` | 文档构建与页面行为 |
 | `tests/fixtures/` | 跨测试共享 fixture |
 
-测试层级、适用范围和平台证据规则见[测试、打包与发布](testing-and-release.md)。校验命令不要在本章再抄一份，始终以根目录 `AGENTS.md` 为准。
+测试层级、适用范围和平台证据规则见[测试](testing.md)。校验命令不要在本章再抄一份，始终以根目录 `AGENTS.md` 为准。
 
 ### Scripts 与 CI
 
@@ -308,7 +308,7 @@ sequenceDiagram
 7. 涉及持久化时，确认表和迁移归 owning context；
 8. 涉及长耗时执行时，确认 operation、日志、取消和终态证据；
 9. 回到前端检查 Web/mock 与 Web/HTTP 是否保持契约或明确 fail-closed；
-10. 最后按[测试、打包与发布](testing-and-release.md)选择能够证明该边界的最小测试，再执行 `AGENTS.md` 的完整校验。
+10. 最后按[测试](testing.md)选择能够证明该边界的最小测试，再执行 `AGENTS.md` 的完整校验。
 
 ## 常见错误方向
 
@@ -327,8 +327,8 @@ sequenceDiagram
 | --- | --- |
 | 三种前端运行时如何选择，adapter 如何保持一致 | [运行时与服务边界](runtime-boundaries.md) |
 | 每个 Native context 拥有什么，如何跨 context 调用 | [Native 限界上下文](native-contexts.md) |
-| SQLite、迁移、连接池和表所有权 | [持久化与统一日志](persistence-and-logging.md) |
+| SQLite、迁移、连接池和表所有权 | [持久化所有权](persistence-ownership.md) |
 | Agent、provider、generation 生命周期 | [Agent 生命周期与 provider 运行时](agent-lifecycle.md) |
-| 测试层级、桌面证据与平台适用范围 | [测试、打包与发布](testing-and-release.md) |
+| 测试层级、桌面证据与平台适用范围 | [测试](testing.md) |
 | proposal、design、delta specs、tasks 与归档 | [OpenSpec 工作流](openspec-workflow.md) |
 | 完整 Native facade 与模块参考 | [Native API 参考](native-api-reference.md) |

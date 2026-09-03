@@ -24,7 +24,9 @@ VaneHub AI 是统一运行、管理和协作多个 AI 编码 Agent 的桌面工�
 - [安装并认证 CLI](getting-started.md)——走外部 CLI 路线时的安装、认证与检测（OnePiece 路线可跳过）
 - [OnePiece（原生 Agent）](native-agent.md)——走 OnePiece 路线时的模型服务配置
 - [创建第一个会话](first-session.md)——选 Agent、选工作区、认识会话工作区
-- [用户界面](user-interface.md)——主窗口布局、会话列表、对话区、工作区标签页、设置中心、浮动助手、通知与托盘
+- [用户界面](user-interface.md)——主窗口布局、会话列表、对话区、浮动助手、通知与托盘
+- [会话工作区](session-workspace.md)——会话里的对话、变更、文件、Shell、日志与链路各区域
+- [设置中心](settings.md)——全局设置入口与各设置页导航
 - [核心概念](core-concepts.md)——会话、席位、工作区、权限模板、Loop、MCP 这些词各指什么
 
 ## 按目标查找
@@ -34,18 +36,18 @@ VaneHub AI 是统一运行、管理和协作多个 AI 编码 Agent 的桌面工�
 | 我需要…… | 从这里开始 | 相关主题 |
 | --- | --- | --- |
 | 认识主窗口与各功能区 | [用户界面](user-interface.md) | [创建第一个会话](first-session.md) |
-| 在会话里看对话、变更、Shell、日志与链路 | [用户界面 → 工作区标签页](user-interface.md#工作区标签页) | [创建第一个会话](first-session.md#会话工作区的九个标签页) |
-| 配置应用本身（语言、主题、代理、数据目录） | [用户界面 → 设置中心](user-interface.md#设置中心) | [版本更新](app-updates.md) |
+| 在会话里看对话、变更、Shell、日志与链路 | [会话工作区](session-workspace.md) | [创建第一个会话](first-session.md#会话工作区的九个标签页) |
+| 配置应用本身（语言、主题、代理、数据目录） | [设置中心](settings.md) | [版本更新](app-updates.md) |
 | 让 Agent 在独立工作副本里改代码 | [Git Worktree](worktree.md) | [创建第一个会话](first-session.md) |
-| 在远程机器上工作 | [远程与 IM](remote-and-im.md#ssh-远程工作区) | — |
+| 在远程机器上工作 | [远程工作区与 SSH](remote-workspaces.md) | — |
 
 ### Agent 与协作
 
 | 我需要…… | 从这里开始 | 相关主题 |
 | --- | --- | --- |
 | 不装 CLI 直接用内置 Agent | [OnePiece（原生 Agent）](native-agent.md) | [快速开始](quick-start.md) |
-| 安装、认证与管理外部 CLI | [安装并认证 CLI](getting-started.md) | [工具与扩展](tooling.md) |
-| 多个 Agent 在一个会话里协作 | [多 Agent 群聊](multi-agent-workflow.md) | [群聊协作案例](multi-agent-testing-tutorial.md)、[专家角色](expert-roles.md) |
+| 安装、认证与管理外部 CLI | [安装并认证 CLI](getting-started.md) | [Agent 与 CLI 配置](agent-configuration.md) |
+| 多个 Agent 在一个会话里协作 | [多 Agent 群聊](multi-agent-workflow.md) | [专家角色](expert-roles.md) |
 | 逐行评审 Agent 的改动 | [代码评审](code-review.md) | — |
 | 比较不同 Agent 的任务表现 | [Agent 评测](evaluation.md) | — |
 
@@ -62,12 +64,12 @@ VaneHub AI 是统一运行、管理和协作多个 AI 编码 Agent 的桌面工�
 
 | 我需要…… | 从这里开始 | 相关主题 |
 | --- | --- | --- |
-| 给 Agent 接上外部工具 | [MCP 服务器](mcp.md) | [工具与扩展](tooling.md) |
+| 给 Agent 接上外部工具 | [MCP 服务器](mcp.md) | [Agent 与 CLI 配置](agent-configuration.md) |
 | 安装 Skill 并绑定到 Agent | [Skill 管理](skill-management.md) | — |
-| 在提示词组装链路里插入内容 | [Prompt Hook](prompt-hooks.md) | [工具与扩展](tooling.md) |
-| 本地 OCR、语音识别与语音合成 | [本地媒体](local-media.md) | [工具与扩展 → 扩展能力](tooling.md#扩展能力) |
+| 在提示词组装链路里插入内容 | [Prompt Hook](prompt-hooks.md) | [Agent 与 CLI 配置](agent-configuration.md) |
+| 本地 OCR、语音识别与语音合成 | [本地媒体](local-media.md) | [本地扩展](extensions.md) |
 | 连接 GitHub 等外部产品 | [插件集成](plugin-integration.md) | — |
-| 从飞书、钉钉等 IM 触发会话 | [远程与 IM](remote-and-im.md#im-连接器) | — |
+| 从飞书、钉钉等 IM 触发会话 | [IM 连接器](im-connectors.md) | — |
 | 在输入框里直接切页签、改开关 | [斜杠命令](slash-commands.md) | — |
 
 ### 治理与运行
@@ -75,9 +77,10 @@ VaneHub AI 是统一运行、管理和协作多个 AI 编码 Agent 的桌面工�
 | 我需要…… | 从这里开始 | 相关主题 |
 | --- | --- | --- |
 | 控制 Agent 能做什么、处理审批 | [权限审批](permissions.md) | — |
-| 让 Agent 自动迭代到目标达成 | [Loop Engineering 工程](loop-engineering.md) | [目标管理](goal-management.md)、[任务看板](todo-board.md) |
-| 追踪目标与待办 | [目标管理](goal-management.md) | [任务看板](todo-board.md) |
-| 按周期自动跑任务、查看 token 用量 | [定时任务与用量统计](automation.md) | — |
+| 让 Agent 自动迭代到目标达成 | [Loop Engineering 工程](loop-engineering.md) | [目标与任务看板](goals-and-work-board.md) |
+| 追踪目标与待办 | [目标与任务看板](goals-and-work-board.md) | — |
+| 按周期自动跑任务 | [定时任务与通知](scheduled-tasks.md) | — |
+| 查看 token 用量 | [使用统计](usage-statistics.md) | — |
 | 查看执行链路与日志 | [可观测性](observability.md) | [故障排查](troubleshooting.md) |
 | 更新应用版本 | [版本更新](app-updates.md) | — |
 

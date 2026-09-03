@@ -166,7 +166,7 @@ The exact meaning of `Inherit` is: **emit no token for this parameter at all**, 
 
 `interactive` (session-scoped Agent Terminal / PTY) and `chat` (managed headless CLI runtime) are two scopes; the parameter catalog can support both, but the runtime renders different parameters per scope.
 
-The full per-CLI parameter list is generated from `catalog.v2.json` — never hand-copy it; see the generated [CLI parameter matrix](../../agent-infrastructure/cli-parameter-matrix.md) (regenerate with `npm run docs:matrix:generate`).
+The full per-CLI parameter list is generated from `catalog.v2.json` — never hand-copy it; see the generated [CLI parameter matrix](../../reference/cli/parameter-matrix.md) (regenerate with `npm run docs:matrix:generate`).
 
 OnePiece has no argv and must not appear on the CLI parameters page; its runtime configuration consists of generation parameters, context budget, retrieval, compaction, and tool-catalog parameters (see [OnePiece native Agent](onepiece-native-agent.md) and [Context compaction](context-compaction.md)).
 

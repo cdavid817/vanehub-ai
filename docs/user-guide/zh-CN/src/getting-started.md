@@ -16,7 +16,7 @@ VaneHub AI **驱动你已经装好的 CLI**。**各家的订阅登录（OAuth）
 
 - **Node.js 与 npm**——仅当选择 npm 安装源时需要（各 CLI 要求的最低 Node.js 版本见下文各自小节）；用官方原生安装器装的 CLI 不依赖 Node.js
 - **Git**——使用变更视图、代码评审或 [Git Worktree](worktree.md) 时需要
-- **SSH**——连接[远端工作区](remote-and-im.md#ssh-远程工作区)时需要
+- **SSH**——连接[远端工作区](remote-workspaces.md)时需要
 
 ## 两种安装方式
 
@@ -194,11 +194,11 @@ CLI 工具页按状态提供不同操作：**安装**、**升级**、**降级**�
 
 如果 Agent 在会话中提示要登录，去对应的 CLI 里完成认证，然后回到 VaneHub AI 刷新检测。
 
-**要换成第三方大模型则相反**——去**设置 → Agent 配置**建一份配置并应用即可，不必手改 CLI 的配置文件。见[工具与扩展 → Agent 配置](tooling.md#agent-配置)。
+**要换成第三方大模型则相反**——去**设置 → Agent 配置**建一份配置并应用即可，不必手改 CLI 的配置文件。见[工具与扩展 → Agent 配置](agent-configuration.md#agent-配置)。
 
 ## CLI 启动参数
 
-五个 CLI 各自的命令行参数与 VaneHub AI 里的启动参数配置，统一收在[工具与扩展 → CLI 参数](tooling.md#cli-参数)。OnePiece 没有 CLI，也就没有启动参数，它的等价配置在[Agent 配置](tooling.md#agent-配置)。
+五个 CLI 各自的命令行参数与 VaneHub AI 里的启动参数配置，统一收在[工具与扩展 → CLI 参数](agent-configuration.md#cli-参数)。OnePiece 没有 CLI，也就没有启动参数，它的等价配置在[Agent 配置](agent-configuration.md#agent-配置)。
 
 ## 下一步
 

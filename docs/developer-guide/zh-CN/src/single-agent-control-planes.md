@@ -166,7 +166,7 @@ OnePiece 的 Provider Profile 生命周期（目录、Credential Probe、模型�
 
 `interactive`（会话级 Agent Terminal / PTY）与 `chat`（受管 Headless CLI Runtime）是两类 Scope，参数目录可同时支持，但 Runtime 按 Scope 渲染不同参数。
 
-每个 CLI 的完整参数清单由 `catalog.v2.json` 生成，不要手抄——见生成的 [CLI 参数矩阵](../../../agent-infrastructure/cli-parameter-matrix.md)（更新命令 `npm run docs:matrix:generate`）。
+每个 CLI 的完整参数清单由 `catalog.v2.json` 生成，不要手抄——见生成的 [CLI 参数矩阵](../../../reference/cli/parameter-matrix.md)（更新命令 `npm run docs:matrix:generate`）。
 
 OnePiece 不存在 argv，不应出现在 CLI 参数页面；它对应的运行配置是生成参数、上下文预算、检索、压缩与工具目录参数（见 [OnePiece native Agent](onepiece-native-agent.md)与[上下文压缩](context-compaction.md)）。
 

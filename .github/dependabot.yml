@@ -23,7 +23,12 @@ updates:
           - patch
 
   - package-ecosystem: cargo
-    directory: /src-tauri
+    # The workspace root, not `/src-tauri`. `Cargo.lock` moved here when the cargo workspace was
+    # established (#180) and `src-tauri/Cargo.toml` now inherits all 78 of its dependencies with
+    # `workspace = true`, so there is no version literal in that directory to bump. Pointed at the
+    # old path, the updater opened no pull request and reported no error for months — which looks
+    # exactly like having no updates to make.
+    directory: /
     schedule:
       interval: weekly
       day: monday
@@ -35,12 +40,22 @@ updates:
       - area/native
     commit-message:
       prefix: deps(cargo)
-    # Tauri/Wry expose WebView2 COM types from 0.38.x. A standalone 0.39.x
-    # upgrade introduces incompatible windows-core types at the API boundary.
     ignore:
+      # Tauri/Wry expose WebView2 COM types from 0.38.x. A standalone 0.39.x
+      # upgrade introduces incompatible windows-core types at the API boundary.
       - dependency-name: webview2-com
         versions:
           - ">=0.39.0, <0.40.0"
+      # rodio 0.22.2 — its latest release, from 2026-03 — still requires cpal ^0.17.
+      # Taking 0.18 on our direct dependency puts two cpal versions in the graph, so
+      # `rodio::DeviceSinkBuilder::from_device` rejects the `Device` our own host
+      # produces (#261). Running the two side by side is worse than the compile error
+      # it replaces: capture and playback would resolve device ids through different
+      # cpal versions, and a stored output-device setting that no longer parses fails
+      # silently. Lift this once rodio ships a release built on cpal 0.18.
+      - dependency-name: cpal
+        versions:
+          - ">=0.18.0"
     groups:
       cargo-minor-patch:
         patterns:

@@ -152,4 +152,4 @@ Skill 详情中的“演进证据”把 Agent 的结构化运行结果转成可�
 
 - 会话内的就地 Skill 视图 → [用户界面](user-interface.md)
 - 角色对 Skill 的引用关系 → [专家角色](expert-roles.md)
-- Skill 规范本身：`SKILL.md` 文件格式、渐进式披露加载、与 MCP/Prompt 的定位对比 → [Agent Skills 技术架构](../../../agent-infrastructure/agent-skills-architecture.md)
+- Skill 规范本身：`SKILL.md` 文件格式、渐进式披露加载、与 MCP/Prompt 的定位对比 → [Agent Skills 技术架构](../../../agent-infrastructure/patterns/agent-skills.md)
