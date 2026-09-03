@@ -62,6 +62,74 @@ describe("Loop run workspace", () => {
     await waitFor(() => expect(screen.getByText("pause failed")).toBeTruthy());
     expect((screen.getByRole("button", { name: "暂停" }) as HTMLButtonElement).disabled).toBe(false);
   });
+
+  // 21.12 "large iteration timeline" budget: `generateLoopRuns` (testing/fixtures/loop-run-fixtures.ts)
+  // ties its own iteration count to `definitionSnapshot.limits.maxIterations` (realistically 2-8,
+  // task 0.9's own scale), which never exercises a run with a genuinely large timeline -- built
+  // directly here instead, the same way this file's own other cases already hand-build iteration
+  // arrays via `loopIterationFixture`, just at a much larger count.
+  it("renders every row once for a run with 60 iterations, and only the latest auto-expands (21.12)", () => {
+    const iterations = Array.from({ length: 60 }, (_unused, index) =>
+      loopIterationFixture({ id: `iteration-${index + 1}`, sequence: index + 1, status: "succeeded" }));
+    const run = loopRunFixture("awaiting-acceptance", { currentIteration: 60, iterations });
+
+    const start = performance.now();
+    renderWithClient(<LoopTimeline run={run} />);
+    const elapsedMs = performance.now() - start;
+    console.info(`LoopTimeline 60-iteration render: ${elapsedMs.toFixed(1)}ms`);
+
+    // One row per iteration, no cap and no duplication -- unlike Goal Center's relationship
+    // sections (15.10/20.17), Loop Center's own timeline was never meant to hide iterations behind
+    // a "show more" control (every iteration is real, load-bearing acceptance history, not a
+    // relationship list), so the real budget here is that the *default-collapsed* row stays cheap,
+    // not that the list gets capped. Scoped to `ol > li` specifically (not a bare role query):
+    // `LoopAcceptancePanel` (rendered above the timeline while `awaiting-acceptance`, as here) has
+    // its own real `<ul>` lists for acceptance criteria/checks, and `PhaseStepper` renders its own
+    // 5-step `<ol aria-label=...>` above the timeline -- the iteration list is the one `<ol>` with
+    // no `aria-label` of its own, confirmed by reading `loop-timeline.tsx`/`phase-stepper.tsx` directly.
+    expect(document.querySelectorAll("ol:not([aria-label]) > li")).toHaveLength(60);
+    // 17.10's own compact-row rebuild is what makes 60 rows cheap: only the run's own latest
+    // iteration mounts its full detail section by default (`LoopTimeline`'s own
+    // `open={index === run.iterations.length - 1}`) -- every other row stays a single collapsed
+    // button, so this proves that budget actually holds at a scale far beyond the 1-2 iteration
+    // fixtures this file's other cases use.
+    expect(screen.getAllByRole("button", { expanded: true })).toHaveLength(1);
+  });
+
+  // 21.12 "action-update budget": pausing/accepting/rejecting a Loop must only update the relevant
+  // state, not re-fetch or re-derive the whole iteration list. `LoopRunControls.execute`
+  // (loop-run-controls.tsx) already patches the React Query cache directly via
+  // `queryClient.setQueryData`/`setQueriesData` on a successful mutation -- confirmed by reading it
+  // -- rather than invalidating and refetching, and `applyLoopRunUpdate` (hooks/loop-query.ts,
+  // already covered by loop-query.test.ts's own "updates a loaded run without dropping surrounding
+  // history") is what makes that patch targeted rather than a wholesale replace. This proves the
+  // "no re-fetch" half holds for real at a scale (60 iterations) this file's other cases never
+  // reach, and that the large iteration list already mounted survives the action untouched.
+  it("pausing a running Loop with 60 iterations calls pauseLoop once and never re-fetches the run or run list (21.12)", async () => {
+    const iterations = Array.from({ length: 60 }, (_unused, index) =>
+      loopIterationFixture({ id: `iteration-${index + 1}`, sequence: index + 1, status: "succeeded" }));
+    const running = loopRunFixture("running", { iterations });
+    const pauseLoop = vi.spyOn(agentService, "pauseLoop").mockResolvedValue({ ...running, pauseRequested: true });
+    const getLoopRun = vi.spyOn(agentService, "getLoopRun");
+    const listLoopRuns = vi.spyOn(agentService, "listLoopRuns");
+
+    renderWithClient(<LoopTimeline run={running} />);
+    expect(document.querySelectorAll("ol:not([aria-label]) > li")).toHaveLength(60);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "暂停" }));
+    await user.click(screen.getByRole("button", { name: "确认" }));
+
+    await waitFor(() => expect(pauseLoop).toHaveBeenCalledTimes(1));
+    expect(pauseLoop).toHaveBeenCalledWith("run-1");
+    // The only network call this action makes is the mutation itself -- no follow-up read of the
+    // run or the run list, regardless of how many iterations that run carries.
+    expect(getLoopRun).not.toHaveBeenCalled();
+    expect(listLoopRuns).not.toHaveBeenCalled();
+    // The already-mounted large iteration list is untouched by the action (still 60 rows, not
+    // cleared or shrunk as a side effect of the mutation's own pending/success state changes).
+    expect(document.querySelectorAll("ol:not([aria-label]) > li")).toHaveLength(60);
+  });
 });
 
 function renderWithClient(node: React.ReactNode) {

@@ -88,4 +88,26 @@ describe("LoopIterationInspectorProvider", () => {
 
     expect(onInspectLoop).toHaveBeenCalledWith({ sessionId: "worker-1", surface: "logs" });
   });
+
+  // 21.12 "Inspector lazy-load" budget: mirrors mission-control-detail-panel.test.tsx's own
+  // "facet-switching fetch exclusivity" (16.18) pattern, scoped to what this provider actually has
+  // to be lazy about. `selection.iterationId` is never read here (this file's own doc comment,
+  // confirmed by reading loop-iteration-inspector-provider.tsx directly) -- there is no real
+  // per-iteration fetch boundary in this codebase to prove lazy on its own, since `getLoopRun`
+  // already returns every iteration nested inside the one run. The real, checkable claim is one
+  // level up: selecting one run's Inspector fetches only that run, never every run
+  // (`listLoopRuns`) or the whole definition catalog (`listLoopDefinitions`) up front.
+  it("fetches only the selected run, never the full run list or definition catalog", async () => {
+    const run = loopRunFixture("running", { activeOperationId: "operation-worker" });
+    const getLoopRun = vi.spyOn(agentService, "getLoopRun").mockResolvedValue(run);
+    const listLoopRuns = vi.spyOn(agentService, "listLoopRuns");
+    const listLoopDefinitions = vi.spyOn(agentService, "listLoopDefinitions");
+
+    renderProvider("run-1");
+
+    await waitFor(() => expect(getLoopRun).toHaveBeenCalledTimes(1));
+    expect(getLoopRun).toHaveBeenCalledWith("run-1");
+    expect(listLoopRuns).not.toHaveBeenCalled();
+    expect(listLoopDefinitions).not.toHaveBeenCalled();
+  });
 });
