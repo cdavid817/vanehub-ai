@@ -76,6 +76,16 @@ pub(crate) struct EvaluationArena {
     pub(crate) attempts: Vec<EvaluationAttempt>,
 }
 
+/// 18.6: the frontend-facing shape for `list_evaluation_arenas`, cursor-shaped like
+/// `MissionControlPage`/`CursorPage` rather than raw offset/limit -- see that command's own doc
+/// comment for why, given the repository underneath is genuinely OFFSET/LIMIT, not a keyset cursor.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct EvaluationArenaPage {
+    pub(crate) items: Vec<EvaluationArena>,
+    pub(crate) next_cursor: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct EvaluationExport {
