@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useRef } from "react";
 import { useTranslation } from "react-i18next";
+import { useContainerCompactMode } from "../hooks/use-container-compact-mode";
 import type { MissionControlFacet, MissionControlFacetState } from "../types/mission-control";
 import { useTabList } from "../ui/runtime-panel/use-tab-list";
 
@@ -8,31 +9,15 @@ const TAB_ITEMS = FACETS.map((facet) => ({ id: facet }));
 
 /**
  * Below this container width, nine readable tab labels cannot fit on one line without clipping —
- * mirrors `useTableCompactMode`'s own "narrow sidebar" reasoning (`src/ui/data-table/use-table-
- * compact-mode.ts`): a container-width check, not a page-level `useMediaQuery` breakpoint, because
- * this strip lives inside Mission Control's own `aside` column (`minmax(280px, 1fr)`), whose real
- * width tracks that column's own share of the layout, not the viewport as a whole. Matches that
- * same file's own threshold value for the same class of problem (interactive content embedded in a
- * narrow sidebar), since no live-rendered measurement is available to pick a more exact number.
+ * a container-width check via the shared `useContainerCompactMode` (task 20.1), not a page-level
+ * `useMediaQuery` breakpoint, because this strip lives inside Mission Control's own `aside` column
+ * (`minmax(280px, 1fr)`), whose real width tracks that column's own share of the layout, not the
+ * viewport as a whole. Matches `useTableCompactMode`'s own threshold value (`src/ui/data-table/
+ * use-table-compact-mode.ts`) for the same class of problem (interactive content embedded in a
+ * narrow sidebar), since no live-rendered measurement is available to pick a more exact number —
+ * that agreement is coincidental, not a shared constant, so it stays defined here on its own.
  */
 const COMPACT_MAX_WIDTH = 640;
-
-function useSectionNavCompactMode(containerRef: RefObject<HTMLElement | null>): boolean {
-  const [compact, setCompact] = useState(false);
-
-  useEffect(() => {
-    const element = containerRef.current;
-    if (!element) return;
-    const observer = new ResizeObserver((entries) => {
-      const width = entries[0]?.contentRect.width ?? element.clientWidth;
-      setCompact(width < COMPACT_MAX_WIDTH);
-    });
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [containerRef]);
-
-  return compact;
-}
 
 export interface MissionControlSectionNavProps {
   activeFacet: MissionControlFacet;
@@ -131,11 +116,11 @@ export function MissionControlSectionNavView({ compact, ...props }: MissionContr
  * 16.8: replaces the always-nine-visible-tabs `FacetTabList` (previously inline in
  * `mission-control-detail-panel.tsx`, styled with `overflow-x-auto` and nothing else for narrow
  * widths) with a real compact-selector fallback. Measures its own container rather than the
- * viewport — see `useSectionNavCompactMode`'s own doc comment for why.
+ * viewport — see `COMPACT_MAX_WIDTH`'s own doc comment for why.
  */
 export function MissionControlSectionNav(props: MissionControlSectionNavProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const compact = useSectionNavCompactMode(containerRef);
+  const compact = useContainerCompactMode(containerRef, COMPACT_MAX_WIDTH);
   return (
     <div className="mt-3" data-testid="mission-control-section-nav" ref={containerRef}>
       <MissionControlSectionNavView {...props} compact={compact} />
