@@ -1,6 +1,13 @@
 import type { AgentService } from "./agent-service";
 import type { EvaluationService } from "./evaluation-service";
-import type { EvaluationArena, EvaluationTask } from "../types/evaluation";
+import type { EvaluationArena, EvaluationArenaPage, EvaluationArenaQuery, EvaluationTask } from "../types/evaluation";
+
+// 18.6: mirrors `mission_control.rs`'s own `DEFAULT_LIMIT`/`MAX_LIMIT` (20/50), and
+// `web-mission-control-client.ts`'s own identical `page()` helper below -- same cursor-is-really-
+// just-the-offset shape, same clamp, so a reader who already knows one pagination surface in this
+// app recognizes the other.
+const DEFAULT_EVALUATION_PAGE_LIMIT = 20;
+const MAX_EVALUATION_PAGE_LIMIT = 50;
 
 const webEvaluationTasks: EvaluationTask[] = [
   { id: "fix-null-auth-token", version: 1, category: "bugfix", prompt: "Fix null authentication token handling.", timeoutSeconds: 120, verifierProfiles: ["npm-test", "static-files"] },
@@ -62,6 +69,20 @@ function webDispatchFailedAttempt(arenaId: string, task: EvaluationTask, agentId
   };
 }
 
+// Mirrors `web-mission-control-client.ts`'s own `webMissionOverview`: the cursor is really just the
+// offset re-exposed as an opaque string, so an invalid one is a real bug (never hand-typed by a
+// reader, only ever round-tripped from a `nextCursor` this same client issued) and throws rather
+// than silently resetting to page one, matching that same precedent's own choice.
+function pageEvaluationArenas(query: EvaluationArenaQuery | undefined): EvaluationArenaPage {
+  const limit = Math.max(1, Math.min(query?.limit ?? DEFAULT_EVALUATION_PAGE_LIMIT, MAX_EVALUATION_PAGE_LIMIT));
+  const offset = query?.cursor ? Number(query.cursor) : 0;
+  if (!Number.isSafeInteger(offset) || offset < 0) throw new Error("invalid evaluation cursor");
+  return {
+    items: structuredClone(webEvaluationArenas.slice(offset, offset + limit)),
+    nextCursor: offset + limit < webEvaluationArenas.length ? String(offset + limit) : null,
+  };
+}
+
 export const webEvaluationClient: EvaluationService = {
   async listEvaluationTasks() { return structuredClone(webEvaluationTasks); },
   async startEvaluation(input) {
@@ -71,7 +92,7 @@ export const webEvaluationClient: EvaluationService = {
     const arena: EvaluationArena = { id, operationId: `${id}-operation`, taskId: task.id, taskVersion: task.version, rankingVersion: "deterministic-v2", attempts: input.agentIds.map((agentId, index) => webEvaluationAttempt(id, task, agentId, index)) };
     webEvaluationArenas = [arena, ...webEvaluationArenas]; return structuredClone(arena);
   },
-  async listEvaluationArenas() { return structuredClone(webEvaluationArenas); },
+  async listEvaluationArenas(query) { return pageEvaluationArenas(query); },
   async getEvaluationArena(arenaId) { const arena = webEvaluationArenas.find((item) => item.id === arenaId); if (!arena) throw new Error("Evaluation not found"); return structuredClone(arena); },
   async cancelEvaluation(this: AgentService, arenaId) { const arena = await this.getEvaluationArena(arenaId); const cancelled = { ...arena, attempts: arena.attempts.map((attempt) => ["queued", "running"].includes(attempt.outcome) ? { ...attempt, outcome: "cancelled" as const } : attempt) }; webEvaluationArenas = webEvaluationArenas.map((item) => item.id === arenaId ? cancelled : item); return structuredClone(cancelled); },
   async getEvaluationAttempt(attemptId) { for (const arena of webEvaluationArenas) { const attempt = arena.attempts.find((item) => item.id === attemptId); if (attempt) return structuredClone(attempt); } throw new Error("Evaluation attempt not found"); },

@@ -78,7 +78,7 @@ import type { OperationTask } from "../types/operation";
 import type { AgentRun, AgentRunEvent, AgentRunPage } from "../types/agent-run";
 import type { AgentRunnerDescriptor } from "../types/agent-runner";
 import type { MissionControlActionReceipt, MissionControlOverview, MissionControlRunDetail } from "../types/mission-control";
-import type { EvaluationArena, EvaluationAttempt, EvaluationExport, EvaluationTask } from "../types/evaluation";
+import type { EvaluationArena, EvaluationArenaPage, EvaluationAttempt, EvaluationExport, EvaluationTask } from "../types/evaluation";
 import type {
   ContinueLoopInput,
   LoopDefinition,
@@ -239,7 +239,8 @@ function isSessionStateEvent(value: unknown): value is SessionStateEvent {
 export const tauriAgentClient: AgentService = {
   listEvaluationTasks: () => invoke<EvaluationTask[]>("list_evaluation_tasks"),
   startEvaluation: (input) => invoke<EvaluationArena>("start_evaluation", { input }),
-  listEvaluationArenas: () => invoke<EvaluationArena[]>("list_evaluation_arenas"),
+  listEvaluationArenas: (query) =>
+    invoke<EvaluationArenaPage>("list_evaluation_arenas", { cursor: query?.cursor ?? null, limit: query?.limit ?? null }),
   getEvaluationArena: (arenaId) => invoke<EvaluationArena>("get_evaluation_arena", { arenaId }),
   cancelEvaluation: (arenaId) => invoke<EvaluationArena>("cancel_evaluation", { arenaId }),
   getEvaluationAttempt: (attemptId) => invoke<EvaluationAttempt>("get_evaluation_attempt", { attemptId }),

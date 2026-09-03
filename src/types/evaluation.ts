@@ -8,5 +8,10 @@ export interface EvaluationMetric { name: string; value: number | null; unit: st
 export interface EvaluationTimelineItem { id: string; kind: "lifecycle" | "tool" | "context" | "verification"; label: string; status: string }
 export interface EvaluationAttempt { id: string; arenaId: string; canonicalRunId: string; taskId: string; taskVersion: number; agent: EvaluationAgentSnapshot; outcome: EvaluationOutcome; checks: EvaluationCheck[]; judge?: unknown; metrics: EvaluationMetric[]; contextEvidenceManifestId: string | null; artifactIds: string[]; timeline: EvaluationTimelineItem[] }
 export interface EvaluationArena { id: string; operationId: string; taskId: string; taskVersion: number; rankingVersion: string; attempts: EvaluationAttempt[] }
+/** 18.6: cursor-shaped like `MissionControlPage` (`types/mission-control.ts`) for consistency with
+ *  this app's other paginated list surfaces, even though the Rust repository underneath is plain
+ *  offset/limit rather than a keyset cursor -- see `list_evaluation_arenas.rs`'s own doc comment. */
+export interface EvaluationArenaPage { items: EvaluationArena[]; nextCursor: string | null }
+export interface EvaluationArenaQuery { cursor?: string | null; limit?: number }
 export interface StartEvaluationInput { taskId: string; taskVersion: number; agentIds: string[] }
 export interface EvaluationExport { schemaVersion: number; arena: EvaluationArena }
