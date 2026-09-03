@@ -127,4 +127,45 @@ test.describe("projects and workspaces destination", () => {
     // Back must not strand keyboard focus off-page.
     await expect(page.getByTestId("projects-scroll-region")).toBeFocused();
   });
+
+  /**
+   * 20.2/20.17: extends this file's own existing 13.12 compact-mode test above (width 700, no
+   * theme dimension) with a real theme-paired pair at two of task 20.2's own named widths,
+   * bracketing the same `md:` (767px, `projects.tsx`'s own `COMPACT_QUERY`) breakpoint that test
+   * already proves functionally: 768 keeps list+detail side by side, 640 is the next named width
+   * down and switches to the compact "detail replaces list, with Back" mode. This destination had
+   * no theme-paired visual coverage at all before this pass.
+   */
+  for (const variant of [
+    { compact: false, name: "futuristic-wide", theme: "futuristic" as const, width: 768 },
+    { compact: false, name: "minimal-wide", theme: "minimal" as const, width: 768 },
+    { compact: true, name: "futuristic-narrow", theme: "futuristic" as const, width: 640 },
+    { compact: true, name: "minimal-narrow", theme: "minimal" as const, width: 640 },
+  ]) {
+    test(`Projects visual ${variant.name}`, async ({ page }, testInfo) => {
+      await page.setViewportSize({ width: variant.width, height: 900 });
+      await page.addInitScript((theme) => window.localStorage.setItem("vanehub.appSettings", JSON.stringify({ applicationLanguage: "zh-CN", theme })), variant.theme);
+      await page.goto("/");
+      await createSession(page, "响应式矩阵会话");
+      await navigateToProjects(page);
+      await expect(page.locator("html")).toHaveAttribute("data-theme", variant.theme);
+
+      const list = page.getByRole("list", { name: "工作区列表" });
+      await expect(list).toBeVisible();
+      await list.getByText("example-workspace", { exact: true }).click();
+
+      const detail = page.getByTestId("workspace-detail");
+      await expect(detail).toBeVisible();
+      const backButton = page.getByRole("button", { name: "返回工作区列表", exact: true });
+      if (variant.compact) {
+        await expect(list).toHaveCount(0);
+        await expect(backButton).toBeVisible();
+      } else {
+        await expect(list).toBeVisible();
+        await expect(backButton).toHaveCount(0);
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      await page.getByTestId("workspace-frame").screenshot({ path: testInfo.outputPath(`${variant.name}.png`) });
+    });
+  }
 });
