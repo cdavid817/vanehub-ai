@@ -3,6 +3,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { activateAppLanguage } from "../i18n";
+import { generateEvaluationFixtures } from "../testing/fixtures/evaluation-fixtures";
 import type { EvaluationArena, EvaluationAttempt, EvaluationCheck, EvaluationMetric, EvaluationOutcome } from "../types/evaluation";
 import { EvaluationResultsTable, type EvaluationResultRow } from "./evaluation-results-table";
 
@@ -105,5 +106,35 @@ describe("EvaluationResultsTable", () => {
     render(<EvaluationResultsTable filter="" onExportArena={vi.fn()} onFilterChange={vi.fn()} onSelectAttempt={vi.fn()} rows={[]} />);
     expect(screen.getByText("Run a benchmark to compare results.")).toBeTruthy();
     expect(screen.queryByRole("table")).toBeNull();
+  });
+
+  // 21.13 "10,000-row page/virtualization" budget: `generateEvaluationFixtures` (0.9's own
+  // "10,000 evaluation result rows" generator) flattens to `EvaluationResultRow` at *check*
+  // granularity (10,000), but this table's own `EvaluationResultRow` (this file's own type, a
+  // distinct shape sharing only the name) is one row per *attempt* -- the real full-scale input
+  // this component ever receives is the attempt-level flattening of every loaded arena, at most
+  // 1,000 attempts across 300 arenas for this same fixture set, never 10,000 individual rows. `rows`
+  // here mirrors exactly how evaluation-center.tsx itself builds `visible`
+  // (`arenas.flatMap((arena) => arena.attempts.map((attempt) => ({ arena, attempt })))`).
+  it("renders every row once for a realistic full-scale corpus (1,000 attempts across 300 arenas), with no virtualization to fall back on", () => {
+    const { arenas } = generateEvaluationFixtures(10_000);
+    const rows: EvaluationResultRow[] = arenas.flatMap((evaluationArena) => evaluationArena.attempts.map((attempt) => ({ arena: evaluationArena, attempt })));
+    expect(rows.length).toBeGreaterThan(900); // sanity: this is really "full corpus" scale, not a handful of rows
+
+    const start = performance.now();
+    render(<EvaluationResultsTable filter="" onExportArena={vi.fn()} onFilterChange={vi.fn()} onSelectAttempt={vi.fn()} rows={rows} />);
+    const elapsedMs = performance.now() - start;
+    console.info(`EvaluationResultsTable ${rows.length}-row render: ${elapsedMs.toFixed(1)}ms`);
+
+    // `DataTable` (ui/data-table/DataTable.tsx) has no virtualization mechanism at all -- confirmed
+    // by reading it directly, it is a thin ResizeObserver/compact-mode wrapper only, not a
+    // windowed list. The honest budget this table itself can offer is "renders exactly what it is
+    // given, no silent cap and no accidental duplication" -- the actual protection against an
+    // unbounded DOM at real corpus scale lives one layer up, in evaluation-center.tsx's own
+    // arena-level cursor pagination (18.6): `rows` there is always the flattening of whatever
+    // arenas are *currently loaded* (bounded by the service's own DEFAULT_LIMIT/MAX_LIMIT = 20/50
+    // arenas per page), never the full 300-arena/1,000-attempt corpus at once unless a reader
+    // clicks "Load more" all the way to the end.
+    expect(screen.getAllByTestId("evaluation-row")).toHaveLength(rows.length);
   });
 });

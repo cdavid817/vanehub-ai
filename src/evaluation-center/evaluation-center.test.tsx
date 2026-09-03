@@ -162,6 +162,40 @@ describe("EvaluationCenter", () => {
     expect(list.mock.calls.length).toBe(callsAtUnmount);
   });
 
+  // 21.13 "update-batch" budget: 18.6's own evidence names this exact tradeoff -- the reconcile
+  // tick only refreshes the newest `RECONCILE_LIMIT` (50) arenas in place, merged by id, specifically
+  // so a tick can never silently drop whatever `loadMoreArenas` had appended beyond that window. The
+  // dedicated "loads the next page..." test above covers `loadMoreArenas`'s own dedup; this is the
+  // third, previously untested code path in the same hook -- the reconcile tick's own merge, proven
+  // with 2 arenas rather than 51 (the merge-by-id logic does not care *why* an arena is absent from
+  // a reconcile response, only that it is, so this is a faithful, not artificial, stand-in for a
+  // real 50-arena window boundary).
+  it("a reconcile tick preserves an arena loaded beyond its own window instead of dropping it", async () => {
+    await i18n.changeLanguage("zh-CN");
+    const list = vi.spyOn(agentService, "listEvaluationArenas");
+    list.mockResolvedValueOnce({ items: [arena("queued")], nextCursor: "1" });
+    render(<EvaluationCenter />);
+    const loadMore = await screen.findByTestId("evaluation-arena-load-more");
+
+    list.mockResolvedValueOnce({ items: [arenaWithArtifacts([])], nextCursor: null });
+    fireEvent.click(loadMore);
+    await waitFor(() => expect(screen.getAllByTestId("evaluation-arena-row")).toHaveLength(2));
+
+    // Simulates the reconcile tick's own `{ limit: RECONCILE_LIMIT }` request landing after
+    // `arena-artifacts` has fallen outside that window -- its response only reports the first
+    // arena, now settled.
+    list.mockResolvedValue({ items: [arena("cancelled")], nextCursor: null });
+    await waitFor(() => expect(screen.getAllByTestId("evaluation-row").map((row) => row.getAttribute("data-outcome"))).toContain("cancelled"), { timeout: 4_000 });
+
+    // Both attempts are still present -- the reconcile tick updated the one it knows about in
+    // place and left the beyond-window one exactly as `loadMoreArenas` had appended it, not
+    // silently dropped by the next 1-second tick.
+    const attemptIds = screen.getAllByTestId("evaluation-row").map((row) => row.getAttribute("data-attempt-id"));
+    expect(attemptIds).toContain("attempt-cancel");
+    expect(attemptIds).toContain("attempt-artifacts");
+    expect(screen.getAllByTestId("evaluation-arena-row")).toHaveLength(2);
+  });
+
   it("provides every evaluation label in all registered locales", () => {
     for (const locale of ["en", "zh-CN", "zh-TW", "ja", "ko"]) {
       for (const key of [
