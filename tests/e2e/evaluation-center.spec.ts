@@ -59,6 +59,40 @@ test("runs, compares, filters, inspects, and exports the complete mock benchmark
   expect((await download).suggestedFilename()).toMatch(/^web-eval-\d+\.json$/);
 });
 
+// 20.19: picks a baseline + candidate through `EvaluationComparisonPanel` (evaluation-comparison-
+// panel.tsx, tasks 18.8-18.11) with no pointer at all. Both pickers are plain native `<select>`s --
+// once focused (not expanded), ArrowDown/ArrowUp change the selected option and fire a real `change`
+// event directly, standard cross-browser `<select>` keyboard behavior, so no click is needed to open
+// either dropdown first. `openWizardAndRun(page)` with no `customizeAgentStep` keeps every default
+// Agent checked (the pre-existing functional test above explicitly unchecks that same six-agent set
+// after `openWizardAndRun`, proving it is the default), so the arena has six attempts -- comfortably
+// enough for ArrowDown-once and ArrowDown-twice from the empty placeholder to land on two distinct
+// attempts deterministically.
+test("keyboard-only: picks a baseline and candidate and reads the comparison result", async ({ page }) => {
+  await openEvaluation(page, "futuristic", 1440);
+  await openWizardAndRun(page);
+
+  const comparison = page.getByTestId("evaluation-comparison");
+  const baselineSelect = comparison.getByTestId("evaluation-comparison-baseline");
+  const candidateSelect = comparison.getByTestId("evaluation-comparison-candidate");
+  await expect(baselineSelect).toHaveValue("");
+  await expect(candidateSelect).toHaveValue("");
+
+  await baselineSelect.focus();
+  await page.keyboard.press("ArrowDown");
+  await candidateSelect.focus();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+
+  const baselineValue = await baselineSelect.inputValue();
+  const candidateValue = await candidateSelect.inputValue();
+  expect(baselineValue).not.toBe("");
+  expect(candidateValue).not.toBe("");
+  expect(baselineValue).not.toBe(candidateValue);
+
+  await expect(comparison.getByTestId("evaluation-comparison-result")).toBeVisible();
+});
+
 for (const variant of [
   { name: "futuristic-desktop", theme: "futuristic" as const, width: 1440 },
   { name: "minimal-desktop", theme: "minimal" as const, width: 1440 },
