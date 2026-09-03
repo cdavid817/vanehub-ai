@@ -11,6 +11,20 @@ async function openMissionControl(page: Page, theme: "futuristic" | "minimal" = 
   await expect(page.getByTestId("mission-control")).toBeVisible();
 }
 
+// 16.5 moved Agent/status/Runner into a `FilterPopover` (mission-control-toolbar.tsx) whose fields
+// only mount once its own "Filters" trigger is open (FilterPopover.tsx's `{open ? (...) : null}`) --
+// every direct `getByLabel` lookup below needs this clicked first, and needs it called again after
+// any click elsewhere on the page (FilterPopover closes itself on any outside pointerdown) or after
+// any round trip through another destination (`MissionControl` fully remounts on every visit, per
+// its own 4.8 comment, resetting the popover's local `open` state back to closed). Scoped to the
+// `mission-control` testid and located by testid rather than role/name: the session sidebar mounts
+// its own separate `FilterPopover` on this same page, and the trigger's own accessible name grows
+// an "N active filter(s)" suffix once a field is set, which also becomes a substring match against
+// the panel's separate "Clear filters" button.
+async function openFilters(page: Page) {
+  await page.getByTestId("mission-control").getByTestId("filter-popover-trigger").click();
+}
+
 test("monitors multiple Runs, attention, failure, bounded filters, detail, and review navigation", async ({ page }) => {
   await openMissionControl(page);
   // "Attention inbox" now also names the Runs tab that got here (runs-destination.tsx) — this
@@ -19,8 +33,9 @@ test("monitors multiple Runs, attention, failure, bounded filters, detail, and r
   await expect(page.getByTestId("mission-run-018f0f17-4d6a-7e20-b41d-66c5271a290").first()).toContainText("Waiting approval");
   await expect(page.getByText("provider_backoff", { exact: true })).toBeVisible();
   await expect(page.locator("[data-runner='ssh']").first()).toContainText("build.example.test");
-  await page.getByLabel("Filter by Runner").selectOption("ssh");
-  await page.getByLabel("Filter by status").selectOption("failed");
+  await openFilters(page);
+  await page.getByLabel("Filter by Runner", { exact: true }).selectOption("ssh");
+  await page.getByLabel("Filter by status", { exact: true }).selectOption("failed");
   const failed = page.getByTestId("mission-run-018f0f17-4d6a-7e20-b41d-66c5271a294").first();
   await expect(failed).toContainText("Runner interrupted"); await failed.locator("button").first().click();
   await expect(page.getByRole("tab", { name: "Overview" })).toBeVisible();
@@ -30,7 +45,8 @@ test("monitors multiple Runs, attention, failure, bounded filters, detail, and r
 
 test("4.8: returns to the same run, with the same filter, after an evidence-navigation round trip", async ({ page }) => {
   await openMissionControl(page);
-  await page.getByLabel("Filter by status").selectOption("failed");
+  await openFilters(page);
+  await page.getByLabel("Filter by status", { exact: true }).selectOption("failed");
   const failed = page.getByTestId("mission-run-018f0f17-4d6a-7e20-b41d-66c5271a294").first();
   await failed.locator("[data-action='review']").click();
   await expect(page).toHaveURL(/\/workspace\/sessions\//);
@@ -43,8 +59,10 @@ test("4.8: returns to the same run, with the same filter, after an evidence-navi
   await expect(page.getByTestId("mission-control")).toBeVisible();
   // Selected entity: the same run is restored into the detail pane, not just the URL.
   await expect(page.locator("aside").getByTestId("mission-run-018f0f17-4d6a-7e20-b41d-66c5271a294")).toBeVisible();
-  // Filter: the status filter set before leaving survives the round trip too.
-  await expect(page.getByLabel("Filter by status")).toHaveValue("failed");
+  // Filter: the status filter set before leaving survives the round trip too. A fresh MissionControl
+  // instance mounted on the way back in, so its own FilterPopover starts closed again.
+  await openFilters(page);
+  await expect(page.getByLabel("Filter by status", { exact: true })).toHaveValue("failed");
 });
 
 for (const variant of [
@@ -57,8 +75,10 @@ for (const variant of [
     await openMissionControl(page, variant.theme, variant.width);
     await page.getByTestId("mission-run-018f0f17-4d6a-7e20-b41d-66c5271a291").first().locator("button").first().click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", variant.theme);
-    await expect(page.getByLabel("Filter by status")).toBeVisible();
-    await expect(page.getByLabel("Filter by Runner")).toBeVisible();
+    // After the run-card click above, not before: FilterPopover closes itself on any outside click.
+    await openFilters(page);
+    await expect(page.getByLabel("Filter by status", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Filter by Runner", { exact: true })).toBeVisible();
     await expect(page.locator("[data-runner='ssh']").first()).toContainText("SSH");
     await expect(page.getByText("user_question", { exact: true }).first()).toBeVisible();
     // Two tablists exist now that Mission Control lives inside Runs' own tab bar (runs-destination.tsx)
