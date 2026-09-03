@@ -6,10 +6,13 @@ import { Button } from "../../../components/ui/button";
 import { Badge } from "../../../components/ui/badge";
 import { normalizeDisplayPath } from "../../../lib/session-path";
 import type { Skill, SkillLoadOutcome, SkillMetadata, SkillPreview, SkillScope, SkillSource } from "../../../types/skill";
+import { useTabList } from "../../../ui/runtime-panel/use-tab-list";
 
 type DialogMode = "create" | "edit" | "import" | "restore" | "delete" | null;
 type EditTab = "edit" | "preview";
 type PreviewTab = "rendered" | "source";
+const editTabs: EditTab[] = ["edit", "preview"];
+const previewTabs: PreviewTab[] = ["rendered", "source"];
 const emptyRestoreCandidates: string[] = [];
 
 export interface SkillDialogState {
@@ -52,6 +55,10 @@ export function SkillDialogs({
   const [editTab, setEditTab] = useState<EditTab>("edit");
   const [previewTab, setPreviewTab] = useState<PreviewTab>("rendered");
   const candidates = restoreCandidates ?? emptyRestoreCandidates;
+  // Both dialogs are mutually exclusive (only one `state.mode`/`state.preview` renders at a time
+  // below), but hooks must run unconditionally, so both tab lists are built here regardless.
+  const editTabList = useTabList(editTabs.map((tab) => ({ id: tab })), editTab, (id) => setEditTab(id as EditTab));
+  const previewTabList = useTabList(previewTabs.map((tab) => ({ id: tab })), previewTab, (id) => setPreviewTab(id as PreviewTab));
 
   useEffect(() => {
     if (state.mode === "edit" && state.skill) {
@@ -76,8 +83,8 @@ export function SkillDialogs({
   if (state.preview) return <Dialog title={state.preview.id} onClose={onClose} returnFocus={state.returnFocus}>
     <p className="mb-3 truncate text-xs text-muted-foreground">{normalizeDisplayPath(state.preview.path)}</p>
     <PreviewRuntimeSummary loadOutcome={state.loadOutcome} preview={state.preview} />
-    <div className="mb-3 flex gap-1 rounded-md bg-muted p-1" role="tablist">
-      {(["rendered", "source"] as const).map((tab) => <button aria-selected={previewTab === tab} className={`flex-1 rounded px-3 py-2 text-sm ${previewTab === tab ? "bg-background font-semibold shadow-xs" : "text-muted-foreground"}`} key={tab} onClick={() => setPreviewTab(tab)} role="tab" type="button">{t(`skills.dialog.${tab}Tab`)}</button>)}
+    <div className="mb-3 flex gap-1 rounded-md bg-muted p-1" onKeyDown={previewTabList.handleKeyDown} role="tablist">
+      {previewTabs.map((tab) => <button aria-selected={previewTab === tab} className={`flex-1 rounded px-3 py-2 text-sm ${previewTab === tab ? "bg-background font-semibold shadow-xs" : "text-muted-foreground"}`} key={tab} onClick={() => setPreviewTab(tab)} ref={previewTabList.registerTabRef(tab)} role="tab" tabIndex={previewTab === tab ? 0 : -1} type="button">{t(`skills.dialog.${tab}Tab`)}</button>)}
     </div>
     {previewTab === "rendered" ? <MarkdownPreview content={state.preview.content} /> : <MarkdownSource content={state.preview.content} />}
     <DialogActions onClose={onClose} />
@@ -110,8 +117,8 @@ export function SkillDialogs({
   const editing = state.mode === "edit" && state.skill;
   const formPending = operationPending || reloadingEdit;
   return <Dialog closeDisabled={formPending} title={editing ? t("skills.dialog.editTitle") : t("skills.dialog.createTitle")} onClose={onClose}>
-    <div className="mb-3 flex gap-1 rounded-md bg-muted p-1" role="tablist">
-      {(["edit", "preview"] as const).map((tab) => <button aria-selected={editTab === tab} className={`flex-1 rounded px-3 py-2 text-sm ${editTab === tab ? "bg-background font-semibold shadow-xs" : "text-muted-foreground"}`} key={tab} onClick={() => setEditTab(tab)} role="tab" type="button">{t(`skills.dialog.${tab}Tab`)}</button>)}
+    <div className="mb-3 flex gap-1 rounded-md bg-muted p-1" onKeyDown={editTabList.handleKeyDown} role="tablist">
+      {editTabs.map((tab) => <button aria-selected={editTab === tab} className={`flex-1 rounded px-3 py-2 text-sm ${editTab === tab ? "bg-background font-semibold shadow-xs" : "text-muted-foreground"}`} key={tab} onClick={() => setEditTab(tab)} ref={editTabList.registerTabRef(tab)} role="tab" tabIndex={editTab === tab ? 0 : -1} type="button">{t(`skills.dialog.${tab}Tab`)}</button>)}
     </div>
     {editTab === "edit" ? <>
       <div className="grid gap-x-3 md:grid-cols-2"><Field disabled={Boolean(editing)} label="ID" onChange={(value) => setMetadata((current) => ({ ...current, id: value }))} value={metadata.id} /><Field label={t("skills.dialog.name")} onChange={(value) => setMetadata((current) => ({ ...current, name: value }))} value={metadata.name} /><Field label={t("skills.dialog.category")} onChange={(value) => setMetadata((current) => ({ ...current, category: value }))} value={metadata.category} /><Field label={t("skills.dialog.version")} onChange={(value) => setMetadata((current) => ({ ...current, version: value }))} value={metadata.version} /><SelectField label={t("skills.dialog.type")} onChange={(value) => setMetadata((current) => ({ ...current, type: value as "role" | "utility" }))} options={["role", "utility"]} renderOption={(value) => t(`skills.type.${value}`)} value={metadata.type ?? "role"} /><SelectField label={t("skills.dialog.delivery")} onChange={(value) => setMetadata((current) => ({ ...current, delivery: value as "eager" | "on-demand" }))} options={["eager", "on-demand"]} renderOption={(value) => t(`skills.delivery.${value}`)} value={metadata.delivery ?? "eager"} /></div>

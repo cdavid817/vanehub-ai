@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { LazyFeature, type LazyFeatureLoader } from "../components/lazy-feature";
 import { cn } from "../lib/utils";
+import { useTabList } from "../ui/runtime-panel/use-tab-list";
 import type { PlanSection } from "./workbench-route";
 
 const TABS: { section: PlanSection["section"]; labelKey: string }[] = [
@@ -34,10 +35,17 @@ export interface PlanDestinationProps {
  */
 export function PlanDestination({ location, onSectionChange }: PlanDestinationProps) {
   const { t } = useTranslation();
+  // `id` always comes from `TABS`' own `section` values below, so this narrows back safely --
+  // `useTabList` only ever hands the callback an id it was given.
+  const { handleKeyDown, registerTabRef } = useTabList(
+    TABS.map((tab) => ({ id: tab.section })),
+    location.section,
+    (id) => onSectionChange({ section: id as PlanSection["section"] }),
+  );
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 items-center gap-1 border-b border-border-subtle px-2 py-1.5" role="tablist">
+      <div className="flex shrink-0 items-center gap-1 border-b border-border-subtle px-2 py-1.5" onKeyDown={handleKeyDown} role="tablist">
         {TABS.map((tab) => (
           <button
             aria-selected={location.section === tab.section}
@@ -47,7 +55,9 @@ export function PlanDestination({ location, onSectionChange }: PlanDestinationPr
             )}
             key={tab.section}
             onClick={() => onSectionChange({ section: tab.section })}
+            ref={registerTabRef(tab.section)}
             role="tab"
+            tabIndex={location.section === tab.section ? 0 : -1}
             type="button"
           >
             {t(tab.labelKey)}

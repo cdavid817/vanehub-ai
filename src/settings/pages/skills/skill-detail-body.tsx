@@ -4,9 +4,13 @@ import { useTranslation } from "react-i18next";
 import { Badge } from "../../../components/ui/badge";
 import type { Skill, SkillLoadOutcome, SkillShadowSummary } from "../../../types/skill";
 import type { SkillOverlayDetail, SkillOverlayTargetInput } from "../../../types/skill-overlay";
+import { useTabList } from "../../../ui/runtime-panel/use-tab-list";
 import { SkillOverlayOverview } from "./skill-overlay-overview";
 import { SkillEvolutionEvidence } from "./skill-evolution-evidence";
 import { SkillToolsPanel } from "./skill-tools-panel";
+
+const skillDetailTabs = ["overview", "tools"] as const;
+type SkillDetailTab = (typeof skillDetailTabs)[number];
 
 export function SkillDetailBody({
   skill,
@@ -32,11 +36,12 @@ export function SkillDetailBody({
   const { t } = useTranslation();
   const defaults = skill.metadata.compatibilityDefaults;
   const compatibilityDefaulted = Boolean(defaults?.skillType || defaults?.delivery);
-  const [tab, setTab] = useState<"overview" | "tools">("overview");
+  const [tab, setTab] = useState<SkillDetailTab>("overview");
+  const detailTabs = useTabList(skillDetailTabs.map((value) => ({ id: value })), tab, (id) => setTab(id as SkillDetailTab));
 
   return <div className="space-y-5 text-sm">
-    <div aria-label={t("skills.details.tabs")} className="grid grid-cols-2 gap-1 rounded-md bg-muted p-1" role="tablist">
-      {(["overview", "tools"] as const).map((value) => <button aria-controls={`skill-detail-${value}-panel`} aria-selected={tab === value} className={`min-h-10 rounded px-3 py-2 text-sm ${tab === value ? "bg-background font-semibold shadow-xs" : "text-muted-foreground"}`} id={`skill-detail-${value}-tab`} key={value} onClick={() => setTab(value)} role="tab" type="button">{t(`skills.details.tab.${value}`)}</button>)}
+    <div aria-label={t("skills.details.tabs")} className="grid grid-cols-2 gap-1 rounded-md bg-muted p-1" onKeyDown={detailTabs.handleKeyDown} role="tablist">
+      {skillDetailTabs.map((value) => <button aria-controls={`skill-detail-${value}-panel`} aria-selected={tab === value} className={`min-h-10 rounded px-3 py-2 text-sm ${tab === value ? "bg-background font-semibold shadow-xs" : "text-muted-foreground"}`} id={`skill-detail-${value}-tab`} key={value} onClick={() => setTab(value)} ref={detailTabs.registerTabRef(value)} role="tab" tabIndex={tab === value ? 0 : -1} type="button">{t(`skills.details.tab.${value}`)}</button>)}
     </div>
     {tab === "tools" ? <div aria-labelledby="skill-detail-tools-tab" id="skill-detail-tools-panel" role="tabpanel"><SkillToolsPanel skill={skill} /></div> : <div aria-labelledby="skill-detail-overview-tab" className="space-y-5" id="skill-detail-overview-panel" role="tabpanel">
     <section aria-labelledby="skill-detail-runtime">

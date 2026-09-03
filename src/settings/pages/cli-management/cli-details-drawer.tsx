@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { ApplicationDialog } from "../../../components/ui/application-dialog";
 import type { CliEnvironmentSnapshot } from "../../../types/cli-environment-snapshot";
 import type { OperationTask } from "../../../types/operation";
+import { useTabList } from "../../../ui/runtime-panel/use-tab-list";
 import { CliDiagnosticsTab } from "./cli-diagnostics-tab";
 import { CliInstallationsTab } from "./cli-installations-tab";
 import { CliOperationsTab } from "./cli-operations-tab";
@@ -50,13 +51,7 @@ export function CliDetailsDrawer({
   const { t } = useTranslation();
   const [active, setActive] = useState<TabId>("overview");
   const baseId = useId();
-
-  function moveFocus(offset: number) {
-    const index = TABS.findIndex((tab) => tab.id === active);
-    const next = TABS[(index + offset + TABS.length) % TABS.length];
-    setActive(next.id);
-    document.getElementById(`${baseId}-tab-${next.id}`)?.focus();
-  }
+  const detailTabs = useTabList(TABS, active, (id) => setActive(id as TabId));
 
   return (
     <ApplicationDialog
@@ -70,10 +65,7 @@ export function CliDetailsDrawer({
           aria-label={t("cli.details.tabs")}
           className="flex flex-wrap gap-1 border-b border-border"
           role="tablist"
-          onKeyDown={(event) => {
-            if (event.key === "ArrowRight") moveFocus(1);
-            if (event.key === "ArrowLeft") moveFocus(-1);
-          }}
+          onKeyDown={detailTabs.handleKeyDown}
         >
           {TABS.map((tab) => {
             const selected = tab.id === active;
@@ -89,6 +81,7 @@ export function CliDetailsDrawer({
                 data-dialog-autofocus={selected ? "" : undefined}
                 id={`${baseId}-tab-${tab.id}`}
                 key={tab.id}
+                ref={detailTabs.registerTabRef(tab.id)}
                 role="tab"
                 tabIndex={selected ? 0 : -1}
                 type="button"

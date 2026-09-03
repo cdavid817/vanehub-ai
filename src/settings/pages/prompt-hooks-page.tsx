@@ -9,6 +9,7 @@ import { agentService } from "../../services/runtime-agent-client";
 import { managedCliAgentIds, type AgentRegistryEntry, type ManagedCliAgentId } from "../../types/agent";
 import type { PromptHook, PromptHookCategory, PromptHookMutationInput } from "../../types/prompt-hook";
 import type { SettingsPageStatus } from "../settings-page-types";
+import { useTabList } from "../../ui/runtime-panel/use-tab-list";
 import { PageHeader } from "./page-parts";
 import { PromptHookCardList } from "./prompt-hooks/prompt-hook-card-list";
 import { PromptHookDetailPanel } from "./prompt-hooks/prompt-hook-detail-panel";
@@ -26,6 +27,7 @@ import {
 
 type ManagedAgent = AgentRegistryEntry & { id: ManagedCliAgentId };
 type PromptHookView = "management" | "runtime";
+const promptHookViews: PromptHookView[] = ["management", "runtime"];
 const emptyHooks: PromptHook[] = [];
 
 export function PromptHooksPage({
@@ -206,7 +208,8 @@ function HeaderActions({ fetching, onCreate, onRefresh }: { fetching: boolean; o
 
 function ViewTabs({ view, onChange }: { view: PromptHookView; onChange: (view: PromptHookView) => void }) {
   const { t } = useTranslation();
-  return <div className="inline-flex rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-1" role="tablist">{(["management", "runtime"] as const).map((item) => <button aria-selected={view === item} className={`flex h-9 items-center gap-2 rounded-md px-3 text-sm font-medium focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring ${view === item ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`} key={item} onClick={() => onChange(item)} role="tab" type="button">{item === "management" ? <Settings2 aria-hidden="true" /> : <Activity aria-hidden="true" />}{t(`promptHooks.views.${item}`)}</button>)}</div>;
+  const viewTabs = useTabList(promptHookViews.map((item) => ({ id: item })), view, (id) => onChange(id as PromptHookView));
+  return <div className="inline-flex rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-1" onKeyDown={viewTabs.handleKeyDown} role="tablist">{promptHookViews.map((item) => <button aria-selected={view === item} className={`flex h-9 items-center gap-2 rounded-md px-3 text-sm font-medium focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring ${view === item ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`} key={item} onClick={() => onChange(item)} ref={viewTabs.registerTabRef(item)} role="tab" tabIndex={view === item ? 0 : -1} type="button">{item === "management" ? <Settings2 aria-hidden="true" /> : <Activity aria-hidden="true" />}{t(`promptHooks.views.${item}`)}</button>)}</div>;
 }
 
 function RuntimeRecords({ assemblyPending, traceError, traceFetching, traces, onPreview, onRefresh }: { assemblyPending: boolean; traceError: boolean; traceFetching: boolean; traces: Awaited<ReturnType<AgentService["listPromptHookTraces"]>>; onPreview: () => void; onRefresh: () => void }) {

@@ -6,6 +6,7 @@ import type { AgentRegistryEntry } from "../types/agent";
 import type { LoopInspectionTarget } from "../types/loop";
 import type { MissionControlNavigationTarget } from "../types/mission-control";
 import { shouldRenderPage, type PageLifecyclePolicy } from "../ui/page-lifecycle/page-lifecycle-policy";
+import { useTabList } from "../ui/runtime-panel/use-tab-list";
 import type { RunsSection } from "./workbench-route";
 
 const TABS: { section: RunsSection["section"]; labelKey: string }[] = [
@@ -95,10 +96,17 @@ export function RunsDestination({ location, onSectionChange, agents, onMissionCo
 
   const loopsActive = location.section === "loops";
   const schedulesActive = location.section === "schedules";
+  // `id` always comes from `TABS`' own `section` values below, so this narrows back safely --
+  // `useTabList` only ever hands the callback an id it was given.
+  const { handleKeyDown, registerTabRef } = useTabList(
+    TABS.map((tab) => ({ id: tab.section })),
+    location.section,
+    (id) => onSectionChange({ section: id as RunsSection["section"] }),
+  );
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 items-center gap-1 border-b border-border-subtle px-2 py-1.5" role="tablist">
+      <div className="flex shrink-0 items-center gap-1 border-b border-border-subtle px-2 py-1.5" onKeyDown={handleKeyDown} role="tablist">
         {TABS.map((tab) => (
           <button
             aria-selected={location.section === tab.section}
@@ -108,7 +116,9 @@ export function RunsDestination({ location, onSectionChange, agents, onMissionCo
             )}
             key={tab.section}
             onClick={() => onSectionChange({ section: tab.section })}
+            ref={registerTabRef(tab.section)}
             role="tab"
+            tabIndex={location.section === tab.section ? 0 : -1}
             type="button"
           >
             {t(tab.labelKey)}

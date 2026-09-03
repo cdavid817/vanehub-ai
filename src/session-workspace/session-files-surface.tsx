@@ -2,11 +2,13 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "../lib/utils";
 import { LazyFeature } from "../components/lazy-feature";
+import { useTabList } from "../ui/runtime-panel/use-tab-list";
 
 const loadFilesTab = () => import("./files-tab").then((module) => ({ default: module.FilesTab }));
 const loadDocumentsTab = () => import("./documents-tab").then((module) => ({ default: module.DocumentsTab }));
 
 export type FilesSurfaceView = "explorer" | "documents";
+const filesSurfaceViews: FilesSurfaceView[] = ["explorer", "documents"];
 
 /**
  * design.md Decision 7: Documents and Files merge into one Files primary surface with document
@@ -40,14 +42,17 @@ export function SessionFilesSurface({
     setEverVisited((current) => (current[next] ? current : { ...current, [next]: true }));
   }
 
+  const viewTabs = useTabList(filesSurfaceViews.map((id) => ({ id })), view, (id) => activate(id as FilesSurfaceView));
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div
         aria-label={t("filesSurface.viewSwitcher")}
         className="ucd-segmented flex shrink-0 gap-1 rounded-md p-1"
+        onKeyDown={viewTabs.handleKeyDown}
         role="tablist"
       >
-        {(["explorer", "documents"] as const).map((id) => (
+        {filesSurfaceViews.map((id) => (
           <button
             aria-selected={view === id}
             className={cn(
@@ -59,6 +64,7 @@ export function SessionFilesSurface({
             data-testid={`files-surface-view-${id}`}
             key={id}
             onClick={() => activate(id)}
+            ref={viewTabs.registerTabRef(id)}
             role="tab"
             tabIndex={view === id ? 0 : -1}
             type="button"

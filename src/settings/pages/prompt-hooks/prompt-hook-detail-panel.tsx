@@ -1,5 +1,5 @@
 import { Trash2 } from "lucide-react";
-import { useEffect, useState, type KeyboardEvent } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { ApplicationDialog } from "../../../components/ui/application-dialog";
@@ -8,6 +8,7 @@ import { useConfirmation } from "../../../components/ui/use-confirmation";
 import type { AgentService } from "../../../services/agent-service";
 import type { ManagedCliAgentId } from "../../../types/agent";
 import type { PromptHook, PromptHookMutationInput } from "../../../types/prompt-hook";
+import { useTabList } from "../../../ui/runtime-panel/use-tab-list";
 import { PromptHookContentEditor, PromptHookOverview } from "./prompt-hook-detail-sections";
 import { localizePromptHookErrorKey } from "./prompt-hook-dialogs";
 import { PromptHookVersionHistoryView } from "./prompt-hook-version-history";
@@ -160,17 +161,10 @@ export function PromptHookDetailPanel({
 function DetailTabs({ tab, userHook, onChange }: { tab: DetailTab; userHook: boolean; onChange: (tab: DetailTab) => void }) {
   const { t } = useTranslation();
   const tabs: DetailTab[] = userHook ? ["overview", "content", "history"] : ["overview", "content"];
-  const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
-    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-    event.preventDefault();
-    const offset = event.key === "ArrowRight" ? 1 : -1;
-    const next = tabs[(index + offset + tabs.length) % tabs.length];
-    onChange(next);
-    document.getElementById(`prompt-hook-tab-${next}`)?.focus();
-  };
+  const detailTabs = useTabList(tabs.map((item) => ({ id: item })), tab, (id) => onChange(id as DetailTab));
   return (
-    <div aria-label={t("promptHooks.detail.title", { name: "" })} className="flex gap-1 overflow-x-auto border-b border-border" role="tablist">
-      {tabs.map((item, index) => (
+    <div aria-label={t("promptHooks.detail.title", { name: "" })} className="flex gap-1 overflow-x-auto border-b border-border" onKeyDown={detailTabs.handleKeyDown} role="tablist">
+      {tabs.map((item) => (
         <button
           aria-selected={tab === item}
           className={`min-h-11 whitespace-nowrap border-b-2 px-3 text-sm font-medium focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring ${tab === item ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}
@@ -178,7 +172,7 @@ function DetailTabs({ tab, userHook, onChange }: { tab: DetailTab; userHook: boo
           id={`prompt-hook-tab-${item}`}
           key={item}
           onClick={() => onChange(item)}
-          onKeyDown={(event) => handleKeyDown(event, index)}
+          ref={detailTabs.registerTabRef(item)}
           role="tab"
           tabIndex={tab === item ? 0 : -1}
           type="button"

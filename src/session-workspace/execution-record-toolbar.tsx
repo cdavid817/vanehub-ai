@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { cn } from "../lib/utils";
+import { useTabList } from "../ui/runtime-panel/use-tab-list";
 import {
   EXECUTION_RECORD_VIEWS,
   SELECTABLE_FIDELITIES,
@@ -55,11 +56,13 @@ export function ExecutionRecordToolbar({
   view: ExecutionRecordView;
 }) {
   const { t } = useTranslation();
+  const viewTabs = useTabList(EXECUTION_RECORD_VIEWS.map((entry) => ({ id: entry })), view, (id) => onViewChange(id as ExecutionRecordView));
   return (
     <div className="grid gap-2">
       <div
         aria-label={t("executionRecords.viewLabel")}
         className="ucd-scroll-strip flex gap-1 overflow-x-auto"
+        onKeyDown={viewTabs.handleKeyDown}
         role="tablist"
       >
         {EXECUTION_RECORD_VIEWS.map((entry) => (
@@ -74,7 +77,9 @@ export function ExecutionRecordToolbar({
             data-testid={`execution-record-view-${entry}`}
             key={entry}
             onClick={() => onViewChange(entry)}
+            ref={viewTabs.registerTabRef(entry)}
             role="tab"
+            tabIndex={view === entry ? 0 : -1}
             type="button"
           >
             {t(`executionRecords.view.${entry}`)}

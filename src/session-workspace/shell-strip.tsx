@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import type { SessionShellDescriptor } from "../types/session-workspace-shell-frames";
+import { useTabList } from "../ui/runtime-panel/use-tab-list";
 import { shellEndingDetail, shellRuntimeKey, shellStateKey } from "./shell-status";
 
 interface ShellStripProps {
@@ -27,9 +28,14 @@ export function ShellStrip({
   shells,
 }: ShellStripProps) {
   const { t } = useTranslation();
+  const shellTabs = useTabList(
+    shells.map((shell) => ({ id: shell.shellId })),
+    activeShellId ?? "",
+    onSelect,
+  );
   return (
     <div className="flex flex-wrap items-center gap-1 border-b border-border p-2 text-xs">
-      <div aria-label={t("sessionTabs.shell.strip")} className="flex flex-wrap gap-1" role="tablist">
+      <div aria-label={t("sessionTabs.shell.strip")} className="flex flex-wrap gap-1" onKeyDown={shellTabs.handleKeyDown} role="tablist">
         {shells.map((shell) => {
           const selected = shell.shellId === activeShellId;
           return (
@@ -41,6 +47,7 @@ export function ShellStrip({
               key={shell.shellId}
               onDoubleClick={() => onRename(shell.shellId)}
               onClick={() => onSelect(shell.shellId)}
+              ref={shellTabs.registerTabRef(shell.shellId)}
               role="tab"
               tabIndex={selected ? 0 : -1}
               type="button"

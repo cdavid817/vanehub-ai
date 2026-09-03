@@ -9,10 +9,14 @@ import { ProviderCredentialValidation } from "../../../components/provider-direc
 import type { AgentService } from "../../../services/agent-service";
 import { agentService as defaultAgentService } from "../../../services/runtime-agent-client";
 import type { OnePieceProviderProfile, OnePieceProviderProfiles } from "../../../types/agent";
+import { useTabList } from "../../../ui/runtime-panel/use-tab-list";
 import { OnePieceProfileActionDialog, type OnePieceProfileAction } from "./onepiece-profile-action-dialog";
 import { OnePieceProviderDialog } from "./onepiece-provider-dialog";
 import { OnePieceToolReadiness } from "./onepiece-tool-readiness";
 import { HybridLocalRuntimeSection } from "./hybrid-local-runtime-section";
+
+type OnePieceView = "providers" | "runtime" | "tools";
+const onePieceViews: OnePieceView[] = ["providers", "runtime", "tools"];
 
 // Exported so `AgentConfigurationsPage` and `OnePieceParametersPanel` can both re-subscribe to the
 // same cache entry rather than re-deriving their own literal copy of this key -- a prior literal
@@ -27,7 +31,8 @@ export function OnePieceConfigurationPanel({ onChanged, searchTerm = "", service
   const [pendingAction, setPendingAction] = useState<OnePieceProfileAction | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [profileSearch, setProfileSearch] = useState("");
-  const [view, setView] = useState<"providers" | "runtime" | "tools">("providers");
+  const [view, setView] = useState<OnePieceView>("providers");
+  const viewTabs = useTabList(onePieceViews.map((candidate) => ({ id: candidate })), view, (id) => setView(id as OnePieceView));
   const profilesQuery = useQuery({ queryKey: onePieceProviderProfilesQueryKey, queryFn: async () => {
     const [overview, presets] = await Promise.all([
       service.listOnePieceProviderProfiles(),
@@ -64,15 +69,17 @@ export function OnePieceConfigurationPanel({ onChanged, searchTerm = "", service
 
   return (
     <div className="space-y-4">
-      <div aria-label={t("onepiece.views.label")} className="flex max-w-full gap-1 overflow-x-auto rounded-lg border border-border bg-muted/25 p-1" role="tablist">
-        {(["providers", "runtime", "tools"] as const).map((candidate) => (
+      <div aria-label={t("onepiece.views.label")} className="flex max-w-full gap-1 overflow-x-auto rounded-lg border border-border bg-muted/25 p-1" onKeyDown={viewTabs.handleKeyDown} role="tablist">
+        {onePieceViews.map((candidate) => (
           <button
             aria-selected={view === candidate}
             className={`min-h-9 whitespace-nowrap rounded-md px-3 text-sm font-medium transition-colors ${view === candidate ? "bg-background text-foreground shadow-xs" : "text-muted-foreground hover:bg-background/70 hover:text-foreground"}`}
             data-testid={`onepiece-view-tab-${candidate}`}
             key={candidate}
             onClick={() => setView(candidate)}
+            ref={viewTabs.registerTabRef(candidate)}
             role="tab"
+            tabIndex={view === candidate ? 0 : -1}
             type="button"
           >
             {t(`onepiece.views.${candidate}`)}

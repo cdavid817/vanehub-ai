@@ -6,6 +6,7 @@ import { useMediaQuery } from "../hooks/use-media-query";
 import { AsyncBoundary } from "../ui/async/AsyncBoundary";
 import type { AsyncViewState } from "../ui/async/async-view-state";
 import { EmptyState } from "../ui/empty-state/EmptyState";
+import { useTabList } from "../ui/runtime-panel/use-tab-list";
 import {
   readProjectsScrollTop, readProjectsView, writeProjectsScrollTop, writeProjectsView,
 } from "./projects-view-state";
@@ -114,6 +115,7 @@ export function Projects({ onContinueSession, onNewSession, onOpenSshSettings }:
   const { mutations: reconnectMutations, reconnect } = useWorkspaceReconnect(() => void reload());
   const compact = useMediaQuery(COMPACT_QUERY);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const viewTabs = useTabList(workspaceViews.map((candidate) => ({ id: candidate })), view, (id) => setView(id as WorkspaceView));
 
   useEffect(() => { writeProjectsView(view); }, [view]);
 
@@ -160,14 +162,16 @@ export function Projects({ onContinueSession, onNewSession, onOpenSshSettings }:
             {t("projects.refresh")}
           </Button>
         </div>
-        <div aria-label={t("projects.viewLabel")} className="flex gap-1" role="tablist">
+        <div aria-label={t("projects.viewLabel")} className="flex gap-1" onKeyDown={viewTabs.handleKeyDown} role="tablist">
           {workspaceViews.map((candidate) => (
             <Button
               aria-selected={view === candidate}
               key={candidate}
               onClick={() => setView(candidate)}
+              ref={viewTabs.registerTabRef(candidate)}
               role="tab"
               size="sm"
+              tabIndex={view === candidate ? 0 : -1}
               type="button"
               variant={view === candidate ? "default" : "outline"}
             >

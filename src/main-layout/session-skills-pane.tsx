@@ -13,8 +13,10 @@ import { SkillDriftBanner } from "../settings/pages/skills/skill-drift-banner";
 import { useSkillManagement } from "../settings/pages/skills/use-skill-management";
 import type { Session } from "../types/agent";
 import type { Skill, SkillCompatibleAgent, SkillScopeInput } from "../types/skill";
+import { useTabList } from "../ui/runtime-panel/use-tab-list";
 
 type SkillSubview = "effective" | "global" | "project";
+const skillSubviews: SkillSubview[] = ["effective", "global", "project"];
 const globalScope: SkillScopeInput = { scope: "global", workspacePath: null };
 
 export function SessionSkillsPane({ active = true, activeSession, onOpenSkillSettings }: {
@@ -50,10 +52,11 @@ export function SessionSkillsPane({ active = true, activeSession, onOpenSkillSet
   const error = global.error?.message ?? project.overviewQuery.error?.message ?? null;
   const editError = project.editReloadMutation.error?.message ?? project.updateMutation.error?.message ?? null;
   const viewCounts: Record<SkillSubview, number> = { effective: groups.effective.length, global: groups.global.length, project: groups.project.length };
+  const skillTabs = useTabList(skillSubviews.map((view) => ({ id: view })), activeView, (id) => setActiveView(id as SkillSubview));
 
   return <div className="grid gap-3">
-    <div className="ucd-segmented grid grid-cols-3 gap-1 rounded-md p-1" role="tablist">
-      {(["effective", "global", "project"] as const).map((view) => <button aria-selected={activeView === view} className={cn("h-8 truncate rounded-md px-1 text-xs", activeView === view ? "bg-background font-semibold text-primary shadow-xs" : "text-muted-foreground hover:bg-muted")} key={view} onClick={() => setActiveView(view)} role="tab" type="button"><span>{t(`layout.info.skills.views.${view}`)}</span><span aria-hidden="true" className="ml-1 tabular-nums text-muted-foreground">{t("layout.info.skills.viewCount", { count: viewCounts[view] })}</span></button>)}
+    <div className="ucd-segmented grid grid-cols-3 gap-1 rounded-md p-1" onKeyDown={skillTabs.handleKeyDown} role="tablist">
+      {skillSubviews.map((view) => <button aria-selected={activeView === view} className={cn("h-8 truncate rounded-md px-1 text-xs", activeView === view ? "bg-background font-semibold text-primary shadow-xs" : "text-muted-foreground hover:bg-muted")} key={view} onClick={() => setActiveView(view)} ref={skillTabs.registerTabRef(view)} role="tab" tabIndex={activeView === view ? 0 : -1} type="button"><span>{t(`layout.info.skills.views.${view}`)}</span><span aria-hidden="true" className="ml-1 tabular-nums text-muted-foreground">{t("layout.info.skills.viewCount", { count: viewCounts[view] })}</span></button>)}
     </div>
     {loading ? <Empty>{t("layout.info.loading")}</Empty> : null}
     {error ? <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-destructive/40 p-3 text-xs text-destructive" role="alert"><span>{error}</span><Button onClick={() => { void global.refetch(); if (workspacePath) void project.overviewQuery.refetch(); }} size="sm" variant="outline">{t("featureLoad.retry")}</Button></div> : null}
