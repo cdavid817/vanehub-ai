@@ -55,18 +55,29 @@ export function PlanDestination({ location, onSectionChange }: PlanDestinationPr
         ))}
       </div>
       <div className="min-h-0 flex-1 p-2">
+        {/* Two separate, permanently loader-fixed `LazyFeature` call sites -- mirrors
+            runs-destination.tsx's own Loops/Schedules split -- rather than one ternary sharing a
+            single slot between `loadWorkBoard` and `loadGoalCenter`. `LazyFeature` picks its lazy
+            component once via `useState(() => lazy(loader))` (a lazy initializer, which React only
+            evaluates on that instance's first mount): a single ternary slot re-renders the *same*
+            `LazyFeature` instance with a new `loader` prop on every section switch, which that
+            initializer silently ignores, so the previously loaded feature stayed on screen forever
+            regardless of which tab was active. Each section its own call site instead means
+            switching sections mounts a genuinely new `LazyFeature` (and a fresh `lazy()` load) every
+            time, the same fix `RunsDestination`'s own doc comment already explains for that file. */}
         {location.section === "board" ? (
           <LazyFeature className="h-full min-h-0" componentProps={{}} loader={loadWorkBoard} />
-        ) : (
+        ) : null}
+        {location.section === "goals" ? (
           <LazyFeature
             className="h-full min-h-0"
             componentProps={{
-              goalId: location.section === "goals" ? location.goalId : undefined,
+              goalId: location.goalId,
               onSelectGoal: (nextGoalId: string | undefined) => onSectionChange({ section: "goals", goalId: nextGoalId }),
             }}
             loader={loadGoalCenter}
           />
-        )}
+        ) : null}
       </div>
     </div>
   );
