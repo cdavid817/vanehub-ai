@@ -41,7 +41,7 @@ export function DraftActionBar({ dirtyCount, pending = false, saveDisabled = fal
         {error ? <span className="ml-2 text-destructive">{error.message}</span> : null}
       </div>
       <div className="flex shrink-0 items-center gap-2">
-        <button className="text-sm font-medium text-muted-foreground hover:underline" disabled={pending} onClick={onDiscard} type="button">
+        <button className="ucd-focus-ring rounded-sm text-sm font-medium text-muted-foreground hover:underline" disabled={pending} onClick={onDiscard} type="button">
           {t("workbenchUi.draftBar.discard")}
         </button>
         <button

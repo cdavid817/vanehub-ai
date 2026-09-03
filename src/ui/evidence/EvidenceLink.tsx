@@ -61,6 +61,7 @@ export function EvidenceLink({ label, to, availability, reason, returnTo, copyVa
       {copyValue ? (
         <button
           aria-label={t(copied ? "workbenchUi.evidence.copied" : "workbenchUi.evidence.copy")}
+          className="ucd-focus-ring rounded-sm"
           onClick={() => { void navigator.clipboard.writeText(copyValue).then(() => setCopied(true)); }}
           type="button"
         >

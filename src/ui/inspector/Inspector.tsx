@@ -78,7 +78,7 @@ export function Inspector({
             unavailableState={{
               title: t("workbenchUi.evidence.unavailable"),
               action: (
-                <button className="text-sm font-medium text-primary hover:underline" onClick={onReturnToOverview} type="button">
+                <button className="ucd-focus-ring rounded-sm text-sm font-medium text-primary hover:underline" onClick={onReturnToOverview} type="button">
                   {t("workbenchUi.inspector.returnToOverview")}
                 </button>
               ),

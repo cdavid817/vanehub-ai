@@ -55,4 +55,10 @@ describe("DraftActionBar", () => {
     );
     expect(screen.getByText("Could not save your changes.")).toBeTruthy();
   });
+
+  it("gives both Save and Discard a visible focus ring, matching every other interactive src/ui/ control", () => {
+    render(<DraftActionBar dirtyCount={2} onDiscard={vi.fn()} onSave={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "Save" }).className).toContain("ucd-focus-ring");
+    expect(screen.getByRole("button", { name: "Discard" }).className).toContain("ucd-focus-ring");
+  });
 });

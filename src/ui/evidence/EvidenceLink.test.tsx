@@ -51,4 +51,13 @@ describe("EvidenceLink", () => {
     expect(writeText).toHaveBeenCalledWith("session://abc/changes");
     expect(await screen.findByRole("button", { name: "Link copied" })).toBeTruthy();
   });
+
+  it("gives the copy action a visible focus ring, matching every other interactive src/ui/ control", () => {
+    render(
+      <MemoryRouter>
+        <EvidenceLink availability="available" copyValue="session://abc/changes" label="Open Diff" to="/sessions/abc/changes" />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("button", { name: "Copy link" }).className).toContain("ucd-focus-ring");
+  });
 });

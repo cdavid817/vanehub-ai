@@ -100,6 +100,21 @@ describe("Inspector", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
+  it("gives the return-to-overview action a visible focus ring, matching every other interactive src/ui/ control", () => {
+    render(
+      <Inspector
+        detail={detailState({ error: { kind: "unavailable", message: "gone", retryable: false } })}
+        mode="pinned"
+        onPin={vi.fn()}
+        onReturnToOverview={vi.fn()}
+        onUnpin={vi.fn()}
+        overview={<p>Overview</p>}
+        title="Inspector"
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Return to overview" }).className).toContain("ucd-focus-ring");
+  });
+
   it("surfaces a retryable detail-load error through AsyncBoundary's retry action", () => {
     const onRetryDetail = vi.fn();
     render(

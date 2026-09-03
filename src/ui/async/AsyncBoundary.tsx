@@ -69,7 +69,7 @@ export function AsyncBoundary<T>({
         <AlertTriangle aria-hidden="true" className="h-6 w-6 text-destructive" />
         <p className="text-sm text-muted-foreground">{state.error.message}</p>
         {canRetry ? (
-          <button className="text-sm font-medium text-primary underline-offset-4 hover:underline" onClick={onRetry} type="button">
+          <button className="ucd-focus-ring rounded-sm text-sm font-medium text-primary underline-offset-4 hover:underline" onClick={onRetry} type="button">
             {t("featureLoad.retry")}
           </button>
         ) : null}

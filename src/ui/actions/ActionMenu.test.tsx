@@ -64,6 +64,31 @@ describe("ActionMenu", () => {
     await waitFor(() => expect(onSelect).toHaveBeenCalledOnce());
   });
 
+  it("moves real DOM focus through items with arrow keys, wrapping at both ends, and jumps via Home/End", () => {
+    const items: ActionMenuItem[] = [
+      { id: "rename", label: "Rename", onSelect: vi.fn() },
+      { id: "duplicate", label: "Duplicate", onSelect: vi.fn() },
+      { id: "archive", label: "Archive", onSelect: vi.fn() },
+    ];
+    render(<ActionMenu items={items} triggerLabel="More actions" />);
+    fireEvent.click(screen.getByRole("button", { name: "More actions" }));
+    const menu = screen.getByRole("menu");
+    const [rename, , archive] = screen.getAllByRole("menuitem");
+    expect(document.activeElement).toBe(rename);
+
+    fireEvent.keyDown(menu, { key: "ArrowUp" });
+    expect(document.activeElement).toBe(archive);
+
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(rename);
+
+    fireEvent.keyDown(menu, { key: "End" });
+    expect(document.activeElement).toBe(archive);
+
+    fireEvent.keyDown(menu, { key: "Home" });
+    expect(document.activeElement).toBe(rename);
+  });
+
   it("keeps a disabled item keyboard-reachable and explains why it cannot run", () => {
     const onSelect = vi.fn();
     const items: ActionMenuItem[] = [

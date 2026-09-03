@@ -43,4 +43,16 @@ describe("MutationStatus", () => {
     fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
     expect(dismiss).toHaveBeenCalledOnce();
   });
+
+  it("gives both retry and dismiss a visible focus ring, matching every other interactive src/ui/ control", () => {
+    render(
+      <MutationStatus
+        onDismiss={vi.fn()}
+        onRetry={vi.fn()}
+        state={{ targetKey: "run-1", pending: false, error: { kind: "error", message: "Update failed.", retryable: true } }}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Retry" }).className).toContain("ucd-focus-ring");
+    expect(screen.getByRole("button", { name: "Dismiss" }).className).toContain("ucd-focus-ring");
+  });
 });

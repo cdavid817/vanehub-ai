@@ -153,4 +153,13 @@ describe("AsyncBoundary", () => {
     expect(screen.getByText("content")).toBeTruthy();
     expect(screen.getByRole("status").textContent).toContain("Refreshing");
   });
+
+  it("gives the retry action a visible focus ring, matching every other interactive src/ui/ control", () => {
+    render(
+      <AsyncBoundary onRetry={vi.fn()} state={state({ error: { kind: "error", message: "Could not load runs.", retryable: true } })}>
+        {() => <p>content</p>}
+      </AsyncBoundary>,
+    );
+    expect(screen.getByRole("button", { name: "Retry" }).className).toContain("ucd-focus-ring");
+  });
 });

@@ -82,4 +82,18 @@ describe("FilterBar", () => {
     );
     expect(screen.queryByText(/unknown-filter/)).toBeNull();
   });
+
+  it("gives both the per-chip clear and Clear all a visible focus ring, matching every other interactive src/ui/ control", () => {
+    render(
+      <FilterBar
+        active={[{ definitionId: "status", value: "blocked" }]}
+        definitions={[STATUS_FILTER]}
+        onClearAll={vi.fn()}
+        onClearOne={vi.fn()}
+        resultCount={4}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Clear Status" }).className).toContain("ucd-focus-ring");
+    expect(screen.getByRole("button", { name: "Clear all filters" }).className).toContain("ucd-focus-ring");
+  });
 });

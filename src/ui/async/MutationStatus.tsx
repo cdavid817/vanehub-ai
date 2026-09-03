@@ -30,12 +30,12 @@ export function MutationStatus({ state, onRetry, onDismiss, className }: Mutatio
       <span className={cn("inline-flex items-center gap-2 text-xs text-destructive", className)} role="alert">
         {state.error.message}
         {canRetry ? (
-          <button className="font-medium underline-offset-4 hover:underline" onClick={onRetry} type="button">
+          <button className="ucd-focus-ring rounded-sm font-medium underline-offset-4 hover:underline" onClick={onRetry} type="button">
             {t("featureLoad.retry")}
           </button>
         ) : null}
         {onDismiss ? (
-          <button aria-label={t("workbenchUi.mutation.dismiss")} onClick={onDismiss} type="button">
+          <button aria-label={t("workbenchUi.mutation.dismiss")} className="ucd-focus-ring rounded-sm" onClick={onDismiss} type="button">
             <X aria-hidden="true" className="h-3.5 w-3.5" />
           </button>
         ) : null}

@@ -55,7 +55,7 @@ export function FilterBar({ definitions, active, onClearOne, onClearAll, resultC
         );
       })}
       {active.length > 0 ? (
-        <button className="text-xs font-medium text-muted-foreground hover:underline" onClick={onClearAll} type="button">
+        <button className="ucd-focus-ring rounded-sm text-xs font-medium text-muted-foreground hover:underline" onClick={onClearAll} type="button">
           {t("workbenchUi.filterBar.clearAll")}
         </button>
       ) : null}
