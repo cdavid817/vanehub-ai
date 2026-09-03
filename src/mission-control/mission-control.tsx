@@ -1,5 +1,8 @@
+import { ArrowLeft } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Button } from "../components/ui/button";
+import { useMediaQuery } from "../hooks/use-media-query";
 import { agentService } from "../services/runtime-agent-client";
 import type { AgentRegistryEntry } from "../types/agent";
 import type {
@@ -40,6 +43,11 @@ export function MissionControl({
   section?: MissionControlRunListSection;
 }) {
   const { t } = useTranslation();
+  // Matches this file's own pre-existing `min-[900px]:grid-cols-[...]` breakpoint below (899px is
+  // the last width still short of it) rather than a container query: the grid this drives is a
+  // viewport-relative Tailwind breakpoint already, same convention as work-board.tsx's own
+  // `compact` (900px) and projects.tsx's own `COMPACT_QUERY` (767px, matching its `md:` split).
+  const compact = useMediaQuery("(max-width: 899px)");
   const [savedView] = useState(readMissionControlViewState);
   const [overview, setOverview] = useState<MissionControlOverview | null>(null);
   const [selected, setSelected] = useState<MissionControlRunDetail | null>(null);
@@ -106,15 +114,28 @@ export function MissionControl({
   // since RunsDestination fully remounts this component on every destination/tab switch (a fresh
   // `initialRunId` never arrives without a fresh mount to go with it).
   useEffect(() => { if (initialRunId) void inspect(initialRunId); }, [inspect, initialRunId]);
+
+  // 20.3: below the 900px breakpoint the list and the selected Run's detail never coexist --
+  // selecting a Run replaces the list with its detail, and Back (below) replaces the detail with
+  // the list again, mirroring design.md Decision 11's shared MasterDetail shell ("窄屏 detail 替换
+  // list 并有明确返回") the same way projects.tsx (13.12) and goal-center.tsx (15.12) already do.
+  // Previously this grid went `grid-cols-1` under `overflow-hidden` with *both* panes still
+  // rendered and neither given a bounded per-row height -- a real reader with more than a
+  // screenful of Runs could never scroll to (or even know about) the selected Run's own detail,
+  // a genuine "clipped column" rather than an accessible fallback.
+  const showingList = !compact || !selected;
+  const showingDetail = !compact || Boolean(selected);
   // 4.8: restores the run-list scroll position once there is actual content to scroll to — doing
   // this before `overview` arrives would restore against an empty, still-collapsing list.
   useEffect(() => {
     if (!overview || !listRef.current) return;
     listRef.current.scrollTop = readMissionControlScrollTop();
-    // Deliberately once, the first time real content exists — not on every `overview` refresh,
-    // which would fight a reader who has since scrolled on their own.
+    // Deliberately re-fires whenever the list becomes the visible pane again (initial load, or a
+    // compact-width Back) rather than only once -- a compact Back can remount this list from
+    // scratch (see `showingList` above), and simply going Back would otherwise land on a reset
+    // scroll position instead of the restored one. Mirrors projects.tsx's own identical fix (13.12).
     // eslint-disable-next-line react-hooks/exhaustive-deps -- see comment above
-  }, [Boolean(overview)]);
+  }, [Boolean(overview), showingList]);
 
   // 16.14-16.15: state-aware actions/target-local pending/conflict reconciliation, all in one
   // place -- see the hook's own doc comment for why (registry choice, reconcile-only, conflict
@@ -164,33 +185,43 @@ export function MissionControl({
     {error ? <p aria-live="polite" className="m-3 rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">{error}</p> : null}
     {overview?.counts ? <MissionControlSummary counts={overview.counts} onToggle={toggleCount} states={filter.states} /> : null}
     <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden min-[900px]:grid-cols-[minmax(0,1.4fr)_minmax(280px,1fr)]">
-      <MissionControlRunList
-        agents={agents}
-        listRef={listRef}
-        loading={loading}
-        mutations={mutations.registry}
-        onAct={act}
-        onDismissError={(run) => mutations.clear(run.runId)}
-        onInspect={(run) => void inspect(run.runId)}
-        onNextPage={(next) => setCursor(next)}
-        onScroll={writeMissionControlScrollTop}
-        overview={overview}
-        section={section}
-      />
-      <aside className="min-h-0 overflow-y-auto border-t border-border p-3 min-[900px]:border-l min-[900px]:border-t-0">
-        <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t("missionControl.detail")}</h2>
-        <MissionControlDetailPanel
-          activeFacet={activeFacet}
+      {showingList ? (
+        <MissionControlRunList
           agents={agents}
-          mutation={selected ? mutations.get(selected.run.runId) : undefined}
+          listRef={listRef}
+          loading={loading}
+          mutations={mutations.registry}
           onAct={act}
-          onDismissError={() => { if (selected) mutations.clear(selected.run.runId); }}
+          onDismissError={(run) => mutations.clear(run.runId)}
           onInspect={(run) => void inspect(run.runId)}
-          onSelectFacet={setActiveFacet}
+          onNextPage={(next) => setCursor(next)}
+          onScroll={writeMissionControlScrollTop}
+          overview={overview}
           section={section}
-          selected={selected}
         />
-      </aside>
+      ) : null}
+      {showingDetail ? (
+        <aside className="min-h-0 overflow-y-auto p-3 min-[900px]:border-l">
+          {compact ? (
+            <Button className="mb-2" onClick={() => setSelected(null)} size="sm" type="button" variant="ghost">
+              <ArrowLeft aria-hidden="true" className="h-3.5 w-3.5" />
+              {t("missionControl.actions.backToList")}
+            </Button>
+          ) : null}
+          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t("missionControl.detail")}</h2>
+          <MissionControlDetailPanel
+            activeFacet={activeFacet}
+            agents={agents}
+            mutation={selected ? mutations.get(selected.run.runId) : undefined}
+            onAct={act}
+            onDismissError={() => { if (selected) mutations.clear(selected.run.runId); }}
+            onInspect={(run) => void inspect(run.runId)}
+            onSelectFacet={setActiveFacet}
+            section={section}
+            selected={selected}
+          />
+        </aside>
+      ) : null}
     </div>
   </div>;
 }

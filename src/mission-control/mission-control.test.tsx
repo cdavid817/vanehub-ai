@@ -3,7 +3,7 @@
 import type { ReactElement } from "react";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { activateAppLanguage, i18n } from "../i18n";
 import { agentService } from "../services/runtime-agent-client";
 import {
@@ -47,6 +47,24 @@ function agentFixture(id: string, displayName: string): AgentRegistryEntry {
     id, displayName, provider: "test", launch: { kind: "cli" }, supportedInteractionModes: ["cli"],
     availabilityState: "available", capabilityTags: [], agentOrigin: "user",
   };
+}
+
+// 20.3: mirrors projects.test.tsx's own identical helper (no shared version exists to import --
+// each compact-layout test file defines its own copy, same established convention).
+function stubMatchMedia(matches: (query: string) => boolean) {
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    value: (query: string): MediaQueryList => ({
+      matches: matches(query),
+      media: query,
+      onchange: null,
+      addEventListener: () => undefined,
+      addListener: () => undefined,
+      dispatchEvent: () => false,
+      removeEventListener: () => undefined,
+      removeListener: () => undefined,
+    }),
+  });
 }
 
 describe("MissionControl", () => {
@@ -359,5 +377,59 @@ describe("MissionControl", () => {
 
     rerender(withRouter(<MissionControl agents={[agentFixture("web-owner-6", "Test Agent Six")]} />));
     await waitFor(() => expect(within(screen.getByTestId(`mission-run-${RUNNING_RUN_ID}`)).getByText(/Test Agent Six/, { selector: "p" })).toBeTruthy());
+  });
+
+  // 20.3: below 900px the run list and the selected Run's own detail must never both render at
+  // once under this component's `overflow-hidden` grid -- previously they did, and a reader with
+  // more than a screenful of Runs could never reach the detail pane at all (a genuine "clipped
+  // column", not an accessible fallback). Mirrors projects.test.tsx's own "compact layout" suite.
+  describe("compact layout (20.3)", () => {
+    beforeEach(() => stubMatchMedia((query) => query === "(max-width: 899px)"));
+    afterEach(() => stubMatchMedia(() => false));
+
+    it("shows only the list until a Run is selected, never the empty detail placeholder", async () => {
+      await activateAppLanguage("en");
+      render(withRouter(<MissionControl />));
+      await screen.findByTestId(`mission-run-${RUNNING_RUN_ID}`);
+
+      expect(screen.queryByText("Select a Run to inspect available evidence.")).toBeNull();
+      expect(screen.queryByRole("heading", { name: "Run detail" })).toBeNull();
+    });
+
+    it("inspecting a Run replaces the list with its detail and a Back control", async () => {
+      await activateAppLanguage("en");
+      render(withRouter(<MissionControl />));
+      const card = await screen.findByTestId(`mission-run-${RUNNING_RUN_ID}`);
+      // Sanity check that the list really did have more than one Run in it -- otherwise the
+      // "gone entirely" assertion below would trivially pass even if the list merely never
+      // rendered a second copy of the same card the detail pane goes on to show.
+      await screen.findByTestId(`mission-run-${PAUSED_RUN_ID}`);
+      // A plain DOM query for the card's first button, not `getByRole`/`{ name }`: the inspect
+      // button's accessible name is the whole card's rendered text (title, runner, state, owner,
+      // elapsed, verification), not a short fixed label -- same reason the very first test in this
+      // file (`document.querySelector("[data-testid^='mission-run-'] button")`) does the same.
+      fireEvent.click(card.querySelector("button")!);
+
+      await waitFor(() => expect(screen.getByRole("heading", { name: "Run detail" })).toBeTruthy());
+      // Compact never renders both panes at once. Checked against a *different*, non-selected
+      // Run's own card, not the selected Run's own testid: `MissionControlDetailPanel` renders its
+      // own copy of the selected Run's `RunCard` (same `data-testid`) as part of the detail itself,
+      // so that id staying present is expected, not proof the list is still rendered underneath.
+      expect(screen.queryByTestId(`mission-run-${PAUSED_RUN_ID}`)).toBeNull();
+      expect(screen.getByRole("button", { name: "Back to Runs" })).toBeTruthy();
+    });
+
+    it("Back returns to the list and drops the selected Run's detail", async () => {
+      await activateAppLanguage("en");
+      render(withRouter(<MissionControl />));
+      const card = await screen.findByTestId(`mission-run-${RUNNING_RUN_ID}`);
+      fireEvent.click(card.querySelector("button")!);
+      await screen.findByRole("heading", { name: "Run detail" });
+
+      fireEvent.click(screen.getByRole("button", { name: "Back to Runs" }));
+
+      expect(await screen.findByTestId(`mission-run-${RUNNING_RUN_ID}`)).toBeTruthy();
+      expect(screen.queryByRole("heading", { name: "Run detail" })).toBeNull();
+    });
   });
 });
