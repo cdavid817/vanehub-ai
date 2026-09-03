@@ -93,4 +93,42 @@ test.describe("Todo Board", () => {
     await expect(page.getByLabel("按阶段筛选")).toBeVisible();
     await expect(page.getByLabel("按项目筛选")).toBeVisible();
   });
+
+  // 20.19: drives a real stage move through `WorkItemStageMenu` (work-item-stage-menu.tsx, tasks
+  // 14.8-14.9) with no pointer at all. That component's own `useMenuList` hook (src/ui/actions/
+  // use-menu-list.ts) resets `activeIndex` to 0 on every open, so the freshly created item's own
+  // "收件箱" (inbox, index 0 of `workItemStages`) trigger opens with its own listbox option already
+  // focused -- one ArrowDown reaches "已计划" (planned, index 1) deterministically. `.focus()`
+  // establishes the trigger as this test's own starting point (this file's usual house style is
+  // `.click()`-only; the established keyboard-test convention documented in loop-engineering.spec.ts
+  // and elsewhere in this codebase is `.focus()` on the entry point, then real key presses for
+  // everything downstream of it).
+  test("moves a card between stages using only the keyboard, through WorkItemStageMenu", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "计划", exact: true }).click();
+    await page.getByRole("tab", { name: "任务看板" }).click();
+
+    await page.getByRole("button", { name: "新建工作项" }).click();
+    await page.getByLabel("标题").fill("键盘移动任务");
+    await page.getByRole("button", { name: "创建", exact: true }).click();
+
+    const card = page.getByTestId(/work-item-web-/).filter({ hasText: "键盘移动任务" });
+    await expect(card).toBeVisible();
+    const trigger = card.getByRole("button", { name: "收件箱" });
+    await trigger.focus();
+    await expect(trigger).toBeFocused();
+
+    await page.keyboard.press("Enter");
+    const listbox = card.getByRole("listbox", { name: "移至阶段" });
+    await expect(listbox).toBeVisible();
+    await expect(card.getByRole("option", { name: "收件箱" })).toBeFocused();
+
+    await page.keyboard.press("ArrowDown");
+    const plannedOption = card.getByRole("option", { name: "已计划" });
+    await expect(plannedOption).toBeFocused();
+    await page.keyboard.press("Enter");
+
+    await expect(listbox).toHaveCount(0);
+    await expect(card.getByRole("button", { name: "已计划" })).toBeVisible();
+  });
 });
