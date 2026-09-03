@@ -105,6 +105,8 @@ The following current behaviors are individually source-verified; the remediatio
 - **Review idempotency window** — `review()` applies (writing the authoritative file) before `mark_reviewed`; a crash between the two lets a retry pass the `is_pending` check and apply again, producing a second memory for a create candidate.
 - **Per-seat multi-Agent extraction** — the extraction gate is launch-kind only (`is_cli_kind`); multi-Agent seat turns are not excluded, so one collaboration produces per-seat duplicate candidates.
 - **Source attribution collapse** — the bridge maps every automatic extraction to `OnePieceAutomatic` (`personalization_bridge.rs`) although the domain model has `CliAutomatic`; the producer and the extracting provider are conflated.
+- **Surfaced-body deduplication is per session, not per seat** — the surfaced tracker (`memory_surfaced.rs`) keys on `session → memory id → modification time`: a body seat A saw suppresses seat B seeing it in the same session, and a memory corrected since (mtime changed) becomes eligible again. The state is in-memory (LRU-capped at 64 sessions) and clears on restart.
+- **No secret gate before extraction or candidate persistence** — `SecretRedactionPort` exists, but its only consumer is the effective preview/logging; neither the extraction input sent to the provider nor the content written into the candidate queue passes through it.
 - **No independent egress decision for extraction** — CLI conversation content is extracted through OnePiece's provider with no dedicated data-egress decision for that cross-provider send and no pre-provider redaction gate.
 
 ## Where the design lives

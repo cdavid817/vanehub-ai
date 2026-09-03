@@ -105,6 +105,8 @@ flowchart LR
 - **审批幂等窗口**——`review()` 先 `apply`（写权威文件）后 `mark_reviewed`；两步之间崩溃后重试会通过 `is_pending` 检查并再次应用，Create 候选会产生第二条记忆。
 - **多 Agent Seat 逐回合抽取**——抽取入口只按 `is_cli_kind`（launch kind）判定，多 Agent Seat 回合未被排除，同一协作任务会按 Seat 重复产生候选。
 - **来源归因合并**——bridge 把所有自动抽取统一映射为 `OnePieceAutomatic`（`personalization_bridge.rs`），尽管领域模型里存在 `CliAutomatic`；生产者与抽取 provider 被混为一谈。
+- **已注入正文的去重只按会话，不分席位**——surfaced 追踪器（`memory_surfaced.rs`）以 `session → 记忆 id → 修改时间` 为键：同一会话里席位 A 看过的正文会抑制席位 B 再看到；记忆被修正后（mtime 变化）重新可注入。该状态是内存态（LRU 上限 64 个会话），重启即清空。
+- **抽取与候选持久化前没有密钥脱敏闸**——`SecretRedactionPort` 存在，但唯一消费方是有效预览/日志；送往 provider 的抽取输入与写入候选队列的内容都不经过它。
 - **抽取无独立出境判定**——CLI 会话内容经 OnePiece 的 provider 代理抽取，没有针对该跨 provider 发送的独立数据出境决策与 provider 调用前的脱敏闸。
 
 ## 设计所在
