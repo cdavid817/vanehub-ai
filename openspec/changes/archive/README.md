@@ -245,6 +245,7 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-29 | restore-documentation-spec-conformance | native-developer-documentation, user-guide-documentation | `openspec/changes/archive/2026-08-29-restore-documentation-spec-conformance/` |
 | 2026-09-04 | add-composer-mention-keyboard-navigation | chat-experience | `openspec/changes/archive/2026-09-04-add-composer-mention-keyboard-navigation/` |
 | 2026-09-04 | add-goal-command-center-provider | global-command-center | `openspec/changes/archive/2026-09-04-add-goal-command-center-provider/` |
+| 2026-09-04 | fix-agent-evaluation-webdriverio | agent-evaluation, desktop-runtime-verification | `openspec/changes/archive/2026-09-04-fix-agent-evaluation-webdriverio/` |
 | 2026-09-04 | fix-chat-transcript-backend-message-updates | chat-experience | `openspec/changes/archive/2026-09-04-fix-chat-transcript-backend-message-updates/` |
 | 2026-09-04 | redesign-unified-workbench-ui | agent-evaluation, agent-mission-control, chat-experience, goal-management, loop-management-ui, main-layout-ui, project-worktree-management, scheduled-task-management, settings-center-ui, unified-todo-board, workbench-design-system-ui | `openspec/changes/archive/2026-09-04-redesign-unified-workbench-ui/` |
 | 2026-09-04 | stabilize-desktop-wdio-lifecycle | desktop-runtime-verification | `openspec/changes/archive/2026-09-04-stabilize-desktop-wdio-lifecycle/` |

@@ -3548,6 +3548,20 @@
     },
     {
       "archivedOn": "2026-09-04",
+      "changeName": "fix-agent-evaluation-webdriverio",
+      "path": "openspec/changes/archive/2026-09-04-fix-agent-evaluation-webdriverio/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "agent-evaluation",
+        "desktop-runtime-verification"
+      ]
+    },
+    {
+      "archivedOn": "2026-09-04",
       "changeName": "fix-chat-transcript-backend-message-updates",
       "path": "openspec/changes/archive/2026-09-04-fix-chat-transcript-backend-message-updates/",
       "artifacts": [
