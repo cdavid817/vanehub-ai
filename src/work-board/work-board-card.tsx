@@ -86,7 +86,14 @@ export function WorkBoardCard({ batchMode, item, mutation, onArchive, onDelete, 
             type="checkbox"
           />
         ) : null}
-        <h3 className="min-w-0 flex-1 text-sm font-semibold leading-5">{item.title}</h3>
+        {/* 20.15: unlike every other text surface in this card (MetaChip, description, source
+            title all already `truncate`/`line-clamp`), this title had neither -- a long single-
+            unbreakable token (a German-compound-style title, an id, a path pasted as a title) has
+            no wrap opportunity and, with `overflow: visible` still the default, paints straight
+            through the priority Badge instead of stopping at its own box edge. `truncate` gives it
+            the same `overflow-hidden` floor as its siblings; `title` matches MetaChip's own
+            hover-reveal convention two lines up. */}
+        <h3 className="min-w-0 flex-1 truncate text-sm font-semibold leading-5" title={item.title}>{item.title}</h3>
         {item.priority === "none" ? null : (
           <Badge tone={item.priority === "urgent" || item.priority === "high" ? "danger" : item.priority === "medium" ? "warning" : "muted"}>
             {t(`todoBoard.priority.${item.priority}`)}
@@ -96,7 +103,14 @@ export function WorkBoardCard({ batchMode, item, mutation, onArchive, onDelete, 
       {item.description ? <p className="line-clamp-3 text-xs leading-5 text-muted-foreground">{item.description}</p> : null}
       {projectPath || item.dueAt ? (
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-          {projectPath ? <MetaChip icon={<FolderOpen aria-hidden="true" className="h-3 w-3 shrink-0" />} title={projectPath}>{projectPath}</MetaChip> : null}
+          {/* 20.16: `projectPath` is filesystem-sourced, not app-authored -- a real path can carry
+              a user- or OS-chosen segment with strong-RTL characters (or, more plausibly for this
+              app, a mixed Latin/CJK segment) that would otherwise let the Unicode bidi algorithm
+              read numbers/punctuation in this chip's own fixed-direction chrome out of order.
+              `<bdi>` is the standard HTML element for exactly this ("isolate text whose
+              directionality you don't control"), needs no new CSS, and does not change what
+              `truncate`/`title` above already do. */}
+          {projectPath ? <MetaChip icon={<FolderOpen aria-hidden="true" className="h-3 w-3 shrink-0" />} title={projectPath}><bdi>{projectPath}</bdi></MetaChip> : null}
           {item.dueAt ? (
             <MetaChip icon={<CalendarDays aria-hidden="true" className="h-3 w-3 shrink-0" />}>
               {t("todoBoard.due", { date: formatAppDateTime(item.dueAt, i18n.language, { dateStyle: "short" }) })}

@@ -299,6 +299,67 @@ describe("WorkBoardCard batch mode (14.12)", () => {
  * source-code grep backs -- the same technique `goal-relationship-sections.test.tsx`'s own 20.17
  * theme-parity block uses for its disabled-unlink-control case.
  */
+/**
+ * 20.15: found and fixed a real gap while auditing this card against every other text surface it
+ * already carries (MetaChip, description, source title) -- the title `<h3>` alone had neither
+ * `truncate` nor `line-clamp`, so a long unbreakable title (an id/path pasted as a title, or a
+ * German-compound-style string) had no wrap opportunity and, `overflow: visible` still being the
+ * default, painted straight through the priority Badge instead of stopping at its own box edge.
+ * jsdom has no real layout engine (confirmed project convention, not assumed -- see 20.17's own
+ * `outerHTML`-diff technique above for the same limitation), so these assert the mechanism
+ * (`truncate` applied to the title, the Badge still present and unmoved in the DOM) rather than
+ * pixels; the live pixel-level proof is `tests/e2e/todo-board.spec.ts`'s new 20.15 case, which runs
+ * in a real browser and checks `boundingBox()`, matching `loop-engineering.spec.ts`'s own established
+ * non-overlap pattern.
+ */
+describe("WorkBoardCard long title and path safety (20.15/20.16)", () => {
+  // A real German compound word, the task's own named proxy for translation-expansion-length risk
+  // (~48 chars, one unbreakable token -- no space for `white-space: normal` to wrap on).
+  const GERMAN_LIKE_TITLE = "Konfigurationsverwaltungsoberflächenkomponentenübersicht";
+  // Deliberately long CJK: CJK has real break opportunities between characters (unlike the German
+  // token above), so this exercises the "long but wrappable" half of the same risk class.
+  const CJK_TITLE = "这是一个非常非常非常长的工作项标题用来验证界面在极端文本长度下不会与优先级徽章发生重叠或将其推出可视区域";
+
+  it("truncates a long German-like title instead of leaving it unbounded, and keeps the priority badge intact", () => {
+    renderCard({ priority: "urgent", title: GERMAN_LIKE_TITLE });
+    const heading = screen.getByText(GERMAN_LIKE_TITLE);
+    expect(heading.tagName).toBe("H3");
+    expect(heading.className).toContain("truncate");
+    expect(heading.getAttribute("title")).toBe(GERMAN_LIKE_TITLE);
+    // The badge is a real, separate sibling -- not swallowed or displaced by the long title.
+    expect(screen.getByText("紧急")).toBeTruthy();
+  });
+
+  it("truncates a long CJK title the same way, next to the priority badge", () => {
+    renderCard({ priority: "high", title: CJK_TITLE });
+    const heading = screen.getByText(CJK_TITLE);
+    expect(heading.className).toContain("truncate");
+    expect(screen.getByText("高")).toBeTruthy();
+  });
+
+  it("truncates a long path-like id title with no priority badge to lean on", () => {
+    const longPathTitle = "D:/workspace/monorepo/packages/frontend-application/src/features/session-workspace/components/very-long-nested-directory-name/index";
+    renderCard({ priority: "none", title: longPathTitle });
+    expect(screen.getByText(longPathTitle).className).toContain("truncate");
+  });
+
+  /**
+   * 20.16: `projectPath` is filesystem-sourced, not app-authored -- wrapped in `<bdi>` (the
+   * standard HTML bidi-isolation element) so a real path segment containing a strong-RTL or mixed-
+   * script character cannot read the chip's own fixed-direction "·"/icon chrome out of order. This
+   * is a real, DOM-structural proof (the isolation boundary actually wraps the raw path text), not
+   * a claim about how it paints -- jsdom cannot render real bidi reordering to check that part.
+   */
+  it("wraps a project path containing an RTL character in a bdi isolation boundary", () => {
+    const rtlPath = "D:/workspace/prj-\u05D0\u05D1\u05D2-report/2026";
+    renderCard({ projectPath: rtlPath });
+    const chip = screen.getByTitle(rtlPath);
+    const isolated = chip.querySelector("bdi");
+    expect(isolated).not.toBeNull();
+    expect(isolated?.textContent).toBe(rtlPath);
+  });
+});
+
 describe("WorkBoardCard batch mode theme parity (20.17)", () => {
   function renderThemed(theme: "futuristic" | "minimal", selected: boolean) {
     const container = document.createElement("div");

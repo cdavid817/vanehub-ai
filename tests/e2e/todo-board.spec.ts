@@ -221,3 +221,65 @@ test.describe("Work Board visual theme/width matrix (20.2/20.17)", () => {
     });
   }
 });
+
+/**
+ * 20.15: real, live-browser proof for the gap found and fixed in `work-board-card.tsx` (its title
+ * `<h3>` had no `truncate`, unlike every other text surface on the card). jsdom cannot render real
+ * bidi/box layout (`work-board-card.test.tsx`'s own 20.15 block only proves the `truncate` class is
+ * applied, not that it visually stops the text) -- this is the pixel-level check.
+ *
+ * A plain `boundingBox()` comparison (Playwright's own `getBoundingClientRect()`, matching
+ * `loop-engineering.spec.ts`'s established non-overlap pattern for a different surface) turned out
+ * to be an *insufficient* proof here, confirmed by actually reverting the fix and re-running this
+ * test before writing it this way: flexbox shrinks the title's own layout box to fit next to the
+ * badge regardless of `truncate` (that part of layout is unaffected by `overflow`), so the box
+ * itself never geometrically overlaps the badge's box either way -- `getBoundingClientRect()`
+ * reports the box, not the ink an `overflow: visible` element paints past its own edge, so a
+ * geometry-only check passed even against the un-fixed component. The real differentiator is
+ * `overflow: hidden` itself (CSS's own hard guarantee that painted content cannot escape the box,
+ * `truncate`'s own mechanism) -- asserted directly below via `getComputedStyle`, alongside
+ * `scrollWidth > clientWidth` to prove this title's content genuinely is wider than its box (a real
+ * overflow case, not a vacuous one where the string happened to fit).
+ */
+test.describe("Work Board long-title overlap safety (20.15)", () => {
+  test("keeps a pathologically long German-like title from overlapping the priority badge", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "计划", exact: true }).click();
+    await page.getByRole("tab", { name: "任务看板" }).click();
+
+    // A real German compound word (the task's own named proxy for translation-expansion-length
+    // risk), long enough that it cannot fit un-ellipsized in a card of this width.
+    const longTitle = "Konfigurationsverwaltungsoberflächenkomponentenübersichtsanzeige";
+    await page.getByRole("button", { name: "新建工作项" }).click();
+    await page.getByLabel("标题").fill(longTitle);
+    await page.getByLabel("优先级", { exact: true }).selectOption("urgent");
+    await page.getByRole("button", { name: "创建", exact: true }).click();
+
+    const card = page.getByTestId(/work-item-web-/).filter({ hasText: longTitle });
+    await expect(card).toBeVisible();
+    const title = card.locator("h3");
+    const badge = card.getByText("紧急", { exact: true });
+    await expect(badge).toBeVisible();
+
+    const titleBox = await title.boundingBox();
+    const badgeBox = await badge.boundingBox();
+    if (!titleBox || !badgeBox) throw new Error("title or badge reported no box");
+    // The title's own layout box must not extend past the badge's box (true either way, per the
+    // doc comment above -- kept as a baseline sanity check, not the real proof).
+    expect(titleBox.x + titleBox.width).toBeLessThanOrEqual(badgeBox.x + 1);
+
+    const overflowInfo = await title.evaluate((node) => ({
+      overflowX: getComputedStyle(node).overflowX,
+      scrollWidth: node.scrollWidth,
+      clientWidth: node.clientWidth,
+    }));
+    // This title's content really is too wide for its box -- a genuine, non-vacuous overflow case.
+    expect(overflowInfo.scrollWidth).toBeGreaterThan(overflowInfo.clientWidth);
+    // `truncate`'s own `overflow: hidden` is CSS's hard guarantee that the overflowing text above
+    // is clipped at the box edge, not painted through the badge -- the actual fix, and the one
+    // assertion in this test that fails against the pre-fix component (confirmed by temporarily
+    // reverting the `truncate` class and re-running this exact test before landing it).
+    expect(overflowInfo.overflowX).toBe("hidden");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  });
+});
