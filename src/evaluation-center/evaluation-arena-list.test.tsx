@@ -100,6 +100,48 @@ describe("EvaluationArenaList", () => {
     expect(screen.getByText("运行基准以比较结果。")).toBeTruthy();
   });
 
+  /**
+   * 20.16: `taskId`/`agentId` are catalog/provider keys, not translated UI text, rendered next to
+   * this row's own fixed-direction " vN" suffix and ", " separators -- both now wrapped in `<bdi>`
+   * (the standard HTML bidi-isolation element) so a real id containing a strong-RTL character
+   * cannot read that surrounding chrome out of order. Real, DOM-structural proof: a fixture id
+   * containing an actual RTL character, asserting the isolation boundary wraps exactly that text --
+   * not a claim about how it paints, which jsdom cannot render.
+   */
+  describe("bidi isolation (20.16)", () => {
+    it("wraps a task id containing an RTL character in its own bdi boundary", () => {
+      const rtlTaskId = "משימה-לדוגמה";
+      const rtlArena = arena("arena-rtl", [attempt("succeeded", "claude-code", "arena-rtl", "attempt-rtl")]);
+      rtlArena.taskId = rtlTaskId;
+      render(<EvaluationArenaList arenas={[rtlArena]} tasks={[]} />);
+      const isolated = screen.getByText(rtlTaskId, { selector: "bdi" });
+      expect(isolated.textContent).toBe(rtlTaskId);
+    });
+
+    it("wraps an agent id containing an RTL character in its own bdi boundary", () => {
+      const rtlAgentId = "עוזר-לדוגמה";
+      const rtlArena = arena("arena-rtl-agent", [attempt("succeeded", rtlAgentId, "arena-rtl-agent", "attempt-rtl-agent")]);
+      render(<EvaluationArenaList arenas={[rtlArena]} tasks={[]} />);
+      const isolated = screen.getByText(rtlAgentId, { selector: "bdi" });
+      expect(isolated.textContent).toBe(rtlAgentId);
+    });
+
+    it("still separates two agent ids with a plain comma-space when de-duplicated and joined", () => {
+      const twoAgents = arena("arena-two", [
+        attempt("succeeded", "claude-code", "arena-two", "attempt-1"),
+        attempt("succeeded", "codex-cli", "arena-two", "attempt-2"),
+      ]);
+      render(<EvaluationArenaList arenas={[twoAgents]} tasks={[]} />);
+      const row = screen.getByTestId("evaluation-arena-row");
+      // Both ids still render as their own real text, and the dd's own concatenated text still
+      // reads as a normal comma-separated list -- switching from `.join(", ")` to per-id `<bdi>`
+      // wrapping did not silently drop the separator.
+      expect(within(row).getByText("claude-code", { selector: "bdi" })).toBeTruthy();
+      expect(within(row).getByText("codex-cli", { selector: "bdi" })).toBeTruthy();
+      expect(row.querySelector("dd")?.textContent).toBe("claude-code, codex-cli");
+    });
+  });
+
   // 18.6: the "load more" control is optional-props-driven so every pre-existing caller/test above
   // (none of which pass `hasMore`) keeps rendering with no pagination control at all.
   describe("pagination (18.6)", () => {

@@ -79,7 +79,10 @@ export function EvaluationArenaList({ arenas, hasMore = false, loadingMore = fal
             <li className="ucd-card rounded-lg p-3" data-arena-id={arena.id} data-arena-state={state} data-testid="evaluation-arena-row" key={arena.id}>
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="text-sm font-medium">{arena.taskId} v{arena.taskVersion}</p>
+                  {/* 20.16: `taskId` is a catalog key, not translated UI text -- wrapped in `<bdi>`
+                      so a strong-RTL or mixed-script id cannot read the following " vN" version
+                      suffix out of order. Standard HTML isolation element, no new CSS. */}
+                  <p className="text-sm font-medium"><bdi>{arena.taskId}</bdi> v{arena.taskVersion}</p>
                   {taskPrompt ? <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">{taskPrompt}</p> : null}
                 </div>
                 <StatusBadge label={`${t("evaluation.state")}: ${t(ARENA_STATE_LABEL_KEY[state])}`} tone={ARENA_STATE_TONE[state]} />
@@ -87,7 +90,18 @@ export function EvaluationArenaList({ arenas, hasMore = false, loadingMore = fal
               <dl className="mt-2 grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
                 <div className="contents">
                   <dt className="text-muted-foreground">{t("evaluation.agents")}</dt>
-                  <dd className="min-w-0">{agentSet.map((agent) => agent.agentId).join(", ")}</dd>
+                  {/* 20.16: each `agentId` is a provider/registry key, not translated UI text --
+                      wrapped in its own `<bdi>` (rather than the plain string `.join(", ")` this
+                      replaced) so a strong-RTL or mixed-script id cannot read the ", " separator or
+                      a neighboring id out of order. */}
+                  <dd className="min-w-0">
+                    {agentSet.map((agent, index) => (
+                      <span key={agent.agentId}>
+                        {index > 0 ? ", " : ""}
+                        <bdi>{agent.agentId}</bdi>
+                      </span>
+                    ))}
+                  </dd>
                 </div>
                 <div className="contents">
                   <dt className="text-muted-foreground">{t("evaluation.outcomeSummary")}</dt>

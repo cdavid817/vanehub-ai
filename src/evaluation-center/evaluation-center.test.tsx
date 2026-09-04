@@ -52,8 +52,16 @@ describe("EvaluationCenter", () => {
         fireEvent.click(screen.getByTestId(`evaluation-agent-${agentId}`));
       }
     });
-    expect(await screen.findByText("onepiece")).toBeTruthy();
-    expect(screen.getByText("codex-cli")).toBeTruthy();
+    // 20.16: scoped to the results table specifically, not the whole document -- the arena summary
+    // above it (`evaluation-arena-list.tsx`) now also renders each agent id as its own `<bdi>`
+    // isolation-boundary leaf (bidi-safety fix), so an unscoped `screen.findByText`/`getByText`
+    // here would ambiguously match both that summary and this table's own Agent column.
+    // `findByRole` (not a synchronous `document.querySelector`) so this itself waits for the
+    // results table to actually mount, the same wait the original unscoped `screen.findByText`
+    // implicitly did against the whole document.
+    const resultsTable = await screen.findByRole("table");
+    expect(await within(resultsTable).findByText("onepiece")).toBeTruthy();
+    expect(within(resultsTable).getByText("codex-cli")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("筛选结果"), { target: { value: "codex-cli" } });
     expect(document.querySelectorAll("tbody tr")).toHaveLength(1);
     fireEvent.click(document.querySelector("tbody tr")!);
