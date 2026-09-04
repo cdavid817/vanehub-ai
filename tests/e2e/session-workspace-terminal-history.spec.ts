@@ -8,6 +8,10 @@ function panel(page: Page) {
 async function openTerminalHistory(page: Page, title = "执行记录测试") {
   await page.goto("/");
   await createSession(page, title);
+  // Terminal History lives in the closed-by-default Runtime Panel (§8's split), not a top-level
+  // tab -- this helper predates that split and never opened the panel before, the same staleness
+  // task 11.7 already found and fixed once in session-workspace-console.visual.spec.ts.
+  await page.getByRole("button", { name: "运行时面板" }).click();
   await page.getByRole("tab", { name: /终端记录/ }).click();
   await expect(panel(page).getByRole("tablist", { name: "执行记录视图" })).toBeVisible();
 }
