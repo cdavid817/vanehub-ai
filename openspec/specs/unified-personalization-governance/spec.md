@@ -1,7 +1,7 @@
 # unified-personalization-governance Specification
 
 ## Purpose
-TBD - created by archiving change add-unified-personalization-governance. Update Purpose after archive.
+Govern how personalization data — cross-session memories, custom instructions, and their policies — is scoped, audited, and reviewed across every VaneHub-managed Agent. Each memory carries a scope (global or one workspace) and an audience (all Agents or a named subset) that the trusted runtime enforces at injection time, ordered lifecycle → read policy → scope → audience; automatic paths only propose candidates that a person approves, session modes (standard, project-only, temporary) can only narrow the resolved policy, and files remain the authoritative surface with every index, projection, and retrieval entry derived from them.
 ## Requirements
 ### Requirement: Unified personalization coverage for VaneHub-managed Agents
 The system SHALL resolve personalization through one native governance boundary for every Agent generation started through a VaneHub-managed runtime adapter, using stable registry Agent identity rather than a hard-coded built-in Agent list.

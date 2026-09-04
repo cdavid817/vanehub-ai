@@ -39,7 +39,7 @@
 
 ## 启用 GitHub 集成
 
-两步，都在 VaneHub AI 之外完成：
+共三步：前两步在 VaneHub AI 之外完成，第三步回到应用里验证。
 
 ### 1. 安装 GitHub CLI
 

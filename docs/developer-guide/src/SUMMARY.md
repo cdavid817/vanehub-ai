@@ -11,6 +11,7 @@
 
 # Agent runtime
 
+- [Single-Agent governance: the five control planes](single-agent-control-planes.md)
 - [Agent lifecycle and provider runtime](agent-lifecycle.md)
 - [OnePiece native Agent](onepiece-native-agent.md)
 - [OnePiece built-in tools](onepiece-builtin-tools.md)

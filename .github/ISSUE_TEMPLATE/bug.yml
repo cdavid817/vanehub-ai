@@ -6,12 +6,13 @@ labels:
 body:
   - type: markdown
     attributes:
-      value: Thanks for helping improve VaneHub AI. Remove secrets and personal data before submitting.
+      value: Thanks for helping improve VaneHub AI. Remove API keys, tokens, SSH keys, and personal data before submitting — never paste unredacted credentials or logs.
   - type: input
     id: version
     attributes:
       label: VaneHub AI version or commit
-      placeholder: v0.1.0 or commit SHA
+      description: Copy the version from Settings → About, or the commit SHA for a source build.
+      placeholder: version shown in Settings → About, or a commit SHA
     validations:
       required: true
   - type: dropdown
@@ -24,6 +25,42 @@ body:
         - Linux
     validations:
       required: true
+  - type: dropdown
+    id: arch
+    attributes:
+      label: CPU architecture
+      options:
+        - x64
+        - ARM64 / Apple Silicon
+        - Other / unsure
+    validations:
+      required: true
+  - type: dropdown
+    id: install_source
+    attributes:
+      label: Install source
+      options:
+        - Release installer (.exe / .dmg / .deb / AppImage)
+        - Built from source
+        - Other / unsure
+    validations:
+      required: true
+  - type: dropdown
+    id: runtime
+    attributes:
+      label: Runtime mode
+      description: The Web/mock preview simulates the UI only; most defects need the desktop runtime to reproduce.
+      options:
+        - Tauri desktop app
+        - Web/mock preview (npm run dev)
+    validations:
+      required: true
+  - type: input
+    id: agent
+    attributes:
+      label: Agent involved (if any)
+      description: e.g. OnePiece, Claude Code, Codex CLI, OpenCode, Gemini CLI, Antigravity CLI — plus the CLI version if known.
+      placeholder: OnePiece / claude-code 2.x / not agent-related
   - type: textarea
     id: summary
     attributes:
@@ -34,7 +71,7 @@ body:
   - type: textarea
     id: reproduction
     attributes:
-      label: Reproduction steps
+      label: Minimal reproduction steps
       placeholder: |
         1. Open ...
         2. Select ...
@@ -45,7 +82,7 @@ body:
     id: diagnostics
     attributes:
       label: Redacted diagnostics
-      description: Add relevant logs, screenshots, and agent CLI versions after removing sensitive data.
+      description: Add relevant redacted logs and screenshots. Unified logs live under the log directory shown in Settings → Basic configuration.
       render: shell
   - type: checkboxes
     id: checks
@@ -54,7 +91,7 @@ body:
       options:
         - label: I searched existing issues.
           required: true
-        - label: I removed credentials, personal data, and other sensitive content.
+        - label: I removed API keys, tokens, SSH keys, credentials, personal data, and other sensitive content from every field above.
           required: true
-        - label: This is not a security vulnerability.
+        - label: This is not a security vulnerability (those go to private vulnerability reporting, never a public issue).
           required: true

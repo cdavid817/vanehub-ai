@@ -1,116 +1,120 @@
 # 跨会话记忆
 
-存储的记忆是一个主机级共享池，OnePiece 和所有 CLI 包装的 Agent（`claude-code`、`codex-cli`、`gemini-cli`、`opencode`、`antigravity-cli`）都从中读取——但共享现在是**默认值，不是规则**：每条记忆自带作用域与受众。两者的治理见[个性化治理](personalization-governance.md)，本章讲持久化这一半；检索/搜索路径见 [Retrieval and vector search](retrieval.md)。
+记忆是一个主机级共享池，OnePiece 与所有 CLI 包装的 Agent 共同读取。持久化与治理归 `personalization` 限界上下文（v2 应用服务是唯一生产写入路径），召回归 `retrieval`（见[检索与向量搜索](retrieval.md)）。每条记忆自带**作用域**（scope）与**受众**（audience）：共享是默认值，可按条收窄。
 
-## 默认共享，可按条收窄
+## 存储模型
 
-每条记忆都记录了产生它的 Agent 与 workspace。其中两项现在是有效约束，而不只是备注：
+- **文件是权威面**：主机级 `memory/` 目录，每条记忆一个 `{id}.md`，id 由存储生成（v2 允许重名，名字不做文件名）。
+- **`MEMORY.md` 是有界、可截断、可重建的派生指针索引**——一行一条、绝不含正文，写入走临时文件加原子改名（崩溃不会留下半截索引），随时可从文件全量重建。**它不是权威数据源。**
+- SQLite 投影行与检索条目同为派生面；分页列表（`MemoryQuery`/`MemoryPage`）只从投影读，不扫文件。
+- **损坏文件隔离**：无法解析的文件被移入 `quarantine/` 目录，字节原样保留、绝不丢弃，也绝不带着臆造的元数据参与迁移。
+- 迁移未完成或需要修复时读取口**失败关闭**：返回空集而不是半套数据（`admit_read`）。
 
-- **作用域** —— `global` 或某一个 workspace。workspace 作用域的记忆，对没有指明 workspace 的调用方不会被解析出来。
-- **受众** —— 默认全部 Agent，也可以只给记录上列出的那几个 Agent id。
+## 作用域、受众与来源
 
-来源元数据仍与这两者分开记录：**「由谁记录」不等于「谁可读取」**。一个 Agent 产生的记忆可以只让另一个读到，两个字段都不会作为检索工具的输入暴露。
+- **`MemoryScope`** —— `Global` 或 `Workspace { workspace_key }`。它回答"可以在哪里读到"，不是"在哪里产生"。global 记忆不得携带 workspace key，workspace 记忆必须携带（列不一致是类型化错误）。
+- **`MemoryAudience`** —— `AllAgents` 或 `SelectedAgents { agent_ids }`。它是**作用域之后**追加的收窄，绝不替代作用域；空受众列表被拒绝。
+- **`provenance`**（`agent_id`、`folder`、`source`、`created_at`）单独记录来源，用于追溯与展示。**「由谁记录」不等于「谁可读取」**。
 
-在没有 workspace 文件夹的会话中保存的记忆按 `global` 存入而不是被拒绝，可从任何 workspace 或无 workspace 的情况下读取。
+## 读取边界：注入与召回是两条不同精度的路径
 
-## 保存记忆
+这是本章此前与检索文档互相矛盾的地方，按当前代码澄清如下。
 
-- **OnePiece** 在其自身的 API tool-calling loop 中暴露一个记忆工具。该工具产生的是**待审候选**，不是活动记录——自动路径只提议，由人来决定。
-- **CLI 包装的 Agent** 不暴露该工具，因为 VaneHub 不控制 CLI 包装 Agent 自身的内部工具系统。它们通过单独的自动抽取机制产生候选，该机制依附于上下文压缩。
-- **用户自己写下的记忆**直接生效：作者就是人本身，没有第二个人需要复核。
+### 注入（可信运行时执行过滤）——目标语义已实现
 
-CLI 包装 Agent 的抽取走 OnePiece 的 provider,因为这些 CLI 不暴露可复用的模型凭据。OnePiece 没有配置 provider 时,它们完全不产生抽取。
+生成前的记忆注入走 `resolve_policy` 快照，每条记录经 `eligibility()` 判定（`personalization/domain/memory.rs`），顺序固定：**生命周期**（candidate 与 archived 一律排除）→ **读取策略开关** → **作用域**（workspace 记忆要求当前 workspace key 相等；global 记忆要求全局记忆访问开关开启）→ **受众**（`admits(agent_id)`）。过滤发生在预算与相关性选择**之前**，由可信运行时按当前 Agent、工作区、会话模式与策略执行——模型无法伪造任何一项。
 
-## 记忆存储与产生机制
+### 召回（`recall` 工具）——当前是更粗的失败关闭，不是精细过滤
 
-记忆以文件形式落盘到一个主机级共享的 `memory/` 目录,并由一个 `MEMORY.md` 索引文件汇总条目。**文件是权威面**,SQLite 投影行、`MEMORY.md` 索引与检索条目都是派生的、可重建的。
+`recall` 的输入恰好只有 `query` 与 `limit`，模型不能传 scope。但它检索的池**不是**治理后的全量池，而是 `compatibility_memories` 兼容视图——`is_compatibility_visible` 只放行 **active + `Global` 作用域 + `AllAgents` 受众**的记忆，索引快照与按 id 回源两个入口都套用同一过滤。因此：
 
-生产写入路径现在只有一条:`personalization` 上下文的 v2 应用服务。旧的 `FileAgentMemoryStore` 已不再挂在任何写入端口上,目录只有一个主人;它留下的那一个 `list_all` 是显式命名的维护枚举,供行存储转换读取它正在转换的源。通用文件工具**不得**直接写这个目录:绕过应用服务就等于让投影、索引与检索三面各自漂移。
+- 收窄过的记忆（workspace 作用域或受众受限）**完全不可被召回**——即使调用方正处于那个 workspace、正是受众里的那个 Agent；
+- "任意 Agent 可召回主机全部记忆"不成立：可召回的只是未收窄的那部分；
+- 这是失败关闭的设计（无法表达 scope 的调用方就不给 scoped 记录），不是漏洞。
 
-下面的流程图展示了三条产生路径如何汇入同一个存储——注意自动的两条**停在待审队列**,只有人的决定才会写出活动记录。
+**目标语义与改造范围（待实现，勿当作已完成）**：推荐的目标是由可信运行时依据当前 Agent、工作区与会话模式对召回执行与注入同级的过滤，让 workspace 记忆在其 workspace 内可召回。检索索引行已经带有 `scope_agent_id`/`scope_folder` 列与 `*_scoped` 查询通道，缺的是把召回入口从兼容视图切到治理快照、并让可信层把会话上下文传给 `SearchService`。在此之前，本节描述的粗粒度行为就是当前行为。
+
+## 会话模式与策略
+
+`SessionPersonalizationMode` 三值：**`Standard`（默认会话）**、**`ProjectOnly`（项目限定会话）**、**`Temporary`（临时会话）**。它是最后套用的硬限制，只能收窄解析出的策略，任何覆盖都不能把临时会话放宽回长期记忆。
+
+- `ProjectOnly` **要求 workspace**：没有 workspace 时创建被**拒绝**，而不是静默降级为 standard——"缺少 workspace 自动转 global"只是 Standard 模式下用户显式保存的行为，不是通用规则。
+- `Temporary` 下 `candidate_creation` 为 false：即使抽取被允许运行，也禁止提交候选。
+
+策略开关（每项支持 Enabled/Inherit 分层解析）：**读取**（`memory_read_mode`）、**显式保存**（`explicit_save_mode`）、**自动抽取**（`automatic_extraction_mode`，另有"工具参与回合抽取"子开关）、**全局记忆访问**（`global_memory_access_mode`）。修订冲突错误同时携带期望与当前两个版本号，供 UI 解释哪边动了。
+
+## 四条产生路径
 
 ```mermaid
 flowchart LR
-    subgraph 存储[主机级 memory/ 目录与派生面]
-        MEM[memory/*.md 权威文件]
-        IDX[MEMORY.md 派生索引]
-        PROJ[SQLite 投影行]
+    subgraph 产生
+        P1["用户显式保存"]
+        P2["OnePiece remember 工具<br/>（模型工具提议）"]
+        P3["OnePiece 自动抽取<br/>随压缩触发"]
+        P4["CLI Agent 代做抽取<br/>回合交付后触发"]
     end
-
-    SERVICE[personalization v2 应用服务<br/>唯一写入路径]
-    QUEUE[待审候选队列]
-
-    subgraph 产生路径
-        P1[OnePiece 记忆工具<br/>tool-calling loop 中]
-        P2[OnePiece 自动抽取<br/>随对话压缩触发]
-        P3[CLI Agent<br/>由 OnePiece 代做]
-        P4[用户自己写下]
-    end
-
-    P1 --> QUEUE
+    QUEUE["待审候选队列<br/>Pending"]
+    SERVICE["personalization v2 应用服务<br/>唯一写入路径"]
     P2 --> QUEUE
     P3 --> QUEUE
-    QUEUE -->|人做出决定| SERVICE
-    P4 --> SERVICE
-    SERVICE --> MEM
-    SERVICE --> IDX
-    SERVICE --> PROJ
+    P4 --> QUEUE
+    QUEUE -->|"人批准"| SERVICE
+    P1 --> SERVICE
 ```
 
-CLI 包装的 Agent(`claude-code`、`codex-cli`、`gemini-cli`、`opencode`、`antigravity-cli`)本身不暴露保存记忆的工具,VaneHub 不控制它们内部的工具系统。它们的记忆由 OnePiece 在 generation 结束时代为抽取,复用 OnePiece 已有的 provider 凭据与抽取逻辑,整个过程对 CLI Agent 透明。下面的时序图展示了这条路径,两条关键约束是**抽取只提交候选**,以及**所有失败只记录日志,绝不阻塞生成**。
+1. **用户显式保存**——直接成为活动记忆（作者就是人）。显式操作是强契约：校验失败、`RevisionConflict`、持久化错误都以类型化错误**返回给调用方**，不吞。
+2. **OnePiece `remember` 工具**——在 OnePiece 自身的工具循环中暴露，产生**待审候选**而非活动记录。
+3. **OnePiece 自动抽取**——随上下文压缩触发（`extract_memories_accounted`），单次最多 `MAX_MEMORY_ACTIONS = 10` 条动作，超出截断。受主开关与"工具参与回合"子开关门控，且用的是**本次生成开始时的策略快照**——生成中途改策略不影响进行中的回合。**当前仅在压缩的兼容回退路径上执行；优化器路径成功时不做抽取**（已知行为，见[上下文压缩](context-compaction.md)）。
+4. **CLI Agent 由 OnePiece 代做**——`propose_memories_from_turn` 在 CLI 回合的完成消息**已经交付之后**、于后台监控线程中运行（不是随压缩触发）。门控是**实际运行的那个 CLI Agent** 解析出的自动抽取开关加 `candidate_creation`；抽取复用 OnePiece 的模型提供商（provider）凭据、不发起任何工具调用；OnePiece 无可用凭据、策略不可解析、抽取调用失败、审批队列不收——每种失败都只记日志并返回，**绝不撤回已交付的 CLI 回复**。
 
-```mermaid
-sequenceDiagram
-    participant Gen as CLI Agent generation
-    participant OpLoop as OnePiece 代做循环
-    participant Extract as extract_and_save_memory
-    participant Queue as 待审候选队列
+自动路径（3、4）与注入一样是 best-effort：失败只记日志，不阻塞主路径。这与显式操作（1）的强错误契约是有意的不对称。
 
-    Gen->>OpLoop: generation 完成
-    OpLoop->>OpLoop: is_cli_kind 判定为 CLI Agent
-    OpLoop->>Extract: 复用 OnePiece 凭据<br/>调用 extract_and_save_memory
-    Note over Extract: 不发起任何工具调用<br/>直接从对话文本抽取
-    alt 抽取成功
-        Extract->>Queue: 提交候选
-        Note over Queue: 在人做出决定之前<br/>一条都没有存入
-    else 抽取或提交失败
-        Extract-->>OpLoop: 仅 log,不抛错
-        Note over OpLoop: 不阻塞后续生成
-    end
-```
+## 候选生命周期
 
-每条记忆记录上的 `provenance` 字段(`agent_id`、`folder`、`source`、`created_at`)承载的是**来源**:这条记忆由哪个 Agent、在哪个 workspace 文件夹、经由哪条路径、何时产生。它用于追溯与筛选展示,**不决定谁能读到它**——那由记录上单独的作用域与受众决定。把"谁记的"当成"谁能读"是这次治理改造要终结的那个等价关系:同一个 Agent 记下的两条记忆完全可以有不同的受众。
+候选是与 `MemoryRecord` 分离的记录类型——**它不在活动存储里，任何枚举活动记忆的路径都够不到它**，不存在一个审批路径可能忘记检查的状态字段。审批前它不注入、不可召回。
 
-## 关键类型与常量
+- **提议类型三种**：`Create`（新记忆）、`Update`（修正，携带目标 revision）、`Archive`（提议停用；归档而非删除，模型不能提议销毁数据）。无实质变更的修正是畸形提议，不入队。
+- **状态**：`Pending` → `Approved` / `Rejected`（`review(ReviewRequest)`）。
+- **修订冲突**：`check_target_revision`——几分钟前针对旧版本写的提议不能覆盖用户此后的编辑，冲突错误带期望/当前两个版本号。
+- 待审列表按 limit 有界分页（`pending`/`pending_count`）；提交侧记录接受/拒绝计数。
 
-### 存储模型
+## 管理与维护操作
 
-记忆存储是主机级共享的 `memory/` 目录,不是数据库行;**文件是权威面**,每条记忆对应一个 `{id}.md` 文件。id 由存储生成而不是从名字派生——v2 允许重名,而把名字当文件名会让两条同名记忆互相覆盖。`MEMORY.md` 索引、SQLite 投影行与检索条目都是从文件重建出来的派生面。
+`manage_memory` 提供 `list`（分页）/`detail`/`create`/`update`/`delete`/`preview_reset`/`reset`/`reconcile`；归档提议经审批生效（上一节）。启动维护（`run_startup_maintenance`）产出 `MemoryRuntimeHealth`；需要修复时读取口失败关闭。列表默认新旧倒序——陈旧性正是用户要扫的属性。
 
-### MemoryMetadata frontmatter
+## `memory_type`：新建校验与旧数据兼容是两回事
 
-每条记忆文件的 frontmatter 解析为 `MemoryMetadata`,字段包括 `name`(可读的展示名称,可修改;**不是文件名**——文件名是上一节说的不可变 `{id}.md`)、`description`(概述)、`memory_type`(闭集四值 `user`/`feedback`/`project`/`reference`;缺失或未知值降级为 `untyped`,不拒绝写入也不拒绝读取),以及 `provenance` 来源元数据(`agent_id`、`folder`、`source`、`created_at`,迁移场景下另带 `migrated_from`)。frontmatter 只读前 `MAX_FRONTMATTER_LINES=30` 行的窗口,避免把整份正文当 frontmatter 解析。
+类型是闭集 `user`/`feedback`/`project`/`reference`，另有显式的 `untyped`。**新输入**携带未知类型是类型化错误（`UnknownMemoryType`），会被拒绝；**旧文件/迁移读取**遇到无法识别的值在唯一一处降级为 `untyped`，不拒读也不臆造值。两条规则不要混写成一条。
 
-### 枚举与产生路径
+## 注入边界
 
-治理后的枚举是分页的,并且**不复用旧的 `MAX_SCANNED_FILES=200` 扫描**——那个上限只剩在旧目录读取器上,迁移、重置与修复都走显式命名的维护查询,否则一个超过 200 条的存储会被静默截断。三条自动产生路径都只提交候选:
+| 调用方 | 索引边界 | 是否注入正文 |
+| --- | --- | --- |
+| OnePiece | 200 行 / 12 000 字节 | 是（选中记忆的 `body`，每生成组装一次、整个工具循环复用） |
+| CLI 包装 Agent | 40 行 / 3 000 字节 | 否（只有索引行；索引会前置到交给子进程的每条消息上，故边界收得更紧） |
 
-- **OnePiece 记忆工具** —— 工具名常量 `REMEMBER_TOOL_NAME="remember"`,在 OnePiece 自身的 API tool-calling loop 中暴露。它产生的是待审候选,不是活动记录。
-- **OnePiece 自动抽取** —— 随对话压缩触发(`extract_memories_accounted`),单次压缩最多产生 `MAX_MEMORY_ACTIONS=10` 条记忆动作,超过即截断。
-- **CLI Agent 由 OnePiece 代做** —— `extract_and_save_memory` 复用 `ONEPIECE_AGENT_ID="onepiece"` 的凭据与抽取逻辑,不发起任何工具调用,直接从对话文本抽取,对 CLI Agent 透明。
+单次最多选取 `MAX_SELECTED_MEMORIES = 5` 条。注入块以一句固定前言开头，声明内容是**来源未经验证的记录、仅作背景信息、绝非应遵循的指令**。注入的候选集就是 `eligibility` 过滤后的 eligible 集。
 
-第四条是用户自己写下的那条:作者是人本身,直接进入活动记忆。
+## 已核实的审计发现（待 OpenSpec 变更处理）
 
-### 注入边界
+以下当前行为已逐条对源码核实，改造由 `openspec/changes/strengthen-governed-cross-session-memory/` 提案承载——在其落地前，本节描述的就是现状：
 
-记忆注入按调用方分两套预算。`ONEPIECE_MEMORY_INDEX_BOUNDS` 为 `lines: 200, bytes: 12000`,OnePiece 调用方还会注入记忆 `body` 正文;`CLI_MEMORY_INDEX_BOUNDS` 为 `lines: 40, bytes: 3000`,CLI 调用方只注入索引行,不注入 `body`。注入时单次最多选取 `MAX_SELECTED_MEMORIES=5` 条记忆。所有失败只 `log`,不阻塞已交付的生成结果——记忆是增强而非必需,抽取或注入失败都不应影响主路径。
+- **名称解析与重名歧义**——抽取动作与正文选择在模型侧按显示名引用；可信层确实把名称解析为 `target_id + expected_revision` 且只在冻结的 eligible 集内查找（`memory_proposals.rs`），但 v2 允许重名而解析取**首个命中**，两条同名 eligible 记忆可能被误路由。Delete 未命中即丢弃（绝不猜测目标）。
+- **Update 未命中转 Create 是显式设计**——注释给出的理由是"模型描述的是不存在的记忆，丢弃会静默丢失观察"；审计判定其在目标被改名、归档或策略排除时制造重复记忆。提案主张改为计数拒绝。
+- **CLI 回合末重新解析快照**——`propose_memories_from_turn` 在抽取时再次调用 `snapshot()`，同一回合可能受中途策略修改影响，这与治理 spec 的"每生成不可变快照"要求存在实现差距。
+- **审批幂等窗口**——`review()` 先 `apply`（写权威文件）后 `mark_reviewed`；两步之间崩溃后重试会通过 `is_pending` 检查并再次应用，Create 候选会产生第二条记忆。
+- **多 Agent Seat 逐回合抽取**——抽取入口只按 `is_cli_kind`（launch kind）判定，多 Agent Seat 回合未被排除，同一协作任务会按 Seat 重复产生候选。
+- **来源归因合并**——bridge 把所有自动抽取统一映射为 `OnePieceAutomatic`（`personalization_bridge.rs`），尽管领域模型里存在 `CliAutomatic`；生产者与抽取 provider 被混为一谈。
+- **已注入正文的去重只按会话，不分席位**——surfaced 追踪器（`memory_surfaced.rs`）以 `session → 记忆 id → 修改时间` 为键：同一会话里席位 A 看过的正文会抑制席位 B 再看到；记忆被修正后（mtime 变化）重新可注入。该状态是内存态（LRU 上限 64 个会话），重启即清空。
+- **抽取与候选持久化前没有密钥脱敏闸**——`SecretRedactionPort` 存在，但唯一消费方是有效预览/日志；送往 provider 的抽取输入与写入候选队列的内容都不经过它。
+- **抽取无独立出境判定**——CLI 会话内容经 OnePiece 的 provider 代理抽取，没有针对该跨 provider 发送的独立数据出境决策与 provider 调用前的脱敏闸。
 
-## 设计所在之处
+## 设计所在
 
-本章用于引导贡献者。权威需求位于 spec 中。
+权威需求位于 spec；本章描述当前实现并标注差距。
 
-- [openspec/specs/unified-personalization-governance](../../../../openspec/specs/unified-personalization-governance/spec.md) —— 作用域、受众、候选审查与迁移。
-- [openspec/specs/agent-cross-session-memory](../../../../openspec/specs/agent-cross-session-memory/spec.md) —— 共享池、来源元数据和保存路径。
-- [openspec/specs/retrieval-vector-search](../../../../openspec/specs/retrieval-vector-search/spec.md) —— 检索工具与降级。
+- [openspec/specs/unified-personalization-governance](../../../../openspec/specs/unified-personalization-governance/spec.md) —— 作用域、受众、会话模式、候选审查。
+- [openspec/specs/agent-cross-session-memory](../../../../openspec/specs/agent-cross-session-memory/spec.md) —— 共享池、来源元数据、保存路径。
+- [openspec/specs/retrieval-vector-search](../../../../openspec/specs/retrieval-vector-search/spec.md) —— 召回工具与降级。其中"召回不受 agent/workspace 限制"的表述写于治理改造之前：对**兼容视图内**的记忆仍然成立，但收窄过的记忆已整体不在召回池内；scoped 召回是上文列出的待实现目标。
 
-记忆持久化与治理位于 `personalization` 限界上下文,召回位于 `retrieval`;见 [Native bounded contexts](native-contexts.md)。
+记忆持久化与治理位于 `personalization` 限界上下文，召回位于 `retrieval`；见 [Native 限界上下文](native-contexts.md)。

@@ -2,7 +2,7 @@
 
 ## VaneHub AI 会替我管理 API Key 吗？
 
-**外部 CLI 的不会**。Claude Code、Codex CLI、Gemini CLI、OpenCode、Antigravity CLI 的 Provider 认证由各自 CLI 管理，凭据存在它们自己的位置，VaneHub AI 不会要求你输入 Provider 密码。Antigravity CLI 更进一步——它走 Google 登录并把凭据存进系统钥匙串，配置档里根本没有密钥字段。
+**外部 CLI 的不会**。Claude Code、Codex CLI、Gemini CLI、OpenCode、Antigravity CLI 的 Provider 认证由各自 CLI 管理，凭据存在它们自己的位置，VaneHub AI 不会要求你输入 Provider 密码。Antigravity CLI 默认走 Google 登录并把凭据存进系统钥匙串；它官方也支持 API Key 等方式，但那些字段由 CLI 自身管理，VaneHub 当前未纳管。
 
 **OnePiece 的会**。原生 API Agent 的 API Key 由 VaneHub AI 保存，见[原生 API Agent](native-agent.md)。
 

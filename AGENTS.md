@@ -59,7 +59,7 @@ openspec/
 
 ## 变更流程
 
-任何新功能或架构调整,必须先在 `openspec/changes/` 下起一个 proposal,通过 `openspec validate --specs --strict` 校验后再动代码。不要跳过 spec 直接改代码。
+任何新功能或架构调整,必须先在 `openspec/changes/` 下起一个 proposal,通过 `openspec validate <change-name> --strict` 校验后再动代码。不要跳过 spec 直接改代码。（`openspec validate --specs --strict` 校验的是 `openspec/specs/` 主规范,不覆盖单个 change;两条命令语义不同,不要混用。）
 
 ## OpenSpec 归档治理
 

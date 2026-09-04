@@ -7,6 +7,12 @@ const markdownRoots = [
   resolve(repositoryRoot, "README.md"),
   resolve(repositoryRoot, "README.zh-CN.md"),
   resolve(repositoryRoot, "README.ja.md"),
+  resolve(repositoryRoot, "AGENTS.md"),
+  resolve(repositoryRoot, "CONTRIBUTING.md"),
+  resolve(repositoryRoot, "SECURITY.md"),
+  resolve(repositoryRoot, "SUPPORT.md"),
+  resolve(repositoryRoot, "CODE_OF_CONDUCT.md"),
+  resolve(repositoryRoot, "src-tauri", "ARCHITECTURE.md"),
   resolve(repositoryRoot, "docs"),
 ];
 
@@ -543,6 +549,157 @@ function validateAssembled(errors) {
   }
 }
 
+/**
+ * Version-support rows in the security policy, e.g. `| 0.1.x |`.
+ *
+ * The policy went stale exactly this way once: it promised fixes for `0.1.x` while the manifest
+ * shipped `1.4.0`. The policy is now written version-free ("the latest published release line"),
+ * so any concrete `N.N.x` support row reappearing is drift by definition.
+ */
+export function staleSecurityVersions(content) {
+  return [...content.matchAll(/\|\s*(\d+\.\d+(?:\.[x\d]+)?)\s*\|/g)].map((match) => match[1]);
+}
+
+function validateSecurityPolicy(errors) {
+  const path = resolve(repositoryRoot, "SECURITY.md");
+  if (!existsSync(path)) {
+    errors.push("SECURITY.md: the security policy is missing.");
+    return;
+  }
+  for (const version of staleSecurityVersions(readFileSync(path, "utf8"))) {
+    errors.push(
+      `SECURITY.md: hardcodes supported version "${version}". The policy is version-free by design; ` +
+        "state the supported line as \"the latest published release line\" instead of a number that drifts.",
+    );
+  }
+}
+
+/**
+ * Fixed release-version examples in issue-form placeholders, e.g. `v0.1.0`.
+ *
+ * The bug form shipped `placeholder: v0.1.0 or commit SHA` long after that version was gone.
+ * Placeholders must describe where to find the value, never embed a version that ages.
+ */
+export function staleVersionExamples(content) {
+  const matches = [];
+  for (const line of content.split(/\r?\n/)) {
+    if (!/placeholder\s*:/.test(line)) continue;
+    const version = line.match(/\bv?\d+\.\d+\.\d+\b/);
+    if (version) matches.push(version[0]);
+  }
+  return matches;
+}
+
+function validateIssueTemplates(errors) {
+  const templateDir = resolve(repositoryRoot, ".github", "ISSUE_TEMPLATE");
+  if (!existsSync(templateDir)) return;
+  for (const entry of readdirSync(templateDir, { withFileTypes: true })) {
+    if (!entry.isFile() || !/\.ya?ml$/i.test(entry.name)) continue;
+    const content = readFileSync(resolve(templateDir, entry.name), "utf8");
+    for (const version of staleVersionExamples(content)) {
+      errors.push(
+        `.github/ISSUE_TEMPLATE/${entry.name}: placeholder embeds the fixed version example "${version}". ` +
+          "Describe where to find the value (Settings → About, or a commit SHA) instead.",
+      );
+    }
+  }
+}
+
+/** The ordered `.md` targets of one SUMMARY.md — the shape parity is compared on. */
+export function summaryTargets(content) {
+  return [...content.matchAll(/\]\(([A-Za-z0-9._/-]+\.md)\)/g)].map((match) => match[1]);
+}
+
+/**
+ * The two user-guide books must offer the same chapters in the same order. Translation text may
+ * differ; the file set and sequence may not — a chapter present in one language only is a product
+ * capability that half the audience cannot find.
+ */
+function validateUserGuideSummaryParity(errors) {
+  const zhPath = resolve(repositoryRoot, "docs", "user-guide", "zh-CN", "src", "SUMMARY.md");
+  const enPath = resolve(repositoryRoot, "docs", "user-guide", "en", "src", "SUMMARY.md");
+  if (!existsSync(zhPath) || !existsSync(enPath)) {
+    errors.push("user-guide SUMMARY parity: a SUMMARY.md is missing.");
+    return;
+  }
+  const zh = summaryTargets(readFileSync(zhPath, "utf8"));
+  const en = summaryTargets(readFileSync(enPath, "utf8"));
+  if (JSON.stringify(zh) !== JSON.stringify(en)) {
+    errors.push(
+      "docs/user-guide: zh-CN and en SUMMARY.md list different chapter files or a different order.\n" +
+        `  zh-CN: ${JSON.stringify(zh)}\n  en:    ${JSON.stringify(en)}`,
+    );
+  }
+}
+
+/**
+ * Link targets that appear in more than one row of the same Markdown table.
+ *
+ * Both developer-guide indexes once carried two "CLI Agent global configuration" rows with
+ * different descriptions for one file, and a user-guide index once presented one merged chapter
+ * as two feature rows. Within one table, one target gets one row.
+ */
+export function duplicateTableTargets(content) {
+  const duplicates = new Set();
+  let seen = null;
+  for (const line of content.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("|")) {
+      seen = null;
+      continue;
+    }
+    if (/^\|[\s:|-]+\|$/.test(trimmed)) continue;
+    seen ??= new Map();
+    const target = trimmed.match(/\]\(([A-Za-z0-9._/#-]+\.md[^)\s]*)\)/)?.[1];
+    if (!target) continue;
+    if (seen.has(target)) duplicates.add(target);
+    seen.set(target, true);
+  }
+  return [...duplicates];
+}
+
+const indexPagesWithoutDuplicateRows = [
+  "docs/developer-guide/src/index.md",
+  "docs/developer-guide/zh-CN/src/index.md",
+  "docs/user-guide/en/src/index.md",
+  "docs/user-guide/zh-CN/src/index.md",
+];
+
+function validateIndexDuplicateRows(errors) {
+  for (const relativePath of indexPagesWithoutDuplicateRows) {
+    const path = resolve(repositoryRoot, relativePath);
+    if (!existsSync(path)) continue;
+    for (const target of duplicateTableTargets(readFileSync(path, "utf8"))) {
+      errors.push(
+        `${relativePath}: the same table links "${target}" in more than one row. Merge the rows; one target, one row.`,
+      );
+    }
+  }
+}
+
+/**
+ * User-guide navigation must not route ordinary readers into developer acceptance material.
+ * Acceptance walkthroughs are internal verification records; if a user page needs one, it links
+ * it as an advanced reference from a feature chapter, never as a homepage entry.
+ */
+const userGuideForbiddenEntryTargets = ["multi-agent-acceptance.md"];
+
+function validateUserGuideEntryBoundaries(errors) {
+  for (const language of ["en", "zh-CN"]) {
+    const path = resolve(repositoryRoot, "docs", "user-guide", language, "src", "index.md");
+    if (!existsSync(path)) continue;
+    const content = readFileSync(path, "utf8");
+    for (const forbidden of userGuideForbiddenEntryTargets) {
+      if (content.includes(forbidden)) {
+        errors.push(
+          `docs/user-guide/${language}/src/index.md: links the developer acceptance document "${forbidden}" ` +
+            "as a user entry point. Route users to the user chapter and keep acceptance records internal.",
+        );
+      }
+    }
+  }
+}
+
 export function validateDocs({ assembled = false } = {}) {
   const errors = [];
   validateMarkdown(errors);
@@ -552,6 +709,11 @@ export function validateDocs({ assembled = false } = {}) {
   validateBoundedContexts(errors);
   validateDocumentedScripts(errors);
   validateReachability(errors);
+  validateSecurityPolicy(errors);
+  validateIssueTemplates(errors);
+  validateUserGuideSummaryParity(errors);
+  validateIndexDuplicateRows(errors);
+  validateUserGuideEntryBoundaries(errors);
   if (assembled) validateAssembled(errors);
   if (errors.length > 0) throw new Error(`Documentation validation failed:\n${errors.join("\n")}`);
 }

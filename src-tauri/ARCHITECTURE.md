@@ -20,6 +20,12 @@ Cross-context calls are synchronous published application APIs by default. An ex
 
 Every current Rust source module is covered below, either by an exact path or by a path group whose files share one owner and layer. Removed compatibility paths remain listed so they cannot be reintroduced accidentally.
 
+> **About the "Migration task" column**: the bare numbers (`11.1`, `10.6`, …) are historical task
+> identifiers from the retired native-runtime migration plans and are no longer resolvable to a
+> single change document. Treat them as provenance markers only. New or updated rows must instead
+> cite a stable identifier — an `openspec/changes/archive/<date>-<name>` entry or an ADR — and may
+> not add new bare numbers.
+
 | Current module | Current role | Target | Migration task |
 | --- | --- | --- | --- |
 | `main.rs` | Native binary entry point | Delegates only to the library `run()` entry | 11.1 |
