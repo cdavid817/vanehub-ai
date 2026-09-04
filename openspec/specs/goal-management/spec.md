@@ -272,3 +272,10 @@ Goal list, detail, filters, creation, and lifecycle actions SHALL remain complet
 - **WHEN** a user navigates goal rows, relationship links, and actions
 - **THEN** focus order, selected state, and action availability SHALL remain clear and stable
 
+### Requirement: Responsive goal-center presentation
+The goal center SHALL present goal progress, status, linked work, and primary actions with responsive layout, readable hierarchy, and accessible empty, loading, and error states.
+
+#### Scenario: Goal center at narrow width
+- **WHEN** the goal center is viewed at a narrow supported desktop width
+- **THEN** goal information and primary actions remain readable and operable without overlap or horizontal clipping
+

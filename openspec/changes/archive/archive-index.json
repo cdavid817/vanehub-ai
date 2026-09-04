@@ -3590,6 +3590,26 @@
     },
     {
       "archivedOn": "2026-09-04",
+      "changeName": "improve-desktop-usability-and-recovery",
+      "path": "openspec/changes/archive/2026-09-04-improve-desktop-usability-and-recovery/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "agent-task-list",
+        "desktop-usability",
+        "goal-management",
+        "multi-agent-group-chat",
+        "session-recovery",
+        "settings-center-ui",
+        "signed-desktop-auto-update",
+        "user-guide-documentation"
+      ]
+    },
+    {
+      "archivedOn": "2026-09-04",
       "changeName": "redesign-unified-workbench-ui",
       "path": "openspec/changes/archive/2026-09-04-redesign-unified-workbench-ui/",
       "artifacts": [
