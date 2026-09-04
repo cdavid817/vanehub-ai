@@ -3535,6 +3535,18 @@
     },
     {
       "archivedOn": "2026-09-04",
+      "changeName": "fix-chat-transcript-backend-message-updates",
+      "path": "openspec/changes/archive/2026-09-04-fix-chat-transcript-backend-message-updates/",
+      "artifacts": [
+        "proposal",
+        "tasks"
+      ],
+      "capabilities": [
+        "chat-experience"
+      ]
+    },
+    {
+      "archivedOn": "2026-09-04",
       "changeName": "redesign-unified-workbench-ui",
       "path": "openspec/changes/archive/2026-09-04-redesign-unified-workbench-ui/",
       "artifacts": [
