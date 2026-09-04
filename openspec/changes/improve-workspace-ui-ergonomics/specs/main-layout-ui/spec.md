@@ -1,43 +1,62 @@
 ## MODIFIED Requirements
 
 ### Requirement: Workspace activity bar
-The workspace shell SHALL render a persistent icon-only activity bar at the far left of the workspace body in both the Tauri desktop frontend and browser Web runtime.
+The workspace shell SHALL render a persistent primary activity rail for Sessions, Projects and Workspaces, Runs, Plan, and Quality, with Settings and Help anchored in a utility group, in both Tauri and Web runtimes.
+
+#### Scenario: Render business destinations
+- **WHEN** the activity rail renders
+- **THEN** it SHALL show icon entries for Sessions, Projects and Workspaces, Runs, Plan, and Quality in the primary group
+- **AND** Settings and Help SHALL remain in the utility group
+
+#### Scenario: Identify an entry
+- **WHEN** an activity entry is available to pointer, keyboard, or assistive-technology users
+- **THEN** it SHALL provide a localized accessible name and tooltip
+- **AND** hover, focus, selected, attention, and disabled states SHALL not shift adjacent entries
+
+#### Scenario: Open grouped capabilities
+- **WHEN** the user opens Runs, Plan, or Quality
+- **THEN** the destination SHALL present its own localized secondary navigation
+- **AND** the activity rail SHALL NOT duplicate Loops, Schedules, Board, Goals, Mission Control, or Evaluation as additional primary entries
+
+#### Scenario: Use a narrow height
+- **WHEN** the available vertical space is limited
+- **THEN** all five primary entries and the utility group SHALL remain reachable without an undiscoverable clipped item
 
 #### Scenario: Render activity entries
-- **WHEN** the workspace activity bar renders
-- **THEN** it SHALL show Session, Loops, and Scheduled Tasks entries in a top group
-- **AND** it SHALL show Settings and Help entries anchored in a bottom group
-- **AND** the entries SHALL display icons without visible text labels
+- **WHEN** the activity rail renders
+- **THEN** it SHALL show Sessions, Projects and Workspaces, Runs, Plan, and Quality as primary entries
+- **AND** Settings and Help SHALL render in a separate anchored utility group
+- **AND** Loops and Scheduled Tasks SHALL NOT render as separate primary entries; both are reachable through Runs' secondary navigation instead
 
 #### Scenario: Identify icon-only entries
 - **WHEN** an activity-bar entry is available to pointer, keyboard, or assistive-technology users
-- **THEN** it SHALL provide a synchronized zh-CN and en accessible name and tooltip
-- **AND** it SHALL expose stable hover, focus, and active styling without shifting adjacent controls
+- **THEN** it SHALL provide an accessible name and tooltip synchronized across every registered application locale
+- **AND** it SHALL expose stable hover, focus, selected, attention, and disabled styling without shifting adjacent entries
 
 #### Scenario: Open settings from activity bar
-- **WHEN** the user activates the Settings activity entry
+- **WHEN** the user activates the Settings utility entry
 - **THEN** the system SHALL open the existing settings center without requiring a runtime-specific backend call
 
 #### Scenario: Open Loops from activity bar
-- **WHEN** the user activates the Loops activity entry
-- **THEN** the workspace SHALL open the Loop Center as the active workspace destination
-- **AND** it SHALL preserve mounted session workspace state for later return
+- **WHEN** the user wants to open Loops
+- **THEN** they SHALL do so through the Runs destination's Loops secondary route rather than a dedicated primary activity-bar entry
+- **AND** the workspace SHALL preserve mounted Sessions destination state for later return
 
 #### Scenario: Return to sessions from activity bar
-- **WHEN** the user activates the Session activity entry while the Loop Center is active
-- **THEN** the workspace SHALL restore the session workspace without losing its selected session and mounted tab state
+- **WHEN** the user activates the Sessions primary entry while another destination is active
+- **THEN** the workspace SHALL restore the Sessions destination without losing its selected session and mounted tab state
 
 #### Scenario: Open scheduled tasks from activity bar
-- **WHEN** the user activates the Scheduled Tasks activity entry
-- **THEN** the workspace SHALL open the scheduled-task management dialog
+- **WHEN** the user wants to open Scheduled Tasks
+- **THEN** they SHALL do so through the Runs destination's Schedules secondary route as a routed page rather than a dedicated primary activity-bar dialog entry
 - **AND** it SHALL NOT show a coming-soon placeholder
 
 #### Scenario: Preserve future help entry
-- **WHEN** the activity bar renders its bottom group
-- **THEN** it SHALL keep the Help entry available in that group
+- **WHEN** the activity rail renders its utility group
+- **THEN** it SHALL keep the Help entry available without introducing a new Help destination in this requirement
 
-#### Scenario: Open documentation from the Help entry
-- **WHEN** the user activates the Help activity entry
+#### Scenario: Open documentation from the Help utility entry
+- **WHEN** the user activates the Help utility entry
 - **THEN** the system SHALL open the settings center on the documentation page that renders the bundled product README
 - **AND** it SHALL NOT open the About page as the Help destination
 
