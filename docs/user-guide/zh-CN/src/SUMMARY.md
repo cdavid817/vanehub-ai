@@ -37,6 +37,8 @@
 
 # 参考
 
+- [快捷键](keyboard-shortcuts.md)
+- [无障碍说明](accessibility.md)
 - [使用案例](use-cases.md)
 - [常见问题](faq.md)
 - [故障排查](troubleshooting.md)

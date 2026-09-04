@@ -37,6 +37,8 @@
 
 # Reference
 
+- [Keyboard shortcuts](keyboard-shortcuts.md)
+- [Accessibility notes](accessibility.md)
 - [Use cases](use-cases.md)
 - [FAQ](faq.md)
 - [Troubleshooting](troubleshooting.md)
