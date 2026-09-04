@@ -3610,6 +3610,20 @@
     },
     {
       "archivedOn": "2026-09-04",
+      "changeName": "improve-local-media-python-and-ui",
+      "path": "openspec/changes/archive/2026-09-04-improve-local-media-python-and-ui/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "app-settings",
+        "local-media-runtime"
+      ]
+    },
+    {
+      "archivedOn": "2026-09-04",
       "changeName": "redesign-unified-workbench-ui",
       "path": "openspec/changes/archive/2026-09-04-redesign-unified-workbench-ui/",
       "artifacts": [
