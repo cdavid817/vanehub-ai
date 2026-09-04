@@ -465,6 +465,41 @@ test.describe("workspace activity bar", () => {
     await expect(page.getByTestId("scheduled-task-detail").getByText("紧凑布局任务")).toBeVisible();
   });
 
+  // 21.23: Scheduled Tasks (Runs' own "定时任务" section) had zero theme coverage anywhere in the
+  // suite before this pass -- unlike Loops (loop-engineering.visual.spec.ts) and Settings
+  // (settings-theme-switching.spec.ts), the two other candidates this task's own brief named,
+  // both of which turned out already covered. Reuses the exact selectors the untimed "opens
+  // scheduled tasks and manages a Web mock task" test above already proved, so the only new
+  // variable is the theme.
+  for (const variant of [
+    { name: "futuristic-desktop", theme: "futuristic" as const },
+    { name: "minimal-desktop", theme: "minimal" as const },
+  ]) {
+    test(`${variant.name}: Scheduled Tasks renders and creates a task`, async ({ page }) => {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await page.addInitScript(
+        (theme) => window.localStorage.setItem("vanehub.appSettings", JSON.stringify({ applicationLanguage: "zh-CN", theme })),
+        variant.theme,
+      );
+      await page.goto("/");
+      await expect(page.locator("html")).toHaveAttribute("data-theme", variant.theme);
+
+      await page.getByRole("button", { name: "运行", exact: true }).click();
+      await page.getByRole("tab", { name: "定时任务" }).click();
+      await expect(page).toHaveURL(/\/workspace\/runs\/schedules/);
+
+      await page.getByRole("button", { name: "新建任务" }).click();
+      await page.getByLabel("任务名称").fill(`${variant.name} 任务`);
+      await page.getByLabel("任务内容").fill("验证主题下的任务创建");
+      await page.getByRole("button", { name: "创建任务" }).click();
+      await expect(page.getByPlaceholder("例如：每日整理项目进度")).toHaveCount(0);
+
+      const taskRow = page.locator(".ucd-list-row").filter({ hasText: `${variant.name} 任务` });
+      await expect(taskRow).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    });
+  }
+
   for (const viewport of [
     { name: "900px", width: 900, height: 720 },
     { name: "640px", width: 640, height: 720 },

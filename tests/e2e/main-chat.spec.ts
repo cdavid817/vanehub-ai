@@ -72,3 +72,32 @@ test.describe("main Agent workspace experience", () => {
     await expect(page.getByRole("textbox", { name: "工作区命令输入" })).toBeEnabled();
   });
 });
+
+// 21.23: Sessions' own default landing surface -- the single most-used destination in the app --
+// had zero theme coverage anywhere in the suite before this pass (verified via
+// `grep -rn 'theme: "futuristic"' tests/e2e/`, unlike the dozen-plus other files this task's own
+// audit found already theme-paired). Reuses this file's own proven selectors from the "creates a
+// session and sends input" test above rather than inventing new ones, so the only new variable is
+// the theme.
+test.describe("main Agent workspace theme coverage (task 21.23)", () => {
+  for (const variant of [
+    { name: "futuristic-desktop", theme: "futuristic" as const },
+    { name: "minimal-desktop", theme: "minimal" as const },
+  ]) {
+    test(`${variant.name}: renders the workspace and accepts terminal input`, async ({ page }) => {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await page.addInitScript(
+        (theme) => window.localStorage.setItem("vanehub.appSettings", JSON.stringify({ applicationLanguage: "zh-CN", theme })),
+        variant.theme,
+      );
+      await page.goto("/");
+      await expect(page.locator("html")).toHaveAttribute("data-theme", variant.theme);
+
+      await createSession(page, `${variant.name} 会话`);
+      await page.getByRole("textbox", { name: "工作区命令输入" }).fill("hello from playwright");
+      await page.getByRole("button", { name: "发送命令" }).click();
+      await expect(page.getByLabel("Agent CLI 工作区")).toContainText("hello from playwright");
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    });
+  }
+});

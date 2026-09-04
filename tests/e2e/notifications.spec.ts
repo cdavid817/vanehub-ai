@@ -65,6 +65,30 @@ test.describe("unified notifications", () => {
     await expect(center.getByText("重载通知测试 已准备就绪。")).toHaveCount(0);
   });
 
+  // 21.23: every other test in this file runs under the default "minimal" theme (or, for the one
+  // above, English + minimal together) -- "futuristic" was never exercised here at all, verified
+  // via `grep -n 'theme: "futuristic"' tests/e2e/notifications.spec.ts` returning nothing before
+  // this test existed. Reuses the exact selectors "keeps an expired session toast in notification
+  // history" above already proved, so the only new variable is the theme.
+  test("shows real notification content under the futuristic theme", async ({ page }) => {
+    await page.addInitScript(() => {
+      window.localStorage.setItem(
+        "vanehub.appSettings",
+        JSON.stringify({ applicationLanguage: "zh-CN", theme: "futuristic" }),
+      );
+    });
+    await page.goto("/");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "futuristic");
+
+    await createSession(page, "深色主题通知测试");
+    await expect(page.getByRole("button", { name: "1 条未读通知" })).toBeVisible();
+    await page.getByRole("button", { name: "1 条未读通知" }).click();
+    const center = page.getByRole("dialog", { name: "通知" });
+    await expect(center.getByText("会话创建成功")).toBeVisible();
+    await expect(center.getByText("深色主题通知测试 已准备就绪。")).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  });
+
   test("uses English minimal-theme chrome within a narrow viewport", async ({ page }) => {
     await page.addInitScript(() => {
       window.localStorage.setItem(
