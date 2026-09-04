@@ -6,18 +6,20 @@ Thank you for helping improve VaneHub AI. Keep each change focused and open an i
 
 Use Node.js 22+, npm, stable Rust, and the native prerequisites for Tauri 2 on your platform.
 
-```powershell
+```bash
 npm ci
 npm run dev
 ```
+
+These commands are cross-platform; on Windows run them from PowerShell or any shell with Node on `PATH`. A map of every documentation set in this repository is at [docs/README.md](docs/README.md).
 
 The project uses npm and `package-lock.json`; do not introduce pnpm or Yarn lockfiles.
 
 ## Change workflow
 
 1. Create a branch from `main`.
-2. For a new feature or architecture change, create an OpenSpec proposal under `openspec/changes/` and validate it before changing code.
-3. Keep React components behind `src/services/agent-service.ts`. Any new native capability must be implemented by both the Tauri and Web/mock adapters.
+2. For a new feature or architecture change, create an OpenSpec proposal under `openspec/changes/` and validate it with `openspec validate <change-name> --strict` before changing code.
+3. Keep React components behind the domain service interfaces in `src/services/` — components never call Tauri `invoke()` directly. Any new native capability must keep the interface contract complete in both the Tauri and Web/mock adapters; the Web/mock side may return `unsupported`/`unavailable` or a deterministic simulation, and must never fake real native side effects.
 4. Add or update automated tests for changed behavior.
 5. Open a pull request using the repository template and link the issue or OpenSpec change.
 

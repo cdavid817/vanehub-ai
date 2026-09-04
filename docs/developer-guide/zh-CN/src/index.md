@@ -104,18 +104,17 @@ Tree-sitter 代码索引与 LSP 解决不同问题，职责对比如下（细节
 
 | 文档 | 覆盖内容 |
 | --- | --- |
-| [CLI Agent 全局配置](../../../cli-agent-global-configuration.md) | 五个 CLI Agent 的用户级 provider profile，以及为何保存一个 profile 永远不会改变当前活跃的 Agent 或 Session |
-| [内置模型提供商目录](../../../model-providers.md) | 25 家提供商的端点协议、默认模型与凭据存放方式 |
+| [CLI Agent 全局配置](../../../cli-agent-global-configuration.md) | 五个 CLI Agent 的用户级 provider profile、VaneHub AI 如何写入各 CLI 自己的全局配置、测试如何隔离它，以及为何保存一个 profile 永远不会改变当前活跃的 Agent 或 Session |
+| [内置模型提供商目录](../../../model-providers.md) | 内置提供商目录的端点协议、默认模型与凭据存放方式 |
 | [Agent 基础设施技术文档](../../../agent-infrastructure/README.md) | MCP、LSP、Function Calling、RAG 等**协议与技术本身**，不是 VaneHub AI 的实现 |
 | [Native 构建性能](../../../build-performance.md) | 各平台链接器要求、release profile 行为与实测构建证据 |
 | [发布签名](../../../release-signing.md) | 已发布产物的签名与验证链 |
 | [桌面端发布验证](../../../desktop-release-verification.md) | 一次桌面端发布在发布前必须逐平台通过的验证流程 |
 | [运行时性能预算](../../../runtime-performance-budgets.md) | 已声明的运行时预算,以及针对它们的回归如何被报告 |
-| [CLI Agent 全局配置](../../../cli-agent-global-configuration.md) | VaneHub AI 如何写入各 CLI 自己的全局配置,以及测试如何隔离它 |
 
-### Provider SDK
+### 内部 Provider Adapter 契约（provider-sdk/）
 
-Provider SDK 文档位于 `docs/provider-sdk/`,是第三方 provider 插件要实现的契约。`openspec/specs/provider-plugin-sdk` 要求它们存在于该位置。
+`docs/provider-sdk/` 描述的是 `agent_runtime` 上下文内部的 Rust Provider Adapter 契约：provider **静态编译**进 `ProviderRegistry`，经代码评审在编译期集成。外部包发现、动态加载、第三方插件安装与插件市场**均未交付**（契约文档明言在本版本之外）。`openspec/specs/provider-plugin-sdk` 要求这些文档存在于该位置；目录沿用历史名称 provider-sdk，不代表已存在可供第三方发布安装的插件 SDK。
 
 | 文档 | 讲什么 |
 | --- | --- |
@@ -123,7 +122,7 @@ Provider SDK 文档位于 `docs/provider-sdk/`,是第三方 provider 插件要�
 | [Manifest](../../../provider-sdk/manifest.md) | manifest schema、必填字段与版本兼容性 |
 | [示例 provider](../../../provider-sdk/example-provider.md) | 一个仅供测试的参考实现,端到端走一遍 |
 | [一致性测试](../../../provider-sdk/conformance-testing.md) | provider 提交前要跑的一致性流程 |
-| [安全规则](../../../provider-sdk/security-rules.md) | provider 插件运行时所受的限制 |
+| [安全规则](../../../provider-sdk/security-rules.md) | provider adapter 运行时所受的限制 |
 
 ### 时间点快照
 
@@ -135,6 +134,6 @@ Provider SDK 文档位于 `docs/provider-sdk/`,是第三方 provider 插件要�
 
 ## 文档状态
 
-本指南记录的是 `main` 分支的架构。**某项功能并不会仅仅因为存在某个服务或 native command 就被视为已交付给用户**；它还必须存在用户可见的路径以及相应的验证证据。
+本指南记录的是**当前检出修订**的架构，随仓库一同演进（发布站点对应其构建时的修订）。**某项功能并不会仅仅因为存在某个服务或 native command 就被视为已交付给用户**；它还必须存在用户可见的路径以及相应的验证证据。
 
 [Native 限界上下文](native-contexts.md)那张地图与 `src-tauri/src/contexts/` 由 `npm run docs:links:check` 强制对齐：新增一个上下文却不在地图里加一行，校验会直接失败。

@@ -12,6 +12,10 @@ import {
   unclosableEmphasis,
   unreachableDocuments,
   validateNativeBoundaryContent,
+  staleSecurityVersions,
+  staleVersionExamples,
+  summaryTargets,
+  duplicateTableTargets,
 } from "./validate-docs.mjs";
 
 const reachabilityGraph = {
@@ -296,4 +300,64 @@ test("collects colon-separated script names and dedupes repeats", () => {
 
 test("finds no scripts in a document that runs none", () => {
   assert.deepEqual(documentedNpmScripts("Install with `npm ci`, then open the app."), []);
+});
+
+// The security policy once promised fixes for 0.1.x while the manifest shipped 1.4.0. The
+// policy is version-free now, so any concrete support-table version is drift by definition.
+test("flags a hardcoded version row in the security policy", () => {
+  assert.deepEqual(staleSecurityVersions("| Version | Supported |\n| 0.1.x | Yes |"), ["0.1.x"]);
+});
+
+test("accepts a version-free security policy", () => {
+  assert.deepEqual(
+    staleSecurityVersions("Security fixes target the latest published release line and `main`."),
+    [],
+  );
+});
+
+// The bug form shipped `placeholder: v0.1.0 or commit SHA` long after that version was gone.
+test("flags a fixed version example in an issue-form placeholder", () => {
+  assert.deepEqual(staleVersionExamples("      placeholder: v0.1.0 or commit SHA"), ["v0.1.0"]);
+});
+
+test("accepts a placeholder that describes where to find the value", () => {
+  assert.deepEqual(
+    staleVersionExamples("      placeholder: version shown in Settings → About, or a commit SHA"),
+    [],
+  );
+});
+
+test("version numbers outside placeholders do not count as stale examples", () => {
+  assert.deepEqual(staleVersionExamples("      description: since release 1.0.0 this field exists"), []);
+});
+
+// The two user-guide books must offer the same chapters in the same order.
+test("summary targets keep order and duplicates for exact parity comparison", () => {
+  const summary = "- [A](a.md)\n  - [B](sub/b.md)\n- [A again](a.md)";
+  assert.deepEqual(summaryTargets(summary), ["a.md", "sub/b.md", "a.md"]);
+});
+
+// Both developer-guide indexes once carried two rows for one file, and a user-guide index
+// presented one merged chapter as two feature rows.
+test("flags one target linked from two rows of the same table", () => {
+  const table = [
+    "| Doc | Covers |",
+    "| --- | --- |",
+    "| [One](target.md) | first |",
+    "| [Two](target.md) | second |",
+  ].join("\n");
+  assert.deepEqual(duplicateTableTargets(table), ["target.md"]);
+});
+
+test("the same target in two different tables is not a duplicate row", () => {
+  const content = [
+    "| Doc | Covers |",
+    "| --- | --- |",
+    "| [One](target.md) | first |",
+    "",
+    "| Doc | Covers |",
+    "| --- | --- |",
+    "| [One](target.md) | again, in its own table |",
+  ].join("\n");
+  assert.deepEqual(duplicateTableTargets(content), []);
 });

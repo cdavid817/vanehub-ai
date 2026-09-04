@@ -213,7 +213,11 @@ async function runDesktopLayer({
   }
   await disposeRunContext(context);
   const skipped = coverage?.skipped ? ` (${coverage.skipped} skipped — see BLOCKED above)` : "";
-  process.stdout.write(`${label}: ${status}${skipped}\nEvidence: ${context.resultDir}\n`);
+  // A green run with skipped scenarios is not full coverage. The exit code and the stored layer
+  // status stay unchanged (CI hosts legitimately lack credentials), but the human-facing summary
+  // must never say a bare PASSED when required scenarios were blocked on this host.
+  const reportedStatus = status === "PASSED" && coverage?.skipped ? "PASSED WITH BLOCKED" : status;
+  process.stdout.write(`${label}: ${reportedStatus}${skipped}\nEvidence: ${context.resultDir}\n`);
   process.exitCode = verificationExitCode(status);
   return { status, summaryPath, resultDir: context.resultDir };
 }

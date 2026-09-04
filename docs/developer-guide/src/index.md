@@ -104,18 +104,17 @@ These live outside the guide's chapter list but are part of the repository's doc
 
 | Document | What it covers |
 | --- | --- |
-| [CLI Agent global configuration](../../cli-agent-global-configuration.md) | User-level provider profiles for all five CLI Agents, and why saving one never changes the active Agent or Session |
-| [Built-in model provider catalog](../../model-providers.md) (Simplified Chinese) | Endpoint protocols, default models, and credential storage for 25 providers |
+| [CLI Agent global configuration](../../cli-agent-global-configuration.md) | User-level provider profiles for all five CLI Agents, how VaneHub AI writes each CLI's own global configuration, how tests isolate it, and why saving one profile never changes the active Agent or Session |
+| [Built-in model provider catalog](../../model-providers.md) (Simplified Chinese) | Endpoint protocols, default models, and credential storage for the built-in provider catalog |
 | [Agent infrastructure technical documentation](../../agent-infrastructure/README.md) (Simplified Chinese) | MCP, LSP, Function Calling, RAG, and other **protocols and technologies themselves** — not VaneHub AI's implementation of them |
 | [Native build performance](../../build-performance.md) | Platform linker requirements, release-profile behavior, and measured build evidence |
 | [Release signing](../../release-signing.md) | The signing and verification chain for published artifacts |
 | [Desktop release verification](../../desktop-release-verification.md) | The per-platform verification procedure a desktop release must pass before publication |
 | [Runtime performance budgets](../../runtime-performance-budgets.md) | The declared runtime budgets and how a regression against them is reported |
-| [CLI Agent global configuration](../../cli-agent-global-configuration.md) | How VaneHub AI writes each CLI's own global configuration, and how tests isolate it |
 
-### Provider SDK
+### The internal provider adapter contract (provider-sdk/)
 
-The provider SDK documents live under `docs/provider-sdk/` and are the contract a third-party provider plugin implements. `openspec/specs/provider-plugin-sdk` requires them to exist at that location.
+`docs/provider-sdk/` describes the internal Rust provider adapter contract inside the `agent_runtime` context: providers are **statically compiled** into `ProviderRegistry` and integrated at build time under code review. External package discovery, dynamic loading, third-party plugin installation, and a plugin marketplace are **not delivered** (the contract document states they are outside this SDK version). `openspec/specs/provider-plugin-sdk` requires these documents to exist at that location; the directory keeps its historical provider-sdk name, which does not imply a shipped third-party plugin SDK.
 
 | Document | What it covers |
 | --- | --- |
@@ -123,7 +122,7 @@ The provider SDK documents live under `docs/provider-sdk/` and are the contract 
 | [Manifest](../../provider-sdk/manifest.md) | The manifest schema, its required fields, and version compatibility |
 | [Example provider](../../provider-sdk/example-provider.md) | A test-only reference implementation walked end to end |
 | [Conformance testing](../../provider-sdk/conformance-testing.md) | The conformance workflow a provider runs before submission |
-| [Security rules](../../provider-sdk/security-rules.md) | The restrictions a provider plugin operates under |
+| [Security rules](../../provider-sdk/security-rules.md) | The restrictions a provider adapter operates under |
 
 ### Point-in-time surveys
 
@@ -135,6 +134,6 @@ The provider SDK documents live under `docs/provider-sdk/` and are the contract 
 
 ## Documentation status
 
-This guide documents the `main` branch architecture. A feature is not considered user-delivered merely because a service or native command exists; a user-visible path and its verification evidence must also exist.
+This guide documents the architecture of the **currently checked-out revision** and evolves with the repository (the published site reflects the revision it was built from). A feature is not considered user-delivered merely because a service or native command exists; a user-visible path and its verification evidence must also exist.
 
 The map in [Native bounded contexts](native-contexts.md) is enforced against `src-tauri/src/contexts/` by `npm run docs:links:check`: adding a context without adding its row to the map fails validation.
