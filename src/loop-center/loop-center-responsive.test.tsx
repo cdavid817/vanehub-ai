@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
+import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
 import "../i18n";
 import { LoopCenter } from "./loop-center";
@@ -53,7 +54,11 @@ describe("LoopCenter responsive navigation", () => {
     const queryClient = new QueryClient();
     const run = loopRunFixture("running");
     const center = renderToStaticMarkup(<QueryClientProvider client={queryClient}><LoopTimeline run={run} /></QueryClientProvider>);
-    const inspector = renderToStaticMarkup(<QueryClientProvider client={queryClient}><LoopInspector loading={false} run={run} /></QueryClientProvider>);
+    const inspector = renderToStaticMarkup(
+      <MemoryRouter>
+        <QueryClientProvider client={queryClient}><LoopInspector loading={false} run={run} /></QueryClientProvider>
+      </MemoryRouter>,
+    );
 
     expect(center).toContain("sticky -top-3");
     expect(center).toContain("暂停");

@@ -3,6 +3,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { MemoryRouter } from "react-router";
 import { activateAppLanguage } from "../i18n";
 import { agentService } from "../services/runtime-agent-client";
 import { loopRunFixture } from "../test/loop-fixtures";
@@ -23,9 +24,11 @@ function renderProvider(loopRunId: string, context: InspectorProviderContext = {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const selection: WorkbenchSelection = { kind: "loop-iteration", iterationId: "iteration-1", loopRunId };
   return render(
-    <QueryClientProvider client={queryClient}>
-      <LoopIterationInspectorProvider context={context} selection={selection} />
-    </QueryClientProvider>,
+    <MemoryRouter>
+      <QueryClientProvider client={queryClient}>
+        <LoopIterationInspectorProvider context={context} selection={selection} />
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
 }
 
@@ -87,6 +90,23 @@ describe("LoopIterationInspectorProvider", () => {
     fireEvent.click(inspectButton);
 
     expect(onInspectLoop).toHaveBeenCalledWith({ sessionId: "worker-1", surface: "logs" });
+  });
+
+  /**
+   * 9.9: the Run section's own summary (status/limits/workspace fields, none of which round-trip
+   * to a page of their own) now links out to this run's real, route-bound full page instead of
+   * leaving the reader with only this bounded card -- `RunsDestination`/`LoopCenter` (17.2) already
+   * treat `definitionId`/`loopRunId` as real two-way route state, unlike `Projects`' own unconsumed
+   * `projectId` slot, so this is a genuine deep link, not a guess.
+   */
+  it("links the Run section to this run's own authoritative full page in Runs > Loops", async () => {
+    const run = loopRunFixture("running", { activeOperationId: "operation-worker" });
+    vi.spyOn(agentService, "getLoopRun").mockResolvedValue(run);
+
+    renderProvider("run-1");
+
+    const link = await screen.findByRole("link", { name: "Open full run" });
+    expect(link.getAttribute("href")).toBe(`/workspace/runs/loops/${run.definitionId}/${run.id}`);
   });
 
   // 21.12 "Inspector lazy-load" budget: mirrors mission-control-detail-panel.test.tsx's own

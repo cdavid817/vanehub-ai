@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
+import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
 import "../i18n";
 import { loopQueryKeys } from "../hooks/loop-query";
@@ -94,10 +95,12 @@ function renderRun(overrides: Partial<LoopRun>) {
   const client = new QueryClient();
   const run = exampleRun(overrides);
   return renderToStaticMarkup(
-    <QueryClientProvider client={client}>
-      <LoopTimeline run={run} />
-      <LoopInspector loading={false} run={run} />
-    </QueryClientProvider>,
+    <MemoryRouter>
+      <QueryClientProvider client={client}>
+        <LoopTimeline run={run} />
+        <LoopInspector loading={false} run={run} />
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
 }
 

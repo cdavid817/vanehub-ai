@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, renderHook, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import "../i18n";
 import { getActivePendingTimerCount } from "../testing/resource-tracking";
@@ -27,7 +28,11 @@ describe("Loop monitoring", () => {
   it("renders phase progress, limits, operation state, and expanded iteration evidence", () => {
     const run = exampleRun();
     const client = new QueryClient();
-    const html = renderToStaticMarkup(<QueryClientProvider client={client}><LoopTimeline refreshing run={run} /><LoopInspector loading={false} run={run} /></QueryClientProvider>);
+    const html = renderToStaticMarkup(
+      <MemoryRouter>
+        <QueryClientProvider client={client}><LoopTimeline refreshing run={run} /><LoopInspector loading={false} run={run} /></QueryClientProvider>
+      </MemoryRouter>,
+    );
 
     expect(html).toContain("正在刷新");
     expect(html).toContain("5:05");

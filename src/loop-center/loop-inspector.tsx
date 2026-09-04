@@ -3,7 +3,9 @@ import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "../lib/utils";
 import { AgentRunOwnerStatus } from "../components/ui/agent-run-owner-status";
+import { workbenchPath } from "../main-layout/workbench-route";
 import type { LoopInspectionTarget, LoopRun } from "../types/loop";
+import { EvidenceLink } from "../ui/evidence/EvidenceLink";
 import { LoopInspectionActions } from "./loop-inspection-actions";
 import { latestLoopOperationEvidence } from "./loop-monitoring";
 
@@ -57,6 +59,19 @@ export function LoopInspectorBody({ onInspect, run }: { onInspect?: (target: Loo
     <div className="grid gap-5">
       <InspectorSection title={t("loops.inspector.run")}>
         <AgentRunOwnerStatus ownerId={run.id} ownerType="loop_run" />
+        {/* A pinned selection can outlive the run it describes being on screen -- follow() is a
+            no-op while pinned (use-workbench-inspection.tsx), so picking a different run in Loop
+            Center's own list while this one stays pinned leaves exactly this gap: the run this
+            body describes is no longer the one the rest of the page shows. `definitionId`/
+            `loopRunId` are real, two-way route-bound state for Loop Center (runs-destination.tsx),
+            unlike Projects' own unconsumed `projectId` slot, so this always lands on this run's
+            own page, task 9.9. */}
+        <EvidenceLink
+          availability="available"
+          copyValue={run.id}
+          label={t("loops.inspector.openRun")}
+          to={workbenchPath({ definitionId: run.definitionId, destination: "runs", loopRunId: run.id, section: "loops" })}
+        />
         <Field label={t("loops.monitor.operation")} value={run.activeOperationId && ["queued", "running"].includes(run.status) ? t("loops.operation.active") : operationEvidence ? t(`loops.evidence.status.${operationEvidence.status}`) : t("loops.operation.none")} />
         {run.activeOperationId || operationEvidence?.operationId ? <Field label={t("loops.monitor.operationId")} value={run.activeOperationId ?? operationEvidence?.operationId ?? ""} /> : null}
         {run.activeOperationId || operationEvidence?.operationId ? <LoopInspectionActions onInspect={onInspect} sessionId={inspectionSessionId} surfaces={["logs"]} /> : null}
