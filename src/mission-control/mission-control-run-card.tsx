@@ -86,7 +86,10 @@ export function RunCard({ agents, mutation, onAct, onDismissError, onInspect, ru
           {run.runner ? (
             <span className="inline-flex max-w-44 items-center gap-1 rounded border border-primary/30 bg-primary/5 px-1.5 py-0.5 text-[11px] text-primary" data-runner={run.runner.kind}>
               <span>{t(`runner.kind.${run.runner.kind}`)}</span>
-              {run.runner.hostLabel ? <span className="truncate text-muted-foreground">· {run.runner.hostLabel}</span> : null}
+              {/* 20.16: `hostLabel` is resolved from the real SSH target, not app-authored -- wrapped
+                  in `<bdi>` so a strong-RTL or mixed-script host label cannot read the "· "
+                  separator (or this badge's own state-badge neighbor) out of order. */}
+              {run.runner.hostLabel ? <span className="truncate text-muted-foreground">· <bdi>{run.runner.hostLabel}</bdi></span> : null}
             </span>
           ) : null}
           <span className="rounded border border-border px-1.5 py-0.5 text-[11px]">{t(`missionControl.state.${run.state}`)}</span>
