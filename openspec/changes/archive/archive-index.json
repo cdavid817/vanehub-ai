@@ -3523,6 +3523,19 @@
     },
     {
       "archivedOn": "2026-09-04",
+      "changeName": "add-composer-mention-keyboard-navigation",
+      "path": "openspec/changes/archive/2026-09-04-add-composer-mention-keyboard-navigation/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "chat-experience"
+      ]
+    },
+    {
+      "archivedOn": "2026-09-04",
       "changeName": "add-goal-command-center-provider",
       "path": "openspec/changes/archive/2026-09-04-add-goal-command-center-provider/",
       "artifacts": [
