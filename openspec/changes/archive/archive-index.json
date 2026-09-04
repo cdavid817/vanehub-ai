@@ -3523,6 +3523,18 @@
     },
     {
       "archivedOn": "2026-09-04",
+      "changeName": "add-goal-command-center-provider",
+      "path": "openspec/changes/archive/2026-09-04-add-goal-command-center-provider/",
+      "artifacts": [
+        "proposal",
+        "tasks"
+      ],
+      "capabilities": [
+        "global-command-center"
+      ]
+    },
+    {
+      "archivedOn": "2026-09-04",
       "changeName": "redesign-unified-workbench-ui",
       "path": "openspec/changes/archive/2026-09-04-redesign-unified-workbench-ui/",
       "artifacts": [
