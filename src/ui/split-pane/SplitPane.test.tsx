@@ -192,4 +192,46 @@ describe("SplitPane", () => {
       expect(mounts).toHaveBeenCalledTimes(1);
     }
   });
+
+  it("keeps both a row and a column gutter's invisible hit-area flush with the secondary pane", () => {
+    // Regression coverage: a symmetric before:-top/-bottom (or -left/-right) slop let the
+    // gutter's z-10 pseudo-element paint over real controls that sit flush against the gutter on
+    // their secondary side -- Runtime Panel's own tabs/maximize/close (`column`, the Runtime Panel
+    // wrapper) and Terminal History's view-filter tabs (`row`, the Navigation gutter) -- swallowing
+    // their clicks in real e2e tests. Into the primary side never showed this in a full e2e sweep,
+    // so it keeps 18px there on both axes.
+    const { rerender } = render(
+      <SplitPane
+        direction="row"
+        gutterLabel="Resize"
+        max={400}
+        min={160}
+        onSizeChange={vi.fn()}
+        primary={<p>Primary</p>}
+        secondary={<p>Secondary</p>}
+        size={240}
+      />,
+    );
+    const rowClasses = screen.getByRole("separator").className;
+    expect(rowClasses).toContain("before:-left-[18px]");
+    expect(rowClasses).toContain("before:right-0");
+    expect(rowClasses).not.toContain("before:-right-[18px]");
+
+    rerender(
+      <SplitPane
+        direction="column"
+        gutterLabel="Resize"
+        max={400}
+        min={160}
+        onSizeChange={vi.fn()}
+        primary={<p>Primary</p>}
+        secondary={<p>Secondary</p>}
+        size={240}
+      />,
+    );
+    const columnClasses = screen.getByRole("separator").className;
+    expect(columnClasses).toContain("before:-top-[18px]");
+    expect(columnClasses).toContain("before:bottom-0");
+    expect(columnClasses).not.toContain("before:-bottom-[18px]");
+  });
 });

@@ -105,10 +105,35 @@ export function SplitPane({
             // a pointerdown anywhere in that painted-but-invisible slop still resolves to this same
             // node -- pseudo-elements are not part of the DOM and always report their host as the
             // event target.
+            //
+            // A slop reaching equally far into *both* neighboring panes (a symmetric -18px/-18px
+            // on every side) regressed real e2e clicks twice, not hypothetically: `before:` is
+            // `position:absolute` with a positive `z-index`, and CSS's stacking order always
+            // paints a positioned+z-indexed box above plain in-flow siblings regardless of DOM
+            // order or z-index magnitude (removing `z-10` would not fix this -- an auto-z
+            // positioned box still outranks non-positioned in-flow content), so the slop's own
+            // painted pixels intercept pointer events meant for whatever real content happens to
+            // sit in that band. Confirmed live both times via the actual Playwright call log, not
+            // reasoned about abstractly: `direction="column"`'s one production caller
+            // (`DestinationLayoutBody.tsx`'s Runtime Panel wrapper) has its secondary pane's header
+            // row (tabs, maximize, close) flush against the gutter with a measured 0px gap
+            // (`boundingBox()`: gutter bottom and header top share the same y; the header's own
+            // controls, centered in a 33.5px row, land ~17px below that -- squarely inside an 18px
+            // downward slop). `direction="row"`'s Navigation gutter has the same shape on its own
+            // secondary side: Terminal History's view-filter tabs (`execution-record-toolbar.tsx`)
+            // render flush against the left edge of whichever pane sits right of the sidebar, so an
+            // 18px rightward slop swallows their clicks too.
+            //
+            // Extending into the *primary* side never showed this in a full e2e sweep, so it keeps
+            // 18px there on both axes. The *secondary* side is capped flush with the bar's own edge
+            // (0) instead of reaching 18px further in, on both axes -- trading a perfect symmetric
+            // 44px for an honest 26px (18 + ~8 bar + 0) that cannot re-swallow a sibling pane's real
+            // controls. Short of the 44px target on that one side, kept that way deliberately rather
+            // than reintroduced.
             "ucd-focus-ring relative shrink-0 touch-none bg-border-subtle hover:bg-accent before:absolute before:z-10 before:content-['']",
             direction === "row"
-              ? "w-2 cursor-col-resize before:inset-y-0 before:-left-[18px] before:-right-[18px]"
-              : "h-2 cursor-row-resize before:inset-x-0 before:-top-[18px] before:-bottom-[18px]",
+              ? "w-2 cursor-col-resize before:inset-y-0 before:-left-[18px] before:right-0"
+              : "h-2 cursor-row-resize before:inset-x-0 before:-top-[18px] before:bottom-0",
           )}
           onKeyDown={handleKeyDown}
           onPointerDown={handlePointerDown}
