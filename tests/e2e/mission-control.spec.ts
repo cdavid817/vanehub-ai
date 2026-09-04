@@ -4,10 +4,23 @@ import { expect, test, type Page } from "@playwright/test";
  * Mission Control is a Runs section now (runs-destination.tsx), not its own activity-bar entry —
  * clicking "Runs" already lands on its default "attention" section, where Mission Control renders.
  */
-async function openMissionControl(page: Page, theme: "futuristic" | "minimal" = "futuristic", width = 1440) {
+// 21.23: this whole file has always run under "en" (every pre-existing call site omits the new
+// `locale` parameter below, so `openMissionControl`'s own default preserves that unchanged) --
+// `runsButtonLabel` only adds the one other locale this task's own new ja test below needs.
+const runsButtonLabel = { en: "Runs", ja: "実行" } as const;
+
+async function openMissionControl(
+  page: Page,
+  theme: "futuristic" | "minimal" = "futuristic",
+  width = 1440,
+  locale: keyof typeof runsButtonLabel = "en",
+) {
   await page.setViewportSize({ width, height: width < 600 ? 844 : 900 });
-  await page.addInitScript((selectedTheme) => window.localStorage.setItem("vanehub.appSettings", JSON.stringify({ applicationLanguage: "en", theme: selectedTheme })), theme);
-  await page.goto("/"); await page.getByRole("button", { name: "Runs", exact: true }).click();
+  await page.addInitScript(
+    ([selectedTheme, selectedLocale]) => window.localStorage.setItem("vanehub.appSettings", JSON.stringify({ applicationLanguage: selectedLocale, theme: selectedTheme })),
+    [theme, locale] as const,
+  );
+  await page.goto("/"); await page.getByRole("button", { name: runsButtonLabel[locale], exact: true }).click();
   await expect(page.getByTestId("mission-control")).toBeVisible();
 }
 
@@ -133,6 +146,27 @@ test("keyboard-only: opens a Run's detail and navigates the section-nav tablist 
   await expect(overviewTab).toHaveAttribute("aria-selected", "true");
   await expect(overviewTab).toBeFocused();
   await expect(page.getByTestId("mission-control-overview-facet")).toBeVisible();
+});
+
+// 21.23: this whole file runs under "en" by default (openMissionControl's own hardcoded default,
+// unchanged by this task) -- Mission Control had zero coverage under any of the 4 non-default
+// application locales before this test. ja is this task's own chosen representative (most
+// non-Latin, non-CJK-adjacent script among the 4, per its own brief) -- mirrors the first test's
+// own filter -> failed-run -> review-changes flow at the top of this file, but with every string
+// read from `ja.json` rather than assumed, so a raw untranslated i18n key would fail this test
+// rather than pass silently.
+test("ja: renders translated Attention inbox content and completes a filter-to-review round trip", async ({ page }) => {
+  await openMissionControl(page, "futuristic", 1440, "ja");
+  await expect(page.getByRole("heading", { name: "要対応受信箱" })).toBeVisible();
+
+  await openFilters(page);
+  await page.getByLabel("Runner で絞り込む", { exact: true }).selectOption("ssh");
+  await page.getByLabel("状態で絞り込む", { exact: true }).selectOption("failed");
+  const failed = page.getByTestId("mission-run-018f0f17-4d6a-7e20-b41d-66c5271a294").first();
+  await expect(failed).toContainText("Runner が中断されました");
+
+  await failed.getByRole("link", { name: "変更をレビュー" }).click();
+  await expect(page).toHaveURL(/\/workspace\/sessions\//);
 });
 
 for (const variant of [

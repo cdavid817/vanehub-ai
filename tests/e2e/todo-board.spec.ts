@@ -131,6 +131,35 @@ test.describe("Todo Board", () => {
     await expect(listbox).toHaveCount(0);
     await expect(card.getByRole("button", { name: "已计划" })).toBeVisible();
   });
+
+  // 21.23: every other test in this file runs under the default zh-CN locale, and no test anywhere
+  // in the suite exercised Work Board under a non-default locale before this one (verified via
+  // `grep -rn '"ja"' tests/e2e/` returning only application-locales.spec.ts/mission-control.spec.ts
+  // once this task's own other new test landed). Mirrors the first test's own create-work-item
+  // flow at the top of this file, with every string read from `ja.json` rather than assumed, so a
+  // raw untranslated i18n key would fail this test rather than pass silently.
+  test("ja: creates a work item with translated field labels and Todo ボード content", async ({ page }) => {
+    await page.addInitScript(() => window.localStorage.setItem("vanehub.appSettings", JSON.stringify({ applicationLanguage: "ja" })));
+    await page.goto("/");
+    await expect(page.locator("html")).toHaveAttribute("lang", "ja");
+
+    await page.getByRole("button", { name: "計画", exact: true }).click();
+    const navigationEntry = page.getByRole("tab", { name: "Todo ボード" });
+    await navigationEntry.click();
+    await expect(page.getByRole("heading", { name: "Todo ボード" })).toBeVisible();
+
+    await page.getByRole("button", { name: "作業項目を追加" }).click();
+    await page.getByLabel("タイトル").fill("日本語ワークアイテム");
+    await page.getByLabel("説明").fill("ローカライズ確認用の説明。");
+    await page.getByLabel("プロジェクトパス").fill("D:/todo-board-ja");
+    await page.getByLabel("優先度", { exact: true }).selectOption("high");
+    await page.getByRole("button", { name: "作成", exact: true }).click();
+
+    const card = page.getByTestId(/work-item-web-/).filter({ hasText: "日本語ワークアイテム" });
+    await expect(card).toBeVisible();
+    await expect(card.getByText("手動")).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  });
 });
 
 /**
