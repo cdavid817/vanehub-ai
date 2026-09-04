@@ -46,7 +46,7 @@ The framework SHALL support global notifications and session-scoped notification
 - **THEN** the center presents retained notifications from all scopes without discarding notifications from inactive sessions
 
 ### Requirement: Accessible and theme-consistent presentation
-The framework SHALL present notifications using existing visual tokens, semantic icons, and accessible controls in both futuristic and minimal themes.
+The framework SHALL present notifications using existing visual tokens, semantic icons, and accessible controls in both futuristic and minimal themes, and SHALL anchor the toast viewport where it does not cover primary workspace controls.
 
 #### Scenario: Semantic status presentation
 - **WHEN** a notification is displayed
@@ -59,6 +59,12 @@ The framework SHALL present notifications using existing visual tokens, semantic
 #### Scenario: Narrow viewport
 - **WHEN** notifications are displayed on a narrow viewport
 - **THEN** toast and center content remain within the viewport without overlapping essential workspace controls
+
+#### Scenario: Toast viewport placement
+- **WHEN** one or more toasts are visible on a workspace-width viewport
+- **THEN** the toast viewport SHALL be anchored to the top center of the application viewport, below the top bar
+- **AND** it SHALL NOT overlap the top bar, the session sidebar, the composer send control, or the information panel tab strip
+- **AND** toasts SHALL remain individually dismissible and SHALL stack without hiding the newest entry
 
 ### Requirement: Localized notification experience
 The framework SHALL provide Simplified Chinese and English translations for all framework-owned visible text and accessible labels, and notification producers SHALL provide localized user-facing content.

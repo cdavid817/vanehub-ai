@@ -15,11 +15,11 @@ The system SHALL render a UCD-aligned settings center as the primary frontend su
 - **THEN** the system SHALL update the active page content and active navigation state without requiring a runtime-specific backend call
 
 ### Requirement: UCD settings pages
-The system SHALL provide primary settings navigation for basic configuration, CLI management, CLI parameter management, MCP servers, Agent configuration, expert roles, Personalization, skills, Prompt Hooks, IM connectors, extension capabilities, plugin integrations, usage statistics, and product information, while retaining SDK dependency management outside the primary navigation and removing Agent Management without a replacement management destination.
+The system SHALL provide primary settings navigation for basic configuration, CLI management, CLI parameter management, MCP servers, Agent configuration, expert roles, Personalization, skills, Prompt Hooks, IM connectors, extension capabilities, plugin integrations, usage statistics, product documentation, and product information, while retaining SDK dependency management outside the primary navigation and removing Agent Management without a replacement management destination.
 
 #### Scenario: Display UCD page set
 - **WHEN** the settings center navigation is rendered
-- **THEN** the system SHALL include primary entries for basic configuration, CLI management, CLI parameter management, MCP servers, Agent configuration, expert roles, Personalization, skills, Prompt Hooks, IM connectors, extension capabilities, plugin integrations, usage statistics, and about
+- **THEN** the system SHALL include primary entries for basic configuration, CLI management, CLI parameter management, MCP servers, Agent configuration, expert roles, Personalization, skills, Prompt Hooks, IM connectors, extension capabilities, plugin integrations, usage statistics, documentation, and about
 - **AND** the system SHALL NOT include a standalone Agent Management entry
 - **AND** Agent Configuration SHALL NOT display registered-Agent inventory, registration, lifecycle, or runtime controls
 - **AND** the expert roles entry SHALL appear after Agent configuration and before skills, because roles are assigned to Agents and referenced by Skills
@@ -29,6 +29,7 @@ The system SHALL provide primary settings navigation for basic configuration, CL
 - **AND** Personalization SHALL appear after Agent Configuration and before Skills
 - **AND** Extension Capabilities SHALL appear below the higher-frequency Agent configuration, skill, and IM management entries
 - **AND** the plugin integrations entry SHALL appear after Extension Capabilities
+- **AND** the documentation entry SHALL appear immediately before the about entry
 - **AND** the about entry SHALL be the final settings navigation item
 
 #### Scenario: Display pages without backend services
@@ -790,4 +791,36 @@ The About page SHALL present stable release information without a preview label 
 #### Scenario: Stable build opens About
 - **WHEN** the installed application version has no semantic-version prerelease identifier
 - **THEN** the About page does not render a preview label
+
+### Requirement: Product documentation settings page
+The settings center SHALL provide a documentation page that renders the product README shipped with the build, and SHALL make it the destination of the workspace Help entry.
+
+#### Scenario: Open the documentation page
+- **WHEN** a user opens the documentation settings page in the Tauri desktop runtime or browser Web runtime
+- **THEN** the page SHALL render the bundled README as formatted document content
+- **AND** it SHALL render without a network request and without calling a Tauri command from a React component
+
+#### Scenario: Select documentation language
+- **WHEN** the active application language's base language tag has a bundled README translation
+- **THEN** the page SHALL render that translation, so a regional variant resolves to its base language's README
+- **AND** when no bundled README matches that base language it SHALL render the English README
+
+#### Scenario: Follow a documentation link
+- **WHEN** a user activates a link inside the rendered documentation
+- **THEN** the link SHALL open outside the document surface rather than replacing the settings center
+- **AND** an image that cannot be resolved SHALL degrade without breaking the rest of the page
+
+### Requirement: Settings navigation entry legibility
+A settings navigation entry SHALL remain fully visible within the settings sidebar at every supported viewport width, including its selected-state highlight.
+
+#### Scenario: Long navigation label
+- **WHEN** a navigation entry's localized label is wider than the available sidebar width
+- **THEN** the entry SHALL keep its full width inside the sidebar and truncate the label
+- **AND** the entry's selected-state highlight SHALL NOT be clipped on its leading or trailing edge
+- **AND** the full label SHALL remain available to pointer hover and to assistive technology
+
+#### Scenario: Narrow layout navigation
+- **WHEN** the settings sidebar collapses to its horizontal narrow-layout presentation
+- **THEN** every navigation entry SHALL remain reachable by scrolling
+- **AND** the selected entry SHALL remain fully visible when it is scrolled into view
 

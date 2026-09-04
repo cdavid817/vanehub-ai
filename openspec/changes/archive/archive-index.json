@@ -3624,6 +3624,24 @@
     },
     {
       "archivedOn": "2026-09-04",
+      "changeName": "improve-workspace-ui-ergonomics",
+      "path": "openspec/changes/archive/2026-09-04-improve-workspace-ui-ergonomics/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "goal-management",
+        "main-layout-ui",
+        "notification-system",
+        "session-runtime-management",
+        "settings-center-ui",
+        "unified-todo-board"
+      ]
+    },
+    {
+      "archivedOn": "2026-09-04",
       "changeName": "redesign-unified-workbench-ui",
       "path": "openspec/changes/archive/2026-09-04-redesign-unified-workbench-ui/",
       "artifacts": [
