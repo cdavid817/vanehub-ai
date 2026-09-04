@@ -100,6 +100,7 @@
 | [统一工作台设计系统参考](../../../ui-redesign/design-system.md) | `redesign-unified-workbench-ui` 在 `src/styles.css` 中新增的语义 Token、表面层级、文本/截断规则,以及各行/卡片的元数据预算 |
 | [统一工作台视觉 Token 审计](../../../ui-redesign/token-audit.md) | 支撑上述 Token 的任务 2.1 硬编码色值/圆角/高度/阴影审计,以及哪些项被有意延后到后续里程碑及原因 |
 | [统一工作台需求-测试对照矩阵](../../../ui-redesign/requirement-test-matrix.md) | `redesign-unified-workbench-ui` 全部 89 条 delta 需求逐条映射到其归属任务、测试类型与已核实的文件位置,并如实标注每条需求是 Covered(已覆盖)、Partial(部分覆盖)还是 Gap(缺口) |
+| [统一工作台验证报告](../../../ui-redesign/verification-report.md) | `redesign-unified-workbench-ui` 的最终验证快照:确切命令、提交范围、Fixture、平台覆盖、各项指标、过期截图披露、完整的 Web Playwright/桌面端失败明细,以及归档前接受的每一项豁免 |
 
 ### Provider SDK
 
