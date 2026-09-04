@@ -7,6 +7,8 @@ async function openHybridRuntime(page: Page, theme: "futuristic" | "minimal", wi
   }, theme);
   await page.goto("/");
   await page.getByRole("button", { name: /Settings/ }).click();
+  // Below `lg` the sidebar is hidden in favor of a searchable sheet (task 12.9): open it first.
+  if (width < 1024) await page.getByRole("button", { name: /^Switch settings page/ }).click();
   await page.getByRole("button", { name: "Agent Configurations" }).click();
   await page.getByRole("button", { name: "OnePiece" }).click();
   await page.getByRole("tab", { name: "Local runtime" }).click();

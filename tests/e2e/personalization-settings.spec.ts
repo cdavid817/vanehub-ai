@@ -7,6 +7,11 @@ async function openView(page: Page, view: "overview" | "instructions" | "memory"
 
 async function openPersonalization(page: Page) {
   await page.goto("/settings");
+  // Below `lg` the sidebar is hidden in favor of a searchable sheet (task 12.9): open it first.
+  const viewport = page.viewportSize();
+  if (viewport && viewport.width < 1024) {
+    await page.getByRole("button", { name: /^Switch settings page/ }).click();
+  }
   await page.getByRole("button", { name: "AI Personalization", exact: true }).click();
 }
 

@@ -112,6 +112,8 @@ test.describe("Skills management", () => {
   test("supports inventory filters and focus-safe application dialogs", async ({ page }) => {
     await page.setViewportSize({ width: 760, height: 820 });
     await page.goto("/settings");
+    // Below `lg` the sidebar is hidden in favor of a searchable sheet (task 12.9): open it first.
+    await page.getByRole("button", { name: /^Switch settings page/ }).click();
     await page.getByRole("button", { name: "Skills", exact: true }).click();
     await page.getByPlaceholder("Search Skills...").fill("readme");
     await expect(page.getByText(/items$/).first()).toBeVisible();

@@ -40,6 +40,11 @@ for (const variant of variants) {
     }, { theme: variant.theme });
 
     await page.goto("/settings");
+    // Below `lg` the sidebar is hidden in favor of a searchable sheet (task 12.9): open it first.
+    // This file's fixture forces zh-CN (see above), so the trigger's own label is localized too.
+    if (variant.width < 1024) {
+      await page.getByRole("button", { name: /^(切换设置页面|Switch settings page)/ }).click();
+    }
     await page.getByRole("button", { name: "Prompt Hook" }).click();
 
     const list = page.getByTestId("prompt-hook-virtual-list");

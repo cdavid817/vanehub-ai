@@ -15,6 +15,10 @@ for (const variant of variants) {
     }, variant.theme);
     await page.setViewportSize({ width: variant.width, height: variant.height });
     await page.goto("/settings");
+    // Below `lg` the sidebar is hidden in favor of a searchable sheet (task 12.9): open it first.
+    if (variant.width < 1024) {
+      await page.getByRole("button", { name: /^Switch settings page/ }).click();
+    }
     await page.getByRole("button", { name: "Skills", exact: true }).click();
     const skill = page.locator('article[data-skill-id="code-review"]');
     await skill.getByRole("button", { name: /View details for/ }).click();
