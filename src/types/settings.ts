@@ -58,8 +58,7 @@ export type AppSettingKey =
   | "memoryEnabled"
   | "memoryToolAssistedChatsEnabled"
   | "automaticContextCompactionEnabled"
-  | "contextQualityRetentionDays"
-  | "unifiedWorkbenchV2";
+  | "contextQualityRetentionDays";
 
 export const customInstructionsFieldCharacterLimit = 3000;
 
@@ -86,8 +85,6 @@ export interface AppSettings {
   memoryToolAssistedChatsEnabled: boolean;
   automaticContextCompactionEnabled: boolean;
   contextQualityRetentionDays: ContextQualityRetentionDays;
-  /** Temporary migration flag for `redesign-unified-workbench-ui`. Not a permanent product preference — removed once the change reaches its stabilization milestone and the legacy shell is deleted. */
-  unifiedWorkbenchV2: boolean;
   /** Revision the personalization fields above were read at. Echoed back on save so a write from a screen rendered before someone else's edit is refused rather than silently reverting it. `0` while the dedicated policy is unreachable, which the native side refuses. */
   personalizationRevision: number;
 }

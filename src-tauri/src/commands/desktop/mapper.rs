@@ -55,7 +55,6 @@ pub(super) fn settings_to_dto(view: DesktopSettingsView) -> dto::AppSettings {
         custom_instructions_enabled: settings.custom_instructions_enabled(),
         memory_enabled: settings.memory_enabled(),
         memory_tool_assisted_chats_enabled: settings.memory_tool_assisted_chats_enabled(),
-        unified_workbench_v2: settings.unified_workbench_v2(),
         personalization_revision,
         logging_policy: logging_policy_to_dto(view.logging_policy),
     }
@@ -251,7 +250,6 @@ mod tests {
                 "customInstructionsEnabled": true,
                 "memoryEnabled": true,
                 "memoryToolAssistedChatsEnabled": true,
-                "unifiedWorkbenchV2": false,
                 // Zero until the dedicated policy is bound. A save carrying zero is refused, which
                 // is the correct outcome for a page showing legacy values nobody could verify.
                 "personalizationRevision": 0,

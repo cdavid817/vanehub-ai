@@ -195,11 +195,6 @@ pub(crate) enum DesktopSettingKey {
     ContextQualityRetentionDays,
     UpdateAutomaticCheck,
     UpdateChannel,
-    /// Temporary migration flag for `redesign-unified-workbench-ui` (task 1.1): gates the V2
-    /// workbench shell so it can be built up destination by destination behind a switch, rather
-    /// than as one un-reviewable cutover. Not a permanent product preference — removed once the
-    /// change reaches its stabilization milestone and V1 is deleted.
-    UnifiedWorkbenchV2,
 }
 
 impl DesktopSettingKey {
@@ -225,7 +220,6 @@ impl DesktopSettingKey {
             "contextQualityRetentionDays" => Ok(Self::ContextQualityRetentionDays),
             "updateAutomaticCheck" => Ok(Self::UpdateAutomaticCheck),
             "updateChannel" => Ok(Self::UpdateChannel),
-            "unifiedWorkbenchV2" => Ok(Self::UnifiedWorkbenchV2),
             _ => Err(DesktopSettingsDomainError::invalid(value)),
         }
     }
@@ -252,7 +246,6 @@ impl DesktopSettingKey {
             Self::ContextQualityRetentionDays => "contextQualityRetentionDays",
             Self::UpdateAutomaticCheck => "updateAutomaticCheck",
             Self::UpdateChannel => "updateChannel",
-            Self::UnifiedWorkbenchV2 => "unifiedWorkbenchV2",
         }
     }
 }
@@ -284,7 +277,6 @@ pub(crate) enum DesktopSettingMutation {
     ContextQualityRetentionDays(i64),
     UpdateAutomaticCheck(bool),
     UpdateChannel(String),
-    UnifiedWorkbenchV2(bool),
 }
 
 impl DesktopSettingMutation {
@@ -366,9 +358,6 @@ impl DesktopSettingMutation {
             DesktopSettingKey::UpdateChannel if matches!(value, "stable" | "preview") => {
                 Ok(Self::UpdateChannel(value.to_string()))
             }
-            DesktopSettingKey::UnifiedWorkbenchV2 => parse_bool(value)
-                .map(Self::UnifiedWorkbenchV2)
-                .ok_or_else(invalid),
             DesktopSettingKey::LogDirectory
             | DesktopSettingKey::DefaultPolicyTemplate
             | DesktopSettingKey::UpdateChannel => Err(invalid()),
@@ -405,7 +394,6 @@ impl DesktopSettingMutation {
             Self::ContextQualityRetentionDays(_) => DesktopSettingKey::ContextQualityRetentionDays,
             Self::UpdateAutomaticCheck(_) => DesktopSettingKey::UpdateAutomaticCheck,
             Self::UpdateChannel(_) => DesktopSettingKey::UpdateChannel,
-            Self::UnifiedWorkbenchV2(_) => DesktopSettingKey::UnifiedWorkbenchV2,
         }
     }
 
@@ -427,8 +415,7 @@ impl DesktopSettingMutation {
             | Self::CustomInstructionsEnabled(value)
             | Self::MemoryEnabled(value)
             | Self::MemoryToolAssistedChatsEnabled(value)
-            | Self::AutomaticContextCompactionEnabled(value)
-            | Self::UnifiedWorkbenchV2(value) => value.to_string(),
+            | Self::AutomaticContextCompactionEnabled(value) => value.to_string(),
             Self::UpdateAutomaticCheck(value) => value.to_string(),
             Self::AutomaticArchivalInactiveDays(value)
             | Self::ContextQualityRetentionDays(value) => value.to_string(),
@@ -460,7 +447,6 @@ pub(crate) struct DesktopSettings {
     context_quality_retention_days: i64,
     update_automatic_check: bool,
     update_channel: String,
-    unified_workbench_v2: bool,
 }
 
 impl DesktopSettings {
@@ -492,7 +478,6 @@ impl DesktopSettings {
                 "stable"
             }
             .to_string(),
-            unified_workbench_v2: false,
         }
     }
 
@@ -546,9 +531,6 @@ impl DesktopSettings {
                 self.update_automatic_check = value
             }
             DesktopSettingMutation::UpdateChannel(value) => self.update_channel = value,
-            DesktopSettingMutation::UnifiedWorkbenchV2(value) => {
-                self.unified_workbench_v2 = value;
-            }
         }
     }
 
@@ -622,10 +604,6 @@ impl DesktopSettings {
     pub(crate) fn update_channel(&self) -> &str {
         &self.update_channel
     }
-
-    pub(crate) fn unified_workbench_v2(&self) -> bool {
-        self.unified_workbench_v2
-    }
 }
 
 fn parse_bool(value: &str) -> Option<bool> {
@@ -694,7 +672,6 @@ mod tests {
         assert!(settings.memory_tool_assisted_chats_enabled());
         assert!(settings.automatic_context_compaction_enabled());
         assert_eq!(settings.context_quality_retention_days(), 30);
-        assert!(!settings.unified_workbench_v2());
     }
 
     #[test]
@@ -734,7 +711,6 @@ mod tests {
             ("memoryToolAssistedChatsEnabled", "false"),
             ("automaticContextCompactionEnabled", "false"),
             ("contextQualityRetentionDays", "90"),
-            ("unifiedWorkbenchV2", "true"),
         ];
 
         for (key, value) in cases {
