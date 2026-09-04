@@ -249,5 +249,6 @@ Online archive location: `openspec/changes/archive/`
 | 2026-09-04 | fix-chat-transcript-backend-message-updates | chat-experience | `openspec/changes/archive/2026-09-04-fix-chat-transcript-backend-message-updates/` |
 | 2026-09-04 | redesign-unified-workbench-ui | agent-evaluation, agent-mission-control, chat-experience, goal-management, loop-management-ui, main-layout-ui, project-worktree-management, scheduled-task-management, settings-center-ui, unified-todo-board, workbench-design-system-ui | `openspec/changes/archive/2026-09-04-redesign-unified-workbench-ui/` |
 | 2026-09-04 | stabilize-desktop-wdio-lifecycle | desktop-runtime-verification | `openspec/changes/archive/2026-09-04-stabilize-desktop-wdio-lifecycle/` |
+| 2026-09-04 | verify-agent-mcp-runtime | desktop-runtime-verification, mcp-client-management, multi-agent-group-chat | `openspec/changes/archive/2026-09-04-verify-agent-mcp-runtime/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

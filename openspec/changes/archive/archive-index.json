@@ -3607,6 +3607,21 @@
       "capabilities": [
         "desktop-runtime-verification"
       ]
+    },
+    {
+      "archivedOn": "2026-09-04",
+      "changeName": "verify-agent-mcp-runtime",
+      "path": "openspec/changes/archive/2026-09-04-verify-agent-mcp-runtime/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "desktop-runtime-verification",
+        "mcp-client-management",
+        "multi-agent-group-chat"
+      ]
     }
   ]
 }
