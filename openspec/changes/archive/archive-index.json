@@ -3520,6 +3520,29 @@
         "native-developer-documentation",
         "user-guide-documentation"
       ]
+    },
+    {
+      "archivedOn": "2026-09-04",
+      "changeName": "redesign-unified-workbench-ui",
+      "path": "openspec/changes/archive/2026-09-04-redesign-unified-workbench-ui/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "agent-evaluation",
+        "agent-mission-control",
+        "chat-experience",
+        "goal-management",
+        "loop-management-ui",
+        "main-layout-ui",
+        "project-worktree-management",
+        "scheduled-task-management",
+        "settings-center-ui",
+        "unified-todo-board",
+        "workbench-design-system-ui"
+      ]
     }
   ]
 }
