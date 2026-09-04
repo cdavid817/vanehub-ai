@@ -1,5 +1,3 @@
-export const themeStorageKey = "vanehub.uiStyle";
-
 export const ucdThemes = [
   { id: "futuristic", label: "Futuristic", displayName: "Futuristic" },
   { id: "minimal", label: "Minimal", displayName: "Minimal" },
