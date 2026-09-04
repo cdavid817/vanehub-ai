@@ -8,7 +8,7 @@ Turn repetitive work into a recurring task that automatically creates a session 
 
 ### Create one
 
-Select **Runs** in the activity bar, then switch to the **Scheduled tasks** tab. Existing tasks are on the left, the new-task form on the right:
+Select **Runs** in the activity bar, then switch to the **Scheduled tasks** tab: a filterable list of existing tasks, each opening its own detail with run history. Select **New task** (or **Edit task** on an existing one) to open the task editor:
 
 | Field | Notes |
 | --- | --- |
@@ -29,7 +29,7 @@ Select **Runs** in the activity bar, then switch to the **Scheduled tasks** tab.
 
 The interval must be positive. A task card shows its **next run time**, and can be **enabled or disabled** at any time without deleting it.
 
-![The scheduled tasks dialog with the task list on the left and the new-task form on the right](assets/screenshots/scheduled-tasks-en.png)
+![The scheduled tasks editor: task name, task content, Agent tool, and frequency fields](assets/screenshots/scheduled-tasks-en.png)
 
 ### How the time is computed
 
