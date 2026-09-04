@@ -59,9 +59,13 @@ export function SshConnectionCard({
     <article className="ucd-panel ucd-interactive grid gap-3 rounded-lg p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="truncate text-sm font-semibold">{connection.name}</h3>
-          <p className="mt-1 truncate text-xs text-muted-foreground">
-            {connection.user}@{connection.host}:{connection.port}
+          <h3 className="truncate text-sm font-semibold" title={connection.name}>{connection.name}</h3>
+          {/* 20.16: user/host are both externally sourced (typed by whoever set up the connection,
+              or resolved from a real remote machine) -- `<bdi>` keeps a strong-RTL or mixed-script
+              host label from reading the "@"/":" separators and the port number out of order,
+              the standard HTML isolation element for exactly this case, no new CSS needed. */}
+          <p className="mt-1 truncate text-xs text-muted-foreground" title={`${connection.user}@${connection.host}:${connection.port}`}>
+            <bdi>{connection.user}@{connection.host}</bdi>:{connection.port}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-1">
@@ -70,7 +74,9 @@ export function SshConnectionCard({
         </div>
       </div>
       <div className="grid gap-1 text-xs text-muted-foreground">
-        <div className="truncate">{connection.defaultPath}</div>
+        {/* 20.16: same rationale as the host label above -- a remote default path is externally
+            sourced and rendered verbatim. */}
+        <div className="truncate" title={connection.defaultPath}><bdi>{connection.defaultPath}</bdi></div>
         <div>
           {connection.authMode === "password"
             ? t("sshConnections.auth.password")
