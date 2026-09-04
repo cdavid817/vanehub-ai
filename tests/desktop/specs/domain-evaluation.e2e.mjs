@@ -54,8 +54,12 @@ globalThis.describe("VaneHub AI desktop Agent evaluation domain", () => {
   });
 
   globalThis.it("reports the arena list and refuses ids that were never created", async () => {
-    const arenas = await invoke(({ core }) => core.invoke("list_evaluation_arenas"));
-    assert.ok(Array.isArray(arenas), "list_evaluation_arenas did not return an array");
+    // `{ items, nextCursor }`, not a bare array -- task 18.6 (this same OpenSpec change) moved this
+    // command onto the same paginated envelope `list_scheduled_task_runs` also uses. Confirmed
+    // failing against a real desktop build before this fix (all three `list_evaluation_arenas`
+    // call sites in this file expected the pre-18.6 bare-array shape).
+    const arenas = (await invoke(({ core }) => core.invoke("list_evaluation_arenas"))).items;
+    assert.ok(Array.isArray(arenas), "list_evaluation_arenas did not return a paginated items array");
 
     for (const [command, key] of [
       ["get_evaluation_arena", "arenaId"],
@@ -106,7 +110,7 @@ globalThis.describe("VaneHub AI desktop Agent evaluation domain", () => {
     // A rejected start must not leave a half-built arena behind -- the arena id is minted before
     // the per-Agent runs are created (evaluation_api.rs:85), so this is the assertion that the
     // failure path does not persist one.
-    const arenas = await invoke(({ core }) => core.invoke("list_evaluation_arenas"));
+    const arenas = (await invoke(({ core }) => core.invoke("list_evaluation_arenas"))).items;
     assert.equal(
       arenas.some((arena) => arena.taskId === `no-such-task-${stamp}`),
       false,
@@ -180,7 +184,7 @@ globalThis.describe("VaneHub AI desktop Agent evaluation domain", () => {
     }
 
     const ids = settled.attempts.map((attempt) => attempt.id);
-    const listed = await invoke(({ core }) => core.invoke("list_evaluation_arenas"));
+    const listed = (await invoke(({ core }) => core.invoke("list_evaluation_arenas"))).items;
     const fromList = listed.find((item) => item.id === arena.id);
     assert.ok(fromList, "the settled arena was missing from the arena list");
     assert.deepEqual(fromList.attempts.map((attempt) => attempt.id), ids, "list and get disagree about attempt order");

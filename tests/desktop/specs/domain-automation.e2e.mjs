@@ -75,9 +75,14 @@ globalThis.describe("VaneHub AI desktop scheduled tasks and usage statistics", (
     // The scheduler runs in-process and this task is five minutes out, so its run history is
     // legitimately empty -- what matters is that the query answers for a real task id rather than
     // rejecting it.
-    const runs = await invoke(({ core }, taskId) => core.invoke("list_scheduled_task_runs", { taskId }), task.id);
-    assert.ok(Array.isArray(runs), "list_scheduled_task_runs did not return an array");
-    assert.equal(runs.length, 0, "a task scheduled five minutes out already had run history");
+    //
+    // `{ items, nextCursor }`, not a bare array: task 18.6 (this same OpenSpec change) moved this
+    // command onto the same paginated envelope `list_evaluation_arenas` already uses
+    // (scheduled_tasks.rs's own doc comment), and this assertion still expected the pre-18.6 shape
+    // -- confirmed failing 3/3 attempts against a real desktop build before this fix.
+    const page = await invoke(({ core }, taskId) => core.invoke("list_scheduled_task_runs", { taskId }), task.id);
+    assert.ok(Array.isArray(page.items), "list_scheduled_task_runs did not return a paginated items array");
+    assert.equal(page.items.length, 0, "a task scheduled five minutes out already had run history");
 
     await invoke(({ core }, taskId) => core.invoke("delete_scheduled_task", { taskId }), task.id);
     created.pop();
