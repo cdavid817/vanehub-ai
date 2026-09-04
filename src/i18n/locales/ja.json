@@ -2748,6 +2748,7 @@
   "loops.inspector.reason": "終了理由",
   "loops.inspector.updated": "更新されました",
   "loops.inspector.pending": "保留中",
+  "loops.inspector.openRun": "完全な実行を開く",
   "loops.states.loading": "ループを読み込んでいます...",
   "loops.states.refreshing": "さわやか",
   "loops.states.error": "ループデータをロードできませんでした",

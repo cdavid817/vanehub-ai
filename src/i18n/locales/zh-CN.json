@@ -2748,6 +2748,7 @@
   "loops.inspector.reason": "终止原因",
   "loops.inspector.updated": "更新时间",
   "loops.inspector.pending": "等待创建",
+  "loops.inspector.openRun": "打开完整运行",
   "loops.states.loading": "正在加载循环工程...",
   "loops.states.refreshing": "正在刷新",
   "loops.states.error": "无法加载循环工程数据",

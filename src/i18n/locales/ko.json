@@ -2748,6 +2748,7 @@
   "loops.inspector.reason": "최종 이유",
   "loops.inspector.updated": "업데이트됨",
   "loops.inspector.pending": "보류 중",
+  "loops.inspector.openRun": "전체 실행 열기",
   "loops.states.loading": "루프 로드 중...",
   "loops.states.refreshing": "상쾌함",
   "loops.states.error": "루프 데이터를 로드할 수 없습니다.",

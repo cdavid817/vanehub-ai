@@ -2748,6 +2748,7 @@
   "loops.inspector.reason": "Terminal reason",
   "loops.inspector.updated": "Updated",
   "loops.inspector.pending": "Pending",
+  "loops.inspector.openRun": "Open full run",
   "loops.states.loading": "Loading Loops...",
   "loops.states.refreshing": "Refreshing",
   "loops.states.error": "Loop data could not be loaded",
