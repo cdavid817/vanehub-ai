@@ -63,7 +63,11 @@ export function WorkspaceCard({ onSelect, selected, workspace }: WorkspaceCardPr
         <Badge tone={availabilityTone[workspace.availability]}>{t(`projects.availability.${workspace.availability}`)}</Badge>
       </div>
 
-      <p className="truncate text-xs text-muted-foreground" title={workspace.displayPath}>{workspace.displayPath}</p>
+      {/* 20.16: `displayPath` is filesystem-sourced (local disk or a resolved SSH `user@host:path`),
+          not app-authored -- `<bdi>` keeps a strong-RTL or mixed-script path segment from reading
+          this row's own fixed-direction punctuation out of order. Standard HTML isolation element,
+          no new CSS. */}
+      <p className="truncate text-xs text-muted-foreground" title={workspace.displayPath}><bdi>{workspace.displayPath}</bdi></p>
 
       {workspace.trust || workspace.git?.repository ? (
         <div className="flex flex-wrap items-center gap-1.5">
