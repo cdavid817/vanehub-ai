@@ -1,5 +1,6 @@
 import { CONTEXTUAL_COMMANDS } from "./contextual-commands";
 import { DESTINATION_COMMANDS } from "./destination-commands";
+import { goalSearchProvider } from "./goal-search-provider";
 import { projectSearchProvider } from "./project-search-provider";
 import { runSearchProvider } from "./run-search-provider";
 import { sessionSearchProvider } from "./session-search-provider";
@@ -13,17 +14,19 @@ import type { WorkbenchCommand, WorkbenchSearchProvider } from "./command-center
  * provider/command module only exports its own value; nothing here writes into another domain's
  * module, and nothing but this one file needs to know the full set exists.
  *
- * 6.6 (Goal/Work Item/Evaluation providers) is not represented: design.md Decision 4 itself says
- * to ship Session/Project/Run first and add these "随后" (afterward), once their route adapters
- * exist. They don't yet — `PlanDestination`/`QualityDestination` don't consume `goalId`/
- * `workItemId`/`experimentId` from the URL at all (confirmed by reading both directly this
- * session), so a provider routing to one of those ids would link to state nothing reads. Deferred,
- * not forgotten.
+ * Work Item and Evaluation providers (the rest of the original 6.6 scope) stay unrepresented, each
+ * genuinely still blocked for its own reason (re-verified via `add-goal-command-center-provider`):
+ * `WorkBoard` has no injectable initial-selection prop for `workItemId`, and `EvaluationCenter`'s
+ * "selected" concept (a run attempt) does not map cleanly onto "experiment" without a real design
+ * decision this registry should not make on its own. Goal is no longer in that boat — `goalId` is
+ * consumed end to end (`PlanDestination` wires it into `GoalCenter`, task 15.1) — so its provider
+ * is registered below.
  */
 export const SEARCH_PROVIDERS: WorkbenchSearchProvider[] = [
   sessionSearchProvider,
   projectSearchProvider,
   runSearchProvider,
+  goalSearchProvider,
 ];
 
 export const COMMANDS: WorkbenchCommand[] = [

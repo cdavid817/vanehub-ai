@@ -52,7 +52,12 @@ const maxStaticEntryGzipBytes = 350 * 1024;
 // just a stash) -- recorded at the exact measured value on the honest assumption that it is the
 // same class of small organic eager-shell growth the two comments above already establish, not a
 // new kind of regression.
-const maxRawJavaScriptChunkBytes = 718349;
+// +3196 bytes -> 704.6 KiB (721545 bytes; add-goal-command-center-provider, task 1.2): clearly
+// this change's own doing, unlike the prior two bumps -- `goal-search-provider.ts` is a genuinely
+// new file, and `command-center-registry.ts` (which imports it) is eagerly bundled into App, not
+// behind any LazyFeature boundary, since the Command Center is always-mounted global chrome.
+// Recorded at the exact measured value.
+const maxRawJavaScriptChunkBytes = 721545;
 
 for (const source of requiredDynamicEntries) {
   const entry = Object.values(manifest).find((candidate) => candidate.src === source);
