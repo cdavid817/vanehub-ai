@@ -2,7 +2,7 @@
 
 ## Overview
 
-MCP servers, prompt hooks, local extensions, plugin integrations, SDK dependencies, CLI management and parameters, and Agent configurations are all configured centrally in the settings center and then handed to each Agent, rather than being configured separately inside every CLI.
+MCP servers, prompt hooks, local extensions, plugin integrations, CLI management and parameters, and Agent configurations are all configured centrally in the settings center and then handed to each Agent, rather than being configured separately inside every CLI.
 
 Skill management has its own chapter: [Manage Skills](skill-management.md).
 
@@ -38,9 +38,9 @@ The top of the page has three counters, **Installed / Running / Errors**; when s
 
 ## SDK dependencies
 
-**There are only two managed SDKs**: the Claude Code SDK and the Codex SDK, each corresponding to one npm package and carrying three alternative versions — so you can fall back when a version misbehaves.
+**There are only two managed SDKs**: the Claude Code SDK and the Codex SDK, each corresponding to one npm package and carrying three alternative versions — so you can fall back when a version misbehaves. Gemini CLI, OpenCode, and Antigravity CLI have no corresponding managed SDK.
 
-Gemini CLI, OpenCode, and Antigravity CLI have no corresponding managed SDK.
+> **Not currently reachable from Settings navigation.** The version-management page for these two SDKs exists in the application but has no entry in the settings list at the moment, so there is no in-app way to switch versions today.
 
 ## CLI management and parameters
 

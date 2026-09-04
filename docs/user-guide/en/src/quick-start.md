@@ -79,24 +79,26 @@ The session enters the `idle` state once created, and you can start the conversa
 
 ## 4. Work in the session workspace
 
-![The session workspace with nine tabs across the top and the info panel on the right](assets/screenshots/session-workspace-en.png)
+![The session workspace with the primary tab strip across the top and the info panel on the right](assets/screenshots/session-workspace-en.png)
 
 The interface has three regions: the **session list** on the left, the **workspace** in the middle, and the **info panel** on the right (session, CLI tool, run state, model for this session, workspace path).
 
-There are nine tabs across the top:
+Four primary tabs sit across the top, plus a separate **Runtime Panel** for four more:
 
 | Tab | What it is for |
 | --- | --- |
-| **Workspace** | The main surface: talk to the Agent and watch its CLI terminal |
+| **Work** | The main surface: talk to the Agent and watch its CLI terminal |
 | **Changes** | Git changes produced by this session |
-| **Documents** / **Files** | Browse the working directory |
-| **Terminal** | A record of the Agent's tool executions |
-| **Shell** | A separate interactive terminal |
-| **Logs** | Session logs, searchable and seekable by time |
-| **Traces** | Execution tracing |
+| **Files** | Browse the working directory; an Explorer/Documents switch inside the tab covers both |
 | **Report** | Token usage and a tool ranking |
+| **Terminal History** *(Runtime Panel)* | A record of the Agent's tool executions |
+| **Shell** *(Runtime Panel)* | A separate interactive terminal |
+| **Logs** *(Runtime Panel)* | Session logs, searchable and seekable by time |
+| **Traces** *(Runtime Panel)* | Execution tracing |
 
-Write your task in the input box on the **Workspace** tab. **Enter sends, Shift+Enter inserts a newline.**
+The Runtime Panel opens from a button at the right of the primary tab strip, or automatically when something routes you to one of its four surfaces. See [User interface](user-interface.md#workspace-tabs-and-the-runtime-panel) for the full breakdown.
+
+Write your task in the input box on the **Work** tab. **Enter sends, Shift+Enter inserts a newline.**
 
 ## 5. What next
 

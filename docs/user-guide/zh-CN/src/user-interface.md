@@ -70,33 +70,30 @@ Agent 回复支持富内容渲染：代码块（语法高亮）、Mermaid 图（
 
 对话区顶部有**轮次状态栏**：当前发言权归属、等待人类时长、轮次完成、链深度提示。多 Agent 群聊交接时显示 `交接 1/15`。细节见 [多 Agent 群聊](multi-agent-workflow.md)。
 
-## 工作区标签页
+## 工作区标签页与运行时面板
 
-![会话工作区：左侧会话列表、中间工作区、右侧信息面板，顶部九个标签页](assets/screenshots/session-workspace-zh-CN.png)
+![会话工作区：左侧会话列表、中间工作区（顶部主标签条）、右侧信息面板](assets/screenshots/session-workspace-zh-CN.png)
 
-会话打开后，工作区顶部九个标签页：
+会话打开后，工作区顶部是四个主标签：
 
 | 标签 | 功能 |
 | --- | --- |
 | **工作区** | 与 Agent 的对话，默认停在这里 |
 | **变更** | 看 Agent 改了哪些文件，含 Diff 视图（unified/split 切换、逐文件查看、Git 状态） |
-| **文档** | 浏览工作区内的文档 |
-| **文件** | 浏览工作区文件 |
-| **终端记录** | Agent 执行过的命令与输出 |
-| **Shell** | 你自己用的交互式终端 |
-| **日志** | 本次会话的日志，可搜索、按时间定位 |
-| **链路** | 执行链路追踪（运行列表 + Span 树 + 按席位追踪），见 [可观测性](observability.md) |
+| **文件** | 浏览工作区文件；标签内有 **资源管理器 / 文档** 视图切换，前者是文件树与预览，后者是工作区内的文档 |
 | **报告** | Token 用量（输入/输出/字符数）、token 分布条、按消息状态计数 |
+
+另外四个能力——**终端记录**、**Shell**、**日志**、**链路**——在独立的**运行时面板**里：主标签条下方可调整高度的面板，有自己的标签条、最大化/还原按钮与关闭按钮。点主标签条右侧的纯图标**运行时面板**按钮（仅在面板关闭时显示）可打开它，或者当证据链接、标签角标或 slash 命令指向这四个能力之一时会自动打开。关闭它不影响工作区/变更/文件/报告，切换这四个主标签也不会关闭它。
 
 **「终端记录」和「Shell」不是一回事**：前者是 Agent 干了什么的记录，后者是给你自己敲命令的终端。Agent 还有一个**专属终端**，与你的 Shell 分开。标签页上的数字角标表示记录条数；数据量大时采用有界加载，可能只显示部分结果，界面会提示。
 
 **日志**标签可搜索、可按时间定位：
 
-![会话工作区的日志标签页](assets/screenshots/session-logs-zh-CN.png)
+![运行时面板里的日志标签页](assets/screenshots/session-logs-zh-CN.png)
 
 **链路**标签展示本次执行的 Span 树，用来回答「这一步到底调了什么、花了多久」：
 
-![会话工作区的链路标签页，展示执行 Span 树](assets/screenshots/session-traces-zh-CN.png)
+![运行时面板里的链路标签页，展示执行 Span 树](assets/screenshots/session-traces-zh-CN.png)
 
 ## 查看 Agent 改了什么
 
@@ -137,28 +134,32 @@ Agent 回复支持富内容渲染：代码块（语法高亮）、Mermaid 图（
 
 ## 设置中心
 
-左侧活动栏的**设置**进入设置中心，左侧是设置项导航，右侧是配置页。共 18 个设置页：
+左侧活动栏的**设置**进入设置中心，左侧是设置项导航，右侧是配置页。设置页按**通用 / Agent / 能力 / 集成 / 诊断**分组，共 20 个：
 
 | 设置页 | 内容 |
 | --- | --- |
 | **基础配置** | 见[下一节](#基础配置) |
-| **CLI 管理** | 各 CLI 的安装检测、冲突诊断与升级，见 [安装并认证 CLI](getting-started.md) |
-| **CLI 参数** | 按 CLI Agent 配置启动参数，见 [工具与扩展](tooling.md#cli-参数) |
-| **SDK 依赖** | 受管 SDK 的版本管理，见 [工具与扩展](tooling.md#sdk-依赖) |
-| **扩展能力** | 本地多模态能力的安装与启停，见 [工具与扩展](tooling.md#扩展能力) |
-| **插件集成** | 内置产品集成与就绪检测，见 [插件集成](plugin-integration.md) |
-| **MCP 服务器** | MCP server 配置与按 Agent 绑定，见 [MCP 服务器](mcp.md) |
 | **Agent 配置** | 按 Agent 配置 provider、端点与模型（含 OnePiece），见 [工具与扩展](tooling.md#agent-配置) |
 | **Agent 权限策略** | 权限策略与审批模板，见 [权限审批](permissions.md) |
-| **专家角色** | 角色与评审策略，见 [专家角色](expert-roles.md) |
-| **AI 个性化** | Custom Instructions 与跨会话记忆，见 [个性化](personalization.md) |
+| **CLI 参数** | 按 CLI Agent 配置启动参数，见 [工具与扩展](tooling.md#cli-参数) |
+| **代码智能** | 会话内代码智能的语言服务器开关与工作区信任范围，见 [LSP 代码智能](lsp-code-intelligence.md) |
+| **MCP 服务器** | MCP server 配置与按 Agent 绑定，见 [MCP 服务器](mcp.md) |
 | **Skill 管理** | Skill 安装与绑定，见 [Skill 管理](skill-management.md) |
+| **AI 个性化** | Custom Instructions 与跨会话记忆，见 [个性化](personalization.md) |
 | **Prompt Hook** | 钩子管理，见 [Prompt Hook](prompt-hooks.md) |
+| **专家角色** | 角色与评审策略，见 [专家角色](expert-roles.md) |
+| **本地媒体** | 配置通过扩展能力安装的 OCR/语音识别/语音合成引擎：启停各引擎、Python 环境，以及输入框里的文字识别/按住说话/朗读操作 |
+| **CLI 管理** | 各 CLI 的安装检测、冲突诊断与升级，见 [安装并认证 CLI](getting-started.md) |
+| **扩展能力** | 本地多模态能力的安装与启停，见 [工具与扩展](tooling.md#扩展能力) |
+| **插件集成** | 内置产品集成与就绪检测，见 [插件集成](plugin-integration.md) |
 | **IM 能力** | IM 连接器配置，见 [远程与 IM](remote-and-im.md#im-连接器) |
 | **SSH 连接** | 保存的 SSH 连接，见 [远程与 IM](remote-and-im.md#ssh-远程工作区) |
 | **执行可观测性** | 执行追踪与日志采集策略，见 [可观测性](observability.md) |
 | **使用统计** | Token 用量统计，见 [定时与用量](automation.md) |
+| **使用文档** | 内置的本用户指南，离线可看，附源代码仓库链接——也是活动栏**帮助**按钮打开的同一个页面 |
 | **关于** | 版本、更新检查、changelog、仓库链接，见 [版本更新](app-updates.md) |
+
+> 设置中心的页面注册表目前没有「SDK 依赖」条目——两个受管 SDK（Claude Code SDK、Codex SDK）暂时无法从设置导航进入配置。
 
 ### 基础配置
 
@@ -215,3 +216,5 @@ OnePiece 会话在输入栏提供 **Plan** 与 **Agent** 两种模式。Plan 模
 
 - 术语不熟 → [核心概念](core-concepts.md)
 - 第一次用 → [创建第一个会话](first-session.md)
+- 完整快捷键列表 → [快捷键](keyboard-shortcuts.md)
+- 哪些能用键盘操作、哪些还没纳入扫描 → [无障碍说明](accessibility.md)

@@ -70,33 +70,30 @@ Agent replies render rich content: code blocks with syntax highlighting, Mermaid
 
 A **turn status bar** sits at the top of the conversation area: who currently holds the turn, how long it has been waiting on a human, turn completion, and chain-depth notices. During a multi-Agent handoff it shows `handoff 1/15`. See [Multi-Agent group chat](multi-agent-workflow.md) for detail.
 
-## Workspace tabs
+## Workspace tabs and the Runtime Panel
 
-![The session workspace: session list on the left, workspace in the middle, info panel on the right, nine tabs across the top](assets/screenshots/session-workspace-en.png)
+![The session workspace: session list on the left, workspace in the middle with the primary tab strip, info panel on the right](assets/screenshots/session-workspace-en.png)
 
-Once a session is open, nine tabs sit across the top of the workspace:
+Once a session is open, four primary tabs sit across the top of the workspace:
 
 | Tab | What it does |
 | --- | --- |
-| **Workspace** | The conversation with the Agent; the default tab |
+| **Work** | The conversation with the Agent; the default tab |
 | **Changes** | Which files the Agent changed, with a diff view (unified/split toggle, per-file review, Git status) |
-| **Documents** | Browse documents inside the workspace |
-| **Files** | Browse workspace files |
-| **Terminal** | Commands the Agent ran, and their output |
-| **Shell** | An interactive terminal for your own use |
-| **Logs** | Logs for this session; searchable and seekable by time |
-| **Traces** | Execution tracing (run list + span tree + per-seat tracing) — see [Observability](observability.md) |
+| **Files** | Browse workspace files. A view switch inside the tab splits it into **Explorer** (the file tree and preview) and **Documents** (documents inside the workspace) |
 | **Report** | Token usage (input/output/character count), a token distribution bar, and counts by message state |
 
-**The Terminal tab and the Shell tab are not the same thing**: the first records what the Agent did, the second is a terminal for you to type in. The Agent also has a **dedicated terminal** separate from your Shell. The numeric badge on a tab is the record count; when there is a lot of data, loading is bounded and only part of the results may be shown, which the interface tells you.
+Four more surfaces — **Terminal History**, **Shell**, **Logs**, **Traces** — live in a separate **Runtime Panel**: a resizable panel below the primary tabs, with its own tab strip, a maximize/restore toggle, and a close button. It opens via the icon-only **Runtime Panel** button at the right of the primary tab strip (shown only while the panel is closed), or automatically whenever VaneHub AI sends you to one of its four surfaces — an evidence link, a tab badge, or a slash command. Closing it never affects Work/Changes/Files/Report, and switching among those four never closes it.
+
+**The Terminal History tab and the Shell tab are not the same thing**: the first records what the Agent did, the second is a terminal for you to type in. The Agent also has a **dedicated terminal** separate from your Shell. The numeric badge on a tab is the record count; when there is a lot of data, loading is bounded and only part of the results may be shown, which the interface tells you.
 
 The **Logs** tab is searchable and seekable by time:
 
-![The Logs tab of the session workspace](assets/screenshots/session-logs-en.png)
+![The Logs tab in the Runtime Panel](assets/screenshots/session-logs-en.png)
 
 The **Traces** tab shows this execution's span tree, answering "what exactly did this step call, and how long did it take":
 
-![The Traces tab of the session workspace, showing the execution span tree](assets/screenshots/session-traces-en.png)
+![The Traces tab in the Runtime Panel, showing the execution span tree](assets/screenshots/session-traces-en.png)
 
 ## See what the Agent changed
 
@@ -137,28 +134,32 @@ When you reopen a session after a crash or an abnormal exit, a **recovery banner
 
 ## Settings center
 
-**Settings** in the activity bar opens the settings center: navigation on the left, the configuration page on the right. There are 18 settings pages:
+**Settings** in the activity bar opens the settings center: navigation on the left, the configuration page on the right. Pages are grouped under **General / Agent / Capabilities / Integrations / Diagnostics**, 20 in total:
 
 | Settings page | What it holds |
 | --- | --- |
 | **Basic Configuration** | See [the next section](#basic-configuration) |
-| **CLI Management** | Install detection, conflict diagnostics, and upgrades for each CLI — see [Install and authenticate a CLI](getting-started.md) |
-| **CLI Parameters** | Launch flags per CLI Agent — see [Tools and extensions](tooling.md#cli-parameters) |
-| **SDK Dependencies** | Version management for the managed SDKs — see [Tools and extensions](tooling.md#sdk-dependencies) |
-| **Extension Capabilities** | Installing and enabling local multimodal capabilities — see [Tools and extensions](tooling.md#extension-capabilities) |
-| **Plugin Integration** | Built-in product integrations and readiness checks — see [Plugin integration](plugin-integration.md) |
-| **MCP Servers** | MCP server configuration and per-Agent binding — see [MCP servers](mcp.md) |
 | **Agent Configurations** | Provider, endpoint, and model per Agent, including OnePiece — see [Tools and extensions](tooling.md#agent-configurations) |
 | **Agent Policies** | Permission policy and approval templates — see [Permission approvals](permissions.md) |
-| **Expert Roles** | Role fields, responsibilities, and review policy — see [Expert roles](expert-roles.md) |
-| **AI Personalization** | Overview, Instructions, Memory, and Runtime Preview — see [Personalization](personalization.md) |
+| **CLI Parameters** | Launch flags per CLI Agent — see [Tools and extensions](tooling.md#cli-parameters) |
+| **Code Intelligence** | Language server toggles and workspace trust for in-session code intelligence — see [LSP code intelligence](lsp-code-intelligence.md) |
+| **MCP Servers** | MCP server configuration and per-Agent binding — see [MCP servers](mcp.md) |
 | **Skills** | Skill installation and binding — see [Manage Skills](skill-management.md) |
+| **AI Personalization** | Overview, Instructions, Memory, and Runtime Preview — see [Personalization](personalization.md) |
 | **Prompt Hooks** | Hook management — see [Prompt Hooks](prompt-hooks.md) |
+| **Expert Roles** | Role fields, responsibilities, and review policy — see [Expert roles](expert-roles.md) |
+| **Local Media** | Configures the OCR/speech-recognition/speech-synthesis engines installed via Extension Capabilities: enable each engine, its Python environment, and the composer's recognize-text/hold-to-talk/read-aloud actions |
+| **CLI Management** | Install detection, conflict diagnostics, and upgrades for each CLI — see [Install and authenticate a CLI](getting-started.md) |
+| **Extension Capabilities** | Installing and enabling local multimodal capabilities — see [Tools and extensions](tooling.md#extension-capabilities) |
+| **Plugin Integration** | Built-in product integrations and readiness checks — see [Plugin integration](plugin-integration.md) |
 | **IM Connectors** | IM connector configuration — see [Remote and IM](remote-and-im.md#im-connectors) |
 | **SSH Connections** | Saved SSH connections — see [Remote and IM](remote-and-im.md#ssh-remote-workspace) |
 | **Execution Observability** | Execution tracing and log collection policy — see [Observability](observability.md) |
 | **Usage Statistics** | Token usage statistics — see [Scheduled and usage](automation.md) |
+| **Documentation** | This user guide, bundled offline, plus a link to the source repository — also what the activity bar's own **Help** button opens |
 | **About** | Version, update check, changelog, and repository links — see [Application updates](app-updates.md) |
+
+> The settings center's page registry currently has no entry for "SDK Dependencies" — the two managed SDKs (Claude Code SDK, Codex SDK) are not configurable from Settings navigation at the moment.
 
 ### Basic configuration
 
@@ -215,3 +216,5 @@ On desktop there is a system tray icon: show/hide the main window, with the laun
 
 - Unfamiliar terminology → [Core concepts](core-concepts.md)
 - First time using it → [Create your first session](first-session.md)
+- Full shortcut reference → [Keyboard shortcuts](keyboard-shortcuts.md)
+- What's keyboard-operable and what isn't yet scanned → [Accessibility notes](accessibility.md)

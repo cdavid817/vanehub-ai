@@ -45,23 +45,20 @@ Each **seat** is one Agent plus one role. **Role** can be set to **No role**. Us
 
 If no Agent from a different model family is available, the interface says so and shows same-family options instead. For the full mechanism, see [Multi-Agent group chat and `@` handoff](multi-agent-workflow.md).
 
-## The nine session workspace tabs
+## The session workspace tabs and Runtime Panel
 
-Once created, you land in the session workspace with nine tabs across the top:
+Once created, you land in the session workspace with four primary tabs across the top:
 
 | Tab | What it holds |
 | --- | --- |
-| **Workspace** | The conversation with the Agent; the default tab |
+| **Work** | The conversation with the Agent; the default tab |
 | **Changes** | Which files the Agent changed |
-| **Documents** | Documents inside the workspace |
-| **Files** | Workspace file browsing |
-| **Terminal** | Commands the Agent ran, and their output |
-| **Shell** | An interactive terminal for your own use |
-| **Logs** | Logs for this session |
-| **Traces** | Execution tracing — see [Observability and logs](observability.md) |
+| **Files** | Workspace file browsing, with an Explorer/Documents switch inside the tab for browsing files versus documents |
 | **Report** | The session report |
 
-**The Terminal tab and the Shell tab are not the same thing**: the first records what the Agent did, the second is a terminal for you to type in.
+Four more surfaces — **Terminal History**, **Shell**, **Logs**, **Traces** — live in a separate **Runtime Panel** that opens from a button at the right of the tab strip (see [User interface](user-interface.md#workspace-tabs-and-the-runtime-panel) for the full breakdown). Traces is execution tracing — see [Observability and logs](observability.md).
+
+**The Terminal History tab and the Shell tab are not the same thing**: the first records what the Agent did, the second is a terminal for you to type in.
 
 The numeric badge on a tab is the record count. The first release uses bounded loading, so with a lot of data only part of the results may appear; the interface tells you when that happens.
 

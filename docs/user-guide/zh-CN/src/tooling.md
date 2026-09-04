@@ -2,7 +2,7 @@
 
 ## 功能概述
 
-MCP 服务器、Prompt Hook、本地扩展、插件集成、SDK 依赖、CLI 管理与参数、Agent 配置都在设置中心集中配置，再按 Agent 下发，不必在每个 CLI 里各配一遍。
+MCP 服务器、Prompt Hook、本地扩展、插件集成、CLI 管理与参数、Agent 配置都在设置中心集中配置，再按 Agent 下发，不必在每个 CLI 里各配一遍。
 
 Skill 的管理见[管理 Skill](skill-management.md)。
 
@@ -38,9 +38,9 @@ Prompt Hook 在提示词组装链路里插入内容，在**设置 → Prompt Hoo
 
 ## SDK 依赖
 
-**受管 SDK 只有两个**：Claude Code SDK 与 Codex SDK，各自对应一个 npm 包，并带三个备选版本——某个版本出问题时可以回退。
+**受管 SDK 只有两个**：Claude Code SDK 与 Codex SDK，各自对应一个 npm 包，并带三个备选版本——某个版本出问题时可以回退。Gemini CLI、OpenCode 与 Antigravity CLI 没有对应的受管 SDK。
 
-Gemini CLI、OpenCode 与 Antigravity CLI 没有对应的受管 SDK。
+> **目前无法从设置导航进入。** 这两个 SDK 的版本管理页面在应用里已经实现，但设置列表里暂时没有对应入口，目前没有应用内切换版本的途径。
 
 ## CLI 管理与参数
 
