@@ -250,6 +250,7 @@ Online archive location: `openspec/changes/archive/`
 | 2026-09-04 | fix-runner-group-runtime-feedback | agent-provider-runtime, agent-run-state-management, chat-experience, multi-agent-group-chat | `openspec/changes/archive/2026-09-04-fix-runner-group-runtime-feedback/` |
 | 2026-09-04 | improve-desktop-usability-and-recovery | agent-task-list, desktop-usability, goal-management, multi-agent-group-chat, session-recovery, settings-center-ui, signed-desktop-auto-update, user-guide-documentation | `openspec/changes/archive/2026-09-04-improve-desktop-usability-and-recovery/` |
 | 2026-09-04 | redesign-unified-workbench-ui | agent-evaluation, agent-mission-control, chat-experience, goal-management, loop-management-ui, main-layout-ui, project-worktree-management, scheduled-task-management, settings-center-ui, unified-todo-board, workbench-design-system-ui | `openspec/changes/archive/2026-09-04-redesign-unified-workbench-ui/` |
+| 2026-09-04 | simplify-prompt-hooks-settings-experience | settings-prompt-hooks-ui | `openspec/changes/archive/2026-09-04-simplify-prompt-hooks-settings-experience/` |
 | 2026-09-04 | stabilize-desktop-wdio-lifecycle | desktop-runtime-verification | `openspec/changes/archive/2026-09-04-stabilize-desktop-wdio-lifecycle/` |
 | 2026-09-04 | verify-agent-mcp-runtime | desktop-runtime-verification, mcp-client-management, multi-agent-group-chat | `openspec/changes/archive/2026-09-04-verify-agent-mcp-runtime/` |
 
