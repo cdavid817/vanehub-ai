@@ -89,7 +89,7 @@ The system SHALL display assistant responses incrementally as stream events arri
 #### Scenario: Assistant response starts
 - **WHEN** the agent service emits a `started` event for the active session
 - **THEN** an assistant message with `streaming` status SHALL appear
-- **AND** a waiting indicator SHALL be visible until response content arrives
+- **AND** a waiting indicator SHALL be visible until response content or another activity arrives
 
 #### Scenario: Token event appends content
 - **WHEN** the agent service emits a `token` event for a streaming assistant message

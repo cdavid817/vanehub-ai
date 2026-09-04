@@ -3574,6 +3574,22 @@
     },
     {
       "archivedOn": "2026-09-04",
+      "changeName": "fix-runner-group-runtime-feedback",
+      "path": "openspec/changes/archive/2026-09-04-fix-runner-group-runtime-feedback/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "agent-provider-runtime",
+        "agent-run-state-management",
+        "chat-experience",
+        "multi-agent-group-chat"
+      ]
+    },
+    {
+      "archivedOn": "2026-09-04",
       "changeName": "redesign-unified-workbench-ui",
       "path": "openspec/changes/archive/2026-09-04-redesign-unified-workbench-ui/",
       "artifacts": [
