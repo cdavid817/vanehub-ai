@@ -99,6 +99,7 @@ These live outside the guide's chapter list but are part of the repository's doc
 | [Unified workbench UI redesign baseline](../../ui-redesign/baseline.md) | The Milestone 0 "before" evidence for `redesign-unified-workbench-ui`: verification command results, pre-existing defects, confirmed runtime architecture facts, and screenshot/fixture references |
 | [Unified workbench design system reference](../../ui-redesign/design-system.md) | The additive semantic tokens, surface hierarchy, text/truncation rules, and per-row metadata budgets `redesign-unified-workbench-ui` introduces in `src/styles.css` |
 | [Unified workbench visual-token audit](../../ui-redesign/token-audit.md) | The task 2.1 hard-coded-color/radius/height/shadow audit behind those tokens, and what was deliberately deferred to a later milestone and why |
+| [Unified workbench requirement-to-test matrix](../../ui-redesign/requirement-test-matrix.md) | Every one of `redesign-unified-workbench-ui`'s 89 delta requirements mapped to its owning task(s), test kind, and a verified file pointer, with Covered/Partial/Gap called out honestly per requirement |
 
 ### Provider SDK
 
