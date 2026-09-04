@@ -108,7 +108,6 @@
   --panel-hover: 210 24% 94%;
   --panel-glass: 0 0% 100% / 0.86;
   --border-strong: 214 18% 76%;
-  --nav-active: 198 78% 36%;
   --nav-active-soft: 198 78% 36% / 0.12;
   --success: 152 64% 38%;
   --success-soft: 152 64% 38% / 0.12;
@@ -214,7 +213,6 @@
   --panel-hover: 217 22% 18%;
   --panel-glass: 216 24% 11% / 0.82;
   --border-strong: 217 22% 32%;
-  --nav-active: 215 88% 66%;
   --nav-active-soft: 215 88% 66% / 0.14;
   --success: 144 61% 52%;
   --success-soft: 144 61% 52% / 0.14;
@@ -304,11 +302,11 @@
   --panel-hover: 220 14% 94%;
   --panel-glass: 0 0% 100% / 0.92;
   --border-strong: 221 39% 11% / 0.38;
-  /* 20.18: kept identical to the now-fixed `--primary` above (both independently authored as "the
-     brand blue", same as `--information`'s own relationship to `--primary` elsewhere in this block)
-     -- `--nav-active` itself has no real consumer today (confirmed by grep), but `--nav-active-soft`
-     is the active-tab background this exact violation was found on, paired with `text-primary`. */
-  --nav-active: 221 83% 51%;
+  /* 20.18: value matches the now-fixed `--primary` above (both independently authored as "the
+     brand blue", same as `--information`'s own relationship to `--primary` elsewhere in this
+     block) -- `--nav-active-soft` is the active-tab background this exact violation was found
+     on, paired with `text-primary`. (`--nav-active` itself, once justified in this same comment,
+     had zero consumers and no `--color-*` @theme mapping; removed as dead CSS under 22.8.) */
   --nav-active-soft: 221 83% 51% / 0.12;
   /* 20.18: lightness lowered from an axe-core-confirmed failing 34%/44% (3.73:1/2.78:1 against
      `--background`, both short of WCAG AA's 4.5:1 for normal text) -- see the futuristic theme
