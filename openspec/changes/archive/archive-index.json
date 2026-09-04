@@ -3580,6 +3580,19 @@
         "unified-todo-board",
         "workbench-design-system-ui"
       ]
+    },
+    {
+      "archivedOn": "2026-09-04",
+      "changeName": "stabilize-desktop-wdio-lifecycle",
+      "path": "openspec/changes/archive/2026-09-04-stabilize-desktop-wdio-lifecycle/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "desktop-runtime-verification"
+      ]
     }
   ]
 }
