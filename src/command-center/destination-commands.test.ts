@@ -15,6 +15,10 @@ function context(overrides: Partial<WorkbenchCommandContext> = {}): WorkbenchCom
   };
 }
 
+function byIdKeywords(id: string): string[] {
+  return DESTINATION_COMMANDS.find((command) => command.id === id)!.keywords;
+}
+
 describe("DESTINATION_COMMANDS", () => {
   it("covers exactly the eight distinct deep-link targets, each with a unique id", () => {
     expect(DESTINATION_COMMANDS).toHaveLength(8);
@@ -64,5 +68,36 @@ describe("DESTINATION_COMMANDS", () => {
     const runsCommand = DESTINATION_COMMANDS.find((command) => command.id === "goto-runs")!;
     expect(runsCommand.keywords).toContain("mission control");
     expect(DESTINATION_COMMANDS.some((command) => command.id === "goto-mission-control")).toBe(false);
+  });
+
+  it("22.2: indexes every LEGACY_DESTINATION_REDIRECTS old destination's real former label so a reader who still remembers the pre-redesign name finds its new home", () => {
+    // Mirrors workbench-route.ts's own (private) LEGACY_DESTINATION_REDIRECTS map — five old
+    // `/workspace/<id>` path segments, hardcoded here the same way workbench-route.test.ts
+    // hardcodes the literal old paths, since the map itself is not exported. Each left-hand label
+    // below is the exact former `layout.activityBar.*` value (git show b3ba029a^:src/i18n/locales/
+    // en.json), not a guess at what a reader might type.
+    const oldLabelToCommandId: Record<string, string> = {
+      loops: "goto-loops", // old label "Loops" — unchanged
+      "todo board": "goto-plan", // old label "Todo Board"
+      "goal center": "goto-goals", // old label "Goal Center" — unchanged
+      evaluations: "goto-quality", // old label "Evaluations"
+      "mission control": "goto-runs", // old label "Mission Control"
+    };
+    for (const [oldLabel, commandId] of Object.entries(oldLabelToCommandId)) {
+      expect(byIdKeywords(commandId).some((keyword) => keyword.toLowerCase().includes(oldLabel))).toBe(true);
+    }
+  });
+
+  it("22.2: also indexes the raw legacy URL segments (LEGACY_DESTINATION_REDIRECTS' own keys) as search terms", () => {
+    expect(byIdKeywords("goto-plan")).toContain("work-board");
+    expect(byIdKeywords("goto-runs")).toContain("mission-control");
+    // "evaluations" is both the old label and the old path segment for Quality — one keyword
+    // already covers both, asserted by the label-coverage test above.
+  });
+
+  it("22.2: indexes the old zh-CN activity-bar labels too, since a command's keywords mix locales in one flat array", () => {
+    // Old labels from git show b3ba029a^:src/i18n/locales/zh-CN.json.
+    expect(byIdKeywords("goto-plan")).toContain("任务看板"); // old label for Todo Board
+    expect(byIdKeywords("goto-quality")).toContain("agent 评测"); // old label for Evaluations
   });
 });

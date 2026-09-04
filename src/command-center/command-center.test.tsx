@@ -86,6 +86,27 @@ describe("CommandCenter", () => {
     expect(screen.queryByRole("option", { name: "New Session" })).toBeNull();
   });
 
+  it("22.2: surfaces the renamed destination when a reader searches the exact old pre-redesign activity-bar term", async () => {
+    // "evaluations" (plural) is the real old `layout.activityBar.evaluations` label (git show
+    // b3ba029a^:src/i18n/locales/en.json) — Quality's own keywords only had the singular
+    // "evaluation" before 22.2, which does not substring-match the plural query.
+    await open();
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "evaluations" } });
+    expect(screen.getByRole("option", { name: "Go to Quality" })).toBeTruthy();
+  });
+
+  it("22.2: surfaces the renamed Plan destination for the old 'work-board' URL segment", async () => {
+    await open();
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "work-board" } });
+    expect(screen.getByRole("option", { name: "Go to Plan" })).toBeTruthy();
+  });
+
+  it("22.2: surfaces the renamed Runs destination for the old 'mission-control' URL segment", async () => {
+    await open();
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "mission-control" } });
+    expect(screen.getByRole("option", { name: "Go to Runs" })).toBeTruthy();
+  });
+
   it("shows a matching search result alongside matching commands", async () => {
     // "auth" does not appear in any command's own label or keywords, so this proves the row came
     // from the provider, not from a coincidental command match.
