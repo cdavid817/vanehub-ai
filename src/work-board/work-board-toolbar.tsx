@@ -131,7 +131,7 @@ export function WorkBoardToolbar({
         </select>
       }
       viewControl={
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           <div className="ucd-segmented grid grid-cols-2 gap-1 rounded-md p-1">
             <button aria-pressed={query.presentation === "board"} className={`h-7 rounded px-2 text-xs ${query.presentation === "board" ? "bg-background font-semibold text-primary" : "text-muted-foreground hover:bg-muted"}`} onClick={() => onQueryChange({ presentation: "board" })} type="button">
               {t("todoBoard.presentation.board")}

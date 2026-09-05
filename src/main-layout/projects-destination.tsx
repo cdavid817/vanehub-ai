@@ -34,7 +34,7 @@ export function ProjectsDestination({
   onOpenSettings: (pageId?: SettingsPageId) => void;
 }) {
   return (
-    <div className="h-full min-h-0 p-2">
+    <div className="h-full min-h-0 min-w-0 flex-1 p-2">
       <LazyFeature
         className="h-full min-h-0"
         componentProps={{

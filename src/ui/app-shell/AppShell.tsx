@@ -17,10 +17,14 @@ export interface AppShellProps {
 export function AppShell({ topBar, activityRail, children, className }: AppShellProps) {
   return (
     <div className={cn("flex h-full min-h-0 flex-col", className)}>
-      {/* `relative z-60`: matches `NotificationToastViewport`'s layer — a Sheet opened by
-          `children` is `position: fixed` at `z-50` and would otherwise sit on top of this
-          persistent chrome, since a fixed element compares z-index against the page's stacking
-          contexts regardless of where it is nested in the DOM. */}
+      {/* `relative z-60`: a Sheet opened by `children` is `position: fixed` and would otherwise sit
+          on top of this persistent chrome, since a fixed element compares z-index against the
+          page's stacking contexts regardless of where it is nested in the DOM. Sheet's `left`/
+          `right`/`bottom` placements stay at z-50, below this, by design — they are modals over
+          the work surface, not a claim to replace this chrome. Sheet's `full` placement is the one
+          exception (z-65, above this): design.md Decision 3's "辅助区域全屏 Sheet" means a true
+          full-screen takeover, which this chrome should not visually interrupt.
+          `NotificationToastViewport` sits above both at z-70, so a toast is never hidden by either. */}
       <div className="relative z-60 shrink-0 border-b border-border-subtle">{topBar}</div>
       <div className="flex min-h-0 flex-1">
         <div className="relative z-60 shrink-0 border-r border-border-subtle">{activityRail}</div>

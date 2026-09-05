@@ -61,7 +61,15 @@ export function Sheet({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/50"
+      className={cn(
+        "fixed inset-0 bg-black/50",
+        // `full` is design.md Decision 3's "辅助区域全屏 Sheet" -- a true full-screen takeover, so it
+        // must sit above AppShell's persistent chrome (topBar/activityRail, z-60) rather than under
+        // it like every other placement; those never claim to be more than a modal over the work
+        // surface. NotificationToastViewport goes one layer higher still (z-70) so a toast stays
+        // visible even while this is open.
+        placement === "full" ? "z-65" : "z-50",
+      )}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget && !closeDisabled) onClose();
       }}

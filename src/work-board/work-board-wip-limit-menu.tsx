@@ -58,7 +58,7 @@ export function WorkBoardWipLimitMenu({ limits, onSave }: WorkBoardWipLimitMenuP
       <button
         aria-expanded={open}
         aria-haspopup="true"
-        className="ucd-focus-ring inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-sm hover:bg-accent"
+        className="ucd-focus-ring inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border border-border px-2.5 py-1.5 text-sm hover:bg-accent"
         onClick={() => setOpen((value) => !value)}
         type="button"
       >

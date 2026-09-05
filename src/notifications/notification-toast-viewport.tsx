@@ -123,7 +123,7 @@ export function NotificationToastViewport({
     <div
       aria-label={t("notifications.toastRegion")}
       aria-live="polite"
-      className="pointer-events-none fixed inset-x-2 top-12 z-60 grid justify-items-stretch gap-2 sm:left-1/2 sm:right-auto sm:w-[min(26rem,calc(100vw-2rem))] sm:-translate-x-1/2 sm:justify-items-center"
+      className="pointer-events-none fixed inset-x-2 top-12 z-70 grid justify-items-stretch gap-2 sm:left-1/2 sm:right-auto sm:w-[min(26rem,calc(100vw-2rem))] sm:-translate-x-1/2 sm:justify-items-center"
       // 20.18: a bare <div>'s implicit ARIA role is `generic`, which the ARIA-in-HTML spec (and
       // axe-core's `aria-prohibited-attr` rule) does not permit naming via `aria-label` -- a
       // `generic` element carries no exposed semantics an accessible name could attach to.

@@ -74,7 +74,7 @@ export function WorkspaceActivityBar({
   const sessionsLabel = sessionSidebarExpanded ? labels.collapseSessions : labels.expandSessions;
 
   return (
-    <nav aria-label={labels.navigation} className="ucd-activity-bar flex w-12 shrink-0 flex-col items-center px-1 py-2">
+    <nav aria-label={labels.navigation} className="ucd-activity-bar flex h-full w-12 shrink-0 flex-col items-center px-1 py-2">
       <div className="flex flex-col items-center gap-1" data-activity-group="primary">
         <button
           aria-controls="workspace-session-sidebar"

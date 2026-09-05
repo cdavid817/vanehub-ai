@@ -123,7 +123,7 @@ export function MissionControlToolbar({
         </select>
       }
       viewControl={
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           <MissionControlSavedViewMenu onApply={onApplySavedView} onDelete={onDeleteSavedView} onSave={onSaveCurrentView} savedViews={savedViews} />
           <button aria-label={t("missionControl.refresh")} className="ucd-interactive grid h-8 w-8 place-items-center rounded-md border border-input" onClick={onRefresh} title={t("missionControl.refresh")} type="button">
             <RefreshCw aria-hidden="true" className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
