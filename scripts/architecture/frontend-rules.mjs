@@ -381,13 +381,17 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 合并后重测(本次 merge):上面两组理由分属这条分支的三个 change(权限决定、Shell 生命周期、
 // 搜索取消与预算)与 main 侧的 Skill Evolution,落在互不相交的文件上。合并树实测 27405,不是
 // 26515+890 也不是 25116+2289——相加会把两边共有的基线算两遍。按实测记,不留余量。
+// 再次上调(reduce-session-runtime-overhead):+17 是 runtime-terminal-rendering.ts,一个运行时绑定,
+// 与 runtime-agent-client、runtime-session-log-client 同一模式同一理由。终端加速渲染只对桌面端有
+// 意义——Web/mock 的终端写的是夹具文本,不驱动任何进程——而两个终端界面在两个运行时里都要渲染,所以
+// 这个判断只能有一处写法,组件里出现运行时分支正是 ARCH-FE-002 要拦的东西。按实测 27422 记,不留余量。
 // 上调理由(add-session-worktree-cleanup):+658,会话删除服务边界——类型合约与接口
 // (session-deletion-service)、Tauri 调用适配(tauri-session-deletion-client),以及显式
 // 声明为模拟的 Web/mock 状态、决策模拟与执行器(web-session-deletion-state / -simulation /
 // -runner / -client)。删除仲裁在 Rust 侧,前端只承载预览、选择与结果投影;React 仍只依赖
-// 服务边界。按当前树实测精确到 28063,不预留余量。
+// 服务边界。合并 main 后重测:两边落在互不相交的文件上,合并树实测 28080,不预留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 28063, owner: "add-session-worktree-cleanup" },
+  { root: "src/services", budget: 28080, owner: "add-session-worktree-cleanup" },
 ]);
 
 const STATE_PACKAGES = new Set([

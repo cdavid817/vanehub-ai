@@ -17,7 +17,7 @@ use super::{
     SessionRecoverySummary, SessionRepository, SessionRuntimePort, SessionSearchQuery,
     SessionSearchResult, SessionSshBinding, SessionTransactionPort, SessionUsageRepository,
     SessionUsageStatistics, SessionUsageSummary, SessionWorkspace, SessionsApplicationError,
-    TokenAccountingPort, UpdateSessionSeatsRequest, UsageStatisticsRange,
+    StreamTextField, TokenAccountingPort, UpdateSessionSeatsRequest, UsageStatisticsRange,
 };
 use crate::contexts::sessions::domain::{
     normalize_chat_preferences, restore_chat_preferences, CategoryId, CategoryName, FileLineRange,
@@ -1427,10 +1427,12 @@ impl SessionsApplicationService {
         content_delta: &str,
     ) -> Result<(), SessionsApplicationError> {
         let message_id = MessageId::parse(message_id)?;
-        let mut record = self.load_message(&message_id)?;
-        record.content.push_str(content_delta);
-        record.updated_at = self.ports.clock.now();
-        self.ports.messages.save_stream_fields(&record)
+        self.ports.messages.append_stream_text(
+            &message_id,
+            StreamTextField::Content,
+            content_delta,
+            &self.ports.clock.now(),
+        )
     }
 
     pub(crate) fn append_message_thinking(
@@ -1439,13 +1441,12 @@ impl SessionsApplicationService {
         content_delta: &str,
     ) -> Result<(), SessionsApplicationError> {
         let message_id = MessageId::parse(message_id)?;
-        let mut record = self.load_message(&message_id)?;
-        record
-            .thinking_content
-            .get_or_insert_with(String::new)
-            .push_str(content_delta);
-        record.updated_at = self.ports.clock.now();
-        self.ports.messages.save_stream_fields(&record)
+        self.ports.messages.append_stream_text(
+            &message_id,
+            StreamTextField::Thinking,
+            content_delta,
+            &self.ports.clock.now(),
+        )
     }
 
     pub(crate) fn append_message_tool_use(

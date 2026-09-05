@@ -61,7 +61,7 @@ pub(crate) use ports::{
     SessionFileContentPort, SessionIdentityPort, SessionLoggingPort, SessionMessageRepository,
     SessionOperationPort, SessionRecoveryEventPort, SessionRecoveryReportRepository,
     SessionRepository, SessionRuntimePort, SessionTerminalEvidencePort, SessionTransactionPort,
-    SessionUsageRepository,
+    SessionUsageRepository, StreamTextField,
 };
 pub(crate) use recovery_coordinator::SessionRecoveryCoordinator;
 pub(crate) use report::{

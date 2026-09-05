@@ -92,6 +92,16 @@ pub(crate) trait SessionTerminalEvidencePort: Send + Sync {
     ) -> Result<SessionTerminalEvidence, SessionsApplicationError>;
 }
 
+/// The two message columns a stream appends to token by token.
+///
+/// Separated from the structured columns because those change per tool call or rich block, not per
+/// token, and a token flush that rewrote them would be re-serializing JSON it never touched.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StreamTextField {
+    Content,
+    Thinking,
+}
+
 pub(crate) trait SessionMessageRepository: Send + Sync {
     fn find(
         &self,
@@ -103,6 +113,19 @@ pub(crate) trait SessionMessageRepository: Send + Sync {
     fn save(&self, message: &MessageRecord) -> Result<MessageRecord, SessionsApplicationError>;
 
     fn save_stream_fields(&self, message: &MessageRecord) -> Result<(), SessionsApplicationError>;
+
+    /// Appends a streamed delta without reading the row back first.
+    ///
+    /// The token path is the only caller frequent enough for a read-modify-write to matter: it
+    /// reloaded the whole message and rewrote every streamed column on each flush, so the cost of
+    /// one flush grew with everything already streamed.
+    fn append_stream_text(
+        &self,
+        message_id: &MessageId,
+        field: StreamTextField,
+        delta: &str,
+        updated_at: &str,
+    ) -> Result<(), SessionsApplicationError>;
 
     fn list(
         &self,

@@ -79,6 +79,7 @@ dirs = { workspace = true }
 tauri-plugin-opener = { workspace = true }
 tauri-plugin-updater = { workspace = true }
 tauri-plugin-process = { workspace = true }
+tauri-plugin-single-instance = { workspace = true }
 tauri-plugin-wdio = { workspace = true, optional = true }
 tauri-plugin-wdio-webdriver = { workspace = true, optional = true }
 globset = { workspace = true }

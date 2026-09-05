@@ -97,6 +97,7 @@ dirs = "6"
 tauri-plugin-opener = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+tauri-plugin-single-instance = "2"
 tauri-plugin-wdio = { version = "=1.3.0" }
 tauri-plugin-wdio-webdriver = { version = "=1.3.0" }
 globset = "0.4"
