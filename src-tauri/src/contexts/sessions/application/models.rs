@@ -216,6 +216,8 @@ pub(crate) struct CreatedSessionWorktree {
     pub(crate) path: String,
     pub(crate) name: String,
     pub(crate) branch: String,
+    /// The provenance record to bind the new session to, when the workspace tracks one.
+    pub(crate) worktree_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

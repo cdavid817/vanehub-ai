@@ -120,6 +120,7 @@ import type { PersonalizationService } from "./personalization-service";
 import type { ChatMessagingService } from "./chat-messaging-service";
 import type { SessionChatConfigService } from "./session-chat-config-service";
 import type { SessionLifecycleService, SessionSeatService } from "./session-lifecycle-service";
+import type { SessionDeletionService } from "./session-deletion-service";
 import type { SessionQueryService } from "./session-query-service";
 import type { SessionRecoveryService } from "./session-recovery-service";
 import type { CodeIndexService } from "./code-index-service";
@@ -162,6 +163,7 @@ export interface AgentService extends
   PersonalizationService,
   ChatMessagingService,
   SessionChatConfigService,
+  SessionDeletionService,
   SessionLifecycleService,
   SessionQueryService,
   SessionRecoveryService,
@@ -204,6 +206,8 @@ export interface AgentService extends
 
 export type SessionStateEvent =
   | { kind: "active-session-changed"; sessionId: string | null }
+  /** The set of sessions changed without the active one moving; lists should refetch. */
+  | { kind: "sessions-changed"; sessionId: null }
   | { kind: "configuration-changed"; sessionId: string }
   | RecoverySessionStateEvent;
 

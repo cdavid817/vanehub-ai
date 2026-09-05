@@ -24,6 +24,9 @@ mod session_shell_registry;
 mod session_shell_remote;
 mod session_shell_store;
 mod text_metadata;
+mod worktree_cleanup;
+mod worktree_cleanup_models;
+mod worktree_cleanup_policy;
 
 /// Published to tests only.
 ///
@@ -84,9 +87,9 @@ pub(crate) use models::{
     CreatedWorktree, DirectoryEntry, DirectoryListing, DocumentListing, FileContent,
     FileSearchListing, FileSearchMatch, GitBranchReference, GitDiffFile, GitDiffHunk, GitDiffLine,
     GitDiffResult, GitDiffSource, GitStatusEntry, GitStatusResult, KnownProject,
-    KnownRemoteWorkspace, SessionDocument, SessionLogEntry, SessionLogExportResult, SessionLogPage,
-    SessionLogQuery, SessionWorkspaceContext, ShellLog, ShellRemoteEndpoint, ShellSshBinding,
-    ShellWorkspace, ShellWorkspacePolicy, WorkspaceLogLevel,
+    KnownRemoteWorkspace, PlannedWorktree, SessionDocument, SessionLogEntry,
+    SessionLogExportResult, SessionLogPage, SessionLogQuery, SessionWorkspaceContext, ShellLog,
+    ShellRemoteEndpoint, ShellSshBinding, ShellWorkspace, ShellWorkspacePolicy, WorkspaceLogLevel,
 };
 pub(crate) use ports::{
     ProjectDirectorySelectionPort, ShellLifecycleDiagnosticsPort, WorkspaceClockPort,
@@ -123,6 +126,18 @@ pub(crate) use session_shell_remote::{
 };
 pub(crate) use session_shell_store::ShellStore;
 pub(crate) use text_metadata::{detect_encoding, detect_newline};
+/// Ordinary-session worktree provenance, inspection and conservative removal.
+pub(crate) use worktree_cleanup::WorktreeCleanupService;
+pub(crate) use worktree_cleanup_models::{
+    CheckCompleteness, GateClaim, GateHolder, GateOwner, GateRejection, IgnoredEntry,
+    IgnoredInventory, ManagedWorktreeRepository, Presence, ProbeBudget, WorktreeChangeSummary,
+    WorktreeCleanupClockPort, WorktreeIdPort, WorktreeInspection, WorktreeObservation,
+    WorktreeProbe, WorktreeProbePort, WorktreeRemovalOutcome, WorktreeRemovalPort,
+    WorktreeRemovalReport, WorktreeResolution, WorktreeSessionView, WorktreeUseGatePort,
+};
+pub(crate) use worktree_cleanup_policy::{
+    evaluate_cleanup, reason, ReferenceSummary, WorktreeCleanupPolicy,
+};
 
 #[cfg(test)]
 mod invalidation_tests;

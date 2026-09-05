@@ -14,6 +14,8 @@ import type { LoopInspectionTarget } from "../types/loop";
 import { CreateCategoryDialog } from "./create-category-dialog";
 import { CreateSessionDialog } from "./create-session-dialog";
 import { SessionContextPanel, type ContextPanelState } from "./session-context-panel";
+import { SessionDeletionDialog } from "./session-deletion/session-deletion-dialog";
+import { useSessionDeletion } from "./session-deletion/use-session-deletion";
 import { SessionInfoPanel } from "./session-info-panel";
 import { SessionSidebar } from "./session-sidebar";
 import { nextSlashTabRequestState, type SlashTabRequest } from "./slash-tab-request";
@@ -77,6 +79,7 @@ export function MainLayout({
   onNavigate: (next: WorkspaceLocation, options?: { replace?: boolean }) => void;
 }) {
   const model = useMainLayoutModel();
+  const deletion = useSessionDeletion();
   const destination = location.destination;
   const { activeSessionId, archivedSessions, sessions, switchSession } = model;
   const goTo = (next: Partial<WorkspaceLocation>, options?: { replace?: boolean }) =>
@@ -307,10 +310,10 @@ export function MainLayout({
                 agentsAvailable={model.agentsAvailable}
                 archivedSessions={model.archivedSessions}
                 categories={model.categories}
-                deletingSessions={model.deletingSessions}
+                deletingSessions={deletion.busy}
                 focusSearchToken={searchFocusToken}
                 onAssignCategory={model.assignCategory}
-                onBatchDelete={model.deleteSessions}
+                onBatchDelete={deletion.request}
                 onContextMenu={openContextMenu}
                 onNew={() => goTo({ destination: "sessions", creatingSession: true })}
                 onSearchChange={model.setSessionSearchQuery}
@@ -478,7 +481,7 @@ export function MainLayout({
         onAssignCategory={model.assignCategory}
         onChange={setContextPanel}
         onCreateCategory={(session) => setCategoryDialogSession(session)}
-        onDelete={model.deleteSession}
+        onDelete={(session) => deletion.request([session])}
         onDismiss={() => setContextPanel(null)}
         onExport={model.exportSession}
         onPin={model.pinSession}
@@ -487,6 +490,7 @@ export function MainLayout({
         recovering={recoveringSessionId !== null}
         value={contextPanel}
       />
+      <SessionDeletionDialog controller={deletion} />
       <CreateSessionDialog
         agents={model.agents}
         onClose={() => goTo({ creatingSession: false })}

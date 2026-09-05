@@ -115,6 +115,29 @@ The system **does not run `git worktree remove`, delete the branch, merge, or co
 
 This is deliberate: the output of an automatic run should not be cleaned up before you have looked at it.
 
+## Optional worktree cleanup when a session is deleted
+
+Deleting an ordinary session opens one confirmation dialog. **By default only the session and its chat history are deleted**; the working directory and the Git branch are kept, and the confirm button says exactly that: "Delete session only".
+
+If the session uses a worktree VaneHub AI created itself, the dialog shows one more row — directory, branch, check status and references — with an **unticked by default** option "Also delete the associated worktree". Ticking it changes the button to "Delete session and worktree"; the deletion then runs a non-forced `git worktree remove`, which removes the working directory and its Git registration. **The branch is always kept**, so the commits stay reachable with `git checkout vanehub/name`.
+
+The option can only be ticked when every check passes. When any check fails the row is still shown, only "Delete session only" is possible, and the reason is spelled out:
+
+| Situation | Result |
+| --- | --- |
+| Uncommitted, staged, conflicted or untracked files | Cleanup refused; directory and session are kept until you decide |
+| Files ignored by Git (such as `.env` or local dependencies) | A separate acknowledgement that you have checked and backed up what you need; it expires when the ignored inventory changes |
+| Another session, an archived session, a scheduled task or a Loop still uses the directory | Cleanup refused; only your own session record can be deleted |
+| The directory cannot be verified as created by this application (a legacy session without creation evidence, an external directory, a Loop or sub-Agent worktree) | Keep only |
+| Detached HEAD, locked, an unfinished merge/rebase, nested inside another worktree, submodules or sparse checkout | Cleanup refused |
+| Git is unavailable or the check failed | The option is disabled; deleting only the session still works |
+
+Ordinary project sessions and remote sessions never show the option: the project directory and the remote directory are never deleted, and no SSH connection is opened for it.
+
+Deletion runs asynchronously. After you confirm, the dialog shows the phases "Stopping activity", "Re-checking", "Removing working directory" and "Deleting session records", and it cannot be closed while they run. Identity, file state and references are verified again right before the removal; any change invalidates this authorization and asks for a new check. If the Git cleanup fails the session is **kept** — it is never silently downgraded to a session-only deletion — and you can re-check and decide again. If the directory was removed but deleting the session data failed, the dialog shows "Directory removed, session data still pending": the session cannot start new work until that finishes, and after a restart the database step resumes on its own while **Git removal is never run a second time**. When the directory state cannot be confirmed the operation is marked "Needs attention"; inspect the directory and `git worktree list` yourself before continuing.
+
+In Web preview mode every cleanup is simulated, the dialog says so, and no local directory is deleted.
+
 ## Notes and limits
 
 - **Desktop only**, because it depends on a local Git executable.
@@ -122,6 +145,7 @@ This is deliberate: the output of an automatic run should not be cleaned up befo
 - **A remote workspace does not support worktrees** — it can only point at a path that already exists there. Which is why [Loop Engineering](loop-engineering.md) **does not apply to a remote workspace** either.
 - **An existing target path is rejected**, never overwritten or reused.
 - **A Loop's worktree is never cleaned up automatically**, so accumulated directories are yours to manage.
+- **An ordinary session's worktree is removed only when the session is deleted and you explicitly tick the option**, and the branch is always kept; see the section above.
 - **VaneHub AI does not commit, merge, or push** the changes in a worktree for you.
 
 ### Things to watch once you have several

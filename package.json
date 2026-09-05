@@ -34,6 +34,7 @@
     "test:desktop:session-workspace": "node scripts/test-desktop.mjs session-workspace",
     "test:desktop:session-shell": "node scripts/test-desktop.mjs session-shell",
     "test:desktop:dialogs": "node scripts/test-desktop.mjs dialogs",
+    "test:desktop:session-deletion": "node scripts/test-desktop.mjs session-deletion",
     "test:desktop:scheduled-tasks": "node scripts/test-desktop.mjs scheduled-tasks",
     "test:desktop:settings-persistence": "node scripts/test-desktop.mjs settings-persistence",
     "test:desktop:agent-mcp": "node scripts/test-desktop.mjs agent-mcp",

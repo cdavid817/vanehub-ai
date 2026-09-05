@@ -176,7 +176,11 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     };
     std::env::set_var("VANEHUB_APP_DATA_DIR", &data_dir);
     let fallback_log_directory = logging::fallback_log_dir();
-    let database = NativeDatabase::new(data_dir).map_err(boxed_error)?;
+    let database = NativeDatabase::new(data_dir.clone()).map_err(boxed_error)?;
+    // This process's provable identity, held for its whole life. Taken right after the database
+    // because every cross-instance claim recorded there names it.
+    let instance_lease = crate::platform::instance_lease::InstanceLease::acquire(&data_dir)
+        .map_err(|rejection| boxed_message(format!("instance lease unavailable: {rejection:?}")))?;
     #[cfg(feature = "desktop-e2e")]
     write_desktop_e2e_process_marker("running").map_err(boxed_error)?;
     let evidence_logging: Arc<dyn DiagnosticLogPort> = Arc::new(UnifiedLoggingAdapter::active(
@@ -366,6 +370,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         fallback_log_directory.clone(),
         Arc::new(evidence_bridge.clone()),
         ssh_connections_api.clone(),
+        instance_lease.clone(),
     );
     let native_config_reader = Arc::new(NativeConfigReader::new(Arc::new(
         UnifiedLoggingAdapter::active(fallback_log_directory.clone()),
@@ -376,6 +381,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
             app: app.handle().clone(),
             operations: operations_api.clone(),
             workspaces: workspace_api.clone(),
+            lease: instance_lease.clone(),
         },
         cli_parameter_runtime_api.clone(),
         native_config_reader,
@@ -533,6 +539,30 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     session_recovery
         .run_startup_with_retry(100)
         .map_err(boxed_message)?;
+    // Shells consult sessions before opening in a session a deletion holds.
+    workspace_api.bind_execution_admission(Arc::new(super::SessionExecutionAdmissionBridge(
+        sessions_api.clone(),
+    )));
+    // Interrupted deletions are observed, never replayed. Observation asks Git about each
+    // interrupted directory, so it runs off the startup path; the sessions involved stay claimed
+    // in the journal until it finishes, which is what keeps new work out of them meanwhile.
+    {
+        let sessions_api = sessions_api.clone();
+        let log_directory = fallback_log_directory.clone();
+        let _ = std::thread::Builder::new()
+            .name("session-deletion-reconcile".to_string())
+            .spawn(move || {
+                if let Err(error) = sessions_api.reconcile_pending_deletions() {
+                    let logging = UnifiedLoggingAdapter::active(log_directory);
+                    let _ = logging.write_diagnostic(DiagnosticLog {
+                        severity: LogSeverity::Warn,
+                        category: "session.delete".to_string(),
+                        message: format!("Deletion reconciliation failed at startup: {error}"),
+                        context: std::collections::BTreeMap::new(),
+                    });
+                }
+            });
+    }
     let agent_run_controls_api =
         super::AgentRunControlsApi::new(agent_runs_api.clone(), agent_runtime_api.clone());
     agent_runtime_api

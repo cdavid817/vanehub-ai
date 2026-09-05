@@ -6,7 +6,27 @@ use crate::commands::error::{map_command_error, CommandErrorCategory};
 use crate::contexts::sessions::api::SessionsError;
 use serde_json::{json, Value};
 
-const MIGRATED_SESSION_COMMANDS: [(&str, &str); 28] = [
+const MIGRATED_SESSION_COMMANDS: [(&str, &str); 33] = [
+    (
+        "preview_session_deletion",
+        include_str!("preview_session_deletion.rs"),
+    ),
+    (
+        "execute_session_deletion",
+        include_str!("execute_session_deletion.rs"),
+    ),
+    (
+        "get_session_deletion_operation",
+        include_str!("get_session_deletion_operation.rs"),
+    ),
+    (
+        "list_pending_session_deletions",
+        include_str!("list_pending_session_deletions.rs"),
+    ),
+    (
+        "retry_session_deletion",
+        include_str!("retry_session_deletion.rs"),
+    ),
     ("create_session", include_str!("create_session.rs")),
     ("list_sessions", include_str!("list_sessions.rs")),
     (
@@ -101,7 +121,12 @@ fn every_migrated_session_command_keeps_registration_frontend_and_error_boundari
         include_str!("../builtin_tool_registry.rs"),
         include_str!("../supplemental_registry.rs")
     );
-    let tauri_client = include_str!("../../../../src/services/tauri-agent-client.ts");
+    // The deletion commands live in their own adapter file, composed into the agent client;
+    // both are the frontend's declared invoke surface.
+    let tauri_client = concat!(
+        include_str!("../../../../src/services/tauri-agent-client.ts"),
+        include_str!("../../../../src/services/tauri-session-deletion-client.ts")
+    );
 
     for (command, handler) in MIGRATED_SESSION_COMMANDS {
         assert!(
