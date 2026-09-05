@@ -87,6 +87,10 @@ pub(super) fn timeline_to_dto(timeline: ExecutionTimeline) -> dto::ExecutionTime
             })
             .collect(),
         events: timeline.events.into_iter().map(event_to_dto).collect(),
+        event_coverage: dto::EventCoverageDto {
+            truncated: timeline.event_coverage.truncated,
+            next_page_token: timeline.event_coverage.next_page_token,
+        },
     }
 }
 

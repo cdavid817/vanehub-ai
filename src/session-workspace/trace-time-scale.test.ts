@@ -109,11 +109,17 @@ describe("trace time scale", () => {
       1,
     );
 
-    const placement = placeSpanBar(span({ spanId: "b", startOffsetMs: 500 }), scale);
+    // Status stated rather than defaulted. This test previously relied on the helper's default
+    // `succeeded` and passed only because placement ignored status entirely — so it asserted the
+    // running case using a span that had already finished.
+    const placement = placeSpanBar(
+      span({ spanId: "b", startOffsetMs: 500, status: "running" }),
+      scale,
+    );
 
-    expect(placement).toMatchObject({ kind: "placed", openEnded: true });
-    // The flag travels with the placement rather than being inferred from the width, so a renderer
-    // cannot accidentally draw a definite end on a span that has none.
+    expect(placement).toMatchObject({ kind: "placed", measurement: "running" });
+    // The measurement travels with the placement rather than being inferred from the width, so a
+    // renderer cannot accidentally draw a definite end on a span that has none.
     if (placement.kind === "placed") expect(placement.widthPx).toBeGreaterThan(0);
   });
 
@@ -129,7 +135,7 @@ describe("trace time scale", () => {
       scale,
     );
 
-    expect(placement).toMatchObject({ kind: "placed", openEnded: false, leftPx: 0 });
+    expect(placement).toMatchObject({ kind: "placed", measurement: "measured", leftPx: 0 });
     if (placement.kind === "placed") expect(placement.widthPx).toBe(500);
   });
 
@@ -149,6 +155,66 @@ describe("trace time scale", () => {
     if (placement.kind === "placed") {
       expect(placement.widthPx).toBeGreaterThanOrEqual(MIN_BAR_WIDTH_PX);
     }
+  });
+
+  it("does not draw a terminated span with an unmeasurable duration as still running", () => {
+    const scale = traceTimeScale(
+      [span({ spanId: "a", startOffsetMs: 0, completedDurationMs: 1000 })],
+      800,
+      1,
+    );
+
+    // Failed, and it has an end timestamp — but the duration could not be derived from it. The
+    // native projection returns an absent duration for four distinct reasons and only one of them
+    // is "still running"; reading absence alone cannot tell them apart.
+    const placement = placeSpanBar(
+      span({ spanId: "b", startOffsetMs: 500, status: "failed", endedAt: "2026-08-25T10:00:02.000Z" }),
+      scale,
+    );
+
+    expect(placement).toMatchObject({ kind: "placed", measurement: "unknown" });
+  });
+
+  it("reads an incomplete span as ended, not as running", () => {
+    const scale = traceTimeScale(
+      [span({ spanId: "a", startOffsetMs: 0, completedDurationMs: 1000 })],
+      800,
+      1,
+    );
+
+    const placement = placeSpanBar(
+      span({ spanId: "b", startOffsetMs: 0, status: "incomplete" }),
+      scale,
+    );
+
+    // `incomplete` is a terminal state: the work stopped without a verified result. Drawing it as
+    // open-ended claims it is still going, which is the opposite of what the status says.
+    expect(placement).toMatchObject({ kind: "placed", measurement: "unknown" });
+  });
+
+  it("separates lifecycle from measurement across all three cases", () => {
+    const scale = traceTimeScale(
+      [span({ spanId: "a", startOffsetMs: 0, completedDurationMs: 1000 })],
+      800,
+      1,
+    );
+    const place = (overrides: Parameters<typeof span>[0]) =>
+      placeSpanBar(span(overrides), scale);
+
+    // Lifecycle state and measurement quality are independent facts, so every combination has to
+    // land on exactly one of three answers rather than collapsing into "has a duration or not".
+    expect(place({ spanId: "r", startOffsetMs: 0, status: "running" })).toMatchObject({
+      measurement: "running",
+    });
+    expect(place({ spanId: "a", startOffsetMs: 0, status: "accepted" })).toMatchObject({
+      measurement: "running",
+    });
+    expect(
+      place({ spanId: "m", startOffsetMs: 0, status: "succeeded", completedDurationMs: 500 }),
+    ).toMatchObject({ measurement: "measured" });
+    expect(place({ spanId: "u", startOffsetMs: 0, status: "cancelled" })).toMatchObject({
+      measurement: "unknown",
+    });
   });
 
   it("bounds the number of axis ticks however far the reader zooms", () => {

@@ -1,34 +1,20 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { agentService } from "../services/runtime-agent-client";
 import { snapshotSeat } from "../services/seat-presentation";
-import { operationService } from "../services/runtime-operation-client";
-import { sshConnectionService } from "../services/runtime-ssh-connection-client";
 import { CreateSessionDialogContent } from "./create-session-dialog-content";
-import { canCreateSession, conciseError, defaultSshConnectionDraft, firstMode, resolveCreatedSession, submitCreateSession } from "./create-session-dialog-utils";
+import { canCreateSession, defaultSshConnectionDraft, firstMode, submitCreateSession } from "./create-session-dialog-utils";
 import { defaultSessionAgent, previousSessionAgentStorageKey, selectSessionAgents } from "./create-session-agents";
+import { useCreateSessionOperation } from "./use-create-session-operation";
+import { useProjectInspection } from "./use-project-inspection";
+import { useCreateSessionReferenceData } from "./use-create-session-reference-data";
 import type { WorkspaceMode } from "./create-session-workspace-sections";
 import { modeForWorkspace } from "./session-personalization-mode-selector";
 import type { SessionPersonalizationMode } from "../types/personalization";
 import type { SessionAgentMode } from "./session-agent-mode-selector";
 import type { SessionSeat } from "../types/agent";
-import type { ExpertRole } from "../types/expert-role";
-import type {
-  AgentRegistryEntry,
-  InteractionMode,
-  KnownRemoteWorkspace,
-  KnownProject,
-  ProjectInspection,
-  Session,
-} from "../types/agent";
-import type {
-  SaveSshConnectionInput,
-  SshConnection,
-} from "../types/ssh-connection";
-import {
-  defaultSessionTitleFromPath,
-  normalizeDisplayPath,
-} from "../lib/session-path";
+import type { AgentRegistryEntry, InteractionMode, Session } from "../types/agent";
+import type { SaveSshConnectionInput } from "../types/ssh-connection";
+import { defaultSessionTitleFromPath } from "../lib/session-path";
 export function CreateSessionDialog({
   agents,
   onClose,
@@ -56,20 +42,16 @@ export function CreateSessionDialog({
     useState<InteractionMode>("cli");
   const [agentMode, setAgentMode] = useState<SessionAgentMode>("single");
   const [multiSeats, setMultiSeats] = useState<SessionSeat[]>([]);
-  const [expertRoles, setExpertRoles] = useState<ExpertRole[]>([]);
   const [title, setTitle] = useState("");
   const [titleUserEdited, setTitleUserEdited] = useState(false);
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>("local");
-  const [projectPath, setProjectPath] = useState("");
   const [personalizationMode, setPersonalizationMode] =
     useState<SessionPersonalizationMode>("standard");
-  const [knownProjects, setKnownProjects] = useState<KnownProject[]>([]);
-  const [knownRemoteWorkspaces, setKnownRemoteWorkspaces] = useState<KnownRemoteWorkspace[]>([]);
-  const [sshConnections, setSshConnections] = useState<SshConnection[]>([]);
+  const { expertRoles, knownProjects, knownRemoteWorkspaces, sshConnections } =
+    useCreateSessionReferenceData(open);
   const [selectedSshConnectionId, setSelectedSshConnectionId] = useState("");
   const [saveSshConnection, setSaveSshConnection] = useState(false);
   const [sshConnectionDraft, setSshConnectionDraft] = useState<SaveSshConnectionInput>(defaultSshConnectionDraft);
-  const [inspection, setInspection] = useState<ProjectInspection | null>(null);
   const [worktreeEnabled, setWorktreeEnabled] = useState(false);
   const [worktreeName, setWorktreeName] = useState("");
   const [remoteHost, setRemoteHost] = useState("");
@@ -81,10 +63,33 @@ export function CreateSessionDialog({
   const [error, setError] = useState<string | null>(null);
   const [createOperationId, setCreateOperationId] = useState<string | null>(null);
   const [handledCreateOperationId, setHandledCreateOperationId] = useState<string | null>(null);
+  const { browseProject, inspectPath, inspection, projectPath, resetInspection, setProjectPath } =
+    useProjectInspection({
+      onError: setError,
+      onFolderChanged: () => {
+        // The worktree choice was made about the previous folder; a new one has no branch yet.
+        setWorktreeEnabled(false);
+        setWorktreeName("");
+      },
+      t,
+    });
+  // Read inside the effect rather than depended on. `agents` is refetched query data, so a new
+  // array arrives on every refetch -- and this effect *resets the form*. Keying it on the agent
+  // list means a background refresh wipes a half-filled dialog.
+  const latestAgents = useRef(availableAgents);
+  latestAgents.current = availableAgents;
+  useEffect(() => {
+    if (open) return;
+    // Closing abandons the watch rather than suspending it. The session may still be created and
+    // stays reachable from the session list, but reopening the dialog must not resume a creation
+    // the user walked away from and navigate them into it.
+    setCreateOperationId(null);
+    setLoading(false);
+  }, [open]);
   useEffect(() => {
     if (!open) return;
     const agent = defaultSessionAgent(
-      availableAgents,
+      latestAgents.current,
       window.localStorage.getItem(previousSessionAgentStorageKey),
     );
     setAgentId(agent?.id ?? "");
@@ -97,7 +102,6 @@ export function CreateSessionDialog({
     // the last one would keep making temporary sessions for a user who chose it once, or -- worse
     // in the other direction -- would not, without either being re-confirmed.
     setPersonalizationMode("standard");
-    setProjectPath("");
     setRemoteHost("");
     setRemotePort("22");
     setRemoteUser("");
@@ -107,63 +111,24 @@ export function CreateSessionDialog({
     setSaveSshConnection(false);
     setSshConnectionDraft(defaultSshConnectionDraft);
     setError(null);
-    void agentService.listExpertRoles().then(setExpertRoles).catch(() => setExpertRoles([]));
-    void agentService
-      .listKnownProjects()
-      .then(setKnownProjects)
-      .catch(() => setKnownProjects([]));
-    void agentService
-      .listKnownRemoteWorkspaces()
-      .then(setKnownRemoteWorkspaces)
-      .catch(() => setKnownRemoteWorkspaces([]));
-    void sshConnectionService
-      .listConnections()
-      .then(setSshConnections)
-      .catch(() => setSshConnections([]));
-  }, [availableAgents, open]);
+    // Left behind by the previous session otherwise: a cleared path with a stale inspection still
+    // reports the old folder's Git capability, and the worktree fields stay filled for it.
+    setWorktreeEnabled(false);
+    setWorktreeName("");
+    setMultiSeats([]);
+    resetInspection();
+  }, [open, resetInspection]);
 
-  useEffect(() => {
-    if (!createOperationId || handledCreateOperationId === createOperationId)
-      return;
-    const operationId = createOperationId;
-    let cancelled = false;
-    let timer: number | undefined;
-
-    async function pollOperation() {
-      try {
-        const operation =
-          await operationService.getOperationStatus(operationId);
-        if (cancelled) return;
-        if (operation.status === "queued" || operation.status === "running") {
-          timer = window.setTimeout(() => void pollOperation(), 600);
-          return;
-        }
-        setHandledCreateOperationId(operation.id);
-        setLoading(false);
-        if (operation.status === "failed") {
-          setError(operation.error ?? t("createSession.error.command"));
-          return;
-        }
-        const session = await resolveCreatedSession(operation.result);
-        if (!session) {
-          setError(t("createSession.error.command"));
-          return;
-        }
-        onCreated(session);
-      } catch (operationError) {
-        if (!cancelled) {
-          setLoading(false);
-          setError(conciseError(operationError, t));
-        }
-      }
-    }
-
-    void pollOperation();
-    return () => {
-      cancelled = true;
-      if (timer !== undefined) window.clearTimeout(timer);
-    };
-  }, [createOperationId, handledCreateOperationId, onCreated, t]);
+  useCreateSessionOperation({
+    active: open,
+    handledOperationId: handledCreateOperationId,
+    onCreated,
+    operationId: createOperationId,
+    setError,
+    setHandledOperationId: setHandledCreateOperationId,
+    setLoading,
+    t,
+  });
   useEffect(() => {
     if (!selectedAgent) return;
     if (!selectedAgent.supportedInteractionModes.includes(interactionMode)) {
@@ -183,31 +148,6 @@ export function CreateSessionDialog({
     titleUserEdited,
     workspaceMode,
   ]);
-  async function inspectPath(path: string) {
-    const trimmed = normalizeDisplayPath(path.trim());
-    setProjectPath(trimmed);
-    setWorktreeEnabled(false);
-    setWorktreeName("");
-    setInspection(null);
-    setError(null);
-    if (!trimmed) return;
-    try {
-      setInspection(await agentService.inspectProject(trimmed));
-    } catch (inspectionError) {
-      setError(conciseError(inspectionError, t));
-    }
-  }
-  async function browseProject() {
-    setError(null);
-    try {
-      const selectedPath = await agentService.selectProjectDirectory();
-      if (selectedPath) {
-        await inspectPath(selectedPath);
-      }
-    } catch (browseError) {
-      setError(conciseError(browseError, t));
-    }
-  }
 
   if (!open) return null;
   const gitCapable = inspection?.isGit ?? false;
@@ -303,6 +243,10 @@ export function CreateSessionDialog({
         setWorkspaceMode(mode);
         setWorktreeEnabled(false);
         setError(null);
+        // A local inspection still in flight describes a folder this mode does not ask for. Its
+        // late failure would otherwise surface in the shared error line of a remote form that
+        // shows no project field at all.
+        resetInspection();
       }}
       projectPath={projectPath}
       remoteDisplayName={remoteDisplayName}

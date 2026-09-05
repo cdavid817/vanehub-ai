@@ -1,6 +1,5 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { Network } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSessionSpeakers } from "../hooks/use-session-speakers";
 import type { Session } from "../types/agent";
@@ -8,15 +7,9 @@ import type { ExecutionObservabilityService } from "../services/execution-observ
 import { executionObservabilityService } from "../services/runtime-execution-observability-client";
 import type { ExecutionTimeline } from "../types/execution-observability";
 import { traceTransitionStream } from "../services/runtime-trace-transition-client";
-import { TraceComparisonPanel } from "./trace-comparison-panel";
-import { TraceDetailDrawer } from "./trace-detail-drawer";
-import { filterTraceSpans, NO_TRACE_FILTERS, type TraceFilters } from "./trace-filters";
 import { TraceRunList } from "./trace-run-list";
-import { TraceStatusBadge } from "./trace-span-row";
-import { TraceToolbar } from "./trace-toolbar";
-import { TraceWaterfall } from "./trace-waterfall";
+import { TraceViewport } from "./trace-viewport";
 import { useTraceLiveRefresh } from "./use-trace-live-refresh";
-import { useTraceSelection } from "./use-trace-selection";
 import { WorkspaceState } from "./workspace-state";
 
 export function ExecutionTimelineTab({
@@ -24,12 +17,15 @@ export function ExecutionTimelineTab({
   session = null,
   sessionId,
   service = executionObservabilityService,
+  subscribe = traceTransitionStream.subscribe,
 }: {
   /** False while the panel stays mounted behind another tab. */
   isVisible?: boolean;
   session?: Session | null;
   sessionId: string | null;
   service?: ExecutionObservabilityService;
+  /** The live transition stream. Injectable so a test can drive refreshes without a native event. */
+  subscribe?: typeof traceTransitionStream.subscribe;
 }) {
   const { t } = useTranslation();
   const speakers = useSessionSpeakers(session);
@@ -37,15 +33,19 @@ export function ExecutionTimelineTab({
   // Optional and off by default. A comparison answers a question a reader arrives with; opening
   // one they did not ask for costs a second timeline read on every run they click through.
   const [compareRunId, setCompareRunId] = useState<string | null>(null);
-  const live = useTraceLiveRefresh({
+  useTraceLiveRefresh({
     isVisible,
-    runId: selectedRunId,
-    subscribe: traceTransitionStream.subscribe,
+    // Both open timelines. The compared run advances on its own, and watching only the selected
+    // one left the comparison showing whatever it held when it was opened.
+    runIds: [selectedRunId, compareRunId],
+    sessionId,
+    subscribe,
   });
   const runs = useInfiniteQuery({
-    // Re-read when a *run* transition settles, which is rarer than a span one — re-reading the
-    // list once per span is how a busy run makes the whole panel unusable.
-    queryKey: ["execution-runs", sessionId, live.runListToken],
+    // Identity only. A refresh counter here would make every refresh a different query, which
+    // starts with no pages and no selection -- see `useTraceLiveRefresh` for what that cascades
+    // into. Live updates arrive as invalidations of this same key instead.
+    queryKey: ["execution-runs", sessionId],
     queryFn: ({ pageParam }) => service.listRuns({ limit: 20, pageToken: pageParam, sessionId }),
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.nextPageToken ?? undefined,
@@ -57,22 +57,59 @@ export function ExecutionTimelineTab({
     () => runs.data?.pages.flatMap((page) => page.items) ?? [],
     [runs.data?.pages],
   );
+  const newestRunId = runItems[0]?.runId ?? null;
+  // What the reader has already seen at the top of the list. Derived from the list rather than
+  // from a transition notice: a notice carries no session id and fires on finishes too, so it
+  // would announce a newer run when the reader's own run merely ended, or when one started in a
+  // session they are not looking at. The list is already scoped to this session.
+  const seenNewestRunId = useRef<string | null>(null);
   useEffect(() => {
+    // Arriving at a list is not the same as a run appearing while you read it, so the first load
+    // establishes the baseline silently.
+    if (seenNewestRunId.current === null) seenNewestRunId.current = newestRunId;
+  }, [newestRunId]);
+  const hasNewerRun =
+    newestRunId !== null &&
+    seenNewestRunId.current !== null &&
+    newestRunId !== seenNewestRunId.current;
+
+  useEffect(() => {
+    // Only corrects a selection that has become unreachable, and only once the list has actually
+    // loaded. Running against an empty list is how a refresh used to clear the reader's choice:
+    // no run matches, so it "corrects" to the first of a list that has not arrived yet.
+    if (!runItems.length) return;
     if (!runItems.some((run) => run.runId === selectedRunId)) {
       setSelectedRunId(runItems[0]?.runId ?? null);
     }
   }, [runItems, selectedRunId]);
   const compared = useQuery({
-    queryKey: ["execution-timeline", compareRunId, live.refreshToken],
+    queryKey: ["execution-timeline", compareRunId],
     queryFn: () => service.getTimeline(compareRunId ?? ""),
     enabled: Boolean(compareRunId) && isVisible,
   });
-  const timeline = useQuery({
-    // The token is part of the key, so a settled burst refetches and a quiet panel does not.
-    queryKey: ["execution-timeline", selectedRunId, live.refreshToken],
-    queryFn: () => service.getTimeline(selectedRunId ?? ""),
+  // Infinite because a run's events are bounded per response, and a reader told that events were
+  // omitted needs a way to reach them. Only the events page: every response also carries the run
+  // and its spans, which the later pages repeat and this ignores. That waste buys not adding a
+  // second command for a path only a >5000-event run ever takes.
+  const timeline = useInfiniteQuery({
+    queryKey: ["execution-timeline", selectedRunId],
+    queryFn: ({ pageParam }) => service.getTimeline(selectedRunId ?? "", pageParam),
+    initialPageParam: null as string | null,
+    getNextPageParam: (page) => page.eventCoverage.nextPageToken ?? undefined,
     enabled: Boolean(selectedRunId) && isVisible,
   });
+  const timelineData = useMemo<ExecutionTimeline | null>(() => {
+    const pages = timeline.data?.pages ?? [];
+    const first = pages[0];
+    if (!first) return null;
+    return {
+      ...first,
+      events: pages.flatMap((page) => page.events),
+      // The last page's coverage, not the first's: once the reader has followed the continuation
+      // to the end, nothing is omitted any more and the notice must stop saying otherwise.
+      eventCoverage: pages[pages.length - 1]?.eventCoverage ?? first.eventCoverage,
+    };
+  }, [timeline.data?.pages]);
 
   if (!sessionId) return <WorkspaceState kind="unavailable" />;
   if (runs.isLoading) return <WorkspaceState kind="loading" message={t("traces.loading")} />;
@@ -81,106 +118,52 @@ export function ExecutionTimelineTab({
 
   return (
     <div className="grid h-full min-h-0 gap-3 overflow-hidden lg:grid-cols-[minmax(220px,28%)_minmax(0,1fr)]">
-      <TraceRunList
-        compareRunId={compareRunId}
-        hasNextPage={Boolean(runs.hasNextPage)}
-        isFetchingNextPage={runs.isFetchingNextPage}
-        onFetchNextPage={() => runs.fetchNextPage()}
-        onCompare={(runId) => setCompareRunId((current) => (current === runId ? null : runId))}
-        onSelect={setSelectedRunId}
-        runs={runItems}
-        selectedRunId={selectedRunId}
-      />
+      <div className="flex min-h-0 flex-col gap-2">
+        {hasNewerRun ? (
+          // Announced, not applied. The reader chose this run; a newer one appearing is news, not
+          // an instruction to move them off what they are reading.
+          <button
+            className="rounded border border-primary px-2 py-1 text-[11px] text-primary hover:bg-primary/10"
+            onClick={() => {
+              seenNewestRunId.current = newestRunId;
+              setSelectedRunId(newestRunId);
+            }}
+            type="button"
+          >
+            {t("traces.newerRun")}
+          </button>
+        ) : null}
+        <TraceRunList
+          compareRunId={compareRunId}
+          hasNextPage={Boolean(runs.hasNextPage)}
+          isFetchingNextPage={runs.isFetchingNextPage}
+          onFetchNextPage={() => runs.fetchNextPage()}
+          onCompare={(runId) => setCompareRunId((current) => (current === runId ? null : runId))}
+          onSelect={(runId) => {
+            // Choosing any run acknowledges the list as it stands; the notice is about arrivals
+            // since the reader last looked, not about which run they picked.
+            seenNewestRunId.current = newestRunId;
+            setSelectedRunId(runId);
+          }}
+          runs={runItems}
+          selectedRunId={selectedRunId}
+        />
+      </div>
       <section className="relative flex min-h-0 flex-col rounded-lg border border-border bg-background p-3 sm:p-4">
         {timeline.isLoading ? <WorkspaceState kind="loading" message={t("traces.loading")} /> : null}
         {timeline.isError ? <WorkspaceState kind="error" message={t("traces.error")} /> : null}
-        {timeline.data ? (
+        {timelineData ? (
           <TraceViewport
             comparison={compareRunId && compared.data ? compared.data : null}
+            isLoadingMoreEvents={timeline.isFetchingNextPage}
             onCloseComparison={() => setCompareRunId(null)}
+            onLoadMoreEvents={timeline.hasNextPage ? () => void timeline.fetchNextPage() : null}
             sessionId={sessionId}
             speakers={speakers}
-            timeline={timeline.data}
+            timeline={timelineData}
           />
         ) : null}
       </section>
-    </div>
-  );
-}
-
-function TraceViewport({
-  comparison,
-  onCloseComparison,
-  sessionId,
-  speakers,
-  timeline,
-}: {
-  /** The other run, when the reader asked for a comparison. */
-  comparison: ExecutionTimeline | null;
-  onCloseComparison: () => void;
-  sessionId: string | null;
-  speakers: ReturnType<typeof useSessionSpeakers>;
-  timeline: ExecutionTimeline;
-}) {
-  const { t } = useTranslation();
-  const [zoom, setZoom] = useState(1);
-  const [filters, setFilters] = useState<TraceFilters>(NO_TRACE_FILTERS);
-  const filtered = useMemo(
-    () => filterTraceSpans(timeline.spans, filters),
-    [filters, timeline.spans],
-  );
-  // Selection runs over what is visible. A selection pointing at a filtered-out span would open a
-  // drawer for a row the reader cannot see, with no way to reach it again.
-  const spanIds = useMemo(() => filtered.spans.map((span) => span.spanId), [filtered.spans]);
-  const selection = useTraceSelection(spanIds);
-  const selectedSpan = filtered.spans.find((span) => span.spanId === selection.selectedId) ?? null;
-
-  return (
-    <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,26rem)]">
-      <div className="flex min-h-0 flex-col gap-2">
-        <header className="flex flex-wrap items-center gap-2">
-          <Network className="h-4 w-4 text-primary" aria-hidden="true" />
-          <h2 className="font-semibold">{t("traces.title")}</h2>
-          <TraceStatusBadge status={timeline.run.status} />
-          <span className="font-mono text-[11px] text-muted-foreground">{timeline.run.traceId}</span>
-        </header>
-        <TraceToolbar
-          filters={filters}
-          hiddenCount={filtered.hiddenCount}
-          onFiltersChange={setFilters}
-          onZoomChange={setZoom}
-          spanCount={filtered.spans.length}
-          zoom={zoom}
-        />
-        {filtered.spans.length ? (
-          <TraceWaterfall
-            selection={selection}
-            spans={filtered.spans}
-            speakers={speakers}
-            zoom={zoom}
-          />
-        ) : (
-          <WorkspaceState
-            kind="empty"
-            // The two empty states are different facts, and only the message distinguishes them:
-            // a run with no spans recorded nothing, and a filtered-out one recorded plenty.
-            message={t(filtered.hiddenCount > 0 ? "traces.allFiltered" : "traces.noSpans")}
-          />
-        )}
-      </div>
-      {comparison ? (
-        <TraceComparisonPanel left={timeline} onClose={onCloseComparison} right={comparison} />
-      ) : null}
-      {!comparison && selection.detailOpen && selectedSpan ? (
-        <TraceDetailDrawer
-          events={timeline.events}
-          onClose={selection.closeDetail}
-          runId={timeline.run.runId}
-          sessionId={sessionId}
-          span={selectedSpan}
-          traceId={timeline.run.traceId}
-        />
-      ) : null}
     </div>
   );
 }

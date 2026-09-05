@@ -2682,8 +2682,15 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // boundary; measured on the merged tree because main changed the same subtree
         // independently (the bounded terminal reap landed there in parallel); merged-tree
         // measurement: 62,879.
-        budget: 62_879,
-        owner: "add-skill-evolution-system-sessions-and-result-projection",
+        //
+        // Raised to 63,028 by `fix-session-creation-and-trace-correctness`. The +149 is the
+        // terminal producer declaring its own span kinds -- four layers that previously shared one
+        // attribute set and therefore all classified as `unknown` -- plus the three tests that run
+        // the emitted attributes through the real classifier. Asserting the attribute map instead
+        // would have been shorter and would have passed against the broken build, since every
+        // stage was individually correct and only their composition was wrong.
+        budget: 63_028,
+        owner: "fix-session-creation-and-trace-correctness",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
     // directory module. The +51 is entirely per-file boilerplate: +29 module headers (the `mod`
@@ -2834,8 +2841,13 @@ const NATIVE_PRODUCTION_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // deliberately not by this one.
         // The structured model transport contributes the remaining production-only delta on the
         // merged tree (measured 33,866); its test doubles are counted by the aggregate above.
-        budget: 33_866,
-        owner: "add-skill-evolution-system-sessions-and-result-projection",
+        //
+        // `fix-session-creation-and-trace-correctness` raises it to 33,896. The +30 is production:
+        // the kind attribute name, three kind tokens, and per-layer attribute construction where
+        // one shared set used to be reused four times. The tests that pin the classification are
+        // counted by the aggregate above and deliberately not by this one.
+        budget: 33_896,
+        owner: "fix-session-creation-and-trace-correctness",
     },
 ];
 

@@ -9,6 +9,7 @@ use crate::contexts::execution_observability::domain::{
 };
 use crate::platform::database::{NativeDatabase, PooledSqlite};
 use rusqlite::{params, Connection};
+use std::sync::LazyLock;
 
 #[derive(Clone)]
 pub(crate) struct SqliteExecutionTimelineRepository {
@@ -36,19 +37,7 @@ impl SqliteExecutionTimelineRepository {
         let (source, source_id) = source_parts(&run.source);
         transaction
             .execute(
-                r#"INSERT INTO execution_runs (
-                    run_id, trace_id, root_span_id, source, source_id, status, capture_policy,
-                    started_at, ended_at, error_classification, session_id, user_message_id,
-                    assistant_message_id, operation_id, agent_id, provider_session_id, attributes_json
-                ) VALUES (
-                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17
-                ) ON CONFLICT(run_id) DO UPDATE SET
-                    status = excluded.status,
-                    ended_at = COALESCE(excluded.ended_at, execution_runs.ended_at),
-                    assistant_message_id = COALESCE(excluded.assistant_message_id, execution_runs.assistant_message_id),
-                    operation_id = COALESCE(excluded.operation_id, execution_runs.operation_id),
-                    provider_session_id = COALESCE(excluded.provider_session_id, execution_runs.provider_session_id),
-                    attributes_json = excluded.attributes_json"#,
+                INSERT_RUN_SQL.as_str(),
                 params![
                     run.context.run_id.as_str(),
                     run.context.trace_id.as_str(),
@@ -91,15 +80,7 @@ impl SqliteExecutionTimelineRepository {
             .map_err(|error| storage_error(error.to_string()))?;
         transaction
             .execute(
-                r#"INSERT INTO execution_spans (
-                    run_id, span_id, trace_id, parent_span_id, name, status, fidelity,
-                    started_at, ended_at, error_classification, attributes_json
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
-                ON CONFLICT(run_id, span_id) DO UPDATE SET
-                    status = excluded.status,
-                    ended_at = COALESCE(excluded.ended_at, execution_spans.ended_at),
-                    error_classification = COALESCE(excluded.error_classification, execution_spans.error_classification),
-                    attributes_json = excluded.attributes_json"#,
+                INSERT_SPAN_SQL.as_str(),
                 params![
                     span.context.run_id.as_str(),
                     span.context.span_id.as_str(),
@@ -214,6 +195,72 @@ impl ExecutionTelemetryPort for SqliteExecutionTimelineRepository {
     }
 }
 
+/// The stored statuses a transition may still advance from, as a SQL literal list.
+///
+/// Derived from the domain's own terminal predicate rather than written out again. Both write
+/// paths need this set — the finish update and the start conflict branch — and two hand-written
+/// copies is exactly how they came to disagree: finish refused to overwrite a terminal status
+/// while start overwrote it unconditionally, so whether a finish survived depended on which
+/// statement ran last.
+///
+/// Built from a closed enum of known tokens, so nothing here is caller-controlled.
+///
+/// Computed once. The value is invariant, and this sits on the path every span start and finish
+/// takes — a busy run crosses it dozens of times a second.
+static ADVANCEABLE_STATUSES: LazyLock<String> = LazyLock::new(|| {
+    ExecutionStatus::ALL
+        .iter()
+        .filter(|status| !status.is_terminal())
+        .map(|status| format!("'{}'", status.as_str()))
+        .collect::<Vec<_>>()
+        .join(", ")
+});
+
+/// The run upsert, assembled once.
+///
+/// It cannot be a literal, because the status guard is derived from the domain rather than written
+/// out here. It is still invariant, so rebuilding several hundred bytes of SQL per transition
+/// would be pure waste on telemetry's hottest write path — and telemetry that costs the run it is
+/// describing is the one thing this context must not become.
+static INSERT_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        r#"INSERT INTO execution_runs (
+                    run_id, trace_id, root_span_id, source, source_id, status, capture_policy,
+                    started_at, ended_at, error_classification, session_id, user_message_id,
+                    assistant_message_id, operation_id, agent_id, provider_session_id, attributes_json
+                ) VALUES (
+                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17
+                ) ON CONFLICT(run_id) DO UPDATE SET
+                    status = CASE WHEN execution_runs.status IN ({statuses})
+                                  THEN excluded.status
+                                  ELSE execution_runs.status END,
+                    ended_at = COALESCE(excluded.ended_at, execution_runs.ended_at),
+                    assistant_message_id = COALESCE(excluded.assistant_message_id, execution_runs.assistant_message_id),
+                    operation_id = COALESCE(excluded.operation_id, execution_runs.operation_id),
+                    provider_session_id = COALESCE(excluded.provider_session_id, execution_runs.provider_session_id),
+                    attributes_json = excluded.attributes_json"#,
+        statuses = *ADVANCEABLE_STATUSES
+    )
+});
+
+/// The span upsert, assembled once. Same reasoning as the run upsert above.
+static INSERT_SPAN_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        r#"INSERT INTO execution_spans (
+                    run_id, span_id, trace_id, parent_span_id, name, status, fidelity,
+                    started_at, ended_at, error_classification, attributes_json
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                ON CONFLICT(run_id, span_id) DO UPDATE SET
+                    status = CASE WHEN execution_spans.status IN ({statuses})
+                                  THEN excluded.status
+                                  ELSE execution_spans.status END,
+                    ended_at = COALESCE(excluded.ended_at, execution_spans.ended_at),
+                    error_classification = COALESCE(excluded.error_classification, execution_spans.error_classification),
+                    attributes_json = excluded.attributes_json"#,
+        statuses = *ADVANCEABLE_STATUSES
+    )
+});
+
 fn insert_links(
     connection: &Connection,
     run_id: &str,
@@ -254,9 +301,10 @@ fn update_terminal(
             "terminal update requires terminal status and timestamp",
         ));
     }
+    let advanceable = &*ADVANCEABLE_STATUSES;
     let (sql, changed) = if let Some(span_id) = span_id {
         let sql = format!(
-            "UPDATE {table} SET status = ?1, ended_at = ?2, error_classification = ?3 WHERE run_id = ?4 AND span_id = ?5 AND status IN ('accepted', 'running')"
+            "UPDATE {table} SET status = ?1, ended_at = ?2, error_classification = ?3 WHERE run_id = ?4 AND span_id = ?5 AND status IN ({advanceable})"
         );
         let changed = connection.execute(
             &sql,
@@ -271,7 +319,7 @@ fn update_terminal(
         (sql, changed)
     } else {
         let sql = format!(
-            "UPDATE {table} SET status = ?1, ended_at = ?2, error_classification = ?3 WHERE run_id = ?4 AND status IN ('accepted', 'running')"
+            "UPDATE {table} SET status = ?1, ended_at = ?2, error_classification = ?3 WHERE run_id = ?4 AND status IN ({advanceable})"
         );
         let changed = connection.execute(
             &sql,

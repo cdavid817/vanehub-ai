@@ -3,10 +3,12 @@ import { useTranslation } from "react-i18next";
 import { formatAppDateTime } from "../i18n/format";
 import type {
   ExecutionEvent,
+  ExecutionEventCoverage,
   ExecutionLink,
   ExecutionSpanSummary,
 } from "../types/execution-observability";
 import { TraceStatusBadge } from "./trace-span-row";
+import { spanMeasurement } from "./trace-time-scale";
 import { TraceLinkedEvidenceSections } from "./trace-linked-evidence";
 import { useSpanEvidence } from "./use-span-evidence";
 
@@ -38,6 +40,7 @@ const USAGE_PREFIXES = ["gen_ai.usage.", "vanehub.usage.", "gen_ai.response.mode
 
 export function TraceDetailDrawer({
   events,
+  eventCoverage,
   onClose,
   runId,
   service,
@@ -46,6 +49,14 @@ export function TraceDetailDrawer({
   traceId,
 }: {
   events: readonly ExecutionEvent[];
+  /**
+   * Whether the timeline returned every event the run recorded.
+   *
+   * Needed here because this is where an empty list is interpreted: with no coverage, "this span
+   * recorded nothing" and "the response stopped before reaching this span's events" render as the
+   * same sentence, and only one of them means the reader can stop looking.
+   */
+  eventCoverage: ExecutionEventCoverage;
   onClose: () => void;
   runId: string;
   service?: Parameters<typeof useSpanEvidence>[0]["service"];
@@ -113,11 +124,10 @@ export function TraceDetailDrawer({
         />
         <Field
           label={t("traces.durationLabel")}
-          // Absent rather than zero while it runs: those two mean opposite things about whether
-          // the work is done.
-          value={span.completedDurationMs === undefined
-            ? t("traces.stillRunning")
-            : t("traces.duration", { duration: span.completedDurationMs })}
+          // Absent rather than zero, and absent for two different reasons: the work is still going,
+          // or it stopped and its timestamps could not be subtracted. Those mean opposite things
+          // about whether anything is still happening.
+          value={durationFieldValue(span, t)}
         />
         {span.attempt === undefined ? null : (
           <Field label={t("traces.attemptLabel")} value={String(span.attempt)} />
@@ -167,7 +177,16 @@ export function TraceDetailDrawer({
             </div>
           ))
         ) : (
-          <Empty text={t("traces.section.noEvents")} />
+          // Two different facts, and the reader's next move depends on which one it is: nothing was
+          // recorded, or the response stopped before it got here. Saying "no events" for the second
+          // tells them to stop looking for something that exists.
+          <Empty
+            text={t(
+              eventCoverage.truncated
+                ? "traces.section.eventsTruncated"
+                : "traces.section.noEvents",
+            )}
+          />
         )}
       </Section>
 
@@ -193,6 +212,18 @@ function groupLinks(links: readonly ExecutionLink[]) {
     grouped[LINK_SECTIONS[link.relationship] ?? "related"].push(link);
   }
   return grouped;
+}
+
+/** Shares `spanMeasurement` with the bar and the label so the three cannot disagree. */
+function durationFieldValue(
+  span: ExecutionSpanSummary,
+  t: (key: string, values?: Record<string, string | number>) => string,
+): string {
+  const measurement = spanMeasurement(span);
+  if (measurement === "measured") {
+    return t("traces.duration", { duration: span.completedDurationMs ?? 0 });
+  }
+  return measurement === "running" ? t("traces.stillRunning") : t("traces.durationUnknown");
 }
 
 function Section({ children, title }: { children: React.ReactNode; title: string }) {

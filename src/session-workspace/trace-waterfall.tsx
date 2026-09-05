@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import {
   MeasuredVirtualList,
@@ -8,7 +8,10 @@ import type { MessageSpeaker } from "../services/message-speaker";
 import type { ExecutionSpanSummary } from "../types/execution-observability";
 import { TraceSpanRow, spanSpeaker } from "./trace-span-row";
 import {
+  axisWidthFor,
+  contentMinWidthFor,
   flattenSpanRows,
+  LABEL_COLUMN_PX,
   traceAxisTicks,
   traceTimeScale,
   type TraceRow,
@@ -56,7 +59,9 @@ export function TraceWaterfall({
 
   const rows = useMemo<TraceRow[]>(() => flattenSpanRows(spans), [spans]);
   const scale = useMemo(
-    () => traceTimeScale(spans, viewportWidth, zoom),
+    // The axis occupies the row minus its label column, not the whole viewport. Passing the full
+    // width made every bar wider than the column it is drawn in.
+    () => traceTimeScale(spans, axisWidthFor(viewportWidth), zoom),
     [spans, viewportWidth, zoom],
   );
   const ticks = useMemo(() => traceAxisTicks(scale), [scale]);
@@ -70,10 +75,14 @@ export function TraceWaterfall({
   }, [selection.selectedIndex]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col" ref={viewportRef}>
+    <div
+      className="flex min-h-0 flex-1 flex-col"
+      ref={viewportRef}
+      style={{ "--trace-label-col": `${LABEL_COLUMN_PX}px` } as CSSProperties}
+    >
       <div
         aria-hidden="true"
-        className="grid grid-cols-[minmax(10rem,18rem)_minmax(0,1fr)] gap-2 border-b border-border pb-1 text-[11px] text-muted-foreground"
+        className="grid grid-cols-[var(--trace-label-col)_minmax(0,1fr)] gap-2 border-b border-border pb-1 text-[11px] text-muted-foreground"
       >
         <span className="px-1">{t("traces.spanColumn")}</span>
         <div className="relative h-4" style={{ minWidth: scale.contentWidthPx }}>
@@ -101,7 +110,7 @@ export function TraceWaterfall({
         role="application"
         tabIndex={0}
       >
-        <div style={{ minWidth: scale.contentWidthPx }}>
+        <div style={{ minWidth: contentMinWidthFor(scale.contentWidthPx) }}>
           <MeasuredVirtualList
             ariaLabel={t("traces.spans")}
             className="h-full"

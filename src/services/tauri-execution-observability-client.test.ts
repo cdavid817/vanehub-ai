@@ -40,7 +40,17 @@ describe("Tauri execution observability adapter", () => {
     await tauriExecutionObservabilityClient.getRun("run-1");
     expect(invoke).toHaveBeenLastCalledWith("get_execution_run", { runId: "run-1" });
     await tauriExecutionObservabilityClient.getTimeline("run-1");
-    expect(invoke).toHaveBeenLastCalledWith("get_execution_timeline", { runId: "run-1" });
+    // The cursor is sent explicitly as null rather than omitted, so the native side never has to
+    // distinguish "first page" from "argument missing".
+    expect(invoke).toHaveBeenLastCalledWith("get_execution_timeline", {
+      runId: "run-1",
+      eventPageToken: null,
+    });
+    await tauriExecutionObservabilityClient.getTimeline("run-1", "cursor-2");
+    expect(invoke).toHaveBeenLastCalledWith("get_execution_timeline", {
+      runId: "run-1",
+      eventPageToken: "cursor-2",
+    });
     await tauriExecutionObservabilityClient.getObservationCapabilities();
     expect(invoke).toHaveBeenLastCalledWith("get_execution_observation_capabilities");
   });
