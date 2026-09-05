@@ -264,10 +264,29 @@ pub(crate) struct OverlayMutationRequest {
 }
 
 #[derive(Clone, PartialEq, Eq)]
+pub(crate) struct OverlayGovernedMutationRequest {
+    pub(crate) application_id: String,
+    pub(crate) expected_effective_diff_hash: String,
+    pub(crate) mutation: OverlayMutationRequest,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OverlayGovernedMutationOutcome {
+    pub(crate) committed_revision: u64,
+    pub(crate) history_event_hash: String,
+    pub(crate) effective_diff_hash: String,
+    pub(crate) duplicate: bool,
+}
+
+#[derive(Clone, PartialEq, Eq)]
 pub(crate) struct OverlayPreview {
     pub(crate) witnesses: OverlayWitnesses,
     pub(crate) tentative_revision: u64,
     pub(crate) scan: OverlayScanResult,
+    pub(crate) base_to_current: OverlayDiff,
+    pub(crate) current_to_proposed: OverlayDiff,
+    pub(crate) base_to_proposed: OverlayDiff,
+    /// Kept as the established base-to-proposed boundary for existing Overlay consumers.
     pub(crate) diff: OverlayDiff,
     pub(crate) conflicts: Vec<OverlayConflictSummary>,
     pub(crate) conflicts_truncated: bool,
@@ -351,6 +370,8 @@ pub(crate) struct OverlayHistoryEntry {
     pub(crate) next_document_hash: String,
     pub(crate) scanner_version: String,
     pub(crate) safe_outcome: String,
+    pub(crate) curator_application_id: Option<String>,
+    pub(crate) committed_effective_diff_hash: Option<String>,
     pub(crate) prior_event_hash: Option<String>,
     pub(crate) event_hash: String,
 }

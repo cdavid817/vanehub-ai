@@ -43,6 +43,12 @@ const MCP_ABANDONED_SERVER = "vanehub-ui-settings-escape-e2e";
 const HOOK_ID = "vanehub-ui-settings-e2e";
 const HOOK_NAME = "UI Settings E2E Hook";
 const SKILL_ID = "vanehub-ui-settings-e2e";
+const SETTINGS_NAVIGATION_ICONS = {
+  basic: "settings",
+  mcp: "boxes",
+  "prompt-hooks": "workflow",
+  skills: "puzzle",
+};
 
 const blocked = [];
 
@@ -77,6 +83,20 @@ async function waitForBootstrap() {
  */
 async function openSettings(section, description, probe, ...args) {
   await navigate(`/settings?section=${section}`);
+  const navigationIcon = SETTINGS_NAVIGATION_ICONS[section];
+  assert.ok(navigationIcon, `No Settings navigation icon is registered for ${section}.`);
+  const navigationIconElement = await globalThis.$(`aside nav button svg.lucide-${navigationIcon}`);
+  await navigationIconElement.waitForExist({
+    timeout: 60_000,
+    timeoutMsg: `The ${description} Settings navigation button never mounted.`,
+  });
+  const navigationButton = await pick(
+    `the ${description} Settings navigation button`,
+    "aside nav button",
+    iconButtonLocator,
+    `svg.lucide-${navigationIcon}`,
+  );
+  await navigationButton.click();
   await globalThis.browser.waitUntil(async () => {
     const panels = await globalThis.$$(PANEL);
     if (panels.length !== 1) return false;

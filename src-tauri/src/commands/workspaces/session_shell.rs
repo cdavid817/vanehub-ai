@@ -88,13 +88,18 @@ pub(crate) fn rename_session_shell(
 
 /// Ends a Shell for good. The only path that does: a detached, hidden, or unmounted view leaves the
 /// process running, and this is what the user reaches when they mean to stop it.
+///
+/// Answers with what the attempt achieved rather than with `()`. A close that returned nothing
+/// forced the caller to read "no error" as "the process is gone", and the two are different in
+/// exactly the case that matters: a child that will not die.
 #[tauri::command]
 pub(crate) async fn close_session_shell(
     api: State<'_, WorkspaceApi>,
     shell_id: String,
-) -> Result<(), CommandError> {
+) -> Result<dto::ShellCloseOutcome, CommandError> {
     let shell_id = dto::shell_id(&shell_id).map_err(map_command_error)?;
     api.close_session_shell_blocking(shell_id)
         .await
+        .map(dto::close_result_to_dto)
         .map_err(map_command_error)
 }

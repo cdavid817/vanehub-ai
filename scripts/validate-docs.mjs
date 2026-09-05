@@ -7,6 +7,12 @@ const markdownRoots = [
   resolve(repositoryRoot, "README.md"),
   resolve(repositoryRoot, "README.zh-CN.md"),
   resolve(repositoryRoot, "README.ja.md"),
+  resolve(repositoryRoot, "AGENTS.md"),
+  resolve(repositoryRoot, "CONTRIBUTING.md"),
+  resolve(repositoryRoot, "SECURITY.md"),
+  resolve(repositoryRoot, "SUPPORT.md"),
+  resolve(repositoryRoot, "CODE_OF_CONDUCT.md"),
+  resolve(repositoryRoot, "src-tauri", "ARCHITECTURE.md"),
   resolve(repositoryRoot, "docs"),
 ];
 
@@ -305,6 +311,26 @@ export function chapterBoundedContexts(chapter) {
   return [...names].sort();
 }
 
+/**
+ * The total a context-map chapter states in prose, or `null` when it states none.
+ *
+ * The table check below already compares rows against the directory, and its own unit test
+ * pins that a context named only in prose does not count. That is exactly why both chapters
+ * could say "24 contexts" while the tree held 27 and the tables held 27 rows: nothing read the
+ * sentence. A chapter may omit the number and route the reader to the table — that is the
+ * preferred shape and returns `null` here — but a number that is present has to be right.
+ */
+export function chapterStatedContextTotal(chapter) {
+  for (const line of chapter.split(/\r?\n/)) {
+    // Both language chapters introduce the map the same way: the count sits in the sentence
+    // that names `src-tauri/src/contexts/`, emphasised, as either "N 个上下文" or "N contexts".
+    if (!line.includes("src-tauri/src/contexts/")) continue;
+    const stated = line.match(/\*\*\s*(\d+)\s*(?:个上下文|contexts?)\s*\*\*/);
+    if (stated) return Number(stated[1]);
+  }
+  return null;
+}
+
 /** Line-scanned rather than sliced by regex, because the standards file uses CRLF endings. */
 export function documentedBoundedContexts(standards) {
   const lines = standards.split(/\r?\n/);
@@ -374,10 +400,18 @@ function validateContextMapChapters(errors, actual) {
       errors.push(`${relative}: the bounded-context map chapter is missing.`);
       continue;
     }
-    const documented = chapterBoundedContexts(readFileSync(path, "utf8"));
+    const chapter = readFileSync(path, "utf8");
+    const documented = chapterBoundedContexts(chapter);
     if (documented.length === 0) {
       errors.push(`${relative}: no bounded-context table rows could be read.`);
       continue;
+    }
+    const stated = chapterStatedContextTotal(chapter);
+    if (stated !== null && stated !== actual.length) {
+      errors.push(
+        `${relative}: the chapter states ${stated} bounded contexts, but src-tauri/src/contexts/ holds ${actual.length}. ` +
+          "Correct the number or drop it and let the table be the count.",
+      );
     }
     const { stale, undocumented } = boundedContextDrift(documented, actual);
     for (const name of undocumented) {
@@ -385,6 +419,42 @@ function validateContextMapChapters(errors, actual) {
     }
     for (const name of stale) {
       errors.push(`${relative}: bounded context "${name}" is mapped but has no directory in src-tauri/src/contexts/.`);
+    }
+  }
+}
+
+/**
+ * Every package script a document tells the reader to run.
+ *
+ * `--` separates npm's own arguments from the script's, so `npm run dev -- --host` names the
+ * script `dev`. `npm run tauri -- dev` therefore names `tauri`, which is the whole point: all
+ * three READMEs carried it while `package.json` defined only `tauri:dev`, so the documented way
+ * to start the desktop application had never worked. Parity compares command blocks across
+ * languages, so it could not catch a command that was wrong in every language at once.
+ */
+export function documentedNpmScripts(content) {
+  const names = new Set();
+  for (const match of content.matchAll(/\bnpm\s+run\s+([A-Za-z0-9:_-]+)/g)) names.add(match[1]);
+  return [...names].sort();
+}
+
+const readmesWithScripts = ["README.md", "README.zh-CN.md", "README.ja.md"];
+
+function validateDocumentedScripts(errors) {
+  const manifestPath = resolve(repositoryRoot, "package.json");
+  if (!existsSync(manifestPath)) {
+    errors.push("package.json: cannot verify documented scripts; the manifest is missing.");
+    return;
+  }
+  const defined = new Set(Object.keys(JSON.parse(readFileSync(manifestPath, "utf8")).scripts ?? {}));
+  for (const relative of readmesWithScripts) {
+    const path = resolve(repositoryRoot, relative);
+    if (!existsSync(path)) continue;
+    for (const name of documentedNpmScripts(readFileSync(path, "utf8"))) {
+      if (defined.has(name)) continue;
+      errors.push(
+        `${relative}: documents "npm run ${name}", which package.json does not define.`,
+      );
     }
   }
 }
@@ -479,6 +549,157 @@ function validateAssembled(errors) {
   }
 }
 
+/**
+ * Version-support rows in the security policy, e.g. `| 0.1.x |`.
+ *
+ * The policy went stale exactly this way once: it promised fixes for `0.1.x` while the manifest
+ * shipped `1.4.0`. The policy is now written version-free ("the latest published release line"),
+ * so any concrete `N.N.x` support row reappearing is drift by definition.
+ */
+export function staleSecurityVersions(content) {
+  return [...content.matchAll(/\|\s*(\d+\.\d+(?:\.[x\d]+)?)\s*\|/g)].map((match) => match[1]);
+}
+
+function validateSecurityPolicy(errors) {
+  const path = resolve(repositoryRoot, "SECURITY.md");
+  if (!existsSync(path)) {
+    errors.push("SECURITY.md: the security policy is missing.");
+    return;
+  }
+  for (const version of staleSecurityVersions(readFileSync(path, "utf8"))) {
+    errors.push(
+      `SECURITY.md: hardcodes supported version "${version}". The policy is version-free by design; ` +
+        "state the supported line as \"the latest published release line\" instead of a number that drifts.",
+    );
+  }
+}
+
+/**
+ * Fixed release-version examples in issue-form placeholders, e.g. `v0.1.0`.
+ *
+ * The bug form shipped `placeholder: v0.1.0 or commit SHA` long after that version was gone.
+ * Placeholders must describe where to find the value, never embed a version that ages.
+ */
+export function staleVersionExamples(content) {
+  const matches = [];
+  for (const line of content.split(/\r?\n/)) {
+    if (!/placeholder\s*:/.test(line)) continue;
+    const version = line.match(/\bv?\d+\.\d+\.\d+\b/);
+    if (version) matches.push(version[0]);
+  }
+  return matches;
+}
+
+function validateIssueTemplates(errors) {
+  const templateDir = resolve(repositoryRoot, ".github", "ISSUE_TEMPLATE");
+  if (!existsSync(templateDir)) return;
+  for (const entry of readdirSync(templateDir, { withFileTypes: true })) {
+    if (!entry.isFile() || !/\.ya?ml$/i.test(entry.name)) continue;
+    const content = readFileSync(resolve(templateDir, entry.name), "utf8");
+    for (const version of staleVersionExamples(content)) {
+      errors.push(
+        `.github/ISSUE_TEMPLATE/${entry.name}: placeholder embeds the fixed version example "${version}". ` +
+          "Describe where to find the value (Settings → About, or a commit SHA) instead.",
+      );
+    }
+  }
+}
+
+/** The ordered `.md` targets of one SUMMARY.md — the shape parity is compared on. */
+export function summaryTargets(content) {
+  return [...content.matchAll(/\]\(([A-Za-z0-9._/-]+\.md)\)/g)].map((match) => match[1]);
+}
+
+/**
+ * The two user-guide books must offer the same chapters in the same order. Translation text may
+ * differ; the file set and sequence may not — a chapter present in one language only is a product
+ * capability that half the audience cannot find.
+ */
+function validateUserGuideSummaryParity(errors) {
+  const zhPath = resolve(repositoryRoot, "docs", "user-guide", "zh-CN", "src", "SUMMARY.md");
+  const enPath = resolve(repositoryRoot, "docs", "user-guide", "en", "src", "SUMMARY.md");
+  if (!existsSync(zhPath) || !existsSync(enPath)) {
+    errors.push("user-guide SUMMARY parity: a SUMMARY.md is missing.");
+    return;
+  }
+  const zh = summaryTargets(readFileSync(zhPath, "utf8"));
+  const en = summaryTargets(readFileSync(enPath, "utf8"));
+  if (JSON.stringify(zh) !== JSON.stringify(en)) {
+    errors.push(
+      "docs/user-guide: zh-CN and en SUMMARY.md list different chapter files or a different order.\n" +
+        `  zh-CN: ${JSON.stringify(zh)}\n  en:    ${JSON.stringify(en)}`,
+    );
+  }
+}
+
+/**
+ * Link targets that appear in more than one row of the same Markdown table.
+ *
+ * Both developer-guide indexes once carried two "CLI Agent global configuration" rows with
+ * different descriptions for one file, and a user-guide index once presented one merged chapter
+ * as two feature rows. Within one table, one target gets one row.
+ */
+export function duplicateTableTargets(content) {
+  const duplicates = new Set();
+  let seen = null;
+  for (const line of content.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("|")) {
+      seen = null;
+      continue;
+    }
+    if (/^\|[\s:|-]+\|$/.test(trimmed)) continue;
+    seen ??= new Map();
+    const target = trimmed.match(/\]\(([A-Za-z0-9._/#-]+\.md[^)\s]*)\)/)?.[1];
+    if (!target) continue;
+    if (seen.has(target)) duplicates.add(target);
+    seen.set(target, true);
+  }
+  return [...duplicates];
+}
+
+const indexPagesWithoutDuplicateRows = [
+  "docs/developer-guide/src/index.md",
+  "docs/developer-guide/zh-CN/src/index.md",
+  "docs/user-guide/en/src/index.md",
+  "docs/user-guide/zh-CN/src/index.md",
+];
+
+function validateIndexDuplicateRows(errors) {
+  for (const relativePath of indexPagesWithoutDuplicateRows) {
+    const path = resolve(repositoryRoot, relativePath);
+    if (!existsSync(path)) continue;
+    for (const target of duplicateTableTargets(readFileSync(path, "utf8"))) {
+      errors.push(
+        `${relativePath}: the same table links "${target}" in more than one row. Merge the rows; one target, one row.`,
+      );
+    }
+  }
+}
+
+/**
+ * User-guide navigation must not route ordinary readers into developer acceptance material.
+ * Acceptance walkthroughs are internal verification records; if a user page needs one, it links
+ * it as an advanced reference from a feature chapter, never as a homepage entry.
+ */
+const userGuideForbiddenEntryTargets = ["multi-agent-acceptance.md"];
+
+function validateUserGuideEntryBoundaries(errors) {
+  for (const language of ["en", "zh-CN"]) {
+    const path = resolve(repositoryRoot, "docs", "user-guide", language, "src", "index.md");
+    if (!existsSync(path)) continue;
+    const content = readFileSync(path, "utf8");
+    for (const forbidden of userGuideForbiddenEntryTargets) {
+      if (content.includes(forbidden)) {
+        errors.push(
+          `docs/user-guide/${language}/src/index.md: links the developer acceptance document "${forbidden}" ` +
+            "as a user entry point. Route users to the user chapter and keep acceptance records internal.",
+        );
+      }
+    }
+  }
+}
+
 export function validateDocs({ assembled = false } = {}) {
   const errors = [];
   validateMarkdown(errors);
@@ -486,7 +707,13 @@ export function validateDocs({ assembled = false } = {}) {
   validateScreenshotInventory(errors);
   validateNativeBoundaries(errors);
   validateBoundedContexts(errors);
+  validateDocumentedScripts(errors);
   validateReachability(errors);
+  validateSecurityPolicy(errors);
+  validateIssueTemplates(errors);
+  validateUserGuideSummaryParity(errors);
+  validateIndexDuplicateRows(errors);
+  validateUserGuideEntryBoundaries(errors);
   if (assembled) validateAssembled(errors);
   if (errors.length > 0) throw new Error(`Documentation validation failed:\n${errors.join("\n")}`);
 }

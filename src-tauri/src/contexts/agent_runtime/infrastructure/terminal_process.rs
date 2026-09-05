@@ -1111,6 +1111,14 @@ fn terminal_by_id_mut<'a>(
         })
 }
 
+const TERMINAL_REAP_POLL_INTERVAL: Duration = Duration::from_millis(50);
+
+/// How long the exit path waits for one terminal's child before giving up on it.
+///
+/// Serial across terminals, so this also bounds the quit sequence at
+/// `terminals × TERMINAL_REAP_BUDGET` rather than at "however long the slowest CLI takes".
+const TERMINAL_REAP_BUDGET: Duration = Duration::from_millis(1_500);
+
 /// Reaps a PTY child without holding the lock across the blocking wait.
 ///
 /// Both the reader thread (on PTY EOF) and `terminate_terminal_child` (on `stop()`)
@@ -1119,10 +1127,12 @@ fn terminal_by_id_mut<'a>(
 /// second caller whenever the child stays alive after the PTY/kill. Polling
 /// `try_wait()` with short lock holds lets both callers make progress and lets a
 /// concurrent `kill()` take effect.
+///
+/// This variant waits indefinitely, which is correct for the reader thread and wrong for the
+/// quit path; that one uses `reap_terminal_before`.
 fn reap_terminal_without_holding_lock(
     child: &Mutex<Box<dyn Child + Send + Sync>>,
 ) -> Result<portable_pty::ExitStatus, String> {
-    const POLL_INTERVAL: Duration = Duration::from_millis(50);
     loop {
         let status = child
             .lock()
@@ -1132,17 +1142,64 @@ fn reap_terminal_without_holding_lock(
         if let Some(status) = status {
             return Ok(status);
         }
-        thread::sleep(POLL_INTERVAL);
+        thread::sleep(TERMINAL_REAP_POLL_INTERVAL);
+    }
+}
+
+/// How long to sleep before polling a child again, or `None` once the deadline has passed.
+///
+/// Split out from the loop because the deadline is the whole point of the exit-path reap and a
+/// loop that blocks forever cannot be tested for the moment it decides to stop.
+fn next_reap_sleep(now: Instant, deadline: Instant, interval: Duration) -> Option<Duration> {
+    if now >= deadline {
+        return None;
+    }
+    Some(interval.min(deadline.saturating_duration_since(now)))
+}
+
+/// The exit-path reap. The reader thread above can afford to wait forever; quitting cannot.
+///
+/// `RuntimeShutdownAdapter::shutdown` calls `shutdown_agent_terminals` synchronously, so this
+/// runs with no await point between it and the 8s `shutdown_with_timeout` budget above it — and
+/// `tokio::time::timeout_at` only cancels a future at an await point. An unbounded wait here
+/// therefore does not "time out after 8 seconds": it holds the quit sequence for as long as the
+/// child takes, and forever if the child never exits, which is the freeze a user sees after
+/// asking the application to close.
+///
+/// Giving up at the deadline is safe because it is not the only thing that stops the process:
+/// the kill has already been sent, and the process-group/job-object containment is the backstop
+/// that `reap_session` documents for exactly this case.
+fn reap_terminal_before(
+    child: &Mutex<Box<dyn Child + Send + Sync>>,
+    deadline: Instant,
+) -> Result<Option<portable_pty::ExitStatus>, String> {
+    loop {
+        let status = child
+            .lock()
+            .map_err(|error| error.to_string())?
+            .try_wait()
+            .map_err(|error| error.to_string())?;
+        if let Some(status) = status {
+            return Ok(Some(status));
+        }
+        let Some(sleep) = next_reap_sleep(Instant::now(), deadline, TERMINAL_REAP_POLL_INTERVAL)
+        else {
+            return Ok(None);
+        };
+        thread::sleep(sleep);
     }
 }
 
 fn terminate_terminal_child(
     child: &Mutex<Box<dyn Child + Send + Sync>>,
 ) -> Result<(), AgentRuntimeApplicationError> {
-    // Kill inside the lock, then release it before reaping. `wait()` blocks until the
-    // child actually exits, and the reader thread reaches `reap_terminal_without_holding_lock`
-    // on the same `Arc<Mutex<…>>` when the PTY master hits EOF — holding the lock across
-    // `wait()` here would deadlock that reaper (and any concurrent `stop()`).
+    // Kill inside the lock, then release it before reaping. The reap waits for the child to
+    // actually exit, and the reader thread reaches `reap_terminal_without_holding_lock` on the
+    // same `Arc<Mutex<…>>` when the PTY master hits EOF — holding the lock across that wait
+    // here would deadlock that reaper (and any concurrent `stop()`).
+    //
+    // The reap below is the bounded one: this function is on the quit path, where an unbounded
+    // wait freezes the application rather than delaying one terminal.
     {
         let mut child = child
             .lock()
@@ -1157,7 +1214,7 @@ fn terminate_terminal_child(
                 .map_err(|error| AgentRuntimeApplicationError::Process(error.to_string()))?;
         }
     }
-    let _ = reap_terminal_without_holding_lock(child);
+    let _ = reap_terminal_before(child, Instant::now() + TERMINAL_REAP_BUDGET);
     Ok(())
 }
 
@@ -1350,6 +1407,45 @@ mod tests {
 
     fn managed_terminal(runtime_session_id: Option<&str>) -> ManagedAgentTerminal {
         managed_terminal_named("terminal-1", "session-1", runtime_session_id)
+    }
+
+    /// The quit path reaps every terminal serially with no await point between it and the 8s
+    /// `shutdown_with_timeout` budget, and `tokio::time::timeout_at` cannot cancel a blocking
+    /// poll. So the deadline has to live here: a reap that never decides to stop is the freeze
+    /// a user sees after closing the application.
+    #[test]
+    fn exit_path_reap_gives_up_at_its_deadline() {
+        let interval = Duration::from_millis(50);
+        let now = Instant::now();
+
+        // A child that has not exited yet, with budget left, sleeps a normal interval.
+        assert_eq!(
+            next_reap_sleep(now, now + Duration::from_millis(500), interval),
+            Some(interval),
+        );
+
+        // Near the deadline it sleeps only the remainder, so it cannot overshoot the budget.
+        let remainder = Duration::from_millis(10);
+        assert_eq!(
+            next_reap_sleep(now, now + remainder, interval),
+            Some(remainder),
+        );
+
+        // At and past the deadline it stops waiting. The kill has already been sent, and
+        // process-group containment reaps whatever outlives this.
+        assert_eq!(next_reap_sleep(now, now, interval), None);
+        assert_eq!(
+            next_reap_sleep(now, now - Duration::from_millis(1), interval),
+            None,
+        );
+    }
+
+    /// The budget bounds the whole quit sequence, not just one terminal: `shutdown` reaps
+    /// serially, so this is what keeps `terminals × budget` inside a tolerable close.
+    #[test]
+    fn exit_path_reap_budget_stays_within_the_shutdown_window() {
+        assert!(TERMINAL_REAP_BUDGET <= Duration::from_secs(2));
+        assert!(TERMINAL_REAP_POLL_INTERVAL < TERMINAL_REAP_BUDGET);
     }
 
     fn managed_terminal_named(
@@ -1721,6 +1817,32 @@ mod tests {
         assert!(finished.load(Ordering::Acquire));
     }
 
+    /// The end-to-end half of the deadline: a real PTY child that is still running must not hold
+    /// the quit path. This needs a child that actually outlives the call — `dummy_child` reads
+    /// EOF on its stdin and exits immediately, which is why the cleanup test above can rely on
+    /// it — so this one sleeps instead. That live child is the shape that used to spin
+    /// `reap_terminal_without_holding_lock` forever while the user waited for the window to close.
+    #[test]
+    fn exit_path_reap_returns_while_the_child_is_still_running() {
+        let (_master, child) = long_lived_child();
+        let child = Mutex::new(child);
+        let budget = Duration::from_millis(150);
+
+        let started = Instant::now();
+        let status = reap_terminal_before(&child, started + budget).expect("reap");
+        let elapsed = started.elapsed();
+
+        assert!(status.is_none(), "a live child must report no exit status");
+        assert!(
+            elapsed < budget * 8,
+            "reap ran {elapsed:?}, which is not bounded by the {budget:?} budget",
+        );
+
+        let mut child = child.lock().expect("child lock");
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
     #[test]
     fn unattached_child_cleanup_waits_for_process_exit() {
         let mut child = dummy_child();
@@ -1728,6 +1850,33 @@ mod tests {
         cleanup_unattached_terminal_child(child.as_mut());
 
         assert!(child.try_wait().expect("child status").is_some());
+    }
+
+    /// A PTY child that keeps running until it is killed, unlike `dummy_child`.
+    ///
+    /// The master half is returned rather than dropped: closing it hangs up the PTY and the child
+    /// exits at once, which is precisely how `dummy_child` gets a child that has already
+    /// terminated. A caller that wants a live child has to keep the master alive.
+    fn long_lived_child() -> (Box<dyn MasterPty + Send>, Box<dyn Child + Send + Sync>) {
+        let pair = native_pty_system()
+            .openpty(terminal_size(&AgentTerminalSize { rows: 1, cols: 1 }))
+            .expect("pty");
+        let mut command = if cfg!(target_os = "windows") {
+            let mut command = CommandBuilder::new("cmd.exe");
+            command.arg("/c");
+            command.arg("ping");
+            command.arg("-n");
+            command.arg("60");
+            command.arg("127.0.0.1");
+            command
+        } else {
+            let mut command = CommandBuilder::new("sleep");
+            command.arg("60");
+            command
+        };
+        command.env("PATH", std::env::var("PATH").unwrap_or_default());
+        let child = pair.slave.spawn_command(command).expect("child");
+        (pair.master, child)
     }
 
     fn dummy_child() -> Box<dyn Child + Send + Sync> {

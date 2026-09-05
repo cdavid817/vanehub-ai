@@ -1,7 +1,7 @@
 # agent-tool-execution Specification
 
 ## Purpose
-TBD - created by archiving change add-agent-tool-execution. Update Purpose after archive.
+Execute the tools OnePiece's tool-calling loop dispatches — fixed native tools, Skill tools, and MCP tools — under host control: validated inputs, per-call permission adjudication before side effects, bounded outputs, and failure semantics that never turn an optional tool problem into a lost generation.
 ## Requirements
 ### Requirement: Native agent tool catalog
 The system SHALL assemble a fixed, provider-agnostic native API-agent tool catalog from a fixed handler registry. The baseline catalog SHALL continue to comprise a shell/command-execution tool, a file read/write tool, a content-search tool, a filename-search tool, a scoped file-edit tool, a cross-session memory tool, the read-only `list_skills`, `load_skill`, and `read_skill_resource` tools, the `shell_output` and `shell_kill` background-command tools introduced by `add-background-shell-execution`, the `todo_write` task-list tool introduced by `add-agent-task-list`, and the `ask_user_question` clarification tool introduced by `add-agent-user-question`, subject to the existing permission mode and runtime predicates. The registry SHALL additionally contain the fixed Browser, Web research, `code_execution`, OCR, Artifact-publication, `delegate_cli`, and `apply_delegation_changes` handlers introduced by `complete-onepiece-builtin-tool-system`, but those new handlers SHALL be eligible only for stable Agent id `onepiece` and only when their current mode/readiness predicates pass. Each tool SHALL be defined once and translated into the request shape required by the session's `interface_format`; runtime inventory SHALL NOT create dynamic tool names or schemas.

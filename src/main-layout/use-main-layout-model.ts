@@ -5,6 +5,7 @@ import { approvedPlanExitCallId } from "../components/chat/plan-exit-signal";
 import { useChatConfig } from "../components/chat/hooks/useChatConfig";
 import { useRunConfigurationOverrides } from "../components/chat/hooks/useRunConfigurationOverrides";
 import { createChatOperationFailureEvent } from "./chat-operation-failure";
+import { isSessionShellCleanupIncomplete, sessionCleanupFailureKey } from "./session-cleanup-failure";
 import { useNotifications } from "../notifications/notification-provider";
 import { normalizeDisplayPath } from "../lib/session-path";
 import { useDebouncedValue } from "../hooks/use-debounced-value";
@@ -107,8 +108,19 @@ export function useMainLayoutModel() {
   const switchSession = useSessionSwitch({ activeSessionId, onError: (reason, sessionId) => reportChatFailure("MainLayout.switchSession", reason, sessionId) });
   const renameSession = useMutation({ mutationFn: ({ sessionId, title }: { sessionId: string; title: string }) => agentService.renameSession(sessionId, title), onSuccess: invalidateSessions });
   const pinSession = useMutation({ mutationFn: (session: Session) => session.pinned ? agentService.unpinSession(session.id) : agentService.pinSession(session.id), onSuccess: invalidateSessions });
-  const archiveSession = useMutation({ mutationFn: (session: Session) => session.archived ? agentService.unarchiveSession(session.id) : agentService.archiveSession(session.id), onSuccess: invalidateSessions });
-  const deleteSession = useMutation({ mutationFn: (sessionId: string) => agentService.deleteSession(sessionId), onSuccess: invalidateSessions });
+  // Both carry an `onError`, which neither had. Archive and delete are strict about retained Shells
+  // now, so a refusal is an ordinary outcome rather than a bug — and without a handler the user got
+  // no answer at all, which reads as a click that did not register.
+  const reportSessionCleanupFailure = useCallback((reason: unknown, operation: "archive" | "delete") => {
+    notify({
+      type: "error",
+      title: t(sessionCleanupFailureKey(reason, operation)),
+      message: isSessionShellCleanupIncomplete(reason) ? t("layout.shellCleanupStillFinishing") : String(reason instanceof Error ? reason.message : reason),
+      scope: { kind: "global" },
+    });
+  }, [notify, t]);
+  const archiveSession = useMutation({ mutationFn: (session: Session) => session.archived ? agentService.unarchiveSession(session.id) : agentService.archiveSession(session.id), onSuccess: invalidateSessions, onError: (reason) => reportSessionCleanupFailure(reason, "archive") });
+  const deleteSession = useMutation({ mutationFn: (sessionId: string) => agentService.deleteSession(sessionId), onSuccess: invalidateSessions, onError: (reason) => reportSessionCleanupFailure(reason, "delete") });
   const deleteSessions = useMutation({
     mutationFn: async (targets: Session[]) => {
       const results = await Promise.allSettled(targets.map((session) => agentService.deleteSession(session.id)));

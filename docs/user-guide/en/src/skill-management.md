@@ -152,4 +152,4 @@ Assigning a Skill to a CLI Agent may perform filesystem work in its Skill mount 
 
 - The in-session Skill view → [User interface](user-interface.md)
 - How a role references a Skill → [Expert roles](expert-roles.md)
-- The Skill specification itself: the `SKILL.md` file format, progressive-disclosure loading, and how it compares to MCP/prompts → [Agent Skills technical architecture](../../../agent-infrastructure/agent-skills-architecture.md) (Simplified Chinese)
+- The Skill specification itself: the `SKILL.md` file format, progressive-disclosure loading, and how it compares to MCP/prompts → [Agent Skills technical architecture](../../../agent-infrastructure/patterns/agent-skills.md) (Simplified Chinese)

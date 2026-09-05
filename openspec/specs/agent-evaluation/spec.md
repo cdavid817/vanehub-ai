@@ -354,4 +354,3 @@ Each provider-specific evaluation qualification SHALL record its task identity, 
 #### Scenario: Evidence is audited
 - **WHEN** the desktop layer finishes or aborts
 - **THEN** its evidence can be checked for forbidden credential values and unsafe provider payloads without reading the provider credential itself
-

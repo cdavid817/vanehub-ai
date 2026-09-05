@@ -115,6 +115,6 @@
 ## 相关
 
 - 执行模式、思考、流式输出的含义 → [OnePiece（原生 Agent）](native-agent.md)
-- `/todo` 打开的看板 → [任务看板](todo-board.md)
+- `/todo` 打开的看板 → [任务看板](goals-and-work-board.md)
 - `/loops` 打开的循环中心 → [Loop Engineering 工程](loop-engineering.md)
-- `/usage` 背后的用量口径 → [定时与用量](automation.md)
+- `/usage` 背后的用量口径 → [使用统计](usage-statistics.md)

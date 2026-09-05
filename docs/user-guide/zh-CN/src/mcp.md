@@ -118,7 +118,7 @@ VaneHub AI 可以把统一注册的 MCP 服务器转发给外部 CLI，这样你
 
 ## 相关
 
-- 其余工具与扩展配置 → [工具与扩展](tooling.md)
+- 其余工具与扩展配置 → [本地扩展](extensions.md)、[Agent 与 CLI 配置](agent-configuration.md)
 - 批准流程与作用域记忆 → [权限审批](permissions.md)
 - 中继调用在链路里的保真度 → [可观测性](observability.md)
-- MCP 协议本身：传输层、核心原语、生命周期与授权模型 → [MCP 技术架构](../../../agent-infrastructure/mcp-architecture.md)
+- MCP 协议本身：传输层、核心原语、生命周期与授权模型 → [MCP 技术架构](../../../agent-infrastructure/protocols/mcp.md)

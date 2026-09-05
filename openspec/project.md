@@ -63,7 +63,12 @@ This table is the complete map. `src-tauri/src/contexts/` MUST contain exactly t
 | `retrieval` | Retrieval configuration, embedding models, code and document indexing, index status, and search |
 | `execution_observability` | Execution runs, spans, timelines, capture policy, and OTLP export settings |
 | `ssh_connections` | SSH connection profiles, host-key trust, credential loading, and the pooled remote runtime |
-| `skill_evolution_evidence` | Evidence envelopes, extraction, sanitization, attribution, feedback state, and encrypted evidence storage |
+| `skill_evolution_evidence` | Evidence envelopes, extraction, sanitization, attribution, feedback state, and evidence storage — sanitized before it is written and resting on operating-system and disk protection, with no application-level encryption layer |
+| `skill_evolution_assessment` | Immutable assessment witnesses, effective Skill target projection, deterministic ranking and quality gates, evaluator provenance, and non-mutating routing recommendations |
+| `skill_evolution_curation` | Human-governed Skill improvement candidates, draft review, approval decisions, application receipts, audit chains, and notification delivery |
+| `skill_evolution_system_activity` | Read-only Skill Evolution activity sessions, canonical result projection, read state, preferences, rebuilds, retention, and exports |
+| `skill_evolution_generation` | Privacy-safe evidence dossiers, constrained structured generation, local rendering and validation, quarantined proposals, and Curator handoff |
+| `skill_evolution_orchestration` | Durable Skill Evolution triggers, idle gating, governed runs, automatic-application policy, recovery, rate limits, probation, circuit breakers, and safe notifications |
 | `personalization` | Layered instruction policy, governed memory records and candidates, effective-personalization resolution, and memory maintenance |
 | `work_board` | Work items, their stages and priorities, and idempotent reconciliation of Sessions and Scheduled Tasks into cards |
 | `cli_delegation` | Delegated CLI invocation for Claude Code and Codex: protocol handling, readiness, scheduling, circuit breaking, restart recovery, and the changeset capture/review/seal/apply pipeline |

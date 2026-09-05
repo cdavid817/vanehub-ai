@@ -14,64 +14,105 @@
   <img src="public/icon-512.png" alt="VaneHub AI 应用图标" width="160" />
 </p>
 
-通过统一 React 界面和明确的 Web/mock、Tauri runtime 边界管理 AI Coding Agent 的桌面优先工作台。
+桌面优先的 AI 编码 Agent 工作台：在一个统一界面里使用与管理 OnePiece、Claude Code、Codex CLI、OpenCode、Gemini CLI 和 Antigravity CLI。
 
-<!-- docs-fact:project-version value:1.3.0 -->
+<!-- docs-fact:project-version value:1.4.0 -->
 <!-- docs-fact:tauri-major value:2.x -->
 <!-- docs-fact:react-major value:19.x -->
 
-[![Version](https://img.shields.io/badge/version-1.3.0-blue.svg)](package.json)
+[![Version](https://img.shields.io/badge/version-1.4.0-blue.svg)](package.json)
 [![Tauri](https://img.shields.io/badge/Tauri-2.x-24C8DB.svg)](src-tauri/Cargo.toml)
 [![React](https://img.shields.io/badge/React-19.x-61DAFB.svg)](package.json)
 [![CI](https://github.com/cdavid817/vanehub-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/cdavid817/vanehub-ai/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
 
+[下载安装包](https://github.com/cdavid817/vanehub-ai/releases) · [快速开始](#快速开始) · [文档](#文档)
+
 <!-- docs-section:overview -->
 
 ## 项目简介
 
-VaneHub AI 把 Claude Code、OpenCode、Codex CLI、Gemini CLI 和 Antigravity CLI 汇集到统一桌面工作台中。它管理 CLI 可用性、会话、终端执行、项目与 worktree、设置、工具、可观测性和桌面集成，同时避免 React 组件直接依赖 native API。
+同时使用多个 AI 编码 Agent 时，会话、项目、终端、权限和成本分散在各个工具里。VaneHub AI 把它们放进同一个桌面工作台：统一的会话与工作区、统一的权限审批、统一的可观测性与用量口径，以及跨 Agent 的多人协作。
 
-### 支持的 CLI
+它支持两类 Agent，**选一条路径即可开始，不需要安装全部 CLI**：
 
-装一个就能开始，不必五个都装。
+- **OnePiece**——内置的原生 API Agent，直接通过 HTTP 调用模型提供商（provider），不要求安装任何外部 CLI；
+- **外部 CLI Agent**——Claude Code、Codex CLI、OpenCode、Gemini CLI、Antigravity CLI，由你安装并在终端完成各自的认证。
 
-| Agent | 提供方 | 命令 | 模型族 | 应用内安装 | 第三方模型端点 |
+<!-- docs-section:features -->
+
+## 核心能力
+
+- **统一 Agent 入口**——OnePiece 原生 API Agent 与五个外部 CLI Agent 共用会话、配置、权限与观测体系。
+- **会话与工作区**——项目、交互式终端（PTY）、Git worktree、远程工作区（SSH）。
+- **多 Agent 协作**——群聊席位与 `@` 交接、专家角色、Loop 自动迭代、Plan 模式、目标与任务看板。
+- **上下文与代码智能**——上下文压缩、跨会话记忆、个性化、检索、工作区代码索引、LSP 代码智能。
+- **能力扩展**——Skill、MCP 服务器、Prompt Hook、本地扩展、插件集成、IM 连接器、本地媒体（OCR、语音识别与合成）。
+- **治理与运行**——权限模板与逐次审批、执行可观测性、统一日志、Agent 评测、定时任务、使用统计。
+
+<!-- docs-section:agents -->
+
+## Agent 与 CLI 支持
+
+| Agent | 形态 | 命令 | 模型来源 | 应用内安装 | 认证与模型配置 |
 | --- | --- | --- | --- | --- | --- |
-| Claude Code | Anthropic | `claude` | Anthropic | ✅ `@anthropic-ai/claude-code` | ✅ |
-| Codex CLI | OpenAI | `codex` | OpenAI | ✅ `@openai/codex` | ✅ |
-| OpenCode | OpenCode（开源） | `opencode` | 未知 | ✅ `opencode-ai` | ✅ |
-| Gemini CLI | Google | `gemini` | Google | ✅ `@google/gemini-cli` | ⚠️ 端点可改，但目录中只有官方预设 |
-| Antigravity CLI | Google | `agy` | Google | ❌ 无 npm 包，走官方安装脚本 | ❌ 只接受 Google 登录 |
+| OnePiece | 内置原生 API Agent | 无需 CLI | 提供商目录或自定义兼容端点 | 随应用内置 | 应用内配置 provider 与 API Key |
+| Claude Code | 外部 CLI | `claude` | Anthropic | ✅ npm / WinGet / 官方安装器 | 终端 OAuth；可在应用内配第三方兼容端点 |
+| Codex CLI | 外部 CLI | `codex` | OpenAI | ✅ npm | 终端 OAuth；可在应用内配第三方兼容端点 |
+| OpenCode | 外部 CLI | `opencode` | 取决于你配置的模型，无固定模型族 | ✅ npm / 官方安装器 | 终端认证；可在应用内配第三方兼容端点 |
+| Gemini CLI | 外部 CLI | `gemini` | Google | ✅ npm | 终端认证；端点可改，目录仅含官方预设 |
+| Antigravity CLI | 外部 CLI | `agy` | Google | ✅ 官方安装器（仅最新版） | 终端 Google 登录；CLI 官方另支持 API Key 与兼容端点，VaneHub 暂未纳入统一 Provider 配置 |
 
-- 应用内安装指能否在设置 → CLI 管理里由 VaneHub AI 代为安装与升级——它能驱动 npm、Windows 上的 WinGet，以及逐个 CLI 审核过的官方安装器。来自 Homebrew、Bun、Volta、桌面应用自带或系统包的那一份会被检测并报告，但不会被改动——VaneHub 会告诉你真正拥有它的是哪个工具，而不是在旁边再装一份。
-- 第三方模型端点指能否在设置 → Agent 配置里把该 CLI 指向 DeepSeek、OpenRouter 一类兼容端点。**各家的官方订阅登录（OAuth）一律在终端里完成**，VaneHub AI 不代管。
-- OpenCode 的模型族是「未知」而非漏填：它驱动的是你自己配置的任意模型，没有固定归属，「要求评审来自不同模型族」这类策略对它不生效。
-- Gemini CLI 正在被 Antigravity CLI 取代，Google 自 2026-06-18 起对个人/免费账号逐步停用它。
-- 不想装任何 CLI，可以直接用内置的原生 API Agent OnePiece——它通过 HTTP 调模型，完全在应用内运行，详见下面的使用者指南。
+- **应用内安装**指能否在「设置 → CLI 管理」由 VaneHub AI 代为安装与升级：它能驱动 npm、Windows 上的 WinGet，以及逐个 CLI 审核过的官方安装器。来自 Homebrew、Bun、Volta、桌面应用自带或系统包的那一份会被检测并报告，但不会被改动。
+- **各家的官方订阅登录（OAuth）一律在终端完成**，VaneHub AI 不代管、不保存订阅凭据。
+- VaneHub 集成的 OpenCode 是开源的 sst/opencode（npm 包 `opencode-ai`）；它驱动你自己配置的任意模型，「要求评审来自不同模型族」这类策略对它不生效。
+- Gemini CLI 的消费级路径正在收缩：Google 宣布自 2026-06-18 起，Gemini Code Assist Individuals 及 Google AI Pro/Ultra 等消费级账号不再经 Gemini CLI 提供请求服务，其「Login with Google」路径不再可用，官方建议这些用户迁移到 Antigravity；Gemini Code Assist Standard 与 Enterprise 不受影响。API Key 与 Vertex 属于不同认证路径，请以 Google 官方说明为准。
 
-### 支持的模型提供商
+**模型提供商**：应用内置一份提供商配置目录，供 OnePiece 及支持第三方端点的 CLI Agent 共用；目录之外可填自定义兼容端点，API Key 存入操作系统凭据服务。完整厂商清单、端点协议与默认模型见[内置模型提供商目录](docs/model-providers.md)。
 
-内置 25 家提供商的配置模板，同时供 OnePiece 和三个 CLI Agent 使用；目录之外可填自定义兼容端点。
+<!-- docs-section:quick-start -->
 
-| 类别 | 提供商 |
-| --- | --- |
-| 官方 | Anthropic、OpenAI |
-| 聚合与云平台 | OpenRouter、SiliconFlow、Alibaba Bailian、Volcengine Ark、Together AI、Fireworks AI、NVIDIA NIM、ModelScope、PPIO、Qiniu AI |
-| 模型厂商 | DeepSeek、Zhipu GLM、Kimi / Moonshot、xAI、Mistral AI、MiniMax、MiniMax Global、StepFun、Baichuan AI、Xiaomi MiMo、Z.AI |
-| 推理加速 | Groq、Cerebras |
+## 快速开始
 
-**一家提供商能配给哪个 Agent，取决于它提供的端点协议**：Anthropic Messages 的 16 家可配 Claude Code，OpenAI Chat Completions 的 24 家可配 Codex CLI 与 OpenCode。
+1. 从 [Releases 页面](https://github.com/cdavid817/vanehub-ai/releases)下载当前平台的桌面安装包并安装。
+2. 二选一：在「设置 → Agent 配置」为 OnePiece 配置模型提供商与 API Key；或安装任意一个受支持的外部 CLI 并在终端完成认证，然后在「设置 → CLI 管理」刷新检测。
+3. 点击「新建」，选择 Agent 与项目文件夹，创建第一个会话。
+4. 在会话工作区的输入框里发出第一个任务。
 
-完整目录、各家图标、端点协议、默认模型与 API Key 申请入口见[内置模型提供商目录](docs/model-providers.md)。
+详细步骤见用户指南的快速开始、CLI 安装认证与创建第一个会话章节（下方[文档](#文档)一节）。
 
 <!-- docs-section:download -->
 
-## 下载
+## 下载、平台与发布完整性
 
-预构建的桌面安装包发布在 [Releases 页面](https://github.com/cdavid817/vanehub-ai/releases)：已签名的 Windows x64 `.exe` 安装器、已签名并公证的 macOS x64 与 Apple Silicon `.dmg`，以及 Linux x64 与 ARM64 `.deb` 和 AppImage。不发布 `.msi` 和 `.rpm`。
+预构建桌面安装包发布在 [Releases 页面](https://github.com/cdavid817/vanehub-ai/releases)：
 
-请使用已发布的 `SHA256SUMS`、SPDX SBOM 与 GitHub attestations 校验下载文件。Linux 安装包提供完整性与来源证明，但不使用操作系统代码签名。
+| 平台 | 架构 | 格式 |
+| --- | --- | --- |
+| Windows | x64 | NSIS `.exe` 安装器 |
+| macOS | x64、Apple Silicon | `.dmg` |
+| Linux | x64、ARM64 | `.deb`、AppImage |
+
+不发布 `.msi` 与 `.rpm`；对应用户可分别使用 NSIS 安装器与 AppImage。
+
+**签名状态请注意区分三件事**：
+
+- **发布完整性**——每次发布附带 `SHA256SUMS`、SPDX SBOM 与 GitHub attestations，用于校验完整性与来源；
+- **自动更新工件**——Tauri updater 工件带 updater 签名；
+- **操作系统级代码签名**——**Windows Authenticode 签名与 macOS Developer ID 签名/公证目前尚未完成**（属于后续阶段），因此 Windows SmartScreen 与 macOS Gatekeeper 可能对安装包发出警告，发布说明中附有各平台的处理步骤。
+
+校验方式、密钥清单与签名路线见[发布签名](docs/release-signing.md)。
+
+<!-- docs-section:runtimes -->
+
+## 运行模式
+
+| 运行模式 | 用途 | 能力 |
+| --- | --- | --- |
+| **Tauri 桌面运行时** | 正式使用 | 真实的 CLI/PTY 执行、SQLite 持久化、文件系统访问、桌面生命周期与系统集成、本地媒体等已实现的本地能力 |
+| **Web/mock 运行时** | 确定性 UI 预览、文档截图、前端开发 | 浏览器内模拟，**不发生**真实 CLI 执行、数据库持久化、文件修改或任何系统副作用 |
+
+Web/mock 的界面与模拟状态不能作为桌面功能已通过真实环境验证的证据。
 
 <!-- docs-section:documentation -->
 
@@ -79,79 +120,34 @@ VaneHub AI 把 Claude Code、OpenCode、Codex CLI、Gemini CLI 和 Antigravity C
 
 <!-- docs-locale-guides -->
 
-### 使用者指南
+### 用户指南
 
-| 主题 | 入口 |
-| --- | --- |
-| 快速开始 | [五步走完，从装 CLI 到在工作区里干活](docs/user-guide/zh-CN/src/quick-start.md) |
-| 基础配置 | [界面语言、主题、字号、默认权限模板、开机自启、网络代理、数据目录、日志目录](docs/user-guide/zh-CN/src/user-interface.md#基础配置) |
-| 用户界面总览 | [主布局、导航、面板切换、会话/对话/工作区标签页/信息面板](docs/user-guide/zh-CN/src/user-interface.md) |
-| 会话列表 | [分组/搜索/筛选/批量/拖拽、右键菜单、专注模式](docs/user-guide/zh-CN/src/user-interface.md#会话列表) |
-| 浮动助手 | [独立浮窗会话、状态徽章、主操作菜单](docs/user-guide/zh-CN/src/user-interface.md#浮动助手) |
-| 循环中心 | [Loop 运行控件、验证命令、时间线](docs/user-guide/zh-CN/src/loop-engineering.md) |
-| OnePiece Plan 模式 | [只读规划与经批准后切换到 Agent 模式](docs/user-guide/zh-CN/src/user-interface.md#onepiece-plan-模式) |
-| 目标中心 | [把分散的执行体归到一处追踪](docs/user-guide/zh-CN/src/goal-management.md) |
-| 任务看板 | [任务的看板视图与状态流转](docs/user-guide/zh-CN/src/todo-board.md) |
-| Agent 评测 | [同题对照跑多个 Agent，比通过率、token 与耗时](docs/user-guide/zh-CN/src/evaluation.md) |
-| 通知中心 | [铃铛、未读数、全部已读、清除](docs/user-guide/zh-CN/src/user-interface.md#通知) |
-| 系统托盘 | [显示/隐藏主窗口、开机自启、通知联动](docs/user-guide/zh-CN/src/user-interface.md#系统托盘) |
-| CLI 管理、安装与认证 | [两种安装方式、认证、安装检测、冲突诊断与升级](docs/user-guide/zh-CN/src/getting-started.md) |
-| 多 Agent 群聊 | [席位、`@` 交接、轮次边界](docs/user-guide/zh-CN/src/multi-agent-workflow.md) |
-| Git Worktree | [并行改同一仓库而不互相踩踏](docs/user-guide/zh-CN/src/worktree.md) |
-| 代码评审 | [评审中心与评审流程](docs/user-guide/zh-CN/src/code-review.md) |
-| 斜杠命令 | [会话内的命令入口](docs/user-guide/zh-CN/src/slash-commands.md) |
-| 记忆与上下文 | [跨会话记忆与上下文压缩](docs/user-guide/zh-CN/src/memory-and-context.md) |
-| 代码索引 | [工作区代码索引与隐私边界](docs/user-guide/zh-CN/src/code-indexing.md) |
-| LSP 代码智能 | [实时语言服务器与信任模型](docs/user-guide/zh-CN/src/lsp-code-intelligence.md) |
-| OnePiece 原生 Agent | [不装 CLI 直接用的内置 API Agent](docs/user-guide/zh-CN/src/native-agent.md) |
-| 定时任务 | [定时任务与用量统计](docs/user-guide/zh-CN/src/automation.md) |
-| 远程工作区与 SSH 连接 | [SSH 工作区、保存的连接与 IM 接入](docs/user-guide/zh-CN/src/remote-and-im.md) |
-| CLI 参数 | [按 CLI Agent 配置启动参数，含各 CLI 参数速查](docs/user-guide/zh-CN/src/tooling.md#cli-参数) |
-| 扩展能力 | [本地扩展安装/启用/禁用](docs/user-guide/zh-CN/src/tooling.md#扩展能力) |
-| 插件集成 | [内置产品集成与就绪检测](docs/user-guide/zh-CN/src/plugin-integration.md) |
-| MCP 服务器 | [MCP server 配置与按 Agent 绑定](docs/user-guide/zh-CN/src/mcp.md) |
-| Agent 配置 | [按 Agent 配置 provider、端点与模型](docs/user-guide/zh-CN/src/tooling.md#agent-配置) |
-| 专家角色 | [角色字段、职责与评审策略](docs/user-guide/zh-CN/src/expert-roles.md) |
-| Agent 权限策略 | [Agent 权限策略与审批模板配置](docs/user-guide/zh-CN/src/permissions.md) |
-| 个性化 | [Custom Instructions 与跨会话记忆](docs/user-guide/zh-CN/src/personalization.md) |
-| Skill 管理 | [Skill 安装与绑定](docs/user-guide/zh-CN/src/skill-management.md) |
-| Prompt Hook | [钩子管理](docs/user-guide/zh-CN/src/prompt-hooks.md) |
-| IM 能力 | [IM 连接器配置](docs/user-guide/zh-CN/src/remote-and-im.md#im-连接器) |
-| 执行可观测性 | [执行追踪与日志采集策略](docs/user-guide/zh-CN/src/observability.md) |
-| 使用统计 | [Token 用量统计](docs/user-guide/zh-CN/src/automation.md) |
-| 关于 | [版本、更新检查、changelog、仓库链接](docs/user-guide/zh-CN/src/app-updates.md) |
-| 故障排查 | [出错了先看这里、日志在哪](docs/user-guide/zh-CN/src/troubleshooting.md) |
-| 反馈问题 | [选对入口、要填什么、提交前怎么脱敏](docs/user-guide/zh-CN/src/reporting-issues.md) |
+完整章节见[用户指南目录](docs/user-guide/zh-CN/src/index.md)；下表只列各分组入口。
+
+| 分组 | 入口 | 涵盖 |
+| --- | --- | --- |
+| 开始使用 | [快速开始](docs/user-guide/zh-CN/src/quick-start.md) | 安装并认证 CLI、创建第一个会话、核心概念、版本更新 |
+| 界面与工作区 | [用户界面](docs/user-guide/zh-CN/src/user-interface.md) | 会话工作区、设置中心、远程工作区与 SSH、Git worktree、斜杠命令 |
+| Agent 与协作 | [OnePiece（原生 Agent）](docs/user-guide/zh-CN/src/native-agent.md) | 多 Agent 群聊、专家角色、Loop、目标与任务看板、代码评审、Agent 评测 |
+| 上下文与代码智能 | [记忆与上下文](docs/user-guide/zh-CN/src/memory-and-context.md) | 个性化、代码索引、LSP 代码智能 |
+| 工具与集成 | [Agent 与 CLI 配置](docs/user-guide/zh-CN/src/agent-configuration.md) | Skill、MCP、Prompt Hook、本地扩展、本地媒体、插件集成、IM 连接器 |
+| 治理与运行 | [权限审批](docs/user-guide/zh-CN/src/permissions.md) | 可观测性、定时任务与通知、使用统计 |
+| 帮助与参考 | [故障排查](docs/user-guide/zh-CN/src/troubleshooting.md) | 使用案例、常见问题、反馈问题与提交 Issue |
 
 ### 开发者指南
 
-| 主题 | 入口 |
-| --- | --- |
-| 仓库结构 | [仓库布局与模块归属、各限界上下文职责](docs/developer-guide/zh-CN/src/repository-orientation.md) |
-| 运行时边界 | [前端服务边界、Web/mock 与 Tauri 适配器](docs/developer-guide/zh-CN/src/runtime-boundaries.md) |
-| 限界上下文 | [21 个 native bounded context 各自拥有什么](docs/developer-guide/zh-CN/src/native-contexts.md) |
-| Agent 生命周期与 provider 运行时 | [注册 Agent 编辑、稳定 provider 解析、能力声明](docs/developer-guide/zh-CN/src/agent-lifecycle.md) |
-| 终端与 PTY 运行时 | [会话级 Agent Terminal、自动启动/附着、远程终端](docs/developer-guide/zh-CN/src/terminal-runtime.md) |
-| 工具注册表与执行 | [固定原生工具目录、按 interface_format 翻译、多轮工具循环](docs/developer-guide/zh-CN/src/tool-registry.md) |
-| 权限模型 | [统一决策点、显式 Deny 优先、审批代理、CLI flag 投影、Claude Code 钩子桥](docs/developer-guide/zh-CN/src/permission-model.md) |
-| 上下文压缩 | [字符计数触发、摘要式压缩、保留近期轮次](docs/developer-guide/zh-CN/src/context-compaction.md) |
-| 检索与向量搜索 | [主机级共享记忆池、workspace 代码索引、优雅降级](docs/developer-guide/zh-CN/src/retrieval.md) |
-| Tree-sitter 代码索引 | [语法解析、bounded chunk、符号元数据、grammar 版本与脱敏](docs/developer-guide/zh-CN/src/tree-sitter-code-indexing.md) |
-| 跨会话记忆 | [主机级共享池、provenance 元数据、OnePiece 工具与 CLI 自动提取](docs/developer-guide/zh-CN/src/cross-session-memory.md) |
-| 会话恢复 | [恢复状态与生命周期正交、持久化执行身份与所有权](docs/developer-guide/zh-CN/src/session-recovery.md) |
-| OnePiece 原生 Agent | [内置 API Agent 身份、Profile 生命周期与 provider 目录](docs/developer-guide/zh-CN/src/onepiece-native-agent.md) |
-| 多 Agent 群聊 | [席位模型、中途增减、轮次路由与持久化 presence](docs/developer-guide/zh-CN/src/multi-agent-group-chat.md) |
-| Skill 管理 | [双 scope、SKILL.md 契约、漂移与内建播种/对账](docs/developer-guide/zh-CN/src/skill-management.md) |
-| MCP 工具与客户端 | [传输与配置模型、原生工具目录中的 MCP 工具](docs/developer-guide/zh-CN/src/mcp-tools.md) |
-| IM 连接器 | [五种内建连接器、首版直发消息范围、入站路由](docs/developer-guide/zh-CN/src/im-connectors.md) |
-| Loop 与 Plan 运行时 | [持久化 Loop 定义、拓扑感知串行子任务调度、Worker/Verifier 信任](docs/developer-guide/zh-CN/src/loop-and-plan-runtime.md) |
-| Token 用量统计 | [上报 token 与估算字符分离、时间范围、per-Agent 拆分](docs/developer-guide/zh-CN/src/usage-statistics.md) |
-| LSP 代码智能 | [会话内 LSP 集成实现](docs/developer-guide/zh-CN/src/lsp-code-intelligence.md) |
-| 持久化与日志 | [SQLite 所有权与统一脱敏日志](docs/developer-guide/zh-CN/src/persistence-and-logging.md) |
-| 测试与发布 | [测试、打包与发布流程](docs/developer-guide/zh-CN/src/testing-and-release.md) |
-| OpenSpec 工作流 | [提案→设计→delta spec→任务→校验→归档的变更流程](docs/developer-guide/zh-CN/src/openspec-workflow.md) |
-| Native API 参考 | [Rustdoc 生成的内部契约与所有权文档](docs/developer-guide/zh-CN/src/native-api-reference.md) |
-| 架构决策 | [仓库结构与模块导览、限界上下文与调用关系](docs/developer-guide/zh-CN/src/repository-orientation.md) |
+完整章节见[开发者指南目录](docs/developer-guide/zh-CN/src/index.md)；下表只列各架构域入口。
+
+| 架构域 | 入口 | 涵盖 |
+| --- | --- | --- |
+| 入门与运行时边界 | [仓库结构与模块导览](docs/developer-guide/zh-CN/src/repository-orientation.md) | 运行时与服务边界、Native 限界上下文、持久化所有权 |
+| Agent 运行时 | [单 Agent 治理：五控制面模型](docs/developer-guide/zh-CN/src/single-agent-control-planes.md) | Agent 生命周期、OnePiece、内置工具、Tool registry、CLI 生命周期、终端与 PTY、CLI 委派、多 Agent 群聊、Loop 与 Plan、目标看板、会话恢复 |
+| 工作区与平台能力 | [SSH 连接与远程运行时](docs/developer-guide/zh-CN/src/ssh-connections.md) | 本地媒体运行时 |
+| 上下文、记忆与代码智能 | [跨会话记忆](docs/developer-guide/zh-CN/src/cross-session-memory.md) | 上下文压缩、个性化治理、检索与向量搜索、Tree-sitter 索引、LSP |
+| Skill 与外部集成 | [Skill 管理](docs/developer-guide/zh-CN/src/skill-management.md) | 有效 Skill 运行时、覆盖层治理、演进证据、MCP 工具、IM 连接器 |
+| 安全、评测与可观测 | [权限模型](docs/developer-guide/zh-CN/src/permission-model.md) | 执行可观测性、评测运行时、会话工作区证据控制台、统一日志、使用统计 |
+| 工程交付 | [测试](docs/developer-guide/zh-CN/src/testing.md) | OpenSpec 工作流、发布、真实环境资格验证 |
+| 生成参考与架构决策 | [Native API 参考](docs/developer-guide/zh-CN/src/native-api-reference.md) | 由源码生成的接口契约与所有权参考、Skill Tool 运行时安全 |
 
 用户指南提供英文与简体中文两种语言。日文、繁体中文、韩文仅作为应用界面资源语言交付，不提供对应的用户指南。
 
@@ -159,99 +155,82 @@ VaneHub AI 把 Claude Code、OpenCode、Codex CLI、Gemini CLI 和 Antigravity C
 
 <!-- docs-section:architecture -->
 
-## 架构
+## 架构概览
 
 ```mermaid
 flowchart LR
-  UI[React UI] --> Service[Frontend service interfaces]
-  Service --> Web[Web/mock adapters]
-  Service --> Tauri[Tauri adapters]
+  UI[React UI] --> Service[前端服务接口]
+  Service --> Web[Web/mock 适配器]
+  Service --> Tauri[Tauri 适配器]
   Tauri --> Commands[Rust commands]
-  Commands --> Contexts[Native bounded contexts]
+  Commands --> Contexts[Native 限界上下文]
   Contexts --> SQLite[(SQLite)]
-  Contexts --> CLI[Agent CLIs]
+  Contexts --> CLI[CLI / PTY]
+  Contexts --> FS[文件系统与操作系统集成]
+  Contexts --> HTTP[模型提供商 HTTP（OnePiece）]
 ```
 
-React 组件调用 `src/services/` 中的服务。Tauri 专属 `invoke()` 调用仅位于 frontend Tauri adapter；SQLite、CLI 进程、文件系统访问与桌面生命周期行为位于 Rust。
+React 组件只调用 `src/services/` 中的前端服务接口，不得直接调用 Tauri `invoke()`；Tauri 专属调用位于前端 Tauri 适配器，SQLite、CLI 进程、文件系统访问与桌面生命周期行为全部位于 Rust 侧。完整模块清单见 [Native 架构清单](src-tauri/ARCHITECTURE.md)。
 
-<!-- docs-section:quick-start -->
+<!-- docs-section:from-source -->
 
-## 从源码运行
+## 从源码运行与开发
 
 <!-- docs-fact:node-minimum value:22+ -->
 
-前置要求：Node.js 22+、npm、stable Rust，以及当前平台的 [Tauri 前置依赖](https://v2.tauri.app/start/prerequisites/)。
+前置要求：Node.js 22+、npm、stable Rust，以及当前平台的 [Tauri 前置依赖](https://v2.tauri.app/start/prerequisites/)。平台 linker 要求与构建测量见[原生构建性能指南](docs/build-performance.md)。
 
-平台 linker 要求、release profile 行为、worktree 缓存建议及构建测量结果参见[原生构建性能指南](docs/build-performance.md)。
-
-```powershell
+```bash
 npm ci
 ```
 
-运行 Web/mock 预览：
+运行 Web/mock 预览（浏览器内模拟，见上方[运行模式](#运行模式)）：
 
-```powershell
+```bash
 npm run dev -- --host 127.0.0.1
 ```
 
-运行桌面应用：
+运行真实桌面应用：
 
-```powershell
-$env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"
-npm run tauri -- dev
+```bash
+npm run tauri:dev
 ```
 
-Web/mock 是确定性的浏览器模拟，不代表真实发生了本地 CLI 执行、SQLite 持久化、文件修改或操作系统 side effect。
+> Windows 排障：若桌面启动报找不到 Rust 工具链，可在 PowerShell 中临时把 cargo 加入 PATH 后重试：
+>
+> ```powershell
+> $env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"
+> ```
 
-<!-- docs-section:development -->
+提交变更前，请逐字运行 [AGENTS.md](AGENTS.md)「校验命令」一节的全部命令；新功能与架构调整须先创建 OpenSpec proposal，项目规则见 [openspec/project.md](openspec/project.md)。
 
-## 开发
-
-提交变更前，请逐字运行 AGENTS.md「校验命令」一节中的全部命令；该清单是与 CI 对齐的唯一真源。
-
-新功能和架构调整必须在实现前创建 OpenSpec proposal。项目规则见 [AGENTS.md](AGENTS.md) 与 [openspec/project.md](openspec/project.md)。
-
-### Agent 基础设施技术文档
-
-| 主题 | 入口 |
-| --- | --- |
-| MCP | [协议模型与三角色架构、传输层、核心原语、生命周期、授权与安全模型](docs/agent-infrastructure/mcp-architecture.md) |
-| Function Calling | [调用循环与约束解码、Anthropic 与 OpenAI 的 API 差异、并行调用与流式组装、结构化输出](docs/agent-infrastructure/function-calling-architecture.md) |
-| LSP | [协议分层与生命周期、能力协商、文本同步模型、语言与工作区特性](docs/agent-infrastructure/lsp-architecture.md) |
-| A2A | [AgentCard/Task/Message/Artifact 数据模型、任务状态机、发现机制、异步更新通道](docs/agent-infrastructure/a2a-architecture.md) |
-| 多 Agent 系统 | [编排拓扑与角色框架、通信与协调、上下文管理、执行隔离、失败模式与评估](docs/agent-infrastructure/multi-agent-architecture.md) |
-| Agent Skills | [开放规范与文件格式、渐进式披露加载、触发与执行、与 MCP/Prompt 的定位对比](docs/agent-infrastructure/agent-skills-architecture.md) |
-| AI 编码 CLI 参数完全参考 | [五种 CLI 的参数族逐一覆盖，以及宿主向各 CLI 投影参数的映射矩阵](docs/agent-infrastructure/builtin-cli-reference.md) |
-| RAG | [索引与检索管线、语义与关键字检索取舍、混合检索与重排序、评估方法](docs/agent-infrastructure/rag-architecture.md) |
-| Tree-sitter | [GLR 增量解析、语法工具链与 ABI、查询系统、结构化代码切分与 Repo Map](docs/agent-infrastructure/tree-sitter-architecture.md) |
-| OpenSpec | [规范驱动开发的知识模型、变更包工件链、opsx 命令族、Delta 规格合并](docs/agent-infrastructure/openspec-architecture.md) |
-
-参考：[Native 架构清单](src-tauri/ARCHITECTURE.md) · [贡献指南](CONTRIBUTING.md) · [原生构建性能](docs/build-performance.md) · [发布签名](docs/release-signing.md)
-
-构建 mdBook 指南与 Rustdoc Reference：
-
-```powershell
-npm run docs:check
-npm run docs:test
-npm run docs:build
-```
-
-文档构建需要 `docs/toolchain.json` 中固定的 mdBook 版本。
+**技术参考**：[Agent 基础设施技术文档](docs/agent-infrastructure/README.md)介绍 MCP、LSP、RAG 等**外部协议、通用架构模式与工程方法本身**，不代表 VaneHub 已交付的能力；判断实现状态请以用户指南、开发者指南、[OpenSpec 主规范](openspec/specs/)与生成参考为准。另见 [CLI 参数参考](docs/reference/cli/builtin-cli-reference.md)与[发布签名](docs/release-signing.md)。
 
 <!-- docs-section:roadmap -->
 
-## 路线图
+## 项目状态与路线图
 
-已实现行为和当前 contract 记录在 [OpenSpec 主规范](openspec/specs/)中。近期产品方向包括自定义 Agent、插件市场和扩展的本地 OCR/语音能力。
+- **已交付**——已实现行为与接口契约以 [OpenSpec 主规范](openspec/specs/)为准；各能力的使用方式见用户指南。
+- **进行中**——见[未归档的 OpenSpec 变更](openspec/changes/)：当前活跃方向包括内建 Skill 目录扩充、远程 Skill 注册表与供应链治理、跨会话记忆治理强化、区域截图采集与首个稳定版发布准备等。
+- **计划中**——仅在存在公开 proposal 或 issue 时列入；本节不承诺发布日期。
+- 部分能力（如 IM 连接器的个别平台、桌面各平台矩阵）以真实环境资格验证记录为准，见开发者指南「工程交付」。
+
+<!-- docs-section:support -->
+
+## 支持与安全
+
+- 使用问题与缺陷：先查[支持说明](SUPPORT.md)，再通过 Issue 表单提交缺陷报告或功能建议。
+- **安全漏洞请勿提交公开 Issue**：使用 [GitHub 私密漏洞报告](https://github.com/cdavid817/vanehub-ai/security/advisories/new)，流程见[安全策略](SECURITY.md)。
+- 参与社区请阅读[行为准则](CODE_OF_CONDUCT.md)。
 
 <!-- docs-section:contributing -->
 
 ## 贡献
 
-开始变更前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。涉及行为变更时，应同步文档、两个 frontend runtime adapter、native contract、测试与 OpenSpec 工件。
+开始变更前请阅读[贡献指南](CONTRIBUTING.md)。涉及行为变更时，应同步文档、两个前端运行时适配器、原生接口契约、测试与 OpenSpec 工件。
 
 <!-- docs-section:license -->
 
-## License
+## 许可证
 
 本项目采用 Apache License 2.0，详见 [LICENSE](LICENSE)。

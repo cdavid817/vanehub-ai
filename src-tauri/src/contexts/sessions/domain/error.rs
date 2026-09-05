@@ -11,6 +11,7 @@ pub(crate) enum ArchivedSessionAction {
 pub(crate) enum SessionsDomainError {
     IdentityRequired(&'static str),
     IdentityContainsControl(&'static str),
+    SystemActivitySessionRefused,
     SessionTitleRequired,
     CategoryNameRequired,
     ConnectorRequired,
@@ -57,6 +58,9 @@ impl fmt::Display for SessionsDomainError {
             Self::IdentityContainsControl(kind) => {
                 write!(formatter, "{kind} contains invalid control characters.")
             }
+            Self::SystemActivitySessionRefused => formatter.write_str(
+                "System activity sessions are read-only projections and accept no interactive session commands.",
+            ),
             Self::SessionTitleRequired => formatter.write_str("Session title cannot be empty."),
             Self::CategoryNameRequired => formatter.write_str("Category name cannot be empty."),
             Self::ConnectorRequired => {

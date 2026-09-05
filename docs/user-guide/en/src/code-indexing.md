@@ -35,5 +35,5 @@ See [Use live LSP code intelligence](lsp-code-intelligence.md) for supported ser
 
 - How the live semantic capability and this page's persistent index divide the work → [LSP code intelligence](lsp-code-intelligence.md)
 - Cross-session memory and retrieval methodology → [Memory and context](memory-and-context.md)
-- The parsing technology itself: GLR incremental parsing, the query system, structured code chunking, and repo maps → [Tree-sitter technical architecture](../../../agent-infrastructure/tree-sitter-architecture.md) (Simplified Chinese)
-- Retrieval pipelines and hybrid-retrieval trade-offs → [RAG technical architecture](../../../agent-infrastructure/rag-architecture.md) (Simplified Chinese)
+- The parsing technology itself: GLR incremental parsing, the query system, structured code chunking, and repo maps → [Tree-sitter technical architecture](../../../agent-infrastructure/patterns/tree-sitter.md) (Simplified Chinese)
+- Retrieval pipelines and hybrid-retrieval trade-offs → [RAG technical architecture](../../../agent-infrastructure/patterns/rag.md) (Simplified Chinese)

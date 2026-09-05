@@ -40,7 +40,9 @@ pub(crate) use super::application::{
     SaveCustomOnePieceProviderProfileInput, SaveLoopDefinitionRequest,
     SaveOnePieceProviderConfigInput, SaveOnePieceProviderProfileInput, SendMessageRequest,
     StartLoopResultView, StartedAgentMessage, StopAgentTerminalRequest, StopGenerationResult,
-    StoredEndpointProfileMetadata, StoredHybridRoutingRule, ToolApprovalDecision,
+    StoredEndpointProfileMetadata, StoredHybridRoutingRule, StructuredModelEvaluationError,
+    StructuredModelEvaluationRequest, StructuredModelEvaluationResult,
+    StructuredModelEvaluationService, StructuredModelPurpose, ToolApprovalDecision,
     UpdateApiAgentInput, ValidateOnePieceProviderCredentialInput, WorkflowView,
 };
 
@@ -113,6 +115,7 @@ pub(crate) struct AgentRuntimeApiServices {
     pub(crate) browser_handoff: Option<std::sync::Arc<dyn BrowserHandoffControlPort>>,
     pub(crate) manual_native_tools: ManualNativeToolControl,
     pub(crate) local_discovery: LocalModelDiscoveryService,
+    pub(crate) structured_evaluation: StructuredModelEvaluationService,
 }
 
 #[derive(Clone)]
@@ -136,6 +139,7 @@ pub(crate) struct AgentRuntimeApi {
     browser_handoff: Option<std::sync::Arc<dyn BrowserHandoffControlPort>>,
     manual_native_tools: ManualNativeToolControl,
     local_discovery: LocalModelDiscoveryService,
+    structured_evaluation: StructuredModelEvaluationService,
 }
 
 impl AgentRuntimeApi {
@@ -156,6 +160,7 @@ impl AgentRuntimeApi {
             browser_handoff,
             manual_native_tools,
             local_discovery,
+            structured_evaluation,
         } = services;
         Self {
             service,
@@ -173,7 +178,15 @@ impl AgentRuntimeApi {
             browser_handoff,
             manual_native_tools,
             local_discovery,
+            structured_evaluation,
         }
+    }
+
+    pub(crate) fn evaluate_structured_model(
+        &self,
+        request: StructuredModelEvaluationRequest,
+    ) -> Result<StructuredModelEvaluationResult, StructuredModelEvaluationError> {
+        self.structured_evaluation.evaluate(request)
     }
 
     pub(crate) fn list_context_quality_history(
@@ -717,6 +730,20 @@ impl AgentRuntimeApi {
             ToolApprovalDecision::Denied
         };
         self.resolve_tool_approval(session_id, call_id, decision)
+    }
+
+    /// Whether a tool approval for this session could still reach a live waiter.
+    ///
+    /// The narrow published contract `permissions` needs to reserve a waiter without resuming it
+    /// (`permissions-approval`'s "Stale generation is detected before commit"). Deliberately
+    /// answers one boolean rather than exposing a generation handle: a caller holding one would be
+    /// able to decide for itself whether the waiter is still valid, which is the judgement this
+    /// context owns.
+    pub(crate) fn has_live_tool_approval_waiter(
+        &self,
+        session_id: &str,
+    ) -> Result<bool, AgentRuntimeApplicationError> {
+        self.service.has_live_tool_approval_waiter(session_id)
     }
 
     pub(crate) fn resolve_tool_approval(

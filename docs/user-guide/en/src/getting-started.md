@@ -90,7 +90,7 @@ npm install -g @google/gemini-cli
 
 Authenticate by running `gemini` in a terminal and selecting "Login with Google." The free personal-account quota is roughly 60 requests per minute and 1000 per day.
 
-> **Gemini CLI is being phased out for personal users.** Google has announced a migration from Gemini CLI to Antigravity CLI: starting 2026-06-18, Gemini CLI and Gemini Code Assist are being phased out for personal/free users (Free / Pro / Ultra tiers), with the official recommendation to migrate to [Antigravity CLI](#antigravity-cli). Enterprise Gemini Code Assist Standard/Enterprise and paid API key channels are unaffected.
+> **Gemini CLI's consumer path is narrowing.** Google announced that from 2026-06-18, consumer accounts such as Gemini Code Assist Individuals and Google AI Pro/Ultra are no longer served through Gemini CLI, and their "Login with Google" path is unavailable, with migration to [Antigravity CLI](#antigravity-cli) recommended. Gemini Code Assist Standard and Enterprise are unaffected. API keys and Vertex are separate authentication paths — whether they are affected is governed by Google's official documentation.
 
 ### OpenCode
 
@@ -122,7 +122,7 @@ irm https://antigravity.google/cli/install.ps1 | iex
 curl -fsSL https://antigravity.google/cli/install.cmd -o install.cmd && install.cmd && del install.cmd
 ```
 
-The binary lands in `~/.local/bin` (macOS/Linux) or `%LOCALAPPDATA%\Antigravity\` (Windows) by default, which is why the CLI Management page offers no npm install/upgrade/downgrade action for it. It goes through **Google sign-in** and stores credentials in the **system keychain** — the configuration panel has no key field at all. If Gemini CLI was previously installed on this machine (a `~/.gemini` directory exists), `agy`'s first run offers to import the old settings (MCP configuration, command allowlist, shortcuts, theme); it doesn't conflict with an npm-installed Gemini CLI, and both can coexist.
+The binary lands in `~/.local/bin` (macOS/Linux) or `%LOCALAPPDATA%\Antigravity\` (Windows) by default. It has no npm package; the CLI Management page offers the audited **vendor installer** action instead (upgrade to latest only). Default authentication goes through **Google sign-in** with credentials in the **system keychain**; the CLI itself also supports API keys and compatible endpoints, but **VaneHub's Agent Configurations panel does not yet manage those fields** — configure them in the CLI's own environment per Antigravity's official documentation when needed. If Gemini CLI was previously installed on this machine (a `~/.gemini` directory exists), `agy`'s first run offers to import the old settings (MCP configuration, command allowlist, shortcuts, theme); it doesn't conflict with an npm-installed Gemini CLI, and both can coexist.
 
 > **Subscription logins are always self-managed by each CLI.** VaneHub AI only checks "can this command run" — it never completes an OAuth login for you, and never stores the session credentials that produces. (A third-party API key you actively enter under **Settings → Agent configurations** is a different matter — VaneHub AI stores that in the system credential service.) After installing, it's a good idea to run `claude --version` / `codex --version` / `gemini --version` / `opencode --version` / `agy --version` and confirm a normal version number before adding a session in VaneHub AI.
 
@@ -187,11 +187,11 @@ The CLI Management page offers different actions depending on status: **Install*
 
 If an Agent asks you to sign in during a session, complete authentication in that CLI, then return to VaneHub AI and refresh detection.
 
-**Switching to a third-party model works the other way around** — build and apply a configuration under **Settings → Agent configurations**, without hand-editing the CLI's own file. See [Tools and extensions → Agent configurations](tooling.md#agent-configurations).
+**Switching to a third-party model works the other way around** — build and apply a configuration under **Settings → Agent configurations**, without hand-editing the CLI's own file. See [Tools and extensions → Agent configurations](agent-configuration.md#agent-configurations).
 
 ## CLI launch parameters
 
-Each CLI's own command-line parameters and how to configure launch parameters inside VaneHub AI are collected under [Tools and extensions → CLI parameters](tooling.md#cli-parameters). OnePiece has no CLI and therefore no launch parameters; its equivalent configuration lives under [Agent configurations](tooling.md#agent-configurations).
+Each CLI's own command-line parameters and how to configure launch parameters inside VaneHub AI are collected under [Tools and extensions → CLI parameters](agent-configuration.md#cli-parameters). OnePiece has no CLI and therefore no launch parameters; its equivalent configuration lives under [Agent configurations](agent-configuration.md#agent-configurations).
 
 ## Next
 

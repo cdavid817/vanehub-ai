@@ -2,7 +2,7 @@
 
 ## VaneHub AI 会替我管理 API Key 吗？
 
-**外部 CLI 的不会**。Claude Code、Codex CLI、Gemini CLI、OpenCode、Antigravity CLI 的 Provider 认证由各自 CLI 管理，凭据存在它们自己的位置，VaneHub AI 不会要求你输入 Provider 密码。Antigravity CLI 更进一步——它走 Google 登录并把凭据存进系统钥匙串，配置档里根本没有密钥字段。
+**外部 CLI 的不会**。Claude Code、Codex CLI、Gemini CLI、OpenCode、Antigravity CLI 的 Provider 认证由各自 CLI 管理，凭据存在它们自己的位置，VaneHub AI 不会要求你输入 Provider 密码。Antigravity CLI 默认走 Google 登录并把凭据存进系统钥匙串；它官方也支持 API Key 等方式，但那些字段由 CLI 自身管理，VaneHub 当前未纳管。
 
 **OnePiece 的会**。原生 API Agent 的 API Key 由 VaneHub AI 保存，见[原生 API Agent](native-agent.md)。
 
@@ -15,6 +15,8 @@ CLI Agent 的记忆提取由 OnePiece 代做——未配置时不会产生任何
 ## 能让某个 Agent 有独立的记忆吗？
 
 **可以，按每条记忆设置**。每条记忆都有受众：默认全部 Agent，也可以只给你指定的那几个。在批准建议时或在记忆详情里设置。详见[个性化配置](personalization.md#每条记忆的作用域来源与受众)。
+
+受众限制的是**注入**——不满足受众的记忆不会被自动带进那个 Agent 的上下文。它不过滤 `recall` 工具，召回按设计覆盖整个共享池。真正不希望被任何 Agent 读到的内容应当删除。
 
 ## recall 能搜到我的项目代码吗？
 
@@ -46,7 +48,7 @@ CLI Agent 的记忆提取由 OnePiece 代做——未配置时不会产生任何
 
 ## 能用链路 id 去搜日志吗？
 
-**不能**。日志中刻意不包含任何执行标识符，这是隐私设计。两者需要用**时间**对上。
+**能**。日志条目在来源提供时会把 `runId`、`traceId`、`spanId` 写进它的 context。日志刻意排除的是**内容**——提示词、Agent 输出、源码、stderr、凭据、私有绝对路径——而不是标识符。搜不到通常是因为那条记录来自没有标识符可带的来源,这种就用**时间**去对。
 
 ## 远程工作区能用 Loop 吗？
 

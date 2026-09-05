@@ -1,9 +1,10 @@
 //! What a retained Session Shell looks like from the application layer, and what it needs.
 
+use super::session_shell_close::ShellRuntimeCloseOutcome;
 use crate::contexts::workspaces::domain::{
-    SessionShellError, SessionShellState, ShellAttachmentId, ShellCreateRequestId,
-    ShellForegroundProcessState, ShellId, ShellOutputFrame, ShellReplayGap, ShellRuntimeDescriptor,
-    ShellStream, ShellTitle, TerminalDimensions,
+    SessionShellError, SessionShellState, ShellAttachmentId, ShellCloseBudget,
+    ShellCreateRequestId, ShellForegroundProcessState, ShellGeneration, ShellId, ShellOutputFrame,
+    ShellReplayGap, ShellRuntimeDescriptor, ShellStream, ShellTitle, TerminalDimensions,
 };
 
 /// How many Shells may exist at once.
@@ -30,6 +31,12 @@ impl Default for ShellCapacities {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SessionShellDescriptor {
     pub(crate) shell_id: ShellId,
+    /// Which life of this Shell id the descriptor describes.
+    ///
+    /// Carried on the descriptor rather than kept private to the store because every late arrival
+    /// that has to be classified as stale — a worker completion, a reaper attempt, a retry from the
+    /// UI — is comparing against something a reader was handed.
+    pub(crate) generation: ShellGeneration,
     pub(crate) session_id: String,
     /// Which participant owns it. `None` only in a single-seat session.
     pub(crate) seat_id: Option<String>,
@@ -111,6 +118,9 @@ pub(crate) struct ResizeSessionShellRequest {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ShellRuntimeOpen {
     pub(crate) shell_id: ShellId,
+    /// Stamped on every worker event, route entry, and retained handle this open produces, so a
+    /// completion arriving after the Shell was replaced can be told apart from a current one.
+    pub(crate) generation: ShellGeneration,
     pub(crate) session_id: String,
     pub(crate) root: String,
     pub(crate) dimensions: TerminalDimensions,
@@ -139,10 +149,20 @@ pub(crate) struct ShellRuntimeOpened {
 /// The runtime calls this from its own worker. It is separate from the notice port because these
 /// two have different jobs: this one records into the retained buffer, and the notice port tells a
 /// subscriber that something changed. Recording first is what makes a notice safe to drop.
+/// Every call carries the generation the worker was started for. A reader thread can outlive the
+/// Shell it was reading — that is the ordinary case on a close that timed out — and without the
+/// generation its next frame is indistinguishable from output belonging to whatever now answers to
+/// that id.
 pub(crate) trait ShellOutputSink: Send + Sync {
-    fn on_output(&self, shell_id: &ShellId, stream: ShellStream, bytes: &[u8]);
+    fn on_output(
+        &self,
+        shell_id: &ShellId,
+        generation: ShellGeneration,
+        stream: ShellStream,
+        bytes: &[u8],
+    );
 
-    fn on_state(&self, shell_id: &ShellId, state: SessionShellState);
+    fn on_state(&self, shell_id: &ShellId, generation: ShellGeneration, state: SessionShellState);
 }
 
 pub(crate) trait SessionShellRuntimePort: Send + Sync {
@@ -160,10 +180,23 @@ pub(crate) trait SessionShellRuntimePort: Send + Sync {
         dimensions: TerminalDimensions,
     ) -> Result<(), SessionShellError>;
 
-    /// Terminates one Shell and joins its workers. Closing a Shell the runtime does not hold is a
-    /// success: a registry entry can outlive its process, and a close that failed on that would
-    /// make cleanup unreliable exactly when it matters.
-    fn close(&self, shell_id: &ShellId) -> Result<(), SessionShellError>;
+    /// Makes one bounded attempt at ending a Shell, and says what it achieved.
+    ///
+    /// No `Result`, deliberately. Every way this can go wrong leaves the adapter still owning a
+    /// child, a channel, or a worker, so "it failed" and "it is still mine" are the same fact — and
+    /// a `Result` invites the one line of code that loses a live process, `let _ = close(..)`.
+    ///
+    /// The adapter MUST NOT wait without a ceiling, MUST NOT join a worker that has not reported
+    /// itself complete, and MUST NOT remove its own ownership entry unless it returns `Confirmed`.
+    /// A generation it does not hold is `NotHeld`, which is not an error: a registry entry can
+    /// outlive its process, and failing on that would make cleanup unreliable exactly where it
+    /// matters.
+    fn close(
+        &self,
+        shell_id: &ShellId,
+        generation: ShellGeneration,
+        budget: ShellCloseBudget,
+    ) -> ShellRuntimeCloseOutcome;
 
     /// What the runtime can honestly say about foreground work. `Unknown` is a real answer.
     fn foreground_process(&self, shell_id: &ShellId) -> ShellForegroundProcessState;
@@ -218,6 +251,9 @@ pub(crate) enum SessionShellNotice {
     },
     State {
         shell_id: ShellId,
+        /// Which life of the Shell changed. A subscriber that has already replaced this Shell uses
+        /// it to discard the notice rather than apply an old ending to a new process.
+        generation: ShellGeneration,
         session_id: String,
         state: SessionShellState,
         revision: u64,

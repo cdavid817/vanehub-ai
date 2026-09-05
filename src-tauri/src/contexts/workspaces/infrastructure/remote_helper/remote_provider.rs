@@ -13,23 +13,27 @@ use super::super::path_search::{normalize_query, path_match_score};
 use super::probe::{capabilities_from, revalidate};
 use super::protocol::{
     HelperContentMatches, HelperEntry, HelperFile, HelperFingerprint, HelperGitOutput,
-    HelperListing, HelperOperation, HelperRequest, HelperResult, HelperSearch, RemoteHelperError,
+    HelperListing, HelperOperation, HelperPathCandidates, HelperRequest, HelperResult,
+    HelperSearch, HelperWalkLimits, RemoteHelperError,
 };
-use super::transport::{exchange, RemoteHelperSession};
+use super::transport::{exchange_cancellable, RemoteHelperSession};
 use crate::contexts::workspaces::application::{
-    bounded_page_size, bounded_search_page, detect_encoding, detect_newline, DirectoryCursor,
-    DirectoryEntry, DirectoryFingerprint, DirectoryFingerprintState, DirectoryListing,
-    DocumentListing, FileContent, FileSearchListing, FileSearchMatch, GitDiffRequest,
-    GitDiffResult, GitDiffSource, GitStatusResult, ListDirectoryRequest, PathSearchCursor,
-    ReadTextFileRequest, RemoteWorkspaceTarget, SessionWorkspaceContext, WorkspaceContentMatch,
-    WorkspaceContentSearchRequest, WorkspaceContentSearchResult, WorkspaceInspectionCapabilities,
-    WorkspaceInspectionError, WorkspaceInspectionProvider, WorkspacePathMatch,
-    WorkspacePathSearchRequest, WorkspacePathSearchResult, WorkspaceSearchCoverage,
-    WorkspaceSearchRequest, WorkspaceTarget, MAX_CONTENT_MATCHES, MAX_FINGERPRINT_PATHS,
+    bounded_page_size, bounded_search_page, detect_encoding, detect_newline, workspace_identity,
+    DirectoryCursor, DirectoryEntry, DirectoryFingerprint, DirectoryFingerprintState,
+    DirectoryListing, DirectoryOrder, DirectoryPageScope, DocumentListing, FileContent,
+    FileSearchListing, FileSearchMatch, GitDiffRequest, GitDiffResult, GitDiffSource,
+    GitStatusResult, ListDirectoryRequest, PathSearchCursor, ReadTextFileRequest,
+    RemoteWorkspaceTarget, SearchCancellationCause, SearchCancellationToken,
+    SessionWorkspaceContext, WorkspaceContentMatch, WorkspaceContentSearchRequest,
+    WorkspaceContentSearchResult, WorkspaceIgnorePolicy, WorkspaceInspectionBudgetLimits,
+    WorkspaceInspectionBudgetSnapshot, WorkspaceInspectionCapabilities, WorkspaceInspectionError,
+    WorkspaceInspectionExecution, WorkspaceInspectionProvider, WorkspaceInspectionReason,
+    WorkspacePathMatch, WorkspacePathSearchRequest, WorkspacePathSearchResult,
+    WorkspaceSearchCoverage, WorkspaceSearchRequest, WorkspaceTarget, MAX_CONTENT_MATCHES,
+    MAX_FINGERPRINT_PATHS,
 };
 use async_trait::async_trait;
 use base64::Engine;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 /// What a binding looks like right now.
@@ -98,15 +102,34 @@ impl RemoteWorkspaceInspectionProvider {
         target: &WorkspaceTarget,
         operation: HelperOperation,
     ) -> Result<(RemoteWorkspaceTarget, HelperResult), WorkspaceInspectionError> {
+        self.call_cancellable(target, operation, None).await
+    }
+
+    /// The same call, given up on when the token says nobody is waiting.
+    ///
+    /// Only the searches pass one. A directory listing or a file read is a bounded round trip a
+    /// reader is actively waiting for; a search is the operation they abandon by typing another
+    /// character, and the one whose remote cost keeps growing while they do.
+    ///
+    /// A cancelled attempt is not retried. The retry above exists for a connection that dropped
+    /// underneath a read nobody abandoned, and re-issuing a request the reader has already walked
+    /// away from would spend a second round trip proving it.
+    async fn call_cancellable(
+        &self,
+        target: &WorkspaceTarget,
+        operation: HelperOperation,
+        cancellation: Option<&SearchCancellationToken>,
+    ) -> Result<(RemoteWorkspaceTarget, HelperResult), WorkspaceInspectionError> {
         let mut attempt = 0;
         loop {
             attempt += 1;
             let remote = self.remote(target)?.clone();
-            let outcome = exchange(
+            let outcome = exchange_cancellable(
                 self.session.as_ref(),
                 &remote.connection_id,
                 remote.connection_revision,
                 &HelperRequest::new(remote.root.clone(), operation.clone()),
+                cancellation,
             )
             .await;
 
@@ -126,6 +149,42 @@ impl RemoteWorkspaceInspectionProvider {
                 Err(error) => return Err(inspection_error(error)),
             }
         }
+    }
+}
+
+/// The shared policy's default exclusions, as the helper receives them.
+///
+/// Built here rather than restated on the remote host. The helper carried its own copy and the copy
+/// had already drifted — it was missing three of the generated-output directories the local walk
+/// skips — so a remote workspace appeared to have a different shape from a local one, which is the
+/// single thing a provider-neutral seam exists to prevent.
+///
+/// What this does *not* carry is the repository's own ignore rules. Where the helper uses ripgrep,
+/// Git's rules apply because ripgrep applies them; where it walks itself, they do not. The remaining
+/// difference from the local walk is narrow and worth naming: a `.gitignore` that negates one of
+/// these names re-includes that tree locally, and does not remotely, because a command-line glob
+/// outranks a rule file. Reading the remote repository's rule files would mean a second
+/// implementation of gitignore semantics on the other side of the wire.
+fn shared_exclusions() -> Vec<String> {
+    WorkspaceIgnorePolicy::default_excluded_directories()
+        .iter()
+        .map(|name| (*name).to_string())
+        .collect()
+}
+
+/// What a remote path walk may spend.
+///
+/// Derived from the shared path-search profile rather than restated, so the two sides bound the
+/// same walk by the same numbers. The deadline is the profile's, not the transport's: the transport
+/// timeout ends the *exchange*, and a helper still walking after it would hold a remote process for
+/// an answer this side has already given up on.
+fn remote_walk_limits() -> HelperWalkLimits {
+    let limits = WorkspaceInspectionBudgetLimits::path_search();
+    HelperWalkLimits {
+        max_entries: limits.max_entries_visited,
+        max_depth: limits.max_depth,
+        max_results: MAX_REMOTE_PATH_CANDIDATES as u64,
+        deadline_seconds: limits.deadline.as_secs().max(1),
     }
 }
 
@@ -172,6 +231,10 @@ fn inspection_error(error: RemoteHelperError) -> WorkspaceInspectionError {
             "remote_profile_stale" => "remote_profile_stale",
             "remote_host_untrusted" => "remote_host_untrusted",
             "remote_helper_timeout" => "remote_helper_timeout",
+            // Kept distinct so the searches can recognise their own cancel. Collapsed into
+            // "connection unavailable" it would look to a reader like the host went away, which is
+            // a different situation and not one they caused.
+            "remote_helper_cancelled" => "remote_helper_cancelled",
             _ => "remote_connection_unavailable",
         }),
     }
@@ -228,9 +291,28 @@ fn rank_path_candidates(
     query: &str,
     cursor: Option<&PathSearchCursor>,
     limit: usize,
-    truncated: bool,
-    entries: Vec<HelperEntry>,
+    candidates: HelperPathCandidates,
 ) -> WorkspacePathSearchResult {
+    let truncated = candidates.truncated;
+    let reason = candidates
+        .reason_code
+        .as_deref()
+        .and_then(remote_stop_reason);
+    let budget = candidates
+        .counts
+        .map(|counts| WorkspaceInspectionBudgetSnapshot {
+            directories_visited: counts.directories_visited,
+            entries_visited: counts.entries_visited,
+            // A path walk opens nothing and reads no contents, on either machine.
+            files_opened: 0,
+            bytes_read: 0,
+            metadata_operations: counts.entries_visited,
+            candidates_retained: 0,
+            results_emitted: 0,
+            max_depth_reached: counts.max_depth_reached,
+            unreadable_entries: counts.unreadable_entries,
+        });
+    let entries = candidates.entries;
     let mut scored: Vec<(u32, u32, WorkspacePathMatch)> = entries
         .into_iter()
         .filter_map(|entry| {
@@ -278,26 +360,60 @@ fn rank_path_candidates(
         _ => None,
     };
 
+    // A walk that stopped at its bound left part of the workspace unexamined, which is a different
+    // fact from "more matches follow" and one that paging can never fix. The reason comes from the
+    // helper rather than being guessed here: the previous version reported every stop as an entry
+    // budget, which was wrong whenever the real bound was depth, results, or a directory the host
+    // could not read.
+    let coverage = match (reason, truncated) {
+        (Some(reason), _) => WorkspaceSearchCoverage::stopped(reason),
+        (None, true) => {
+            WorkspaceSearchCoverage::stopped(WorkspaceInspectionReason::EntryBudgetExhausted)
+        }
+        (None, false) => WorkspaceSearchCoverage::complete(),
+    };
     WorkspacePathSearchResult {
-        // A walk that stopped at its bound left part of the workspace unexamined, which is a
-        // different fact from "more matches follow" and one that paging can never fix.
-        coverage: if truncated {
-            WorkspaceSearchCoverage::partial("workspace_search_scan_limit")
-        } else {
-            WorkspaceSearchCoverage::complete()
+        coverage: match budget {
+            Some(budget) => coverage.with_budget(budget),
+            None => coverage,
         },
         matches: page.into_iter().map(|(_, _, entry)| entry).collect(),
         next_cursor,
     }
 }
 
-/// What a cancelled search returns.
+/// A stop reason the helper named, in this side's vocabulary.
+///
+/// Matched against the shared codes rather than passed through: the helper is a script this binary
+/// ships, but the coverage a reader sees must only ever hold words this side defined. A code nobody
+/// recognises falls back to the generic bound rather than reaching a panel as a raw token.
+fn remote_stop_reason(code: &str) -> Option<WorkspaceInspectionReason> {
+    match code {
+        "entry_budget_exhausted" => Some(WorkspaceInspectionReason::EntryBudgetExhausted),
+        "depth_budget_exhausted" => Some(WorkspaceInspectionReason::DepthBudgetExhausted),
+        "result_budget_exhausted" => Some(WorkspaceInspectionReason::ResultBudgetExhausted),
+        "deadline_exceeded" => Some(WorkspaceInspectionReason::DeadlineExceeded),
+        "unreadable_entries" => Some(WorkspaceInspectionReason::UnreadableEntries),
+        _ => None,
+    }
+}
+
+/// What a stopped search returns.
 ///
 /// Partial with a reason rather than an error: nothing went wrong, the reader simply stopped
 /// waiting, and an error would put a failure notice on screen for something they did on purpose.
-fn cancelled_result() -> WorkspaceContentSearchResult {
+///
+/// The cause is carried through rather than flattened, because a reader who typed another
+/// character and a reader who pressed Escape are being told different things.
+fn cancelled_result(cause: Option<SearchCancellationCause>) -> WorkspaceContentSearchResult {
+    // The same three reasons the local walk reports, from the same mapping. A reader who cancels a
+    // search on a remote workspace is being told what happened to their search, not which machine
+    // it was running on.
+    let reason = WorkspaceInspectionReason::from_cancellation(
+        cause.unwrap_or(SearchCancellationCause::Cancelled),
+    );
     WorkspaceContentSearchResult {
-        coverage: WorkspaceSearchCoverage::partial("workspace_search_cancelled"),
+        coverage: WorkspaceSearchCoverage::stopped(reason),
         matches: Vec::new(),
     }
 }
@@ -314,7 +430,7 @@ fn content_matches(value: HelperContentMatches) -> WorkspaceContentSearchResult 
     }
     WorkspaceContentSearchResult {
         coverage: if value.truncated {
-            WorkspaceSearchCoverage::partial("workspace_search_match_limit")
+            WorkspaceSearchCoverage::stopped(WorkspaceInspectionReason::ResultBudgetExhausted)
         } else {
             WorkspaceSearchCoverage::complete()
         },
@@ -350,6 +466,24 @@ fn fingerprints(values: Vec<HelperFingerprint>) -> Vec<DirectoryFingerprint> {
         .collect()
 }
 
+/// What a cursor issued for a remote listing is only valid within.
+///
+/// The fingerprint is absent, and that is a stated limitation rather than an oversight. The helper
+/// protocol does not report one, so this side genuinely cannot tell whether the remote directory
+/// changed between two pages. Carrying a placeholder would compare equal on every request and
+/// report "unchanged" about something nobody observed; the absence says the detection is not available
+/// here, and the cursor rules refuse to treat a page from a provider that *can* detect change as
+/// interchangeable with one that cannot.
+fn remote_page_scope(remote: &RemoteWorkspaceTarget, path: &str) -> DirectoryPageScope {
+    DirectoryPageScope {
+        workspace: workspace_identity(&format!("ssh:{}:{}", remote.connection_id, remote.root)),
+        path: path.to_string(),
+        order: DirectoryOrder::KindThenName,
+        policy: WorkspaceIgnorePolicy::direct_navigation().identity(),
+        fingerprint: None,
+    }
+}
+
 fn listing(remote: &RemoteWorkspaceTarget, value: HelperListing) -> DirectoryListing {
     let path = value.path;
     let items: Vec<DirectoryEntry> = value.entries.into_iter().map(entry).collect();
@@ -357,9 +491,10 @@ fn listing(remote: &RemoteWorkspaceTarget, value: HelperListing) -> DirectoryLis
     // one directory-binding rule, and a remote host that cannot issue a resume point for a
     // directory it was not asked about.
     let next_cursor = value.truncated.then(|| {
-        items
-            .last()
-            .map(|entry| DirectoryCursor::after(&path, entry.kind, &entry.name).encode())
+        items.last().map(|entry| {
+            DirectoryCursor::after(remote_page_scope(remote, &path), entry.kind, &entry.name)
+                .encode()
+        })
     });
     DirectoryListing {
         context: context(remote),
@@ -367,6 +502,11 @@ fn listing(remote: &RemoteWorkspaceTarget, value: HelperListing) -> DirectoryLis
         items,
         truncated: value.truncated,
         next_cursor: next_cursor.flatten(),
+        // The helper reports a page, not a scan. It has no budget counters to send back, so there is
+        // nothing here that could distinguish "read the whole directory" from "stopped early" —
+        // claiming complete is the honest reading of a protocol that has no way to say otherwise,
+        // and the truncation flag it does send is carried separately above.
+        coverage: WorkspaceSearchCoverage::complete(),
     }
 }
 
@@ -447,7 +587,27 @@ impl WorkspaceInspectionProvider for RemoteWorkspaceInspectionProvider {
         // directory binding is this side's rule; sending it whole would put both on a machine
         // that has no reason to know either.
         let cursor = match request.cursor.as_deref() {
-            Some(encoded) => Some(DirectoryCursor::decode(encoded, &request.path)?),
+            Some(encoded) => {
+                let remote = self.remote(target)?;
+                let scope = remote_page_scope(remote, &request.path);
+                match DirectoryCursor::decode(encoded, &scope) {
+                    Ok(cursor) => Some(cursor),
+                    // A refusal, not a failure — the same answer the local provider gives, because
+                    // a panel written against one adapter has to work against the other. An error
+                    // here would leave the caller unable to tell "start again from the top" from
+                    // "this host is unreachable", and only one of those is worth retrying.
+                    Err(refusal) => {
+                        return Ok(DirectoryListing {
+                            context: context(remote),
+                            path: request.path,
+                            items: Vec::new(),
+                            truncated: false,
+                            next_cursor: None,
+                            coverage: WorkspaceSearchCoverage::stopped(refusal.into()),
+                        })
+                    }
+                }
+            }
             None => None,
         };
         let (remote, result) = self
@@ -496,14 +656,45 @@ impl WorkspaceInspectionProvider for RemoteWorkspaceInspectionProvider {
         &self,
         target: &WorkspaceTarget,
         request: WorkspacePathSearchRequest,
+        execution: WorkspaceInspectionExecution,
     ) -> Result<WorkspacePathSearchResult, WorkspaceInspectionError> {
+        // The helper runs its own walk with its own limits, so what this provider takes from the
+        // context is the token and nothing else. Reading the local budget here would report counts
+        // for work this machine did not do.
+        let cancellation = execution.cancellation().clone();
+        // Checked before the helper is launched. A cancel that arrived while the request was queued
+        // for admission has already been signalled, and starting a remote process for it would put
+        // work on somebody else's machine for an answer nobody is waiting for.
+        if let Some(cause) = cancellation.cause() {
+            return Ok(WorkspacePathSearchResult {
+                coverage: WorkspaceSearchCoverage::stopped(
+                    WorkspaceInspectionReason::from_cancellation(cause),
+                ),
+                matches: Vec::new(),
+                next_cursor: None,
+            });
+        }
         let normalized = normalize_query(&request.query);
         let cursor = match request.cursor.as_deref() {
-            Some(encoded) => Some(PathSearchCursor::decode(encoded, &normalized)?),
+            Some(encoded) => match PathSearchCursor::decode(encoded, &normalized) {
+                Ok(cursor) => Some(cursor),
+                // A refusal, not a failure — the same answer the local provider gives. A panel
+                // written against one adapter has to restart correctly against the other, and an
+                // error carries no page for it to restart from.
+                Err(_) => {
+                    return Ok(WorkspacePathSearchResult {
+                        coverage: WorkspaceSearchCoverage::stopped(
+                            WorkspaceInspectionReason::InvalidCursor,
+                        ),
+                        matches: Vec::new(),
+                        next_cursor: None,
+                    })
+                }
+            },
             None => None,
         };
-        let (_, result) = self
-            .call(
+        let (_, result) = match self
+            .call_cancellable(
                 target,
                 HelperOperation::SearchPaths {
                     query: normalized.clone(),
@@ -511,9 +702,30 @@ impl WorkspaceInspectionProvider for RemoteWorkspaceInspectionProvider {
                     // remote by anything but walk order would drop candidates that would have
                     // ranked well and leave worse ones in.
                     limit: MAX_REMOTE_PATH_CANDIDATES,
+                    excluded_directories: shared_exclusions(),
+                    limits: remote_walk_limits(),
                 },
+                Some(&cancellation),
             )
-            .await?;
+            .await
+        {
+            Ok(answer) => answer,
+            // Given up on mid-flight. The coverage names what the reader did rather than reporting a
+            // remote failure for a search they stopped themselves.
+            Err(WorkspaceInspectionError::RemoteUnavailable("remote_helper_cancelled")) => {
+                return Ok(WorkspacePathSearchResult {
+                    coverage: WorkspaceSearchCoverage::stopped(
+                        cancellation
+                            .cause()
+                            .map(WorkspaceInspectionReason::from_cancellation)
+                            .unwrap_or(WorkspaceInspectionReason::Cancelled),
+                    ),
+                    matches: Vec::new(),
+                    next_cursor: None,
+                })
+            }
+            Err(error) => return Err(error),
+        };
         let candidates = result
             .paths
             .ok_or(WorkspaceInspectionError::RemoteUnavailable(
@@ -523,8 +735,7 @@ impl WorkspaceInspectionProvider for RemoteWorkspaceInspectionProvider {
             &normalized,
             cursor.as_ref(),
             bounded_search_page(request.limit),
-            candidates.truncated,
-            candidates.entries,
+            candidates,
         ))
     }
 
@@ -532,27 +743,42 @@ impl WorkspaceInspectionProvider for RemoteWorkspaceInspectionProvider {
         &self,
         target: &WorkspaceTarget,
         request: WorkspaceContentSearchRequest,
-        cancelled: Arc<AtomicBool>,
+        execution: WorkspaceInspectionExecution,
     ) -> Result<WorkspaceContentSearchResult, WorkspaceInspectionError> {
+        // The helper walks with its own limits on the far machine, so what this provider takes from
+        // the context is the token. Reading the local budget here would report counts for work this
+        // machine did not do.
+        let cancellation = execution.cancellation().clone();
         // Checked before connecting rather than only after. A reader who cancels while the request
         // is still being assembled has already stopped waiting, and opening an SSH channel to
         // answer them would spend a remote host's effort on a result nobody will read.
-        if cancelled.load(Ordering::Relaxed) {
-            return Ok(cancelled_result());
+        if cancellation.is_cancelled() {
+            return Ok(cancelled_result(cancellation.cause()));
         }
-        let (_, result) = self
-            .call(
+        let (_, result) = match self
+            .call_cancellable(
                 target,
                 HelperOperation::SearchContent {
                     query: request.query.clone(),
                     max_results: request.limit.unwrap_or(MAX_CONTENT_MATCHES),
+                    excluded_directories: shared_exclusions(),
                 },
+                Some(&cancellation),
             )
-            .await?;
+            .await
+        {
+            Ok(answer) => answer,
+            // Given up on mid-flight. The coverage names what the reader did rather than reporting a
+            // remote failure for a search they stopped themselves.
+            Err(WorkspaceInspectionError::RemoteUnavailable("remote_helper_cancelled")) => {
+                return Ok(cancelled_result(cancellation.cause()))
+            }
+            Err(error) => return Err(error),
+        };
         // Checked again afterwards. The round trip is where the waiting actually happens, and a
         // result that arrives for an abandoned search must not be handed back as if it were wanted.
-        if cancelled.load(Ordering::Relaxed) {
-            return Ok(cancelled_result());
+        if cancellation.is_cancelled() {
+            return Ok(cancelled_result(cancellation.cause()));
         }
         let content = result
             .content
@@ -565,6 +791,7 @@ impl WorkspaceInspectionProvider for RemoteWorkspaceInspectionProvider {
     async fn list_documents(
         &self,
         target: &WorkspaceTarget,
+        _execution: WorkspaceInspectionExecution,
     ) -> Result<DocumentListing, WorkspaceInspectionError> {
         // Not offered yet, and refused rather than answered with an empty list: an empty document
         // list is a claim that the workspace has no documents, which is a different statement from
@@ -602,6 +829,7 @@ impl WorkspaceInspectionProvider for RemoteWorkspaceInspectionProvider {
                 HelperOperation::Search {
                     query: request.query,
                     max_results: request.max_results,
+                    excluded_directories: shared_exclusions(),
                 },
             )
             .await?;

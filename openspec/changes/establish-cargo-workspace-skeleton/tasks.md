@@ -10,6 +10,13 @@
       — NOT DONE before the change, and ticked in error at first. There is now no pre-change
       baseline to diff the artifact layout against, so 3.2 has to verify the layout against the
       documented expectation instead, which is a weaker check. Recorded rather than quietly dropped
+      — Current Linux x64 evidence, recorded 2026-08-21: the command generated
+      `target/release/bundle/deb/VaneHub AI_1.0.0_amd64.deb` and
+      `target/release/bundle/appimage/VaneHub AI_1.0.0_amd64.AppImage`; the permission-hook
+      resolved from `target/x86_64-unknown-linux-gnu/release/vanehub-permission-hook` and staged
+      to `src-tauri/binaries/vanehub-permission-hook-x86_64-unknown-linux-gnu`. It then failed as
+      expected without a local `TAURI_SIGNING_PRIVATE_KEY`, so this is layout evidence only—not a
+      successful signed-package verification or a recoverable pre-change baseline.
 
 ## 2. Workspace skeleton, one member
 

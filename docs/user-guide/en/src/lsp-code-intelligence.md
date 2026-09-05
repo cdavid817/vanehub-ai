@@ -1,6 +1,6 @@
 # LSP code intelligence
 
-Language Server Protocol (LSP) integration lets the native API Agent ask a local language server for definitions, references, hover information, and current diagnostics. It is disabled by default and requires both language enablement and explicit trust for each local workspace.
+Language Server Protocol (LSP) integration lets the native API Agent ask a local language server for definitions, references, hover information, and current diagnostics. It is disabled by default and requires both language enablement and explicit trust for each local workspace. The entry point is **Settings → Code Intelligence**.
 
 ![The Language server intelligence settings page showing configuration, discovery, startup arguments, and trusted workspaces](assets/screenshots/settings-code-intelligence-en.png)
 
@@ -178,7 +178,7 @@ Java startup is noticeably slower than the other servers, and it reports progres
 
 Use the desktop application for these steps:
 
-1. Open **Settings > Agent Configurations** and find **Language server intelligence**.
+1. Open **Settings > Code Intelligence** and find **Language server intelligence**.
 2. Turn on **Enable LSP integration**, then enable the languages you want.
 3. Select **Refresh discovery**. If the desktop process cannot see the executable, enter its absolute path in **Executable override**.
 4. Leave **Startup arguments** blank to use the defaults in the table above. To pass your own, enter one argument per line — the list you enter replaces the defaults rather than adding to them, so a server that needs `--stdio` must still list it. An entered-but-empty list means "start this server with no arguments at all", which is not the same as leaving the field blank.
@@ -186,7 +186,7 @@ Use the desktop application for these steps:
 6. Save the configuration.
 7. Under **Test language server**, run the isolated test. Review the discovery, process start, initialization, and cleanup phases.
 8. Read the trust disclosure, enter the absolute local workspace path under **Trusted workspaces**, and select **Trust workspace**.
-9. Open a native API Agent session for that local workspace. The four LSP tools become eligible without requiring a code index.
+9. Open a native API Agent session for that local workspace. The nine LSP tools listed above become eligible without requiring a code index.
 
 Changing startup arguments changes the command line a server runs under, so any server already running for that configuration is drained and restarted before the next request. Testing a server uses an isolated minimal project; it does not grant workspace trust. Enabling a Tree-sitter code index also does not grant LSP trust.
 
@@ -271,5 +271,5 @@ Review the safe reason shown in **Runtime status**, fix the executable, project,
 ## Related
 
 - How the persistent index and live LSP divide the work → [Code indexing](code-indexing.md)
-- The settings page holding the language-server toggles → [Tools and extensions](tooling.md#agent-configurations)
-- The LSP protocol itself: layering and lifecycle, capability negotiation, the text synchronization model → [LSP technical architecture](../../../agent-infrastructure/lsp-architecture.md) (Simplified Chinese)
+- The settings page holding the language-server toggles → [Tools and extensions](agent-configuration.md#agent-configurations)
+- The LSP protocol itself: layering and lifecycle, capability negotiation, the text synchronization model → [LSP technical architecture](../../../agent-infrastructure/protocols/lsp.md) (Simplified Chinese)

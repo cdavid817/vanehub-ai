@@ -18,11 +18,11 @@ use super::inspection::{
     WorkspacePathSearchRequest, WorkspacePathSearchResult, WorkspaceSearchRequest, WorkspaceTarget,
     WorkspaceTargetResolver,
 };
+use super::inspection_execution::WorkspaceInspectionExecution;
 use super::models::{
     DirectoryListing, DocumentListing, FileContent, FileSearchListing, GitDiffResult,
     GitStatusResult,
 };
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 pub(crate) struct WorkspaceInspectionRouter {
@@ -125,9 +125,12 @@ impl WorkspaceInspectionRouter {
     pub(crate) async fn list_documents(
         &self,
         session_id: &str,
+        execution: WorkspaceInspectionExecution,
     ) -> Result<DocumentListing, WorkspaceInspectionError> {
         let target = self.target(session_id)?;
-        self.provider(&target)?.list_documents(&target).await
+        self.provider(&target)?
+            .list_documents(&target, execution)
+            .await
     }
 
     pub(crate) async fn read_text_file(
@@ -150,26 +153,30 @@ impl WorkspaceInspectionRouter {
         self.provider(&target)?.search(&target, request).await
     }
 
-    /// Content search, with the flag the caller will use to stop it.
+    /// Content search, with the context the walk runs under.
     pub(crate) async fn search_content(
         &self,
         session_id: &str,
         request: WorkspaceContentSearchRequest,
-        cancelled: Arc<AtomicBool>,
+        execution: WorkspaceInspectionExecution,
     ) -> Result<WorkspaceContentSearchResult, WorkspaceInspectionError> {
         let target = self.target(session_id)?;
         self.provider(&target)?
-            .search_content(&target, request, cancelled)
+            .search_content(&target, request, execution)
             .await
     }
 
+    /// Quick Open, with the context the walk runs under.
     pub(crate) async fn search_paths(
         &self,
         session_id: &str,
         request: WorkspacePathSearchRequest,
+        execution: WorkspaceInspectionExecution,
     ) -> Result<WorkspacePathSearchResult, WorkspaceInspectionError> {
         let target = self.target(session_id)?;
-        self.provider(&target)?.search_paths(&target, request).await
+        self.provider(&target)?
+            .search_paths(&target, request, execution)
+            .await
     }
 
     pub(crate) async fn git_status(

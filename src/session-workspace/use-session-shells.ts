@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { sessionShellService } from "../services/runtime-session-shell-client";
 import type { SessionShellDescriptor } from "../types/session-workspace-shell-frames";
+import { isCloseSettled } from "../types/session-workspace-shell-frames";
 import { workspaceErrorKey, type WorkspaceErrorKey } from "./workspace-error";
 
 export interface SessionShellsState {
@@ -145,7 +146,25 @@ export function useSessionShells(
 
   const closeShell = useCallback(async (shellId: string) => {
     try {
-      await sessionShellService.closeSessionShell(shellId);
+      const outcome = await sessionShellService.closeSessionShell(shellId);
+      // Removing the tab because the promise resolved is the defect this change exists to remove.
+      // `reaping` and `close_failed` both resolve, and both mean the process may still be running;
+      // dropping the Shell here would take away the only handle left that can retry it.
+      if (!isCloseSettled(outcome.disposition)) {
+        setShells((current) =>
+          current.map((shell) =>
+            shell.shellId === shellId
+              ? {
+                  ...shell,
+                  state: outcome.disposition === "reaping" ? "reaping" : "close_failed",
+                  reason: outcome.reason ?? shell.reason,
+                  revision: shell.revision + 1,
+                }
+              : shell,
+          ),
+        );
+        return;
+      }
       setShells((current) => current.filter((shell) => shell.shellId !== shellId));
       setActiveShellId((current) => (current === shellId ? null : current));
     } catch (reason) {

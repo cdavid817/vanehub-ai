@@ -33,7 +33,7 @@ export function formatNotificationTimestamp(createdAt: number, language: string)
 
 export function NotificationCenter() {
   const { i18n, t } = useTranslation();
-  const { notifications, unreadCount, markRead, markAllRead, remove, clear } = useNotifications();
+  const { notifications, unreadCount, activate, markRead, markAllRead, remove, clear } = useNotifications();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const newestFirst = notifications.slice().reverse();
@@ -152,7 +152,10 @@ export function NotificationCenter() {
                           : t("notifications.markReadItem", { title: notification.title })
                       }
                       className="min-w-0 text-left"
-                      onClick={() => markRead(notification.id)}
+                      onClick={() => {
+                        activate(notification.id);
+                        if (notification.navigation) setOpen(false);
+                      }}
                       type="button"
                     >
                       <span className="flex items-start gap-2">
@@ -166,6 +169,11 @@ export function NotificationCenter() {
                       {notification.message ? (
                         <span className="mt-0.5 block wrap-break-word text-xs leading-5 text-muted-foreground">
                           {notification.message}
+                        </span>
+                      ) : null}
+                      {notification.navigation ? (
+                        <span className="mt-1 block text-[11px] font-medium text-primary">
+                          {notification.navigation.label}
                         </span>
                       ) : null}
                       <span className="mt-1 flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground">

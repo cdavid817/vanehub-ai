@@ -216,7 +216,7 @@ impl WorkspaceInspectionProvider for RecordingProvider {
         &self,
         _target: &WorkspaceTarget,
         request: WorkspaceContentSearchRequest,
-        _cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        _execution: crate::contexts::workspaces::application::WorkspaceInspectionExecution,
     ) -> Result<WorkspaceContentSearchResult, WorkspaceInspectionError> {
         self.calls
             .lock()
@@ -232,6 +232,7 @@ impl WorkspaceInspectionProvider for RecordingProvider {
         &self,
         _target: &WorkspaceTarget,
         request: WorkspacePathSearchRequest,
+        _execution: crate::contexts::workspaces::application::WorkspaceInspectionExecution,
     ) -> Result<WorkspacePathSearchResult, WorkspaceInspectionError> {
         self.calls
             .lock()
@@ -271,6 +272,7 @@ impl WorkspaceInspectionProvider for RecordingProvider {
     async fn list_documents(
         &self,
         _target: &WorkspaceTarget,
+        _execution: crate::contexts::workspaces::application::WorkspaceInspectionExecution,
     ) -> Result<DocumentListing, WorkspaceInspectionError> {
         Err(WorkspaceInspectionError::NotFound)
     }

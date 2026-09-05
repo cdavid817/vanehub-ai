@@ -132,12 +132,12 @@ In the **Traces** tab, such a run is annotated "triggered by a scheduled task" w
 2. Read down the four layers from the root: session → Agent → tool/MCP boundary → process execution.
 3. Find the node in a failed state and check its duration and error classification.
 4. If the failed node has **Opaque** fidelity, it is internal behavior of an external CLI and the trace stops there — switch to the **Terminal** or **Logs** tab to continue.
-5. In the **Logs** tab, search by keyword, or use **seek** to jump near the time of the failure.
+5. In the **Logs** tab, search by the failing node's `runId`, `traceId`, or `spanId`; when those fields are absent, fall back to **seek** to jump near the time of the failure.
 
 ### What happens
 
 A trace tells you **which stage was slow and which one broke**; the logs tell you **what it actually said**.
 
-> **The two cannot be cross-searched**: logs deliberately contain no trace identifiers, which is a privacy design. You line the two up by **time**, not by id.
+> **Line the two up by identifier first**: when the source supplies them, a log entry carries `runId`, `traceId`, and `spanId` in its context, so traces and logs correlate on the same set of ids. Only an external CLI's internal behaviour, an older record, or a degraded path that carries no context lacks these fields — that is when you fall back to time. Logs still never persist raw prompts or Agent output.
 
 If you are using [OnePiece](native-agent.md), the trace carries considerably more information — its tool calls are native fidelity and expand layer by layer, whereas an external CLI shows only its boundary.

@@ -59,7 +59,7 @@ pub(crate) use code_intelligence::{
 pub(crate) use communications::{assemble_communications, CommunicationsDependencies};
 pub(crate) use desktop::{
     assemble_desktop_lifecycle_api, assemble_desktop_settings_api, assemble_floating_assistant_api,
-    initialize_desktop_runtime,
+    initialize_desktop_runtime, DesktopLifecycleDependencies,
 };
 pub(crate) use evidence_bridge::{start_evidence_bridge, EvidenceBridgeShutdown};
 pub(crate) use execution_observability::{
@@ -77,7 +77,9 @@ pub(crate) use operations::{
     assemble_agent_runs_api_with_recovery, assemble_operations_api, assemble_session_log_api,
     start_log_index_repair_job,
 };
-pub(crate) use permissions::{assemble_permissions_api, start_permission_timeout_sweep_job};
+pub(crate) use permissions::{
+    assemble_approval_resolver, assemble_permissions_api, start_permission_timeout_sweep_job,
+};
 pub(crate) use personalization::{
     assemble_personalization, spawn_startup_maintenance, DeferredRetrievalIndex,
     PersonalizationAssembly,

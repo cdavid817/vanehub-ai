@@ -57,7 +57,22 @@ const maxStaticEntryGzipBytes = 350 * 1024;
 // new file, and `command-center-registry.ts` (which imports it) is eagerly bundled into App, not
 // behind any LazyFeature boundary, since the Command Center is always-mounted global chrome.
 // Recorded at the exact measured value.
-const maxRawJavaScriptChunkBytes = 721545;
+// +5723 bytes -> 710.2 KiB (727268 bytes; merge of origin/main into redesign-unified-workbench-ui):
+// main's own independent history never bumped this constant (its own value stayed at the original
+// `700 * 1024`), so this is not a comment-history merge like the SUBTREE_LINE_BUDGETS constants --
+// it is main's real, eagerly-bundled growth landing in App.tsx on top of this branch's own prior
+// bumps. `App.tsx` gained `CuratorNotificationBridge`/`GenerationNotificationBridge`/
+// `EvolutionNotificationBridge` plus the `RoutedProviders`/`NotificationProvider` restructuring
+// (Skill Evolution notification wiring), none of which sit behind a LazyFeature boundary since
+// they mount at the app root. Measured on the fully-merged tree per the established convention;
+// not summed from either side's prior number.
+// +313 bytes -> 710.5 KiB (727581 bytes): `npm run test:desktop` builds with `VITE_DESKTOP_E2E=1`
+// (see `scripts/build-desktop-e2e.mjs`), which statically enables the desktop-only instrumentation
+// branches in `src/main.tsx` and `src/services/tauri-local-media-client.ts` -- pre-existing code,
+// not new to this merge, but this check runs against whichever `dist/` a build produced, and the
+// e2e-instrumented variant has always been the larger of the two. Recording against the larger
+// variant so both build modes pass; the plain production build (727268) has headroom under it.
+const maxRawJavaScriptChunkBytes = 727581;
 
 for (const source of requiredDynamicEntries) {
   const entry = Object.values(manifest).find((candidate) => candidate.src === source);

@@ -59,7 +59,7 @@ openspec/
 
 ## 变更流程
 
-任何新功能或架构调整,必须先在 `openspec/changes/` 下起一个 proposal,通过 `openspec validate --specs --strict` 校验后再动代码。不要跳过 spec 直接改代码。
+任何新功能或架构调整,必须先在 `openspec/changes/` 下起一个 proposal,通过 `openspec validate <change-name> --strict` 校验后再动代码。不要跳过 spec 直接改代码。（`openspec validate --specs --strict` 校验的是 `openspec/specs/` 主规范,不覆盖单个 change;两条命令语义不同,不要混用。）
 
 ## OpenSpec 归档治理
 
@@ -110,7 +110,7 @@ openspec validate --specs --strict
 - `npm run architecture:check`:CI 每次都跑,内部串联 `lint:ci`、`tsc --noEmit` 与架构 fitness 测试;改动跨上下文依赖或 Tauri 边界时本地补跑一次
 - UI 行为变更时:`npx playwright test`(CI 的 e2e job 恒跑,本地在改动 UI 行为时必须跑)
 - 桌面运行时、Tauri 启动链路或 IPC 行为变更时:`npm run desktop:unit:test` 与 `npm run test:desktop`;后者会真实构建并启动当前操作系统的测试专用桌面客户端,本地结果不得外推到其他平台
-- `npm run test:desktop` 分层运行,各层独立报结果与证据目录:`desktop-smoke`(启动、IPC、导航)、`desktop-cli-terminal`(CLI Agent 终端往返)、`desktop-cli-management`(临时 PATH 上的 CLI 发现、计划、执行、验证与跨重启持久化)、`desktop-session-workspace`(9 个工作区标签的真实内容)、`desktop-session-shell`(Shell 跨标签/会话切换存活,且只有显式确认的关闭才终止进程)、`desktop-dialogs`(主路径对话框的焦点与提交)、`desktop-settings-persistence`(设置改动跨真实重启),以及 `agent-mcp`、`local-media`、`skills`、`feishu-im`。层的清单以 `package.json` 的 `test:desktop:*` 脚本为准——这里不写数字,写死的层数会在下一次加层时变成一句错话
+- `npm run test:desktop` 分层运行,各层独立报结果与证据目录:`desktop-smoke`(启动、IPC、导航)、`desktop-cli-terminal`(CLI Agent 终端往返)、`desktop-cli-management`(临时 PATH 上的 CLI 发现、计划、执行、验证与跨重启持久化)、`desktop-session-workspace`(9 个工作区标签的真实内容)、`desktop-session-shell`(Shell 跨标签/会话切换存活,且只有显式确认的关闭才终止进程)、`desktop-dialogs`(主路径对话框的焦点与提交)、`desktop-scheduled-tasks`(定时任务的创建、启停与删除)、`desktop-settings-persistence`(设置改动跨真实重启),以及 `agent-mcp`、`local-media`、`skills`、`feishu-im`。层的清单以 `package.json` 的 `test:desktop:*` 脚本为准——这里不写数字,写死的层数会在下一次加层时变成一句错话
 - 可用 `npm run test:desktop:<层名>` 单独跑,但单层模式**不会自己构建**,需先跑一次 `npm run test:desktop:build`,且必须经 npm 启动(脚本要 `npm_execpath`)
 - 需要 CLI Agent 的层用 `tests/desktop/fixtures/cli/` 下的固定桩程序顶替真实 CLI,不发生模型调用,也不读凭据;`desktop-cli-management` 另建一整套临时 PATH 假 CLI 与假包管理器(`tests/desktop/cli-management-fixture.mjs`),运行结束由 `scripts/desktop/cli-side-effect-guard.mjs` 反查是否碰过真实 npm/WinGet/Vendor URL/凭据/用户数据库——查不到证据即判失败,不判跳过
 - 原生 UI 层的选择器写死 zh-CN,并在启动时通过设置服务固定语言:客户端默认语言跟随宿主 locale,不固定就会在非中文 runner 上因文案不符而失败

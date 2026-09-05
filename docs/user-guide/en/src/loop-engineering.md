@@ -195,6 +195,6 @@ Evidence is attributed by role as **Worker** or **Verifier**, with states **Pend
 
 ## Related
 
-- Track several Loops under one objective → [Goal management](goal-management.md)
+- Track several Loops under one objective → [Goal management](goals-and-work-board.md)
 - The other multi-Agent mechanism → [Multi-Agent group chat](multi-agent-workflow.md)
 - Open the loop center quickly with `/loops` → [Slash commands](slash-commands.md)

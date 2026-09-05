@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQueries } from "@tanstack/react-query";
 import { agentService } from "../services/runtime-agent-client";
 import type { DirectoryEntry } from "../types/session-workspace";
+import { collectDirectoryPages } from "./directory-pagination";
 import { workspaceErrorKey, type WorkspaceErrorKey } from "./workspace-error";
 import { workspaceQueryKeys } from "./workspace-query-keys";
 
@@ -54,7 +55,10 @@ export function useWorkspaceFileTree(sessionId: string | null, isVisible: boolea
       // and the tab stops re-reading a directory nobody is looking at.
       enabled: Boolean(sessionId) && isVisible,
       queryKey: workspaceQueryKeys.directory(sessionId ?? "", path),
-      queryFn: () => agentService.listSessionDirectory(sessionId ?? "", path),
+      queryFn: () =>
+        collectDirectoryPages((cursor) =>
+          agentService.listSessionDirectory(sessionId ?? "", path, cursor),
+        ),
     })),
   });
 
@@ -152,6 +156,17 @@ export function useWorkspaceFileTree(sessionId: string | null, isVisible: boolea
     isLoading: Boolean(rootListing?.isLoading),
     /** Any open directory being cut short, because any of them can make the tree incomplete. */
     truncated: listings.some((listing) => listing.data?.truncated),
+    /**
+     * The first reason a listing gave for not being whole, if one did.
+     *
+     * Separate from `truncated`, which only says another page exists. A directory that was refused
+     * or whose scan stopped early is not one more page away from complete, and telling a reader to
+     * scroll for the rest would send them looking for entries nothing is going to produce.
+     */
+    incompleteReason:
+      listings
+        .map((listing) => listing.data?.coverage)
+        .find((coverage) => coverage && coverage.state !== "complete")?.reasonCode ?? null,
     hasRoot: Boolean(entriesByPath[""]),
   };
 }

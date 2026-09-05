@@ -14,64 +14,105 @@
   <img src="public/icon-512.png" alt="VaneHub AI app icon" width="160" />
 </p>
 
-Desktop-first workspace for managing AI coding agents through one React interface and explicit Web/mock and Tauri runtime boundaries.
+A desktop-first workbench for AI coding agents: use and manage OnePiece, Claude Code, Codex CLI, OpenCode, Gemini CLI, and Antigravity CLI in one unified interface.
 
-<!-- docs-fact:project-version value:1.3.0 -->
+<!-- docs-fact:project-version value:1.4.0 -->
 <!-- docs-fact:tauri-major value:2.x -->
 <!-- docs-fact:react-major value:19.x -->
 
-[![Version](https://img.shields.io/badge/version-1.3.0-blue.svg)](package.json)
+[![Version](https://img.shields.io/badge/version-1.4.0-blue.svg)](package.json)
 [![Tauri](https://img.shields.io/badge/Tauri-2.x-24C8DB.svg)](src-tauri/Cargo.toml)
 [![React](https://img.shields.io/badge/React-19.x-61DAFB.svg)](package.json)
 [![CI](https://github.com/cdavid817/vanehub-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/cdavid817/vanehub-ai/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
 
+[Download](https://github.com/cdavid817/vanehub-ai/releases) · [Quick start](#quick-start) · [Documentation](#documentation)
+
 <!-- docs-section:overview -->
 
 ## Overview
 
-VaneHub AI brings Claude Code, OpenCode, Codex CLI, Gemini CLI, and Antigravity CLI into a shared desktop workspace. It manages CLI availability, sessions, terminal execution, projects and worktrees, settings, tools, observability, and desktop integrations without letting React components depend directly on native APIs.
+Working with several AI coding agents scatters sessions, projects, terminals, permissions, and cost across tools. VaneHub AI puts them in one desktop workbench: unified sessions and workspaces, unified permission approvals, unified observability and usage accounting, and multi-agent collaboration across vendors.
 
-### Supported CLIs
+It supports two kinds of agents — **pick one path to start; you do not need to install every CLI**:
 
-One is enough to start. You do not need all five.
+- **OnePiece** — the built-in native API agent that calls model providers over HTTP directly, requiring no external CLI at all;
+- **External CLI agents** — Claude Code, Codex CLI, OpenCode, Gemini CLI, and Antigravity CLI, installed by you and authenticated through each vendor's own flow in your terminal.
 
-| Agent | Provider | Command | Model family | In-app install | Third-party model endpoint |
+<!-- docs-section:features -->
+
+## Core capabilities
+
+- **One entry point for every agent** — the OnePiece native API agent and five external CLI agents share sessions, configuration, permissions, and observability.
+- **Sessions and workspaces** — projects, interactive terminals (PTY), Git worktrees, remote workspaces over SSH.
+- **Multi-agent collaboration** — group-chat seats with `@` handoff, expert roles, Loop automatic iteration, Plan mode, goals and the work board.
+- **Context and code intelligence** — context compaction, cross-session memory, personalization, retrieval, workspace code indexing, LSP code intelligence.
+- **Extensibility** — Skills, MCP servers, Prompt Hooks, local extensions, plugin integrations, IM connectors, local media (OCR, speech recognition and synthesis).
+- **Governance and operations** — permission templates with per-call approvals, execution observability, unified logging, agent evaluation, scheduled tasks, usage statistics.
+
+<!-- docs-section:agents -->
+
+## Agents and CLI support
+
+| Agent | Kind | Command | Model source | In-app install | Authentication and model configuration |
 | --- | --- | --- | --- | --- | --- |
-| Claude Code | Anthropic | `claude` | Anthropic | ✅ `@anthropic-ai/claude-code` | ✅ |
-| Codex CLI | OpenAI | `codex` | OpenAI | ✅ `@openai/codex` | ✅ |
-| OpenCode | OpenCode (open source) | `opencode` | Unknown | ✅ `opencode-ai` | ✅ |
-| Gemini CLI | Google | `gemini` | Google | ✅ `@google/gemini-cli` | ⚠️ Custom endpoint allowed, but the catalog ships only the official preset |
-| Antigravity CLI | Google | `agy` | Google | ❌ No npm package; use the official installer script | ❌ Google sign-in only |
+| OnePiece | Built-in native API agent | No CLI needed | Provider catalog or a custom compatible endpoint | Ships with the app | Configure provider and API key in-app |
+| Claude Code | External CLI | `claude` | Anthropic | ✅ npm / WinGet / vendor installer | Terminal OAuth; third-party compatible endpoints configurable in-app |
+| Codex CLI | External CLI | `codex` | OpenAI | ✅ npm | Terminal OAuth; third-party compatible endpoints configurable in-app |
+| OpenCode | External CLI | `opencode` | Whatever model you configure; no fixed family | ✅ npm / vendor installer | Terminal auth; third-party compatible endpoints configurable in-app |
+| Gemini CLI | External CLI | `gemini` | Google | ✅ npm | Terminal auth; endpoint editable, catalog ships the official preset only |
+| Antigravity CLI | External CLI | `agy` | Google | ✅ vendor installer (latest only) | Terminal Google sign-in; the CLI itself also supports API keys and compatible endpoints, which VaneHub does not yet manage in unified provider configuration |
 
-- In-app install means VaneHub AI can install and upgrade the CLI for you from Settings → CLI management. It drives npm, WinGet on Windows, and per-CLI audited vendor installers. A copy that came from Homebrew, Bun, Volta, a desktop bundle, or a system package is detected and reported but never changed — VaneHub names the tool that owns it instead of installing a second copy beside it.
-- Third-party model endpoint means the CLI can be pointed at a compatible endpoint such as DeepSeek or OpenRouter from Settings → Agent configurations. **Vendor subscription login (OAuth) always happens in your terminal**; VaneHub AI does not broker it.
-- OpenCode's model family is "Unknown" by decision, not omission: it drives whichever model you configured, so it has no fixed family, and policies such as "require a reviewer from a different model family" do not apply to it.
-- Gemini CLI is being replaced by Antigravity CLI. Google began phasing it out for personal and free accounts on 2026-06-18.
-- If you would rather install no CLI at all, the built-in native API Agent OnePiece calls model providers over HTTP entirely inside the application. See the user guide below.
+- **In-app install** means VaneHub AI can install and upgrade the CLI from Settings → CLI Management: it drives npm, WinGet on Windows, and per-CLI audited vendor installers. A copy that came from Homebrew, Bun, Volta, a desktop bundle, or a system package is detected and reported but never changed.
+- **Vendor subscription login (OAuth) always happens in your terminal**; VaneHub AI neither brokers nor stores subscription credentials.
+- The integrated OpenCode is the open-source sst/opencode (npm package `opencode-ai`); it drives whichever model you configure, so policies like "require a reviewer from a different model family" do not apply to it.
+- Gemini CLI's consumer path is narrowing: Google announced that from 2026-06-18, consumer accounts such as Gemini Code Assist Individuals and Google AI Pro/Ultra are no longer served through Gemini CLI and their "Login with Google" path is unavailable, with migration to Antigravity recommended; Gemini Code Assist Standard and Enterprise are unaffected. API keys and Vertex are separate authentication paths — refer to Google's official documentation.
 
-### Supported model providers
+**Model providers**: the app ships a provider configuration catalog shared by OnePiece and the CLI agents that accept third-party endpoints; anything outside the catalog can be added as a custom compatible endpoint, with API keys stored in the operating-system credential service. The full vendor list, endpoint protocols, and default models are in the [built-in model provider catalog](docs/model-providers.md) (Simplified Chinese).
 
-Twenty-five providers ship as configuration templates, shared by OnePiece and three of the CLI Agents. Anything outside the catalog can be added as a custom compatible endpoint.
+<!-- docs-section:quick-start -->
 
-| Category | Providers |
-| --- | --- |
-| Official | Anthropic, OpenAI |
-| Aggregators and cloud platforms | OpenRouter, SiliconFlow, Alibaba Bailian, Volcengine Ark, Together AI, Fireworks AI, NVIDIA NIM, ModelScope, PPIO, Qiniu AI |
-| Model vendors | DeepSeek, Zhipu GLM, Kimi / Moonshot, xAI, Mistral AI, MiniMax, MiniMax Global, StepFun, Baichuan AI, Xiaomi MiMo, Z.AI |
-| Inference accelerators | Groq, Cerebras |
+## Quick start
 
-**Which Agent a provider can serve depends on the endpoint protocols it offers**: the 16 providers speaking Anthropic Messages can back Claude Code, and the 24 speaking OpenAI Chat Completions can back Codex CLI and OpenCode.
+1. Download and install the desktop package for your platform from the [Releases page](https://github.com/cdavid817/vanehub-ai/releases).
+2. Pick one: configure a model provider and API key for OnePiece in Settings → Agent Configurations; or install any one supported external CLI, authenticate it in your terminal, then refresh detection in Settings → CLI Management.
+3. Click New, choose an agent and a project folder, and create your first session.
+4. Send your first task from the session workspace input box.
 
-The full catalog — vendor icons, endpoint protocols, default models, and API key links — is in the [built-in model provider catalog](docs/model-providers.md) (Simplified Chinese).
+For details, see the user guide's quick start, CLI installation and authentication, and first-session chapters (the [Documentation](#documentation) section below).
 
 <!-- docs-section:download -->
 
-## Download
+## Download, platforms, and release integrity
 
-Prebuilt desktop packages are published on the [Releases page](https://github.com/cdavid817/vanehub-ai/releases): a signed Windows x64 `.exe` installer, signed and notarized macOS x64 and Apple Silicon `.dmg` files, and Linux x64 and ARM64 `.deb` and AppImage builds. No `.msi` or `.rpm` is published.
+Prebuilt desktop packages are published on the [Releases page](https://github.com/cdavid817/vanehub-ai/releases):
 
-Verify downloads against the published `SHA256SUMS`, SPDX SBOM, and GitHub attestations. Linux packages carry integrity and provenance evidence but do not use operating-system code signing.
+| Platform | Architecture | Format |
+| --- | --- | --- |
+| Windows | x64 | NSIS `.exe` installer |
+| macOS | x64, Apple Silicon | `.dmg` |
+| Linux | x64, ARM64 | `.deb`, AppImage |
+
+No `.msi` or `.rpm` is published; the NSIS installer and the AppImage serve those users respectively.
+
+**Keep three signing facts apart**:
+
+- **Release integrity** — every release ships `SHA256SUMS`, an SPDX SBOM, and GitHub attestations for integrity and provenance verification;
+- **Auto-update artifacts** — Tauri updater artifacts carry updater signatures;
+- **Operating-system code signing** — **Windows Authenticode signing and macOS Developer ID signing/notarization are not yet in place** (a later phase), so Windows SmartScreen and macOS Gatekeeper may warn about the installers; the release notes carry per-platform handling steps.
+
+Verification steps, the credential inventory, and the signing roadmap are in [release signing](docs/release-signing.md).
+
+<!-- docs-section:runtimes -->
+
+## Runtime modes
+
+| Runtime | Purpose | Capabilities |
+| --- | --- | --- |
+| **Tauri desktop runtime** | Real use | Real CLI/PTY execution, SQLite persistence, filesystem access, desktop lifecycle and system integration, and the implemented local capabilities such as local media |
+| **Web/mock runtime** | Deterministic UI preview, documentation screenshots, frontend development | An in-browser simulation — **no** real CLI execution, database persistence, file modification, or any system side effects happen |
+
+Web/mock screens and simulated states are not evidence that a desktop feature passed real-environment verification.
 
 <!-- docs-section:documentation -->
 
@@ -81,77 +122,32 @@ Verify downloads against the published `SHA256SUMS`, SPDX SBOM, and GitHub attes
 
 ### User guide
 
-| Topic | Entry |
-| --- | --- |
-| Quick start | [Five steps from installing a CLI to working in a workspace](docs/user-guide/en/src/quick-start.md) |
-| Basic configuration | [Interface language, theme, font size, default policy template, launch at login, network proxy, data directory, log directory](docs/user-guide/en/src/user-interface.md#basic-configuration) |
-| User interface overview | [Main layout, navigation, panel toggles, session/conversation/workspace tabs/info panel](docs/user-guide/en/src/user-interface.md) |
-| Session list | [Grouping/search/filter/batch/drag, context menu, focus mode](docs/user-guide/en/src/user-interface.md#session-list) |
-| Floating assistant | [Standalone floating window session, status badge, main action menu](docs/user-guide/en/src/user-interface.md#floating-assistant) |
-| Loop center | [Loop run controls, verification command, timeline](docs/user-guide/en/src/loop-engineering.md) |
-| OnePiece Plan mode | [Read-only planning and approved transition to Agent mode](docs/user-guide/en/src/user-interface.md#onepiece-plan-mode) |
-| Goal Center | [Track scattered execution items in one place](docs/user-guide/en/src/goal-management.md) |
-| Todo Board | [Board view and stage transitions for work items](docs/user-guide/en/src/todo-board.md) |
-| Agent evaluation | [Run several Agents head-to-head on the same task; compare pass rate, tokens, and time](docs/user-guide/en/src/evaluation.md) |
-| Notification center | [Bell, unread count, mark all read, clear](docs/user-guide/en/src/user-interface.md#notifications) |
-| System tray | [Show/hide main window, startup, notification integration](docs/user-guide/en/src/user-interface.md#system-tray) |
-| CLI management, install & auth | [Two install methods, authentication, install detection, conflict diagnostics, upgrades](docs/user-guide/en/src/getting-started.md) |
-| Multi-Agent group chat | [Seats, `@` handoff, turn bounds](docs/user-guide/en/src/multi-agent-workflow.md) |
-| Git worktrees | [Parallel changes to one repository without stepping on each other](docs/user-guide/en/src/worktree.md) |
-| Code review | [The review center and review flow](docs/user-guide/en/src/code-review.md) |
-| Slash commands | [In-session command entry points](docs/user-guide/en/src/slash-commands.md) |
-| Memory and context | [Cross-session memory and context compaction](docs/user-guide/en/src/memory-and-context.md) |
-| Code indexing | [Workspace code indexing and its privacy boundary](docs/user-guide/en/src/code-indexing.md) |
-| LSP code intelligence | [The live language server and its trust model](docs/user-guide/en/src/lsp-code-intelligence.md) |
-| OnePiece native Agent | [The built-in API Agent usable without installing a CLI](docs/user-guide/en/src/native-agent.md) |
-| Scheduled tasks | [Scheduled tasks and usage statistics](docs/user-guide/en/src/automation.md) |
-| Remote workspaces & SSH connections | [SSH workspaces, saved connections, and IM access](docs/user-guide/en/src/remote-and-im.md) |
-| CLI parameters | [Per-CLI-Agent launch parameters, with a per-CLI parameter quick reference](docs/user-guide/en/src/tooling.md#cli-parameters) |
-| Extension capabilities | [Local extension install/enable/disable](docs/user-guide/en/src/tooling.md#extension-capabilities) |
-| Plugin integration | [Built-in product integrations and readiness checks](docs/user-guide/en/src/plugin-integration.md) |
-| MCP servers | [MCP server configuration and per-Agent binding](docs/user-guide/en/src/mcp.md) |
-| Agent configurations | [Provider, endpoint, and model per Agent](docs/user-guide/en/src/tooling.md#agent-configurations) |
-| Expert roles | [Role fields, responsibilities, and review policy](docs/user-guide/en/src/expert-roles.md) |
-| Agent policies | [Agent permission policies and approval template configuration](docs/user-guide/en/src/permissions.md) |
-| Personalization | [Custom instructions and cross-session memory](docs/user-guide/en/src/personalization.md) |
-| Skill management | [Skill installation and binding](docs/user-guide/en/src/skill-management.md) |
-| Prompt Hooks | [Hook management](docs/user-guide/en/src/prompt-hooks.md) |
-| IM connectors | [IM connector configuration](docs/user-guide/en/src/remote-and-im.md#im-connectors) |
-| Execution observability | [Execution tracing and log collection policy](docs/user-guide/en/src/observability.md) |
-| Usage statistics | [Token usage statistics](docs/user-guide/en/src/automation.md) |
-| About | [Version, update check, changelog, and repository links](docs/user-guide/en/src/app-updates.md) |
-| Troubleshooting | [Check here first when something fails](docs/user-guide/en/src/troubleshooting.md) |
-| Reporting issues | [Which entry point to use, what the forms need, and how to redact before submitting](docs/user-guide/en/src/reporting-issues.md) |
+The [user guide](docs/user-guide/en/src/index.md) has the complete chapter list in its sidebar; the table below lists only each group's entry point.
+
+| Group | Start here | Covers |
+| --- | --- | --- |
+| Getting started | [Quick Start](docs/user-guide/en/src/quick-start.md) | Installing and authenticating a CLI, the first session, core concepts, app updates |
+| Interface and workspaces | [User interface](docs/user-guide/en/src/user-interface.md) | The session workspace, the settings center, remote workspaces and SSH, Git worktrees, slash commands |
+| Agents and collaboration | [OnePiece (native agent)](docs/user-guide/en/src/native-agent.md) | Multi-agent group chat, expert roles, Loop, goals and the work board, code review, agent evaluation |
+| Context and code intelligence | [Memory and context](docs/user-guide/en/src/memory-and-context.md) | Personalization, code indexing, LSP code intelligence |
+| Tools and integrations | [Agent and CLI configuration](docs/user-guide/en/src/agent-configuration.md) | Skills, MCP, Prompt Hooks, local extensions, local media, plugin integrations, IM connectors |
+| Governance and operations | [Permission approvals](docs/user-guide/en/src/permissions.md) | Observability, scheduled tasks and notifications, usage statistics |
+| Help and reference | [Troubleshooting](docs/user-guide/en/src/troubleshooting.md) | Use cases, FAQ, reporting issues |
 
 ### Developer guide
 
-| Topic | Entry |
-| --- | --- |
-| Repository layout | [Repository layout and module ownership](docs/developer-guide/src/repository-orientation.md) |
-| Runtime boundaries | [Frontend service boundaries, Web/mock and Tauri adapters](docs/developer-guide/src/runtime-boundaries.md) |
-| Bounded contexts | [What each of the 21 native bounded contexts owns](docs/developer-guide/src/native-contexts.md) |
-| Agent lifecycle & provider runtime | [Registered Agent edits, stable provider resolution, capability declarations](docs/developer-guide/src/agent-lifecycle.md) |
-| Terminal & PTY runtime | [Session-scoped Agent Terminal, auto-start/attach, remote terminals](docs/developer-guide/src/terminal-runtime.md) |
-| Tool registry & execution | [Fixed native tool catalog, per-interface_format translation, multi-turn tool loop](docs/developer-guide/src/tool-registry.md) |
-| Permission model | [Unified decision point, explicit-Deny-first, approval broker, CLI flag projection, Claude Code hook bridge](docs/developer-guide/src/permission-model.md) |
-| Context compaction | [Token-aware trigger and character fallback, summarization compaction, recent turns kept](docs/developer-guide/src/context-compaction.md) |
-| Retrieval & vector search | [Host-level shared memory pool, workspace code index, graceful degradation](docs/developer-guide/src/retrieval.md) |
-| Tree-sitter code indexing | [Grammar parsing, bounded chunks, symbol metadata, grammar version, redaction](docs/developer-guide/src/tree-sitter-code-indexing.md) |
-| Cross-session memory | [Host-level shared pool, provenance metadata, OnePiece tool vs CLI auto-extraction](docs/developer-guide/src/cross-session-memory.md) |
-| Session recovery | [Recovery status orthogonal to lifecycle, durable execution identity and ownership](docs/developer-guide/src/session-recovery.md) |
-| OnePiece native Agent | [Built-in API Agent identity, Profile lifecycle, provider directory](docs/developer-guide/src/onepiece-native-agent.md) |
-| Multi-Agent group chat | [Seat model, mid-session add/remove, turn routing, durable presence](docs/developer-guide/src/multi-agent-group-chat.md) |
-| Skill management | [Dual scope, SKILL.md contract, drift, built-in seeding/reconciliation](docs/developer-guide/src/skill-management.md) |
-| MCP tools & clients | [Transport and configuration model, MCP tools in the native catalog](docs/developer-guide/src/mcp-tools.md) |
-| IM connectors | [Five built-in connectors, first-version direct-message scope, inbound routing](docs/developer-guide/src/im-connectors.md) |
-| Loop & Plan runtimes | [Durable Loop definitions, topology-aware serial subtask scheduling, Worker/Verifier trust](docs/developer-guide/src/loop-and-plan-runtime.md) |
-| Usage statistics | [Reported tokens vs estimated characters, time ranges, per-Agent breakdown](docs/developer-guide/src/usage-statistics.md) |
-| LSP code intelligence | [In-session LSP integration implementation](docs/developer-guide/src/lsp-code-intelligence.md) |
-| Persistence & logging | [SQLite ownership and unified redacted logs](docs/developer-guide/src/persistence-and-logging.md) |
-| Testing & release | [Testing, packaging, and release flow](docs/developer-guide/src/testing-and-release.md) |
-| OpenSpec workflow | [Proposal→design→delta spec→tasks→validation→archive change flow](docs/developer-guide/src/openspec-workflow.md) |
-| Native API reference | [Rustdoc-generated internal contract and ownership documentation](docs/developer-guide/src/native-api-reference.md) |
-| Architecture decisions | [Repository layout and module orientation, bounded contexts and call relationships](docs/developer-guide/src/repository-orientation.md) |
+The [developer guide](docs/developer-guide/src/index.md) has the complete chapter list in its sidebar; the table below lists only each domain's entry point.
+
+| Domain | Start here | Covers |
+| --- | --- | --- |
+| Orientation and runtime boundaries | [Repository orientation](docs/developer-guide/src/repository-orientation.md) | Runtime and service boundaries, native bounded contexts, persistence ownership |
+| Agent runtime | [Single-Agent governance: the five control planes](docs/developer-guide/src/single-agent-control-planes.md) | Agent lifecycle, OnePiece, built-in tools, the tool registry, CLI lifecycle, terminal and PTY, CLI delegation, group chat, Loop and Plan, the work board, session recovery |
+| Workspace and platform capabilities | [SSH connections and the remote runtime](docs/developer-guide/src/ssh-connections.md) | The local media runtime |
+| Context, memory, and code intelligence | [Cross-session memory](docs/developer-guide/src/cross-session-memory.md) | Context compaction, personalization governance, retrieval and vector search, Tree-sitter indexing, LSP |
+| Skills and external integrations | [Skill management](docs/developer-guide/src/skill-management.md) | The effective Skill runtime, overlay governance, evolution evidence, MCP tools, IM connectors |
+| Security, evaluation, and observability | [Permission model](docs/developer-guide/src/permission-model.md) | Execution observability, the evaluation runtime, the evidence console, unified logging, usage statistics |
+| Engineering delivery | [Testing](docs/developer-guide/src/testing.md) | The OpenSpec workflow, release, live qualification |
+| Generated reference and architecture decisions | [Native API reference](docs/developer-guide/src/native-api-reference.md) | The contract and ownership reference generated from source, Skill tool runtime security |
 
 User guides are available in English and Simplified Chinese. Japanese, Traditional Chinese, and Korean are delivered as application UI resource locales only; no user guide is provided for those locales.
 
@@ -159,7 +155,7 @@ User guides are available in English and Simplified Chinese. Japanese, Tradition
 
 <!-- docs-section:architecture -->
 
-## Architecture
+## Architecture overview
 
 ```mermaid
 flowchart LR
@@ -169,86 +165,69 @@ flowchart LR
   Tauri --> Commands[Rust commands]
   Commands --> Contexts[Native bounded contexts]
   Contexts --> SQLite[(SQLite)]
-  Contexts --> CLI[Agent CLIs]
+  Contexts --> CLI[CLI / PTY]
+  Contexts --> FS[Filesystem and OS integration]
+  Contexts --> HTTP[Model provider HTTP for OnePiece]
 ```
 
-React components call services in `src/services/`. Tauri-specific `invoke()` calls stay in frontend Tauri adapters, while SQLite, CLI processes, filesystem access, and desktop lifecycle behavior stay in Rust.
+React components call only the frontend service interfaces in `src/services/` and never call Tauri `invoke()` directly; Tauri-specific calls live in the frontend Tauri adapters, while SQLite, CLI processes, filesystem access, and desktop lifecycle behavior all live in Rust. The full module inventory is in the [native architecture inventory](src-tauri/ARCHITECTURE.md).
 
-<!-- docs-section:quick-start -->
+<!-- docs-section:from-source -->
 
-## Run from source
+## Run from source and develop
 
 <!-- docs-fact:node-minimum value:22+ -->
 
-Prerequisites: Node.js 22+, npm, stable Rust, and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your platform.
+Prerequisites: Node.js 22+, npm, stable Rust, and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your platform. Platform linker requirements and build measurements are in the [native build performance guide](docs/build-performance.md).
 
-For platform linker requirements, release-profile behavior, worktree cache guidance, and measured build evidence, see the [native build performance guide](docs/build-performance.md).
-
-```powershell
+```bash
 npm ci
 ```
 
-Run Web/mock preview:
+Run the Web/mock preview (an in-browser simulation — see [Runtime modes](#runtime-modes) above):
 
-```powershell
+```bash
 npm run dev -- --host 127.0.0.1
 ```
 
-Run the desktop application:
+Run the real desktop application:
 
-```powershell
-$env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"
-npm run tauri -- dev
+```bash
+npm run tauri:dev
 ```
 
-Web/mock is a deterministic browser simulation. It does not claim local CLI execution, SQLite persistence, filesystem changes, or operating-system side effects.
+> Windows troubleshooting: if the desktop launch cannot find the Rust toolchain, temporarily add cargo to PATH in PowerShell and retry:
+>
+> ```powershell
+> $env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"
+> ```
 
-<!-- docs-section:development -->
+Before submitting changes, run every command in the validation-commands section of [AGENTS.md](AGENTS.md) verbatim; new features and architecture changes require an OpenSpec proposal first — see [openspec/project.md](openspec/project.md).
 
-## Development
-
-Run every command in the「校验命令」(validation commands) section of AGENTS.md verbatim before submitting changes; that list is the single source of truth aligned with CI.
-
-New features and architecture changes require an OpenSpec proposal before implementation. See [AGENTS.md](AGENTS.md) and [openspec/project.md](openspec/project.md) for project rules.
-
-### Agent infrastructure technical documentation
-
-| Topic | Entry |
-| --- | --- |
-| MCP | [protocol model and three-role architecture, transports, core primitives, lifecycle, authorization and security](docs/agent-infrastructure/mcp-architecture.md) |
-| Function Calling | [the call loop and constrained decoding, Anthropic versus OpenAI API differences, parallel calls and streaming assembly, structured output](docs/agent-infrastructure/function-calling-architecture.md) |
-| LSP | [protocol layering and lifecycle, capability negotiation, text synchronization, language and workspace features](docs/agent-infrastructure/lsp-architecture.md) |
-| A2A | [AgentCard/Task/Message/Artifact data model, task state machine, discovery, asynchronous update channels](docs/agent-infrastructure/a2a-architecture.md) |
-| Multi-Agent systems | [orchestration topologies and role frameworks, communication, context management, execution isolation, failure modes](docs/agent-infrastructure/multi-agent-architecture.md) |
-| Agent Skills | [the open specification and file format, progressive-disclosure loading, triggering and execution, comparison with MCP and prompts](docs/agent-infrastructure/agent-skills-architecture.md) |
-| AI coding CLI parameter reference | [every parameter family across the five CLIs, and the matrix projecting host task models onto each](docs/agent-infrastructure/builtin-cli-reference.md) |
-| RAG | [indexing and retrieval pipelines, semantic versus keyword retrieval, hybrid retrieval and reranking, evaluation](docs/agent-infrastructure/rag-architecture.md) |
-| Tree-sitter | [GLR incremental parsing, grammar toolchain and ABI, the query system, structured code chunking and repo maps](docs/agent-infrastructure/tree-sitter-architecture.md) |
-| OpenSpec | [the knowledge model behind spec-driven development, change-package artifact chains, the opsx command family, delta spec merging](docs/agent-infrastructure/openspec-architecture.md) |
-
-Reference: [native architecture inventory](src-tauri/ARCHITECTURE.md) · [contributing](CONTRIBUTING.md) · [native build performance](docs/build-performance.md) · [release signing](docs/release-signing.md)
-
-Build the mdBook guides and Rustdoc reference:
-
-```powershell
-npm run docs:check
-npm run docs:test
-npm run docs:build
-```
-
-The documentation build requires the mdBook version pinned in `docs/toolchain.json`.
+**Technical reference**: the [agent infrastructure documentation](docs/agent-infrastructure/README.md) covers **external protocols, general architecture patterns, and engineering methods themselves** — MCP, LSP, RAG, and the rest — and is not a promise of delivered VaneHub capability; judge implementation status by the user guide, the developer guide, the [OpenSpec main specifications](openspec/specs/), and the generated references. See also the [CLI parameter reference](docs/reference/cli/builtin-cli-reference.md) and [release signing](docs/release-signing.md).
 
 <!-- docs-section:roadmap -->
 
-## Roadmap
+## Project status and roadmap
 
-Implemented work and current contracts are recorded in [OpenSpec main specifications](openspec/specs/). Near-term product work includes custom Agents, a plugin marketplace, and extended local OCR/speech capabilities.
+- **Delivered** — implemented behavior and interface contracts are recorded in the [OpenSpec main specifications](openspec/specs/); usage is covered by the user guide.
+- **In progress** — see the [unarchived OpenSpec changes](openspec/changes/): current work includes expanding the built-in Skill catalog, remote Skill registry and supply-chain governance, hardening governed cross-session memory, region screenshot capture, and first-stable-release preparation.
+- **Planned** — listed only when a public proposal or issue exists; this section promises no dates.
+- Some capabilities (individual IM connector platforms, the per-platform desktop matrix) are qualified by live-environment records — see the developer guide's engineering delivery domain.
+
+<!-- docs-section:support -->
+
+## Support and security
+
+- Usage questions and defects: read the [support notes](SUPPORT.md) first, then file a bug report or feature request through the issue forms.
+- **Never report a security vulnerability as a public issue**: use [GitHub private vulnerability reporting](https://github.com/cdavid817/vanehub-ai/security/advisories/new); the process is in the [security policy](SECURITY.md).
+- Community participation follows the [code of conduct](CODE_OF_CONDUCT.md).
 
 <!-- docs-section:contributing -->
 
 ## Contributing
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a change. Keep documentation, both frontend runtime adapters, native contracts, tests, and OpenSpec artifacts aligned with the behavior you change.
+Read the [contributing guide](CONTRIBUTING.md) before opening a change. Keep documentation, both frontend runtime adapters, native interface contracts, tests, and OpenSpec artifacts aligned with the behavior you change.
 
 <!-- docs-section:license -->
 

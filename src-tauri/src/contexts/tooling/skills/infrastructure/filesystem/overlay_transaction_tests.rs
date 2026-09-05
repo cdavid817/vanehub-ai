@@ -90,6 +90,8 @@ fn initial_plan() -> OverlayTransactionPlan {
             safe_outcome: "supporting-file-added".to_string(),
             prior_event_hash: None,
             event_hash: String::new(),
+            curator_application_id: None,
+            committed_effective_diff_hash: None,
         },
         usage_delta: OverlayUsageDelta {
             patch_count_delta: 0,
@@ -152,6 +154,8 @@ fn next_plan(home: &TempDirectory) -> OverlayTransactionPlan {
             safe_outcome: "second-supporting-file-added".to_string(),
             prior_event_hash: None,
             event_hash: String::new(),
+            curator_application_id: None,
+            committed_effective_diff_hash: None,
         },
         usage_delta: OverlayUsageDelta {
             patch_count_delta: 0,
@@ -213,6 +217,8 @@ fn promotion_plan(home: &TempDirectory) -> OverlayTransactionPlan {
             safe_outcome: "import-trust-promoted".to_string(),
             prior_event_hash,
             event_hash: String::new(),
+            curator_application_id: None,
+            committed_effective_diff_hash: None,
         },
         usage_delta: OverlayUsageDelta {
             patch_count_delta: 0,

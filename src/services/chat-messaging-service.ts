@@ -3,6 +3,7 @@ import type {
   ChatStreamEvent,
   MessageFeedback,
   SaveMessageFeedbackInput,
+  RevokeReusableGuidanceAuthorizationInput,
   SendMessageInput,
 } from "../types/chat";
 
@@ -10,6 +11,9 @@ export interface ChatMessagingService {
   sendMessage(input: SendMessageInput): Promise<ChatMessage>;
   listMessages(input: { sessionId: string; limit?: number; beforeId?: string }): Promise<ChatMessage[]>;
   saveMessageFeedback(input: SaveMessageFeedbackInput): Promise<MessageFeedback>;
+  revokeReusableGuidanceAuthorization(
+    input: RevokeReusableGuidanceAuthorizationInput,
+  ): Promise<void>;
   /**
    * Delivers the user's answer to a tool call waiting in `awaiting_input`. Resolves to whether a
    * live waiter received it, so the caller can distinguish a delivered answer from one aimed at a

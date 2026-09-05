@@ -1,6 +1,8 @@
 # 快速开始
 
-五分钟从零到第一次 Agent 执行。已经装好 CLI 的话，直接从第 2 步开始。
+从零到第一次 Agent 执行的最短路径。已经装好 CLI 的话，直接从第 2 步开始。
+
+> **不想安装任何 CLI**？内置的原生 Agent OnePiece 不需要 CLI：跳过第 1 步和官方登录，直接看 [1.5 → 原生 Agent OnePiece](#原生-agent-onepiece) 配好模型服务，再从第 3 步继续。
 
 ## 1. 准备一个 CLI
 
@@ -51,11 +53,11 @@ claude
 | **Codex CLI** | 支持 | `~/.codex/config.toml` |
 | **OpenCode** | 支持 | `~/.config/opencode/opencode.json` |
 | **Gemini CLI** | 端点可改，但目录里只有 Google 官方预设 | `~/.gemini/.env` |
-| **Antigravity CLI** | **不支持** | `~/.gemini/antigravity-cli/settings.json` |
+| **Antigravity CLI** | **VaneHub 暂未纳管** | `~/.gemini/antigravity-cli/settings.json` |
 
-> **Antigravity CLI 不接受自定义端点**。它只走 Google 登录、凭据存系统钥匙串，配置面板里没有端点和密钥字段——能调的是模型与审批行为。
+> **VaneHub 当前未纳管 Antigravity 的端点与密钥字段**：它的配置面板里没有这两项，能调的是模型与审批行为；Google 登录凭据由 CLI 自己存在系统钥匙串。这是 VaneHub 当前的纳管范围，不等于 Antigravity CLI 本身不支持 API Key 或自定义端点——上游能力以 Antigravity 官方文档为准，需要时可在 CLI 自身环境中按官方方式配置。
 
-字段清单、凭据存放位置与漂移处理见[工具与扩展 → Agent 配置](tooling.md#agent-配置)。
+字段清单、凭据存放位置与漂移处理见[工具与扩展 → Agent 配置](agent-configuration.md#agent-配置)。
 
 ### 原生 Agent OnePiece
 

@@ -2016,7 +2016,7 @@ describe("webAgentClient", () => {
     const callId = awaitingEvent && awaitingEvent.type === "tool_use" ? awaitingEvent.toolUse.id : "";
 
     const resolved = await webPermissionsClient.resolvePendingApproval(callId, true, "once");
-    expect(resolved).toBe(true);
+    expect(resolved).toBe("delivered");
 
     const completedEvent = events.find(
       (event) =>

@@ -2,7 +2,9 @@
 
 ## Purpose
 Defines the main-window chat experience, including prompt submission, selector-driven chat configuration, conversation history rendering, streamed assistant output, cancellation, persistence, and service boundary rules.
+
 ## Requirements
+
 ### Requirement: Chat input submits user messages
 The system SHALL allow the user to submit a non-empty text message from the main chat input for the active session through the frontend agent service, except when the submitted input is consumed by the slash command runtime.
 
@@ -1453,3 +1455,49 @@ The composer SHALL let keyboard users navigate and activate the visible unified 
 - **THEN** the completion SHALL expose which result is active through semantic option state
 - **AND** the active result SHALL remain visibly distinguishable without relying only on color
 
+### Requirement: Reusable correction authorization
+When recording corrected feedback, the chat experience SHALL offer a separate default-off authorization for the exact correction revision to be considered reusable Skill guidance. The authorization SHALL explain that normal feedback processing continues without it and SHALL be revocable before application.
+
+#### Scenario: User submits correction without authorization
+- **WHEN** the user records corrected feedback and leaves reusable guidance disabled
+- **THEN** the correction is stored for evidence but is ineligible for deterministic automatic-draft production
+
+#### Scenario: User authorizes reusable guidance
+- **WHEN** the user explicitly enables authorization for the current bounded correction
+- **THEN** the service stores a versioned authorization witness linked to that feedback revision
+
+#### Scenario: Correction changes
+- **WHEN** the user replaces authorized correction content
+- **THEN** prior authorization is revoked and the new revision defaults to unauthorized
+
+### Requirement: Reusable authorization revocation
+The chat experience SHALL allow the user to revoke reusable-guidance authorization while no application has committed and SHALL show when a resulting draft or run is pending review.
+
+#### Scenario: User revokes before auto application
+- **WHEN** the user revokes authorization before final mutation preflight
+- **THEN** derived automatic eligibility becomes stale and no automatic mutation occurs
+
+### Requirement: Read-only system activity presentation
+When a system activity session is selected, the chat workspace SHALL replace interactive conversation controls with a localized read-only activity timeline and system identity. It SHALL hide composer, send, stop, enhance, mentions, file references, model/reasoning/permission controls, terminal, and Agent availability actions.
+
+#### Scenario: Open system activity session
+- **WHEN** the selected view has system-activity kind
+- **THEN** the UI shows timeline filters, unread state, safe export, and projection health without a message composer
+
+#### Scenario: Keyboard send shortcut is used
+- **WHEN** focus is inside a system activity view and the user presses a normal send shortcut
+- **THEN** no message, Agent invocation, or mutation command is issued
+
+### Requirement: Localized structured activity rendering
+The activity presentation SHALL render locale-neutral event codes and safe parameters as localized timeline items and supported read-only Rich Blocks while preserving stable ids, timestamps, severity, status, and accessible labels.
+
+#### Scenario: Unsupported activity payload appears
+- **WHEN** an item has an unknown payload schema
+- **THEN** the UI renders a bounded safe fallback with event code and preserves the rest of the timeline
+
+### Requirement: System activity navigation is non-mutating
+Links and buttons inside system activity items SHALL only navigate, copy safe ids, adjust local filters/read state, or export. They MUST NOT approve, apply, retry source work, cancel runs, close breakers, revert Overlays, or send chat messages.
+
+#### Scenario: Attention item links to breaker
+- **WHEN** the user follows the link
+- **THEN** breaker detail opens without acknowledging or closing it

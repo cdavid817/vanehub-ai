@@ -12,7 +12,7 @@ export default defineConfig({
   outputDir: "./test-results/e2e",
   globalSetup: "./tests/e2e/global-setup.ts",
   timeout: 60_000,
-  workers: 2,
+  workers: 1,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [["line"], ["html", { open: "never" }]] : "list",
   expect: {

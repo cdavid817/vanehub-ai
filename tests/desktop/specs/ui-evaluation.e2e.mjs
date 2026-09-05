@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { unlink } from "node:fs/promises";
+import { join } from "node:path";
+import process from "node:process";
 
 /**
  * Interactive coverage of Agent evaluation: everything here goes through a control on screen.
@@ -337,6 +340,11 @@ globalThis.describe("VaneHub AI desktop Agent evaluation UI", () => {
   });
 
   globalThis.after(async () => {
+    if (startedArenaId) {
+      await unlink(join(process.cwd(), `${startedArenaId}.json`)).catch((error) => {
+        if (error?.code !== "ENOENT") throw error;
+      });
+    }
     if (blocked.length > 0) {
       globalThis.console.warn(`BLOCKED on this host:\n  ${blocked.join("\n  ")}`);
     }

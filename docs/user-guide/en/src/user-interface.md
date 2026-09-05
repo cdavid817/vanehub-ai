@@ -1,6 +1,8 @@
 # User interface
 
-This chapter walks the interface feature by feature: what each one is and how to use it.
+The main window's layout and navigation, and the entry points that sit around a session: the session list, Agent selection, the conversation area, the floating assistant, the loop centre, notifications, and the system tray.
+
+The nine workspace tabs inside a session are in [Session workspace](session-workspace.md); settings are in [Settings](settings.md).
 
 ## Session management
 
@@ -20,15 +22,15 @@ The session list on the left supports three display modes: **list / by category 
 
 ### Activity bar navigation
 
-The activity bar to the left of the session list switches between five primary domains: **Sessions / Projects & Workspaces / Runs / Plan / Quality**, plus two utility entries in the lower-right corner: **Settings / Help**. Some domains have their own secondary tabs: **Runs** has Attention inbox, Active Runs, Recently completed (together, [Mission Control](observability.md#mission-control)), [Loops](loop-engineering.md), and [Scheduled tasks](automation.md); **Plan** has [Todo Board](todo-board.md) and [Goal Center](goal-management.md); **Quality** is [Agent evaluation](evaluation.md) directly, with no secondary tabs. **Projects & Workspaces** is a read-only rollup of known projects and remote workspaces — see [below](#projects-and-workspaces).
+The activity bar to the left of the session list switches between five primary domains: **Sessions / Projects & Workspaces / Runs / Plan / Quality**, plus two utility entries in the lower-right corner: **Settings / Help**. Some domains have their own secondary tabs: **Runs** has Attention inbox, Active Runs, Recently completed (together, [Mission Control](observability.md#mission-control)), [Loops](loop-engineering.md), and [Scheduled tasks](scheduled-tasks.md); **Plan** has [Todo Board](goals-and-work-board.md#work-board) and [Goal Center](goals-and-work-board.md); **Quality** is [Agent evaluation](evaluation.md) directly, with no secondary tabs. **Projects & Workspaces** is a read-only rollup of known projects and remote workspaces — see [below](#projects-and-workspaces).
 
 ## Agent types
 
-VaneHub AI ships six built-in Agents, in two categories.
+VaneHub AI works with six Agents, in two categories.
 
 ### External CLI Agents
 
-The first five are **external CLIs** — VaneHub AI starts their process and manages everything around it (launch parameters, permission interception, output capture), while the actual code generation is done by the CLI itself. **Each vendor's own subscription login is self-managed by that CLI**, and VaneHub AI never stores credentials it produces; but to switch one to a third-party compatible endpoint, you can configure that under [Settings → Agent configurations](tooling.md#agent-configurations).
+The first five are **external CLIs** — VaneHub AI starts their process and manages everything around it (launch parameters, permission interception, output capture), while the actual code generation is done by the CLI itself. **Each vendor's own subscription login is self-managed by that CLI**, and VaneHub AI never stores credentials it produces; but to switch one to a third-party compatible endpoint, you can configure that under [Settings → Agent configurations](agent-configuration.md#agent-configurations).
 
 | Agent | Provider | Command | Notes |
 | --- | --- | --- | --- |
@@ -122,7 +124,7 @@ The info panel also carries two in-place tabs, so you do not have to jump to the
 - **Skill** — view and manage the Skills bound to this session, in the session
 - **Code Index** — view the workspace code index status, in the session
 
-> Token usage is reported by each CLI itself; VaneHub AI does not meter it independently. Read the [Usage statistics](automation.md) page's methodology note before using these numbers for cost accounting.
+> Token usage is reported by each CLI itself; VaneHub AI does not meter it independently. Read the [Usage statistics](usage-statistics.md) page's methodology note before using these numbers for cost accounting.
 
 ## Show and hide panels
 
@@ -139,9 +141,9 @@ When you reopen a session after a crash or an abnormal exit, a **recovery banner
 | Settings page | What it holds |
 | --- | --- |
 | **Basic Configuration** | See [the next section](#basic-configuration) |
-| **Agent Configurations** | Provider, endpoint, and model per Agent, including OnePiece — see [Tools and extensions](tooling.md#agent-configurations) |
+| **Agent Configurations** | Provider, endpoint, and model per Agent, including OnePiece — see [Agent and CLI configuration](agent-configuration.md#agent-configurations) |
 | **Agent Policies** | Permission policy and approval templates — see [Permission approvals](permissions.md) |
-| **CLI Parameters** | Launch flags per CLI Agent — see [Tools and extensions](tooling.md#cli-parameters) |
+| **CLI Parameters** | Launch flags per CLI Agent — see [Agent and CLI configuration](agent-configuration.md#cli-parameters) |
 | **Code Intelligence** | Language server toggles and workspace trust for in-session code intelligence — see [LSP code intelligence](lsp-code-intelligence.md) |
 | **MCP Servers** | MCP server configuration and per-Agent binding — see [MCP servers](mcp.md) |
 | **Skills** | Skill installation and binding — see [Manage Skills](skill-management.md) |
@@ -150,12 +152,12 @@ When you reopen a session after a crash or an abnormal exit, a **recovery banner
 | **Expert Roles** | Role fields, responsibilities, and review policy — see [Expert roles](expert-roles.md) |
 | **Local Media** | Configures the OCR/speech-recognition/speech-synthesis engines installed via Extension Capabilities: enable each engine, its Python environment, and the composer's recognize-text/hold-to-talk/read-aloud actions |
 | **CLI Management** | Install detection, conflict diagnostics, and upgrades for each CLI — see [Install and authenticate a CLI](getting-started.md) |
-| **Extension Capabilities** | Installing and enabling local multimodal capabilities — see [Tools and extensions](tooling.md#extension-capabilities) |
+| **Extension Capabilities** | Installing and enabling local multimodal capabilities — see [Local extensions](extensions.md#extension-capabilities) |
 | **Plugin Integration** | Built-in product integrations and readiness checks — see [Plugin integration](plugin-integration.md) |
-| **IM Connectors** | IM connector configuration — see [Remote and IM](remote-and-im.md#im-connectors) |
-| **SSH Connections** | Saved SSH connections — see [Remote and IM](remote-and-im.md#ssh-remote-workspace) |
+| **IM Connectors** | IM connector configuration — see [IM connectors](im-connectors.md) |
+| **SSH Connections** | Saved SSH connections — see [Remote workspaces and SSH](remote-workspaces.md) |
 | **Execution Observability** | Execution tracing and log collection policy — see [Observability](observability.md) |
-| **Usage Statistics** | Token usage statistics — see [Scheduled and usage](automation.md) |
+| **Usage Statistics** | Token usage statistics — see [Usage statistics](usage-statistics.md) |
 | **Documentation** | This user guide, bundled offline, plus a link to the source repository — also what the activity bar's own **Help** button opens |
 | **About** | Version, update check, changelog, and repository links — see [Application updates](app-updates.md) |
 
@@ -192,9 +194,9 @@ Select **Runs** in the activity bar, then the **Loops** tab, to manage Loop engi
 
 ## Projects and Workspaces
 
-The **Projects & Workspaces** entry in the activity bar is a read-only rollup of your known local projects and remote SSH workspaces, along with each one's recent session: three views (**Recent / All / Unavailable**), and each row shows availability, a safe display path, a Git-repository marker (local rows), and trust (remote rows only, currently only ever "Trusted" or "Trust unknown"). Selecting a row opens its detail: identity, trust, Git, recent session, and related [Todo Board](todo-board.md)/[Goal management](goal-management.md) items, plus **Continue Session**/**New Session** (remote rows also get **Reconnect**).
+The **Projects & Workspaces** entry in the activity bar is a read-only rollup of your known local projects and remote SSH workspaces, along with each one's recent session: three views (**Recent / All / Unavailable**), and each row shows availability, a safe display path, a Git-repository marker (local rows), and trust (remote rows only, currently only ever "Trusted" or "Trust unknown"). Selecting a row opens its detail: identity, trust, Git, recent session, and related [Todo Board](goals-and-work-board.md#work-board)/[Goal management](goals-and-work-board.md) items, plus **Continue Session**/**New Session** (remote rows also get **Reconnect**).
 
-Not yet available: a Favorites view, a "Needs attention" view, a per-workspace active-run count, and creating or deleting a worktree from this page — a worktree is still only created by checking the box during [session creation](first-session.md); see [Remote and IM](remote-and-im.md#ssh-remote-workspace) for how to set up an SSH connection.
+Not yet available: a Favorites view, a "Needs attention" view, a per-workspace active-run count, and creating or deleting a worktree from this page — a worktree is still only created by checking the box during [session creation](first-session.md); see [Remote workspaces and SSH](remote-workspaces.md) for how to set up an SSH connection.
 
 ## OnePiece Plan mode
 
@@ -202,11 +204,11 @@ OnePiece sessions expose **Plan** and **Agent** in the conversation bar. Plan mo
 
 When the plan is ready, OnePiece can request `exit_plan_mode`. Approving the request changes the session to Agent mode for a later turn; declining keeps Plan mode active. The left activity bar has no separate Plan execution destination, and planning does not create a task graph or worktree.
 
-Use **Loop** when you need durable autonomous iteration with verification and acceptance controls. Goal-level tracking is covered in [Goal management](goal-management.md).
+Use **Loop** when you need durable autonomous iteration with verification and acceptance controls. Goal-level tracking is covered in [Goal management](goals-and-work-board.md).
 
 ## Notifications
 
-The bell icon in the top bar opens the **notification center**: unread badge, mark all read, clear notifications. For notification scope (global/session) and the four notification kinds, see [Scheduled and usage](automation.md).
+The bell icon in the top bar opens the **notification center**: unread badge, mark all read, clear notifications. For notification scope (global/session) and the four notification kinds, see [Scheduled tasks and notifications](scheduled-tasks.md).
 
 ## System tray
 
@@ -218,3 +220,5 @@ On desktop there is a system tray icon: show/hide the main window, with the laun
 - First time using it → [Create your first session](first-session.md)
 - Full shortcut reference → [Keyboard shortcuts](keyboard-shortcuts.md)
 - What's keyboard-operable and what isn't yet scanned → [Accessibility notes](accessibility.md)
+- Session-scoped tabs and evidence, in more detail → [Session workspace](session-workspace.md)
+- The full settings-page registry → [Settings center](settings.md)

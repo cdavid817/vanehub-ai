@@ -19,6 +19,9 @@ import { ThemeProvider } from "./theme/theme-provider";
 import { useTranslation } from "react-i18next";
 import { settingsService } from "./services/runtime-settings-client";
 import { NotificationProvider, useNotifications } from "./notifications/notification-provider";
+import { CuratorNotificationBridge } from "./notifications/curator-notification-bridge";
+import { GenerationNotificationBridge } from "./notifications/generation-notification-bridge";
+import { EvolutionNotificationBridge } from "./notifications/evolution-notification-bridge";
 import { floatingAssistantService } from "./services/runtime-floating-assistant-client";
 import { useCallback, useEffect, useMemo } from "react";
 
@@ -139,12 +142,34 @@ function LaunchRedirect() {
 function SettingsRoute() {
   const navigate = useNavigate();
   const location = useLocation();
-  const onePieceRequested = new URLSearchParams(location.search).get("agentConfig") === "onepiece";
+  const params = new URLSearchParams(location.search);
+  const onePieceRequested = params.get("agentConfig") === "onepiece";
+  const curatorRequested = params.get("skillWorkspace") === "curator";
+  const generationRequested = params.get("skillWorkspace") === "generation";
+  const evolutionRequested = params.get("skillWorkspace") === "orchestration";
+  const overlayRequested = Boolean(params.get("overlayHistory") && params.get("skill"));
+  const navigationTarget = evolutionRequested ? {
+    evolutionWorkspaceId: params.get("workspace") ?? undefined,
+    evolutionRunId: params.get("evolutionRun") ?? undefined,
+    evolutionApplicationId: params.get("evolutionApplication") ?? undefined,
+    evolutionProbationId: params.get("evolutionProbation") ?? undefined,
+    evolutionBreakerId: params.get("evolutionBreaker") ?? undefined,
+  } : generationRequested ? {
+    generationWorkspaceId: params.get("workspace") ?? undefined,
+    generationJobId: params.get("generationJob") ?? undefined,
+  } : curatorRequested ? {
+    curatorCandidateId: params.get("candidate") ?? undefined,
+    curatorWorkspaceId: params.get("workspace") ?? undefined,
+    overlayHistoryId: params.get("overlayHistory") ?? undefined,
+  } : overlayRequested ? {
+    overlayHistoryId: params.get("overlayHistory") ?? undefined,
+    overlaySkillId: params.get("skill") ?? undefined,
+  } : onePieceRequested ? { agentConfigAgentId: "onepiece" as const } : null;
 
   return (
     <SettingsShell
-      initialNavigationTarget={onePieceRequested ? { agentConfigAgentId: "onepiece" } : null}
-      initialPageId={onePieceRequested ? "agent-configurations" : undefined}
+      initialNavigationTarget={navigationTarget}
+      initialPageId={onePieceRequested ? "agent-configurations" : curatorRequested || generationRequested || evolutionRequested || overlayRequested ? "skills" : undefined}
       onOpenSession={(sessionId) => navigate(`/workspace/sessions/${encodeURIComponent(sessionId)}`)}
       onReturn={() => navigate("/workspace")}
     />
@@ -155,30 +180,40 @@ export function App() {
   return (
     <SettingsProvider>
       <ThemeProvider>
-        <NotificationProvider>
-          <QueryClientProvider client={queryClient}>
-            <BrowserRouter>
-              <ErrorBoundary
-              FallbackComponent={RouteErrorFallback}
-              onError={(error, info) => {
-                const message = error instanceof Error ? error.message : String(error);
-                const stack = error instanceof Error ? error.stack : undefined;
-                void settingsService.reportClientLogEvent({
-                  level: "error",
-                  kind: "error-boundary",
-                  message,
-                  source: "App",
-                  stack,
-                  details: { componentStack: info.componentStack ?? "" },
-                });
-              }}
-              >
-                <AppRoutes />
-              </ErrorBoundary>
-            </BrowserRouter>
-          </QueryClientProvider>
-        </NotificationProvider>
+        <QueryClientProvider client={queryClient}>
+          <BrowserRouter>
+            <RoutedProviders />
+          </BrowserRouter>
+        </QueryClientProvider>
       </ThemeProvider>
     </SettingsProvider>
+  );
+}
+
+function RoutedProviders() {
+  const navigate = useNavigate();
+  return (
+    <NotificationProvider onNavigate={navigate}>
+      <CuratorNotificationBridge />
+      <GenerationNotificationBridge />
+      <EvolutionNotificationBridge />
+      <ErrorBoundary
+        FallbackComponent={RouteErrorFallback}
+        onError={(error, info) => {
+          const message = error instanceof Error ? error.message : String(error);
+          const stack = error instanceof Error ? error.stack : undefined;
+          void settingsService.reportClientLogEvent({
+            level: "error",
+            kind: "error-boundary",
+            message,
+            source: "App",
+            stack,
+            details: { componentStack: info.componentStack ?? "" },
+          });
+        }}
+      >
+        <AppRoutes />
+      </ErrorBoundary>
+    </NotificationProvider>
   );
 }

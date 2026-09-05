@@ -4,8 +4,9 @@
 
 <!--
   本文件是 Gemini CLI 的项目上下文入口文件。
-  所有通用规则统一维护在根目录 AGENTS.md 中,上面这行 @AGENTS.md 会在 Gemini CLI
-  加载项目上下文时自动导入其内容,请不要在这里重复书写规则。
+  所有通用规则统一维护在根目录 AGENTS.md 中。上面这行 @AGENTS.md 依赖 Gemini CLI
+  的 @ 导入机制;该机制是否生效以你所用 Gemini CLI 版本的官方文档为准,
+  请不要在这里重复书写规则。若导入不生效,用下面的符号链接方案。
 
   如果需要用符号链接代替 @import:
       ln -s AGENTS.md GEMINI.md

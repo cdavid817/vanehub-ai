@@ -8,8 +8,15 @@ VaneHub AI **驱动你已经装好的 CLI**。**各家的订阅登录（OAuth）
 
 ## 前置条件
 
-- Node.js 22+ 与 npm
+必须具备：
+
 - 至少一个受支持的 CLI，以及对应的订阅或 API 凭据
+
+按需具备：
+
+- **Node.js 与 npm**——仅当选择 npm 安装源时需要（各 CLI 要求的最低 Node.js 版本见下文各自小节）；用官方原生安装器装的 CLI 不依赖 Node.js
+- **Git**——使用变更视图、代码评审或 [Git Worktree](worktree.md) 时需要
+- **SSH**——连接[远端工作区](remote-workspaces.md)时需要
 
 ## 两种安装方式
 
@@ -90,7 +97,7 @@ npm install -g @google/gemini-cli
 
 认证在终端运行 `gemini` 后选 "Login with Google" 完成。免费个人账号额度约每分钟 60 次、每天 1000 次请求。
 
-> **Gemini CLI 面向个人用户逐步停用**:Google 已宣布将 Gemini CLI 迁移到 Antigravity CLI,自 2026-06-18 起面向个人/免费用户(免费 / Pro / Ultra)逐步停用 Gemini CLI 及 Gemini Code Assist;官方建议迁移到 [Antigravity CLI](#antigravity-cli)。企业版 Gemini Code Assist Standard/Enterprise 及付费 API Key 渠道不受影响。
+> **Gemini CLI 的消费级路径正在收缩**:Google 已宣布自 2026-06-18 起,Gemini Code Assist Individuals 及 Google AI Pro/Ultra 等消费级账号不再经 Gemini CLI 提供请求服务,其「Login with Google」路径不再可用;官方建议这些用户迁移到 [Antigravity CLI](#antigravity-cli)。Gemini Code Assist Standard 与 Enterprise 不受影响。API Key 与 Vertex 属于不同认证路径,是否受影响以 Google 官方说明为准。
 
 ### OpenCode
 
@@ -122,7 +129,7 @@ irm https://antigravity.google/cli/install.ps1 | iex
 curl -fsSL https://antigravity.google/cli/install.cmd -o install.cmd && install.cmd && del install.cmd
 ```
 
-二进制默认放在 `~/.local/bin`(macOS/Linux)或 `%LOCALAPPDATA%\Antigravity\`(Windows)。因此 CLI 管理页对它不提供 npm 安装/升级/降级操作。它走 **Google 登录**并把凭据存进**系统钥匙串**,配置档里根本没有密钥字段。若本机曾装过 Gemini CLI(存在 `~/.gemini` 目录),`agy` 首次运行会提示是否导入旧设置(MCP 配置、命令白名单、快捷键、主题);与 Gemini CLI 的 npm 安装互不冲突,可同时保留。
+二进制默认放在 `~/.local/bin`(macOS/Linux)或 `%LOCALAPPDATA%\Antigravity\`(Windows)。它没有 npm 包,CLI 管理页提供的是经审核的**官方安装器**动作(仅支持升级到最新版)。默认认证走 **Google 登录**并把凭据存进**系统钥匙串**;CLI 官方另支持 API Key 与兼容端点,但 **VaneHub 的 Agent 配置面板当前未纳管这些字段**,需要时按 Antigravity 官方方式在 CLI 自身环境中配置。若本机曾装过 Gemini CLI(存在 `~/.gemini` 目录),`agy` 首次运行会提示是否导入旧设置(MCP 配置、命令白名单、快捷键、主题);与 Gemini CLI 的 npm 安装互不冲突,可同时保留。
 
 > **订阅登录一律由各 CLI 自管**。VaneHub AI 只检测「这个命令能不能跑起来」，不替你走完 OAuth 登录，也不保存由此产生的会话凭据。（你在**设置 → Agent 配置**里主动填写的第三方 API Key 是另一回事，那份由 VaneHub AI 存进系统凭据服务。）安装后建议跑一遍 `claude --version` / `codex --version` / `gemini --version` / `opencode --version` / `agy --version`,确认版本号正常输出后再在 VaneHub AI 中添加会话。
 
@@ -187,11 +194,11 @@ CLI 工具页按状态提供不同操作：**安装**、**升级**、**降级**�
 
 如果 Agent 在会话中提示要登录，去对应的 CLI 里完成认证，然后回到 VaneHub AI 刷新检测。
 
-**要换成第三方大模型则相反**——去**设置 → Agent 配置**建一份配置并应用即可，不必手改 CLI 的配置文件。见[工具与扩展 → Agent 配置](tooling.md#agent-配置)。
+**要换成第三方大模型则相反**——去**设置 → Agent 配置**建一份配置并应用即可，不必手改 CLI 的配置文件。见[工具与扩展 → Agent 配置](agent-configuration.md#agent-配置)。
 
 ## CLI 启动参数
 
-五个 CLI 各自的命令行参数与 VaneHub AI 里的启动参数配置，统一收在[工具与扩展 → CLI 参数](tooling.md#cli-参数)。OnePiece 没有 CLI，也就没有启动参数，它的等价配置在[Agent 配置](tooling.md#agent-配置)。
+五个 CLI 各自的命令行参数与 VaneHub AI 里的启动参数配置，统一收在[工具与扩展 → CLI 参数](agent-configuration.md#cli-参数)。OnePiece 没有 CLI，也就没有启动参数，它的等价配置在[Agent 配置](agent-configuration.md#agent-配置)。
 
 ## 下一步
 

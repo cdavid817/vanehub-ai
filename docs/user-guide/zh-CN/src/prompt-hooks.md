@@ -112,6 +112,6 @@ Hook 的执行会以摘要形式进入执行链路，见[可观测性](observabi
 
 ## 相关
 
-- 其余工具与扩展配置 → [工具与扩展](tooling.md)
+- 其余工具与扩展配置 → [本地扩展](extensions.md)、[Agent 与 CLI 配置](agent-configuration.md)
 - 提示词里的另一层个人化内容 → [个性化](personalization.md)
 - Hook 执行在链路里怎么看 → [可观测性](observability.md)

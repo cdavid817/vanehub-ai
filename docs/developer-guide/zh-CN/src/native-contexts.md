@@ -2,7 +2,7 @@
 
 native 代码按**所有权**组织，而非按 UI 页面组织。一个功能出现在哪个页面上，和它的代码归谁管，是两回事。
 
-`src-tauri/src/contexts/` 下当前有 **20 个上下文**。下表是完整地图——**目录与表格必须一一对应**，`npm run docs:links:check` 会比对两者，新增一个上下文却不在这里加一行，校验直接失败。
+`src-tauri/src/contexts/` 下当前有 **27 个上下文**。下表是完整地图——**目录与表格必须一一对应**，`npm run docs:links:check` 会比对两者，新增一个上下文却不在这里加一行，校验直接失败。
 
 ```mermaid
 flowchart TB
@@ -36,6 +36,11 @@ flowchart TB
     OP[operations]
     EO[execution_observability]
     SEE[skill_evolution_evidence]
+    SEA[skill_evolution_assessment]
+    SEC[skill_evolution_curation]
+    SAS[skill_evolution_system_activity]
+    SEG[skill_evolution_generation]
+    SEO[skill_evolution_orchestration]
     PZ[personalization]
   end
 
@@ -102,9 +107,14 @@ flowchart TB
 | Context | 拥有 | 专章 |
 | --- | --- | --- |
 | `permissions` | 权限策略评估、审批代理、风险分级，以及 Claude Code 钩子等待注册表 | [权限模型](permission-model.md) |
-| `operations` | 可观测的任务生命周期，以及统一的诊断/操作日志契约 | [持久化与统一日志](persistence-and-logging.md) |
+| `operations` | 可观测的任务生命周期，以及统一的诊断/操作日志契约 | [统一日志](unified-logging.md) |
 | `execution_observability` | 执行 run、span、时间线、采集策略与 OTLP 导出设置 | [执行可观测性与 Agent 评测](execution-observability.md) |
-| `skill_evolution_evidence` | 证据信封、抽取、脱敏、归因、反馈状态与加密的证据存储 | [Skill 演进证据](skill-evolution-evidence.md) |
+| `skill_evolution_evidence` | 证据信封、抽取、脱敏、归因、反馈状态与证据存储（写入前脱敏，依赖操作系统与磁盘保护，无应用层加密） | [Skill 演进证据](skill-evolution-evidence.md) |
+| `skill_evolution_assessment` | 不可变评估见证、有效 Skill 目标投影、确定性排序与质量门禁、评估器溯源，以及不执行变更的路由建议 | [Skill 演进证据](skill-evolution-evidence.md) |
+| `skill_evolution_curation` | 人工治理的 Skill 改进候选、草稿评审、审批决策、应用回执、审计链与通知投递 | [Skill 演进证据](skill-evolution-evidence.md) |
+| `skill_evolution_system_activity` | 只读 Skill 演进活动会话、规范结果投影、已读状态、偏好、重建、保留与导出 | [Skill 演进证据](skill-evolution-evidence.md) |
+| `skill_evolution_generation` | 隐私安全的证据档案、受约束的结构化生成、本地渲染与验证、隔离提案及 Curator 交接 | [Skill 演进证据](skill-evolution-evidence.md) |
+| `skill_evolution_orchestration` | 持久化 Skill 演进触发器、空闲门禁、受治理运行、自动应用策略、恢复、速率限制、观察期、断路器与安全通知 | [Skill 演进证据](skill-evolution-evidence.md) |
 | `personalization` | 分层指令策略、受治理的记忆记录与候选、有效个性化解析,以及记忆维护 | [跨会话记忆](cross-session-memory.md) |
 
 ### 规划与追踪

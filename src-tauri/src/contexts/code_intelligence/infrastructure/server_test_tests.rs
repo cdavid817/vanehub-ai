@@ -8,7 +8,7 @@ use serde_json::json;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 struct FixedLocator(PathBuf);
 
@@ -122,6 +122,57 @@ async fn initialize_timeout_forces_bounded_process_tree_cleanup_without_cancella
     assert_eq!(cleanup.status, ServerTestPhaseStatus::Succeeded);
     assert_eq!(cleanup.reason, Some(ServerTestReason::ForcedTermination));
     assert!(result.cleaned_up());
+}
+
+/// A caller's budget that is already gone must not take cleanup with it.
+///
+/// `MIN_TEST_TIMEOUT` is the smallest budget the tester accepts, and against a server that never
+/// answers it is spent before cleanup begins — which is the load case, reproduced deterministically
+/// rather than waited for. Before the cleanup floor, `start_kill` was issued and the wait that
+/// observes it was skipped, so the phase reported failure for a child that had in fact died. A
+/// caller told that cannot tell it from a process tree still running.
+#[tokio::test]
+async fn a_spent_caller_deadline_still_leaves_cleanup_enough_to_observe_the_kill() {
+    let result = IsolatedServerTester::run(
+        fixture_command("lsp-hang", Some("Cargo.toml")),
+        Duration::from_millis(100),
+    )
+    .await;
+
+    assert_eq!(
+        result
+            .phase(ServerTestPhase::Initialize)
+            .expect("initialize")
+            .reason,
+        Some(ServerTestReason::InitializeTimedOut)
+    );
+    let cleanup = result.phase(ServerTestPhase::Cleanup).expect("cleanup");
+    assert_eq!(cleanup.status, ServerTestPhaseStatus::Succeeded);
+    assert_eq!(cleanup.reason, Some(ServerTestReason::ForcedTermination));
+    assert!(result.cleaned_up());
+}
+
+/// The floor is a ceiling on waiting, not a delay.
+///
+/// A server that exits on `shutdown` is cleaned up as soon as it has, and the whole run finishes
+/// well inside the floor. Asserted generously: what would fail this is a floor implemented as a
+/// sleep, which would take at least two seconds every time, and no plausible machine takes that long
+/// to reap a child that is already leaving.
+#[tokio::test]
+async fn a_cleanup_that_finishes_early_does_not_wait_out_the_floor() {
+    let started = Instant::now();
+
+    let result = IsolatedServerTester::run(
+        fixture_command("lsp-success", Some("Cargo.toml")),
+        Duration::from_secs(10),
+    )
+    .await;
+
+    assert!(result.cleaned_up());
+    assert!(
+        started.elapsed() < Duration::from_secs(8),
+        "cleanup waited out a budget it did not need"
+    );
 }
 
 #[tokio::test]

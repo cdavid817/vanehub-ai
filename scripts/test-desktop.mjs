@@ -213,7 +213,11 @@ async function runDesktopLayer({
   }
   await disposeRunContext(context);
   const skipped = coverage?.skipped ? ` (${coverage.skipped} skipped — see BLOCKED above)` : "";
-  process.stdout.write(`${label}: ${status}${skipped}\nEvidence: ${context.resultDir}\n`);
+  // A green run with skipped scenarios is not full coverage. The exit code and the stored layer
+  // status stay unchanged (CI hosts legitimately lack credentials), but the human-facing summary
+  // must never say a bare PASSED when required scenarios were blocked on this host.
+  const reportedStatus = status === "PASSED" && coverage?.skipped ? "PASSED WITH BLOCKED" : status;
+  process.stdout.write(`${label}: ${reportedStatus}${skipped}\nEvidence: ${context.resultDir}\n`);
   process.exitCode = verificationExitCode(status);
   return { status, summaryPath, resultDir: context.resultDir };
 }
@@ -347,6 +351,15 @@ function loopDesktop(artifact) {
   });
 }
 
+function scheduledTasksDesktop(artifact) {
+  return runDesktopLayer({
+    layer: "desktop-scheduled-tasks",
+    config: "tests/desktop/wdio.scheduled-tasks.conf.mjs",
+    label: "Desktop scheduled tasks",
+    artifact,
+  });
+}
+
 function settingsPersistenceDesktop(artifact) {
   return runDesktopLayer({
     layer: "desktop-settings-persistence",
@@ -460,6 +473,7 @@ const fullSuiteLayers = [
   sessionWorkspaceDesktop,
   sessionShellDesktop,
   dialogsDesktop,
+  scheduledTasksDesktop,
   settingsPersistenceDesktop,
   agentMcpDesktop,
 ];
@@ -483,6 +497,7 @@ async function main() {
   else if (mode === "session-workspace") await sessionWorkspaceDesktop();
   else if (mode === "session-shell") await sessionShellDesktop();
   else if (mode === "dialogs") await dialogsDesktop();
+  else if (mode === "scheduled-tasks") await scheduledTasksDesktop();
   else if (mode === "settings-persistence") await settingsPersistenceDesktop();
   else if (mode === "cli-management") await cliManagementDesktop();
   else if (mode === "agent-mcp") await agentMcpDesktop();

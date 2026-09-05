@@ -125,9 +125,25 @@ export function SettingsShell({
     proceed();
   }, [activePageId, guardedLeave]);
 
+  // Applied once per URL change, never re-asserted: the URL does not update on sidebar clicks, so
+  // re-running on activePageId would snap every in-shell navigation back to the deep-linked page.
+  // The initial page already honoured the URL (and initialNavigationTarget carries the deep-linked
+  // sub-target), so a requested page that is already active is recorded without a navigation that
+  // would wipe that target.
+  const appliedRequestedPage = useRef<string | null>(requestedPage);
   useEffect(() => {
-    if (requestedPage && settingsPages.some((page) => page.id === requestedPage)) handleSelectPage(requestedPage as SettingsPageId);
-  }, [requestedPage, handleSelectPage]);
+    if (
+      requestedPage
+      && appliedRequestedPage.current !== requestedPage
+      && settingsPages.some((page) => page.id === requestedPage)
+    ) {
+      appliedRequestedPage.current = requestedPage;
+      handleSelectPage(requestedPage as SettingsPageId);
+    }
+    // Intentionally excludes handleSelectPage, whose identity changes on every activePageId
+    // change, which would reintroduce the snap-back bug this effect exists to prevent.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestedPage]);
 
   // Leaving Settings entirely unmounts the whole shell regardless of any individual page's
   // lifecycle policy, so this is always guarded when a draft is reported -- unlike inter-page

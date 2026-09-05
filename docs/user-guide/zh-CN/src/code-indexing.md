@@ -35,5 +35,5 @@ VaneHub 在解析前应用嵌套 `.gitignore` 和用户排除规则。.env、凭
 
 - 实时语义能力与本页的持久化索引如何分工 → [LSP 代码智能](lsp-code-intelligence.md)
 - 跨会话记忆与检索口径 → [记忆与上下文](memory-and-context.md)
-- 解析技术本身：GLR 增量解析、查询系统、结构化代码切分与 Repo Map → [Tree-sitter 技术架构](../../../agent-infrastructure/tree-sitter-architecture.md)
-- 检索管线与混合检索取舍 → [RAG 技术架构](../../../agent-infrastructure/rag-architecture.md)
+- 解析技术本身：GLR 增量解析、查询系统、结构化代码切分与 Repo Map → [Tree-sitter 技术架构](../../../agent-infrastructure/patterns/tree-sitter.md)
+- 检索管线与混合检索取舍 → [RAG 技术架构](../../../agent-infrastructure/patterns/rag.md)

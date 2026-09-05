@@ -1,6 +1,8 @@
 # 用户界面
 
-VaneHub AI 的界面按功能讲解界面里能做什么。每个功能讲它是什么、怎么用。
+主窗口的布局、导航，以及会话之外的那些入口：会话列表、Agent 选择、对话区、浮动助手、循环中心、通知与系统托盘。
+
+会话内部的工作区标签页与运行时面板、设置中心的完整页面注册表，见下文；更深入的独立章节见[会话工作区](session-workspace.md)与[设置](settings.md)。
 
 ## 会话管理
 
@@ -20,15 +22,15 @@ VaneHub AI 的界面按功能讲解界面里能做什么。每个功能讲它是
 
 ### 活动栏导航
 
-会话列表左侧的活动栏切换五个主要业务域：**会话 / 项目与工作区 / 运行 / 计划 / 质量**，右下角另有**设置 / 帮助**两个工具项。部分业务域内部还有二级标签：**运行**下是等待关注、活动运行、最近完成（即[任务控制台](observability.md#任务控制台)）、[循环工程](loop-engineering.md)、[定时任务](automation.md)；**计划**下是[任务看板](todo-board.md)、[目标中心](goal-management.md)；**质量**即 [Agent 评测](evaluation.md)，没有二级标签。**项目与工作区**只读汇总已知项目与远程工作区，见[下文](#项目与工作区)。
+会话列表左侧的活动栏切换五个主要业务域：**会话 / 项目与工作区 / 运行 / 计划 / 质量**，右下角另有**设置 / 帮助**两个工具项。部分业务域内部还有二级标签：**运行**下是等待关注、活动运行、最近完成（即[任务控制台](observability.md#任务控制台)）、[循环工程](loop-engineering.md)、[定时任务](scheduled-tasks.md)；**计划**下是[任务看板](goals-and-work-board.md#任务看板)、[目标中心](goals-and-work-board.md)；**质量**即 [Agent 评测](evaluation.md)，没有二级标签。**项目与工作区**只读汇总已知项目与远程工作区，见[下文](#项目与工作区)。
 
 ## Agent 类型
 
-VaneHub AI 内置 6 个 Agent，分两类：
+VaneHub AI 接入 6 个 Agent，分两类：
 
 ### 外部 CLI Agent
 
-前五个是**外部 CLI**——VaneHub AI 启动它们的进程并管理进程之外的部分（启动参数、权限拦截、输出采集），真正的代码生成由 CLI 自己完成。**官方订阅登录由各 CLI 自己管**，VaneHub AI 不保存由此产生的凭据；但要把它们换成第三方兼容端点，可以在[设置 → Agent 配置](tooling.md#agent-配置)里配。
+前五个是**外部 CLI**——VaneHub AI 启动它们的进程并管理进程之外的部分（启动参数、权限拦截、输出采集），真正的代码生成由 CLI 自己完成。**官方订阅登录由各 CLI 自己管**，VaneHub AI 不保存由此产生的凭据；但要把它们换成第三方兼容端点，可以在[设置 → Agent 配置](agent-configuration.md#agent-配置)里配。
 
 | Agent | 提供方 | 命令 | 说明 |
 | --- | --- | --- | --- |
@@ -122,7 +124,7 @@ Agent 回复支持富内容渲染：代码块（语法高亮）、Mermaid 图（
 - **技能**：在会话内就地查看/管理本会话绑定的 Skill
 - **代码索引**：在会话内就地查看工作区代码索引状态
 
-> Token 用量是各 CLI 自己上报的，VaneHub AI 不独立计量，做成本核算前请先读[用量统计页](automation.md)的口径说明。
+> Token 用量是各 CLI 自己上报的，VaneHub AI 不独立计量，做成本核算前请先读[用量统计页](usage-statistics.md)的口径说明。
 
 ## 切换面板显隐
 
@@ -139,9 +141,9 @@ Agent 回复支持富内容渲染：代码块（语法高亮）、Mermaid 图（
 | 设置页 | 内容 |
 | --- | --- |
 | **基础配置** | 见[下一节](#基础配置) |
-| **Agent 配置** | 按 Agent 配置 provider、端点与模型（含 OnePiece），见 [工具与扩展](tooling.md#agent-配置) |
+| **Agent 配置** | 按 Agent 配置 provider、端点与模型（含 OnePiece），见 [Agent 与 CLI 配置](agent-configuration.md#agent-配置) |
 | **Agent 权限策略** | 权限策略与审批模板，见 [权限审批](permissions.md) |
-| **CLI 参数** | 按 CLI Agent 配置启动参数，见 [工具与扩展](tooling.md#cli-参数) |
+| **CLI 参数** | 按 CLI Agent 配置启动参数，见 [Agent 与 CLI 配置](agent-configuration.md#cli-参数) |
 | **代码智能** | 会话内代码智能的语言服务器开关与工作区信任范围，见 [LSP 代码智能](lsp-code-intelligence.md) |
 | **MCP 服务器** | MCP server 配置与按 Agent 绑定，见 [MCP 服务器](mcp.md) |
 | **Skill 管理** | Skill 安装与绑定，见 [Skill 管理](skill-management.md) |
@@ -150,12 +152,12 @@ Agent 回复支持富内容渲染：代码块（语法高亮）、Mermaid 图（
 | **专家角色** | 角色与评审策略，见 [专家角色](expert-roles.md) |
 | **本地媒体** | 配置通过扩展能力安装的 OCR/语音识别/语音合成引擎：启停各引擎、Python 环境，以及输入框里的文字识别/按住说话/朗读操作 |
 | **CLI 管理** | 各 CLI 的安装检测、冲突诊断与升级，见 [安装并认证 CLI](getting-started.md) |
-| **扩展能力** | 本地多模态能力的安装与启停，见 [工具与扩展](tooling.md#扩展能力) |
+| **扩展能力** | 本地多模态能力的安装与启停，见 [本地扩展](extensions.md#扩展能力) |
 | **插件集成** | 内置产品集成与就绪检测，见 [插件集成](plugin-integration.md) |
-| **IM 能力** | IM 连接器配置，见 [远程与 IM](remote-and-im.md#im-连接器) |
-| **SSH 连接** | 保存的 SSH 连接，见 [远程与 IM](remote-and-im.md#ssh-远程工作区) |
+| **IM 能力** | IM 连接器配置，见 [IM 连接器](im-connectors.md) |
+| **SSH 连接** | 保存的 SSH 连接，见 [远程工作区与 SSH](remote-workspaces.md) |
 | **执行可观测性** | 执行追踪与日志采集策略，见 [可观测性](observability.md) |
-| **使用统计** | Token 用量统计，见 [定时与用量](automation.md) |
+| **使用统计** | Token 用量统计，见 [用量统计](usage-statistics.md) |
 | **使用文档** | 内置的本用户指南，离线可看，附源代码仓库链接——也是活动栏**帮助**按钮打开的同一个页面 |
 | **关于** | 版本、更新检查、changelog、仓库链接，见 [版本更新](app-updates.md) |
 
@@ -192,9 +194,9 @@ Agent 回复支持富内容渲染：代码块（语法高亮）、Mermaid 图（
 
 ## 项目与工作区
 
-左侧活动栏的**项目与工作区**只读汇总你已知的本地项目与远程 SSH 工作区，以及它们各自的近期会话：**最近 / 全部 / 不可用**三个视图，每行显示可用性、安全路径、Git 仓库标记（本地行）、信任状态（仅远程行，目前只会是"已信任"或"信任未知"）。选中一行看详情：身份、信任、Git、近期会话，以及关联的[任务看板](todo-board.md)/[目标中心](goal-management.md)条目，还有**继续会话**/**新建会话**（远程工作区另有**重新连接**）。
+左侧活动栏的**项目与工作区**只读汇总你已知的本地项目与远程 SSH 工作区，以及它们各自的近期会话：**最近 / 全部 / 不可用**三个视图，每行显示可用性、安全路径、Git 仓库标记（本地行）、信任状态（仅远程行，目前只会是"已信任"或"信任未知"）。选中一行看详情：身份、信任、Git、近期会话，以及关联的[任务看板](goals-and-work-board.md#任务看板)/[目标中心](goals-and-work-board.md)条目，还有**继续会话**/**新建会话**（远程工作区另有**重新连接**）。
 
-当前不提供：收藏视图、"需要关注"视图、按工作区统计的活动运行数，以及在这个页面创建或删除 worktree——worktree 仍只能在[创建第一个会话](first-session.md)时勾选生成；SSH 连接怎么配置见[远程与 IM](remote-and-im.md#ssh-远程工作区)。
+当前不提供：收藏视图、"需要关注"视图、按工作区统计的活动运行数，以及在这个页面创建或删除 worktree——worktree 仍只能在[创建第一个会话](first-session.md)时勾选生成；SSH 连接怎么配置见[远程工作区与 SSH](remote-workspaces.md)。
 
 ## OnePiece Plan 模式
 
@@ -202,11 +204,11 @@ OnePiece 会话在输入栏提供 **Plan** 与 **Agent** 两种模式。Plan 模
 
 计划准备好后，OnePiece 可以请求 `exit_plan_mode`。批准后，会话从后续轮次起进入 Agent 模式；拒绝则继续停留在 Plan 模式。左侧活动栏不再提供独立的 Plan 执行入口，规划过程也不会创建任务图或 worktree。
 
-需要带验证与验收控制的持久化自主迭代时，请使用 **Loop**。目标层面的追踪见[目标管理](goal-management.md)。
+需要带验证与验收控制的持久化自主迭代时，请使用 **Loop**。目标层面的追踪见[目标管理](goals-and-work-board.md)。
 
 ## 通知
 
-顶栏的铃铛图标进入**通知中心**：未读数角标、全部已读、清除通知。通知的作用域（全局/会话）和四类通知见 [定时与用量](automation.md)。
+顶栏的铃铛图标进入**通知中心**：未读数角标、全部已读、清除通知。通知的作用域（全局/会话）和四类通知见 [定时任务与通知](scheduled-tasks.md)。
 
 ## 系统托盘
 
@@ -218,3 +220,5 @@ OnePiece 会话在输入栏提供 **Plan** 与 **Agent** 两种模式。Plan 模
 - 第一次用 → [创建第一个会话](first-session.md)
 - 完整快捷键列表 → [快捷键](keyboard-shortcuts.md)
 - 哪些能用键盘操作、哪些还没纳入扫描 → [无障碍说明](accessibility.md)
+- 会话内标签页与证据的更详细说明 → [会话工作区](session-workspace.md)
+- 完整设置页面注册表 → [设置中心](settings.md)

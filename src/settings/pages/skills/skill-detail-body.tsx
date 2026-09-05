@@ -7,6 +7,7 @@ import type { SkillOverlayDetail, SkillOverlayTargetInput } from "../../../types
 import { useTabList } from "../../../ui/runtime-panel/use-tab-list";
 import { SkillOverlayOverview } from "./skill-overlay-overview";
 import { SkillEvolutionEvidence } from "./skill-evolution-evidence";
+import { SkillEvolutionAssessment } from "./skill-evolution-assessment";
 import { SkillToolsPanel } from "./skill-tools-panel";
 
 const skillDetailTabs = ["overview", "tools"] as const;
@@ -69,6 +70,7 @@ export function SkillDetailBody({
     </section>
 
     <SkillEvolutionEvidence skill={skill} />
+    <SkillEvolutionAssessment skill={skill} />
 
     <SkillOverlayOverview
       detail={overlayDetail}

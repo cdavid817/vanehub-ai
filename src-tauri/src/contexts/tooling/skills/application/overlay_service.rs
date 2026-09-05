@@ -5,12 +5,12 @@ use super::{
     prepare_overlay_reconciliation, replay_conflicts, rescan_overlay_for_promotion,
     validate_overlay_promotion, OverlayActor, OverlayApplicationError, OverlayBoundedText,
     OverlayConflictSummary, OverlayContentScannerPort, OverlayDetail, OverlayDiff,
-    OverlayEffectivePackageSnapshot, OverlayEffectiveSnapshotPort, OverlayHistoryAction,
-    OverlayHistoryEntry, OverlayHistoryPage, OverlayHistoryQuery, OverlayHistoryRepository,
-    OverlayImportParserPort, OverlayImportRequest, OverlayImportReview, OverlayKey,
-    OverlayManifestRepository, OverlayManifestSnapshot, OverlayMutation, OverlayMutationKind,
-    OverlayMutationOutcome, OverlayMutationRequest, OverlayMutationSummary,
-    OverlayPayloadRepository, OverlayPinStatePort, OverlayPreparationInput,
+    OverlayEffectivePackageSnapshot, OverlayEffectiveSnapshotPort, OverlayGovernedMutationOutcome,
+    OverlayGovernedMutationRequest, OverlayHistoryAction, OverlayHistoryEntry, OverlayHistoryPage,
+    OverlayHistoryQuery, OverlayHistoryRepository, OverlayImportParserPort, OverlayImportRequest,
+    OverlayImportReview, OverlayKey, OverlayManifestRepository, OverlayManifestSnapshot,
+    OverlayMutation, OverlayMutationKind, OverlayMutationOutcome, OverlayMutationRequest,
+    OverlayMutationSummary, OverlayPayloadRepository, OverlayPinStatePort, OverlayPreparationInput,
     OverlayPreparationSnapshots, OverlayPreview, OverlayPromotionRequest,
     OverlayPromotionValidationInput, OverlayReconciliationInput, OverlayReconciliationPreview,
     OverlayReconciliationRequest, OverlayResourceShadow, OverlayResourceSummary,
@@ -150,6 +150,21 @@ impl SkillOverlayApplicationService {
             .read_verified_page(key, query)
     }
 
+    pub(crate) fn history_by_application(
+        &self,
+        key: &OverlayKey,
+        application_id: &str,
+    ) -> Result<Option<OverlayHistoryEntry>, SkillApplicationError> {
+        self.transactions
+            .as_ref()
+            .ok_or_else(mutation_ports_unavailable)?
+            .recover(key)?;
+        self.history
+            .as_ref()
+            .ok_or_else(mutation_ports_unavailable)?
+            .find_curator_application(key, application_id)
+    }
+
     pub(crate) fn import_overlay(
         &self,
         request: &OverlayImportRequest,
@@ -232,6 +247,8 @@ impl SkillOverlayApplicationService {
             next_document_hash: next_manifest.document_hash.clone(),
             scanner_version: prepared.scanner_version,
             safe_outcome: "overlay-imported-untrusted".to_string(),
+            curator_application_id: None,
+            committed_effective_diff_hash: None,
             prior_event_hash,
             event_hash: String::new(),
         };
@@ -576,6 +593,139 @@ impl SkillOverlayApplicationService {
         self.commit_manual_mutation(request, active_workspace, ManualMutationAction::CreatePatch)
     }
 
+    pub(crate) fn commit_governed(
+        &self,
+        request: &OverlayGovernedMutationRequest,
+        active_workspace: Option<&str>,
+    ) -> Result<OverlayGovernedMutationOutcome, SkillApplicationError> {
+        let action = match &request.mutation.mutation {
+            OverlayMutation::ExactPatch { .. } => ManualMutationAction::CreatePatch,
+            OverlayMutation::LearnedGuidance { .. } => ManualMutationAction::CreateGuidance,
+            _ => {
+                return Err(OverlayApplicationError::InvalidRequest {
+                    code: "curator-mutation-kind-prohibited".to_string(),
+                }
+                .into())
+            }
+        };
+        validate_governed_request(request)?;
+        validate_manual_action(&request.mutation, action)?;
+        let history = self
+            .history
+            .as_ref()
+            .ok_or_else(mutation_ports_unavailable)?;
+        let key = OverlayKey {
+            canonical_skill_id: request.mutation.canonical_skill_id.clone(),
+            scope: request.mutation.scope,
+            workspace_identity: request.mutation.workspace_identity.clone(),
+        };
+        validate_import_review_context(&key, active_workspace)?;
+        let transactions = self
+            .transactions
+            .as_ref()
+            .ok_or_else(mutation_ports_unavailable)?;
+        transactions.recover(&key)?;
+        if let Some(existing) = history.find_curator_application(&key, &request.application_id)? {
+            if existing.committed_effective_diff_hash.as_deref()
+                != Some(request.expected_effective_diff_hash.as_str())
+            {
+                return Err(OverlayApplicationError::StaleWitnesses {
+                    expected_revision: request.mutation.witnesses.expected_overlay_revision,
+                    current_revision: Some(existing.next_revision),
+                    base_changed: false,
+                    payload_changed: true,
+                    pin_changed: false,
+                }
+                .into());
+            }
+            return Ok(OverlayGovernedMutationOutcome {
+                committed_revision: existing.next_revision,
+                history_event_hash: existing.event_hash,
+                effective_diff_hash: request.expected_effective_diff_hash.clone(),
+                duplicate: true,
+            });
+        }
+        let usage = self.usage.as_ref().ok_or_else(mutation_ports_unavailable)?;
+        let base = self
+            .effective
+            .read_effective_package(&request.mutation.canonical_skill_id, active_workspace)?;
+        validate_base_identity(&request.mutation.canonical_skill_id, &base)?;
+        let current = self.manifests.load(&key)?;
+        let applicable = self
+            .manifests
+            .applicable(&request.mutation.canonical_skill_id, active_workspace)?;
+        let pin = self
+            .pins
+            .pin_snapshot(&request.mutation.canonical_skill_id, active_workspace)?;
+        let timestamp = self.clock.now();
+        let prepared = prepare_overlay_mutation(&OverlayPreparationInput::with_default_limits(
+            &request.mutation,
+            OverlayPreparationSnapshots {
+                base: &base,
+                current: current.as_ref(),
+                applicable: &applicable,
+                active_workspace,
+                pin: &pin,
+            },
+            &timestamp,
+            &request.application_id,
+        ))?;
+        validate_manual_target(current.as_ref(), &request.mutation, action)?;
+        let effective_diff_hash = &prepared.preview.base_to_proposed.effective_hash;
+        if !prepared.preview.can_commit
+            || effective_diff_hash != &request.expected_effective_diff_hash
+        {
+            return Err(OverlayApplicationError::StaleWitnesses {
+                expected_revision: request.mutation.witnesses.expected_overlay_revision,
+                current_revision: current
+                    .as_ref()
+                    .map(|snapshot| snapshot.document.revision()),
+                base_changed: prepared.preview.witnesses.expected_base_package_hash
+                    != request.mutation.witnesses.expected_base_package_hash,
+                payload_changed: true,
+                pin_changed: pin.pinned != request.mutation.witnesses.expected_pinned,
+            }
+            .into());
+        }
+        let next_manifest = transactions.manifest_snapshot(prepared.next_document.clone())?;
+        let usage_snapshot = usage.usage_snapshot(&key)?;
+        let prior_event_hash = history.verified_tail_hash(&key)?;
+        let mut history_event = history_event(
+            &key,
+            current.as_ref(),
+            &next_manifest,
+            action,
+            &timestamp,
+            &request.application_id,
+            prior_event_hash,
+        );
+        history_event.curator_application_id = Some(request.application_id.clone());
+        history_event.committed_effective_diff_hash = Some(effective_diff_hash.clone());
+        let outcome = transactions.execute(OverlayTransactionPlan {
+            key: key.clone(),
+            expected_revision: request.mutation.witnesses.expected_overlay_revision,
+            expected_document_hash: current
+                .as_ref()
+                .map(|snapshot| snapshot.document_hash.clone()),
+            next_manifest,
+            payload_additions: prepared.payload_additions,
+            history_event,
+            usage_delta: OverlayUsageDelta {
+                patch_count_delta: u64::from(action == ManualMutationAction::CreatePatch),
+                overlay_mutation_count_delta: 1,
+                timestamp,
+                expected_revision_witness: usage_snapshot.revision_witness,
+            },
+        })?;
+        self.invalidate_runtime_cache(&key);
+        Ok(OverlayGovernedMutationOutcome {
+            committed_revision: outcome.committed_revision,
+            history_event_hash: outcome.history_event_hash,
+            effective_diff_hash: effective_diff_hash.clone(),
+            duplicate: false,
+        })
+    }
+
     pub(crate) fn disable_exact_patch(
         &self,
         request: &OverlayMutationRequest,
@@ -778,6 +928,27 @@ enum ManualMutationAction {
     RevertFile,
 }
 
+fn validate_governed_request(
+    request: &OverlayGovernedMutationRequest,
+) -> Result<(), SkillApplicationError> {
+    let valid_id = !request.application_id.is_empty()
+        && request.application_id.len() <= 160
+        && request
+            .application_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_' | b':'));
+    if !valid_id
+        || request.expected_effective_diff_hash.trim().is_empty()
+        || request.expected_effective_diff_hash.len() > 160
+    {
+        return Err(OverlayApplicationError::InvalidRequest {
+            code: "curator-application-witness-invalid".to_string(),
+        }
+        .into());
+    }
+    Ok(())
+}
+
 fn validate_manual_action(
     request: &OverlayMutationRequest,
     expected: ManualMutationAction,
@@ -971,6 +1142,8 @@ fn history_event(
         next_document_hash: next.document_hash.clone(),
         scanner_version: OVERLAY_TEXT_SCANNER_VERSION.to_string(),
         safe_outcome: safe_outcome.to_string(),
+        curator_application_id: None,
+        committed_effective_diff_hash: None,
         prior_event_hash,
         event_hash: String::new(),
     }
@@ -997,6 +1170,8 @@ fn promotion_history_event(
         next_document_hash: next.document_hash.clone(),
         scanner_version: scan.scanner_version.clone(),
         safe_outcome: "import-trust-promoted".to_string(),
+        curator_application_id: None,
+        committed_effective_diff_hash: None,
         prior_event_hash,
         event_hash: String::new(),
     }
@@ -1042,6 +1217,8 @@ fn reconciliation_history_event(
         safe_outcome: format!(
             "overlay-reconciled:resolved={resolved_conflicts}:ignored={ignored_conflicts}"
         ),
+        curator_application_id: None,
+        committed_effective_diff_hash: None,
         prior_event_hash,
         event_hash: String::new(),
     }

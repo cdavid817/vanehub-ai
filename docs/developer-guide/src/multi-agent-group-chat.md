@@ -216,7 +216,7 @@ npx playwright test tests/e2e/multi-agent-session.spec.ts --headed
 npx playwright show-trace test-results\<failing-spec-directory>\trace.zip
 ```
 
-The user guide's [group chat collaboration case](../../user-guide/en/src/multi-agent-testing-tutorial.md) walks the same ground manually, and its checkpoints map onto these specs. Beyond them, a change here runs the repository's full verification set — see [Testing, packaging, and release](testing-and-release.md).
+[Multi-Agent group chat acceptance](multi-agent-acceptance.md) walks the same ground manually, and its checkpoints map onto these specs. Beyond them, a change here runs the repository's full verification set — see [Testing](testing.md).
 
 **Web/mock verifies the interface, seat changes, and `@` completion, but starts no CLI.** Real Agent replies and automatic handoff require the Tauri desktop runtime.
 
@@ -286,6 +286,61 @@ chat that is expected to *act* runs into all of them:
   tool call against a dead approval server. `VANEHUB_CLI_CONFIG_HOME` (honoured by
   `NativeCliGlobalConfigAdapter`, supplied by the desktop run context) now isolates those writes
   the way `VANEHUB_APP_DATA_DIR` isolates the database.
+
+## The native coordinator: a protocol turn driver
+
+`NativeSeatTurnCoordinator` (`src-tauri/src/contexts/agent_runtime/infrastructure/seat_turn_coordinator.rs`)
+is the thread that drives turns serially. Its accurate name is a **protocol coordinator / turn
+driver, not an intelligent supervisor** — it does exactly six things: wait for the current seat's
+terminal state, apply the deterministic rules to decide what comes next, push the targets onto a
+`VecDeque`, pop one `SeatTurnAssignment` off the front, start the target seat, and repeat until the
+round waits on the human, completes, runs out of targets, hits a bound, or fails. It does **not**
+decompose tasks with a model, re-judge which expert fits, rewrite the handoff, aggregate outputs,
+or speak as a hidden Agent.
+
+The shape of one dispatch (`SeatTurnAssignment` in `application/seat_turn.rs`): `source`,
+`seat_id`, `seat_index`, `depth`, `round_id`, `parent_execution_run_id`. The first turn carries
+`depth = 1`; each handoff keeps the same `round_id`, increments the depth, and points
+`parent_execution_run_id` at the previous turn's execution record.
+
+Verified runtime semantics:
+
+- **One driver per session** — the coordinator holds `running: HashSet<String>`; a failed
+  `insert` means no second driver thread ever starts for the same session, which is what prevents
+  one terminal being processed twice, one target being started twice, or the queue forking.
+- **FIFO is a sequential task queue, not parallel branches** — with two targets in one reply, the
+  second seat starts only **after** the first completes, so it can read the messages the first
+  seat just wrote. The deliberate seriality comes from coding's real state dependencies: starting
+  implementer and reviewer together would let the review miss the final output, race changing
+  files, and put two CLIs into the same worktree.
+- **A turn-transferring stop abandons the queue** — when the decision lands on `AwaitingHuman` or
+  `RoundComplete`, seats still queued are never started (the comment's words: the turn has moved
+  on, and running the waiters would speak into a thread that was already handed over).
+- **A departed seat resolves to nobody at the next decision** — handoff targets resolve against
+  the roster as it stands at decision time, so a departed seat's handle falls through, and an
+  unaddressed message falls back to the first seat (covered by the desktop suite's
+  departed-seat-fallback case).
+- **A failed start fails the round** — an error from `start_seat_turn` goes through
+  `fail_seat_round` rather than being swallowed.
+- **Timeout bounds** — `TURN_TIMEOUT = 30 minutes` (the wait ceiling for one seat's turn) and
+  `POLL_INTERVAL = 200ms` (terminal polling). Timing out means **releasing a stuck round
+  driver**: `await_terminal` returns nothing and the driver thread exits; it does **not**
+  guarantee the underlying CLI process is terminated, mark the pending assistant message failed,
+  or notify the user.
+
+### Known reliability boundaries
+
+These are real gaps in the current implementation; changing them is architecture work that starts
+with an OpenSpec proposal:
+
+- **The queue is memory-only** — the `VecDeque` is driver-thread state, so assignments not yet
+  executed do not survive a crash or app exit;
+- **No persisted round checkpoint** — the round's status, pending queue, last processed terminal,
+  and the waiting-human question/resume target are not stored;
+- **No assignment/terminal idempotency keys** — any future recovery or replay work must add them
+  first, or replays will double-start turns;
+- **Post-timeout process termination, error marking, and user notification** still need to be
+  coordinated with the Agent lifecycle machinery (see the timeout semantics above).
 
 ## Why there is no orchestrator
 
@@ -359,6 +414,7 @@ The seat briefing (`build_seat_briefing`) treats both shapes identically: before
 | User-message routing | Native `route_user_message` in `domain/seat_turn.rs`; web/mock `webRoutedSeatId` in `src/services/web-session-seat-client.ts` |
 | Live-thread speaker resolution | `seat_speaker` in `src-tauri/src/contexts/agent_runtime/application/seat_turn.rs` |
 | Chain limit constants | `src-tauri/src/contexts/agent_runtime/application/seat_turn.rs:29-30` |
+| Native coordinator (turn driving, timeout, single-driver guard) | `src-tauri/src/contexts/agent_runtime/infrastructure/seat_turn_coordinator.rs` |
 | Handing back to a human | `seat_turn.rs:212-229` (parsing), `:233-251` (effects) |
 | The user-mention literal | Native `seat_turn.rs:42`; frontend `src/services/human-handoff.ts:10` |
 | Seat briefing generation | `seat_roster.rs:146-199` (`build_seat_briefing`) |

@@ -1,6 +1,6 @@
 # Quick Start
 
-Five minutes from nothing to your first Agent run. If a CLI is already installed, start at step 2.
+The shortest path from nothing to your first Agent run. If a CLI is already installed, start at step 2.
 
 ## 1. Prepare a CLI
 
@@ -55,7 +55,7 @@ How far each CLI goes isn't the same across the board:
 
 > **Antigravity CLI does not accept a custom endpoint.** It only goes through Google sign-in, with credentials stored in the system keychain — the configuration panel has no endpoint or key field at all. What you can adjust is the model and approval behavior.
 
-The full field list, where credentials are stored, and how drift is handled are covered in [Tools and extensions → Agent configurations](tooling.md#agent-configurations).
+The full field list, where credentials are stored, and how drift is handled are covered in [Tools and extensions → Agent configurations](agent-configuration.md#agent-configurations).
 
 ### The native Agent OnePiece
 

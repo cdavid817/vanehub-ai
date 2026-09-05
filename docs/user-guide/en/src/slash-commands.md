@@ -115,6 +115,6 @@ When the input box holds `/` or `/` plus part of a name, candidates are filtered
 ## Related
 
 - What execution mode, thinking, and streaming mean → [Native API Agent](native-agent.md)
-- The board `/todo` opens → [Todo Board](todo-board.md)
+- The board `/todo` opens → [Todo Board](goals-and-work-board.md)
 - The loop center `/loops` opens → [Loop Engineering](loop-engineering.md)
-- How the usage behind `/usage` is counted → [Scheduled and usage](automation.md)
+- How the usage behind `/usage` is counted → [Usage statistics](usage-statistics.md)

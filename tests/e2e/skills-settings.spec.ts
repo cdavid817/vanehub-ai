@@ -47,7 +47,7 @@ test.describe("Skills management", () => {
     await expect(inspector).toContainText("Project > User > Registry > System");
     await expect(inspector.getByRole("heading", { name: "Definition precedence" })).toBeVisible();
     await expect(inspector.getByRole("heading", { name: "Evolution evidence" })).toBeVisible();
-    await expect(inspector).toContainText("Target selection and Skill modification are not active");
+    await expect(inspector).toContainText("Sanitized evidence remains read-only");
     await inspector.getByRole("button", { name: "Inspect lineage" }).click();
     await expect(inspector.getByRole("region", { name: "Candidate seed lineage" })).toBeVisible();
     const purgeEvidence = inspector.getByRole("button", { name: "Purge this Skill's evidence" });

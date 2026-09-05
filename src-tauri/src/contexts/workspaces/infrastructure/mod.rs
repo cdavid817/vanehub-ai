@@ -1,3 +1,4 @@
+mod bounded_selection;
 mod capture_maintenance;
 mod capture_queue;
 mod command_runs;
@@ -8,6 +9,7 @@ mod content_search_tests;
 mod evaluation_fixture;
 mod filesystem;
 mod git;
+mod ignore_matcher;
 mod output_search;
 mod path_search;
 #[cfg(test)]
@@ -18,6 +20,9 @@ mod remote_helper;
 mod remote_terminal_logging;
 mod remote_terminal_schema;
 mod retained_remote_shell;
+#[cfg(test)]
+mod retained_remote_shell_tests;
+mod retained_shell_process;
 mod retained_shell_runtime;
 #[cfg(test)]
 mod retained_shell_runtime_tests;
@@ -29,7 +34,11 @@ mod session_log_export_tests;
 mod session_queries;
 mod session_search;
 mod session_shell_workspace;
+mod shell_lifecycle_diagnostics;
 mod sqlite_repository;
+mod ssh_shell_transport;
+#[cfg(test)]
+mod structural_performance_tests;
 mod workspace_inspection;
 #[cfg(test)]
 mod workspace_inspection_tests;
@@ -56,7 +65,9 @@ pub(crate) use runtime_support::SystemWorkspaceClock;
 pub(crate) use selection::TauriProjectDirectorySelection;
 pub(crate) use session_queries::SessionWorkspaceQueryAdapter;
 pub(crate) use session_shell_workspace::SqliteShellWorkspaceAdapter;
+pub(crate) use shell_lifecycle_diagnostics::UnifiedLogShellDiagnostics;
 pub(crate) use sqlite_repository::SqliteWorkspaceHistoryRepository;
+pub(crate) use ssh_shell_transport::SshShellTransport;
 pub(crate) use workspace_inspection::{
     LocalWorkspaceInspectionProvider, SessionWorkspaceTargetResolver,
 };

@@ -108,15 +108,15 @@ Even when a field name looks harmless, its string value goes through another tok
 
 ## Logs and traces are separate
 
-**Logs contain no execution identifiers at all** — run, trace, span, session, and message ids are never written into them.
+**Logs and traces are two stores, but they can be correlated by identifier.** A log entry carries `runId`, `traceId`, and `spanId` in its context whenever the source supplies them.
 
-This is a deliberate privacy design, and the cost is that **you cannot search the logs by a trace id**; the two have to be read separately.
+What the privacy design excludes is **content**, not identifiers: raw prompts, Agent output, source, diagnostic text, stderr, environment variables, credentials, and private absolute paths never reach the log file. So a trace id does find its log entries; a fragment of output does not, and that is what has to be lined up by time instead.
 
 ## Mission Control
 
 A trace answers "what happened inside this one run". **Mission Control answers the other question: which runs need you right now.** It lives under **Runs** in the left activity bar — it is that domain's default landing tab (Attention inbox / Active Runs / Recently completed).
 
-![The Mission Control overview with summary counts across the top and the attention, active, and recent sections below](assets/screenshots/mission-control-en.png)
+![The Mission Control overview with summary counts across the top and the Attention inbox, Active Runs, and Recently completed sections below](assets/screenshots/mission-control-en.png)
 
 The top of the page carries summary counts across seven states:
 
@@ -126,11 +126,11 @@ The top of the page carries summary counts across seven states:
 | Waiting approval | Halted at a permission gate, waiting for your decision |
 | Waiting user | Halted on a question addressed to you |
 | Retrying | Failed and being retried automatically |
-| Blocked or stuck | Not progressing, with a stated reason |
+| Blocked / stuck | Not progressing, with a stated reason |
 | Failed | Ended unsuccessfully |
-| Recently completed | Finished, kept visible for a while |
+| Completed recently | Finished, kept visible for a while |
 
-Below the counts are three bounded sections — **attention**, **active**, and **recent completions**. Each row shows the run and its owner, the Agent, a safe title, its state, elapsed time, workspace, phase, why it needs attention, and its verification summary.
+Below the counts are three bounded sections — **Attention inbox**, **Active Runs**, and **Recently completed**. Each row shows the run and its owner, the Agent, a safe title, its state, elapsed time, workspace, phase, why it needs attention, and its verification summary.
 
 Two behaviours are worth knowing because they are deliberate:
 

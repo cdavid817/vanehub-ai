@@ -20,9 +20,14 @@ const serviceMocks = vi.hoisted(() => ({
   setSkillToolTrust: vi.fn(),
   validateSkillToolRevision: vi.fn(),
   getSkillEvolutionSeedLineage: vi.fn(),
+  getSkillEvolutionAssessment: vi.fn(),
+  getSkillEvolutionAssessmentPolicy: vi.fn(),
   getSkillOverview: vi.fn(),
   purgeSkillEvolutionEvidence: vi.fn(),
   querySkillEvolutionEvidence: vi.fn(),
+  querySkillEvolutionAssessments: vi.fn(),
+  scheduleSkillEvolutionReassessment: vi.fn(),
+  updateSkillEvolutionAssessmentConsent: vi.fn(),
   importSkill: vi.fn(),
   loadSkill: vi.fn(),
   previewSkill: vi.fn(),
@@ -206,6 +211,15 @@ beforeEach(() => {
     expiredCount: 0,
   });
   serviceMocks.getSkillEvolutionSeedLineage.mockResolvedValue(null);
+  serviceMocks.querySkillEvolutionAssessments.mockResolvedValue({ items: [] });
+  serviceMocks.getSkillEvolutionAssessment.mockResolvedValue(null);
+  serviceMocks.getSkillEvolutionAssessmentPolicy.mockResolvedValue({
+    evaluatorPolicyVersion: "structured-evaluator-v1",
+    disclosureVersion: "assessment-disclosure-v1",
+    modelEvaluationEnabled: false,
+    providerAvailable: true,
+    changedAtMs: 0,
+  });
   serviceMocks.previewSkill.mockResolvedValue({
     id: skill.id,
     scope: "global",

@@ -2,7 +2,9 @@
 
 ## Purpose
 Defines a safe, repeatable verification contract for building, launching, exercising, and diagnosing the real VaneHub AI desktop runtime on each supported operating system.
+
 ## Requirements
+
 ### Requirement: Current-platform native verification
 The verification system SHALL detect the host operating system and architecture, build a compatible native VaneHub AI desktop test artifact, and report only platforms that were actually executed.
 
@@ -90,6 +92,19 @@ The orchestrator MUST track the root application process and test-owned child pr
 - **WHEN** a user-owned or separately launched VaneHub AI process exists during cleanup
 - **THEN** the orchestrator leaves that process running
 
+### Requirement: Stable desktop automation worker lifecycle
+The desktop verification harness SHALL ensure its automation driver is accepting sessions before each isolated worker starts, including after a preceding worker has cleanly closed the native application.
+
+#### Scenario: Start a worker after native shutdown
+- **WHEN** a desktop verification worker starts after the preceding worker has completed owned-process shutdown
+- **THEN** the harness verifies that the automation driver accepts a new session before executing the worker's spec
+- **AND** it recovers the test-owned driver when the previous shutdown invalidated it
+
+#### Scenario: Driver cannot be restored
+- **WHEN** the automation driver cannot accept a session within the configured readiness deadline
+- **THEN** the affected worker reports `FAILED`
+- **AND** its run-scoped evidence identifies the driver readiness failure rather than attributing it to application behavior
+
 ### Requirement: Reviewable failure evidence
 Failed desktop verification SHALL retain a run-scoped summary, assertion details, screenshot when a window is available, frontend and driver diagnostics, process state, and the existing redacted unified native logs. Evidence collection MUST NOT create a parallel unredacted native log sink.
 
@@ -101,6 +116,19 @@ Failed desktop verification SHALL retain a run-scoped summary, assertion details
 #### Scenario: Evidence contains application diagnostics
 - **WHEN** native application logs are collected
 - **THEN** they come from the isolated unified log directory and retain its required redaction behavior
+
+### Requirement: Diagnosable frontend failure evidence
+The desktop verification harness SHALL preserve redacted details for the browser error or unhandled rejection that triggers a fatal frontend marker, so test results can distinguish an application failure from test instrumentation.
+
+#### Scenario: Browser error triggers the fatal marker
+- **WHEN** a browser error or unhandled rejection occurs during native desktop verification
+- **THEN** the run-scoped evidence records the event type and a redacted diagnostic message or reason
+- **AND** the failing assertion identifies that captured diagnostic detail
+
+#### Scenario: No frontend error details are available
+- **WHEN** the browser supplies no serializable message or rejection reason
+- **THEN** the evidence records that the detail was unavailable
+- **AND** it does not claim a specific application root cause
 
 ### Requirement: Stable verification entry points and results
 The repository SHALL provide independent npm entry points for desktop artifact construction and desktop smoke, plus a composed desktop verification entry point. Every requested verification layer MUST report one of `PASSED`, `FAILED`, `BLOCKED`, `NOT RUN`, or `NOT REQUIRED`, and `NOT REQUIRED` MUST include an impact-based reason.
@@ -135,7 +163,7 @@ Desktop verification SHALL prove, against the real native runtime, that a manage
 - **AND** each desktop verification layer SHALL report its own `PASSED`, `FAILED`, `BLOCKED`, or `NOT RUN` result and its own evidence directory
 
 ### Requirement: Native UI interaction coverage
-Desktop verification SHALL exercise the client's primary interactive surfaces in the real desktop runtime rather than only asserting that they mount. Coverage SHALL include the session workspace tab set and the main-path dialogs, and SHALL assert rendered content and focus behavior produced by the desktop webview.
+Desktop verification SHALL exercise the client's primary interactive surfaces in the real desktop runtime rather than only asserting that they mount. Coverage SHALL include the session workspace tab set, main-path dialogs, and scheduled-task management, and SHALL assert rendered content, focus behavior, and native persistence produced through the desktop webview.
 
 #### Scenario: Session workspace tabs carry their own content
 - **WHEN** the layer opens a real session and selects each workspace tab in turn
@@ -148,6 +176,17 @@ Desktop verification SHALL exercise the client's primary interactive surfaces in
 - **THEN** the dialog SHALL be exposed as a dialog to assistive technology
 - **AND** focus SHALL move into the dialog
 - **AND** Escape SHALL close it and return focus to the surface that opened it
+
+#### Scenario: Startup activity differs from the tested surface
+- **WHEN** a native UI test starts while an unrelated activity is selected
+- **THEN** the test SHALL navigate explicitly through a stable accessible control before interacting with the target surface
+- **AND** it SHALL NOT assume that a content-specific control exists on every startup activity
+
+#### Scenario: Scheduled task native lifecycle
+- **WHEN** the layer opens Scheduled Tasks and submits a valid task for a stable CLI Agent id
+- **THEN** the rendered list and native scheduled-task service SHALL expose the created record and recurrence
+- **AND** disabling and enabling the task through the UI SHALL persist the corresponding native state
+- **AND** confirming deletion through the UI SHALL remove the native record
 
 #### Scenario: Interaction coverage cannot substitute a mock runtime
 - **WHEN** a requirement in this section is verified
@@ -422,32 +461,6 @@ Desktop verification SHALL exercise connector-scoped session authorization throu
 - **THEN** the information panel SHALL restore that connector's native persisted access state
 - **AND** the layer SHALL NOT use browser storage as persistence evidence
 
-### Requirement: Stable desktop automation worker lifecycle
-The desktop verification harness SHALL ensure its automation driver is accepting sessions before each isolated worker starts, including after a preceding worker has cleanly closed the native application.
-
-#### Scenario: Start a worker after native shutdown
-- **WHEN** a desktop verification worker starts after the preceding worker has completed owned-process shutdown
-- **THEN** the harness verifies that the automation driver accepts a new session before executing the worker's spec
-- **AND** it recovers the test-owned driver when the previous shutdown invalidated it
-
-#### Scenario: Driver cannot be restored
-- **WHEN** the automation driver cannot accept a session within the configured readiness deadline
-- **THEN** the affected worker reports `FAILED`
-- **AND** its run-scoped evidence identifies the driver readiness failure rather than attributing it to application behavior
-
-### Requirement: Diagnosable frontend failure evidence
-The desktop verification harness SHALL preserve redacted details for the browser error or unhandled rejection that triggers a fatal frontend marker, so test results can distinguish an application failure from test instrumentation.
-
-#### Scenario: Browser error triggers the fatal marker
-- **WHEN** a browser error or unhandled rejection occurs during native desktop verification
-- **THEN** the run-scoped evidence records the event type and a redacted diagnostic message or reason
-- **AND** the failing assertion identifies that captured diagnostic detail
-
-#### Scenario: No frontend error details are available
-- **WHEN** the browser supplies no serializable message or rejection reason
-- **THEN** the evidence records that the detail was unavailable
-- **AND** it does not claim a specific application root cause
-
 ### Requirement: Agent evaluation has a focused WebdriverIO layer
 The desktop verification orchestrator SHALL expose an independently runnable Agent-evaluation layer that builds or reuses the test desktop artifact, starts with isolated application state, drives the rendered evaluation workflow through WebdriverIO, and reports `PASSED`, `FAILED`, `BLOCKED`, or `NOT RUN` with a bounded evidence directory.
 
@@ -495,4 +508,3 @@ The repository SHALL provide an isolated WebdriverIO desktop verification layer 
 - **WHEN** a platform prerequisite prevents the native desktop layer from executing
 - **THEN** the layer SHALL report `BLOCKED` with the missing prerequisite and retain its run-scoped evidence
 - **AND** it SHALL NOT report the unexecuted Agent or MCP path as passed
-

@@ -57,7 +57,7 @@ Unsupported actions render **disabled with a reason** rather than hidden. A cont
 
 The Logs tab reads an index, and only an index. There is no fallback to scanning files: a fallback is a second query implementation with different filters, different bounds and different coverage semantics, reached exactly when a reader is least able to tell which one answered. When the index cannot answer, it says so.
 
-The index is a **rebuildable projection** over the redacted JSONL files described in [persistence and unified logging](persistence-and-logging.md). Nothing in it is a second source of truth — every row is derivable again from the files, which is what lets its schema be shaped for reading.
+The index is a **rebuildable projection** over the redacted JSONL files described in [unified logging](unified-logging.md). Nothing in it is a second source of truth — every row is derivable again from the files, which is what lets its schema be shaped for reading.
 
 A repair job brings it up to date:
 

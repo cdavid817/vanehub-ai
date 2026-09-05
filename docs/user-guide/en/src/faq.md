@@ -2,7 +2,7 @@
 
 ## Does VaneHub AI manage my API keys?
 
-**Not for the external CLIs.** Provider authentication for Claude Code, Codex CLI, Gemini CLI, OpenCode, and Antigravity CLI is managed by each CLI, with credentials stored in their own locations, and VaneHub AI never asks you for a provider password. Antigravity CLI goes further — it signs in through Google and stores its credential in the system keychain, so its configuration profile has no key field at all.
+**Not for the external CLIs.** Provider authentication for Claude Code, Codex CLI, Gemini CLI, OpenCode, and Antigravity CLI is managed by each CLI, with credentials stored in their own locations, and VaneHub AI never asks you for a provider password. Antigravity CLI defaults to Google sign-in with its credential in the system keychain; it also officially supports API keys and similar modes, but those fields are managed by the CLI itself and are not yet managed by VaneHub.
 
 **Yes for OnePiece.** The native API Agent's API key is stored by VaneHub AI — see [Native API Agent](native-agent.md).
 
@@ -15,6 +15,8 @@ Memory extraction for CLI Agents is performed by OnePiece, and with it unconfigu
 ## Can one Agent have its own separate memory?
 
 **Yes, per memory.** Each memory has an audience: every Agent by default, or only the ones you name. Set it when you approve a proposal or from the memory's detail view. See [Personalization](personalization.md#scope-source-and-audience-of-a-single-memory).
+
+The audience governs **injection** — a memory that does not qualify is not carried into that Agent's context automatically. It does not filter the `recall` tool, which spans the whole shared pool by design. Content that no Agent should read must be deleted.
 
 ## Can recall search my project code?
 
@@ -46,7 +48,7 @@ For a fully expandable call chain, use OnePiece. See [Observability](observabili
 
 ## Can I search the logs by a trace id?
 
-**No.** Logs deliberately contain no execution identifiers, which is a privacy design. The two are lined up by **time**.
+**Yes.** A log entry carries `runId`, `traceId`, and `spanId` in its context whenever the source supplies them. What logs deliberately exclude is **content** — prompts, Agent output, source, stderr, credentials, private absolute paths — not identifiers. If a search finds nothing, the entry most likely came from a source with no identifier to attach; line those up by **time**.
 
 ## Can a Loop run in a remote workspace?
 

@@ -1,177 +1,334 @@
 # 仓库结构与模块导览
 
-VaneHub AI 是一套 React 应用，运行在两个运行时适配器之后——桌面端（Tauri）和浏览器预览（Web/mock）。前端通过服务边界与 native 解耦，native 则按限界上下文（bounded context）切分。本章把仓库布局、各模块职责与调用关系讲清楚。
+VaneHub AI 是一个以桌面端为主的 AI 编程 Agent 工作台。它使用同一套 React 界面承载多个前端运行时，并由 Tauri 2 + Rust 提供本地进程、SQLite、文件系统、网络与桌面生命周期能力。
 
-## 总体分层
+本章只解决三个问题：
+
+1. 第一次进入仓库应该先看哪里；
+2. 一项改动应该放到哪个目录和边界；
+3. 如何从 React 页面一路追踪到 Rust、SQLite、Agent CLI 或其他外部能力。
+
+完整的运行时选择规则见[运行时与服务边界](runtime-boundaries.md)，完整的 Native 上下文所有权见[Native 限界上下文](native-contexts.md)。本章不重复维护易漂移的上下文数量、命令清单和内建项数量。
+
+## 权威来源与阅读顺序
+
+仓库中不同文档承担不同职责。发生冲突时，按下表判断应该以谁为准。
+
+| 要回答的问题 | 权威来源 |
+| --- | --- |
+| 贡献规则、禁止事项、提交前校验命令 | [`AGENTS.md`](../../../../AGENTS.md) |
+| 强制架构规则、完整 bounded context 清单 | [`openspec/project.md`](../../../../openspec/project.md) |
+| 已实现的 Native 模块清单、迁移状态与 ADR | [`src-tauri/ARCHITECTURE.md`](../../reference/native-architecture.md) |
+| 已确认的产品行为 | `openspec/specs/` |
+| 尚在实施的变更设计与任务证据 | `openspec/changes/<change-name>/` |
+| 帮助贡献者理解代码的解释性材料 | 本开发者指南 |
+| 最终实现细节 | 源码、测试与生成的 [Native API 参考](native-api-reference.md) |
+
+第一次参与开发时，建议按以下顺序阅读：
+
+1. 本章：先建立仓库坐标；
+2. [运行时与服务边界](runtime-boundaries.md)：理解 `tauri`、`web-http` 与 `web-mock`；
+3. [Native 限界上下文](native-contexts.md)：确认业务所有权；
+4. 涉及数据时再读[持久化所有权](persistence-ownership.md)；
+5. 开始实现前阅读 [OpenSpec 工作流](openspec-workflow.md)与根目录 `AGENTS.md`。
+
+## 一分钟理解总体架构
 
 ```mermaid
 flowchart TB
-  UI["React 组件<br/>components / main-layout / settings"]
-  SVC["前端服务边界<br/>services（运行时无关契约）"]
-  UI --> SVC
-  SVC --> WEB["Web/mock 适配器"]
-  SVC --> TAURI["Tauri 适配器"]
-  TAURI --> CMD["Rust 命令 + DTO 映射<br/>src-tauri/src/commands"]
-  CMD --> CTX["限界上下文<br/>src-tauri/src/contexts"]
-  CTX --> SQLITE[("SQLite")]
-  CTX --> CLI["Agent CLI 进程"]
-  CTX --> OS["操作系统 / 文件系统"]
+  UI["React 功能模块与共享组件"]
+  SVC["Frontend Service<br/>运行时无关的类型化契约"]
+  SELECT{"createRuntimeAdapter<br/>启动期选择运行时"}
+
+  MOCK["web-mock adapter<br/>确定性内存模拟"]
+  HTTP["web-http adapter<br/>显式 HTTP 实现"]
+  TAURI["Tauri frontend adapter"]
+
+  CMD["Rust commands<br/>传输校验与 DTO 映射"]
+  APP["Owning context<br/>api.rs / application use case"]
+  PORT["Application ports"]
+  INFRA["Infrastructure adapters"]
+  EXT["SQLite / Agent CLI / 文件系统<br/>网络 / 凭据 / 操作系统"]
+  BOOT["bootstrap<br/>组合根"]
+
+  UI --> SVC --> SELECT
+  SELECT --> MOCK
+  SELECT --> HTTP
+  SELECT --> TAURI
+  TAURI --> CMD --> APP
+  APP -->|调用抽象| PORT
+  INFRA -.->|实现| PORT
+  INFRA --> EXT
+  BOOT -.->|组装| APP
+  BOOT -.->|注入| INFRA
 ```
 
-**关键约束**：React 组件只依赖 `src/services/` 的服务接口，**禁止直接调用 Tauri `invoke()`**。Tauri 专属调用只出现在 frontend Tauri adapter；SQLite、CLI 进程、文件系统访问与桌面生命周期行为都位于 Rust 侧。
+需要先记住四条边界：
 
-## 重要根目录
+- React 组件可以依赖其他组件、Hook、类型和工具，但访问运行时副作用时必须经过 frontend service，不能直接调用 Tauri `invoke()`。
+- 前端运行时由 `createRuntimeAdapter` 在启动路径选择；`web-mock` 不能伪装成本地进程、SQLite 或操作系统动作已经发生。
+- Tauri command 是入站传输适配器，不是业务服务；业务规则归拥有该能力的 bounded context。
+- 跨 context 调用只能经过对方发布的 `api.rs` facade、不可变契约或显式事件，不能导入对方的 repository 或 infrastructure。
+
+## 仓库根目录
+
+```text
+vanehub-ai/
+├─ src/                              # React 前端
+├─ src-tauri/                        # Tauri 主应用与 Rust Native runtime
+├─ crates/vanehub-permission-hook/   # Claude Code PreToolUse hook sidecar
+├─ openspec/                         # 主规范、变更包与归档证据
+├─ docs/                             # 用户指南、开发者指南与技术参考
+├─ tests/                            # 跨层 E2E、桌面、文档与 fixture
+├─ scripts/                          # 构建、生成、校验、测试与发布脚本
+├─ public/                           # 前端静态资源
+├─ .github/                          # CI、发布和仓库自动化
+├─ AGENTS.md                         # 统一贡献入口与校验命令真源
+├─ package.json                      # Node、前端、文档和测试脚本入口
+└─ Cargo.toml                        # Rust workspace 根配置
+```
+
+| 路径 | 主要职责 | 通常在什么情况下进入 |
+| --- | --- | --- |
+| `src/` | React 页面、功能模块、共享 UI、frontend service 与运行时适配器 | 页面、交互、前端契约或 adapter 发生变化 |
+| `src-tauri/` | 主 Tauri 应用、Rust modular monolith、Tauri 配置与桌面资源 | SQLite、CLI、文件、网络、系统集成或 Native 业务逻辑发生变化 |
+| `crates/vanehub-permission-hook/` | 独立 Rust 二进制，桥接 Claude Code `PreToolUse` 权限请求 | 修改 Claude Code Hook 输入输出协议或 sidecar 打包链路 |
+| `openspec/specs/` | 已确认行为的唯一规范来源 | 查询当前必须满足的行为 |
+| `openspec/changes/` | proposal、design、delta specs、tasks 与归档 | 新功能、架构调整或行为变更 |
+| `docs/` | 面向用户、贡献者和 Agent Infra 学习者的文档 | 行为、操作步骤、架构说明发生变化 |
+| `tests/` | 需要跨模块或真实运行时才能验证的测试 | Web E2E、桌面 E2E、文档和专项场景 |
+| `scripts/` | 生成器、架构检查、桌面测试编排、文档构建与发布辅助 | 不要在业务代码里复制已有工程流程 |
+| `.github/` | CI、平台矩阵、发布与安全自动化 | 本地与 CI 行为不一致，或修改发布流程 |
+
+根目录中的 `.claude/`、`.codex/skills/`、`.superpowers/` 等目录服务于仓库级 AI 编程工作流，不属于 VaneHub AI 产品运行时。
+
+## 前端代码地图
+
+### 启动入口与页面组织
 
 | 路径 | 职责 |
 | --- | --- |
-| `src/components`, `src/main-layout`, `src/settings` | React 展示与交互层 |
-| `src/services` | 前端运行时无关的契约与适配器（组件唯一允许依赖的一层） |
-| `src/hooks` | 自定义 React hook |
-| `src/types`, `src/contracts` | 与传输无关的 TypeScript 契约 |
-| `src/i18n` | 界面多语言资源与加载 |
-| `src-tauri/src/commands` | 薄的 Tauri 命令与 DTO 映射边界，按功能域分组 |
-| `src-tauri/src/contexts` | native 领域、应用与基础设施归属（限界上下文） |
-| `src-tauri/src/platform` | 共享的平台适配器：数据库、进程、日志、时钟、ID |
-| `src-tauri/src/bootstrap` | 组合根：Tauri builder、app-data 解析、上下文装配顺序 |
-| `openspec/specs` | 已确认的行为需求（规范唯一真源） |
-| `openspec/changes` | 活跃与已归档的变更证据 |
-| `tests/e2e` | Playwright 用户可见的回归路径 |
+| `src/main.tsx` | React 启动入口；选择主窗口、浮动助手或区域截图 surface，并处理启动失败上报 |
+| `src/App.tsx` | 顶层 Provider、路由和主应用壳层 |
+| `src/main-layout/` | 主窗口布局、导航与工作区路由 |
+| `src/session-workspace/` | 会话工作区及其主要交互面 |
+| `src/settings/` | 设置壳层和各设置页面 |
+| `src/loop-center/`、`src/goal-center/`、`src/work-board/` | Loop、目标和任务看板功能切片 |
+| `src/evaluation-center/`、`src/mission-control/`、`src/system-activity/` | 评测、运行控制和系统活动功能切片 |
+| `src/floating-assistant/`、`src/region-capture/` | 独立桌面 surface |
+| `src/notifications/` | 通知状态、桥接与展示 |
 
-> 从 `AGENTS.md` 和 `openspec/project.md` 开始。它们是规范性贡献者规则，优先于本指南中的解释性示例。
+功能目录按用户能力组织，不等同于 Native bounded context。一个设置页面可能同时调用 `desktop`、`tooling`、`permissions` 等多个 Native context；代码所有权不能仅凭页面名称判断。
 
-## Native 限界上下文
+### 共享层与运行时边界
 
-native 侧按核心限界上下文切分,下图展示主要的七个上下文;`retrieval` 同样是核心上下文(见 [Native bounded context](native-contexts.md))。仓库还包含后续扩展的上下文:`code_intelligence`、`permissions`、`execution_observability`、`artifacts`、`goals`、`work_board`、`ssh_connections`、`browser_automation`、`cli_delegation`、`code_execution`、`web_research`、`local_media`、`personalization`、`skill_evolution_evidence`(完整清单见 `src-tauri/src/contexts/mod.rs` 与 [`src-tauri/ARCHITECTURE.md`](../../reference/native-architecture.md))。**跨上下文调用默认走同步的应用 API**;只有当一个已完成的动作需要独立处理下游反应时才用显式事件。**任何上下文都不得直接伸手到另一上下文的存储或基础设施**。
+| 路径 | 职责 |
+| --- | --- |
+| `src/components/` | 可复用 UI 与通用展示组件 |
+| `src/hooks/` | 共享 React Hook |
+| `src/theme/`、`src/styles.css` | 主题、语义样式 token 与全局样式 |
+| `src/i18n/` | 语言注册、资源加载与翻译一致性 |
+| `src/types/`、`src/contracts/` | 跨功能复用的 TypeScript 类型与稳定契约 |
+| `src/services/` | frontend service 契约、service factory，以及多数 Tauri/Web 运行时 client |
+| `src/adapters/` | 从 service 中拆出的专用前端适配器；当前主要承载 Skill Curator 相关实现 |
+| `src/generated/` | 生成的前端工件；修改前先定位对应生成器或权威输入 |
+| `src/test/`、`src/testing/` | 前端测试辅助设施和共享 fixture |
 
-```mermaid
-flowchart LR
-  AR[agent_runtime]
-  SE[sessions]
-  WS[workspaces]
-  TL[tooling]
-  CO[communications]
-  DT[desktop]
-  OP[operations]
+`src/services/` 是组件访问运行时能力的边界，而不是组件唯一可以导入的目录。组件仍然可以依赖共享组件、Hook、类型与纯函数；禁止的是绕过 service 边界直接触发宿主副作用。
 
-  AR -->|使用有效配置| TL
-  AR -->|应用 API| SE
-  AR -->|端口| OP
-  SE -->|端口| OP
-  SE -.->|有界文件访问| WS
-  CO -->|应用 API| SE
-  CO -->|执行| AR
-  CO -->|端口| OP
-  DT -->|端口| OP
-  WS -->|端口| OP
+### 如何追踪一条前端调用
 
-  OP -.->|时钟/ID/日志| AR
-  OP -.->|时钟/ID/日志| SE
-  OP -.->|时钟/ID/日志| DT
+按下面的顺序查找，通常可以快速定位完整链路：
+
+1. 从 `src/App.tsx`、路由或具体功能目录找到页面和事件处理器；
+2. 查看组件导入的 `*Service`、`runtime-*-client` 或 service factory；
+3. 在 `src/services/runtime-adapter.ts` 确认运行时选择；
+4. 分别检查 `tauri`、`web-http` 和 `web-mock` 实现是否保持同一契约；
+5. Tauri 路径继续搜索 adapter 中的 command 名称；
+6. Web 路径确认它是真实 HTTP 调用还是明确的确定性模拟；
+7. 检查同目录单元测试和 adapter conformance/parity 测试。
+
+## Native 代码地图
+
+VaneHub AI 的主 Tauri runtime 是一个按领域拆分的 Rust modular monolith。根 `Cargo.toml` 同时把主应用和权限 Hook sidecar 组织成 Cargo workspace。
+
+```text
+src-tauri/src/
+├─ main.rs               # 极薄的二进制入口
+├─ lib.rs                # 模块暴露并委托 bootstrap::run()
+├─ bootstrap/            # 唯一组合根：选择并注入具体实现
+├─ commands/             # Tauri 入站适配器与 command registry
+├─ contexts/             # bounded contexts：领域、应用与自有基础设施
+├─ platform/             # 可复用的外层技术适配器
+├─ test_support/         # Native 测试辅助设施
+└─ *_tests.rs            # 跨模块契约、迁移和生命周期测试
 ```
 
-实线箭头是上下文间的依赖方向，虚线表示 `operations` 为所有上下文提供共享的时钟、ID 与统一日志能力。
+| 路径 | 可以做什么 | 不应该做什么 |
+| --- | --- | --- |
+| `main.rs`、`lib.rs` | 启动委托与模块暴露 | 放业务规则、SQL、进程构造或用例编排 |
+| `bootstrap/` | 创建 repository、gateway、service，按显式顺序装配依赖 | 充当业务服务或被 domain/application 反向依赖 |
+| `commands/` | 校验传输输入、映射 DTO、调用已装配 API、映射安全错误、发送接口级事件 | 写 SQL、启动进程、决定领域策略 |
+| `contexts/<context>/domain/` | 实体、值对象、不变量、领域错误与领域事件 | 依赖 Tauri、SQLite、文件系统、网络或其他 context 私有实现 |
+| `contexts/<context>/application/` | 用例编排、输入输出模型与消费侧 ports | 依赖具体 I/O adapter 或 Tauri state |
+| `contexts/<context>/infrastructure/` | 实现 SQLite、进程、文件、网络、凭据等 application port | 定义业务不变量 |
+| `contexts/<context>/api.rs` | 发布窄而稳定的进程内 facade | 暴露 repository、数据库行或基础设施实现 |
+| `platform/` | 数据库连接与迁移编排、进程安全、文件系统、网络、凭据、时钟、ID、日志落盘等通用技术能力 | 承担某个业务 context 的领域所有权 |
 
-| 上下文 | 发布的职责 | 上游依赖 | 下游消费者 |
-| --- | --- | --- | --- |
-| `agent_runtime` | Agent 目录、工作流选择、就绪判定、provider 调用、生成生命周期 | `tooling` 的有效 CLI/提示词配置、`sessions` 应用 API、`operations` 端口 | Tauri 命令、`communications` 入站执行 |
-| `sessions` | 会话/消息/分类/配置生命周期、导出、维护、用量读模型 | `operations` 端口、有界的 `workspaces` 文件访问 | Tauri 命令、`agent_runtime`、`communications` |
-| `workspaces` | 项目、远程工作区、worktree、文件/Git 检查、PTY shell | `operations` 端口 | Tauri 命令、`sessions` 有界文件读取 |
-| `tooling` | CLI、MCP、SDK、扩展、插件、Skill、Prompt Hook 子域 | `operations` 端口与平台适配器 | Tauri 命令、`agent_runtime` 发布的配置 API |
-| `communications` | IM 配置、凭据、传输、路由、授权、投递 | `sessions` 与 `agent_runtime` 发布的 API、`operations` 端口 | Tauri 命令与连接器传输 |
-| `desktop` | 设置、路径、启动、网络代理偏好、窗口/托盘/浮动助手生命周期 | `operations` 端口与平台适配器 | Tauri bootstrap 与命令 |
-| `operations` | 可观测任务、统一诊断/操作日志契约 | 平台时钟/ID 与统一日志实现 | 每个上下文 |
+典型 context 结构如下，但空层不会为了形式完整而提前创建：
 
-### agent_runtime
+```text
+contexts/<context>/
+├─ domain/
+├─ application/
+│  └─ ports/
+├─ infrastructure/
+└─ api.rs
+```
 
-**Agent 运行时**——native 侧最核心的上下文。负责 Agent 目录与可用性、工作流选择与会话就绪、provider 调用、生成（generation）的生命周期管理。
+完整 context 清单及职责只在[Native 限界上下文](native-contexts.md)与 `openspec/project.md` 维护。本章故意不复制清单，避免新增 context 后出现第二份过期地图。
 
-- `domain`：Agent 身份/目录、启动元数据、交互模式、可用性评估、工作流选择/就绪/生命周期、生成流转不变量
-- `application`：Agent 注册/查询/选择/就绪/会话详情/启动/消息/停止等用例
-- `infrastructure`：Agent/模式/能力与工作流的 SQLite 行映射、稳定的注册表种子、SDK/可执行文件可用性事实、provider 命令构造与输出事件解析、每会话的生成预约与子进程所有权监控
-- `api.rs`：发布应用外观（Agent 查询、工作流、就绪、启动、消息、停止），供命令层与 `communications` 调用，**不暴露仓储或基础设施**
+## Tauri 配置与非源码目录
 
-### sessions
+| 路径 | 职责 |
+| --- | --- |
+| `src-tauri/capabilities/` | Tauri capability 与权限边界 |
+| `src-tauri/resources/` | 随桌面应用分发的资源和 sidecar 相关工件 |
+| `src-tauri/evaluation-fixtures/` | Native 评测 fixture |
+| `src-tauri/gen/schemas/` | Tauri 生成的 schema |
+| `src-tauri/tests/` | 独立 Native 集成测试 |
+| `src-tauri/tauri.conf.json` | 常规桌面构建配置 |
+| `src-tauri/tauri.sidecar.conf.json` | 包含 sidecar 的开发和打包配置 |
+| `src-tauri/tauri.desktop-e2e.conf.json` | 仅用于真实桌面 E2E 的测试配置 |
 
-**会话**上下文。管理会话、消息、分类、配置的生命周期，以及导出、维护和用量读模型。
+修改这些目录时，需要同时检查打包脚本、平台矩阵和对应测试，不能只验证当前操作系统。
 
-- `domain`：会话/消息/分类身份与聚合、所有权/激活、生命周期/置顶/归档规则、有界文件引用、聊天配置不变量
-- `application`：会话创建/管理、查询/搜索、分类/配置、消息/文件引用、导出、维护、用量等用例
-- `infrastructure`：会话/消息/分类/配置/用量的 SQLite 行映射、多表事务协调、CLI 配置默认值
-- `api.rs`：会话创建、当前/归档/搜索/激活查询、切换、重命名、置顶/归档/删除、分类、聊天配置、消息持久化/组合、导出、用量、维护的外观
+## 规范、文档、测试与工程自动化
 
-### workspaces
+### OpenSpec
 
-**工作区**上下文。决定 Agent 能看到哪些文件、命令在哪里执行。
+```text
+openspec/
+├─ project.md                         # 项目级强制规则
+├─ specs/                             # 已确认的主规范
+└─ changes/
+   ├─ <active-change>/                # 活跃变更包
+   └─ archive/                        # 已完成且不可直接修改的历史证据
+```
 
-- `domain`：项目/远程/worktree/路径规则、有界终端尺寸、平台安全的工作区重置命令
-- `application`：项目/历史/worktree、有界查询、shell 生命周期用例
-- `infrastructure`：既有表的 SQLite 投影、有界文件系统/Git/日志查询、portable-PTY 生命周期、Tauri 对话框/事件
-- `api.rs`：工作区外观，供命令层、生产会话/聊天文件读取、会话清理使用
+新功能或架构调整应先确认现有主规范，再创建或更新 change package。具体流程见 [OpenSpec 工作流](openspec-workflow.md)。
 
-### tooling
+### 文档
 
-**工具**上下文，是子域最多的一块，覆盖 CLI、MCP、SDK、扩展、插件、Skill、Prompt Hook：
+| 路径 | 面向对象 |
+| --- | --- |
+| `docs/user-guide/` | 产品使用者 |
+| `docs/developer-guide/` | 贡献者与维护者 |
+| `docs/agent-infrastructure/` | Agent Infra 技术学习与参考 |
+| `docs/provider-sdk/` | Provider SDK 集成者 |
 
-- `cli_parameters`：CLI 参数目录、校验、持久化 API、启动参数投影（被 sessions 与 agent_runtime 消费）
-- `mcp/`：MCP 身份、配置不变量、连接语义、管理/连接测试用例、rmcp 进程/网络连接
-- `sdk/`：SDK 身份、目录、状态/版本/更新规则、生命周期计划
-- `extensions/`：扩展的白名单目录、宿主兼容性、安装漂移、健康对账、启停与移除
-- `plugin_integrations/`：内置身份/目录、就绪计划、生命周期状态、认证/缺失/错误分类
-- `skills/`：作用域身份、校验的元数据/来源、六个内建、有界挂载路径、绑定/启用计划、漂移分类
-- `prompt_hooks/`：Hook 身份/清单、稳定分类/阶段/来源值、确定性排序、托管 CLI 绑定、纯模板插值、七个内建
+解释性文档不应复制易变化的命令数量、context 数量、内建 Skill 数量或测试层数量。需要完整清单时，应链接到被源码或 CI 校验的权威文件。
 
-### communications
+### 测试
 
-**IM 通信**上下文。管理 IM 配置、凭据、传输、路由、授权与投递。
+测试既与源码共置，也存在于根 `tests/`：
 
-- `domain`：连接器身份/配置、生命周期状态、路由/绑定/去重/检查点身份、QR 授权状态、入站/最终投递策略
-- `application`：连接器查询/变更/运行时用例、入站认领/路由编排
-- `infrastructure`：附加式 SQLite 迁移、凭据适配器（平台钥匙串）、五种传输适配器（飞书、钉钉、Telegram、企微、微信）、运行时管理与生命周期事件
-- `api.rs`：连接器管理、运行时、路由、绑定、去重、微信授权的外观
+| 位置 | 主要覆盖 |
+| --- | --- |
+| `src/**/*.test.ts(x)` | TypeScript 契约、纯逻辑、组件与 adapter 一致性 |
+| `src-tauri/src/**/*tests*.rs` | domain、application、infrastructure、command、架构与迁移 |
+| `tests/e2e/` | Playwright Web/mock 用户路径 |
+| `tests/desktop/` | 真实 Tauri 桌面运行时 |
+| `tests/e2e-local-media/` | 本地媒体专项 E2E |
+| `tests/docs/` | 文档构建与页面行为 |
+| `tests/fixtures/` | 跨测试共享 fixture |
 
-### desktop
+测试层级、适用范围和平台证据规则见[测试](testing.md)。校验命令不要在本章再抄一份，始终以根目录 `AGENTS.md` 为准。
 
-**桌面**上下文。负责设置、路径、启动、网络代理偏好、窗口/托盘/浮动助手生命周期。
+### Scripts 与 CI
 
-- `domain`：强类型设置、浮动助手平台启用、锚点校验、显示器放置、界面过渡、关闭可见性规则
-- `application`：设置/环境、浮动助手、托盘初始化、优雅退出等用例
-- `infrastructure`：SQLite 设置/浮动仓储、Tauri 窗口/托盘/生命周期、网络代理、日志目录、开机自启等适配器
-- `api.rs`：设置/环境、浮动助手、生命周期外观，仅供命令层、bootstrap、生命周期边界调用
+`scripts/` 包含架构检查、代码生成、OpenSpec 索引、文档构建、桌面测试编排、覆盖率、迁移检查和发布辅助工具；`.github/workflows/` 负责在 CI 中组合这些入口。
 
-### operations
+遇到“本地通过但 CI 失败”时，应先比较 `package.json`、根 `Cargo.toml`、`AGENTS.md` 与对应 workflow，而不是新增一条绕过脚本。
 
-**操作**上下文——所有上下文共享的基础设施。提供可观测任务、统一诊断/操作日志契约，依赖平台时钟/ID 与统一日志实现，**被每个上下文消费**。
+## 一项改动应该放在哪里
 
-## 请求如何穿过各层
+| 需求类型 | 首要位置 | 通常还要同步检查 |
+| --- | --- | --- |
+| 只改变页面展示或交互 | 对应 `src/<feature>/` | `src/components/`、`src/i18n/`、共置测试、Playwright |
+| 新增前端运行时能力 | `src/services/` 的类型化契约 | Tauri、Web/mock，以及适用时的 Web/HTTP adapter 与 conformance 测试 |
+| 新增 Native 业务规则 | 拥有该能力的 `contexts/<context>/domain` 或 `application` | `api.rs`、command DTO、测试、OpenSpec |
+| 新增 Tauri command | `src-tauri/src/commands/<context>/` | command registry、frontend Tauri adapter、DTO 映射测试 |
+| 新增 SQLite 表或字段 | owning context 的 infrastructure/migration | 全局迁移顺序、升级 fixture、事务边界、持久化所有权文档 |
+| 调用进程、网络、文件或凭据 | application port + infrastructure adapter | `platform/` 是否已有可复用安全实现、超时、取消、脱敏日志 |
+| 跨 context 协作 | 消费对方发布的 `api.rs`、不可变契约或事件 | 禁止导入对方 repository/infrastructure；在 bootstrap 装配 |
+| 长耗时操作 | owning context application + `operations` 契约 | 稳定 operation id、进度、终态、取消、日志关联和 Web/mock 异步语义 |
+| 新增 bounded context | `openspec/project.md` 与 `src-tauri/src/contexts/` | `native-contexts.md`、架构检查、bootstrap、命令和持久化所有权 |
+| 修改 Claude Code 权限 Hook | `permissions` context 与 `crates/vanehub-permission-hook/` | sidecar 构建、Tauri 资源、Hook 协议测试与打包 |
+| 修改文档 | 对应 `docs/` 章节 | 链接、截图、生成参考与文档测试 |
 
-一次用户提交从界面到 native 的完整路径：
+## 从页面追踪到 Native 的实用路径
+
+以一个需要真实本地能力的操作为例，推荐按下面的顺序追踪：
 
 ```mermaid
 sequenceDiagram
-  participant U as 用户
-  participant UI as React 组件
-  participant SVC as 服务边界 services
-  participant TAU as Tauri adapter
-  participant CMD as Rust 命令
-  participant CTX as 限界上下文
-  participant OS as 进程/SQLite/OS
+  participant UI as React 页面/组件
+  participant SVC as Frontend Service
+  participant ADP as Runtime Adapter
+  participant CMD as Tauri Command
+  participant API as Context API/Application
+  participant PORT as Application Port
+  participant INF as Infrastructure Adapter
+  participant EXT as SQLite/CLI/FS/Network/OS
 
-  U->>UI: 在工作区提交任务
-  UI->>SVC: 调用服务接口
-  SVC->>TAU: invoke()（仅 Tauri adapter 可用）
-  TAU->>CMD: Tauri command + DTO 映射
-  CMD->>CTX: 调用上下文应用 API
-  CTX->>OS: 启动 CLI 进程 / 读写 SQLite / 文件系统
-  OS-->>CTX: 结果与事件
-  CTX-->>CMD: 应用结果
-  CMD-->>TAU: DTO
-  TAU-->>SVC: 反序列化结果
-  SVC-->>UI: 更新状态
-  UI-->>U: 渲染回复
+  UI->>SVC: 调用类型化能力
+  SVC->>ADP: 使用启动期选定的 adapter
+  ADP->>CMD: invoke 已注册 command
+  CMD->>API: 校验和 DTO 映射后调用用例
+  API->>PORT: 请求抽象能力
+  INF-->>PORT: 提供具体实现
+  INF->>EXT: 执行受控副作用
+  EXT-->>INF: 返回结果或事件
+  INF-->>API: 映射为应用结果
+  API-->>CMD: 成功或安全错误
+  CMD-->>ADP: 传输 DTO
+  ADP-->>SVC: 归一化结果
+  SVC-->>UI: 更新页面状态
 ```
 
-Web/mock 适配器在同一服务接口下用确定性模拟数据替代 native 调用——**不会启动进程、不写数据库、不碰文件系统**。
+具体排查步骤：
 
-## 详细的 native 模块清单
+1. 在页面事件处理器中找到调用的 service 方法；
+2. 在 service factory 中确认当前 runtime adapter；
+3. Tauri 路径搜索 command 字符串，并在 `commands/registry.rs` 确认注册；
+4. 打开对应 command 文件，确认它只做校验、映射和调用；
+5. 沿 context 的 `api.rs` 进入 application use case；
+6. 查看 use case 依赖的 port，再从 `bootstrap/` 找到具体 infrastructure 实现；
+7. 涉及持久化时，确认表和迁移归 owning context；
+8. 涉及长耗时执行时，确认 operation、日志、取消和终态证据；
+9. 回到前端检查 Web/mock 与 Web/HTTP 是否保持契约或明确 fail-closed；
+10. 最后按[测试](testing.md)选择能够证明该边界的最小测试，再执行 `AGENTS.md` 的完整校验。
 
-完整的 native 模块清单维护在 [`src-tauri/ARCHITECTURE.md`](../../reference/native-architecture.md) 与仓库源码中。组装好的指南将该已签入的 Markdown 作为参考副本复制，因此它不会与仓库文件发生漂移。
+## 常见错误方向
+
+- 在 React 组件中直接导入 `@tauri-apps/api/core` 并调用 `invoke()`；
+- 把 SQL、进程启动或权限决策写进 Tauri command；
+- 让 application 依赖具体 repository、Tauri state 或平台实现；
+- 从一个 context 导入另一个 context 的 `infrastructure`、repository 或私有 aggregate；
+- 让 Web/mock 返回“CLI 已执行”“数据库已写入”之类的虚假成功；
+- 为了少改一个 adapter 而破坏 frontend service 契约一致性；
+- 在本章复制完整 context、command、内建项或测试层清单，形成第二个漂移源；
+- 只运行当前平台测试，就把结果外推为 Windows、macOS 与 Linux 全部通过。
+
+## 继续阅读
+
+| 接下来要理解的内容 | 章节 |
+| --- | --- |
+| 三种前端运行时如何选择，adapter 如何保持一致 | [运行时与服务边界](runtime-boundaries.md) |
+| 每个 Native context 拥有什么，如何跨 context 调用 | [Native 限界上下文](native-contexts.md) |
+| SQLite、迁移、连接池和表所有权 | [持久化所有权](persistence-ownership.md) |
+| Agent、provider、generation 生命周期 | [Agent 生命周期与 provider 运行时](agent-lifecycle.md) |
+| 测试层级、桌面证据与平台适用范围 | [测试](testing.md) |
+| proposal、design、delta specs、tasks 与归档 | [OpenSpec 工作流](openspec-workflow.md) |
+| 完整 Native facade 与模块参考 | [Native API 参考](native-api-reference.md) |
