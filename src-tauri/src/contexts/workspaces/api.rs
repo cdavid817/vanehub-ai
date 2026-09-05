@@ -1,6 +1,7 @@
 /// Content search, the registry that lets one be stopped, and the ceiling on how many inspections
 /// run at once.
 pub(crate) use super::application::bounded_page_size;
+use super::application::WorktreeCleanupService;
 pub(crate) use super::application::{
     deliver_content_search, MonotonicClockPort, SystemMonotonicClock,
     WorkspaceContentSearchDelivery, WorkspaceContentSearchRequest, WorkspaceContentSearchResult,
@@ -16,6 +17,15 @@ pub(crate) use super::application::{
     deliver_path_search, CapabilityState, WorkspaceInspectionCapabilities,
     WorkspaceInspectionError, WorkspaceInspectionRouter, WorkspacePathSearchDelivery,
     WorkspacePathSearchRequest, WorkspacePathSearchResult, WorkspaceTarget,
+};
+/// Ordinary-session worktree cleanup: the records, the read-only inspection vocabulary, the
+/// policy that decides what may be offered, and the gate other contexts consult before they
+/// admit new work into a directory.
+pub(crate) use super::application::{
+    evaluate_cleanup, reason as cleanup_reason, CheckCompleteness, GateClaim, GateHolder,
+    GateOwner, GateRejection, Presence, ProbeBudget, ReferenceSummary, WorktreeCleanupPolicy,
+    WorktreeInspection, WorktreeObservation, WorktreeRemovalOutcome, WorktreeRemovalReport,
+    WorktreeResolution, WorktreeSessionView,
 };
 pub(crate) use super::application::{
     AttachSessionShellRequest, CreateSessionShellRequest, ResizeSessionShellRequest,
@@ -48,11 +58,21 @@ pub(crate) use super::domain::{
     ensure_git_worktree_available, ensure_worktree_compatible, ProjectInspection, RemoteWorkspace,
     ShellRuntimeDescriptor,
 };
+pub(crate) use super::domain::{ManagedWorktree, WorktreeIdentity, WorktreeOrigin};
 pub(crate) use super::domain::{SessionShellError, ShellId};
 pub(crate) use super::infrastructure::PreparedEvaluationFixture;
 use super::infrastructure::SystemWorkspaceChangeObserver;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
+
+/// What another context answers when asked whether a session may start new work.
+///
+/// Implemented by whoever owns session deletion claims and bound at bootstrap: a Shell opened
+/// for a session that is mid-deletion would be an orphan with a live process behind it.
+pub(crate) trait WorkspaceExecutionAdmissionPort: Send + Sync {
+    /// `Err` carries the stable reason code that refuses admission.
+    fn ensure_session_admits_execution(&self, session_id: &str) -> Result<(), &'static str>;
+}
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Wall-clock milliseconds, for the coalescing window and the observation lifetime.
@@ -99,6 +119,11 @@ pub(crate) struct WorkspaceApi {
     /// `Instant::now` itself cannot be given a different clock, so a deadline is only provable by
     /// waiting one out — and a suite that waits out a twenty-second deadline is a suite nobody runs.
     clock: Arc<dyn MonotonicClockPort>,
+    /// Absent only in assemblies that never delete a worktree (tests of unrelated surfaces).
+    cleanup: Option<WorktreeCleanupService>,
+    /// Bound after the sessions context exists; until then admission is unconditional, which is
+    /// the pre-existing behaviour and never a silent refusal.
+    execution_admission: Arc<OnceLock<Arc<dyn WorkspaceExecutionAdmissionPort>>>,
 }
 
 impl WorkspaceApi {
@@ -143,7 +168,177 @@ impl WorkspaceApi {
             searches: Arc::new(WorkspaceSearchCancellation::default()),
             admission: Arc::new(WorkspaceInspectionAdmission::default()),
             clock: Arc::new(SystemMonotonicClock::default()),
+            cleanup: None,
+            execution_admission: Arc::new(OnceLock::new()),
         }
+    }
+
+    pub(crate) fn with_worktree_cleanup(mut self, cleanup: WorktreeCleanupService) -> Self {
+        self.cleanup = Some(cleanup);
+        self
+    }
+
+    /// Called once from bootstrap after the sessions context is assembled. A second call is an
+    /// ordering bug and is ignored rather than surfaced, matching the other deferred bindings.
+    pub(crate) fn bind_execution_admission(
+        &self,
+        admission: Arc<dyn WorkspaceExecutionAdmissionPort>,
+    ) {
+        let _ = self.execution_admission.set(admission);
+    }
+
+    fn cleanup(&self) -> Result<&WorktreeCleanupService, WorkspaceError> {
+        self.cleanup.as_ref().ok_or_else(|| {
+            WorkspaceError::Storage("worktree cleanup service is unavailable".to_string())
+        })
+    }
+
+    /// Refuses new execution in a session that is being deleted or whose directory is gated.
+    fn ensure_execution_admitted(&self, session_id: &str) -> Result<(), SessionShellError> {
+        if let Some(admission) = self.execution_admission.get() {
+            if let Err(code) = admission.ensure_session_admits_execution(session_id) {
+                return Err(SessionShellError::Runtime {
+                    reason: crate::contexts::workspaces::domain::shell_reason(code),
+                });
+            }
+        }
+        if let (Some(cleanup), Ok(Some(root))) = (
+            self.cleanup.as_ref(),
+            self.queries.resolve_session_root(session_id),
+        ) {
+            if cleanup.is_path_gated(&root).unwrap_or(true) {
+                return Err(SessionShellError::Runtime {
+                    reason: crate::contexts::workspaces::domain::shell_reason(
+                        cleanup_reason::GATE_HELD,
+                    ),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    // --- Ordinary-session worktree cleanup -------------------------------------------------
+
+    pub(crate) fn confirm_worktree_created(
+        &self,
+        worktree_id: &str,
+        session_id: &str,
+    ) -> Result<ManagedWorktree, WorkspaceError> {
+        self.cleanup()?.confirm_created(worktree_id, session_id)
+    }
+
+    pub(crate) fn mark_worktree_needs_attention(
+        &self,
+        worktree_id: &str,
+        reason: &str,
+    ) -> Result<(), WorkspaceError> {
+        self.cleanup()?.mark_needs_attention(worktree_id, reason)
+    }
+
+    pub(crate) fn resolve_session_worktree(
+        &self,
+        view: &WorktreeSessionView,
+    ) -> Result<Option<WorktreeResolution>, WorkspaceError> {
+        self.cleanup()?.resolve_for_session(view)
+    }
+
+    pub(crate) fn session_has_managed_worktree(
+        &self,
+        session_id: &str,
+    ) -> Result<bool, WorkspaceError> {
+        self.cleanup()?.has_record_for_session(session_id)
+    }
+
+    pub(crate) fn inspect_managed_worktree(
+        &self,
+        worktree_id: &str,
+        budget: &ProbeBudget,
+    ) -> Result<WorktreeInspection, WorkspaceError> {
+        self.cleanup()?.inspect(worktree_id, budget)
+    }
+
+    pub(crate) fn managed_worktree_sessions(
+        &self,
+        worktree_id: &str,
+    ) -> Result<Vec<String>, WorkspaceError> {
+        self.cleanup()?.bound_sessions(worktree_id)
+    }
+
+    pub(crate) fn claim_worktree_gate(
+        &self,
+        worktree_id: &str,
+        owner: &GateOwner,
+    ) -> Result<GateClaim, GateRejection> {
+        match self.cleanup() {
+            Ok(cleanup) => cleanup.claim_gate(worktree_id, owner),
+            Err(error) => Err(GateRejection::Storage(error.to_string())),
+        }
+    }
+
+    pub(crate) fn release_worktree_gate(&self, claim: &GateClaim) -> Result<(), WorkspaceError> {
+        self.cleanup()?.release_gate(claim)
+    }
+
+    pub(crate) fn foreign_worktree_gate_holder(
+        &self,
+        canonical_root: &str,
+        owner: Option<&GateOwner>,
+    ) -> Result<Option<GateHolder>, WorkspaceError> {
+        self.cleanup()?.foreign_gate_holder(canonical_root, owner)
+    }
+
+    /// Whether a live cleanup holds `path` or a parent of it. Consulted before a directory is
+    /// bound to anything new.
+    pub(crate) fn is_path_gated(&self, path: &str) -> Result<bool, WorkspaceError> {
+        match self.cleanup.as_ref() {
+            Some(cleanup) => cleanup.is_path_gated(path),
+            None => Ok(false),
+        }
+    }
+
+    pub(crate) fn begin_worktree_removal(
+        &self,
+        worktree_id: &str,
+        expected_revision: u64,
+    ) -> Result<ManagedWorktree, WorkspaceError> {
+        self.cleanup()?
+            .begin_removal(worktree_id, expected_revision)
+    }
+
+    pub(crate) fn remove_worktree_safely(
+        &self,
+        worktree_id: &str,
+        expected: &WorktreeIdentity,
+        claim: &GateClaim,
+    ) -> Result<WorktreeRemovalReport, WorkspaceError> {
+        self.cleanup()?.remove_safely(worktree_id, expected, claim)
+    }
+
+    pub(crate) fn observe_managed_worktree(
+        &self,
+        worktree_id: &str,
+    ) -> Result<Option<WorktreeObservation>, WorkspaceError> {
+        self.cleanup()?.observe(worktree_id)
+    }
+
+    pub(crate) fn finalize_worktree_removed(
+        &self,
+        worktree_id: &str,
+        session_ids: &[String],
+    ) -> Result<(), WorkspaceError> {
+        self.cleanup()?.finalize_removed(worktree_id, session_ids)
+    }
+
+    pub(crate) fn finalize_worktree_retained(
+        &self,
+        worktree_id: &str,
+        session_ids: &[String],
+    ) -> Result<(), WorkspaceError> {
+        self.cleanup()?.finalize_retained(worktree_id, session_ids)
+    }
+
+    pub(crate) fn worktree_removal_refused(&self, worktree_id: &str) -> Result<(), WorkspaceError> {
+        self.cleanup()?.removal_refused(worktree_id)
     }
 
     /// How a producer elsewhere in the process reports a change it saw.
@@ -239,12 +434,37 @@ impl WorkspaceApi {
         self.service.select_project_directory()
     }
 
+    /// Creates an ordinary-session worktree with its provenance recorded first.
+    ///
+    /// Intent is persisted against the settled target before `git worktree add` runs; a record
+    /// that cannot be written means Git does not run. A Git failure leaves the record marked for
+    /// attention rather than deleting anything, and a success returns the record id so the
+    /// session that owns the directory can be bound to it once the session exists.
     pub(crate) fn create_worktree(
         &self,
         project_path: &str,
         name: &str,
     ) -> Result<CreatedWorktree, WorkspaceError> {
-        self.service.create_worktree(project_path, name)
+        let plan = self.service.plan_worktree(project_path, name)?;
+        let Some(cleanup) = self.cleanup.as_ref() else {
+            return self.service.create_planned_worktree(&plan);
+        };
+        let intent = cleanup.register_intent(
+            WorktreeOrigin::OrdinarySession,
+            &plan.project,
+            &plan.target,
+            None,
+        )?;
+        match self.service.create_planned_worktree(&plan) {
+            Ok(mut created) => {
+                created.worktree_id = Some(intent.id);
+                Ok(created)
+            }
+            Err(error) => {
+                let _ = cleanup.mark_needs_attention(&intent.id, "creation_failed");
+                Err(error)
+            }
+        }
     }
 
     pub(crate) fn list_git_branches(
@@ -628,6 +848,7 @@ impl WorkspaceApi {
         &self,
         request: &CreateSessionShellRequest,
     ) -> Result<SessionShellDescriptor, SessionShellError> {
+        self.ensure_execution_admitted(&request.session_id)?;
         self.shells.create(request)
     }
 

@@ -271,6 +271,7 @@ test("every native UI layer is wired, disjoint, and reachable on its own", async
     ["session-workspace", "sessionWorkspaceDesktop"],
     ["session-shell", "sessionShellDesktop"],
     ["dialogs", "dialogsDesktop"],
+    ["session-deletion", "sessionDeletionDesktop"],
     ["scheduled-tasks", "scheduledTasksDesktop"],
     ["settings-persistence", "settingsPersistenceDesktop"],
     ["cli-management", "cliManagementDesktop"],

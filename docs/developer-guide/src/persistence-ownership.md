@@ -62,3 +62,21 @@ flowchart TD
 `EXPECTED_MIGRATIONS` in `src-tauri/src/platform/database/migrations/mod.rs` is the source of truth for the migration sequence, and both the post-migration density check and the `migration_sequence_matches_expected` test compare against it. A new migration must be appended at the end; inserting or reordering is prohibited. The `schema_migrations(version, name, applied_at)` table accounts for each applied migration, and `seed_registry` runs once on the same exclusive connection after migrations complete.
 
 This chapter deliberately does not state how many migrations exist. Version numbers are allocated across concurrent branches, so any count written here is stale by the time a second branch merges.
+
+## Session deletion journal and managed worktrees
+
+Deleting a session is the one use case that touches Git and SQLite together, and the two do not share a transaction. Its state therefore lives in dedicated journal tables rather than being inferred from log text.
+
+| Table | Owning context | Purpose |
+| --- | --- | --- |
+| `managed_worktrees` | `workspaces` | Worktrees this application created: origin (`ordinary_session`/`loop`/`subagent`/`external`), provenance (`provisioning`/`verified`/`legacy_verified`/`legacy_unverified`/`external`), the Git identity (canonical root, git dir, common dir, branch, HEAD, filesystem identity), status and revision. Intent is written before `git worktree add`; the identity is filled in after Git succeeds |
+| `managed_worktree_sessions` | `workspaces` | The binding between a worktree and its sessions. **No foreign key to `sessions`**: the resource record must outlive the sessions that pointed at it |
+| `workspace_use_gates` | `workspaces` | The exclusive gate a cleanup holds over a directory, recording the owning instance and operation. Whether that instance is alive is proven by the OS file lock in `platform::instance_lease`, never guessed from a TTL |
+| `session_deletion_operations` / `session_deletion_groups` | `sessions` | The journal of every deletion request: a unique `request_id` bound to a canonical request hash (idempotency), groups keyed by real worktree identity, and per group the `worktree_effect` (`not_requested`/`retained`/`remove_started`/`removed`/`removal_unknown`), the `db_effect`, the authorization snapshot, the execution snapshot and the receipt |
+| `session_deletion_claims` | `sessions` | The exclusive claim a deletion holds on a session. The `sessions` service checks it before sending, generating, changing seats and archiving or restoring; `workspaces` checks it through the bootstrap-injected `WorkspaceExecutionAdmissionPort` before opening a Shell. Again **no foreign key to `sessions`** |
+
+Invariants:
+
+- Journal before stopping anything; `remove_started` and the identity snapshot before the one permitted non-forced `git worktree remove`; an observation that the directory and its registration are gone before the single transaction that deletes the group's sessions, their cascades, and the active selection when it names one of them.
+- A Git success followed by a failed session transaction is recorded as `finalize_pending` with the claims held; `reconcile_pending_deletions` on startup only observes and finishes the database step and **never replays the Git removal**. A directory that is neither intact nor confirmed gone becomes `needs_attention`, with no prune and no recursive delete.
+- The legacy `delete_session` command runs the same coordinator's keep path, waits for the real result, and respects claims.

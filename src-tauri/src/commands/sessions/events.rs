@@ -2,7 +2,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
 use crate::contexts::sessions::application::{
-    SessionRecoveryEvent, SessionRecoveryEventKind, SessionRecoveryEventPort,
+    DeletionEventPort, SessionRecoveryEvent, SessionRecoveryEventKind, SessionRecoveryEventPort,
     SessionsApplicationError,
 };
 
@@ -21,6 +21,9 @@ impl NativeSessionRecoveryEvents {
 #[serde(rename_all = "kebab-case")]
 enum SessionEventKind {
     ActiveSessionChanged,
+    /// The set of sessions changed without the active one moving. Published after a deletion
+    /// group commits so lists refresh from the database rather than from an optimistic guess.
+    SessionsChanged,
     ConfigurationChanged,
     RecoveryStarted,
     RecoveryCompleted,
@@ -70,6 +73,21 @@ fn emit(
             recovery_revision,
         },
     );
+}
+
+impl DeletionEventPort for NativeSessionRecoveryEvents {
+    fn active_session_cleared(&self) {
+        emit(
+            &self.app,
+            SessionEventKind::ActiveSessionChanged,
+            None,
+            None,
+        );
+    }
+
+    fn sessions_changed(&self) {
+        emit(&self.app, SessionEventKind::SessionsChanged, None, None);
+    }
 }
 
 impl SessionRecoveryEventPort for NativeSessionRecoveryEvents {

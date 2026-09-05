@@ -358,6 +358,24 @@ pub(crate) trait SessionCreationContextPort: Send + Sync {
         project_path: &str,
         name: &str,
     ) -> Result<CreatedSessionWorktree, SessionsApplicationError>;
+
+    /// Binds the session that owns a freshly created worktree to its provenance record. Failing
+    /// here never undoes the creation; the record is left needing attention instead.
+    fn bind_worktree_session(
+        &self,
+        worktree_id: &str,
+        session_id: &str,
+    ) -> Result<(), SessionsApplicationError> {
+        let _ = (worktree_id, session_id);
+        Ok(())
+    }
+
+    /// Refuses a directory a live cleanup currently holds, so no new session is created inside
+    /// a worktree that is about to be removed.
+    fn ensure_workspace_admits_binding(&self, path: &str) -> Result<(), SessionsApplicationError> {
+        let _ = path;
+        Ok(())
+    }
 }
 
 pub(crate) trait SessionAgentEligibilityPort: Send + Sync {

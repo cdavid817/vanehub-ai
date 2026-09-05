@@ -4,6 +4,11 @@
 /// trait through the application module, so nothing outside this context needs the name.
 #[cfg(test)]
 pub(crate) use super::application::ReportExportPort;
+pub(crate) use super::application::{
+    deletion_error_code, ExecuteSessionDeletionRequest, PreviewSessionDeletionRequest,
+    RetrySessionDeletionRequest, SessionDeletionHandle, SessionDeletionOperation,
+    SessionDeletionPreview,
+};
 /// The session-run report: its service, the questions it asks, and the shapes it answers with.
 ///
 /// The ports are published alongside the service because bootstrap implements them. That is the
@@ -35,7 +40,9 @@ pub(crate) use super::application::{
     UsageDetailPage, UsageEntityCounts, UsageMeasureAggregate, UsageQualityAggregate,
     UsageStatisticsRange, UsageSummaryQuery,
 };
-use super::application::{ReviewApplicationService, SessionsApplicationService};
+use super::application::{
+    ReviewApplicationService, SessionDeletionCoordinator, SessionsApplicationService,
+};
 pub(crate) use super::application::{
     SessionEvidencePort, SessionEvidenceSignal, SessionReviewDecision, SessionUsageEvidenceQuality,
     SessionVerificationOutcome,
@@ -64,6 +71,9 @@ pub(crate) fn optional_session_metadata<T>(
 pub(crate) struct SessionsApi {
     service: SessionsApplicationService,
     review: Option<ReviewApplicationService>,
+    /// Absent only in assemblies that never delete through the confirmed path; `delete` then
+    /// keeps its pre-coordinator behaviour.
+    deletion: Option<SessionDeletionCoordinator>,
 }
 
 impl SessionsApi {
@@ -142,12 +152,80 @@ impl SessionsApi {
         Self {
             service,
             review: None,
+            deletion: None,
         }
     }
 
     pub(crate) fn with_review(mut self, review: ReviewApplicationService) -> Self {
         self.review = Some(review);
         self
+    }
+
+    pub(crate) fn with_deletion(mut self, deletion: SessionDeletionCoordinator) -> Self {
+        self.deletion = Some(deletion);
+        self
+    }
+
+    fn deletion(&self) -> Result<&SessionDeletionCoordinator, SessionsError> {
+        self.deletion.as_ref().ok_or_else(|| {
+            SessionsError::Runtime("session deletion coordinator is unavailable".to_string())
+        })
+    }
+
+    // --- Confirmed session deletion --------------------------------------------------------
+
+    pub(crate) fn preview_deletion(
+        &self,
+        request: PreviewSessionDeletionRequest,
+    ) -> Result<SessionDeletionPreview, SessionsError> {
+        self.deletion()?.preview(request)
+    }
+
+    pub(crate) fn execute_deletion(
+        &self,
+        request: ExecuteSessionDeletionRequest,
+    ) -> Result<SessionDeletionHandle, SessionsError> {
+        self.deletion()?.execute(request)
+    }
+
+    /// Drives an accepted operation to its recorded end. Blocking; call it off the main thread.
+    pub(crate) fn run_deletion(
+        &self,
+        operation_id: &str,
+    ) -> Result<SessionDeletionOperation, SessionsError> {
+        self.deletion()?.run(operation_id)
+    }
+
+    pub(crate) fn deletion_operation(
+        &self,
+        operation_id: &str,
+    ) -> Result<SessionDeletionOperation, SessionsError> {
+        self.deletion()?.get(operation_id)
+    }
+
+    pub(crate) fn list_pending_deletions(
+        &self,
+    ) -> Result<Vec<SessionDeletionOperation>, SessionsError> {
+        self.deletion()?.list_pending()
+    }
+
+    pub(crate) fn retry_deletion(
+        &self,
+        request: RetrySessionDeletionRequest,
+    ) -> Result<SessionDeletionHandle, SessionsError> {
+        self.deletion()?.retry(request)
+    }
+
+    pub(crate) fn reconcile_pending_deletions(&self) -> Result<Vec<String>, SessionsError> {
+        self.deletion()?.reconcile_pending()
+    }
+
+    /// Whether a session may start new work: not while a deletion holds it.
+    pub(crate) fn session_admits_execution(&self, session_id: &str) -> Result<(), SessionsError> {
+        match &self.deletion {
+            Some(deletion) => deletion.ensure_session_admits_execution(session_id),
+            None => Ok(()),
+        }
     }
 
     fn review(
@@ -381,8 +459,13 @@ impl SessionsApi {
         self.service.set_session_archived(session_id, archived)
     }
 
+    /// The keep-only deletion. With the coordinator assembled it is the same arbitration every
+    /// visible entry point goes through — claims, quiescence, journal — and never a directory.
     pub(crate) fn delete(&self, session_id: &str) -> Result<(), SessionsError> {
-        self.service.delete_session(session_id)
+        match &self.deletion {
+            Some(deletion) => deletion.delete_keep_only(session_id),
+            None => self.service.delete_session(session_id),
+        }
     }
 
     pub(crate) fn list_categories(&self) -> Result<Vec<CategoryRecord>, SessionsError> {

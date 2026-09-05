@@ -699,6 +699,18 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "permission-grant-canonical-identity",
         crate::contexts::permissions::infrastructure::resolution_schema::apply_grant_identity_migration,
     )?;
+    apply_migration(
+        conn,
+        112,
+        "managed-worktree-resources",
+        crate::contexts::workspaces::infrastructure::apply_managed_worktree_schema,
+    )?;
+    apply_migration(
+        conn,
+        113,
+        "session-deletion-operations",
+        crate::contexts::sessions::infrastructure::apply_session_deletion_schema,
+    )?;
     repair_missing_stable_participant_schema(conn)?;
     repair_missing_cli_parameter_profile_schema(conn)?;
     crate::contexts::execution_observability::infrastructure::repair_missing_evidence_schema(conn)?;
@@ -853,6 +865,8 @@ pub(super) const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     // 111, moved up from 95 on this merge for the same reason the block above moved: the
     // number this branch chose had been taken by a change that merged first.
     (111, "permission-grant-canonical-identity"),
+    (112, "managed-worktree-resources"),
+    (113, "session-deletion-operations"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {

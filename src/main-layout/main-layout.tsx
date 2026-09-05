@@ -14,6 +14,7 @@ import type { LoopInspectionTarget } from "../types/loop";
 import { CreateCategoryDialog } from "./create-category-dialog";
 import { CreateSessionDialog } from "./create-session-dialog";
 import { SessionContextPanel, type ContextPanelState } from "./session-context-panel";
+import { useSessionDeletion, type SessionDeletionController } from "./session-deletion/use-session-deletion";
 import { SessionInfoPanel } from "./session-info-panel";
 import { SessionSidebar } from "./session-sidebar";
 import { nextSlashTabRequestState, type SlashTabRequest } from "./slash-tab-request";
@@ -48,6 +49,10 @@ const loadSystemActivity: LazyFeatureLoader<Record<string, never>> = () => impor
 type MissionControlProps = { onNavigate?: (target: import("../types/mission-control").MissionControlNavigationTarget) => void };
 const loadMissionControl: LazyFeatureLoader<MissionControlProps> = () => import("../mission-control/mission-control")
   .then((module) => ({ default: module.MissionControl }));
+// Loaded on the first delete rather than with the shell: the confirmation is opened rarely and its
+// worktree rows, result panel and preview state machine would otherwise ride in the main chunk.
+const loadSessionDeletionDialog: LazyFeatureLoader<{ controller: SessionDeletionController }> = () =>
+  import("./session-deletion/session-deletion-dialog").then((module) => ({ default: module.SessionDeletionDialog }));
 
 export function clampSessionSidebarWidth(width: number) {
   return Math.min(maxSessionSidebarWidth, Math.max(minSessionSidebarWidth, Math.round(width)));
@@ -77,6 +82,7 @@ export function MainLayout({
   onNavigate: (next: WorkspaceLocation, options?: { replace?: boolean }) => void;
 }) {
   const model = useMainLayoutModel();
+  const deletion = useSessionDeletion();
   const destination = location.destination;
   const { activeSessionId, archivedSessions, sessions, switchSession } = model;
   const goTo = (next: Partial<WorkspaceLocation>, options?: { replace?: boolean }) =>
@@ -307,10 +313,10 @@ export function MainLayout({
                 agentsAvailable={model.agentsAvailable}
                 archivedSessions={model.archivedSessions}
                 categories={model.categories}
-                deletingSessions={model.deletingSessions}
+                deletingSessions={deletion.busy}
                 focusSearchToken={searchFocusToken}
                 onAssignCategory={model.assignCategory}
-                onBatchDelete={model.deleteSessions}
+                onBatchDelete={deletion.request}
                 onContextMenu={openContextMenu}
                 onNew={() => goTo({ destination: "sessions", creatingSession: true })}
                 onSearchChange={model.setSessionSearchQuery}
@@ -478,7 +484,7 @@ export function MainLayout({
         onAssignCategory={model.assignCategory}
         onChange={setContextPanel}
         onCreateCategory={(session) => setCategoryDialogSession(session)}
-        onDelete={model.deleteSession}
+        onDelete={(session) => deletion.request([session])}
         onDismiss={() => setContextPanel(null)}
         onExport={model.exportSession}
         onPin={model.pinSession}
@@ -487,6 +493,9 @@ export function MainLayout({
         recovering={recoveringSessionId !== null}
         value={contextPanel}
       />
+      {deletion.state.status !== "closed" ? (
+        <LazyFeature className="fixed inset-0 z-50 bg-background/60" componentProps={{ controller: deletion }} loader={loadSessionDeletionDialog} />
+      ) : null}
       <CreateSessionDialog
         agents={model.agents}
         onClose={() => goTo({ creatingSession: false })}

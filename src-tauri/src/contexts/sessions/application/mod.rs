@@ -1,3 +1,4 @@
+mod deletion;
 mod error;
 mod evidence;
 mod models;
@@ -9,6 +10,23 @@ mod service;
 mod usage_accounting;
 mod usage_accounting_ports;
 
+#[cfg(test)]
+pub(crate) use deletion::NewDeletionGroup;
+pub(crate) use deletion::{
+    deletion_error_code, DeletionChangeSummary, DeletionCheckCompleteness, DeletionClockPort,
+    DeletionEventPort, DeletionGroupResult, DeletionGroupStatus, DeletionIdPort,
+    DeletionIgnoredSample, DeletionIgnoredSummary, DeletionJournalPort, DeletionOutcome,
+    DeletionOwner, DeletionOwnerPort, DeletionPhase, DeletionPreviewStore, DeletionReferencePort,
+    DeletionRuntimeEffect, DeletionWorkspacePort, ExecuteSessionDeletionRequest, GateOutcome,
+    GateToken, GroupCompletion, GroupPatch, GroupSnapshot, JournalCreateOutcome,
+    NewDeletionOperation, ObservationView, OperationOwnership, OperationPatch,
+    PreviewSessionDeletionRequest, QuiescenceReport, ReferenceInput, ReferenceScan,
+    RemovalOutcomeView, RemovalReportView, ResolvedWorktree, RetrySessionDeletionRequest,
+    SessionDbEffect, SessionDeletionClaim, SessionDeletionCoordinator, SessionDeletionHandle,
+    SessionDeletionOperation, SessionDeletionPorts, SessionDeletionPreview,
+    SessionDeletionRuntimePort, SessionExecutionAdmissionPort, SessionReference, StoredPreview,
+    Tri, WorktreeAssessment, WorktreeDeletionPolicy, WorktreeEffect, WorktreeIdentityView,
+};
 pub(crate) use error::SessionsApplicationError;
 #[cfg(test)]
 pub(crate) use evidence::NoSessionEvidence;

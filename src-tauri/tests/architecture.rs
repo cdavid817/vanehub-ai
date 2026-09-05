@@ -2685,8 +2685,16 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // boundary; measured on the merged tree because main changed the same subtree
         // independently (the bounded terminal reap landed there in parallel); merged-tree
         // measurement: 62,879.
-        budget: 62_879,
-        owner: "add-skill-evolution-system-sessions-and-result-projection",
+        // Raised to 62,914 by `add-session-worktree-cleanup`. The +35 is `reap_session_and_wait`
+        // in `background_shell.rs`: a deletion must not remove a directory while a managed shell
+        // still has it as its cwd, and the existing reap returns before the child is actually
+        // gone. Nothing was duplicated; the fire-and-forget reap stays for the paths that need no
+        // confirmation.
+        // +15 by the same change for `sqlite_repository.rs`: five read-then-write transactions
+        // begin `IMMEDIATE` (two extra lines each for the builder call) and the five-line note on
+        // the struct saying why. The Windows smoke run failed on the deferred form.
+        budget: 62_929,
+        owner: "add-session-worktree-cleanup",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
     // directory module. The +51 is entirely per-file boilerplate: +29 module headers (the `mod`
@@ -2790,8 +2798,12 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // change's one migration from 95 to 111. Measured on the merged tree rather than summed:
         // both branches raised this number for their own migrations and neither copied the other's.
         // Merged-tree measurement: 3,634.
-        budget: 3_634,
-        owner: "merge/openspec-permission-shell-search",
+        // +14 for migrations 112 (`managed-worktree-resources`) and 113
+        // (`session-deletion-operations`) by `add-session-worktree-cleanup`: two registration
+        // calls and two inventory entries. The schemas live in the workspaces and sessions
+        // infrastructure that own those tables; only the fixed registration cost lands here.
+        budget: 3_648,
+        owner: "add-session-worktree-cleanup",
     },
 ];
 
@@ -2837,8 +2849,13 @@ const NATIVE_PRODUCTION_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // deliberately not by this one.
         // The structured model transport contributes the remaining production-only delta on the
         // merged tree (measured 33,866); its test doubles are counted by the aggregate above.
-        budget: 33_866,
-        owner: "add-skill-evolution-system-sessions-and-result-projection",
+        // `add-session-worktree-cleanup` raises it to 33,901. The +35 is production: the
+        // confirming reap that waits until a session's managed shells have actually exited, which
+        // the cleanup needs before it may remove the directory they ran in.
+        // +15 more, all production, for the `IMMEDIATE` transactions in `sqlite_repository.rs`
+        // and the note that explains them.
+        budget: 33_916,
+        owner: "add-session-worktree-cleanup",
     },
 ];
 
