@@ -8,7 +8,7 @@
 
 ## 实施记录（2026-09-05）
 
-- 实施 checkout：worktree `.claude/worktrees/main-20260905`，分支 `worktree-main-20260905`，基于 `main@d6e1d6ff`（与 `origin/main` 同步）。所有改动仍是工作区未提交修改；没有 push、合并或归档。
+- 实施 checkout：worktree `.claude/worktrees/main-20260905`，分支 `worktree-main-20260905`，基于 `main@d6e1d6ff`（与 `origin/main` 同步）。2026-09-06 已提交并合并 `origin/main`，通过 PR 提交评审；未归档。
 - 平台：Linux 7.0.0-29-generic x86_64；git 2.43.0；rustc 1.97.1；node v22.23.2；npm 10.9.8；openspec CLI 1.9.0。
 - 破坏性测试只作用于测试自建的临时 Git 仓库（`tempfile`）和临时 SQLite 数据库；没有触碰用户的真实项目、既有 worktree、生产会话或凭据。
 - 实施前基线：`openspec validate add-session-worktree-cleanup --strict` 通过（修正 MODIFIED 块与链接后），`openspec validate --specs --strict` 通过。
@@ -74,6 +74,13 @@
 | UI | `refresh` 在 `setState` updater 内触发副作用，StrictMode 下会重复发起预览 | 改为读取当前 state 后直接调用 |
 
 未修正但已确认的设计取舍：含子模块（`.gitmodules`）、sparse checkout 或索引带 assume-unchanged/skip-worktree 标记的 worktree 一律只允许 keep；预览与执行之间出现新提交会因身份变化被拒绝并要求重新检查；`is_path_gated` 对每个祖先目录各做一次门禁查询（Shell 创建时约 5–10 次小查询）。
+
+### 合并 main 后的复验（2026-09-06）
+
+- 合并 `origin/main@3dc679b9`（#275：单实例守卫、流式追加持久化、终端 WebGL 渲染）。唯一冲突是 `scripts/architecture/frontend-rules.mjs` 的 `src/services` 行数预算：两边落在互不相交的文件上，按合并树实测记为 28080。`src-tauri/tests/architecture.rs` 的三处原生预算与 main 的 `tests.rs` 848 自动合并，均按各自实测。
+- 合并树重跑：`cargo fmt --check`、`cargo check --workspace`、`cargo clippy --workspace --all-targets -- -D warnings`、`npm run native:panic:check`、`cargo test --workspace`（lib 6692 passed / 13 ignored，12 个测试二进制全过）、`npm run lint:ci`、`tsc --noEmit`、`npm run test`（478 files / 2954 tests）、`npm run architecture:check`、`npm run contracts:check`、`npm run docs:check`、`openspec validate --specs --strict` 与三个未归档 change 的 `--strict`、`desktop:unit:test`、`coverage:policy:test`、`version:unit:test`、`git diff --check`、Playwright 删除 spec（5 passed）均通过。
+- `npm run build` 的 `check-frontend-chunks` 在合并树上首次失败：`App` chunk 706.9 KiB 超过 700 KiB 预算（main 自身刚好在预算内，本变更的对话框把它推过线）。处理：删除对话框改为经 `LazyFeature` 按需加载（只在删除流程打开时挂载），`App` chunk 回到 697.5 KiB；hook 与状态机仍在主 chunk。之后 `npm run build` 通过。余量只剩约 2.5 KiB，下一个往主 chunk 加代码的变更需要自行拆分。
+- 首次并行跑 `npm run test` 与 cargo 时有 3 个测试文件因超时失败（`desktop-instrumentation-boundary`、`workspace-panel-visibility`、`skill-evolution-assessment`），单独重跑与无并发负载的全量重跑均通过，属本机负载导致。
 
 ## 改动文件
 
