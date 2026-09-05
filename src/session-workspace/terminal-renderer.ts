@@ -1,11 +1,13 @@
 import type { WebglAddon } from "@xterm/addon-webgl";
 import type { Terminal as XtermTerminal } from "@xterm/xterm";
+import { acceleratesTerminalRendering } from "../services/runtime-terminal-rendering";
 
 /**
  * Moves a terminal off the DOM renderer, and reports how to undo it.
  *
  * xterm draws to DOM nodes unless a rendering addon takes over, which a CLI Agent repainting a full
- * TUI screen turns into thousands of node mutations per second.
+ * TUI screen turns into thousands of node mutations per second. Only the runtime that has such an
+ * Agent takes the upgrade — see `acceleratesTerminalRendering`.
  *
  * Loaded on demand rather than imported outright: the addon carries its own WebGL renderer, and
  * bundling that into the startup chunk would make every launch pay for it, including the launches
@@ -26,6 +28,7 @@ export function attachAcceleratedRenderer(
   terminal: XtermTerminal,
   onRendererChanged: () => void,
 ): () => void {
+  if (!acceleratesTerminalRendering()) return () => undefined;
   let addon: WebglAddon | null = null;
   let detached = false;
   void import("@xterm/addon-webgl")
