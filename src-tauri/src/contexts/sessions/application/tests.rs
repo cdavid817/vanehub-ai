@@ -259,6 +259,28 @@ impl SessionMessageRepository for FakeStore {
         Ok(())
     }
 
+    fn append_stream_text(
+        &self,
+        message_id: &MessageId,
+        field: StreamTextField,
+        delta: &str,
+        updated_at: &str,
+    ) -> Result<(), SessionsApplicationError> {
+        let mut messages = self.messages.lock().expect("messages");
+        let current = messages.get_mut(message_id.as_str()).ok_or_else(|| {
+            SessionsApplicationError::MessageNotFound(message_id.as_str().to_string())
+        })?;
+        match field {
+            StreamTextField::Content => current.content.push_str(delta),
+            StreamTextField::Thinking => current
+                .thinking_content
+                .get_or_insert_with(String::new)
+                .push_str(delta),
+        }
+        current.updated_at = updated_at.to_string();
+        Ok(())
+    }
+
     fn list(
         &self,
         query: &MessagePageQuery,

@@ -1,4 +1,4 @@
-import type { AgentRun } from "../types/agent-run";
+import { agentRunIsTerminal, type AgentRun } from "../types/agent-run";
 import type {
   MissionControlActionReceipt,
   MissionControlOverview,
@@ -84,7 +84,7 @@ export const webMissionControlClient: MissionControlService = {
   async cancelAgentRun(runId, version) {
     const cancelled = updateWebAgentRun(runId, version, "cancelled");
     for (const child of listWebAgentRuns().filter((run) => run.parentRunId === runId)) {
-      if (!["completed", "failed", "cancelled"].includes(child.state)) {
+      if (!agentRunIsTerminal(child)) {
         updateWebAgentRun(child.id, child.version, "cancelled");
       }
     }

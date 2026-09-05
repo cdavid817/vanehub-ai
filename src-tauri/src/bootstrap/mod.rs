@@ -34,6 +34,8 @@ mod plugin_integrations;
 mod prompt_hooks;
 mod retrieval;
 mod runtime;
+#[cfg(test)]
+mod runtime_tests;
 mod scheduled_tasks;
 pub(crate) mod screenshot_capture;
 mod sdk;
