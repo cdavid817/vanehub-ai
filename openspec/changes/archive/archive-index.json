@@ -3716,6 +3716,32 @@
         "continuous-integration",
         "lsp-server-management"
       ]
+    },
+    {
+      "archivedOn": "2026-09-05",
+      "changeName": "fix-duplicate-desktop-instances",
+      "path": "openspec/changes/archive/2026-09-05-fix-duplicate-desktop-instances/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "desktop-background-lifecycle"
+      ]
+    },
+    {
+      "archivedOn": "2026-09-05",
+      "changeName": "reduce-session-runtime-overhead",
+      "path": "openspec/changes/archive/2026-09-05-reduce-session-runtime-overhead/",
+      "artifacts": [
+        "proposal",
+        "tasks"
+      ],
+      "capabilities": [
+        "agent-run-state-management",
+        "chat-experience"
+      ]
     }
   ]
 }
