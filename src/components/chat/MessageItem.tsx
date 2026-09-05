@@ -54,7 +54,7 @@ export const MessageItem = memo(function MessageItem({
   const isUser = message.role === "user";
   const showSpeaker = !isUser && Boolean(speaker);
   return (
-    <article className={cn("flex min-w-0 items-start gap-2.5", isUser && "justify-end")}>
+    <article className={cn("ucd-transcript-row flex min-w-0 items-start gap-2.5", isUser && "justify-end")}>
       {!isUser ? (
         showSpeaker && speaker ? <ParticipantAvatar agentId={speaker.agentId} label={`${speaker.roleName ?? speaker.agentName} · ${speaker.agentName}`} roleAvatar={speaker.avatar} roleName={speaker.roleName} /> : (
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-background text-primary shadow-xs">
