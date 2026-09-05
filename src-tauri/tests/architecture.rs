@@ -2690,7 +2690,10 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // still has it as its cwd, and the existing reap returns before the child is actually
         // gone. Nothing was duplicated; the fire-and-forget reap stays for the paths that need no
         // confirmation.
-        budget: 62_914,
+        // +15 by the same change for `sqlite_repository.rs`: five read-then-write transactions
+        // begin `IMMEDIATE` (two extra lines each for the builder call) and the five-line note on
+        // the struct saying why. The Windows smoke run failed on the deferred form.
+        budget: 62_929,
         owner: "add-session-worktree-cleanup",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
@@ -2849,7 +2852,9 @@ const NATIVE_PRODUCTION_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // `add-session-worktree-cleanup` raises it to 33,901. The +35 is production: the
         // confirming reap that waits until a session's managed shells have actually exited, which
         // the cleanup needs before it may remove the directory they ran in.
-        budget: 33_901,
+        // +15 more, all production, for the `IMMEDIATE` transactions in `sqlite_repository.rs`
+        // and the note that explains them.
+        budget: 33_916,
         owner: "add-session-worktree-cleanup",
     },
 ];
