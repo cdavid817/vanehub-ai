@@ -2447,9 +2447,12 @@ const NATIVE_PATH_BUDGETS: &[PathBudget] = &[
     // Raised by 1 for `provider_thread_id` on the one `SessionSeat` literal this file builds, then
     // by 3 for `personalization_mode` on the one `SessionRecord` literal, its import, and the
     // module declaration for the mode's own persistence tests.
+    // Raised by 1 more for the module declaration of the streamed-append persistence tests, which
+    // follow the same split this budget already records: the subject lives in `tests/`, only its
+    // declaration and the shared scaffolding stay here.
     PathBudget {
         path: "src-tauri/src/contexts/sessions/infrastructure/tests.rs",
-        budget: 847,
+        budget: 848,
         owner: "relocate-heavyweight-inline-tests",
     },
     // Lowered from 4,628 by the same change. ~1,600 of what remains is the single `FakeWorld`

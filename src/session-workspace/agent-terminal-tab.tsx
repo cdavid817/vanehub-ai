@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal as XtermTerminal } from "@xterm/xterm";
+import { attachAcceleratedRenderer } from "./terminal-renderer";
 import "@xterm/xterm/css/xterm.css";
 import { useQueryClient } from "@tanstack/react-query";
 import { Send } from "lucide-react";
@@ -94,12 +95,16 @@ export function AgentTerminalTab({ isVisible, session, sessionActivationKey }: {
       const terminalId = terminalIdRef.current;
       if (terminalId) void agentService.sendAgentTerminalInput(terminalId, content);
     });
-    const resizeObserver = new ResizeObserver(() => {
+    const syncSize = () => {
       if (!visibleRef.current) return;
       fit.fit();
       const terminalId = terminalIdRef.current;
       if (terminalId) void agentService.resizeAgentTerminal(terminalId, { rows: terminal.rows, cols: terminal.cols });
-    });
+    };
+    const resizeObserver = new ResizeObserver(syncSize);
+    // Attached once `syncSize` exists: swapping the renderer can change the computed rows and
+    // columns, and the process on the other end has already been told the pre-swap size.
+    const detachRenderer = attachAcceleratedRenderer(terminal, syncSize);
     resizeObserver.observe(hostRef.current);
     const themeObserver = new MutationObserver(() => {
       terminal.options.theme = createTerminalTheme();
@@ -172,6 +177,7 @@ export function AgentTerminalTab({ isVisible, session, sessionActivationKey }: {
       inputDisposable.dispose();
       unsubscribe?.();
       if (outputFrame !== 0) cancelAnimationFrame(outputFrame);
+      detachRenderer();
       terminal.dispose();
       terminalIdRef.current = null;
       terminalRef.current = null;

@@ -88,7 +88,7 @@ export const MessageItem = memo(function MessageItem({
             {statusLabel(message, t)}
           </span>
         </div>
-        {!isUser ? <AgentRunOwnerStatus ownerId={message.id} ownerType="session_generation" /> : null}
+        {!isUser ? <AgentRunOwnerStatus active={message.status === "pending" || message.status === "streaming"} ownerId={message.id} ownerType="session_generation" /> : null}
         <div
           className={cn(
             "rounded-lg border border-transparent px-3 py-2.5 text-sm",

@@ -1,4 +1,4 @@
-import type { AgentRun, AgentRunEvent } from "../types/agent-run";
+import { agentRunStateIsTerminal, type AgentRun, type AgentRunEvent } from "../types/agent-run";
 
 // Owned here and never exported; the loop, chat and session contexts all project run state, and
 // they do it through the accessors below rather than through a shared binding.
@@ -89,7 +89,7 @@ export function resetWebMissionControlRunsForTest(): void {
 export function updateWebAgentRun(runId: string, version: number, state: AgentRun["state"]): AgentRun {
   const current = webAgentRuns.find((run) => run.id === runId);
   if (!current) throw new Error(`run not found: ${runId}`);
-  if (["completed", "failed", "cancelled"].includes(current.state)) return current;
+  if (agentRunStateIsTerminal(current.state)) return current;
   if (current.version !== version) throw new Error("run version conflict");
   const nextVersion = version + 1;
   const updatedAt = `2026-08-16T00:00:${String(nextVersion).padStart(2, "0")}.000Z`;
@@ -110,12 +110,11 @@ export function updateWebAgentRun(runId: string, version: number, state: AgentRu
 
 export function projectWebOwnerRun(ownerId: string, state: AgentRun["state"]): void {
   const run = webAgentRuns.find((item) => item.owner.ownerId === ownerId);
-  if (run && run.state !== state && !["completed", "failed", "cancelled"].includes(run.state)) {
+  if (run && run.state !== state && !agentRunStateIsTerminal(run.state)) {
     updateWebAgentRun(run.id, run.version, state);
   }
 }
 
-const terminalRunStates = new Set<AgentRun["state"]>(["completed", "failed", "cancelled"]);
 const activeRunStates = new Set<AgentRun["state"]>(["created", "preparing", "running", "waiting_approval", "waiting_user", "paused", "retrying", "blocked", "stuck", "verifying"]);
 export function listWebAgentRuns(): AgentRun[] {
   return webAgentRuns;
@@ -138,7 +137,7 @@ export function setWebAgentRunEvents(runId: string, events: AgentRunEvent[]): vo
 }
 
 export function isTerminalWebRunState(state: AgentRun["state"]): boolean {
-  return terminalRunStates.has(state);
+  return agentRunStateIsTerminal(state);
 }
 
 export function isActiveWebRunState(state: AgentRun["state"]): boolean {
