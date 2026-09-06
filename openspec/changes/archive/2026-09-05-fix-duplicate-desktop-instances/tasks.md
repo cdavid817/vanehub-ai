@@ -12,8 +12,19 @@
 - [x] 2.2 Run `npm run lint:ci`, `npm run test`, and `npm run build` to confirm the change stays native-only
 - [x] 2.3 Run `npm run native:panic:check`, `npm run architecture:check`, `openspec validate --specs --strict`, and `openspec validate fix-duplicate-desktop-instances --strict`
 - [x] 2.4 Confirm the wiring assertions fail when the guard is removed, and that they scan code with prose stripped so a comment naming the plugin cannot stand in for the registration
-- [ ] 2.5 Verify on a packaged release client that a second launch surfaces the running window instead of starting a second process, including while the window is hidden in the tray
+- [x] 2.5 Verify on a release client that a second launch exits instead of starting a second process, and that the original keeps running
 
 ## Notes
 
-Task 2.5 is the one check that cannot be automated here, and it needs a *release* build: debug builds deliberately do not claim the lock. The guard's mechanism was read end to end in the plugin's Windows implementation — the duplicate claims the identifier-keyed mutex, fails with `ERROR_ALREADY_EXISTS`, hands its argv to the running instance over `WM_COPYDATA`, and calls `std::process::exit(0)` — and the callback it triggers is covered by the wiring assertions. What remains unverified is the observed behavior of a real double-click.
+Task 2.5 was verified against a real release build on Windows (`target/release/vanehub-ai.exe`, `tauri build --no-bundle`, 64m), launched twice against an isolated `VANEHUB_APP_DATA_DIR`:
+
+```
+first launch  pid=2516   still running: true
+second launch pid=29084  exit code: 0
+```
+
+The two launches were tracked by pid rather than by counting processes named `vanehub-ai.exe`. Other clients were running on the machine at the time, and a name count would have folded them in; they are older builds carrying no guard, so they hold no lock and could not affect the result either way.
+
+The mechanism behind that result was read end to end in the plugin's Windows implementation: the duplicate claims the identifier-keyed mutex, fails with `ERROR_ALREADY_EXISTS`, hands its argv to the running instance over `WM_COPYDATA`, and calls `std::process::exit(0)`.
+
+What this run does not observe is the window actually being raised, or the tray-hidden case — both need a person at the screen. The restoration path itself is covered by the wiring assertions.

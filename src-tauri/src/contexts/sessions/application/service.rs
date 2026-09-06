@@ -57,6 +57,9 @@ pub(crate) struct SessionApplicationPorts {
 pub(crate) struct SessionsApplicationService {
     ports: SessionApplicationPorts,
     evidence: Arc<dyn super::SessionEvidencePort>,
+    /// Refuses new work in a session that a deletion holds. Absent in assemblies without the
+    /// deletion coordinator, where admission stays unconditional.
+    execution_admission: Option<Arc<dyn super::SessionExecutionAdmissionPort>>,
 }
 
 #[derive(Clone, Copy)]
@@ -237,7 +240,28 @@ impl SessionsApplicationService {
         ports: SessionApplicationPorts,
         evidence: Arc<dyn super::SessionEvidencePort>,
     ) -> Self {
-        Self { ports, evidence }
+        Self {
+            ports,
+            evidence,
+            execution_admission: None,
+        }
+    }
+
+    pub(crate) fn with_execution_admission(
+        mut self,
+        admission: Arc<dyn super::SessionExecutionAdmissionPort>,
+    ) -> Self {
+        self.execution_admission = Some(admission);
+        self
+    }
+
+    /// Sending, generating, changing participants and un-archiving all start or resume work in
+    /// a session; none of them may bypass a deletion that already holds it.
+    fn ensure_execution_admitted(&self, session_id: &str) -> Result<(), SessionsApplicationError> {
+        match &self.execution_admission {
+            Some(admission) => admission.ensure_session_admits_execution(session_id),
+            None => Ok(()),
+        }
     }
 
     /// A service that records nothing, for tests whose subject is not evidence.
@@ -387,7 +411,7 @@ impl SessionsApplicationService {
         self.ports
             .eligibility
             .ensure_agent_supports(&request.agent_id, &request.interaction_mode)?;
-        let workspace = self.prepare_new_session_workspace(&request.workspace)?;
+        let (workspace, worktree_id) = self.prepare_new_session_workspace(&request.workspace)?;
         let personalization_mode = request.personalization_mode.unwrap_or_default();
         // Refused at creation rather than degraded at resolution. A project-only session with
         // nothing to be isolated to would have to fall back to something, and the only candidate
@@ -397,7 +421,7 @@ impl SessionsApplicationService {
                 SessionsDomainError::ProjectOnlySessionRequiresWorkspace,
             ));
         }
-        self.create_session_record(CreateSessionRequest {
+        let record = self.create_session_record(CreateSessionRequest {
             agent_id: request.agent_id,
             seats: request.seats,
             interaction_mode: request.interaction_mode,
@@ -406,13 +430,33 @@ impl SessionsApplicationService {
             workspace,
             owner: request.owner,
             activation: request.activation,
-        })
+        })?;
+        // The worktree exists and the session exists; binding them is the last step, and a
+        // failure here is recorded against the worktree rather than undoing either.
+        if let Some(worktree_id) = worktree_id {
+            if let Err(error) = self
+                .ports
+                .creation
+                .bind_worktree_session(&worktree_id, record.id())
+            {
+                let _ = self.ports.logging.write(SessionApplicationLog {
+                    level: SessionApplicationLogLevel::Warn,
+                    category: "session.create".to_string(),
+                    message: format!("Worktree provenance binding failed: {error}"),
+                    session_id: Some(record.id().to_string()),
+                    operation_id: None,
+                    execution_run_id: None,
+                    recovery_report_id: None,
+                });
+            }
+        }
+        Ok(record)
     }
 
     fn prepare_new_session_workspace(
         &self,
         request: &NewSessionWorkspace,
-    ) -> Result<SessionWorkspace, SessionsApplicationError> {
+    ) -> Result<(SessionWorkspace, Option<String>), SessionsApplicationError> {
         let remote_workspace = request
             .remote_workspace
             .as_ref()
@@ -470,6 +514,16 @@ impl SessionsApplicationService {
             remote_ssh_binding,
             ..Default::default()
         };
+        // A directory a live cleanup holds must not acquire a new session: the session would be
+        // born pointing at a worktree that is about to disappear.
+        if let Some(path) = workspace
+            .folder
+            .as_deref()
+            .filter(|_| workspace.remote_workspace.is_none())
+        {
+            self.ports.creation.ensure_workspace_admits_binding(path)?;
+        }
+        let mut worktree_id = None;
         if worktree_enabled {
             let project = project.as_ref().ok_or_else(|| {
                 SessionsApplicationError::Validation("Project unavailable".to_string())
@@ -485,8 +539,9 @@ impl SessionsApplicationService {
             workspace.worktree_path = Some(worktree.path);
             workspace.worktree_name = Some(worktree.name);
             workspace.worktree_branch = Some(worktree.branch);
+            worktree_id = worktree.worktree_id;
         }
-        Ok(workspace)
+        Ok((workspace, worktree_id))
     }
 
     fn resolve_ssh_binding(
@@ -654,6 +709,7 @@ impl SessionsApplicationService {
                 "A session must keep at least one active participant.".to_string(),
             ));
         }
+        self.ensure_execution_admitted(&request.session_id)?;
         let mut session = self.load_session(&request.session_id)?;
         if session.updated_at != request.expected_updated_at {
             return Err(SessionsApplicationError::SessionRevisionConflict(
@@ -744,6 +800,7 @@ impl SessionsApplicationService {
         session_id: &str,
         archived: bool,
     ) -> Result<SessionRecord, SessionsApplicationError> {
+        self.ensure_execution_admitted(session_id)?;
         let mut session = self.load_session(session_id)?;
         if archived {
             self.ports.runtime.stop_session_activity(session_id)?;
@@ -1084,6 +1141,7 @@ impl SessionsApplicationService {
         &self,
         request: CreateMessageRequest,
     ) -> Result<MessageRecord, SessionsApplicationError> {
+        self.ensure_execution_admitted(&request.session_id)?;
         let session = self.load_session(&request.session_id)?;
         session.aggregate.ensure_accepts_messages()?;
         let role = MessageRole::parse(&request.role)?;
@@ -1128,6 +1186,7 @@ impl SessionsApplicationService {
         &self,
         request: DurableGenerationStartRequest,
     ) -> Result<GenerationStartResult, SessionsApplicationError> {
+        self.ensure_execution_admitted(&request.session_id)?;
         let session = self.load_session(&request.session_id)?;
         let now = self.ports.clock.now();
         let correlation = GenerationMessageCorrelation {

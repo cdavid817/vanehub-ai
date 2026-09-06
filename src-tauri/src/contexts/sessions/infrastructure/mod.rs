@@ -1,5 +1,10 @@
 mod chat_profile;
 mod creation_context;
+mod deletion_adapters;
+mod deletion_journal;
+#[cfg(test)]
+mod deletion_journal_tests;
+mod deletion_runtime;
 mod operation_adapter;
 mod personalization_mode_schema;
 mod review_decision_repository;
@@ -35,6 +40,11 @@ pub(crate) use usage_accounting::apply_schema as apply_usage_accounting_schema;
 mod tests;
 pub(crate) use chat_profile::SqliteSessionChatProfileAdapter;
 pub(crate) use creation_context::{SessionAgentEligibilityAdapter, SessionCreationContextAdapter};
+pub(crate) use deletion_adapters::{
+    InMemoryDeletionPreviewStore, LeaseDeletionOwner, SqliteDeletionReferences,
+    SystemDeletionClock, UuidDeletionIds, WorkspaceDeletionAdapter,
+};
+pub(crate) use deletion_journal::{apply_session_deletion_schema, SqliteDeletionJournal};
 pub(crate) use operation_adapter::SessionOperationAdapter;
 pub(crate) use runtime_support::{
     AgentSessionRuntimeAdapter, SessionFileAdapter, SystemSessionClock,

@@ -1027,6 +1027,7 @@ impl SessionCreationContextPort for FakeCreationContext {
             path: format!("{project_path}\\.worktrees\\{name}"),
             name: name.to_string(),
             branch: format!("vanehub/{name}"),
+            worktree_id: None,
         })
     }
 }

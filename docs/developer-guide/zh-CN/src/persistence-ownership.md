@@ -58,3 +58,21 @@ flowchart TD
 ### 迁移
 
 `EXPECTED_MIGRATIONS`(`src-tauri/src/platform/database/migrations/mod.rs`)是迁移序列的真源;启动后密度检查与 `migration_sequence_matches_expected` 测试都会比照它。新增迁移必须追加在序列尾部,禁止插入或重排。本章刻意不写迁移条数——版本号跨并行分支分配,任何写死的数字在第二个分支合入时就已过时。`schema_migrations(version, name, applied_at)` 表为每条迁移记账。`seed_registry` 在迁移完成后于同一独占连接上执行一次。
+
+## 会话删除 journal 与受管理 worktree
+
+删除会话是唯一会同时触碰 Git 与 SQLite 的用例，两者不在一个事务里，所以它的状态由独立的 journal 表承载，而不是从日志文本推断。
+
+| 表 | 所属 context | 说明 |
+| --- | --- | --- |
+| `managed_worktrees` | `workspaces` | 由本应用创建的 worktree 资源记录：来源（`ordinary_session`/`loop`/`subagent`/`external`）、来源证据等级（`provisioning`/`verified`/`legacy_verified`/`legacy_unverified`/`external`）、Git 身份（canonical root、git dir、common dir、分支、HEAD、文件系统身份）、状态与修订号。意图在 `git worktree add` 之前写入，Git 成功后再补身份 |
+| `managed_worktree_sessions` | `workspaces` | worktree 与会话的绑定。**没有指向 `sessions` 的外键**：会话删除后资源记录必须继续存在 |
+| `workspace_use_gates` | `workspaces` | 清理期间对目录的独占门禁，记录持有实例与操作。实例是否存活由 `platform::instance_lease` 的 OS 文件锁证明，不靠 TTL 猜测 |
+| `session_deletion_operations` / `session_deletion_groups` | `sessions` | 每次删除请求的 journal：`request_id` 唯一并绑定规范化请求 hash（幂等），分组按真实 worktree 身份划分，逐组记录 `worktree_effect`（`not_requested`/`retained`/`remove_started`/`removed`/`removal_unknown`）与 `db_effect`，以及授权快照、执行快照和回执 |
+| `session_deletion_claims` | `sessions` | 删除期间对会话的独占 claim。`sessions` 服务在发送消息、开始生成、改席位、归档/恢复前检查它；`workspaces` 通过 bootstrap 注入的 `WorkspaceExecutionAdmissionPort` 在开 Shell 前检查它。同样**没有指向 `sessions` 的外键** |
+
+不变量：
+
+- 先写 journal，再停止会话；先持久化 `remove_started` 与身份快照，再执行唯一允许的非 force `git worktree remove`；先观察目录与登记确实消失，再在一个事务里删除该组会话及其级联数据并清空匹配的活动会话。
+- Git 成功而会话事务失败记录为 `finalize_pending`，claim 继续持有；重启后 `reconcile_pending_deletions` 只重新观察并完成数据库收尾，**永不重放 Git 删除**。目录既不完整也未确认消失时进入 `needs_attention`，不 prune、不递归删除。
+- 旧的 `delete_session` 命令改为走同一协调器的 keep 路径，等待真实完成，并遵守 claim。

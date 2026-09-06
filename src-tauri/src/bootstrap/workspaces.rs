@@ -5,18 +5,21 @@ use crate::contexts::workspaces::api::WorkspaceApi;
 use crate::contexts::workspaces::application::{
     SessionShellPorts, SessionShellRegistry, ShellCapacities, ShellStore, SystemMonotonicClock,
     WorkspaceApplicationService, WorkspaceInspectionRouter, WorkspaceInvalidationDispatcher,
-    WorkspaceQueryApplicationService,
+    WorkspaceQueryApplicationService, WorktreeCleanupService,
 };
 use crate::contexts::workspaces::infrastructure::{
-    LocalWorkspaceInspectionProvider, RemoteWorkspaceInspectionProvider, RetainedLocalShellRuntime,
-    RetainedRemoteShellRuntime, RoutedShellRuntime, SessionWorkspaceQueryAdapter,
-    SessionWorkspaceTargetResolver, SqliteSessionShellWorkspace, SqliteShellWorkspaceAdapter,
-    SqliteWorkspaceHistoryRepository, SshRemoteHelperSession, SshRemoteProfileSource,
-    SshShellTransport, SystemShellClock, SystemWorkspaceClock, TauriProjectDirectorySelection,
-    TauriSessionShellNotices, TauriWorkspaceInvalidationNotices, UnifiedLogShellDiagnostics,
-    UuidShellIds, WorkspaceFilesystemAdapter, WorkspaceGitAdapter, WorkspaceInvalidationPoller,
+    GitWorktreeProbe, LocalWorkspaceInspectionProvider, RemoteWorkspaceInspectionProvider,
+    RetainedLocalShellRuntime, RetainedRemoteShellRuntime, RoutedShellRuntime,
+    SessionWorkspaceQueryAdapter, SessionWorkspaceTargetResolver, SqliteManagedWorktreeRepository,
+    SqliteSessionShellWorkspace, SqliteShellWorkspaceAdapter, SqliteWorkspaceHistoryRepository,
+    SqliteWorkspaceUseGate, SshRemoteHelperSession, SshRemoteProfileSource, SshShellTransport,
+    SystemShellClock, SystemWorkspaceClock, SystemWorktreeCleanupClock,
+    TauriProjectDirectorySelection, TauriSessionShellNotices, TauriWorkspaceInvalidationNotices,
+    UnifiedLogShellDiagnostics, UuidShellIds, UuidWorktreeIds, WorkspaceFilesystemAdapter,
+    WorkspaceGitAdapter, WorkspaceInvalidationPoller,
 };
 use crate::platform::database::NativeDatabase;
+use crate::platform::instance_lease::InstanceLease;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::AppHandle;
@@ -28,6 +31,7 @@ pub(crate) fn assemble_workspace_api(
     fallback_log_directory: PathBuf,
     evidence: Arc<dyn crate::contexts::workspaces::api::WorkspaceEvidencePort>,
     ssh: SshConnectionsApi,
+    lease: InstanceLease,
 ) -> WorkspaceApi {
     let logging: Arc<dyn DiagnosticLogPort> =
         Arc::new(UnifiedLoggingAdapter::active(fallback_log_directory));
@@ -66,9 +70,9 @@ pub(crate) fn assemble_workspace_api(
         evidence,
     );
     let service = WorkspaceApplicationService::new(
-        Arc::new(SqliteWorkspaceHistoryRepository::new(database)),
+        Arc::new(SqliteWorkspaceHistoryRepository::new(database.clone())),
         Arc::new(WorkspaceFilesystemAdapter::new(logging.clone())),
-        Arc::new(WorkspaceGitAdapter::new(logging)),
+        Arc::new(WorkspaceGitAdapter::new(logging.clone())),
         Arc::new(TauriProjectDirectorySelection::new(app.clone())),
         Arc::new(SystemWorkspaceClock),
     );
@@ -76,6 +80,23 @@ pub(crate) fn assemble_workspace_api(
         TauriWorkspaceInvalidationNotices::new(app),
     )));
     start_workspace_invalidation_job(inspection.clone(), invalidation.clone());
+    let cleanup_clock = Arc::new(SystemWorktreeCleanupClock);
+    let probe = Arc::new(GitWorktreeProbe::new(logging));
+    let cleanup = WorktreeCleanupService::new(
+        Arc::new(SqliteManagedWorktreeRepository::new(
+            database.clone(),
+            cleanup_clock.clone(),
+        )),
+        probe.clone(),
+        probe,
+        Arc::new(SqliteWorkspaceUseGate::new(
+            database,
+            lease,
+            cleanup_clock.clone(),
+        )),
+        Arc::new(UuidWorktreeIds),
+        cleanup_clock,
+    );
     WorkspaceApi::new(
         service,
         queries,
@@ -84,6 +105,7 @@ pub(crate) fn assemble_workspace_api(
         inspection,
         invalidation,
     )
+    .with_worktree_cleanup(cleanup)
 }
 
 /// How often the driver wakes while a console has something open.

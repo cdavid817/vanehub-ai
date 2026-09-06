@@ -321,6 +321,41 @@ impl BackgroundShellRegistry {
         }
     }
 
+    /// `reap_session`, then waits — bounded — for every reaped command to settle. Returns whether
+    /// all of them did; a `false` is a live process this application still owns, and the caller
+    /// must not treat the session as quiet.
+    pub(crate) fn reap_session_and_wait(&self, session_id: &str, deadline: Duration) -> bool {
+        let owned: Vec<Arc<BackgroundCommand>> = match self.commands.lock() {
+            Ok(mut commands) => {
+                let handles: Vec<String> = commands
+                    .iter()
+                    .filter(|(_, entry)| entry.session_id == session_id)
+                    .map(|(handle, _)| handle.clone())
+                    .collect();
+                handles
+                    .into_iter()
+                    .filter_map(|handle| commands.remove(&handle))
+                    .collect()
+            }
+            Err(_) => return false,
+        };
+        for entry in &owned {
+            entry.kill_requested.store(true, Ordering::Release);
+        }
+        let end = Instant::now() + deadline;
+        let mut settled = true;
+        for entry in owned {
+            while !entry.status().is_terminal() {
+                if Instant::now() >= end {
+                    settled = false;
+                    break;
+                }
+                thread::sleep(SUPERVISOR_POLL_INTERVAL);
+            }
+        }
+        settled
+    }
+
     /// Terminates and forgets every command a session owns. Called when the session ends; the
     /// process-group/job-object containment is the backstop if this never runs.
     pub(crate) fn reap_session(&self, session_id: &str) {

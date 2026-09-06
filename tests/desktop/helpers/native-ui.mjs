@@ -172,5 +172,9 @@ export async function submitCreateSession({ projectPath, title, agentId }) {
 }
 
 export async function assertNoFatalError(root) {
-  assert.equal(await root.getAttribute("data-vanehub-fatal-error"), null);
+  const kind = await root.getAttribute("data-vanehub-fatal-error");
+  // The redacted diagnostic is the only trace of what threw; without it a failure here says
+  // "something went wrong" and nothing else.
+  const detail = kind ? await root.getAttribute("data-vanehub-fatal-error-detail") : null;
+  assert.equal(kind, null, `the frontend reported a fatal ${kind}: ${detail}`);
 }
