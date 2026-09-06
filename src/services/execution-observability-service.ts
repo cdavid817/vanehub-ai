@@ -16,6 +16,10 @@ export interface ExecutionObservabilityService {
   updateSettings(settings: ObservabilitySettings): Promise<ObservabilitySettings>;
   listRuns(query: ExecutionRunQuery): Promise<ExecutionRunPage>;
   getRun(runId: string): Promise<ExecutionRunSummary>;
-  getTimeline(runId: string): Promise<ExecutionTimeline>;
+  /**
+   * One run's timeline. `eventPageToken` resumes the event list after a cursor a previous
+   * response reported; the run and its spans are returned identically either way.
+   */
+  getTimeline(runId: string, eventPageToken?: string | null): Promise<ExecutionTimeline>;
   getObservationCapabilities(): Promise<ExecutionObservationCapability[]>;
 }

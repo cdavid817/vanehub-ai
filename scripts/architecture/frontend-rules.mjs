@@ -381,8 +381,41 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 合并后重测(本次 merge):上面两组理由分属这条分支的三个 change(权限决定、Shell 生命周期、
 // 搜索取消与预算)与 main 侧的 Skill Evolution,落在互不相交的文件上。合并树实测 27405,不是
 // 26515+890 也不是 25116+2289——相加会把两边共有的基线算两遍。按实测记,不留余量。
+// 再次上调(reduce-session-runtime-overhead):+17 是 runtime-terminal-rendering.ts,一个运行时绑定,
+// 与 runtime-agent-client、runtime-session-log-client 同一模式同一理由。终端加速渲染只对桌面端有
+// 意义——Web/mock 的终端写的是夹具文本,不驱动任何进程——而两个终端界面在两个运行时里都要渲染,所以
+// 这个判断只能有一处写法,组件里出现运行时分支正是 ARCH-FE-002 要拦的东西。按实测 27422 记,不留余量。
+// 上调理由(add-session-worktree-cleanup):+658,会话删除服务边界——类型合约与接口
+// (session-deletion-service)、Tauri 调用适配(tauri-session-deletion-client),以及显式
+// 声明为模拟的 Web/mock 状态、决策模拟与执行器(web-session-deletion-state / -simulation /
+// -runner / -client)。删除仲裁在 Rust 侧,前端只承载预览、选择与结果投影;React 仍只依赖
+// 服务边界。合并 main 后重测:两边落在互不相交的文件上,合并树实测 28080,不预留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 27405, owner: "merge/openspec-permission-shell-search" },
+  // 27405 -> 27421: the execution timeline response now states whether its event list was
+  // truncated, and that shape has to exist in the service interface and in both adapters —
+  // the Tauri one forwards the cursor, the Web/mock one reports complete coverage explicitly
+  // rather than omitting the field, because a panel that read an absent field as "complete"
+  // would misread every truncated native response. Sixteen lines across four files, none of
+  // them a copy of another.
+  // 27421 -> 27428: review found the Web/mock `getTimeline` silently dropping the new event
+  // cursor. TypeScript accepts a narrower implementation, so the divergence was invisible at every
+  // call site; the adapter now answers a continuation it never issued with the empty tail instead
+  // of replaying page one, which a paging caller would loop on forever.
+  //
+  // 27428 -> 27458: one fixture now reports a clipped event list and the adapter serves its second
+  // page. Without it the truncation notice and its continuation were unreachable from the browser
+  // build, so no e2e could render the state the whole paging path exists to serve -- and both
+  // `cloneTimeline` and the fixture reset were hardcoding `truncated: false`, which would have
+  // overridden any fixture that tried.
+  //
+  // 27458 -> 27462: review follow-up. The truncated fixture now states that its page bound is its
+  // own rather than the native 5000, because a mock declaring "truncated" over a single event is
+  // otherwise a contradiction a reader has to resolve for themselves.
+  //
+  // 合并 main 后重测:本分支的 +57(执行链路的截断覆盖与分页适配)与 main 侧
+  // add-session-worktree-cleanup 的 +658(会话删除服务边界)落在互不相交的文件上。按惯例在
+  // 合并树上实测,不是 27462+658 也不是 28080+57——相加会把两边共有的基线算两遍。
+  { root: "src/services", budget: 28137, owner: "fix-session-creation-and-trace-correctness" },
 ]);
 
 const STATE_PACKAGES = new Set([

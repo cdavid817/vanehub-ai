@@ -295,6 +295,19 @@ impl AgentRuntimeApi {
         task_list_store().clear_session(session_id);
     }
 
+    /// `reap_background_commands`, waiting up to `deadline` for the processes to actually exit.
+    /// Returns whether they all did. Session deletion needs the answer; a kill that was merely
+    /// requested is not a writer that has stopped.
+    pub(crate) fn reap_background_commands_and_wait(
+        &self,
+        session_id: &str,
+        deadline: std::time::Duration,
+    ) -> bool {
+        let settled = background_shell_registry().reap_session_and_wait(session_id, deadline);
+        task_list_store().clear_session(session_id);
+        settled
+    }
+
     /// Terminates every remaining background command on desktop shutdown. Windows' job object
     /// would reap these when the process handle closed, but an orphaned Unix process group would
     /// survive, so this is the portable guarantee rather than a convenience.

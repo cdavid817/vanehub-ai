@@ -9,7 +9,7 @@ use crate::contexts::sessions::application::{
     RecoveryCandidateClaim, SessionCategoryRepository, SessionConfigurationRepository,
     SessionListScope, SessionMessageRepository, SessionRecord, SessionRecoveryReportRepository,
     SessionRepository, SessionSearchMatch, SessionSearchMatchKind, SessionSearchQuery,
-    SessionSearchResult, SessionTerminalEvidencePort, SessionsApplicationError,
+    SessionSearchResult, SessionTerminalEvidencePort, SessionsApplicationError, StreamTextField,
 };
 use crate::contexts::sessions::domain::evidence::{
     ExecutionEvidenceFidelity, LiveHandleEvidence, MessageTerminalEvidence, ProviderResumeEvidence,
@@ -630,6 +630,39 @@ impl SessionMessageRepository for SqliteSessionsRepository {
         if changed == 0 {
             Err(SessionsApplicationError::MessageNotFound(
                 message.message.id().as_str().to_string(),
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn append_stream_text(
+        &self,
+        message_id: &MessageId,
+        field: StreamTextField,
+        delta: &str,
+        updated_at: &str,
+    ) -> Result<(), SessionsApplicationError> {
+        // `content` is NOT NULL DEFAULT '' so it concatenates directly; `thinking_content` is
+        // nullable and needs a starting point. The row is addressed by primary key alone, which is
+        // what lets the append skip the read this path used to perform.
+        let statement = match field {
+            StreamTextField::Content => {
+                "UPDATE messages SET content = content || ?1, updated_at = ?2 WHERE id = ?3"
+            }
+            StreamTextField::Thinking => {
+                "UPDATE messages
+                 SET thinking_content = COALESCE(thinking_content, '') || ?1, updated_at = ?2
+                 WHERE id = ?3"
+            }
+        };
+        let changed = self
+            .connection()?
+            .execute(statement, params![delta, updated_at, message_id.as_str()])
+            .map_err(repository_error)?;
+        if changed == 0 {
+            Err(SessionsApplicationError::MessageNotFound(
+                message_id.as_str().to_string(),
             ))
         } else {
             Ok(())

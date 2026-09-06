@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Terminal as XtermTerminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { attachAcceleratedRenderer } from "./terminal-renderer";
 import "@xterm/xterm/css/xterm.css";
 import { useTranslation } from "react-i18next";
 import { sessionShellService } from "../services/runtime-session-shell-client";
@@ -95,7 +96,7 @@ export function ShellSurface({ descriptor, isVisible, onDescriptor, onError }: S
           if (mounted) onError(workspaceErrorKey(reason));
         });
     });
-    const resizeObserver = new ResizeObserver(() => {
+    const syncSize = () => {
       fit.fit();
       const attachmentId = attachmentRef.current;
       // Only a running Shell is told its size. Closing one reflows the panel (the confirm dialog
@@ -108,13 +109,18 @@ export function ShellSurface({ descriptor, isVisible, onDescriptor, onError }: S
           // A size the runtime did not take is not something the reader can act on: the next
           // frame it paints will be fitted again, and the terminal stays readable meanwhile.
         });
-    });
+    };
+    const resizeObserver = new ResizeObserver(syncSize);
+    // Attached once `syncSize` exists: swapping the renderer can change the computed rows and
+    // columns, and the Shell on the other end has already been told the pre-swap size.
+    const detachRenderer = attachAcceleratedRenderer(terminal, syncSize);
     resizeObserver.observe(host);
     return () => {
       mounted = false;
       resizeObserver.disconnect();
       themeObserver.disconnect();
       inputDisposable.dispose();
+      detachRenderer();
       terminal.dispose();
       terminalRef.current = null;
       fitRef.current = null;

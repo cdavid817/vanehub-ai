@@ -320,6 +320,18 @@ function dialogsDesktop(artifact) {
   });
 }
 
+// The confirmed deletion flow against the host's real Git: a worktree the user keeps stays, a
+// worktree the user explicitly removes is gone from disk and from `git worktree list` while its
+// branch survives. The Web/mock Playwright spec covers the dialog contract; this is the disk.
+function sessionDeletionDesktop(artifact) {
+  return runDesktopLayer({
+    layer: "desktop-session-deletion",
+    config: "tests/desktop/wdio.session-deletion.conf.mjs",
+    label: "Desktop session deletion",
+    artifact,
+  });
+}
+
 function cliManagementDesktop(artifact) {
   return runDesktopLayer({
     layer: "desktop-cli-management",
@@ -487,6 +499,7 @@ const fullSuiteLayers = [
   sessionWorkspaceDesktop,
   sessionShellDesktop,
   dialogsDesktop,
+  sessionDeletionDesktop,
   scheduledTasksDesktop,
   settingsPersistenceDesktop,
   agentMcpDesktop,
@@ -512,6 +525,7 @@ async function main() {
   else if (mode === "session-shell") await sessionShellDesktop();
   else if (mode === "ui-ratios") await uiRatiosDesktop();
   else if (mode === "dialogs") await dialogsDesktop();
+  else if (mode === "session-deletion") await sessionDeletionDesktop();
   else if (mode === "scheduled-tasks") await scheduledTasksDesktop();
   else if (mode === "settings-persistence") await settingsPersistenceDesktop();
   else if (mode === "cli-management") await cliManagementDesktop();

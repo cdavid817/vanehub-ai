@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent,
 import { Archive, CheckSquare, ChevronDown, ChevronRight, EllipsisVertical, FolderOpen, List, ListTree, Pin, Plus, Search, Trash2, UsersRound, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { AgentBrandIcon } from "../components/agent-brand-icon";
-import { ApplicationDialog } from "../components/ui/application-dialog";
 import { Button } from "../components/ui/button";
 import { getAgentVisualIdentity } from "../lib/agent-visual-identity";
 import { lifecycleDotClass, lifecycleLabelKey, lifecycleTone } from "../lib/session-lifecycle";
@@ -114,7 +113,6 @@ export function SessionSidebar({ activeSessionId, agentsAvailable, archivedSessi
   const [agentFilter, setAgentFilter] = useState<SessionAgentFilter>("all");
   const [batchMode, setBatchMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
-  const [confirmOpen, setConfirmOpen] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(readExpandedGroups);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const moreMenuRef = useRef<HTMLDivElement>(null);
@@ -182,13 +180,11 @@ export function SessionSidebar({ activeSessionId, agentsAvailable, archivedSessi
   const selectVisible = () => setSelectedIds(new Set(renderedSessions.map((session) => session.id)));
   const exitBatch = () => {
     setBatchMode(false);
-    setConfirmOpen(false);
     setSelectedIds(new Set());
   };
-  const confirmDelete = () => {
-    onBatchDelete(selectedSessions);
-    exitBatch();
-  };
+  // The confirmation is the shared deletion dialog. Selection is kept: sessions that were
+  // deleted drop out of the visible set (and so out of the selection), failed ones stay selected.
+  const requestBatchDelete = () => onBatchDelete(selectedSessions);
   function toggle(group: string) {
     setExpanded((current) => {
       const next = new Set(current);
@@ -270,7 +266,7 @@ export function SessionSidebar({ activeSessionId, agentsAvailable, archivedSessi
         <button className={cn("h-7 rounded text-xs", presentation === "project" ? "bg-background font-semibold text-primary" : "text-muted-foreground hover:bg-muted")} onClick={() => setPresentation("project")} type="button"><FolderOpen className="mr-1 inline h-3.5 w-3.5" />{t("layout.sessionViewProject")}</button>
       </div>
       <select aria-label={t("layout.agentFilter")} className="ucd-input mb-2 h-8 rounded-md px-2 text-xs" onChange={(event) => setAgentFilter(event.target.value as SessionAgentFilter)} value={agentFilter}>{sessionAgentFilters.map((filter) => <option key={filter} value={filter}>{t(`layout.agentFilter.${filter}`)}</option>)}</select>
-      {batchMode ? <div className="ucd-muted-panel mb-2 grid gap-2 rounded-md p-2"><div className="flex items-center justify-between text-xs text-muted-foreground"><span>{t("layout.batchSelectedCount", { count: selectedSessions.length })}</span><span>{renderedSessions.length}</span></div><div className="grid grid-cols-3 gap-1"><Button className="h-7 px-1 text-xs" disabled={renderedSessions.length === 0} onClick={selectVisible} size="sm" variant="outline">{t("layout.batchSelectVisible")}</Button><Button className="h-7 px-1 text-xs text-destructive" disabled={selectedSessions.length === 0 || deletingSessions} onClick={() => setConfirmOpen(true)} size="sm" variant="outline"><Trash2 aria-hidden="true" className="h-3.5 w-3.5" />{t("layout.batchDelete")}</Button><Button className="h-7 px-1 text-xs" onClick={exitBatch} size="sm" variant="outline"><X aria-hidden="true" className="h-3.5 w-3.5" />{t("layout.batchExit")}</Button></div></div> : null}
+      {batchMode ? <div className="ucd-muted-panel mb-2 grid gap-2 rounded-md p-2"><div className="flex items-center justify-between text-xs text-muted-foreground"><span>{t("layout.batchSelectedCount", { count: selectedSessions.length })}</span><span>{renderedSessions.length}</span></div><div className="grid grid-cols-3 gap-1"><Button className="h-7 px-1 text-xs" disabled={renderedSessions.length === 0} onClick={selectVisible} size="sm" variant="outline">{t("layout.batchSelectVisible")}</Button><Button className="h-7 px-1 text-xs text-destructive" disabled={selectedSessions.length === 0 || deletingSessions} onClick={requestBatchDelete} size="sm" variant="outline"><Trash2 aria-hidden="true" className="h-3.5 w-3.5" />{t("layout.batchDelete")}</Button><Button className="h-7 px-1 text-xs" onClick={exitBatch} size="sm" variant="outline"><X aria-hidden="true" className="h-3.5 w-3.5" />{t("layout.batchExit")}</Button></div></div> : null}
       <div className="-mx-1 min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-1">
         {searchQuery.trim() && presentation !== "project" ? <div className="grid gap-2"><div className="flex justify-between text-xs text-muted-foreground"><span>{t("layout.searchResults")}</span><span>{filteredSearchResults.length}</span></div>{filteredSearchResults.map((result) => <div className="grid gap-1" key={result.session.id}>{card(result.session)}<p className="truncate px-2 text-xs text-muted-foreground">{result.matches[0]?.excerpt}</p></div>)}{filteredSearchResults.length === 0 ? <p className="ucd-muted-panel rounded-md p-3 text-xs text-muted-foreground">{t("layout.noSearchResults")}</p> : null}</div> : null}
         {!searchQuery.trim() && pinned.length > 0 ? <section className="mb-3 grid gap-2 border-b border-border pb-3"><div className="flex justify-between text-xs text-muted-foreground"><span><Pin className="mr-1 inline h-3.5 w-3.5" />{t("layout.pinned")}</span><span>{pinned.length}</span></div>{pinned.map(card)}</section> : null}
@@ -278,23 +274,6 @@ export function SessionSidebar({ activeSessionId, agentsAvailable, archivedSessi
         {!searchQuery.trim() && presentation === "category" ? <div className="grid gap-2">{categoryGroups.map((group) => <section className="grid gap-2" data-session-category-id={group.id ?? "uncategorized"} key={group.id ?? "uncategorized"} onDragOver={(event) => { if (!batchMode) event.preventDefault(); }} onDrop={(event) => dropCategory(event, group.id)}><button className="ucd-list-row flex h-8 items-center gap-2 rounded-md px-2 text-left text-xs" onClick={() => toggle(`category:${group.id ?? "none"}`)} type="button">{expanded.has(`category:${group.id ?? "none"}`) ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}<ListTree className="h-3.5 w-3.5 text-primary" /><span className="truncate">{group.label}</span><span className="ml-auto">{group.sessions.length}</span></button>{expanded.has(`category:${group.id ?? "none"}`) ? group.sessions.map(card) : null}</section>)}</div> : null}
         {presentation === "project" ? <div className="grid gap-2">{projectGroups.map((group) => <section className="grid gap-2" key={group.id}><button className="ucd-list-row flex h-8 items-center gap-2 rounded-md px-2 text-left text-xs" onClick={() => toggle(group.id)} title={group.path ?? group.label} type="button">{expanded.has(group.id) ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}<FolderOpen className="h-3.5 w-3.5 text-primary" /><span className="truncate">{group.label}</span><span className="ml-auto">{group.sessions.length}</span></button>{expanded.has(group.id) ? group.sessions.map(card) : null}</section>)}{projectGroups.length === 0 ? <p className="ucd-muted-panel rounded-md p-3 text-xs text-muted-foreground">{searchQuery.trim() ? t("layout.noSearchResults") : sourceMode === "archived" ? t("layout.noArchived") : t("layout.noSessionsVisible")}</p> : null}</div> : null}
       </div>
-      {confirmOpen ? (
-        <ApplicationDialog
-          closeDisabled={deletingSessions}
-          description={t("layout.batchDeleteDescription", { count: selectedSessions.length })}
-          footer={(
-            <div className="grid grid-cols-2 gap-2">
-              <Button disabled={deletingSessions} onClick={() => setConfirmOpen(false)} size="sm" variant="outline">{t("layout.cancel")}</Button>
-              <Button className="bg-destructive text-destructive-foreground" data-dialog-autofocus disabled={deletingSessions} onClick={confirmDelete} size="sm">{t("layout.delete")}</Button>
-            </div>
-          )}
-          maxWidth="max-w-sm"
-          onClose={() => setConfirmOpen(false)}
-          title={t("layout.batchDeleteSessions")}
-        >
-          <p className="text-xs text-muted-foreground">{t("layout.batchDeleteHint")}</p>
-        </ApplicationDialog>
-      ) : null}
     </aside>
   );
 }

@@ -12,11 +12,27 @@ pub(crate) enum WorkspaceDomainError {
     HiddenWorkspacePath,
     WorkspacePathEscape,
     WorkspacePathOutsideRoot,
+    InvalidWorktreeResource,
+    UnknownWorktreeState,
+    InvalidWorktreeTransition {
+        from: &'static str,
+        to: &'static str,
+    },
 }
 
 impl fmt::Display for WorkspaceDomainError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::InvalidWorktreeResource => {
+                formatter.write_str("Managed worktree record is incomplete.")
+            }
+            Self::UnknownWorktreeState => formatter.write_str("Unknown managed worktree state."),
+            Self::InvalidWorktreeTransition { from, to } => {
+                write!(
+                    formatter,
+                    "Managed worktree cannot move from {from} to {to}."
+                )
+            }
             Self::ProjectPathRequired => formatter.write_str("Project path is required."),
             Self::RemoteWorkspaceIncomplete => {
                 formatter.write_str("Remote workspace requires host and path")

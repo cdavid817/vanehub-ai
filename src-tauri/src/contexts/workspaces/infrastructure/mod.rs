@@ -10,6 +10,7 @@ mod evaluation_fixture;
 mod filesystem;
 mod git;
 mod ignore_matcher;
+mod managed_worktree_repository;
 mod output_search;
 mod path_search;
 #[cfg(test)]
@@ -45,6 +46,11 @@ mod workspace_inspection_tests;
 mod workspace_invalidation;
 #[cfg(test)]
 mod workspace_invalidation_tests;
+#[cfg(test)]
+mod worktree_cleanup_tests;
+mod worktree_git_parsing;
+mod worktree_ignored_scan;
+mod worktree_probe;
 
 pub(crate) use evaluation_fixture::{
     changed_evaluation_paths, cleanup_evaluation_fixture, prepare_evaluation_fixture,
@@ -52,6 +58,10 @@ pub(crate) use evaluation_fixture::{
 };
 pub(crate) use filesystem::WorkspaceFilesystemAdapter;
 pub(crate) use git::WorkspaceGitAdapter;
+pub(crate) use managed_worktree_repository::{
+    apply_managed_worktree_schema, SqliteManagedWorktreeRepository, SqliteWorkspaceUseGate,
+    SystemWorktreeCleanupClock, UuidWorktreeIds,
+};
 pub(crate) use remote_helper::{
     RemoteWorkspaceInspectionProvider, SshRemoteHelperSession, SshRemoteProfileSource,
 };
@@ -74,3 +84,4 @@ pub(crate) use workspace_inspection::{
 pub(crate) use workspace_invalidation::{
     SystemWorkspaceChangeObserver, TauriWorkspaceInvalidationNotices, WorkspaceInvalidationPoller,
 };
+pub(crate) use worktree_probe::GitWorktreeProbe;

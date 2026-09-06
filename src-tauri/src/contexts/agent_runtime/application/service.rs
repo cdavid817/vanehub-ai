@@ -2341,6 +2341,13 @@ impl AgentRuntimeApplicationService {
             attributes: safe_attributes(root_attributes.clone()),
             links: Vec::new(),
         };
+        // The root owns every other span in the run and does no work of its own, so it can state
+        // its own kind. Without that it classified as `unknown` — the one span present in every
+        // single run, invisible to a reader filtering the timeline by kind.
+        root_attributes.push((
+            "vanehub.span.kind".to_string(),
+            SafeAttributeValue::String("container".to_string()),
+        ));
         let root_span = ExecutionSpan {
             context: root_context.clone(),
             parent_span_id: None,
@@ -2387,6 +2394,11 @@ impl AgentRuntimeApplicationService {
             started_at: self.ports.clock.now(),
             ended_at: None,
             error_classification: None,
+            // Deliberately declares no kind. Prompt assembly is local computation: it is not a
+            // model call, a tool, a process, or a container of other spans, and none of the
+            // remaining kinds describes it. `unknown` here means "the producer has nothing to
+            // assert", which is what that value is for — inventing `container` to avoid it would
+            // be the guess the classifier was built to eliminate.
             attributes: safe_attributes([(
                 "vanehub.stage".to_string(),
                 SafeAttributeValue::String("prompt_assembly".to_string()),

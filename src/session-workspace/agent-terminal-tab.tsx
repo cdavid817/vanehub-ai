@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal as XtermTerminal } from "@xterm/xterm";
+import { attachAcceleratedRenderer } from "./terminal-renderer";
 import "@xterm/xterm/css/xterm.css";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -125,6 +126,9 @@ export function AgentTerminalTab({ isVisible, session, sessionActivationKey }: {
     const resizeObserver = new ResizeObserver(() => {
       if (resizeFrame === 0) resizeFrame = requestAnimationFrame(syncSize);
     });
+    // Attached once `syncSize` exists: swapping the renderer can change the computed rows and
+    // columns, and the process on the other end has already been told the pre-swap size.
+    const detachRenderer = attachAcceleratedRenderer(terminal, syncSize);
     resizeObserver.observe(host);
     // The palette is applied by the settings provider as a root attribute; only the CLI palette
     // attribute matters here, the application theme never changes what xterm paints. Reassigning
@@ -202,6 +206,7 @@ export function AgentTerminalTab({ isVisible, session, sessionActivationKey }: {
       unsubscribe?.();
       if (outputFrame !== 0) cancelAnimationFrame(outputFrame);
       if (resizeFrame !== 0) cancelAnimationFrame(resizeFrame);
+      detachRenderer();
       terminal.dispose();
       assignTerminalId(null);
       terminalRef.current = null;

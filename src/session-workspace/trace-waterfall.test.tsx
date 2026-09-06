@@ -71,6 +71,7 @@ function timeline(spans: ExecutionSpanSummary[], events: ExecutionTimeline["even
     },
     spans,
     events,
+    eventCoverage: { truncated: false, nextPageToken: null },
   };
 }
 

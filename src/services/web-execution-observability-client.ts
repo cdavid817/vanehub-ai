@@ -1,6 +1,7 @@
 import {
   completeRunningTimelineFixture,
   resetExecutionTimelineFixtures,
+  WEB_EVENT_PAGE_TWO,
 } from "./web-execution-observability-fixtures";
 import type {
   ExecutionObservationCapability,
@@ -46,6 +47,10 @@ function cloneTimeline(timeline: ExecutionTimeline): ExecutionTimeline {
     run: { ...timeline.run },
     spans: timeline.spans.map((span) => ({ ...span, attributes: { ...span.attributes } })),
     events: timeline.events.map((event) => ({ ...event, attributes: { ...event.attributes } })),
+    // Copied, not hardcoded. Writing `truncated: false` here would silently override any fixture
+    // that reports a clipped list, making the truncation path unreachable from the browser build
+    // no matter what the fixtures say.
+    eventCoverage: { ...timeline.eventCoverage },
   };
 }
 
@@ -101,10 +106,33 @@ export const webExecutionObservabilityClient: ExecutionObservabilityService = {
     return { ...run };
   },
 
-  async getTimeline(runId) {
+  async getTimeline(runId, eventPageToken) {
     const timeline = timelines.find((item) => item.run.runId === runId);
     if (!timeline) throw new Error(`execution run not found: ${runId}`);
-    return cloneTimeline(timeline);
+    const page = cloneTimeline(timeline);
+    if (!eventPageToken) return page;
+    if (eventPageToken === WEB_EVENT_PAGE_TWO) {
+      // The tail of the one fixture that reports a clipped list. Complete coverage this time, so a
+      // reader who follows the continuation reaches the end and the notice stops claiming loss.
+      return {
+        ...page,
+        events: [
+          {
+            sequence: 2,
+            spanId: "00f067aa0ba902b7",
+            name: "process.exited",
+            timestamp: "2026-07-23T08:00:01.200Z",
+            attributes: { "process.exit.code": 0 },
+          },
+        ],
+        eventCoverage: { truncated: false, nextPageToken: null },
+      };
+    }
+    // A token this adapter never issued. Answer with the empty tail rather than page one, which
+    // would hand back the same events and let a paging loop run forever. Ignoring the argument
+    // entirely is worse still: TypeScript accepts a narrower implementation, so the divergence
+    // would never surface at a call site.
+    return { ...page, events: [], eventCoverage: { truncated: false, nextPageToken: null } };
   },
 
   async getObservationCapabilities() {

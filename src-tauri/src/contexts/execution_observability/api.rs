@@ -8,6 +8,7 @@ pub(crate) use super::domain::{
     ExecutionStatus, ExecutionTimeline, McpTransport, ObservabilitySettings, OtlpProtocol, Page,
     PageRequest, SafeAttributeValue, SafeAttributes, SpanId, TraceId,
 };
+use super::infrastructure::TIMELINE_EVENT_PAGE_SIZE;
 use std::sync::Arc;
 
 /// The published evidence surface.
@@ -178,6 +179,20 @@ impl ExecutionObservabilityApi {
         run_id: &ExecutionRunId,
     ) -> Result<Option<ExecutionTimeline>, ExecutionTelemetryError> {
         self.repository.timeline(run_id)
+    }
+
+    /// A timeline resuming after a previously reported event cursor.
+    ///
+    /// Separate entry point rather than an extra argument on `timeline`, so the many callers that
+    /// only ever want the first page are not made to pass `None` and invite the question of what
+    /// else they might pass.
+    pub(crate) fn timeline_from_event(
+        &self,
+        run_id: &ExecutionRunId,
+        event_page_token: Option<&str>,
+    ) -> Result<Option<ExecutionTimeline>, ExecutionTelemetryError> {
+        self.repository
+            .timeline_page(run_id, TIMELINE_EVENT_PAGE_SIZE, event_page_token)
     }
 }
 

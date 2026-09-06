@@ -1,5 +1,7 @@
 //! Canonical path boundaries for workspace-owned filesystem access.
 
+pub(crate) mod advisory_lock;
+
 use std::path::{Component, Path, PathBuf};
 use thiserror::Error;
 

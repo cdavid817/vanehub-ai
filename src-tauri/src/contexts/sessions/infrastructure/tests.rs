@@ -18,7 +18,7 @@ use crate::contexts::sessions::application::{
     SessionRepository, SessionSearchMatchKind, SessionSearchQuery, SessionSearchResult,
     SessionSshBinding, SessionTerminalEvidencePort, SessionTransactionPort,
     SessionUsageAccountingKind, SessionUsageRepository, SessionUsageUnit, SessionWorkspace,
-    SessionsApplicationError, TokenAccountingQueryPort, TokenAccountingRepository,
+    SessionsApplicationError, StreamTextField, TokenAccountingQueryPort, TokenAccountingRepository,
     UsageBreakdownDimension, UsageCursor, UsageCursorAdvance, UsageStatisticsRange,
     UsageSummaryQuery,
 };
@@ -51,6 +51,7 @@ mod legacy_usage_retirement;
 mod personalization_mode;
 mod recovery;
 mod search;
+mod streamed_append;
 mod terminal_evidence;
 mod usage_accounting;
 

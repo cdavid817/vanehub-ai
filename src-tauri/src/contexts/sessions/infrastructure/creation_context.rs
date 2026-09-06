@@ -167,8 +167,33 @@ impl SessionCreationContextPort for SessionCreationContextAdapter {
                 path: worktree.path,
                 name: worktree.name,
                 branch: worktree.branch,
+                worktree_id: worktree.worktree_id,
             })
             .map_err(workspace_error)
+    }
+
+    fn bind_worktree_session(
+        &self,
+        worktree_id: &str,
+        session_id: &str,
+    ) -> Result<(), SessionsApplicationError> {
+        self.workspaces
+            .confirm_worktree_created(worktree_id, session_id)
+            .map(|_| ())
+            .map_err(workspace_error)
+    }
+
+    fn ensure_workspace_admits_binding(&self, path: &str) -> Result<(), SessionsApplicationError> {
+        if self
+            .workspaces
+            .is_path_gated(path)
+            .map_err(workspace_error)?
+        {
+            return Err(SessionsApplicationError::Validation(
+                crate::contexts::sessions::application::deletion_error_code::GATE_HELD.to_string(),
+            ));
+        }
+        Ok(())
     }
 }
 

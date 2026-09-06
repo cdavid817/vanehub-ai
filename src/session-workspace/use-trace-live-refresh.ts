@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
 import type { TraceTransitionNotice } from "../types/trace-transition";
 
 /**
@@ -11,43 +12,58 @@ import type { TraceTransitionNotice } from "../types/trace-transition";
  */
 export const TRACE_REFRESH_WINDOW_MS = 400;
 
-export interface TraceLiveRefresh {
-  /** Bumped once per settled burst. A query keyed on it refetches; one that is not, does not. */
-  refreshToken: number;
-  /** Bumped when the run list itself should be re-read, which is rarer. */
-  runListToken: number;
-}
-
 /**
  * Turns a stream of transitions into an occasional refresh.
+ *
+ * Refreshes, and nothing else. It deliberately does not report "a newer run exists": a notice
+ * carries no session id and its run-list flag is set for finishes as well as starts, so anything
+ * derived from it here would announce a new run when the reader's own run merely ended, and
+ * announce one from a background session over a list that does not contain it. Whether a newer run
+ * exists is visible in the refreshed list itself, which is already scoped to the session.
  *
  * Only while the panel is visible. A hidden Traces tab that kept refetching would spend a
  * subscription and a query per transition on a view nobody is looking at — and the moment it
  * becomes visible it re-reads anyway, so nothing is gained by having kept up.
  *
- * Run transitions and span transitions are counted separately because they invalidate different
+ * Run transitions and span transitions are handled separately because they invalidate different
  * things. A span finishing changes the open timeline; it does not change the list of runs, and
  * re-reading that list once per span is how a busy run makes the whole panel unusable.
+ *
+ * A settled burst *invalidates* the affected queries rather than changing their keys. The two are
+ * not interchangeable: a new key is a different query with no data, so the run list forgets the
+ * pages it loaded, the selection correction sees an empty list and clears itself, and the viewport
+ * unmounts with the reader's zoom, filters and open drawer inside it. An invalidation refetches
+ * the same query and leaves all of that standing.
  */
 export function useTraceLiveRefresh({
   isVisible,
-  runId,
+  runIds,
+  sessionId,
   subscribe,
 }: {
   isVisible: boolean;
-  /** The run currently open. Transitions for other runs never touch the timeline token. */
-  runId: string | null;
+  /**
+   * Every run whose timeline is on screen — the selected one, and the compared one when open.
+   *
+   * A list rather than a single id because the comparison panel is a second open timeline. When it
+   * watched only the selected run, a comparison against a still-advancing run silently showed a
+   * snapshot from whenever it was opened, and nothing on screen said so.
+   */
+  runIds: readonly (string | null)[];
+  /** Scopes the run-list invalidation to the session whose list is on screen. */
+  sessionId: string | null;
   subscribe: ((listener: (notice: TraceTransitionNotice) => void) => () => void) | null;
-}): TraceLiveRefresh {
-  const [refreshToken, setRefreshToken] = useState(0);
-  const [runListToken, setRunListToken] = useState(0);
-  const pending = useRef<{ timeline: boolean; runList: boolean }>({
-    timeline: false,
+}) {
+  const queryClient = useQueryClient();
+  const pending = useRef<{ timelines: Set<string>; runList: boolean }>({
+    timelines: new Set(),
     runList: false,
   });
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const currentRunId = useRef(runId);
-  currentRunId.current = runId;
+  const watched = useRef<readonly (string | null)[]>(runIds);
+  watched.current = runIds;
+  const currentSessionId = useRef(sessionId);
+  currentSessionId.current = sessionId;
 
   useEffect(() => {
     if (!isVisible || !subscribe) return;
@@ -55,17 +71,25 @@ export function useTraceLiveRefresh({
     const flush = () => {
       timer.current = null;
       const owed = pending.current;
-      pending.current = { timeline: false, runList: false };
-      if (owed.timeline) setRefreshToken((token) => token + 1);
-      if (owed.runList) setRunListToken((token) => token + 1);
+      pending.current = { timelines: new Set(), runList: false };
+      for (const settledRunId of owed.timelines) {
+        void queryClient.invalidateQueries({
+          queryKey: ["execution-timeline", settledRunId],
+        });
+      }
+      if (owed.runList) {
+        void queryClient.invalidateQueries({
+          queryKey: ["execution-runs", currentSessionId.current],
+        });
+      }
     };
 
     const release = subscribe((notice) => {
       if (notice.affectsRunList) pending.current.runList = true;
-      // A span transition in another run changes nothing this view is showing. Refetching for it
-      // would make one busy background run keep a reader's open timeline in permanent motion.
-      if (notice.runId === currentRunId.current) pending.current.timeline = true;
-      if (!pending.current.timeline && !pending.current.runList) return;
+      // A span transition in a run nobody is looking at changes nothing on screen. Refetching for
+      // it would let one busy background run keep a reader's open timeline in permanent motion.
+      if (watched.current.includes(notice.runId)) pending.current.timelines.add(notice.runId);
+      if (!pending.current.timelines.size && !pending.current.runList) return;
       // Trailing rather than leading: the last transition in a burst is the one whose state the
       // refetch should return, and a leading edge would read the corpus as it was before the
       // burst started.
@@ -82,9 +106,8 @@ export function useTraceLiveRefresh({
       }
       // What was owed is dropped along with the subscription. Becoming visible again re-reads
       // from scratch, so carrying a stale debt across would only produce a duplicate read.
-      pending.current = { timeline: false, runList: false };
+      pending.current = { timelines: new Set(), runList: false };
     };
-  }, [isVisible, subscribe]);
+  }, [isVisible, queryClient, subscribe]);
 
-  return { refreshToken, runListToken };
 }

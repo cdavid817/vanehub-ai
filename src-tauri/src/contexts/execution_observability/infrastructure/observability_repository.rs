@@ -33,4 +33,18 @@ impl ExecutionObservabilityRepositoryPort for SqliteExecutionTimelineRepository 
     ) -> Result<Option<ExecutionTimeline>, ExecutionTelemetryError> {
         SqliteExecutionTimelineRepository::timeline(self, run_id)
     }
+
+    fn timeline_page(
+        &self,
+        run_id: &ExecutionRunId,
+        event_limit: usize,
+        event_page_token: Option<&str>,
+    ) -> Result<Option<ExecutionTimeline>, ExecutionTelemetryError> {
+        SqliteExecutionTimelineRepository::timeline_page(
+            self,
+            run_id,
+            event_limit,
+            event_page_token,
+        )
+    }
 }

@@ -89,8 +89,12 @@ export function canCreateSession({
   const port = Number(remotePort.trim() || "22");
   const remotePortValid = Number.isInteger(port) && port >= 1 && port <= 65535;
   const savedConnectionValid =
-    !saveSshConnection ||
-    sshConnectionSaveErrorKey(remoteUser, sshConnectionDraft) === null;
+    sshSaveBlockingErrorKey({
+      remoteUser,
+      saveSshConnection,
+      sshConnectionDraft,
+      workspaceMode,
+    }) === null;
   // A multi-Agent session needs at least two seats, each bound to an Agent; otherwise it is just
   // a single-Agent session wearing the wrong mode.
   const seatsReady =
@@ -171,9 +175,13 @@ export async function submitCreateSession({
       parsedRemotePort > 65535)
   )
     return;
-  const saveErrorKey = saveSshConnection
-    ? sshConnectionSaveErrorKey(remoteUser, sshConnectionDraft)
-    : null;
+  // The same rule the enable guard used. Two copies is how they came to disagree.
+  const saveErrorKey = sshSaveBlockingErrorKey({
+    remoteUser,
+    saveSshConnection,
+    sshConnectionDraft,
+    workspaceMode,
+  });
   if (saveErrorKey) {
     setError(t(saveErrorKey));
     return;
@@ -232,6 +240,32 @@ export async function submitCreateSession({
     setError(conciseError(createError, t));
     setLoading(false);
   }
+}
+
+/**
+ * Whether saving an SSH connection blocks this submission, for the workspace mode actually in use.
+ *
+ * The single rule both guards read. They used to compute it separately: the enable guard checked
+ * it only inside its remote branch, the submit guard checked `saveSshConnection` without checking
+ * the mode at all. A user who ticked "save" during an abandoned remote attempt and switched to a
+ * local project then got a live button whose click failed against a field the local form does not
+ * display — an error about a username on a form with no username on it.
+ *
+ * Keeping a draft is deliberate; letting an inactive mode's draft veto the active one is not.
+ */
+export function sshSaveBlockingErrorKey({
+  remoteUser,
+  saveSshConnection,
+  sshConnectionDraft,
+  workspaceMode,
+}: {
+  remoteUser: string;
+  saveSshConnection: boolean;
+  sshConnectionDraft: SaveSshConnectionInput;
+  workspaceMode: WorkspaceMode;
+}): string | null {
+  if (workspaceMode !== "remote" || !saveSshConnection) return null;
+  return sshConnectionSaveErrorKey(remoteUser, sshConnectionDraft);
 }
 
 export function sshConnectionSaveErrorKey(
