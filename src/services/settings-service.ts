@@ -1,5 +1,5 @@
 import { isSupportedAppLanguage } from "../i18n/supported-locales";
-import { appFontSizes, contextQualityRetentionDaysOptions, countCustomInstructionsCharacters, customInstructionsFieldCharacterLimit, logLevels, type AppFontSize, type AppLanguage, type AppSettingKey, type AppSettings, type ClientLogEvent, type ContextQualityRetentionDays, type DataManagementInfo, type DetectedNetworkProxy, type LoggingPolicy, type NetworkProxyTestResult, type NodeInfo } from "../types/settings";
+import { appFontSizes, cliTerminalThemes, contextQualityRetentionDaysOptions, countCustomInstructionsCharacters, customInstructionsFieldCharacterLimit, logLevels, type AppFontSize, type AppLanguage, type AppSettingKey, type AppSettings, type CliTerminalTheme, type ClientLogEvent, type ContextQualityRetentionDays, type DataManagementInfo, type DetectedNetworkProxy, type LoggingPolicy, type NetworkProxyTestResult, type NodeInfo } from "../types/settings";
 import { policyTemplateNames, type PolicyTemplateName } from "../types/permissions";
 import { defaultThemeId, isUcdThemeId } from "../theme/theme-registry";
 
@@ -11,6 +11,8 @@ export interface SettingsService {
   getDataManagementInfo(): Promise<DataManagementInfo>;
   openDatabaseDirectory(): Promise<void>;
   openLogDirectory(): Promise<void>;
+  /** Native directory picker. Resolves to `null` when the user cancels; rejects where no picker exists. */
+  pickDirectory(): Promise<string | null>;
   testNetworkProxy(input: { url: string; bypass: string }): Promise<NetworkProxyTestResult>;
   scanNetworkProxies(): Promise<DetectedNetworkProxy[]>;
   reportClientLogEvent(event: ClientLogEvent): Promise<void>;
@@ -34,6 +36,7 @@ export const defaultAppSettings: AppSettings = {
   applicationLanguage: "zh-CN",
   fontSize: "14px",
   theme: defaultThemeId,
+  cliTerminalTheme: "dark",
   defaultFolderPath: "",
   logDirectory: "",
   networkProxyUrl: "",
@@ -49,6 +52,7 @@ export const defaultAppSettings: AppSettings = {
   automaticContextCompactionEnabled: true,
   contextQualityRetentionDays: 30,
   personalizationRevision: 0,
+  launchOnStartupAvailable: false,
 };
 
 export function isAppLanguage(value: unknown): value is AppLanguage {
@@ -57,6 +61,10 @@ export function isAppLanguage(value: unknown): value is AppLanguage {
 
 export function isAppFontSize(value: unknown): value is AppFontSize {
   return typeof value === "string" && appFontSizes.includes(value as AppFontSize);
+}
+
+export function isCliTerminalTheme(value: unknown): value is CliTerminalTheme {
+  return typeof value === "string" && cliTerminalThemes.includes(value as CliTerminalTheme);
 }
 
 export function isPolicyTemplateName(value: unknown): value is PolicyTemplateName {
@@ -86,7 +94,7 @@ function normalizeLoggingPolicy(input: unknown): LoggingPolicy {
 
 // `personalizationRevision` is read-only: the native side reports it and no caller may set it, so
 // it is not an `AppSettingKey` and is admitted here separately.
-type AppSettingsInput = Partial<Record<AppSettingKey | "loggingPolicy" | "personalizationRevision", unknown>>;
+type AppSettingsInput = Partial<Record<AppSettingKey | "loggingPolicy" | "personalizationRevision" | "launchOnStartupAvailable", unknown>>;
 
 export function normalizeNetworkProxyBypass(value: string): string {
   return value
@@ -127,6 +135,7 @@ export function normalizeAppSettings(input: AppSettingsInput): AppSettings {
       : defaultAppSettings.applicationLanguage,
     fontSize: isAppFontSize(input.fontSize) ? input.fontSize : defaultAppSettings.fontSize,
     theme: isUcdThemeId(input.theme) ? input.theme : defaultAppSettings.theme,
+    cliTerminalTheme: isCliTerminalTheme(input.cliTerminalTheme) ? input.cliTerminalTheme : defaultAppSettings.cliTerminalTheme,
     defaultFolderPath:
       typeof input.defaultFolderPath === "string" ? input.defaultFolderPath : defaultAppSettings.defaultFolderPath,
     logDirectory: typeof input.logDirectory === "string" ? input.logDirectory : defaultAppSettings.logDirectory,
@@ -168,6 +177,7 @@ export function normalizeAppSettings(input: AppSettingsInput): AppSettings {
       typeof input.personalizationRevision === "number" && Number.isInteger(input.personalizationRevision) && input.personalizationRevision >= 0
         ? input.personalizationRevision
         : defaultAppSettings.personalizationRevision,
+    launchOnStartupAvailable: input.launchOnStartupAvailable === true,
   };
 }
 

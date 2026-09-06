@@ -217,6 +217,13 @@ pub(crate) fn spawn_detached(
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x0000_0008 | 0x0000_0200);
     }
+    // Same intent as DETACHED_PROCESS above: an IDE the user opened from here must outlive a
+    // terminal interrupt delivered to this application's own process group.
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
     command
         .spawn()
         .map(|_| ())
