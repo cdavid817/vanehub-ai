@@ -18,6 +18,9 @@ const run = promisify(execFile);
 // Chosen because its option values are literal and language-independent, so the assertion does not
 // move when the client's copy does.
 export const FONT_SIZE_TARGET = "18px";
+// Same reasoning: `light`/`dark` are the literal option values of the CLI session theme select,
+// and `light` differs from the native default so the round trip cannot pass by accident.
+export const CLI_TERMINAL_THEME_TARGET = "light";
 
 export async function waitForDesktopBootstrap() {
   const root = await globalThis.$("#root");

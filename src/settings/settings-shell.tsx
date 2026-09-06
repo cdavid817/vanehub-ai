@@ -68,7 +68,10 @@ export function SettingsShell({
               searchTerm: page.id === activePageId ? searchTerm : "",
             };
             return (
-              <div className="h-full overflow-y-auto" hidden={page.id !== activePageId} key={page.id}>
+              // `relative` is load-bearing: `sr-only` labels are absolutely positioned, and without a
+              // positioned scroll container their containing block is the body, so a label far down
+              // a long page escaped every overflow clip and let the whole window scroll off-screen.
+              <div className="relative h-full overflow-y-auto" hidden={page.id !== activePageId} key={page.id}>
                 <div className="mx-auto w-full max-w-[1680px] px-5 py-5 sm:px-6 lg:px-8 xl:px-10">
                   <LazyFeature componentProps={pageProps} loader={page.loader} />
                 </div>

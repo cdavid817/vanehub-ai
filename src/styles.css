@@ -123,6 +123,46 @@
   --terminal-ansi-bright-magenta: #d2a8ff;
   --terminal-ansi-bright-cyan: #56d4dd;
   --terminal-ansi-bright-white: #f0f6fc;
+  --terminal-selection-inactive: #1d3049;
+  --terminal-scrollbar-slider: #484f5880;
+  --terminal-scrollbar-slider-hover: #6e7681a6;
+  --terminal-scrollbar-slider-active: #8b949ecc;
+}
+
+/* The light CLI terminal palette. Scoped to the Agent terminal container rather than declared on
+   the root, so the `cliTerminalTheme` setting repaints single-Agent CLI sessions only: the ordinary
+   Shell and remote terminals keep the shared dark set above. Values are a light-background ANSI
+   set (readable yellow and white on near-white) with dark default text; the canvas stays opaque.
+   This block is the single source of the light colors; `terminal-theme.ts` reads them from the
+   container and carries only the dark fallbacks. */
+:root[data-cli-terminal-theme="light"] .ucd-agent-terminal {
+  --terminal-background: #ffffff;
+  --terminal-frame-border: #d0d7de;
+  --terminal-foreground: #1f2328;
+  --terminal-cursor: #0969da;
+  --terminal-selection: #b6d7ff;
+  --terminal-selection-foreground: #1f2328;
+  --terminal-selection-inactive: #dbe9fb;
+  --terminal-scrollbar-slider: #8c959f66;
+  --terminal-scrollbar-slider-hover: #6e778199;
+  --terminal-scrollbar-slider-active: #57606acc;
+  --terminal-ansi-black: #24292f;
+  --terminal-ansi-red: #cf222e;
+  --terminal-ansi-green: #116329;
+  --terminal-ansi-yellow: #7d4e00;
+  --terminal-ansi-blue: #0969da;
+  --terminal-ansi-magenta: #8250df;
+  --terminal-ansi-cyan: #1b7c83;
+  --terminal-ansi-white: #6e7781;
+  --terminal-ansi-bright-black: #57606a;
+  --terminal-ansi-bright-red: #a40e26;
+  --terminal-ansi-bright-green: #1a7f37;
+  --terminal-ansi-bright-yellow: #633c01;
+  --terminal-ansi-bright-blue: #218bff;
+  --terminal-ansi-bright-magenta: #a475f9;
+  --terminal-ansi-bright-cyan: #3192aa;
+  --terminal-ansi-bright-white: #8c959f;
+  box-shadow: inset 0 0 0 1px hsl(0 0% 0% / 0.04);
 }
 
 :root[data-theme="futuristic"] {
@@ -359,7 +399,11 @@ body.floating-assistant-surface {
   background: hsl(var(--panel-muted));
 }
 
-@media (max-width: 900px) {
+/* `width < 900px`, not `max-width: 900px`: the information panel leaves the grid through a
+   Tailwind `max-[900px]:` variant, which is strict. At exactly 900px the old inclusive query
+   dropped the third column while the panel was still in flow, so the grid wrapped it into a
+   second row and halved the height of the session list and the conversation. */
+@media (width < 900px) {
   .ucd-workspace-grid,
   .ucd-workspace-grid[data-info-collapsed="true"] {
     grid-template-columns: minmax(232px, min(var(--session-sidebar-width, 232px), 42vw)) minmax(0, 1fr);
@@ -371,7 +415,7 @@ body.floating-assistant-surface {
   }
 }
 
-@media (max-width: 640px) {
+@media (width < 640px) {
   .ucd-workspace-grid,
   .ucd-workspace-grid[data-info-collapsed="true"],
   .ucd-workspace-grid[data-session-collapsed="true"],
@@ -444,6 +488,23 @@ body.floating-assistant-surface {
      without touching the palette the TUIs depend on. */
   border: 1px solid var(--terminal-frame-border);
   box-shadow: inset 0 0 0 1px hsl(0 0% 100% / 0.04);
+}
+
+/* The inset lives on xterm's own element, not on the host: the fit addon subtracts the padding
+   of the element it was opened into, not its parent's, so host padding made it size one row too
+   many and the host's overflow clipped the bottom line of every full-screen TUI. */
+.ucd-agent-terminal > .xterm,
+.ucd-shell-terminal > .xterm {
+  padding: 8px;
+}
+
+/* xterm's stylesheet paints the viewport black, and the viewport is absolutely positioned over the
+   whole .xterm box, padding included; only the scrollable element inside it takes the theme
+   colour. In WebKitGTK that left a black ring around a light terminal. Painting the viewport from
+   the same variable closes the ring in both palettes. */
+.ucd-agent-terminal > .xterm .xterm-viewport,
+.ucd-shell-terminal > .xterm .xterm-viewport {
+  background-color: var(--terminal-background);
 }
 
 /* A horizontally scrolling strip whose overflow is otherwise indistinguishable from clipping:
