@@ -415,7 +415,12 @@ const SUBTREE_LINE_BUDGETS = Object.freeze([
   // 合并 main 后重测:本分支的 +57(执行链路的截断覆盖与分页适配)与 main 侧
   // add-session-worktree-cleanup 的 +658(会话删除服务边界)落在互不相交的文件上。按惯例在
   // 合并树上实测,不是 27462+658 也不是 28080+57——相加会把两边共有的基线算两遍。
-  { root: "src/services", budget: 28137, owner: "fix-session-creation-and-trace-correctness" },
+  //
+  // 28137 -> 28161(harden-session-workspace-tab-layouts,合并 main 后在合并树上实测):+24 是
+  // 设置服务的目录选择能力——`pickDirectory` 进入 `SettingsService` 接口、Tauri 侧走 dialog
+  // 插件、Web 侧以「仅桌面」原因拒绝——加上 `cliTerminalTheme` 的归一化与其单测。两者都是
+  // 桌面/Web 双实现必须同时补的接口,不是既有代码的复制。
+  { root: "src/services", budget: 28161, owner: "harden-session-workspace-tab-layouts" },
 ]);
 
 const STATE_PACKAGES = new Set([
