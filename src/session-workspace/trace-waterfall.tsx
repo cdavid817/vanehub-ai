@@ -106,15 +106,26 @@ export function TraceWaterfall({
           >
             <span>{t("traces.spanColumn")}</span>
             <div className="relative h-4">
-              {ticks.map((tick, index) => (
-                <span
-                  className="absolute -translate-x-1/2 tabular-nums"
-                  key={tick}
-                  style={{ insetInlineStart: `${(index / (ticks.length - 1)) * 100}%` }}
-                >
-                  {t("traces.axisTick", { offset: tick })}
-                </span>
-              ))}
+              {ticks.map((tick, index) => {
+                // Centring every tick puts half the last one past the right edge, where it has no
+                // room to lay out: an absolutely positioned box at `left: 100%` shrinks to its
+                // minimum content width and breaks "2400 ms" across two lines inside a 16px row.
+                // Shifting each label by its own position instead leaves the first flush left, the
+                // last flush right, and everything between centred as before.
+                const position = ticks.length > 1 ? index / (ticks.length - 1) : 0;
+                return (
+                  <span
+                    className="absolute whitespace-nowrap tabular-nums"
+                    key={tick}
+                    style={{
+                      insetInlineStart: `${position * 100}%`,
+                      transform: `translateX(-${position * 100}%)`,
+                    }}
+                  >
+                    {t("traces.axisTick", { offset: tick })}
+                  </span>
+                );
+              })}
             </div>
           </div>
           <MeasuredVirtualList
