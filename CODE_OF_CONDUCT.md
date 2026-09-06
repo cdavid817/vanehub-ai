@@ -12,7 +12,7 @@ Unacceptable behavior includes harassment, discriminatory language, personal att
 
 ## Enforcement
 
-Maintainers may edit, remove, reject, or temporarily or permanently ban contributions or interactions that violate this code. Report security-sensitive conduct privately through the repository's [security advisory channel](https://github.com/cdavid817/vanehub-ai/security/advisories/new); other conduct concerns may be reported privately to the repository owner through GitHub.
+Maintainers may edit, remove, reject, or temporarily or permanently ban contributions or interactions that violate this code. Report security-sensitive conduct privately through the repository's [security advisory channel](https://github.com/cdavid817/vanehub-ai/security/advisories/new); other conduct concerns may be reported privately to the repository owner via the contact options on their [GitHub profile](https://github.com/cdavid817). Reports are handled by the repository owner and kept confidential as far as practical.
 
 Maintainers will respect the privacy and safety of reporters as far as practical. Enforcement may range from a correction or warning to a temporary or permanent ban, based on impact and recurrence.
 

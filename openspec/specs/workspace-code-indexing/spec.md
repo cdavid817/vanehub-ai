@@ -1,7 +1,7 @@
 # workspace-code-indexing Specification
 
 ## Purpose
-TBD - created by archiving change workspace-code-indexing-foundation. Update Purpose after archive.
+Give each configured local workspace an opt-in, per-workspace persistent code index: files admitted under mandatory sensitive-path and user-controlled rules are parsed with Tree-sitter into bounded, redacted chunks with optional symbol metadata, kept current by metadata-first reconciliation, searchable through FTS immediately, and optionally enhanced with vector embeddings only after an explicit user confirmation bound to profile, model, and generation.
 ## Requirements
 ### Requirement: Code indexing is configured per workspace
 The system SHALL assign each configured local workspace a stable opaque id and SHALL persist independent enablement, selected relative roots, enabled languages, exclusion patterns, and maximum file size for that workspace. Indexing SHALL be disabled by default.

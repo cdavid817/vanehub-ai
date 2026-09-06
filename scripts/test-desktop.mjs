@@ -213,7 +213,11 @@ async function runDesktopLayer({
   }
   await disposeRunContext(context);
   const skipped = coverage?.skipped ? ` (${coverage.skipped} skipped — see BLOCKED above)` : "";
-  process.stdout.write(`${label}: ${status}${skipped}\nEvidence: ${context.resultDir}\n`);
+  // A green run with skipped scenarios is not full coverage. The exit code and the stored layer
+  // status stay unchanged (CI hosts legitimately lack credentials), but the human-facing summary
+  // must never say a bare PASSED when required scenarios were blocked on this host.
+  const reportedStatus = status === "PASSED" && coverage?.skipped ? "PASSED WITH BLOCKED" : status;
+  process.stdout.write(`${label}: ${reportedStatus}${skipped}\nEvidence: ${context.resultDir}\n`);
   process.exitCode = verificationExitCode(status);
   return { status, summaryPath, resultDir: context.resultDir };
 }
@@ -298,6 +302,18 @@ function dialogsDesktop(artifact) {
     layer: "desktop-dialogs",
     config: "tests/desktop/wdio.dialogs.conf.mjs",
     label: "Desktop dialogs",
+    artifact,
+  });
+}
+
+// The confirmed deletion flow against the host's real Git: a worktree the user keeps stays, a
+// worktree the user explicitly removes is gone from disk and from `git worktree list` while its
+// branch survives. The Web/mock Playwright spec covers the dialog contract; this is the disk.
+function sessionDeletionDesktop(artifact) {
+  return runDesktopLayer({
+    layer: "desktop-session-deletion",
+    config: "tests/desktop/wdio.session-deletion.conf.mjs",
+    label: "Desktop session deletion",
     artifact,
   });
 }
@@ -469,6 +485,7 @@ const fullSuiteLayers = [
   sessionWorkspaceDesktop,
   sessionShellDesktop,
   dialogsDesktop,
+  sessionDeletionDesktop,
   scheduledTasksDesktop,
   settingsPersistenceDesktop,
   agentMcpDesktop,
@@ -493,6 +510,7 @@ async function main() {
   else if (mode === "session-workspace") await sessionWorkspaceDesktop();
   else if (mode === "session-shell") await sessionShellDesktop();
   else if (mode === "dialogs") await dialogsDesktop();
+  else if (mode === "session-deletion") await sessionDeletionDesktop();
   else if (mode === "scheduled-tasks") await scheduledTasksDesktop();
   else if (mode === "settings-persistence") await settingsPersistenceDesktop();
   else if (mode === "cli-management") await cliManagementDesktop();

@@ -60,7 +60,7 @@ claim → reserve → commit → deliver → acknowledge → activate
 
 ## CLI 启动参数投影
 
-对于 `gemini-cli`、`codex-cli` 和 `opencode`,只要 Agent 的 Agent Terminal 以交互方式启动,Agent principal 所分配的策略模板(`readonly`、`standard`、`trusted` 或 `yolo`)就会被投影为该工具自身的 native 审批/沙箱启动参数。仅使用目录合法、不可绕过的参数值——不会引入任何原始的绕过 flag(例如名称中包含 "dangerously" 的 flag)来达成某个模板的行为。`trusted` 和 `yolo` 投影为相同的启动参数。
+对于 `claude-code`、`codex-cli`、`gemini-cli`、`opencode` 和 `antigravity-cli` 全部五个 CLI Agent(源码常量 `POLICY_TEMPLATE_GOVERNED_AGENT_IDS`),只要 Agent 的 Agent Terminal 以交互方式启动,Agent principal 所分配的策略模板(`readonly`、`standard`、`trusted` 或 `yolo`)就会被投影为该工具自身的 native 审批/沙箱启动参数。对 Claude Code,启动参数投影与下文的 `PreToolUse` hook 桥接是叠加的双层机制,而非二选一。仅使用目录合法、不可绕过的参数值——不会引入任何原始的绕过 flag(例如名称中包含 "dangerously" 的 flag)来达成某个模板的行为。`trusted` 和 `yolo` 投影为相同的启动参数。
 
 ## Claude Code permission-hook 桥接
 
@@ -123,7 +123,7 @@ stateDiagram-v2
 
 ### CLI 启动参数投影
 
-对 `gemini-cli`、`codex-cli` 与 `opencode`,当 Agent Terminal 以交互方式启动时,Agent principal 所分配的策略模板(`readonly`、`standard`、`trusted`、`yolo`)被投影为该 CLI 自身的 native 审批/沙箱启动参数。
+对 `claude-code`、`codex-cli`、`gemini-cli`、`opencode` 与 `antigravity-cli` 五个 CLI,当 Agent Terminal 以交互方式启动时,Agent principal 所分配的策略模板(`readonly`、`standard`、`trusted`、`yolo`)被投影为该 CLI 自身的 native 审批/沙箱启动参数。
 
 - **`readonly` / `standard` / `trusted` / `yolo`** 各自映射到一组目录合法、不可绕过的 native 参数,而非通过显示名称匹配行为。
 - **`trusted` 与 `yolo` 投影为相同参数** —— 两者在本基础版本中不产生差异化启动参数。

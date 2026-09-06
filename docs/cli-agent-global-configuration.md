@@ -15,7 +15,7 @@ VaneHub manages user-level provider profiles for all five external CLI Agents fr
 
 Claude Code and Codex keep many saved profiles but expose one globally applied profile. OpenCode keeps provider definitions additively and changes only its global default `provider/model` selection.
 
-**Third-party endpoints are not universally available.** Claude Code, Codex CLI, and OpenCode accept any compatible endpoint from the shared provider directory. Gemini CLI accepts a custom base URL but ships only the Google official preset. Antigravity CLI accepts no third-party endpoint and no credential field at all: it authenticates through the operating-system keyring with Google Sign-In, so its profile edits only the settings it does honor.
+**Third-party endpoints are not universally available.** Claude Code, Codex CLI, and OpenCode accept any compatible endpoint from the shared provider directory. Gemini CLI accepts a custom base URL but ships only the Google official preset. For Antigravity CLI, VaneHub currently manages no endpoint or credential field: its managed profile edits only model and approval-related settings, and Google Sign-In credentials live in the operating-system keyring owned by the CLI itself. This describes VaneHub's current management scope, not an upstream limitation — whether the Antigravity CLI itself accepts an API key or a custom endpoint is defined by its official documentation, and such settings can be configured in the CLI's own environment.
 
 ## Startup synchronization inspired by CC Switch
 

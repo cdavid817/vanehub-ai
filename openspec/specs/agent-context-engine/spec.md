@@ -1,7 +1,7 @@
 # agent-context-engine Specification
 
 ## Purpose
-TBD - created by archiving change unify-agent-context-engine. Update Purpose after archive.
+Assemble the evidence portion of an OnePiece generation's context deterministically: budget-bounded selection over retrieval, memory, and workspace sources, with per-generation evidence manifests that record what was offered and why, so context composition stays explainable and auditable.
 ## Requirements
 ### Requirement: Context planning is turn and budget aware
 Before a OnePiece provider request, the system SHALL derive a bounded retrieval plan from the user task, session project/worktree, selected model capacity, explicit references, current authoritative plan or task, and a versioned context-budget policy.

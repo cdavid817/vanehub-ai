@@ -1,8 +1,8 @@
 # AI 编码 CLI 参数完全参考
 
-> 本文是五种 AI 编码 CLI 的参数完全参考：Claude Code、OpenCode、Codex CLI、Antigravity CLI，以及已停服的 Gemini CLI（迁移附录）。逐一覆盖调用形态、会话管理、模型选择、权限与沙箱、输出格式、配置注入等参数族，并给出宿主（PTY 适配层）按统一任务模型向各 CLI 投影参数的映射矩阵。
+> 本文是五种 AI 编码 CLI 的参数完全参考：Claude Code、OpenCode、Codex CLI、Antigravity CLI，以及消费级路径已停止服务的 Gemini CLI（迁移附录；Standard/Enterprise 与 API Key/Vertex 属不同路径，见 §7）。逐一覆盖调用形态、会话管理、模型选择、权限与沙箱、输出格式、配置注入等参数族，并给出宿主（PTY 适配层）按统一任务模型向各 CLI 投影参数的映射矩阵。
 >
-> 版本基准（2026-08 核对）：Claude Code **v2.1.2xx**、OpenCode **1.14.x**、Codex CLI（当前发布线）、Antigravity CLI **v1.1.x**（`agy`，Gemini CLI 于 2026-06-18 停服后的官方接替者）。
+> 版本基准（2026-08 核对）：Claude Code **v2.1.2xx**、OpenCode **1.14.x**、Codex CLI（当前发布线）、Antigravity CLI **v1.1.x**（`agy`，Gemini CLI 消费级路径于 2026-06-18 停止服务后 Google 推荐的接替者）。
 >
 > ⚠️ **时效警告**：编码 CLI 是当前演进最快的软件品类，旗标每月都在增删改名；本表为宿主适配层的实现基准，接入前务必以各 CLI 当前安装版本的 `--help` 与官方文档为最终依据（注意：Claude Code 的 `--help` 不列出全部旗标——缺席不代表不可用）。
 
@@ -16,7 +16,7 @@
 | OpenCode | `opencode` | Anomaly（开源 MIT） | TUI + `run` 无头 + `serve` HTTP 服务端 + ACP | 客户端-服务端架构最清晰；provider 中立（多模型）；内建 LSP 自动加载 |
 | Codex CLI | `codex` | OpenAI | TUI + `exec` 无头 | 权限模型独树一帜：**OS 级强制沙箱**（Seatbelt / Landlock+seccomp）与审批策略双轴 |
 | Antigravity CLI | `agy` | Google | Go 闭源二进制，TUI + print | 2026-05 I/O 发布、6-18 接替 Gemini CLI；多模型自动路由；**功能尚未与旧 Gemini CLI 对齐**，缺口需宿主规避 |
-| Gemini CLI（遗留） | `gemini` | Google | Node 开源 | **2026-06-18 起对免费/Pro/Ultra 停服**——仅存迁移语义，见附录 §7 |
+| Gemini CLI（遗留） | `gemini` | Google | Node 开源 | **2026-06-18 起消费级（免费/Pro/Ultra）路径停止服务**；Standard/Enterprise 不受影响——本文仅存迁移语义，见附录 §7 |
 
 宿主视角的共同抽象：五者都收敛为「**一次性无头执行**（prompt 进、结果出）与**交互式 TUI 会话**（PTY 托管）两种形态 + **会话续接** + **权限档位** + **模型/配置注入**」——这也是本文各节的统一组织维度，§8 的参数投影矩阵按此映射。
 
@@ -219,7 +219,7 @@ network_access = true               # workspace-write 下显式开网
 
 ### 6.1 背景与迁移语义
 
-Google 于 2026-05 I/O 发布 Antigravity CLI，**6-18 停服 Gemini CLI**（免费/Pro/Ultra 全停，无宽限期——所有调用 `gemini` 的脚本当日即断）。`agy` 为 Go 编写的闭源二进制，定位从"单模型问答"升级为多 Agent 终端助手，但**发布时未与旧 CLI 功能对齐**——宿主适配要同时处理"继承"与"缺口"两面：
+Google 于 2026-05 I/O 发布 Antigravity CLI，**6-18 起停止 Gemini CLI 的消费级路径**（免费/Pro/Ultra 的 Login with Google 全停，无宽限期——依赖该认证路径调用 `gemini` 的脚本当日即断；Standard/Enterprise 与 API Key/Vertex 路径以 Google 官方说明为准）。`agy` 为 Go 编写的闭源二进制，定位从"单模型问答"升级为多 Agent 终端助手，但**发布时未与旧 CLI 功能对齐**——宿主适配要同时处理"继承"与"缺口"两面：
 
 **继承**（迁移友好面）：
 - 沿用 `~/.gemini` 主目录与 `~/.gemini/GEMINI.md` 全局指令——旧配置与约定直接生效
@@ -259,7 +259,7 @@ Google 于 2026-05 I/O 发布 Antigravity CLI，**6-18 停服 Gemini CLI**（免
 
 ## 7. 附录：Gemini CLI（遗留）
 
-仅为存量配置迁移保留语义（**2026-06-18 起停服**，调用即失败）：
+仅为存量配置迁移保留语义（消费级 Login with Google 路径 **2026-06-18 起停止服务**，该路径下调用即失败）：
 
 | 旧参数 | 说明 | agy 对应 |
 |--------|------|---------|
@@ -310,7 +310,7 @@ Google 于 2026-05 I/O 发布 Antigravity CLI，**6-18 停服 Gemini CLI**（免
 | CI 行为与本地不一致 | Codex | 本地 config.toml 渗入 | `--ignore-user-config`（必要时 `--ignore-rules`） |
 | `--yolo` 报错 | agy | 旧 Gemini 旗标不存在 | 改 `--dangerously-skip-permissions` |
 | 无头评审改了文件 | agy | `-p` 无只读档、自动批准写操作 | 不用 agy 做无头只读任务；外层只读隔离 |
-| `gemini` 命令全部失败 | Gemini CLI | 2026-06-18 停服 | 迁移 agy（§7 对照表） |
+| `gemini` 命令失败（消费级账号） | Gemini CLI | 消费级路径 2026-06-18 停止服务 | 迁移 agy（§7 对照表），或改用 API Key/Vertex 路径 |
 | 权限档表现与预期不符 | 全部 | 版本间旗标语义漂移 | 适配层按版本分支配置；升级后跑权限回归测试 |
 
 ---
@@ -320,5 +320,5 @@ Google 于 2026-05 I/O 发布 Antigravity CLI，**6-18 停服 Gemini CLI**（免
 - Claude Code：code.claude.com/docs → CLI reference（全旗标权威源）
 - OpenCode：opencode 官方 docs → CLI / Server / ACP 章节
 - Codex CLI：developers.openai.com/codex → Sandbox & approvals、Configuration Reference
-- Antigravity CLI：Google Developers Blog（Gemini CLI 停服公告）、官方 docs 与 github.com/google-antigravity/antigravity-cli issue 追踪（缺口现状的一手来源）
+- Antigravity CLI：Google Developers Blog（Gemini CLI 消费级路径停服公告）、官方 docs 与 github.com/google-antigravity/antigravity-cli issue 追踪（缺口现状的一手来源）
 - 本系列相关：MCP 篇（各 CLI 的 MCP 配置治理）、多 Agent 篇 §4（worktree 隔离）、OpenSpec 篇 §7（变更包作为跨 CLI 编排原语）、Function Calling 篇 §6（权限层 PDP/PEP 的上位设计）

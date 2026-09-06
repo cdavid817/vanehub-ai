@@ -60,7 +60,7 @@ Evaluation continues to fail closed, and now leaves attributed evidence: a stora
 
 ## CLI launch-flag projection
 
-For `gemini-cli`, `codex-cli`, and `opencode`, an Agent principal's assigned policy template (`readonly`, `standard`, `trusted`, or `yolo`) is projected into that tool's own native approval/sandbox launch parameters whenever its Agent Terminal starts interactively. Only catalog-legal, non-bypass parameter values are used — no raw bypass flag (e.g. one whose name contains "dangerously") is introduced to reach a template's behavior. `trusted` and `yolo` project to the same launch parameters.
+For all five CLI Agents — `claude-code`, `codex-cli`, `gemini-cli`, `opencode`, and `antigravity-cli` (the source constant `POLICY_TEMPLATE_GOVERNED_AGENT_IDS`) — an Agent principal's assigned policy template (`readonly`, `standard`, `trusted`, or `yolo`) is projected into that tool's own native approval/sandbox launch parameters whenever its Agent Terminal starts interactively. For Claude Code, launch-flag projection and the `PreToolUse` hook bridge below stack as two layers rather than being alternatives. Only catalog-legal, non-bypass parameter values are used — no raw bypass flag (e.g. one whose name contains "dangerously") is introduced to reach a template's behavior. `trusted` and `yolo` project to the same launch parameters.
 
 ## Claude Code permission-hook bridge
 
@@ -118,7 +118,7 @@ Only `Session`, `Project`, and `Global` persist a grant. `Once` never does.
 
 ### CLI launch-flag projection
 
-For `gemini-cli`, `codex-cli`, and `opencode`, the policy template assigned to the Agent principal (`readonly`, `standard`, `trusted`, `yolo`) is projected into that CLI's own native approval and sandbox launch parameters when the Agent Terminal starts interactively.
+For the five CLIs — `claude-code`, `codex-cli`, `gemini-cli`, `opencode`, and `antigravity-cli` — the policy template assigned to the Agent principal (`readonly`, `standard`, `trusted`, `yolo`) is projected into that CLI's own native approval and sandbox launch parameters when the Agent Terminal starts interactively.
 
 - **Each template maps to a set of catalog-legal, non-bypass native parameters** rather than matching behavior by display name.
 - **`trusted` and `yolo` project to identical parameters** — the two produce no differentiated launch parameters in this baseline.

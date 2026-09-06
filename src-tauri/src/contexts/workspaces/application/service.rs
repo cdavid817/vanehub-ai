@@ -1,5 +1,5 @@
 use super::{
-    CreatedWorktree, GitBranchReference, KnownProject, KnownRemoteWorkspace,
+    CreatedWorktree, GitBranchReference, KnownProject, KnownRemoteWorkspace, PlannedWorktree,
     ProjectDirectorySelectionPort, WorkspaceApplicationError, WorkspaceClockPort,
     WorkspaceFilesystemPort, WorkspaceGitPort, WorkspaceHistoryRepository,
 };
@@ -96,18 +96,41 @@ impl WorkspaceApplicationService {
         project_path: &str,
         name: &str,
     ) -> Result<CreatedWorktree, WorkspaceApplicationError> {
+        let plan = self.plan_worktree(project_path, name)?;
+        self.create_planned_worktree(&plan)
+    }
+
+    /// Validates the request and settles the target path without running Git, so a caller can
+    /// record its intent against the exact directory before the directory exists.
+    pub(crate) fn plan_worktree(
+        &self,
+        project_path: &str,
+        name: &str,
+    ) -> Result<PlannedWorktree, WorkspaceApplicationError> {
         let project = ProjectPath::parse(project_path.to_string())?;
         let name = WorktreeName::parse(name.to_string())?;
         let target = self
             .filesystem
             .sibling_worktree_target(project.as_str(), &name)?;
-        let branch = name.branch_name();
-        self.git
-            .create_worktree(project.as_str(), &target, &branch)?;
-        Ok(CreatedWorktree {
-            path: target,
+        Ok(PlannedWorktree {
+            project: project.as_str().to_string(),
+            target,
+            branch: name.branch_name(),
             name: name.as_str().to_string(),
-            branch,
+        })
+    }
+
+    pub(crate) fn create_planned_worktree(
+        &self,
+        plan: &PlannedWorktree,
+    ) -> Result<CreatedWorktree, WorkspaceApplicationError> {
+        self.git
+            .create_worktree(&plan.project, &plan.target, &plan.branch)?;
+        Ok(CreatedWorktree {
+            path: plan.target.clone(),
+            name: plan.name.clone(),
+            branch: plan.branch.clone(),
+            worktree_id: None,
         })
     }
 
@@ -136,6 +159,7 @@ impl WorkspaceApplicationService {
             path: target,
             name: name.as_str().to_string(),
             branch,
+            worktree_id: None,
         })
     }
 }

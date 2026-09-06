@@ -1,6 +1,6 @@
 # Quick Start
 
-Five minutes from nothing to your first Agent run. If a CLI is already installed, start at step 2.
+The shortest path from nothing to your first Agent run. If a CLI is already installed, start at step 2.
 
 ## 1. Prepare a CLI
 

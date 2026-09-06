@@ -236,6 +236,30 @@ npx playwright show-trace test-results\<failing-spec-directory>\trace.zip
 - **codex-cli 的 `workspace-write` 沙箱在受限非特权用户命名空间的机器上起不来**(`kernel.apparmor_restrict_unprivileged_userns=1`,Ubuntu 24.04+ 的默认值):bwrap 报 `loopback: Failed RTM_NEWADDR: Operation not permitted`,而 `standard` 与 `trusted` 都把 codex 映射到 `workspace-write`,因此在这类宿主上没有任何可分配的模板能让 codex 席位写文件——而且是静默的。在这个缺口有诊断之前,把 codex 安排在只需说话的位置。
 - **CLI 全局配置属于正常的用户状态,绝不能从测试里泄漏出去**。给 claude-code 分配模板会把 permission hook 装进 `~/.claude/settings.json`;曾有一次 e2e 运行写进了用户的真实文件,那个 hook 活得比测试应用还久,导致之后每一次工具调用都被一个已死的审批服务器挡住。现在 `VANEHUB_CLI_CONFIG_HOME`(由 `NativeCliGlobalConfigAdapter` 支持,桌面运行上下文提供)像 `VANEHUB_APP_DATA_DIR` 隔离数据库那样隔离这些写入。
 
+## 原生协调器：协议回合驱动器
+
+`NativeSeatTurnCoordinator`（`src-tauri/src/contexts/agent_runtime/infrastructure/seat_turn_coordinator.rs`）是串行驱动回合的那个线程。它的准确定位是**协议协调器 / 回合驱动器,而不是智能 supervisor**——它只做六件事:等待当前席位终态、调用确定性规则决定下一步、把目标加入 `VecDeque` 队列、从队头取出一个 `SeatTurnAssignment`、启动目标席位、重复直到等待用户/完成/无目标/边界终止或失败。它**不**用模型拆解任务、不重新判断哪个专家合适、不改写交接内容、不汇总多个产出、也不作为隐藏 Agent 发言。
+
+一次派发的形状(`application/seat_turn.rs` 的 `SeatTurnAssignment`):`source`、`seat_id`、`seat_index`、`depth`、`round_id`、`parent_execution_run_id`。首个回合 `depth = 1`,后续交接保留同一 `round_id`、深度加一,`parent_execution_run_id` 指向上一回合的执行记录。
+
+几条已核实的运行语义:
+
+- **单会话单 Driver**——协调器持有 `running: HashSet<String>`,`insert` 失败即不再为同一会话启动第二个驱动线程,避免同一终态被处理两次、同一目标被重复启动或队列分叉。
+- **FIFO 是顺序任务队列,不是并行分支**——一条回复最多两个目标时,第二个席位在第一个**完成之后**才启动,因此能读到第一个席位新写入的消息。刻意串行的理由是 coding 场景的真实状态依赖:实现者与审查者同时启动会让审查读不到最终产出、文件仍在变化、两个 CLI 同时改同一 worktree。
+- **转移回合的终止放弃队列**——决策落在 `AwaitingHuman` 或 `RoundComplete` 时,仍在排队的席位不再启动(注释原话:回合已经转走,继续执行等候席位就是在一个已被移交的线程上发言)。
+- **离场席位在下一次决策解析不到**——交接目标按决策时的当前花名册解析,已离场席位的句柄落空;未寻址消息回退到首个席位(桌面套件的"席位离场后的回退"用例覆盖)。
+- **启动失败即判 Round 失败**——`start_seat_turn` 出错走 `fail_seat_round`,不静默吞掉。
+- **超时边界**——`TURN_TIMEOUT = 30 分钟`(单席位回合等待上限)、`POLL_INTERVAL = 200ms`(终态轮询)。超时的语义是**释放卡住的 Round Driver**:`await_terminal` 返回空、驱动线程退出;它**不**保证底层 CLI 进程被终止、不把当前 assistant 消息标记为失败、也不主动提示用户。
+
+### 已知可靠性边界
+
+以下是当前实现的真实缺口,改造属于架构变更,应从 OpenSpec proposal 开始:
+
+- **队列只在内存**——`VecDeque` 是驱动线程内状态,应用崩溃或退出时未执行的 Assignment 不会恢复;
+- **没有持久化的 Round checkpoint**——当前 Round 状态、待执行队列、最后处理的终态、等待用户的问题与恢复目标都不落盘;
+- **没有 Assignment/终态幂等键**——任何未来的恢复/重放类改造都必须先补上,否则重放会导致重复启动;
+- **超时后的进程终止、错误标记与用户提示**仍需与 Agent 生命周期机制协同(见上一节超时语义)。
+
 ## 为什么没有 orchestrator
 
 群聊是刻意去中心化的:规范中「不提供派发控制」这条需求把路由交给 Agent 与提及,协调由协议承载——行首 `@` 交接、两次提及与深度 15 的上界,以及三种 `@用户` 意图。`seat_turn_coordinator` 是基础设施(串行驱动回合的那个线程),`loop_orchestrator` 属于 Loop 运行时——两者都不是 orchestrator 席位。
@@ -281,6 +305,7 @@ npx playwright show-trace test-results\<failing-spec-directory>\trace.zip
 | 交接解析(五道防线) | `src-tauri/src/contexts/agent_runtime/domain/seat_turn.rs:139-183` |
 | 链式深度限制 | `seat_turn.rs:190-205`(`next_turn_targets`) |
 | 链式限制常量 | `src-tauri/src/contexts/agent_runtime/application/seat_turn.rs:29-30` |
+| 原生协调器(回合驱动、超时与单 Driver 守卫) | `src-tauri/src/contexts/agent_runtime/infrastructure/seat_turn_coordinator.rs` |
 | 交回人类 | `seat_turn.rs:212-229`(解析)、`:233-251`(效果) |
 | 用户提及字面量 | 原生 `seat_turn.rs:42`;前端 `src/services/human-handoff.ts:10` |
 | 席位简报生成 | `seat_roster.rs:146-199`(`build_seat_briefing`) |

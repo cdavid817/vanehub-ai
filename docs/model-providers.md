@@ -55,7 +55,7 @@ VaneHub AI 内置 **25 家模型提供商**的配置模板。选一家、填 API
 
 同时提供两三种协议的（OpenRouter、DeepSeek、百炼、火山方舟、Fireworks、小米 MiMo 等），三个 CLI 都能配。
 
-> **Gemini CLI 与 Antigravity CLI 不在此列**。Gemini CLI 的端点可以改，但目录里只有 Google 官方预设；Antigravity CLI 只接受 Google 登录，不收任何第三方端点。
+> **Gemini CLI 与 Antigravity CLI 不在此列**。Gemini CLI 的端点可以改，但目录里只有 Google 官方预设；Antigravity CLI 的端点与密钥字段 **VaneHub 当前未纳管**——其 CLI 官方支持 Google 登录之外的 API Key 与兼容端点，需在 CLI 自身环境中按官方方式配置。
 
 ## 分类
 

@@ -23,6 +23,7 @@ If you're new to this codebase, read these in order before anything else — the
 
 | Chapter | What it covers |
 | --- | --- |
+| [Single-Agent governance: the five control planes](single-agent-control-planes.md) | The analytical model unifying the five CLIs and OnePiece, the three execution paths, configuration effectivity rules |
 | [Agent lifecycle and provider runtime](agent-lifecycle.md) | Registered Agent edits, stable provider resolution, capability declarations |
 | [OnePiece native Agent](onepiece-native-agent.md) | Built-in API Agent identity, Profile lifecycle, provider directory |
 | [OnePiece built-in tools](onepiece-builtin-tools.md) | Release gates, dependencies, and rollback triggers for the extended native toolset |
@@ -41,11 +42,24 @@ If you're new to this codebase, read these in order before anything else — the
 
 | Chapter | What it covers |
 | --- | --- |
-| [Context compaction](context-compaction.md) | The token-aware trigger and character fallback, summarization compaction, cooldown and circuit breaking |
-| [Cross-session memory](cross-session-memory.md) | Host-level shared pool, per-record scope and audience, provenance metadata, OnePiece tool vs CLI auto-extraction |
-| [Retrieval and vector search](retrieval.md) | Host-level shared memory pool, workspace code index, graceful degradation |
-| [Tree-sitter code indexing](tree-sitter-code-indexing.md) | Grammar parsing, bounded chunks, symbol metadata, grammar version, redaction |
-| [LSP code intelligence](lsp-code-intelligence.md) | In-session LSP integration, workspace trust, and capability negotiation |
+| [Context compaction](context-compaction.md) | The token-aware trigger and character fallback, optimizer-first classification and low-cost reductions, on-demand structured summarization, post-verification and the compatibility fallback, cooldown and circuit breaking |
+| [Cross-session memory](cross-session-memory.md) | The host-level shared pool, scope and audience, the candidate review lifecycle, the two read boundaries of injection versus recall, the four production paths |
+| [Retrieval and vector search](retrieval.md) | Memory recall and workspace code search as two independent chains, sequential two-path RRF fusion, background reconciliation, degradation and logging boundaries |
+| [Tree-sitter code indexing](tree-sitter-code-indexing.md) | The local and semantic pipelines, file admission, error-tolerant parsing, chunks with optional symbols, redaction, embedding confirmation |
+| [LSP code intelligence](lsp-code-intelligence.md) | The registry-driven support matrix, process and protocol lifecycle, read-only tools, workspace trust and supply-chain limitations |
+
+Tree-sitter code indexing and LSP solve different problems; their responsibilities compare as follows (details in each chapter):
+
+| Dimension | Tree-sitter code indexing (`search_code`) | LSP code intelligence |
+| --- | --- | --- |
+| Main purpose | Text or semantic search over workspace code chunks | Definitions/references/types/hover/diagnostics at precise positions |
+| External process dependency | No (parsers are built in) | Yes (third-party language-server child processes) |
+| Persistent index | Yes (per-workspace manifests, chunks, FTS, optional vectors) | No (ephemeral processes, document leases, diagnostic caches) |
+| Offline capability | Local mode is fully offline; only the semantic channel needs vector embeddings | Not applicable (no search; the server itself runs locally) |
+| Cross-file semantics | Syntax-structure level, no type resolution | Compiler/language-server-grade cross-file semantics |
+| Workspace requirements | Local workspace with per-workspace index enablement | Local workspace with explicit workspace trust |
+| Security boundary | Unredacted chunks never enter the index/embedding/logs/results | Read-only tool catalog + workspace filtering; the server remains an unsandboxed third-party process |
+| Degradation | Missing vectors fall back to FTS (local mode is not degraded); failures soften to "temporarily unavailable" | Per-method capability negotiation; failures soften to warming/timeout/unavailable |
 
 ## Tools and extensions
 
@@ -90,18 +104,17 @@ These live outside the guide's chapter list but are part of the repository's doc
 
 | Document | What it covers |
 | --- | --- |
-| [CLI Agent global configuration](../../cli-agent-global-configuration.md) | User-level provider profiles for all five CLI Agents, and why saving one never changes the active Agent or Session |
-| [Built-in model provider catalog](../../model-providers.md) (Simplified Chinese) | Endpoint protocols, default models, and credential storage for 25 providers |
+| [CLI Agent global configuration](../../cli-agent-global-configuration.md) | User-level provider profiles for all five CLI Agents, how VaneHub AI writes each CLI's own global configuration, how tests isolate it, and why saving one profile never changes the active Agent or Session |
+| [Built-in model provider catalog](../../model-providers.md) (Simplified Chinese) | Endpoint protocols, default models, and credential storage for the built-in provider catalog |
 | [Agent infrastructure technical documentation](../../agent-infrastructure/README.md) (Simplified Chinese) | MCP, LSP, Function Calling, RAG, and other **protocols and technologies themselves** — not VaneHub AI's implementation of them |
 | [Native build performance](../../build-performance.md) | Platform linker requirements, release-profile behavior, and measured build evidence |
 | [Release signing](../../release-signing.md) | The signing and verification chain for published artifacts |
 | [Desktop release verification](../../desktop-release-verification.md) | The per-platform verification procedure a desktop release must pass before publication |
 | [Runtime performance budgets](../../runtime-performance-budgets.md) | The declared runtime budgets and how a regression against them is reported |
-| [CLI Agent global configuration](../../cli-agent-global-configuration.md) | How VaneHub AI writes each CLI's own global configuration, and how tests isolate it |
 
-### Provider SDK
+### The internal provider adapter contract (provider-sdk/)
 
-The provider SDK documents live under `docs/provider-sdk/` and are the contract a third-party provider plugin implements. `openspec/specs/provider-plugin-sdk` requires them to exist at that location.
+`docs/provider-sdk/` describes the internal Rust provider adapter contract inside the `agent_runtime` context: providers are **statically compiled** into `ProviderRegistry` and integrated at build time under code review. External package discovery, dynamic loading, third-party plugin installation, and a plugin marketplace are **not delivered** (the contract document states they are outside this SDK version). `openspec/specs/provider-plugin-sdk` requires these documents to exist at that location; the directory keeps its historical provider-sdk name, which does not imply a shipped third-party plugin SDK.
 
 | Document | What it covers |
 | --- | --- |
@@ -109,7 +122,7 @@ The provider SDK documents live under `docs/provider-sdk/` and are the contract 
 | [Manifest](../../provider-sdk/manifest.md) | The manifest schema, its required fields, and version compatibility |
 | [Example provider](../../provider-sdk/example-provider.md) | A test-only reference implementation walked end to end |
 | [Conformance testing](../../provider-sdk/conformance-testing.md) | The conformance workflow a provider runs before submission |
-| [Security rules](../../provider-sdk/security-rules.md) | The restrictions a provider plugin operates under |
+| [Security rules](../../provider-sdk/security-rules.md) | The restrictions a provider adapter operates under |
 
 ### Point-in-time surveys
 
@@ -121,6 +134,6 @@ The provider SDK documents live under `docs/provider-sdk/` and are the contract 
 
 ## Documentation status
 
-This guide documents the `main` branch architecture. A feature is not considered user-delivered merely because a service or native command exists; a user-visible path and its verification evidence must also exist.
+This guide documents the architecture of the **currently checked-out revision** and evolves with the repository (the published site reflects the revision it was built from). A feature is not considered user-delivered merely because a service or native command exists; a user-visible path and its verification evidence must also exist.
 
 The map in [Native bounded contexts](native-contexts.md) is enforced against `src-tauri/src/contexts/` by `npm run docs:links:check`: adding a context without adding its row to the map fails validation.

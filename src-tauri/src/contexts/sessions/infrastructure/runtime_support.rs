@@ -262,7 +262,27 @@ impl AgentSessionRuntimeAdapter {
         Ok(())
     }
 
-    fn published_agent_runtime(&self) -> Result<AgentRuntimeApi, SessionsApplicationError> {
+    pub(super) fn workspaces(&self) -> &WorkspaceApi {
+        &self.workspaces
+    }
+
+    /// Every Loop run's recorded worktree path, keyed by run id. Session deletion counts these
+    /// as references so an ordinary session can never remove a directory a Loop still owns.
+    pub(super) fn loop_worktree_paths(
+        &self,
+    ) -> Result<Vec<(String, String)>, SessionsApplicationError> {
+        let runtime = self.published_agent_runtime()?;
+        Ok(runtime
+            .list_loop_runs(None)
+            .map_err(agent_runtime_error)?
+            .into_iter()
+            .filter_map(|run| run.worktree_path.map(|path| (run.id, path)))
+            .collect())
+    }
+
+    pub(super) fn published_agent_runtime(
+        &self,
+    ) -> Result<AgentRuntimeApi, SessionsApplicationError> {
         self.agent_runtime
             .read()
             .map_err(|error| SessionsApplicationError::Runtime(error.to_string()))

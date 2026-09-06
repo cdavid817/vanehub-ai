@@ -1,7 +1,7 @@
 # agent-context-compaction Specification
 
 ## Purpose
-TBD - created by archiving change add-agent-context-compaction. Update Purpose after archive.
+Keep an OnePiece API generation's conversation context within model capacity without losing task-critical information. When the authoritative trigger fires, the runtime first attempts provider-neutral context optimization (classified snapshot, ordered low-cost reductions, structured summarization only when needed, post-optimization verification) and falls back to the pre-optimizer summary-only compaction when any optimizer stage fails; a failed compaction never blocks the generation.
 ## Requirements
 ### Requirement: Summarization compaction
 When the authoritative automatic compaction trigger is eligible and no compaction control suppresses it, the system SHALL first attempt provider-neutral context optimization using the classified snapshot, ordered low-cost reductions, structured summarization only when needed, and post-optimization verification. The existing summary-only behavior SHALL remain available as a compatibility fallback, and the most recent required context SHALL remain unchanged.

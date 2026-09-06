@@ -16,7 +16,19 @@ const AGENT_TERMINAL_IDLE_TIMEOUT_SECONDS: i64 = 2 * 60 * 60;
 /// 桌面端Tauri应用启动入口（当前包内可见）
 pub(crate) fn run() {
     // 1. 构建Tauri应用实例，配置各类插件、生命周期、事件、命令
-    let builder = tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // Registered ahead of every other plugin so a duplicate launch short-circuits before it starts
+    // assembling a runtime it is about to abandon. Close-to-tray makes this the ordinary path
+    // rather than an edge case: a user who believes VaneHub is closed clicks the icon again, and
+    // without the guard that opens a second process against the same SQLite profile.
+    let builder = if guards_duplicate_launches() {
+        builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            restore_main_window_for_duplicate_launch(app);
+        }))
+    } else {
+        builder
+    };
+    let builder = builder
         .register_uri_scheme_protocol("vanehub-capture", |context, request| {
             crate::bootstrap::screenshot_capture::protocol_response(
                 context.app_handle(),
@@ -149,6 +161,55 @@ pub(crate) fn run() {
     }
 }
 
+/// Whether this build arbitrates duplicate desktop launches. Release builds do; nothing else does.
+///
+/// The guard keys its lock on the bundle identifier alone, and every build of this application
+/// shares `ai.vanehub.app` — `tauri.sidecar.conf.json` overrides only `bundle.externalBin`. So a
+/// developer with the installed application open would have `npm run tauri:dev` raise the
+/// installed window and then silently exit during plugin setup, before any logging adapter exists
+/// to say why; the desktop test client, which `test-desktop.mjs` builds with `tauri build --debug`,
+/// would fail the same way with a WebDriver connection error that names nothing about instance
+/// locking. Two worktrees running dev builds in parallel would collide with each other.
+///
+/// Keying the exemption on `debug_assertions` rather than the `desktop-e2e` feature covers the dev
+/// build and the test client under one rule. The cost is that the guard is only exercised by a
+/// release build, which is stated rather than worked around.
+pub(crate) const fn guards_duplicate_launches() -> bool {
+    !cfg!(debug_assertions)
+}
+
+/// Surfaces the already-running instance when a second launch is requested.
+///
+/// All three calls are made rather than one: a duplicate launch can arrive while the window is
+/// hidden in the tray, minimized, or merely behind another window, and no single call covers all
+/// three states. Each is reported separately, because a window that showed but could not take
+/// focus is a different failure from one that never appeared.
+fn restore_main_window_for_duplicate_launch(app: &tauri::AppHandle) {
+    let Some(window) = app.get_webview_window("main") else {
+        write_bootstrap_log(
+            &logging::fallback_log_dir(),
+            LogSeverity::Warn,
+            "runtime.duplicate-launch",
+            "A duplicate launch arrived while the main window was unavailable",
+        );
+        return;
+    };
+    for (step, outcome) in [
+        ("show", window.show()),
+        ("unminimize", window.unminimize()),
+        ("focus", window.set_focus()),
+    ] {
+        if let Err(error) = outcome {
+            write_bootstrap_log(
+                &logging::fallback_log_dir(),
+                LogSeverity::Warn,
+                "runtime.duplicate-launch",
+                &format!("Could not {step} the main window for a duplicate launch: {error}"),
+            );
+        }
+    }
+}
+
 fn show_main_window_after_page_load(webview: &tauri::Webview, payload: &PageLoadPayload<'_>) {
     if webview.label() != "main" || payload.event() != PageLoadEvent::Finished {
         return;
@@ -176,7 +237,11 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     };
     std::env::set_var("VANEHUB_APP_DATA_DIR", &data_dir);
     let fallback_log_directory = logging::fallback_log_dir();
-    let database = NativeDatabase::new(data_dir).map_err(boxed_error)?;
+    let database = NativeDatabase::new(data_dir.clone()).map_err(boxed_error)?;
+    // This process's provable identity, held for its whole life. Taken right after the database
+    // because every cross-instance claim recorded there names it.
+    let instance_lease = crate::platform::instance_lease::InstanceLease::acquire(&data_dir)
+        .map_err(|rejection| boxed_message(format!("instance lease unavailable: {rejection:?}")))?;
     #[cfg(feature = "desktop-e2e")]
     write_desktop_e2e_process_marker("running").map_err(boxed_error)?;
     let evidence_logging: Arc<dyn DiagnosticLogPort> = Arc::new(UnifiedLoggingAdapter::active(
@@ -366,6 +431,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         fallback_log_directory.clone(),
         Arc::new(evidence_bridge.clone()),
         ssh_connections_api.clone(),
+        instance_lease.clone(),
     );
     let native_config_reader = Arc::new(NativeConfigReader::new(Arc::new(
         UnifiedLoggingAdapter::active(fallback_log_directory.clone()),
@@ -376,6 +442,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
             app: app.handle().clone(),
             operations: operations_api.clone(),
             workspaces: workspace_api.clone(),
+            lease: instance_lease.clone(),
         },
         cli_parameter_runtime_api.clone(),
         native_config_reader,
@@ -533,6 +600,30 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     session_recovery
         .run_startup_with_retry(100)
         .map_err(boxed_message)?;
+    // Shells consult sessions before opening in a session a deletion holds.
+    workspace_api.bind_execution_admission(Arc::new(super::SessionExecutionAdmissionBridge(
+        sessions_api.clone(),
+    )));
+    // Interrupted deletions are observed, never replayed. Observation asks Git about each
+    // interrupted directory, so it runs off the startup path; the sessions involved stay claimed
+    // in the journal until it finishes, which is what keeps new work out of them meanwhile.
+    {
+        let sessions_api = sessions_api.clone();
+        let log_directory = fallback_log_directory.clone();
+        let _ = std::thread::Builder::new()
+            .name("session-deletion-reconcile".to_string())
+            .spawn(move || {
+                if let Err(error) = sessions_api.reconcile_pending_deletions() {
+                    let logging = UnifiedLoggingAdapter::active(log_directory);
+                    let _ = logging.write_diagnostic(DiagnosticLog {
+                        severity: LogSeverity::Warn,
+                        category: "session.delete".to_string(),
+                        message: format!("Deletion reconciliation failed at startup: {error}"),
+                        context: std::collections::BTreeMap::new(),
+                    });
+                }
+            });
+    }
     let agent_run_controls_api =
         super::AgentRunControlsApi::new(agent_runs_api.clone(), agent_runtime_api.clone());
     agent_runtime_api

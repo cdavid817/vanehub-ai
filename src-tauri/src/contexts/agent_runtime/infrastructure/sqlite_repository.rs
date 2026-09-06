@@ -10,10 +10,15 @@ use crate::contexts::agent_runtime::domain::{
     AgentWorkflow, AvailabilityAssessment, InteractionMode, LaunchMetadata,
 };
 use crate::platform::database::{NativeDatabase, PooledSqlite};
-use rusqlite::{params, Connection, OptionalExtension, Row};
+use rusqlite::{params, Connection, OptionalExtension, Row, TransactionBehavior};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+/// Every write transaction below begins `IMMEDIATE`. Each reads before it writes (a guard query,
+/// then the update), and a deferred transaction that upgrades to a write after another
+/// connection has committed gets `SQLITE_BUSY` at once rather than waiting out the busy timeout.
+/// The Windows desktop smoke run hit exactly that on the provider-profile save, racing the
+/// log-index writer that runs behind every log line during startup.
 #[derive(Clone)]
 pub(crate) struct SqliteAgentRuntimeRepository {
     database: NativeDatabase,
@@ -386,7 +391,9 @@ impl ApiAgentGateway for SqliteAgentRuntimeRepository {
 
     fn delete(&self, agent_id: &str) -> Result<(), AgentRuntimeApplicationError> {
         let mut connection = self.connection()?;
-        let transaction = connection.transaction().map_err(registry_error)?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(registry_error)?;
         let existing_origin: Option<String> = transaction
             .query_row(
                 "SELECT agent_origin FROM agents WHERE id = ?1 AND launch_kind = 'api'",
@@ -582,7 +589,9 @@ impl ApiAgentGateway for SqliteAgentRuntimeRepository {
         profile: &StoredOnePieceProviderProfile,
     ) -> Result<StoredOnePieceProviderProfile, AgentRuntimeApplicationError> {
         let mut connection = self.connection()?;
-        let transaction = connection.transaction().map_err(registry_error)?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(registry_error)?;
         let valid_agent: i64 = transaction
             .query_row("SELECT COUNT(*) FROM agents WHERE id = 'onepiece' AND launch_kind = 'api' AND agent_origin = 'builtin'", [], |row| row.get(0))
             .map_err(registry_error)?;
@@ -625,7 +634,9 @@ impl ApiAgentGateway for SqliteAgentRuntimeRepository {
         profile_id: &str,
     ) -> Result<StoredOnePieceProviderProfile, AgentRuntimeApplicationError> {
         let mut connection = self.connection()?;
-        let transaction = connection.transaction().map_err(registry_error)?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(registry_error)?;
         let mut profile = transaction
             .query_row(
                 "SELECT id, name, source_preset_id, source_provider_id, source_endpoint_type, source_preset_version, provider, model_id, interface_format, base_url, active FROM onepiece_provider_profiles WHERE agent_id = 'onepiece' AND id = ?1",
@@ -660,7 +671,9 @@ impl ApiAgentGateway for SqliteAgentRuntimeRepository {
         profile_id: &str,
     ) -> Result<bool, AgentRuntimeApplicationError> {
         let mut connection = self.connection()?;
-        let transaction = connection.transaction().map_err(registry_error)?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(registry_error)?;
         let active = transaction
             .query_row("SELECT active FROM onepiece_provider_profiles WHERE agent_id = 'onepiece' AND id = ?1", [profile_id], |row| row.get::<_, bool>(0))
             .optional()
@@ -822,7 +835,9 @@ impl ApiAgentGateway for SqliteAgentRuntimeRepository {
         rules: &[StoredHybridRoutingRule],
     ) -> Result<(), AgentRuntimeApplicationError> {
         let mut connection = self.connection()?;
-        let transaction = connection.transaction().map_err(registry_error)?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(registry_error)?;
         transaction
             .execute(
                 "DELETE FROM hybrid_model_routing_rules WHERE agent_id = 'onepiece'",

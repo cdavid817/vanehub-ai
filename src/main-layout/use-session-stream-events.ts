@@ -4,6 +4,7 @@ import { applyChatEvents } from "../services/chat-events";
 import { agentService } from "../services/runtime-agent-client";
 import type { TurnStatusEvent } from "../services/turn-status";
 import type { ChatMessage, ChatStreamEvent } from "../types/chat";
+import { createStreamRenderPacer } from "../hooks/stream-render-pacing";
 
 function partitionChatEventsByKnownMessages(
   messages: readonly ChatMessage[],
@@ -21,7 +22,7 @@ function partitionChatEventsByKnownMessages(
 
 /**
  * The active session's chat-event subscription: buffers the token firehose into one array
- * rebuild per animation frame, keeps the turn-status bar immediate, and — because stream events
+ * rebuild per render interval, keeps the turn-status bar immediate, and — because stream events
  * can only mutate rows the cache already holds — refetches the message list whenever events
  * target a message this client has never seen (a programmatic send through the service
  * boundary, an IM-originated message, or a seat turn dispatched by the multi-agent
@@ -49,10 +50,9 @@ export function useSessionStreamEvents({
     if (!sessionId) return;
     let cleanup: (() => void) | null = null;
     let cancelled = false;
-    // Token events arrive in the thousands per turn; buffer them and flush on an animation
-    // frame so the message array is rebuilt once per frame instead of once per token.
+    // Token events arrive in the thousands per turn; buffer them and flush on a paced interval so
+    // the message array is rebuilt a few times a second instead of once per token.
     let pending: ChatStreamEvent[] = [];
-    let frame = 0;
     // Events for a message the cache has never seen cannot create rows, so the list has to be
     // refetched; the flag collapses a burst into one refetch.
     let refreshingUnknown = false;
@@ -83,7 +83,6 @@ export function useSessionStreamEvents({
       });
     };
     const flush = () => {
-      frame = 0;
       if (pending.length === 0) return;
       const batch = pending;
       pending = [];
@@ -93,6 +92,7 @@ export function useSessionStreamEvents({
       deferredUnknown.push(...partitioned.unknown);
       reconcileUnknown();
     };
+    const pacer = createStreamRenderPacer(flush);
     void agentService.subscribeMessageEvents(sessionId, (event) => {
       if (event.type === "turn_status") {
         // turn_status is session-scoped, not message-scoped, and drives the waiting bar; it
@@ -109,15 +109,14 @@ export function useSessionStreamEvents({
       if (["completed", "failed", "cancelled"].includes(event.type)) {
         invalidateSessionsRef.current();
         // Flush the buffered tokens now so the terminal message lands with the status change.
-        if (frame !== 0) { cancelAnimationFrame(frame); frame = 0; }
-        flush();
-      } else if (frame === 0) {
-        frame = requestAnimationFrame(flush);
+        pacer.flushNow();
+      } else {
+        pacer.schedule();
       }
     }).then((unsubscribe) => { if (cancelled) unsubscribe(); else cleanup = unsubscribe; });
     return () => {
       cancelled = true;
-      if (frame !== 0) cancelAnimationFrame(frame);
+      pacer.cancel();
       if (reconcileTimer !== 0) window.clearTimeout(reconcileTimer);
       cleanup?.();
     };

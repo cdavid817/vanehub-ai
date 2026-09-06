@@ -133,6 +133,15 @@ sequenceDiagram
 
 工具循环是多轮的:模型返回 `tool_use` → 运行时解析工具名、查目录(固定工具 / Skill 工具 / MCP 工具)→ 执行 → 回填 `tool_result` → 模型继续,直到模型返回不带工具调用的终态响应。`finish_api_invocation` 在完成时上报用量(有 `ReportedUsageTotals` 写 `reported`+`tokens`,否则写 `estimated`+`characters`,两者绝不混加)。OnePiece 的工具调用是原生保真度,可在执行链路中逐层展开——这是它相对外部 CLI(黑盒)的可观测性优势。
 
+## 已核实的生成完整性差距（待 OpenSpec 变更处理）
+
+以下现状已逐条对源码核实，改造由 `openspec/changes/harden-onepiece-generation-runtime/` 提案承载——落地前本节即现状：
+
+- **没有整体的不可变生成快照**——生成输入由多个独立注入的端口在调用时拼装（`api_process_adapter` 多处 `too_many_arguments` 豁免），个性化快照之外的配置在一轮中途可被后续步骤观察到。
+- **检索证据拼进用户 prompt**——选中的证据以 `<context-evidence>` 块追加到 `effective_prompt`（`generation.rs`），不可信内容与用户原文混在同一条消息里。
+- **证据预算固定 32 768**——不随激活模型的实际容量推导（见[上下文压缩](context-compaction.md)的字段归属一节）。
+- **效果性工具调用没有持久化日志**——崩溃后无法区分"没执行过"与"执行了但结局未知"，重放有重复副作用风险；观测 Span 是记录不是恢复协议。
+
 ## 设计所在
 
 本章用于为贡献者定向。权威需求——稳定身份、注册表植入、预留 id 冲突处理、Profile 生命周期以及 provider-directory 契约——位于 spec 中。

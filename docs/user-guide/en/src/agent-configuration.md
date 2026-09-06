@@ -168,9 +168,9 @@ The built-in catalog holds **25 providers** (official Anthropic and OpenAI, plus
 | **Codex CLI** | Supported | `~/.codex/config.toml` (`auth.json` needs a separate confirmation) | provider id, endpoint, model, protocol (Responses/Chat), reasoning effort |
 | **OpenCode** | Supported | `~/.config/opencode/opencode.json` | provider definition, endpoint, npm adapter package, model list and default model |
 | **Gemini CLI** | The endpoint can be changed, but the catalog only ships Google's official preset | `~/.gemini/.env` | Endpoint, model, authentication mode |
-| **Antigravity CLI** | **Not supported** | `~/.gemini/antigravity-cli/settings.json` | Model, tool approval mode, verbosity, terminal sandbox |
+| **Antigravity CLI** | **Not yet managed by VaneHub** | `~/.gemini/antigravity-cli/settings.json` | Model, tool approval mode, verbosity, terminal sandbox |
 
-> **Antigravity CLI does not accept a custom endpoint.** It only goes through Google sign-in, with credentials stored in the system keychain — the configuration panel has no endpoint or key field at all. What you can adjust is the model and approval behavior.
+> **VaneHub does not yet manage Antigravity's endpoint and key fields**: its configuration panel carries neither, and what you can adjust is the model and approval behavior; Google sign-in credentials are stored by the CLI itself in the system keychain. This describes VaneHub's current management scope, not an upstream limitation — the Antigravity CLI itself supports API keys and compatible endpoints per its official documentation, configurable in the CLI's own environment.
 
 Claude Code and Codex are **exclusive mode**: many configurations can be saved, but only one is "applied" at any given moment. OpenCode is **additive mode**: provider definitions are kept stacked, and switching only changes the global default `provider/model`.
 
