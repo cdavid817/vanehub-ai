@@ -3742,6 +3742,20 @@
         "agent-run-state-management",
         "chat-experience"
       ]
+    },
+    {
+      "archivedOn": "2026-09-06",
+      "changeName": "fix-session-creation-and-trace-correctness",
+      "path": "openspec/changes/archive/2026-09-06-fix-session-creation-and-trace-correctness/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "agent-execution-observability",
+        "session-management"
+      ]
     }
   ]
 }

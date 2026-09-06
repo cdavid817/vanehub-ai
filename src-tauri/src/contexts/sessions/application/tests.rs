@@ -816,6 +816,12 @@ impl SessionFileContentPort for FakeFiles {
 #[derive(Default)]
 struct FakeOperations {
     events: Mutex<Vec<String>>,
+    /// Makes `complete_session_creation` fail, standing in for a store that rejects the write.
+    ///
+    /// Injected rather than reasoned about: the failure path here decides whether an already
+    /// persisted session ends up behind an operation that never finishes, and that outcome is
+    /// unreachable in a test that only ever sees the write succeed.
+    completion_fails: AtomicBool,
 }
 
 impl SessionOperationPort for FakeOperations {
@@ -853,6 +859,11 @@ impl SessionOperationPort for FakeOperations {
             .lock()
             .expect("operation events")
             .push(format!("complete:{operation_id}:{}", session.id()));
+        if self.completion_fails.load(Ordering::SeqCst) {
+            return Err(SessionsApplicationError::Validation(
+                "operation store unavailable".to_string(),
+            ));
+        }
         Ok(())
     }
 
@@ -1655,6 +1666,106 @@ fn failed_creation_records_one_operation_failure_and_diagnostic() {
     assert_eq!(
         fixture.logging.entries.lock().expect("log entries")[0].category,
         "session.create"
+    );
+}
+
+/// A creation whose bookkeeping fails must not lose the session or the failure.
+///
+/// The session is already persisted by this point. Discarding the completion result left it behind
+/// an operation that never finished: a client polling that operation waits forever, and the only
+/// move it has left is to create the session again — which makes a second one.
+#[test]
+fn a_failed_operation_completion_is_recorded_rather_than_discarded() {
+    let fixture = fixture();
+    fixture
+        .operations
+        .completion_fails
+        .store(true, Ordering::SeqCst);
+    let prepared = fixture
+        .service
+        .prepare_new_session_creation(NewSessionRequest {
+            personalization_mode: None,
+            agent_id: "codex-cli".to_string(),
+            seats: Vec::new(),
+            interaction_mode: "interactive".to_string(),
+            title: None,
+            workspace: NewSessionWorkspace::default(),
+            owner: SessionOwner::desktop(),
+            activation: SessionActivation::Activate,
+        })
+        .expect("prepare creation");
+
+    // The session is still delivered: it exists, and withholding it would turn a recoverable
+    // bookkeeping failure into a lost one.
+    let session = fixture
+        .service
+        .execute_new_session_creation(prepared)
+        .expect("the session is returned even though its operation could not be completed");
+
+    let logs = fixture.logging.entries.lock().expect("log entries");
+    let recorded = logs
+        .iter()
+        .find(|entry| entry.message.contains("could not be completed"))
+        .expect("the completion failure is recorded");
+    // Reconcilable by id rather than guessed at.
+    assert_eq!(recorded.session_id.as_deref(), Some(session.id()));
+    assert_eq!(
+        recorded.operation_id.as_deref(),
+        Some("operation-session-1")
+    );
+    assert_eq!(recorded.category, "session.create");
+
+    // Driven to a terminal state rather than left running. A client polling a never-finishing
+    // operation waits out its own timeout and then reports a generic failure -- at which point
+    // creating the session again is the obvious move, and the second one is exactly what this
+    // change exists to prevent.
+    let events = fixture.operations.events.lock().expect("operation events");
+    let failure = events
+        .iter()
+        .find(|event| event.starts_with("fail:operation-session-1:"))
+        .expect("the operation is failed rather than left running");
+    assert!(
+        failure.contains(session.id()),
+        "the failure must name the session that does exist: {failure}"
+    );
+}
+
+/// A failed completion leaves exactly one session behind.
+///
+/// The other half of the idempotence claim, and the half that lives here: `operations` guarantees
+/// that completing twice settles once, and this guarantees the creation path does not respond to a
+/// completion failure by making another session. Runs through the real service rather than the
+/// operations double, so a creation path that retried itself would show up as a second row.
+#[test]
+fn a_failed_completion_leaves_exactly_one_session() {
+    let fixture = fixture();
+    fixture
+        .operations
+        .completion_fails
+        .store(true, Ordering::SeqCst);
+    let prepared = fixture
+        .service
+        .prepare_new_session_creation(NewSessionRequest {
+            personalization_mode: None,
+            agent_id: "codex-cli".to_string(),
+            seats: Vec::new(),
+            interaction_mode: "interactive".to_string(),
+            title: None,
+            workspace: NewSessionWorkspace::default(),
+            owner: SessionOwner::desktop(),
+            activation: SessionActivation::Activate,
+        })
+        .expect("prepare creation");
+
+    fixture
+        .service
+        .execute_new_session_creation(prepared)
+        .expect("the session is returned despite the bookkeeping failure");
+
+    assert_eq!(
+        fixture.store.sessions.lock().expect("sessions").len(),
+        1,
+        "a completion failure must not be recovered by creating a second session"
     );
 }
 

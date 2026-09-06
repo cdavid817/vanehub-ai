@@ -32,11 +32,52 @@ export interface TraceTimeScale {
   zoom: number;
 }
 
+/**
+ * What a bar's width means.
+ *
+ * Three values rather than a boolean, because an absent duration has two different causes that a
+ * reader must not confuse. The native projection omits a duration when the span is still going —
+ * and also when it ended but its timestamps could not be subtracted. Collapsing those into one
+ * flag reports a failed span as running work.
+ */
+export type SpanBarMeasurement =
+  /** The span ended and its duration was derived from its own timestamps. */
+  | "measured"
+  /** The span has not ended. The bar runs to the axis end because where it stops has not happened. */
+  | "running"
+  /** The span ended, but no duration could be derived. The bar is bounded and says nothing more. */
+  | "unknown";
+
 /** Where one span's bar sits, or why it has none. */
 export type SpanBarPlacement =
-  | { kind: "placed"; leftPx: number; widthPx: number; openEnded: boolean }
+  | { kind: "placed"; leftPx: number; widthPx: number; measurement: SpanBarMeasurement }
   /** The span carries no offset, so nothing here can say where it belongs. */
   | { kind: "unplaceable" };
+
+/**
+ * The statuses that mean the work stopped.
+ *
+ * `incomplete` belongs here: it says the work ended without a verified result, which is a
+ * different thing from still producing one.
+ */
+const TERMINAL_STATUSES: ReadonlySet<ExecutionSpanSummary["status"]> = new Set([
+  "succeeded",
+  "failed",
+  "cancelled",
+  "incomplete",
+]);
+
+/**
+ * What can be said about one span's duration.
+ *
+ * Exported and shared so the bar, the label, and the detail surface cannot disagree. They render
+ * the same fact three ways, and the defect this replaces was each of them deriving it separately
+ * from the one input that cannot distinguish the cases.
+ */
+export function spanMeasurement(span: ExecutionSpanSummary): SpanBarMeasurement {
+  if (span.completedDurationMs !== undefined) return "measured";
+  return TERMINAL_STATUSES.has(span.status) ? "unknown" : "running";
+}
 
 /**
  * Builds a scale from the run's own span set.
@@ -70,9 +111,10 @@ export function traceTimeScale(
 /**
  * Places one span, or refuses to.
  *
- * `openEnded` is the running case: the bar starts where the span started and is drawn as
- * continuing rather than ending, because where it ends has not happened yet. A view renders that
- * differently — a fade, a stripe — but never as a bar with a right edge, which would be a claim.
+ * The measurement travels with the placement rather than being inferred from the width, so a
+ * renderer cannot accidentally draw a definite end on a span that has none — or an open end on one
+ * that stopped. Which of those applies is decided from status and duration together, because
+ * duration alone cannot tell "not finished" from "finished, not measurable".
  */
 export function placeSpanBar(
   span: ExecutionSpanSummary,
@@ -83,23 +125,27 @@ export function placeSpanBar(
 
   const pxPerMs = scale.contentWidthPx / scale.totalMs;
   const leftPx = offset * pxPerMs;
-  const duration = span.completedDurationMs;
-  if (duration === undefined) {
+  const measurement = spanMeasurement(span);
+  if (measurement === "running") {
     // Runs to the end of the axis, and says so. The width is a placeholder for "still going", not
-    // a measurement — which is why the flag travels with it rather than being inferred from the
-    // number by whoever renders it.
+    // a measurement.
     return {
       kind: "placed",
       leftPx,
       widthPx: Math.max(MIN_BAR_WIDTH_PX, scale.contentWidthPx - leftPx),
-      openEnded: true,
+      measurement,
     };
+  }
+  if (measurement === "unknown") {
+    // Bounded at the minimum width: the span stopped, so the bar must not run to the edge, but no
+    // length here would be a measurement anybody made. The flag is what carries the meaning.
+    return { kind: "placed", leftPx, widthPx: MIN_BAR_WIDTH_PX, measurement };
   }
   return {
     kind: "placed",
     leftPx,
-    widthPx: Math.max(MIN_BAR_WIDTH_PX, duration * pxPerMs),
-    openEnded: false,
+    widthPx: Math.max(MIN_BAR_WIDTH_PX, (span.completedDurationMs ?? 0) * pxPerMs),
+    measurement,
   };
 }
 

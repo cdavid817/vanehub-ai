@@ -49,6 +49,7 @@ function timeline(
     },
     spans,
     events: [],
+    eventCoverage: { truncated: false, nextPageToken: null },
   };
 }
 

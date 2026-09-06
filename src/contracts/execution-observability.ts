@@ -93,10 +93,17 @@ export interface ExecutionEvent {
   attributes: Record<string, SafeAttribute>;
 }
 
+/** Whether a timeline returned every event its run recorded. */
+export interface ExecutionEventCoverage {
+  truncated: boolean;
+  nextPageToken?: string | null;
+}
+
 export interface ExecutionTimeline {
   run: ExecutionRunSummary;
   spans: ExecutionSpanSummary[];
   events: ExecutionEvent[];
+  eventCoverage: ExecutionEventCoverage;
 }
 
 export interface PageRequest {

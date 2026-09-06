@@ -95,4 +95,15 @@ pub(crate) trait ExecutionObservabilityRepositoryPort: Send + Sync {
         &self,
         run_id: &ExecutionRunId,
     ) -> Result<Option<ExecutionTimeline>, ExecutionTelemetryError>;
+
+    /// A timeline whose event list is bounded and resumable.
+    ///
+    /// The bound is a parameter so a caller can say what it can render, and so a test can exercise
+    /// the paging without writing enough rows to reach the production bound.
+    fn timeline_page(
+        &self,
+        run_id: &ExecutionRunId,
+        event_limit: usize,
+        event_page_token: Option<&str>,
+    ) -> Result<Option<ExecutionTimeline>, ExecutionTelemetryError>;
 }

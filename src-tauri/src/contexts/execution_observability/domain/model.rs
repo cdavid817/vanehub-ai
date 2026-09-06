@@ -13,6 +13,24 @@ pub(crate) enum ExecutionStatus {
 }
 
 impl ExecutionStatus {
+    /// Every status, so code that must reason about all of them has one place to read them from.
+    ///
+    /// Hand-written, because Rust cannot iterate an enum's variants. Kept adjacent to the
+    /// definition so the two are edited together, and its length is part of the type — but be
+    /// clear about the limit: no test here can prove a new variant was added to this list, since
+    /// anything iterating `ALL` never visits what `ALL` omits. What the tests below do pin is that
+    /// the list has no duplicates and that both sides of the terminal split stay populated.
+    ///
+    /// **Adding a variant means adding it here too.** The compiler will not say so.
+    pub(crate) const ALL: [Self; 6] = [
+        Self::Accepted,
+        Self::Running,
+        Self::Succeeded,
+        Self::Failed,
+        Self::Cancelled,
+        Self::Incomplete,
+    ];
+
     pub(crate) fn is_terminal(self) -> bool {
         matches!(
             self,
@@ -148,11 +166,49 @@ pub(crate) struct ExecutionEvent {
     pub(crate) attributes: SafeAttributes,
 }
 
+/// What a timeline response says about the events it did not return.
+///
+/// Always present rather than inferred from an absent field. A consumer that read "no coverage
+/// stated" as "nothing was omitted" would present a truncated event record as the complete one,
+/// which is precisely the failure this type exists to make impossible — and the reader would have
+/// no way to notice, because a truncated list looks exactly like a short one.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct EventCoverage {
+    /// Whether events were omitted because the run exceeded the response bound.
+    pub(crate) truncated: bool,
+    /// Where to resume reading. Present exactly when `truncated`.
+    pub(crate) next_page_token: Option<String>,
+}
+
+impl EventCoverage {
+    /// Every event this run has is in the response.
+    pub(crate) fn complete() -> Self {
+        Self {
+            truncated: false,
+            next_page_token: None,
+        }
+    }
+
+    /// The response stopped at its bound; `token` resumes after the last event returned.
+    ///
+    /// Constructed rather than assembled field by field so the two can never disagree — a
+    /// `truncated` with no continuation would tell a reader something is missing and give them no
+    /// way to reach it.
+    pub(crate) fn truncated_at(token: String) -> Self {
+        Self {
+            truncated: true,
+            next_page_token: Some(token),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ExecutionTimeline {
     pub(crate) run: ExecutionRun,
     pub(crate) spans: Vec<ExecutionSpan>,
     pub(crate) events: Vec<ExecutionEvent>,
+    /// What this response says about events beyond the ones it carries.
+    pub(crate) event_coverage: EventCoverage,
 }
 
 impl ExecutionEvent {
@@ -171,5 +227,50 @@ fn require_timestamp(value: &str) -> Result<(), ExecutionDomainError> {
         Err(ExecutionDomainError::TimestampRequired)
     } else {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ExecutionStatus;
+
+    /// `ALL` lists each variant at most once.
+    ///
+    /// A duplicate would be harmless in the SQL list it feeds but is a sign the list was edited
+    /// carelessly, and the next such edit is the one that omits a variant instead. This cannot
+    /// detect an omission — iterating `ALL` never reaches what `ALL` left out — so the match below
+    /// is a compile-time prompt rather than a proof: adding a variant stops this file compiling,
+    /// at which point the reader is standing next to `ALL`.
+    #[test]
+    fn all_lists_each_variant_at_most_once() {
+        let listed = ExecutionStatus::ALL.len();
+        let mut tokens = ExecutionStatus::ALL
+            .iter()
+            .map(|status| status.as_str())
+            .collect::<Vec<_>>();
+        tokens.sort_unstable();
+        tokens.dedup();
+        assert_eq!(tokens.len(), listed, "ALL repeats a variant");
+
+        for status in ExecutionStatus::ALL {
+            match status {
+                ExecutionStatus::Accepted
+                | ExecutionStatus::Running
+                | ExecutionStatus::Succeeded
+                | ExecutionStatus::Failed
+                | ExecutionStatus::Cancelled
+                | ExecutionStatus::Incomplete => (),
+            }
+        }
+    }
+
+    /// Both sides of the terminal split have members.
+    ///
+    /// An empty non-terminal side would make the advanceable SQL list empty, which is valid SQL
+    /// that silently refuses every transition.
+    #[test]
+    fn the_terminal_split_leaves_both_sides_populated() {
+        assert!(ExecutionStatus::ALL.iter().any(|s| s.is_terminal()));
+        assert!(ExecutionStatus::ALL.iter().any(|s| !s.is_terminal()));
     }
 }

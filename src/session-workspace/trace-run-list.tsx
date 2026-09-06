@@ -27,7 +27,10 @@ export function TraceRunList({
   const { i18n, t } = useTranslation();
 
   return (
-    <aside className="min-h-0 overflow-y-auto rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-2">
+    // `flex-1` because this now sits in a flex column beside the newer-run notice rather than
+    // directly in the grid. Without it the list grows to its content instead of scrolling, and a
+    // session with many runs pushes the panel past the viewport.
+    <aside className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-2">
       <h2 className="px-2 py-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         {t("traces.runs")}
       </h2>

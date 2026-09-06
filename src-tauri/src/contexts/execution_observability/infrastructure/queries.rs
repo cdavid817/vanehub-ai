@@ -3,7 +3,8 @@ use super::storage_mapping::storage_error;
 use super::SqliteExecutionTimelineRepository;
 use crate::contexts::execution_observability::application::ExecutionTelemetryError;
 use crate::contexts::execution_observability::domain::{
-    ExecutionLink, ExecutionRun, ExecutionRunId, ExecutionTimeline, Page, PageRequest,
+    EventCoverage, ExecutionEvent, ExecutionLink, ExecutionRun, ExecutionRunId, ExecutionTimeline,
+    Page, PageRequest,
 };
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
@@ -13,10 +14,28 @@ use serde::{Deserialize, Serialize};
 const RUN_COLUMNS: &str = "run_id, trace_id, root_span_id, source, source_id, status, capture_policy, started_at, ended_at, error_classification, session_id, user_message_id, assistant_message_id, operation_id, agent_id, provider_session_id, attributes_json";
 const SPAN_COLUMNS: &str = "spans.run_id, spans.span_id, spans.trace_id, spans.parent_span_id, spans.name, spans.status, spans.fidelity, spans.started_at, spans.ended_at, spans.error_classification, spans.attributes_json, runs.capture_policy";
 
+/// How many events one timeline response carries.
+///
+/// Unchanged from the bound this response has always had. What changed is that exceeding it is now
+/// reported instead of being silent, so a reader can tell a complete record from a clipped one.
+pub(crate) const TIMELINE_EVENT_PAGE_SIZE: usize = 5000;
+
 #[derive(Debug, Serialize, Deserialize)]
 struct RunCursor {
     started_at: String,
     run_id: String,
+}
+
+/// Where an event page stopped, in the order events are read.
+///
+/// Carries all three ordering columns because any two of them can repeat: several events can share
+/// a timestamp, and a span's sequence restarts per span. A cursor on fewer columns would either
+/// skip events or repeat them at every page boundary.
+#[derive(Debug, Serialize, Deserialize)]
+struct EventCursor {
+    timestamp: String,
+    span_id: String,
+    sequence: i64,
 }
 
 impl SqliteExecutionTimelineRepository {
@@ -82,9 +101,24 @@ impl SqliteExecutionTimelineRepository {
         })
     }
 
+    /// A timeline with the default event bound and no continuation.
     pub(crate) fn timeline(
         &self,
         run_id: &ExecutionRunId,
+    ) -> Result<Option<ExecutionTimeline>, ExecutionTelemetryError> {
+        self.timeline_page(run_id, TIMELINE_EVENT_PAGE_SIZE, None)
+    }
+
+    /// A timeline whose event page is bounded and resumable.
+    ///
+    /// The bound is a parameter rather than a constant read inside so a test can exercise the
+    /// paging itself without inserting tens of thousands of rows to reach the production bound.
+    /// The logic under test is identical at any bound; only the row count changes.
+    pub(crate) fn timeline_page(
+        &self,
+        run_id: &ExecutionRunId,
+        event_limit: usize,
+        event_page_token: Option<&str>,
     ) -> Result<Option<ExecutionTimeline>, ExecutionTelemetryError> {
         let connection = self.connection()?;
         let sql = format!("SELECT {RUN_COLUMNS} FROM execution_runs WHERE run_id = ?1");
@@ -119,22 +153,90 @@ impl SqliteExecutionTimelineRepository {
             })
             .collect::<Result<Vec<_>, ExecutionTelemetryError>>()?;
 
+        let cursor = event_page_token.map(decode_event_cursor).transpose()?;
+        let (cursor_timestamp, cursor_span, cursor_sequence) = match cursor.as_ref() {
+            Some(value) => (
+                Some(value.timestamp.as_str()),
+                Some(value.span_id.as_str()),
+                Some(value.sequence),
+            ),
+            None => (None, None, None),
+        };
+        // One row past the bound, purely to learn whether another exists. Asking for exactly the
+        // bound cannot distinguish a run with that many events from one with more -- which was the
+        // defect: the query returned 5000 rows and no way for a reader to tell the two apart.
+        // Two statements rather than one with an `?2 IS NULL OR ...` guard, because that guard is
+        // not free: a bound parameter inside an OR cannot be folded into an index range, so SQLite
+        // seeks on `run_id` alone and re-walks the run from its first event on every page. Measured
+        // over 60k events the guarded form costs 165ms against 75ms for these two. The plan text is
+        // where the difference shows -- `(run_id=?)` versus
+        // `(run_id=? AND (timestamp,span_id,sequence)>(?,?,?))`.
+        let over_limit = i64::try_from(event_limit.saturating_add(1))
+            .map_err(|_| storage_error("event page size exceeds SQLite range"))?;
         let mut statement = connection
-            .prepare(
+            .prepare(if cursor.is_some() {
                 "SELECT run_id, span_id, sequence, name, timestamp, attributes_json
                  FROM execution_events WHERE run_id = ?1
-                 ORDER BY timestamp, span_id, sequence LIMIT 5000",
-            )
+                   AND (?2, ?3, ?4) < (timestamp, span_id, sequence)
+                 ORDER BY timestamp, span_id, sequence LIMIT ?5"
+            } else {
+                "SELECT run_id, span_id, sequence, name, timestamp, attributes_json
+                 FROM execution_events WHERE run_id = ?1
+                 ORDER BY timestamp, span_id, sequence LIMIT ?2"
+            })
             .map_err(|error| storage_error(error.to_string()))?;
-        let events = statement
-            .query_map([run_id.as_str()], EventRow::read)
+        let rows = if cursor.is_some() {
+            statement.query_map(
+                params![
+                    run_id.as_str(),
+                    cursor_timestamp,
+                    cursor_span,
+                    cursor_sequence,
+                    over_limit
+                ],
+                EventRow::read,
+            )
+        } else {
+            statement.query_map(params![run_id.as_str(), over_limit], EventRow::read)
+        };
+        let mut events = rows
             .map_err(|error| storage_error(error.to_string()))?
             .map(|row| {
                 row.map_err(|error| storage_error(error.to_string()))?
                     .into_domain()
             })
             .collect::<Result<Vec<_>, ExecutionTelemetryError>>()?;
-        Ok(Some(ExecutionTimeline { run, spans, events }))
+
+        let event_coverage = if events.len() > event_limit {
+            // The cursor is the last row that survives truncation, read before truncating so the
+            // index is unambiguous.
+            let token = event_limit
+                .checked_sub(1)
+                .and_then(|index| events.get(index))
+                .map(encode_event_cursor)
+                .transpose()?;
+            events.truncate(event_limit);
+            match token {
+                Some(token) => EventCoverage::truncated_at(token),
+                // A zero bound: rows exist, none fit, and there is no last-returned row to resume
+                // after. Reporting `complete` here would be the exact false claim this type exists
+                // to prevent -- an empty list presented as the whole record. The bound is a caller
+                // parameter, so this is reachable by asking for a page that can hold nothing.
+                None => {
+                    return Err(storage_error(
+                        "event page size must leave room for at least one event",
+                    ))
+                }
+            }
+        } else {
+            EventCoverage::complete()
+        };
+        Ok(Some(ExecutionTimeline {
+            run,
+            spans,
+            events,
+            event_coverage,
+        }))
     }
 }
 
@@ -179,4 +281,22 @@ fn decode_cursor(value: &str) -> Result<RunCursor, ExecutionTelemetryError> {
         .decode(value)
         .map_err(|_| storage_error("invalid execution page token"))?;
     serde_json::from_slice(&bytes).map_err(|_| storage_error("invalid execution page token"))
+}
+
+fn encode_event_cursor(event: &ExecutionEvent) -> Result<String, ExecutionTelemetryError> {
+    let bytes = serde_json::to_vec(&EventCursor {
+        timestamp: event.timestamp.clone(),
+        span_id: event.span_id.as_str().to_string(),
+        sequence: i64::try_from(event.sequence)
+            .map_err(|_| storage_error("event sequence exceeds SQLite range"))?,
+    })
+    .map_err(|error| storage_error(error.to_string()))?;
+    Ok(URL_SAFE_NO_PAD.encode(bytes))
+}
+
+fn decode_event_cursor(value: &str) -> Result<EventCursor, ExecutionTelemetryError> {
+    let bytes = URL_SAFE_NO_PAD
+        .decode(value)
+        .map_err(|_| storage_error("invalid execution event page token"))?;
+    serde_json::from_slice(&bytes).map_err(|_| storage_error("invalid execution event page token"))
 }

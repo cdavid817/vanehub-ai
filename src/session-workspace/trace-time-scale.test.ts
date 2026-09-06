@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ExecutionSpanSummary } from "../types/execution-observability";
+import { axisWidthFor, contentMinWidthFor, labelColumnFor } from "./trace-layout";
 import {
   flattenSpanRows,
   MIN_BAR_WIDTH_PX,
@@ -109,11 +110,17 @@ describe("trace time scale", () => {
       1,
     );
 
-    const placement = placeSpanBar(span({ spanId: "b", startOffsetMs: 500 }), scale);
+    // Status stated rather than defaulted. This test previously relied on the helper's default
+    // `succeeded` and passed only because placement ignored status entirely — so it asserted the
+    // running case using a span that had already finished.
+    const placement = placeSpanBar(
+      span({ spanId: "b", startOffsetMs: 500, status: "running" }),
+      scale,
+    );
 
-    expect(placement).toMatchObject({ kind: "placed", openEnded: true });
-    // The flag travels with the placement rather than being inferred from the width, so a renderer
-    // cannot accidentally draw a definite end on a span that has none.
+    expect(placement).toMatchObject({ kind: "placed", measurement: "running" });
+    // The measurement travels with the placement rather than being inferred from the width, so a
+    // renderer cannot accidentally draw a definite end on a span that has none.
     if (placement.kind === "placed") expect(placement.widthPx).toBeGreaterThan(0);
   });
 
@@ -129,7 +136,7 @@ describe("trace time scale", () => {
       scale,
     );
 
-    expect(placement).toMatchObject({ kind: "placed", openEnded: false, leftPx: 0 });
+    expect(placement).toMatchObject({ kind: "placed", measurement: "measured", leftPx: 0 });
     if (placement.kind === "placed") expect(placement.widthPx).toBe(500);
   });
 
@@ -151,6 +158,66 @@ describe("trace time scale", () => {
     }
   });
 
+  it("does not draw a terminated span with an unmeasurable duration as still running", () => {
+    const scale = traceTimeScale(
+      [span({ spanId: "a", startOffsetMs: 0, completedDurationMs: 1000 })],
+      800,
+      1,
+    );
+
+    // Failed, and it has an end timestamp — but the duration could not be derived from it. The
+    // native projection returns an absent duration for four distinct reasons and only one of them
+    // is "still running"; reading absence alone cannot tell them apart.
+    const placement = placeSpanBar(
+      span({ spanId: "b", startOffsetMs: 500, status: "failed", endedAt: "2026-08-25T10:00:02.000Z" }),
+      scale,
+    );
+
+    expect(placement).toMatchObject({ kind: "placed", measurement: "unknown" });
+  });
+
+  it("reads an incomplete span as ended, not as running", () => {
+    const scale = traceTimeScale(
+      [span({ spanId: "a", startOffsetMs: 0, completedDurationMs: 1000 })],
+      800,
+      1,
+    );
+
+    const placement = placeSpanBar(
+      span({ spanId: "b", startOffsetMs: 0, status: "incomplete" }),
+      scale,
+    );
+
+    // `incomplete` is a terminal state: the work stopped without a verified result. Drawing it as
+    // open-ended claims it is still going, which is the opposite of what the status says.
+    expect(placement).toMatchObject({ kind: "placed", measurement: "unknown" });
+  });
+
+  it("separates lifecycle from measurement across all three cases", () => {
+    const scale = traceTimeScale(
+      [span({ spanId: "a", startOffsetMs: 0, completedDurationMs: 1000 })],
+      800,
+      1,
+    );
+    const place = (overrides: Parameters<typeof span>[0]) =>
+      placeSpanBar(span(overrides), scale);
+
+    // Lifecycle state and measurement quality are independent facts, so every combination has to
+    // land on exactly one of three answers rather than collapsing into "has a duration or not".
+    expect(place({ spanId: "r", startOffsetMs: 0, status: "running" })).toMatchObject({
+      measurement: "running",
+    });
+    expect(place({ spanId: "a", startOffsetMs: 0, status: "accepted" })).toMatchObject({
+      measurement: "running",
+    });
+    expect(
+      place({ spanId: "m", startOffsetMs: 0, status: "succeeded", completedDurationMs: 500 }),
+    ).toMatchObject({ measurement: "measured" });
+    expect(place({ spanId: "u", startOffsetMs: 0, status: "cancelled" })).toMatchObject({
+      measurement: "unknown",
+    });
+  });
+
   it("bounds the number of axis ticks however far the reader zooms", () => {
     const spans = [span({ spanId: "a", startOffsetMs: 0, completedDurationMs: 5000 })];
 
@@ -161,6 +228,49 @@ describe("trace time scale", () => {
     expect(ticks.length).toBeLessThanOrEqual(8);
     expect(ticks[0]).toBe(0);
     expect(ticks.at(-1)).toBe(5000);
+  });
+});
+
+/**
+ * The axis width and the scroll width are two halves of one layout.
+ *
+ * They drifted once already: the row padding was taken out of the axis but not put back into the
+ * scroll width, so the widest bar overshot its own track by exactly that much at every viewport
+ * narrow enough to scroll. Nothing in the type system connects them, so this does.
+ */
+describe("axis and content widths", () => {
+  it("round-trips, so a full-width bar exactly fills its track", () => {
+    for (const viewport of [320, 390, 480, 800, 1440, 2560]) {
+      expect(contentMinWidthFor(viewport, axisWidthFor(viewport))).toBe(viewport);
+    }
+  });
+
+  it("leaves the axis room to exist at every viewport it can be given", () => {
+    // Including absurd ones: a collapsed panel reports zero, and an axis of zero makes every
+    // division against it undefined.
+    for (const viewport of [0, 1, 100, 240, 390]) {
+      expect(axisWidthFor(viewport)).toBeGreaterThan(0);
+    }
+  });
+
+  it("gives narrow viewports a smaller label column than wide ones", () => {
+    // The range this replaced collapsed to its minimum when space ran short. A single fixed width
+    // would have made a phone's labels wider than the range they replaced, which is backwards.
+    expect(labelColumnFor(390)).toBeLessThan(labelColumnFor(1440));
+    expect(axisWidthFor(390)).toBeGreaterThan(0);
+  });
+
+  it("never shrinks the axis as the panel grows", () => {
+    // A breakpoint step did exactly that: one pixel wider across the threshold moved 76px from the
+    // axis to the labels, so closing the detail drawer made every bar jump narrower as the panel
+    // it sits in got bigger. The property is monotonicity, not the position of any threshold —
+    // asserting `labelColumnFor(390) < labelColumnFor(1440)` held on both sides of that step.
+    let previous = 0;
+    for (let viewport = 200; viewport <= 2000; viewport += 1) {
+      const axis = axisWidthFor(viewport);
+      expect(axis).toBeGreaterThanOrEqual(previous);
+      previous = axis;
+    }
   });
 });
 

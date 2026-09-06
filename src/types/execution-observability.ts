@@ -117,10 +117,26 @@ export interface ExecutionEvent {
   attributes: Record<string, SafeAttribute>;
 }
 
+/**
+ * Whether a timeline returned every event its run recorded.
+ *
+ * Required rather than optional, and stated by every adapter including the mock one. A consumer
+ * that inferred completeness from an absent field would read a clipped event list as the whole
+ * record — and a clipped list is indistinguishable from a short one, so nothing downstream could
+ * catch the mistake.
+ */
+export interface ExecutionEventCoverage {
+  /** True when events were omitted because the run exceeded the response bound. */
+  truncated: boolean;
+  /** Resumes after the last event returned. Present exactly when `truncated`. */
+  nextPageToken?: string | null;
+}
+
 export interface ExecutionTimeline {
   run: ExecutionRunSummary;
   spans: ExecutionSpanSummary[];
   events: ExecutionEvent[];
+  eventCoverage: ExecutionEventCoverage;
 }
 
 export interface PageRequest {

@@ -2693,8 +2693,17 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // +15 by the same change for `sqlite_repository.rs`: five read-then-write transactions
         // begin `IMMEDIATE` (two extra lines each for the builder call) and the five-line note on
         // the struct saying why. The Windows smoke run failed on the deferred form.
-        budget: 62_929,
-        owner: "add-session-worktree-cleanup",
+        //
+        // Raised by `fix-session-creation-and-trace-correctness`. Its +149 is the terminal producer
+        // declaring its own span kinds -- four layers that previously shared one attribute set and
+        // therefore all classified as `unknown` -- plus the three tests that run the emitted
+        // attributes through the real classifier. Asserting the attribute map instead would have
+        // been shorter and would have passed against the broken build, since every stage was
+        // individually correct and only their composition was wrong.
+        // The two changes touch different files, so this is measured on the merged tree rather
+        // than summed from either branch's own figure.
+        budget: 63_078,
+        owner: "fix-session-creation-and-trace-correctness",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
     // directory module. The +51 is entirely per-file boilerplate: +29 module headers (the `mod`
@@ -2854,8 +2863,14 @@ const NATIVE_PRODUCTION_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // the cleanup needs before it may remove the directory they ran in.
         // +15 more, all production, for the `IMMEDIATE` transactions in `sqlite_repository.rs`
         // and the note that explains them.
-        budget: 33_916,
-        owner: "add-session-worktree-cleanup",
+        //
+        // `fix-session-creation-and-trace-correctness` contributes +30, also production: the kind
+        // attribute name, three kind tokens, and per-layer attribute construction where one shared
+        // set used to be reused four times. The tests that pin the classification are counted by
+        // the aggregate above and deliberately not by this one. Different files from the cleanup's
+        // delta, so measured on the merged tree.
+        budget: 33_946,
+        owner: "fix-session-creation-and-trace-correctness",
     },
 ];
 

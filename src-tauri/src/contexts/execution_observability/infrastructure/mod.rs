@@ -11,6 +11,7 @@ mod observability_repository;
 mod otel_telemetry;
 mod privacy;
 mod queries;
+pub(crate) use queries::TIMELINE_EVENT_PAGE_SIZE;
 mod random_identity;
 mod retention;
 mod rows;

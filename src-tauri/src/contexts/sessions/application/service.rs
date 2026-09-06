@@ -368,10 +368,51 @@ impl SessionsApplicationService {
                     .ports
                     .operations
                     .append_log(operation_id, format!("Created session {}", session.id()));
-                let _ = self
+                // Not discarded. The session is already persisted, so a completion that fails here
+                // leaves a real session behind an operation that never finishes -- a client polling
+                // it waits forever, and the only move it has left creates a second session.
+                //
+                // The session is still returned: it exists, and refusing to hand it back would
+                // trade a recoverable bookkeeping failure for a lost one. What changes is that the
+                // failure is now recorded against the operation instead of vanishing, so it can be
+                // reconciled by id rather than guessed at.
+                if let Err(error) = self
                     .ports
                     .operations
-                    .complete_session_creation(operation_id, &session);
+                    .complete_session_creation(operation_id, &session)
+                {
+                    let message = error.to_string();
+                    let _ = self.ports.logging.write(SessionApplicationLog {
+                        level: SessionApplicationLogLevel::Error,
+                        category: "session.create".to_string(),
+                        message: format!(
+                            "Session {} was created but its operation could not be completed: {message}",
+                            session.id()
+                        ),
+                        session_id: Some(session.id().to_string()),
+                        operation_id: Some(operation_id.to_string()),
+                        execution_run_id: None,
+                        recovery_report_id: None,
+                    });
+                    let _ = self
+                        .ports
+                        .operations
+                        .append_log(operation_id, message.clone());
+                    // Driven to a terminal state, naming the session. Left running, the operation
+                    // never finishes: the client polls it to its own timeout and then reports a
+                    // generic failure, with nothing to say the session exists — and the obvious
+                    // next move is to create it again. Saying so here costs one string and removes
+                    // the reason to.
+                    let _ = self.ports.operations.fail_session_creation(
+                        operation_id,
+                        format!(
+                            "Session {} was created, but recording the completion failed: {message}. \
+                             The session is available from the session list; creating it again \
+                             would make a second one.",
+                            session.id()
+                        ),
+                    );
+                }
                 Ok(session)
             }
             Err(error) => {

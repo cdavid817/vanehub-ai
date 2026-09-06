@@ -109,6 +109,47 @@ fn use_case_coordinates_deterministic_ids_timestamps_logs_and_results() {
     assert_eq!(completed.result, Some(serde_json::json!({ "ok": true })));
 }
 
+/// Completing the same operation twice settles it once.
+///
+/// The property session creation depends on. When a session is persisted but recording its
+/// completion fails, the only safe recovery is to record it again — and that is only safe if a
+/// second completion neither creates anything nor disturbs what the first one wrote. Asserted
+/// here, against the real use case, because this is where the guarantee lives: completion writes
+/// the operation record and nothing else, so no amount of retrying it can produce a second
+/// session.
+#[test]
+fn completing_the_same_operation_twice_settles_it_once() {
+    let service = OperationService::new(
+        Arc::new(FakeRepository::default()),
+        Arc::new(FakeClock {
+            values: Mutex::new(
+                ["100", "101", "102", "103", "104"]
+                    .into_iter()
+                    .map(str::to_string)
+                    .collect(),
+            ),
+        }),
+        Arc::new(FakeIds),
+    );
+    let started = service
+        .start(OperationKind::Extension, None, Some("Creating".to_string()))
+        .expect("start");
+    let result = serde_json::json!({ "id": "session-7" });
+
+    let first = service
+        .complete(&started.id, Some(result.clone()))
+        .expect("complete");
+    let second = service
+        .complete(&started.id, Some(result.clone()))
+        .expect("a retried completion is accepted rather than rejected");
+
+    // The same operation, still succeeded, still carrying the same result.
+    assert_eq!(second.id, first.id);
+    assert_eq!(second.status, OperationStatus::Succeeded);
+    assert_eq!(second.result, Some(result));
+    assert_eq!(second.error, None);
+}
+
 #[test]
 fn cancellation_signals_the_shared_flag_without_repository_polling() {
     let service = OperationService::new(

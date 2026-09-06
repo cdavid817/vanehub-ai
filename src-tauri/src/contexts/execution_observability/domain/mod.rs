@@ -18,8 +18,9 @@ pub(crate) use evaluation_manifest::*;
 pub(crate) use evidence::*;
 pub(crate) use identity::{ExecutionRunId, SpanId, TraceId};
 pub(crate) use model::{
-    CapturePolicy, ExecutionContext, ExecutionEvent, ExecutionFidelity, ExecutionLink,
-    ExecutionRun, ExecutionSource, ExecutionSpan, ExecutionStatus, ExecutionTimeline,
+    CapturePolicy, EventCoverage, ExecutionContext, ExecutionEvent, ExecutionFidelity,
+    ExecutionLink, ExecutionRun, ExecutionSource, ExecutionSpan, ExecutionStatus,
+    ExecutionTimeline,
 };
 pub(crate) use pagination::{Page, PageRequest};
 pub(crate) use settings::{
