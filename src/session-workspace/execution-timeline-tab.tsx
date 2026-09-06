@@ -3,6 +3,7 @@ import { Network } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSessionSpeakers } from "../hooks/use-session-speakers";
+import { cn } from "../lib/utils";
 import type { Session } from "../types/agent";
 import type { ExecutionObservabilityService } from "../services/execution-observability-service";
 import { executionObservabilityService } from "../services/runtime-execution-observability-client";
@@ -80,7 +81,13 @@ export function ExecutionTimelineTab({
   if (!runItems.length) return <WorkspaceState kind="empty" message={t("traces.empty")} />;
 
   return (
-    <div className="grid h-full min-h-0 gap-3 overflow-hidden lg:grid-cols-[minmax(220px,28%)_minmax(0,1fr)]">
+    // Sized by the panel, not the window: the workspace column sits between a session sidebar and
+    // an information panel, so a viewport breakpoint put the run list and the timeline side by
+    // side in a column far too narrow for both, and stacked them on a wide window that happened to
+    // be below the breakpoint. Container queries answer the question that is actually being asked.
+    // A container query resolves against an ancestor, so the container is a wrapper, not the grid.
+    <div className="@container h-full min-h-0">
+    <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-3 overflow-hidden @3xl:grid-cols-[minmax(220px,28%)_minmax(0,1fr)] @3xl:grid-rows-1">
       <TraceRunList
         compareRunId={compareRunId}
         hasNextPage={Boolean(runs.hasNextPage)}
@@ -91,7 +98,7 @@ export function ExecutionTimelineTab({
         runs={runItems}
         selectedRunId={selectedRunId}
       />
-      <section className="relative flex min-h-0 flex-col rounded-lg border border-border bg-background p-3 sm:p-4">
+      <section className="@container relative flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-background p-3 sm:p-4">
         {timeline.isLoading ? <WorkspaceState kind="loading" message={t("traces.loading")} /> : null}
         {timeline.isError ? <WorkspaceState kind="error" message={t("traces.error")} /> : null}
         {timeline.data ? (
@@ -104,6 +111,7 @@ export function ExecutionTimelineTab({
           />
         ) : null}
       </section>
+    </div>
     </div>
   );
 }
@@ -134,10 +142,24 @@ function TraceViewport({
   const spanIds = useMemo(() => filtered.spans.map((span) => span.spanId), [filtered.spans]);
   const selection = useTraceSelection(spanIds);
   const selectedSpan = filtered.spans.find((span) => span.spanId === selection.selectedId) ?? null;
+  const sidePanelOpen = Boolean(comparison) || (selection.detailOpen && selectedSpan !== null);
 
   return (
-    <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,26rem)]">
-      <div className="flex min-h-0 flex-col gap-2">
+    // The side column exists only while something is in it. Reserving it unconditionally left
+    // the waterfall squeezed into half the section beside an empty gap.
+    <div
+      className={cn(
+        // minmax(0,1fr) and min-w-0 are load-bearing: the waterfall sets a minimum row width from
+        // its last measured viewport, and an auto column let that minimum widen the column, which
+        // the next measurement then reported back, locking the timeline wider than its panel and
+        // pushing the zoom controls out of the window.
+        "grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,1fr)] gap-3",
+        // Stacked below the waterfall in a narrow section the drawer scrolls inside its own row
+        // and the waterfall keeps a readable minimum; beside it in a wide one they share the row.
+        sidePanelOpen && "grid-rows-[minmax(10rem,auto)_minmax(0,1fr)] @3xl:grid-cols-[minmax(0,1fr)_minmax(16rem,26rem)] @3xl:grid-rows-1",
+      )}
+    >
+      <div className="flex min-h-0 min-w-0 flex-col gap-2">
         <header className="flex flex-wrap items-center gap-2">
           <Network className="h-4 w-4 text-primary" aria-hidden="true" />
           <h2 className="font-semibold">{t("traces.title")}</h2>

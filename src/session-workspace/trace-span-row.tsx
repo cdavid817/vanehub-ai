@@ -60,7 +60,8 @@ export function TraceSpanRow({
       onClick={onSelect}
       role="listitem"
     >
-      <div className="flex min-w-0 items-center gap-1.5" style={{ paddingInlineStart: depth * INDENT_PX }}>
+      {/* Clipped, so a long name plus its badges never spills over the bar column beside it. */}
+      <div className="flex min-w-0 items-center gap-1.5 overflow-hidden" style={{ paddingInlineStart: depth * INDENT_PX }}>
         {span.criticalPath ? (
           <span
             aria-hidden="true"

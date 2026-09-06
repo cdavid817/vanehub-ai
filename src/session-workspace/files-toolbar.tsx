@@ -56,9 +56,17 @@ export function FilesToolbar({
   const directory = selectedPath ? parentDirectoryOf(selectedPath) : "";
 
   return (
-    <div className="mb-2 flex flex-wrap items-center gap-1">
+    // One row spanning both panes, in three groups: finding a file, refreshing what is shown, and
+    // acting on the selection. The selected path sits at the end so the actions that use it say
+    // what they will act on.
+    <div
+      aria-label={t("sessionTabs.files.toolbar.label")}
+      className="flex min-w-0 items-center gap-1 rounded-lg border border-border bg-[hsl(var(--panel-muted))] px-2 py-1.5 lg:col-span-2"
+      role="toolbar"
+    >
       <ToolbarButton icon={<Search className="h-3.5 w-3.5" />} label={t("sessionTabs.files.quickOpen.open")} onClick={onQuickOpen} />
       <ToolbarButton icon={<Text className="h-3.5 w-3.5" />} label={t("sessionTabs.files.contentSearch.open")} onClick={onContentSearch} />
+      <ToolbarSeparator />
       <ToolbarButton
         icon={<RefreshCw className="h-3.5 w-3.5" />}
         label={t("sessionTabs.files.toolbar.refresh")}
@@ -69,6 +77,7 @@ export function FilesToolbar({
           void queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.session(sessionId) });
         }}
       />
+      <ToolbarSeparator />
       <ToolbarButton
         disabled={!selectedPath}
         // Disabled rather than absent: the action exists, it simply has nothing to copy yet.
@@ -113,8 +122,17 @@ export function FilesToolbar({
             .catch(() => {});
         }}
       />
+      {selectedPath ? (
+        <span className="ml-2 min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground" title={selectedPath}>
+          {selectedPath}
+        </span>
+      ) : null}
     </div>
   );
+}
+
+function ToolbarSeparator() {
+  return <span aria-hidden="true" className="mx-1 h-4 w-px shrink-0 bg-border" />;
 }
 
 function ToolbarButton({
@@ -130,21 +148,24 @@ function ToolbarButton({
   label: string;
   onClick: () => void;
 }) {
+  // Icon-only: six labelled buttons need more than the narrowest window offers even on a row of
+  // their own. The label stays the accessible name and the tooltip.
   return (
     <button
+      aria-label={label}
       className={cn(
-        "flex h-7 items-center gap-1.5 rounded border border-border px-2 text-xs text-muted-foreground hover:bg-muted",
+        "flex h-7 w-7 shrink-0 items-center justify-center rounded border border-border text-muted-foreground hover:bg-muted hover:text-foreground",
         disabled && "cursor-not-allowed opacity-50 hover:bg-transparent",
       )}
       disabled={disabled}
       onClick={onClick}
       // The reason travels with the disabled state, so a reader hovering an unavailable control
       // learns why rather than concluding the application is broken.
-      title={disabled ? disabledReason : label}
+      title={disabled ? `${label} · ${disabledReason ?? ""}` : label}
       type="button"
     >
       {icon}
-      <span>{label}</span>
+      <span className="sr-only">{label}</span>
     </button>
   );
 }

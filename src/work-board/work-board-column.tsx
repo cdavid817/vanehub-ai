@@ -18,7 +18,11 @@ export function WorkBoardColumn({ filtersActive, items, onArchive, onDelete, onD
 
   return (
     <section
-      className="flex min-w-[17rem] flex-1 flex-col rounded-lg border border-border bg-muted/10"
+      // min-h-0 here and on the list below are what let a full column scroll: without them the
+      // column grew to its cards and the board's overflow clip cut the bottom ones off unseen.
+      // 13rem is the narrowest a card's action row fits in; at 17rem five columns needed 1.4k px
+      // and every window under that hid the last column behind a scrollbar nobody saw.
+      className="flex min-h-0 min-w-[13rem] flex-1 flex-col rounded-lg border border-border bg-muted/10"
       onDragOver={(event) => event.preventDefault()}
       onDrop={(event) => onDrop(event, stage)}
     >
@@ -26,7 +30,7 @@ export function WorkBoardColumn({ filtersActive, items, onArchive, onDelete, onD
         <h2 className="min-w-0 truncate text-sm font-semibold">{t(`todoBoard.stage.${stage}`)}</h2>
         <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] tabular-nums text-muted-foreground">{items.length}</span>
       </header>
-      <div className="grid content-start gap-2 overflow-y-auto p-2">
+      <div className="grid min-h-0 flex-1 content-start gap-2 overflow-y-auto p-2">
         {items.map((item) => (
           <WorkBoardCard
             item={item}

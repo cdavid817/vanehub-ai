@@ -1019,6 +1019,13 @@ fn record_terminal_usage_log(
     context: &str,
     result: &Result<bool, AgentRuntimeApplicationError>,
 ) {
+    // A periodic poll that persisted nothing is the steady state, every five seconds, for every
+    // running terminal. Recording it produced three quarters of the unified log, and each record
+    // costs a file append, an index insert, and a live notice to every open Logs panel — all to
+    // say that nothing happened. Only a change or a failure is worth a row.
+    if context != "session exit" && matches!(result, Ok(false)) {
+        return;
+    }
     let level = match result {
         Ok(true) if context == "session exit" => AgentLogLevel::Info,
         Ok(_) => AgentLogLevel::Debug,

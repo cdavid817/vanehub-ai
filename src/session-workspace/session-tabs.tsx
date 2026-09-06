@@ -232,7 +232,9 @@ function SessionWorkspaceTabs({
         {sessionTabDefinitions.map(({ id }) => mountedTabs.includes(id) ? (
           <section
             aria-labelledby={`session-tab-${id}`}
-            className={cn("h-full min-h-0", activeTab === id ? "block" : "hidden")}
+            // A container-query root for every panel: tabs size their columns by the panel's
+            // own width, which sits between two collapsible side columns, not by the window.
+            className={cn("@container h-full min-h-0", activeTab === id ? "block" : "hidden")}
             // Which session this panel is showing, for verification that has to reach a native
             // registry keyed by session id. Nothing on screen carries it, and a desktop test that
             // guessed would be checking a different session's state than the one it is looking at.

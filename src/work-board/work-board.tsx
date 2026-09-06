@@ -124,7 +124,9 @@ export function WorkBoard() {
     {error ? <p className="m-3 rounded border border-destructive/50 bg-destructive/10 p-2 text-sm text-destructive" role="alert">{error}</p> : null}
     {busy && !items.length
       ? <div className="grid flex-1 place-items-center"><Loader2 aria-label={t("todoBoard.loading")} className="animate-spin" /></div>
-      : <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-3">
+      // A visible scroll track: five columns outgrow a laptop window, and WebKitGTK hides its
+      // overlay scrollbar until hovered, so the last column simply looked cut off.
+      : <div className="ucd-scroll-strip flex min-h-0 flex-1 gap-3 overflow-x-auto p-3">
           {stages.map((stage) => (
             <WorkBoardColumn
               filtersActive={filtersActive}

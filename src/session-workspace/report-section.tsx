@@ -90,9 +90,11 @@ export function ReportMetric({
   const formatted =
     value === undefined ? "—" : new Intl.NumberFormat(i18n.language).format(value);
   return (
-    <div className="rounded-lg border border-border bg-background p-3">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <strong className="mt-1 block text-xl text-primary" title={value === undefined ? t("sessionTabs.report.notMeasured") : undefined}>
+    // Compact by default and only a little larger in a wide panel: three tiles share a narrow
+    // panel's width, and a hero-sized figure over a two-word label read as a billboard there.
+    <div className="min-w-0 rounded-lg border border-border bg-background px-2.5 py-2 @3xl:p-3">
+      <p className="truncate text-[11px] leading-4 text-muted-foreground" title={label}>{label}</p>
+      <strong className="mt-0.5 block truncate text-base leading-6 text-primary @3xl:text-lg" title={value === undefined ? t("sessionTabs.report.notMeasured") : undefined}>
         {formatted}
       </strong>
     </div>

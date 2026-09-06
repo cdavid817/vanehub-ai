@@ -65,7 +65,7 @@ describe("SessionTabBar badges", () => {
     expect(describedText("shell")).toContain("the index is still building");
   });
 
-  it("renders a floor and a placeholder differently on screen", () => {
+  it("renders a floor on screen and nothing at all for an unknown count", () => {
     mount({
       logs: { kind: "count", count: 2, tone: "danger", atLeast: true },
       shell: { kind: "unknown", reason: "unavailable" },
@@ -73,9 +73,11 @@ describe("SessionTabBar badges", () => {
     });
 
     const floor = document.querySelector('[data-badge="logs-count"]');
-    const placeholder = document.querySelector('[data-badge="shell-unknown"]');
     expect(floor?.textContent).toBe("≥2");
-    expect(placeholder?.textContent).toBe("·");
+    // An unknown count is spoken through the description only; a placeholder glyph next to
+    // every tab of a real session read as an unexplained mark, not as information.
+    expect(document.querySelector('[data-badge="shell-unknown"]')).toBeNull();
+    expect(describedText("shell")).toContain("evidence");
     // A known zero is the absence of a badge, not a rendered "0".
     expect(document.querySelector('[data-badge="report-count"]')).toBeNull();
     expect(document.querySelector('[data-badge="report-unknown"]')).toBeNull();

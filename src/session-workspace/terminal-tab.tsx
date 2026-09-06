@@ -1,3 +1,4 @@
+import { cn } from "../lib/utils";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { evidenceSessionIdSchema } from "../contracts/session-workspace-evidence-ids";
@@ -112,7 +113,9 @@ export function TerminalTab({
         }}
         view={view}
       />
-      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(260px,0.42fr)]">
+      {/* The detail column exists only while a record is open; reserving it unconditionally left
+          the list on half the panel beside an empty gap. Narrow panels stack the drawer below. */}
+      <div className={cn("grid min-h-0 flex-1 gap-3", selected !== null && "grid-rows-[minmax(8rem,1fr)_minmax(0,1fr)] @3xl:grid-cols-[minmax(0,1fr)_minmax(260px,0.42fr)] @3xl:grid-rows-1")}>
         <div className="flex min-h-0 flex-col gap-2">
           {isLegacyView(view) ? (
             <LegacyActivityList

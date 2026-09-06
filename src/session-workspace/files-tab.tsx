@@ -82,7 +82,17 @@ export function FilesTab({
   if (error && !tree.hasRoot) return <WorkspaceState kind="error" message={t(error)} />;
 
   return (
-    <div className="relative grid h-full min-h-0 gap-3 lg:grid-cols-[minmax(180px,0.38fr)_minmax(0,1fr)]">
+    // The toolbar takes a row of its own above both panes. Inside the tree column it had 180px at
+    // the narrowest window, which six buttons cannot share without wrapping into an orphan.
+    <div className="relative grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-3 lg:grid-cols-[minmax(180px,0.38fr)_minmax(0,1fr)] lg:grid-rows-[auto_minmax(0,1fr)]">
+      <FilesToolbar
+        isRemote={capabilities?.provider === "ssh"}
+        onContentSearch={() => setContentSearch(true)}
+        onQuickOpen={() => setQuickOpen(true)}
+        onShellOpened={() => onNavigateToShell?.()}
+        selectedPath={selectedPath}
+        sessionId={sessionId}
+      />
       <QuickOpenDialog
         isOpen={quickOpen}
         onClose={() => setQuickOpen(false)}
@@ -108,14 +118,6 @@ export function FilesTab({
         sessionId={sessionId}
       />
       <section className="min-h-0 overflow-y-auto rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-2">
-        <FilesToolbar
-          isRemote={capabilities?.provider === "ssh"}
-          onContentSearch={() => setContentSearch(true)}
-          onQuickOpen={() => setQuickOpen(true)}
-          onShellOpened={() => onNavigateToShell?.()}
-          selectedPath={selectedPath}
-          sessionId={sessionId}
-        />
         {tree.incompleteReason ? (
           <WorkspaceCoverageNotice
             provider={capabilities?.provider}
@@ -145,7 +147,12 @@ export function FilesTab({
               onDragStart={(event) => writeFileReferenceDrag(event.dataTransfer, entry.path)}
               type="button"
             >
-              <span aria-hidden="true" className="shrink-0 text-muted-foreground">{"·".repeat(depth)}</span>
+              {/* Indentation is empty space, one 12px step per level, with a hairline guide at each
+                  ancestor's edge — the way every file tree draws nesting. The middle dots this used
+                  to print read as a column of stray characters beside the names. */}
+              {Array.from({ length: depth }, (_, level) => (
+                <span aria-hidden="true" className="h-full w-3 shrink-0 border-l border-border/60" key={level} />
+              ))}
               {entry.kind === "directory" ? (tree.isOpen(entry.path) ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />) : <span className="w-3.5" />}
               {entry.kind === "directory" ? <Folder className="h-4 w-4 text-primary" /> : <File className="h-4 w-4 text-muted-foreground" />}
               <span className="truncate">{entry.name}</span>
