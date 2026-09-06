@@ -256,5 +256,6 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-30 | improve-skill-evolution-system-activity-health | skill-evolution-system-activity | `openspec/changes/archive/2026-08-30-improve-skill-evolution-system-activity-health/` |
 | 2026-08-30 | stabilize-desktop-wdio-lifecycle | desktop-runtime-verification | `openspec/changes/archive/2026-08-30-stabilize-desktop-wdio-lifecycle/` |
 | 2026-08-31 | fix-unverified-health-signals | continuous-integration, lsp-server-management | `openspec/changes/archive/2026-08-31-fix-unverified-health-signals/` |
+| 2026-09-06 | fix-session-creation-and-trace-correctness | agent-execution-observability, session-management | `openspec/changes/archive/2026-09-06-fix-session-creation-and-trace-correctness/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.
