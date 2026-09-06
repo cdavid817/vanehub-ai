@@ -120,7 +120,7 @@ describe("the tab badges", () => {
     for (const badge of [
       { atLeast: false, count: 3, kind: "count" as const, tone: "neutral" as const },
       { atLeast: false, count: 3, kind: "count" as const, tone: "danger" as const },
-      { kind: "unknown" as const, reason: "partial" as const },
+      { atLeast: true, count: 3, kind: "count" as const, tone: "neutral" as const },
     ]) {
       const { container, unmount } = renderWithAppProviders(
         <SessionTabBar
