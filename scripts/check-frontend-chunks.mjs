@@ -26,18 +26,20 @@ const requiredDynamicEntries = [
 ];
 const maxStaticEntryGzipBytes = 350 * 1024;
 // Raised from 700 KiB by `fix-session-creation-and-trace-correctness`, the first raise since this
-// ceiling was set. `main` builds the App chunk at 714,287 bytes; this branch takes it to 716,933,
-// which is 133 over the old round figure. The +2,646 is the session-creation dialog: the local
-// path no longer runs through a hidden SSH check, directory checks are ordered instead of racing
-// each other, a failed operation completion is reported rather than discarded, and the remembered
-// Agent is applied once its list arrives. All of it is behaviour that did not exist, none of it a
-// copy of something else -- the dialog's own file shrank as those four moved into named hooks.
+// ceiling was set. `main` builds the App chunk at 714,287 bytes; this branch takes it to 716,933.
+// The +2,646 is the session-creation dialog: the local path no longer runs through a hidden SSH
+// check, directory checks are ordered instead of racing each other, a failed operation completion
+// is reported rather than discarded, and the remembered Agent is applied once its list arrives.
+// All of it is behaviour that did not exist, none of it a copy of something else -- the dialog's
+// own file shrank as those four moved into named hooks.
 //
-// Recorded at the measurement with no headroom, matching how every other budget in this repo is
-// kept, so the next chunk to cross has to say why. The figure is measured on Windows, where the
-// working tree is CRLF; a Linux build of the same tree is equal or smaller, because the only \r
-// bytes that survive minification are inside template literals.
-const maxRawJavaScriptChunkBytes = 716_933;
+// Kept as a round figure with headroom rather than pinned to a measurement, unlike the line
+// budgets. There are two builds behind this one number: `npm run build` emits 716,933 bytes and
+// the `VITE_DESKTOP_E2E=1` build behind `scripts/build-desktop-e2e.mjs` emits 717,234. A ceiling
+// recorded at either measurement fails the other, which is how this was found -- the desktop
+// smoke job runs the second build and nothing local runs it by default. Measure that one when
+// raising this, since it is always the larger of the two.
+const maxRawJavaScriptChunkBytes = 701 * 1024;
 
 for (const source of requiredDynamicEntries) {
   const entry = Object.values(manifest).find((candidate) => candidate.src === source);
