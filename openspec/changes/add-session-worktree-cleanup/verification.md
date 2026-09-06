@@ -82,6 +82,13 @@
 - `npm run build` 的 `check-frontend-chunks` 在合并树上首次失败：`App` chunk 706.9 KiB 超过 700 KiB 预算（main 自身刚好在预算内，本变更的对话框把它推过线）。处理：删除对话框改为经 `LazyFeature` 按需加载（只在删除流程打开时挂载），`App` chunk 回到 697.5 KiB；hook 与状态机仍在主 chunk。之后 `npm run build` 通过。余量只剩约 2.5 KiB，下一个往主 chunk 加代码的变更需要自行拆分。
 - 首次并行跑 `npm run test` 与 cargo 时有 3 个测试文件因超时失败（`desktop-instrumentation-boundary`、`workspace-panel-visibility`、`skill-evolution-assessment`），单独重跑与无并发负载的全量重跑均通过，属本机负载导致。
 
+### PR #278 CI（2026-09-06）
+
+- 分支在 GitHub 上又两次合入 main（#276、#277），本地已快进跟随。
+- 第一轮 CI：除 `Desktop Smoke (windows-latest)` 外全部通过。Windows 三次重试都在 `save_custom_onepiece_provider_profile` 上报 `database is locked`，而 main 自身该 job 连续 9 次绿。根因与本变更 journal 修过的一样：`agent_runtime/infrastructure/sqlite_repository.rs` 的 5 处写事务是 deferred 先读后写，启动期间日志索引写入线程随每条日志写库，SELECT 与 UPDATE 之间只要有别的提交，SQLite 立即返回 BUSY。修复：5 处改为 `BEGIN IMMEDIATE`（commit `c4d3de31`）。
+- 第二轮 CI：Windows smoke 通过；`Rust` 与 `Native Coverage` 因上述 +15 行触发 `agent_runtime/infrastructure` 行数预算（62914→62929，生产 33901→33916）而失败，按实测上调并写明理由（commit `dc01c55b`）。
+- 第三轮 CI：Frontend、Contracts、OpenSpec、Documentation、Rust、Native Coverage、Native Check (macOS/Windows)、CLI Parameter Fixtures (3 平台)、Playwright E2E、Desktop Smoke (ubuntu/macOS/windows)、CodeQL、Dependency Review 全部通过；Desktop Full Suite 与 External Provider 按仓库策略在 PR 上跳过。桌面 smoke 三平台的 PASSED 来自 CI runner，本地仍只有 Linux 证据。
+
 ## 改动文件
 
 ### Rust（`src-tauri/`）
