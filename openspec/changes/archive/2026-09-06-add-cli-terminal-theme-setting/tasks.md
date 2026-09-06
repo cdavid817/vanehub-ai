@@ -33,4 +33,4 @@
 
 - [x] 5.1 Run the validation commands from `AGENTS.md`.
 - [x] 5.2 Run the Playwright spec and keep the screenshots.
-- [ ] 5.3 Run the desktop settings-persistence layer, or report it as NOT RUN with the reason.
+- [x] 5.3 Desktop settings-persistence layer run on Linux (WebKitGTK): the cliTerminalTheme change is written to native storage and restored after a real relaunch. Windows and macOS NOT RUN.

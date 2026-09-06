@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change complete-general-settings-i18n-font-fix. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Common settings model
 The system SHALL manage common application settings for application language, font size, visual theme, and default folder path through a shared settings model.
 
@@ -17,6 +19,16 @@ The system SHALL manage common application settings for application language, fo
 #### Scenario: Reject invalid setting value
 - **WHEN** a setting value is outside the supported values for its setting key
 - **THEN** the system SHALL reject the value before applying it to the application UI
+
+#### Scenario: Reject a default folder path that does not exist
+- **WHEN** a non-empty default folder path is saved in the desktop runtime and it is not an existing directory
+- **THEN** the native settings layer SHALL refuse the save with a concise error
+- **AND** an empty value SHALL remain accepted as "no default"
+
+#### Scenario: Offer a native directory picker
+- **WHEN** the settings service runs in the desktop runtime
+- **THEN** it SHALL expose a directory-picker operation that resolves to the chosen directory or to nothing when the user cancels
+- **AND** the Web/mock adapter SHALL expose the same operation and reject it with a localized desktop-only message
 
 ### Requirement: Settings side effects
 The system SHALL apply common settings through centralized side effects owned by the settings provider and native settings layer.
@@ -170,6 +182,11 @@ The system SHALL include launch-on-startup in common application settings and ap
 #### Scenario: Preserve Web mock parity
 - **WHEN** app settings are loaded or saved in the Web/mock runtime
 - **THEN** the Web adapter SHALL preserve the launch-on-startup key shape without claiming native startup registration is active
+
+#### Scenario: Report startup capability explicitly
+- **WHEN** application settings are loaded
+- **THEN** the response SHALL carry a read-only `launchOnStartupAvailable` flag that is true from the native runtime and false from the Web/mock adapter
+- **AND** the UI SHALL gate the startup control on that flag rather than on an unrelated capability such as whether a directory can be opened
 
 ### Requirement: Folder-opener application preferences
 The shared application settings model SHALL expose atomically persisted folder-opener preferences containing one configured default stable id and a validated enabled stable-id list, while keeping runtime discovery data outside persisted user settings.
@@ -521,3 +538,34 @@ The system SHALL ensure that the generic shared application settings model is no
 - **THEN** the application SHALL retain a localized maintenance warning
 - **AND** personalization runtime behavior SHALL use fail-closed instruction and memory defaults without blocking unrelated application startup
 
+### Requirement: CLI terminal theme setting
+The shared application settings model SHALL include a `cliTerminalTheme` display preference with the values `light` and `dark`, defaulting to `dark`, persisted through the existing settings storage in both runtimes.
+
+#### Scenario: Default on a fresh install or an older store
+- **WHEN** settings are loaded and no `cliTerminalTheme` row or key exists
+- **THEN** the effective value SHALL be `dark`
+- **AND** no other setting SHALL change as a result
+
+#### Scenario: Persist and restore a chosen value
+- **WHEN** the user saves `light` or `dark`
+- **THEN** the desktop runtime SHALL store it through the native settings service in the existing `settings` key/value table
+- **AND** the Web/mock runtime SHALL store it through its existing browser persistence
+- **AND** the same value SHALL be returned after a reload or relaunch
+
+#### Scenario: Recover from an invalid stored value
+- **WHEN** a stored `cliTerminalTheme` value is outside `light` and `dark`
+- **THEN** both runtimes SHALL fall back to `dark` on read without failing the settings load
+
+#### Scenario: Refuse an invalid write
+- **WHEN** a caller attempts to save a `cliTerminalTheme` value outside `light` and `dark`
+- **THEN** the save SHALL be rejected with a validation error
+- **AND** the stored value SHALL remain unchanged rather than being silently coerced
+
+#### Scenario: Stay independent of the application theme
+- **WHEN** the application theme changes
+- **THEN** `cliTerminalTheme` SHALL keep its stored value
+- **AND** saving `cliTerminalTheme` SHALL NOT change the application theme
+
+#### Scenario: Return to default on global reset
+- **WHEN** the user resets application settings to defaults
+- **THEN** `cliTerminalTheme` SHALL return to `dark` alongside the other resettable keys

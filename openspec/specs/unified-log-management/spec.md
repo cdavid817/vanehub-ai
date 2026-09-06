@@ -2,7 +2,9 @@
 
 ## Purpose
 Defines the shared logging contract for diagnostic logs, operation logs, frontend client log events, log directory behavior, redaction, retention, archival, log levels, and future logging development requirements.
+
 ## Requirements
+
 ### Requirement: Unified log directory
 The system SHALL manage one active log directory for native diagnostic logs and operation logs.
 
@@ -575,3 +577,11 @@ The unified log SHALL retain safe structured context sufficient to diagnose life
 - **WHEN** a CLI mutation succeeds, partially completes, fails, times out, or is cancelled
 - **THEN** the log SHALL contain the normalized outcome, phase, safe exit/timeout/cancel metadata, and diagnostic correlation
 - **AND** it SHALL not claim rollback unless a source adapter actually performed and verified one
+
+### Requirement: Periodic polls log only changes
+A periodic runtime poll that observed nothing new SHALL NOT be persisted as a log record.
+
+#### Scenario: Terminal usage poll with nothing to persist
+- **WHEN** the terminal usage poll runs and persists nothing without error
+- **THEN** no record SHALL be written for that tick
+- **AND** a poll that persisted usage SHALL still be recorded at `debug`, a failed poll at `warn`, and the session-exit read at `info`

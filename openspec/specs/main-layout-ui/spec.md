@@ -2,7 +2,9 @@
 
 ## Purpose
 Defines the workspace shell layout, sidebar session organization, main content sizing, collapsible information panel behavior, keep-alive panel tabs, and internal scrolling rules shared by the Tauri desktop frontend and browser Web runtime.
+
 ## Requirements
+
 ### Requirement: Workspace activity bar
 The workspace shell SHALL render a persistent icon-only activity bar at the far left of the workspace body in both the Tauri desktop frontend and browser Web runtime.
 
@@ -1128,3 +1130,14 @@ The upgraded workspace panels SHALL remain usable in desktop and narrow layouts,
 - **WHEN** a control changes among idle, loading, live, warning, failure, disabled, or selected states
 - **THEN** its dimensions SHALL remain stable and adjacent controls SHALL not shift
 
+### Requirement: Session rows stay inside the sidebar
+A session row SHALL never be wider than the session sidebar column, whatever its title length and whatever width the divider has been dragged to.
+
+#### Scenario: Long title in a narrow sidebar
+- **WHEN** a session title is wider than the sidebar and the sidebar is at its minimum or a dragged width
+- **THEN** the row SHALL truncate the title inside the column
+- **AND** no part of the row SHALL lie under the divider or the conversation surface
+
+#### Scenario: Labels never fold
+- **WHEN** a badge such as a source label is placed in a tight row
+- **THEN** it SHALL keep its width and stay on one line rather than wrapping its characters
