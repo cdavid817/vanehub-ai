@@ -8,20 +8,23 @@ use crate::contexts::sessions::api::{ArchivalPolicy, SessionsApi};
 use crate::contexts::sessions::application::{
     PreparedReviewFeedback, ReviewAction, ReviewApplicationError, ReviewApplicationService,
     ReviewFeedbackPort, ReviewHunkWitnessPort, ReviewLogEvent, ReviewLoggingPort,
-    ReviewOperationPort, ReviewSnapshotPort, SessionApplicationPorts, SessionRecoveryCoordinator,
-    SessionsApplicationService,
+    ReviewOperationPort, ReviewSnapshotPort, SessionApplicationPorts, SessionDeletionCoordinator,
+    SessionDeletionPorts, SessionRecoveryCoordinator, SessionsApplicationService,
 };
 use crate::contexts::sessions::infrastructure::{
-    AgentSessionRuntimeAdapter, SessionAgentEligibilityAdapter, SessionCreationContextAdapter,
-    SessionFileAdapter, SessionOperationAdapter, SqliteReviewDecisionRepository,
-    SqliteReviewRepository, SqliteSessionChatProfileAdapter, SqliteSessionsRepository,
-    SystemReviewClock, SystemSessionClock, UnifiedSessionLoggingAdapter, UuidReviewIds,
-    UuidSessionIdentities,
+    AgentSessionRuntimeAdapter, InMemoryDeletionPreviewStore, LeaseDeletionOwner,
+    SessionAgentEligibilityAdapter, SessionCreationContextAdapter, SessionFileAdapter,
+    SessionOperationAdapter, SqliteDeletionJournal, SqliteDeletionReferences,
+    SqliteReviewDecisionRepository, SqliteReviewRepository, SqliteSessionChatProfileAdapter,
+    SqliteSessionsRepository, SystemDeletionClock, SystemReviewClock, SystemSessionClock,
+    UnifiedSessionLoggingAdapter, UuidDeletionIds, UuidReviewIds, UuidSessionIdentities,
+    WorkspaceDeletionAdapter,
 };
 use crate::contexts::tooling::api::CliParameterRuntimeApi;
 use crate::contexts::tooling::cli::application::native_config::NativeConfigPort;
 use crate::contexts::workspaces::api::WorkspaceApi;
 use crate::platform::database::NativeDatabase;
+use crate::platform::instance_lease::InstanceLease;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -35,6 +38,7 @@ pub(crate) struct SessionRuntimeDependencies {
     pub(crate) app: AppHandle,
     pub(crate) operations: OperationsApi,
     pub(crate) workspaces: WorkspaceApi,
+    pub(crate) lease: InstanceLease,
 }
 
 pub(crate) fn assemble_sessions_api(
@@ -54,6 +58,7 @@ pub(crate) fn assemble_sessions_api(
         app,
         operations,
         workspaces,
+        lease,
     } = runtime;
     let repository = Arc::new(SqliteSessionsRepository::new(database.clone()));
     let logging: Arc<dyn DiagnosticLogPort> =
@@ -80,13 +85,13 @@ pub(crate) fn assemble_sessions_api(
             usage: repository.clone(),
             accounting: repository.clone(),
             transactions: repository.clone(),
-            recovery_reports: repository,
-            recovery_events,
+            recovery_reports: repository.clone(),
+            recovery_events: recovery_events.clone(),
             clock,
             identities: Arc::new(UuidSessionIdentities),
             files: Arc::new(SessionFileAdapter::new(workspaces.clone(), logging.clone())),
             operations: Arc::new(SessionOperationAdapter::new(operations.clone())),
-            logging: session_logging,
+            logging: session_logging.clone(),
             chat_profiles: Arc::new(SqliteSessionChatProfileAdapter::new(
                 database.clone(),
                 cli_parameter_runtime,
@@ -101,6 +106,33 @@ pub(crate) fn assemble_sessions_api(
         },
         evidence.clone(),
     );
+    // The deletion coordinator is assembled after the service because it reads the same
+    // repository, and the service takes it back as its admission port: one object decides both
+    // "may this session be deleted" and "may this session start work".
+    let deletion_clock = Arc::new(SystemDeletionClock);
+    let deletion = SessionDeletionCoordinator::new(SessionDeletionPorts {
+        sessions: repository.clone(),
+        journal: Arc::new(SqliteDeletionJournal::new(
+            database.clone(),
+            deletion_clock.clone(),
+        )),
+        runtime: Arc::new(runtime_adapter.clone()),
+        workspace: Arc::new(WorkspaceDeletionAdapter::new(
+            workspaces.clone(),
+            operations.clone(),
+        )),
+        references: Arc::new(SqliteDeletionReferences::new(
+            database.clone(),
+            runtime_adapter.clone(),
+        )),
+        previews: Arc::new(InMemoryDeletionPreviewStore::default()),
+        clock: deletion_clock,
+        ids: Arc::new(UuidDeletionIds),
+        owner: Arc::new(LeaseDeletionOwner::new(lease)),
+        logging: session_logging.clone(),
+        events: recovery_events.clone(),
+    });
+    let service = service.with_execution_admission(Arc::new(deletion.clone()));
     let review = ReviewApplicationService::new(
         Arc::new(SqliteReviewRepository::new(database.clone())),
         Arc::new(SqliteReviewDecisionRepository::new(database)),
@@ -114,10 +146,26 @@ pub(crate) fn assemble_sessions_api(
         evidence.clone(),
     );
     (
-        SessionsApi::new(service).with_review(review),
+        SessionsApi::new(service)
+            .with_review(review)
+            .with_deletion(deletion),
         runtime_adapter,
         recovery,
     )
+}
+
+/// The workspaces context asks sessions whether a session may open a Shell. Bootstrap is the one
+/// place allowed to know both, so the bridge lives here rather than in either context.
+pub(crate) struct SessionExecutionAdmissionBridge(pub(crate) SessionsApi);
+
+impl crate::contexts::workspaces::api::WorkspaceExecutionAdmissionPort
+    for SessionExecutionAdmissionBridge
+{
+    fn ensure_session_admits_execution(&self, session_id: &str) -> Result<(), &'static str> {
+        self.0
+            .session_admits_execution(session_id)
+            .map_err(|_| crate::contexts::sessions::api::deletion_error_code::SESSION_CLAIMED)
+    }
 }
 
 struct SessionReviewLoggingAdapter(Arc<dyn DiagnosticLogPort>);

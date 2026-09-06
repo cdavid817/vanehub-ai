@@ -53,6 +53,35 @@ impl GitAdapter {
         })
     }
 
+    /// Runs Git with the inherited repository-selecting variables dropped.
+    ///
+    /// `GIT_DIR`, `GIT_WORK_TREE` and friends redirect *every* Git command to another repository,
+    /// so a probe that inherited them from a shell would inspect — or remove — something other
+    /// than the directory it was pointed at. Optional locks and the fsmonitor hook are disabled
+    /// for the same reason a probe must be read-only: neither may write into the target or start
+    /// a program from it.
+    pub(crate) fn execute_isolated(
+        &self,
+        root: &Path,
+        args: &[String],
+        timeout: Duration,
+    ) -> Result<GitOutput, ProcessError> {
+        let mut request = base_request(root, &[], timeout)
+            .arg("--no-optional-locks")
+            .arg("-c")
+            .arg("core.fsmonitor=false")
+            .args(args.iter().cloned());
+        for key in REPOSITORY_SELECTING_VARIABLES {
+            request = request.env_remove(key);
+        }
+        let output = self.process.execute(&request)?;
+        Ok(GitOutput {
+            status: output.status,
+            stdout: output.stdout_bytes,
+            stderr: output.stderr_bytes,
+        })
+    }
+
     pub(crate) fn redacted_diagnostic(operation: &str, root: &Path, output: &GitOutput) -> String {
         let raw = format!(
             "git {operation} status={} stderr={}",
@@ -68,6 +97,17 @@ impl GitAdapter {
         crate::platform::logging::redact_text(&without_workspace)
     }
 }
+
+/// Inherited variables that would make Git act on a repository other than `root`.
+const REPOSITORY_SELECTING_VARIABLES: [&str; 7] = [
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_COMMON_DIR",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_NAMESPACE",
+];
 
 /// `LC_ALL=C` pins git's message language: callers classify outcomes by matching output text
 /// ("not a git repository", "did not match any files"), and on a zh_CN host git otherwise

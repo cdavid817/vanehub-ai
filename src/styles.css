@@ -395,6 +395,23 @@ body.floating-assistant-surface {
 }
 
 @layer components {
+  /* A transcript row the browser may skip while it is off-screen.
+
+     A long conversation keeps every message it has loaded in the DOM, and "load earlier" adds
+     fifty more at a time. Without this, style, layout and paint all scale with everything ever
+     loaded rather than with what is on screen, which is what makes a long session feel slower
+     than a short one holding the same visible content.
+
+     `contain-intrinsic-size: auto <estimate>` rather than a fixed size: the browser remembers each
+     row's last rendered height and reuses it, so the scrollbar keeps its position and length
+     instead of resizing as rows come in and out of view. The estimate only applies to a row that
+     has never been rendered. Rows stay in the DOM, so find-in-page, screen readers and anchor
+     links still reach them — the browser renders a skipped row on demand for all three. */
+  .ucd-transcript-row {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 96px;
+  }
+
   .ucd-input {
     /* Keep the base inset shadow below focus ring utilities in Tailwind's
        cascade so focused inputs retain the v3 focus treatment. */

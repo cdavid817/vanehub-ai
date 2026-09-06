@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Terminal as XtermTerminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { attachAcceleratedRenderer } from "./terminal-renderer";
 import "@xterm/xterm/css/xterm.css";
 import { useTranslation } from "react-i18next";
 import { sessionShellService } from "../services/runtime-session-shell-client";
@@ -79,19 +80,24 @@ export function ShellSurface({ descriptor, isVisible, onDescriptor, onError }: S
         .writeSessionShell({ shellId, attachmentId, content })
         .catch((reason: unknown) => onError(workspaceErrorKey(reason)));
     });
-    const resizeObserver = new ResizeObserver(() => {
+    const syncSize = () => {
       fit.fit();
       const attachmentId = attachmentRef.current;
       if (!attachmentId) return;
       sessionShellService
         .resizeSessionShell({ shellId, attachmentId, rows: terminal.rows, cols: terminal.cols })
         .catch((reason: unknown) => onError(workspaceErrorKey(reason)));
-    });
+    };
+    const resizeObserver = new ResizeObserver(syncSize);
+    // Attached once `syncSize` exists: swapping the renderer can change the computed rows and
+    // columns, and the Shell on the other end has already been told the pre-swap size.
+    const detachRenderer = attachAcceleratedRenderer(terminal, syncSize);
     resizeObserver.observe(host);
     return () => {
       resizeObserver.disconnect();
       themeObserver.disconnect();
       inputDisposable.dispose();
+      detachRenderer();
       terminal.dispose();
       terminalRef.current = null;
       fitRef.current = null;

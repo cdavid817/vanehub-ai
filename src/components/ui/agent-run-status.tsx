@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import type { AgentRun } from "../../types/agent-run";
+import { agentRunIsTerminal, type AgentRun } from "../../types/agent-run";
 import { Badge } from "./badge";
 import { Button } from "./button";
 
@@ -12,7 +12,7 @@ interface AgentRunStatusProps {
 
 export function AgentRunStatus({ run, elapsed, onCancel, onResume }: AgentRunStatusProps) {
   const { t } = useTranslation();
-  const terminal = ["completed", "failed", "cancelled"].includes(run.state);
+  const terminal = agentRunIsTerminal(run);
   const resumable = ["paused", "blocked", "stuck"].includes(run.state);
   return (
     <div aria-live="polite" className="flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto whitespace-nowrap text-xs text-muted-foreground" data-reason-code={run.reasonCode ?? undefined} data-state={run.state} data-testid="agent-run-status" role="status">

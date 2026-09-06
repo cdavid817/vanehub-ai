@@ -2447,9 +2447,12 @@ const NATIVE_PATH_BUDGETS: &[PathBudget] = &[
     // Raised by 1 for `provider_thread_id` on the one `SessionSeat` literal this file builds, then
     // by 3 for `personalization_mode` on the one `SessionRecord` literal, its import, and the
     // module declaration for the mode's own persistence tests.
+    // Raised by 1 more for the module declaration of the streamed-append persistence tests, which
+    // follow the same split this budget already records: the subject lives in `tests/`, only its
+    // declaration and the shared scaffolding stay here.
     PathBudget {
         path: "src-tauri/src/contexts/sessions/infrastructure/tests.rs",
-        budget: 847,
+        budget: 848,
         owner: "relocate-heavyweight-inline-tests",
     },
     // Lowered from 4,628 by the same change. ~1,600 of what remains is the single `FakeWorld`
@@ -2682,14 +2685,24 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // boundary; measured on the merged tree because main changed the same subtree
         // independently (the bounded terminal reap landed there in parallel); merged-tree
         // measurement: 62,879.
+        // Raised to 62,914 by `add-session-worktree-cleanup`. The +35 is `reap_session_and_wait`
+        // in `background_shell.rs`: a deletion must not remove a directory while a managed shell
+        // still has it as its cwd, and the existing reap returns before the child is actually
+        // gone. Nothing was duplicated; the fire-and-forget reap stays for the paths that need no
+        // confirmation.
+        // +15 by the same change for `sqlite_repository.rs`: five read-then-write transactions
+        // begin `IMMEDIATE` (two extra lines each for the builder call) and the five-line note on
+        // the struct saying why. The Windows smoke run failed on the deferred form.
         //
-        // Raised to 63,028 by `fix-session-creation-and-trace-correctness`. The +149 is the
-        // terminal producer declaring its own span kinds -- four layers that previously shared one
-        // attribute set and therefore all classified as `unknown` -- plus the three tests that run
-        // the emitted attributes through the real classifier. Asserting the attribute map instead
-        // would have been shorter and would have passed against the broken build, since every
-        // stage was individually correct and only their composition was wrong.
-        budget: 63_028,
+        // Raised by `fix-session-creation-and-trace-correctness`. Its +149 is the terminal producer
+        // declaring its own span kinds -- four layers that previously shared one attribute set and
+        // therefore all classified as `unknown` -- plus the three tests that run the emitted
+        // attributes through the real classifier. Asserting the attribute map instead would have
+        // been shorter and would have passed against the broken build, since every stage was
+        // individually correct and only their composition was wrong.
+        // The two changes touch different files, so this is measured on the merged tree rather
+        // than summed from either branch's own figure.
+        budget: 63_078,
         owner: "fix-session-creation-and-trace-correctness",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
@@ -2794,8 +2807,12 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // change's one migration from 95 to 111. Measured on the merged tree rather than summed:
         // both branches raised this number for their own migrations and neither copied the other's.
         // Merged-tree measurement: 3,634.
-        budget: 3_634,
-        owner: "merge/openspec-permission-shell-search",
+        // +14 for migrations 112 (`managed-worktree-resources`) and 113
+        // (`session-deletion-operations`) by `add-session-worktree-cleanup`: two registration
+        // calls and two inventory entries. The schemas live in the workspaces and sessions
+        // infrastructure that own those tables; only the fixed registration cost lands here.
+        budget: 3_648,
+        owner: "add-session-worktree-cleanup",
     },
 ];
 
@@ -2841,12 +2858,18 @@ const NATIVE_PRODUCTION_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // deliberately not by this one.
         // The structured model transport contributes the remaining production-only delta on the
         // merged tree (measured 33,866); its test doubles are counted by the aggregate above.
+        // `add-session-worktree-cleanup` raises it to 33,901. The +35 is production: the
+        // confirming reap that waits until a session's managed shells have actually exited, which
+        // the cleanup needs before it may remove the directory they ran in.
+        // +15 more, all production, for the `IMMEDIATE` transactions in `sqlite_repository.rs`
+        // and the note that explains them.
         //
-        // `fix-session-creation-and-trace-correctness` raises it to 33,896. The +30 is production:
-        // the kind attribute name, three kind tokens, and per-layer attribute construction where
-        // one shared set used to be reused four times. The tests that pin the classification are
-        // counted by the aggregate above and deliberately not by this one.
-        budget: 33_896,
+        // `fix-session-creation-and-trace-correctness` contributes +30, also production: the kind
+        // attribute name, three kind tokens, and per-layer attribute construction where one shared
+        // set used to be reused four times. The tests that pin the classification are counted by
+        // the aggregate above and deliberately not by this one. Different files from the cleanup's
+        // delta, so measured on the merged tree.
+        budget: 33_946,
         owner: "fix-session-creation-and-trace-correctness",
     },
 ];

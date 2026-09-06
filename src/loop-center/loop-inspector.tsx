@@ -41,7 +41,7 @@ export const LoopInspector = forwardRef<HTMLElement, LoopInspectorProps>(functio
       {run ? (
         <div className="grid gap-5">
           <InspectorSection title={t("loops.inspector.run")}>
-            <AgentRunOwnerStatus ownerId={run.id} ownerType="loop_run" />
+            <AgentRunOwnerStatus active={run.status === "queued" || run.status === "running"} ownerId={run.id} ownerType="loop_run" />
             <Field label={t("loops.monitor.operation")} value={run.activeOperationId && ["queued", "running"].includes(run.status) ? t("loops.operation.active") : operationEvidence ? t(`loops.evidence.status.${operationEvidence.status}`) : t("loops.operation.none")} />
             {run.activeOperationId || operationEvidence?.operationId ? <Field label={t("loops.monitor.operationId")} value={run.activeOperationId ?? operationEvidence?.operationId ?? ""} /> : null}
             {run.activeOperationId || operationEvidence?.operationId ? <LoopInspectionActions onInspect={onInspect} sessionId={inspectionSessionId} surfaces={["logs"]} /> : null}

@@ -8,6 +8,7 @@ pub(crate) mod filesystem;
 pub(crate) mod git;
 pub(crate) mod hashing;
 pub(crate) mod ids;
+pub(crate) mod instance_lease;
 pub(crate) mod legacy_plan_schema;
 pub(crate) mod log_receipts;
 pub(crate) mod logging;

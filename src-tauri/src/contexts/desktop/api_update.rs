@@ -144,7 +144,13 @@ impl DesktopUpdateApi {
         if self.runtime.snapshot()?.phase != "ready-to-restart" {
             return Err("verified update is not ready".into());
         }
-        self.app.restart();
+        // `request_restart` rather than `restart`: the latter spawns the successor and exits without
+        // ever emitting `RunEvent::Exit`, which skips both this application's shutdown handlers --
+        // retained shells, the evidence bridge drain, the log index worker -- and the single-instance
+        // guard's own lock release, so the successor can find the lock still held by the process that
+        // spawned it and exit as a duplicate. Requesting exit runs the normal path, then restarts.
+        self.app.request_restart();
+        Ok(())
     }
 }
 
