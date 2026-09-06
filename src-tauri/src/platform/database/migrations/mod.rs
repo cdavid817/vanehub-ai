@@ -705,6 +705,20 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
     crate::contexts::operations::infrastructure::repair_missing_log_query_index_schema(conn)?;
     crate::contexts::sessions::infrastructure::repair_missing_review_decision_schema(conn)?;
     crate::contexts::sessions::infrastructure::repair_missing_review_file_witness(conn)?;
+    // 88-90 have the same exposure the 91-94 block describes, and it has already happened: a
+    // shared local database migrated by a branch that recorded other migrations at 88-90 arrives
+    // here with those versions present and the personalization tables and column absent, and the
+    // gated calls above never run. Every session insert then fails on `personalization_mode`.
+    // All three schema functions are idempotent, so re-asserting them is the whole repair.
+    {
+        let transaction = conn.unchecked_transaction()?;
+        crate::contexts::personalization::infrastructure::apply_schema(&transaction)?;
+        crate::contexts::sessions::infrastructure::apply_personalization_mode_schema(&transaction)?;
+        crate::contexts::personalization::infrastructure::apply_reconciliation_schema(
+            &transaction,
+        )?;
+        transaction.commit()?;
+    }
 
     // Fail fast when a migration was skipped or the persisted history contains a gap.
     assert_migration_history_is_dense(conn)?;
