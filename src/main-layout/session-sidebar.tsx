@@ -60,7 +60,7 @@ function SessionCard({ active, batchMode, checked, draggable, onContextMenu, onD
     <button
       aria-pressed={batchMode ? checked : active}
       className={cn(
-        "relative w-full rounded-md border border-transparent px-3 py-2.5 text-left transition-colors hover:bg-[hsl(var(--panel-hover))] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+        "relative w-full min-w-0 max-w-full rounded-md border border-transparent px-3 py-2.5 text-left transition-colors hover:bg-[hsl(var(--panel-hover))] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
         active && !batchMode && "border-border/70 bg-background shadow-xs",
         checked && batchMode && "border-primary/50 bg-[hsl(var(--nav-active-soft))]",
       )}

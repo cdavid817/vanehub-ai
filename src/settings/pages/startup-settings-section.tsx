@@ -6,7 +6,7 @@ export function StartupSettingsSection() {
   const { t } = useTranslation();
   const { loading, reportClientLogEvent, savingKey, setLaunchOnStartup, settings } = useSettings();
   const enabled = settings.launchOnStartup;
-  const nativeAvailable = settings.loggingPolicy.canOpenDirectory;
+  const nativeAvailable = settings.launchOnStartupAvailable;
   const busy = loading || savingKey === "launchOnStartup";
 
   function toggle() {

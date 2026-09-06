@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { assertNoFatalError, bootDesktopUi, FONT_SIZE_TARGET } from "../helpers/native-ui.mjs";
+import { assertNoFatalError, bootDesktopUi, CLI_TERMINAL_THEME_TARGET, FONT_SIZE_TARGET } from "../helpers/native-ui.mjs";
 
 globalThis.describe("VaneHub AI desktop settings persistence: change", () => {
   globalThis.after(async () => {
@@ -44,6 +44,27 @@ globalThis.describe("VaneHub AI desktop settings persistence: change", () => {
       const settings = await globalThis.browser.tauri.execute(({ core }) => core.invoke("get_settings"));
       return settings.fontSize === FONT_SIZE_TARGET;
     }, { timeout: 30000, timeoutMsg: "The changed setting never reached native storage." });
+
+    // The CLI session theme takes the same route: a fresh install reports the native default, the
+    // change goes through the provider to the native settings row, never to browser storage.
+    assert.equal(before.cliTerminalTheme, "dark", "a fresh install must default the CLI terminal theme to dark");
+    const cliThemeDispatched = await globalThis.browser.execute(
+      (value) => {
+        const select = globalThis.document.querySelector('select[aria-label="CLI 会话主题"]');
+        if (!select) return false;
+        select.value = value;
+        select.dispatchEvent(new globalThis.Event("change", { bubbles: true }));
+        return true;
+      },
+      CLI_TERMINAL_THEME_TARGET,
+    );
+    assert.ok(cliThemeDispatched, "the CLI session theme control was not present to change");
+    await globalThis.browser.waitUntil(async () => {
+      const settings = await globalThis.browser.tauri.execute(({ core }) => core.invoke("get_settings"));
+      return settings.cliTerminalTheme === CLI_TERMINAL_THEME_TARGET;
+    }, { timeout: 30000, timeoutMsg: "The CLI terminal theme never reached native storage." });
+    const afterCliTheme = await globalThis.browser.tauri.execute(({ core }) => core.invoke("get_settings"));
+    assert.equal(afterCliTheme.theme, before.theme, "changing the CLI terminal theme must not change the application theme");
 
     await assertNoFatalError(root);
   });

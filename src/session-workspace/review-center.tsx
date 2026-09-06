@@ -98,8 +98,8 @@ function ReviewCenterContent({ mode, setMode, draft, setDraft, anchor, setAnchor
     await state.open();
   };
   return (
-    <div className={cn("grid h-full min-h-0 gap-3", railOpen && "md:grid-cols-[minmax(180px,240px)_minmax(0,1fr)]")} data-testid="review-center">
-      {railOpen ? <aside className="max-h-40 min-h-0 overflow-y-auto rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-2 md:max-h-none">
+    <div className={cn("grid h-full min-h-0 gap-3", railOpen && "grid-rows-[auto_minmax(0,1fr)] @2xl:grid-cols-[minmax(180px,240px)_minmax(0,1fr)] @2xl:grid-rows-1")} data-testid="review-center">
+      {railOpen ? <aside className="max-h-40 min-h-0 overflow-y-auto rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-2 @2xl:max-h-none">
         <p className="truncate px-2 pb-1 text-xs text-muted-foreground">{review.workspaceId}</p>
         <p className="px-2 pb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">{t("sessionTabs.review.files", { count: review.files.length })}</p>
         {review.files.map((file) => <button className={cn("block w-full truncate rounded px-2 py-2 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", state.selectedPath === file.path && "bg-muted text-primary")} key={file.path} onClick={() => state.setSelectedPath(file.path)} type="button">{file.path}</button>)}

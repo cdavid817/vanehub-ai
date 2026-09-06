@@ -168,19 +168,11 @@ export function SessionTabBar({
  * building would be a claim the workspace cannot support, and a reader cannot tell the two apart.
  */
 function TabBadge({ badge, tab }: { badge: WorkspaceTabBadge | undefined; tab: SessionTabId }) {
-  if (badge === undefined || badge.kind === "none") return null;
-
-  if (badge.kind === "unknown") {
-    return (
-      <span
-        aria-hidden="true"
-        className="min-w-5 rounded-full border border-dashed border-border px-1 text-center font-mono text-[10px] text-muted-foreground"
-        data-badge={`${tab}-unknown`}
-      >
-        ·
-      </span>
-    );
-  }
+  // An unknown count draws nothing. The dashed placeholder it used to draw read as an
+  // unexplained glyph next to every tab of a real session, where evidence coverage stays
+  // partial for long stretches; the spoken description on the button still says why there is
+  // no number.
+  if (badge === undefined || badge.kind === "none" || badge.kind === "unknown") return null;
 
   return (
     <span

@@ -2702,8 +2702,12 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // individually correct and only their composition was wrong.
         // The two changes touch different files, so this is measured on the merged tree rather
         // than summed from either branch's own figure.
-        budget: 63_078,
-        owner: "fix-session-creation-and-trace-correctness",
+        //
+        // +7 by `harden-session-workspace-tab-layouts`, measured on the merged tree: the early
+        // return in `record_terminal_usage_log` that stops a periodic poll which persisted nothing
+        // from being written -- it was three quarters of the unified log -- and the note saying why.
+        budget: 63_085,
+        owner: "harden-session-workspace-tab-layouts",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
     // directory module. The +51 is entirely per-file boilerplate: +29 module headers (the `mod`
@@ -2811,8 +2815,12 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // (`session-deletion-operations`) by `add-session-worktree-cleanup`: two registration
         // calls and two inventory entries. The schemas live in the workspaces and sessions
         // infrastructure that own those tables; only the fixed registration cost lands here.
-        budget: 3_648,
-        owner: "add-session-worktree-cleanup",
+        // +14 for the post-migration repair in `migrations/mod.rs` (`harden-session-workspace-tab-
+        // layouts`): a local database shared between worktrees can record versions 88-90 from
+        // another branch while the personalization columns never landed, so startup re-applies
+        // those three idempotent schemas in one transaction after the version-gated migrations.
+        budget: 3_662,
+        owner: "harden-session-workspace-tab-layouts",
     },
 ];
 
@@ -2869,8 +2877,11 @@ const NATIVE_PRODUCTION_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // set used to be reused four times. The tests that pin the classification are counted by
         // the aggregate above and deliberately not by this one. Different files from the cleanup's
         // delta, so measured on the merged tree.
-        budget: 33_946,
-        owner: "fix-session-creation-and-trace-correctness",
+        //
+        // +7 production by `harden-session-workspace-tab-layouts`: the no-op poll guard in
+        // `record_terminal_usage_log`, the same lines counted by the aggregate above.
+        budget: 33_953,
+        owner: "harden-session-workspace-tab-layouts",
     },
 ];
 

@@ -59,9 +59,14 @@ export function TraceViewport({
     // that is not open left the waterfall with a fraction of the width it had available, and at
     // 1440px that was enough to squeeze its time axis to nothing.
     <div
+      // minmax(0,1fr) and min-w-0 are load-bearing: the waterfall sets a minimum row width from
+      // its last measured viewport, and an auto column let that minimum widen the column, which
+      // the next measurement then reported back, locking the timeline wider than its panel.
+      // Sized by the enclosing section (a container), not the window: the workspace column sits
+      // between two collapsible side panels.
       className={cn(
-        "grid min-h-0 flex-1 gap-3",
-        sidePanelOpen ? "lg:grid-cols-[minmax(0,1fr)_minmax(16rem,26rem)]" : "lg:grid-cols-1",
+        "grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,1fr)] gap-3",
+        sidePanelOpen && "grid-rows-[minmax(10rem,auto)_minmax(0,1fr)] @3xl:grid-cols-[minmax(0,1fr)_minmax(16rem,26rem)] @3xl:grid-rows-1",
       )}
     >
       <div className="flex min-h-0 min-w-0 flex-col gap-2">

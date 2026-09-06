@@ -130,8 +130,8 @@ export function DocumentsTab({
   }
 
   return (
-    <div className="grid h-full min-h-0 gap-3 lg:grid-cols-[240px_minmax(0,1fr)]">
-      <div className="flex min-h-0 flex-col gap-2">
+    <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-3 @2xl:grid-cols-[240px_minmax(0,1fr)] @2xl:grid-rows-1">
+      <div className="flex max-h-64 min-h-0 flex-col gap-2 @2xl:max-h-none">
         {listQuery.data?.coverage && listQuery.data.coverage.state !== "complete" ? (
           <WorkspaceCoverageNotice
             provider={capabilities?.provider}

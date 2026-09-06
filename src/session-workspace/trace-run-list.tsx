@@ -30,7 +30,9 @@ export function TraceRunList({
     // `flex-1` because this now sits in a flex column beside the newer-run notice rather than
     // directly in the grid. Without it the list grows to its content instead of scrolling, and a
     // session with many runs pushes the panel past the viewport.
-    <aside className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-2">
+    // Stacked above the timeline in a narrow panel, the list must not take the height the
+    // timeline needs; beside it, it takes the full height.
+    <aside className="max-h-56 min-h-0 flex-1 overflow-y-auto rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-2 @3xl:max-h-none">
       <h2 className="px-2 py-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         {t("traces.runs")}
       </h2>

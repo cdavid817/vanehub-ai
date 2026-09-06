@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import { formatAppDateTime } from "../i18n/format";
 import type { SessionTabId } from "../session-workspace/session-tab-bar";
 import { evidenceSessionIdSchema } from "../contracts/session-workspace-evidence-ids";
 import { useWorkspaceCapabilities } from "../session-workspace/workspace-capability-notice";
@@ -57,7 +58,7 @@ export function SessionEvidenceSummary({
   onShowUsage?: () => void;
   sessionId: string | null;
 }) {
-  const { t } = useTranslation();
+  const { i18n, t } = useTranslation();
   const parsed = sessionId === null || !active ? null : evidenceSessionIdSchema.safeParse(sessionId);
   const evidenceSessionId = parsed?.success ? parsed.data : null;
   const { state, summary } = useWorkspaceEvidenceSummary(evidenceSessionId);
@@ -79,7 +80,7 @@ export function SessionEvidenceSummary({
       <Row
         label={t("layout.info.evidence.runtime")}
         onOpen={onNavigateToTab && (() => onNavigateToTab(ROW_TABS.runtime))}
-        value={runtimeLabel(summary, t)}
+        value={runtimeLabel(summary, t, i18n.language)}
       />
       <Row
         label={t("layout.info.evidence.workspace")}
@@ -144,14 +145,19 @@ export function SessionEvidenceSummary({
 function runtimeLabel(
   summary: WorkspaceEvidenceSummary,
   t: (key: string, options?: Record<string, unknown>) => string,
+  language: string,
 ): string {
   const status = t(`layout.info.evidence.runState.${summary.runState.status}`);
   // The moment it started, not an elapsed time computed here. A duration rendered from this side
   // would tick against a clock the backend does not share, and would keep ticking for a run that
-  // ended while the panel was hidden.
-  return summary.runState.startedAt
-    ? `${status} · ${t("layout.info.evidence.since", { at: summary.runState.startedAt })}`
-    : status;
+  // ended while the panel was hidden. Rendered in the active locale: the raw ISO string did not
+  // fit the cell and was truncated to its date.
+  if (!summary.runState.startedAt) return status;
+  const startedAt = new Date(summary.runState.startedAt);
+  const at = Number.isNaN(startedAt.getTime())
+    ? summary.runState.startedAt
+    : formatAppDateTime(startedAt, language, { dateStyle: "short", timeStyle: "short" });
+  return `${status} · ${t("layout.info.evidence.since", { at })}`;
 }
 
 /**

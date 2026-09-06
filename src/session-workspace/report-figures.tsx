@@ -20,7 +20,7 @@ export function ReportOverviewSection({
       onOpenEvidence={() => onOpenEvidence("overview")}
       title={t("sessionTabs.report.section.overview")}
     >
-      <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="grid grid-cols-3 gap-2 @3xl:grid-cols-6">
         <ReportMetric label={t("sessionTabs.report.runs")} value={overview.runCount} />
         <ReportMetric label={t("sessionTabs.report.succeeded")} value={overview.succeeded} />
         <ReportMetric label={t("sessionTabs.report.failed")} value={overview.failed} />
@@ -58,7 +58,7 @@ export function ReportUsageSection({
       onOpenEvidence={() => onOpenEvidence("usage")}
       title={t("sessionTabs.report.section.usage")}
     >
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-3 gap-2">
         <ReportMetric label={t("sessionTabs.report.reportedInputTokens")} value={usage.reportedInputTokens} />
         <ReportMetric label={t("sessionTabs.report.reportedOutputTokens")} value={usage.reportedOutputTokens} />
         <ReportMetric label={t("sessionTabs.report.reportedDerivedTokens")} value={usage.reportedDerivedTokens} />
@@ -88,7 +88,7 @@ export function ReportLatencySection({
       onOpenEvidence={() => onOpenEvidence("latency")}
       title={t("sessionTabs.report.section.latency")}
     >
-      <div className="grid gap-2 sm:grid-cols-3">
+      <div className="grid grid-cols-3 gap-2">
         <ReportMetric label={t("sessionTabs.report.p50Ms")} value={latency.p50Ms} />
         <ReportMetric label={t("sessionTabs.report.p95Ms")} value={latency.p95Ms} />
         <ReportMetric label={t("sessionTabs.report.slowestMs")} value={latency.slowestRecordDurationMs} />
@@ -112,7 +112,7 @@ export function ReportChangesSection({
       onOpenEvidence={() => onOpenEvidence("changes")}
       title={t("sessionTabs.report.section.changes")}
     >
-      <div className="grid gap-2 sm:grid-cols-3">
+      <div className="grid grid-cols-3 gap-2">
         <ReportMetric label={t("sessionTabs.report.changedFiles")} value={changes.changedFiles} />
         {/* Absent in this build. The em dash is the point: zero would claim every changed file had
             been reviewed. */}
@@ -139,7 +139,7 @@ export function ReportVerificationSection({
       title={t("sessionTabs.report.section.verification")}
     >
       {/* Failures beside what passed. Failures alone make every run look broken. */}
-      <div className="grid gap-2 sm:grid-cols-3">
+      <div className="grid grid-cols-3 gap-2">
         <ReportMetric label={t("sessionTabs.report.testsPassed")} value={verification.passed} />
         <ReportMetric label={t("sessionTabs.report.testsFailed")} value={verification.failed} />
         <ReportMetric label={t("sessionTabs.report.testsSkipped")} value={verification.skipped} />

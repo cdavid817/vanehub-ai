@@ -31,7 +31,7 @@ test.describe("OnePiece context policy health", () => {
     await page.goto("/");
     await page.getByRole("button", { name: /设置|Settings/ }).click();
     await page.getByRole("combobox", { name: /应用语言|Application Language/ }).selectOption("en");
-    await page.getByRole("combobox", { name: /主题|Theme/ }).selectOption("minimal");
+    await page.getByRole("combobox", { name: /^(主题|Theme)$/ }).selectOption("minimal");
     await page.getByRole("button", { name: "Agent Configurations" }).click();
     await page.getByRole("button", { name: "OnePiece" }).click();
 
@@ -53,7 +53,7 @@ test.describe("OnePiece context policy health", () => {
       await page.goto("/");
       await page.getByRole("button", { name: /设置|Settings/ }).click();
       await page.getByRole("combobox", { name: /应用语言|Application Language/ }).selectOption("en");
-      await page.getByRole("combobox", { name: /主题|Theme/ }).selectOption(variant.theme);
+      await page.getByRole("combobox", { name: /^(主题|Theme)$/ }).selectOption(variant.theme);
       await page.getByRole("button", { name: "Agent Configurations" }).click();
       await page.getByRole("button", { name: "OnePiece" }).click();
       const inspectorToggle = page.getByRole("button", { name: "Context Inspector" });

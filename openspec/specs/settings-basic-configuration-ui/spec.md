@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change split-settings-center-ui-spec. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Service-backed basic configuration
 The Basic Configuration page SHALL render common application settings through the shared settings provider and frontend service boundary.
 
@@ -15,6 +17,10 @@ The Basic Configuration page SHALL render common application settings through th
 - **THEN** it SHALL present `zh-CN`, `en`, `zh-TW`, `ja`, and `ko` from the supported-locale registry in deterministic order
 - **AND** each option SHALL have a recognizable localized label rather than a binary Chinese-or-English fallback label
 
+#### Scenario: Label size and theme options for people
+- **WHEN** the font-size or theme control renders
+- **THEN** each option SHALL carry a localized human label (for example small, default, large) derived from the option registry rather than a raw pixel value or a hard-coded per-theme branch
+
 #### Scenario: Update common setting
 - **WHEN** a user changes language, font size, visual theme, or default folder path from the Basic Configuration page
 - **THEN** the page SHALL save the setting through the shared settings provider without directly calling a Tauri command
@@ -23,6 +29,7 @@ The Basic Configuration page SHALL render common application settings through th
 - **WHEN** Basic Configuration renders common settings controls in any supported locale
 - **THEN** the page SHALL use the shared settings center layout, semantic design tokens, controls, and internal scrolling behavior
 - **AND** the language selector SHALL remain readable and operable at desktop and narrow viewport widths
+- **AND** only the page's content area SHALL scroll: no screen-reader-only label or other positioned descendant SHALL extend the document so that the window itself scrolls
 
 ### Requirement: Basic Settings network proxy section
 The Basic Configuration page SHALL provide a Network Proxy section for configuring the active runtime's outbound proxy behavior.
@@ -72,6 +79,7 @@ The Basic Settings page SHALL provide a log management section for the active ru
 #### Scenario: Change desktop log directory
 - **WHEN** a user changes the log directory from Basic Settings
 - **THEN** the page SHALL save the directory through the settings service without calling Tauri APIs directly
+- **AND** the field SHALL commit on Enter as well as on blur, offer the native directory picker where one exists, and acknowledge a successful save briefly without resizing the row
 
 #### Scenario: Open desktop log directory
 - **WHEN** a user selects the open log directory action in the Tauri desktop runtime
@@ -98,6 +106,15 @@ The Basic Configuration page SHALL organize common preferences, startup and wind
 - **THEN** network proxy, logs, data management, storage notes, and runtime information SHALL be grouped in a collapsed localized advanced disclosure
 - **AND** opening the disclosure SHALL expose the existing service-backed controls without changing their behavior
 
+#### Scenario: Keep implementation notes out of the page
+- **WHEN** the data management group renders
+- **THEN** it SHALL show the database location and the open action only
+- **AND** SHALL NOT display developer-facing storage notes such as which table or browser storage backs the settings
+
+#### Scenario: Refresh runtime information on demand
+- **WHEN** the Node.js environment panel renders
+- **THEN** it SHALL offer a re-detect action that refreshes the read-only information through the settings provider
+
 #### Scenario: Preserve service-backed common settings
 - **WHEN** a user changes language, font size, visual theme, default folder path, log directory, network proxy, launch-on-startup, or floating-assistant state
 - **THEN** the page SHALL save through the relevant frontend service or settings provider without directly calling Tauri APIs
@@ -112,6 +129,7 @@ The Basic Configuration page SHALL expose launch-on-startup controls through the
 #### Scenario: Show startup control in Basic Configuration
 - **WHEN** Basic Configuration renders
 - **THEN** it SHALL include a localized launch-on-startup control with current state, disabled state, and concise runtime-specific helper text
+- **AND** the disabled state SHALL follow the settings response's explicit startup capability flag
 
 #### Scenario: Report startup save failure
 - **WHEN** saving launch-on-startup fails
@@ -124,9 +142,23 @@ The Basic Configuration page SHALL provide a service-backed workspace-defaults g
 - **WHEN** a user opens Basic Configuration
 - **THEN** the workspace-defaults group SHALL display the current default opener without requiring expansion of opener management
 
+#### Scenario: Show an explicit empty default state
+- **WHEN** no enabled opener is available on the host
+- **THEN** the default-opener select SHALL show a localized empty-state option and be disabled
+- **AND** SHALL NOT render as a blank control
+
 #### Scenario: Display supported opener status
 - **WHEN** a user expands opener management
 - **THEN** the page SHALL list all supported opener ids with localized name, recognizable icon, availability state, and resolved version, edition, or executable path when provided
+- **AND** availability SHALL be presented with the shared status pill so an installed program is distinguishable from a missing or unsupported one at a glance
+
+#### Scenario: Present opener management without nested frames
+- **WHEN** opener management renders inside the workspace-defaults group
+- **THEN** its disclosure SHALL align with the group's setting rows rather than rendering as a framed card inside the framed group
+
+#### Scenario: Keep reorder controls outside the checkbox label
+- **WHEN** an opener card renders its enable checkbox and reorder buttons
+- **THEN** the buttons SHALL NOT be descendants of the checkbox's label element, so assistive technology announces them as separate controls
 
 #### Scenario: Configure enabled openers
 - **WHEN** a user changes the multi-select opener list
@@ -161,6 +193,16 @@ The Basic Configuration workspace-defaults group SHALL expose the existing defau
 - **THEN** the page SHALL save `defaultFolderPath` through the shared settings provider
 - **AND** SHALL NOT call a Tauri command directly
 
+#### Scenario: Commit on Enter and acknowledge the save
+- **WHEN** a user presses Enter in the field or the field loses focus with a changed value
+- **THEN** the page SHALL commit once, show a brief localized saved acknowledgement, and show the service's error inline when the save is refused
+- **AND** a stored path that only differs from the draft by its display normalization SHALL NOT be re-saved
+
+#### Scenario: Pick the directory natively
+- **WHEN** the runtime offers a directory picker and the user activates the browse action
+- **THEN** the page SHALL request the picker through the settings provider and commit the chosen directory
+- **AND** cancelling the picker SHALL leave the stored value unchanged
+
 #### Scenario: Display runtime-restored default directory
 - **WHEN** Basic Configuration loads after a default folder path has been persisted
 - **THEN** the workspace-defaults group SHALL display the restored path in the localized setting row
@@ -175,3 +217,26 @@ The Basic Configuration page SHALL present global reset as a low-frequency foote
 #### Scenario: Cancel global reset
 - **WHEN** a user declines the reset confirmation
 - **THEN** the page SHALL leave every persisted setting unchanged
+
+#### Scenario: Finish the reset even when one key fails
+- **WHEN** resetting one key fails
+- **THEN** the provider SHALL still attempt every remaining key
+- **AND** SHALL report all failures together, naming the keys, instead of stopping at the first one
+
+### Requirement: CLI terminal theme control
+The Basic Configuration common-preferences group SHALL offer a "CLI 会话主题" select directly below the application theme, with the localized options light and dark, saved through the shared settings provider.
+
+#### Scenario: Render the control
+- **WHEN** Basic Configuration renders common preferences
+- **THEN** it SHALL show a labelled select for the CLI terminal theme with the current value and a description that it applies to single-Agent CLI terminals independently of the application theme and takes effect immediately
+- **AND** while the light value is selected the row SHALL also show a short note that some CLIs paint their own colors
+- **AND** the control SHALL be keyboard operable, focus visible, and disabled while its own save is in progress, without disabling unrelated controls
+
+#### Scenario: Save through the provider
+- **WHEN** the user picks another value
+- **THEN** the page SHALL save `cliTerminalTheme` through the settings provider without calling a Tauri command directly
+- **AND** a rejected save SHALL restore the previous selection and show the existing settings error
+
+#### Scenario: Localize in every registered locale
+- **WHEN** the control renders in any registered application locale
+- **THEN** its label, options, description, and note SHALL come from that locale's resources

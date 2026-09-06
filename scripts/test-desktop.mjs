@@ -288,6 +288,20 @@ function sessionWorkspaceDesktop(artifact) {
   });
 }
 
+/**
+ * Every session tab and Basic Configuration at five real window sizes, with a layout audit.
+ * Not in the required gate: it is a visual sweep whose value is the screenshots and the audit
+ * log, and its runtime would double the gate for defects the smoke sweep already surfaces once.
+ */
+function uiRatiosDesktop(artifact) {
+  return runDesktopLayer({
+    layer: "desktop-ui-ratios",
+    config: "tests/desktop/wdio.ui-ratios.conf.mjs",
+    label: "Desktop UI ratio sweep",
+    artifact,
+  });
+}
+
 function sessionShellDesktop(artifact) {
   return runDesktopLayer({
     layer: "desktop-session-shell",
@@ -509,6 +523,7 @@ async function main() {
   else if (mode === "cli-terminal") await cliTerminalDesktop();
   else if (mode === "session-workspace") await sessionWorkspaceDesktop();
   else if (mode === "session-shell") await sessionShellDesktop();
+  else if (mode === "ui-ratios") await uiRatiosDesktop();
   else if (mode === "dialogs") await dialogsDesktop();
   else if (mode === "session-deletion") await sessionDeletionDesktop();
   else if (mode === "scheduled-tasks") await scheduledTasksDesktop();

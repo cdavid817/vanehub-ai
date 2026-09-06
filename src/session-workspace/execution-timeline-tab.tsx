@@ -131,7 +131,13 @@ export function ExecutionTimelineTab({
   if (!runItems.length) return <WorkspaceState kind="empty" message={t("traces.empty")} />;
 
   return (
-    <div className="grid h-full min-h-0 gap-3 overflow-hidden lg:grid-cols-[minmax(220px,28%)_minmax(0,1fr)]">
+    // Sized by the panel, not the window: the workspace column sits between a session sidebar and
+    // an information panel, so a viewport breakpoint put the run list and the timeline side by
+    // side in a column far too narrow for both, and stacked them on a wide window that happened to
+    // be below the breakpoint. Container queries answer the question that is actually being asked.
+    // A container query resolves against an ancestor, so the container is a wrapper, not the grid.
+    <div className="@container h-full min-h-0">
+    <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-3 overflow-hidden @3xl:grid-cols-[minmax(220px,28%)_minmax(0,1fr)] @3xl:grid-rows-1">
       <div className="flex min-h-0 flex-col gap-2">
         {hasNewerRun ? (
           // Announced, not applied. The reader chose this run; a newer one appearing is news, not
@@ -167,7 +173,7 @@ export function ExecutionTimelineTab({
           selectedRunId={selectedRunId}
         />
       </div>
-      <section className="relative flex min-h-0 flex-col rounded-lg border border-border bg-background p-3 sm:p-4">
+      <section className="@container relative flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-background p-3 sm:p-4">
         {timeline.isLoading ? <WorkspaceState kind="loading" message={t("traces.loading")} /> : null}
         {timeline.isError ? <WorkspaceState kind="error" message={t("traces.error")} /> : null}
         {timelineData ? (
@@ -182,6 +188,7 @@ export function ExecutionTimelineTab({
           />
         ) : null}
       </section>
+    </div>
     </div>
   );
 }

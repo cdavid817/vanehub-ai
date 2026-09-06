@@ -39,7 +39,14 @@ const maxStaticEntryGzipBytes = 350 * 1024;
 // recorded at either measurement fails the other, which is how this was found -- the desktop
 // smoke job runs the second build and nothing local runs it by default. Measure that one when
 // raising this, since it is always the larger of the two.
-const maxRawJavaScriptChunkBytes = 701 * 1024;
+//
+// Raised from 701 KiB by `harden-session-workspace-tab-layouts`, measured after merging the
+// session-creation raise above: `npm run build` emits 718,691 bytes and the desktop-e2e build
+// 719,005. The +1,758 over the previous `main` is the full-width files toolbar with its selected
+// path, the session-row and badge width constraints, the collapsible CLI composer strip, and
+// the CLI theme attribute plumbing in the settings provider -- all of it in files the App chunk
+// already owned, none of it a second copy of a lazy panel.
+const maxRawJavaScriptChunkBytes = 704 * 1024;
 
 for (const source of requiredDynamicEntries) {
   const entry = Object.values(manifest).find((candidate) => candidate.src === source);

@@ -113,7 +113,7 @@ export function SettingsRow({
   children,
 }: {
   title: string;
-  description?: string;
+  description?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -127,25 +127,57 @@ export function SettingsRow({
   );
 }
 
+/**
+ * `embedded` renders the disclosure as one more row of a `variant="settings"` panel instead of a
+ * framed card, so a panel that already has a border does not nest a second one.
+ */
+function readDisclosureState(storageKey: string | undefined) {
+  if (!storageKey) return false;
+  try {
+    return window.localStorage.getItem(storageKey) === "open";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * `storageKey` remembers the expanded state per viewer (a browser-storage convenience, not a
+ * setting): an advanced group the user opened last time stays open next time.
+ */
 export function SettingsDisclosure({
   title,
   description,
   children,
+  embedded = false,
+  storageKey,
 }: {
   title: string;
   description: string;
   children: ReactNode;
+  embedded?: boolean;
+  storageKey?: string;
 }) {
   return (
-    <details className="group overflow-hidden rounded-xl border border-border bg-background">
+    <details
+      className={cn("group", embedded ? "border-b border-border/70 last:border-b-0" : "overflow-hidden rounded-xl border border-border bg-background")}
+      onToggle={(event) => {
+        if (!storageKey) return;
+        try {
+          window.localStorage.setItem(storageKey, event.currentTarget.open ? "open" : "closed");
+        } catch {
+          // Storage may be unavailable; the disclosure still works, it just will not remember.
+        }
+      }}
+      open={readDisclosureState(storageKey) || undefined}
+    >
       <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 hover:bg-muted/30 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-6">
         <span className="min-w-0">
-          <span className="block text-sm font-semibold leading-5 text-foreground">{title}</span>
+          <span className={cn("block text-sm leading-5 text-foreground", embedded ? "font-medium" : "font-semibold")}>{title}</span>
           <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">{description}</span>
         </span>
         <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden="true" />
       </summary>
-      <div className="grid border-t border-border bg-muted/10 p-4 sm:p-5">{children}</div>
+      <div className={cn("grid border-t border-border/70 bg-muted/10", embedded ? "px-5 py-4 sm:px-6" : "p-4 sm:p-5")}>{children}</div>
     </details>
   );
 }
@@ -165,6 +197,19 @@ export function StatCard({ label, value, hint, icon: Icon }: { label: string; va
         ) : null}
       </div>
       <div className="mt-3 text-xs leading-5 text-muted-foreground">{hint}</div>
+    </div>
+  );
+}
+
+/** Small labelled value tile used by the read-only information panels on settings pages. */
+export function InfoTile({ icon: Icon, label, value, muted = false }: { icon?: LucideIcon; label: string; value: string; muted?: boolean }) {
+  return (
+    <div className="rounded-md border border-border bg-[hsl(var(--panel-muted))] p-3">
+      <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+        {Icon ? <Icon className="h-3.5 w-3.5 text-primary" aria-hidden="true" /> : null}
+        {label}
+      </div>
+      <div className={cn("mt-1 break-all text-sm", muted ? "leading-6 text-muted-foreground" : "font-medium text-foreground")}>{value}</div>
     </div>
   );
 }

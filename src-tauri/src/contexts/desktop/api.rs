@@ -134,8 +134,33 @@ impl DesktopSettingsApi {
         view.with_personalization_revision(snapshot.revision)
     }
 
-    pub(crate) fn list_folder_openers(&self, refresh: bool) -> Vec<FolderOpenerAvailability> {
-        self.folder_openers.list(refresh)
+    /// Discovery walks directories and, on Windows, spawns `reg`/`where`; a command awaiting this
+    /// keeps that work off the main thread the way a synchronous command would not.
+    pub(crate) async fn list_folder_openers_detached(
+        &self,
+        refresh: bool,
+    ) -> Result<Vec<FolderOpenerAvailability>, DesktopSettingsError> {
+        let openers = self.folder_openers.clone();
+        tauri::async_runtime::spawn_blocking(move || openers.list(refresh))
+            .await
+            .map_err(|error| DesktopSettingsError::Directory(error.to_string()))
+    }
+
+    /// Same reasoning as above: the launch canonicalizes paths and may fall back to a full
+    /// rediscovery when the cached launcher has disappeared.
+    pub(crate) async fn open_session_folder_detached(
+        &self,
+        session_id: String,
+        target: String,
+        opener_id: FolderOpenerId,
+    ) -> Result<OpenSessionFolderResult, DesktopSettingsError> {
+        let openers = self.folder_openers.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            openers.open_path(&session_id, std::path::Path::new(&target), opener_id)
+        })
+        .await
+        .map_err(|error| DesktopSettingsError::Directory(error.to_string()))?
+        .map_err(DesktopSettingsError::Directory)
     }
 
     pub(crate) fn get_folder_opener_preferences(
@@ -153,17 +178,6 @@ impl DesktopSettingsApi {
         self.folder_openers
             .save_preferences(input)
             .map_err(DesktopSettingsError::Repository)
-    }
-
-    pub(crate) fn open_session_folder(
-        &self,
-        session_id: &str,
-        path: &std::path::Path,
-        opener_id: FolderOpenerId,
-    ) -> Result<OpenSessionFolderResult, DesktopSettingsError> {
-        self.folder_openers
-            .open_path(session_id, path, opener_id)
-            .map_err(DesktopSettingsError::Directory)
     }
 
     pub(crate) fn get_settings(&self) -> Result<DesktopSettingsView, DesktopSettingsError> {
@@ -207,6 +221,17 @@ impl DesktopSettingsApi {
             }
         }
         let mutation = super::domain::DesktopSettingMutation::parse(key, value)?;
+        // The default project directory is only ever used to seed a directory picker or a new
+        // session, so a path that does not exist would fail silently later instead of here. An
+        // empty value means "no default" and stays allowed. Filesystem I/O is not the domain
+        // parser's business, which is why the check lives at this boundary.
+        if let super::domain::DesktopSettingMutation::DefaultFolderPath(path) = &mutation {
+            if !path.trim().is_empty() && !std::path::Path::new(path.trim()).is_dir() {
+                return Err(DesktopSettingsError::Directory(format!(
+                    "default folder path is not an existing directory: {path}"
+                )));
+            }
+        }
         self.settings
             .save_setting(mutation)
             .map(DesktopSettingsView::native)

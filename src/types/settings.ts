@@ -8,6 +8,10 @@ export type { AppLanguage };
 export const appFontSizes = ["12px", "14px", "16px", "18px"] as const;
 export type AppFontSize = (typeof appFontSizes)[number];
 
+/** Palette of the embedded single-Agent CLI terminal, independent of the application theme. */
+export const cliTerminalThemes = ["light", "dark"] as const;
+export type CliTerminalTheme = (typeof cliTerminalThemes)[number];
+
 export const logLevels = ["error", "warn", "info", "debug"] as const;
 export type LogLevel = (typeof logLevels)[number];
 
@@ -58,7 +62,8 @@ export type AppSettingKey =
   | "memoryEnabled"
   | "memoryToolAssistedChatsEnabled"
   | "automaticContextCompactionEnabled"
-  | "contextQualityRetentionDays";
+  | "contextQualityRetentionDays"
+  | "cliTerminalTheme";
 
 export const customInstructionsFieldCharacterLimit = 3000;
 
@@ -71,6 +76,7 @@ export interface AppSettings {
   applicationLanguage: AppLanguage;
   fontSize: AppFontSize;
   theme: UcdThemeId;
+  cliTerminalTheme: CliTerminalTheme;
   defaultFolderPath: string;
   logDirectory: string;
   networkProxyUrl: string;
@@ -87,6 +93,8 @@ export interface AppSettings {
   contextQualityRetentionDays: ContextQualityRetentionDays;
   /** Revision the personalization fields above were read at. Echoed back on save so a write from a screen rendered before someone else's edit is refused rather than silently reverting it. `0` while the dedicated policy is unreachable, which the native side refuses. */
   personalizationRevision: number;
+  /** Read-only runtime capability: whether the host can register the app with OS autostart. */
+  launchOnStartupAvailable: boolean;
 }
 
 export interface NodeInfo {

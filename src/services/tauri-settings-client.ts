@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { open } from "@tauri-apps/plugin-dialog";
 import type { SettingsService, SettingsStateEvent } from "./settings-service";
 import { normalizeAppSettings } from "./settings-service";
 import type { AppSettings, DataManagementInfo, DetectedNetworkProxy, NetworkProxyTestResult, NodeInfo } from "../types/settings";
@@ -34,6 +35,11 @@ export const tauriSettingsClient: SettingsService = {
 
   async openLogDirectory() {
     await invoke<void>("open_log_directory");
+  },
+
+  async pickDirectory() {
+    const selected = await open({ directory: true, multiple: false });
+    return typeof selected === "string" ? selected : null;
   },
 
   async testNetworkProxy(input) {

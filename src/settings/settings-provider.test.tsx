@@ -28,7 +28,7 @@ interface HydrationSnapshot {
 }
 
 function HydratedSurface({ onRender }: { onRender: (snapshot: HydrationSnapshot) => void }) {
-  const { error, saveSetting, settings } = useSettings();
+  const { error, resetSettings, saveSetting, settings } = useSettings();
   onRender({
     contextFontSize: settings.fontSize,
     documentFontSize: document.documentElement.style.fontSize,
@@ -40,6 +40,7 @@ function HydratedSurface({ onRender }: { onRender: (snapshot: HydrationSnapshot)
     <div data-testid="hydrated-surface">
       ready
       <button type="button" onClick={() => void saveSetting("applicationLanguage", "ko")}>switch</button>
+      <button type="button" onClick={() => void resetSettings().catch(() => undefined)}>reset</button>
     </div>
   );
 }
@@ -215,6 +216,31 @@ describe("SettingsProvider hydration", () => {
       value: "ko",
       expectedPersonalizationRevision: 9,
     });
+  });
+
+  it("keeps resetting the remaining keys after one of them fails and reports every failure", async () => {
+    const onRender = vi.fn<(snapshot: HydrationSnapshot) => void>();
+    vi.mocked(settingsService.getSettings).mockResolvedValue({ ...defaultAppSettings, fontSize: "18px", theme: "futuristic" });
+    vi.mocked(settingsService.saveSetting).mockImplementation(async (input) => {
+      if (input.key === "theme") throw new Error("theme locked");
+      return { ...defaultAppSettings, [input.key]: input.value };
+    });
+
+    render(
+      <SettingsProvider>
+        <HydratedSurface onRender={onRender} />
+      </SettingsProvider>,
+    );
+
+    await screen.findByTestId("hydrated-surface");
+    fireEvent.click(screen.getByRole("button", { name: "reset" }));
+
+    // Ten resettable keys reach the service: launchOnStartup is skipped because the mocked
+    // runtime reports the capability as unavailable, and the theme failure must not stop the rest.
+    await waitFor(() => expect(settingsService.saveSetting).toHaveBeenCalledTimes(10));
+    const savedKeys = vi.mocked(settingsService.saveSetting).mock.calls.map(([input]) => input.key);
+    expect(savedKeys).toContain("contextQualityRetentionDays");
+    await waitFor(() => expect(onRender.mock.lastCall?.[0].error).toContain("theme: theme locked"));
   });
 
   it("switches immediately and keeps the language returned by persistence", async () => {

@@ -94,7 +94,10 @@ export function TraceWaterfall({
         role="application"
         tabIndex={0}
       >
-        <div style={{ minWidth: contentMinWidthFor(viewportWidth, scale.contentWidthPx) }}>
+        {/* h-full is load-bearing: the list sizes its viewport from this box, and an auto-height
+            box is as tall as the rows the list decides to render — which, on a remount, is none.
+            A definite height breaks that loop. */}
+        <div className="h-full" style={{ minWidth: contentMinWidthFor(viewportWidth, scale.contentWidthPx) }}>
           {/* Inside the scroller and inside the same width, so the ticks stay over the bars they
               label. Outside it, a zoomed axis left the header clipped at the panel edge while the
               rows scrolled underneath — every visible tick then named a time that was not below

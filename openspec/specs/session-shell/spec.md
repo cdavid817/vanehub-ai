@@ -2,7 +2,9 @@
 
 ## Purpose
 Defines desktop PTY and Web-simulated shell behavior, lifecycle controls, cleanup, and diagnostic boundaries for a session workspace.
+
 ## Requirements
+
 ### Requirement: Desktop PTY shell
 The Shell tab SHALL provide one real PTY-backed interactive shell for the mounted selected-session panel in the desktop runtime, using a local process for local workspaces and an authenticated SSH PTY channel for bound remote workspaces.
 
@@ -213,3 +215,14 @@ The frontend Shell service, Tauri adapter, and Web/mock adapter SHALL use one ty
 - **THEN** the newer generation SHALL remain unchanged
 - **AND** capacity and terminal events SHALL be applied only to the matching generation
 
+### Requirement: A confirmed close leaves no error behind
+Closing a Shell through the confirm dialog SHALL NOT surface an error for calls the panel made on that Shell's behalf while it was being closed.
+
+#### Scenario: Reflow during close
+- **WHEN** the reader confirms the close and the panel reflows as the dialog leaves
+- **THEN** the surface SHALL NOT send a resize to a Shell that is no longer running
+- **AND** a resize or write refused after the surface has been removed SHALL be discarded rather than shown as a workspace error
+
+#### Scenario: Size after opening
+- **WHEN** a Shell was fitted while still opening and then starts accepting input
+- **THEN** the surface SHALL send its current size once, so the PTY is not left at its default dimensions

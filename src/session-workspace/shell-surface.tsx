@@ -8,7 +8,7 @@ import { sessionShellService } from "../services/runtime-session-shell-client";
 import { replayText } from "../services/session-shell-frames";
 import type { SessionShellDescriptor } from "../types/session-workspace-shell-frames";
 import type { SessionShellEvent } from "../services/session-shell-service";
-import { createTerminalTheme } from "./terminal-theme";
+import { createTerminalTheme, terminalFontFamily } from "./terminal-theme";
 import { acceptsInput } from "./shell-status";
 import { workspaceErrorKey, type WorkspaceErrorKey } from "./workspace-error";
 
@@ -44,8 +44,19 @@ export function ShellSurface({ descriptor, isVisible, onDescriptor, onError }: S
 
   useEffect(() => {
     descriptorRef.current = descriptor;
+    const wasAccepting = acceptsInputRef.current;
     acceptsInputRef.current = acceptsInput(descriptor);
-  }, [descriptor]);
+    // Sizes are only sent to a running Shell, so one that was fitted while still opening has never
+    // been told its size. The moment it starts accepting, it is told once; a PTY left at its
+    // default 80x24 wraps every line the reader sees until the next incidental resize.
+    const terminal = terminalRef.current;
+    const attachmentId = attachmentRef.current;
+    if (!wasAccepting && acceptsInputRef.current && terminal && attachmentId) {
+      sessionShellService
+        .resizeSessionShell({ shellId, attachmentId, rows: terminal.rows, cols: terminal.cols })
+        .catch(() => {});
+    }
+  }, [descriptor, shellId]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -54,7 +65,7 @@ export function ShellSurface({ descriptor, isVisible, onDescriptor, onError }: S
       allowTransparency: false,
       convertEol: true,
       cursorBlink: true,
-      fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+      fontFamily: terminalFontFamily,
       fontSize: 13,
       theme: createTerminalTheme(),
     });
@@ -71,6 +82,7 @@ export function ShellSurface({ descriptor, isVisible, onDescriptor, onError }: S
       attributes: true,
       attributeFilter: ["data-theme"],
     });
+    let mounted = true;
     const inputDisposable = terminal.onData((content) => {
       const attachmentId = attachmentRef.current;
       // Input is refused rather than queued when the Shell has ended: a keystroke held and
@@ -78,15 +90,25 @@ export function ShellSurface({ descriptor, isVisible, onDescriptor, onError }: S
       if (!attachmentId || !acceptsInputRef.current) return;
       sessionShellService
         .writeSessionShell({ shellId, attachmentId, content })
-        .catch((reason: unknown) => onError(workspaceErrorKey(reason)));
+        .catch((reason: unknown) => {
+          // A refusal that lands after this surface is gone belongs to a Shell the reader has
+          // already closed; reporting it would blame the panel for the close they asked for.
+          if (mounted) onError(workspaceErrorKey(reason));
+        });
     });
     const syncSize = () => {
       fit.fit();
       const attachmentId = attachmentRef.current;
-      if (!attachmentId) return;
+      // Only a running Shell is told its size. Closing one reflows the panel (the confirm dialog
+      // leaves), and a resize sent into that close is refused once the Shell is gone — an error
+      // the reader could do nothing about, shown for an action that succeeded.
+      if (!attachmentId || !acceptsInputRef.current) return;
       sessionShellService
         .resizeSessionShell({ shellId, attachmentId, rows: terminal.rows, cols: terminal.cols })
-        .catch((reason: unknown) => onError(workspaceErrorKey(reason)));
+        .catch(() => {
+          // A size the runtime did not take is not something the reader can act on: the next
+          // frame it paints will be fitted again, and the terminal stays readable meanwhile.
+        });
     };
     const resizeObserver = new ResizeObserver(syncSize);
     // Attached once `syncSize` exists: swapping the renderer can change the computed rows and
@@ -94,6 +116,7 @@ export function ShellSurface({ descriptor, isVisible, onDescriptor, onError }: S
     const detachRenderer = attachAcceleratedRenderer(terminal, syncSize);
     resizeObserver.observe(host);
     return () => {
+      mounted = false;
       resizeObserver.disconnect();
       themeObserver.disconnect();
       inputDisposable.dispose();
@@ -175,7 +198,7 @@ export function ShellSurface({ descriptor, isVisible, onDescriptor, onError }: S
   return (
     <div
       aria-label={t("sessionTabs.shell.terminal")}
-      className="ucd-shell-terminal min-h-0 flex-1 p-2"
+      className="ucd-shell-terminal min-h-0 flex-1"
       ref={hostRef}
       role="log"
     />

@@ -101,7 +101,11 @@ export function DocumentViewer({
         {content.status !== "text" ? (
           <WorkspaceState kind="unavailable" message={t(`sessionTabs.files.${content.status}`)} />
         ) : mode === "source" || !isMarkdown ? (
-          <FilePreview file={content} status={status} targetLine={scrollToLine} />
+          // Padded like the Markdown branch: without it the toolbar's file name and the meta row
+          // sat flush against the card border while the rendered document beside it did not.
+          <div className="h-full p-3">
+            <FilePreview file={content} status={status} targetLine={scrollToLine} />
+          </div>
         ) : (
           <RichMarkdown className="p-4 text-sm" headingIds={outline.map((entry) => entry.anchor)}>
             {content.content ?? ""}
