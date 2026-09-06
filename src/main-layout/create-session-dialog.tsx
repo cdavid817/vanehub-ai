@@ -6,6 +6,7 @@ import { canCreateSession, defaultSshConnectionDraft, firstMode, submitCreateSes
 import { defaultSessionAgent, previousSessionAgentStorageKey, selectSessionAgents } from "./create-session-agents";
 import { useCreateSessionOperation } from "./use-create-session-operation";
 import { useProjectInspection } from "./use-project-inspection";
+import { useStoredSessionAgent } from "./use-stored-session-agent";
 import { useCreateSessionReferenceData } from "./use-create-session-reference-data";
 import type { WorkspaceMode } from "./create-session-workspace-sections";
 import { modeForWorkspace } from "./session-personalization-mode-selector";
@@ -63,7 +64,15 @@ export function CreateSessionDialog({
   const [error, setError] = useState<string | null>(null);
   const [createOperationId, setCreateOperationId] = useState<string | null>(null);
   const [handledCreateOperationId, setHandledCreateOperationId] = useState<string | null>(null);
-  const { browseProject, inspectPath, inspection, projectPath, resetInspection, setProjectPath } =
+  const {
+    abandonInFlightInspection,
+    browseProject,
+    inspectPath,
+    inspection,
+    projectPath,
+    resetInspection,
+    setProjectPath,
+  } =
     useProjectInspection({
       onError: setError,
       onFolderChanged: () => {
@@ -118,6 +127,15 @@ export function CreateSessionDialog({
     setMultiSeats([]);
     resetInspection();
   }, [open, resetInspection]);
+
+  useStoredSessionAgent({
+    availableAgents,
+    onApply: (agent) => {
+      setAgentId(agent.id);
+      setInteractionMode(firstMode(agent));
+    },
+    open,
+  });
 
   useCreateSessionOperation({
     active: open,
@@ -245,8 +263,9 @@ export function CreateSessionDialog({
         setError(null);
         // A local inspection still in flight describes a folder this mode does not ask for. Its
         // late failure would otherwise surface in the shared error line of a remote form that
-        // shows no project field at all.
-        resetInspection();
+        // shows no project field at all. The chosen folder itself is kept: switching to Remote and
+        // back must not empty a path the user already picked.
+        abandonInFlightInspection();
       }}
       projectPath={projectPath}
       remoteDisplayName={remoteDisplayName}

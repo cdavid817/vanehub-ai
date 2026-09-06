@@ -7,11 +7,9 @@ import {
 import type { MessageSpeaker } from "../services/message-speaker";
 import type { ExecutionSpanSummary } from "../types/execution-observability";
 import { TraceSpanRow, spanSpeaker } from "./trace-span-row";
+import { axisWidthFor, contentMinWidthFor, labelColumnFor } from "./trace-layout";
 import {
-  axisWidthFor,
-  contentMinWidthFor,
   flattenSpanRows,
-  LABEL_COLUMN_PX,
   traceAxisTicks,
   traceTimeScale,
   type TraceRow,
@@ -76,27 +74,13 @@ export function TraceWaterfall({
 
   return (
     <div
-      className="flex min-h-0 flex-1 flex-col"
+      // `min-w-0`: without it this grid/flex item refuses to shrink below its content, and its
+      // content is sized *from its own width* -- so it settles at whatever the initial guess was
+      // and overflows the panel instead of scrolling inside it.
+      className="flex min-h-0 w-full min-w-0 flex-1 flex-col"
       ref={viewportRef}
-      style={{ "--trace-label-col": `${LABEL_COLUMN_PX}px` } as CSSProperties}
+      style={{ "--trace-label-col": `${labelColumnFor(viewportWidth)}px` } as CSSProperties}
     >
-      <div
-        aria-hidden="true"
-        className="grid grid-cols-[var(--trace-label-col)_minmax(0,1fr)] gap-2 border-b border-border pb-1 text-[11px] text-muted-foreground"
-      >
-        <span className="px-1">{t("traces.spanColumn")}</span>
-        <div className="relative h-4" style={{ minWidth: scale.contentWidthPx }}>
-          {ticks.map((tick, index) => (
-            <span
-              className="absolute -translate-x-1/2 tabular-nums"
-              key={tick}
-              style={{ insetInlineStart: `${(index / (ticks.length - 1)) * 100}%` }}
-            >
-              {t("traces.axisTick", { offset: tick })}
-            </span>
-          ))}
-        </div>
-      </div>
       <div
         // One focusable element for the whole list, moved by arrow keys. Tabbing through rows is
         // not an option in a virtualized list: the rows nobody scrolled to are not in the DOM.
@@ -110,7 +94,29 @@ export function TraceWaterfall({
         role="application"
         tabIndex={0}
       >
-        <div style={{ minWidth: contentMinWidthFor(scale.contentWidthPx) }}>
+        <div style={{ minWidth: contentMinWidthFor(viewportWidth, scale.contentWidthPx) }}>
+          {/* Inside the scroller and inside the same width, so the ticks stay over the bars they
+              label. Outside it, a zoomed axis left the header clipped at the panel edge while the
+              rows scrolled underneath — every visible tick then named a time that was not below
+              it. Matching `px-1` for the same reason: a header without it sits four pixels left of
+              every bar's origin. */}
+          <div
+            aria-hidden="true"
+            className="grid grid-cols-[var(--trace-label-col)_minmax(0,1fr)] gap-[8px] border-b border-border px-[4px] pb-1 text-[11px] text-muted-foreground"
+          >
+            <span>{t("traces.spanColumn")}</span>
+            <div className="relative h-4">
+              {ticks.map((tick, index) => (
+                <span
+                  className="absolute -translate-x-1/2 tabular-nums"
+                  key={tick}
+                  style={{ insetInlineStart: `${(index / (ticks.length - 1)) * 100}%` }}
+                >
+                  {t("traces.axisTick", { offset: tick })}
+                </span>
+              ))}
+            </div>
+          </div>
           <MeasuredVirtualList
             ariaLabel={t("traces.spans")}
             className="h-full"

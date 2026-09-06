@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ExecutionSpanSummary } from "../types/execution-observability";
+import { axisWidthFor, contentMinWidthFor, labelColumnFor } from "./trace-layout";
 import {
   flattenSpanRows,
   MIN_BAR_WIDTH_PX,
@@ -227,6 +228,49 @@ describe("trace time scale", () => {
     expect(ticks.length).toBeLessThanOrEqual(8);
     expect(ticks[0]).toBe(0);
     expect(ticks.at(-1)).toBe(5000);
+  });
+});
+
+/**
+ * The axis width and the scroll width are two halves of one layout.
+ *
+ * They drifted once already: the row padding was taken out of the axis but not put back into the
+ * scroll width, so the widest bar overshot its own track by exactly that much at every viewport
+ * narrow enough to scroll. Nothing in the type system connects them, so this does.
+ */
+describe("axis and content widths", () => {
+  it("round-trips, so a full-width bar exactly fills its track", () => {
+    for (const viewport of [320, 390, 480, 800, 1440, 2560]) {
+      expect(contentMinWidthFor(viewport, axisWidthFor(viewport))).toBe(viewport);
+    }
+  });
+
+  it("leaves the axis room to exist at every viewport it can be given", () => {
+    // Including absurd ones: a collapsed panel reports zero, and an axis of zero makes every
+    // division against it undefined.
+    for (const viewport of [0, 1, 100, 240, 390]) {
+      expect(axisWidthFor(viewport)).toBeGreaterThan(0);
+    }
+  });
+
+  it("gives narrow viewports a smaller label column than wide ones", () => {
+    // The range this replaced collapsed to its minimum when space ran short. A single fixed width
+    // would have made a phone's labels wider than the range they replaced, which is backwards.
+    expect(labelColumnFor(390)).toBeLessThan(labelColumnFor(1440));
+    expect(axisWidthFor(390)).toBeGreaterThan(0);
+  });
+
+  it("never shrinks the axis as the panel grows", () => {
+    // A breakpoint step did exactly that: one pixel wider across the threshold moved 76px from the
+    // axis to the labels, so closing the detail drawer made every bar jump narrower as the panel
+    // it sits in got bigger. The property is monotonicity, not the position of any threshold —
+    // asserting `labelColumnFor(390) < labelColumnFor(1440)` held on both sides of that step.
+    let previous = 0;
+    for (let viewport = 200; viewport <= 2000; viewport += 1) {
+      const axis = axisWidthFor(viewport);
+      expect(axis).toBeGreaterThanOrEqual(previous);
+      previous = axis;
+    }
   });
 });
 

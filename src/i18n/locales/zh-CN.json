@@ -201,6 +201,7 @@
   "traces.section.related": "其他关联",
   "traces.section.noAttributes": "该 span 没有属性。",
   "traces.section.noEvents": "该 span 没有记录事件。",
+  "traces.section.noEventsInLoadedRange": "在已加载范围内，此 Span 没有事件。",
   "traces.section.eventsTruncated": "事件列表已达上限，部分事件未显示。",
   "traces.section.noLinks": "没有关联项。",
   "traces.filters": "Span 过滤",

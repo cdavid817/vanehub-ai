@@ -165,31 +165,41 @@ impl SqliteExecutionTimelineRepository {
         // One row past the bound, purely to learn whether another exists. Asking for exactly the
         // bound cannot distinguish a run with that many events from one with more -- which was the
         // defect: the query returned 5000 rows and no way for a reader to tell the two apart.
-        // A row-value comparison rather than the equivalent chain of ORs. The two are logically
-        // identical and SQLite reports the same plan for both, but the chain is measurably slower
-        // as pages advance -- over 60k events it costs about a fifth more than this form. The plan
-        // text cannot tell them apart, so the reason is recorded here rather than left to a test
-        // to assert.
+        // Two statements rather than one with an `?2 IS NULL OR ...` guard, because that guard is
+        // not free: a bound parameter inside an OR cannot be folded into an index range, so SQLite
+        // seeks on `run_id` alone and re-walks the run from its first event on every page. Measured
+        // over 60k events the guarded form costs 165ms against 75ms for these two. The plan text is
+        // where the difference shows -- `(run_id=?)` versus
+        // `(run_id=? AND (timestamp,span_id,sequence)>(?,?,?))`.
+        let over_limit = i64::try_from(event_limit.saturating_add(1))
+            .map_err(|_| storage_error("event page size exceeds SQLite range"))?;
         let mut statement = connection
-            .prepare(
+            .prepare(if cursor.is_some() {
                 "SELECT run_id, span_id, sequence, name, timestamp, attributes_json
                  FROM execution_events WHERE run_id = ?1
-                   AND (?2 IS NULL OR (?2, ?3, ?4) < (timestamp, span_id, sequence))
-                 ORDER BY timestamp, span_id, sequence LIMIT ?5",
-            )
+                   AND (?2, ?3, ?4) < (timestamp, span_id, sequence)
+                 ORDER BY timestamp, span_id, sequence LIMIT ?5"
+            } else {
+                "SELECT run_id, span_id, sequence, name, timestamp, attributes_json
+                 FROM execution_events WHERE run_id = ?1
+                 ORDER BY timestamp, span_id, sequence LIMIT ?2"
+            })
             .map_err(|error| storage_error(error.to_string()))?;
-        let mut events = statement
-            .query_map(
+        let rows = if cursor.is_some() {
+            statement.query_map(
                 params![
                     run_id.as_str(),
                     cursor_timestamp,
                     cursor_span,
                     cursor_sequence,
-                    i64::try_from(event_limit.saturating_add(1))
-                        .map_err(|_| storage_error("event page size exceeds SQLite range"))?
+                    over_limit
                 ],
                 EventRow::read,
             )
+        } else {
+            statement.query_map(params![run_id.as_str(), over_limit], EventRow::read)
+        };
+        let mut events = rows
             .map_err(|error| storage_error(error.to_string()))?
             .map(|row| {
                 row.map_err(|error| storage_error(error.to_string()))?
@@ -199,17 +209,25 @@ impl SqliteExecutionTimelineRepository {
 
         let event_coverage = if events.len() > event_limit {
             // The cursor is the last row that survives truncation, read before truncating so the
-            // index is unambiguous. `checked_sub` keeps a zero bound from wrapping into an index,
-            // and a page that can hold nothing cannot say where to resume — it reports complete
-            // rather than panicking, because a telemetry read must not take down the operation it
-            // is describing over its own bookkeeping.
+            // index is unambiguous.
             let token = event_limit
                 .checked_sub(1)
                 .and_then(|index| events.get(index))
                 .map(encode_event_cursor)
                 .transpose()?;
             events.truncate(event_limit);
-            token.map_or_else(EventCoverage::complete, EventCoverage::truncated_at)
+            match token {
+                Some(token) => EventCoverage::truncated_at(token),
+                // A zero bound: rows exist, none fit, and there is no last-returned row to resume
+                // after. Reporting `complete` here would be the exact false claim this type exists
+                // to prevent -- an empty list presented as the whole record. The bound is a caller
+                // parameter, so this is reachable by asking for a page that can hold nothing.
+                None => {
+                    return Err(storage_error(
+                        "event page size must leave room for at least one event",
+                    ))
+                }
+            }
         } else {
             EventCoverage::complete()
         };

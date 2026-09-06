@@ -85,6 +85,14 @@ export function useCreateSessionOperation({
     startedAt: 0,
   });
 
+  // Held in refs and kept out of the dependency list. Callers pass `onCreated` as an inline arrow
+  // and `t` comes from `useTranslation`, so both change identity on every parent render. Depending
+  // on them tore down the effect and re-entered `poll()` immediately each time -- the retry
+  // interval was never actually waited, and a few renders during a transient failure could burn
+  // the whole attempt budget in milliseconds and report a failure that had not happened.
+  const callbacks = useRef({ onCreated, setError, setHandledOperationId, setLoading, t });
+  callbacks.current = { onCreated, setError, setHandledOperationId, setLoading, t };
+
   useEffect(() => {
     if (!active || !operationId || handledOperationId === operationId) return;
     let cancelled = false;
@@ -99,9 +107,9 @@ export function useCreateSessionOperation({
 
     /** Ends the watch: the dialog stops being busy and the operation stops being polled. */
     const settle = (message: string) => {
-      setLoading(false);
-      setHandledOperationId(operationId);
-      setError(message);
+      callbacks.current.setLoading(false);
+      callbacks.current.setHandledOperationId(operationId);
+      callbacks.current.setError(message);
     };
 
     const outOfBudget = () => Date.now() - watch.current.startedAt > WATCH_BUDGET_MS;
@@ -112,13 +120,13 @@ export function useCreateSessionOperation({
       if (!session) {
         // A result that does not describe a session is not a transient read failure; retrying
         // would ask the same question and get the same answer.
-        settle(t("createSession.error.command"));
+        settle(callbacks.current.t("createSession.error.command"));
         return;
       }
       // Handled only now. Marking it earlier is what turned a failed read into a dead end.
-      setLoading(false);
-      setHandledOperationId(operationId);
-      onCreated(session);
+      callbacks.current.setLoading(false);
+      callbacks.current.setHandledOperationId(operationId);
+      callbacks.current.onCreated(session);
     }
 
     async function poll() {
@@ -127,14 +135,14 @@ export function useCreateSessionOperation({
         if (cancelled) return;
         if (operation.status === "queued" || operation.status === "running") {
           if (outOfBudget()) {
-            settle(t("createSession.error.command"));
+            settle(callbacks.current.t("createSession.error.command"));
             return;
           }
           later(() => void poll());
           return;
         }
         if (operation.status === "failed") {
-          settle(operation.error ?? t("createSession.error.command"));
+          settle(operation.error ?? callbacks.current.t("createSession.error.command"));
           return;
         }
         await deliver(operation.result);
@@ -149,7 +157,7 @@ export function useCreateSessionOperation({
           later(() => void poll());
           return;
         }
-        settle(conciseError(operationError, t));
+        settle(conciseError(operationError, callbacks.current.t));
       }
     }
 
@@ -158,14 +166,6 @@ export function useCreateSessionOperation({
       cancelled = true;
       if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [
-    active,
-    handledOperationId,
-    onCreated,
-    operationId,
-    setError,
-    setHandledOperationId,
-    setLoading,
-    t,
-  ]);
+    // Only what actually identifies this watch. Anything else re-enters the poll loop.
+  }, [active, handledOperationId, operationId]);
 }

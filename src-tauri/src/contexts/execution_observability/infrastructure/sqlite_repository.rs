@@ -205,13 +205,20 @@ impl ExecutionTelemetryPort for SqliteExecutionTimelineRepository {
 ///
 /// Built from a closed enum of known tokens, so nothing here is caller-controlled.
 ///
+/// Rendered with `status_value`, the same function that writes the column this list is compared
+/// against — not `ExecutionStatus::as_str`, which produces the same tokens today but is a separate
+/// hand-written table. Comparing a column written by one table against a list built by another is
+/// how the two write paths came to disagree in the first place; if they ever drifted by a token
+/// the list would match no stored row, every finish would update nothing, and both functions would
+/// still compile with every test green.
+///
 /// Computed once. The value is invariant, and this sits on the path every span start and finish
 /// takes — a busy run crosses it dozens of times a second.
 static ADVANCEABLE_STATUSES: LazyLock<String> = LazyLock::new(|| {
     ExecutionStatus::ALL
         .iter()
         .filter(|status| !status.is_terminal())
-        .map(|status| format!("'{}'", status.as_str()))
+        .map(|status| format!("'{}'", status_value(*status)))
         .collect::<Vec<_>>()
         .join(", ")
 });

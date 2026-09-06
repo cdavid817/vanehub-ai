@@ -60,7 +60,7 @@ export function TraceSpanRow({
       aria-current={selected ? "true" : undefined}
       aria-label={spanAccessibleLabel(span, t)}
       className={cn(
-        "grid grid-cols-[var(--trace-label-col)_minmax(0,1fr)] items-center gap-2 rounded px-1",
+        "grid grid-cols-[var(--trace-label-col)_minmax(0,1fr)] items-center gap-[8px] rounded px-[4px]",
         selected ? "bg-primary/10 outline outline-2 outline-primary" : "hover:bg-muted/50",
       )}
       onClick={onSelect}
@@ -95,7 +95,7 @@ export function TraceSpanRow({
             aria-hidden="true"
             className={cn(
               "absolute top-1 h-3 rounded-sm",
-              gap ? "ucd-status-warning border" : barTone(span),
+              barTone(span, gap),
               // An open bar has no right edge, because where it ends has not happened yet. The
               // gradient is the only honest way to draw "still going" without inventing a number.
               placement.measurement === "running"
@@ -110,8 +110,12 @@ export function TraceSpanRow({
   );
 }
 
-function barTone(span: ExecutionSpanSummary): string {
+function barTone(span: ExecutionSpanSummary, gap: boolean): string {
+  // Failure reads first, before the observation-gap treatment. A span that failed *and* has no
+  // measurable duration is still a failure, and colour is how a reader scans a waterfall for them
+  // -- amber for "we could not see this" would hide it among the merely unobservable.
   if (span.status === "failed" || span.status === "cancelled") return "bg-destructive";
+  if (gap) return "ucd-status-warning border";
   if (span.criticalPath) return "bg-primary";
   if (span.delegated) return "bg-primary/60";
   return "bg-muted-foreground/60";

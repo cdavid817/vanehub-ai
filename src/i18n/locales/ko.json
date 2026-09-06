@@ -201,6 +201,7 @@
   "traces.section.related": "기타 링크",
   "traces.section.noAttributes": "이 스팬에는 속성이 없습니다.",
   "traces.section.noEvents": "이 스팬에는 기록된 이벤트가 없습니다.",
+  "traces.section.noEventsInLoadedRange": "불러온 범위에는 이 스팬의 이벤트가 없습니다.",
   "traces.section.eventsTruncated": "이벤트 목록이 한도에 도달했습니다. 일부 이벤트는 표시되지 않습니다.",
   "traces.section.noLinks": "연결된 항목이 없습니다.",
   "traces.filters": "스팬 필터",

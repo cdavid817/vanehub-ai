@@ -98,6 +98,37 @@ test.describe("Traces panel visual", () => {
         expect(barWidth).toBeLessThanOrEqual(trackWidth + 1);
       }
 
+      // The waterfall sizes its content from its own width, so a column that refuses to shrink
+      // below that content settles at whatever the initial guess was. At 390px it measured 800px,
+      // with most of the axis unreachable.
+      //
+      // Measured against the viewport, not against its own parent: the parent is pushed out by the
+      // same overflow, so "the scroller fits its panel" stays true at 800px inside an 823px panel
+      // inside a 390px window. Comparing them proves nothing.
+      const scrollerWidth = await page.evaluate(() => {
+        const scroller = document.querySelector('[role="application"]');
+        return scroller ? scroller.getBoundingClientRect().width : null;
+      });
+      expect(scrollerWidth).not.toBeNull();
+      expect(scrollerWidth ?? 0).toBeLessThanOrEqual(variant.width);
+
+      // The tick header and the bars must measure from the same origin. They were laid out in
+      // separate containers with different widths, so the axis labels sat beside the axis rather
+      // than over it -- and the reader had no way to notice, because both looked plausible.
+      const axisOrigins = await page.evaluate(() => {
+        const scroller = document.querySelector('[role="application"]');
+        const header = scroller?.querySelector('[aria-hidden="true"] .relative');
+        const row = scroller?.querySelector('[role="listitem"]');
+        const track = row?.lastElementChild;
+        if (!header || !track) return null;
+        return {
+          header: header.getBoundingClientRect().left,
+          track: track.getBoundingClientRect().left,
+        };
+      });
+      expect(axisOrigins).not.toBeNull();
+      expect(Math.abs((axisOrigins?.header ?? 0) - (axisOrigins?.track ?? 0))).toBeLessThanOrEqual(1);
+
       await expectNoHorizontalSpill(page);
       await page.screenshot({
         path: `test-results/traces-panel-${variant.name}.png`,

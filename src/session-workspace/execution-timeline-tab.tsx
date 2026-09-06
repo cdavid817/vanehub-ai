@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSessionSpeakers } from "../hooks/use-session-speakers";
 import type { Session } from "../types/agent";
@@ -62,37 +62,51 @@ export function ExecutionTimelineTab({
   // from a transition notice: a notice carries no session id and fires on finishes too, so it
   // would announce a newer run when the reader's own run merely ended, or when one started in a
   // session they are not looking at. The list is already scoped to this session.
-  const seenNewestRunId = useRef<string | null>(null);
+  // State rather than a ref, because the banner is derived from it during render. A ref does not
+  // schedule one, so acknowledging while the selection does not change -- clicking the run already
+  // selected -- would leave the banner on screen with nothing left to dismiss it.
+  const [seenNewestRunId, setSeenNewestRunId] = useState<string | null>(null);
   useEffect(() => {
     // Arriving at a list is not the same as a run appearing while you read it, so the first load
     // establishes the baseline silently.
-    if (seenNewestRunId.current === null) seenNewestRunId.current = newestRunId;
-  }, [newestRunId]);
+    if (seenNewestRunId === null && newestRunId !== null) setSeenNewestRunId(newestRunId);
+  }, [newestRunId, seenNewestRunId]);
   const hasNewerRun =
-    newestRunId !== null &&
-    seenNewestRunId.current !== null &&
-    newestRunId !== seenNewestRunId.current;
+    newestRunId !== null && seenNewestRunId !== null && newestRunId !== seenNewestRunId;
 
   useEffect(() => {
-    // Only corrects a selection that has become unreachable, and only once the list has actually
-    // loaded. Running against an empty list is how a refresh used to clear the reader's choice:
-    // no run matches, so it "corrects" to the first of a list that has not arrived yet.
-    if (!runItems.length) return;
+    // Gated on the load, not on the list being non-empty. "Not loaded yet" and "loaded and empty"
+    // are different: the first must not correct anything, because a refresh that briefly shows no
+    // rows would clear the reader's choice. The second must, or a selection whose run was pruned
+    // stays set and keeps issuing reads for a run that no longer exists.
+    if (runs.isPending) return;
     if (!runItems.some((run) => run.runId === selectedRunId)) {
       setSelectedRunId(runItems[0]?.runId ?? null);
     }
-  }, [runItems, selectedRunId]);
+  }, [runItems, runs.isPending, selectedRunId]);
   const compared = useQuery({
-    queryKey: ["execution-timeline", compareRunId],
+    // Suffixed to keep it distinct from the paged timeline below. The two hold different shapes --
+    // one response versus `{pages}` -- and selecting the run you are already comparing against
+    // pointed both observers at one cache entry, so whichever wrote last handed the other a value
+    // it could not read: a blank panel, or a crash inside the comparison.
+    //
+    // Still prefixed with `execution-timeline`, so one invalidation of that prefix refreshes both.
+    queryKey: ["execution-timeline", compareRunId, "single"],
     queryFn: () => service.getTimeline(compareRunId ?? ""),
     enabled: Boolean(compareRunId) && isVisible,
   });
   // Infinite because a run's events are bounded per response, and a reader told that events were
   // omitted needs a way to reach them. Only the events page: every response also carries the run
-  // and its spans, which the later pages repeat and this ignores. That waste buys not adding a
-  // second command for a path only a >5000-event run ever takes.
+  // and its spans, which the later pages repeat and this ignores.
+  //
+  // Two costs, both accepted rather than overlooked. The repeated run and spans above, and — since
+  // an invalidation refetches every loaded page — a live refresh after the reader has paged costs
+  // one full response per page. Both need the same thing to fix properly: an events endpoint
+  // separate from the timeline, which means a second command. Neither is worth that for a path
+  // only a run with more than 5000 events can reach, and such a run has almost always finished
+  // and stopped emitting transitions by the time anyone pages through it.
   const timeline = useInfiniteQuery({
-    queryKey: ["execution-timeline", selectedRunId],
+    queryKey: ["execution-timeline", selectedRunId, "paged"],
     queryFn: ({ pageParam }) => service.getTimeline(selectedRunId ?? "", pageParam),
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.eventCoverage.nextPageToken ?? undefined,
@@ -125,7 +139,7 @@ export function ExecutionTimelineTab({
           <button
             className="rounded border border-primary px-2 py-1 text-[11px] text-primary hover:bg-primary/10"
             onClick={() => {
-              seenNewestRunId.current = newestRunId;
+              setSeenNewestRunId(newestRunId);
               setSelectedRunId(newestRunId);
             }}
             type="button"
@@ -142,8 +156,12 @@ export function ExecutionTimelineTab({
           onSelect={(runId) => {
             // Choosing any run acknowledges the list as it stands; the notice is about arrivals
             // since the reader last looked, not about which run they picked.
-            seenNewestRunId.current = newestRunId;
+            setSeenNewestRunId(newestRunId);
             setSelectedRunId(runId);
+            // A run cannot usefully be compared against itself, and the compare chip is hidden on
+            // the selected row -- so leaving it set would strand a comparison with no way to close
+            // it from the list.
+            setCompareRunId((current) => (current === runId ? null : current));
           }}
           runs={runItems}
           selectedRunId={selectedRunId}

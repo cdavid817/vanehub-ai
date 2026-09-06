@@ -398,7 +398,11 @@ const SUBTREE_LINE_BUDGETS = Object.freeze([
   // build, so no e2e could render the state the whole paging path exists to serve -- and both
   // `cloneTimeline` and the fixture reset were hardcoding `truncated: false`, which would have
   // overridden any fixture that tried.
-  { root: "src/services", budget: 27458, owner: "fix-session-creation-and-trace-correctness" },
+  //
+  // 27458 -> 27462: review follow-up. The truncated fixture now states that its page bound is its
+  // own rather than the native 5000, because a mock declaring "truncated" over a single event is
+  // otherwise a contradiction a reader has to resolve for themselves.
+  { root: "src/services", budget: 27462, owner: "fix-session-creation-and-trace-correctness" },
 ]);
 
 const STATE_PACKAGES = new Set([

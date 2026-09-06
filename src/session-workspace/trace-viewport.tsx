@@ -64,7 +64,7 @@ export function TraceViewport({
         sidePanelOpen ? "lg:grid-cols-[minmax(0,1fr)_minmax(16rem,26rem)]" : "lg:grid-cols-1",
       )}
     >
-      <div className="flex min-h-0 flex-col gap-2">
+      <div className="flex min-h-0 min-w-0 flex-col gap-2">
         <header className="flex flex-wrap items-center gap-2">
           <Network className="h-4 w-4 text-primary" aria-hidden="true" />
           <h2 className="font-semibold">{t("traces.title")}</h2>

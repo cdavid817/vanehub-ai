@@ -4,9 +4,6 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useCreateSessionOperation } from "./use-create-session-operation";
 
-/** Mirrors the hook's own ceiling; asserted rather than imported so a silent raise shows up here. */
-const MAX_ATTEMPTS = 5;
-
 const { operationService, agentService } = vi.hoisted(() => ({
   operationService: { getOperationStatus: vi.fn() },
   agentService: { getSession: vi.fn() },
@@ -105,38 +102,31 @@ describe("create-session operation watcher", () => {
     expect(setHandledOperationId).toHaveBeenCalledWith("operation-1");
   });
 
-  it("keeps the retry ceiling across re-renders that change the callback identity", async () => {
-    agentService.getSession.mockRejectedValue(new Error("permanently unavailable"));
-    const setError = vi.fn();
-    // Fed back the way the dialog's own state does, so giving up actually stops the watcher.
-    // Pinning this to null would leave the effect eligible to poll forever regardless of the
-    // ceiling, and the test would be measuring the harness rather than the hook.
-    let handled: string | null = null;
-    const setHandledOperationId = vi.fn((value: string | null) => {
-      handled = value;
-    });
+  it("does not re-poll when only the callback identity changes", async () => {
+    agentService.getSession.mockRejectedValue(new Error("temporarily unavailable"));
 
     const { rerender } = renderHook(
       ({ onCreated }: { onCreated: (session: unknown) => void }) =>
         useCreateSessionOperation({
           active: true,
-          handledOperationId: handled,
+          handledOperationId: null,
           onCreated: onCreated as never,
           operationId: "operation-1",
-          setError,
-          setHandledOperationId,
+          setError: vi.fn(),
+          setHandledOperationId: vi.fn(),
           setLoading: vi.fn(),
           t: (key: string) => key,
         }),
       { initialProps: { onCreated: () => {} } },
     );
+    await waitFor(() => expect(agentService.getSession).toHaveBeenCalled());
+    const afterFirstPoll = agentService.getSession.mock.calls.length;
 
-    // Callers pass `onCreated` inline, so every parent render supplies a new identity and re-runs
-    // the effect. Each re-run polls once immediately, and its cleanup cancels the pending retry
-    // timer — so re-rendering faster than the poll interval drives the attempts entirely through
-    // re-renders. If the counter reset per effect run, it would never leave 1 and the ceiling
-    // would be unreachable.
-    for (let index = 0; index < 8; index += 1) {
+    // Callers pass `onCreated` inline, so every parent render supplies a new identity. If the
+    // effect depended on it, each render would tear down the pending retry and poll again
+    // immediately -- the interval would never be waited and the attempt budget could be spent in
+    // milliseconds, reporting a failure that had not happened.
+    for (let index = 0; index < 6; index += 1) {
       rerender({ onCreated: () => {} });
       await act(async () => {
         await Promise.resolve();
@@ -144,9 +134,7 @@ describe("create-session operation watcher", () => {
       });
     }
 
-    // Bounded: the ceiling is reached within those attempts rather than after them.
-    expect(setError).toHaveBeenCalled();
-    expect(agentService.getSession.mock.calls.length).toBeLessThanOrEqual(MAX_ATTEMPTS);
+    expect(agentService.getSession.mock.calls.length).toBe(afterFirstPoll);
   });
 
   it("stays busy across a retry, so the submit button is never live mid-recovery", async () => {

@@ -1691,6 +1691,20 @@ fn a_failed_operation_completion_is_recorded_rather_than_discarded() {
         Some("operation-session-1")
     );
     assert_eq!(recorded.category, "session.create");
+
+    // Driven to a terminal state rather than left running. A client polling a never-finishing
+    // operation waits out its own timeout and then reports a generic failure -- at which point
+    // creating the session again is the obvious move, and the second one is exactly what this
+    // change exists to prevent.
+    let events = fixture.operations.events.lock().expect("operation events");
+    let failure = events
+        .iter()
+        .find(|event| event.starts_with("fail:operation-session-1:"))
+        .expect("the operation is failed rather than left running");
+    assert!(
+        failure.contains(session.id()),
+        "the failure must name the session that does exist: {failure}"
+    );
 }
 
 /// A failed completion leaves exactly one session behind.

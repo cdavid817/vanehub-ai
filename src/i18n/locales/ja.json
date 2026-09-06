@@ -201,6 +201,7 @@
   "traces.section.related": "その他のリンク",
   "traces.section.noAttributes": "このスパンに属性はありません。",
   "traces.section.noEvents": "このスパンにイベントは記録されていません。",
+  "traces.section.noEventsInLoadedRange": "読み込み済みの範囲に、このスパンのイベントはありません。",
   "traces.section.eventsTruncated": "イベント一覧が上限に達しました。一部のイベントは表示されていません。",
   "traces.section.noLinks": "リンクはありません。",
   "traces.filters": "スパンフィルター",

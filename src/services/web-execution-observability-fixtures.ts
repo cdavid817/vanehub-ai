@@ -111,9 +111,13 @@ export const executionTimelineFixtures: ExecutionTimeline[] = [
         attributes: { "process.pid.observed": true },
       },
     ],
-    // The one fixture that reports a clipped event list. Without it the truncation notice and its
-    // continuation are unreachable from the browser build, so nothing outside the Rust tests ever
-    // renders the state that the whole event-paging path exists to serve.
+    // The one fixture that reports a clipped event list, with a page bound of one event.
+    //
+    // The bound is the adapter's own, not the native 5000 — `truncated` says "this response
+    // stopped at its limit", and what that limit is has always been an implementation detail. A
+    // browser build that had to carry 5000 fixture events to exercise the notice would be a worse
+    // lie than a small bound honestly declared, and without it the notice and its continuation are
+    // unreachable outside the Rust tests.
     eventCoverage: { truncated: true, nextPageToken: WEB_EVENT_PAGE_TWO },
   },
   {

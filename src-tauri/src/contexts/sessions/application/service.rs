@@ -370,7 +370,24 @@ impl SessionsApplicationService {
                         execution_run_id: None,
                         recovery_report_id: None,
                     });
-                    let _ = self.ports.operations.append_log(operation_id, message);
+                    let _ = self
+                        .ports
+                        .operations
+                        .append_log(operation_id, message.clone());
+                    // Driven to a terminal state, naming the session. Left running, the operation
+                    // never finishes: the client polls it to its own timeout and then reports a
+                    // generic failure, with nothing to say the session exists — and the obvious
+                    // next move is to create it again. Saying so here costs one string and removes
+                    // the reason to.
+                    let _ = self.ports.operations.fail_session_creation(
+                        operation_id,
+                        format!(
+                            "Session {} was created, but recording the completion failed: {message}. \
+                             The session is available from the session list; creating it again \
+                             would make a second one.",
+                            session.id()
+                        ),
+                    );
                 }
                 Ok(session)
             }

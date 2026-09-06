@@ -16,46 +16,6 @@ export const MIN_ZOOM = 1;
 export const MAX_ZOOM = 64;
 
 /**
- * Width of the span-label column, and the gap after it.
- *
- * A fixed width rather than `minmax(10rem,18rem)`, because the axis width has to be *derived* from
- * it and a range cannot be subtracted. The range was also the bug: a `minmax` whose maximum is a
- * length absorbs free space ahead of a `1fr` sibling, so in a narrow container the labels took the
- * whole row and the axis column resolved to zero — every bar was rendered, correctly sized, into a
- * column with no width.
- *
- * Shared with the row component so the header ticks and the bars below them cannot disagree about
- * where the axis starts.
- */
-export const LABEL_COLUMN_PX = 208;
-export const LABEL_COLUMN_GAP_PX = 8;
-
-/** Horizontal padding each row carries (`px-1` on both sides), which the axis does not get. */
-const ROW_PADDING_PX = 8;
-
-/**
- * The axis width available inside a viewport of `viewportWidthPx`.
- *
- * Subtracts the row padding as well as the label column: a full-run bar computed against the
- * unpadded width overshoots its own track by exactly that much, which reads as a run whose last
- * span continues past the end of the axis.
- */
-export function axisWidthFor(viewportWidthPx: number): number {
-  return Math.max(1, viewportWidthPx - LABEL_COLUMN_PX - LABEL_COLUMN_GAP_PX - ROW_PADDING_PX);
-}
-
-/**
- * The scrollable content width that gives an axis of `contentWidthPx` exactly that much room.
- *
- * The inverse of `axisWidthFor`, and it has to stay that way. When the two disagree the padding is
- * subtracted twice — once from the axis and once from the row it sits in — and the widest bar
- * overshoots its track by that difference at every viewport too narrow to avoid scrolling.
- */
-export function contentMinWidthFor(contentWidthPx: number): number {
-  return LABEL_COLUMN_PX + LABEL_COLUMN_GAP_PX + ROW_PADDING_PX + contentWidthPx;
-}
-
-/**
  * The narrowest a bar may render.
  *
  * A span that took under a millisecond would otherwise be invisible, which reads as "it did not

@@ -90,14 +90,27 @@ export function useProjectInspection({
     }
   }, [inspectPath, onError, t]);
 
-  /** Clears the selection and invalidates anything in flight. For open, close, or mode change. */
-  const resetInspection = useCallback(() => {
+  /**
+   * Invalidates anything in flight without touching the selection.
+   *
+   * For switching workspace mode: the in-flight answer describes a folder this mode does not ask
+   * for, and its late failure would surface in a form with no project field -- but the folder the
+   * user picked is still their choice, and clearing it would empty the path, disable submit, and
+   * wipe the derived title on a round trip through Remote and back.
+   */
+  const abandonInFlightInspection = useCallback(() => {
     tracker.current.reset();
-    setProjectPath("");
     setInspection(null);
-  }, [setProjectPath]);
+  }, []);
+
+  /** Clears the selection as well. For opening or closing the surface. */
+  const resetInspection = useCallback(() => {
+    abandonInFlightInspection();
+    setProjectPath("");
+  }, [abandonInFlightInspection, setProjectPath]);
 
   return {
+    abandonInFlightInspection,
     browseProject,
     inspectPath,
     inspection,

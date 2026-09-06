@@ -182,8 +182,12 @@ export function TraceDetailDrawer({
           // tells them to stop looking for something that exists.
           <Empty
             text={t(
+              // Scoped to this span, not a second copy of the run-level notice. The run's omission
+              // is stated once beside the timeline heading; repeating that sentence here would
+              // claim *this* span is missing events, when its own may all be present -- which is
+              // the misreading the run-level placement exists to avoid.
               eventCoverage.truncated
-                ? "traces.section.eventsTruncated"
+                ? "traces.section.noEventsInLoadedRange"
                 : "traces.section.noEvents",
             )}
           />
