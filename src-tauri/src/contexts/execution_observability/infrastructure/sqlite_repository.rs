@@ -7,6 +7,7 @@ use crate::contexts::execution_observability::application::{
 use crate::contexts::execution_observability::domain::{
     ExecutionEvent, ExecutionRun, ExecutionRunId, ExecutionSpan, ExecutionStatus, SpanId,
 };
+use crate::platform::database::SqliteWriteTransaction;
 use crate::platform::database::{NativeDatabase, PooledSqlite};
 use rusqlite::{params, Connection};
 
@@ -31,7 +32,7 @@ impl SqliteExecutionTimelineRepository {
             .map_err(|error| storage_error(error.to_string()))?;
         let mut connection = self.connection()?;
         let transaction = connection
-            .transaction()
+            .write_transaction()
             .map_err(|error| storage_error(error.to_string()))?;
         let (source, source_id) = source_parts(&run.source);
         transaction
@@ -87,7 +88,7 @@ impl SqliteExecutionTimelineRepository {
             .map_err(|error| storage_error(error.to_string()))?;
         let mut connection = self.connection()?;
         let transaction = connection
-            .transaction()
+            .write_transaction()
             .map_err(|error| storage_error(error.to_string()))?;
         transaction
             .execute(

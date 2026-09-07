@@ -1,6 +1,7 @@
 use super::SqliteCuratorRepository;
 use super::{policy_retention_purge::*, policy_retention_support::*};
 use crate::contexts::skill_evolution_curation::domain::*;
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::{OptionalExtension, TransactionBehavior};
 use thiserror::Error;
 
@@ -71,7 +72,7 @@ impl SqliteCuratorRepository<'_> {
         update.validate()?;
         let transaction = self
             .connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .write_transaction()
             .map_err(|_| CuratorPolicyRetentionError::Storage)?;
         let current = load_policy_from_transaction(&transaction, workspace_id)?;
         if current.revision != expected_revision {
@@ -106,7 +107,7 @@ impl SqliteCuratorRepository<'_> {
         }
         let transaction = self
             .connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .write_transaction()
             .map_err(|_| CuratorPolicyRetentionError::Storage)?;
         let policy = load_policy_from_transaction(&transaction, workspace_id)?;
         let open_cutoff = retention_cutoff(now_ms, policy.open_retention_days)?;
@@ -158,7 +159,7 @@ impl SqliteCuratorRepository<'_> {
         }
         let transaction = self
             .connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .write_transaction()
             .map_err(|_| CuratorPolicyRetentionError::Storage)?;
         let candidates = evidence_candidates(&transaction, evidence_id)?;
         let mut report = CuratorEvidencePurgeReport::default();

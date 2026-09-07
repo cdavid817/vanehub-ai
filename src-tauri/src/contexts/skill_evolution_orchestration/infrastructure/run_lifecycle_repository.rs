@@ -1,6 +1,7 @@
 use crate::contexts::skill_evolution_orchestration::domain::{
     is_safe_identifier, EvolutionRunStatus,
 };
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::{params, OptionalExtension, Transaction, TransactionBehavior};
 
 use super::{
@@ -204,7 +205,7 @@ impl OrchestrationRepository {
             .connection()
             .map_err(|_| OrchestrationPersistenceError::Storage)?;
         let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .write_transaction()
             .map_err(|_| OrchestrationPersistenceError::Storage)?;
         let (current, stored_revision, lease_owner) = load_run_state(&transaction, run_id)?;
         if stored_revision != expected

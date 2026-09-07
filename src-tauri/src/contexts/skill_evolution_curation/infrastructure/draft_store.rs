@@ -1,6 +1,7 @@
 use super::repository_support::*;
 use super::*;
 use crate::contexts::skill_evolution_curation::{application::*, domain::*};
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::{params, OptionalExtension, TransactionBehavior};
 
 impl CuratorDraftStore for SqliteCuratorRepository<'_> {
@@ -10,7 +11,7 @@ impl CuratorDraftStore for SqliteCuratorRepository<'_> {
     ) -> Result<CuratorDraftCandidateBinding, CuratorDraftStoreError> {
         let transaction = self
             .connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .write_transaction()
             .map_err(|_| CuratorDraftStoreError::Storage)?;
         let binding = load_binding(&transaction, candidate_id).map_err(map_repository_error)?;
         transaction
@@ -56,7 +57,7 @@ impl CuratorDraftStore for SqliteCuratorRepository<'_> {
         let audit_reason = format!("{scanner_version}__{reason_code}");
         let transaction = self
             .connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .write_transaction()
             .map_err(|_| CuratorDraftStoreError::Storage)?;
         let (state, revision) =
             current_candidate(&transaction, candidate_id).map_err(map_repository_error)?;
@@ -97,7 +98,7 @@ impl SqliteCuratorRepository<'_> {
             .map_err(|_| CuratorRepositoryError::InvalidInput)?;
         let transaction = self
             .connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .write_transaction()
             .map_err(|_| CuratorRepositoryError::Storage)?;
         let binding = load_binding(&transaction, &input.draft.candidate_id)?;
         validate_binding(input, &binding)?;

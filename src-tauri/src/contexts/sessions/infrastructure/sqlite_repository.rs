@@ -23,6 +23,7 @@ use crate::contexts::sessions::domain::recovery::{
 use crate::contexts::sessions::domain::{
     encode_seats, CategoryId, ChatPreferences, MessageId, SessionId,
 };
+use crate::platform::database::SqliteWriteTransaction;
 use crate::platform::database::{NativeDatabase, PooledSqlite};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::Value;
@@ -588,7 +589,7 @@ impl SessionMessageRepository for SqliteSessionsRepository {
 
     fn insert(&self, message: &MessageRecord) -> Result<MessageRecord, SessionsApplicationError> {
         let mut connection = self.connection()?;
-        let transaction = connection.transaction().map_err(repository_error)?;
+        let transaction = connection.write_transaction().map_err(repository_error)?;
         let session_sequence =
             allocate_message_sequences(&transaction, message.message.session_id(), 1)?;
         insert_message(&transaction, message, session_sequence)?;

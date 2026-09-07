@@ -3,6 +3,7 @@ use crate::contexts::sessions::domain::{
     ReviewAnchor, ReviewAnchorState, ReviewComment, ReviewCommentStatus, ReviewDecision,
     ReviewFile, ReviewFinding, ReviewFindingSeverity, ReviewSession, ReviewStatus,
 };
+use crate::platform::database::SqliteWriteTransaction;
 use crate::platform::database::{DatabaseError, NativeDatabase};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
@@ -172,7 +173,7 @@ impl ReviewRepository for SqliteReviewRepository {
 
     fn save(&self, review: &ReviewSession) -> Result<(), ReviewApplicationError> {
         let mut connection = self.database.connection().map_err(repository_error)?;
-        let transaction = connection.transaction().map_err(repository_error)?;
+        let transaction = connection.write_transaction().map_err(repository_error)?;
         save_head(&transaction, review)?;
         transaction
             .execute("DELETE FROM review_files WHERE review_id=?1", [&review.id])

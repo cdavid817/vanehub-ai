@@ -6,6 +6,7 @@ use super::{
 use crate::contexts::skill_evolution_evidence::domain::{
     canonical_workspace_scope, EvidenceSanitizer, FeedbackState, TaskFingerprintBuilder,
 };
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::{params_from_iter, TransactionBehavior};
 use std::collections::BTreeMap;
 use thiserror::Error;
@@ -175,7 +176,7 @@ impl SqliteEvolutionEvidenceRepository {
             .connection()
             .map_err(|_| FeedbackTransitionError::Storage)?;
         let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .write_transaction()
             .map_err(|_| FeedbackTransitionError::Storage)?;
         let source = load_message_source(&transaction, &request.message_id)?;
         let workspace_id = source
@@ -266,7 +267,7 @@ impl SqliteEvolutionEvidenceRepository {
             .connection()
             .map_err(|_| FeedbackTransitionError::Storage)?;
         let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .write_transaction()
             .map_err(|_| FeedbackTransitionError::Storage)?;
         let source = load_message_source(&transaction, &request.message_id)?;
         let current_revision = latest_revision(&transaction, &request.message_id)?;

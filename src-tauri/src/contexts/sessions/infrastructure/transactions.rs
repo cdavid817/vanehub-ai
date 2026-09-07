@@ -15,6 +15,7 @@ use crate::contexts::sessions::domain::recovery::{
 use crate::contexts::sessions::domain::{
     encode_seats, CategoryId, MessageRole, SessionActivation, SessionId,
 };
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::{params, OptionalExtension, Transaction};
 
 impl SessionTransactionPort for SqliteSessionsRepository {
@@ -24,7 +25,7 @@ impl SessionTransactionPort for SqliteSessionsRepository {
     ) -> Result<AcknowledgeRecoveryResult, SessionsApplicationError> {
         let session_id = SessionId::parse(&request.session_id)?;
         let mut connection = self.connection()?;
-        let transaction = connection.transaction().map_err(repository_error)?;
+        let transaction = connection.write_transaction().map_err(repository_error)?;
         let current = load_session(&transaction, &session_id)?
             .ok_or_else(|| SessionsApplicationError::SessionNotFound(request.session_id.clone()))?;
         let recovery = current.aggregate.recovery();
@@ -120,7 +121,7 @@ impl SessionTransactionPort for SqliteSessionsRepository {
         }
         let message_count = 1_i64 + i64::from(request.user_message.is_some());
         let mut connection = self.connection()?;
-        let transaction = connection.transaction().map_err(repository_error)?;
+        let transaction = connection.write_transaction().map_err(repository_error)?;
         let first_sequence = transaction
             .query_row(
                 r#"
@@ -221,7 +222,7 @@ impl SessionTransactionPort for SqliteSessionsRepository {
             ));
         }
         let mut connection = self.connection()?;
-        let transaction = connection.transaction().map_err(repository_error)?;
+        let transaction = connection.write_transaction().map_err(repository_error)?;
         let changed = transaction
             .execute(
                 r#"
@@ -383,7 +384,7 @@ impl SessionTransactionPort for SqliteSessionsRepository {
         }
         let mut connection = self.recovery_connection()?;
         let transaction = connection
-            .transaction()
+            .write_transaction()
             .map_err(recovery_repository_error)?;
         let mut history_increment = 0_i64;
         if let (Some(message_id), Some(message_status)) =
@@ -496,7 +497,7 @@ impl SessionTransactionPort for SqliteSessionsRepository {
         activation: SessionActivation,
     ) -> Result<SessionRecord, SessionsApplicationError> {
         let mut connection = self.connection()?;
-        let transaction = connection.transaction().map_err(repository_error)?;
+        let transaction = connection.write_transaction().map_err(repository_error)?;
         insert_session(&transaction, session)?;
         if activation == SessionActivation::Activate {
             update_active_workflow(&transaction, session)?;
@@ -510,7 +511,7 @@ impl SessionTransactionPort for SqliteSessionsRepository {
         session: &SessionRecord,
     ) -> Result<SessionRecord, SessionsApplicationError> {
         let mut connection = self.connection()?;
-        let transaction = connection.transaction().map_err(repository_error)?;
+        let transaction = connection.write_transaction().map_err(repository_error)?;
         update_active_workflow(&transaction, session)?;
         transaction.commit().map_err(repository_error)?;
         Ok(session.clone())
@@ -521,7 +522,7 @@ impl SessionTransactionPort for SqliteSessionsRepository {
         session: &SessionRecord,
     ) -> Result<SessionRecord, SessionsApplicationError> {
         let mut connection = self.connection()?;
-        let transaction = connection.transaction().map_err(repository_error)?;
+        let transaction = connection.write_transaction().map_err(repository_error)?;
         update_session_state(&transaction, session)?;
         clear_active(&transaction, session.aggregate.id())?;
         transaction.commit().map_err(repository_error)?;
@@ -543,7 +544,7 @@ impl SessionTransactionPort for SqliteSessionsRepository {
 
     fn delete_session(&self, session_id: &SessionId) -> Result<(), SessionsApplicationError> {
         let mut connection = self.connection()?;
-        let transaction = connection.transaction().map_err(repository_error)?;
+        let transaction = connection.write_transaction().map_err(repository_error)?;
         let changed = transaction
             .execute("DELETE FROM sessions WHERE id = ?1", [session_id.as_str()])
             .map_err(repository_error)?;
@@ -562,7 +563,7 @@ impl SessionTransactionPort for SqliteSessionsRepository {
         updated_at: &str,
     ) -> Result<(), SessionsApplicationError> {
         let mut connection = self.connection()?;
-        let transaction = connection.transaction().map_err(repository_error)?;
+        let transaction = connection.write_transaction().map_err(repository_error)?;
         transaction
             .execute(
                 "UPDATE sessions SET category_id = NULL, updated_at = ?1 WHERE category_id = ?2",
@@ -592,7 +593,7 @@ impl SessionTransactionPort for SqliteSessionsRepository {
         >,
     ) -> Result<MessageRecord, SessionsApplicationError> {
         let mut connection = self.connection()?;
-        let transaction = connection.transaction().map_err(repository_error)?;
+        let transaction = connection.write_transaction().map_err(repository_error)?;
         update_message(&transaction, message)?;
         if let Some(usage) = invocation_usage {
             persist_completed_invocation(&transaction, usage)?;
@@ -606,7 +607,7 @@ impl SessionTransactionPort for SqliteSessionsRepository {
         session: &SessionRecord,
     ) -> Result<SessionRecord, SessionsApplicationError> {
         let mut connection = self.connection()?;
-        let transaction = connection.transaction().map_err(repository_error)?;
+        let transaction = connection.write_transaction().map_err(repository_error)?;
         update_session_state(&transaction, session)?;
         transaction
             .execute(
@@ -623,7 +624,7 @@ impl SessionTransactionPort for SqliteSessionsRepository {
         messages: &[MessageRecord],
     ) -> Result<Vec<String>, SessionsApplicationError> {
         let mut connection = self.connection()?;
-        let transaction = connection.transaction().map_err(repository_error)?;
+        let transaction = connection.write_transaction().map_err(repository_error)?;
         let mut cancelled = Vec::new();
         for message in messages {
             let changed = transaction

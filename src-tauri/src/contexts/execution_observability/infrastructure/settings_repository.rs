@@ -4,6 +4,7 @@ use crate::contexts::execution_observability::application::ExecutionTelemetryErr
 use crate::contexts::execution_observability::domain::{
     CapturePolicy, ObservabilitySettings, OtlpProtocol,
 };
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::params;
 
 impl crate::contexts::execution_observability::application::ExecutionSettingsPort
@@ -54,7 +55,7 @@ impl SqliteExecutionTimelineRepository {
         }
         let mut connection = self.connection()?;
         let transaction = connection
-            .transaction()
+            .write_transaction()
             .map_err(|error| storage_error(error.to_string()))?;
         transaction
             .execute(

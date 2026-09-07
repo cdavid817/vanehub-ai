@@ -699,6 +699,14 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "permission-grant-canonical-identity",
         crate::contexts::permissions::infrastructure::resolution_schema::apply_grant_identity_migration,
     )?;
+    // Additive: a new table for ACP execution bindings. Sessions created before it have no row
+    // and keep routing through their original transport.
+    apply_migration(
+        conn,
+        112,
+        "cli-execution-bindings",
+        crate::contexts::agent_runtime::infrastructure::providers::acp::apply_execution_binding_schema,
+    )?;
     repair_missing_stable_participant_schema(conn)?;
     repair_missing_cli_parameter_profile_schema(conn)?;
     crate::contexts::execution_observability::infrastructure::repair_missing_evidence_schema(conn)?;
@@ -853,6 +861,7 @@ pub(super) const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     // 111, moved up from 95 on this merge for the same reason the block above moved: the
     // number this branch chose had been taken by a change that merged first.
     (111, "permission-grant-canonical-identity"),
+    (112, "cli-execution-bindings"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {

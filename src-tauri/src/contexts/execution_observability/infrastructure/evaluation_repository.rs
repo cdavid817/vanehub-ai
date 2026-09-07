@@ -1,6 +1,7 @@
 use crate::contexts::execution_observability::application::EvaluationRepositoryPort;
 use crate::contexts::execution_observability::domain::{EvaluationArena, EvaluationAttempt};
 use crate::platform::database::NativeDatabase;
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::{params, OptionalExtension};
 
 const MAX_PAGE: usize = 100;
@@ -30,7 +31,7 @@ impl SqliteEvaluationRepository {
         let arena_json = safe_json(&safe_arena)?;
         let attempt_json = safe_json(attempt)?;
         let mut connection = self.database.connection().map_err(display)?;
-        let transaction = connection.transaction().map_err(display)?;
+        let transaction = connection.write_transaction().map_err(display)?;
         transaction
             .execute(
                 "INSERT INTO evaluation_arenas (arena_id, operation_id, task_id, task_version, ranking_version, safe_snapshot_json, created_at, updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?7) ON CONFLICT(arena_id) DO UPDATE SET safe_snapshot_json=excluded.safe_snapshot_json, updated_at=excluded.updated_at",

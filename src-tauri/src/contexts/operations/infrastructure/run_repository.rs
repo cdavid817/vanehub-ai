@@ -4,6 +4,7 @@ use crate::contexts::operations::application::{
 };
 use crate::contexts::operations::domain::{AgentRun, RunEvent};
 use crate::platform::clock::SystemClock;
+use crate::platform::database::SqliteWriteTransaction;
 use crate::platform::database::{DatabaseError, NativeDatabase};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::sync::Arc;
@@ -81,7 +82,7 @@ impl SqliteRunRepository {
 impl AgentRunRepository for SqliteRunRepository {
     fn insert(&self, run: &AgentRun, event: &RunEvent) -> Result<(), ApplicationError> {
         let mut connection = self.database.connection().map_err(storage)?;
-        let transaction = connection.transaction().map_err(storage)?;
+        let transaction = connection.write_transaction().map_err(storage)?;
         transaction.execute(
             "INSERT INTO agent_runs (run_id, owner_type, owner_id, parent_run_id, state, version, updated_at, snapshot_json, runner_kind, runner_target_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![run.id, run.owner.owner_type, run.owner.owner_id, run.parent_run_id, enum_text(&run.state)?, run.version as i64, run.updated_at, json(run)?, runner_kind(run), runner_target_id(run)],
@@ -120,7 +121,7 @@ impl AgentRunRepository for SqliteRunRepository {
         event: Option<&RunEvent>,
     ) -> Result<(), ApplicationError> {
         let mut connection = self.database.connection().map_err(storage)?;
-        let transaction = connection.transaction().map_err(storage)?;
+        let transaction = connection.write_transaction().map_err(storage)?;
         let changed = transaction.execute(
             "UPDATE agent_runs SET state = ?1, version = ?2, updated_at = ?3, snapshot_json = ?4, runner_kind = ?5, runner_target_id = ?6 WHERE run_id = ?7 AND version = ?8",
             params![enum_text(&run.state)?, run.version as i64, run.updated_at, json(run)?, runner_kind(run), runner_target_id(run), run.id, expected as i64],

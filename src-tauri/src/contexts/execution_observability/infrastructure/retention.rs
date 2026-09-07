@@ -1,6 +1,7 @@
 use super::storage_mapping::storage_error;
 use super::SqliteExecutionTimelineRepository;
 use crate::contexts::execution_observability::application::ExecutionTelemetryError;
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::{params, OptionalExtension};
 
 const MAINTENANCE_INTERVAL_DAYS: f64 = 0.25;
@@ -24,7 +25,7 @@ impl SqliteExecutionTimelineRepository {
         }
         let mut connection = self.connection()?;
         let transaction = connection
-            .transaction()
+            .write_transaction()
             .map_err(|error| storage_error(error.to_string()))?;
         let last_run = transaction
             .query_row(
