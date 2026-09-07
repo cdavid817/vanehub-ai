@@ -181,12 +181,15 @@ pub(crate) enum CliConditionValue {
     Text(String),
 }
 
+/// Both lists are always serialized, empty or not: the frontend contract types them as arrays and
+/// the settings page indexes `requiresAll` directly, so an omitted field (`{}`) crashed the CLI
+/// parameters page in the desktop client for every parameter without dependencies.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CliParameterDependencies {
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub(crate) requires_all: Vec<CliParameterCondition>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub(crate) conflicts_with: Vec<String>,
 }
 
@@ -315,5 +318,22 @@ impl CliParameterDefinition {
             .iter()
             .map(|option| option.value.as_str())
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod dependency_serialization_tests {
+    use super::CliParameterDependencies;
+
+    /// The frontend contract types both lists as arrays and indexes them without a null check;
+    /// an omitted field crashed the desktop CLI parameters page for every parameter without
+    /// dependencies.
+    #[test]
+    fn empty_dependencies_serialize_as_arrays_not_an_empty_object() {
+        let value = serde_json::to_value(CliParameterDependencies::default()).expect("json");
+        assert_eq!(
+            value,
+            serde_json::json!({ "requiresAll": [], "conflictsWith": [] })
+        );
     }
 }

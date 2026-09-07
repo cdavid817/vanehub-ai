@@ -63,7 +63,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "effort",
@@ -138,7 +141,10 @@
               "linux"
             ]
           },
-          "dependencies": {},
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          },
           "diagnostics": [
             "MODEL_DEPENDENT_VALUE"
           ]
@@ -198,7 +204,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "chrome",
@@ -234,7 +243,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "agent",
@@ -272,7 +284,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "advisor",
@@ -310,7 +325,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "disableSlashCommands",
@@ -345,7 +363,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "screenReader",
@@ -381,7 +402,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "bare",
@@ -416,7 +440,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "safeMode",
@@ -452,7 +479,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "fallbackModels",
@@ -491,7 +521,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "settingSources",
@@ -545,7 +578,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         }
       ]
     },
@@ -588,7 +624,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "reasoningEffort",
@@ -652,7 +691,10 @@
               "linux"
             ]
           },
-          "dependencies": {},
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          },
           "diagnostics": [
             "MODEL_DEPENDENT_VALUE"
           ]
@@ -702,7 +744,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "approvalPolicy",
@@ -749,7 +794,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "ephemeral",
@@ -784,7 +832,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "strictConfig",
@@ -820,7 +871,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "profile",
@@ -858,7 +912,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "search",
@@ -894,7 +951,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "oss",
@@ -930,7 +990,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "noAltScreen",
@@ -965,7 +1028,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "localProvider",
@@ -1019,7 +1085,8 @@
                 "operator": "equals",
                 "value": true
               }
-            ]
+            ],
+            "conflictsWith": []
           }
         }
       ]
@@ -1084,7 +1151,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "approvalMode",
@@ -1141,7 +1211,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "sandbox",
@@ -1177,7 +1250,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "debug",
@@ -1213,7 +1289,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "screenReader",
@@ -1248,7 +1327,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "extensions",
@@ -1290,7 +1372,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "includeDirectories",
@@ -1328,7 +1413,10 @@
               "linux"
             ]
           },
-          "dependencies": {},
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          },
           "diagnostics": [
             "MISSING_DIRECTORY"
           ]
@@ -1374,7 +1462,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "variant",
@@ -1417,7 +1508,8 @@
                 "parameterId": "model",
                 "operator": "not-inherit"
               }
-            ]
+            ],
+            "conflictsWith": []
           },
           "diagnostics": [
             "MODEL_DEPENDENT_VALUE"
@@ -1468,7 +1560,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "thinking",
@@ -1503,7 +1598,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "autoApprove",
@@ -1539,7 +1637,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "pure",
@@ -1574,7 +1675,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "printLogs",
@@ -1610,7 +1714,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "logLevel",
@@ -1667,7 +1774,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         }
       ]
     },
@@ -1710,7 +1820,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "effort",
@@ -1762,7 +1875,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "mode",
@@ -1809,7 +1925,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "agent",
@@ -1847,7 +1966,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "sandbox",
@@ -1883,7 +2005,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         }
       ]
     },
@@ -1926,7 +2051,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "safeMode",
@@ -1962,7 +2090,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "bare",
@@ -1998,7 +2129,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         }
       ]
     },
@@ -2041,7 +2175,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "agent",
@@ -2079,7 +2216,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         }
       ]
     },
@@ -2122,7 +2262,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "thinking",
@@ -2179,7 +2322,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "agent",
@@ -2217,7 +2363,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         }
       ]
     },
@@ -2260,7 +2409,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "effort",
@@ -2327,7 +2479,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "agent",
@@ -2365,7 +2520,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         }
       ]
     },
@@ -2408,7 +2566,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "effort",
@@ -2480,7 +2641,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         }
       ]
     },
@@ -2523,7 +2687,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         }
       ]
     },
@@ -2566,7 +2733,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         },
         {
           "id": "thinking",
@@ -2602,7 +2772,10 @@
               "linux"
             ]
           },
-          "dependencies": {}
+          "dependencies": {
+            "requiresAll": [],
+            "conflictsWith": []
+          }
         }
       ]
     }

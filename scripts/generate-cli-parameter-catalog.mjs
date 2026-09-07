@@ -102,17 +102,18 @@ function normalizeConstraints(constraints = {}) {
   return normalized;
 }
 
+// Both arrays are always present, mirroring the native serialization: the frontend contract types
+// them as arrays and the settings page indexes `requiresAll` directly, so an omitted field is a
+// crash on the desktop client, not a smaller document.
 function normalizeDependencies(dependencies = {}) {
-  const normalized = {};
-  if (dependencies.requiresAll?.length) {
-    normalized.requiresAll = dependencies.requiresAll.map((condition) => {
+  return {
+    requiresAll: (dependencies.requiresAll ?? []).map((condition) => {
       const entry = { parameterId: condition.parameterId, operator: condition.operator };
       if (condition.value !== undefined) entry.value = condition.value;
       return entry;
-    });
-  }
-  if (dependencies.conflictsWith?.length) normalized.conflictsWith = dependencies.conflictsWith;
-  return normalized;
+    }),
+    conflictsWith: dependencies.conflictsWith ?? [],
+  };
 }
 
 function normalizeOption(option) {
