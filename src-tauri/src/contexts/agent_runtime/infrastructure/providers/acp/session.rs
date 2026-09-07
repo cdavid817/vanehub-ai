@@ -351,6 +351,7 @@ impl TurnShared {
             advertised_fs: self.binding.host.fs,
             advertised_terminal: self.binding.host.terminal,
             child_environment: &self.binding.child_environment,
+            cancel: &self.cancel,
         }
     }
 
@@ -890,13 +891,26 @@ fn dispatch_request(shared: &Arc<TurnShared>, id: RpcId, method: &str, params: &
             is_tool
         }
         HandlerOutcome::Defer { kind, ui, deadline } => {
-            let (call_id, registered_ok) = match &ui {
+            // Host-minted ids (a token of the path or command) are stable across retries, so two
+            // outstanding requests for the same target would share one id and the earlier one
+            // would be silently overwritten and never answered. A second registration under a
+            // live id gets a per-turn suffix; the UI resolves whichever id the event carried.
+            let requested_id = match &ui {
+                DeferredUi::Approval { tool_call_id, .. }
+                | DeferredUi::Question { tool_call_id, .. } => tool_call_id.clone(),
+            };
+            let call_id = if lock(&shared.interactions).get(&requested_id).is_some() {
+                format!("{requested_id}-{}", shared.next_sequence())
+            } else {
+                requested_id
+            };
+            let registered_ok = match &ui {
                 DeferredUi::Approval {
-                    tool_call_id,
                     tool_name,
                     action,
                     resource,
                     input,
+                    ..
                 } => {
                     let registration = shared.permissions.create_pending_approval(
                         &shared.agent_id,
@@ -904,12 +918,12 @@ fn dispatch_request(shared: &Arc<TurnShared>, id: RpcId, method: &str, params: &
                         Resource::new(resource.clone()),
                         &shared.session_id,
                         &shared.operation_id,
-                        tool_call_id,
+                        &call_id,
                         &shared.project_key,
                     );
                     if registration.is_ok() {
                         shared.emit_tool(
-                            tool_call_id,
+                            &call_id,
                             tool_name,
                             ToolLifecyclePhase::AwaitingApproval,
                             "awaiting_approval",
@@ -917,23 +931,23 @@ fn dispatch_request(shared: &Arc<TurnShared>, id: RpcId, method: &str, params: &
                             None,
                         );
                     }
-                    (tool_call_id.clone(), registration.is_ok())
+                    registration.is_ok()
                 }
                 DeferredUi::Question {
-                    tool_call_id,
                     tool_name,
                     question,
                     options,
+                    ..
                 } => {
                     shared.emit_tool(
-                        tool_call_id,
+                        &call_id,
                         tool_name,
                         ToolLifecyclePhase::AwaitingInput,
                         "awaiting_input",
                         Some(json!({"question": question, "options": options})),
                         None,
                     );
-                    (tool_call_id.clone(), true)
+                    true
                 }
             };
             if !registered_ok {

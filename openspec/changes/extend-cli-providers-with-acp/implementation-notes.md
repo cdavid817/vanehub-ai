@@ -134,3 +134,12 @@
 ### 启动开发客户端时暴露的一处既有桌面缺陷（已修，2026-09-07）
 
 - `tooling/cli_parameters/domain/definition.rs` 的 `CliParameterDependencies` 用 `skip_serializing_if` 省略空数组，桌面端 DTO 对没有依赖的参数（几乎全部）发出 `dependencies: {}`；前端契约把 `requiresAll` 定为数组并在 `view-model.ts::unmetDependencies` 直接索引，CLI 参数设置页因此在桌面客户端整页崩到错误边界（Web/mock 走 zod 默认值不受影响，桌面层没有 spec 覆盖该页，所以 PR #210 引入后一直未暴露）。改为两个数组始终序列化，生成器 `scripts/generate-cli-parameter-catalog.mjs` 同步始终输出，`src/generated/cli-parameter-catalog.json` 与参数矩阵文档重生成；原生「生成契约与注册表一致」测试与 `contracts:check` 均通过；运行中的 dev 客户端重建后不再报错。
+
+### 代码审查修正（2026-09-07，用户要求的全量复审）
+
+- `acp/connection.rs::terminate`：原顺序先取 writer 锁再杀子进程。若代理停止读 stdin 而宿主一次写入正阻塞在满管道上，writer 锁被占住，终止就会等在它要终止的进程上。改为先终止进程树、再收回 writer：管道断裂让阻塞写立即失败并释放锁。
+- `acp/session.rs::dispatch_request`：宿主自造的待审批 id（`acp-fs-write-<路径哈希>` / `acp-terminal-<命令哈希>`）对同一目标稳定不变，代理若在第一个写请求未决时再发同路径写请求，第二次注册会静默覆盖第一次，第一个请求永远得不到应答直到取消。改为 id 已在待决表中时追加本轮序号；新增回归测试 `two_pending_writes_for_the_same_path_get_distinct_ids_and_both_land`。
+- `acp/proxy_terminal.rs::wait_for_exit` + `handlers.rs`：`terminal/wait_for_exit` 会让驱动线程最多阻塞 60 秒，其间取消标志无人检查，用户取消要等命令自己结束。`HandlerContext` 现携带本轮 `cancel` 标志，等待循环命中即返回超时形态，驱动随即走 `session/cancel` 路径。
+- 复审中确认但未改的既有问题：`workspaces/infrastructure/capture_maintenance.rs::enforce_capacity` 每删一行就重算一次 `SUM`（O(n²)），且目前没有任何调用方；`proxy_terminal::release_epoch` 对每个终端顺序等待最多 5 秒（8 个终端最坏 40 秒）；`terminal_request` 允许代理覆盖已清洗环境中的同名变量（注释与行为不符，风险低）。
+- 行数预算：`agent_runtime/infrastructure` 聚合 73,112 → 73,238、生产 40,300 → 40,334，理由写在预算旁。
+

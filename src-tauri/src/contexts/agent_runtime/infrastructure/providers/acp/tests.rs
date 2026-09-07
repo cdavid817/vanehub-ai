@@ -155,6 +155,8 @@ enum FakeMode {
     CursorQuestion,
     /// `session/new` answers the ACP `auth_required` code: nobody is signed in.
     AuthRequired,
+    /// The prompt asks the host to write the same file twice before either write is decided.
+    TwoWritesSamePath,
 }
 
 struct FakeLauncher {
@@ -199,7 +201,9 @@ impl AcpLauncher for FakeLauncher {
             .is_some_and(|cwd| std::path::Path::new(cwd).is_absolute()));
         self.launches.fetch_add(1, Ordering::SeqCst);
         let mode = self.mode;
+        let workspace = spec.cwd.clone().unwrap_or_default();
         let prompt_ids = Arc::new(Mutex::new(Vec::<Value>::new()));
+        let write_replies = Arc::new(AtomicUsize::new(0));
         let agent = fake_agent(move |document| {
             let method = document["method"].as_str().unwrap_or("");
             match method {
@@ -266,6 +270,12 @@ impl AcpLauncher for FakeLauncher {
                         FakeMode::IgnoreCancel => {
                             // Never answers the prompt; the host must escalate.
                         }
+                        FakeMode::TwoWritesSamePath => {
+                            let path = format!("{workspace}/dup.txt");
+                            for (id, content) in [("w-1", "one"), ("w-2", "two")] {
+                                frames.push(json!({"jsonrpc":"2.0","id":id,"method":"fs/write_text_file","params":{"sessionId":"sess_fake","path":path,"content":content}}));
+                            }
+                        }
                         FakeMode::AbruptEof => {
                             frames.push(update("sess_fake", json!({"sessionUpdate":"tool_call","toolCallId":"call-eof","title":"edit","kind":"edit","status":"in_progress"})));
                             frames.push(json!({"__close__": true}));
@@ -309,6 +319,20 @@ impl AcpLauncher for FakeLauncher {
                         ),
                         json!({"jsonrpc":"2.0","id":prompt_id,"result":{"stopReason":"end_turn"}}),
                     ]
+                }
+                _ if document.get("id") == Some(&json!("w-1"))
+                    || document.get("id") == Some(&json!("w-2")) =>
+                {
+                    if write_replies.fetch_add(1, Ordering::SeqCst) + 1 < 2 {
+                        return Vec::new();
+                    }
+                    let prompt_id = prompt_ids
+                        .lock()
+                        .expect("lock")
+                        .last()
+                        .cloned()
+                        .unwrap_or(Value::Null);
+                    vec![json!({"jsonrpc":"2.0","id":prompt_id,"result":{"stopReason":"end_turn"}})]
                 }
                 "session/cancel" => {
                     if matches!(mode, FakeMode::IgnoreCancel) {
@@ -659,6 +683,71 @@ fn permission_mid_prompt_is_deferred_answered_once_and_never_widened() {
     assert_eq!(
         replies[0]["result"]["outcome"]["optionId"],
         json!("allow-once")
+    );
+    adapter.release_session("session-acp");
+}
+
+/// Two outstanding host-proxied writes for one path used to collide on the host-minted id: the
+/// second registration silently replaced the first, whose request was then never answered.
+#[test]
+fn two_pending_writes_for_the_same_path_get_distinct_ids_and_both_land() {
+    let workspace = TempDirectory::new("acp-e2e-dup-writes");
+    let (adapter, _launcher, _) = adapter(FakeMode::TwoWritesSamePath, Effect::Ask);
+    let started = adapter
+        .start_generation(request(
+            "qwen-code",
+            workspace.path(),
+            "write twice",
+            None,
+            true,
+        ))
+        .expect("turn");
+    let sink = Arc::new(CapturingSink::default());
+    adapter
+        .monitor_generation(&started.process_id, sink.clone())
+        .expect("monitor");
+    let pending_ids = |events: &[GenerationProcessEvent]| -> Vec<String> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                GenerationProcessEvent::ToolLifecycle(tool)
+                    if tool.phase == ToolLifecyclePhase::AwaitingApproval
+                        && tool.tool_use.name == "fs/write_text_file" =>
+                {
+                    Some(tool.call_id.clone())
+                }
+                _ => None,
+            })
+            .collect()
+    };
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while pending_ids(&sink.events()).len() < 2 {
+        assert!(
+            Instant::now() < deadline,
+            "both writes must surface as approvals: {:?}",
+            sink.events()
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let ids = pending_ids(&sink.events());
+    assert_eq!(ids.len(), 2);
+    assert_ne!(
+        ids[0], ids[1],
+        "the second pending write must not reuse the first id"
+    );
+    for id in &ids {
+        assert!(adapter
+            .resolve(&started.process_id, id, ToolApprovalDecision::Approved)
+            .expect("resolve"));
+    }
+    let events = sink.wait_for_terminal(Duration::from_secs(10));
+    assert!(matches!(
+        events.last(),
+        Some(GenerationProcessEvent::Completed(None))
+    ));
+    assert_eq!(
+        std::fs::read_to_string(workspace.path().join("dup.txt")).expect("written"),
+        "two"
     );
     adapter.release_session("session-acp");
 }

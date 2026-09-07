@@ -409,17 +409,22 @@ impl AcpConnection {
         lock(&self.child).poll_exit()
     }
 
-    /// Closes stdin and terminates the owned process tree. Idempotent.
+    /// Terminates the owned process tree, then closes stdin. Idempotent.
+    ///
+    /// The process goes first on purpose: a writer blocked on a full stdin pipe (an agent that
+    /// stopped reading) holds the writer lock until the pipe drains, and taking that lock first
+    /// would make termination wait on the very process it is meant to end. Killing the child
+    /// breaks the pipe, the blocked write fails, and the lock is released.
     pub(crate) fn terminate(
         &self,
         reason_code: &'static str,
         detail: &str,
     ) -> Result<Option<i32>, AcpError> {
         self.close(ConnectionFailure::new(reason_code, detail));
-        lock(&self.writer).take();
         let outcome = lock(&self.child)
             .terminate(Instant::now() + SHUTDOWN_DEADLINE)
             .map_err(AcpError::Io);
+        lock(&self.writer).take();
         lock(&self.pending).clear();
         outcome
     }

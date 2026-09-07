@@ -16,6 +16,7 @@ use super::proxy_terminal::{TerminalCreateRequest, TerminalOwner, TerminalRegist
 use crate::contexts::permissions::api::Effect;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 /// How the tool call the agent asks about maps onto the permission model.
@@ -162,6 +163,9 @@ pub(crate) struct HandlerContext<'a> {
     pub(crate) advertised_fs: bool,
     pub(crate) advertised_terminal: bool,
     pub(crate) child_environment: &'a BTreeMap<String, String>,
+    /// The turn's cancel flag. A blocking proxy wait polls it so a cancel is not held behind a
+    /// command the agent chose to wait on.
+    pub(crate) cancel: &'a AtomicBool,
 }
 
 /// Decides one inbound request. `evaluate` is the permission decision point.
@@ -484,10 +488,13 @@ fn handle_terminal_lifecycle(
             }
             document
         }),
-        // Bounded so the driver stays responsive; the agent may ask again.
+        // Bounded so the driver stays responsive, and abandoned on cancel so the turn can end;
+        // the agent may ask again.
         "terminal/wait_for_exit" => context
             .terminals
-            .wait_for_exit(owner, terminal_id, Duration::from_secs(60))
+            .wait_for_exit(owner, terminal_id, Duration::from_secs(60), &|| {
+                context.cancel.load(Ordering::SeqCst)
+            })
             .map(|status| match status {
                 Some(status) => json!({"exitCode": status.exit_code, "signal": status.signal}),
                 None => json!({"exitCode": null, "signal": "timeout"}),
@@ -647,8 +654,11 @@ mod tests {
             advertised_fs: true,
             advertised_terminal: true,
             child_environment: environment,
+            cancel: &NEVER_CANCELLED,
         }
     }
+
+    static NEVER_CANCELLED: AtomicBool = AtomicBool::new(false);
 
     fn permission_params(kind: &str) -> Value {
         json!({

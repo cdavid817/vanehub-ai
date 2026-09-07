@@ -2718,7 +2718,14 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // one prompt turn, tool approval, policy denial, cooperative cancel, and resume across a
         // host restart -- plus their shared target/adapter/request helpers. Test code only; the
         // production ceiling below is unchanged.
-        budget: 73_112,
+        //
+        // Review pass of the same change (2026-09-07) raises it to 73,238: connection
+        // termination now kills the child before taking the writer lock (so a write blocked on a
+        // full stdin pipe cannot hang termination), a second pending host-proxied write for the
+        // same path gets its own id instead of overwriting the first, a proxied
+        // `terminal/wait_for_exit` returns early on cancel, and the regression test that drives
+        // two same-path writes through the fake agent.
+        budget: 73_238,
         owner: "extend-cli-providers-with-acp",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
@@ -2891,8 +2898,12 @@ const NATIVE_PRODUCTION_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         //
         // `harden-sqlite-write-transactions` raises it to 40,300: the import line of the write
         // entry point in the five repositories here (measured 40,300).
-        budget: 40_300,
-        owner: "harden-sqlite-write-transactions",
+        //
+        // `extend-cli-providers-with-acp` review pass raises it to 40,334: the three production
+        // fixes listed on the aggregate above (termination order, unique pending ids, cancel-aware
+        // terminal wait) and their rationale comments.
+        budget: 40_334,
+        owner: "extend-cli-providers-with-acp",
     },
 ];
 

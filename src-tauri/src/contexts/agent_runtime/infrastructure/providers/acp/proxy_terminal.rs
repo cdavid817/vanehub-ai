@@ -208,13 +208,14 @@ impl TerminalRegistry {
         Ok(result)
     }
 
-    /// Blocks until the command exits or `timeout` passes. Returns `None` on timeout so a driver
-    /// can keep servicing other messages and ask again.
+    /// Blocks until the command exits, `timeout` passes, or `abort` reports true. Returns `None`
+    /// in the latter two cases so a driver can keep servicing other messages and ask again.
     pub(crate) fn wait_for_exit(
         &self,
         owner: TerminalOwner<'_>,
         terminal_id: &str,
         timeout: Duration,
+        abort: &dyn Fn() -> bool,
     ) -> Result<Option<TerminalExitStatus>, TerminalProxyError> {
         let exit = {
             let terminals = lock(&self.terminals);
@@ -225,7 +226,7 @@ impl TerminalRegistry {
             if let Some(status) = lock(&exit).clone() {
                 return Ok(Some(status));
             }
-            if Instant::now() >= deadline {
+            if Instant::now() >= deadline || abort() {
                 return Ok(None);
             }
             thread::sleep(Duration::from_millis(20));
@@ -366,7 +367,7 @@ mod tests {
             )
             .expect("create");
         let status = registry
-            .wait_for_exit(owner, &id, Duration::from_secs(5))
+            .wait_for_exit(owner, &id, Duration::from_secs(5), &|| false)
             .expect("wait")
             .expect("exited");
         assert_eq!(status.exit_code, Some(0));
@@ -432,7 +433,7 @@ mod tests {
             )
             .expect("create");
         registry
-            .wait_for_exit(owner, &noisy, Duration::from_secs(5))
+            .wait_for_exit(owner, &noisy, Duration::from_secs(5), &|| false)
             .expect("wait")
             .expect("exited");
         thread::sleep(Duration::from_millis(50));
@@ -445,12 +446,19 @@ mod tests {
             .create(owner, &request("sh", &["-c", "sleep 30"], workspace.path()))
             .expect("create");
         assert!(registry
-            .wait_for_exit(owner, &long, Duration::from_millis(50))
+            .wait_for_exit(owner, &long, Duration::from_millis(50), &|| false)
             .expect("wait")
             .is_none());
+        // An abort request ends the wait at once even though the command runs on.
+        let aborted = Instant::now();
+        assert!(registry
+            .wait_for_exit(owner, &long, Duration::from_secs(30), &|| true)
+            .expect("wait")
+            .is_none());
+        assert!(aborted.elapsed() < Duration::from_secs(1));
         registry.kill(owner, &long).expect("kill");
         let status = registry
-            .wait_for_exit(owner, &long, Duration::from_secs(5))
+            .wait_for_exit(owner, &long, Duration::from_secs(5), &|| false)
             .expect("wait")
             .expect("reaped");
         // What the kill must prove is that a 30-second command did not run its course. The
