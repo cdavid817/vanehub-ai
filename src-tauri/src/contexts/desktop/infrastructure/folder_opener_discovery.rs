@@ -654,6 +654,27 @@ mod tests {
         std::fs::write(path, "#!/bin/sh\n").unwrap();
     }
 
+    /// Asserts a discovered path denotes the fixture file, independent of separator spelling.
+    ///
+    /// These Linux and macOS layout tests run on every host, which is the point: a Windows or
+    /// Linux runner can still assert what the macOS ranking would pick. But the discovery code
+    /// spells its known locations as POSIX literals -- `home.join(".local/share/flatpak/exports/bin")`
+    /// -- and then joins the final component, so on Windows its result reads `...bin\name` while
+    /// a fixture written the same way reads `...bin/name`. Both denote the same file and both
+    /// resolve to it; only the spelling differs. Asserting on the spelling fails these tests on
+    /// Windows for no behavioural reason, and normalising the fixture instead just moves the
+    /// mismatch to the other end.
+    fn assert_same_path(discovered: Option<&str>, expected: &Path) {
+        fn normalize(value: &str) -> String {
+            value.replace('\\', "/")
+        }
+        assert_eq!(
+            discovered.map(normalize),
+            expected.to_str().map(normalize),
+            "the discovered path does not denote the fixture file",
+        );
+    }
+
     #[test]
     fn windows_only_products_are_unsupported_elsewhere() {
         for platform in [HostPlatform::MacOs, HostPlatform::Linux] {
@@ -698,9 +719,9 @@ mod tests {
 
         let detected = detect_on(HostPlatform::Linux, FolderOpenerId::IntellijIdea, &env);
         assert_eq!(detected.status, "available");
-        assert_eq!(
+        assert_same_path(
             detected.executable_path.as_deref(),
-            Some(app.join("bin/idea.sh").to_str().unwrap())
+            &app.join("bin/idea.sh"),
         );
         assert_eq!(detected.detection_source, Some("jetbrains-toolbox"));
         assert_eq!(detected.version.as_deref(), Some("2025.1"));
@@ -737,7 +758,7 @@ mod tests {
         let detected = detect_on(HostPlatform::Linux, FolderOpenerId::IntellijIdea, &env);
         assert_eq!(detected.status, "available");
         assert_eq!(detected.detection_source, Some("flatpak"));
-        assert_eq!(detected.executable_path.as_deref(), wrapper.to_str());
+        assert_same_path(detected.executable_path.as_deref(), &wrapper);
     }
 
     #[test]
@@ -755,7 +776,7 @@ mod tests {
         let detected = detect_on(HostPlatform::MacOs, FolderOpenerId::Webstorm, &env);
         assert_eq!(detected.status, "available");
         assert_eq!(detected.detection_source, Some("jetbrains-toolbox"));
-        assert_eq!(detected.executable_path.as_deref(), bundle.to_str());
+        assert_same_path(detected.executable_path.as_deref(), &bundle);
     }
 
     #[test]
@@ -792,7 +813,7 @@ mod tests {
             ..DiscoveryEnv::default()
         };
         let detected = detect_on(HostPlatform::Linux, FolderOpenerId::IntellijIdea, &env);
-        assert_eq!(detected.executable_path.as_deref(), launcher.to_str());
+        assert_same_path(detected.executable_path.as_deref(), &launcher);
     }
 
     #[test]
