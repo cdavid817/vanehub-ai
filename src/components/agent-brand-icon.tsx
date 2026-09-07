@@ -49,14 +49,18 @@ export function AgentBrandIcon({ agentId, className = "h-4 w-4", title }: AgentB
       return <CopilotIcon {...props} title={title ?? "GitHub Copilot CLI"} />;
     default: {
       const mark = agentId ? fileMarks[agentId] : undefined;
-      if (mark) return <FileMarkIcon agentId={agentId ?? ""} className={className} src={mark.src} title={title ?? mark.label} />;
+      if (mark) return <FileMarkIcon agentId={agentId ?? ""} className={className} src={mark.src} title={title} />;
       return <Bot className={className} aria-hidden="true" />;
     }
   }
 }
 
-function FileMarkIcon({ agentId, className, src, title }: { agentId: string; className?: string; src: string; title: string }) {
-  return <img alt={title} className={`${className ?? ""} rounded-sm`} data-agent-icon={agentId} decoding="async" src={src} />;
+/**
+ * Decorative unless a title is given: the mark sits beside the Agent's name in every selector,
+ * and an `alt` there would double the button's accessible name ("Qwen Code Qwen Code").
+ */
+function FileMarkIcon({ agentId, className, src, title }: { agentId: string; className?: string; src: string; title?: string }) {
+  return <img alt={title ?? ""} aria-hidden={title ? undefined : true} className={`${className ?? ""} rounded-sm`} data-agent-icon={agentId} decoding="async" src={src} />;
 }
 
 /** Primer Octicons `copilot-24` (MIT), drawn with `currentColor` like the other vector marks. */

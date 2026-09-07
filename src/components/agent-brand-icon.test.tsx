@@ -21,9 +21,14 @@ describe("AgentBrandIcon", () => {
       const mark = container.querySelector(`img[data-agent-icon="${agentId}"]`);
       expect(mark, agentId).toBeTruthy();
       expect(mark?.getAttribute("class")).toContain("h-5");
-      expect(mark?.getAttribute("alt")).toBeTruthy();
+      // Decorative beside the Agent's own label: no alt text to double the accessible name.
+      expect(mark?.getAttribute("alt")).toBe("");
+      expect(mark?.getAttribute("aria-hidden")).toBe("true");
       unmount();
     }
+    const titled = render(<AgentBrandIcon agentId="qwen-code" title="Qwen Code" />);
+    expect(titled.container.querySelector("img")?.getAttribute("alt")).toBe("Qwen Code");
+    titled.unmount();
     const { container } = render(<AgentBrandIcon agentId="copilot-cli" title="GitHub Copilot CLI" />);
     expect(container.querySelector('svg[data-agent-icon="copilot-cli"]')).toBeTruthy();
     expect(screen.getByTitle("GitHub Copilot CLI")).toBeTruthy();
