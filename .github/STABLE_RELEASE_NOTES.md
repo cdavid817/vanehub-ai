@@ -1,6 +1,6 @@
-# VaneHub AI 1.4.0
+# VaneHub AI 1.5.0
 
-VaneHub AI 1.4.0 is the stable desktop release of the unified workspace for Claude Code, Codex CLI, OpenCode, Gemini CLI, Antigravity CLI, and the built-in OnePiece API agent.
+VaneHub AI 1.5.0 is the stable desktop release of the unified workspace for Claude Code, Codex CLI, OpenCode, Gemini CLI, Antigravity CLI, and the built-in OnePiece API agent.
 
 ## Highlights
 
@@ -9,6 +9,13 @@ VaneHub AI 1.4.0 is the stable desktop release of the unified workspace for Clau
 - Manage MCP servers, SDKs, Skills, prompt hooks, extensions, scheduled tasks, notifications, and provider profiles.
 - Inspect usage, task output, and redacted unified logs without bypassing the desktop service boundary.
 - Use the browser-accessible Web/mock runtime for interface evaluation when native desktop capabilities are unavailable.
+
+## What's new since 1.4.0
+
+- **Session deletion now confirms what it removed.** Deleting a session previews the real side effects, keeps the Git worktree unless removal is chosen explicitly, refuses to clean up a worktree holding untracked work, and stops the session's own agents, shells, and terminals before touching the directory. A stop that cannot be confirmed retains the session rather than reporting success.
+- **Long conversations no longer grow the cost of every turn.** Transcript rendering is bounded by what is on screen, and repeated launches of an already-running agent are collapsed instead of starting a second process.
+- **Session creation and single-agent tracing corrected.** Execution traces attribute work to the layer that performed it rather than classifying it as unknown.
+- **Workspace layouts hardened, plus a CLI terminal theme.** Folder-opener discovery also finds JetBrains Toolbox, Flatpak, and Scoop installations that earlier releases missed.
 
 ## Downloads
 

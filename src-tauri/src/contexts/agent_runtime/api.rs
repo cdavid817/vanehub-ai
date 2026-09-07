@@ -19,6 +19,7 @@ use super::infrastructure::{
     NativeSeatTurnCoordinator,
 };
 use std::sync::Arc;
+use std::time::Duration;
 
 pub(crate) use super::application::{
     ActiveGenerationCorrelation, AgentChatConfiguration, AgentFileReference, AgentMessage,
@@ -910,6 +911,18 @@ impl AgentRuntimeApi {
         request: StopAgentTerminalRequest,
     ) -> Result<bool, AgentRuntimeApplicationError> {
         self.terminal_service.stop(request)
+    }
+
+    /// Stops `session_id`'s terminal and reports whether its process was observed to exit
+    /// within `budget`. Consumed by session deletion's quiescence barrier, which must not
+    /// hand a still-running process's working directory to `git worktree remove`.
+    pub(crate) fn stop_session_agent_terminal_and_confirm_exit(
+        &self,
+        session_id: &str,
+        budget: Duration,
+    ) -> Result<bool, AgentRuntimeApplicationError> {
+        self.terminal_service
+            .stop_for_session_and_confirm_exit(session_id, budget)
     }
 
     pub(crate) fn cleanup_idle_agent_terminals(

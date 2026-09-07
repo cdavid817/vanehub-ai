@@ -61,6 +61,25 @@ impl SessionDeletionRuntimePort for AgentSessionRuntimeAdapter {
             blockers.push("background_command".to_string());
         }
 
+        // Agent terminal: stop it and wait for the process to actually exit. Its working
+        // directory is the session worktree, and Windows refuses to delete a directory that
+        // is a live process's current directory -- so `git worktree remove` fails with
+        // "Permission denied" while any of it survives. Sits before the shells block because
+        // a terminal can spawn a shell, and the shell count below has to be checked after
+        // the thing that can still create one is gone.
+        match runtime.stop_session_agent_terminal_and_confirm_exit(session_id, remaining()) {
+            Ok(true) => {}
+            Ok(false) => blockers.push("agent_terminal".to_string()),
+            Err(
+                crate::contexts::agent_runtime::api::AgentRuntimeApplicationError::SessionNotFound(
+                    _,
+                ),
+            ) => {}
+            Err(error) => {
+                return Err(SessionsApplicationError::Runtime(error.to_string()));
+            }
+        }
+
         // Shells: close is strict already; retry it while a close is still being confirmed.
         loop {
             match self.workspaces().kill_shells_for_session(session_id) {

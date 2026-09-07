@@ -638,6 +638,9 @@ jobs:
       - name: Verify desktop automation boundaries
         run: npm run desktop:unit:test
 
+      # More than the smoke contract: `CI` is set here, so `test-desktop.mjs` runs its `gatedLayers`
+      # set. Which layers those are, and why each one is worth its runtime on every PR, is decided
+      # there -- restating the list here would give it two homes and one of them would go stale.
       - name: Run native desktop smoke on Linux
         if: runner.os == 'Linux'
         run: xvfb-run -a npm run test:desktop

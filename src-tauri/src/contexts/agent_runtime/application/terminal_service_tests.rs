@@ -11,6 +11,7 @@ use crate::contexts::agent_runtime::domain::{
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 struct TerminalWorld {
     session: Mutex<super::AgentSession>,
@@ -23,6 +24,9 @@ struct TerminalWorld {
     terminal_events: Mutex<Vec<AgentTerminalEvent>>,
     workflow_events: Mutex<usize>,
     stopped: Mutex<Vec<String>>,
+    /// Whether the stop-by-session gateway reports a confirmed exit. Configurable because the
+    /// deletion path treats "stopped" and "confirmed gone" as different answers.
+    terminal_exit_confirmed: Mutex<bool>,
 }
 
 impl TerminalWorld {
@@ -41,6 +45,7 @@ impl TerminalWorld {
             terminal_events: Mutex::new(Vec::new()),
             workflow_events: Mutex::new(0),
             stopped: Mutex::new(Vec::new()),
+            terminal_exit_confirmed: Mutex::new(true),
         })
     }
 
@@ -340,6 +345,18 @@ impl AgentTerminalGateway for TerminalWorld {
             .expect("stopped")
             .push(request.terminal_id);
         Ok(true)
+    }
+
+    fn stop_session_terminal_and_confirm_exit(
+        &self,
+        session_id: &str,
+        _budget: Duration,
+    ) -> Result<bool, AgentRuntimeApplicationError> {
+        self.stopped
+            .lock()
+            .expect("stopped")
+            .push(session_id.to_string());
+        Ok(*self.terminal_exit_confirmed.lock().expect("exit confirmed"))
     }
 
     fn cleanup_idle(
@@ -722,6 +739,36 @@ fn idle_cleanup_and_shutdown_report_stopped_sessions() {
         .lock()
         .expect("terminal events")
         .is_empty());
+}
+
+/// Session deletion asks a different question than `stop` does -- not "was the stop accepted"
+/// but "is the process gone" -- and both answers have to reach the caller. An unconfirmed exit
+/// is what keeps a session's worktree from being handed to `git worktree remove` while a
+/// process still has it as its working directory.
+#[test]
+fn stopping_a_session_terminal_reports_whether_the_exit_was_confirmed() {
+    let world = TerminalWorld::new(session(false));
+    let service = world.service();
+
+    assert!(service
+        .stop_for_session_and_confirm_exit("session-1", Duration::from_secs(5))
+        .expect("confirmed stop"));
+
+    *world
+        .terminal_exit_confirmed
+        .lock()
+        .expect("exit confirmed") = false;
+    assert!(
+        !service
+            .stop_for_session_and_confirm_exit("session-1", Duration::from_secs(5))
+            .expect("unconfirmed stop"),
+        "a terminal that did not exit must not be reported as gone",
+    );
+
+    assert_eq!(
+        world.stopped.lock().expect("stopped").as_slice(),
+        ["session-1".to_string(), "session-1".to_string()],
+    );
 }
 
 fn agent(availability: AvailabilityAssessment) -> AgentDefinition {

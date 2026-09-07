@@ -4,7 +4,7 @@
 //! terminals, operations, clocks, logging, and event publication. Infrastructure implements these
 //! contracts; application services do not depend on Tauri, SQLite, or concrete CLI libraries.
 
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use crate::contexts::agent_runtime::domain::MemoryType;
 
@@ -556,6 +556,20 @@ pub(crate) trait AgentTerminalGateway: Send + Sync {
 
     fn stop(&self, request: StopAgentTerminalRequest)
         -> Result<bool, AgentRuntimeApplicationError>;
+
+    /// Stops the terminal owned by `session_id` and waits, within `budget`, for its process
+    /// to actually exit. Returns whether exit was observed.
+    ///
+    /// Separate from `stop` because that one answers "was the stop accepted", and a session
+    /// being deleted needs "is the process gone" — its working directory is the worktree
+    /// about to be removed, and Windows refuses to delete a live process's current
+    /// directory. `stop`'s own reap budget is fixed and its result discarded; this one
+    /// spends the caller's remaining deletion budget and reports what it saw.
+    fn stop_session_terminal_and_confirm_exit(
+        &self,
+        session_id: &str,
+        budget: Duration,
+    ) -> Result<bool, AgentRuntimeApplicationError>;
 
     fn cleanup_idle(
         &self,

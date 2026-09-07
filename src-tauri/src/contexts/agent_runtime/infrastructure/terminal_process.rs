@@ -904,6 +904,47 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
         Ok(true)
     }
 
+    fn stop_session_terminal_and_confirm_exit(
+        &self,
+        session_id: &str,
+        budget: Duration,
+    ) -> Result<bool, AgentRuntimeApplicationError> {
+        let deadline = Instant::now() + budget;
+        let terminal = self.lock_terminals()?.remove(session_id);
+        let Some(terminal) = terminal else {
+            // No terminal for this session, so none of ours holds its directory. Confirmed
+            // rather than refused: the caller asks whether anything is still running, and
+            // nothing is.
+            return Ok(true);
+        };
+        // Deliberately no `ProviderCapability::Cancellation` gate, unlike `stop`. That gate
+        // belongs to a user cancelling their own run; here the session is being destroyed,
+        // and a provider that does not advertise interactive cancellation must not leave a
+        // process holding the worktree.
+        let exited = terminate_terminal_child_before(terminal.child.as_ref(), deadline)?;
+        self.sessions
+            .update_lifecycle(&terminal.session_id, AgentLifecycle::Stopped)?;
+        let _ = self.events.publish_terminal(AgentTerminalEvent::State {
+            terminal_id: terminal.terminal_id,
+            session_id: terminal.session_id.clone(),
+            state: AgentTerminalState::Stopped,
+            error: None,
+        });
+        self.record_log(
+            AgentLogLevel::Info,
+            if exited {
+                "Agent terminal process stopped and confirmed exited for session deletion."
+                    .to_string()
+            } else {
+                "Agent terminal process did not confirm exit within the deletion budget."
+                    .to_string()
+            },
+            Some(&terminal.agent_id),
+            Some(&terminal.session_id),
+        );
+        Ok(exited)
+    }
+
     fn cleanup_idle(
         &self,
         idle_after_seconds: i64,
@@ -1223,6 +1264,37 @@ fn terminate_terminal_child(
     }
     let _ = reap_terminal_before(child, Instant::now() + TERMINAL_REAP_BUDGET);
     Ok(())
+}
+
+/// Kills the child and reports whether it was observed to exit before `deadline`.
+///
+/// Same shape as [`terminate_terminal_child`], with the two differences the deletion path
+/// needs: the caller supplies the budget instead of inheriting the fixed quit-path one, and
+/// the reap result is returned instead of discarded. A caller about to remove the child's
+/// working directory cannot treat "kill was issued" as "directory is free".
+fn terminate_terminal_child_before(
+    child: &Mutex<Box<dyn Child + Send + Sync>>,
+    deadline: Instant,
+) -> Result<bool, AgentRuntimeApplicationError> {
+    // Kill inside the lock, reap outside it, for the deadlock reason spelled out in
+    // `terminate_terminal_child`.
+    {
+        let mut child = child
+            .lock()
+            .map_err(|error| AgentRuntimeApplicationError::Process(error.to_string()))?;
+        if child
+            .try_wait()
+            .map_err(|error| AgentRuntimeApplicationError::Process(error.to_string()))?
+            .is_none()
+        {
+            child
+                .kill()
+                .map_err(|error| AgentRuntimeApplicationError::Process(error.to_string()))?;
+        }
+    }
+    Ok(reap_terminal_before(child, deadline)
+        .map_err(AgentRuntimeApplicationError::Process)?
+        .is_some())
 }
 
 fn cleanup_unattached_terminal_child(child: &mut dyn Child) {
@@ -1848,6 +1920,35 @@ mod tests {
         let mut child = child.lock().expect("child lock");
         let _ = child.kill();
         let _ = child.wait();
+    }
+
+    /// The deletion path's variant must report the exit it observed, not just that a kill was
+    /// issued. `terminate_terminal_child` discards its reap result, which is safe on the quit
+    /// path and wrong here: session deletion hands the child's working directory to
+    /// `git worktree remove` next, and Windows refuses to delete a live process's current
+    /// directory.
+    #[test]
+    fn deletion_path_terminate_reports_the_exit_it_observed() {
+        let (_master, child) = long_lived_child();
+        let child = Mutex::new(child);
+
+        let exited =
+            terminate_terminal_child_before(&child, Instant::now() + Duration::from_secs(5))
+                .expect("terminate");
+
+        assert!(
+            exited,
+            "a killed child that was reaped within budget must be reported as exited",
+        );
+        assert!(
+            child
+                .lock()
+                .expect("child lock")
+                .try_wait()
+                .expect("child status")
+                .is_some(),
+            "the child is still running after a confirmed exit was reported",
+        );
     }
 
     #[test]

@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { checkAboutUpdates, compareVersions } from "./about-service";
+import { aboutCurrentVersion, checkAboutUpdates, compareVersions } from "./about-service";
+
+/**
+ * A release one patch ahead of whatever this build is.
+ *
+ * Spelling the newer version as a literal ties the test to the shipped version: the moment the
+ * project bumped past it, the "newer release" fixture became an older one and the test failed on
+ * the release commit rather than on any change to update detection.
+ */
+const nextPatchVersion = (() => {
+  const [major, minor, patch] = aboutCurrentVersion.split(".").map(Number);
+  return `${major}.${minor}.${patch + 1}`;
+})();
 
 describe("about-service", () => {
   it("compares semantic versions with optional v prefix", () => {
@@ -13,9 +25,9 @@ describe("about-service", () => {
       new Response(
         JSON.stringify({
           body: "Release notes",
-          html_url: "https://github.com/cdavid817/vanehub-ai/releases/tag/v1.4.1",
-          name: "VaneHub AI v1.4.1",
-          tag_name: "v1.4.1",
+          html_url: `https://github.com/cdavid817/vanehub-ai/releases/tag/v${nextPatchVersion}`,
+          name: `VaneHub AI v${nextPatchVersion}`,
+          tag_name: `v${nextPatchVersion}`,
         }),
         { status: 200 },
       );
@@ -23,7 +35,7 @@ describe("about-service", () => {
     const result = await checkAboutUpdates(fetchImpl);
 
     expect(result.updateAvailable).toBe(true);
-    expect(result.latestVersion).toBe("1.4.1");
+    expect(result.latestVersion).toBe(nextPatchVersion);
     expect(result.releaseNotes).toBe("Release notes");
   });
 

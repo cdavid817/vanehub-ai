@@ -2706,8 +2706,15 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // +7 by `harden-session-workspace-tab-layouts`, measured on the merged tree: the early
         // return in `record_terminal_usage_log` that stops a periodic poll which persisted nothing
         // from being written -- it was three quarters of the unified log -- and the note saying why.
-        budget: 63_085,
-        owner: "harden-session-workspace-tab-layouts",
+        //
+        // +101 by `stop-session-terminals-before-worktree-removal`, all in `terminal_process.rs`:
+        // a stop-by-session that confirms the child actually exited, the bounded-reap helper it
+        // needs, and the test that pins it reports the exit it observed. Nothing was duplicated --
+        // the existing `stop` and `terminate_terminal_child` keep the fixed quit-path budget whose
+        // reap result is deliberately discarded, which is exactly why the deletion path could not
+        // reuse them: it hands the child's working directory to `git worktree remove` next.
+        budget: 63_186,
+        owner: "stop-session-terminals-before-worktree-removal",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
     // directory module. The +51 is entirely per-file boilerplate: +29 module headers (the `mod`
@@ -2880,8 +2887,12 @@ const NATIVE_PRODUCTION_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         //
         // +7 production by `harden-session-workspace-tab-layouts`: the no-op poll guard in
         // `record_terminal_usage_log`, the same lines counted by the aggregate above.
-        budget: 33_953,
-        owner: "harden-session-workspace-tab-layouts",
+        //
+        // +72 production by `stop-session-terminals-before-worktree-removal`: the stop-by-session
+        // gateway method and its bounded-reap helper. The remaining 29 of that change's 101
+        // aggregate lines are its test, counted by the aggregate above and deliberately not here.
+        budget: 34_025,
+        owner: "stop-session-terminals-before-worktree-removal",
     },
 ];
 
