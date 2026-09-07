@@ -27,8 +27,9 @@ const identities: Record<string, AgentVisualIdentity> = {
   "gemini-cli": { label: "Gemini CLI", Icon: BrainCircuit, tone: "ucd-agent-gemini" },
   opencode: { label: "OpenCode", Icon: TerminalSquare, tone: "ucd-agent-opencode" },
   "antigravity-cli": { label: "Antigravity CLI", Icon: Orbit, tone: "ucd-agent-antigravity" },
-  // The seven expanded CLIs use utility tones like OnePiece: no vendor publishes a mark this
-  // repository may embed, so the icon is a neutral glyph and the tone is the only brand cue.
+  // The seven expanded CLIs use utility tones like OnePiece. The lucide glyph here is the neutral
+  // silhouette for presence/roster chips; their brand marks live in `AgentBrandIcon`
+  // (`src/assets/agent-icons/PROVENANCE.md`).
   "qwen-code": { label: "Qwen Code", Icon: Languages, tone: "border-purple-400/60 bg-purple-500/10 text-purple-600" },
   "kimi-cli": { label: "Kimi Code CLI", Icon: Waves, tone: "border-slate-400/60 bg-slate-500/10 text-slate-700" },
   "qoder-cli": { label: "Qoder CLI", Icon: Compass, tone: "border-sky-400/60 bg-sky-500/10 text-sky-600" },

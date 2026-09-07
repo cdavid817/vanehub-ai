@@ -143,3 +143,8 @@
 - 复审中确认但未改的既有问题：`workspaces/infrastructure/capture_maintenance.rs::enforce_capacity` 每删一行就重算一次 `SUM`（O(n²)），且目前没有任何调用方；`proxy_terminal::release_epoch` 对每个终端顺序等待最多 5 秒（8 个终端最坏 40 秒）；`terminal_request` 允许代理覆盖已清洗环境中的同名变量（注释与行为不符，风险低）。
 - 行数预算：`agent_runtime/infrastructure` 聚合 73,112 → 73,238、生产 40,300 → 40,334，理由写在预算旁。
 
+### 七家 CLI 的品牌图标（2026-09-07，用户要求）
+
+- `src/assets/agent-icons/`：Qwen Code（文档站 favicon）、Kimi（kimi.com PWA 图标）、Qoder（qoder.com 图标）、iFlow（iflow.cn 图标）四个 PNG 缩至 64×64；CodeBuddy 取自已安装 npm 包内的 `dist/web-ui/pwa-icon.svg`（官网拒绝脚本访问）；Cursor 取官方 `favicon.svg`；Copilot 内联 Primer Octicons `copilot-24`（MIT，`currentColor`）。来源、日期与商标说明见目录内 `PROVENANCE.md`。
+- `AgentBrandIcon` 对六家走 `<img data-agent-icon>`，Copilot 走内联 SVG；未知 id 仍回退到通用 Bot 图形。`agent-visual-identity.ts` 的 lucide 图形保留给在场/席位小徽标，注释同步更正。测试覆盖七家渲染与未知 id 回退。
+
