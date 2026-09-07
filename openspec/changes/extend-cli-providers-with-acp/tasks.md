@@ -92,7 +92,7 @@
 
 - [x] 6.3 新增新旧 kimi 同名冲突、跨发行形态恢复拒绝、print 策略不可兑现、流式/取消/错误 fixtures。
 
-- [ ] 6.4 完成有授权的当前 Kimi live smoke 或记录阻塞，旧发行形态未验证时只报告其真实兼容范围。
+- [ ] 6.4 完成有授权的当前 Kimi live smoke 或记录阻塞，旧发行形态未验证时只报告其真实兼容范围。（2026-09-07：`kimi login` 后仍缺 provider onboarding，ACP 拒绝；用户选择跳过，保持 BLOCKED）
 
 ## 7. 国内补充 Qoder 与 CodeBuddy
 
