@@ -19,7 +19,9 @@ export function Badge({
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-sm border px-2 py-0.5 text-xs font-medium",
+        // A badge is a label, never a paragraph: in a tight flex row it must keep its width and
+        // stay on one line rather than folding "会话" into two.
+        "inline-flex shrink-0 items-center whitespace-nowrap rounded-sm border px-2 py-0.5 text-xs font-medium",
         tones[tone],
         className,
       )}

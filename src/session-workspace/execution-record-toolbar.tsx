@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { SlidersHorizontal } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "../lib/utils";
 import {
@@ -55,13 +57,19 @@ export function ExecutionRecordToolbar({
   view: ExecutionRecordView;
 }) {
   const { t } = useTranslation();
+  const activeFilterCount = filters.statuses.length + filters.fidelities.length;
+  // Chips stay folded until asked for, and unfold on their own when a filter is already narrowing
+  // the list: a hidden active filter would make the list look shorter for no visible reason.
+  const [expanded, setExpanded] = useState(false);
+  const showChips = expanded || activeFilterCount > 0;
   return (
     <div className="grid gap-2">
-      <div
-        aria-label={t("executionRecords.viewLabel")}
-        className="ucd-scroll-strip flex gap-1 overflow-x-auto"
-        role="tablist"
-      >
+      <div className="flex items-center gap-2">
+        <div
+          aria-label={t("executionRecords.viewLabel")}
+          className="ucd-scroll-strip flex min-w-0 flex-1 gap-1 overflow-x-auto"
+          role="tablist"
+        >
         {EXECUTION_RECORD_VIEWS.map((entry) => (
           <button
             aria-selected={view === entry}
@@ -80,7 +88,29 @@ export function ExecutionRecordToolbar({
             {t(`executionRecords.view.${entry}`)}
           </button>
         ))}
+        </div>
+        <button
+          aria-expanded={showChips}
+          className={cn(
+            "flex h-7 shrink-0 items-center gap-1 rounded border border-border px-2 text-xs hover:bg-muted",
+            activeFilterCount > 0 ? "text-primary" : "text-muted-foreground",
+          )}
+          onClick={() => setExpanded((current) => !current)}
+          type="button"
+        >
+          <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
+          {showChips ? t("executionRecords.filter.less") : t("executionRecords.filter.more")}
+          {activeFilterCount > 0 ? <span className="rounded-full bg-primary/10 px-1.5 font-mono text-[10px]">{activeFilterCount}</span> : null}
+        </button>
       </div>
+      <input
+        aria-label={t("executionRecords.filter.search")}
+        className="ucd-input h-8 w-full rounded px-2 text-sm"
+        onChange={(event) => onFiltersChange({ ...filters, search: event.target.value })}
+        placeholder={t("executionRecords.filter.search")}
+        value={filters.search}
+      />
+      {showChips ? <>
       <div className="flex flex-wrap items-center gap-1">
         <span className="text-[11px] uppercase text-muted-foreground">
           {t("executionRecords.filter.status")}
@@ -119,13 +149,7 @@ export function ExecutionRecordToolbar({
           />
         ))}
       </div>
-      <input
-        aria-label={t("executionRecords.filter.search")}
-        className="ucd-input h-8 w-full rounded px-2 text-sm"
-        onChange={(event) => onFiltersChange({ ...filters, search: event.target.value })}
-        placeholder={t("executionRecords.filter.search")}
-        value={filters.search}
-      />
+      </> : null}
     </div>
   );
 }

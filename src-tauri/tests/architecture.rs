@@ -2692,6 +2692,34 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // boundary; measured on the merged tree because main changed the same subtree
         // independently (the bounded terminal reap landed there in parallel); merged-tree
         // measurement: 62,879.
+        // Raised to 62,914 by `add-session-worktree-cleanup`. The +35 is `reap_session_and_wait`
+        // in `background_shell.rs`: a deletion must not remove a directory while a managed shell
+        // still has it as its cwd, and the existing reap returns before the child is actually
+        // gone. Nothing was duplicated; the fire-and-forget reap stays for the paths that need no
+        // confirmation.
+        // +15 by the same change for `sqlite_repository.rs`: five read-then-write transactions
+        // begin `IMMEDIATE` (two extra lines each for the builder call) and the five-line note on
+        // the struct saying why. The Windows smoke run failed on the deferred form.
+        //
+        // Raised by `fix-session-creation-and-trace-correctness`. Its +149 is the terminal producer
+        // declaring its own span kinds -- four layers that previously shared one attribute set and
+        // therefore all classified as `unknown` -- plus the three tests that run the emitted
+        // attributes through the real classifier. Asserting the attribute map instead would have
+        // been shorter and would have passed against the broken build, since every stage was
+        // individually correct and only their composition was wrong.
+        // The two changes touch different files, so this is measured on the merged tree rather
+        // than summed from either branch's own figure.
+        //
+        // +7 by `harden-session-workspace-tab-layouts`, measured on the merged tree: the early
+        // return in `record_terminal_usage_log` that stops a periodic poll which persisted nothing
+        // from being written -- it was three quarters of the unified log -- and the note saying why.
+        //
+        // +101 by `stop-session-terminals-before-worktree-removal`, all in `terminal_process.rs`:
+        // a stop-by-session that confirms the child actually exited, the bounded-reap helper it
+        // needs, and the test that pins it reports the exit it observed. Nothing was duplicated --
+        // the existing `stop` and `terminate_terminal_child` keep the fixed quit-path budget whose
+        // reap result is deliberately discarded, which is exactly why the deletion path could not
+        // reuse them: it hands the child's working directory to `git worktree remove` next.
         //
         // `extend-cli-providers-with-acp` raises it to 72,647. The +9,768 is one new transport
         // at this boundary, not a copy of the headless one: the ACP runtime under `providers/acp/`
@@ -2728,7 +2756,12 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         //
         // Second review pass raises it to 73,276: `bind` refuses a busy binding without evicting
         // it, plus the regression test that proves the live binding survives the refusal.
-        budget: 73_276,
+        //
+        // Merged with main on 2026-09-07 (this branch's ACP runtime, transaction hardening,
+        // and config profiles on one side; session deletion, worktree cleanup, and terminal
+        // stop-by-session on the other). Both histories above are kept; the figure is measured
+        // on the merged tree, not summed, because the branches share a baseline.
+        budget: 73_573,
         owner: "extend-cli-providers-with-acp",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
@@ -2833,6 +2866,14 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // change's one migration from 95 to 111. Measured on the merged tree rather than summed:
         // both branches raised this number for their own migrations and neither copied the other's.
         // Merged-tree measurement: 3,634.
+        // +14 for migrations 112 (`managed-worktree-resources`) and 113
+        // (`session-deletion-operations`) by `add-session-worktree-cleanup`: two registration
+        // calls and two inventory entries. The schemas live in the workspaces and sessions
+        // infrastructure that own those tables; only the fixed registration cost lands here.
+        // +14 for the post-migration repair in `migrations/mod.rs` (`harden-session-workspace-tab-
+        // layouts`): a local database shared between worktrees can record versions 88-90 from
+        // another branch while the personalization columns never landed, so startup re-applies
+        // those three idempotent schemas in one transaction after the version-gated migrations.
         //
         // `extend-cli-providers-with-acp` raises it to 3,644: the fixed registration cost of
         // migration 112 (`cli-execution-bindings`), whose SQL lives in the ACP binding module,
@@ -2842,7 +2883,12 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // entry point (the one place `BEGIN IMMEDIATE` is spelled out) with its rationale, and the
         // three contention tests that reproduce the deferred lock-upgrade failure and prove the
         // immediate form waits instead.
-        budget: 3_774,
+        //
+        // Merged with main on 2026-09-07 (this branch's ACP runtime, transaction hardening,
+        // and config profiles on one side; session deletion, worktree cleanup, and terminal
+        // stop-by-session on the other). Both histories above are kept; the figure is measured
+        // on the merged tree, not summed, because the branches share a baseline.
+        budget: 3_803,
         owner: "harden-sqlite-write-transactions",
     },
 ];
@@ -2889,6 +2935,24 @@ const NATIVE_PRODUCTION_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // deliberately not by this one.
         // The structured model transport contributes the remaining production-only delta on the
         // merged tree (measured 33,866); its test doubles are counted by the aggregate above.
+        // `add-session-worktree-cleanup` raises it to 33,901. The +35 is production: the
+        // confirming reap that waits until a session's managed shells have actually exited, which
+        // the cleanup needs before it may remove the directory they ran in.
+        // +15 more, all production, for the `IMMEDIATE` transactions in `sqlite_repository.rs`
+        // and the note that explains them.
+        //
+        // `fix-session-creation-and-trace-correctness` contributes +30, also production: the kind
+        // attribute name, three kind tokens, and per-layer attribute construction where one shared
+        // set used to be reused four times. The tests that pin the classification are counted by
+        // the aggregate above and deliberately not by this one. Different files from the cleanup's
+        // delta, so measured on the merged tree.
+        //
+        // +7 production by `harden-session-workspace-tab-layouts`: the no-op poll guard in
+        // `record_terminal_usage_log`, the same lines counted by the aggregate above.
+        //
+        // +72 production by `stop-session-terminals-before-worktree-removal`: the stop-by-session
+        // gateway method and its bounded-reap helper. The remaining 29 of that change's 101
+        // aggregate lines are its test, counted by the aggregate above and deliberately not here.
         //
         // `extend-cli-providers-with-acp` raises it to 40,020. The +6,154 is the production half
         // of the ACP transport listed on the aggregate above: the wire, connection, session,
@@ -2908,7 +2972,12 @@ const NATIVE_PRODUCTION_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         //
         // Second review pass raises it to 40,335: the busy-binding check in `bind` moved ahead of
         // the eviction, one line net.
-        budget: 40_335,
+        //
+        // Merged with main on 2026-09-07 (this branch's ACP runtime, transaction hardening,
+        // and config profiles on one side; session deletion, worktree cleanup, and terminal
+        // stop-by-session on the other). Both histories above are kept; the figure is measured
+        // on the merged tree, not summed, because the branches share a baseline.
+        budget: 40_484,
         owner: "extend-cli-providers-with-acp",
     },
 ];

@@ -15,6 +15,11 @@ use rusqlite::{params, Connection, OptionalExtension, Row};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+/// Every write transaction below begins `IMMEDIATE`. Each reads before it writes (a guard query,
+/// then the update), and a deferred transaction that upgrades to a write after another
+/// connection has committed gets `SQLITE_BUSY` at once rather than waiting out the busy timeout.
+/// The Windows desktop smoke run hit exactly that on the provider-profile save, racing the
+/// log-index writer that runs behind every log line during startup.
 #[derive(Clone)]
 pub(crate) struct SqliteAgentRuntimeRepository {
     database: NativeDatabase,

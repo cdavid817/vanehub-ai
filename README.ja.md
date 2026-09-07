@@ -16,11 +16,11 @@
 
 デスクトップ優先の AI コーディングエージェントワークベンチ。OnePiece、Claude Code、Codex CLI、OpenCode、Gemini CLI、Antigravity CLI、Qwen Code、Kimi Code CLI、Qoder CLI、CodeBuddy Code、GitHub Copilot CLI、Cursor Agent CLI を統一インターフェースで利用・管理します。
 
-<!-- docs-fact:project-version value:1.4.0 -->
+<!-- docs-fact:project-version value:1.5.0 -->
 <!-- docs-fact:tauri-major value:2.x -->
 <!-- docs-fact:react-major value:19.x -->
 
-[![Version](https://img.shields.io/badge/version-1.4.0-blue.svg)](package.json)
+[![Version](https://img.shields.io/badge/version-1.5.0-blue.svg)](package.json)
 [![Tauri](https://img.shields.io/badge/Tauri-2.x-24C8DB.svg)](src-tauri/Cargo.toml)
 [![React](https://img.shields.io/badge/React-19.x-61DAFB.svg)](package.json)
 [![CI](https://github.com/cdavid817/vanehub-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/cdavid817/vanehub-ai/actions/workflows/ci.yml)

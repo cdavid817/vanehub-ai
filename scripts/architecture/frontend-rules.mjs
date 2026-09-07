@@ -385,6 +385,11 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 与 runtime-agent-client、runtime-session-log-client 同一模式同一理由。终端加速渲染只对桌面端有
 // 意义——Web/mock 的终端写的是夹具文本,不驱动任何进程——而两个终端界面在两个运行时里都要渲染,所以
 // 这个判断只能有一处写法,组件里出现运行时分支正是 ARCH-FE-002 要拦的东西。按实测 27422 记,不留余量。
+// 上调理由(add-session-worktree-cleanup):+658,会话删除服务边界——类型合约与接口
+// (session-deletion-service)、Tauri 调用适配(tauri-session-deletion-client),以及显式
+// 声明为模拟的 Web/mock 状态、决策模拟与执行器(web-session-deletion-state / -simulation /
+// -runner / -client)。删除仲裁在 Rust 侧,前端只承载预览、选择与结果投影;React 仍只依赖
+// 服务边界。合并 main 后重测:两边落在互不相交的文件上,合并树实测 28080,不预留余量。
 // 上调理由(extend-cli-providers-with-acp):+31 全部是七个新 CLI 在 Web/mock 侧的对等数据,没有一行是
 // 复制既有分支——`mock-agent-data.ts` 的七条注册项(+20,已压成一个元组表映射,与原生 registry 种子
 // 同一套 capability tag),`chat-configuration.ts` 的默认 provider/model(+7,镜像 `chat_profile.rs`)
@@ -397,7 +402,38 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 规则与模型必填校验——Web/mock 的保存校验必须与原生 `validate()` 同一套拒绝,否则浏览器里能存下
 // 桌面端会拒绝的配置。按实测 27489 记,不留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 27489, owner: "reduce-session-runtime-overhead" },
+  // 27405 -> 27421: the execution timeline response now states whether its event list was
+  // truncated, and that shape has to exist in the service interface and in both adapters —
+  // the Tauri one forwards the cursor, the Web/mock one reports complete coverage explicitly
+  // rather than omitting the field, because a panel that read an absent field as "complete"
+  // would misread every truncated native response. Sixteen lines across four files, none of
+  // them a copy of another.
+  // 27421 -> 27428: review found the Web/mock `getTimeline` silently dropping the new event
+  // cursor. TypeScript accepts a narrower implementation, so the divergence was invisible at every
+  // call site; the adapter now answers a continuation it never issued with the empty tail instead
+  // of replaying page one, which a paging caller would loop on forever.
+  //
+  // 27428 -> 27458: one fixture now reports a clipped event list and the adapter serves its second
+  // page. Without it the truncation notice and its continuation were unreachable from the browser
+  // build, so no e2e could render the state the whole paging path exists to serve -- and both
+  // `cloneTimeline` and the fixture reset were hardcoding `truncated: false`, which would have
+  // overridden any fixture that tried.
+  //
+  // 27458 -> 27462: review follow-up. The truncated fixture now states that its page bound is its
+  // own rather than the native 5000, because a mock declaring "truncated" over a single event is
+  // otherwise a contradiction a reader has to resolve for themselves.
+  //
+  // 合并 main 后重测:本分支的 +57(执行链路的截断覆盖与分页适配)与 main 侧
+  // add-session-worktree-cleanup 的 +658(会话删除服务边界)落在互不相交的文件上。按惯例在
+  // 合并树上实测,不是 27462+658 也不是 28080+57——相加会把两边共有的基线算两遍。
+  //
+  // 28137 -> 28161(harden-session-workspace-tab-layouts,合并 main 后在合并树上实测):+24 是
+  // 设置服务的目录选择能力——`pickDirectory` 进入 `SettingsService` 接口、Tauri 侧走 dialog
+  // 插件、Web 侧以「仅桌面」原因拒绝——加上 `cliTerminalTheme` 的归一化与其单测。两者都是
+  // 桌面/Web 双实现必须同时补的接口,不是既有代码的复制。
+  // 合并 main 后重测(2026-09-07):本分支的 +36(七家 CLI 的 Web/mock 对等数据、检查连接、
+  // 配置 profile 校验)与 main 侧的会话删除、目录选择落在互不相交的文件上,按惯例在合并树上实测。
+  { root: "src/services", budget: 28228, owner: "harden-session-workspace-tab-layouts" },
 ]);
 
 const STATE_PACKAGES = new Set([

@@ -2,7 +2,7 @@ import { Eye, EyeOff, Network, Search, TestTube2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../../components/ui/button";
-import { normalizeNetworkProxyBypass } from "../../services/settings-service";
+import { defaultAppSettings, normalizeNetworkProxyBypass } from "../../services/settings-service";
 import type { DetectedNetworkProxy } from "../../types/settings";
 import { useSettings } from "../settings-provider";
 import { SectionPanel } from "./page-parts";
@@ -212,11 +212,14 @@ export function NetworkProxySection() {
             {busyAction === "test" ? t("basic.proxyTesting") : t("basic.proxyTest")}
           </Button>
           <Button
-            disabled={disabled || (!urlDraft && !usernameDraft && !passwordDraft)}
+            disabled={disabled || (!urlDraft && !usernameDraft && !passwordDraft && bypassDraft === defaultAppSettings.networkProxyBypass)}
             onClick={() => {
+              // Clears the whole draft, bypass list included, back to "direct connection"; the
+              // change still goes through Save so the user sees it as a pending edit.
               setUrlDraft("");
               setUsernameDraft("");
               setPasswordDraft("");
+              setBypassDraft(defaultAppSettings.networkProxyBypass);
               setStatus(null);
               setError(null);
             }}

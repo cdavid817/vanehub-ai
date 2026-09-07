@@ -1757,7 +1757,7 @@ Application：`indexing_service.rs`、`code_search_service.rs`、`search_service
 
 ### 38.1 桌面设置与生命周期
 
-`contexts/desktop/`。Domain `settings.rs`：`ApplicationLanguage {zh-CN,en,zh-TW,ja,ko}`、`DesktopFontSize {12,14,16,18}px`、`DesktopTheme {futuristic, minimal}`；`DesktopSettingKey` 枚举 16 个 key（含 networkProxyUrl/bypass、automaticArchivalEnabled/InactiveDays、launchOnStartup、defaultPolicyTemplate、customInstructions*、memoryEnabled、memoryToolAssistedChatsEnabled）带严格 parse；代理 URL scheme 白名单 http/https/socks5/socks5h；custom-instructions 字段上限 3000 字符；默认 zh-CN、14px、futuristic、归档 enabled 10 天、模板 "standard"。
+`contexts/desktop/`。Domain `settings.rs`：`ApplicationLanguage {zh-CN,en,zh-TW,ja,ko}`、`DesktopFontSize {12,14,16,18}px`、`DesktopTheme {futuristic, minimal}`、`CliTerminalTheme {light, dark}`（单 Agent CLI 终端配色，默认 dark，独立于应用主题，键名 `cliTerminalTheme`）；`DesktopSettingKey` 枚举 16 个 key（含 networkProxyUrl/bypass、automaticArchivalEnabled/InactiveDays、launchOnStartup、defaultPolicyTemplate、customInstructions*、memoryEnabled、memoryToolAssistedChatsEnabled）带严格 parse；代理 URL scheme 白名单 http/https/socks5/socks5h；custom-instructions 字段上限 3000 字符；默认 zh-CN、14px、futuristic、归档 enabled 10 天、模板 "standard"。
 
 Lifecycle service（`application/lifecycle/`）+ `infrastructure/tauri_desktop_lifecycle.rs`：启动控制（`set_launch_on_startup`）、主窗口事件处理（`handle_main_window_event`）、webview 恢复（`install_main_webview_recovery` `runtime.rs:80-84`）、托盘语言。`bootstrap/desktop.rs` 组装 `desktop_lifecycle_api`（`runtime.rs:321-331`）和 `initialize_desktop_runtime`（`:332-336`）。
 

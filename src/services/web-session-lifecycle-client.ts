@@ -9,13 +9,8 @@ import { createWebMockOperation } from "./web-operation-client";
 import { findWebSshConnection } from "./web-ssh-connection-client";
 import { discoverWebSessionCodeIndex } from "./web-code-index-state";
 import { listWebExpertRoles } from "./web-expert-role-client";
-import {
-  cancelWebActiveStream,
-  deleteWebChatSubscribers,
-  deleteWebSessionMessages,
-} from "./web-chat-state";
-import { deleteWebSessionChatConfig } from "./web-chat-config-state";
-import { deleteWebRecoveryReports } from "./web-session-recovery-state";
+import { cancelWebActiveStream } from "./web-chat-state";
+import { assertWebSessionUnclaimed, deleteWebSessionRecord } from "./web-session-deletion-state";
 import {
   inspectMockProject,
   joinSiblingPath,
@@ -31,10 +26,8 @@ import {
   findWebSession,
   getWebActiveSessionId,
   getWebWorkflowState,
-  listWebSessions,
   nextWebSessionSequence,
   prependWebSession,
-  replaceWebSessions,
   setWebActiveSessionId,
   setWebWorkflowState,
   updateWebSession,
@@ -166,18 +159,11 @@ export const webSessionLifecycleClient: SessionLifecycleService = {
     });
   },
 
+  // Keep-only, like the native legacy command: the worktree and its branch are untouched, and a
+  // session a simulated deletion already holds is refused rather than deleted twice.
   async deleteSession(sessionId: string) {
-    findWebSession(sessionId);
-    cancelWebActiveStream(sessionId);
-    deleteWebSessionMessages(sessionId);
-    deleteWebRecoveryReports(sessionId);
-    deleteWebChatSubscribers(sessionId);
-    deleteWebSessionChatConfig(sessionId);
-    replaceWebSessions(listWebSessions().filter((session) => session.id !== sessionId));
-    if (getWebActiveSessionId() === sessionId) {
-      setWebActiveSessionId(null);
-      emitWebSessionEvent({ kind: "active-session-changed", sessionId: null });
-    }
+    assertWebSessionUnclaimed(sessionId);
+    deleteWebSessionRecord(sessionId);
   },
 
   async switchSession(sessionId: string) {

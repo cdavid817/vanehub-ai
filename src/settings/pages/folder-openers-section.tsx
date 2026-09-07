@@ -1,11 +1,10 @@
-import { ArrowDown, ArrowUp, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../../components/ui/button";
-import { FolderOpenerIcon } from "../../components/folder-opener-icon";
-import { normalizeDisplayPath } from "../../lib/session-path";
 import { agentService } from "../../services/runtime-agent-client";
 import type { FolderOpenerAvailability, FolderOpenerId, FolderOpenerPreferences } from "../../types/folder-opener";
+import { FolderOpenerCard } from "./folder-opener-card";
 import { SettingsDisclosure, SettingsRow } from "./page-parts";
 
 export function FolderOpenersSection() {
@@ -16,15 +15,20 @@ export function FolderOpenersSection() {
   const [error, setError] = useState<string | null>(null);
 
   async function load(refresh = false) {
-    setBusy(true); setError(null);
+    setBusy(true);
+    setError(null);
     try {
       const [nextOpeners, nextPreferences] = await Promise.all([
         refresh ? agentService.refreshFolderOpeners() : agentService.listFolderOpeners(),
         agentService.getFolderOpenerPreferences(),
       ]);
-      setOpeners(nextOpeners); setPreferences(nextPreferences);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
-    finally { setBusy(false); }
+      setOpeners(nextOpeners);
+      setPreferences(nextPreferences);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
   }
 
   useEffect(() => { void load(); }, []);
@@ -33,10 +37,16 @@ export function FolderOpenersSection() {
     if (!preferences) return;
     const previous = preferences;
     setPreferences({ ...preferences, configuredDefaultOpenerId, effectiveDefaultOpenerId: configuredDefaultOpenerId, enabledOpenerIds, fallbackActive: false });
-    setBusy(true); setError(null);
-    try { setPreferences(await agentService.saveFolderOpenerPreferences({ configuredDefaultOpenerId, enabledOpenerIds })); }
-    catch (cause) { setPreferences(previous); setError(cause instanceof Error ? cause.message : String(cause)); }
-    finally { setBusy(false); }
+    setBusy(true);
+    setError(null);
+    try {
+      setPreferences(await agentService.saveFolderOpenerPreferences({ configuredDefaultOpenerId, enabledOpenerIds }));
+    } catch (cause) {
+      setPreferences(previous);
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
   }
 
   function moveOpener(openerId: FolderOpenerId, direction: -1 | 1) {
@@ -50,61 +60,66 @@ export function FolderOpenersSection() {
     void save(preferences.configuredDefaultOpenerId, next);
   }
 
+  function toggleOpener(openerId: FolderOpenerId, enabled: boolean) {
+    if (!preferences) return;
+    const nextEnabled = enabled ? [...preferences.enabledOpenerIds, openerId] : preferences.enabledOpenerIds.filter((id) => id !== openerId);
+    const nextDefault = nextEnabled.includes(preferences.configuredDefaultOpenerId) ? preferences.configuredDefaultOpenerId : "file-explorer";
+    void save(nextDefault, nextEnabled);
+  }
+
+  const enabledIds = preferences?.enabledOpenerIds ?? [];
+  const defaultChoices = openers.filter((item) => item.status === "available" && enabledIds.includes(item.id));
+  // Enabled openers first, in their saved order, so the list reads as the same ranking the
+  // session toolbar menu uses; everything else follows in catalog order.
+  const orderedOpeners = enabledIds
+    .map((openerId) => openers.find((item) => item.id === openerId))
+    .filter((opener): opener is FolderOpenerAvailability => Boolean(opener))
+    .concat(openers.filter((opener) => !enabledIds.includes(opener.id)));
+
   return (
     <>
-      {error ? <div className="m-5 rounded border p-2 text-xs ucd-status-danger">{error}</div> : null}
+      {error ? <div className="border-b border-border/70 px-5 py-3 text-xs ucd-status-danger sm:px-6">{error}</div> : null}
       <SettingsRow description={t("folderOpeners.defaultDescription")} title={t("folderOpeners.default")}>
         <label className="block text-sm">
           <span className="sr-only">{t("folderOpeners.default")}</span>
-          <select className="ucd-input h-9 min-w-48 rounded-lg px-3" disabled={busy || !preferences} value={preferences?.configuredDefaultOpenerId ?? "file-explorer"} onChange={(event) => void save(event.target.value as FolderOpenerId, preferences?.enabledOpenerIds ?? ["file-explorer"])}>
-            {openers.filter((item) => item.status === "available" && preferences?.enabledOpenerIds.includes(item.id)).map((item) => <option key={item.id} value={item.id}>{t(`folderOpeners.name.${item.id}`)}</option>)}
+          <select
+            aria-label={t("folderOpeners.default")}
+            className="ucd-input h-9 w-full min-w-48 rounded-lg px-3 text-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring sm:w-auto"
+            disabled={busy || !preferences || defaultChoices.length === 0}
+            onChange={(event) => void save(event.target.value as FolderOpenerId, enabledIds)}
+            value={defaultChoices.length === 0 ? "" : preferences?.configuredDefaultOpenerId ?? "file-explorer"}
+          >
+            {defaultChoices.length === 0 ? <option value="">{busy ? t("folderOpeners.detecting") : t("folderOpeners.noneAvailable")}</option> : null}
+            {defaultChoices.map((item) => <option key={item.id} value={item.id}>{t(`folderOpeners.name.${item.id}`)}</option>)}
           </select>
         </label>
       </SettingsRow>
-      <SettingsDisclosure description={t("folderOpeners.manageDescription")} title={t("folderOpeners.manage")}>
+      <SettingsDisclosure description={t("folderOpeners.manageDescription")} embedded title={t("folderOpeners.manage")}>
         <div className="grid gap-4">
           <div className="grid gap-3 lg:grid-cols-2">
-          {(preferences?.enabledOpenerIds ?? [])
-            .map((openerId) => openers.find((item) => item.id === openerId))
-            .filter((opener): opener is FolderOpenerAvailability => Boolean(opener))
-            .concat(openers.filter((opener) => !(preferences?.enabledOpenerIds ?? []).includes(opener.id)))
-            .map((opener) => {
-            const checked = preferences?.enabledOpenerIds.includes(opener.id) ?? false;
-            const locked = opener.id === "file-explorer";
-            const index = preferences?.enabledOpenerIds.indexOf(opener.id) ?? -1;
-            return <label className="grid gap-3 rounded-lg border border-border bg-muted/20 p-3" key={opener.id}>
-              <span className="flex items-start gap-3">
-                <input checked={checked} className="mt-2" disabled={busy || locked || !preferences} onChange={(event) => {
-                if (!preferences) return;
-                const enabled = event.target.checked ? [...preferences.enabledOpenerIds, opener.id] : preferences.enabledOpenerIds.filter((id) => id !== opener.id);
-                const nextDefault = enabled.includes(preferences.configuredDefaultOpenerId) ? preferences.configuredDefaultOpenerId : "file-explorer";
-                void save(nextDefault, enabled);
-              }} type="checkbox" />
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded border border-border bg-background text-primary"><FolderOpenerIcon id={opener.id} /></span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-medium text-foreground">{t(`folderOpeners.name.${opener.id}`)}</span>
-                  <span className="mt-0.5 block text-xs text-muted-foreground">{t(`folderOpeners.status.${opener.status}`)}{locked ? ` · ${t("folderOpeners.fallback")}` : ""}</span>
-                  {opener.version || opener.edition ? <span className="mt-1 block text-[11px] text-muted-foreground">
-                    {opener.version ? `${t("folderOpeners.version")}: ${opener.version}` : ""}
-                    {opener.version && opener.edition ? " · " : ""}
-                    {opener.edition ? `${t("folderOpeners.edition")}: ${opener.edition}` : ""}
-                  </span> : null}
-                  {opener.executablePath ? (
-                    <span className="mt-1 block truncate font-mono text-[11px] text-muted-foreground" title={normalizeDisplayPath(opener.executablePath)}>
-                      {normalizeDisplayPath(opener.executablePath)}
-                    </span>
-                  ) : null}
-                </span>
-              </span>
-              {checked ? <span className="flex shrink-0 gap-1">
-                <Button className="h-7 w-7 px-0" disabled={busy || index <= 0} onClick={(event) => { event.preventDefault(); moveOpener(opener.id, -1); }} title={t("folderOpeners.moveUp")} type="button" variant="outline"><ArrowUp className="h-3.5 w-3.5" /></Button>
-                <Button className="h-7 w-7 px-0" disabled={busy || !preferences || index < 0 || index >= preferences.enabledOpenerIds.length - 1} onClick={(event) => { event.preventDefault(); moveOpener(opener.id, 1); }} title={t("folderOpeners.moveDown")} type="button" variant="outline"><ArrowDown className="h-3.5 w-3.5" /></Button>
-              </span> : null}
-            </label>;
-          })}
+            {orderedOpeners.map((opener) => {
+              const index = enabledIds.indexOf(opener.id);
+              return (
+                <FolderOpenerCard
+                  busy={busy || !preferences}
+                  canMoveDown={index >= 0 && index < enabledIds.length - 1}
+                  canMoveUp={index > 0}
+                  checked={index >= 0}
+                  key={opener.id}
+                  locked={opener.id === "file-explorer"}
+                  onMove={(direction) => moveOpener(opener.id, direction)}
+                  onToggle={(enabled) => toggleOpener(opener.id, enabled)}
+                  opener={opener}
+                />
+              );
+            })}
           </div>
           {preferences?.fallbackActive ? <div className="rounded border p-2 text-xs ucd-status-warning">{t("folderOpeners.fallbackActive")}</div> : null}
-          <Button className="justify-self-start" disabled={busy} onClick={() => void load(true)} variant="outline"><RefreshCw className={busy ? "h-4 w-4 animate-spin" : "h-4 w-4"} />{t("folderOpeners.refresh")}</Button>
+          {/* Label stays fixed while detecting so the control keeps its width; the spinner carries the state. */}
+          <Button className="justify-self-start" disabled={busy} onClick={() => void load(true)} variant="outline">
+            <RefreshCw className={busy ? "h-4 w-4 animate-spin" : "h-4 w-4"} aria-hidden="true" />
+            {t("folderOpeners.refresh")}
+          </Button>
         </div>
       </SettingsDisclosure>
     </>

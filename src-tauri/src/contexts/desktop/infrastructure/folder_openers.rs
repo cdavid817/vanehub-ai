@@ -1,3 +1,4 @@
+use super::folder_opener_discovery as discovery;
 use super::SqliteDesktopSettingsRepository;
 use crate::platform::{logging, process};
 use serde::{Deserialize, Serialize};
@@ -5,7 +6,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -68,42 +68,39 @@ pub(crate) struct FolderOpenerAvailability {
 }
 
 impl FolderOpenerAvailability {
-    fn available(id: FolderOpenerId, path: PathBuf, source: &'static str) -> Self {
+    pub(super) fn available(
+        id: FolderOpenerId,
+        path: PathBuf,
+        source: &'static str,
+        version: Option<String>,
+        edition: Option<String>,
+    ) -> Self {
         Self {
             id,
             category: id.category(),
             status: "available",
             executable_path: Some(path.to_string_lossy().to_string()),
-            version: None,
-            edition: None,
+            version,
+            edition,
             detection_source: Some(source),
             icon_key: id,
             reason: None,
         }
     }
 
-    fn missing(id: FolderOpenerId) -> Self {
+    /// `status` is either `not-installed` (the product exists for this platform but was not
+    /// found) or `unsupported-platform` (the product has no build for this platform at all).
+    pub(super) fn missing(id: FolderOpenerId, status: &'static str) -> Self {
         Self {
             id,
             category: id.category(),
-            status: if cfg!(windows) {
-                "not-installed"
-            } else {
-                "unsupported-platform"
-            },
+            status,
             executable_path: None,
             version: None,
             edition: None,
             detection_source: None,
             icon_key: id,
-            reason: Some(
-                if cfg!(windows) {
-                    "not-installed"
-                } else {
-                    "unsupported-platform"
-                }
-                .to_string(),
-            ),
+            reason: Some(status.to_string()),
         }
     }
 
@@ -160,7 +157,10 @@ trait FolderOpenerLaunchPort: Send + Sync {
 struct SystemFolderOpenerDiscovery;
 impl FolderOpenerDiscoveryPort for SystemFolderOpenerDiscovery {
     fn discover(&self) -> Vec<FolderOpenerAvailability> {
-        FolderOpenerId::ALL.into_iter().map(detect).collect()
+        FolderOpenerId::ALL
+            .into_iter()
+            .map(discovery::detect)
+            .collect()
     }
 }
 
@@ -287,17 +287,25 @@ impl FolderOpenerService {
         if !target.is_dir() {
             return Err("session-directory-missing".to_string());
         }
-        let opener = self
-            .list(true)
+        // The cached result is trusted as long as its launcher still exists. Re-running the whole
+        // discovery here would spawn a dozen `reg`/`where` processes on Windows for every click; a
+        // single existence check is what "the installation disappeared" actually needs.
+        let discovered = self
+            .list(false)
             .into_iter()
             .find(|item| item.id == opener_id && item.is_available())
+            .and_then(|item| item.executable_path)
+            .map(PathBuf::from)
+            .filter(|path| path.exists())
+            .or_else(|| {
+                self.list(true)
+                    .into_iter()
+                    .find(|item| item.id == opener_id && item.is_available())
+                    .and_then(|item| item.executable_path)
+                    .map(PathBuf::from)
+            })
             .ok_or_else(|| "opener-not-available".to_string())?;
-        let executable = PathBuf::from(
-            opener
-                .executable_path
-                .ok_or_else(|| "opener-not-available".to_string())?,
-        );
-        let args = launch_args(opener_id, &target);
+        let (executable, args) = discovery::launch_plan(opener_id, &discovered, &target);
         self.launcher
             .launch(&executable, &args, &target)
             .map_err(|error| {
@@ -358,189 +366,6 @@ fn view(
 
 fn parse_ids(value: &str) -> Vec<FolderOpenerId> {
     value.split(',').filter_map(FolderOpenerId::parse).collect()
-}
-
-fn detect(id: FolderOpenerId) -> FolderOpenerAvailability {
-    if !cfg!(windows) {
-        return FolderOpenerAvailability::missing(id);
-    }
-    let candidates = candidates(id);
-    candidates
-        .into_iter()
-        .find(|(path, _)| path.is_file())
-        .map(|(path, source)| FolderOpenerAvailability::available(id, path, source))
-        .unwrap_or_else(|| FolderOpenerAvailability::missing(id))
-}
-
-fn candidates(id: FolderOpenerId) -> Vec<(PathBuf, &'static str)> {
-    let local = std::env::var_os("LOCALAPPDATA").map(PathBuf::from);
-    let program_files = std::env::var_os("ProgramFiles").map(PathBuf::from);
-    let mut values = Vec::new();
-    match id {
-        FolderOpenerId::FileExplorer => {
-            values.push((PathBuf::from(r"C:\Windows\explorer.exe"), "system"))
-        }
-        FolderOpenerId::Vscode => {
-            if let Some(path) = registry_app_path("Code.exe") {
-                values.push((path, "app-paths"));
-            }
-            if let Some(path) = where_path("code").and_then(resolve_code_executable) {
-                values.push((path, "path"));
-            }
-            if let Some(root) = local {
-                values.push((
-                    root.join(r"Programs\Microsoft VS Code\Code.exe"),
-                    "known-location",
-                ));
-            }
-            if let Some(root) = program_files {
-                values.push((root.join(r"Microsoft VS Code\Code.exe"), "known-location"));
-            }
-        }
-        FolderOpenerId::WindowsTerminal => {
-            if let Some(path) = registry_app_path("wt.exe") {
-                values.push((path, "app-paths"));
-            }
-            if let Some(path) = where_path("wt") {
-                values.push((path, "path"));
-            }
-        }
-        FolderOpenerId::GitBash => {
-            if let Some(git) = where_path("git") {
-                if let Some(root) = git.parent().and_then(Path::parent) {
-                    values.push((root.join("git-bash.exe"), "path"));
-                }
-            }
-            if let Some(root) = program_files {
-                values.push((root.join(r"Git\git-bash.exe"), "known-location"));
-            }
-        }
-        FolderOpenerId::IntellijIdea => {
-            if let Some(path) = registry_app_path("idea64.exe") {
-                values.push((path, "app-paths"));
-            }
-            values.extend(jetbrains_candidates("idea64.exe"));
-        }
-        FolderOpenerId::Webstorm => {
-            if let Some(path) = registry_app_path("webstorm64.exe") {
-                values.push((path, "app-paths"));
-            }
-            values.extend(jetbrains_candidates("webstorm64.exe"));
-        }
-    }
-    values
-}
-
-fn where_path(name: &str) -> Option<PathBuf> {
-    let output = process::ProcessAdapter
-        .execute(
-            &process::ProcessRequest::new("where")
-                .arg(name)
-                .timeout(Duration::from_secs(3)),
-        )
-        .ok()?;
-    output
-        .success()
-        .then(|| {
-            output
-                .stdout
-                .lines()
-                .next()
-                .map(str::trim)
-                .map(PathBuf::from)
-        })
-        .flatten()
-}
-
-fn registry_app_path(executable: &str) -> Option<PathBuf> {
-    for hive in ["HKCU", "HKLM"] {
-        let key =
-            format!(r"{hive}\Software\Microsoft\Windows\CurrentVersion\App Paths\{executable}");
-        let output = process::ProcessAdapter
-            .execute(
-                &process::ProcessRequest::new("reg")
-                    .args(["query", &key, "/ve"])
-                    .timeout(Duration::from_secs(3)),
-            )
-            .ok()?;
-        if !output.success() {
-            continue;
-        }
-        if let Some(path) = parse_registry_path(&output.stdout) {
-            return Some(path);
-        }
-    }
-    None
-}
-
-fn parse_registry_path(output: &str) -> Option<PathBuf> {
-    output
-        .lines()
-        .filter_map(|line| line.split_once("REG_SZ").map(|(_, value)| value.trim()))
-        .find(|value| !value.is_empty())
-        .map(|value| PathBuf::from(value.trim_matches('"')))
-}
-
-fn resolve_code_executable(path: PathBuf) -> Option<PathBuf> {
-    if path
-        .extension()
-        .and_then(|value| value.to_str())
-        .is_some_and(|value| value.eq_ignore_ascii_case("exe"))
-    {
-        return Some(path);
-    }
-    path.parent()?.parent().map(|root| root.join("Code.exe"))
-}
-
-fn jetbrains_candidates(executable: &str) -> Vec<(PathBuf, &'static str)> {
-    let mut roots = Vec::new();
-    if let Some(local) = std::env::var_os("LOCALAPPDATA") {
-        roots.push(PathBuf::from(local).join(r"JetBrains\Toolbox\apps"));
-    }
-    if let Some(program_files) = std::env::var_os("ProgramFiles") {
-        roots.push(PathBuf::from(program_files).join("JetBrains"));
-    }
-    let mut found = Vec::new();
-    for root in roots {
-        collect_named(&root, executable, 0, &mut found);
-    }
-    found.sort_by(|left, right| right.cmp(left));
-    found
-        .into_iter()
-        .map(|path| (path, "jetbrains-toolbox"))
-        .collect()
-}
-
-fn collect_named(root: &Path, executable: &str, depth: usize, found: &mut Vec<PathBuf>) {
-    if depth > 5 || !root.is_dir() {
-        return;
-    }
-    let Ok(entries) = std::fs::read_dir(root) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_file()
-            && path
-                .file_name()
-                .and_then(|value| value.to_str())
-                .is_some_and(|value| value.eq_ignore_ascii_case(executable))
-        {
-            found.push(path);
-        } else if path.is_dir() {
-            collect_named(&path, executable, depth + 1, found);
-        }
-    }
-}
-
-fn launch_args(id: FolderOpenerId, target: &Path) -> Vec<OsString> {
-    match id {
-        FolderOpenerId::WindowsTerminal => {
-            vec![OsString::from("-d"), target.as_os_str().to_os_string()]
-        }
-        FolderOpenerId::GitBash => Vec::new(),
-        _ => vec![target.as_os_str().to_os_string()],
-    }
 }
 
 fn log_launch(id: FolderOpenerId, session_id: &str, result: &str) {
@@ -626,29 +451,5 @@ mod tests {
             Some(FolderOpenerId::FileExplorer)
         );
         assert!(value.fallback_active);
-    }
-
-    #[test]
-    fn git_bash_plan_relies_on_literal_working_directory() {
-        assert!(launch_args(FolderOpenerId::GitBash, Path::new("D:/A & B")).is_empty());
-    }
-
-    #[test]
-    fn registry_parser_reads_only_string_values() {
-        assert_eq!(
-            parse_registry_path("    (Default)    REG_SZ    D:\\Tools\\Code.exe"),
-            Some(PathBuf::from(r"D:\Tools\Code.exe"))
-        );
-        assert_eq!(parse_registry_path("REG_DWORD 1"), None);
-    }
-
-    #[test]
-    fn git_bash_candidates_never_use_generic_bash() {
-        assert!(candidates(FolderOpenerId::GitBash)
-            .iter()
-            .all(|(path, _)| path
-                .file_name()
-                .and_then(|value| value.to_str())
-                .is_none_or(|value| !value.eq_ignore_ascii_case("bash.exe"))));
     }
 }

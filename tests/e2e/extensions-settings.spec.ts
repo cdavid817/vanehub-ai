@@ -38,14 +38,14 @@ test.describe("Extension Capabilities settings page", () => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
     await page.getByRole("button", { name: /设置|Settings/ }).click();
     await page.getByRole("button", { name: /基础配置|Basic Settings/ }).click();
-    await page.getByLabel(/主题|Theme/).selectOption("minimal");
+    await page.getByLabel(/^(主题|Theme)$/).selectOption("minimal");
     await page.getByRole("button", { name: /扩展能力|Extension Capabilities/ }).click();
 
     await expect(page.getByTestId("extension-card-paddleocr")).toBeVisible();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "minimal");
 
     await page.getByRole("button", { name: /基础配置|Basic Settings/ }).click();
-    await page.getByLabel(/主题|Theme/).selectOption("futuristic");
+    await page.getByLabel(/^(主题|Theme)$/).selectOption("futuristic");
     await page.getByRole("button", { name: /扩展能力|Extension Capabilities/ }).click();
     await expect(page.getByTestId("extension-card-paddleocr")).toBeVisible();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "futuristic");

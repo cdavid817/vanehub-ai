@@ -2,7 +2,9 @@
 
 ## Purpose
 Defines one durable, runtime-neutral workspace for organizing manual work together with Session and Scheduled Task sources while preserving each source's independent lifecycle.
+
 ## Requirements
+
 ### Requirement: Durable unified work item
 The system SHALL persist work items with stable identity, title, description, stage, priority, relative order, optional project path and due timestamp, archive state, timestamps, and zero or more source links.
 
@@ -99,3 +101,15 @@ The board SHALL support pointer, keyboard, and compact-layout operation without 
 #### Scenario: Compact viewport
 - **WHEN** the available width cannot show all stages at once
 - **THEN** the board SHALL preserve access to every stage, filter, card action, and source status without clipping required controls
+
+### Requirement: Board columns stay reachable at every window size
+The board SHALL keep every stage column and every card reachable without clipping.
+
+#### Scenario: Full column
+- **WHEN** a stage holds more cards than its column can show
+- **THEN** the column's list SHALL scroll inside the board
+- **AND** the column SHALL end inside the board rather than under its clip
+
+#### Scenario: Narrow board
+- **WHEN** the board is narrower than five columns at their minimum width
+- **THEN** the column strip SHALL scroll horizontally with an always-visible track, and each column SHALL be no narrower than a card's action row needs

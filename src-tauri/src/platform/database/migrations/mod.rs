@@ -699,11 +699,24 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "permission-grant-canonical-identity",
         crate::contexts::permissions::infrastructure::resolution_schema::apply_grant_identity_migration,
     )?;
-    // Additive: a new table for ACP execution bindings. Sessions created before it have no row
-    // and keep routing through their original transport.
     apply_migration(
         conn,
         112,
+        "managed-worktree-resources",
+        crate::contexts::workspaces::infrastructure::apply_managed_worktree_schema,
+    )?;
+    apply_migration(
+        conn,
+        113,
+        "session-deletion-operations",
+        crate::contexts::sessions::infrastructure::apply_session_deletion_schema,
+    )?;
+    // Additive: a new table for ACP execution bindings. Sessions created before it have no row
+    // and keep routing through their original transport. 114 on this merge: 112 and 113 were
+    // taken by the session-deletion change that merged first.
+    apply_migration(
+        conn,
+        114,
         "cli-execution-bindings",
         crate::contexts::agent_runtime::infrastructure::providers::acp::apply_execution_binding_schema,
     )?;
@@ -713,6 +726,20 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
     crate::contexts::operations::infrastructure::repair_missing_log_query_index_schema(conn)?;
     crate::contexts::sessions::infrastructure::repair_missing_review_decision_schema(conn)?;
     crate::contexts::sessions::infrastructure::repair_missing_review_file_witness(conn)?;
+    // 88-90 have the same exposure the 91-94 block describes, and it has already happened: a
+    // shared local database migrated by a branch that recorded other migrations at 88-90 arrives
+    // here with those versions present and the personalization tables and column absent, and the
+    // gated calls above never run. Every session insert then fails on `personalization_mode`.
+    // All three schema functions are idempotent, so re-asserting them is the whole repair.
+    {
+        let transaction = conn.unchecked_transaction()?;
+        crate::contexts::personalization::infrastructure::apply_schema(&transaction)?;
+        crate::contexts::sessions::infrastructure::apply_personalization_mode_schema(&transaction)?;
+        crate::contexts::personalization::infrastructure::apply_reconciliation_schema(
+            &transaction,
+        )?;
+        transaction.commit()?;
+    }
 
     // Fail fast when a migration was skipped or the persisted history contains a gap.
     assert_migration_history_is_dense(conn)?;
@@ -861,7 +888,9 @@ pub(super) const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     // 111, moved up from 95 on this merge for the same reason the block above moved: the
     // number this branch chose had been taken by a change that merged first.
     (111, "permission-grant-canonical-identity"),
-    (112, "cli-execution-bindings"),
+    (112, "managed-worktree-resources"),
+    (113, "session-deletion-operations"),
+    (114, "cli-execution-bindings"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {

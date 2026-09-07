@@ -233,6 +233,14 @@ describe("session workspace components", () => {
     // override can catch, so the terminal renders on an opaque dark canvas with a
     // complete ANSI palette instead of a transparent surface patched per ANSI class.
     expect(source).toContain("allowTransparency: false");
+    // `t` is rebound on every settings save and `settings` changes on every save; neither may
+    // recreate the terminal. Only an explicit reconnect, the query client, or the session may.
+    expect(source).toContain("}, [assignTerminalId, connectNonce, queryClient, sessionId]);");
+    expect(source).not.toContain("useSettings(");
+    // The CLI palette is scoped to the host container and observed alongside the app theme.
+    expect(source).toContain("createTerminalTheme(host)");
+    expect(source).toContain('attributeFilter: ["data-cli-terminal-theme"]');
+    expect(styles).toContain(':root[data-cli-terminal-theme="light"] .ucd-agent-terminal');
     expect(themeSource).toContain("selectionForeground");
     expect(themeSource).toContain("--terminal-background");
     expect(themeSource).toContain("brightWhite");
@@ -255,7 +263,11 @@ describe("session workspace components", () => {
     expect(source).toContain("ucd-shell-terminal");
     // Inverse video swaps theme fg/bg; both come from the opaque terminal palette.
     expect(styles).toContain("background: var(--terminal-background)");
-    expect(styles).not.toContain(".xterm-viewport");
+    // xterm's own stylesheet paints the viewport black; the one override allowed is the one that
+    // paints it from the same palette variable, so inverse video still swaps two palette colours.
+    const viewportRule = styles.slice(styles.indexOf(".xterm-viewport"));
+    expect(viewportRule.slice(0, viewportRule.indexOf("}"))).toContain("background-color: var(--terminal-background)");
+    expect(styles.match(/\.xterm-viewport/g)?.length).toBe(2);
     expect(styles).not.toContain(".xterm-bg-257");
   });
 
@@ -269,7 +281,7 @@ describe("session workspace components", () => {
 
   it("detaches the Agent terminal renderer without stopping accepted native work", () => {
     const source = readFileSync(new URL("./agent-terminal-tab.tsx", import.meta.url), "utf8");
-    const cleanup = source.slice(source.indexOf("return () => {"), source.indexOf("}, [connectNonce"));
+    const cleanup = source.slice(source.indexOf("return () => {"), source.indexOf("}, [assignTerminalId, connectNonce"));
 
     expect(cleanup).toContain("unsubscribe?.()");
     expect(cleanup).toContain("terminal.dispose()");

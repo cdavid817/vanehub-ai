@@ -71,6 +71,7 @@ import type {
   SaveCliParameterProfileInput,
 } from "../types/cli-parameter-profile";
 import { tauriSessionRecoveryClient } from "./tauri-session-recovery-client";
+import { tauriSessionDeletionClient } from "./tauri-session-deletion-client";
 import type { ChatConfig, ChatMessage, ChatStreamEvent } from "../types/chat";
 import type {
   ContextQualityHistoryPage,
@@ -228,6 +229,7 @@ function isSessionStateEvent(value: unknown): value is SessionStateEvent {
   if (value.kind === "active-session-changed") {
     return value.sessionId === null || typeof value.sessionId === "string";
   }
+  if (value.kind === "sessions-changed") return value.sessionId === null;
   if (value.kind === "configuration-changed") return typeof value.sessionId === "string";
   return [
     "recovery-started",
@@ -964,6 +966,7 @@ export const tauriAgentClient: AgentService = { ...tauriSkillCuratorClient,
   ...tauriPersonalizationClient,
   ...tauriSystemActivityClient,
   ...tauriSessionRecoveryClient,
+  ...tauriSessionDeletionClient,
   ...tauriSessionWorkspaceClient,
   ...tauriSessionWorkspaceEvidenceClient,
   async subscribeSessionEvents(handler) {

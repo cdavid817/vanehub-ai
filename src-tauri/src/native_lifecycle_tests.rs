@@ -670,6 +670,24 @@ impl AgentTerminalGateway for LifecycleDoubles {
         Ok(true)
     }
 
+    fn stop_session_terminal_and_confirm_exit(
+        &self,
+        session_id: &str,
+        _budget: std::time::Duration,
+    ) -> Result<bool, AgentRuntimeApplicationError> {
+        let terminal_id = self
+            .terminals
+            .lock()
+            .expect("terminals")
+            .values()
+            .find(|terminal| terminal.session_id == session_id)
+            .map(|terminal| terminal.terminal_id.clone());
+        let Some(terminal_id) = terminal_id else {
+            return Ok(true);
+        };
+        self.stop(StopAgentTerminalRequest { terminal_id })
+    }
+
     fn cleanup_idle(
         &self,
         _idle_after_seconds: i64,

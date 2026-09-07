@@ -28,8 +28,11 @@ export const tauriExecutionObservabilityClient: ExecutionObservabilityService = 
     return invoke<ExecutionRunSummary>("get_execution_run", { runId });
   },
 
-  getTimeline(runId) {
-    return invoke<ExecutionTimeline>("get_execution_timeline", { runId });
+  getTimeline(runId, eventPageToken) {
+    return invoke<ExecutionTimeline>("get_execution_timeline", {
+      runId,
+      eventPageToken: eventPageToken ?? null,
+    });
   },
 
   getObservationCapabilities() {

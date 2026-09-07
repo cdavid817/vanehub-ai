@@ -40,6 +40,15 @@ impl ExecutionObservabilityRepositoryPort for FailingSettingsRepository {
     ) -> Result<Option<ExecutionTimeline>, ExecutionTelemetryError> {
         Ok(None)
     }
+
+    fn timeline_page(
+        &self,
+        _run_id: &ExecutionRunId,
+        _event_limit: usize,
+        _event_page_token: Option<&str>,
+    ) -> Result<Option<ExecutionTimeline>, ExecutionTelemetryError> {
+        Ok(None)
+    }
 }
 
 #[derive(Default)]

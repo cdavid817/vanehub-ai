@@ -96,7 +96,8 @@ pub(crate) use scheduled_tasks::start_scheduled_task_jobs;
 pub(crate) use sdk::assemble_sdk_api;
 pub(crate) use session_report::assemble_session_run_report;
 pub(crate) use sessions::{
-    assemble_sessions_api, start_session_maintenance_jobs, SessionRuntimeDependencies,
+    assemble_sessions_api, start_session_maintenance_jobs, SessionExecutionAdmissionBridge,
+    SessionRuntimeDependencies,
 };
 pub(crate) use skills::{assemble_skill_api, assemble_skill_tool_api};
 pub(crate) use ssh_connections::assemble_ssh_connections_api;

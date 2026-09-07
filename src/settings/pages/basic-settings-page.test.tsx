@@ -45,6 +45,15 @@ describe("BasicSettingsPage", () => {
     expect(screen.getByRole("option", { name: "한국어" })).toBeTruthy();
     expect(screen.getByRole("combobox", { name: "主题" })).toBeTruthy();
     expect(screen.getByRole("combobox", { name: "字体大小" })).toBeTruthy();
+    const cliTheme = screen.getByRole("combobox", { name: "CLI 会话主题" }) as HTMLSelectElement;
+    expect(cliTheme.value).toBe("dark");
+    expect(screen.getByRole("option", { name: "白色（浅色）" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "黑色（深色）" })).toBeTruthy();
+    // The compatibility note is only relevant to the light canvas, so the dark default hides it.
+    expect(html).not.toContain("部分 CLI 使用自身配色");
+    // Directly below the application theme, as specified.
+    expect(html.indexOf('aria-label="主题"')).toBeLessThan(html.indexOf('aria-label="CLI 会话主题"'));
+    expect(html.indexOf('aria-label="CLI 会话主题"')).toBeLessThan(html.indexOf('aria-label="字体大小"'));
     expect(html).toContain("打开项目文件和文件夹时优先使用的程序");
 
     const commonIndex = html.indexOf("常用设置");
@@ -57,6 +66,27 @@ describe("BasicSettingsPage", () => {
 
     const advanced = screen.getByText("高级配置").closest("details");
     expect(advanced?.open).toBe(false);
+  });
+
+  it("saves the CLI terminal theme through the provider and leaves the app theme untouched", async () => {
+    const user = userEvent.setup();
+    render(
+      <SettingsProvider>
+        <BasicSettingsPage />
+      </SettingsProvider>,
+    );
+
+    const select = await screen.findByRole("combobox", { name: "CLI 会话主题" });
+    await user.selectOptions(select, "light");
+
+    await waitFor(() => {
+      const stored = JSON.parse(window.localStorage.getItem("vanehub.appSettings") ?? "{}") as { cliTerminalTheme?: string; theme?: string };
+      expect(stored.cliTerminalTheme).toBe("light");
+      expect(stored.theme).toBe("minimal");
+    });
+    expect(document.documentElement.dataset.cliTerminalTheme).toBe("light");
+    expect(document.documentElement.dataset.theme).toBe("minimal");
+    expect(await screen.findByText(/部分 CLI 使用自身配色/)).toBeTruthy();
   });
 
   it("persists the default project directory through the settings provider", async () => {

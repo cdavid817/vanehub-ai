@@ -163,6 +163,22 @@ pub(crate) struct ExecutionTimelineDto {
     pub(crate) run: ExecutionRunSummaryDto,
     pub(crate) spans: Vec<ExecutionSpanSummaryDto>,
     pub(crate) events: Vec<ExecutionEventDto>,
+    /// What this response says about events beyond the ones it carries.
+    ///
+    /// Always serialized, never skipped when empty. A client that saw an absent field would have
+    /// to assume something, and the safe assumption ("maybe truncated") is wrong for almost every
+    /// response while the convenient one ("complete") is exactly the misreading this prevents.
+    pub(crate) event_coverage: EventCoverageDto,
+}
+
+/// Whether a timeline response returned every event the run recorded.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct EventCoverageDto {
+    pub(crate) truncated: bool,
+    /// Resumes after the last event in this response. Present exactly when `truncated`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) next_page_token: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

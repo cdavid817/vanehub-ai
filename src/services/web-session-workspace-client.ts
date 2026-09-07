@@ -80,7 +80,11 @@ const openerSubscribers = new Set<() => void>();
 
 export const webSessionWorkspaceClient: SessionWorkspaceMethods = {
   async listFolderOpeners() { return mockOpeners.map((item) => ({ ...item })); },
-  async refreshFolderOpeners() { return mockOpeners.map((item) => ({ ...item })); },
+  async refreshFolderOpeners() {
+    // Parity with the native command, which notifies the session toolbar after a rescan.
+    openerSubscribers.forEach((handler) => handler());
+    return mockOpeners.map((item) => ({ ...item }));
+  },
   async getFolderOpenerPreferences() { return { ...mockPreferences, enabledOpenerIds: [...mockPreferences.enabledOpenerIds] }; },
   async saveFolderOpenerPreferences(input) {
     const enabled = [...new Set(input.enabledOpenerIds)];

@@ -211,10 +211,13 @@ test("each desktop layer owns a disjoint spec directory and its own wdio configu
   const shared = await readFile("tests/desktop/wdio-shared.mjs", "utf8");
   const cliTerminal = await readFile("tests/desktop/wdio.cli-terminal.conf.mjs", "utf8");
 
-  // The CLI layer stays runnable on demand; the narrow CI gate selects only the core contract.
+  // The CLI layer stays runnable on demand; the CI gate stays narrow. Pinned by membership rather
+  // than by shape alone, so a layer cannot join the gate -- and spend its runtime on every PR
+  // across three runners -- without this assertion changing too.
   assert.match(orchestrator, /mode === "cli-terminal"/);
   assert.match(orchestrator, /runFullSuite = process\.env\.VANEHUB_DESKTOP_FULL_SUITE === "1" \|\| !process\.env\.CI/);
-  assert.match(orchestrator, /const layers = runFullSuite \? fullSuiteLayers : \[coreSmokeDesktop\]/);
+  assert.match(orchestrator, /const gatedLayers = \[coreSmokeDesktop, sessionDeletionDesktop\];/);
+  assert.match(orchestrator, /const layers = runFullSuite \? fullSuiteLayers : gatedLayers;/);
   assert.match(smoke, /specDirectory: "specs"/);
   assert.match(cliTerminal, /specDirectory: "specs-cli-terminal"/);
   assert.match(shared, /specFileRetries: 2/);
@@ -271,6 +274,7 @@ test("every native UI layer is wired, disjoint, and reachable on its own", async
     ["session-workspace", "sessionWorkspaceDesktop"],
     ["session-shell", "sessionShellDesktop"],
     ["dialogs", "dialogsDesktop"],
+    ["session-deletion", "sessionDeletionDesktop"],
     ["scheduled-tasks", "scheduledTasksDesktop"],
     ["settings-persistence", "settingsPersistenceDesktop"],
     ["cli-management", "cliManagementDesktop"],

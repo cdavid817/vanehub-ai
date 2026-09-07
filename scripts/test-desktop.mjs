@@ -288,6 +288,20 @@ function sessionWorkspaceDesktop(artifact) {
   });
 }
 
+/**
+ * Every session tab and Basic Configuration at five real window sizes, with a layout audit.
+ * Not in the required gate: it is a visual sweep whose value is the screenshots and the audit
+ * log, and its runtime would double the gate for defects the smoke sweep already surfaces once.
+ */
+function uiRatiosDesktop(artifact) {
+  return runDesktopLayer({
+    layer: "desktop-ui-ratios",
+    config: "tests/desktop/wdio.ui-ratios.conf.mjs",
+    label: "Desktop UI ratio sweep",
+    artifact,
+  });
+}
+
 function sessionShellDesktop(artifact) {
   return runDesktopLayer({
     layer: "desktop-session-shell",
@@ -302,6 +316,18 @@ function dialogsDesktop(artifact) {
     layer: "desktop-dialogs",
     config: "tests/desktop/wdio.dialogs.conf.mjs",
     label: "Desktop dialogs",
+    artifact,
+  });
+}
+
+// The confirmed deletion flow against the host's real Git: a worktree the user keeps stays, a
+// worktree the user explicitly removes is gone from disk and from `git worktree list` while its
+// branch survives. The Web/mock Playwright spec covers the dialog contract; this is the disk.
+function sessionDeletionDesktop(artifact) {
+  return runDesktopLayer({
+    layer: "desktop-session-deletion",
+    config: "tests/desktop/wdio.session-deletion.conf.mjs",
+    label: "Desktop session deletion",
     artifact,
   });
 }
@@ -466,6 +492,18 @@ async function agentEvaluationQualification(mode = "fixture-opencode") {
 }
 
 /** The layers the required hermetic gate runs. Every one of them must pass. */
+/**
+ * What the PR gate runs when the full suite is opted out of.
+ *
+ * The cross-platform smoke contract, plus the layers whose failure mode is quiet enough that
+ * nothing else would catch them. `desktop-session-deletion` earned its place the hard way: when
+ * worktree removal fails there is no crash and no data loss, only a retained directory and a
+ * `needs_attention` outcome, so a break shipped to main and survived until someone ran the full
+ * suite by hand. Adding a layer here costs its runtime on every PR across three runners -- this
+ * one is ~3 minutes -- so it is for silent failure modes, not for coverage in general.
+ */
+const gatedLayers = [coreSmokeDesktop, sessionDeletionDesktop];
+
 const fullSuiteLayers = [
   smokeDesktop,
   cliTerminalDesktop,
@@ -473,6 +511,7 @@ const fullSuiteLayers = [
   sessionWorkspaceDesktop,
   sessionShellDesktop,
   dialogsDesktop,
+  sessionDeletionDesktop,
   scheduledTasksDesktop,
   settingsPersistenceDesktop,
   agentMcpDesktop,
@@ -496,7 +535,9 @@ async function main() {
   else if (mode === "cli-terminal") await cliTerminalDesktop();
   else if (mode === "session-workspace") await sessionWorkspaceDesktop();
   else if (mode === "session-shell") await sessionShellDesktop();
+  else if (mode === "ui-ratios") await uiRatiosDesktop();
   else if (mode === "dialogs") await dialogsDesktop();
+  else if (mode === "session-deletion") await sessionDeletionDesktop();
   else if (mode === "scheduled-tasks") await scheduledTasksDesktop();
   else if (mode === "settings-persistence") await settingsPersistenceDesktop();
   else if (mode === "cli-management") await cliManagementDesktop();
@@ -520,9 +561,9 @@ async function main() {
     process.exitCode = result.status === "FAILED" ? 1 : 0;
   } else if (mode === "all" || mode === "everything") {
     const artifact = await buildDesktop();
-    const layers = runFullSuite ? fullSuiteLayers : [coreSmokeDesktop];
+    const layers = runFullSuite ? fullSuiteLayers : gatedLayers;
     if (!runFullSuite) {
-      process.stdout.write("Desktop verification: CI gate runs the core smoke contract; set VANEHUB_DESKTOP_FULL_SUITE=1 for every required layer.\n");
+      process.stdout.write("Desktop verification: CI gate runs the core smoke contract and the session deletion layer; set VANEHUB_DESKTOP_FULL_SUITE=1 for every required layer.\n");
     }
     const results = await runLayers(layers, artifact);
     // Each layer sets its own exit code as it finishes; the run as a whole is only green when

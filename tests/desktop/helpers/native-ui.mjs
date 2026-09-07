@@ -18,6 +18,9 @@ const run = promisify(execFile);
 // Chosen because its option values are literal and language-independent, so the assertion does not
 // move when the client's copy does.
 export const FONT_SIZE_TARGET = "18px";
+// Same reasoning: `light`/`dark` are the literal option values of the CLI session theme select,
+// and `light` differs from the native default so the round trip cannot pass by accident.
+export const CLI_TERMINAL_THEME_TARGET = "light";
 
 export async function waitForDesktopBootstrap() {
   const root = await globalThis.$("#root");
@@ -172,5 +175,9 @@ export async function submitCreateSession({ projectPath, title, agentId }) {
 }
 
 export async function assertNoFatalError(root) {
-  assert.equal(await root.getAttribute("data-vanehub-fatal-error"), null);
+  const kind = await root.getAttribute("data-vanehub-fatal-error");
+  // The redacted diagnostic is the only trace of what threw; without it a failure here says
+  // "something went wrong" and nothing else.
+  const detail = kind ? await root.getAttribute("data-vanehub-fatal-error-detail") : null;
+  assert.equal(kind, null, `the frontend reported a fatal ${kind}: ${detail}`);
 }

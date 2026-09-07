@@ -45,7 +45,10 @@ export async function ensureAppLanguage(language: AppLanguage, loadResource: Loc
 export async function activateAppLanguage(language: AppLanguage, loadResource: LocaleResourceLoader = loadLocaleResource): Promise<void> {
   try {
     await ensureAppLanguage(language, loadResource);
-    await i18n.changeLanguage(language);
+    // i18next emits `languageChanged` even when the language is the same, and every settings
+    // save re-applies the language; skipping the no-op change keeps unrelated saves from
+    // rebinding `t` across the whole tree.
+    if (i18n.language !== language) await i18n.changeLanguage(language);
     applyDocumentLocale(language);
   } catch (error) {
     await i18n.changeLanguage(defaultAppLanguage);

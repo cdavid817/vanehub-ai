@@ -105,6 +105,7 @@ pub(crate) struct ProcessRequest {
     args: Vec<OsString>,
     current_dir: Option<PathBuf>,
     environment: BTreeMap<OsString, OsString>,
+    removed_environment: Vec<OsString>,
     clear_environment: bool,
     timeout: Duration,
     cancellation: Option<ProcessCancellation>,
@@ -118,6 +119,7 @@ impl ProcessRequest {
             args: Vec::new(),
             current_dir: None,
             environment: BTreeMap::new(),
+            removed_environment: Vec::new(),
             clear_environment: false,
             timeout: Duration::from_secs(30),
             cancellation: None,
@@ -142,6 +144,13 @@ impl ProcessRequest {
 
     pub(crate) fn env(mut self, key: impl Into<OsString>, value: impl Into<OsString>) -> Self {
         self.environment.insert(key.into(), value.into());
+        self
+    }
+
+    /// Drops one inherited variable. Distinct from setting it to an empty string, which Git and
+    /// most tools read as a present-but-empty value rather than an absent one.
+    pub(crate) fn env_remove(mut self, key: impl Into<OsString>) -> Self {
+        self.removed_environment.push(key.into());
         self
     }
 
@@ -171,6 +180,9 @@ impl ProcessRequest {
         command.args(&self.args);
         if self.clear_environment {
             command.env_clear();
+        }
+        for key in &self.removed_environment {
+            command.env_remove(key);
         }
         command.envs(&self.environment);
         if let Some(current_dir) = &self.current_dir {
@@ -216,6 +228,13 @@ pub(crate) fn spawn_detached(
     {
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x0000_0008 | 0x0000_0200);
+    }
+    // Same intent as DETACHED_PROCESS above: an IDE the user opened from here must outlive a
+    // terminal interrupt delivered to this application's own process group.
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
     }
     command
         .spawn()

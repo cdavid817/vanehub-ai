@@ -5,9 +5,9 @@
 //! in a place nothing happened — which is indistinguishable from a bar in a place something did.
 
 use super::super::domain::{
-    CapturePolicy, ExecutionContext, ExecutionFidelity, ExecutionRun, ExecutionRunId,
-    ExecutionSource, ExecutionSpan, ExecutionStatus, ExecutionTimeline, SafeAttributeValue,
-    SafeAttributes, SpanId, TraceId,
+    CapturePolicy, EventCoverage, ExecutionContext, ExecutionFidelity, ExecutionRun,
+    ExecutionRunId, ExecutionSource, ExecutionSpan, ExecutionStatus, ExecutionTimeline,
+    SafeAttributeValue, SafeAttributes, SpanId, TraceId,
 };
 use super::waterfall::{derive_waterfall, MAX_SPAN_DEPTH};
 
@@ -95,6 +95,9 @@ fn timeline(run_started_at: &str, specs: Vec<SpanSpec>) -> ExecutionTimeline {
             })
             .collect(),
         events: Vec::new(),
+        // These fixtures carry no events at all, which is complete coverage rather than a
+        // truncated page -- the distinction this field exists to make.
+        event_coverage: EventCoverage::complete(),
     }
 }
 

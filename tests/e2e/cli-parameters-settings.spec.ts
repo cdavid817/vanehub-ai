@@ -78,7 +78,7 @@ test.describe("CLI parameter settings", () => {
     await page.goto("/");
     await page.getByRole("button", { name: /设置|Settings/ }).click();
     await page.getByRole("combobox", { name: /应用语言|Application Language/ }).selectOption("en");
-    await page.getByRole("combobox", { name: /主题|Theme/ }).selectOption("minimal");
+    await page.getByRole("combobox", { name: /^(主题|Theme)$/ }).selectOption("minimal");
     await page.getByText(/^CLI Parameters$/).click();
 
     await expect(page.getByRole("heading", { name: "CLI Parameter Management" })).toBeVisible();

@@ -16,6 +16,14 @@ import type {
 /** A run that is still going. Nothing in it may claim a duration or a critical path. */
 const RUNNING_RUN_ID = "018f0f17-4d6a-7e20-b41d-66c5271a28d2";
 
+/**
+ * The continuation token the succeeded fixture hands out for its second page of events.
+ *
+ * Opaque to callers, exactly like the native cursor. Named here so the adapter can recognise its
+ * own token and answer with the remaining events rather than replaying page one.
+ */
+export const WEB_EVENT_PAGE_TWO = "web-event-page-2";
+
 function span(overrides: Partial<ExecutionSpanSummary> & Pick<ExecutionSpanSummary, "spanId" | "name" | "startedAt">): ExecutionSpanSummary {
   return {
     parentSpanId: null,
@@ -103,6 +111,14 @@ export const executionTimelineFixtures: ExecutionTimeline[] = [
         attributes: { "process.pid.observed": true },
       },
     ],
+    // The one fixture that reports a clipped event list, with a page bound of one event.
+    //
+    // The bound is the adapter's own, not the native 5000 — `truncated` says "this response
+    // stopped at its limit", and what that limit is has always been an implementation detail. A
+    // browser build that had to carry 5000 fixture events to exercise the notice would be a worse
+    // lie than a small bound honestly declared, and without it the notice and its continuation are
+    // unreachable outside the Rust tests.
+    eventCoverage: { truncated: true, nextPageToken: WEB_EVENT_PAGE_TWO },
   },
   {
     // The seed the pagination filler clones. Kept second because that loop copies `timelines[1]`,
@@ -123,6 +139,7 @@ export const executionTimelineFixtures: ExecutionTimeline[] = [
     },
     spans: [],
     events: [],
+    eventCoverage: { truncated: false, nextPageToken: null },
   },
   {
     run: {
@@ -162,6 +179,7 @@ export const executionTimelineFixtures: ExecutionTimeline[] = [
       }),
     ],
     events: [],
+    eventCoverage: { truncated: false, nextPageToken: null },
   },
 ];
 
@@ -217,6 +235,7 @@ function paginationFiller(seed: ExecutionTimeline): ExecutionTimeline[] {
       },
       spans: [],
       events: [],
+      eventCoverage: { truncated: false, nextPageToken: null },
     };
   });
 }
@@ -227,6 +246,9 @@ export function resetExecutionTimelineFixtures(): ExecutionTimeline[] {
     run: { ...timeline.run },
     spans: timeline.spans.map((item) => ({ ...item })),
     events: timeline.events.map((item) => ({ ...item })),
+    // Copied so a reset preserves whatever coverage a fixture declares. Hardcoding it here would
+    // quietly heal the one fixture that reports a clipped list on every reset.
+    eventCoverage: { ...timeline.eventCoverage },
   }));
   return [...base, ...paginationFiller(base[1]!)];
 }

@@ -1,6 +1,6 @@
 {
   "name": "vanehub-ai",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -33,7 +33,9 @@
     "test:desktop:cli-management": "node scripts/test-desktop.mjs cli-management",
     "test:desktop:session-workspace": "node scripts/test-desktop.mjs session-workspace",
     "test:desktop:session-shell": "node scripts/test-desktop.mjs session-shell",
+    "test:desktop:ui-ratios": "node scripts/test-desktop.mjs ui-ratios",
     "test:desktop:dialogs": "node scripts/test-desktop.mjs dialogs",
+    "test:desktop:session-deletion": "node scripts/test-desktop.mjs session-deletion",
     "test:desktop:scheduled-tasks": "node scripts/test-desktop.mjs scheduled-tasks",
     "test:desktop:settings-persistence": "node scripts/test-desktop.mjs settings-persistence",
     "test:desktop:agent-mcp": "node scripts/test-desktop.mjs agent-mcp",

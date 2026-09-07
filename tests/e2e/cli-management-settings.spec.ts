@@ -389,7 +389,7 @@ test.describe("CLI Management presentation", () => {
     await page.goto("/");
     await page.getByRole("button", { name: /设置|Settings/ }).click();
     await page.getByRole("combobox", { name: /应用语言|Application Language/ }).selectOption("en");
-    await page.getByRole("combobox", { name: /主题|Theme/ }).selectOption("minimal");
+    await page.getByRole("combobox", { name: /^(主题|Theme)$/ }).selectOption("minimal");
     await page.getByRole("button", { name: /^CLI Management/ }).click();
 
     await expect(page.getByRole("heading", { name: "CLI Management", level: 2 })).toBeVisible();

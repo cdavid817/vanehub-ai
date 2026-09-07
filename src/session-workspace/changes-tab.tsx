@@ -98,8 +98,10 @@ function LegacyChangesTab({ isVisible, sessionId }: { isVisible: boolean; sessio
   if (gitStatus && gitStatus.items.length === 0) return <WorkspaceState kind="empty" message={t("sessionTabs.changes.clean")} />;
 
   return (
-    <div className="grid h-full min-h-0 gap-3 lg:grid-cols-[220px_minmax(0,1fr)]">
-      <section className="min-h-0 overflow-y-auto rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-2">
+    // Sized by the panel (`@container` on the tab panel), not the window: in a narrow panel the
+    // file list stacks above a diff that keeps the height, instead of a diff squeezed to a strip.
+    <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-3 @2xl:grid-cols-[220px_minmax(0,1fr)] @2xl:grid-rows-1">
+      <section className="max-h-48 min-h-0 overflow-y-auto rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-2 @2xl:max-h-none">
         {gitStatus?.truncated ? (
           <WorkspaceCoverageNotice provider={capabilities?.provider} reason="git-status-bound" />
         ) : null}

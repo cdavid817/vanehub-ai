@@ -11,6 +11,7 @@ mod session_shell_lifecycle;
 mod session_shell_replay;
 mod shell;
 mod worktree;
+mod worktree_resource;
 
 pub(crate) use command_run::{CommandRun, CommandRunStatus};
 pub(crate) use command_template::{CommandTemplate, CommandTemplateError, CommandTemplateScope};
@@ -39,6 +40,9 @@ pub(crate) use session_shell_lifecycle::{shell_reason_code, ShellCloseBudget, Sh
 pub(crate) use session_shell_replay::{shell_reason, ShellReplayBuffer, ShellReplaySnapshot};
 pub(crate) use shell::{ShellRuntimeDescriptor, TerminalDimensions};
 pub(crate) use worktree::{ensure_worktree_compatible, GitReference, WorktreeName};
+pub(crate) use worktree_resource::{
+    ManagedWorktree, ManagedWorktreeStatus, WorktreeIdentity, WorktreeOrigin, WorktreeProvenance,
+};
 
 #[cfg(test)]
 mod session_shell_replay_tests;

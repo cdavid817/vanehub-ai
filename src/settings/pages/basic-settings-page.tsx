@@ -1,34 +1,21 @@
-import { Cpu, FolderOpen, RotateCcw } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Cpu, FolderOpen, RefreshCw, RotateCcw, SlidersHorizontal } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { supportedLocales, type AppLanguage } from "../../i18n/supported-locales";
 import { Button } from "../../components/ui/button";
 import { useConfirmation } from "../../components/ui/use-confirmation";
 import { normalizeDisplayPath } from "../../lib/session-path";
 import { useSettings } from "../settings-provider";
-import { ucdThemes } from "../../theme/theme-registry";
-import { appFontSizes, type AppFontSize } from "../../types/settings";
+import { ucdThemes, type UcdThemeId } from "../../theme/theme-registry";
+import { appFontSizes, cliTerminalThemes, type AppFontSize, type AppSettingKey, type AppSettings, type CliTerminalTheme } from "../../types/settings";
 import { policyTemplateNames, type PolicyTemplateName } from "../../types/permissions";
 import { NetworkProxySection } from "./network-proxy-section";
-import { SectionPanel, SettingsDisclosure, SettingsRow } from "./page-parts";
+import { InfoTile, PageHeader, SectionPanel, SettingsDisclosure, SettingsRow } from "./page-parts";
 import { FloatingAssistantSettingsSection } from "./floating-assistant-settings-section";
 import { DataManagementSection } from "./data-management-section";
+import { DirectorySettingField } from "./directory-setting-field";
 import { StartupSettingsSection } from "./startup-settings-section";
 import { FolderOpenersSection } from "./folder-openers-section";
 import { LogManagementSection } from "./log-management-section";
-
-function InfoBlock({ icon: Icon, label, value }: { icon?: LucideIcon; label: string; value: string }) {
-  return (
-    <div className="rounded-md border border-border bg-[hsl(var(--panel-muted))] p-3">
-      <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-        {Icon ? <Icon className="h-3.5 w-3.5 text-primary" aria-hidden="true" /> : null}
-        {label}
-      </div>
-      <div className="mt-1 break-all text-sm font-medium text-foreground">{value}</div>
-    </div>
-  );
-}
 
 function SelectField<T extends string>({
   disabled,
@@ -63,21 +50,21 @@ function SelectField<T extends string>({
   );
 }
 
-function NodeEnvironmentPanel({
-  nodeInfo,
-  t,
-}: {
-  nodeInfo: ReturnType<typeof useSettings>["nodeInfo"];
-  t: ReturnType<typeof useTranslation>["t"];
-}) {
+function NodeEnvironmentPanel() {
+  const { t } = useTranslation();
+  const { nodeInfo, refreshNodeInfo } = useSettings();
   return (
     <SectionPanel icon={Cpu} title={t("basic.node")} description={t("basic.nodeDesc")} variant="plain">
       <div className="grid gap-3 lg:grid-cols-[220px_minmax(0,1fr)]">
-        <InfoBlock icon={Cpu} label={t("basic.nodeVersion")} value={nodeInfo?.version ?? t("basic.nodeUnavailable")} />
-        <InfoBlock icon={FolderOpen} label={t("basic.nodePath")} value={nodeInfo?.path ? normalizeDisplayPath(nodeInfo.path) : t("basic.nodeUnavailable")} />
+        <InfoTile icon={Cpu} label={t("basic.nodeVersion")} value={nodeInfo?.version ?? t("basic.nodeUnavailable")} />
+        <InfoTile icon={FolderOpen} label={t("basic.nodePath")} value={nodeInfo?.path ? normalizeDisplayPath(nodeInfo.path) : t("basic.nodeUnavailable")} />
         {!nodeInfo?.available ? (
           <div className="rounded border p-3 text-xs ucd-status-warning lg:col-span-2">{nodeInfo?.reason ?? t("basic.nodeUnavailableReason")}</div>
         ) : null}
+        <Button className="justify-self-start lg:col-span-2" onClick={() => void refreshNodeInfo()} size="sm" variant="outline">
+          <RefreshCw className="h-4 w-4" aria-hidden="true" />
+          {t("basic.nodeRefresh")}
+        </Button>
       </div>
     </SectionPanel>
   );
@@ -86,51 +73,46 @@ function NodeEnvironmentPanel({
 export function BasicSettingsPage() {
   const { t } = useTranslation();
   const { confirm, confirmationDialog } = useConfirmation();
-  const { error, loading, nodeInfo, reportClientLogEvent, resetSettings, saveSetting, savingKey, settings } = useSettings();
-  const [defaultFolderDraft, setDefaultFolderDraft] = useState(settings.defaultFolderPath);
-  const [defaultFolderError, setDefaultFolderError] = useState<string | null>(null);
+  const { error, loading, pickDirectory, reportClientLogEvent, resetSettings, saveSetting, savingKey, settings } = useSettings();
   const busy = loading || savingKey !== null;
+  // Only the control being saved locks; the rest of the page stays usable during a save.
+  const saving = (key: AppSettingKey) => loading || savingKey === key;
+  function select<K extends AppSettingKey>(key: K, value: AppSettings[K]) {
+    // The provider already rolls back and surfaces the error; the rejection only needs a home.
+    saveSetting(key, value).catch(() => undefined);
+  }
 
-  useEffect(() => {
-    setDefaultFolderDraft(normalizeDisplayPath(settings.defaultFolderPath));
-  }, [settings.defaultFolderPath]);
-
-  function saveDefaultFolder() {
-    if (defaultFolderDraft === settings.defaultFolderPath) return;
-    void saveSetting("defaultFolderPath", defaultFolderDraft).catch((cause) => {
+  async function saveDefaultFolder(value: string) {
+    try {
+      await saveSetting("defaultFolderPath", value);
+    } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
-      setDefaultFolderError(message);
       void reportClientLogEvent({
         level: "error",
         kind: "critical-operation-failure",
         message,
         source: "BasicSettingsPage.saveDefaultFolder",
-        details: { requestedDirectory: defaultFolderDraft },
+        details: { requestedDirectory: value },
       });
-    });
+      throw cause;
+    }
   }
 
   return (
     <div className="mx-auto max-w-[1040px] space-y-5 pb-8">
       {confirmationDialog}
-      <header className="border-b border-border pb-5">
-        <div>
-          <div className="mb-1 text-xs font-medium text-muted-foreground">{t("app.settings.breadcrumb")}</div>
-          <h2 className="text-xl font-semibold leading-tight tracking-tight">{t("basic.title")}</h2>
-          <p className="mt-1.5 text-sm leading-6 text-muted-foreground">{t("basic.description")}</p>
-        </div>
-      </header>
+      <PageHeader description={t("basic.description")} icon={SlidersHorizontal} title={t("basic.title")} />
 
-      {error ? <div className="rounded-md border p-3 text-sm ucd-status-danger">{error}</div> : null}
+      {error ? <div className="whitespace-pre-line rounded-md border p-3 text-sm ucd-status-danger">{error}</div> : null}
       {loading ? <div className="rounded-md border border-border p-3 text-sm text-muted-foreground">{t("basic.loading")}</div> : null}
 
       <div className="grid gap-5">
         <SectionPanel title={t("basic.commonPreferences")} description={t("basic.commonPreferencesDesc")} variant="settings">
           <SettingsRow description={t("basic.languageDesc")} title={t("basic.language")}>
             <SelectField<AppLanguage>
-              disabled={busy}
+              disabled={saving("applicationLanguage")}
               label={t("basic.language")}
-              onChange={(value) => void saveSetting("applicationLanguage", value)}
+              onChange={(value) => select("applicationLanguage", value)}
               options={supportedLocales.map((locale) => ({
                 label: t(locale.labelKey),
                 value: locale.id,
@@ -139,31 +121,46 @@ export function BasicSettingsPage() {
             />
           </SettingsRow>
           <SettingsRow description={t("basic.themeDesc")} title={t("basic.theme")}>
-            <SelectField
-              disabled={busy}
+            <SelectField<UcdThemeId>
+              disabled={saving("theme")}
               label={t("basic.theme")}
-              onChange={(value) => void saveSetting("theme", value)}
-              options={ucdThemes.map((theme) => ({
-                label: theme.id === "futuristic" ? t("basic.theme.futuristic") : t("basic.theme.minimal"),
-                value: theme.id,
-              }))}
+              onChange={(value) => select("theme", value)}
+              options={ucdThemes.map((theme) => ({ label: t(`basic.theme.${theme.id}`), value: theme.id }))}
               value={settings.theme}
+            />
+          </SettingsRow>
+          <SettingsRow
+            description={
+              <>
+                {t("basic.cliTerminalThemeDesc")}
+                {/* Only relevant once a light canvas can meet a CLI's own dark-tuned colors. */}
+                {settings.cliTerminalTheme === "light" ? <span className="mt-1 block">{t("basic.cliTerminalThemeCompat")}</span> : null}
+              </>
+            }
+            title={t("basic.cliTerminalTheme")}
+          >
+            <SelectField<CliTerminalTheme>
+              disabled={saving("cliTerminalTheme")}
+              label={t("basic.cliTerminalTheme")}
+              onChange={(value) => select("cliTerminalTheme", value)}
+              options={cliTerminalThemes.map((theme) => ({ label: t(`basic.cliTerminalTheme.${theme}`), value: theme }))}
+              value={settings.cliTerminalTheme}
             />
           </SettingsRow>
           <SettingsRow description={t("basic.fontSizeDesc")} title={t("basic.fontSize")}>
             <SelectField<AppFontSize>
-              disabled={busy}
+              disabled={saving("fontSize")}
               label={t("basic.fontSize")}
-              onChange={(value) => void saveSetting("fontSize", value)}
-              options={appFontSizes.map((fontSize) => ({ label: fontSize, value: fontSize }))}
+              onChange={(value) => select("fontSize", value)}
+              options={appFontSizes.map((fontSize) => ({ label: `${t(`basic.fontSize.${fontSize}`)} (${fontSize})`, value: fontSize }))}
               value={settings.fontSize}
             />
           </SettingsRow>
           <SettingsRow description={t("basic.defaultPolicyTemplateDesc")} title={t("basic.defaultPolicyTemplate")}>
             <SelectField<PolicyTemplateName>
-              disabled={busy}
+              disabled={saving("defaultPolicyTemplate")}
               label={t("basic.defaultPolicyTemplate")}
-              onChange={(value) => void saveSetting("defaultPolicyTemplate", value)}
+              onChange={(value) => select("defaultPolicyTemplate", value)}
               options={policyTemplateNames.map((template) => ({
                 label: t(`settings.agentPolicies.template.${template}`),
                 value: template,
@@ -180,28 +177,25 @@ export function BasicSettingsPage() {
 
         <SectionPanel title={t("basic.workspaceDefaults")} description={t("basic.workspaceDefaultsDesc")} variant="settings">
           <SettingsRow description={t("basic.defaultFolderPathDesc")} title={t("basic.defaultFolderPath")}>
-            <input
-              aria-label={t("basic.defaultFolderPath")}
-              className="ucd-input h-9 w-full rounded-lg px-3 text-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring sm:w-[360px]"
-              disabled={busy}
-              onBlur={saveDefaultFolder}
-              onChange={(event) => {
-                setDefaultFolderError(null);
-                setDefaultFolderDraft(event.target.value);
-              }}
+            <DirectorySettingField
+              ariaLabel={t("basic.defaultFolderPath")}
+              canBrowse={settings.loggingPolicy.canOpenDirectory}
+              className="sm:w-[420px]"
+              disabled={saving("defaultFolderPath")}
+              onPick={pickDirectory}
+              onSave={saveDefaultFolder}
               placeholder={t("basic.defaultFolderPathPlaceholder")}
-              value={defaultFolderDraft}
+              value={settings.defaultFolderPath}
             />
           </SettingsRow>
-          {defaultFolderError ? <div className="border-b border-border/70 px-5 py-3 text-xs ucd-status-danger sm:px-6">{defaultFolderError}</div> : null}
           <FolderOpenersSection />
         </SectionPanel>
 
-        <SettingsDisclosure title={t("basic.advancedConfiguration")} description={t("basic.advancedConfigurationDesc")}>
+        <SettingsDisclosure description={t("basic.advancedConfigurationDesc")} storageKey="vanehub.settings.basic.advancedOpen" title={t("basic.advancedConfiguration")}>
           <NetworkProxySection />
           <DataManagementSection />
           <LogManagementSection />
-          <NodeEnvironmentPanel nodeInfo={nodeInfo} t={t} />
+          <NodeEnvironmentPanel />
         </SettingsDisclosure>
       </div>
 
@@ -215,7 +209,8 @@ export function BasicSettingsPage() {
           disabled={busy}
           onClick={() => {
             void confirm({ title: t("basic.resetConfirm"), tone: "danger" })
-              .then((confirmed) => { if (confirmed) void resetSettings(); });
+              .then((confirmed) => { if (confirmed) return resetSettings(); })
+              .catch(() => undefined);
           }}
           variant="outline"
         >

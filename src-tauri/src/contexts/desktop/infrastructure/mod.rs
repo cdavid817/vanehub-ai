@@ -1,4 +1,5 @@
 mod environment;
+mod folder_opener_discovery;
 mod folder_openers;
 mod locale_bridge;
 mod runtime_logging;

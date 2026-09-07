@@ -93,6 +93,7 @@ import {
 } from "./web-session-state";
 import { webSessionQueryClient } from "./web-session-query-client";
 import { webSessionLifecycleClient } from "./web-session-lifecycle-client";
+import { webSessionDeletionClient } from "./web-session-deletion-client";
 import { webSessionSeatClient } from "./web-session-seat-client";
 import {
   listWebSkillApiAgentBindings,
@@ -257,6 +258,7 @@ export const webAgentClient: AgentService = {
   ...webKnownWorkspaceClient,
 
   ...webSessionLifecycleClient,
+  ...webSessionDeletionClient,
   ...webSessionSeatClient,
 
   ...webUsageStatisticsClient,

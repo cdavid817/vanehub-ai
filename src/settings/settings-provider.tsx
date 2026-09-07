@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { activateAppLanguage, i18n } from "../i18n";
 import { settingsService } from "../services/runtime-settings-client";
 import { defaultAppSettings, normalizeAppSettings, validateSettingValue } from "../services/settings-service";
@@ -17,6 +17,7 @@ interface SettingsContextValue {
   getDataManagementInfo: () => Promise<DataManagementInfo>;
   openDatabaseDirectory: () => Promise<void>;
   openLogDirectory: () => Promise<void>;
+  pickDirectory: () => Promise<string | null>;
   testNetworkProxy: (input: { url: string; bypass: string }) => Promise<NetworkProxyTestResult>;
   scanNetworkProxies: () => Promise<DetectedNetworkProxy[]>;
   reportClientLogEvent: (event: ClientLogEvent) => Promise<void>;
@@ -29,6 +30,9 @@ type ActivateLanguage = typeof activateAppLanguage;
 async function applySettings(settings: AppSettings, activateLanguage: ActivateLanguage) {
   document.documentElement.style.fontSize = settings.fontSize;
   document.documentElement.dataset.theme = settings.theme;
+  // Separate attribute from `data-theme`: the CLI terminal palette is its own preference and
+  // neither one may overwrite the other. Agent terminals observe this attribute and repaint.
+  document.documentElement.dataset.cliTerminalTheme = settings.cliTerminalTheme;
   await activateLanguage(settings.applicationLanguage);
 }
 
@@ -120,13 +124,19 @@ export function SettingsProvider({ children, activateLanguage = activateAppLangu
     };
   }, [activateLanguage]);
 
+  // Sequential saves (reset runs eleven in a row) must each build on the previous result, not on
+  // the settings the caller was rendered with; a ref sidesteps the stale closure without forcing
+  // every consumer to re-subscribe after each save.
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+
   const saveSetting = useCallback(
     async <K extends AppSettingKey>(key: K, value: AppSettings[K]) => {
       validateSettingValue(key, value);
       setSavingKey(key);
       setError(null);
-      const previousSettings = settings;
-      const optimisticSettings = normalizeAppSettings({ ...settings, [key]: value });
+      const previousSettings = settingsRef.current;
+      const optimisticSettings = normalizeAppSettings({ ...previousSettings, [key]: value });
       try {
         await applySettings(optimisticSettings, activateLanguage);
         setSettings(optimisticSettings);
@@ -146,35 +156,15 @@ export function SettingsProvider({ children, activateLanguage = activateAppLangu
         setSavingKey(null);
       }
     },
-    [activateLanguage, settings],
+    [activateLanguage],
   );
-
-  const resetSettings = useCallback(async () => {
-    const resettableKeys: AppSettingKey[] = [
-      "applicationLanguage",
-      "fontSize",
-      "theme",
-      "defaultFolderPath",
-      "logDirectory",
-      "networkProxyUrl",
-      "networkProxyBypass",
-      "launchOnStartup",
-      "defaultPolicyTemplate",
-      "automaticContextCompactionEnabled",
-      "contextQualityRetentionDays",
-    ];
-    for (const key of resettableKeys) {
-      if (key === "launchOnStartup") await settingsService.setLaunchOnStartup(defaultAppSettings.launchOnStartup);
-      else await saveSetting(key, defaultAppSettings[key]);
-    }
-  }, [saveSetting]);
 
   const setLaunchOnStartup = useCallback(
     async (enabled: boolean) => {
       setSavingKey("launchOnStartup");
       setError(null);
-      const previousSettings = settings;
-      const optimisticSettings = normalizeAppSettings({ ...settings, launchOnStartup: enabled });
+      const previousSettings = settingsRef.current;
+      const optimisticSettings = normalizeAppSettings({ ...previousSettings, launchOnStartup: enabled });
       try {
         await applySettings(optimisticSettings, activateLanguage);
         setSettings(optimisticSettings);
@@ -190,8 +180,44 @@ export function SettingsProvider({ children, activateLanguage = activateAppLangu
         setSavingKey(null);
       }
     },
-    [activateLanguage, settings],
+    [activateLanguage],
   );
+
+  const resetSettings = useCallback(async () => {
+    const resettableKeys: AppSettingKey[] = [
+      "applicationLanguage",
+      "fontSize",
+      "theme",
+      "cliTerminalTheme",
+      "defaultFolderPath",
+      "logDirectory",
+      "networkProxyUrl",
+      "networkProxyBypass",
+      "launchOnStartup",
+      "defaultPolicyTemplate",
+      "automaticContextCompactionEnabled",
+      "contextQualityRetentionDays",
+    ];
+    // One key failing must not leave the rest un-reset: the user asked for all of them, so every
+    // key is attempted and the failures are reported together at the end.
+    const failures: string[] = [];
+    for (const key of resettableKeys) {
+      try {
+        if (key === "launchOnStartup") {
+          if (settings.launchOnStartupAvailable) await setLaunchOnStartup(defaultAppSettings.launchOnStartup);
+        } else {
+          await saveSetting(key, defaultAppSettings[key]);
+        }
+      } catch (cause) {
+        failures.push(`${key}: ${cause instanceof Error ? cause.message : String(cause)}`);
+      }
+    }
+    if (failures.length > 0) {
+      const message = failures.join("\n");
+      setError(message);
+      throw new Error(message);
+    }
+  }, [saveSetting, setLaunchOnStartup, settings.launchOnStartupAvailable]);
 
   const getDataManagementInfo = useCallback(async () => {
     return settingsService.getDataManagementInfo();
@@ -203,6 +229,10 @@ export function SettingsProvider({ children, activateLanguage = activateAppLangu
 
   const openLogDirectory = useCallback(async () => {
     await settingsService.openLogDirectory();
+  }, []);
+
+  const pickDirectory = useCallback(async () => {
+    return settingsService.pickDirectory();
   }, []);
 
   const testNetworkProxy = useCallback(async (input: { url: string; bypass: string }) => {
@@ -231,11 +261,12 @@ export function SettingsProvider({ children, activateLanguage = activateAppLangu
       getDataManagementInfo,
       openDatabaseDirectory,
       openLogDirectory,
+      pickDirectory,
       testNetworkProxy,
       scanNetworkProxies,
       reportClientLogEvent,
     }),
-    [error, getDataManagementInfo, loading, nodeInfo, openDatabaseDirectory, openLogDirectory, refreshNodeInfo, reportClientLogEvent, resetSettings, saveSetting, scanNetworkProxies, setLaunchOnStartup, savingKey, settings, testNetworkProxy],
+    [error, getDataManagementInfo, loading, nodeInfo, openDatabaseDirectory, openLogDirectory, pickDirectory, refreshNodeInfo, reportClientLogEvent, resetSettings, saveSetting, scanNetworkProxies, setLaunchOnStartup, savingKey, settings, testNetworkProxy],
   );
 
   if (loading) return null;

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import {
   MeasuredVirtualList,
@@ -7,6 +7,7 @@ import {
 import type { MessageSpeaker } from "../services/message-speaker";
 import type { ExecutionSpanSummary } from "../types/execution-observability";
 import { TraceSpanRow, spanSpeaker } from "./trace-span-row";
+import { axisWidthFor, contentMinWidthFor, labelColumnFor } from "./trace-layout";
 import {
   flattenSpanRows,
   traceAxisTicks,
@@ -56,7 +57,9 @@ export function TraceWaterfall({
 
   const rows = useMemo<TraceRow[]>(() => flattenSpanRows(spans), [spans]);
   const scale = useMemo(
-    () => traceTimeScale(spans, viewportWidth, zoom),
+    // The axis occupies the row minus its label column, not the whole viewport. Passing the full
+    // width made every bar wider than the column it is drawn in.
+    () => traceTimeScale(spans, axisWidthFor(viewportWidth), zoom),
     [spans, viewportWidth, zoom],
   );
   const ticks = useMemo(() => traceAxisTicks(scale), [scale]);
@@ -70,24 +73,14 @@ export function TraceWaterfall({
   }, [selection.selectedIndex]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col" ref={viewportRef}>
-      <div
-        aria-hidden="true"
-        className="grid grid-cols-[minmax(10rem,18rem)_minmax(0,1fr)] gap-2 border-b border-border pb-1 text-[11px] text-muted-foreground"
-      >
-        <span className="px-1">{t("traces.spanColumn")}</span>
-        <div className="relative h-4" style={{ minWidth: scale.contentWidthPx }}>
-          {ticks.map((tick, index) => (
-            <span
-              className="absolute -translate-x-1/2 tabular-nums"
-              key={tick}
-              style={{ insetInlineStart: `${(index / (ticks.length - 1)) * 100}%` }}
-            >
-              {t("traces.axisTick", { offset: tick })}
-            </span>
-          ))}
-        </div>
-      </div>
+    <div
+      // `min-w-0`: without it this grid/flex item refuses to shrink below its content, and its
+      // content is sized *from its own width* -- so it settles at whatever the initial guess was
+      // and overflows the panel instead of scrolling inside it.
+      className="flex min-h-0 w-full min-w-0 flex-1 flex-col"
+      ref={viewportRef}
+      style={{ "--trace-label-col": `${labelColumnFor(viewportWidth)}px` } as CSSProperties}
+    >
       <div
         // One focusable element for the whole list, moved by arrow keys. Tabbing through rows is
         // not an option in a virtualized list: the rows nobody scrolled to are not in the DOM.
@@ -101,7 +94,43 @@ export function TraceWaterfall({
         role="application"
         tabIndex={0}
       >
-        <div style={{ minWidth: scale.contentWidthPx }}>
+        {/* h-full is load-bearing: the list sizes its viewport from this box, and an auto-height
+            box is as tall as the rows the list decides to render — which, on a remount, is none.
+            A definite height breaks that loop. */}
+        <div className="h-full" style={{ minWidth: contentMinWidthFor(viewportWidth, scale.contentWidthPx) }}>
+          {/* Inside the scroller and inside the same width, so the ticks stay over the bars they
+              label. Outside it, a zoomed axis left the header clipped at the panel edge while the
+              rows scrolled underneath — every visible tick then named a time that was not below
+              it. Matching `px-1` for the same reason: a header without it sits four pixels left of
+              every bar's origin. */}
+          <div
+            aria-hidden="true"
+            className="grid grid-cols-[var(--trace-label-col)_minmax(0,1fr)] gap-[8px] border-b border-border px-[4px] pb-1 text-[11px] text-muted-foreground"
+          >
+            <span>{t("traces.spanColumn")}</span>
+            <div className="relative h-4">
+              {ticks.map((tick, index) => {
+                // Centring every tick puts half the last one past the right edge, where it has no
+                // room to lay out: an absolutely positioned box at `left: 100%` shrinks to its
+                // minimum content width and breaks "2400 ms" across two lines inside a 16px row.
+                // Shifting each label by its own position instead leaves the first flush left, the
+                // last flush right, and everything between centred as before.
+                const position = ticks.length > 1 ? index / (ticks.length - 1) : 0;
+                return (
+                  <span
+                    className="absolute whitespace-nowrap tabular-nums"
+                    key={tick}
+                    style={{
+                      insetInlineStart: `${position * 100}%`,
+                      transform: `translateX(-${position * 100}%)`,
+                    }}
+                  >
+                    {t("traces.axisTick", { offset: tick })}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
           <MeasuredVirtualList
             ariaLabel={t("traces.spans")}
             className="h-full"

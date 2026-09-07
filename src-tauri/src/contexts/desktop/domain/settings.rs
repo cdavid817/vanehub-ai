@@ -96,6 +96,31 @@ impl DesktopTheme {
     }
 }
 
+/// Palette of the embedded single-Agent CLI terminal. Independent of `DesktopTheme`: the
+/// application chrome and the terminal canvas are chosen separately.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CliTerminalTheme {
+    Light,
+    Dark,
+}
+
+impl CliTerminalTheme {
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value {
+            "light" => Some(Self::Light),
+            "dark" => Some(Self::Dark),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Light => "light",
+            Self::Dark => "dark",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct NetworkProxyPreferences {
     url: String,
@@ -178,6 +203,7 @@ pub(crate) enum DesktopSettingKey {
     ApplicationLanguage,
     FontSize,
     Theme,
+    CliTerminalTheme,
     DefaultFolderPath,
     LogDirectory,
     NetworkProxyUrl,
@@ -203,6 +229,7 @@ impl DesktopSettingKey {
             "applicationLanguage" => Ok(Self::ApplicationLanguage),
             "fontSize" => Ok(Self::FontSize),
             "theme" => Ok(Self::Theme),
+            "cliTerminalTheme" => Ok(Self::CliTerminalTheme),
             "defaultFolderPath" => Ok(Self::DefaultFolderPath),
             "logDirectory" => Ok(Self::LogDirectory),
             "networkProxyUrl" => Ok(Self::NetworkProxyUrl),
@@ -229,6 +256,7 @@ impl DesktopSettingKey {
             Self::ApplicationLanguage => "applicationLanguage",
             Self::FontSize => "fontSize",
             Self::Theme => "theme",
+            Self::CliTerminalTheme => "cliTerminalTheme",
             Self::DefaultFolderPath => "defaultFolderPath",
             Self::LogDirectory => "logDirectory",
             Self::NetworkProxyUrl => "networkProxyUrl",
@@ -255,6 +283,7 @@ pub(crate) enum DesktopSettingMutation {
     ApplicationLanguage(ApplicationLanguage),
     FontSize(DesktopFontSize),
     Theme(DesktopTheme),
+    CliTerminalTheme(CliTerminalTheme),
     DefaultFolderPath(String),
     LogDirectory(String),
     NetworkProxyUrl(String),
@@ -298,6 +327,9 @@ impl DesktopSettingMutation {
                 .ok_or_else(invalid),
             DesktopSettingKey::Theme => DesktopTheme::parse(value)
                 .map(Self::Theme)
+                .ok_or_else(invalid),
+            DesktopSettingKey::CliTerminalTheme => CliTerminalTheme::parse(value)
+                .map(Self::CliTerminalTheme)
                 .ok_or_else(invalid),
             DesktopSettingKey::DefaultFolderPath => Ok(Self::DefaultFolderPath(value.to_string())),
             DesktopSettingKey::LogDirectory if !value.trim().is_empty() => {
@@ -369,6 +401,7 @@ impl DesktopSettingMutation {
             Self::ApplicationLanguage(_) => DesktopSettingKey::ApplicationLanguage,
             Self::FontSize(_) => DesktopSettingKey::FontSize,
             Self::Theme(_) => DesktopSettingKey::Theme,
+            Self::CliTerminalTheme(_) => DesktopSettingKey::CliTerminalTheme,
             Self::DefaultFolderPath(_) => DesktopSettingKey::DefaultFolderPath,
             Self::LogDirectory(_) => DesktopSettingKey::LogDirectory,
             Self::NetworkProxyUrl(_) => DesktopSettingKey::NetworkProxyUrl,
@@ -402,6 +435,7 @@ impl DesktopSettingMutation {
             Self::ApplicationLanguage(value) => value.as_str().to_string(),
             Self::FontSize(value) => value.as_str().to_string(),
             Self::Theme(value) => value.as_str().to_string(),
+            Self::CliTerminalTheme(value) => value.as_str().to_string(),
             Self::DefaultFolderPath(value)
             | Self::LogDirectory(value)
             | Self::NetworkProxyUrl(value)
@@ -432,6 +466,7 @@ pub(crate) struct DesktopSettings {
     application_language: ApplicationLanguage,
     font_size: DesktopFontSize,
     theme: DesktopTheme,
+    cli_terminal_theme: CliTerminalTheme,
     default_folder_path: String,
     log_directory: String,
     network_proxy: NetworkProxyPreferences,
@@ -455,6 +490,7 @@ impl DesktopSettings {
             application_language: ApplicationLanguage::ChineseSimplified,
             font_size: DesktopFontSize::Px14,
             theme: DesktopTheme::Minimal,
+            cli_terminal_theme: CliTerminalTheme::Dark,
             default_folder_path: String::new(),
             log_directory: default_log_directory.into(),
             network_proxy: NetworkProxyPreferences::defaults(),
@@ -488,6 +524,7 @@ impl DesktopSettings {
             }
             DesktopSettingMutation::FontSize(value) => self.font_size = value,
             DesktopSettingMutation::Theme(value) => self.theme = value,
+            DesktopSettingMutation::CliTerminalTheme(value) => self.cli_terminal_theme = value,
             DesktopSettingMutation::DefaultFolderPath(value) => self.default_folder_path = value,
             DesktopSettingMutation::LogDirectory(value) => self.log_directory = value,
             DesktopSettingMutation::NetworkProxyUrl(value) => self.network_proxy.url = value,
@@ -544,6 +581,10 @@ impl DesktopSettings {
 
     pub(crate) fn theme(&self) -> DesktopTheme {
         self.theme
+    }
+
+    pub(crate) fn cli_terminal_theme(&self) -> CliTerminalTheme {
+        self.cli_terminal_theme
     }
 
     pub(crate) fn default_folder_path(&self) -> &str {
@@ -655,6 +696,7 @@ mod tests {
         assert_eq!(settings.application_language().as_str(), "zh-CN");
         assert_eq!(settings.font_size().as_str(), "14px");
         assert_eq!(settings.theme().as_str(), "minimal");
+        assert_eq!(settings.cli_terminal_theme().as_str(), "dark");
         assert_eq!(settings.default_folder_path(), "");
         assert_eq!(settings.log_directory(), "D:/data/logs");
         assert_eq!(settings.network_proxy().url(), "");
@@ -698,6 +740,7 @@ mod tests {
             ("applicationLanguage", "en"),
             ("fontSize", "18px"),
             ("theme", "minimal"),
+            ("cliTerminalTheme", "light"),
             ("defaultFolderPath", "D:/work"),
             ("logDirectory", "D:/logs"),
             ("automaticArchivalEnabled", "false"),

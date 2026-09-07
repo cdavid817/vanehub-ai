@@ -22,6 +22,19 @@ pub(crate) struct CreatedWorktree {
     pub(crate) path: String,
     pub(crate) name: String,
     pub(crate) branch: String,
+    /// The managed record created before Git ran, when this worktree is provenance-tracked.
+    /// `None` for Loop worktrees and for assemblies without the cleanup service.
+    pub(crate) worktree_id: Option<String>,
+}
+
+/// A worktree creation that has been validated but not yet run: every path is settled before
+/// any intent is recorded or any Git command executes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PlannedWorktree {
+    pub(crate) project: String,
+    pub(crate) target: String,
+    pub(crate) name: String,
+    pub(crate) branch: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

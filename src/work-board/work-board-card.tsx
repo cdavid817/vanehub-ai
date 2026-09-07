@@ -9,6 +9,9 @@ import { cn } from "../lib/utils";
 import type { WorkItem, WorkItemStage } from "../types/work-board";
 import { workItemStages } from "../types/work-board";
 
+/** The action row's buttons share the select's 32px height, so the row reads as one control strip. */
+const iconButtonClass = "h-8 w-8 shrink-0 rounded-md text-muted-foreground hover:text-foreground";
+
 const priorityAccent: Record<WorkItem["priority"], string> = {
   urgent: "bg-[hsl(var(--danger))]",
   high: "bg-[hsl(var(--danger))]",
@@ -40,12 +43,15 @@ export function WorkBoardCard({ item, onArchive, onDelete, onEdit, onMove, onRes
   const projectPath = item.projectPath ? normalizeDisplayPath(item.projectPath) : null;
   return (
     <article
-      className="ucd-card relative grid gap-2.5 overflow-hidden rounded-lg p-3 pl-3.5"
+      // No overflow clip on the card and no line clamp on the description: in WebKitGTK a
+      // `-webkit-box` child contributes zero height to the grid tracks, the card sized itself to
+      // the title row alone, and the clip then hid the description and the whole action row.
+      className="ucd-card relative grid gap-2 rounded-lg p-3 pl-3.5"
       data-testid={`work-item-${item.id}`}
       draggable={!item.archived}
       onDragStart={(event) => event.dataTransfer.setData("text/work-item", item.id)}
     >
-      <span aria-hidden="true" className={cn("absolute inset-y-0 left-0 w-1", priorityAccent[item.priority])} />
+      <span aria-hidden="true" className={cn("absolute inset-y-0 left-0 w-1 rounded-l-lg", priorityAccent[item.priority])} />
       <div className="flex items-start justify-between gap-2">
         <h3 className="min-w-0 flex-1 text-sm font-semibold leading-5">{item.title}</h3>
         {item.priority === "none" ? null : (
@@ -54,7 +60,7 @@ export function WorkBoardCard({ item, onArchive, onDelete, onEdit, onMove, onRes
           </Badge>
         )}
       </div>
-      {item.description ? <p className="line-clamp-3 text-xs leading-5 text-muted-foreground">{item.description}</p> : null}
+      {item.description ? <p className="max-h-15 overflow-hidden text-xs leading-5 text-muted-foreground">{item.description}</p> : null}
       {projectPath || item.dueAt ? (
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
           {projectPath ? <MetaChip icon={<FolderOpen aria-hidden="true" className="h-3 w-3 shrink-0" />} title={projectPath}>{projectPath}</MetaChip> : null}
@@ -78,13 +84,20 @@ export function WorkBoardCard({ item, onArchive, onDelete, onEdit, onMove, onRes
       ) : (
         <div><Badge tone="muted">{t("todoBoard.manual")}</Badge></div>
       )}
-      <div className="flex flex-wrap items-center gap-1 border-t border-border pt-2">
+      {/* Two groups on one row: moving the card (arrows around the stage select, which stretches
+          to whatever width is left) and editing it (right-aligned). In a narrow column the second
+          group wraps to its own line and stays right-aligned instead of scattering. */}
+      <div className="flex flex-wrap items-center gap-1.5 border-t border-border pt-2">
         {!item.archived ? <>
-          <Button aria-label={t("todoBoard.movePrevious")} disabled={stageIndex === 0} onClick={() => onMove(workItemStages[stageIndex - 1])} size="icon" type="button" variant="ghost"><ArrowUp aria-hidden="true" /></Button>
-          <select aria-label={t("todoBoard.stage")} className="ucd-input min-w-0 flex-1 rounded px-2 py-1 text-xs" onChange={(event) => onMove(event.target.value as WorkItemStage)} value={item.stage}>{workItemStages.map((stage) => <option key={stage} value={stage}>{t(`todoBoard.stage.${stage}`)}</option>)}</select>
-          <Button aria-label={t("todoBoard.moveNext")} disabled={stageIndex === workItemStages.length - 1} onClick={() => onMove(workItemStages[stageIndex + 1])} size="icon" type="button" variant="ghost"><ArrowDown aria-hidden="true" /></Button>
-          <Button aria-label={t("todoBoard.edit")} onClick={onEdit} size="icon" type="button" variant="ghost"><Pencil aria-hidden="true" /></Button>
-          <Button aria-label={t("todoBoard.archive")} onClick={onArchive} size="icon" type="button" variant="ghost"><Archive aria-hidden="true" /></Button>
+          <div className="flex min-w-0 flex-1 items-center gap-1">
+            <Button aria-label={t("todoBoard.movePrevious")} className={iconButtonClass} disabled={stageIndex === 0} onClick={() => onMove(workItemStages[stageIndex - 1])} size="icon" type="button" variant="ghost"><ArrowUp aria-hidden="true" className="h-4 w-4" /></Button>
+            <select aria-label={t("todoBoard.stage")} className="ucd-input h-8 min-w-0 flex-1 rounded-md px-2 text-xs" onChange={(event) => onMove(event.target.value as WorkItemStage)} value={item.stage}>{workItemStages.map((stage) => <option key={stage} value={stage}>{t(`todoBoard.stage.${stage}`)}</option>)}</select>
+            <Button aria-label={t("todoBoard.moveNext")} className={iconButtonClass} disabled={stageIndex === workItemStages.length - 1} onClick={() => onMove(workItemStages[stageIndex + 1])} size="icon" type="button" variant="ghost"><ArrowDown aria-hidden="true" className="h-4 w-4" /></Button>
+          </div>
+          <div className="ml-auto flex shrink-0 items-center gap-1">
+            <Button aria-label={t("todoBoard.edit")} className={iconButtonClass} onClick={onEdit} size="icon" type="button" variant="ghost"><Pencil aria-hidden="true" className="h-4 w-4" /></Button>
+            <Button aria-label={t("todoBoard.archive")} className={iconButtonClass} onClick={onArchive} size="icon" type="button" variant="ghost"><Archive aria-hidden="true" className="h-4 w-4" /></Button>
+          </div>
         </> : <><Button onClick={onRestore} size="sm" type="button" variant="outline"><RotateCcw aria-hidden="true" />{t("todoBoard.restore")}</Button><Button onClick={onDelete} size="sm" type="button" variant="outline"><Trash2 aria-hidden="true" />{t("todoBoard.delete")}</Button></>}
       </div>
     </article>

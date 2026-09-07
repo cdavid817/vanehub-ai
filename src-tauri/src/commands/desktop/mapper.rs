@@ -40,6 +40,7 @@ pub(super) fn settings_to_dto(view: DesktopSettingsView) -> dto::AppSettings {
         application_language: settings.application_language().as_str().to_string(),
         font_size: settings.font_size().as_str().to_string(),
         theme: settings.theme().as_str().to_string(),
+        cli_terminal_theme: settings.cli_terminal_theme().as_str().to_string(),
         default_folder_path: settings.default_folder_path().to_string(),
         log_directory: settings.log_directory().to_string(),
         network_proxy_url: settings.network_proxy().url().to_string(),
@@ -57,6 +58,7 @@ pub(super) fn settings_to_dto(view: DesktopSettingsView) -> dto::AppSettings {
         memory_tool_assisted_chats_enabled: settings.memory_tool_assisted_chats_enabled(),
         personalization_revision,
         logging_policy: logging_policy_to_dto(view.logging_policy),
+        launch_on_startup_available: true,
     }
 }
 
@@ -235,6 +237,7 @@ mod tests {
                 "applicationLanguage": "ko",
                 "fontSize": "18px",
                 "theme": "minimal",
+                "cliTerminalTheme": "dark",
                 "defaultFolderPath": "",
                 "logDirectory": "D:/data/logs",
                 "networkProxyUrl": "",
@@ -259,7 +262,8 @@ mod tests {
                     "redactionEnabled": true,
                     "levels": ["error", "warn", "info", "debug"],
                     "canOpenDirectory": true
-                }
+                },
+                "launchOnStartupAvailable": true
             })
         );
     }

@@ -21,6 +21,7 @@ use super::infrastructure::{
     NativeSeatTurnCoordinator,
 };
 use std::sync::Arc;
+use std::time::Duration;
 
 pub(crate) use super::application::{
     ActiveGenerationCorrelation, AgentChatConfiguration, AgentFileReference, AgentMessage,
@@ -314,6 +315,19 @@ impl AgentRuntimeApi {
         // The task list is session-scoped runtime state with the same lifetime, so it is
         // discarded on the same edge (`add-agent-task-list`).
         task_list_store().clear_session(session_id);
+    }
+
+    /// `reap_background_commands`, waiting up to `deadline` for the processes to actually exit.
+    /// Returns whether they all did. Session deletion needs the answer; a kill that was merely
+    /// requested is not a writer that has stopped.
+    pub(crate) fn reap_background_commands_and_wait(
+        &self,
+        session_id: &str,
+        deadline: std::time::Duration,
+    ) -> bool {
+        let settled = background_shell_registry().reap_session_and_wait(session_id, deadline);
+        task_list_store().clear_session(session_id);
+        settled
     }
 
     /// Terminates every remaining background command on desktop shutdown. Windows' job object
@@ -921,6 +935,18 @@ impl AgentRuntimeApi {
         request: StopAgentTerminalRequest,
     ) -> Result<bool, AgentRuntimeApplicationError> {
         self.terminal_service.stop(request)
+    }
+
+    /// Stops `session_id`'s terminal and reports whether its process was observed to exit
+    /// within `budget`. Consumed by session deletion's quiescence barrier, which must not
+    /// hand a still-running process's working directory to `git worktree remove`.
+    pub(crate) fn stop_session_agent_terminal_and_confirm_exit(
+        &self,
+        session_id: &str,
+        budget: Duration,
+    ) -> Result<bool, AgentRuntimeApplicationError> {
+        self.terminal_service
+            .stop_for_session_and_confirm_exit(session_id, budget)
     }
 
     pub(crate) fn cleanup_idle_agent_terminals(

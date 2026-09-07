@@ -24,7 +24,7 @@ pub(crate) fn extract_symbols(
         let mut definition = None;
         let mut name = None;
         let mut symbol_kind = None;
-        for capture in query_match.captures {
+        for capture in query_match.captures() {
             let capture_name = capture_names[capture.index as usize];
             if capture_name == "symbol.name" {
                 name = capture

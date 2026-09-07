@@ -85,6 +85,7 @@ function timeline(spans: ExecutionSpanSummary[] = [span()]): ExecutionTimeline {
     },
     spans,
     events: [],
+    eventCoverage: { truncated: false, nextPageToken: null },
   };
 }
 

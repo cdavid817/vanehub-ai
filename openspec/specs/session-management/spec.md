@@ -2,9 +2,7 @@
 
 ## Purpose
 Defines durable session records, active-session selection, session listing, mutation operations, and runtime persistence expectations shared by the Tauri desktop runtime and browser Web runtime.
-
 ## Requirements
-
 ### Requirement: Session entity contract
 The system SHALL expose sessions as durable records with id, title, an ordered participant list, a stable agent id, interaction mode, lifecycle state, folder, optional project/worktree metadata, pinned, archived, created timestamp, and updated timestamp fields. Each participant SHALL carry a stable seat id, stable Agent id, captured expert-role presentation, join timestamp, and optional leave timestamp. A single-Agent session SHALL be represented as a session holding exactly one active participant, and the record's agent id SHALL equal the first active participant's agent id for compatibility.
 
@@ -67,7 +65,7 @@ The system SHALL keep session metadata behavior consistent between desktop and W
 - **AND** it SHALL NOT show hard-coded placeholder session names as current session data
 
 ### Requirement: Session creation input
-The system SHALL create sessions from a service-level input that includes stable agent id, interaction mode, selected project path, and optional worktree request. The native and Web boundaries SHALL accept a declared `api` mode as well as existing supported modes and SHALL validate the selected Agent's identity, declared mode, and readiness before persisting the session.
+The system SHALL create sessions from a service-level input that includes stable agent id, interaction mode, selected project path, and optional worktree request. The native and Web boundaries SHALL accept a declared `api` mode as well as existing supported modes and SHALL validate the selected Agent's identity, declared mode, and readiness before persisting the session. The condition that enables submission and the validation performed at submission SHALL derive from one normalized result for the active workspace mode, so that a field belonging to an inactive workspace mode cannot block a submission the user was invited to make.
 
 #### Scenario: Create session for selected agent
 - **WHEN** the user creates a session for Claude Code, Gemini CLI, Codex CLI, or OpenCode using a declared CLI mode
@@ -100,6 +98,16 @@ The system SHALL create sessions from a service-level input that includes stable
 - **WHEN** the app runs in Web mode
 - **THEN** the Web adapter SHALL accept the same supported session creation input and return equivalent mock session metadata
 - **AND** it SHALL enforce equivalent Agent mode, readiness, and workspace restrictions
+
+#### Scenario: Inactive workspace mode retains an incomplete draft
+- **WHEN** the user leaves an incomplete draft belonging to one workspace mode, switches to another workspace mode, and completes every field that mode requires
+- **THEN** submission SHALL proceed
+- **AND** validation for the inactive mode's draft SHALL NOT reject the request
+
+#### Scenario: Submission is refused while the control invites it
+- **WHEN** any validation would refuse a submission
+- **THEN** the control that invites submission SHALL reflect that refusal
+- **AND** the system SHALL NOT present an enabled submission that silently fails against a field the active workspace mode does not display
 
 ### Requirement: Session lifecycle coherence
 The system SHALL keep session lifecycle state coherent with message generation operations.
@@ -687,3 +695,58 @@ Ordinary historical Agent-session message search SHALL exclude system activity b
 #### Scenario: Ordinary session search matches an activity label
 - **WHEN** the user searches interactive session history without enabling system activity
 - **THEN** system activity is not returned as an Agent session result
+
+### Requirement: Request-attributed workspace inspection during session creation
+Workspace inspection results consumed by session creation SHALL be attributed to the request and the normalized path that produced them. A result, an error, or a derived capability from a superseded inspection SHALL NOT be applied to a different path, and abandoning or reopening the creation surface SHALL invalidate inspections still in flight. Attribution SHALL be enforced by the consumer rather than by assuming the transport cancels work.
+
+#### Scenario: Inspections complete out of order
+- **WHEN** the user inspects path A, then inspects path B, and the response for B arrives before the response for A
+- **THEN** the surface SHALL retain B's inspection result and B's derived Git capability
+- **AND** A's late result SHALL be discarded rather than replacing B's
+
+#### Scenario: Late inspection error arrives for an abandoned path
+- **WHEN** an inspection for a path the user has already replaced fails after the replacement
+- **THEN** the surface SHALL NOT present that failure against the current path
+- **AND** the current path's own state SHALL remain unchanged
+
+#### Scenario: Creation surface is reopened
+- **WHEN** the creation surface is closed and reopened while an inspection is still in flight
+- **THEN** the reopened surface SHALL start with no inherited inspection, worktree, or derived capability state
+- **AND** the in-flight result SHALL NOT populate the new surface
+
+### Requirement: Session creation completion is consistent and recoverable
+Persisting a created session and recording the completion of its workspace operation SHALL have a declared consistency boundary. When a session has been persisted, its operation completion SHALL be durably recorded or remain recoverable; it SHALL NOT be silently discarded. A client SHALL be able to reconcile a creation whose operation result was not delivered without creating a second session.
+
+#### Scenario: Operation completion fails after the session is persisted
+- **WHEN** the session record is persisted but recording the operation's completion fails
+- **THEN** the failure SHALL be surfaced or retained as recoverable state rather than discarded
+- **AND** the operation SHALL NOT remain indefinitely unfinished with no path to completion
+
+#### Scenario: Completion is retried for an already-created session
+- **WHEN** completion is retried for a creation whose session already exists
+- **THEN** the retry SHALL complete the existing operation
+- **AND** it SHALL NOT create a second session for the same creation request
+
+#### Scenario: Client reconciles an undelivered creation result
+- **WHEN** a client cannot obtain the result of a creation it has already submitted
+- **THEN** it SHALL be able to reconcile the outcome by the operation's stable id
+- **AND** reconciliation SHALL be distinguishable from resubmitting the creation
+
+### Requirement: Canonical session read failure after a successful creation is recoverable
+A creation whose operation succeeded but whose canonical session read failed SHALL be a distinct, recoverable state. The client SHALL NOT mark such a creation as handled, and SHALL retry the read rather than requiring the user to create the session again.
+
+#### Scenario: Canonical read fails transiently after operation success
+- **WHEN** the creation operation reports success and reading the canonical session then fails
+- **THEN** the creation SHALL remain in a recoverable state that identifies the operation and the created session
+- **AND** the client SHALL retry reading the session rather than resubmitting the creation
+
+#### Scenario: Recovered read succeeds
+- **WHEN** a retried canonical session read succeeds
+- **THEN** the creation SHALL complete and deliver that session
+- **AND** the operation SHALL be marked handled only once the result has been delivered
+
+#### Scenario: User leaves the creation surface before the result resolves
+- **WHEN** an asynchronous creation result resolves after the user has left or reopened the creation surface
+- **THEN** the stale result SHALL NOT navigate the user or populate the current surface
+- **AND** the created session SHALL remain reachable through ordinary session listing
+

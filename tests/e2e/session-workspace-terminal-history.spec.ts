@@ -34,6 +34,8 @@ test.describe("terminal history execution records", () => {
     await panel(page).getByRole("tab", { name: "全部", exact: true }).click();
 
     // A status filter narrows without the view and the filter ever contradicting each other.
+    // The chips are folded behind "更多筛选" until asked for, so the list keeps the panel height.
+    await panel(page).getByRole("button", { name: "更多筛选" }).click();
     await panel(page).getByRole("button", { name: "已失败", exact: true }).click();
     await expect(panel(page).getByText("npm test")).toBeVisible();
     await expect(panel(page).getByText("read_file")).toBeHidden();

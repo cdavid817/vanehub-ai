@@ -1,5 +1,4 @@
-import { Database, FolderOpen, HardDrive, Palette } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
+import { Database, FolderOpen } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../../components/ui/button";
@@ -7,18 +6,6 @@ import { normalizeDisplayPath } from "../../lib/session-path";
 import type { DataManagementInfo } from "../../types/settings";
 import { useSettings } from "../settings-provider";
 import { SectionPanel } from "./page-parts";
-
-function StorageNote({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: string }) {
-  return (
-    <div className="rounded-md border border-border bg-background p-3">
-      <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-        <Icon className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
-        {label}
-      </div>
-      <div className="mt-1 text-sm leading-6 text-muted-foreground">{value}</div>
-    </div>
-  );
-}
 
 export function DataManagementSection() {
   const { t } = useTranslation();
@@ -80,11 +67,6 @@ export function DataManagementSection() {
               {t("basic.openDatabaseDirectory")}
             </Button>
           </div>
-        </div>
-        <div className="grid gap-3 md:grid-cols-3">
-          <StorageNote icon={HardDrive} label={t("basic.storageDesktopRuntime")} value={t("basic.desktopStorage")} />
-          <StorageNote icon={HardDrive} label={t("basic.storageWebRuntime")} value={t("basic.webStorage")} />
-          <StorageNote icon={Palette} label={t("basic.storageThemeEntry")} value={t("basic.themeEntry")} />
         </div>
         {!info?.canOpenDirectory ? (
           <div className="rounded border p-3 text-xs ucd-status-warning">{t("basic.databaseOpenUnavailable")}</div>

@@ -4,7 +4,7 @@ import { cn } from "../lib/utils";
 import type { MessageSpeaker } from "../services/message-speaker";
 import type { ExecutionSpanSummary, ExecutionStatus } from "../types/execution-observability";
 import { traceSeat } from "./trace-seat";
-import { placeSpanBar, type TraceTimeScale } from "./trace-time-scale";
+import { placeSpanBar, spanMeasurement, type TraceTimeScale } from "./trace-time-scale";
 
 /** How far each depth level indents the label column. */
 const INDENT_PX = 12;
@@ -47,20 +47,27 @@ export function TraceSpanRow({
 }: TraceSpanRowProps) {
   const { t } = useTranslation();
   const placement = placeSpanBar(span, scale);
-  const gap = span.fidelity === "opaque" || span.status === "incomplete";
+  // A bar whose length was never measured belongs with the ones whose interior was never observed:
+  // in both cases the rectangle is not a measurement, and the panel already has a proven style that
+  // says so. Reusing it beats inventing a second visual language for the same claim.
+  const gap =
+    span.fidelity === "opaque" ||
+    span.status === "incomplete" ||
+    spanMeasurement(span) === "unknown";
 
   return (
     <div
       aria-current={selected ? "true" : undefined}
       aria-label={spanAccessibleLabel(span, t)}
       className={cn(
-        "grid grid-cols-[minmax(10rem,18rem)_minmax(0,1fr)] items-center gap-2 rounded px-1",
+        "grid grid-cols-[var(--trace-label-col)_minmax(0,1fr)] items-center gap-[8px] rounded px-[4px]",
         selected ? "bg-primary/10 outline outline-2 outline-primary" : "hover:bg-muted/50",
       )}
       onClick={onSelect}
       role="listitem"
     >
-      <div className="flex min-w-0 items-center gap-1.5" style={{ paddingInlineStart: depth * INDENT_PX }}>
+      {/* Clipped, so a long name plus its badges never spills over the bar column beside it. */}
+      <div className="flex min-w-0 items-center gap-1.5 overflow-hidden" style={{ paddingInlineStart: depth * INDENT_PX }}>
         {span.criticalPath ? (
           <span
             aria-hidden="true"
@@ -89,10 +96,12 @@ export function TraceSpanRow({
             aria-hidden="true"
             className={cn(
               "absolute top-1 h-3 rounded-sm",
-              gap ? "ucd-status-warning border" : barTone(span),
+              barTone(span, gap),
               // An open bar has no right edge, because where it ends has not happened yet. The
               // gradient is the only honest way to draw "still going" without inventing a number.
-              placement.openEnded ? "opacity-70 [mask-image:linear-gradient(to_right,black_60%,transparent)]" : null,
+              placement.measurement === "running"
+                ? "opacity-70 [mask-image:linear-gradient(to_right,black_60%,transparent)]"
+                : null,
             )}
             style={{ insetInlineStart: placement.leftPx, width: placement.widthPx }}
           />
@@ -102,8 +111,12 @@ export function TraceSpanRow({
   );
 }
 
-function barTone(span: ExecutionSpanSummary): string {
+function barTone(span: ExecutionSpanSummary, gap: boolean): string {
+  // Failure reads first, before the observation-gap treatment. A span that failed *and* has no
+  // measurable duration is still a failure, and colour is how a reader scans a waterfall for them
+  // -- amber for "we could not see this" would hide it among the merely unobservable.
   if (span.status === "failed" || span.status === "cancelled") return "bg-destructive";
+  if (gap) return "ucd-status-warning border";
   if (span.criticalPath) return "bg-primary";
   if (span.delegated) return "bg-primary/60";
   return "bg-muted-foreground/60";
@@ -126,10 +139,15 @@ export function spanAccessibleLabel(
     t(`traces.fidelity.${span.fidelity}`),
   ];
   if (span.kind !== "unknown") parts.push(t(`traces.kind.${span.kind}`));
+  const measurement = spanMeasurement(span);
   parts.push(
-    span.completedDurationMs === undefined
-      ? t("traces.stillRunning")
-      : t("traces.duration", { duration: span.completedDurationMs }),
+    measurement === "measured"
+      ? t("traces.duration", { duration: span.completedDurationMs ?? 0 })
+      : measurement === "running"
+        ? t("traces.stillRunning")
+        // Ended, but nothing here can say how long it took. Saying "still running" instead would
+        // report the opposite of the status this same label already announced.
+        : t("traces.durationUnknown"),
   );
   if (span.startOffsetMs === undefined) parts.push(t("traces.unplaceable"));
   if (span.criticalPath) parts.push(t("traces.criticalPath"));

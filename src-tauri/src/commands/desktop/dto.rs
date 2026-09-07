@@ -26,6 +26,7 @@ pub(crate) struct AppSettings {
     pub(crate) application_language: String,
     pub(crate) font_size: String,
     pub(crate) theme: String,
+    pub(crate) cli_terminal_theme: String,
     pub(crate) default_folder_path: String,
     pub(crate) log_directory: String,
     pub(crate) network_proxy_url: String,
@@ -46,6 +47,10 @@ pub(crate) struct AppSettings {
     /// before someone else's edit is refused instead of silently reverting it.
     pub(crate) personalization_revision: u64,
     pub(crate) logging_policy: LoggingPolicy,
+    /// Whether this runtime can register the application with the OS autostart facility. Read-only
+    /// and always true from the native side; the Web/mock adapter reports false so the page can
+    /// disable the control on an explicit capability instead of inferring it from another flag.
+    pub(crate) launch_on_startup_available: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]

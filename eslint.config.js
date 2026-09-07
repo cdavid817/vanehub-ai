@@ -80,11 +80,9 @@ export default tseslint.config(
     ["src/main-layout/main-layout.tsx", 528],
     ["src/contracts/agent.ts", 504],
     ["src/settings/pages/sdk-page.tsx", 396],
-    // 318 -> 335: 会话创建需要选一个个性化模式，而这个选择又必须在没有工作区时被纠正——
-    // 否则存储会拒绝一个用户看不见的控件造成的提交。新增的是 state、两个派生值
-    // 与三个 prop，外加打开对话框时把模式复位——记住上一次的隐私选择等于替用户重做一个
-    // 他没有再确认过的决定。没有任何逻辑是从别处复制来的。
-    ["src/main-layout/create-session-dialog.tsx", 335],
+    // create-session-dialog.tsx 曾在此列（335）。修创建流程缺陷时把两块与表单状态无关的逻辑
+    // 移了出去——参考数据加载与创建操作的轮询状态机各自成 hook——文件降到 298 行，
+    // 已由全局 max-lines 接管，故按本节规则删除条目。
   ].map(([file, max]) => ({
     files: [file],
     rules: {
