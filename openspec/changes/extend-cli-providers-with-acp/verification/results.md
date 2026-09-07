@@ -155,8 +155,26 @@ Windows / macOS：全部 NOT RUN。
 ## 旧功能回归、未完成项与风险
 
 - 原有五种 Provider：定义、V1 manifest、golden argv、权限投影、PTY 与 session capture 测试全部通过；显示顺序与默认选择未变（`agent-display-order.test.ts`、`create-session-dialog-utils.test.ts`）。
-- 迁移 112 `cli-execution-bindings` 为纯新增表；`platform::database` 迁移与种子测试通过；旧会话无绑定行，继续旧路径。
+- 迁移 `cli-execution-bindings` 为纯新增表（合并 main 后编号由 112 改为 114，让位于 main 的 112 `managed-worktree-resources` 与 113 `session-deletion-operations`）；`platform::database` 迁移与种子测试通过；旧会话无绑定行，继续旧路径。
 - 未完成：4.4 的 Windows junction/路径用例（11.1 参数目录已在 2026-09-06 按真实 `--help` 补齐）、5.4/6.4/7.4/8.5 的 live smoke、11.1 的参数目录扩展、13.6 的桌面层。
 - 风险：七家 CLI 的真实 `--help`/握手未在本机核验，grammar 依据官方文档（`references/official-sources.md`）；接入真实程序时需按 runbook §6 逐平台记录版本并回填 provider-matrix。
 
 登录后解除 6.4 / 7.4 / 8.5 阻塞的操作步骤见 [live-signin-guide.md](live-signin-guide.md)。
+
+## 合并 main 后的全量门禁（2026-09-08，Linux x86_64）
+
+合并 `origin/main`（含 v1.5.0、会话删除、worktree 清理、终端按会话停止）为 `848c0fe7`，8 处冲突已解决；合并树上重新逐条运行校验命令，全部顺序执行（本机 16 GB，并行跑会触发内存看护杀进程）。
+
+| 命令 | 结果 | 备注 |
+| --- | --- | --- |
+| `npm run lint:ci` / `npm run architecture:check` | PASSED | 行数预算按合并树实测（`src/services` 28228；native aggregate 73_573、`platform/database` 3_803、production 40_484） |
+| `npm run test` / `npm run test:coverage` / `npm run coverage:check:frontend` | PASSED | 492 文件 3025 用例；首轮 1 失败：`agent-configurations-page.test.tsx` 找不到「Qwen Code」按钮，根因是品牌图标 `<img alt>` 与标签重复导致可访问名称变为「Qwen Code Qwen Code」，修正为装饰性图标（`5e3d4711`） |
+| `npm run build` / `npm run local-media:fake:check` | PASSED | 首轮 App chunk 704.2 KiB 超 704 KiB 预算，按合并树实测提到 705 KiB（`835b0dcc`） |
+| `npm run contracts:check` / `docs:check` / `version:unit:test` / `coverage:policy:test` / `release:unit:test` / `deps:config:test` / `deps:config:check` / `desktop:unit:test` | PASSED | — |
+| `cargo fmt --check` / `cargo check --workspace` / `cargo clippy --workspace --all-targets -- -D warnings` / `npm run native:panic:check` | PASSED | — |
+| `cargo test --workspace` | PASSED | 6965 passed，0 failed |
+| `openspec validate --specs --strict` / `openspec validate extend-cli-providers-with-acp --strict` | PASSED | 本地 1.9.0；CI 用 1.8.0 |
+| `npx playwright test` | PASSED（重跑后） | 全量 263 用例首轮 20 失败、重跑 10 个文件后 3 失败、再单跑 `workspace-routing.spec.ts` 4 失败——失败全部是 `page.goto` 后 10 s 内仍停在「Starting...」启动遮罩（`html lang="en"`、URL 未跳转），每次失败的用例都不同，且同一用例在其他轮次通过。原因是同机另一个 worktree 会话在同时跑 `cargo build --features desktop-e2e` 与 `vitest --maxWorkers=4`，负载均值 20（8 核）；spec 内注释亦记录了冷编译下 10 s 不够的情况。未改任何 spec 或超时；以 CI 的 e2e job 为准 |
+| `npm run test:desktop` | NOT RUN（本机） | 与另一会话的桌面构建争抢内存，本轮未起；以 CI 三平台 Desktop Smoke 为准 |
+
+清理：上一轮 Qoder live gate 被内存看护 SIGKILL 后遗留 6 个 `qoder --acp` 孤儿进程（工作目录已删除），本轮手动 `kill`。宿主被 SIGKILL 时 ACP 子进程无人回收属预期（父进程无机会清理），生产路径由 janitor 与 `shutdown_all` 覆盖，未额外改代码。
