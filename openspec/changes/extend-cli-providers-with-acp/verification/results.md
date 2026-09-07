@@ -156,3 +156,5 @@ Windows / macOS：全部 NOT RUN。
 - 迁移 112 `cli-execution-bindings` 为纯新增表；`platform::database` 迁移与种子测试通过；旧会话无绑定行，继续旧路径。
 - 未完成：4.4 的 Windows junction/路径用例（11.1 参数目录已在 2026-09-06 按真实 `--help` 补齐）、5.4/6.4/7.4/8.5 的 live smoke、11.1 的参数目录扩展、13.6 的桌面层。
 - 风险：七家 CLI 的真实 `--help`/握手未在本机核验，grammar 依据官方文档（`references/official-sources.md`）；接入真实程序时需按 runbook §6 逐平台记录版本并回填 provider-matrix。
+
+登录后解除 6.4 / 7.4 / 8.5 阻塞的操作步骤见 [live-signin-guide.md](live-signin-guide.md)。
