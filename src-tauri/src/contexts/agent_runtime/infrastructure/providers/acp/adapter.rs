@@ -375,14 +375,15 @@ impl AcpAgentProcessAdapter {
                     existing.last_used = Instant::now();
                     return Ok(existing.state.clone());
                 }
-                let retired = bindings.remove(binding_key);
-                if let Some(retired) = retired {
-                    if retired.active_turn.is_some() {
-                        return Err(AgentRuntimeApplicationError::GenerationConflict(
-                            "the session's ACP agent is still busy with the previous turn"
-                                .to_string(),
-                        ));
-                    }
+                // A busy binding is refused, not evicted: removing it here would orphan the
+                // live connection the running turn still drives, and the next turn would have
+                // to spawn and resume instead of reusing it.
+                if existing.active_turn.is_some() {
+                    return Err(AgentRuntimeApplicationError::GenerationConflict(
+                        "the session's ACP agent is still busy with the previous turn".to_string(),
+                    ));
+                }
+                if let Some(retired) = bindings.remove(binding_key) {
                     let _ = retired
                         .state
                         .connection

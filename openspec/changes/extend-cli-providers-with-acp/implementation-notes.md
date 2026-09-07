@@ -148,3 +148,8 @@
 - `src/assets/agent-icons/`：Qwen Code（文档站 favicon）、Kimi（kimi.com PWA 图标）、Qoder（qoder.com 图标）、iFlow（iflow.cn 图标）四个 PNG 缩至 64×64；CodeBuddy 取自已安装 npm 包内的 `dist/web-ui/pwa-icon.svg`（官网拒绝脚本访问）；Cursor 取官方 `favicon.svg`；Copilot 内联 Primer Octicons `copilot-24`（MIT，`currentColor`）。来源、日期与商标说明见目录内 `PROVENANCE.md`。
 - `AgentBrandIcon` 对六家走 `<img data-agent-icon>`，Copilot 走内联 SVG；未知 id 仍回退到通用 Bot 图形。`agent-visual-identity.ts` 的 lucide 图形保留给在场/席位小徽标，注释同步更正。测试覆盖七家渲染与未知 id 回退。
 
+### 第二轮审查修正（2026-09-07）
+
+- `acp/adapter.rs::bind`：对同一绑定发起第二轮时，原代码先把绑定从表里移除、再因 `active_turn` 存在返回冲突，活动连接由此脱离管理（轮次结束后不再可复用，下一轮被迫重新拉起并 `session/load`；`release_session` 也找不到它）。改为先判忙碌返回冲突、只在空闲时才淘汰替换；回归测试 `a_busy_binding_is_refused_but_not_evicted`。
+- 复核通过、未改：兼容性注册表与 V2 manifest 的传输/用量一致性校验、组合网关按进程前缀与 provider 传输路由、审批端口按前缀分派、绑定仓储的 upsert/删除、注册表种子与迁移 112、CLI 身份规则与架构排除、`IdentityMismatch` 在状态徽标中的呈现、参数目录七家条目的渲染器与约束、`resolve_launch` 的策略令牌前置顺序、Web/mock 的连接检查拒绝分支、legacy 分组的显式展开。
+

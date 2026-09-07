@@ -752,6 +752,43 @@ fn two_pending_writes_for_the_same_path_get_distinct_ids_and_both_land() {
     adapter.release_session("session-acp");
 }
 
+/// A second turn against a binding whose turn is still running is refused, and the refusal must
+/// leave the live binding in place: evicting it orphaned the connection the running turn drives
+/// and forced the next turn to spawn and resume instead of reusing the process.
+#[test]
+fn a_busy_binding_is_refused_but_not_evicted() {
+    let workspace = TempDirectory::new("acp-e2e-busy");
+    let (adapter, launcher, _) = adapter(FakeMode::IgnoreCancel, Effect::Ask);
+    let first = adapter
+        .start_generation(request("qwen-code", workspace.path(), "first", None, true))
+        .expect("first turn");
+    let sink = Arc::new(CapturingSink::default());
+    adapter
+        .monitor_generation(&first.process_id, sink.clone())
+        .expect("monitor");
+    std::thread::sleep(Duration::from_millis(100));
+
+    let error = adapter
+        .start_generation(request("qwen-code", workspace.path(), "second", None, true))
+        .expect_err("the binding is busy");
+    assert!(
+        matches!(error, AgentRuntimeApplicationError::GenerationConflict(_)),
+        "{error}"
+    );
+    assert_eq!(
+        launcher.launches.load(Ordering::SeqCst),
+        1,
+        "no second process"
+    );
+    // Still owned by the session: releasing it finds exactly the one live binding.
+    assert_eq!(adapter.release_session("session-acp"), 1);
+    let events = sink.wait_for_terminal(Duration::from_secs(10));
+    assert!(matches!(
+        events.last(),
+        Some(GenerationProcessEvent::Failed(_))
+    ));
+}
+
 #[test]
 fn readonly_policy_denies_without_asking_and_the_tool_does_not_run() {
     let workspace = TempDirectory::new("acp-e2e-deny");

@@ -2725,7 +2725,10 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // same path gets its own id instead of overwriting the first, a proxied
         // `terminal/wait_for_exit` returns early on cancel, and the regression test that drives
         // two same-path writes through the fake agent.
-        budget: 73_238,
+        //
+        // Second review pass raises it to 73,276: `bind` refuses a busy binding without evicting
+        // it, plus the regression test that proves the live binding survives the refusal.
+        budget: 73_276,
         owner: "extend-cli-providers-with-acp",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
@@ -2902,7 +2905,10 @@ const NATIVE_PRODUCTION_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // `extend-cli-providers-with-acp` review pass raises it to 40,334: the three production
         // fixes listed on the aggregate above (termination order, unique pending ids, cancel-aware
         // terminal wait) and their rationale comments.
-        budget: 40_334,
+        //
+        // Second review pass raises it to 40,335: the busy-binding check in `bind` moved ahead of
+        // the eviction, one line net.
+        budget: 40_335,
         owner: "extend-cli-providers-with-acp",
     },
 ];
