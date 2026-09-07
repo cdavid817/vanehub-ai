@@ -30,16 +30,18 @@ kimi doctor
 
 官方文档：<https://www.kimi.com/code/docs/en/kimi-code-cli/guides/getting-started.html>
 
-## 2. Qoder CLI（`qoder` / `qodercli`）
+## 2. Qoder CLI（用 `qodercli`，不要用 `qoder`）
+
+npm 包装了两个入口：`qoder` 是「npm 渠道分发器」，会去找原生安装的 Qoder CLI，找不到就报 `Qoder CLI is not installed. Install: https://qoder.com`；真正的 CLI 是 `qodercli`。
 
 ```bash
-qoder login
+qodercli login
 ```
 
 按提示完成浏览器授权。验证：
 
 ```bash
-qoder status
+qodercli status
 ```
 
 官方文档：<https://docs.qoder.com/cli/installation>
