@@ -11,6 +11,7 @@ use crate::contexts::agent_runtime::domain::{
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 struct TerminalWorld {
     session: Mutex<super::AgentSession>,
@@ -339,6 +340,18 @@ impl AgentTerminalGateway for TerminalWorld {
             .lock()
             .expect("stopped")
             .push(request.terminal_id);
+        Ok(true)
+    }
+
+    fn stop_session_terminal_and_confirm_exit(
+        &self,
+        session_id: &str,
+        _budget: Duration,
+    ) -> Result<bool, AgentRuntimeApplicationError> {
+        self.stopped
+            .lock()
+            .expect("stopped")
+            .push(session_id.to_string());
         Ok(true)
     }
 

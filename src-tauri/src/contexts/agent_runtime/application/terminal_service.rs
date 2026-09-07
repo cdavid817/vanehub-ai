@@ -7,6 +7,7 @@ use super::{
 };
 use crate::contexts::agent_runtime::domain::{AgentLifecycle, InteractionMode};
 use std::sync::Arc;
+use std::time::Duration;
 
 #[derive(Clone)]
 pub(crate) struct AgentTerminalApplicationPorts {
@@ -212,6 +213,16 @@ impl AgentTerminalApplicationService {
         request: StopAgentTerminalRequest,
     ) -> Result<bool, AgentRuntimeApplicationError> {
         self.ports.terminals.stop(request)
+    }
+
+    pub(crate) fn stop_for_session_and_confirm_exit(
+        &self,
+        session_id: &str,
+        budget: Duration,
+    ) -> Result<bool, AgentRuntimeApplicationError> {
+        self.ports
+            .terminals
+            .stop_session_terminal_and_confirm_exit(session_id, budget)
     }
 
     pub(crate) fn cleanup_idle(

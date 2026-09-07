@@ -492,6 +492,18 @@ async function agentEvaluationQualification(mode = "fixture-opencode") {
 }
 
 /** The layers the required hermetic gate runs. Every one of them must pass. */
+/**
+ * What the PR gate runs when the full suite is opted out of.
+ *
+ * The cross-platform smoke contract, plus the layers whose failure mode is quiet enough that
+ * nothing else would catch them. `desktop-session-deletion` earned its place the hard way: when
+ * worktree removal fails there is no crash and no data loss, only a retained directory and a
+ * `needs_attention` outcome, so a break shipped to main and survived until someone ran the full
+ * suite by hand. Adding a layer here costs its runtime on every PR across three runners -- this
+ * one is ~3 minutes -- so it is for silent failure modes, not for coverage in general.
+ */
+const gatedLayers = [coreSmokeDesktop, sessionDeletionDesktop];
+
 const fullSuiteLayers = [
   smokeDesktop,
   cliTerminalDesktop,
@@ -549,9 +561,9 @@ async function main() {
     process.exitCode = result.status === "FAILED" ? 1 : 0;
   } else if (mode === "all" || mode === "everything") {
     const artifact = await buildDesktop();
-    const layers = runFullSuite ? fullSuiteLayers : [coreSmokeDesktop];
+    const layers = runFullSuite ? fullSuiteLayers : gatedLayers;
     if (!runFullSuite) {
-      process.stdout.write("Desktop verification: CI gate runs the core smoke contract; set VANEHUB_DESKTOP_FULL_SUITE=1 for every required layer.\n");
+      process.stdout.write("Desktop verification: CI gate runs the core smoke contract and the session deletion layer; set VANEHUB_DESKTOP_FULL_SUITE=1 for every required layer.\n");
     }
     const results = await runLayers(layers, artifact);
     // Each layer sets its own exit code as it finishes; the run as a whole is only green when

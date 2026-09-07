@@ -57,7 +57,8 @@
 
 - [x] 5.1 实现只读预览、opaque preview 存储、有效期、目标集合绑定、风险摘要和允许策略；UI 预览不产生停止/删除副作用。
 - [x] 5.2 实现 requestId + canonical request hash 幂等创建、活动 session claim 唯一性、资源分组和选择冲突校验。
-- [x] 5.3 实现 quiesce barrier：等待所有本应用生成/seat/工具、CLI、后台命令、Shell 和应释放句柄退出，超时保留会话。
+- [ ] 5.3 实现 quiesce barrier：等待所有本应用生成/seat/工具、CLI、后台命令、Shell 和应释放句柄退出，超时保留会话。
+      *2026-09-07 撤回勾选*：barrier 实现了，但只覆盖生成、工具审批等待者、后台命令、Shell 四类，**漏了 CLI 模式的 agent 终端**。该终端以会话 worktree 为当前工作目录，Windows 因此拒绝删除该目录，`git worktree remove` 返回 255 `Permission denied`，删除以 `needs_attention` 收场。`desktop-session-deletion` 层 6/6 确定性复现，而该层不在 CI 闸门内（`Desktop Full Suite` 需标签触发）故未被拦截。补齐工作见 `stop-session-terminals-before-worktree-removal`。
 - [x] 5.4 在静止且门禁持有后执行最终核验，忽略仅由正常停止导致的 lifecycle 更新，但拒绝安全相关文件/资源/引用变化。
 - [x] 5.5 持久化 remove_started 后执行 Git，观测并写入 receipt；写失败、超时、部分移除均不得声称零副作用。
 - [x] 5.6 以每资源组单一事务完成会话/消息删除、条件清空 active selection、更新资源/绑定/journal；事件仅在 commit 后发出。

@@ -1460,6 +1460,44 @@ fn a_session_that_will_not_quiesce_keeps_its_record_and_directory() {
     assert!(harness.journal.claims.lock().unwrap().is_empty());
 }
 
+/// The agent terminal is a distinct blocker from the shell above, and it is the one that was
+/// missing: its working directory is the worktree, so a terminal that has not confirmed exit
+/// makes `git worktree remove` fail with "Permission denied" on Windows. Pins the blocker name
+/// the quiescence adapter pushes -- a later change that special-cases blockers by name must not
+/// silently drop this one back to a Git failure.
+#[test]
+fn a_session_whose_agent_terminal_will_not_exit_keeps_its_record_and_directory() {
+    let harness = Harness::new();
+    harness.add_worktree("wt-1", "/repo-feature", &["w1"]);
+    harness.runtime.reports.lock().unwrap().insert(
+        "w1".to_string(),
+        QuiescenceReport {
+            quiet: false,
+            blockers: vec!["agent_terminal".to_string()],
+        },
+    );
+    let preview = harness.preview(&["w1"]);
+    let handle = harness.execute(&preview, "r1", vec![Harness::remove_choice("wt-1")]);
+    let operation = harness.coordinator.run(&handle.operation_id).expect("run");
+
+    assert_eq!(operation.outcome, DeletionOutcome::Failed);
+    assert_eq!(
+        operation.groups[0].error_code.as_deref(),
+        Some(error_code::QUIESCE_TIMEOUT)
+    );
+    assert_eq!(
+        operation.groups[0].worktree_effect,
+        WorktreeEffect::Retained
+    );
+    assert_eq!(operation.groups[0].db_effect, SessionDbEffect::Retained);
+    assert_eq!(harness.sessions.ids(), vec!["w1"]);
+    assert_eq!(
+        harness.workspace.count("remove:"),
+        0,
+        "a live terminal must never reach Git remove",
+    );
+}
+
 // --- Remove-safe -------------------------------------------------------------------------------
 
 #[test]
