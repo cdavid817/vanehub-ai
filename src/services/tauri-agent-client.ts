@@ -185,6 +185,7 @@ import {
   normalizeCodeIndexWorkspace,
   normalizeCodeIndexWorkspaces,
 } from "./code-index-contract";
+import { normalizeCliParameterProfile } from "./cli-parameter-registry";
 import {
   normalizeLspConfiguration,
   normalizeLspServerDiscoveries,
@@ -243,6 +244,7 @@ function isSessionStateEvent(value: unknown): value is SessionStateEvent {
     && Number.isSafeInteger(value.recoveryRevision)
     && value.recoveryRevision >= 0;
 }
+
 export const tauriAgentClient: AgentService = { ...tauriSkillCuratorClient,
   listEvaluationTasks: () => invoke<EvaluationTask[]>("list_evaluation_tasks"),
   startEvaluation: (input) => invoke<EvaluationArena>("start_evaluation", { input }),
@@ -549,20 +551,26 @@ export const tauriAgentClient: AgentService = { ...tauriSkillCuratorClient,
     return normalizeLspServerStatuses(await invoke<unknown>("list_lsp_server_status"));
   },
 
-  listCliParameterProfiles() {
-    return invoke<CliParameterProfile[]>("list_cli_parameter_profiles");
+  async listCliParameterProfiles() {
+    return (await invoke<CliParameterProfile[]>("list_cli_parameter_profiles")).map(
+      normalizeCliParameterProfile,
+    );
   },
 
   previewCliParameterProfile(input: PreviewCliParameterProfileInput) {
     return invoke<CliParameterPreview>("preview_cli_parameter_profile", { input });
   },
 
-  saveCliParameterProfile(input: SaveCliParameterProfileInput) {
-    return invoke<CliParameterProfile>("save_cli_parameter_profile", { input });
+  async saveCliParameterProfile(input: SaveCliParameterProfileInput) {
+    return normalizeCliParameterProfile(
+      await invoke<CliParameterProfile>("save_cli_parameter_profile", { input }),
+    );
   },
 
-  resetCliParameterProfile(input: ResetCliParameterProfileInput) {
-    return invoke<CliParameterProfile>("reset_cli_parameter_profile", { input });
+  async resetCliParameterProfile(input: ResetCliParameterProfileInput) {
+    return normalizeCliParameterProfile(
+      await invoke<CliParameterProfile>("reset_cli_parameter_profile", { input }),
+    );
   },
 
   listCliConfigPresets(agentId: string) {

@@ -420,7 +420,13 @@ const SUBTREE_LINE_BUDGETS = Object.freeze([
   // 设置服务的目录选择能力——`pickDirectory` 进入 `SettingsService` 接口、Tauri 侧走 dialog
   // 插件、Web 侧以「仅桌面」原因拒绝——加上 `cliTerminalTheme` 的归一化与其单测。两者都是
   // 桌面/Web 双实现必须同时补的接口,不是既有代码的复制。
-  { root: "src/services", budget: 28161, owner: "harden-session-workspace-tab-layouts" },
+  //
+  // 28161 -> 28196(fix-cli-parameters-native-payload-normalization):+35 是把原生 IPC 载荷接进
+  // registry 已有的 Zod 归一化——一个按 profile 的导出函数、它调用的定义级私有函数,以及
+  // Tauri 客户端三条返回路径上的 await/map 改写。不是复制:归一化本身早就存在,Web 适配器一直
+  // 在用,缺的只是桌面适配器没有接上去。逐点 `?? []` 补丁会更省行数,但下一个空数组字段还会
+  // 复发。
+  { root: "src/services", budget: 28196, owner: "fix-cli-parameters-native-payload-normalization" },
 ]);
 
 const STATE_PACKAGES = new Set([
