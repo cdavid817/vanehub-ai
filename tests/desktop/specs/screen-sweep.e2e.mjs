@@ -66,6 +66,15 @@ async function assertScreenRendered(name) {
     !/^(正在加载功能|Loading feature)/.test(text),
     `${name} was captured as its loading placeholder rather than the screen`,
   );
+  // The other `LazyFeature` fallback, and the one that mattered: a screen whose component threw is
+  // still non-empty text, so every check above passes on it. The sweep walked the CLI parameters
+  // page while it rendered nothing but this message and reported the screen as covered, which is
+  // how the failure reached a release. Matched anywhere rather than anchored -- the fallback sits
+  // inside the page shell, so the screen's own chrome comes first in the text.
+  assert.ok(
+    !/(该功能加载失败|This feature could not be loaded)/.test(text),
+    `${name} rendered its load-failure fallback instead of the screen`,
+  );
 }
 
 const navigate = navigateTo;
