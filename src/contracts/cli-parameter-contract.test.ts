@@ -6,6 +6,7 @@ import {
   cliParameterDefinitions,
   defaultCliParameterSelections,
   editableCliParameterDefinitions,
+  normalizeCliParameterProfile,
 } from "../services/cli-parameter-registry";
 import {
   cliArgumentSegmentValues,
@@ -192,5 +193,49 @@ describe("CLI parameter contract", () => {
     expect(
       cliArgumentSegmentValues(renderCliParameterSegments(definitions, selections, "interactive")),
     ).not.toEqual([]);
+  });
+});
+
+describe("native profile payload normalization", () => {
+  // The native serializer omits an empty array. That is fine for the catalog file, which is read
+  // back through serde defaults, and fine for the Web adapter, which builds definitions from the
+  // generated catalog and so passes them through the registry schema. It was not fine for the
+  // desktop adapter, which handed the payload straight to React: a parameter with no dependencies
+  // arrived as `dependencies: {}` and `definition.dependencies.conflictsWith.filter(...)` threw,
+  // taking the whole CLI parameters page down to its load-failure fallback.
+  it("the canonical catalog really does omit the empty arrays this guards", () => {
+    const parameters = nativeParameters("claude-code") as unknown as Record<string, unknown>[];
+    expect(parameters.length).toBeGreaterThan(0);
+    const withoutDependencies = parameters.filter((parameter) => {
+      const dependencies = parameter.dependencies as Record<string, unknown> | undefined;
+      return dependencies === undefined || Object.keys(dependencies).length === 0;
+    });
+    expect(withoutDependencies.length).toBeGreaterThan(0);
+  });
+
+  it("fills every array the page dereferences without checking", () => {
+    const definition = cliParameterDefinitions("claude-code")[0];
+    expect(definition).toBeDefined();
+    // Strip the fields back to the shape the wire actually carries.
+    const wireDefinition = { ...definition, dependencies: {}, constraints: { dedupe: false } };
+    delete (wireDefinition as Record<string, unknown>).diagnostics;
+
+    const normalized = normalizeCliParameterProfile({
+      agentId: "claude-code",
+      catalogVersion: cliParameterCatalogVersion,
+      revision: 0,
+      updatedAt: null,
+      installation: { installed: false, runnable: false, activePath: null, version: null, conflict: false },
+      fields: [{ definition: wireDefinition, support: "supported", optionSupport: {} }],
+      selections: {},
+      savedPreviews: { chat: null, interactive: null },
+      diagnostics: [],
+    } as unknown as Parameters<typeof normalizeCliParameterProfile>[0]);
+
+    const filled = normalized.fields[0].definition;
+    expect(filled.dependencies.conflictsWith).toEqual([]);
+    expect(filled.dependencies.requiresAll).toEqual([]);
+    expect(filled.constraints.exclusiveValues).toEqual([]);
+    expect(filled.diagnostics).toEqual([]);
   });
 });
