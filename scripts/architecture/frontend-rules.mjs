@@ -442,7 +442,7 @@ const SUBTREE_LINE_BUDGETS = Object.freeze([
   //
   // 再次合并 main(2026-09-08,含 fix-cli-parameters-native-payload-normalization 的 +35)后在合并树上
   // 实测;本分支对 `dependencies: {}` 的原生序列化修正已撤回,改用 main 的适配器归一化,避免两处修同一缺陷。
-  { root: "src/services", budget: 28228, owner: "harden-session-workspace-tab-layouts" },
+  { root: "src/services", budget: 28263, owner: "harden-session-workspace-tab-layouts" },
 ]);
 
 const STATE_PACKAGES = new Set([

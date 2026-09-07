@@ -178,3 +178,7 @@ Windows / macOS：全部 NOT RUN。
 | `npm run test:desktop` | NOT RUN（本机） | 与另一会话的桌面构建争抢内存，本轮未起；以 CI 三平台 Desktop Smoke 为准 |
 
 清理：上一轮 Qoder live gate 被内存看护 SIGKILL 后遗留 6 个 `qoder --acp` 孤儿进程（工作目录已删除），本轮手动 `kill`。宿主被 SIGKILL 时 ACP 子进程无人回收属预期（父进程无机会清理），生产路径由 janitor 与 `shutdown_all` 覆盖，未额外改代码。
+
+### 二次合并（2026-09-08，`e3796fd9`）
+
+首个 PR 提交后 main 又前进 4 个提交（vitest 5.0.0、npm/cargo 依赖组、PR #287 桌面适配器归一化 CLI 参数载荷），GitHub 判定 PR 冲突，`pull_request` 工作流因此未启动。重新合并：唯一冲突是 `src/services` 行数预算，按合并树实测提到 28263；本分支的原生侧 `dependencies` 序列化修正撤回（`c509b765`），改用 main 的适配器归一化。`npm ci` 后在 vitest 5 上重跑：`architecture:check`、`test`（3027）、`test:coverage`、`coverage:check:frontend`、`build`、`local-media:fake:check`、`contracts:check`、`docs:check`、`version:unit:test`、`coverage:policy:test`、`release:unit:test`、`deps:config:*`、`desktop:unit:test`、两条 `openspec validate`、`cargo fmt/check/clippy`、`native:panic:check`、`cargo test --workspace`（6964 passed）全部 PASSED。Playwright 与桌面层未在本机重跑（另一会话仍占满机器），以 CI 为准。
