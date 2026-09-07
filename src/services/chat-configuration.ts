@@ -10,6 +10,13 @@ const agentDefaults: Record<string, { providerId: string; modelId: string; reaso
   // The real slug list needs an authenticated `agy models` run; until then this falls back to
   // whatever the CLI itself has configured rather than naming a guess.
   "antigravity-cli": { providerId: "google", modelId: "antigravity-default", reasoning: "high" },
+  // The expanded CLIs pick their model inside the CLI: `<vendor>-default` names the CLI's own
+  // configured model, not an unverified slug; none exposes a reviewed depth flag. Mirrors `chat_profile.rs`.
+  ...Object.fromEntries(([
+    ["qwen-code", "qwen", "qwen"], ["kimi-cli", "moonshot", "kimi"], ["qoder-cli", "qoder", "qoder"],
+    ["codebuddy-code", "codebuddy-international", "codebuddy"], ["copilot-cli", "github-copilot", "copilot"],
+    ["cursor-agent-cli", "cursor", "cursor"], ["iflow-cli", "iflow-custom", "iflow"],
+  ] as const).map(([agentId, providerId, slug]) => [agentId, { providerId, modelId: `${slug}-default`, reasoning: undefined }])),
   onepiece: { providerId: "onepiece", modelId: "onepiece-active", reasoning: undefined },
 };
 

@@ -6,6 +6,7 @@
 
 pub(crate) use super::application::{
     AgentEvidenceObservation, AgentEvidencePort, AgentEvidenceSignal, AgentRunEvidenceOutcome,
+    ManagedConnectionCheckReport, ManagedConnectionCheckRequest,
 };
 use super::application::{
     AgentRuntimeApplicationService, AgentTerminalApplicationService, BrowserHandoffControlPort,
@@ -13,6 +14,7 @@ use super::application::{
     LocalModelDiscoveryService, LoopApplicationService, LoopControlApplicationService,
     LoopRecoveryApplicationService, LoopVerificationCancellation, LoopVerificationCommandView,
     LoopVerificationProcessPort, LoopVerificationProcessRequest, LoopVerificationProcessStatus,
+    ManagedConnectionControlPort,
 };
 use super::infrastructure::{
     background_shell_registry, task_list_store, ManualNativeToolControl, NativeLoopScheduler,
@@ -116,6 +118,7 @@ pub(crate) struct AgentRuntimeApiServices {
     pub(crate) manual_native_tools: ManualNativeToolControl,
     pub(crate) local_discovery: LocalModelDiscoveryService,
     pub(crate) structured_evaluation: StructuredModelEvaluationService,
+    pub(crate) managed_connections: Arc<dyn ManagedConnectionControlPort>,
 }
 
 #[derive(Clone)]
@@ -140,6 +143,7 @@ pub(crate) struct AgentRuntimeApi {
     manual_native_tools: ManualNativeToolControl,
     local_discovery: LocalModelDiscoveryService,
     structured_evaluation: StructuredModelEvaluationService,
+    managed_connections: Arc<dyn ManagedConnectionControlPort>,
 }
 
 impl AgentRuntimeApi {
@@ -161,6 +165,7 @@ impl AgentRuntimeApi {
             manual_native_tools,
             local_discovery,
             structured_evaluation,
+            managed_connections,
         } = services;
         Self {
             service,
@@ -179,7 +184,23 @@ impl AgentRuntimeApi {
             manual_native_tools,
             local_discovery,
             structured_evaluation,
+            managed_connections,
         }
+    }
+
+    /// Releases the long-lived managed connections of one session. Called before a session is
+    /// deleted so its ACP agent, pending approvals, and proxied terminals do not outlive it.
+    pub(crate) fn release_managed_connections(&self, session_id: &str) -> usize {
+        self.managed_connections.release_session(session_id)
+    }
+
+    /// A user-initiated ACP handshake with an installed program; see the port for what it does
+    /// and does not do.
+    pub(crate) fn check_managed_connection(
+        &self,
+        request: ManagedConnectionCheckRequest,
+    ) -> Result<ManagedConnectionCheckReport, String> {
+        self.managed_connections.check_connection(request)
     }
 
     pub(crate) fn evaluate_structured_model(
@@ -868,7 +889,10 @@ impl AgentRuntimeApi {
     }
 
     pub(crate) fn shutdown_generations(&self) -> Result<Vec<String>, AgentRuntimeApplicationError> {
-        self.service.shutdown_generations()
+        let stopped = self.service.shutdown_generations();
+        // Idle ACP agents hold no generation but still hold a process; they go with the host.
+        let _ = self.managed_connections.shutdown_all();
+        stopped
     }
 
     pub(crate) fn open_agent_terminal(

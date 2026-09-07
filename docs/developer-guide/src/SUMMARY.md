@@ -18,6 +18,7 @@
 - [Tool registry and execution](tool-registry.md)
 - [Extended tool contexts](extended-tool-contexts.md)
 - [CLI lifecycle and global configuration](cli-lifecycle.md)
+- [ACP runtime for managed CLI conversations](acp-runtime.md)
 - [Terminal and PTY runtime](terminal-runtime.md)
 - [CLI delegation and the ChangeSet pipeline](cli-delegation.md)
 - [Multi-Agent group chat](multi-agent-group-chat.md)

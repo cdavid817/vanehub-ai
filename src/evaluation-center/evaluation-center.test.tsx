@@ -19,7 +19,12 @@ describe("EvaluationCenter", () => {
     const run = await screen.findByRole("button", { name: "运行竞技场" });
     await waitFor(() => expect((run as HTMLButtonElement).disabled).toBe(false));
     expect(screen.getByTestId("evaluation-agent-opencode")).toBeTruthy();
-    for (const agentId of ["claude-code", "opencode", "gemini-cli", "antigravity-cli"]) {
+    // No mock agent reports `available`, so the center preselects the first eight of the
+    // registry (the original five plus Qwen, Kimi, Qoder). Uncheck seven of those and check
+    // OnePiece, leaving exactly Codex CLI and OnePiece for the arena.
+    for (const agentId of [
+      "claude-code", "opencode", "gemini-cli", "antigravity-cli", "qwen-code", "kimi-cli", "qoder-cli", "onepiece",
+    ]) {
       fireEvent.click(screen.getByTestId(`evaluation-agent-${agentId}`));
     }
     fireEvent.click(run);

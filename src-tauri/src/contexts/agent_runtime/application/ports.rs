@@ -535,6 +535,48 @@ pub(crate) trait AgentProcessEventSink: Send + Sync {
     fn handle(&self, event: GenerationProcessEvent) -> Result<(), AgentRuntimeApplicationError>;
 }
 
+/// Long-lived managed connections (an ACP agent process that outlives one turn) the runtime must
+/// release when their session goes away or the host shuts down. Owned resources only: never a
+/// CLI's global history, credential store, or another session's process.
+pub(crate) trait ManagedConnectionControlPort: Send + Sync {
+    /// Releases every connection bound to `session_id`; returns how many were released.
+    fn release_session(&self, session_id: &str) -> usize;
+    /// Terminates every connection at host shutdown; returns the binding keys released.
+    fn shutdown_all(&self) -> Vec<String>;
+    /// A user-initiated handshake with the program at `executable`: `initialize` only, then the
+    /// process is released. No session is created and no prompt is sent, so the answer says what
+    /// the installed program negotiates, not whether it can complete a task.
+    fn check_connection(
+        &self,
+        request: ManagedConnectionCheckRequest,
+    ) -> Result<ManagedConnectionCheckReport, String>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ManagedConnectionCheckRequest {
+    pub(crate) agent_id: String,
+    /// The resolved executable the management page shows, never a bare command name.
+    pub(crate) executable: String,
+    /// A directory the check may run in. Nothing is written there.
+    pub(crate) workspace: String,
+    /// The account profile's provider id (CodeBuddy China/iOA), when one is selected.
+    pub(crate) provider_id: Option<String>,
+}
+
+/// What one handshake negotiated. Every field is a redacted summary: no token, no environment
+/// value, no raw frame.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ManagedConnectionCheckReport {
+    pub(crate) agent_id: String,
+    pub(crate) transport: String,
+    pub(crate) protocol_version: u64,
+    pub(crate) load_session: bool,
+    pub(crate) agent_name: Option<String>,
+    pub(crate) agent_version: Option<String>,
+    pub(crate) auth_methods: Vec<String>,
+    pub(crate) elapsed_ms: u64,
+}
+
 pub(crate) trait AgentTerminalGateway: Send + Sync {
     fn attach_retained(
         &self,

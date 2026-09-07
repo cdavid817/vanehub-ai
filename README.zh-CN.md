@@ -14,7 +14,7 @@
   <img src="public/icon-512.png" alt="VaneHub AI 应用图标" width="160" />
 </p>
 
-桌面优先的 AI 编码 Agent 工作台：在一个统一界面里使用与管理 OnePiece、Claude Code、Codex CLI、OpenCode、Gemini CLI 和 Antigravity CLI。
+桌面优先的 AI 编码 Agent 工作台：在一个统一界面里使用与管理 OnePiece、Claude Code、Codex CLI、OpenCode、Gemini CLI、Antigravity CLI、Qwen Code、Kimi Code CLI、Qoder CLI、CodeBuddy Code、GitHub Copilot CLI 和 Cursor Agent CLI。
 
 <!-- docs-fact:project-version value:1.4.0 -->
 <!-- docs-fact:tauri-major value:2.x -->
@@ -37,13 +37,13 @@
 它支持两类 Agent，**选一条路径即可开始，不需要安装全部 CLI**：
 
 - **OnePiece**——内置的原生 API Agent，直接通过 HTTP 调用模型提供商（provider），不要求安装任何外部 CLI；
-- **外部 CLI Agent**——Claude Code、Codex CLI、OpenCode、Gemini CLI、Antigravity CLI，由你安装并在终端完成各自的认证。
+- **外部 CLI Agent**——Claude Code、Codex CLI、OpenCode、Gemini CLI、Antigravity CLI、Qwen Code、Kimi Code CLI、Qoder CLI、CodeBuddy Code、GitHub Copilot CLI、Cursor Agent CLI，由你安装并在终端完成各自的认证。iFlow CLI 作为需显式启用的历史兼容终端条目保留。
 
 <!-- docs-section:features -->
 
 ## 核心能力
 
-- **统一 Agent 入口**——OnePiece 原生 API Agent 与五个外部 CLI Agent 共用会话、配置、权限与观测体系。
+- **统一 Agent 入口**——OnePiece 原生 API Agent 与十一个外部 CLI Agent 共用会话、配置、权限与观测体系。
 - **会话与工作区**——项目、交互式终端（PTY）、Git worktree、远程工作区（SSH）。
 - **多 Agent 协作**——群聊席位与 `@` 交接、专家角色、Loop 自动迭代、Plan 模式、目标与任务看板。
 - **上下文与代码智能**——上下文压缩、跨会话记忆、个性化、检索、工作区代码索引、LSP 代码智能。
@@ -62,9 +62,17 @@
 | OpenCode | 外部 CLI | `opencode` | 取决于你配置的模型，无固定模型族 | ✅ npm / 官方安装器 | 终端认证；可在应用内配第三方兼容端点 |
 | Gemini CLI | 外部 CLI | `gemini` | Google | ✅ npm | 终端认证；端点可改，目录仅含官方预设 |
 | Antigravity CLI | 外部 CLI | `agy` | Google | ✅ 官方安装器（仅最新版） | 终端 Google 登录；CLI 官方另支持 API Key 与兼容端点，VaneHub 暂未纳入统一 Provider 配置 |
+| Qwen Code | 外部 CLI（ACP） | `qwen` | 阿里 Qwen | ✅ npm | 终端登录；统一对话经 `qwen --acp` |
+| Kimi Code CLI | 外部 CLI（ACP） | `kimi` | Moonshot | ✅ npm | 终端登录；统一对话经 `kimi acp`；旧 Python/uv 发行形态只检测不迁移 |
+| Qoder CLI | 外部 CLI（ACP） | `qoder` | Qoder | ✅ npm（上游暂不支持 Windows arm64） | 终端登录；统一对话经 `qoder --acp` |
+| CodeBuddy Code | 外部 CLI（ACP） | `codebuddy` | 腾讯 | ✅ npm | 终端登录；按会话选择国际 / 国内 / iOA 账号环境；统一对话经 `codebuddy --acp` |
+| GitHub Copilot CLI | 外部 CLI（ACP） | `copilot` | GitHub | ✅ npm / WinGet | 终端登录；统一对话经 `copilot --acp --stdio` |
+| Cursor Agent CLI | 外部 CLI（ACP） | `agent` | Cursor | ✅ 官方安装器（仅最新版） | 终端登录；统一对话经 `agent acp`；程序按身份校验而非仅按名字匹配 |
+| iFlow CLI | 历史兼容外部 CLI | `iflow` | iFlow（官方服务已于 2026-04-17 关闭） | ❌ 仅检测 | 仅原生终端配合你自己的自定义 API 配置；不提供统一对话与自动化，不声称官方服务 |
 
 - **应用内安装**指能否在「设置 → CLI 管理」由 VaneHub AI 代为安装与升级：它能驱动 npm、Windows 上的 WinGet，以及逐个 CLI 审核过的官方安装器。来自 Homebrew、Bun、Volta、桌面应用自带或系统包的那一份会被检测并报告，但不会被改动。
 - **各家的官方订阅登录（OAuth）一律在终端完成**，VaneHub AI 不代管、不保存订阅凭据。
+- **ACP** 行的统一对话经 Agent Client Protocol 运行：CLI 在会话期间持续运行，其权限请求、提问与计划以卡片形式在应用内由你应答。这些 CLI 的 token 用量显示为「不可用」而非零。设置页的检测绝不启动 ACP 会话或登录。
 - VaneHub 集成的 OpenCode 是开源的 sst/opencode（npm 包 `opencode-ai`）；它驱动你自己配置的任意模型，「要求评审来自不同模型族」这类策略对它不生效。
 - Gemini CLI 的消费级路径正在收缩：Google 宣布自 2026-06-18 起，Gemini Code Assist Individuals 及 Google AI Pro/Ultra 等消费级账号不再经 Gemini CLI 提供请求服务，其「Login with Google」路径不再可用，官方建议这些用户迁移到 Antigravity；Gemini Code Assist Standard 与 Enterprise 不受影响。API Key 与 Vertex 属于不同认证路径，请以 Google 官方说明为准。
 

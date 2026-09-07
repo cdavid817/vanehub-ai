@@ -62,6 +62,20 @@ pub(super) fn snapshot_to_dto(snapshot: CliEnvironmentSnapshot) -> CliEnvironmen
         last_mutation: snapshot.last_mutation.as_ref().map(mutation_to_dto),
         last_operation_id: snapshot.last_operation_id,
         checked_at: snapshot.checked_at.map(|value| value.to_rfc3339()),
+        // An unregistered id is reported as active/terminal-only: the truthful floor, never a
+        // claimed managed conversation.
+        lifecycle: definition
+            .map(|tool| tool.lifecycle.as_str().to_string())
+            .unwrap_or_else(|| "active".to_string()),
+        legacy_service_shutdown: definition
+            .and_then(|tool| tool.lifecycle.service_shutdown())
+            .map(str::to_string),
+        managed_transport: definition
+            .map(|tool| tool.managed_transport.as_str().to_string())
+            .unwrap_or_else(|| "terminal-only".to_string()),
+        login_docs_url: definition
+            .and_then(|tool| tool.login_docs_url)
+            .map(str::to_string),
         installations: snapshot
             .installations
             .into_iter()

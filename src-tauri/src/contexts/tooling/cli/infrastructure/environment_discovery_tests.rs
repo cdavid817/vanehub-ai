@@ -63,6 +63,30 @@ fn a_path_shape_yields_inferred_confidence_never_verified() {
 }
 
 #[test]
+fn a_uv_tool_target_reclassifies_a_local_bin_launcher() {
+    // The retired Python Kimi links `~/.local/bin/kimi` to a uv tool tree; the launcher path
+    // alone looks like a vendor install, and only the canonical target says otherwise.
+    let (kind, confidence) = super::classify_source_with_target(
+        "/home/a/.local/bin/kimi",
+        Some("/home/a/.local/share/uv/tools/kimi-cli/bin/kimi"),
+    );
+    assert_eq!(kind, CliSourceKind::Uv);
+    assert_eq!(confidence, CliSourceConfidence::Inferred);
+    // A vendor launcher whose target is the vendor's own tree stays a vendor install.
+    let (kind, _) = super::classify_source_with_target(
+        "/home/a/.local/bin/kimi",
+        Some("/home/a/.kimi-code/bin/kimi"),
+    );
+    assert_eq!(kind, CliSourceKind::VendorInstaller);
+    // An npm launcher is never reclassified, whatever it links to.
+    let (kind, _) = super::classify_source_with_target(
+        "/home/a/.npm-global/bin/kimi",
+        Some("/home/a/.local/share/uv/tools/kimi-cli/bin/kimi"),
+    );
+    assert_eq!(kind, CliSourceKind::Npm);
+}
+
+#[test]
 fn an_unrecognised_path_is_unknown_with_unknown_confidence() {
     let (kind, confidence) = classify_source("/opt/somewhere/custom/claude");
     assert_eq!(kind, CliSourceKind::Unknown);
@@ -356,4 +380,71 @@ fn confidence_never_rises_above_what_the_evidence_supports() {
         let (_, confidence) = classify_source(path);
         assert_eq!(confidence, CliSourceConfidence::Inferred, "{path}");
     }
+}
+
+/// Live evidence against the programs actually installed on this host. Opt-in through
+/// `VANEHUB_LIVE_CLI=1`: it reads PATH and runs each tool's read-only `--version`, nothing else.
+/// Prints one line per installation so the run can be recorded as evidence.
+#[test]
+fn live_discovery_reports_the_installed_expanded_clis() {
+    if std::env::var("VANEHUB_LIVE_CLI").ok().as_deref() != Some("1") {
+        eprintln!("live discovery skipped: VANEHUB_LIVE_CLI is not set");
+        return;
+    }
+    use crate::contexts::tooling::cli::domain::registry::definition;
+    let discovery = SystemCliDiscovery;
+    let mut found = 0;
+    for agent_id in [
+        "qwen-code",
+        "kimi-cli",
+        "qoder-cli",
+        "codebuddy-code",
+        "copilot-cli",
+        "cursor-agent-cli",
+        "iflow-cli",
+    ] {
+        let tool = definition(agent_id).expect("registered");
+        let installations = discovery
+            .discover(
+                &tool.tool_id().expect("id"),
+                tool.executable_names,
+                CliProbeBudget::default(),
+                &CliCancellation::never(),
+            )
+            .expect("discovery");
+        for installation in &installations {
+            let version_output = std::process::Command::new(&installation.executable_path)
+                .args(tool.probes.version.args)
+                .output()
+                .map(|output| {
+                    String::from_utf8_lossy(&output.stdout).trim().to_string()
+                        + &String::from_utf8_lossy(&output.stderr)
+                })
+                .unwrap_or_default();
+            let accepted = tool.identity.accepts(
+                &installation.executable_path,
+                installation.canonical_path.as_deref(),
+                &version_output,
+            );
+            eprintln!(
+                "LIVE-DISCOVERY {agent_id}: path={} canonical={:?} source={:?} status={:?} version_output={:?} identity_accepted={accepted}",
+                installation.executable_path,
+                installation.canonical_path,
+                installation.source_kind,
+                installation.executable_status,
+                version_output.lines().next().unwrap_or(""),
+            );
+            assert!(
+                accepted,
+                "{agent_id}: {} failed the identity rule",
+                installation.executable_path
+            );
+            found += 1;
+        }
+        assert!(
+            !installations.is_empty(),
+            "{agent_id} was not found on PATH"
+        );
+    }
+    assert!(found >= 7);
 }

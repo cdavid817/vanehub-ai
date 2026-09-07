@@ -13,6 +13,15 @@
 | Gemini CLI | `gemini` | npm `@google/gemini-cli` |
 | OpenCode | `opencode` | npm `opencode-ai`, vendor installer |
 | Antigravity CLI | `agy` | vendor installer only |
+| Qwen Code | `qwen` | npm `@qwen-code/qwen-code` |
+| Kimi Code CLI | `kimi` | npm `@moonshot-ai/kimi-code`; the older Python/uv distribution is detected and reported, never migrated |
+| Qoder CLI | `qoder` (`qodercli` alias) | npm `@qoder-ai/qodercli`; Windows arm64 excluded per vendor documentation |
+| CodeBuddy Code | `codebuddy` | npm `@tencent-ai/codebuddy-code` |
+| GitHub Copilot CLI | `copilot` | npm `@github/copilot`, WinGet `GitHub.Copilot` |
+| Cursor Agent CLI | `agent` | vendor installer only; a candidate is accepted only when its canonical path or version banner names Cursor |
+| iFlow CLI (legacy) | `iflow` | local detect-only: no managed source, no in-app install |
+
+Each entry also carries a `lifecycle` (`active`, or `legacy` with the date the vendor's service shut down), an `identity` rule (a basename is proof for `claude`; it is not for `agent`), and a `managed_transport` that mirrors the runtime's transport declaration so the management page can show it. See [ACP runtime](acp-runtime.md) for the transport itself.
 
 A distribution carries its own capabilities, so "can this be downgraded" is data on the definition rather than a conditional somewhere in the UI. npm supports every action at an exact version; WinGet supports install, upgrade, and uninstall, with downgrade and reinstall deliberately disabled until each is separately verified; a vendor installer installs and upgrades to latest and pins nothing.
 
@@ -78,7 +87,7 @@ A package manager cannot be undone by writing an older row, so the outcome vocab
 
 ## Global configuration: rewriting each CLI's own file
 
-The `cli_config` subdomain is the only part of `tooling` that **actively rewrites an external program's configuration file**. All five Agents have their own managed file; the semantics are covered in [CLI Agent global configuration](../../cli-agent-global-configuration.md).
+The `cli_config` subdomain is the only part of `tooling` that **actively rewrites an external program's configuration file**. All seven Agents have their own managed file (Qwen Code: `~/.qwen/.env` plus the `security.auth.selectedType` key of `~/.qwen/settings.json`; iFlow: the root of `~/.iflow/settings.json`, key included, because iFlow reads it from nowhere else); the semantics are covered in [CLI Agent global configuration](../../cli-agent-global-configuration.md).
 
 Four write constraints:
 

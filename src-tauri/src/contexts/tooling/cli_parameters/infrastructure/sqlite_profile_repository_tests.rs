@@ -6,6 +6,7 @@ use crate::contexts::tooling::cli_parameters::domain::selection::{
     CliParameterSelection, CliParameterSelectionMap,
 };
 use crate::platform::database::NativeDatabase;
+use crate::test_support::while_another_connection_commits;
 use rusqlite::params;
 use tempfile::TempDir;
 
@@ -358,4 +359,33 @@ fn applying_the_schema_again_is_a_no_op() {
         )
         .expect("query");
     assert_eq!(count, 1);
+}
+
+/// Pins the failure seen in the 2026-09-06 desktop smoke: the opencode parameter save and reset
+/// failed while a background writer committed, because both read the revision in a deferred
+/// transaction before writing. Both now open `BEGIN IMMEDIATE` and wait for the lock instead.
+#[test]
+fn a_save_and_a_reset_wait_for_a_competing_commit_instead_of_failing() {
+    let directory = tempfile::tempdir().expect("tempdir");
+    let database = NativeDatabase::new(directory.path().to_path_buf()).expect("database");
+    let repository = SqliteCliParameterProfileRepository::new(database.clone());
+
+    let persisted = while_another_connection_commits(&database, || {
+        repository.replace_if_revision(replace(
+            "opencode",
+            0,
+            &[(
+                "model",
+                CliParameterSelection::text("anthropic/claude-sonnet-4"),
+            )],
+        ))
+    })
+    .expect("the save waits for the write lock and commits");
+    assert_eq!(persisted.revision, 1);
+
+    let reset = while_another_connection_commits(&database, || {
+        repository.reset_if_revision("opencode", 1, CATALOG_VERSION)
+    })
+    .expect("the reset waits for the write lock and commits");
+    assert_eq!(reset.revision, 2);
 }

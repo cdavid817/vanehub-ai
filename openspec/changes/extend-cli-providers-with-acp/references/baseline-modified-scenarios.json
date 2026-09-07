@@ -1,0 +1,25 @@
+{
+  "commit": "34a449e80a1badc16fcfb49dcbad26134aecf2d9",
+  "path": "openspec/specs/provider-plugin-sdk/spec.md",
+  "requirements": {
+    "Complete internal provider SDK contract": [
+      "Register a complete provider",
+      "Reject an incomplete provider"
+    ],
+    "Versioned data-only provider manifest": [
+      "Validate a version 1 manifest",
+      "Reject an unsupported schema",
+      "Reject executable content",
+      "Reject an inconsistent capability declaration"
+    ],
+    "Provider conformance test kit": [
+      "Verify all built-in providers",
+      "Verify a fixture provider"
+    ],
+    "Provider parser conformance": [
+      "Parse arbitrarily partitioned output",
+      "Parse text fallback",
+      "Reject oversized or malformed records"
+    ]
+  }
+}

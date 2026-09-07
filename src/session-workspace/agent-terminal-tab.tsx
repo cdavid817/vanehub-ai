@@ -34,6 +34,16 @@ function clearReplay(sessionId: string) {
   terminalReplay.clear(sessionId);
 }
 
+/**
+ * A resize races the process on the other end: the observer fires as a tab unmounts or a session
+ * is left, and the terminal it names may already have exited. That is not a defect to surface
+ * as a fatal rejection -- nothing was lost -- so the refusal is swallowed here. Input is not
+ * treated this way: typing into a gone terminal is something the user must see fail.
+ */
+function resizeQuietly(terminalId: string, rows: number, cols: number): Promise<void> {
+  return agentService.resizeAgentTerminal(terminalId, { rows, cols }).catch(() => undefined);
+}
+
 export function AgentTerminalTab({ isVisible, session, sessionActivationKey }: { isVisible: boolean; session: Session | null; sessionActivationKey: number }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -99,7 +109,7 @@ export function AgentTerminalTab({ isVisible, session, sessionActivationKey }: {
       if (!visibleRef.current) return;
       fit.fit();
       const terminalId = terminalIdRef.current;
-      if (terminalId) void agentService.resizeAgentTerminal(terminalId, { rows: terminal.rows, cols: terminal.cols });
+      if (terminalId) void resizeQuietly(terminalId, terminal.rows, terminal.cols);
     };
     const resizeObserver = new ResizeObserver(syncSize);
     // Attached once `syncSize` exists: swapping the renderer can change the computed rows and
@@ -198,7 +208,7 @@ export function AgentTerminalTab({ isVisible, session, sessionActivationKey }: {
       fitRef.current?.fit();
       const terminal = terminalRef.current;
       const terminalId = terminalIdRef.current;
-      if (terminal && terminalId) void agentService.resizeAgentTerminal(terminalId, { rows: terminal.rows, cols: terminal.cols });
+      if (terminal && terminalId) void resizeQuietly(terminalId, terminal.rows, terminal.cols);
     });
     return () => cancelAnimationFrame(frame);
   }, [isVisible]);

@@ -7,6 +7,7 @@ use crate::contexts::tooling::skill_tools::domain::{
     SkillToolLifecycle, SkillToolOwnerId, SkillToolQuarantine, SkillToolRevision, SkillToolScope,
     SkillToolSourceScope, SkillToolTrustDecision, SkillToolTrustRecord, SkillToolValidationState,
 };
+use crate::platform::database::SqliteWriteTransaction;
 use crate::platform::database::{NativeDatabase, PooledSqlite};
 use rusqlite::{params, OptionalExtension, Row};
 use std::sync::Arc;
@@ -198,7 +199,13 @@ impl SkillToolStateRepository for SqliteSkillToolRepository {
             .database
             .connection()
             .map_err(|error| SkillToolApplicationError::Storage(error.to_string()))?;
-        let transaction = connection.transaction().map_err(storage)?;
+        // Immediate, not deferred: this transaction reads the revision row and then writes the
+        // trust row. A deferred transaction takes a shared lock for the read and must upgrade to
+        // a reserved lock for the write; when another connection (the registry refresh that runs
+        // after every Skill mutation) holds the write lock at that moment, SQLite refuses the
+        // upgrade with SQLITE_BUSY instead of waiting out busy_timeout, and the trust decision is
+        // lost as a storage error. Taking the write lock up front waits instead of failing.
+        let transaction = connection.write_transaction().map_err(storage)?;
         // The trust row and the revision row it authorizes move together; a decision persisted
         // without its revision row would be trust for content nothing can observe.
         let owner: Option<(String, String, String, String)> = transaction

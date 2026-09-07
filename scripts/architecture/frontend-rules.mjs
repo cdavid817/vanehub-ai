@@ -385,8 +385,19 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 与 runtime-agent-client、runtime-session-log-client 同一模式同一理由。终端加速渲染只对桌面端有
 // 意义——Web/mock 的终端写的是夹具文本,不驱动任何进程——而两个终端界面在两个运行时里都要渲染,所以
 // 这个判断只能有一处写法,组件里出现运行时分支正是 ARCH-FE-002 要拦的东西。按实测 27422 记,不留余量。
+// 上调理由(extend-cli-providers-with-acp):+31 全部是七个新 CLI 在 Web/mock 侧的对等数据,没有一行是
+// 复制既有分支——`mock-agent-data.ts` 的七条注册项(+20,已压成一个元组表映射,与原生 registry 种子
+// 同一套 capability tag),`chat-configuration.ts` 的默认 provider/model(+7,镜像 `chat_profile.rs`)
+// 与 `model-family.ts` 的 unknown 家族(+4,镜像 `seat_roster.rs`)。Tauri 与 Web/mock 必须同时补齐,
+// 否则浏览器里的创建会话对话框会少七个 Agent。按实测 27453 记,不留余量。
+// 同一变更再上调 32 行:显式「检查连接」是一条新的服务边界方法(`checkCliConnection`)——接口 6 行含
+// 说明,Tauri 侧 4 行的 invoke 映射,Web/mock 侧 22 行,因为它必须真的拒绝(非 ACP、未安装)而不是一律
+// 返回成功,否则页面的失败分支在浏览器里永远跑不到。按实测 27485 记,不留余量。
+// 上调理由(add-qwen-iflow-config-profiles):+4 是 `web-cli-config-state.ts` 对两种新 profile kind 的凭据
+// 规则与模型必填校验——Web/mock 的保存校验必须与原生 `validate()` 同一套拒绝,否则浏览器里能存下
+// 桌面端会拒绝的配置。按实测 27489 记,不留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
-  { root: "src/services", budget: 27422, owner: "reduce-session-runtime-overhead" },
+  { root: "src/services", budget: 27489, owner: "reduce-session-runtime-overhead" },
 ]);
 
 const STATE_PACKAGES = new Set([

@@ -7,6 +7,7 @@ import type {
 } from "../types/cli-parameter-profile";
 import type {
   CliActionPlan,
+  CliConnectionCheck,
   CliBulkActionPlan,
   CliEnvironmentSnapshot,
   ExecuteCliActionInput,
@@ -49,6 +50,12 @@ export interface CliToolService {
   getCliBulkActionPlan(planId: string): Promise<CliBulkActionPlan>;
   executeCliBulkAction(input: ExecuteCliActionInput): Promise<OperationTask>;
   runCliDoctor(agentId: string): Promise<OperationTask>;
+  /**
+   * A user-initiated ACP handshake with the installed program: `initialize` only, then the
+   * process is released. Never run by detection. Rejects for a tool without an ACP transport or
+   * without a resolved executable.
+   */
+  checkCliConnection(agentId: string, providerId: string | null): Promise<CliConnectionCheck>;
 }
 
 // Save and reset both carry `expectedRevision` and `catalogVersion`. A caller that has not read a

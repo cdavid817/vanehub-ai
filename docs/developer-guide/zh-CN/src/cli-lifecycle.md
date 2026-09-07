@@ -13,6 +13,15 @@
 | Gemini CLI | `gemini` | npm `@google/gemini-cli` |
 | OpenCode | `opencode` | npm `opencode-ai`、官方安装器 |
 | Antigravity CLI | `agy` | 只有官方安装器 |
+| Qwen Code | `qwen` | npm `@qwen-code/qwen-code` |
+| Kimi Code CLI | `kimi` | npm `@moonshot-ai/kimi-code`;旧 Python/uv 发行形态只检测并报告,绝不迁移 |
+| Qoder CLI | `qoder`(别名 `qodercli`) | npm `@qoder-ai/qodercli`;按官方文档排除 Windows arm64 |
+| CodeBuddy Code | `codebuddy` | npm `@tencent-ai/codebuddy-code` |
+| GitHub Copilot CLI | `copilot` | npm `@github/copilot`、WinGet `GitHub.Copilot` |
+| Cursor Agent CLI | `agent` | 只有官方安装器;候选程序的规范路径或版本输出必须指向 Cursor 才被接受 |
+| iFlow CLI(历史兼容) | `iflow` | 仅本地检测:无受管来源、不提供应用内安装 |
+
+每个条目还带有 `lifecycle`(`active`,或带厂商服务关闭日期的 `legacy`)、`identity` 规则(basename 对 `claude` 是证据,对 `agent` 不是)以及镜像运行时传输声明的 `managed_transport`,管理页据此展示。传输本身见 [ACP 运行时](acp-runtime.md)。
 
 分发来源自带能力声明，所以「这个能不能降级」是定义上的数据，而不是散落在界面里的某个条件判断。npm 支持按精确版本执行全部动作；WinGet 支持安装、升级、卸载，降级与重装在各自单独验证之前刻意关闭；官方安装器只能装到最新，不钉版本。
 
@@ -78,7 +87,7 @@ VaneHub 唯一「取回一个程序然后执行它」的路径已经不在 `tool
 
 ## 全局配置：改写各 CLI 自己的文件
 
-`cli_config` 子域是 `tooling` 里唯一**主动改写外部程序配置文件**的部分。五个 Agent 各有纳管文件，语义见 [CLI Agent 全局配置](../../../cli-agent-global-configuration.md)。
+`cli_config` 子域是 `tooling` 里唯一**主动改写外部程序配置文件**的部分。七个 Agent 各有纳管文件（Qwen Code：`~/.qwen/.env` 加 `~/.qwen/settings.json` 的 `security.auth.selectedType` 一键；iFlow：`~/.iflow/settings.json` 根级，含密钥，因为 iFlow 只从这里读），语义见 [CLI Agent 全局配置](../../../cli-agent-global-configuration.md)。
 
 四条写入约束：
 

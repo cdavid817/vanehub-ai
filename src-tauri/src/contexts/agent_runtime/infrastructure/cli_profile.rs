@@ -1,12 +1,14 @@
 use super::providers::{
-    message_override_selections, opencode_standard_permission_env_var, policy_override_selections,
-    POLICY_TEMPLATE_GOVERNED_AGENT_IDS,
+    direct_policy_arguments, message_override_selections, opencode_standard_permission_env_var,
+    policy_override_selections, terminal_policy_enforceability, TerminalPolicyEnforceability,
+    POLICY_TEMPLATE_GOVERNED_AGENT_IDS, RUNTIME_POLICY_AGENT_IDS,
 };
 use crate::contexts::agent_runtime::application::{
     resolve_effective_execution_policy, AgentChatConfiguration, AgentCliProfileGateway,
     AgentRuntimeApplicationError, CliProfileSnapshot, SessionExecutionMode,
 };
 use crate::contexts::permissions::api::{PermissionsApi, PolicyTemplateName};
+use crate::contexts::tooling::api::MANAGED_CLI_PARAMETER_AGENT_IDS;
 use crate::contexts::tooling::api::{
     CliLaunchExecutionContext, CliLaunchScope, CliParameterRuntimeApi, CliParameterSelectionMap,
     ResolveCliLaunchParametersInput,
@@ -135,12 +137,39 @@ pub(super) fn resolve_launch(
     operation_id: Option<&str>,
 ) -> Result<ResolvedLaunch, AgentRuntimeApplicationError> {
     let template = launch_template(permissions, agent_id, mode)?;
+    // A PTY is the CLI's own surface. When no reviewed flag can express the template there,
+    // the launch is refused with the reason, never started under a policy it cannot honour.
+    if scope == CliLaunchScope::Interactive {
+        if let TerminalPolicyEnforceability::NotEnforceable { reason_code } =
+            terminal_policy_enforceability(agent_id, template)
+        {
+            return Err(AgentRuntimeApplicationError::PolicyDenied {
+                session_id: String::new(),
+                action: format!("terminal-launch:{reason_code}"),
+            });
+        }
+    }
+    if !MANAGED_CLI_PARAMETER_AGENT_IDS.contains(&agent_id) {
+        return Err(AgentRuntimeApplicationError::CliProfile(format!(
+            "No parameter catalog entry exists for {agent_id}."
+        )));
+    }
+    // The seven expanded providers keep their policy flags runtime-owned: the flag differs by
+    // transport (a permissive flag is passed to a PTY but never to an ACP agent, which asks the
+    // host per call), and a catalog value cannot express that. The catalog renders only their
+    // user-editable parameters; the policy tokens are prepended here.
+    let runtime_policy = RUNTIME_POLICY_AGENT_IDS.contains(&agent_id);
+    let policy_overrides = if runtime_policy {
+        CliParameterSelectionMap::new()
+    } else {
+        policy_override_selections(agent_id, template)
+    };
     let resolved = parameters
         .resolve_cli_launch_segments(&ResolveCliLaunchParametersInput {
             agent_id: agent_id.to_string(),
             scope,
             message_overrides,
-            policy_overrides: policy_override_selections(agent_id, template),
+            policy_overrides,
             execution_context: CliLaunchExecutionContext {
                 operation_id: operation_id.map(str::to_string),
             },
@@ -148,8 +177,18 @@ pub(super) fn resolve_launch(
         .map_err(|error| {
             AgentRuntimeApplicationError::CliProfile(error.code().as_str().to_string())
         })?;
+    let mut global_args = resolved.global_tokens;
+    if runtime_policy {
+        let mut policy = direct_policy_arguments(agent_id, template, scope).ok_or_else(|| {
+            AgentRuntimeApplicationError::CliProfile(format!(
+                "No execution-policy mapping exists for {agent_id}."
+            ))
+        })?;
+        policy.append(&mut global_args);
+        global_args = policy;
+    }
     Ok(ResolvedLaunch {
-        global_args: resolved.global_tokens,
+        global_args,
         invocation_args: resolved.invocation_tokens,
         env: launch_env(agent_id, template),
     })

@@ -10,6 +10,7 @@ use crate::contexts::code_intelligence::domain::models::{
 use crate::contexts::code_intelligence::domain::registry::LANGUAGE_DEFINITIONS;
 use crate::platform::clock::SystemClock;
 use crate::platform::database::NativeDatabase;
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::{params, Connection};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -34,7 +35,9 @@ impl LspConfigurationRepository for SqliteCodeIntelligenceRepository {
     fn save_configuration(&self, configuration: &LspConfiguration) -> Result<(), DomainModelError> {
         configuration.validate()?;
         let mut connection = self.database.connection().map_err(|_| storage_error())?;
-        let transaction = connection.transaction().map_err(|_| storage_error())?;
+        let transaction = connection
+            .write_transaction()
+            .map_err(|_| storage_error())?;
         let now = SystemClock.rfc3339();
         transaction
             .execute(

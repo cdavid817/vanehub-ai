@@ -108,7 +108,9 @@ pub(crate) use cli_profile::RuntimeAgentCliProfileAdapter;
 pub(crate) use code_intelligence_adapter::{
     RuntimeAgentCodeIntelligenceAdapter, UnavailableAgentCodeIntelligenceResponder,
 };
-pub(crate) use composite_process_gateway::CompositeAgentProcessGateway;
+pub(crate) use composite_process_gateway::{
+    CompositeAgentProcessGateway, CompositeToolApprovalPort,
+};
 pub(crate) use context_manifest_repository::{
     apply_context_manifest_schema, SqliteContextManifestRepository,
 };

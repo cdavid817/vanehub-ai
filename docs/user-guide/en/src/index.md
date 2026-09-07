@@ -15,7 +15,7 @@ Pick one execution path first:
 | Path | Who it fits | Recommended route |
 | --- | --- | --- |
 | **OnePiece (native agent)** | You would rather install no coding CLI | Install the app → configure a model provider → create a session → send a task |
-| **External CLI agent** | You already use Claude Code, Codex CLI, Gemini CLI, OpenCode, or Antigravity CLI | Install the app → install and authenticate the CLI → check detection → create a session |
+| **External CLI agent** | You already use Claude Code, Codex CLI, Gemini CLI, OpenCode, Antigravity CLI, Qwen Code, Kimi Code CLI, Qoder CLI, CodeBuddy Code, GitHub Copilot CLI, or Cursor Agent CLI | Install the app → install and authenticate the CLI → check detection → create a session |
 
 Both routes start from these chapters:
 

@@ -14,7 +14,7 @@
   <img src="public/icon-512.png" alt="VaneHub AI app icon" width="160" />
 </p>
 
-A desktop-first workbench for AI coding agents: use and manage OnePiece, Claude Code, Codex CLI, OpenCode, Gemini CLI, and Antigravity CLI in one unified interface.
+A desktop-first workbench for AI coding agents: use and manage OnePiece, Claude Code, Codex CLI, OpenCode, Gemini CLI, Antigravity CLI, Qwen Code, Kimi Code CLI, Qoder CLI, CodeBuddy Code, GitHub Copilot CLI, and Cursor Agent CLI in one unified interface.
 
 <!-- docs-fact:project-version value:1.4.0 -->
 <!-- docs-fact:tauri-major value:2.x -->
@@ -37,13 +37,13 @@ Working with several AI coding agents scatters sessions, projects, terminals, pe
 It supports two kinds of agents — **pick one path to start; you do not need to install every CLI**:
 
 - **OnePiece** — the built-in native API agent that calls model providers over HTTP directly, requiring no external CLI at all;
-- **External CLI agents** — Claude Code, Codex CLI, OpenCode, Gemini CLI, and Antigravity CLI, installed by you and authenticated through each vendor's own flow in your terminal.
+- **External CLI agents** — Claude Code, Codex CLI, OpenCode, Gemini CLI, Antigravity CLI, Qwen Code, Kimi Code CLI, Qoder CLI, CodeBuddy Code, GitHub Copilot CLI, and Cursor Agent CLI, installed by you and authenticated through each vendor's own flow in your terminal. iFlow CLI is kept as an opt-in legacy terminal entry.
 
 <!-- docs-section:features -->
 
 ## Core capabilities
 
-- **One entry point for every agent** — the OnePiece native API agent and five external CLI agents share sessions, configuration, permissions, and observability.
+- **One entry point for every agent** — the OnePiece native API agent and eleven external CLI agents share sessions, configuration, permissions, and observability.
 - **Sessions and workspaces** — projects, interactive terminals (PTY), Git worktrees, remote workspaces over SSH.
 - **Multi-agent collaboration** — group-chat seats with `@` handoff, expert roles, Loop automatic iteration, Plan mode, goals and the work board.
 - **Context and code intelligence** — context compaction, cross-session memory, personalization, retrieval, workspace code indexing, LSP code intelligence.
@@ -62,9 +62,17 @@ It supports two kinds of agents — **pick one path to start; you do not need to
 | OpenCode | External CLI | `opencode` | Whatever model you configure; no fixed family | ✅ npm / vendor installer | Terminal auth; third-party compatible endpoints configurable in-app |
 | Gemini CLI | External CLI | `gemini` | Google | ✅ npm | Terminal auth; endpoint editable, catalog ships the official preset only |
 | Antigravity CLI | External CLI | `agy` | Google | ✅ vendor installer (latest only) | Terminal Google sign-in; the CLI itself also supports API keys and compatible endpoints, which VaneHub does not yet manage in unified provider configuration |
+| Qwen Code | External CLI (ACP) | `qwen` | Alibaba Qwen | ✅ npm | Terminal sign-in; managed conversation over `qwen --acp` |
+| Kimi Code CLI | External CLI (ACP) | `kimi` | Moonshot | ✅ npm | Terminal sign-in; managed conversation over `kimi acp`; the older Python/uv distribution is detected but never migrated |
+| Qoder CLI | External CLI (ACP) | `qoder` | Qoder | ✅ npm (Windows arm64 unsupported upstream) | Terminal sign-in; managed conversation over `qoder --acp` |
+| CodeBuddy Code | External CLI (ACP) | `codebuddy` | Tencent | ✅ npm | Terminal sign-in; international / China / iOA account environment chosen per session; managed conversation over `codebuddy --acp` |
+| GitHub Copilot CLI | External CLI (ACP) | `copilot` | GitHub | ✅ npm / WinGet | Terminal sign-in; managed conversation over `copilot --acp --stdio` |
+| Cursor Agent CLI | External CLI (ACP) | `agent` | Cursor | ✅ vendor installer (latest only) | Terminal sign-in; managed conversation over `agent acp`; the program is identity-checked, not matched by name |
+| iFlow CLI | Legacy external CLI | `iflow` | iFlow (official service ended 2026-04-17) | ❌ detect-only | Native terminal only with your own custom API configuration; no managed conversation, no automation, no official service claimed |
 
 - **In-app install** means VaneHub AI can install and upgrade the CLI from Settings → CLI Management: it drives npm, WinGet on Windows, and per-CLI audited vendor installers. A copy that came from Homebrew, Bun, Volta, a desktop bundle, or a system package is detected and reported but never changed.
 - **Vendor subscription login (OAuth) always happens in your terminal**; VaneHub AI neither brokers nor stores subscription credentials.
+- **ACP** rows run their managed conversation over the Agent Client Protocol: the CLI stays running for the session, and its permission requests, questions, and plans appear as cards you answer in-app. Token usage is reported as unavailable for these CLIs, never as zero. Detection on the settings page never starts an ACP session or a login.
 - The integrated OpenCode is the open-source sst/opencode (npm package `opencode-ai`); it drives whichever model you configure, so policies like "require a reviewer from a different model family" do not apply to it.
 - Gemini CLI's consumer path is narrowing: Google announced that from 2026-06-18, consumer accounts such as Gemini Code Assist Individuals and Google AI Pro/Ultra are no longer served through Gemini CLI and their "Login with Google" path is unavailable, with migration to Antigravity recommended; Gemini Code Assist Standard and Enterprise are unaffected. API keys and Vertex are separate authentication paths — refer to Google's official documentation.
 

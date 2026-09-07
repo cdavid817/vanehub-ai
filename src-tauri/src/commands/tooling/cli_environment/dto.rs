@@ -43,6 +43,29 @@ pub(crate) struct CliEnvironmentSnapshotDto {
     pub(crate) last_mutation: Option<CliMutationSummaryDto>,
     pub(crate) last_operation_id: Option<String>,
     pub(crate) checked_at: Option<String>,
+    /// `active` or `legacy`, from the catalog. A legacy entry has no managed conversation, no
+    /// default installer, and no automation; the UI says so instead of greying controls out.
+    pub(crate) lifecycle: String,
+    /// ISO date the vendor's official service shut down; `null` for an active tool.
+    pub(crate) legacy_service_shutdown: Option<String>,
+    /// `headless`, `acp-stdio`, or `terminal-only`: how a managed conversation is driven.
+    pub(crate) managed_transport: String,
+    /// The vendor's sign-in documentation (HTTPS), or `null`. Opened only on a user click.
+    pub(crate) login_docs_url: Option<String>,
+}
+
+/// What an explicit ACP connection check negotiated. Summary only: no token, no raw frame.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CliConnectionCheckDto {
+    pub(crate) agent_id: String,
+    pub(crate) transport: String,
+    pub(crate) protocol_version: u64,
+    pub(crate) load_session: bool,
+    pub(crate) agent_name: Option<String>,
+    pub(crate) agent_version: Option<String>,
+    pub(crate) auth_methods: Vec<String>,
+    pub(crate) elapsed_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]

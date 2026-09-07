@@ -538,7 +538,18 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
         let terminal_started_at = self.clock.now();
         let usage_tracking_enabled = matches!(
             agent_id.as_str(),
-            "claude-code" | "opencode" | "codex-cli" | "gemini-cli" | "antigravity-cli"
+            "claude-code"
+                | "opencode"
+                | "codex-cli"
+                | "gemini-cli"
+                | "antigravity-cli"
+                | "qwen-code"
+                | "kimi-cli"
+                | "qoder-cli"
+                | "codebuddy-code"
+                | "copilot-cli"
+                | "cursor-agent-cli"
+                | "iflow-cli"
         );
         // A CLI can go quiet on the PTY (idle, waiting for the next prompt) for several
         // seconds *after* it has finished streaming visible output but *before* it has
@@ -998,12 +1009,17 @@ fn run_terminal_usage_ingestion(
                 terminal_started_at,
             )
         }),
-        "antigravity-cli" => Some(record_unsupported_terminal_source(
-            accounting,
-            session_id,
-            agent_id,
-            terminal_started_at,
-        )),
+        // No verified terminal-usage source for any of the expanded CLIs: recorded as
+        // unsupported so the panel says "unavailable" rather than zero.
+        "antigravity-cli" | "qwen-code" | "kimi-cli" | "qoder-cli" | "codebuddy-code"
+        | "copilot-cli" | "cursor-agent-cli" | "iflow-cli" => {
+            Some(record_unsupported_terminal_source(
+                accounting,
+                session_id,
+                agent_id,
+                terminal_started_at,
+            ))
+        }
         _ => None,
     }
 }

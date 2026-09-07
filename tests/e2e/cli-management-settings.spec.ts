@@ -69,15 +69,18 @@ test.describe("CLI Management navigation and inventory", () => {
     await openCliManagement(page);
 
     const cards = page.locator("[data-cli-agent]");
-    await expect(cards).toHaveCount(5);
+    await expect(cards).toHaveCount(12);
     expect(await cards.evaluateAll((items) => items.map((item) => item.getAttribute("data-cli-agent"))))
-      .toEqual(["claude-code", "codex-cli", "opencode", "antigravity-cli", "gemini-cli"]);
+      .toEqual([
+        "claude-code", "codex-cli", "opencode", "antigravity-cli", "gemini-cli",
+        "qwen-code", "kimi-cli", "qoder-cli", "codebuddy-code", "copilot-cli", "cursor-agent-cli", "iflow-cli",
+      ]);
 
     // The five summary counts add up to the tools that landed in a bucket; a tool counted twice
     // would push the total past the number of cards.
     await expect(page.getByRole("button", { name: /可更新/ })).toContainText("1");
-    await expect(page.getByRole("button", { name: /有冲突/ })).toContainText("1");
-    await expect(page.getByRole("button", { name: /就绪/ })).toContainText("2");
+    await expect(page.getByRole("button", { name: /有冲突/ })).toContainText("2");
+    await expect(page.getByRole("button", { name: /就绪/ })).toContainText("5");
 
     // Nothing on this page may look like a path from the machine the browser is running on.
     const body = (await page.locator("body").textContent()) ?? "";
@@ -103,24 +106,29 @@ test.describe("CLI Management filtering", () => {
     await expect(page.locator("[data-cli-agent]")).toHaveCount(1);
     await expect(card(page, "codex-cli")).toBeVisible();
     await page.getByLabel("搜索 CLI").fill("");
-    await expect(page.locator("[data-cli-agent]")).toHaveCount(5);
+    await expect(page.locator("[data-cli-agent]")).toHaveCount(12);
 
+    // Two conflicts in the fixture: OpenCode (npm + Homebrew) and Kimi (npm + the old uv build).
     await page.getByRole("button", { name: /有冲突/ }).click();
-    await expect(page.locator("[data-cli-agent]")).toHaveCount(1);
+    await expect(page.locator("[data-cli-agent]")).toHaveCount(2);
     await expect(card(page, "opencode")).toBeVisible();
+    await expect(card(page, "kimi-cli")).toBeVisible();
     // The same control clears it, so there is never a filter with no visible way back.
     await page.getByRole("button", { name: /有冲突/ }).click();
-    await expect(page.locator("[data-cli-agent]")).toHaveCount(5);
+    await expect(page.locator("[data-cli-agent]")).toHaveCount(12);
 
+    // Antigravity and Cursor are the two catalog entries whose managed source is a vendor installer.
     await page.getByLabel("按来源筛选").selectOption("vendor");
-    await expect(page.locator("[data-cli-agent]")).toHaveCount(1);
+    await expect(page.locator("[data-cli-agent]")).toHaveCount(2);
     await expect(card(page, "antigravity-cli")).toBeVisible();
+    await expect(card(page, "cursor-agent-cli")).toBeVisible();
     await page.getByLabel("按来源筛选").selectOption("all");
 
     await page.getByLabel("只看需要处理的").check();
     const attention = await page.locator("[data-cli-agent]")
       .evaluateAll((items) => items.map((item) => item.getAttribute("data-cli-agent")));
-    expect(attention.sort()).toEqual(["claude-code", "opencode"]);
+    // Attention: the pending update, the two conflicts, and the broken Cursor copy.
+    expect(attention.sort()).toEqual(["claude-code", "cursor-agent-cli", "kimi-cli", "opencode"]);
 
     await page.getByLabel("只看需要处理的").uncheck();
     await page.getByLabel("搜索 CLI").fill("nothing-matches-this");
@@ -385,9 +393,10 @@ test.describe("CLI Management presentation", () => {
     await page.getByRole("button", { name: /^CLI Management/ }).click();
 
     await expect(page.getByRole("heading", { name: "CLI Management", level: 2 })).toBeVisible();
-    await expect(page.locator("[data-cli-agent]")).toHaveCount(5);
+    await expect(page.locator("[data-cli-agent]")).toHaveCount(12);
     await expect(page.getByRole("button", { name: /Conflicts/ })).toBeVisible();
-    await expect(page.getByText("Detect only")).toBeVisible();
+    // Both the Antigravity system copy and the detect-only iFlow entry carry the label.
+    await expect(page.getByText("Detect only").first()).toBeVisible();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "minimal");
 
     const overflow = await page.evaluate(() => document.body.scrollWidth > window.innerWidth);

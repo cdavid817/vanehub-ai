@@ -11,6 +11,7 @@ use crate::contexts::tooling::skills::domain::{
 };
 use crate::platform::clock::SystemClock;
 use crate::platform::database::NativeDatabase;
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::{params, Connection, Row, Transaction};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -230,7 +231,7 @@ impl SkillRepository for SqliteSkillRepository {
         clear_deleted_builtin_ids: &[SkillId],
     ) -> Result<(), SkillApplicationError> {
         let mut connection = self.database.connection().map_err(app_error)?;
-        let transaction = connection.transaction().map_err(repository_error)?;
+        let transaction = connection.write_transaction().map_err(repository_error)?;
         save_records(&transaction, records)?;
         clear_tombstones(&transaction, clear_deleted_builtin_ids)?;
         transaction.commit().map_err(repository_error)
@@ -243,7 +244,7 @@ impl SkillRepository for SqliteSkillRepository {
         deleted_at: &str,
     ) -> Result<(), SkillApplicationError> {
         let mut connection = self.database.connection().map_err(app_error)?;
-        let transaction = connection.transaction().map_err(repository_error)?;
+        let transaction = connection.write_transaction().map_err(repository_error)?;
         if record_builtin_tombstone {
             transaction
                 .execute(
@@ -287,7 +288,7 @@ impl SkillRepository for SqliteSkillRepository {
         updated_at: &str,
     ) -> Result<(), SkillApplicationError> {
         let mut connection = self.database.connection().map_err(app_error)?;
-        let transaction = connection.transaction().map_err(repository_error)?;
+        let transaction = connection.write_transaction().map_err(repository_error)?;
         transaction
             .execute(
                 r#"
@@ -316,7 +317,7 @@ impl SkillRepository for SqliteSkillRepository {
         report: &SkillDriftReport,
     ) -> Result<(), SkillApplicationError> {
         let mut connection = self.database.connection().map_err(app_error)?;
-        let transaction = connection.transaction().map_err(repository_error)?;
+        let transaction = connection.write_transaction().map_err(repository_error)?;
         save_records(&transaction, records)?;
         clear_tombstones(&transaction, clear_deleted_builtin_ids)?;
         save_report(&transaction, report, &SystemClock.rfc3339())?;
@@ -389,7 +390,7 @@ impl SkillReconciliationRepository for SqliteSkillRepository {
         clear_tombstone: bool,
     ) -> Result<(), SkillApplicationError> {
         let mut connection = self.database.connection().map_err(app_error)?;
-        let transaction = connection.transaction().map_err(repository_error)?;
+        let transaction = connection.write_transaction().map_err(repository_error)?;
         if let Some(record) = record {
             save_record(&transaction, record)?;
         }
@@ -408,7 +409,7 @@ impl SkillReconciliationRepository for SqliteSkillRepository {
         updated_at: &str,
     ) -> Result<(), SkillApplicationError> {
         let mut connection = self.database.connection().map_err(app_error)?;
-        let transaction = connection.transaction().map_err(repository_error)?;
+        let transaction = connection.write_transaction().map_err(repository_error)?;
         transaction
             .execute(
                 r#"
@@ -1318,7 +1319,7 @@ fn reconcile_workspace_aliases(
     }
     aliases.sort();
     let mut connection = connection;
-    let transaction = connection.transaction().map_err(repository_error)?;
+    let transaction = connection.write_transaction().map_err(repository_error)?;
     for alias in &aliases {
         let duplicate_ids: i64 = transaction
             .query_row(
@@ -1494,7 +1495,8 @@ mod tests {
                 .agent_mount_configurations()
                 .expect("mount configurations")
                 .len(),
-            5
+            // One mount configuration per seeded CLI agent: the twelve-entry catalog.
+            12
         );
     }
 

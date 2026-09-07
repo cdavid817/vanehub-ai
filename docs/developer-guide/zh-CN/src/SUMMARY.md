@@ -18,6 +18,7 @@
 - [Tool registry 与执行](tool-registry.md)
 - [扩展工具上下文](extended-tool-contexts.md)
 - [CLI 生命周期与全局配置](cli-lifecycle.md)
+- [托管 CLI 对话的 ACP 运行时](acp-runtime.md)
 - [终端与 PTY 运行时](terminal-runtime.md)
 - [CLI 委派与 ChangeSet 管线](cli-delegation.md)
 - [多 Agent 群聊](multi-agent-group-chat.md)

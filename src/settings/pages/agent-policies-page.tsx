@@ -25,6 +25,13 @@ const managedCliDisplayNameKeys: Record<(typeof MANAGED_CLI_AGENT_IDS)[number], 
   "gemini-cli": "geminiCli",
   opencode: "opencode",
   "antigravity-cli": "antigravityCli",
+  "qwen-code": "qwenCode",
+  "kimi-cli": "kimiCli",
+  "qoder-cli": "qoderCli",
+  "codebuddy-code": "codebuddyCode",
+  "copilot-cli": "copilotCli",
+  "cursor-agent-cli": "cursorAgentCli",
+  "iflow-cli": "iflowCli",
 };
 
 function requiresConfirmationToAssign(template: PolicyTemplateName): boolean {

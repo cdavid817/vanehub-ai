@@ -58,7 +58,14 @@ fn list_returns_every_managed_profile_in_catalog_order() {
             "codex-cli",
             "gemini-cli",
             "opencode",
-            "antigravity-cli"
+            "antigravity-cli",
+            "qwen-code",
+            "kimi-cli",
+            "qoder-cli",
+            "codebuddy-code",
+            "copilot-cli",
+            "cursor-agent-cli",
+            "iflow-cli"
         ]
     );
     assert!(profiles

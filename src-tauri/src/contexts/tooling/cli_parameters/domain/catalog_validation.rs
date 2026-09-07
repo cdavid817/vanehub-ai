@@ -7,13 +7,22 @@ use super::selection::{CliParameterSelection, CliParameterValue};
 use super::validation::normalize_selection;
 use std::collections::BTreeSet;
 
-/// The external managed CLIs this subdomain owns, in settings display order.
-pub(crate) const MANAGED_CLI_AGENT_IDS: [&str; 5] = [
+/// The external managed CLIs this subdomain owns, in settings display order. The original five
+/// keep a legacy (v1) baseline in `legacy_baseline.rs`; the seven added by
+/// `extend-cli-providers-with-acp` never had one, so that module lists only the five.
+pub(crate) const MANAGED_CLI_AGENT_IDS: [&str; 12] = [
     "claude-code",
     "codex-cli",
     "gemini-cli",
     "opencode",
     "antigravity-cli",
+    "qwen-code",
+    "kimi-cli",
+    "qoder-cli",
+    "codebuddy-code",
+    "copilot-cli",
+    "cursor-agent-cli",
+    "iflow-cli",
 ];
 
 /// Flags VaneHub constructs itself. Admitting one to the registry would let a profile replace a
