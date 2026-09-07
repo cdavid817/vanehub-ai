@@ -258,5 +258,7 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-31 | fix-unverified-health-signals | continuous-integration, lsp-server-management | `openspec/changes/archive/2026-08-31-fix-unverified-health-signals/` |
 | 2026-09-05 | fix-duplicate-desktop-instances | desktop-background-lifecycle | `openspec/changes/archive/2026-09-05-fix-duplicate-desktop-instances/` |
 | 2026-09-05 | reduce-session-runtime-overhead | agent-run-state-management, chat-experience | `openspec/changes/archive/2026-09-05-reduce-session-runtime-overhead/` |
+| 2026-09-07 | add-qwen-iflow-config-profiles | cli-agent-config-management | `openspec/changes/archive/2026-09-07-add-qwen-iflow-config-profiles/` |
+| 2026-09-07 | harden-sqlite-write-transactions | native-runtime-architecture | `openspec/changes/archive/2026-09-07-harden-sqlite-write-transactions/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

@@ -3742,6 +3742,32 @@
         "agent-run-state-management",
         "chat-experience"
       ]
+    },
+    {
+      "archivedOn": "2026-09-07",
+      "changeName": "add-qwen-iflow-config-profiles",
+      "path": "openspec/changes/archive/2026-09-07-add-qwen-iflow-config-profiles/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "cli-agent-config-management"
+      ]
+    },
+    {
+      "archivedOn": "2026-09-07",
+      "changeName": "harden-sqlite-write-transactions",
+      "path": "openspec/changes/archive/2026-09-07-harden-sqlite-write-transactions/",
+      "artifacts": [
+        "proposal",
+        "design",
+        "tasks"
+      ],
+      "capabilities": [
+        "native-runtime-architecture"
+      ]
     }
   ]
 }
