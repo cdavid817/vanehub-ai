@@ -93,7 +93,8 @@ globalThis.describe("Agent Configuration desktop UI", () => {
     await openSettings("agent-configurations", AGENT_PAGE);
 
     const targets = await globalThis.$$(`${AGENT_PAGE} [data-testid^="agent-config-target-"]`);
-    assert.equal(targets.length, 6, "the desktop Agent selector did not expose all managed targets");
+    // Seven managed CLI Agents (Qwen Code and iFlow joined in `add-qwen-iflow-config-profiles`) plus OnePiece.
+    assert.equal(targets.length, 8, "the desktop Agent selector did not expose all managed targets");
     assert.equal(await targets[0].getAttribute("aria-current"), "page");
 
     const addProfile = await globalThis.$('[data-testid="cli-config-add-profile"]');

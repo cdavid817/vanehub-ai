@@ -87,7 +87,7 @@ export function CliConfigProfileDialog({
     ? payload.authMode !== "none"
     : payload.kind === "codex-cli"
       ? payload.authStrategy !== "preserve-official"
-      : payload.kind === "gemini-cli"
+      : payload.kind === "gemini-cli" || payload.kind === "qwen-code"
         ? payload.authStrategy !== "preserve-official"
         : payload.kind !== "antigravity";
   const validationDisabled = removeCredential

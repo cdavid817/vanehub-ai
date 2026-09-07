@@ -62,6 +62,8 @@ impl NativeConfigPort for NativeConfigReader {
             "claude-code" => discover_claude_model(&home, self, workspace_path),
             "codex-cli" => discover_codex_model(&home, self, workspace_path),
             "gemini-cli" => discover_gemini_model(&home, self),
+            "qwen-code" => discover_qwen_model(&home),
+            "iflow-cli" => discover_iflow_model(&home, self),
             "antigravity-cli" => discover_antigravity_model(&home, self),
             "opencode" => discover_opencode_model(&home, self, workspace_path),
             _ => None,
@@ -205,6 +207,39 @@ fn discover_codex_project_model(doc: &toml::Value, workspace_path: &str) -> Opti
         .and_then(|value| value.as_str())
         .filter(|s| !s.is_empty())
         .map(str::to_string)
+}
+
+/// Qwen Code's OpenAI-compatible mode names its model in `~/.qwen/.env` (`OPENAI_MODEL`).
+fn discover_qwen_model(home: &Path) -> Option<String> {
+    dotenv_value(&home.join(".qwen").join(".env"), "OPENAI_MODEL")
+}
+
+/// iFlow keeps its custom-API model at the root of `~/.iflow/settings.json` (`modelName`).
+fn discover_iflow_model(home: &Path, reader: &NativeConfigReader) -> Option<String> {
+    let path = home.join(".iflow").join("settings.json");
+    let content = std::fs::read_to_string(&path).ok()?;
+    let document: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(document) => document,
+        Err(error) => {
+            reader.warn(
+                "cli.native-config",
+                format!("iFlow settings.json is not valid JSON: {error}"),
+            );
+            return None;
+        }
+    };
+    let model = document.get("modelName")?.as_str()?.trim();
+    (!model.is_empty()).then(|| model.to_string())
+}
+
+fn dotenv_value(path: &Path, key: &str) -> Option<String> {
+    let content = std::fs::read_to_string(path).ok()?;
+    let prefix = format!("{key}=");
+    content.lines().find_map(|line| {
+        let value = line.trim().strip_prefix(&prefix)?;
+        let value = value.trim().trim_matches('"').trim_matches('\'');
+        (!value.is_empty()).then(|| value.to_string())
+    })
 }
 
 fn discover_gemini_model(home: &Path, _reader: &NativeConfigReader) -> Option<String> {
@@ -633,6 +668,34 @@ mod tests {
             discover_gemini_model(&home, &reader()),
             Some("gemini-2-5-flash".to_string())
         );
+    }
+
+    #[test]
+    fn qwen_model_from_env_file_and_iflow_model_from_settings() {
+        let (_tmp, home) = temp_home();
+        let home = home.as_path();
+        std::fs::create_dir_all(home.join(".qwen")).expect("qwen dir");
+        std::fs::write(
+            home.join(".qwen").join(".env"),
+            "OPENAI_API_KEY=not-read-here\nOPENAI_MODEL=\"deepseek-v4-flash\"\n",
+        )
+        .expect("qwen env");
+        std::fs::create_dir_all(home.join(".iflow")).expect("iflow dir");
+        std::fs::write(
+            home.join(".iflow").join("settings.json"),
+            r#"{"cna":"id","selectedAuthType":"openai-compatible","modelName":"deepseek-v4-flash"}"#,
+        )
+        .expect("iflow settings");
+        assert_eq!(
+            discover_qwen_model(home),
+            Some("deepseek-v4-flash".to_string())
+        );
+        assert_eq!(
+            discover_iflow_model(home, &reader()),
+            Some("deepseek-v4-flash".to_string())
+        );
+        std::fs::write(home.join(".iflow").join("settings.json"), "{broken").expect("broken");
+        assert_eq!(discover_iflow_model(home, &reader()), None);
     }
 
     #[test]
