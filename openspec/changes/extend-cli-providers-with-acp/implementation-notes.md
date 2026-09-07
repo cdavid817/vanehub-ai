@@ -131,9 +131,10 @@
 - 其余六家：Kimi、Qoder、CodeBuddy、Copilot 的 CLI 不提供第三方端点配置；Cursor 仅企业服务账号端点；iFlow 需要 `~/.iflow/settings.json` 指定 `selectedAuthType: openai-compatible`，密钥可走 `IFLOW_API_KEY` / `IFLOW_BASE_URL` / `IFLOW_MODEL_NAME`（环境变量单独使用会落到已废弃的旧认证方式）；按此直连一轮 28 s 返回 `OK`，settings 已恢复原样。iFlow 在应用内仍为 detect-only。
 - VaneHub 的「CLI 全局配置」（`cli_config`，第三方端点/密钥 profile）当时只覆盖原五家；Qwen Code 与 iFlow 的 profile kind 已由后续变更 `add-qwen-iflow-config-profiles` 补齐。
 
-### 启动开发客户端时暴露的一处既有桌面缺陷（已修，2026-09-07）
+### 启动开发客户端时暴露的一处既有桌面缺陷（2026-09-07 本分支先修，2026-09-08 撤回改用 main 的修法）
 
 - `tooling/cli_parameters/domain/definition.rs` 的 `CliParameterDependencies` 用 `skip_serializing_if` 省略空数组，桌面端 DTO 对没有依赖的参数（几乎全部）发出 `dependencies: {}`；前端契约把 `requiresAll` 定为数组并在 `view-model.ts::unmetDependencies` 直接索引，CLI 参数设置页因此在桌面客户端整页崩到错误边界（Web/mock 走 zod 默认值不受影响，桌面层没有 spec 覆盖该页，所以 PR #210 引入后一直未暴露）。改为两个数组始终序列化，生成器 `scripts/generate-cli-parameter-catalog.mjs` 同步始终输出，`src/generated/cli-parameter-catalog.json` 与参数矩阵文档重生成；原生「生成契约与注册表一致」测试与 `contracts:check` 均通过；运行中的 dev 客户端重建后不再报错。
+- 2026-09-08 二次合并 main 时发现 PR #287（`fix-cli-parameters-native-payload-normalization`）已在桌面适配器用 registry 的 Zod 归一化修了同一缺陷，并以回归测试钉住「目录省略空数组」这一线上格式。两处同修会让该测试失败，且线上格式的取舍以 main 为准，因此本分支的原生侧修正（`definition.rs` 始终序列化两个数组、生成器同步、目录与矩阵重生成）整体 revert，保留 main 的适配器归一化。
 
 ### 代码审查修正（2026-09-07，用户要求的全量复审）
 
