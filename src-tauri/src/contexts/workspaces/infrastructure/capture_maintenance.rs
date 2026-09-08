@@ -1,4 +1,5 @@
 use crate::platform::database::NativeDatabase;
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::params;
 
 #[derive(Clone)]
@@ -17,7 +18,7 @@ impl TerminalCaptureMaintenance {
             .connection()
             .map_err(|error| error.to_string())?;
         let transaction = connection
-            .transaction()
+            .write_transaction()
             .map_err(|error| error.to_string())?;
         let count = transaction
             .execute(
@@ -35,7 +36,7 @@ impl TerminalCaptureMaintenance {
             .connection()
             .map_err(|error| error.to_string())?;
         let transaction = connection
-            .transaction()
+            .write_transaction()
             .map_err(|error| error.to_string())?;
         let count = transaction
             .execute(
@@ -53,7 +54,7 @@ impl TerminalCaptureMaintenance {
             .connection()
             .map_err(|error| error.to_string())?;
         let transaction = connection
-            .transaction()
+            .write_transaction()
             .map_err(|error| error.to_string())?;
         let mut removed = 0usize;
         loop {

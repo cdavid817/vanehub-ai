@@ -1,3 +1,4 @@
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::{params, OptionalExtension, Transaction};
 
 use super::safe_identity_repository::persist_safe_identities;
@@ -16,7 +17,7 @@ impl SqliteActivityProjectionRepository<'_> {
         batch: &ActivityProjectionBatch,
     ) -> Result<ActivityProjectionBatchResult, ActivityProjectionRepositoryError> {
         validate_batch(batch)?;
-        let transaction = self.connection.unchecked_transaction()?;
+        let transaction = self.connection.write_transaction_unchecked()?;
         let mut inserted = 0;
         for event in &batch.events {
             inserted += usize::from(persist_source_event(&transaction, event)?);

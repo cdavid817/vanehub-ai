@@ -13,9 +13,25 @@ describe("Agent display ordering", () => {
       "opencode",
       "antigravity-cli",
       "gemini-cli",
+      "qwen-code",
+      "kimi-cli",
+      "qoder-cli",
+      "codebuddy-code",
+      "copilot-cli",
+      "cursor-agent-cli",
+      "iflow-cli",
       "onepiece",
     ]);
-    expect(createSessionCliPriority).toEqual(settingsAgentPriority.slice(0, 5));
+    // The original five keep their positions and the default stays Claude Code; the seven
+    // additions rank after them, domestic CLIs first and the legacy entry last.
+    expect(settingsAgentPriority.slice(0, 5)).toEqual([
+      "claude-code",
+      "codex-cli",
+      "opencode",
+      "antigravity-cli",
+      "gemini-cli",
+    ]);
+    expect(createSessionCliPriority).toEqual(settingsAgentPriority.slice(0, 12));
   });
 
   it("orders any supported subset without synthesizing missing entries", () => {

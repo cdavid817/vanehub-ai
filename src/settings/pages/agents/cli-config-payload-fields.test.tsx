@@ -9,6 +9,8 @@ import {
   type AntigravityConfigPayload,
   type ClaudeCodeConfigPayload,
   type GeminiCliConfigPayload,
+  type IflowCliConfigPayload,
+  type QwenCodeConfigPayload,
 } from "../../../types/cli-agent-config";
 import { CliConfigPayloadFields } from "./cli-config-payload-fields";
 
@@ -40,7 +42,44 @@ const gemini: GeminiCliConfigPayload = {
   advancedEnv: {},
 };
 
+const qwen: QwenCodeConfigPayload = {
+  kind: "qwen-code",
+  baseUrl: "https://api.deepseek.com/v1",
+  model: "deepseek-v4-flash",
+  authStrategy: "api-key",
+  advancedEnv: {},
+};
+
+const iflow: IflowCliConfigPayload = {
+  kind: "iflow-cli",
+  baseUrl: "https://api.deepseek.com/v1",
+  model: "deepseek-v4-flash",
+  advancedSettings: {},
+};
+
 describe("CliConfigPayloadFields", () => {
+  it("renders Qwen Code endpoint, model, and authentication controls", () => {
+    renderWithAppProviders(<CliConfigPayloadFields onChange={vi.fn()} payload={qwen} />);
+
+    expect(screen.getByLabelText(/Base URL/i)).toBeTruthy();
+    expect(screen.getByLabelText(/模型|Model/)).toBeTruthy();
+    expect(screen.getByLabelText(/鉴权|Authentication/i)).toBeTruthy();
+    expect(payloadSupportsCredential(qwen)).toBe(true);
+    expect(payloadSupportsEndpointOverride(qwen)).toBe(true);
+  });
+
+  // iFlow has no official sign-in left to preserve, so there is no authentication strategy to
+  // choose: the key is always required and lives in the shared credential field.
+  it("renders only endpoint and model for iFlow", () => {
+    renderWithAppProviders(<CliConfigPayloadFields onChange={vi.fn()} payload={iflow} />);
+
+    expect(screen.getByLabelText(/Base URL/i)).toBeTruthy();
+    expect(screen.getByLabelText(/模型|Model/)).toBeTruthy();
+    expect(screen.queryByLabelText(/鉴权|Authentication/i)).toBeNull();
+    expect(payloadSupportsCredential(iflow)).toBe(true);
+    expect(payloadSupportsEndpointOverride(iflow)).toBe(true);
+  });
+
   // Antigravity authenticates through the OS keyring with Google Sign-In and accepts no
   // third-party endpoint, so rendering either control would offer the user a setting the CLI
   // cannot honor.

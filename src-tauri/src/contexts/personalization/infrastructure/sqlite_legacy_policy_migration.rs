@@ -1,3 +1,4 @@
+use crate::platform::database::SqliteWriteTransaction;
 use chrono::{DateTime, SecondsFormat, Utc};
 use rusqlite::{params, Connection, TransactionBehavior};
 
@@ -106,9 +107,7 @@ impl LegacyPolicyMigrationPort for SqliteLegacyPolicyMigration {
         // IMMEDIATE so the "already migrated?" check and the write cannot be separated by another
         // process doing the same thing — two concurrent first startups would otherwise both read
         // generation 0 and both migrate.
-        let transaction = conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(storage)?;
+        let transaction = conn.write_transaction().map_err(storage)?;
 
         if migration_generation(&transaction)? >= POLICY_MIGRATION_GENERATION {
             // Already done. Rolling back rather than committing keeps a repeated startup a true

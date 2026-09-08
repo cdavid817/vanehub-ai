@@ -36,9 +36,9 @@ Good for: you want the officially recommended native binary (no Node.js dependen
 
 Whichever route you take, **authentication always has to happen in the terminal**; see [Get it working in a terminal first](#get-it-working-in-a-terminal-first).
 
-## The five CLIs
+## The original five CLIs
 
-VaneHub AI supports five external CLI Agents. Installing one is enough to start; you don't need all five. The table below summarizes each CLI's install method; each subsection gives the exact commands.
+VaneHub AI supports twelve external CLI Agents. Installing one is enough to start; you don't need them all. This section covers the original five; the six ACP CLIs (Qwen Code, Kimi Code CLI, Qoder CLI, CodeBuddy Code, GitHub Copilot CLI, Cursor Agent CLI) and the legacy iFlow entry are in [ACP CLI Agents](acp-cli-agents.md). The table below summarizes each CLI's install method; each subsection gives the exact commands.
 
 | Agent | Provider | Command | Dependency | Recommended install |
 | --- | --- | --- | --- | --- |

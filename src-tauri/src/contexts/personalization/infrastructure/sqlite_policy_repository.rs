@@ -1,3 +1,4 @@
+use crate::platform::database::SqliteWriteTransaction;
 use chrono::{DateTime, SecondsFormat, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
@@ -324,7 +325,7 @@ impl PolicyRepository for SqlitePolicyRepository {
 
     fn seed_default_global(&self, now: DateTime<Utc>) -> Result<PersonalizationPolicyRecord> {
         let mut conn = self.connection()?;
-        let transaction = conn.transaction().map_err(storage)?;
+        let transaction = conn.write_transaction().map_err(storage)?;
         let scope_key = PersonalizationPolicyScope::Global.scope_key();
         if let Some(existing) = load_by_scope_key(&transaction, &scope_key)? {
             // Leave an existing row alone, revision included. Startup must never reset a policy
@@ -348,9 +349,7 @@ impl PolicyRepository for SqlitePolicyRepository {
         // IMMEDIATE so the write lock is taken before the read. With a deferred transaction two
         // savers can both read revision N and both promote to N+1 — expected-revision checking
         // that silently degrades to last-response-wins.
-        let transaction = conn
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-            .map_err(storage)?;
+        let transaction = conn.write_transaction().map_err(storage)?;
         let scope_key = scope.scope_key();
         let current = load_by_scope_key(&transaction, &scope_key)?;
 

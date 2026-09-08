@@ -7,6 +7,7 @@ use crate::contexts::tooling::cli_parameters::domain::profile::{
     StoredCliParameterProfile, StoredSelectionRow, CURRENT_SELECTION_SCHEMA_VERSION,
 };
 use crate::contexts::tooling::cli_parameters::domain::selection::CliParameterSelectionMap;
+use crate::platform::database::SqliteWriteTransaction;
 use crate::platform::database::{DatabaseError, NativeDatabase, PooledSqlite};
 use rusqlite::{params, Connection, OptionalExtension};
 
@@ -190,7 +191,12 @@ impl CliParameterProfileRepository for SqliteCliParameterProfileRepository {
     ) -> Result<PersistedCliParameterProfile, CliParameterApplicationError> {
         let mut conn = self.connection()?;
         let now = chrono::Utc::now().to_rfc3339();
-        let transaction = conn.transaction().map_err(repository_error)?;
+        // Immediate, not deferred: the revision check reads and the same transaction then
+        // writes. Under WAL a deferred transaction that started as a reader cannot upgrade once
+        // another connection has committed in between; SQLite returns BUSY_SNAPSHOT at once
+        // instead of waiting out busy_timeout, and a legitimate save fails as a storage error
+        // whenever a background writer (registry refresh, retention) lands in the window.
+        let transaction = conn.write_transaction().map_err(repository_error)?;
         let metadata = read_metadata(&transaction, &mutation.agent_id).map_err(repository_error)?;
         if metadata.revision != mutation.expected_revision {
             return Err(CliParameterApplicationError::RevisionConflict {
@@ -227,7 +233,8 @@ impl CliParameterProfileRepository for SqliteCliParameterProfileRepository {
     ) -> Result<PersistedCliParameterProfile, CliParameterApplicationError> {
         let mut conn = self.connection()?;
         let now = chrono::Utc::now().to_rfc3339();
-        let transaction = conn.transaction().map_err(repository_error)?;
+        // Same reasoning as `replace_if_revision`: read-then-write needs the write lock up front.
+        let transaction = conn.write_transaction().map_err(repository_error)?;
         let metadata = read_metadata(&transaction, agent_id).map_err(repository_error)?;
         if metadata.revision != expected_revision {
             return Err(CliParameterApplicationError::RevisionConflict {

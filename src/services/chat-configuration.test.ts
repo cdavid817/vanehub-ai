@@ -54,6 +54,34 @@ describe("session chat configuration boundary", () => {
     });
   });
 
+  it("keeps CodeBuddy's reviewed account environment and drops an unreviewed one", () => {
+    const codebuddySession = { ...session, agentId: "codebuddy-code", interactionMode: "cli" as const };
+    const base: ChatConfig = {
+      agentId: "codebuddy-code",
+      interactionMode: "cli",
+      executionMode: "inherit",
+      providerId: "codebuddy-china",
+      modelId: "codebuddy-default",
+      streaming: true,
+      thinking: true,
+      longContext: true,
+    };
+    expect(normalizeChatConfigForSession(codebuddySession, base)).toMatchObject({
+      providerId: "codebuddy-china",
+      modelId: "codebuddy-default",
+    });
+    expect(normalizeChatConfigForSession(codebuddySession, { ...base, providerId: "codebuddy-ioa" })).toMatchObject({
+      providerId: "codebuddy-ioa",
+    });
+    expect(normalizeChatConfigForSession(codebuddySession, { ...base, providerId: "codebuddy-eu" })).toMatchObject({
+      providerId: "codebuddy-international",
+    });
+    // The alternates belong to CodeBuddy alone.
+    expect(normalizeChatConfigForSession(session, { ...base, agentId: "gemini-cli", providerId: "codebuddy-china" })).toMatchObject({
+      providerId: "google",
+    });
+  });
+
   it("keeps OnePiece on its native provider identity", () => {
     const onePieceSession = { ...session, agentId: "onepiece", interactionMode: "api" as const };
     const input: ChatConfig = {

@@ -1,3 +1,4 @@
+use crate::platform::database::SqliteWriteTransaction;
 use crate::{
     contexts::skill_evolution_orchestration::domain::{
         canonical_json, is_safe_identifier, AutoApplyProbationV1, AutomaticEvolutionApplicationV1,
@@ -44,7 +45,7 @@ impl SqliteAutomaticApplicationRepository {
             .connection()
             .map_err(|_| AutomaticApplicationStoreError::Storage)?;
         let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .write_transaction()
             .map_err(|_| AutomaticApplicationStoreError::Storage)?;
         if let Some(existing) = load_application(&transaction, &application.application_id)? {
             return if existing == *application && probation_matches(&transaction, probation)? {

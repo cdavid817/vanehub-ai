@@ -91,7 +91,7 @@ Gemini CLI、OpenCode 与 Antigravity CLI 没有对应的受管 SDK。
 
 ![设置中的 CLI 参数管理页面](assets/screenshots/settings-cli-parameters-zh-CN.png)
 
-页面左侧是五个外部 CLI 的导航栏，每个条目下方显示该 CLI 的**已检测版本或安装状态**，以及未保存改动、警告、错误的计数。OnePiece 不在这里——它不经外部 CLI 启动，配置在**设置 → Agent 配置**。
+页面左侧是全部十二个外部 CLI 的导航栏，每个条目下方显示该 CLI 的**已检测版本或安装状态**，以及未保存改动、警告、错误的计数。OnePiece 不在这里——它不经外部 CLI 启动，配置在**设置 → Agent 配置**。
 
 **「继承」是一种独立状态，不是叫 `default` 的取值。** 保持继承时 VaneHub 不发送任何参数，由 CLI 自己决定；只有你显式选了值，它才会出现在启动命令里。这个区分是必要的：Gemini CLI 的 `--approval-mode default` 里，`default` 是「每次询问」这一真实模式，不是「没设置」。
 
@@ -116,7 +116,7 @@ Gemini CLI、OpenCode 与 Antigravity CLI 没有对应的受管 SDK。
 
 #### 各 CLI 常见参数参考
 
-五个外部 CLI 各自有命令行参数，供在 VaneHub AI 中排查启动参数、脚本化调用时参考。各 CLI 更新较快，`--help` 常滞后于实际支持，完整清单以对应官方 CLI Reference 为准。
+各外部 CLI 各自有命令行参数，供在 VaneHub AI 中排查启动参数、脚本化调用时参考。各 CLI 更新较快，`--help` 常滞后于实际支持，完整清单以对应官方 CLI Reference 为准。
 
 | 功能 | Claude Code | OpenCode | Codex CLI | Gemini CLI | Antigravity CLI |
 | --- | --- | --- | --- | --- | --- |
@@ -152,7 +152,7 @@ OnePiece 不走外部 CLI，没有上述命令行参数，因此它不是 CLI �
 
 ![设置中的 Agent 配置页面，六个 Agent 标签与全局配置状态](assets/screenshots/settings-agent-configurations-zh-CN.png)
 
-页面顶部按 Agent 分标签：**Claude Code / Codex CLI / OpenCode / Antigravity CLI / Gemini CLI / OnePiece**。同一页面下方还有[LSP 代码智能](lsp-code-intelligence.md)的语言服务器开关。
+页面顶部按 Agent 分标签：**Claude Code / Codex CLI / OpenCode / Antigravity CLI / Gemini CLI / Qwen Code / iFlow CLI / OnePiece**。同一页面下方还有[LSP 代码智能](lsp-code-intelligence.md)的语言服务器开关。
 
 ### 它解决什么
 
@@ -169,6 +169,10 @@ OnePiece 不走外部 CLI，没有上述命令行参数，因此它不是 CLI �
 | **OpenCode** | 支持 | `~/.config/opencode/opencode.json` | provider 定义、端点、npm 适配包、模型列表与默认模型 |
 | **Gemini CLI** | 端点可改，但目录里只有 Google 官方预设 | `~/.gemini/.env` | 端点、模型、认证方式 |
 | **Antigravity CLI** | **VaneHub 暂未纳管** | `~/.gemini/antigravity-cli/settings.json` | 模型、工具审批模式、输出详细度、终端沙箱 |
+| **Qwen Code** | 支持（OpenAI 兼容） | `~/.qwen/.env`，以及 `~/.qwen/settings.json` 中的认证方式选择 | 端点、模型、认证方式（保留 Qwen OAuth，或 API Key） |
+| **iFlow CLI** | 支持（OpenAI 兼容，官方服务关闭后仅剩这一种方式） | `~/.iflow/settings.json` | 端点、模型；密钥会写入该文件，因为 iFlow 只从这里读取 |
+
+> **Qwen Code 只在 `settings.json` 没有记录认证方式时才读 `.env` 里的端点**，所以应用 API Key 配置时会一并把 `security.auth.selectedType` 设为 `openai`；「保留 Qwen OAuth」的配置不会碰这个文件。Kimi、Qoder、CodeBuddy、Copilot、Cursor 的 CLI 本身不提供第三方端点，因此这里没有它们的配置项。
 
 > **VaneHub 当前未纳管 Antigravity 的端点与密钥字段**：它的配置面板里没有这两项，能调的是模型与审批行为；Google 登录凭据由 CLI 自己存在系统钥匙串。这是 VaneHub 当前的纳管范围，不等于 Antigravity CLI 本身不支持 API Key 或自定义端点——上游能力以 Antigravity 官方文档为准。
 

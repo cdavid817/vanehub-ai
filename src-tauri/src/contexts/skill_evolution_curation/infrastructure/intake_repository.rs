@@ -3,6 +3,7 @@ use super::intake_persistence::*;
 use super::intake_source::*;
 use super::CuratorRepositoryError;
 use crate::contexts::skill_evolution_curation::domain::*;
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::{Connection, TransactionBehavior};
 
 pub(crate) struct SqliteCuratorIntakeRepository<'a> {
@@ -23,7 +24,7 @@ impl<'a> SqliteCuratorIntakeRepository<'a> {
         let envelope_hash = hash_envelope(envelope)?;
         let transaction = self
             .connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .write_transaction()
             .map_err(|_| CuratorRepositoryError::Storage)?;
         if let Some(outcome) = existing_receipt(&transaction, &envelope_hash)? {
             return Ok(outcome);

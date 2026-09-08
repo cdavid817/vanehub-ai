@@ -3,6 +3,7 @@ use crate::contexts::skill_evolution_orchestration::domain::{
     EvolutionTriggerCountersV1, EvolutionTriggerEnvelopeV1, EvolutionTriggerFamily,
     ORCHESTRATION_SCHEMA_VERSION_V1,
 };
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::{params, OptionalExtension, Transaction, TransactionBehavior};
 
 use super::{actor_name, validate_trigger, OrchestrationPersistenceError, OrchestrationRepository};
@@ -38,7 +39,7 @@ impl OrchestrationRepository {
             .connection()
             .map_err(|_| OrchestrationPersistenceError::Storage)?;
         let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .write_transaction()
             .map_err(|_| OrchestrationPersistenceError::Storage)?;
         if let Some(receipt_id) = insert_receipt(&transaction, trigger, received_at_ms)? {
             transaction

@@ -1,4 +1,5 @@
 use crate::contexts::skill_evolution_generation::domain::{DossierSectionKind, EvidenceDossierV1};
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::{params, Connection, OptionalExtension};
 
 use super::{canonical_json, GenerationPersistenceError, PersistGenerationOutcome};
@@ -21,7 +22,7 @@ impl<'connection> GenerationDossierRepository<'connection> {
             .map_err(|_| GenerationPersistenceError::InvalidInput)?;
         let transaction = self
             .connection
-            .unchecked_transaction()
+            .write_transaction_unchecked()
             .map_err(|_| GenerationPersistenceError::Storage)?;
         let inserted = transaction.execute(
             "INSERT INTO evolution_evidence_dossiers

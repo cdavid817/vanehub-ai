@@ -5,6 +5,7 @@ use crate::contexts::tooling::extensions::domain::{
     definitions, EnablementPlan, ExtensionCapabilityId, ExtensionFrameworkId,
     ExtensionFrameworkState, ExtensionLifecycleStatus, ExtensionRuntimeObservation,
 };
+use crate::platform::database::SqliteWriteTransaction;
 use crate::platform::database::{NativeDatabase, PooledSqlite};
 use rusqlite::{params, Connection};
 
@@ -97,7 +98,7 @@ impl ExtensionRepository for SqliteExtensionRepository {
     ) -> Result<(), ExtensionApplicationError> {
         let connection = self.connection()?;
         let transaction = connection
-            .unchecked_transaction()
+            .write_transaction_unchecked()
             .map_err(repository_error)?;
         if plan.disable_capability_peers {
             transaction

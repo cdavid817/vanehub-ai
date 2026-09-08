@@ -1,3 +1,4 @@
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::{params, OptionalExtension, TransactionBehavior};
 
 use crate::{
@@ -37,7 +38,7 @@ impl SqlitePreflightRepository {
             .connection()
             .map_err(|_| PreflightRepositoryError::Storage)?;
         let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .write_transaction()
             .map_err(|_| PreflightRepositoryError::Storage)?;
         let source_is_current = transaction
             .query_row(
@@ -134,7 +135,7 @@ impl SqlitePreflightRepository {
             .connection()
             .map_err(|_| PreflightRepositoryError::Storage)?;
         let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .write_transaction()
             .map_err(|_| PreflightRepositoryError::Storage)?;
         let witness = load(&transaction, witness_id)?.ok_or(PreflightRepositoryError::NotFound)?;
         let status = transaction

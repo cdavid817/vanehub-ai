@@ -28,6 +28,7 @@ export function cliConfigNeedsCredential(payload: CliConfigPayload): boolean {
   if (payload.kind === "claude-code") return payload.authMode !== "none";
   if (payload.kind === "codex-cli") return payload.authStrategy !== "preserve-official";
   if (payload.kind === "gemini-cli") return payload.authStrategy !== "preserve-official";
+  if (payload.kind === "qwen-code") return payload.authStrategy !== "preserve-official";
   return payload.kind !== "antigravity";
 }
 
@@ -49,6 +50,9 @@ function validateWebCliConfigInput(input: SaveCliConfigProfileInput) {
     throw new Error("Provider and model are required.");
   }
   if (input.payload.kind === "gemini-cli" && !input.payload.model.trim()) throw new Error("Model is required.");
+  if ((input.payload.kind === "qwen-code" || input.payload.kind === "iflow-cli") && !input.payload.model.trim()) {
+    throw new Error("Model is required.");
+  }
   if (input.payload.kind === "opencode") {
     if (!input.payload.providerId.trim() || input.payload.models.length === 0) throw new Error("Provider and models are required.");
     const defaultModel = input.payload.defaultModel;

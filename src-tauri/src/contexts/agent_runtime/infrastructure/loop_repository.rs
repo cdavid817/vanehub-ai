@@ -8,6 +8,7 @@ use crate::contexts::agent_runtime::domain::{
     LoopDefinition, LoopDefinitionInput, LoopLimits, LoopRun, LoopRunPhase, LoopRunSnapshot,
     LoopRunStatus, LoopTerminalReason, LoopVerificationCommand,
 };
+use crate::platform::database::SqliteWriteTransaction;
 use crate::platform::database::{NativeDatabase, PooledSqlite};
 use rusqlite::{params, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
@@ -374,7 +375,7 @@ impl LoopRepository for SqliteLoopRepository {
             AgentRuntimeApplicationError::Loop("Loop iteration sequence is invalid.".to_string())
         })?;
         let mut connection = self.connection()?;
-        let transaction = connection.transaction().map_err(loop_error)?;
+        let transaction = connection.write_transaction().map_err(loop_error)?;
         let feedback_changed = transaction
             .execute(
                 r#"UPDATE loop_iterations SET user_feedback = ?3
@@ -441,7 +442,7 @@ impl LoopRepository for SqliteLoopRepository {
         updated_at: &str,
     ) -> Result<(), AgentRuntimeApplicationError> {
         let mut connection = self.connection()?;
-        let transaction = connection.transaction().map_err(loop_error)?;
+        let transaction = connection.write_transaction().map_err(loop_error)?;
         let run_changed = transaction
             .execute(
                 r#"UPDATE loop_runs SET status = ?2, phase = ?3, terminal_reason = ?4,

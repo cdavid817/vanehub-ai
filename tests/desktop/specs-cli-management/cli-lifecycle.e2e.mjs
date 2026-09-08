@@ -41,10 +41,21 @@ globalThis.describe("VaneHub AI desktop CLI management: lifecycle", () => {
     const root = await bootDesktopUi();
 
     const snapshots = await refreshEnvironments();
+    // The twelve catalog entries, in catalog order. The fixture PATH carries only the original
+    // five; the seven added by `extend-cli-providers-with-acp` must be reported as absent from
+    // this host, never invented from it.
     assert.deepEqual(
       snapshots.map((snapshot) => snapshot.agentId),
-      ["claude-code", "codex-cli", "gemini-cli", "opencode", "antigravity-cli"],
+      [
+        "claude-code", "codex-cli", "gemini-cli", "opencode", "antigravity-cli",
+        "qwen-code", "kimi-cli", "qoder-cli", "codebuddy-code", "copilot-cli", "cursor-agent-cli", "iflow-cli",
+      ],
     );
+    for (const agentId of ["qwen-code", "kimi-cli", "qoder-cli", "codebuddy-code", "copilot-cli", "cursor-agent-cli", "iflow-cli"]) {
+      const absent = snapshotOf(snapshots, agentId);
+      assert.equal(absent.installations.length, 0, `${agentId} was found on a host that does not have it`);
+      assert.equal(absent.discovery, "not-found", `${agentId}: ${absent.discovery}`);
+    }
 
     const claude = snapshotOf(snapshots, "claude-code");
     assertPathsAreFixtureOwned(claude, fixture.root);

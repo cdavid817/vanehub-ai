@@ -145,6 +145,8 @@ test.describe("OnePiece native Agent", () => {
       "OpenCode",
       "Antigravity CLI",
       "Gemini CLI",
+      "Qwen Code",
+      "iFlow CLI",
       "OnePiece",
     ];
     const targets = page.getByRole("navigation", { name: "配置目标 Agent" }).getByRole("button");

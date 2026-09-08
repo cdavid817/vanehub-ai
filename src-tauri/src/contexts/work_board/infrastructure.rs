@@ -1,3 +1,4 @@
+use crate::platform::database::SqliteWriteTransaction;
 use crate::platform::database::{DatabaseError, NativeDatabase};
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension, Row};
@@ -103,7 +104,7 @@ fn add_column(
 
 pub(crate) fn reconcile(database: &NativeDatabase) -> Result<(), String> {
     let mut connection = database.connection().map_err(error)?;
-    let transaction = connection.transaction().map_err(error)?;
+    let transaction = connection.write_transaction().map_err(error)?;
     reconcile_query(&transaction, "session", "inbox", "SELECT id, title, project_path, updated_at FROM sessions WHERE archived = 0 AND COALESCE(origin_kind, 'user') = 'user'")?;
     reconcile_query(
         &transaction,

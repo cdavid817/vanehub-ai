@@ -22,6 +22,13 @@ const MANAGED_CLI_AGENT_IDS = [
   "gemini-cli",
   "opencode",
   "antigravity-cli",
+  "qwen-code",
+  "kimi-cli",
+  "qoder-cli",
+  "codebuddy-code",
+  "copilot-cli",
+  "cursor-agent-cli",
+  "iflow-cli",
 ];
 
 const ALL_PLATFORMS = ["windows", "macos", "linux"];

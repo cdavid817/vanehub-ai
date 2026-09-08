@@ -390,6 +390,17 @@ import { architectureDiagnostic, architectureSummaryDiagnostic, RULES } from "./
 // 声明为模拟的 Web/mock 状态、决策模拟与执行器(web-session-deletion-state / -simulation /
 // -runner / -client)。删除仲裁在 Rust 侧,前端只承载预览、选择与结果投影;React 仍只依赖
 // 服务边界。合并 main 后重测:两边落在互不相交的文件上,合并树实测 28080,不预留余量。
+// 上调理由(extend-cli-providers-with-acp):+31 全部是七个新 CLI 在 Web/mock 侧的对等数据,没有一行是
+// 复制既有分支——`mock-agent-data.ts` 的七条注册项(+20,已压成一个元组表映射,与原生 registry 种子
+// 同一套 capability tag),`chat-configuration.ts` 的默认 provider/model(+7,镜像 `chat_profile.rs`)
+// 与 `model-family.ts` 的 unknown 家族(+4,镜像 `seat_roster.rs`)。Tauri 与 Web/mock 必须同时补齐,
+// 否则浏览器里的创建会话对话框会少七个 Agent。按实测 27453 记,不留余量。
+// 同一变更再上调 32 行:显式「检查连接」是一条新的服务边界方法(`checkCliConnection`)——接口 6 行含
+// 说明,Tauri 侧 4 行的 invoke 映射,Web/mock 侧 22 行,因为它必须真的拒绝(非 ACP、未安装)而不是一律
+// 返回成功,否则页面的失败分支在浏览器里永远跑不到。按实测 27485 记,不留余量。
+// 上调理由(add-qwen-iflow-config-profiles):+4 是 `web-cli-config-state.ts` 对两种新 profile kind 的凭据
+// 规则与模型必填校验——Web/mock 的保存校验必须与原生 `validate()` 同一套拒绝,否则浏览器里能存下
+// 桌面端会拒绝的配置。按实测 27489 记,不留余量。
 const SUBTREE_LINE_BUDGETS = Object.freeze([
   // 27405 -> 27421: the execution timeline response now states whether its event list was
   // truncated, and that shape has to exist in the service interface and in both adapters —
@@ -426,7 +437,16 @@ const SUBTREE_LINE_BUDGETS = Object.freeze([
   // Tauri 客户端三条返回路径上的 await/map 改写。不是复制:归一化本身早就存在,Web 适配器一直
   // 在用,缺的只是桌面适配器没有接上去。逐点 `?? []` 补丁会更省行数,但下一个空数组字段还会
   // 复发。
-  { root: "src/services", budget: 28196, owner: "fix-cli-parameters-native-payload-normalization" },
+  // 合并 main 后重测(2026-09-07):本分支的 +36(七家 CLI 的 Web/mock 对等数据、检查连接、
+  // 配置 profile 校验)与 main 侧的会话删除、目录选择落在互不相交的文件上,按惯例在合并树上实测。
+  //
+  // 再次合并 main(2026-09-08,含 fix-cli-parameters-native-payload-normalization 的 +35)后在合并树上
+  // 实测;本分支对 `dependencies: {}` 的原生序列化修正已撤回,改用 main 的适配器归一化,避免两处修同一缺陷。
+  //
+  // 28263 -> 28277(extend-cli-providers-with-acp 第三轮审查修正):+14 是聊天配置归一化对 CodeBuddy
+  // 区域账号(`codebuddy-china` / `codebuddy-ioa`)的保留规则,与领域层 `is_reviewed_account_environment`
+  // 镜像;不是既有逻辑的复制。
+  { root: "src/services", budget: 28277, owner: "harden-session-workspace-tab-layouts" },
 ]);
 
 const STATE_PACKAGES = new Set([

@@ -1,3 +1,4 @@
+use crate::platform::database::SqliteWriteTransaction;
 use chrono::{DateTime, Duration, Utc};
 use rusqlite::{params, Transaction, TransactionBehavior};
 
@@ -46,7 +47,7 @@ impl SqliteEvolutionEvidenceRepository {
             .database
             .connection()
             .map_err(|_| EvidenceRepositoryError::Storage)?;
-        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let transaction = connection.write_transaction()?;
         let cutoff = (now - Duration::days(policy.retention_days)).to_rfc3339();
         let expired = expired_signal_ids(&transaction, &cutoff)?;
         let expired_signals = delete_signal_set(&transaction, &expired)?.signals;

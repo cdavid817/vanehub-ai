@@ -4,6 +4,8 @@ export const cliConfigAgentIds = [
   "opencode",
   "antigravity-cli",
   "gemini-cli",
+  "qwen-code",
+  "iflow-cli",
 ] as const;
 
 export type CliConfigAgentId = (typeof cliConfigAgentIds)[number];
@@ -82,12 +84,31 @@ export interface GeminiCliConfigPayload {
   advancedEnv: Record<string, string>;
 }
 
+/** `~/.qwen/.env` endpoint plus the auth selection in `~/.qwen/settings.json`; preserve-official keeps Qwen OAuth. */
+export interface QwenCodeConfigPayload {
+  kind: "qwen-code";
+  baseUrl: string;
+  model: string;
+  authStrategy: "preserve-official" | "api-key";
+  advancedEnv: Record<string, string>;
+}
+
+/** iFlow's custom API at the root of `~/.iflow/settings.json` (key materialized there); every profile needs a key. */
+export interface IflowCliConfigPayload {
+  kind: "iflow-cli";
+  baseUrl: string;
+  model: string;
+  advancedSettings: Record<string, string | number | boolean>;
+}
+
 export type CliConfigPayload =
   | ClaudeCodeConfigPayload
   | CodexCliConfigPayload
   | OpenCodeConfigPayload
   | AntigravityConfigPayload
-  | GeminiCliConfigPayload;
+  | GeminiCliConfigPayload
+  | QwenCodeConfigPayload
+  | IflowCliConfigPayload;
 
 /**
  * Capability declarations, so credential fields, validation actions, and the `needs-credential`

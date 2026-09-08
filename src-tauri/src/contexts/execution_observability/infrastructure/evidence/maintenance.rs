@@ -9,9 +9,10 @@ use crate::contexts::execution_observability::domain::{
     ExecutionEvidenceEventInput, ExecutionRunId, RedactionReceipt, SafeReasonCode, SourceEventId,
     SpanId, TraceId,
 };
+use crate::platform::database::SqliteWriteTransaction;
 #[cfg(test)]
 use rusqlite::Connection;
-use rusqlite::{params, Transaction, TransactionBehavior};
+use rusqlite::{params, Transaction};
 
 // Both transactions below are `IMMEDIATE`. Each reads before it writes — retention selects the
 // sessions it is about to trim, replay reads the events it projects — and a deferred transaction
@@ -49,9 +50,7 @@ impl SqliteEvidenceRepository {
         session_id: Option<&EvidenceSessionId>,
     ) -> Result<usize, EvidenceApplicationError> {
         let mut connection = self.connection_for_maintenance()?;
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(storage)?;
+        let transaction = connection.write_transaction().map_err(storage)?;
 
         match session_id {
             Some(session_id) => transaction
@@ -93,9 +92,7 @@ impl SqliteEvidenceRepository {
         now: &str,
     ) -> Result<EvidenceRetentionOutcome, EvidenceApplicationError> {
         let mut connection = self.connection_for_maintenance()?;
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(storage)?;
+        let transaction = connection.write_transaction().map_err(storage)?;
 
         let sessions: Vec<String> = {
             let mut statement = transaction

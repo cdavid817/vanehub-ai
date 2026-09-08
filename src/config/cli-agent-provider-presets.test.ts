@@ -40,8 +40,11 @@ describe("CLI Agent provider presets", () => {
     expect(getCliConfigPresets("claude-code").every((preset) => preset.endpointType === "anthropic-messages")).toBe(true);
     expect(getCliConfigPresets("codex-cli").every((preset) => preset.endpointType !== "anthropic-messages")).toBe(true);
     expect(getCliConfigPresets("opencode").every((preset) => preset.endpointType !== "anthropic-messages")).toBe(true);
-    // 25 from the shared endpoint directory, plus dedicated Antigravity and Gemini providers.
-    expect(new Set(cliAgentProviderPresets.map((preset) => preset.providerId)).size).toBe(27);
+    // 25 from the shared endpoint directory, plus dedicated Antigravity, Gemini and Qwen OAuth providers.
+    expect(new Set(cliAgentProviderPresets.map((preset) => preset.providerId)).size).toBe(28);
+    // Qwen Code and iFlow speak chat completions only.
+    expect(getCliConfigPresets("qwen-code").every((preset) => preset.endpointType === "openai-chat-completions")).toBe(true);
+    expect(getCliConfigPresets("iflow-cli").every((preset) => preset.endpointType === "openai-chat-completions")).toBe(true);
   });
 
   it("returns editable copies instead of mutating the catalog", () => {

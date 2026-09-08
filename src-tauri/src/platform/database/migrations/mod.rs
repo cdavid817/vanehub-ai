@@ -711,6 +711,15 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "session-deletion-operations",
         crate::contexts::sessions::infrastructure::apply_session_deletion_schema,
     )?;
+    // Additive: a new table for ACP execution bindings. Sessions created before it have no row
+    // and keep routing through their original transport. 114 on this merge: 112 and 113 were
+    // taken by the session-deletion change that merged first.
+    apply_migration(
+        conn,
+        114,
+        "cli-execution-bindings",
+        crate::contexts::agent_runtime::infrastructure::providers::acp::apply_execution_binding_schema,
+    )?;
     repair_missing_stable_participant_schema(conn)?;
     repair_missing_cli_parameter_profile_schema(conn)?;
     crate::contexts::execution_observability::infrastructure::repair_missing_evidence_schema(conn)?;
@@ -881,6 +890,7 @@ pub(super) const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (111, "permission-grant-canonical-identity"),
     (112, "managed-worktree-resources"),
     (113, "session-deletion-operations"),
+    (114, "cli-execution-bindings"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {

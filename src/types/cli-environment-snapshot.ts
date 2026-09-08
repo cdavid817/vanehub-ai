@@ -150,6 +150,36 @@ export interface CliEnvironmentSnapshot {
   lastMutation: CliMutationSummary | null;
   lastOperationId: string | null;
   checkedAt: string | null;
+  /**
+   * `active` or `legacy`. A legacy tool's official service has shut down: only a locally
+   * installed program with the user's own configuration is supported, terminal only, and the
+   * page says so rather than greying controls out.
+   */
+  lifecycle: string;
+  /** ISO date of the official service shutdown; `null` for an active tool. */
+  legacyServiceShutdown: string | null;
+  /**
+   * `headless`, `acp-stdio`, or `terminal-only`: how the runtime drives a managed conversation.
+   * Rendered as an advanced detail, never as part of the Agent's identity.
+   */
+  managedTransport: string;
+  /** The vendor's own sign-in documentation (HTTPS), or `null`. Opened only on a user click. */
+  loginDocsUrl: string | null;
+}
+
+/**
+ * What an explicit ACP connection check negotiated. A handshake only: no session was created and
+ * no prompt was sent, so this says what the installed program speaks, not whether it is signed in.
+ */
+export interface CliConnectionCheck {
+  agentId: string;
+  transport: string;
+  protocolVersion: number;
+  loadSession: boolean;
+  agentName: string | null;
+  agentVersion: string | null;
+  authMethods: readonly string[];
+  elapsedMs: number;
 }
 
 /** The argv a plan will run. Structured, never a shell string. */

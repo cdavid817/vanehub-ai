@@ -93,6 +93,11 @@ fn family_by_agent_id(agent_id: &str) -> Option<ModelFamily> {
         "claude-code" => Some(ModelFamily::Anthropic),
         "codex-cli" => Some(ModelFamily::OpenAi),
         "gemini-cli" => Some(ModelFamily::Google),
+        // The expanded CLIs each front a vendor model catalog (Qwen, Kimi, Qoder, CodeBuddy,
+        // Cursor) or a switchable multi-vendor one (Copilot); none maps onto the three families
+        // a cross-family review can compare, so they are unknown rather than misfiled.
+        "qwen-code" | "kimi-cli" | "qoder-cli" | "codebuddy-code" | "copilot-cli"
+        | "cursor-agent-cli" | "iflow-cli" => Some(ModelFamily::Unknown),
         // Antigravity speaks Google's own CodeAssist surface and serves Google models, so its
         // family is fixed the way Gemini's is rather than user-configurable like OpenCode's.
         "antigravity-cli" => Some(ModelFamily::Google),

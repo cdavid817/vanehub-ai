@@ -87,3 +87,68 @@ Source: <https://opencode.ai/docs/cli/>
 | `sandbox` | `--sandbox` | global | interactive, chat | boolean-flag | policy-governed | — | — |
 
 Source: <https://antigravity.google/docs/cli/headless/>
+
+## Qwen Code
+
+| Parameter | Flag | Slot | Scope | Control | Ownership | Min version | Verification |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `model` | `--model` | global | interactive, chat | custom-text | user-editable | — | — |
+| `safeMode` | `--safe-mode` | global | interactive, chat | boolean-flag | user-editable | — | — |
+| `bare` | `--bare` | global | interactive, chat | boolean-flag | user-editable | — | — |
+
+Source: <https://qwenlm.github.io/qwen-code-docs/en/users/configuration/settings/>
+
+## Kimi Code CLI
+
+| Parameter | Flag | Slot | Scope | Control | Ownership | Min version | Verification |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `model` | `--model` | global | interactive, chat | custom-text | user-editable | — | — |
+| `agent` | `--agent` | global | interactive, chat | custom-text | user-editable | — | — |
+
+Source: <https://www.kimi.com/code/docs/en/kimi-code-cli/reference/kimi-command.html>
+
+## Qoder CLI
+
+| Parameter | Flag | Slot | Scope | Control | Ownership | Min version | Verification |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `model` | `--model` | global | interactive, chat | custom-text | user-editable | — | — |
+| `thinking` | `--thinking` | global | interactive, chat | enum | user-editable | — | — |
+| `agent` | `--agent` | global | interactive, chat | custom-text | user-editable | — | — |
+
+Source: <https://docs.qoder.com/cli/installation>
+
+## CodeBuddy Code
+
+| Parameter | Flag | Slot | Scope | Control | Ownership | Min version | Verification |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `model` | `--model` | global | interactive, chat | custom-text | user-editable | — | — |
+| `effort` | `--effort` | global | interactive, chat | enum | user-editable | — | — |
+| `agent` | `--agent` | global | interactive, chat | custom-text | user-editable | — | — |
+
+Source: <https://www.codebuddy.ai/docs/cli/quickstart>
+
+## GitHub Copilot CLI
+
+| Parameter | Flag | Slot | Scope | Control | Ownership | Min version | Verification |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `model` | `--model` | global | interactive, chat | custom-text | user-editable | — | — |
+| `effort` | `--effort` | global | interactive, chat | enum | user-editable | — | — |
+
+Source: <https://docs.github.com/en/copilot/reference/copilot-cli-reference>
+
+## Cursor Agent CLI
+
+| Parameter | Flag | Slot | Scope | Control | Ownership | Min version | Verification |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `model` | `--model` | global | interactive, chat | custom-text | user-editable | — | — |
+
+Source: <https://cursor.com/docs/cli/installation>
+
+## iFlow CLI
+
+| Parameter | Flag | Slot | Scope | Control | Ownership | Min version | Verification |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `model` | `--model` | global | interactive, chat | custom-text | user-editable | — | — |
+| `thinking` | `--thinking` | global | interactive, chat | boolean-flag | user-editable | — | — |
+
+Source: <https://vibex.iflow.cn/t/topic/4819>

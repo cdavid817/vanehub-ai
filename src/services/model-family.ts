@@ -23,6 +23,10 @@ const familyByAgentId: Record<string, ModelFamily> = {
   // OpenCode drives whichever model the user configured, so it has no fixed family. Claiming one
   // would make a cross-family reviewer check act on a false premise.
   opencode: "unknown",
+  // The expanded CLIs front vendor catalogs outside the three comparable families, or switch
+  // between vendors (Copilot); `unknown` keeps a cross-family check honest. Mirrors `seat_roster.rs`.
+  ...Object.fromEntries(["qwen-code", "kimi-cli", "qoder-cli", "codebuddy-code", "copilot-cli", "cursor-agent-cli", "iflow-cli"]
+    .map((agentId): [string, ModelFamily] => [agentId, "unknown"])),
 };
 
 const familyByProviderText: Record<string, ModelFamily> = {

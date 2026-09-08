@@ -8,7 +8,11 @@ const blocked = [];
 // src-tauri/src/contexts/tooling/cli_parameters/domain/catalog_validation.rs
 // (MANAGED_CLI_AGENT_IDS). `list_profiles` maps over the constant in order, so the response order
 // is itself the contract.
-const MANAGED_CLI_AGENT_IDS = ["claude-code", "codex-cli", "gemini-cli", "opencode", "antigravity-cli"];
+// Registry order: the original five, then the seven added by `extend-cli-providers-with-acp`.
+const MANAGED_CLI_AGENT_IDS = [
+  "claude-code", "codex-cli", "gemini-cli", "opencode", "antigravity-cli",
+  "qwen-code", "kimi-cli", "qoder-cli", "codebuddy-code", "copilot-cli", "cursor-agent-cli", "iflow-cli",
+];
 // src-tauri/src/contexts/tooling/cli_parameters/domain/definition.rs -- the serde renames on the
 // control (kebab-case), risk (lowercase) and launch-scope (lowercase) enums.
 const PARAMETER_CONTROLS = [
@@ -51,7 +55,7 @@ function previewArgs(segments) {
 
 // src-tauri/src/contexts/tooling/cli_config/domain/mod.rs:8 (SUPPORTED_AGENT_IDS) -- deliberately a
 // different order from the CLI parameter constant above.
-const CLI_CONFIG_AGENT_IDS = ["claude-code", "opencode", "codex-cli", "antigravity-cli", "gemini-cli"];
+const CLI_CONFIG_AGENT_IDS = ["claude-code", "opencode", "codex-cli", "antigravity-cli", "gemini-cli", "qwen-code", "iflow-cli"];
 // src-tauri/src/contexts/tooling/cli_config/infrastructure/live_config.rs:60-80 (`primary_path`).
 const PRIMARY_CONFIG_SUFFIX = {
   "claude-code": ".claude/settings.json",
@@ -59,6 +63,8 @@ const PRIMARY_CONFIG_SUFFIX = {
   "codex-cli": ".codex/config.toml",
   "antigravity-cli": ".gemini/antigravity-cli/settings.json",
   "gemini-cli": ".gemini/.env",
+  "qwen-code": ".qwen/.env",
+  "iflow-cli": ".iflow/settings.json",
 };
 // src-tauri/src/contexts/tooling/cli_config/domain/mod.rs:130-174 -- the `kind` tag is the
 // kebab-cased variant name, which for Antigravity is *not* its Agent id.
@@ -68,6 +74,8 @@ const CONFIG_PAYLOAD_KIND = {
   "codex-cli": "codex-cli",
   "antigravity-cli": "antigravity",
   "gemini-cli": "gemini-cli",
+  "qwen-code": "qwen-code",
+  "iflow-cli": "iflow-cli",
 };
 // src-tauri/src/contexts/tooling/cli_config/domain/mod.rs:26-61 -- drift, validation, applied and
 // startup-sync states, all kebab-case.
@@ -419,14 +427,16 @@ globalThis.describe("VaneHub AI desktop CLI tooling domain", () => {
       assert.ok(DRIFT_STATES.includes(status.driftState), `${agentId} reported drift state ${status.driftState}`);
       // The native adapter hardcodes this false (api.rs:411); true would mean the mock answered.
       assert.equal(status.simulated, false, `${agentId} status came from a simulated adapter`);
-      // live_config.rs:94-101 -- codex-cli is the only Agent whose auth.json is a second target.
-      assert.equal(status.resolvedPaths.length, agentId === "codex-cli" ? 2 : 1);
+      // live_config.rs `paths` -- codex-cli's auth.json and qwen-code's settings.json (which
+      // carries the authentication-mode selection) are the only second targets.
+      const SECOND_CONFIG_SUFFIX = { "codex-cli": ".codex/auth.json", "qwen-code": ".qwen/settings.json" };
+      assert.equal(status.resolvedPaths.length, SECOND_CONFIG_SUFFIX[agentId] ? 2 : 1);
       assert.ok(
         status.resolvedPaths[0].replaceAll("\\", "/").endsWith(PRIMARY_CONFIG_SUFFIX[agentId]),
         `${agentId} resolved an unexpected primary path`,
       );
-      if (agentId === "codex-cli") {
-        assert.ok(status.resolvedPaths[1].replaceAll("\\", "/").endsWith(".codex/auth.json"));
+      if (SECOND_CONFIG_SUFFIX[agentId]) {
+        assert.ok(status.resolvedPaths[1].replaceAll("\\", "/").endsWith(SECOND_CONFIG_SUFFIX[agentId]));
       }
       // src-tauri/src/bootstrap/runtime.rs:150 runs the startup sync synchronously during setup, so
       // by the time any spec runs the per-Agent result must have left "pending".
@@ -544,8 +554,9 @@ globalThis.describe("VaneHub AI desktop CLI tooling domain", () => {
     // through `dirs::home_dir()` (live_config.rs:41) and credentials go to the real OS keyring
     // (cli_config/infrastructure/credential_adapter.rs:16); VANEHUB_APP_DATA_DIR redirects neither.
     // Running any of these would edit this developer's own ~/.claude/settings.json,
-    // ~/.codex/config.toml, ~/.codex/auth.json, ~/.config/opencode/opencode.json, ~/.gemini/.env or
-    // ~/.gemini/antigravity-cli/settings.json, or plant a secret in their credential manager.
+    // ~/.codex/config.toml, ~/.codex/auth.json, ~/.config/opencode/opencode.json, ~/.gemini/.env,
+    // ~/.gemini/antigravity-cli/settings.json, ~/.qwen/.env, ~/.qwen/settings.json or
+    // ~/.iflow/settings.json, or plant a secret in their credential manager.
     for (const [command, effect] of [
       ["apply_cli_config_profile", "projects a profile onto the live config files and rewrites auth.json"],
       ["save_cli_config_profile", "stores a profile and writes its credential to the real OS keyring"],

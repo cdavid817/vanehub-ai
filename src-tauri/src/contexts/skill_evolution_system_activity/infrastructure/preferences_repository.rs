@@ -1,3 +1,4 @@
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::{params, OptionalExtension, Row, Transaction};
 use serde::de::DeserializeOwned;
 
@@ -32,7 +33,7 @@ impl SqliteActivityProjectionRepository<'_> {
         if updated_at_ms < 0 {
             return Err(ActivityProjectionRepositoryError::InvalidInput);
         }
-        let transaction = self.connection.unchecked_transaction()?;
+        let transaction = self.connection.write_transaction_unchecked()?;
         let changed = persist_preferences(&transaction, requested, updated_at_ms)?;
         if changed != 1 {
             let current = load_preferences(

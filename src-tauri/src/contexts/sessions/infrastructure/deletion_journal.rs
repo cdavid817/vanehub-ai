@@ -12,8 +12,9 @@ use crate::contexts::sessions::application::{
     OperationPatch, SessionDbEffect, SessionDeletionClaim, SessionDeletionOperation,
     SessionsApplicationError, WorktreeDeletionPolicy, WorktreeEffect,
 };
+use crate::platform::database::SqliteWriteTransaction;
 use crate::platform::database::{DatabaseError, NativeDatabase, PooledSqlite};
-use rusqlite::{params, Connection, OptionalExtension, Row, TransactionBehavior};
+use rusqlite::{params, Connection, OptionalExtension, Row};
 
 pub(crate) fn apply_session_deletion_schema(connection: &Connection) -> Result<(), DatabaseError> {
     connection.execute_batch(
@@ -211,9 +212,7 @@ impl DeletionJournalPort for SqliteDeletionJournal {
         operation: &NewDeletionOperation,
     ) -> Result<JournalCreateOutcome, SessionsApplicationError> {
         let mut connection = self.connection()?;
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(repository_error)?;
+        let transaction = connection.write_transaction().map_err(repository_error)?;
         let existing: Option<(String, String)> = transaction
             .query_row(
                 "SELECT id, request_hash FROM session_deletion_operations WHERE request_id = ?1",
@@ -409,9 +408,7 @@ impl DeletionJournalPort for SqliteDeletionJournal {
         patch: &GroupPatch,
     ) -> Result<u64, SessionsApplicationError> {
         let mut connection = self.connection()?;
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(repository_error)?;
+        let transaction = connection.write_transaction().map_err(repository_error)?;
         let revision = apply_group_patch(
             &transaction,
             operation_id,
@@ -453,9 +450,7 @@ impl DeletionJournalPort for SqliteDeletionJournal {
         session_ids: &[String],
     ) -> Result<GroupCompletion, SessionsApplicationError> {
         let mut connection = self.connection()?;
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(repository_error)?;
+        let transaction = connection.write_transaction().map_err(repository_error)?;
         let mut active_session_cleared = false;
         for session_id in session_ids {
             // A row already gone is not a failure: the row is what this step is for.
@@ -518,9 +513,7 @@ impl DeletionJournalPort for SqliteDeletionJournal {
         session_ids: &[String],
     ) -> Result<Option<SessionDeletionClaim>, SessionsApplicationError> {
         let mut connection = self.connection()?;
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(repository_error)?;
+        let transaction = connection.write_transaction().map_err(repository_error)?;
         for session_id in session_ids {
             let existing: Option<(String, String)> = transaction
                 .query_row(

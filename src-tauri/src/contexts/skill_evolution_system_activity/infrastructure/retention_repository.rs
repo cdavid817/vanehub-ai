@@ -1,3 +1,4 @@
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::{params, OptionalExtension, Transaction};
 
 use super::{
@@ -30,7 +31,7 @@ impl SqliteActivityProjectionRepository<'_> {
         now_ms: i64,
     ) -> Result<ActivityRetentionReport, ActivityProjectionRepositoryError> {
         validate_input(session_id, "retention.session_id", now_ms)?;
-        let transaction = self.connection.unchecked_transaction()?;
+        let transaction = self.connection.write_transaction_unchecked()?;
         let retention_days = transaction
             .query_row(
                 "SELECT p.detail_retention_days FROM evolution_system_activity_sessions s
@@ -96,7 +97,7 @@ impl SqliteActivityProjectionRepository<'_> {
         purged_at_ms: i64,
     ) -> Result<ActivitySourcePurgeReport, ActivityProjectionRepositoryError> {
         validate_input(source_id, "purge.source_id", purged_at_ms)?;
-        let transaction = self.connection.unchecked_transaction()?;
+        let transaction = self.connection.write_transaction_unchecked()?;
         let events = affected_source_events(&transaction, source_domain, source_id)?;
         let mut removed_detail_items = 0_u64;
         let mut preserved_tombstones = 0_u64;

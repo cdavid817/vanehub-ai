@@ -26,27 +26,27 @@ use crate::contexts::agent_runtime::infrastructure::LocalMediaOcrAdapter;
 use crate::contexts::agent_runtime::infrastructure::{
     builtin_expert_roles, AgentRuntimeLoggingAdapter, AgentRuntimeOperationAdapter,
     BuiltinAwareExpertRoleRepository, CodeIntelligenceContextSource, CompositeAgentProcessGateway,
-    CredentialAwareAgentRegistry, ExplicitReferenceContextSource, HttpLocalModelDiscoveryAdapter,
-    HttpOnePieceModelDiscoveryAdapter, HttpStructuredModelTransport,
-    InMemoryAgentMessageTerminalCompletions, InMemoryGenerationCoordinator,
-    InMemoryLoopExecutionCoordinator, InMemoryLoopRoleGenerationCompletions,
-    InMemorySeatTurnCompletions, LocalRunner, ManualNativeToolAuthorityAdapter,
-    ManualNativeToolControl, ManualNativeToolOperationAdapter, MonotonicContextEngineClock,
-    NativeAgentCoreInstructionsAdapter, NativeLoopScheduler, NativeSeatTurnCoordinator,
-    NativeSkillToolExecutionAdapter, NativeSkillToolExecutionDependencies, NativeSubagentExecutor,
-    NativeUtilityChildExecutor, OsApiCredentialAdapter, PermissionsPortAdapter,
-    PortablePtyAgentTerminalRuntime, RetrievalContextSource, RunnerRegistry,
-    RuntimeAgentApiAdapter, RuntimeAgentAvailabilityAdapter, RuntimeAgentCliProfileAdapter,
-    RuntimeAgentMcpToolAdapter, RuntimeAgentMemoryExtractionAdapter, RuntimeAgentProcessAdapter,
-    RuntimeAgentSkillAdapter, RuntimeEffectivePromptAdapter,
-    RuntimeLoopVerificationEvidenceAdapter, RuntimeProcessEvidenceDependencies,
-    RuntimeUtilityLifecycleProjector, SessionsAgentRuntimeAdapter, SkillToolPermissionAdapter,
-    SqliteAgentRuntimeRepository, SqliteContextManifestRepository, SqliteContextQualityRepository,
-    SqliteExpertRoleRepository, SqliteLoopRepository, SqliteNativeToolRepository, SshRunner,
-    StructuredLoopVerificationProcess, SubagentRuntime, SystemAgentRuntimeClock,
-    SystemExpertRoleClock, TauriAgentRuntimeEventAdapter, TerminalExecutionObservability,
-    UnavailableNativeToolPort, UnifiedContextEngineDiagnostics, UuidExpertRoleIds,
-    WorkspaceLoopProjectAdapter,
+    CompositeToolApprovalPort, CredentialAwareAgentRegistry, ExplicitReferenceContextSource,
+    HttpLocalModelDiscoveryAdapter, HttpOnePieceModelDiscoveryAdapter,
+    HttpStructuredModelTransport, InMemoryAgentMessageTerminalCompletions,
+    InMemoryGenerationCoordinator, InMemoryLoopExecutionCoordinator,
+    InMemoryLoopRoleGenerationCompletions, InMemorySeatTurnCompletions, LocalRunner,
+    ManualNativeToolAuthorityAdapter, ManualNativeToolControl, ManualNativeToolOperationAdapter,
+    MonotonicContextEngineClock, NativeAgentCoreInstructionsAdapter, NativeLoopScheduler,
+    NativeSeatTurnCoordinator, NativeSkillToolExecutionAdapter,
+    NativeSkillToolExecutionDependencies, NativeSubagentExecutor, NativeUtilityChildExecutor,
+    OsApiCredentialAdapter, PermissionsPortAdapter, PortablePtyAgentTerminalRuntime,
+    RetrievalContextSource, RunnerRegistry, RuntimeAgentApiAdapter,
+    RuntimeAgentAvailabilityAdapter, RuntimeAgentCliProfileAdapter, RuntimeAgentMcpToolAdapter,
+    RuntimeAgentMemoryExtractionAdapter, RuntimeAgentProcessAdapter, RuntimeAgentSkillAdapter,
+    RuntimeEffectivePromptAdapter, RuntimeLoopVerificationEvidenceAdapter,
+    RuntimeProcessEvidenceDependencies, RuntimeUtilityLifecycleProjector,
+    SessionsAgentRuntimeAdapter, SkillToolPermissionAdapter, SqliteAgentRuntimeRepository,
+    SqliteContextManifestRepository, SqliteContextQualityRepository, SqliteExpertRoleRepository,
+    SqliteLoopRepository, SqliteNativeToolRepository, SshRunner, StructuredLoopVerificationProcess,
+    SubagentRuntime, SystemAgentRuntimeClock, SystemExpertRoleClock, TauriAgentRuntimeEventAdapter,
+    TerminalExecutionObservability, UnavailableNativeToolPort, UnifiedContextEngineDiagnostics,
+    UuidExpertRoleIds, WorkspaceLoopProjectAdapter,
 };
 use crate::contexts::artifacts::application::{ArtifactBlobStorePolicy, ArtifactService};
 use crate::contexts::artifacts::infrastructure::{
@@ -698,7 +698,30 @@ pub(crate) fn assemble_agent_runtime_api(
             dependencies.app.clone(),
         ),
     );
-    let tool_approvals = api_processes.clone();
+    let acp_processes = Arc::new(
+        crate::contexts::agent_runtime::infrastructure::providers::acp::AcpAgentProcessAdapter::new(
+            crate::contexts::agent_runtime::infrastructure::providers::acp::AcpAgentProcessDependencies {
+                providers: provider_registry.clone(),
+                permissions: agent_permissions.clone(),
+                runner_permissions: agent_permissions.clone(),
+                logging: logging.clone(),
+                clock: clock.clone(),
+                bindings: Some(
+                    crate::contexts::agent_runtime::infrastructure::providers::acp::binding::SqliteExecutionBindingRepository::new(
+                        dependencies.database.clone(),
+                    ),
+                ),
+                launcher: Arc::new(
+                    crate::contexts::agent_runtime::infrastructure::providers::acp::adapter::ProcessLauncher,
+                ),
+            },
+        ),
+    );
+    let tool_approvals: Arc<dyn crate::contexts::agent_runtime::application::ToolApprovalPort> =
+        Arc::new(CompositeToolApprovalPort::new(
+            api_processes.clone(),
+            acp_processes.clone(),
+        ));
     let manual_native_tool_service = ManualNativeToolService::new(
         NativeToolDispatcher::new(native_tools.clone()),
         agent_permissions,
@@ -714,7 +737,9 @@ pub(crate) fn assemble_agent_runtime_api(
     let processes: Arc<dyn crate::contexts::agent_runtime::application::AgentProcessGateway> =
         Arc::new(CompositeAgentProcessGateway::new(
             cli_processes,
+            acp_processes.clone(),
             api_processes,
+            provider_registry.clone(),
         ));
     let cli_profiles = Arc::new(RuntimeAgentCliProfileAdapter::new(
         dependencies.cli_parameter_runtime,
@@ -896,6 +921,7 @@ pub(crate) fn assemble_agent_runtime_api(
             manual_native_tools,
             local_discovery,
             structured_evaluation,
+            managed_connections: acp_processes,
         }),
         telemetry_lifecycle,
         completion_events: events,

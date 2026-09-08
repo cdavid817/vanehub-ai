@@ -2,6 +2,7 @@ use super::application_binding_store::load_application;
 use super::repository_support::{from_sql_u64, sql_u64, state_name};
 use super::{append_system_event, SystemAuditEvent};
 use crate::contexts::skill_evolution_curation::{application::*, domain::*};
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::{params, OptionalExtension, TransactionBehavior};
 
 pub(super) fn finalize(
@@ -15,7 +16,7 @@ pub(super) fn finalize(
         return Err(CuratorApplicationStoreError::InvalidInput);
     }
     let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .write_transaction()
         .map_err(|_| CuratorApplicationStoreError::Storage)?;
     let current = load_application(&transaction, application_id)?;
     if matches!(
@@ -99,7 +100,7 @@ pub(super) fn prepare_retry(
         .checked_add(1)
         .ok_or(CuratorApplicationStoreError::InvalidInput)?;
     let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .write_transaction()
         .map_err(|_| CuratorApplicationStoreError::Storage)?;
     transaction
         .execute(

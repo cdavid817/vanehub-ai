@@ -53,6 +53,26 @@ export const mockAgents: AgentRegistryEntry[] = [
     capabilityTags: ["coding", "cli", "agent"],
     agentOrigin: "builtin",
   },
+  // The seven expanded CLIs. `acp` and `legacy` are the same capability tags the native
+  // registry seeds, so the create-session dialog reads one vocabulary in both runtimes.
+  ...([
+    ["qwen-code", "Qwen Code", "Alibaba", "qwen", "acp"],
+    ["kimi-cli", "Kimi Code CLI", "Moonshot AI", "kimi", "acp"],
+    ["qoder-cli", "Qoder CLI", "Qoder", "qoder", "acp"],
+    ["codebuddy-code", "CodeBuddy Code", "Tencent", "codebuddy", "acp"],
+    ["copilot-cli", "GitHub Copilot CLI", "GitHub", "copilot", "acp"],
+    ["cursor-agent-cli", "Cursor Agent CLI", "Cursor", "agent", "acp"],
+    ["iflow-cli", "iFlow CLI", "iFlow", "iflow", "legacy"],
+  ] as const).map(([id, displayName, provider, command, transport]): AgentRegistryEntry => ({
+    id,
+    displayName,
+    provider,
+    launch: { kind: "cli", command, executableName: command },
+    supportedInteractionModes: ["cli"],
+    availabilityState: "unknown",
+    capabilityTags: transport === "acp" ? ["coding", "cli", "agent", "acp"] : ["coding", "cli", "legacy", "terminal-only"],
+    agentOrigin: "builtin",
+  })),
   {
     id: "onepiece",
     displayName: "OnePiece",

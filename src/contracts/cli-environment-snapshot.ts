@@ -150,6 +150,26 @@ export interface CliEnvironmentSnapshot {
   lastMutation: CliMutationSummary | null;
   lastOperationId: string | null;
   checkedAt: string | null;
+  lifecycle: string;
+  legacyServiceShutdown: string | null;
+  managedTransport: string;
+  /** The vendor's own sign-in documentation (HTTPS), or `null`. Opened only on a user click. */
+  loginDocsUrl: string | null;
+}
+
+/**
+ * What an explicit ACP connection check negotiated. A handshake only: no session was created and
+ * no prompt was sent, so this says what the installed program speaks, not whether it is signed in.
+ */
+export interface CliConnectionCheck {
+  agentId: string;
+  transport: string;
+  protocolVersion: number;
+  loadSession: boolean;
+  agentName: string | null;
+  agentVersion: string | null;
+  authMethods: readonly string[];
+  elapsedMs: number;
 }
 
 /** The argv a plan will run. Structured, never a shell string. */

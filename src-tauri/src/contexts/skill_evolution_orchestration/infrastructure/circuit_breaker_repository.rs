@@ -1,3 +1,4 @@
+use crate::platform::database::SqliteWriteTransaction;
 use crate::{
     contexts::skill_evolution_orchestration::domain::{
         acknowledge_breaker, canonical_hash, open_breaker, record_breaker_health,
@@ -52,7 +53,7 @@ impl SqliteCircuitBreakerRepository {
             .connection()
             .map_err(|_| CircuitBreakerRepositoryError::Storage)?;
         let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .write_transaction()
             .map_err(|_| CircuitBreakerRepositoryError::Storage)?;
         let changed = transaction
             .execute(
@@ -144,7 +145,7 @@ impl SqliteCircuitBreakerRepository {
             .connection()
             .map_err(|_| CircuitBreakerRepositoryError::Storage)?;
         let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .write_transaction()
             .map_err(|_| CircuitBreakerRepositoryError::Storage)?;
         let current = load(&transaction, workspace_id, skill_id)?
             .ok_or(CircuitBreakerRepositoryError::NotFound)?;

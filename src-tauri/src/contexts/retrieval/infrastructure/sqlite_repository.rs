@@ -4,6 +4,7 @@ use crate::contexts::retrieval::domain::{
     RetrievalError, RetrievalScope, SourceKind,
 };
 use crate::platform::clock::SystemClock;
+use crate::platform::database::SqliteWriteTransaction;
 use crate::platform::database::{DatabaseError, NativeDatabase};
 use rusqlite::{params, Row};
 
@@ -72,7 +73,9 @@ impl RetrievalDocumentRepository for SqliteRetrievalDocumentRepository {
             return Ok(());
         }
         let connection = self.database.connection().map_err(database_error)?;
-        let transaction = connection.unchecked_transaction().map_err(storage_error)?;
+        let transaction = connection
+            .write_transaction_unchecked()
+            .map_err(storage_error)?;
         let now = SystemClock.rfc3339();
         {
             let mut upsert_statement = transaction

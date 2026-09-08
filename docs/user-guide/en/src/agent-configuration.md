@@ -91,7 +91,7 @@ The Details drawer's **Diagnostics** tab shows what each probe concluded: the ve
 
 ![The CLI Parameters settings page](assets/screenshots/settings-cli-parameters-en.png)
 
-The rail on the left lists the five external CLIs. Each entry shows the **detected version or installation state** plus counts of unsaved edits, warnings and errors. OnePiece is not here — it does not launch through an external CLI, and its configuration lives under **Settings → Agent configurations**.
+The rail on the left lists every external CLI, twelve in all. Each entry shows the **detected version or installation state** plus counts of unsaved edits, warnings and errors. OnePiece is not here — it does not launch through an external CLI, and its configuration lives under **Settings → Agent configurations**.
 
 **"Inherit" is its own state, not a value named `default`.** While a parameter is inherited VaneHub sends nothing and the CLI decides; only an explicit choice appears in the launch command. The distinction is necessary: in Gemini CLI's `--approval-mode default`, `default` is the real "ask every time" mode, not the absence of a setting.
 
@@ -116,7 +116,7 @@ Parameters carry these annotations:
 
 #### Common parameter reference across CLIs
 
-Each of the five external CLIs has its own command-line parameters, listed here for reference when debugging launch parameters in VaneHub AI or scripting a call. CLIs update quickly and `--help` often lags what's actually supported; treat the corresponding official CLI reference as authoritative for a complete list.
+Each external CLI has its own command-line parameters, listed here for reference when debugging launch parameters in VaneHub AI or scripting a call. CLIs update quickly and `--help` often lags what's actually supported; treat the corresponding official CLI reference as authoritative for a complete list.
 
 | Capability | Claude Code | OpenCode | Codex CLI | Gemini CLI | Antigravity CLI |
 | --- | --- | --- | --- | --- | --- |
@@ -138,7 +138,7 @@ High-frequency parameters for each CLI:
 - **Gemini CLI** — `-m, --model` (aliases auto/pro/flash/flash-lite), `--sandbox`/`-s`, `--approval-mode <default|auto_edit|yolo|plan>`, `--checkpointing` (snapshot before edits, revertible with `/restore`), `--include-directories`, `--extensions`, `--worktree`.
 - **Antigravity CLI** — `agy -c` (continue the last one), `agy --conversation <id>` (resume a specific conversation), `agy --dangerously-skip-permissions` ("Turbo mode"). No `--model` needed (auto-routed by default). MCP/permission configuration lives at `~/.gemini/antigravity-cli/settings.json`.
 
-> **Permission parameters are the ones that matter most.** All five CLIs have a "skip confirmation / auto-approve" class of parameter. VaneHub's permission templates (Read-only/Standard/Trusted/Yolo) decide whether these high-risk parameters get attached — **security policy takes precedence over convenience configuration** — see [Permission approvals](permissions.md) for the details.
+> **Permission parameters are the ones that matter most.** Every managed CLI has a "skip confirmation / auto-approve" class of parameter. VaneHub's permission templates (Read-only/Standard/Trusted/Yolo) decide whether these high-risk parameters get attached — **security policy takes precedence over convenience configuration** — see [Permission approvals](permissions.md) for the details.
 
 The table above only lists the high-frequency items. The **complete matrix, generated from the registry and updated with the code** — every parameter's literal flag, argument slot, launch scope, control type, ownership, minimum version and verification state — is the [CLI parameter matrix](../../../reference/cli/parameter-matrix.md). For the **complete reference per parameter family** — invocation shapes, session management, model selection, permissions and sandboxing, output formats, configuration injection, and the matrix projecting a host task model onto each CLI's parameters — see the [AI coding CLI parameter reference](../../../reference/cli/builtin-cli-reference.md) (Simplified Chinese).
 
@@ -152,7 +152,7 @@ OnePiece doesn't go through an external CLI and has none of the command-line par
 
 ![The Agent configurations settings page, with six Agent tabs and the global configuration status](assets/screenshots/settings-agent-configurations-en.png)
 
-The tabs across the top of the page split by Agent: **Claude Code / Codex CLI / OpenCode / Antigravity CLI / Gemini CLI / OnePiece**. The same page also carries the language-server toggles from [LSP code intelligence](lsp-code-intelligence.md) further down.
+The tabs across the top of the page split by Agent: **Claude Code / Codex CLI / OpenCode / Antigravity CLI / Gemini CLI / Qwen Code / iFlow CLI / OnePiece**. The same page also carries the language-server toggles from [LSP code intelligence](lsp-code-intelligence.md) further down.
 
 ### What it solves
 
@@ -169,6 +169,10 @@ The built-in catalog holds **25 providers** (official Anthropic and OpenAI, plus
 | **OpenCode** | Supported | `~/.config/opencode/opencode.json` | provider definition, endpoint, npm adapter package, model list and default model |
 | **Gemini CLI** | The endpoint can be changed, but the catalog only ships Google's official preset | `~/.gemini/.env` | Endpoint, model, authentication mode |
 | **Antigravity CLI** | **Not yet managed by VaneHub** | `~/.gemini/antigravity-cli/settings.json` | Model, tool approval mode, verbosity, terminal sandbox |
+| **Qwen Code** | Supported (OpenAI-compatible) | `~/.qwen/.env`, plus the authentication selection in `~/.qwen/settings.json` | Endpoint, model, authentication mode (keep Qwen OAuth, or API key) |
+| **iFlow CLI** | Supported (OpenAI-compatible, the only mode left after the official service closed) | `~/.iflow/settings.json` | Endpoint, model; the key is written into that file because iFlow reads it from nowhere else |
+
+> **Qwen Code reads the endpoint from `.env` only when no authentication mode is recorded in `settings.json`**, so applying an API-key profile also sets `security.auth.selectedType` to `openai`; a "keep Qwen OAuth" profile leaves that file alone. Kimi, Qoder, CodeBuddy, Copilot, and Cursor offer no third-party endpoint in their CLIs, so they have no configuration profiles here.
 
 > **VaneHub does not yet manage Antigravity's endpoint and key fields**: its configuration panel carries neither, and what you can adjust is the model and approval behavior; Google sign-in credentials are stored by the CLI itself in the system keychain. This describes VaneHub's current management scope, not an upstream limitation — the Antigravity CLI itself supports API keys and compatible endpoints per its official documentation, configurable in the CLI's own environment.
 

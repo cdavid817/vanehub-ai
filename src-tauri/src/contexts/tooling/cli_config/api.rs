@@ -1210,6 +1210,35 @@ fn cli_probe_request<'a>(
                 credential,
             }
         }
+        CliConfigPayload::QwenCode {
+            base_url,
+            model,
+            auth_strategy,
+            ..
+        } => {
+            if *auth_strategy == super::domain::QwenAuthStrategy::PreserveOfficial {
+                return Err(CliConfigError::Validation(
+                    "the selected authentication mode does not use an API key".into(),
+                ));
+            }
+            ProviderCredentialProbeRequest {
+                base_url,
+                model,
+                protocol: ProviderCredentialProbeProtocol::OpenAiChatCompletions,
+                authentication: ProviderCredentialProbeAuthentication::Bearer,
+                credential,
+            }
+        }
+        // iFlow's custom API is OpenAI-compatible chat completions with a bearer key.
+        CliConfigPayload::IflowCli {
+            base_url, model, ..
+        } => ProviderCredentialProbeRequest {
+            base_url,
+            model,
+            protocol: ProviderCredentialProbeProtocol::OpenAiChatCompletions,
+            authentication: ProviderCredentialProbeAuthentication::Bearer,
+            credential,
+        },
     };
     Ok(request)
 }

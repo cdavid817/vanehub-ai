@@ -1,3 +1,4 @@
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::{params, OptionalExtension, TransactionBehavior};
 
 use crate::{
@@ -32,7 +33,7 @@ impl AutomaticDraftStore for SqliteAutomaticDraftRepository {
             .connection()
             .map_err(|_| AutomaticDraftPipelineError::Storage)?;
         let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .write_transaction()
             .map_err(|_| AutomaticDraftPipelineError::Storage)?;
         let source_is_current = transaction
             .query_row(

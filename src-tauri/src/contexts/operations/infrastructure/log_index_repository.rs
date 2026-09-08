@@ -13,6 +13,7 @@ use crate::contexts::operations::application::{
     SessionLogCoverageState, SessionLogIndexRepository, DEFAULT_LOG_PAGE_SIZE, MAX_LOG_PAGE_SIZE,
     MAX_LOG_SEARCH_CANDIDATES,
 };
+use crate::platform::database::SqliteWriteTransaction;
 use crate::platform::database::{NativeDatabase, PooledSqlite};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use std::collections::BTreeMap;
@@ -150,7 +151,7 @@ impl SessionLogIndexRepository for SqliteLogIndexRepository {
         record: &RedactedLogRecord,
     ) -> Result<LogIndexInsertOutcome, OperationsLogError> {
         let mut connection = self.connection()?;
-        let transaction = connection.transaction().map_err(storage_error)?;
+        let transaction = connection.write_transaction().map_err(storage_error)?;
         if let Some(matches) = same_witness(&transaction, record).map_err(storage_error)? {
             if !matches {
                 // Recorded inside the same transaction as the decision, so coverage cannot report
