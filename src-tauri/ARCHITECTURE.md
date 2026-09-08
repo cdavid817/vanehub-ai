@@ -196,6 +196,7 @@ Migration order stays global; migration SQL moves to its owning context without 
 | Technology | Current locations | Target |
 | --- | --- | --- |
 | SQLite/Rusqlite | `platform::database::NativeDatabase` owns app path/connection setup and centralized migrations; context SQL remains in infrastructure adapters | Implemented with typed `DatabaseError` and no root store alias |
+| SQLite write transactions | Every transaction that writes opens through `platform::database::SqliteWriteTransaction` (`BEGIN IMMEDIATE`); deferred `transaction()` is reserved for read-only snapshots named in the architecture allowlist | `harden-sqlite-write-transactions`: a deferred read-then-write cannot upgrade under WAL once another connection commits and fails at once with BUSY_SNAPSHOT, so `busy_timeout` never applied; enforced by `production_transactions_go_through_the_platform_write_entry_point` |
 | External process execution | Construction, command lookup, explicit requests, capture, timeout/kill, output draining, and audited command metadata live in `platform::process` | Implemented; no root process facade remains |
 | Filesystem | Canonical containment and sibling worktree target primitives live in `platform::filesystem`; context adapters own bounded business-facing access | Implemented bounded platform paths |
 | HTTP/SSE/MCP | Proxy policy and proxy-aware HTTP/WebSocket behavior live in `platform::network`; MCP and Communications consume it through infrastructure adapters | Implemented; no root proxy facade remains |

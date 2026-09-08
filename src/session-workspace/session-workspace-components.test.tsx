@@ -215,6 +215,13 @@ describe("session workspace components", () => {
       "opencode",
       "antigravity-cli",
       "gemini-cli",
+      "qwen-code",
+      "kimi-cli",
+      "qoder-cli",
+      "codebuddy-code",
+      "copilot-cli",
+      "cursor-agent-cli",
+      "iflow-cli",
     ]);
     expect(sessionTabsSource).toContain('<AgentTerminalTab isVisible={activeTab === "chat"}');
     expect(source).toContain("requestAnimationFrame");

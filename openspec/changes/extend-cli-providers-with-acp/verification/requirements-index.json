@@ -1,0 +1,490 @@
+[
+  {
+    "capability": "provider-plugin-sdk",
+    "section": "MODIFIED",
+    "requirement": "Complete internal provider SDK contract",
+    "scenarios": [
+      "Register a complete provider",
+      "Reject an incomplete provider",
+      "Accept an explicitly unsupported optional feature"
+    ]
+  },
+  {
+    "capability": "provider-plugin-sdk",
+    "section": "MODIFIED",
+    "requirement": "Versioned data-only provider manifest",
+    "scenarios": [
+      "Validate a version 1 manifest",
+      "Reject an unsupported schema",
+      "Reject executable content",
+      "Reject an inconsistent capability declaration",
+      "Validate a version 2 declaration"
+    ]
+  },
+  {
+    "capability": "provider-plugin-sdk",
+    "section": "MODIFIED",
+    "requirement": "Provider conformance test kit",
+    "scenarios": [
+      "Verify all built-in providers",
+      "Verify a fixture provider"
+    ]
+  },
+  {
+    "capability": "provider-plugin-sdk",
+    "section": "MODIFIED",
+    "requirement": "Provider parser conformance",
+    "scenarios": [
+      "Parse arbitrarily partitioned output",
+      "Parse text fallback",
+      "Reject oversized or malformed records",
+      "Reject a banner on ACP stdout"
+    ]
+  },
+  {
+    "capability": "provider-plugin-sdk",
+    "section": "ADDED",
+    "requirement": "Transport-specific effective capability assessment",
+    "scenarios": [
+      "Unknown version is discovered",
+      "One transport cannot enforce a policy"
+    ]
+  },
+  {
+    "capability": "provider-plugin-sdk",
+    "section": "ADDED",
+    "requirement": "Additive provider compatibility preservation",
+    "scenarios": [
+      "Existing session is opened",
+      "External provider manifest is offered"
+    ]
+  },
+  {
+    "capability": "cli-environment-management",
+    "section": "ADDED",
+    "requirement": "Expanded audited builtin CLI identities",
+    "scenarios": [
+      "Read the expanded catalog",
+      "A local-only provider has no managed installer"
+    ]
+  },
+  {
+    "capability": "cli-environment-management",
+    "section": "ADDED",
+    "requirement": "Executable identity validation for new providers",
+    "scenarios": [
+      "Unrelated agent executable is on PATH",
+      "Two kimi installations are discovered",
+      "Selected executable changes"
+    ]
+  },
+  {
+    "capability": "cli-environment-management",
+    "section": "ADDED",
+    "requirement": "Read-only discovery and explicit compatibility checks",
+    "scenarios": [
+      "Settings page opens",
+      "No documented auth status exists",
+      "User requests a compatibility check"
+    ]
+  },
+  {
+    "capability": "cli-environment-management",
+    "section": "ADDED",
+    "requirement": "Source-safe lifecycle for expanded providers",
+    "scenarios": [
+      "A reviewed npm installation is requested",
+      "A vendor script can switch installation sources",
+      "Unsupported architecture is selected"
+    ]
+  },
+  {
+    "capability": "cli-environment-management",
+    "section": "ADDED",
+    "requirement": "Explicit authentication and account environment",
+    "scenarios": [
+      "A user selects CodeBuddy China environment",
+      "Authentication output includes secrets",
+      "A login URL is supplied by an agent"
+    ]
+  },
+  {
+    "capability": "cli-environment-management",
+    "section": "ADDED",
+    "requirement": "Legacy iFlow local compatibility",
+    "scenarios": [
+      "No local iFlow installation exists",
+      "User opts into a local installation"
+    ]
+  },
+  {
+    "capability": "expanded-cli-provider-adapters",
+    "section": "ADDED",
+    "requirement": "Active provider delivery baseline",
+    "scenarios": [
+      "A supported active provider is selected",
+      "Optional resume is unavailable"
+    ]
+  },
+  {
+    "capability": "expanded-cli-provider-adapters",
+    "section": "ADDED",
+    "requirement": "Qwen Code isolated adapter contract",
+    "scenarios": [
+      "Start Qwen managed conversation",
+      "Headless output is structured"
+    ]
+  },
+  {
+    "capability": "expanded-cli-provider-adapters",
+    "section": "ADDED",
+    "requirement": "Kimi distribution-aware adapter contract",
+    "scenarios": [
+      "Current Kimi is selected",
+      "Print mode cannot satisfy approvals",
+      "History belongs to a different distribution"
+    ]
+  },
+  {
+    "capability": "expanded-cli-provider-adapters",
+    "section": "ADDED",
+    "requirement": "Qoder scoped ACP adapter",
+    "scenarios": [
+      "Start Qoder with a profile",
+      "Unsupported Qoder platform is encountered"
+    ]
+  },
+  {
+    "capability": "expanded-cli-provider-adapters",
+    "section": "ADDED",
+    "requirement": "CodeBuddy environment and proxy adapter",
+    "scenarios": [
+      "CodeBuddy delegates file access",
+      "Client proxy is not implemented",
+      "CodeBuddy reports internal team activity"
+    ]
+  },
+  {
+    "capability": "expanded-cli-provider-adapters",
+    "section": "ADDED",
+    "requirement": "Independent Copilot CLI adapter",
+    "scenarios": [
+      "Start Copilot through stdio",
+      "Two tasks require different tool filters"
+    ]
+  },
+  {
+    "capability": "expanded-cli-provider-adapters",
+    "section": "ADDED",
+    "requirement": "Cursor identity and blocking extensions",
+    "scenarios": [
+      "Cursor asks a question",
+      "Cursor requests plan approval",
+      "Cursor sends a notification",
+      "Unknown blocking extension arrives"
+    ]
+  },
+  {
+    "capability": "expanded-cli-provider-adapters",
+    "section": "ADDED",
+    "requirement": "Adapter evidence and version qualification",
+    "scenarios": [
+      "Only synthetic tests pass",
+      "An upstream command differs"
+    ]
+  },
+  {
+    "capability": "acp-agent-runtime",
+    "section": "ADDED",
+    "requirement": "Native ACP transport behind runtime ports",
+    "scenarios": [
+      "UI starts a managed CLI conversation",
+      "Web mock starts a conversation"
+    ]
+  },
+  {
+    "capability": "acp-agent-runtime",
+    "section": "ADDED",
+    "requirement": "Bounded bidirectional JSON-RPC framing",
+    "scenarios": [
+      "Message bytes are split across reads",
+      "Agent requests permission during a prompt",
+      "Inbound resource budget is exceeded"
+    ]
+  },
+  {
+    "capability": "acp-agent-runtime",
+    "section": "ADDED",
+    "requirement": "Initialization and truthful capability negotiation",
+    "scenarios": [
+      "Peer version is unsupported",
+      "Peer lacks loadSession",
+      "Client terminal is partially implemented"
+    ]
+  },
+  {
+    "capability": "acp-agent-runtime",
+    "section": "ADDED",
+    "requirement": "Separate connection session and turn lifecycle",
+    "scenarios": [
+      "Turn completes with process alive",
+      "Second prompt arrives during a turn",
+      "Agent reports a non-success stop reason"
+    ]
+  },
+  {
+    "capability": "acp-agent-runtime",
+    "section": "ADDED",
+    "requirement": "Ordered event normalization and delivery",
+    "scenarios": [
+      "Tool progress and content interleave",
+      "Final response follows buffered text",
+      "Stale update arrives after reconnection"
+    ]
+  },
+  {
+    "capability": "acp-agent-runtime",
+    "section": "ADDED",
+    "requirement": "Protocol cancellation and owned process cleanup",
+    "scenarios": [
+      "Cooperative cancellation",
+      "Agent ignores cancellation",
+      "Permission is pending during cancellation"
+    ]
+  },
+  {
+    "capability": "acp-agent-runtime",
+    "section": "ADDED",
+    "requirement": "Classified failures without unsafe fallback",
+    "scenarios": [
+      "Protocol connection closes mid-turn",
+      "ACP is unsupported by a binary"
+    ]
+  },
+  {
+    "capability": "acp-agent-runtime",
+    "section": "ADDED",
+    "requirement": "Bounded diagnostics and separate time budgets",
+    "scenarios": [
+      "Human approval is awaited",
+      "Diagnostic stream is unbounded"
+    ]
+  },
+  {
+    "capability": "acp-permission-bridge",
+    "section": "ADDED",
+    "requirement": "Policy projection before all new CLI launches",
+    "scenarios": [
+      "Requested policy cannot be enforced",
+      "Delegated tool enforcement is used"
+    ]
+  },
+  {
+    "capability": "acp-permission-bridge",
+    "section": "ADDED",
+    "requirement": "Permission request ownership and exact decision mapping",
+    "scenarios": [
+      "User allows once",
+      "Duplicate or cross-session reply",
+      "Policy changes before reply"
+    ]
+  },
+  {
+    "capability": "acp-permission-bridge",
+    "section": "ADDED",
+    "requirement": "Safe cancellation dismissal and deadlines",
+    "scenarios": [
+      "User dismisses a dialog",
+      "Interaction deadline expires",
+      "UI refreshes"
+    ]
+  },
+  {
+    "capability": "acp-permission-bridge",
+    "section": "ADDED",
+    "requirement": "Permission-controlled client file operations",
+    "scenarios": [
+      "Agent writes inside an allowed workspace",
+      "Path escapes through a link",
+      "Unadvertised file method is invoked"
+    ]
+  },
+  {
+    "capability": "acp-permission-bridge",
+    "section": "ADDED",
+    "requirement": "Permission-controlled client terminal lifecycle",
+    "scenarios": [
+      "Authorized command is requested",
+      "Another session refers to a terminal",
+      "Terminal owner is destroyed"
+    ]
+  },
+  {
+    "capability": "acp-permission-bridge",
+    "section": "ADDED",
+    "requirement": "Provider extension interaction handling",
+    "scenarios": [
+      "Known question extension arrives",
+      "Unknown request contains instructions",
+      "Plan approval is requested"
+    ]
+  },
+  {
+    "capability": "acp-permission-bridge",
+    "section": "ADDED",
+    "requirement": "Scoped credentials MCP and content handling",
+    "scenarios": [
+      "Child process environment is assembled",
+      "Unsupported MCP scope is requested",
+      "Agent content tries to alter policy"
+    ]
+  },
+  {
+    "capability": "cli-session-transport-binding",
+    "section": "ADDED",
+    "requirement": "Persistent explicit CLI session binding",
+    "scenarios": [
+      "A new ACP session is created",
+      "Two same-provider sessions run"
+    ]
+  },
+  {
+    "capability": "cli-session-transport-binding",
+    "section": "ADDED",
+    "requirement": "Negotiated resume without session guessing",
+    "scenarios": [
+      "Compatible session loads",
+      "External session is missing",
+      "Critical identity changes"
+    ]
+  },
+  {
+    "capability": "cli-session-transport-binding",
+    "section": "ADDED",
+    "requirement": "Replay provenance and deduplication",
+    "scenarios": [
+      "Session load replays old messages",
+      "Identical text occurs in a new turn"
+    ]
+  },
+  {
+    "capability": "cli-session-transport-binding",
+    "section": "ADDED",
+    "requirement": "Safe additive persistence migration",
+    "scenarios": [
+      "Old database is migrated",
+      "New providers are disabled for rollback"
+    ]
+  },
+  {
+    "capability": "cli-session-transport-binding",
+    "section": "ADDED",
+    "requirement": "No silent transport switching or task replay",
+    "scenarios": [
+      "User switches from ACP to terminal",
+      "Connection is lost after a write"
+    ]
+  },
+  {
+    "capability": "cli-session-transport-binding",
+    "section": "ADDED",
+    "requirement": "Scoped teardown and session deletion",
+    "scenarios": [
+      "One session is deleted",
+      "Session references a worktree"
+    ]
+  },
+  {
+    "capability": "cli-provider-capability-ui",
+    "section": "ADDED",
+    "requirement": "Capability-driven CLI management presentation",
+    "scenarios": [
+      "Installed CLI needs login",
+      "A mode is unsupported"
+    ]
+  },
+  {
+    "capability": "cli-provider-capability-ui",
+    "section": "ADDED",
+    "requirement": "Stable identity and interaction mode selection",
+    "scenarios": [
+      "User selects managed Qwen conversation",
+      "Unknown capability needs checking"
+    ]
+  },
+  {
+    "capability": "cli-provider-capability-ui",
+    "section": "ADDED",
+    "requirement": "Visible pending interaction and accurate status",
+    "scenarios": [
+      "Multiple seats request approval",
+      "A decision is submitted twice",
+      "A turn ends because of a limit"
+    ]
+  },
+  {
+    "capability": "cli-provider-capability-ui",
+    "section": "ADDED",
+    "requirement": "Truthful usage configuration and legacy disclosure",
+    "scenarios": [
+      "No usage is reported",
+      "Only context occupancy is reported",
+      "iFlow is shown"
+    ]
+  },
+  {
+    "capability": "cli-provider-capability-ui",
+    "section": "ADDED",
+    "requirement": "Runtime-adapter parity and honest simulation",
+    "scenarios": [
+      "Browser demonstration is used",
+      "Web HTTP adapter is missing"
+    ]
+  },
+  {
+    "capability": "cli-provider-capability-ui",
+    "section": "ADDED",
+    "requirement": "Localized accessible incremental UI",
+    "scenarios": [
+      "User operates a permission dialog by keyboard",
+      "Locale or theme changes"
+    ]
+  },
+  {
+    "capability": "cli-provider-automation",
+    "section": "ADDED",
+    "requirement": "Shared capability gating for automated execution",
+    "scenarios": [
+      "Saved schedule starts after a CLI update",
+      "Legacy provider is selected for automation"
+    ]
+  },
+  {
+    "capability": "cli-provider-automation",
+    "section": "ADDED",
+    "requirement": "Per-seat and per-run isolation",
+    "scenarios": [
+      "Two seats use the same provider",
+      "Provider creates internal subagents"
+    ]
+  },
+  {
+    "capability": "cli-provider-automation",
+    "section": "ADDED",
+    "requirement": "Explicit unattended interaction policy",
+    "scenarios": [
+      "A scheduled run requests approval",
+      "A background run asks a question",
+      "A narrow preauthorization exists"
+    ]
+  },
+  {
+    "capability": "cli-provider-automation",
+    "section": "ADDED",
+    "requirement": "Checkpointed interruption without duplicate effects",
+    "scenarios": [
+      "Agent disconnects after a possible commit",
+      "One seat is cancelled"
+    ]
+  }
+]

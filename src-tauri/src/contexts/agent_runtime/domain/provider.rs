@@ -55,6 +55,55 @@ impl ProviderMetadata {
 pub(crate) enum ProviderUsageCapability {
     HeadlessReported,
     HeadlessAndTerminalReported,
+    /// The provider reports no token or cost data on any transport. Distinct from "not yet seen":
+    /// a UI reading this must render "unavailable", never a measured zero.
+    Unavailable,
+}
+
+impl ProviderUsageCapability {
+    pub(crate) fn is_reported(self) -> bool {
+        !matches!(self, Self::Unavailable)
+    }
+
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::HeadlessReported => "headless-reported",
+            Self::HeadlessAndTerminalReported => "headless-and-terminal-reported",
+            Self::Unavailable => "unavailable",
+        }
+    }
+}
+
+/// How the runtime drives a provider for a managed conversation.
+///
+/// `Terminal` is the PTY entry every CLI provider has. `Headless` is the one-process-per-turn
+/// stdout parser the original five use. `AcpStdio` is a long-lived bidirectional JSON-RPC session
+/// over the child's stdio. A provider declares the set it supports; the runtime picks the managed
+/// transport from that set and never converts one into another silently.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum ProviderTransport {
+    Terminal,
+    Headless,
+    AcpStdio,
+}
+
+impl ProviderTransport {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Terminal => "terminal",
+            Self::Headless => "headless",
+            Self::AcpStdio => "acp-stdio",
+        }
+    }
+
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value {
+            "terminal" => Some(Self::Terminal),
+            "headless" => Some(Self::Headless),
+            "acp-stdio" => Some(Self::AcpStdio),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -190,6 +239,9 @@ pub(crate) enum ProviderHealth {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProviderCapabilities {
     interaction_modes: Vec<InteractionMode>,
+    /// Declared transports, deduplicated and ordered. Defaults to the original five's shape
+    /// (terminal plus headless) so a version 1 manifest keeps its meaning unchanged.
+    transports: Vec<ProviderTransport>,
     session_resume: bool,
     structured_output: bool,
     terminal: bool,
@@ -236,8 +288,14 @@ impl ProviderCapabilities {
                 "sandbox support requires permission controls".to_string(),
             ));
         }
+        let transports = if input.terminal {
+            vec![ProviderTransport::Terminal, ProviderTransport::Headless]
+        } else {
+            vec![ProviderTransport::Headless]
+        };
         Ok(Self {
             interaction_modes,
+            transports,
             session_resume: input.session_resume,
             structured_output: input.structured_output,
             terminal: input.terminal,
@@ -274,6 +332,53 @@ impl ProviderCapabilities {
         self
     }
 
+    /// Replaces the declared transports. Rejects an empty set and a terminal declaration that
+    /// contradicts the `terminal` capability, so a transport list can never promise a PTY the
+    /// capability flags deny.
+    pub(crate) fn with_transports(
+        mut self,
+        transports: Vec<ProviderTransport>,
+    ) -> Result<Self, AgentRuntimeDomainError> {
+        let mut normalized: Vec<ProviderTransport> = Vec::new();
+        for transport in transports {
+            if !normalized.contains(&transport) {
+                normalized.push(transport);
+            }
+        }
+        if normalized.is_empty() {
+            return Err(AgentRuntimeDomainError::InvalidProviderCapability(
+                "at least one transport is required".to_string(),
+            ));
+        }
+        if normalized.contains(&ProviderTransport::Terminal) != self.terminal {
+            return Err(AgentRuntimeDomainError::InvalidProviderCapability(
+                "terminal transport must agree with the terminal capability".to_string(),
+            ));
+        }
+        self.transports = normalized;
+        Ok(self)
+    }
+
+    pub(crate) fn transports(&self) -> &[ProviderTransport] {
+        &self.transports
+    }
+
+    pub(crate) fn supports_transport(&self, transport: ProviderTransport) -> bool {
+        self.transports.contains(&transport)
+    }
+
+    /// The transport a managed (non-PTY) conversation uses, or `None` for a terminal-only provider.
+    /// ACP wins over headless when both are declared: it is the only one that carries approvals.
+    pub(crate) fn managed_transport(&self) -> Option<ProviderTransport> {
+        if self.supports_transport(ProviderTransport::AcpStdio) {
+            Some(ProviderTransport::AcpStdio)
+        } else if self.supports_transport(ProviderTransport::Headless) {
+            Some(ProviderTransport::Headless)
+        } else {
+            None
+        }
+    }
+
     pub(crate) fn permissions(&self) -> bool {
         self.permissions
     }
@@ -295,7 +400,7 @@ impl ProviderCapabilities {
             ProviderCapability::Resume => self.session_resume,
             ProviderCapability::StructuredOutput => self.structured_output,
             ProviderCapability::Terminal => self.terminal,
-            ProviderCapability::Usage => true,
+            ProviderCapability::Usage => self.usage.is_reported(),
             ProviderCapability::Permissions => self.permissions,
             ProviderCapability::ModelSelection => self.model_selection,
             ProviderCapability::Reasoning => self.reasoning,
@@ -425,6 +530,59 @@ mod tests {
             ProviderSessionRef::new(metadata.id().clone(), "thread-1").expect("provider session");
         assert_eq!(session.provider_id(), metadata.id());
         assert_eq!(session.external_id(), "thread-1");
+    }
+
+    #[test]
+    fn transports_default_from_terminal_and_stay_consistent() {
+        let capabilities = ProviderCapabilities::new(capabilities()).expect("capabilities");
+        assert_eq!(
+            capabilities.transports(),
+            &[ProviderTransport::Terminal, ProviderTransport::Headless]
+        );
+        assert_eq!(
+            capabilities.managed_transport(),
+            Some(ProviderTransport::Headless)
+        );
+        let acp = capabilities
+            .clone()
+            .with_transports(vec![
+                ProviderTransport::AcpStdio,
+                ProviderTransport::Terminal,
+                ProviderTransport::AcpStdio,
+            ])
+            .expect("acp transports");
+        assert_eq!(
+            acp.transports(),
+            &[ProviderTransport::AcpStdio, ProviderTransport::Terminal]
+        );
+        assert_eq!(acp.managed_transport(), Some(ProviderTransport::AcpStdio));
+        assert!(capabilities.clone().with_transports(Vec::new()).is_err());
+        // A terminal transport without the terminal capability is a contradiction.
+        assert!(capabilities
+            .clone()
+            .with_transports(vec![ProviderTransport::AcpStdio])
+            .is_err());
+        let terminal_only = capabilities
+            .with_transports(vec![ProviderTransport::Terminal])
+            .expect("terminal only");
+        assert_eq!(terminal_only.managed_transport(), None);
+        assert_eq!(
+            ProviderTransport::parse("acp-stdio"),
+            Some(ProviderTransport::AcpStdio)
+        );
+        assert_eq!(ProviderTransport::parse("pty"), None);
+    }
+
+    #[test]
+    fn unavailable_usage_is_not_a_supported_capability() {
+        let mut input = capabilities();
+        input.usage = ProviderUsageCapability::Unavailable;
+        let unavailable = ProviderCapabilities::new(input).expect("capabilities");
+        assert!(!unavailable.supports(ProviderCapability::Usage));
+        assert!(!ProviderUsageCapability::Unavailable.is_reported());
+        assert_eq!(ProviderUsageCapability::Unavailable.as_str(), "unavailable");
+        let reported = ProviderCapabilities::new(capabilities()).expect("capabilities");
+        assert!(reported.supports(ProviderCapability::Usage));
     }
 
     #[test]

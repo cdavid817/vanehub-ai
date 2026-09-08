@@ -114,7 +114,7 @@ VaneHub 桌面端作为宿主进程,会 spawn 多个**无头(headless)子进程*
 
 两者共同的关键约束是**业务日志必须走 stderr**——往 stdout print 会破坏分帧。
 
-> 早期版本用 “ACP-stdio” 泛指这一类传输,那是错的。ACP 是 Agent Client Protocol 的名字,指另一套协议;LSP 不是 ACP,MCP 也不是,本项目没有实现 ACP。
+> 早期版本用 “ACP-stdio” 泛指这一类传输,那是错的。ACP 是 Agent Client Protocol 的名字,指一套具体协议;LSP 不是 ACP,MCP 也不是。本项目实现了 ACP,但仅作为六个特定 CLI 的托管对话传输(见 [ACP 运行时](acp-runtime.md));「子进程 stdio 上的 JSON-RPC」这一泛称仍指本节描述的传输方式。
 
 ### 本项目采用的方案
 
@@ -123,10 +123,11 @@ VaneHub 桌面端作为宿主进程,会 spawn 多个**无头(headless)子进程*
 | 子系统 | 模式 | 实现 |
 | --- | --- | --- |
 | CLI Agent(claude-code 等) | **Headless 命令 + 流式 stdout 解析** | 各 CLI 以其 **headless 命令契约**启动(非交互、可程序化驱动、流式输出);`ProviderOutputFramer` 按各家原生输出格式解析 stdout,归一化为 `started`/`token`/`thinking`/`tool_use`/`completed`/`failed`/`cancelled` 等 chat 事件。prompt 优先经 stdin 投递而非命令行参数 |
+| ACP CLI Agent(Qwen Code、Kimi Code CLI、Qoder CLI、CodeBuddy Code、GitHub Copilot CLI、Cursor Agent CLI) | **JSON-RPC over stdio(ACP 绑定)** | CLI 按会话绑定启动一次,作为长驻 agent(`qwen --acp`、`kimi acp`、`copilot --acp --stdio` 等)运行,走换行分隔的 JSON-RPC 2.0。`providers/acp/framing.rs` 以换行分帧并限制大小与深度,`connection.rs` 在独立 reader 上配对请求与响应,`session.rs` 驱动 `initialize` / `session/new` / `session/prompt`,并在 turn 中途应答 agent 自己发起的 `session/request_permission`、`fs/*`、`terminal/*`。见 [ACP 运行时](acp-runtime.md) |
 | LSP 代码智能 | **JSON-RPC over stdio(LSP 绑定)** | LSP server 以 headless 子进程启动,父子间走标准 LSP JSON-RPC;`lsp_framing.rs` 用 `Content-Length: {}\r\n\r\n` 分帧,`json_rpc_actor.rs` 处理请求-响应配对与 `$/cancelRequest` |
 | MCP server | **JSON-RPC over stdio(MCP 绑定)** | MCP server 以 headless 子进程(`relay_stdio`/`bounded_stdio`)启动,走 JSON-RPC 2.0(`relay_jsonrpc.rs` 解析 `jsonrpc: "2.0"` 帧);Claude Code/Codex CLI 还经中继(`--vanehub-mcp-relay`)由 VaneHub 代理 |
 
-**为什么 CLI Agent 不用 JSON-RPC over stdio**:各家 Coding CLI(claude-code、codex-cli、gemini-cli 等)都不暴露 JSON-RPC 接口,各自有原生输出格式,无法假定一个标准 JSON-RPC 契约。因此本项目对 CLI Agent 采用 headless 命令 + 按各家 `output_parser_for(agent_id)` 定制解析的方式——尊重每个 CLI 的既有契约,而非强加协议。
+**为什么原有五个 CLI Agent 不用 JSON-RPC over stdio**:claude-code、codex-cli、gemini-cli、opencode、antigravity-cli 在 VaneHub 驱动的模式下都不暴露 JSON-RPC 接口,各自有原生输出格式,无法假定一个标准 JSON-RPC 契约。因此本项目对 CLI Agent 采用 headless 命令 + 按各家 `output_parser_for(agent_id)` 定制解析的方式——尊重每个 CLI 的既有契约,而非强加协议。
 
 **为什么 LSP/MCP 用 JSON-RPC over stdio**:两者都有标准化的 JSON-RPC 协议,且各自的规范都定义了 stdio transport(分帧规则不同,见上)。本地父子进程通信无需端口、无需网络栈,启动销毁简单、进程隔离干净,适合桌面端 Agent 场景。
 

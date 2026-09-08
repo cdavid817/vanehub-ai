@@ -1,3 +1,4 @@
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::{params, Transaction, TransactionBehavior};
 use serde::Serialize;
 
@@ -37,7 +38,7 @@ impl SqliteEvolutionEvidenceRepository {
             .database
             .connection()
             .map_err(|_| EvidenceRepositoryError::Storage)?;
-        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let transaction = connection.write_transaction()?;
         let signal_ids = scoped_signal_ids(&transaction, &request.scope)?;
         let deleted = delete_signal_set(&transaction, &signal_ids)?;
         let mut deleted_seeds = deleted.seeds;

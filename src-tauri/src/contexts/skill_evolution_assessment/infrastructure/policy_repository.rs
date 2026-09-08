@@ -2,6 +2,7 @@ use crate::contexts::skill_evolution_assessment::domain::{
     ModelEvaluationConsent, DISCLOSURE_VERSION_V1, EVALUATOR_POLICY_V1,
 };
 use crate::platform::database::NativeDatabase;
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::params;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,7 +63,7 @@ impl SqliteAssessmentPolicyRepository {
             .connection()
             .map_err(|_| AssessmentPolicyError::Storage)?;
         let transaction = connection
-            .unchecked_transaction()
+            .write_transaction_unchecked()
             .map_err(|_| AssessmentPolicyError::Storage)?;
         transaction
             .execute(

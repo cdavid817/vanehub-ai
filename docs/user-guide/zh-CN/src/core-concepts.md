@@ -31,9 +31,16 @@
 | Codex CLI | OpenAI | 外部 CLI |
 | Gemini CLI | Google | 外部 CLI |
 | Antigravity CLI | Google | 外部 CLI |
+| Qwen Code | 阿里 Qwen | 外部 CLI（ACP） |
+| Kimi Code CLI | Moonshot | 外部 CLI（ACP） |
+| Qoder CLI | Qoder | 外部 CLI（ACP） |
+| CodeBuddy Code | 腾讯 | 外部 CLI（ACP） |
+| GitHub Copilot CLI | GitHub | 外部 CLI（ACP） |
+| Cursor Agent CLI | Cursor | 外部 CLI（ACP） |
+| iFlow CLI | iFlow | 外部 CLI，**历史兼容**，仅终端 |
 | OnePiece | VaneHub | **原生 API Agent** |
 
-前五个是**外部 CLI**——VaneHub AI 启动它们的进程并管理进程之外的部分（启动参数、权限拦截、输出采集），真正的代码生成由 CLI 自己完成。
+CLI 各行是**外部 CLI**——VaneHub AI 启动它们的进程并管理进程之外的部分（启动参数、权限拦截、输出采集），真正的代码生成由 CLI 自己完成。标注 ACP 的行在会话期间保持一个进程运行，并经 Agent Client Protocol 与之通信，见 [ACP CLI Agent](acp-cli-agents.md)。
 
 **OnePiece** 不同：它直接通过 HTTP 调用模型 provider，完全在应用内运行，详见[原生 API Agent](native-agent.md)。
 

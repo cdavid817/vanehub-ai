@@ -4,6 +4,7 @@ mod migrations;
 
 use r2d2::{Pool, PooledConnection};
 use r2d2_sqlite::SqliteConnectionManager;
+use rusqlite::{Connection, Transaction, TransactionBehavior};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use thiserror::Error;
@@ -34,6 +35,36 @@ const DATABASE_FILE_NAME: &str = "vanehub.sqlite";
 /// A checked-out pooled connection. Dereferences to `rusqlite::Connection`, so existing
 /// call sites keep using `prepare` / `execute` / `transaction` unchanged.
 pub(crate) type PooledSqlite = PooledConnection<SqliteConnectionManager>;
+
+/// The one way production code opens a transaction that writes.
+///
+/// rusqlite's `Connection::transaction()` is `BEGIN DEFERRED`: the transaction becomes a reader
+/// at its first `SELECT` and only asks for the write lock at its first write. Under WAL that
+/// upgrade is refused outright with `SQLITE_BUSY_SNAPSHOT` whenever another connection committed
+/// after the read snapshot was taken -- `busy_timeout` never gets a chance to wait. Every
+/// "read to validate, then write" repository in this crate is exactly that shape, and the
+/// background writers (registry refresh, retention, maintenance, usage polling) make the window
+/// easy to hit on a real desktop. `BEGIN IMMEDIATE` takes the write lock up front, so contention
+/// waits out `BUSY_TIMEOUT` instead of failing. The architecture fitness test keeps
+/// `transaction()` out of production code except for read-only snapshots it lists explicitly.
+pub(crate) trait SqliteWriteTransaction {
+    /// Immediate transaction on an exclusively borrowed connection.
+    fn write_transaction(&mut self) -> rusqlite::Result<Transaction<'_>>;
+
+    /// Immediate transaction on a shared borrow, for repositories that hold `&Connection`.
+    /// The caller owns the guarantee that no other transaction is open on this connection.
+    fn write_transaction_unchecked(&self) -> rusqlite::Result<Transaction<'_>>;
+}
+
+impl SqliteWriteTransaction for Connection {
+    fn write_transaction(&mut self) -> rusqlite::Result<Transaction<'_>> {
+        self.transaction_with_behavior(TransactionBehavior::Immediate)
+    }
+
+    fn write_transaction_unchecked(&self) -> rusqlite::Result<Transaction<'_>> {
+        Transaction::new_unchecked(self, TransactionBehavior::Immediate)
+    }
+}
 
 #[derive(Debug, Error)]
 pub(crate) enum DatabaseError {
@@ -268,7 +299,8 @@ mod tests {
         );
         assert_eq!(foreign_keys, 1);
         assert_eq!(synchronous, SQLITE_SYNCHRONOUS_FULL);
-        assert_eq!(agent_count, 6);
+        // OnePiece plus the twelve catalog CLIs.
+        assert_eq!(agent_count, 13);
         assert_eq!(skill_table_exists, 0);
         assert_eq!(cli_config_tables, 2);
         assert_eq!(cli_config_migration, "cli-agent-applied-ownership-snapshot");
@@ -384,7 +416,7 @@ mod tests {
 
         assert_eq!(written, workers as i64, "every concurrent writer committed");
         assert_eq!(
-            agents, 6,
+            agents, 13,
             "registry seeding ran exactly once, not per connection"
         );
     }
@@ -416,5 +448,104 @@ mod tests {
             assert_eq!(foreign_keys, 1);
             assert_eq!(busy_timeout, BUSY_TIMEOUT.as_millis() as i64);
         }
+    }
+
+    fn contention_database() -> (NativeDatabase, TempDirectory) {
+        let directory = TempDirectory::new("native-database-write-transaction");
+        let database = NativeDatabase::new(directory.path().to_path_buf()).expect("database");
+        database
+            .connection()
+            .expect("connection")
+            .execute_batch("CREATE TABLE contention_probe (id INTEGER PRIMARY KEY, note TEXT)")
+            .expect("probe table");
+        (database, directory)
+    }
+
+    fn count(connection: &Connection) -> i64 {
+        connection
+            .query_row("SELECT count(*) FROM contention_probe", [], |row| {
+                row.get(0)
+            })
+            .expect("count")
+    }
+
+    /// Proves the defect the trait exists for: a deferred transaction that read before another
+    /// connection committed cannot upgrade to a writer, and busy_timeout does not save it.
+    #[test]
+    fn a_deferred_read_then_write_fails_once_another_connection_commits() {
+        let (database, _directory) = contention_database();
+        let mut reader = database.connection().expect("reader");
+        let other = database.connection().expect("other");
+
+        let transaction = reader.transaction().expect("deferred transaction");
+        assert_eq!(count(&transaction), 0);
+        other
+            .execute(
+                "INSERT INTO contention_probe (note) VALUES ('committed in between')",
+                [],
+            )
+            .expect("concurrent commit");
+
+        let started = std::time::Instant::now();
+        let upgrade = transaction.execute(
+            "INSERT INTO contention_probe (note) VALUES ('late writer')",
+            [],
+        );
+        let elapsed = started.elapsed();
+        assert!(upgrade.is_err(), "deferred upgrade unexpectedly succeeded");
+        assert!(
+            elapsed < BUSY_TIMEOUT,
+            "the upgrade failed immediately by design, but took {elapsed:?}"
+        );
+    }
+
+    /// The same sequence through the platform entry point: the writer holds the lock from the
+    /// start, so the competing connection waits for the commit and both writes land.
+    #[test]
+    fn a_write_transaction_makes_the_competing_writer_wait_instead_of_failing() {
+        let (database, _directory) = contention_database();
+        let mut writer = database.connection().expect("writer");
+        let competitor = database.connection().expect("competitor");
+
+        let transaction = writer.write_transaction().expect("immediate transaction");
+        assert_eq!(count(&transaction), 0);
+        let competing = std::thread::spawn(move || {
+            competitor.execute(
+                "INSERT INTO contention_probe (note) VALUES ('waited for the lock')",
+                [],
+            )
+        });
+        std::thread::sleep(Duration::from_millis(150));
+        transaction
+            .execute(
+                "INSERT INTO contention_probe (note) VALUES ('validated then wrote')",
+                [],
+            )
+            .expect("write inside the immediate transaction");
+        transaction.commit().expect("commit");
+
+        competing
+            .join()
+            .expect("competitor thread")
+            .expect("the competitor waited within busy_timeout and then committed");
+        assert_eq!(count(&writer), 2);
+    }
+
+    #[test]
+    fn an_unchecked_write_transaction_commits_through_a_shared_borrow() {
+        let (database, _directory) = contention_database();
+        let connection = database.connection().expect("connection");
+
+        let transaction = connection
+            .write_transaction_unchecked()
+            .expect("immediate unchecked transaction");
+        transaction
+            .execute(
+                "INSERT INTO contention_probe (note) VALUES ('shared borrow')",
+                [],
+            )
+            .expect("insert");
+        transaction.commit().expect("commit");
+        assert_eq!(count(&connection), 1);
     }
 }

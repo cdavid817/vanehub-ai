@@ -8,6 +8,7 @@ use super::application_store_intent::{
 };
 use super::SqliteCuratorRepository;
 use crate::contexts::skill_evolution_curation::{application::*, domain::*};
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::{params, OptionalExtension, TransactionBehavior};
 
 impl CuratorApplicationStore for SqliteCuratorRepository<'_> {
@@ -45,7 +46,7 @@ impl CuratorApplicationStore for SqliteCuratorRepository<'_> {
         validate_intent(intent)?;
         let transaction = self
             .connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .write_transaction()
             .map_err(|_| CuratorApplicationStoreError::Storage)?;
         if transaction
             .query_row(

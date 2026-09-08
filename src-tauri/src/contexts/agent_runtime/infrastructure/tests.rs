@@ -54,13 +54,22 @@ fn seeded_registry_rows_map_to_stable_domain_catalog_values() {
             .iter()
             .map(|agent| agent.id().as_str())
             .collect::<Vec<_>>(),
+        // Rows come back ordered by display name (case-sensitive), so "GitHub Copilot CLI"
+        // follows "Gemini CLI" and "iFlow CLI" sorts after every capitalized name.
         vec![
             "antigravity-cli",
             "claude-code",
+            "codebuddy-code",
             "codex-cli",
+            "cursor-agent-cli",
             "gemini-cli",
+            "copilot-cli",
+            "kimi-cli",
             "onepiece",
-            "opencode"
+            "opencode",
+            "qoder-cli",
+            "qwen-code",
+            "iflow-cli"
         ]
     );
     let antigravity = agents
@@ -314,13 +323,22 @@ fn api_agent_registration_round_trips_and_reports_available() {
         .collect();
     assert_eq!(
         ids,
+        // Rows come back ordered by display name (case-sensitive), so "GitHub Copilot CLI"
+        // follows "Gemini CLI" and "iFlow CLI" sorts after every capitalized name.
         vec![
             "antigravity-cli",
             "claude-code",
+            "codebuddy-code",
             "codex-cli",
+            "cursor-agent-cli",
             "gemini-cli",
+            "copilot-cli",
+            "kimi-cli",
             "onepiece",
-            "opencode"
+            "opencode",
+            "qoder-cli",
+            "qwen-code",
+            "iflow-cli"
         ]
     );
 }

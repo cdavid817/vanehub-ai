@@ -24,7 +24,7 @@ const TONE_ICONS = {
 // fail to compile -- it silently renders every value in the neutral tone forever.
 function toneOfExecutable(value: string): Tone {
   if (value === "healthy") return "success";
-  if (value === "broken" || value === "unsupported-architecture") return "danger";
+  if (value === "broken" || value === "unsupported-architecture" || value === "identity-mismatch") return "danger";
   if (value === "timeout" || value === "permission-denied") return "warning";
   return "muted";
 }
@@ -97,6 +97,17 @@ export function CliStatusBadges({ snapshot }: { snapshot: CliEnvironmentSnapshot
           {t("cli.freshness.stale")}
         </Badge>
       ) : null}
+      {/* Legacy is a status, not a style: the official service is gone and the badge says so. */}
+      {snapshot.lifecycle === "legacy" ? (
+        <Badge className="gap-1" tone="warning" title={t("cli.axis.lifecycle")}>
+          <AlertTriangle aria-hidden="true" className="h-3 w-3" />
+          {t("cli.lifecycle.legacy")}
+        </Badge>
+      ) : null}
+      {/* The transport is an advanced detail of the same Agent, never a second identity. */}
+      <Badge className="gap-1" tone="muted" title={t("cli.axis.transport")}>
+        {t(`cli.transport.${snapshot.managedTransport}`)}
+      </Badge>
     </div>
   );
 }

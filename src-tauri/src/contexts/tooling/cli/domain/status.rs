@@ -52,6 +52,10 @@ pub(crate) enum CliExecutableStatus {
     TimedOut,
     PermissionDenied,
     UnsupportedArchitecture,
+    /// Runs, but is not the program the catalog entry names. A generic basename (`agent`,
+    /// `kimi`) can belong to an unrelated tool or a retired distribution; the reviewed identity
+    /// rule refused it, and it must never be launched as this provider.
+    IdentityMismatch,
     /// Present but not probed -- for example a shadowed installation discovery listed without
     /// spending a probe on it.
     Unknown,
@@ -67,7 +71,11 @@ impl CliExecutableStatus {
     pub(crate) fn is_faulty(self) -> bool {
         matches!(
             self,
-            Self::Broken | Self::TimedOut | Self::PermissionDenied | Self::UnsupportedArchitecture
+            Self::Broken
+                | Self::TimedOut
+                | Self::PermissionDenied
+                | Self::UnsupportedArchitecture
+                | Self::IdentityMismatch
         )
     }
 
@@ -79,6 +87,7 @@ impl CliExecutableStatus {
             Self::TimedOut => "timeout",
             Self::PermissionDenied => "permission-denied",
             Self::UnsupportedArchitecture => "unsupported-architecture",
+            Self::IdentityMismatch => "identity-mismatch",
             Self::Unknown => "unknown",
         }
     }
@@ -353,6 +362,11 @@ mod tests {
         assert!(CliExecutableStatus::TimedOut.is_faulty());
         assert!(CliExecutableStatus::PermissionDenied.is_faulty());
         assert!(CliExecutableStatus::UnsupportedArchitecture.is_faulty());
+        assert!(CliExecutableStatus::IdentityMismatch.is_faulty());
+        assert_eq!(
+            CliExecutableStatus::IdentityMismatch.as_str(),
+            "identity-mismatch"
+        );
         assert!(!CliExecutableStatus::Unknown.is_runnable());
     }
 

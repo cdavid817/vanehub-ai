@@ -14,7 +14,7 @@
   <img src="public/icon-512.png" alt="VaneHub AI アプリアイコン" width="160" />
 </p>
 
-デスクトップ優先の AI コーディングエージェントワークベンチ。OnePiece、Claude Code、Codex CLI、OpenCode、Gemini CLI、Antigravity CLI を統一インターフェースで利用・管理します。
+デスクトップ優先の AI コーディングエージェントワークベンチ。OnePiece、Claude Code、Codex CLI、OpenCode、Gemini CLI、Antigravity CLI、Qwen Code、Kimi Code CLI、Qoder CLI、CodeBuddy Code、GitHub Copilot CLI、Cursor Agent CLI を統一インターフェースで利用・管理します。
 
 <!-- docs-fact:project-version value:1.5.0 -->
 <!-- docs-fact:tauri-major value:2.x -->
@@ -37,7 +37,7 @@
 サポートするエージェントは 2 種類です。**どちらか一方を選べば始められ、すべての CLI をインストールする必要はありません**：
 
 - **OnePiece** — 組み込みのネイティブ API エージェント。モデルプロバイダを HTTP で直接呼び出し、外部 CLI を一切必要としません；
-- **外部 CLI エージェント** — Claude Code、Codex CLI、OpenCode、Gemini CLI、Antigravity CLI。ユーザー自身がインストールし、各ベンダーの認証フローをターミナルで完了します。
+- **外部 CLI エージェント** — Claude Code、Codex CLI、OpenCode、Gemini CLI、Antigravity CLI、Qwen Code、Kimi Code CLI、Qoder CLI、CodeBuddy Code、GitHub Copilot CLI、Cursor Agent CLI。ユーザー自身がインストールし、各ベンダーの認証フローをターミナルで完了します。iFlow CLI は明示的に有効化するレガシーのターミナル専用エントリとして残しています。
 
 <!-- docs-section:features -->
 
@@ -62,9 +62,17 @@
 | OpenCode | 外部 CLI | `opencode` | ユーザーが設定した任意のモデル。固定のモデルファミリなし | ✅ npm / 公式インストーラー | ターミナルで認証；サードパーティ互換エンドポイントはアプリ内で設定可 |
 | Gemini CLI | 外部 CLI | `gemini` | Google | ✅ npm | ターミナルで認証；エンドポイント変更可、カタログには公式プリセットのみ |
 | Antigravity CLI | 外部 CLI | `agy` | Google | ✅ 公式インストーラー（最新版のみ） | ターミナルで Google サインイン；CLI 自体は API キーと互換エンドポイントもサポートしますが、VaneHub の統一プロバイダ設定には未対応です |
+| Qwen Code | 外部 CLI（ACP） | `qwen` | Alibaba Qwen | ✅ npm | ターミナルでサインイン；統合会話は `qwen --acp` 経由 |
+| Kimi Code CLI | 外部 CLI（ACP） | `kimi` | Moonshot | ✅ npm | ターミナルでサインイン；統合会話は `kimi acp` 経由；旧 Python/uv 配布形態は検出のみで移行しません |
+| Qoder CLI | 外部 CLI（ACP） | `qoder` | Qoder | ✅ npm（上流では Windows arm64 未対応） | ターミナルでサインイン；統合会話は `qoder --acp` 経由 |
+| CodeBuddy Code | 外部 CLI（ACP） | `codebuddy` | Tencent | ✅ npm | ターミナルでサインイン；セッションごとに国際 / 中国 / iOA のアカウント環境を選択；統合会話は `codebuddy --acp` 経由 |
+| GitHub Copilot CLI | 外部 CLI（ACP） | `copilot` | GitHub | ✅ npm / WinGet | ターミナルでサインイン；統合会話は `copilot --acp --stdio` 経由 |
+| Cursor Agent CLI | 外部 CLI（ACP） | `agent` | Cursor | ✅ 公式インストーラー（最新版のみ） | ターミナルでサインイン；統合会話は `agent acp` 経由；プログラムは名前ではなく身元で検証します |
+| iFlow CLI | レガシー外部 CLI | `iflow` | iFlow（公式サービスは 2026-04-17 に終了） | ❌ 検出のみ | 独自のカスタム API 設定と組み合わせたネイティブターミナルのみ；統合会話・自動化なし、公式サービスは主張しません |
 
 - **アプリ内インストール**とは、設定 → CLI 管理から VaneHub AI がインストールとアップグレードを代行できるかどうかです：npm、Windows の WinGet、CLI ごとに監査済みの公式インストーラーを扱えます。Homebrew・Bun・Volta・デスクトップアプリ同梱・システムパッケージ由来のものは検出して報告しますが変更しません。
 - **各社のサブスクリプションログイン（OAuth）は必ずターミナルで行います**。VaneHub AI は仲介も保存もしません。
+- **ACP** 行の統合会話は Agent Client Protocol で動作します：CLI はセッション中ずっと動き続け、その権限要求・質問・計画はアプリ内でユーザーが応答するカードとして表示されます。これらの CLI のトークン使用量はゼロではなく「利用不可」と表示されます。設定ページの検出が ACP セッションやログインを開始することはありません。
 - 統合している OpenCode はオープンソースの sst/opencode（npm パッケージ `opencode-ai`）です。ユーザーが設定した任意のモデルを駆動するため固定のモデルファミリはなく、「レビュアーは別のモデルファミリから」といったポリシーは適用されません。
 - Gemini CLI のコンシューマー向け経路は縮小しています：Google の発表では 2026-06-18 以降、Gemini Code Assist Individuals や Google AI Pro/Ultra などのコンシューマーアカウントは Gemini CLI 経由で提供されなくなり、「Login with Google」経路は利用できず、Antigravity への移行が推奨されています。Gemini Code Assist Standard と Enterprise は影響を受けません。API キーと Vertex は別の認証経路であり、Google の公式ドキュメントを参照してください。
 

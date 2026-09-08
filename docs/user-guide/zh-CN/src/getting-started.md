@@ -43,9 +43,9 @@ VaneHub AI **驱动你已经装好的 CLI**。**各家的订阅登录（OAuth）
 
 无论走哪条路，**认证都得在终端里完成**，见[先在终端里跑通](#先在终端里跑通)。
 
-## 五个 CLI
+## 原有五个 CLI
 
-VaneHub AI 支持五个外部 CLI Agent。装一个就能开始，不必五个都装。下表汇总各 CLI 的安装方式,各小节给出具体命令。
+VaneHub AI 支持十二个外部 CLI Agent。装一个就能开始，不必全都装。本节讲原有五个；六个 ACP CLI（Qwen Code、Kimi Code CLI、Qoder CLI、CodeBuddy Code、GitHub Copilot CLI、Cursor Agent CLI）与 iFlow 历史兼容条目见 [ACP CLI Agent](acp-cli-agents.md)。下表汇总各 CLI 的安装方式,各小节给出具体命令。
 
 | Agent | 提供方 | 命令 | 依赖 | 推荐安装方式 |
 | --- | --- | --- | --- | --- |

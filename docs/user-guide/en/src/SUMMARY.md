@@ -6,6 +6,7 @@
 
 - [Quick Start](quick-start.md)
 - [Install and authenticate a CLI](getting-started.md)
+- [ACP CLI Agents and the legacy iFlow entry](acp-cli-agents.md)
 - [Create your first session](first-session.md)
 - [Core concepts](core-concepts.md)
 - [Application updates](app-updates.md)

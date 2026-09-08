@@ -7,6 +7,7 @@ use crate::contexts::agent_runtime::domain::{
     ContextQualityAssessment, ContextQualityAssessmentPage, ContextQualityAssessmentRecord,
     ContextQualitySummary,
 };
+use crate::platform::database::SqliteWriteTransaction;
 use crate::platform::database::{NativeDatabase, PooledSqlite};
 use rusqlite::{params, OptionalExtension, Row};
 use std::collections::BTreeMap;
@@ -43,7 +44,7 @@ impl ContextQualityRepository for SqliteContextQualityRepository {
         let hard_limit = checked_i64(hard_limit, "context quality hard limit")?;
         let assessment = &record.assessment;
         let mut connection = self.connection()?;
-        let transaction = connection.transaction().map_err(storage_error)?;
+        let transaction = connection.write_transaction().map_err(storage_error)?;
         transaction
             .execute(
                 r#"

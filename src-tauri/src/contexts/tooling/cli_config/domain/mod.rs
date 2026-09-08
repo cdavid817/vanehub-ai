@@ -5,13 +5,26 @@ use thiserror::Error;
 use url::Url;
 
 pub(crate) const PAYLOAD_VERSION: i64 = 1;
-pub(crate) const SUPPORTED_AGENT_IDS: [&str; 5] = [
+pub(crate) const SUPPORTED_AGENT_IDS: [&str; 7] = [
     "claude-code",
     "opencode",
     "codex-cli",
     "antigravity-cli",
     "gemini-cli",
+    "qwen-code",
+    "iflow-cli",
 ];
+
+/// The `.env` keys Qwen Code reads for its OpenAI-compatible mode. `OPENAI_MODEL` is part of
+/// the set because Qwen only infers that mode when all three are present.
+pub(crate) const QWEN_MANAGED_ENV_KEYS: [&str; 3] =
+    ["OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_MODEL"];
+
+/// Keys VaneHub owns at the root of iFlow's settings document. iFlow reads its authentication
+/// type and key only from this file, so the key is materialized here on apply; everything else
+/// in the file (including identifiers iFlow writes for itself) belongs to the user.
+pub(crate) const IFLOW_MANAGED_KEYS: [&str; 4] =
+    ["selectedAuthType", "apiKey", "baseUrl", "modelName"];
 
 /// Keys VaneHub owns inside Antigravity's settings document. Everything else in that file belongs
 /// to the user and is preserved on apply.
@@ -110,6 +123,16 @@ pub(crate) enum GeminiAuthStrategy {
     ApiKey,
 }
 
+/// Qwen Code either keeps its own OAuth sign-in or runs against an OpenAI-compatible endpoint
+/// with a key; `~/.qwen/settings.json` records which, and an explicit OAuth selection there
+/// overrides anything in `.env`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum QwenAuthStrategy {
+    PreserveOfficial,
+    ApiKey,
+}
+
 /// Antigravity CLI's graduated tool-approval modes, which live in its settings document rather
 /// than in launch flags.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -170,6 +193,22 @@ pub(crate) enum CliConfigPayload {
         model: String,
         auth_strategy: GeminiAuthStrategy,
         advanced_env: BTreeMap<String, String>,
+    },
+    /// Qwen Code reads its OpenAI-compatible endpoint from `~/.qwen/.env` and selects that mode
+    /// through `security.auth.selectedType` in `~/.qwen/settings.json`; the profile manages both.
+    QwenCode {
+        base_url: String,
+        model: String,
+        auth_strategy: QwenAuthStrategy,
+        advanced_env: BTreeMap<String, String>,
+    },
+    /// iFlow's official service is closed; its only working mode is the OpenAI-compatible custom
+    /// API, which it reads (key included) from the root of `~/.iflow/settings.json`. There is no
+    /// "preserve official" strategy because there is nothing official left to preserve.
+    IflowCli {
+        base_url: String,
+        model: String,
+        advanced_settings: BTreeMap<String, Value>,
     },
 }
 
@@ -537,6 +576,8 @@ impl CliConfigPayload {
             Self::Opencode { .. } => "opencode",
             Self::Antigravity { .. } => "antigravity-cli",
             Self::GeminiCli { .. } => "gemini-cli",
+            Self::QwenCode { .. } => "qwen-code",
+            Self::IflowCli { .. } => "iflow-cli",
         }
         .to_string()
     }
@@ -559,6 +600,10 @@ impl CliConfigPayload {
             Self::GeminiCli { auth_strategy, .. } => {
                 *auth_strategy != GeminiAuthStrategy::PreserveOfficial
             }
+            Self::QwenCode { auth_strategy, .. } => {
+                *auth_strategy != QwenAuthStrategy::PreserveOfficial
+            }
+            Self::IflowCli { .. } => true,
         }
     }
 
@@ -609,6 +654,28 @@ impl CliConfigPayload {
                     .map(str::to_string)
                     .collect::<Vec<_>>();
                 keys.extend(advanced_env.keys().cloned());
+                keys.sort();
+                keys.dedup();
+                keys
+            }
+            Self::QwenCode { advanced_env, .. } => {
+                let mut keys = QWEN_MANAGED_ENV_KEYS
+                    .iter()
+                    .map(|key| (*key).to_string())
+                    .collect::<Vec<_>>();
+                keys.extend(advanced_env.keys().cloned());
+                keys.sort();
+                keys.dedup();
+                keys
+            }
+            Self::IflowCli {
+                advanced_settings, ..
+            } => {
+                let mut keys = IFLOW_MANAGED_KEYS
+                    .iter()
+                    .map(|key| (*key).to_string())
+                    .collect::<Vec<_>>();
+                keys.extend(advanced_settings.keys().cloned());
                 keys.sort();
                 keys.dedup();
                 keys
@@ -775,6 +842,46 @@ impl CliConfigPayload {
                     ));
                 }
             }
+            Self::QwenCode {
+                base_url,
+                model,
+                advanced_env,
+                ..
+            } => {
+                validate_url(base_url)?;
+                validate_text(model, "model")?;
+                validate_string_map(advanced_env, "advanced environment")?;
+                if advanced_env.keys().any(|key| {
+                    QWEN_MANAGED_ENV_KEYS.contains(&key.as_str()) || looks_like_secret_key(key)
+                }) {
+                    return Err(CliConfigError::Validation(
+                        "advanced environment cannot replace managed keys or contain credentials"
+                            .into(),
+                    ));
+                }
+            }
+            Self::IflowCli {
+                base_url,
+                model,
+                advanced_settings,
+            } => {
+                validate_url(base_url)?;
+                validate_text(model, "model")?;
+                if advanced_settings.len() > 16
+                    || advanced_settings.keys().any(|key| {
+                        validate_id(key, "advanced setting key").is_err()
+                            || IFLOW_MANAGED_KEYS.contains(&key.as_str())
+                            || looks_like_secret_key(key)
+                    })
+                    || advanced_settings.values().any(|value| {
+                        !matches!(value, Value::String(_) | Value::Bool(_) | Value::Number(_))
+                    })
+                {
+                    return Err(CliConfigError::Validation(
+                        "advanced settings contain unsupported keys or values".into(),
+                    ));
+                }
+            }
         }
         Ok(())
     }
@@ -840,6 +947,129 @@ mod tests {
             credential: Some("secret".into()),
             remove_credential: false,
         }
+    }
+
+    fn qwen_input() -> SaveCliConfigProfileInput {
+        SaveCliConfigProfileInput {
+            id: None,
+            agent_id: "qwen-code".into(),
+            name: "DeepSeek".into(),
+            payload: CliConfigPayload::QwenCode {
+                base_url: "https://api.deepseek.com/v1".into(),
+                model: "deepseek-v4-flash".into(),
+                auth_strategy: QwenAuthStrategy::ApiKey,
+                advanced_env: BTreeMap::new(),
+            },
+            source_preset_id: None,
+            source_preset_version: None,
+            credential: Some("secret".into()),
+            remove_credential: false,
+        }
+    }
+
+    fn iflow_input() -> SaveCliConfigProfileInput {
+        SaveCliConfigProfileInput {
+            id: None,
+            agent_id: "iflow-cli".into(),
+            name: "DeepSeek".into(),
+            payload: CliConfigPayload::IflowCli {
+                base_url: "https://api.deepseek.com/v1".into(),
+                model: "deepseek-v4-flash".into(),
+                advanced_settings: BTreeMap::new(),
+            },
+            source_preset_id: None,
+            source_preset_version: None,
+            credential: Some("secret".into()),
+            remove_credential: false,
+        }
+    }
+
+    #[test]
+    fn qwen_and_iflow_payloads_validate_and_bind_to_their_agents() {
+        assert!(validate_profile_input(&qwen_input()).is_ok());
+        assert!(validate_profile_input(&iflow_input()).is_ok());
+        assert_eq!(qwen_input().payload.agent_id(), "qwen-code");
+        assert_eq!(iflow_input().payload.agent_id(), "iflow-cli");
+        let mut mismatched = qwen_input();
+        mismatched.agent_id = "iflow-cli".into();
+        assert!(validate_profile_input(&mismatched).is_err());
+        // The CLIs without a third-party endpoint surface stay unsupported.
+        for agent_id in [
+            "kimi-cli",
+            "qoder-cli",
+            "codebuddy-code",
+            "copilot-cli",
+            "cursor-agent-cli",
+        ] {
+            let mut input = qwen_input();
+            input.agent_id = agent_id.into();
+            assert!(validate_profile_input(&input).is_err(), "{agent_id}");
+        }
+    }
+
+    #[test]
+    fn qwen_rejects_reserved_or_secret_advanced_environment_keys_and_official_needs_no_key() {
+        let mut reserved = qwen_input();
+        let CliConfigPayload::QwenCode { advanced_env, .. } = &mut reserved.payload else {
+            panic!("fixture must be a Qwen payload");
+        };
+        advanced_env.insert("OPENAI_BASE_URL".into(), "https://other".into());
+        assert!(validate_profile_input(&reserved).is_err());
+        let mut secret = qwen_input();
+        let CliConfigPayload::QwenCode { advanced_env, .. } = &mut secret.payload else {
+            panic!("fixture must be a Qwen payload");
+        };
+        advanced_env.insert("DASHSCOPE_API_KEY".into(), "leak".into());
+        assert!(validate_profile_input(&secret).is_err());
+
+        let mut official = qwen_input();
+        let CliConfigPayload::QwenCode { auth_strategy, .. } = &mut official.payload else {
+            panic!("fixture must be a Qwen payload");
+        };
+        *auth_strategy = QwenAuthStrategy::PreserveOfficial;
+        official.credential = None;
+        assert!(validate_profile_input(&official).is_ok());
+        assert!(!official.payload.requires_credential());
+        assert!(qwen_input().payload.requires_credential());
+        assert_eq!(
+            qwen_input().payload.managed_keys(),
+            vec!["OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_MODEL"]
+        );
+    }
+
+    #[test]
+    fn iflow_always_requires_a_credential_and_rejects_managed_or_secret_settings() {
+        assert!(iflow_input().payload.requires_credential());
+        assert!(iflow_input().payload.supports_credential());
+        assert_eq!(
+            iflow_input().payload.managed_keys(),
+            vec!["apiKey", "baseUrl", "modelName", "selectedAuthType"]
+        );
+        for (key, value) in [
+            ("apiKey", Value::String("leak".into())),
+            ("selectedAuthType", Value::String("iflow".into())),
+            ("accessToken", Value::String("leak".into())),
+            ("theme", Value::Array(Vec::new())),
+        ] {
+            let mut invalid = iflow_input();
+            let CliConfigPayload::IflowCli {
+                advanced_settings, ..
+            } = &mut invalid.payload
+            else {
+                panic!("fixture must be an iFlow payload");
+            };
+            advanced_settings.insert(key.into(), value);
+            assert!(validate_profile_input(&invalid).is_err(), "{key}");
+        }
+        let mut allowed = iflow_input();
+        let CliConfigPayload::IflowCli {
+            advanced_settings, ..
+        } = &mut allowed.payload
+        else {
+            panic!("fixture must be an iFlow payload");
+        };
+        advanced_settings.insert("theme".into(), Value::String("dark".into()));
+        assert!(validate_profile_input(&allowed).is_ok());
     }
 
     /// A credential-free kind must refuse a submitted secret before anything touches a config

@@ -1,3 +1,4 @@
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::{params, OptionalExtension, Transaction, TransactionBehavior};
 use thiserror::Error;
 use uuid::Uuid;
@@ -59,7 +60,7 @@ impl SqliteEvolutionEvidenceRepository {
             .connection()
             .map_err(|_| EvidenceRepositoryError::Storage)?;
         let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .write_transaction()
             .map_err(|_| EvidenceRepositoryError::Storage)?;
         let outcome = persist_transaction(&transaction, draft, fingerprints)?;
         transaction

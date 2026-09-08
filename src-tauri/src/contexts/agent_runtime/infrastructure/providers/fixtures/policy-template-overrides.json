@@ -2,79 +2,147 @@
   {
     "agentId": "claude-code",
     "template": "readonly",
-    "expectedOverrides": { "permissionMode": { "state": "value", "value": "plan" } }
+    "expectedOverrides": {
+      "permissionMode": {
+        "state": "value",
+        "value": "plan"
+      }
+    }
   },
   {
     "agentId": "claude-code",
     "template": "standard",
-    "expectedOverrides": { "permissionMode": { "state": "inherit" } }
+    "expectedOverrides": {
+      "permissionMode": {
+        "state": "inherit"
+      }
+    }
   },
   {
     "agentId": "claude-code",
     "template": "trusted",
-    "expectedOverrides": { "permissionMode": { "state": "value", "value": "acceptEdits" } }
+    "expectedOverrides": {
+      "permissionMode": {
+        "state": "value",
+        "value": "acceptEdits"
+      }
+    }
   },
   {
     "agentId": "claude-code",
     "template": "yolo",
-    "expectedOverrides": { "permissionMode": { "state": "value", "value": "acceptEdits" } }
+    "expectedOverrides": {
+      "permissionMode": {
+        "state": "value",
+        "value": "acceptEdits"
+      }
+    }
   },
   {
     "agentId": "codex-cli",
     "template": "readonly",
     "expectedOverrides": {
-      "approvalPolicy": { "state": "value", "value": "never" },
-      "sandbox": { "state": "value", "value": "read-only" }
+      "approvalPolicy": {
+        "state": "value",
+        "value": "never"
+      },
+      "sandbox": {
+        "state": "value",
+        "value": "read-only"
+      }
     }
   },
   {
     "agentId": "codex-cli",
     "template": "standard",
     "expectedOverrides": {
-      "approvalPolicy": { "state": "value", "value": "on-request" },
-      "sandbox": { "state": "value", "value": "workspace-write" }
+      "approvalPolicy": {
+        "state": "value",
+        "value": "on-request"
+      },
+      "sandbox": {
+        "state": "value",
+        "value": "workspace-write"
+      }
     }
   },
   {
     "agentId": "codex-cli",
     "template": "trusted",
     "expectedOverrides": {
-      "approvalPolicy": { "state": "value", "value": "never" },
-      "sandbox": { "state": "value", "value": "workspace-write" }
+      "approvalPolicy": {
+        "state": "value",
+        "value": "never"
+      },
+      "sandbox": {
+        "state": "value",
+        "value": "workspace-write"
+      }
     }
   },
   {
     "agentId": "codex-cli",
     "template": "yolo",
     "expectedOverrides": {
-      "approvalPolicy": { "state": "value", "value": "never" },
-      "sandbox": { "state": "value", "value": "workspace-write" }
+      "approvalPolicy": {
+        "state": "value",
+        "value": "never"
+      },
+      "sandbox": {
+        "state": "value",
+        "value": "workspace-write"
+      }
     }
   },
   {
     "agentId": "gemini-cli",
     "template": "readonly",
-    "expectedOverrides": { "approvalMode": { "state": "value", "value": "plan" } }
+    "expectedOverrides": {
+      "approvalMode": {
+        "state": "value",
+        "value": "plan"
+      }
+    }
   },
   {
     "agentId": "gemini-cli",
     "template": "standard",
-    "expectedOverrides": { "approvalMode": { "state": "value", "value": "default" } }
+    "expectedOverrides": {
+      "approvalMode": {
+        "state": "value",
+        "value": "default"
+      }
+    }
   },
   {
     "agentId": "gemini-cli",
     "template": "trusted",
-    "expectedOverrides": { "approvalMode": { "state": "value", "value": "yolo" } }
+    "expectedOverrides": {
+      "approvalMode": {
+        "state": "value",
+        "value": "yolo"
+      }
+    }
   },
   {
     "agentId": "gemini-cli",
     "template": "yolo",
-    "expectedOverrides": { "approvalMode": { "state": "value", "value": "yolo" } }
+    "expectedOverrides": {
+      "approvalMode": {
+        "state": "value",
+        "value": "yolo"
+      }
+    }
   },
   {
     "agentId": "opencode",
     "template": "readonly",
-    "expectedOverrides": { "agent": { "state": "value", "value": "plan" } }
+    "expectedOverrides": {
+      "agent": {
+        "state": "value",
+        "value": "plan"
+      }
+    }
   },
   {
     "agentId": "opencode",
@@ -84,43 +152,336 @@
   {
     "agentId": "opencode",
     "template": "trusted",
-    "expectedOverrides": { "autoApprove": { "state": "value", "value": true } }
+    "expectedOverrides": {
+      "autoApprove": {
+        "state": "value",
+        "value": true
+      }
+    }
   },
   {
     "agentId": "opencode",
     "template": "yolo",
-    "expectedOverrides": { "autoApprove": { "state": "value", "value": true } }
+    "expectedOverrides": {
+      "autoApprove": {
+        "state": "value",
+        "value": true
+      }
+    }
   },
   {
     "agentId": "antigravity-cli",
     "template": "readonly",
     "expectedOverrides": {
-      "mode": { "state": "value", "value": "plan" },
-      "sandbox": { "state": "value", "value": true }
+      "mode": {
+        "state": "value",
+        "value": "plan"
+      },
+      "sandbox": {
+        "state": "value",
+        "value": true
+      }
     }
   },
   {
     "agentId": "antigravity-cli",
     "template": "standard",
     "expectedOverrides": {
-      "mode": { "state": "inherit" },
-      "sandbox": { "state": "value", "value": false }
+      "mode": {
+        "state": "inherit"
+      },
+      "sandbox": {
+        "state": "value",
+        "value": false
+      }
     }
   },
   {
     "agentId": "antigravity-cli",
     "template": "trusted",
     "expectedOverrides": {
-      "mode": { "state": "value", "value": "accept-edits" },
-      "sandbox": { "state": "value", "value": false }
+      "mode": {
+        "state": "value",
+        "value": "accept-edits"
+      },
+      "sandbox": {
+        "state": "value",
+        "value": false
+      }
     }
   },
   {
     "agentId": "antigravity-cli",
     "template": "yolo",
     "expectedOverrides": {
-      "mode": { "state": "value", "value": "accept-edits" },
-      "sandbox": { "state": "value", "value": false }
+      "mode": {
+        "state": "value",
+        "value": "accept-edits"
+      },
+      "sandbox": {
+        "state": "value",
+        "value": false
+      }
+    }
+  },
+  {
+    "agentId": "qwen-code",
+    "template": "readonly",
+    "expectedOverrides": {
+      "approvalMode": {
+        "state": "value",
+        "value": "plan"
+      }
+    }
+  },
+  {
+    "agentId": "qwen-code",
+    "template": "standard",
+    "expectedOverrides": {
+      "approvalMode": {
+        "state": "value",
+        "value": "default"
+      }
+    }
+  },
+  {
+    "agentId": "qwen-code",
+    "template": "trusted",
+    "expectedOverrides": {
+      "approvalMode": {
+        "state": "value",
+        "value": "auto-edit"
+      }
+    }
+  },
+  {
+    "agentId": "qwen-code",
+    "template": "yolo",
+    "expectedOverrides": {
+      "approvalMode": {
+        "state": "value",
+        "value": "yolo"
+      }
+    }
+  },
+  {
+    "agentId": "kimi-cli",
+    "template": "readonly",
+    "expectedOverrides": {
+      "plan": {
+        "state": "value",
+        "value": true
+      }
+    }
+  },
+  {
+    "agentId": "kimi-cli",
+    "template": "standard",
+    "expectedOverrides": {}
+  },
+  {
+    "agentId": "kimi-cli",
+    "template": "trusted",
+    "expectedOverrides": {
+      "yolo": {
+        "state": "value",
+        "value": true
+      }
+    }
+  },
+  {
+    "agentId": "kimi-cli",
+    "template": "yolo",
+    "expectedOverrides": {
+      "auto": {
+        "state": "value",
+        "value": true
+      }
+    }
+  },
+  {
+    "agentId": "qoder-cli",
+    "template": "readonly",
+    "expectedOverrides": {}
+  },
+  {
+    "agentId": "qoder-cli",
+    "template": "standard",
+    "expectedOverrides": {
+      "permissionMode": {
+        "state": "value",
+        "value": "default"
+      }
+    }
+  },
+  {
+    "agentId": "qoder-cli",
+    "template": "trusted",
+    "expectedOverrides": {
+      "permissionMode": {
+        "state": "value",
+        "value": "accept_edits"
+      }
+    }
+  },
+  {
+    "agentId": "qoder-cli",
+    "template": "yolo",
+    "expectedOverrides": {
+      "permissionMode": {
+        "state": "value",
+        "value": "accept_edits"
+      }
+    }
+  },
+  {
+    "agentId": "codebuddy-code",
+    "template": "readonly",
+    "expectedOverrides": {
+      "permissionMode": {
+        "state": "value",
+        "value": "plan"
+      }
+    }
+  },
+  {
+    "agentId": "codebuddy-code",
+    "template": "standard",
+    "expectedOverrides": {
+      "permissionMode": {
+        "state": "value",
+        "value": "default"
+      }
+    }
+  },
+  {
+    "agentId": "codebuddy-code",
+    "template": "trusted",
+    "expectedOverrides": {
+      "permissionMode": {
+        "state": "value",
+        "value": "acceptEdits"
+      }
+    }
+  },
+  {
+    "agentId": "codebuddy-code",
+    "template": "yolo",
+    "expectedOverrides": {
+      "permissionMode": {
+        "state": "value",
+        "value": "acceptEdits"
+      }
+    }
+  },
+  {
+    "agentId": "copilot-cli",
+    "template": "readonly",
+    "expectedOverrides": {
+      "mode": {
+        "state": "value",
+        "value": "plan"
+      }
+    }
+  },
+  {
+    "agentId": "copilot-cli",
+    "template": "standard",
+    "expectedOverrides": {}
+  },
+  {
+    "agentId": "copilot-cli",
+    "template": "trusted",
+    "expectedOverrides": {
+      "allowAllTools": {
+        "state": "value",
+        "value": true
+      }
+    }
+  },
+  {
+    "agentId": "copilot-cli",
+    "template": "yolo",
+    "expectedOverrides": {
+      "allowAllTools": {
+        "state": "value",
+        "value": true
+      }
+    }
+  },
+  {
+    "agentId": "cursor-agent-cli",
+    "template": "readonly",
+    "expectedOverrides": {
+      "mode": {
+        "state": "value",
+        "value": "plan"
+      }
+    }
+  },
+  {
+    "agentId": "cursor-agent-cli",
+    "template": "standard",
+    "expectedOverrides": {}
+  },
+  {
+    "agentId": "cursor-agent-cli",
+    "template": "trusted",
+    "expectedOverrides": {
+      "force": {
+        "state": "value",
+        "value": true
+      }
+    }
+  },
+  {
+    "agentId": "cursor-agent-cli",
+    "template": "yolo",
+    "expectedOverrides": {
+      "force": {
+        "state": "value",
+        "value": true
+      }
+    }
+  },
+  {
+    "agentId": "iflow-cli",
+    "template": "readonly",
+    "expectedOverrides": {
+      "plan": {
+        "state": "value",
+        "value": true
+      }
+    }
+  },
+  {
+    "agentId": "iflow-cli",
+    "template": "standard",
+    "expectedOverrides": {
+      "default": {
+        "state": "value",
+        "value": true
+      }
+    }
+  },
+  {
+    "agentId": "iflow-cli",
+    "template": "trusted",
+    "expectedOverrides": {
+      "autoEdit": {
+        "state": "value",
+        "value": true
+      }
+    }
+  },
+  {
+    "agentId": "iflow-cli",
+    "template": "yolo",
+    "expectedOverrides": {
+      "yolo": {
+        "state": "value",
+        "value": true
+      }
     }
   }
 ]

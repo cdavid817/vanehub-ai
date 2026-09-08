@@ -6,6 +6,7 @@ use super::{
     append_audit_event, CandidateTransitionRequest, SqliteCuratorRepository, TrustedAuditContext,
 };
 use crate::contexts::skill_evolution_curation::{application::*, domain::*};
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::{params, OptionalExtension, TransactionBehavior};
 
 impl CuratorDecisionStore for SqliteCuratorRepository<'_> {
@@ -32,7 +33,7 @@ impl CuratorDecisionStore for SqliteCuratorRepository<'_> {
         validate_mutation(mutation)?;
         let transaction = self
             .connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .write_transaction()
             .map_err(|_| CuratorDecisionStoreError::Storage)?;
         if let Some(existing) = existing_outcome(
             &transaction,

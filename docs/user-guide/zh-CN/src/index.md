@@ -15,7 +15,7 @@ VaneHub AI 是统一运行、管理和协作多个 AI 编码 Agent 的桌面工�
 | 使用方式 | 适合谁 | 推荐路径 |
 | --- | --- | --- |
 | **OnePiece（原生 Agent）** | 不想安装任何编码 CLI | 安装应用 → 配置模型服务 → 创建会话 → 发送任务 |
-| **外部 CLI Agent** | 已在用 Claude Code、Codex CLI、Gemini CLI、OpenCode 或 Antigravity CLI | 安装应用 → 安装并认证 CLI → 检查检测状态 → 创建会话 |
+| **外部 CLI Agent** | 已在用 Claude Code、Codex CLI、Gemini CLI、OpenCode、Antigravity CLI、Qwen Code、Kimi Code CLI、Qoder CLI、CodeBuddy Code、GitHub Copilot CLI 或 Cursor Agent CLI | 安装应用 → 安装并认证 CLI → 检查检测状态 → 创建会话 |
 
 两条路都从这些章节开始：
 

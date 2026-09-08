@@ -101,7 +101,11 @@
     "lastMutation": null,
     "lastOperationId": null,
     "checkedAt": "2026-01-01T00:00:00+00:00",
-    "agentId": "claude-code"
+    "agentId": "claude-code",
+    "lifecycle": "active",
+    "legacyServiceShutdown": null,
+    "managedTransport": "headless",
+    "loginDocsUrl": null
   },
   {
     "schemaVersion": 1,
@@ -160,7 +164,11 @@
     "lastMutation": null,
     "lastOperationId": null,
     "checkedAt": "2026-01-01T00:00:00+00:00",
-    "agentId": "codex-cli"
+    "agentId": "codex-cli",
+    "lifecycle": "active",
+    "legacyServiceShutdown": null,
+    "managedTransport": "headless",
+    "loginDocsUrl": null
   },
   {
     "schemaVersion": 1,
@@ -234,7 +242,11 @@
     "lastMutation": null,
     "lastOperationId": null,
     "checkedAt": "2026-01-01T00:00:00+00:00",
-    "agentId": "gemini-cli"
+    "agentId": "gemini-cli",
+    "lifecycle": "active",
+    "legacyServiceShutdown": null,
+    "managedTransport": "headless",
+    "loginDocsUrl": null
   },
   {
     "schemaVersion": 1,
@@ -342,7 +354,11 @@
     "lastMutation": null,
     "lastOperationId": null,
     "checkedAt": "2026-01-01T00:00:00+00:00",
-    "agentId": "opencode"
+    "agentId": "opencode",
+    "lifecycle": "active",
+    "legacyServiceShutdown": null,
+    "managedTransport": "headless",
+    "loginDocsUrl": null
   },
   {
     "schemaVersion": 1,
@@ -412,6 +428,515 @@
     "lastMutation": null,
     "lastOperationId": null,
     "checkedAt": "2026-01-01T00:00:00+00:00",
-    "agentId": "antigravity-cli"
+    "agentId": "antigravity-cli",
+    "lifecycle": "active",
+    "legacyServiceShutdown": null,
+    "managedTransport": "headless",
+    "loginDocsUrl": null
+  },
+  {
+    "schemaVersion": 1,
+    "displayName": "Qwen Code",
+    "provider": "Alibaba",
+    "executableNames": [
+      "qwen"
+    ],
+    "scope": "local-desktop",
+    "overallState": "ready",
+    "freshness": "fresh",
+    "environmentFingerprint": "web-mock-fingerprint",
+    "installations": [
+      {
+        "executablePath": "/mock/bin/qwen",
+        "canonicalPath": null,
+        "aliasPaths": [],
+        "targetMissing": false,
+        "reportedVersion": "0.23.0",
+        "sourceId": "npm",
+        "sourceKind": "npm",
+        "sourceConfidence": "inferred",
+        "pathPriority": 0,
+        "environmentOrigin": "path",
+        "executableStatus": "healthy",
+        "id": "qwen"
+      }
+    ],
+    "pathSelectedInstallationId": "qwen",
+    "recommendedInstallationId": "qwen",
+    "discovery": "found-one",
+    "executable": "healthy",
+    "authentication": "unknown",
+    "readiness": "unknown",
+    "compatibility": "unknown",
+    "update": "up-to-date",
+    "conflicts": [],
+    "sources": [
+      {
+        "sourceId": "npm",
+        "kind": "npm",
+        "supportedOnThisPlatform": true,
+        "availableVersionCount": 1,
+        "availableVersions": [
+          "0.23.0"
+        ],
+        "capabilities": {
+          "install": "exact",
+          "upgrade": "exact",
+          "downgrade": "exact",
+          "reinstall": "exact",
+          "uninstall": true,
+          "repair": "unsupported"
+        },
+        "management": "managed",
+        "guidanceCode": null
+      }
+    ],
+    "allowedActions": [],
+    "lastMutation": null,
+    "lastOperationId": null,
+    "checkedAt": "2026-01-01T00:00:00+00:00",
+    "agentId": "qwen-code",
+    "lifecycle": "active",
+    "legacyServiceShutdown": null,
+    "managedTransport": "acp-stdio",
+    "loginDocsUrl": "https://qwenlm.github.io/qwen-code-docs/en/index"
+  },
+  {
+    "schemaVersion": 1,
+    "displayName": "Kimi Code CLI",
+    "provider": "Moonshot AI",
+    "executableNames": [
+      "kimi"
+    ],
+    "scope": "local-desktop",
+    "overallState": "conflict",
+    "freshness": "fresh",
+    "environmentFingerprint": "web-mock-fingerprint",
+    "installations": [
+      {
+        "executablePath": "/mock/npm/bin/kimi",
+        "canonicalPath": null,
+        "aliasPaths": [],
+        "targetMissing": false,
+        "reportedVersion": "0.41.0",
+        "sourceId": "npm",
+        "sourceKind": "npm",
+        "sourceConfidence": "inferred",
+        "pathPriority": 0,
+        "environmentOrigin": "path",
+        "executableStatus": "healthy",
+        "id": "kimi-npm"
+      },
+      {
+        "executablePath": "/mock/home/.local/bin/kimi",
+        "canonicalPath": "/mock/home/.local/share/uv/tools/kimi-cli/bin/kimi",
+        "aliasPaths": [],
+        "targetMissing": false,
+        "reportedVersion": "0.9.0",
+        "sourceId": null,
+        "sourceKind": "uv",
+        "sourceConfidence": "inferred",
+        "pathPriority": 1,
+        "environmentOrigin": "path",
+        "executableStatus": "healthy",
+        "id": "kimi-legacy"
+      }
+    ],
+    "pathSelectedInstallationId": "kimi-npm",
+    "recommendedInstallationId": "kimi-npm",
+    "discovery": "found-multiple",
+    "executable": "healthy",
+    "authentication": "unknown",
+    "readiness": "unknown",
+    "compatibility": "unknown",
+    "update": "up-to-date",
+    "conflicts": [
+      {
+        "kind": "multiple-installation-sources",
+        "severity": "error",
+        "installationIds": [
+          "kimi-npm",
+          "kimi-legacy"
+        ],
+        "blocksMutation": true,
+        "blocksLaunch": false,
+        "reasonCode": "multiple-installation-sources"
+      }
+    ],
+    "sources": [
+      {
+        "sourceId": "npm",
+        "kind": "npm",
+        "supportedOnThisPlatform": true,
+        "availableVersionCount": 1,
+        "availableVersions": [
+          "0.41.0"
+        ],
+        "capabilities": {
+          "install": "exact",
+          "upgrade": "exact",
+          "downgrade": "exact",
+          "reinstall": "exact",
+          "uninstall": true,
+          "repair": "unsupported"
+        },
+        "management": "managed",
+        "guidanceCode": null
+      },
+      {
+        "sourceId": "uv",
+        "kind": "uv",
+        "supportedOnThisPlatform": true,
+        "availableVersionCount": null,
+        "availableVersions": [],
+        "capabilities": {
+          "install": "unsupported",
+          "upgrade": "unsupported",
+          "downgrade": "unsupported",
+          "reinstall": "unsupported",
+          "uninstall": false,
+          "repair": "unsupported"
+        },
+        "management": "detect-only",
+        "guidanceCode": "cli.guidance.uv"
+      }
+    ],
+    "allowedActions": [],
+    "lastMutation": null,
+    "lastOperationId": null,
+    "checkedAt": "2026-01-01T00:00:00+00:00",
+    "agentId": "kimi-cli",
+    "lifecycle": "active",
+    "legacyServiceShutdown": null,
+    "managedTransport": "acp-stdio",
+    "loginDocsUrl": "https://www.kimi.com/code/docs/en/kimi-code-cli/guides/getting-started.html"
+  },
+  {
+    "schemaVersion": 1,
+    "displayName": "Qoder CLI",
+    "provider": "Qoder",
+    "executableNames": [
+      "qoder",
+      "qodercli"
+    ],
+    "scope": "local-desktop",
+    "overallState": "missing",
+    "freshness": "fresh",
+    "environmentFingerprint": "web-mock-fingerprint",
+    "installations": [],
+    "pathSelectedInstallationId": null,
+    "recommendedInstallationId": null,
+    "discovery": "not-found",
+    "executable": "not-applicable",
+    "authentication": "unknown",
+    "readiness": "unknown",
+    "compatibility": "unknown",
+    "update": "not-applicable",
+    "conflicts": [],
+    "sources": [
+      {
+        "sourceId": "npm",
+        "kind": "npm",
+        "supportedOnThisPlatform": true,
+        "availableVersionCount": 1,
+        "availableVersions": [
+          "1.1.44"
+        ],
+        "capabilities": {
+          "install": "exact",
+          "upgrade": "exact",
+          "downgrade": "exact",
+          "reinstall": "exact",
+          "uninstall": true,
+          "repair": "unsupported"
+        },
+        "management": "managed",
+        "guidanceCode": null
+      }
+    ],
+    "allowedActions": [
+      {
+        "action": "install",
+        "sourceId": "npm",
+        "targetMode": "exact",
+        "defaultTarget": "1.1.44",
+        "requiresTargetSelection": false,
+        "reasonCode": null
+      }
+    ],
+    "lastMutation": null,
+    "lastOperationId": null,
+    "checkedAt": "2026-01-01T00:00:00+00:00",
+    "agentId": "qoder-cli",
+    "lifecycle": "active",
+    "legacyServiceShutdown": null,
+    "managedTransport": "acp-stdio",
+    "loginDocsUrl": "https://docs.qoder.com/cli/installation"
+  },
+  {
+    "schemaVersion": 1,
+    "displayName": "CodeBuddy Code",
+    "provider": "Tencent",
+    "executableNames": [
+      "codebuddy"
+    ],
+    "scope": "local-desktop",
+    "overallState": "ready",
+    "freshness": "fresh",
+    "environmentFingerprint": "web-mock-fingerprint",
+    "installations": [
+      {
+        "executablePath": "/mock/bin/codebuddy",
+        "canonicalPath": null,
+        "aliasPaths": [],
+        "targetMissing": false,
+        "reportedVersion": "2.146.0",
+        "sourceId": "npm",
+        "sourceKind": "npm",
+        "sourceConfidence": "inferred",
+        "pathPriority": 0,
+        "environmentOrigin": "path",
+        "executableStatus": "healthy",
+        "id": "codebuddy"
+      }
+    ],
+    "pathSelectedInstallationId": "codebuddy",
+    "recommendedInstallationId": "codebuddy",
+    "discovery": "found-one",
+    "executable": "healthy",
+    "authentication": "unknown",
+    "readiness": "unknown",
+    "compatibility": "unknown",
+    "update": "up-to-date",
+    "conflicts": [],
+    "sources": [
+      {
+        "sourceId": "npm",
+        "kind": "npm",
+        "supportedOnThisPlatform": true,
+        "availableVersionCount": 1,
+        "availableVersions": [
+          "2.146.0"
+        ],
+        "capabilities": {
+          "install": "exact",
+          "upgrade": "exact",
+          "downgrade": "exact",
+          "reinstall": "exact",
+          "uninstall": true,
+          "repair": "unsupported"
+        },
+        "management": "managed",
+        "guidanceCode": null
+      }
+    ],
+    "allowedActions": [],
+    "lastMutation": null,
+    "lastOperationId": null,
+    "checkedAt": "2026-01-01T00:00:00+00:00",
+    "agentId": "codebuddy-code",
+    "lifecycle": "active",
+    "legacyServiceShutdown": null,
+    "managedTransport": "acp-stdio",
+    "loginDocsUrl": "https://www.codebuddy.ai/docs/cli/quickstart"
+  },
+  {
+    "schemaVersion": 1,
+    "displayName": "GitHub Copilot CLI",
+    "provider": "GitHub",
+    "executableNames": [
+      "copilot"
+    ],
+    "scope": "local-desktop",
+    "overallState": "ready",
+    "freshness": "fresh",
+    "environmentFingerprint": "web-mock-fingerprint",
+    "installations": [
+      {
+        "executablePath": "/mock/bin/copilot",
+        "canonicalPath": null,
+        "aliasPaths": [],
+        "targetMissing": false,
+        "reportedVersion": "1.0.83",
+        "sourceId": "npm",
+        "sourceKind": "npm",
+        "sourceConfidence": "inferred",
+        "pathPriority": 0,
+        "environmentOrigin": "path",
+        "executableStatus": "healthy",
+        "id": "copilot"
+      }
+    ],
+    "pathSelectedInstallationId": "copilot",
+    "recommendedInstallationId": "copilot",
+    "discovery": "found-one",
+    "executable": "healthy",
+    "authentication": "unknown",
+    "readiness": "unknown",
+    "compatibility": "unknown",
+    "update": "up-to-date",
+    "conflicts": [],
+    "sources": [
+      {
+        "sourceId": "npm",
+        "kind": "npm",
+        "supportedOnThisPlatform": true,
+        "availableVersionCount": 1,
+        "availableVersions": [
+          "1.0.83"
+        ],
+        "capabilities": {
+          "install": "exact",
+          "upgrade": "exact",
+          "downgrade": "exact",
+          "reinstall": "exact",
+          "uninstall": true,
+          "repair": "unsupported"
+        },
+        "management": "managed",
+        "guidanceCode": null
+      },
+      {
+        "sourceId": "winget",
+        "kind": "winget",
+        "supportedOnThisPlatform": false,
+        "availableVersionCount": null,
+        "availableVersions": [],
+        "capabilities": {
+          "install": "exact",
+          "upgrade": "exact",
+          "downgrade": "unsupported",
+          "reinstall": "unsupported",
+          "uninstall": true,
+          "repair": "requires-preflight"
+        },
+        "management": "managed",
+        "guidanceCode": null
+      }
+    ],
+    "allowedActions": [],
+    "lastMutation": null,
+    "lastOperationId": null,
+    "checkedAt": "2026-01-01T00:00:00+00:00",
+    "agentId": "copilot-cli",
+    "lifecycle": "active",
+    "legacyServiceShutdown": null,
+    "managedTransport": "acp-stdio",
+    "loginDocsUrl": "https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli"
+  },
+  {
+    "schemaVersion": 1,
+    "displayName": "Cursor Agent CLI",
+    "provider": "Cursor",
+    "executableNames": [
+      "agent"
+    ],
+    "scope": "local-desktop",
+    "overallState": "broken",
+    "freshness": "fresh",
+    "environmentFingerprint": "web-mock-fingerprint",
+    "installations": [
+      {
+        "executablePath": "/mock/usr/bin/agent",
+        "canonicalPath": "/mock/usr/lib/other-agent/agent",
+        "aliasPaths": [],
+        "targetMissing": false,
+        "reportedVersion": "3.1.0",
+        "sourceId": null,
+        "sourceKind": "system",
+        "sourceConfidence": "inferred",
+        "pathPriority": 0,
+        "environmentOrigin": "path",
+        "executableStatus": "identity-mismatch",
+        "id": "other-agent"
+      }
+    ],
+    "pathSelectedInstallationId": "other-agent",
+    "recommendedInstallationId": "other-agent",
+    "discovery": "found-one",
+    "executable": "identity-mismatch",
+    "authentication": "unknown",
+    "readiness": "broken",
+    "compatibility": "unknown",
+    "update": "not-applicable",
+    "conflicts": [],
+    "sources": [
+      {
+        "sourceId": "vendor",
+        "kind": "vendor-installer",
+        "supportedOnThisPlatform": true,
+        "availableVersionCount": null,
+        "availableVersions": [],
+        "capabilities": {
+          "install": "latest-only",
+          "upgrade": "latest-only",
+          "downgrade": "unsupported",
+          "reinstall": "unsupported",
+          "uninstall": false,
+          "repair": "unsupported"
+        },
+        "management": "managed",
+        "guidanceCode": null
+      }
+    ],
+    "allowedActions": [],
+    "lastMutation": null,
+    "lastOperationId": null,
+    "checkedAt": "2026-01-01T00:00:00+00:00",
+    "agentId": "cursor-agent-cli",
+    "lifecycle": "active",
+    "legacyServiceShutdown": null,
+    "managedTransport": "acp-stdio",
+    "loginDocsUrl": "https://cursor.com/docs/cli/installation"
+  },
+  {
+    "schemaVersion": 1,
+    "displayName": "iFlow CLI",
+    "provider": "iFlow",
+    "executableNames": [
+      "iflow"
+    ],
+    "scope": "local-desktop",
+    "overallState": "missing",
+    "freshness": "fresh",
+    "environmentFingerprint": "web-mock-fingerprint",
+    "installations": [],
+    "pathSelectedInstallationId": null,
+    "recommendedInstallationId": null,
+    "discovery": "not-found",
+    "executable": "not-applicable",
+    "authentication": "unknown",
+    "readiness": "unknown",
+    "compatibility": "unknown",
+    "update": "not-applicable",
+    "conflicts": [],
+    "sources": [
+      {
+        "sourceId": "local",
+        "kind": "manual",
+        "supportedOnThisPlatform": true,
+        "availableVersionCount": null,
+        "availableVersions": [],
+        "capabilities": {
+          "install": "unsupported",
+          "upgrade": "unsupported",
+          "downgrade": "unsupported",
+          "reinstall": "unsupported",
+          "uninstall": false,
+          "repair": "unsupported"
+        },
+        "management": "detect-only",
+        "guidanceCode": "cli.guidance.manual"
+      }
+    ],
+    "allowedActions": [],
+    "lastMutation": null,
+    "lastOperationId": null,
+    "checkedAt": "2026-01-01T00:00:00+00:00",
+    "agentId": "iflow-cli",
+    "lifecycle": "legacy",
+    "legacyServiceShutdown": "2026-04-17",
+    "managedTransport": "terminal-only",
+    "loginDocsUrl": "https://vibex.iflow.cn/t/topic/4819"
   }
 ]

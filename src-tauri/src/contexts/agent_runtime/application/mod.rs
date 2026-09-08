@@ -198,7 +198,8 @@ pub(crate) use ports::{
     LoopGenerationControlPort, LoopGitStatePort, LoopIterationRepository, LoopLoggingPort,
     LoopProjectPort, LoopRepository, LoopRoleGenerationCompletionPort, LoopRoleSessionPort,
     LoopSessionRecoveryPort, LoopVerificationProcessPort, LoopVerifierContextPort,
-    LoopVerifierGenerationPort, LoopWorkerGenerationPort, OnePieceModelDiscoveryPort,
+    LoopVerifierGenerationPort, LoopWorkerGenerationPort, ManagedConnectionCheckReport,
+    ManagedConnectionCheckRequest, ManagedConnectionControlPort, OnePieceModelDiscoveryPort,
     RunnerDiscoveryPort, ToolApprovalPort,
 };
 #[allow(unused_imports)]
@@ -212,10 +213,10 @@ pub(crate) use ports::{
     AgentWorkspaceSymbolInput,
 };
 pub(crate) use provider::{
-    AgentProvider, AgentProviderError, ProviderGenerationInvocationRequest,
-    ProviderInteractiveInvocationRequest, ProviderInteractiveInvocationSpec,
-    ProviderInvocationSpec, ProviderOptionRequest, ProviderOutputFormat, ProviderPermissionMode,
-    ProviderPromptDelivery, ProviderRegistry,
+    AgentProvider, AgentProviderError, ProviderAcpInvocationRequest, ProviderAcpInvocationSpec,
+    ProviderGenerationInvocationRequest, ProviderInteractiveInvocationRequest,
+    ProviderInteractiveInvocationSpec, ProviderInvocationSpec, ProviderOptionRequest,
+    ProviderOutputFormat, ProviderPermissionMode, ProviderPromptDelivery, ProviderRegistry,
 };
 #[allow(unused_imports)]
 pub(crate) use runner::{

@@ -1,5 +1,6 @@
 use super::probation_store_queries::*;
 use super::probation_store_support::*;
+use crate::platform::database::SqliteWriteTransaction;
 use crate::{
     contexts::skill_evolution_orchestration::domain::{
         canonical_hash, evaluate_probation, is_safe_identifier, ProbationEvaluation,
@@ -46,7 +47,7 @@ impl SqliteProbationRepository {
             .connection()
             .map_err(|_| ProbationRepositoryError::Storage)?;
         let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .write_transaction()
             .map_err(|_| ProbationRepositoryError::Storage)?;
         let probation = load_probation(&transaction, &observation.probation_id)?
             .ok_or(ProbationRepositoryError::NotFound)?;
@@ -110,7 +111,7 @@ impl SqliteProbationRepository {
             .connection()
             .map_err(|_| ProbationRepositoryError::Storage)?;
         let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .write_transaction()
             .map_err(|_| ProbationRepositoryError::Storage)?;
         let probation = load_probation(&transaction, probation_id)?
             .ok_or(ProbationRepositoryError::NotFound)?;

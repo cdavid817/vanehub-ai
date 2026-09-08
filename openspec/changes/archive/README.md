@@ -258,6 +258,12 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-31 | fix-unverified-health-signals | continuous-integration, lsp-server-management | `openspec/changes/archive/2026-08-31-fix-unverified-health-signals/` |
 | 2026-09-05 | fix-duplicate-desktop-instances | desktop-background-lifecycle | `openspec/changes/archive/2026-09-05-fix-duplicate-desktop-instances/` |
 | 2026-09-05 | reduce-session-runtime-overhead | agent-run-state-management, chat-experience | `openspec/changes/archive/2026-09-05-reduce-session-runtime-overhead/` |
+| 2026-09-06 | add-cli-terminal-theme-setting | agent-terminal-runtime, app-settings, settings-basic-configuration-ui | `openspec/changes/archive/2026-09-06-add-cli-terminal-theme-setting/` |
+| 2026-09-06 | add-collapsible-cli-composer | agent-terminal-runtime | `openspec/changes/archive/2026-09-06-add-collapsible-cli-composer/` |
+| 2026-09-06 | fix-cross-platform-folder-opener-discovery | app-settings, settings-basic-configuration-ui, workspace-folder-openers | `openspec/changes/archive/2026-09-06-fix-cross-platform-folder-opener-discovery/` |
 | 2026-09-06 | fix-session-creation-and-trace-correctness | agent-execution-observability, session-management | `openspec/changes/archive/2026-09-06-fix-session-creation-and-trace-correctness/` |
+| 2026-09-06 | harden-session-workspace-tab-layouts | agent-terminal-runtime, main-layout-ui, session-shell, session-workspace-tabs, unified-log-management, unified-todo-board | `openspec/changes/archive/2026-09-06-harden-session-workspace-tab-layouts/` |
+| 2026-09-07 | add-qwen-iflow-config-profiles | cli-agent-config-management | `openspec/changes/archive/2026-09-07-add-qwen-iflow-config-profiles/` |
+| 2026-09-07 | harden-sqlite-write-transactions | native-runtime-architecture | `openspec/changes/archive/2026-09-07-harden-sqlite-write-transactions/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

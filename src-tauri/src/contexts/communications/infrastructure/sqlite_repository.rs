@@ -6,6 +6,7 @@ use crate::contexts::communications::domain::{
     ConnectorKind, InboundEventIdentity, PairingIntent, RoutingSettings, SessionBinding,
     SessionConnectorAccess,
 };
+use crate::platform::database::SqliteWriteTransaction;
 use crate::platform::database::{NativeDatabase, PooledSqlite};
 use rusqlite::{params, OptionalExtension, Row};
 use sha2::{Digest, Sha256};
@@ -283,7 +284,7 @@ impl SqliteCommunicationsRepository {
         intent: &PairingIntent,
     ) -> Result<(), CommunicationsApplicationError> {
         let mut connection = self.connection()?;
-        let transaction = connection.transaction().map_err(sqlite_error)?;
+        let transaction = connection.write_transaction().map_err(sqlite_error)?;
         transaction
             .execute(
                 "DELETE FROM im_pairing_intents WHERE session_id = ?1 AND connector = ?2",
@@ -374,7 +375,7 @@ impl SqliteCommunicationsRepository {
         delivery_credential_ref: &str,
     ) -> Result<SessionBinding, CommunicationsApplicationError> {
         let mut connection = self.connection()?;
-        let transaction = connection.transaction().map_err(sqlite_error)?;
+        let transaction = connection.write_transaction().map_err(sqlite_error)?;
         let intent = transaction
             .query_row(
                 "SELECT connector, session_id, expires_at FROM im_pairing_intents WHERE id = ?1",
@@ -679,7 +680,7 @@ impl CommunicationsRepository for SqliteCommunicationsRepository {
         let public_config = serde_json::to_string(&configuration.public_config)
             .map_err(|_| invalid_repository_data())?;
         let mut connection = self.connection()?;
-        let transaction = connection.transaction().map_err(sqlite_error)?;
+        let transaction = connection.write_transaction().map_err(sqlite_error)?;
         transaction
             .execute(
                 r#"INSERT INTO im_connector_configs
@@ -731,7 +732,7 @@ impl CommunicationsRepository for SqliteCommunicationsRepository {
         kind: ConnectorKind,
     ) -> Result<(), CommunicationsApplicationError> {
         let mut connection = self.connection()?;
-        let transaction = connection.transaction().map_err(sqlite_error)?;
+        let transaction = connection.write_transaction().map_err(sqlite_error)?;
         transaction
             .execute(
                 "DELETE FROM im_credential_refs WHERE connector = ?1",

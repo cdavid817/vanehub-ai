@@ -211,10 +211,17 @@ fn an_all_tool_refresh_covers_every_registered_tool() {
             "codex-cli",
             "gemini-cli",
             "opencode",
-            "antigravity-cli"
+            "antigravity-cli",
+            "qwen-code",
+            "kimi-cli",
+            "qoder-cli",
+            "codebuddy-code",
+            "copilot-cli",
+            "cursor-agent-cli",
+            "iflow-cli"
         ]
     );
-    assert_eq!(harness.repository.written_agents().len(), 5);
+    assert_eq!(harness.repository.written_agents().len(), 12);
 }
 
 #[test]
@@ -290,10 +297,14 @@ fn the_operation_reports_phases_and_per_tool_progress() {
         operation.phases.last().map(String::as_str),
         Some("completed")
     );
-    // One unit per tool, so a five-tool refresh reports five steps.
+    // One unit per registered tool: the catalog has twelve, so the refresh reports twelve steps.
+    let total = crate::contexts::tooling::cli::domain::registry::CLI_TOOL_DEFINITIONS.len();
+    assert_eq!(total, 12);
     assert_eq!(
         operation.units,
-        vec![(1, 5), (2, 5), (3, 5), (4, 5), (5, 5)]
+        (1..=total)
+            .map(|step| (step as u32, total as u32))
+            .collect::<Vec<_>>()
     );
     assert_eq!(operation.terminal.as_deref(), Some("succeeded"));
 }

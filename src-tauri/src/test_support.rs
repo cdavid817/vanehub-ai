@@ -4,12 +4,47 @@
 /// first patch, and a re-export nobody reads is an unused import rather than a useful shorthand.
 pub(crate) mod git_patch_fixture;
 
+use crate::platform::database::{NativeDatabase, SqliteWriteTransaction};
 use rusqlite::Connection;
 use std::collections::VecDeque;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
+use std::thread;
+use std::time::Duration;
+
+/// Runs `operation` while a second pooled connection holds the SQLite write lock and then commits
+/// a real write. A repository that opens its transaction as `BEGIN IMMEDIATE` waits for that
+/// commit and then succeeds; one that opens a deferred transaction and reads first would find its
+/// snapshot stale at the write and fail with `database is locked`. Repositories whose
+/// read-then-write path failed on a real desktop run use this to pin the fix.
+pub(crate) fn while_another_connection_commits<T>(
+    database: &NativeDatabase,
+    operation: impl FnOnce() -> T,
+) -> T {
+    let database = database.clone();
+    let (started, wait_for_start) = mpsc::channel();
+    let blocker = thread::spawn(move || {
+        let mut connection = database.connection().expect("blocker connection");
+        let transaction = connection
+            .write_transaction()
+            .expect("blocker write transaction");
+        transaction
+            .execute_batch(
+                "CREATE TABLE IF NOT EXISTS test_support_contention_probe (id INTEGER PRIMARY KEY); \
+                 INSERT INTO test_support_contention_probe DEFAULT VALUES;",
+            )
+            .expect("blocker write");
+        started.send(()).expect("signal the held write lock");
+        thread::sleep(Duration::from_millis(200));
+        transaction.commit().expect("blocker commit");
+    });
+    wait_for_start.recv().expect("blocker holds the write lock");
+    let result = operation();
+    blocker.join().expect("blocker thread");
+    result
+}
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 

@@ -1,4 +1,6 @@
+pub(crate) mod acp;
 mod compatibility;
+pub(crate) mod definitions;
 mod invocation;
 mod manifest;
 mod output;
@@ -7,8 +9,10 @@ mod session_capture;
 pub(crate) use crate::contexts::agent_runtime::application::ProviderPromptDelivery;
 pub(crate) use invocation::{
     add_codex_output_capture_args, add_opencode_directory_args, build_interactive_invocation,
-    build_invocation_with_role, message_override_selections, opencode_standard_permission_env_var,
-    policy_override_selections, ProviderLaunchSegments, POLICY_TEMPLATE_GOVERNED_AGENT_IDS,
+    build_invocation_with_role, direct_policy_arguments, message_override_selections,
+    opencode_standard_permission_env_var, policy_override_selections,
+    terminal_policy_enforceability, ProviderLaunchSegments, TerminalPolicyEnforceability,
+    POLICY_TEMPLATE_GOVERNED_AGENT_IDS, RUNTIME_POLICY_AGENT_IDS,
 };
 pub(crate) use output::{
     output_parser_for_format, BoundedProviderLines, ProviderOutputEvent, ProviderOutputFramer,

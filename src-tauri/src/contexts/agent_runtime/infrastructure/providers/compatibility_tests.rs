@@ -1,15 +1,28 @@
 use super::compatibility::{builtin_cli_provider_registry, fixture_provider};
+use super::definitions::{definition, EXPANDED_PROVIDER_IDS};
 use crate::contexts::agent_runtime::application::{
-    AgentProvider, AgentProviderError, ProviderGenerationInvocationRequest, ProviderOptionRequest,
-    ProviderPermissionMode, ProviderPromptDelivery, ProviderRegistry,
+    AgentProvider, AgentProviderError, ProviderAcpInvocationRequest,
+    ProviderGenerationInvocationRequest, ProviderInteractiveInvocationRequest,
+    ProviderOptionRequest, ProviderPermissionMode, ProviderPromptDelivery, ProviderRegistry,
 };
 use crate::contexts::agent_runtime::domain::{
     AgentProviderId, InteractionMode, ProviderCapability, ProviderFamily, ProviderHealth,
-    ProviderSessionRef, ProviderUsageCapability,
+    ProviderSessionRef, ProviderTransport, ProviderUsageCapability,
 };
 use std::sync::Arc;
 use std::time::Instant;
 
+const ORIGINAL_FIVE: [&str; 5] = [
+    "antigravity-cli",
+    "claude-code",
+    "codex-cli",
+    "gemini-cli",
+    "opencode",
+];
+
+/// The mandatory contract, applied per declared transport. Common concerns run for everyone;
+/// each transport's concerns run only where the transport is declared, and the negative case (a
+/// transport that is not declared must be refused) always runs.
 fn assert_provider_conformance(provider: &Arc<dyn AgentProvider>) {
     let id = provider.metadata().id().as_str();
     assert!(!id.is_empty());
@@ -32,33 +45,91 @@ fn assert_provider_conformance(provider: &Arc<dyn AgentProvider>) {
         provider.classify_health(false, false),
         ProviderHealth::Unavailable
     );
-    assert!(provider
-        .map_options(ProviderOptionRequest {
-            permission: Some(ProviderPermissionMode::Standard),
-            model: None,
-            reasoning: None,
-        })
-        .is_ok());
+    let capabilities = provider.capabilities();
+    assert!(capabilities.supports_transport(ProviderTransport::Terminal));
+    let permission_mapping = provider.map_options(ProviderOptionRequest {
+        permission: Some(ProviderPermissionMode::Standard),
+        model: None,
+        reasoning: None,
+    });
+    if capabilities.permissions() {
+        assert!(permission_mapping.is_ok(), "{id}");
+    } else {
+        assert!(
+            matches!(
+                permission_mapping,
+                Err(AgentProviderError::UnsupportedCapability { .. })
+            ),
+            "{id}"
+        );
+    }
 
-    let invocation = provider
-        .prepare_generation(ProviderGenerationInvocationRequest {
-            executable: provider.readiness_prerequisites().executable_names()[0].clone(),
-            prompt: "fixture prompt",
+    // Every provider has a terminal.
+    let executable = provider.readiness_prerequisites().executable_names()[0].clone();
+    let interactive = provider
+        .prepare_interactive(ProviderInteractiveInvocationRequest {
+            executable: executable.clone(),
             provider_session: None,
             global_args: &[],
             invocation_args: &[],
-            role_briefing: None,
         })
-        .expect("generation mapping");
-    assert!(!invocation.executable.is_empty());
-    let prompt_arguments = invocation
-        .args
-        .iter()
-        .filter(|arg| arg.as_str() == "fixture prompt")
-        .count();
-    match invocation.prompt_delivery {
-        ProviderPromptDelivery::Stdin => assert_eq!(prompt_arguments, 0),
-        ProviderPromptDelivery::Argument => assert_eq!(prompt_arguments, 1),
+        .expect("interactive mapping");
+    assert_eq!(interactive.executable, executable, "{id}");
+
+    let generation = provider.prepare_generation(ProviderGenerationInvocationRequest {
+        executable: executable.clone(),
+        prompt: "fixture prompt",
+        provider_session: None,
+        global_args: &[],
+        invocation_args: &[],
+        role_briefing: None,
+    });
+    if capabilities.supports_transport(ProviderTransport::Headless) {
+        let invocation = generation.expect("generation mapping");
+        assert!(!invocation.executable.is_empty());
+        let prompt_arguments = invocation
+            .args
+            .iter()
+            .filter(|arg| arg.as_str() == "fixture prompt")
+            .count();
+        match invocation.prompt_delivery {
+            ProviderPromptDelivery::Stdin => assert_eq!(prompt_arguments, 0),
+            ProviderPromptDelivery::Argument => assert_eq!(prompt_arguments, 1),
+        }
+    } else {
+        assert!(
+            matches!(
+                generation,
+                Err(AgentProviderError::UnsupportedCapability { ref capability, .. })
+                    if capability == "headless-generation"
+            ),
+            "{id} must refuse headless generation"
+        );
+    }
+
+    let acp = provider.prepare_acp(ProviderAcpInvocationRequest {
+        executable: executable.clone(),
+        global_args: &["--model".to_string(), "fixture".to_string()],
+        invocation_args: &[],
+        account_profile: None,
+    });
+    if capabilities.supports_transport(ProviderTransport::AcpStdio) {
+        let spec = acp.expect("acp mapping");
+        assert_eq!(spec.executable, executable);
+        // The prompt never appears on argv; the profile tokens precede the ACP entry.
+        assert!(!spec.args.iter().any(|arg| arg == "fixture prompt"));
+        assert_eq!(&spec.args[..2], &["--model", "fixture"]);
+        assert!(spec.args.len() > 2, "{id} needs an ACP entry token");
+        assert!(!spec.adapter_revision.is_empty());
+    } else {
+        assert!(
+            matches!(
+                acp,
+                Err(AgentProviderError::UnsupportedCapability { ref capability, .. })
+                    if capability == "acp-stdio"
+            ),
+            "{id} must refuse ACP"
+        );
     }
 }
 
@@ -66,18 +137,18 @@ fn assert_provider_conformance(provider: &Arc<dyn AgentProvider>) {
 fn builtins_have_complete_deterministic_contracts() {
     let registry = builtin_cli_provider_registry().expect("registry");
     let providers = registry.list();
+    let mut expected: Vec<&str> = ORIGINAL_FIVE
+        .iter()
+        .chain(EXPANDED_PROVIDER_IDS.iter())
+        .copied()
+        .collect();
+    expected.sort_unstable();
     assert_eq!(
         providers
             .iter()
             .map(|provider| provider.metadata().id().as_str())
             .collect::<Vec<_>>(),
-        vec![
-            "antigravity-cli",
-            "claude-code",
-            "codex-cli",
-            "gemini-cli",
-            "opencode"
-        ]
+        expected
     );
     for provider in providers {
         assert!(!provider.metadata().display_name().is_empty());
@@ -86,15 +157,25 @@ fn builtins_have_complete_deterministic_contracts() {
             provider.capabilities().interaction_modes(),
             &[InteractionMode::Cli]
         );
-        assert!(provider.capabilities().session_resume());
-        assert!(provider.capabilities().structured_output());
         assert!(provider.capabilities().terminal());
-        assert!(provider.capabilities().permissions());
-        assert!(provider.capabilities().model_selection());
         assert!(!provider
             .readiness_prerequisites()
             .executable_names()
             .is_empty());
+    }
+    // The original five keep every declaration they had before the expansion.
+    for id in ORIGINAL_FIVE {
+        let provider = registry.get(id).expect(id);
+        assert!(provider.capabilities().session_resume(), "{id}");
+        assert!(provider.capabilities().structured_output(), "{id}");
+        assert!(provider.capabilities().permissions(), "{id}");
+        assert!(provider.capabilities().model_selection(), "{id}");
+        assert_eq!(
+            provider.capabilities().transports(),
+            &[ProviderTransport::Terminal, ProviderTransport::Headless],
+            "{id}"
+        );
+        assert!(provider.capabilities().usage().is_reported(), "{id}");
     }
 }
 
@@ -129,6 +210,45 @@ fn capabilities_are_declared_instead_of_inferred_from_ids() {
             .usage(),
         ProviderUsageCapability::HeadlessReported
     );
+    // The additions declare usage unavailable and are never marked as reporting it.
+    for id in EXPANDED_PROVIDER_IDS {
+        let provider = registry.get(id).expect(id);
+        assert_eq!(
+            provider.capabilities().usage(),
+            ProviderUsageCapability::Unavailable,
+            "{id}"
+        );
+        assert!(matches!(
+            registry.require(id, ProviderCapability::Usage),
+            Err(AgentProviderError::UnsupportedCapability { .. })
+        ));
+    }
+    let iflow = registry.get("iflow-cli").expect("iflow");
+    assert_eq!(
+        iflow.capabilities().transports(),
+        &[ProviderTransport::Terminal]
+    );
+    assert_eq!(iflow.capabilities().managed_transport(), None);
+    assert!(!iflow.capabilities().permissions());
+    assert!(definition("iflow-cli").expect("iflow").is_legacy());
+    for id in [
+        "qwen-code",
+        "kimi-cli",
+        "qoder-cli",
+        "codebuddy-code",
+        "copilot-cli",
+        "cursor-agent-cli",
+    ] {
+        assert_eq!(
+            registry
+                .get(id)
+                .expect(id)
+                .capabilities()
+                .managed_transport(),
+            Some(ProviderTransport::AcpStdio),
+            "{id}"
+        );
+    }
 }
 
 #[test]
@@ -172,6 +292,64 @@ fn compatibility_provider_preserves_invocation_and_session_ownership() {
 }
 
 #[test]
+fn acp_account_profiles_are_validated_and_scoped_to_the_process_environment() {
+    let registry = builtin_cli_provider_registry().expect("registry");
+    let codebuddy = registry.get("codebuddy-code").expect("codebuddy");
+    let china = codebuddy
+        .prepare_acp(ProviderAcpInvocationRequest {
+            executable: "codebuddy".to_string(),
+            global_args: &[],
+            invocation_args: &[],
+            account_profile: Some("china"),
+        })
+        .expect("china profile");
+    assert_eq!(
+        china.environment.get("CODEBUDDY_INTERNET_ENVIRONMENT"),
+        Some(&"internal".to_string())
+    );
+    assert_eq!(china.args, vec!["--acp"]);
+    let international = codebuddy
+        .prepare_acp(ProviderAcpInvocationRequest {
+            executable: "codebuddy".to_string(),
+            global_args: &[],
+            invocation_args: &[],
+            account_profile: Some("international"),
+        })
+        .expect("international profile");
+    assert!(international.environment.is_empty());
+    assert!(matches!(
+        codebuddy.prepare_acp(ProviderAcpInvocationRequest {
+            executable: "codebuddy".to_string(),
+            global_args: &[],
+            invocation_args: &[],
+            account_profile: Some("made-up"),
+        }),
+        Err(AgentProviderError::Preparation { .. })
+    ));
+    // A vendor with one environment refuses a profile it never documented.
+    let qwen = registry.get("qwen-code").expect("qwen");
+    assert!(qwen
+        .prepare_acp(ProviderAcpInvocationRequest {
+            executable: "qwen".to_string(),
+            global_args: &[],
+            invocation_args: &[],
+            account_profile: Some("china"),
+        })
+        .is_err());
+    let copilot = registry
+        .get("copilot-cli")
+        .expect("copilot")
+        .prepare_acp(ProviderAcpInvocationRequest {
+            executable: "copilot".to_string(),
+            global_args: &["--effort=max".to_string()],
+            invocation_args: &[],
+            account_profile: None,
+        })
+        .expect("copilot");
+    assert_eq!(copilot.args, vec!["--effort=max", "--acp", "--stdio"]);
+}
+
+#[test]
 fn mandatory_conformance_harness_covers_builtins_and_test_fixture() {
     let registry = builtin_cli_provider_registry().expect("registry");
     for provider in registry.list() {
@@ -209,11 +387,11 @@ fn provider_sdk_fixed_fixture_benchmark() {
     }
     let elapsed = started.elapsed();
     eprintln!(
-        "provider_sdk registry_fixture=5 iterations={iterations} elapsed={elapsed:?} target={} arch={}",
+        "provider_sdk registry_fixture=12 iterations={iterations} elapsed={elapsed:?} target={} arch={}",
         std::env::consts::OS,
         std::env::consts::ARCH
     );
-    assert_eq!(registry.list().len(), 5);
+    assert_eq!(registry.list().len(), 12);
 }
 
 #[cfg(unix)]

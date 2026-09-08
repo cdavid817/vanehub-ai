@@ -466,6 +466,52 @@ fn both_argument_slots_land_in_the_declared_position_for_every_interactive_provi
     }
 }
 
+/// The seven expanded CLIs: each verified resume flag is rendered from its own grammar, and the
+/// CLIs with no verified interactive resume flag carry nothing beyond the reviewed segments.
+#[test]
+fn expanded_interactive_grammars_render_only_verified_resume_flags() {
+    let global = vec!["--G".to_string()];
+    let invocation = vec!["--I".to_string()];
+    let segments = ProviderLaunchSegments {
+        global: &global,
+        invocation: &invocation,
+    };
+    // Each resume flag is the one the installed program's `--help` documents (2026-09-06).
+    let expectations: [(&str, Vec<&str>); 7] = [
+        ("qwen-code", vec!["--G", "--I", "--resume", "S"]),
+        ("kimi-cli", vec!["--G", "--I", "--session", "S"]),
+        ("qoder-cli", vec!["--G", "--I", "--resume", "S"]),
+        ("codebuddy-code", vec!["--G", "--I", "--resume", "S"]),
+        ("copilot-cli", vec!["--G", "--I", "--resume=S"]),
+        ("cursor-agent-cli", vec!["--G", "--I", "--resume", "S"]),
+        ("iflow-cli", vec!["--G", "--I", "--resume", "S"]),
+    ];
+    for (agent_id, resume_args) in expectations {
+        let resume = build_interactive_invocation(agent_id, "exe".to_string(), Some("S"), segments)
+            .expect("resume interactive");
+        assert_eq!(resume.args, resume_args, "{agent_id} resume interactive");
+        let fresh = build_interactive_invocation(agent_id, "exe".to_string(), None, segments)
+            .expect("fresh interactive");
+        assert_eq!(
+            &fresh.args[0..2],
+            ["--G", "--I"],
+            "{agent_id} fresh interactive"
+        );
+        if matches!(agent_id, "qwen-code" | "qoder-cli" | "codebuddy-code") {
+            // These three mint a fresh id up front, like Gemini, and report it back to the runtime.
+            assert_eq!(fresh.args[2], "--session-id");
+            assert!(fresh.assigned_runtime_session_id.is_some());
+        } else {
+            assert_eq!(
+                fresh.args.len(),
+                2,
+                "{agent_id} fresh launch carries nothing extra"
+            );
+            assert!(fresh.assigned_runtime_session_id.is_none());
+        }
+    }
+}
+
 /// A resolved segment never carries a runtime-owned argument: prompt transport, session identity,
 /// and the structured-output protocol are contributed by the grammar, not by the registry.
 #[test]
