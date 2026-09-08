@@ -14,7 +14,7 @@ type SeedAgent = (
     &'static str,
 );
 
-const AGENTS: [SeedAgent; 6] = [
+const AGENTS: [SeedAgent; 13] = [
     (
         "claude-code",
         "Claude Code",
@@ -78,6 +78,100 @@ const AGENTS: [SeedAgent; 6] = [
         None,
         &["cli"],
         &["coding", "cli", "agent"],
+        "builtin",
+    ),
+    // The seven expanded CLIs. Capability tags are the create-session dialog's only hint about
+    // what a provider can do: `acp` marks a managed conversation over ACP, `legacy` marks a
+    // terminal-only entry whose official service has shut down.
+    (
+        "qwen-code",
+        "Qwen Code",
+        "Alibaba",
+        "cli",
+        Some("qwen"),
+        None,
+        Some("qwen"),
+        None,
+        &["cli"],
+        &["coding", "cli", "agent", "acp"],
+        "builtin",
+    ),
+    (
+        "kimi-cli",
+        "Kimi Code CLI",
+        "Moonshot AI",
+        "cli",
+        Some("kimi"),
+        None,
+        Some("kimi"),
+        None,
+        &["cli"],
+        &["coding", "cli", "agent", "acp"],
+        "builtin",
+    ),
+    (
+        "qoder-cli",
+        "Qoder CLI",
+        "Qoder",
+        "cli",
+        Some("qoder"),
+        None,
+        Some("qoder"),
+        None,
+        &["cli"],
+        &["coding", "cli", "agent", "acp"],
+        "builtin",
+    ),
+    (
+        "codebuddy-code",
+        "CodeBuddy Code",
+        "Tencent",
+        "cli",
+        Some("codebuddy"),
+        None,
+        Some("codebuddy"),
+        None,
+        &["cli"],
+        &["coding", "cli", "agent", "acp"],
+        "builtin",
+    ),
+    (
+        "copilot-cli",
+        "GitHub Copilot CLI",
+        "GitHub",
+        "cli",
+        Some("copilot"),
+        None,
+        Some("copilot"),
+        None,
+        &["cli"],
+        &["coding", "cli", "agent", "acp"],
+        "builtin",
+    ),
+    (
+        "cursor-agent-cli",
+        "Cursor Agent CLI",
+        "Cursor",
+        "cli",
+        Some("agent"),
+        None,
+        Some("agent"),
+        None,
+        &["cli"],
+        &["coding", "cli", "agent", "acp"],
+        "builtin",
+    ),
+    (
+        "iflow-cli",
+        "iFlow CLI",
+        "iFlow",
+        "cli",
+        Some("iflow"),
+        None,
+        Some("iflow"),
+        None,
+        &["cli"],
+        &["coding", "cli", "legacy", "terminal-only"],
         "builtin",
     ),
     (
@@ -485,13 +579,21 @@ mod tests {
         let agent_count: i64 = connection
             .query_row("SELECT COUNT(*) FROM agents", [], |row| row.get(0))
             .expect("agent count");
-        assert_eq!(agent_count, 6);
+        // OnePiece plus the twelve catalog CLIs.
+        assert_eq!(agent_count, 13);
         for cli_id in [
             "claude-code",
             "opencode",
             "codex-cli",
             "gemini-cli",
             "antigravity-cli",
+            "qwen-code",
+            "kimi-cli",
+            "qoder-cli",
+            "codebuddy-code",
+            "copilot-cli",
+            "cursor-agent-cli",
+            "iflow-cli",
         ] {
             let origin: String = connection
                 .query_row(

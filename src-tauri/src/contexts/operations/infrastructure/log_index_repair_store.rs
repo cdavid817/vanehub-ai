@@ -12,7 +12,8 @@ use crate::contexts::operations::application::{
     LineRejections, LogBatchCommit, LogSourceIdentity, OperationsLogError, RedactedLogRecord,
     SessionLogBackfillState, SessionLogBackfillStatus,
 };
-use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
+use crate::platform::database::SqliteWriteTransaction;
+use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::BTreeMap;
 
 /// Opens the write transaction by taking the write lock up front.
@@ -31,9 +32,7 @@ use std::collections::BTreeMap;
 fn write_transaction(
     connection: &mut Connection,
 ) -> Result<rusqlite::Transaction<'_>, OperationsLogError> {
-    connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(storage_error)
+    connection.write_transaction().map_err(storage_error)
 }
 
 /// Writes one batch's rows, gaps and checkpoint inside a single transaction.

@@ -6,7 +6,8 @@ use crate::contexts::tooling::skills::domain::{
 };
 use crate::platform::clock::SystemClock;
 use crate::platform::database::NativeDatabase;
-use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
+use crate::platform::database::SqliteWriteTransaction;
+use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Map, Value};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -147,9 +148,7 @@ impl SqliteSkillConfigurationRepository {
         // because waiting could not resolve it. Taking the write lock up front makes the second
         // writer queue on the busy timeout and then observe the first one's revision, which is
         // what turns a lock error into the stale result the caller can act on.
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(app_error)?;
+        let transaction = connection.write_transaction().map_err(app_error)?;
         let current = load_record(
             &transaction,
             &request.skill_id,

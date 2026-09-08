@@ -9,6 +9,7 @@ use crate::contexts::tooling::prompt_hooks::domain::{
     PromptHookSource, PromptHookStage,
 };
 use crate::platform::database::NativeDatabase;
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::{params, Connection, ErrorCode, Row, Transaction};
 use serde::{Deserialize, Serialize};
 
@@ -84,7 +85,7 @@ impl PromptHookRepository for SqlitePromptHookRepository {
 
     fn delete_user_hook(&self, hook_id: &PromptHookId) -> Result<(), PromptHookApplicationError> {
         let mut connection = self.database.connection().map_err(app_error)?;
-        let transaction = connection.transaction().map_err(repository_error)?;
+        let transaction = connection.write_transaction().map_err(repository_error)?;
         let changed = transaction
             .execute(
                 "DELETE FROM prompt_hooks_user WHERE id = ?1",
@@ -191,7 +192,7 @@ impl PromptHookRepository for SqlitePromptHookRepository {
         retained_limit: usize,
     ) -> Result<(), PromptHookApplicationError> {
         let mut connection = self.database.connection().map_err(app_error)?;
-        let transaction = connection.transaction().map_err(repository_error)?;
+        let transaction = connection.write_transaction().map_err(repository_error)?;
         for trace in traces {
             insert_trace(&transaction, trace).map_err(repository_error)?;
         }
@@ -256,7 +257,7 @@ impl PromptHookRepository for SqlitePromptHookRepository {
         draft: &PromptHookDraft,
     ) -> Result<(), PromptHookApplicationError> {
         let mut connection = self.database.connection().map_err(app_error)?;
-        let transaction = connection.transaction().map_err(repository_error)?;
+        let transaction = connection.write_transaction().map_err(repository_error)?;
         insert_user_hook(&transaction, record).map_err(|error| match error {
             rusqlite::Error::SqliteFailure(code, _)
                 if code.code == ErrorCode::ConstraintViolation =>
@@ -345,7 +346,7 @@ impl PromptHookRepository for SqlitePromptHookRepository {
         expected_published_version: Option<i64>,
     ) -> Result<(), PromptHookApplicationError> {
         let mut connection = self.database.connection().map_err(app_error)?;
-        let transaction = connection.transaction().map_err(repository_error)?;
+        let transaction = connection.write_transaction().map_err(repository_error)?;
         verify_current_version(&transaction, &version.hook_id, expected_published_version)?;
         let draft_revision: i64 = transaction
             .query_row(
@@ -410,7 +411,7 @@ impl PromptHookRepository for SqlitePromptHookRepository {
         expected_published_version: Option<i64>,
     ) -> Result<(), PromptHookApplicationError> {
         let mut connection = self.database.connection().map_err(app_error)?;
-        let transaction = connection.transaction().map_err(repository_error)?;
+        let transaction = connection.write_transaction().map_err(repository_error)?;
         verify_current_version(&transaction, &version.hook_id, expected_published_version)?;
         insert_version(&transaction, version)?;
         update_published_user_hook(&transaction, version)?;
@@ -422,7 +423,7 @@ impl PromptHookRepository for SqlitePromptHookRepository {
         observations: &[PromptHookExecutionObservation],
     ) -> Result<(), PromptHookApplicationError> {
         let mut connection = self.database.connection().map_err(app_error)?;
-        let transaction = connection.transaction().map_err(repository_error)?;
+        let transaction = connection.write_transaction().map_err(repository_error)?;
         for observation in observations {
             transaction
                 .execute(
@@ -1210,7 +1211,7 @@ fn invalid_data(error: impl std::fmt::Display) -> PromptHookApplicationError {
 mod tests {
     use super::*;
     use crate::contexts::tooling::prompt_hooks::application::PromptHookExecutionOutcome;
-    use crate::test_support::TempDirectory;
+    use crate::test_support::{while_another_connection_commits, TempDirectory};
 
     fn repository() -> (TempDirectory, NativeDatabase, SqlitePromptHookRepository) {
         let directory = TempDirectory::new("prompt-hook-repository");
@@ -1601,5 +1602,40 @@ mod tests {
         assert_eq!(summaries[1].average_elapsed_ms, Some(200.0));
         assert_eq!(summaries[1].minimum_elapsed_ms, Some(100));
         assert_eq!(summaries[1].maximum_elapsed_ms, Some(300));
+    }
+
+    /// Pins the `database is locked` seen once in the 2026-09-06 desktop smoke: publishing reads
+    /// the current version and the draft revision before it writes, so a deferred transaction
+    /// could not upgrade once another connection had committed.
+    #[test]
+    fn publishing_a_draft_waits_for_a_competing_commit_instead_of_failing() {
+        let (_directory, database, repository) = repository();
+        let fixture = record("contended-hook");
+        repository
+            .create_user_hook(&fixture)
+            .expect("create user hook");
+        let draft = PromptHookDraft {
+            hook_id: fixture.id().clone(),
+            revision: 1,
+            snapshot: snapshot("contended-hook", "Draft {{agent_name}}"),
+            created_at: "2026-09-06T18:00:00Z".to_string(),
+            updated_at: "2026-09-06T18:00:00Z".to_string(),
+        };
+        repository.save_draft(&draft, None).expect("save draft");
+
+        while_another_connection_commits(&database, || {
+            repository.publish_draft(
+                &version(
+                    "contended-hook",
+                    3,
+                    PromptHookPublicationKind::Publish,
+                    None,
+                ),
+                1,
+                Some(2),
+            )
+        })
+        .expect("publish waits for the write lock and commits");
+        assert!(repository.get_draft(fixture.id()).expect("draft").is_none());
     }
 }

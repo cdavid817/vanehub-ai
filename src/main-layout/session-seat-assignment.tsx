@@ -6,7 +6,7 @@ import { getAgentVisualIdentity } from "../lib/agent-visual-identity";
 import { cn } from "../lib/utils";
 import type { AgentWithModelFamily } from "../services/agent-model-family";
 import { recommendReviewerAgents } from "../services/reviewer-recommendation";
-import { isSessionAgentSelectable } from "./create-session-agents";
+import { isLegacySessionAgent, isSessionAgentSelectable } from "./create-session-agents";
 import type { ExpertRole, SessionSeat } from "../types/agent-seats";
 
 /**
@@ -26,9 +26,11 @@ export function SessionSeatAssignment({
   seats: SessionSeat[];
 }) {
   const { t } = useTranslation();
-  // The same rule the rest of this dialog uses. A stricter one here empties the seat editor while
-  // the single-Agent selector stays full, leaving Create disabled with nothing saying why.
-  const available = agents.filter(isSessionAgentSelectable);
+  // The same rule the rest of this dialog uses, minus the legacy group. A stricter rule here
+  // empties the seat editor while the single-Agent selector stays full, leaving Create disabled
+  // with nothing saying why; but a legacy CLI opens a native terminal only, and a seat is a
+  // managed conversation, so offering it here would create a seat that fails its every turn.
+  const available = agents.filter((agent) => isSessionAgentSelectable(agent) && !isLegacySessionAgent(agent));
 
   function update(index: number, patch: Partial<SessionSeat>) {
     onSeatsChange(seats.map((seat, position) => (position === index ? { ...seat, ...patch } : seat)));

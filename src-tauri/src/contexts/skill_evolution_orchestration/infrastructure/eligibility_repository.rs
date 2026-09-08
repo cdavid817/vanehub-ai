@@ -1,3 +1,4 @@
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::{params, OptionalExtension, TransactionBehavior};
 
 use crate::{
@@ -44,7 +45,7 @@ impl SqliteEligibilityRepository {
             .connection()
             .map_err(|_| EligibilityRepositoryError::Storage)?;
         let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .write_transaction()
             .map_err(|_| EligibilityRepositoryError::Storage)?;
         let current = transaction
             .query_row(

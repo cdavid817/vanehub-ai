@@ -31,6 +31,8 @@ describe("AgentConfigurationsPage", () => {
       screen.getByRole("button", { name: "OpenCode" }),
       screen.getByRole("button", { name: "Antigravity CLI" }),
       screen.getByRole("button", { name: "Gemini CLI" }),
+      screen.getByRole("button", { name: "Qwen Code" }),
+      screen.getByRole("button", { name: "iFlow CLI" }),
       screen.getByRole("button", { name: "OnePiece" }),
     ]);
     expect(within(selector).getByText("托管 CLI Agent")).toBeTruthy();

@@ -1652,6 +1652,7 @@ fn sample_request(launch_kind: &str) -> GenerationProcessRequest {
         runner: crate::contexts::agent_runtime::application::RunnerSelection::local(),
         endpoint_profile: None,
         resume_thread_id: None,
+        seat_id: None,
     }
 }
 

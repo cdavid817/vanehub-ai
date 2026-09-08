@@ -4,11 +4,13 @@
 //! from. Nothing here is ever accepted over the wire.
 
 use super::definition::{
-    CliCompatibilityPolicy, CliDistributionDefinition, CliPackageReference, CliToolDefinition,
+    CliArchitectureExclusion, CliCompatibilityPolicy, CliDistributionDefinition, CliIdentityRule,
+    CliManagedTransport, CliPackageReference, CliToolDefinition, CliToolLifecycle,
     NPM_CAPABILITIES, STABLE_CHANNEL_ONLY, VENDOR_CAPABILITIES, WINGET_CAPABILITIES,
 };
 use super::probe::{CliProbeAvailability, CliProbeCommand, CliProbeDefinition};
 use super::probe_interpretation::{CliAuthParser, CliDoctorParser};
+use super::source::CliSourceCapabilities;
 use super::source::{CliPlatform, CliSourceKind, CliTargetVersionMode, PlatformSet};
 use super::trust::{
     CliInstallerRuntime, CliInstallerTemplate, CliInstallerTrust, CliSourceTrustPolicy,
@@ -20,6 +22,21 @@ use crate::contexts::tooling::managed_install::api::{ArtifactIntegrity, Retrieva
 pub(crate) const SOURCE_NPM: &str = "npm";
 pub(crate) const SOURCE_WINGET: &str = "winget";
 pub(crate) const SOURCE_VENDOR: &str = "vendor";
+/// A locally installed program VaneHub detects but never installs, upgrades, or removes.
+pub(crate) const SOURCE_LOCAL: &str = "local";
+
+/// Detect-only: the only source a legacy entry gets. No package, no installer, no action.
+const fn local_distribution() -> CliDistributionDefinition {
+    CliDistributionDefinition {
+        source_id: SOURCE_LOCAL,
+        kind: CliSourceKind::Manual,
+        package_reference: None,
+        platforms: PlatformSet::ALL,
+        capabilities: CliSourceCapabilities::DETECT_ONLY,
+        channels: &[],
+        trust: CliSourceTrustPolicy::DetectOnly,
+    }
+}
 
 const fn npm_distribution(package: &'static str) -> CliDistributionDefinition {
     CliDistributionDefinition {
@@ -134,6 +151,48 @@ const ANTIGRAVITY_INSTALLER: CliInstallerTrust = CliInstallerTrust {
     ],
 };
 
+/// Cursor publishes `https://cursor.com/install` for macOS/Linux and `https://cursor.com/install?win32=true`
+/// for native Windows (cursor.com/docs/cli/installation, reviewed 2026-09-06). There is no npm
+/// package to fall back to, so the audited installer is its only managed source; the script is
+/// downloaded to a bounded file and reviewed before it runs, never piped into a shell.
+const CURSOR_INSTALLER: CliInstallerTrust = CliInstallerTrust {
+    policy: RetrievalPolicy {
+        allowed_hosts: &["cursor.com"],
+        max_download_bytes: 8 * 1024 * 1024,
+        download_timeout_seconds: 90,
+    },
+    templates: &[
+        CliInstallerTemplate {
+            platform: CliPlatform::Windows,
+            runtime: CliInstallerRuntime::PowerShellFile,
+            url: "https://cursor.com/install?win32=true",
+            target_version: CliTargetVersionMode::LatestOnly,
+            version_argument: None,
+            integrity: ArtifactIntegrity::Unverified,
+        },
+        shell_template(CliPlatform::Macos, "https://cursor.com/install"),
+        shell_template(CliPlatform::Linux, "https://cursor.com/install"),
+    ],
+};
+
+/// Qoder documents Windows arm64 as temporarily unsupported (docs.qoder.com/cli/installation).
+const QODER_COMPATIBILITY: CliCompatibilityPolicy = CliCompatibilityPolicy {
+    minimum_supported: None,
+    platforms: PlatformSet::ALL,
+    excluded_targets: &[CliArchitectureExclusion {
+        platform: CliPlatform::Windows,
+        architecture: "aarch64",
+    }],
+};
+
+/// `agent` is a generic basename. Cursor's installer places the real program under a
+/// `cursor-agent` directory and its version banner names Cursor; a candidate with neither is some
+/// other program and is never launched as this provider.
+const CURSOR_IDENTITY: CliIdentityRule = CliIdentityRule::Reviewed {
+    canonical_path_markers: &["cursor-agent", "cursor"],
+    version_output_markers: &["cursor"],
+};
+
 /// Claude Code is the only registered CLI with a documented read-only `doctor`. Authentication is
 /// left undocumented: the Doctor output has no signal stable enough to parse into a login state,
 /// and `unknown` beats a guess that says "authenticated".
@@ -183,6 +242,10 @@ pub(crate) const CLI_TOOL_DEFINITIONS: &[CliToolDefinition] = &[
         ],
         probes: CLAUDE_CODE_PROBES,
         compatibility: CliCompatibilityPolicy::any_desktop(),
+        lifecycle: CliToolLifecycle::Active,
+        identity: CliIdentityRule::Basename,
+        managed_transport: CliManagedTransport::Headless,
+        login_docs_url: None,
     },
     CliToolDefinition {
         agent_id: "codex-cli",
@@ -192,6 +255,10 @@ pub(crate) const CLI_TOOL_DEFINITIONS: &[CliToolDefinition] = &[
         distributions: &[npm_distribution("@openai/codex")],
         probes: CODEX_PROBES,
         compatibility: CliCompatibilityPolicy::any_desktop(),
+        lifecycle: CliToolLifecycle::Active,
+        identity: CliIdentityRule::Basename,
+        managed_transport: CliManagedTransport::Headless,
+        login_docs_url: None,
     },
     CliToolDefinition {
         agent_id: "gemini-cli",
@@ -201,6 +268,10 @@ pub(crate) const CLI_TOOL_DEFINITIONS: &[CliToolDefinition] = &[
         distributions: &[npm_distribution("@google/gemini-cli")],
         probes: CliProbeDefinition::version_only(),
         compatibility: CliCompatibilityPolicy::any_desktop(),
+        lifecycle: CliToolLifecycle::Active,
+        identity: CliIdentityRule::Basename,
+        managed_transport: CliManagedTransport::Headless,
+        login_docs_url: None,
     },
     CliToolDefinition {
         agent_id: "opencode",
@@ -213,6 +284,10 @@ pub(crate) const CLI_TOOL_DEFINITIONS: &[CliToolDefinition] = &[
         ],
         probes: OPENCODE_PROBES,
         compatibility: CliCompatibilityPolicy::any_desktop(),
+        lifecycle: CliToolLifecycle::Active,
+        identity: CliIdentityRule::Basename,
+        managed_transport: CliManagedTransport::Headless,
+        login_docs_url: None,
     },
     CliToolDefinition {
         agent_id: "antigravity-cli",
@@ -223,6 +298,116 @@ pub(crate) const CLI_TOOL_DEFINITIONS: &[CliToolDefinition] = &[
         distributions: &[vendor_distribution(ANTIGRAVITY_INSTALLER)],
         probes: CliProbeDefinition::version_only(),
         compatibility: CliCompatibilityPolicy::any_desktop(),
+        lifecycle: CliToolLifecycle::Active,
+        identity: CliIdentityRule::Basename,
+        managed_transport: CliManagedTransport::Headless,
+        login_docs_url: None,
+    },
+    // --- extend-cli-providers-with-acp: reviewed against the official sources on 2026-09-06.
+    // Every vendor script that is documented but unverified for source-locking (Qwen standalone,
+    // Kimi native, Qoder, CodeBuddy native) stays guidance-only: only the npm package is managed.
+    CliToolDefinition {
+        agent_id: "qwen-code",
+        display_name: "Qwen Code",
+        provider: "Alibaba",
+        executable_names: &["qwen"],
+        distributions: &[npm_distribution("@qwen-code/qwen-code")],
+        probes: CliProbeDefinition::version_only(),
+        compatibility: CliCompatibilityPolicy::any_desktop(),
+        lifecycle: CliToolLifecycle::Active,
+        identity: CliIdentityRule::Basename,
+        managed_transport: CliManagedTransport::AcpStdio,
+        login_docs_url: Some("https://qwenlm.github.io/qwen-code-docs/en/index"),
+    },
+    CliToolDefinition {
+        agent_id: "kimi-cli",
+        display_name: "Kimi Code CLI",
+        provider: "Moonshot AI",
+        executable_names: &["kimi"],
+        // The retired Python/uv distribution shares the basename; discovery tells the two apart
+        // by source kind (`uv`), and migration stays a user-run `kimi migrate`.
+        distributions: &[npm_distribution("@moonshot-ai/kimi-code")],
+        probes: CliProbeDefinition::version_only(),
+        compatibility: CliCompatibilityPolicy::any_desktop(),
+        lifecycle: CliToolLifecycle::Active,
+        identity: CliIdentityRule::Basename,
+        managed_transport: CliManagedTransport::AcpStdio,
+        login_docs_url: Some("https://www.kimi.com/code/docs/en/kimi-code-cli/guides/getting-started.html"),
+    },
+    CliToolDefinition {
+        agent_id: "qoder-cli",
+        display_name: "Qoder CLI",
+        provider: "Qoder",
+        // `qodercli` is the package's historical bin name; it is accepted only as a launcher
+        // alias of the same npm install, never as a different grammar.
+        executable_names: &["qoder", "qodercli"],
+        distributions: &[npm_distribution("@qoder-ai/qodercli")],
+        probes: CliProbeDefinition::version_only(),
+        compatibility: QODER_COMPATIBILITY,
+        lifecycle: CliToolLifecycle::Active,
+        identity: CliIdentityRule::Basename,
+        managed_transport: CliManagedTransport::AcpStdio,
+        login_docs_url: Some("https://docs.qoder.com/cli/installation"),
+    },
+    CliToolDefinition {
+        agent_id: "codebuddy-code",
+        display_name: "CodeBuddy Code",
+        provider: "Tencent",
+        executable_names: &["codebuddy"],
+        distributions: &[npm_distribution("@tencent-ai/codebuddy-code")],
+        probes: CliProbeDefinition::version_only(),
+        compatibility: CliCompatibilityPolicy::any_desktop(),
+        lifecycle: CliToolLifecycle::Active,
+        identity: CliIdentityRule::Basename,
+        managed_transport: CliManagedTransport::AcpStdio,
+        login_docs_url: Some("https://www.codebuddy.ai/docs/cli/quickstart"),
+    },
+    CliToolDefinition {
+        agent_id: "copilot-cli",
+        display_name: "GitHub Copilot CLI",
+        provider: "GitHub",
+        // The standalone `copilot` program, never the historical `gh copilot` extension.
+        executable_names: &["copilot"],
+        distributions: &[
+            npm_distribution("@github/copilot"),
+            winget_distribution("GitHub.Copilot"),
+        ],
+        probes: CliProbeDefinition::version_only(),
+        compatibility: CliCompatibilityPolicy::any_desktop(),
+        lifecycle: CliToolLifecycle::Active,
+        identity: CliIdentityRule::Basename,
+        managed_transport: CliManagedTransport::AcpStdio,
+        login_docs_url: Some("https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli"),
+    },
+    CliToolDefinition {
+        agent_id: "cursor-agent-cli",
+        display_name: "Cursor Agent CLI",
+        provider: "Cursor",
+        executable_names: &["agent"],
+        distributions: &[vendor_distribution(CURSOR_INSTALLER)],
+        probes: CliProbeDefinition::version_only(),
+        compatibility: CliCompatibilityPolicy::any_desktop(),
+        lifecycle: CliToolLifecycle::Active,
+        identity: CURSOR_IDENTITY,
+        managed_transport: CliManagedTransport::AcpStdio,
+        login_docs_url: Some("https://cursor.com/docs/cli/installation"),
+    },
+    // iFlow's official service and API shut down on 2026-04-17. Only a program the user already
+    // has, with the user's own custom API configuration, is supported -- and only detected.
+    CliToolDefinition {
+        agent_id: "iflow-cli",
+        display_name: "iFlow CLI",
+        provider: "iFlow",
+        executable_names: &["iflow"],
+        distributions: &[local_distribution()],
+        probes: CliProbeDefinition::version_only(),
+        compatibility: CliCompatibilityPolicy::any_desktop(),
+        lifecycle: CliToolLifecycle::Legacy {
+            service_shutdown: "2026-04-17",
+        },
+        identity: CliIdentityRule::Basename,
+        managed_transport: CliManagedTransport::TerminalOnly,
+        login_docs_url: Some("https://vibex.iflow.cn/t/topic/4819"),
     },
 ];
 
@@ -249,7 +434,14 @@ mod tests {
                 "codex-cli",
                 "gemini-cli",
                 "opencode",
-                "antigravity-cli"
+                "antigravity-cli",
+                "qwen-code",
+                "kimi-cli",
+                "qoder-cli",
+                "codebuddy-code",
+                "copilot-cli",
+                "cursor-agent-cli",
+                "iflow-cli",
             ]
         );
         assert!(definition("unknown").is_none());
@@ -312,12 +504,103 @@ mod tests {
     }
 
     #[test]
+    fn expanded_catalog_entries_are_source_safe_and_truthful() {
+        // npm only, where a vendor script is documented but not verified to be source-locked.
+        for (id, package) in [
+            ("qwen-code", "@qwen-code/qwen-code"),
+            ("kimi-cli", "@moonshot-ai/kimi-code"),
+            ("qoder-cli", "@qoder-ai/qodercli"),
+            ("codebuddy-code", "@tencent-ai/codebuddy-code"),
+            ("copilot-cli", "@github/copilot"),
+        ] {
+            let tool = definition(id).expect(id);
+            let npm = tool.distribution(SOURCE_NPM).expect("npm");
+            assert_eq!(
+                npm.package_reference.map(|reference| reference.identifier),
+                Some(package),
+                "{id}"
+            );
+            assert!(tool.distribution(SOURCE_VENDOR).is_none(), "{id} vendor");
+            assert!(!tool.is_legacy(), "{id}");
+            assert!(!tool.probes.authentication.is_supported(), "{id} auth");
+        }
+        let copilot = definition("copilot-cli").expect("copilot");
+        assert_eq!(
+            copilot
+                .distribution(SOURCE_WINGET)
+                .and_then(|winget| winget.package_reference)
+                .map(|reference| reference.identifier),
+            Some("GitHub.Copilot")
+        );
+        // Cursor: no npm package exists, so the reviewed installer is its only managed source,
+        // and its generic basename needs an identity rule.
+        let cursor = definition("cursor-agent-cli").expect("cursor");
+        assert!(cursor.distribution(SOURCE_NPM).is_none());
+        let vendor = cursor.distribution(SOURCE_VENDOR).expect("vendor");
+        assert!(vendor.is_actionable_on(CliPlatform::Windows));
+        assert!(vendor.is_actionable_on(CliPlatform::Macos));
+        assert!(matches!(cursor.identity, CliIdentityRule::Reviewed { .. }));
+        assert_eq!(cursor.executable_names, &["agent"]);
+        // Qoder: documented Windows arm64 exclusion.
+        let qoder = definition("qoder-cli").expect("qoder");
+        assert!(!qoder
+            .compatibility
+            .supports_target(CliPlatform::Windows, "aarch64"));
+        assert!(qoder
+            .compatibility
+            .supports_target(CliPlatform::Windows, "x86_64"));
+        assert_eq!(qoder.executable_names, &["qoder", "qodercli"]);
+        // Transport is catalog data: the original five stay headless, the six ACP additions are
+        // ACP, and the legacy entry has no managed conversation at all.
+        for id in [
+            "claude-code",
+            "codex-cli",
+            "gemini-cli",
+            "opencode",
+            "antigravity-cli",
+        ] {
+            assert_eq!(
+                definition(id).expect(id).managed_transport,
+                CliManagedTransport::Headless,
+                "{id}"
+            );
+        }
+        for id in [
+            "qwen-code",
+            "kimi-cli",
+            "qoder-cli",
+            "codebuddy-code",
+            "copilot-cli",
+            "cursor-agent-cli",
+        ] {
+            assert_eq!(
+                definition(id).expect(id).managed_transport,
+                CliManagedTransport::AcpStdio,
+                "{id}"
+            );
+        }
+        // iFlow: legacy, detect-only, no install action of any kind.
+        let iflow = definition("iflow-cli").expect("iflow");
+        assert!(iflow.is_legacy());
+        assert_eq!(iflow.managed_transport, CliManagedTransport::TerminalOnly);
+        assert_eq!(iflow.lifecycle.service_shutdown(), Some("2026-04-17"));
+        assert_eq!(iflow.distributions.len(), 1);
+        let local = &iflow.distributions[0];
+        assert_eq!(local.source_id, SOURCE_LOCAL);
+        assert!(local.kind.is_detect_only());
+        assert!(!local.capabilities.manages_anything());
+        assert!(local.trust.installer().is_none());
+        assert!(local.package_reference.is_none());
+        assert!(local.default_channel().is_none());
+    }
+
+    #[test]
     fn antigravity_is_the_only_vendor_actionable_on_windows() {
         for tool in CLI_TOOL_DEFINITIONS {
             let Some(vendor) = tool.distribution(SOURCE_VENDOR) else {
                 continue;
             };
-            let expected = tool.agent_id == "antigravity-cli";
+            let expected = matches!(tool.agent_id, "antigravity-cli" | "cursor-agent-cli");
             assert_eq!(
                 vendor.is_actionable_on(CliPlatform::Windows),
                 expected,
@@ -447,8 +730,19 @@ mod tests {
             Some(&["auth", "list"][..])
         );
 
-        // Gemini and Antigravity have no verified non-interactive probe of either kind.
-        for agent_id in ["gemini-cli", "antigravity-cli"] {
+        // Gemini, Antigravity, and every expanded CLI have no verified non-interactive probe of
+        // either kind: their login state stays unknown until a reviewed probe exists.
+        for agent_id in [
+            "gemini-cli",
+            "antigravity-cli",
+            "qwen-code",
+            "kimi-cli",
+            "qoder-cli",
+            "codebuddy-code",
+            "copilot-cli",
+            "cursor-agent-cli",
+            "iflow-cli",
+        ] {
             let tool = definition(agent_id).expect(agent_id);
             assert!(!tool.probes.doctor.is_supported(), "{agent_id} doctor");
             assert!(

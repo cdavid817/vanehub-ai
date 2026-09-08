@@ -1,3 +1,4 @@
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::{params, OptionalExtension, Row, Transaction, TransactionBehavior};
 
 use super::seed_builder::{build_seeds, SeedProjection, SeedSignalRow, SEED_BUILDER_V1};
@@ -19,7 +20,7 @@ impl SqliteEvolutionEvidenceRepository {
             .connection()
             .map_err(|_| EvidenceRepositoryError::Storage)?;
         let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .write_transaction()
             .map_err(|_| EvidenceRepositoryError::Storage)?;
         let (state, revision): (String, i64) = transaction.query_row(
             "SELECT state_value, revision FROM evolution_pipeline_state WHERE state_key = 'signal_set'",
@@ -59,7 +60,7 @@ impl SqliteEvolutionEvidenceRepository {
             .connection()
             .map_err(|_| EvidenceRepositoryError::Storage)?;
         let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .write_transaction()
             .map_err(|_| EvidenceRepositoryError::Storage)?;
         let changed = transaction.execute(
             "UPDATE evolution_signals SET lineage_status = 'superseded', superseded_by_signal_id = ?2 WHERE signal_id = ?1 AND lineage_status = 'active'",

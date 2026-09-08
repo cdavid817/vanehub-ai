@@ -4,6 +4,7 @@ use crate::contexts::skill_evolution_assessment::domain::{
     SelectionClassification,
 };
 use crate::platform::database::NativeDatabase;
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::params;
 use serde_json::json;
 
@@ -69,7 +70,7 @@ impl SqliteAssessmentRepository {
             .connection()
             .map_err(|_| AssessmentRepositoryError::Storage)?;
         let transaction = connection
-            .unchecked_transaction()
+            .write_transaction_unchecked()
             .map_err(|_| AssessmentRepositoryError::Storage)?;
         let inserted = transaction.execute(
             "INSERT INTO evolution_assessment_attempts (attempt_id, seed_id, seed_revision, \
@@ -157,7 +158,7 @@ impl SqliteAssessmentRepository {
             .connection()
             .map_err(|_| AssessmentRepositoryError::Storage)?;
         let transaction = connection
-            .unchecked_transaction()
+            .write_transaction_unchecked()
             .map_err(|_| AssessmentRepositoryError::Storage)?;
         let updated = transaction
             .execute(

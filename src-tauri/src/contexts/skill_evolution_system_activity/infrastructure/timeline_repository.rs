@@ -1,3 +1,4 @@
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::{params, OptionalExtension, Transaction};
 
 use super::{ActivityProjectionRepositoryError, SqliteActivityProjectionRepository};
@@ -21,7 +22,7 @@ impl SqliteActivityProjectionRepository<'_> {
         if projected_at_ms < 0 || sanitize_text(event_id, "timeline.event_id", 160).is_err() {
             return Err(ActivityProjectionRepositoryError::InvalidInput);
         }
-        let transaction = self.connection.unchecked_transaction()?;
+        let transaction = self.connection.write_transaction_unchecked()?;
         let envelope = load_envelope(&transaction, event_id)?;
         envelope
             .validate()

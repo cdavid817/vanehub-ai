@@ -1,3 +1,4 @@
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::params;
 use uuid::Uuid;
 
@@ -75,7 +76,7 @@ pub(crate) fn move_item(
     valid(&input.stage, &STAGES, "stage")?;
     load(database, &input.work_item_id)?;
     let mut connection = database.connection().map_err(error)?;
-    let transaction = connection.transaction().map_err(error)?;
+    let transaction = connection.write_transaction().map_err(error)?;
     let rank: i64 = if let Some(before) = input.before_work_item_id.as_deref() {
         normalize_stage(&transaction, &input.stage, &input.work_item_id)?;
         let target: i64 = transaction

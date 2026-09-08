@@ -11,9 +11,10 @@ use crate::contexts::workspaces::application::{
 use crate::contexts::workspaces::domain::{
     ManagedWorktree, ManagedWorktreeStatus, WorktreeIdentity, WorktreeOrigin, WorktreeProvenance,
 };
+use crate::platform::database::SqliteWriteTransaction;
 use crate::platform::database::{DatabaseError, NativeDatabase, PooledSqlite};
 use crate::platform::instance_lease::InstanceLease;
-use rusqlite::{params, Connection, OptionalExtension, Row, TransactionBehavior};
+use rusqlite::{params, Connection, OptionalExtension, Row};
 
 pub(crate) fn apply_managed_worktree_schema(connection: &Connection) -> Result<(), DatabaseError> {
     connection.execute_batch(
@@ -378,7 +379,7 @@ impl WorktreeUseGatePort for SqliteWorkspaceUseGate {
         // transaction that upgrades while another connection has written in between gets
         // `SQLITE_BUSY` at once, without the busy timeout ever being consulted.
         let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .write_transaction()
             .map_err(|error| GateRejection::Storage(error.to_string()))?;
         let existing = transaction
             .query_row(

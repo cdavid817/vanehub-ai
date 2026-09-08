@@ -1,18 +1,33 @@
 {
   "reviewedAt": "2026-08-23",
+  "expandedReviewedAt": "2026-09-06",
   "sources": {
     "claude-code": "https://code.claude.com/docs/en/cli-reference",
     "codex-cli": "https://developers.openai.com/codex/config-reference",
     "gemini-cli": "https://geminicli.com/docs/cli/cli-reference/",
     "opencode": "https://opencode.ai/docs/cli/",
-    "antigravity-cli": "https://antigravity.google/docs/cli/headless/"
+    "antigravity-cli": "https://antigravity.google/docs/cli/headless/",
+    "qwen-code": "https://qwenlm.github.io/qwen-code-docs/en/users/configuration/settings/",
+    "kimi-cli": "https://www.kimi.com/code/docs/en/kimi-code-cli/reference/kimi-command.html",
+    "qoder-cli": "https://docs.qoder.com/cli/installation",
+    "codebuddy-code": "https://www.codebuddy.ai/docs/cli/quickstart",
+    "copilot-cli": "https://docs.github.com/en/copilot/reference/copilot-cli-reference",
+    "cursor-agent-cli": "https://cursor.com/docs/cli/installation",
+    "iflow-cli": "https://vibex.iflow.cn/t/topic/4819"
   },
   "binaries": {
     "claude-code": "2.1.237",
     "codex-cli": "0.149.0",
     "gemini-cli": "0.53.0",
     "opencode": "1.18.19",
-    "antigravity-cli": "1.1.18"
+    "antigravity-cli": "1.1.18",
+    "qwen-code": "0.23.0",
+    "kimi-cli": "0.41.0",
+    "qoder-cli": "1.1.45",
+    "codebuddy-code": "2.146.0",
+    "copilot-cli": "1.0.83",
+    "cursor-agent-cli": "2026.09.02",
+    "iflow-cli": "0.5.19"
   },
   "excludedCategories": [
     "approval-and-permission-policy",

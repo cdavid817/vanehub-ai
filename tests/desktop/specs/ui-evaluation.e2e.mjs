@@ -114,15 +114,22 @@ globalThis.describe("VaneHub AI desktop Agent evaluation UI", () => {
 
     const toggles = await center.$$('fieldset input[type="checkbox"]');
     assert.ok(toggles.length > 0, "the Agent picker offered nothing to select");
+    // Restore exactly the initial selection afterwards. The registry lists more Agents than an
+    // arena may hold, so "check everything back on" would leave the next test asking for a run
+    // the backend refuses by design.
+    const initiallySelected = [];
     for (const toggle of toggles) {
-      if (await toggle.isSelected()) await toggle.click();
+      if (await toggle.isSelected()) {
+        initiallySelected.push(toggle);
+        await toggle.click();
+      }
     }
     await globalThis.browser.waitUntil(async () => !(await run.isEnabled()), {
       timeout: 15_000,
       timeoutMsg: "Run stayed enabled with every Agent unchecked -- an arena needs at least one.",
     });
 
-    for (const toggle of toggles) await toggle.click();
+    for (const toggle of initiallySelected) await toggle.click();
     await globalThis.browser.waitUntil(async () => run.isEnabled(), {
       timeout: 15_000,
       timeoutMsg: "Run stayed disabled after the Agents were checked back on.",

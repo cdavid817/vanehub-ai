@@ -5,6 +5,7 @@
 //! and not in a test or a future caller.
 
 pub(crate) mod background;
+pub(crate) mod check_cli_connection;
 pub(crate) mod dto;
 pub(crate) mod error;
 pub(crate) mod execute_cli_action;

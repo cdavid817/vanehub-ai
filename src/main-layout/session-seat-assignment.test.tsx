@@ -73,6 +73,18 @@ describe("SessionSeatAssignment", () => {
     expect(html).toContain("Gemini CLI");
   });
 
+  /**
+   * iFlow is detect-only: it opens a native terminal and has no managed conversation. A seat is a
+   * managed conversation, so the single-Agent dialog's legacy group has no counterpart here.
+   */
+  it("does not offer a legacy terminal-only Agent as a seat", () => {
+    const html = render(
+      [agent("iflow-cli", "iFlow CLI", "available", { capabilityTags: ["legacy"] })],
+      [{ agentId: "", roleId: null }],
+    );
+    expect(html).not.toContain("iFlow CLI");
+  });
+
   it("does not offer an Agent that genuinely cannot run", () => {
     const html = render(
       [

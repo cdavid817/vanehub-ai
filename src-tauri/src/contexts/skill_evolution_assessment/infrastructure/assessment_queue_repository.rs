@@ -3,6 +3,7 @@ use crate::contexts::skill_evolution_assessment::application::{
     QueueEnqueueOutcome,
 };
 use crate::platform::database::NativeDatabase;
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::{params, OptionalExtension, TransactionBehavior};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,9 +52,7 @@ impl SqliteAssessmentQueueRepository {
             .database
             .connection()
             .map_err(|_| AssessmentQueueError::Storage)?;
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(map_sqlite_error)?;
+        let transaction = connection.write_transaction().map_err(map_sqlite_error)?;
         if let Some(queue_id) = transaction
             .query_row(
                 "SELECT queue_id FROM evolution_assessment_queue_state \
@@ -140,9 +139,7 @@ impl SqliteAssessmentQueueRepository {
             .database
             .connection()
             .map_err(|_| AssessmentQueueError::Storage)?;
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(map_sqlite_error)?;
+        let transaction = connection.write_transaction().map_err(map_sqlite_error)?;
         transaction.execute(
             "UPDATE evolution_assessment_queue_state SET status='queued', lease_owner=NULL, \
              lease_expires_at_ms=NULL, updated_at_ms=?1 WHERE status='leased' AND lease_expires_at_ms <= ?1",

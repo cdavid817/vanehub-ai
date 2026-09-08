@@ -1,3 +1,4 @@
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::OptionalExtension;
 
 use super::*;
@@ -8,7 +9,7 @@ impl SqliteActivityProjectionRepository<'_> {
         rebuild_id: &str,
         now_ms: i64,
     ) -> Result<ActivityRebuildStep, ActivityProjectionRepositoryError> {
-        let transaction = self.connection.unchecked_transaction()?;
+        let transaction = self.connection.write_transaction_unchecked()?;
         let row = load_rebuild(&transaction, rebuild_id)?;
         if row.status != "validating" {
             return Err(ActivityProjectionRepositoryError::Conflict);

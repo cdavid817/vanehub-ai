@@ -13,9 +13,18 @@ async function openEvaluation(page: Page, theme: Theme, width: number) {
   await expect(page.getByTestId("evaluation-center")).toBeVisible();
 }
 
+// The managed CLIs added by `extend-cli-providers-with-acp`. The mock arena caps a run at eight
+// agents, so the flows below deselect these to keep the original six-agent scenario. iFlow is
+// not among them: it is terminal-only, so the center never offers it as a candidate.
+const expandedAgentIds = [
+  "qwen-code", "kimi-cli", "qoder-cli", "codebuddy-code", "copilot-cli", "cursor-agent-cli",
+];
+
 test("runs, compares, filters, inspects, and exports the complete mock benchmark", async ({ page }) => {
   await openEvaluation(page, "futuristic", 1440);
-  for (const agentId of ["claude-code", "opencode", "codex-cli", "gemini-cli", "antigravity-cli", "onepiece"]) {
+  await expect(page.getByTestId("evaluation-agent-qwen-code")).toBeVisible();
+  await expect(page.getByTestId("evaluation-agent-iflow-cli")).toHaveCount(0);
+  for (const agentId of ["claude-code", "opencode", "codex-cli", "gemini-cli", "antigravity-cli", "onepiece", ...expandedAgentIds]) {
     await page.getByTestId(`evaluation-agent-${agentId}`).uncheck();
   }
   await page.getByTestId("evaluation-agent-onepiece").check();
@@ -40,6 +49,9 @@ for (const variant of [
 ]) {
   test(`evaluation workspace visual ${variant.name}`, async ({ page }, testInfo) => {
     await openEvaluation(page, variant.theme, variant.width);
+    for (const agentId of expandedAgentIds) {
+      await page.getByTestId(`evaluation-agent-${agentId}`).uncheck();
+    }
     await page.getByRole("button", { name: "Run arena" }).click();
     await page.getByText("Passed", { exact: true }).click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", variant.theme);

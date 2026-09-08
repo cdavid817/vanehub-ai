@@ -10,6 +10,7 @@
 //!   can fail. A malformed or unknown-version document yields a typed storage error, never a panic
 //!   and never a half-built snapshot.
 
+use crate::platform::database::SqliteWriteTransaction;
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde_json::Value;
@@ -370,9 +371,7 @@ impl CliEnvironmentRepository for SqliteCliEnvironmentRepository {
         let mut connection = self.connection()?;
         // Immediate: the write lock is taken before the read, so two callers cannot both observe
         // `draft` and both proceed.
-        let transaction = connection
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-            .map_err(storage_error)?;
+        let transaction = connection.write_transaction().map_err(storage_error)?;
 
         let row: Option<(String, String)> = transaction
             .query_row(
@@ -417,9 +416,7 @@ impl CliEnvironmentRepository for SqliteCliEnvironmentRepository {
         now: DateTime<Utc>,
     ) -> Result<(), CliEnvironmentError> {
         let mut connection = self.connection()?;
-        let transaction = connection
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-            .map_err(storage_error)?;
+        let transaction = connection.write_transaction().map_err(storage_error)?;
 
         let row: Option<(String, String)> = transaction
             .query_row(
@@ -455,7 +452,7 @@ impl CliEnvironmentRepository for SqliteCliEnvironmentRepository {
         item_plans: &[CliActionPlan],
     ) -> Result<(), CliEnvironmentError> {
         let mut connection = self.connection()?;
-        let transaction = connection.transaction().map_err(storage_error)?;
+        let transaction = connection.write_transaction().map_err(storage_error)?;
 
         // All or nothing: a batch that fails halfway must not leave item plans behind that nothing
         // references and nothing will ever expire.

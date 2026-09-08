@@ -1,3 +1,4 @@
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::{params, Connection};
 use serde_json::{json, Value};
 
@@ -42,7 +43,7 @@ impl EvolutionNotificationRepository {
 
     pub(crate) fn pending(&self, now_ms: i64) -> Result<Vec<Value>, String> {
         let mut connection = self.database.connection().map_err(|_| storage())?;
-        let transaction = connection.transaction().map_err(|_| storage())?;
+        let transaction = connection.write_transaction().map_err(|_| storage())?;
         refresh(&transaction, now_ms)?;
         transaction.commit().map_err(|_| storage())?;
         let mut statement = connection.prepare(

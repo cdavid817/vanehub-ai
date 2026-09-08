@@ -22,7 +22,7 @@ Sessions can be **categorized**, **pinned**, and **archived**. An archived sessi
 
 ## Agent
 
-**An Agent is what actually performs the task.** VaneHub AI works with six: five external CLI Agents you install and authenticate yourself, and one native API Agent that ships with the application.
+**An Agent is what actually performs the task.** VaneHub AI works with twelve external CLI Agents you install and authenticate yourself (one of them a legacy terminal-only entry), plus one native API Agent that ships with the application.
 
 | Agent | Provider | Form |
 | --- | --- | --- |
@@ -31,9 +31,16 @@ Sessions can be **categorized**, **pinned**, and **archived**. An archived sessi
 | Codex CLI | OpenAI | External CLI |
 | Gemini CLI | Google | External CLI |
 | Antigravity CLI | Google | External CLI |
+| Qwen Code | Alibaba Qwen | External CLI (ACP) |
+| Kimi Code CLI | Moonshot | External CLI (ACP) |
+| Qoder CLI | Qoder | External CLI (ACP) |
+| CodeBuddy Code | Tencent | External CLI (ACP) |
+| GitHub Copilot CLI | GitHub | External CLI (ACP) |
+| Cursor Agent CLI | Cursor | External CLI (ACP) |
+| iFlow CLI | iFlow | External CLI, **legacy**, terminal only |
 | OnePiece | VaneHub | **Native API Agent** |
 
-The first five are **external CLIs** — VaneHub AI starts their processes and manages everything around the process (launch flags, permission interception, output capture), while the actual code generation is done by the CLI itself.
+The CLI rows are **external CLIs** — VaneHub AI starts their processes and manages everything around the process (launch flags, permission interception, output capture), while the actual code generation is done by the CLI itself. The rows marked ACP keep one process running for the session and talk to it over the Agent Client Protocol; see [ACP CLI Agents](acp-cli-agents.md).
 
 **OnePiece** is different: it calls a model provider over HTTP directly and runs entirely inside the application. See [Native API Agent](native-agent.md).
 

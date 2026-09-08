@@ -1519,6 +1519,589 @@
           }
         }
       ]
+    },
+    {
+      "agentId": "qwen-code",
+      "parameters": [
+        {
+          "id": "model",
+          "category": "model",
+          "control": "custom-text",
+          "labelKey": "cliParameters.qwen-code.model.label",
+          "descriptionKey": "cliParameters.qwen-code.model.description",
+          "launchScopes": [
+            "interactive",
+            "chat"
+          ],
+          "renderer": {
+            "kind": "flag-value",
+            "flag": "--model",
+            "slot": "global"
+          },
+          "constraints": {
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/+-]*$"
+          },
+          "audit": {
+            "sourceId": "qwen-code-docs",
+            "sourceUrl": "https://qwenlm.github.io/qwen-code-docs/en/users/configuration/settings/",
+            "reviewedAt": "2026-09-06",
+            "reviewedState": "`qwen --help` on 0.23.0 (npm @qwen-code/qwen-code) read 2026-09-06; qwenlm.github.io settings reference is the published source",
+            "evidence": [
+              "official-reviewed"
+            ],
+            "note": "`-m, --model` is free text: Qwen resolves it against the configured provider, so no fixed option list is published."
+          }
+        },
+        {
+          "id": "safeMode",
+          "category": "diagnostics",
+          "control": "boolean-flag",
+          "labelKey": "cliParameters.qwen-code.safeMode.label",
+          "descriptionKey": "cliParameters.qwen-code.safeMode.description",
+          "launchScopes": [
+            "interactive",
+            "chat"
+          ],
+          "renderer": {
+            "kind": "presence-flag",
+            "flag": "--safe-mode",
+            "slot": "global"
+          },
+          "audit": {
+            "sourceId": "qwen-code-docs",
+            "sourceUrl": "https://qwenlm.github.io/qwen-code-docs/en/users/configuration/settings/",
+            "reviewedAt": "2026-09-06",
+            "reviewedState": "`qwen --help` on 0.23.0 (npm @qwen-code/qwen-code) read 2026-09-06; qwenlm.github.io settings reference is the published source",
+            "evidence": [
+              "official-reviewed"
+            ],
+            "note": "`--safe-mode` disables context files, hooks, extensions, skills and MCP servers for troubleshooting, as the help text states."
+          }
+        },
+        {
+          "id": "bare",
+          "category": "experience",
+          "control": "boolean-flag",
+          "labelKey": "cliParameters.qwen-code.bare.label",
+          "descriptionKey": "cliParameters.qwen-code.bare.description",
+          "launchScopes": [
+            "interactive",
+            "chat"
+          ],
+          "advanced": true,
+          "renderer": {
+            "kind": "presence-flag",
+            "flag": "--bare",
+            "slot": "global"
+          },
+          "audit": {
+            "sourceId": "qwen-code-docs",
+            "sourceUrl": "https://qwenlm.github.io/qwen-code-docs/en/users/configuration/settings/",
+            "reviewedAt": "2026-09-06",
+            "reviewedState": "`qwen --help` on 0.23.0 (npm @qwen-code/qwen-code) read 2026-09-06; qwenlm.github.io settings reference is the published source",
+            "evidence": [
+              "official-reviewed"
+            ],
+            "note": "`--bare` skips implicit startup auto-discovery and honours only explicit CLI inputs."
+          }
+        }
+      ]
+    },
+    {
+      "agentId": "kimi-cli",
+      "parameters": [
+        {
+          "id": "model",
+          "category": "model",
+          "control": "custom-text",
+          "labelKey": "cliParameters.kimi-cli.model.label",
+          "descriptionKey": "cliParameters.kimi-cli.model.description",
+          "launchScopes": [
+            "interactive",
+            "chat"
+          ],
+          "renderer": {
+            "kind": "flag-value",
+            "flag": "--model",
+            "slot": "global"
+          },
+          "constraints": {
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/+-]*$"
+          },
+          "audit": {
+            "sourceId": "kimi-code-cli-reference",
+            "sourceUrl": "https://www.kimi.com/code/docs/en/kimi-code-cli/reference/kimi-command.html",
+            "reviewedAt": "2026-09-06",
+            "reviewedState": "`kimi --help` on 0.41.0 (npm @moonshot-ai/kimi-code) read 2026-09-06; kimi.com command reference is the published source",
+            "evidence": [
+              "official-reviewed"
+            ],
+            "note": "`-m, --model <model>` takes an LLM model alias resolved from config.toml; the alias list is per installation, so the control stays free text."
+          }
+        },
+        {
+          "id": "agent",
+          "category": "runtime",
+          "control": "custom-text",
+          "labelKey": "cliParameters.kimi-cli.agent.label",
+          "descriptionKey": "cliParameters.kimi-cli.agent.description",
+          "launchScopes": [
+            "interactive",
+            "chat"
+          ],
+          "renderer": {
+            "kind": "flag-value",
+            "flag": "--agent",
+            "slot": "global"
+          },
+          "constraints": {
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/+-]*$"
+          },
+          "audit": {
+            "sourceId": "kimi-code-cli-reference",
+            "sourceUrl": "https://www.kimi.com/code/docs/en/kimi-code-cli/reference/kimi-command.html",
+            "reviewedAt": "2026-09-06",
+            "reviewedState": "`kimi --help` on 0.41.0 (npm @moonshot-ai/kimi-code) read 2026-09-06; kimi.com command reference is the published source",
+            "evidence": [
+              "official-reviewed"
+            ],
+            "note": "`--agent <name>` selects an agent profile for a new session; the help text says it cannot be combined with --session/--continue, which the runtime owns, so a stored resume id wins over this value."
+          }
+        }
+      ]
+    },
+    {
+      "agentId": "qoder-cli",
+      "parameters": [
+        {
+          "id": "model",
+          "category": "model",
+          "control": "custom-text",
+          "labelKey": "cliParameters.qoder-cli.model.label",
+          "descriptionKey": "cliParameters.qoder-cli.model.description",
+          "launchScopes": [
+            "interactive",
+            "chat"
+          ],
+          "renderer": {
+            "kind": "flag-value",
+            "flag": "--model",
+            "slot": "global"
+          },
+          "constraints": {
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/+-]*$"
+          },
+          "audit": {
+            "sourceId": "qoder-cli-docs",
+            "sourceUrl": "https://docs.qoder.com/cli/installation",
+            "reviewedAt": "2026-09-06",
+            "reviewedState": "`qoder --help` on 1.1.45 (npm @qoder-ai/qodercli) read 2026-09-06; docs.qoder.com CLI docs are the published source",
+            "evidence": [
+              "official-reviewed"
+            ],
+            "note": "`-m, --model <model>`: default and new models use the model name, custom providers use the model id; `--list-models` needs a signed-in account, so no option list is fixed here."
+          }
+        },
+        {
+          "id": "thinking",
+          "category": "model",
+          "control": "enum",
+          "labelKey": "cliParameters.qoder-cli.thinking.label",
+          "descriptionKey": "cliParameters.qoder-cli.thinking.description",
+          "launchScopes": [
+            "interactive",
+            "chat"
+          ],
+          "options": [
+            {
+              "value": "auto",
+              "labelKey": "cliParameters.qoder-cli.thinking.values.auto.label",
+              "descriptionKey": "cliParameters.qoder-cli.thinking.values.auto.description"
+            },
+            {
+              "value": "adaptive",
+              "labelKey": "cliParameters.qoder-cli.thinking.values.adaptive.label",
+              "descriptionKey": "cliParameters.qoder-cli.thinking.values.adaptive.description"
+            },
+            {
+              "value": "enabled",
+              "labelKey": "cliParameters.qoder-cli.thinking.values.enabled.label",
+              "descriptionKey": "cliParameters.qoder-cli.thinking.values.enabled.description"
+            },
+            {
+              "value": "disabled",
+              "labelKey": "cliParameters.qoder-cli.thinking.values.disabled.label",
+              "descriptionKey": "cliParameters.qoder-cli.thinking.values.disabled.description"
+            }
+          ],
+          "renderer": {
+            "kind": "flag-value",
+            "flag": "--thinking",
+            "slot": "global"
+          },
+          "audit": {
+            "sourceId": "qoder-cli-docs",
+            "sourceUrl": "https://docs.qoder.com/cli/installation",
+            "reviewedAt": "2026-09-06",
+            "reviewedState": "`qoder --help` on 1.1.45 (npm @qoder-ai/qodercli) read 2026-09-06; docs.qoder.com CLI docs are the published source",
+            "evidence": [
+              "official-reviewed"
+            ],
+            "note": "`--thinking <mode>` lists exactly auto, adaptive, enabled and disabled in the help text."
+          }
+        },
+        {
+          "id": "agent",
+          "category": "runtime",
+          "control": "custom-text",
+          "labelKey": "cliParameters.qoder-cli.agent.label",
+          "descriptionKey": "cliParameters.qoder-cli.agent.description",
+          "launchScopes": [
+            "interactive",
+            "chat"
+          ],
+          "renderer": {
+            "kind": "flag-value",
+            "flag": "--agent",
+            "slot": "global"
+          },
+          "constraints": {
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/+-]*$"
+          },
+          "audit": {
+            "sourceId": "qoder-cli-docs",
+            "sourceUrl": "https://docs.qoder.com/cli/installation",
+            "reviewedAt": "2026-09-06",
+            "reviewedState": "`qoder --help` on 1.1.45 (npm @qoder-ai/qodercli) read 2026-09-06; docs.qoder.com CLI docs are the published source",
+            "evidence": [
+              "official-reviewed"
+            ],
+            "note": "`--agent <name>` names the agent for the current session; agents are user-defined, so the control stays free text."
+          }
+        }
+      ]
+    },
+    {
+      "agentId": "codebuddy-code",
+      "parameters": [
+        {
+          "id": "model",
+          "category": "model",
+          "control": "custom-text",
+          "labelKey": "cliParameters.codebuddy-code.model.label",
+          "descriptionKey": "cliParameters.codebuddy-code.model.description",
+          "launchScopes": [
+            "interactive",
+            "chat"
+          ],
+          "renderer": {
+            "kind": "flag-value",
+            "flag": "--model",
+            "slot": "global"
+          },
+          "constraints": {
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/+-]*$"
+          },
+          "audit": {
+            "sourceId": "codebuddy-cli-docs",
+            "sourceUrl": "https://www.codebuddy.ai/docs/cli/quickstart",
+            "reviewedAt": "2026-09-06",
+            "reviewedState": "`codebuddy --help` on 2.146.0 (npm @tencent-ai/codebuddy-code) read 2026-09-06; codebuddy.ai CLI docs are the published source",
+            "evidence": [
+              "official-reviewed"
+            ],
+            "note": "`--model <model>` wants a model id; the help text lists aliases (default-model, fast-model, …) and concrete ids that change per release, so the control stays free text."
+          }
+        },
+        {
+          "id": "effort",
+          "category": "model",
+          "control": "enum",
+          "labelKey": "cliParameters.codebuddy-code.effort.label",
+          "descriptionKey": "cliParameters.codebuddy-code.effort.description",
+          "launchScopes": [
+            "interactive",
+            "chat"
+          ],
+          "options": [
+            {
+              "value": "minimal",
+              "labelKey": "cliParameters.codebuddy-code.effort.values.minimal.label",
+              "descriptionKey": "cliParameters.codebuddy-code.effort.values.minimal.description"
+            },
+            {
+              "value": "low",
+              "labelKey": "cliParameters.codebuddy-code.effort.values.low.label",
+              "descriptionKey": "cliParameters.codebuddy-code.effort.values.low.description"
+            },
+            {
+              "value": "medium",
+              "labelKey": "cliParameters.codebuddy-code.effort.values.medium.label",
+              "descriptionKey": "cliParameters.codebuddy-code.effort.values.medium.description"
+            },
+            {
+              "value": "high",
+              "labelKey": "cliParameters.codebuddy-code.effort.values.high.label",
+              "descriptionKey": "cliParameters.codebuddy-code.effort.values.high.description"
+            },
+            {
+              "value": "xhigh",
+              "labelKey": "cliParameters.codebuddy-code.effort.values.xhigh.label",
+              "descriptionKey": "cliParameters.codebuddy-code.effort.values.xhigh.description"
+            },
+            {
+              "value": "max",
+              "labelKey": "cliParameters.codebuddy-code.effort.values.max.label",
+              "descriptionKey": "cliParameters.codebuddy-code.effort.values.max.description"
+            }
+          ],
+          "renderer": {
+            "kind": "flag-value",
+            "flag": "--effort",
+            "slot": "global"
+          },
+          "audit": {
+            "sourceId": "codebuddy-cli-docs",
+            "sourceUrl": "https://www.codebuddy.ai/docs/cli/quickstart",
+            "reviewedAt": "2026-09-06",
+            "reviewedState": "`codebuddy --help` on 2.146.0 (npm @tencent-ai/codebuddy-code) read 2026-09-06; codebuddy.ai CLI docs are the published source",
+            "evidence": [
+              "official-reviewed"
+            ],
+            "note": "`--effort <level>` lists minimal, low, medium, high, xhigh and max in the help text."
+          }
+        },
+        {
+          "id": "agent",
+          "category": "runtime",
+          "control": "custom-text",
+          "labelKey": "cliParameters.codebuddy-code.agent.label",
+          "descriptionKey": "cliParameters.codebuddy-code.agent.description",
+          "launchScopes": [
+            "interactive",
+            "chat"
+          ],
+          "renderer": {
+            "kind": "flag-value",
+            "flag": "--agent",
+            "slot": "global"
+          },
+          "constraints": {
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/+-]*$"
+          },
+          "audit": {
+            "sourceId": "codebuddy-cli-docs",
+            "sourceUrl": "https://www.codebuddy.ai/docs/cli/quickstart",
+            "reviewedAt": "2026-09-06",
+            "reviewedState": "`codebuddy --help` on 2.146.0 (npm @tencent-ai/codebuddy-code) read 2026-09-06; codebuddy.ai CLI docs are the published source",
+            "evidence": [
+              "official-reviewed"
+            ],
+            "note": "`--agent <agent>` sets the default main agent for this process and, as the help text says, does not write settings."
+          }
+        }
+      ]
+    },
+    {
+      "agentId": "copilot-cli",
+      "parameters": [
+        {
+          "id": "model",
+          "category": "model",
+          "control": "custom-text",
+          "labelKey": "cliParameters.copilot-cli.model.label",
+          "descriptionKey": "cliParameters.copilot-cli.model.description",
+          "launchScopes": [
+            "interactive",
+            "chat"
+          ],
+          "renderer": {
+            "kind": "flag-value",
+            "flag": "--model",
+            "slot": "global"
+          },
+          "constraints": {
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/+-]*$"
+          },
+          "audit": {
+            "sourceId": "copilot-cli-reference",
+            "sourceUrl": "https://docs.github.com/en/copilot/reference/copilot-cli-reference",
+            "reviewedAt": "2026-09-06",
+            "reviewedState": "`copilot --help` on 1.0.83 (npm @github/copilot) read 2026-09-06; docs.github.com CLI reference is the published source",
+            "evidence": [
+              "official-reviewed"
+            ],
+            "note": "`--model <model>` accepts a model name or `auto`; the available names depend on the signed-in plan, so the control stays free text."
+          }
+        },
+        {
+          "id": "effort",
+          "category": "model",
+          "control": "enum",
+          "labelKey": "cliParameters.copilot-cli.effort.label",
+          "descriptionKey": "cliParameters.copilot-cli.effort.description",
+          "launchScopes": [
+            "interactive",
+            "chat"
+          ],
+          "options": [
+            {
+              "value": "none",
+              "labelKey": "cliParameters.copilot-cli.effort.values.none.label",
+              "descriptionKey": "cliParameters.copilot-cli.effort.values.none.description"
+            },
+            {
+              "value": "minimal",
+              "labelKey": "cliParameters.copilot-cli.effort.values.minimal.label",
+              "descriptionKey": "cliParameters.copilot-cli.effort.values.minimal.description"
+            },
+            {
+              "value": "low",
+              "labelKey": "cliParameters.copilot-cli.effort.values.low.label",
+              "descriptionKey": "cliParameters.copilot-cli.effort.values.low.description"
+            },
+            {
+              "value": "medium",
+              "labelKey": "cliParameters.copilot-cli.effort.values.medium.label",
+              "descriptionKey": "cliParameters.copilot-cli.effort.values.medium.description"
+            },
+            {
+              "value": "high",
+              "labelKey": "cliParameters.copilot-cli.effort.values.high.label",
+              "descriptionKey": "cliParameters.copilot-cli.effort.values.high.description"
+            },
+            {
+              "value": "xhigh",
+              "labelKey": "cliParameters.copilot-cli.effort.values.xhigh.label",
+              "descriptionKey": "cliParameters.copilot-cli.effort.values.xhigh.description"
+            },
+            {
+              "value": "max",
+              "labelKey": "cliParameters.copilot-cli.effort.values.max.label",
+              "descriptionKey": "cliParameters.copilot-cli.effort.values.max.description"
+            }
+          ],
+          "renderer": {
+            "kind": "flag-value",
+            "flag": "--effort",
+            "slot": "global"
+          },
+          "audit": {
+            "sourceId": "copilot-cli-reference",
+            "sourceUrl": "https://docs.github.com/en/copilot/reference/copilot-cli-reference",
+            "reviewedAt": "2026-09-06",
+            "reviewedState": "`copilot --help` on 1.0.83 (npm @github/copilot) read 2026-09-06; docs.github.com CLI reference is the published source",
+            "evidence": [
+              "official-reviewed"
+            ],
+            "note": "`--effort, --reasoning-effort <level>` lists none, minimal, low, medium, high, xhigh and max; the ACP server fixes it at process start, which is why each binding gets its own process."
+          }
+        }
+      ]
+    },
+    {
+      "agentId": "cursor-agent-cli",
+      "parameters": [
+        {
+          "id": "model",
+          "category": "model",
+          "control": "custom-text",
+          "labelKey": "cliParameters.cursor-agent-cli.model.label",
+          "descriptionKey": "cliParameters.cursor-agent-cli.model.description",
+          "launchScopes": [
+            "interactive",
+            "chat"
+          ],
+          "renderer": {
+            "kind": "flag-value",
+            "flag": "--model",
+            "slot": "global"
+          },
+          "constraints": {
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/+=,\\[\\]-]*$"
+          },
+          "audit": {
+            "sourceId": "cursor-cli-docs",
+            "sourceUrl": "https://cursor.com/docs/cli/installation",
+            "reviewedAt": "2026-09-06",
+            "reviewedState": "`agent --help` on 2026.09.02-c22c1a3 (cursor.com installer) read 2026-09-06; cursor.com CLI docs are the published source",
+            "evidence": [
+              "official-reviewed"
+            ],
+            "note": "`--model <model>` accepts a model name with optional bracketed overrides (e.g. `[context=1m,effort=high]`); `--list-models` needs a signed-in account, so the control stays free text."
+          }
+        }
+      ]
+    },
+    {
+      "agentId": "iflow-cli",
+      "parameters": [
+        {
+          "id": "model",
+          "category": "model",
+          "control": "custom-text",
+          "labelKey": "cliParameters.iflow-cli.model.label",
+          "descriptionKey": "cliParameters.iflow-cli.model.description",
+          "launchScopes": [
+            "interactive",
+            "chat"
+          ],
+          "renderer": {
+            "kind": "flag-value",
+            "flag": "--model",
+            "slot": "global"
+          },
+          "constraints": {
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/+-]*$"
+          },
+          "audit": {
+            "sourceId": "iflow-shutdown-notice",
+            "sourceUrl": "https://vibex.iflow.cn/t/topic/4819",
+            "reviewedAt": "2026-09-06",
+            "reviewedState": "`iflow --help` on 0.5.19 (npm @iflow-ai/iflow-cli) read 2026-09-06; the vendor's shutdown notice is the only remaining published page, so the binary's own help is the reference",
+            "evidence": [
+              "official-reviewed"
+            ],
+            "note": "`-m, --model` is free text against the user's own custom API configuration; the official service is gone, so nothing publishes a model list."
+          }
+        },
+        {
+          "id": "thinking",
+          "category": "model",
+          "control": "boolean-flag",
+          "labelKey": "cliParameters.iflow-cli.thinking.label",
+          "descriptionKey": "cliParameters.iflow-cli.thinking.description",
+          "launchScopes": [
+            "interactive",
+            "chat"
+          ],
+          "renderer": {
+            "kind": "presence-flag",
+            "flag": "--thinking",
+            "slot": "global"
+          },
+          "audit": {
+            "sourceId": "iflow-shutdown-notice",
+            "sourceUrl": "https://vibex.iflow.cn/t/topic/4819",
+            "reviewedAt": "2026-09-06",
+            "reviewedState": "`iflow --help` on 0.5.19 (npm @iflow-ai/iflow-cli) read 2026-09-06; the vendor's shutdown notice is the only remaining published page, so the binary's own help is the reference",
+            "evidence": [
+              "official-reviewed"
+            ],
+            "note": "`--thinking` enables thinking mode when the selected model supports it, as the help text states."
+          }
+        }
+      ]
     }
   ]
 }

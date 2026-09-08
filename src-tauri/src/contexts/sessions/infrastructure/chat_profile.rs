@@ -118,6 +118,16 @@ fn provider_defaults(agent_id: &str) -> Option<(&'static str, &'static str)> {
         "codex-cli" => Some(("openai", "gpt-5-5")),
         "gemini-cli" => Some(("google", "gemini-2-5-pro")),
         "opencode" => Some(("opencode", "opencode-default")),
+        // The expanded CLIs choose their own model inside the CLI; VaneHub records "the CLI's
+        // configured default" rather than naming a slug it has not verified. CodeBuddy's provider
+        // id doubles as its account-environment selector (`codebuddy-china`, `codebuddy-ioa`).
+        "qwen-code" => Some(("qwen", "qwen-default")),
+        "kimi-cli" => Some(("moonshot", "kimi-default")),
+        "qoder-cli" => Some(("qoder", "qoder-default")),
+        "codebuddy-code" => Some(("codebuddy-international", "codebuddy-default")),
+        "copilot-cli" => Some(("github-copilot", "copilot-default")),
+        "cursor-agent-cli" => Some(("cursor", "cursor-default")),
+        "iflow-cli" => Some(("iflow-custom", "iflow-default")),
         "antigravity-cli" => Some(("google", "antigravity-default")),
         _ => None,
     }

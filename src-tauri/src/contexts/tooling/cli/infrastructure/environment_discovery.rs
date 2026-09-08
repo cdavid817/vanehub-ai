@@ -254,7 +254,7 @@ pub(super) fn build_installation(
     let canonical = resolved
         .ok()
         .map(|resolved| resolved.to_string_lossy().to_string());
-    let (kind, confidence) = classify_source(&display);
+    let (kind, confidence) = classify_source_with_target(&display, canonical.as_deref());
     CliInstallation {
         id: installation_id(&display),
         executable_path: display,
@@ -303,6 +303,32 @@ fn installation_id(path: &str) -> CliInstallationId {
 ///
 /// Every answer here is `Inferred` at best. A path shape is evidence, not proof of ownership, and
 /// treating it as proof is what let "this looks npm-ish" authorize an npm mutation.
+/// Classifies by the launcher path first, then by where the launcher actually points. A `uv`
+/// tool is reached through `~/.local/bin`, which on its own reads as a vendor install; only the
+/// canonical target under `uv/tools` says which distribution this really is.
+pub(super) fn classify_source_with_target(
+    path: &str,
+    canonical: Option<&str>,
+) -> (CliSourceKind, CliSourceConfidence) {
+    let (kind, confidence) = classify_source(path);
+    let target_is_uv = canonical.is_some_and(|target| {
+        let value = target.replace('\\', "/").to_ascii_lowercase();
+        value.contains("/uv/tools/") || value.contains("/site-packages/")
+    });
+    if target_is_uv
+        && matches!(
+            kind,
+            CliSourceKind::VendorInstaller
+                | CliSourceKind::Manual
+                | CliSourceKind::System
+                | CliSourceKind::Unknown
+        )
+    {
+        return (CliSourceKind::Uv, CliSourceConfidence::Inferred);
+    }
+    (kind, confidence)
+}
+
 pub(super) fn classify_source(path: &str) -> (CliSourceKind, CliSourceConfidence) {
     let value = path.replace('\\', "/").to_ascii_lowercase();
     let kind = if value.contains("/microsoft/winget/packages/")
@@ -320,6 +346,11 @@ pub(super) fn classify_source(path: &str) -> (CliSourceKind, CliSourceConfidence
         CliSourceKind::Homebrew
     } else if value.contains("/.volta/") {
         CliSourceKind::Volta
+    } else if value.contains("/uv/tools/") || value.contains("/site-packages/") {
+        // `uv tool install` links `~/.local/bin/<tool>` to `~/.local/share/uv/tools/<tool>/bin`;
+        // classification runs on the canonical target so the retired Python Kimi is told apart
+        // from the current one that lands in the same `~/.local/bin`.
+        CliSourceKind::Uv
     } else if value.contains("/.bun/") {
         CliSourceKind::Bun
     } else if value.contains("/programs/openai/codex/") {

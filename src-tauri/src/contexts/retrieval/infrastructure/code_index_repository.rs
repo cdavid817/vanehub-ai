@@ -10,6 +10,7 @@ use crate::contexts::retrieval::domain::{
     FailureCategory, RetrievalError, SourceKind,
 };
 use crate::platform::clock::SystemClock;
+use crate::platform::database::SqliteWriteTransaction;
 use crate::platform::database::{DatabaseError, NativeDatabase};
 use crate::platform::filesystem::normalize_windows_extended_length_path;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -179,7 +180,7 @@ impl SqliteCodeIndexRepository {
 
     fn invalidate_stale_version(&self, workspace_id: &str) -> Result<(), RetrievalError> {
         let mut connection = self.database.connection().map_err(database_error)?;
-        let transaction = connection.transaction().map_err(storage_error)?;
+        let transaction = connection.write_transaction().map_err(storage_error)?;
         transaction
             .execute(
                 "DELETE FROM code_index_files WHERE workspace_id = ?1",
@@ -225,7 +226,7 @@ impl SqliteCodeIndexRepository {
             CodeIndexPhase::Disabled
         };
         let mut connection = self.database.connection().map_err(database_error)?;
-        let transaction = connection.transaction().map_err(storage_error)?;
+        let transaction = connection.write_transaction().map_err(storage_error)?;
         let changed = transaction
             .execute(
                 r#"
@@ -284,7 +285,7 @@ impl SqliteCodeIndexRepository {
         }
         let relative_path = normalized_relative_path(&manifest.relative_path)?;
         let mut connection = self.database.connection().map_err(database_error)?;
-        let transaction = connection.transaction().map_err(storage_error)?;
+        let transaction = connection.write_transaction().map_err(storage_error)?;
         transaction
             .execute(
                 "DELETE FROM code_index_files WHERE workspace_id = ?1 AND relative_path = ?2",
@@ -465,7 +466,7 @@ impl SqliteCodeIndexRepository {
         workspace_id: &str,
     ) -> Result<CodeWorkspace, RetrievalError> {
         let mut connection = self.database.connection().map_err(database_error)?;
-        let transaction = connection.transaction().map_err(storage_error)?;
+        let transaction = connection.write_transaction().map_err(storage_error)?;
         transaction
             .execute(
                 "DELETE FROM code_index_files WHERE workspace_id = ?1",
@@ -751,7 +752,7 @@ impl CodeIndexRepository for SqliteCodeIndexRepository {
             RetrievalError::Validation("workspace generation is too large".to_string())
         })?;
         let mut connection = self.database.connection().map_err(database_error)?;
-        let transaction = connection.transaction().map_err(storage_error)?;
+        let transaction = connection.write_transaction().map_err(storage_error)?;
         let changed = transaction
             .execute(
                 r#"
@@ -811,7 +812,7 @@ impl CodeIndexRepository for SqliteCodeIndexRepository {
         let item_count = i64::try_from(item_count)
             .map_err(|_| RetrievalError::Validation("audit count is too large".to_string()))?;
         let mut connection = self.database.connection().map_err(database_error)?;
-        let transaction = connection.transaction().map_err(storage_error)?;
+        let transaction = connection.write_transaction().map_err(storage_error)?;
         transaction
             .execute(
                 r#"

@@ -1,3 +1,6 @@
+use super::definitions::{
+    definition as catalog_definition, CompatibilityProviderDefinition, DEFINITIONS,
+};
 use super::{
     build_interactive_invocation, build_invocation_with_role, manifest::ValidatedProviderManifest,
     ProviderLaunchSegments,
@@ -5,16 +8,18 @@ use super::{
 #[cfg(test)]
 use crate::contexts::agent_runtime::application::ProviderPromptDelivery;
 use crate::contexts::agent_runtime::application::{
-    AgentProvider, AgentProviderError, ProviderGenerationInvocationRequest,
-    ProviderInteractiveInvocationRequest, ProviderInteractiveInvocationSpec,
-    ProviderInvocationSpec, ProviderOptionRequest, ProviderOutputFormat, ProviderPermissionMode,
-    ProviderRegistry,
+    AgentProvider, AgentProviderError, ProviderAcpInvocationRequest, ProviderAcpInvocationSpec,
+    ProviderGenerationInvocationRequest, ProviderInteractiveInvocationRequest,
+    ProviderInteractiveInvocationSpec, ProviderInvocationSpec, ProviderOptionRequest,
+    ProviderOutputFormat, ProviderPermissionMode, ProviderRegistry,
 };
 use crate::contexts::agent_runtime::domain::{
     InteractionMode, ProviderCancellationPolicy, ProviderCapabilities, ProviderCapability,
     ProviderFamily, ProviderHealth, ProviderMetadata, ProviderParserPolicy,
-    ProviderReadinessPrerequisites, ProviderUsageCapability, ProviderVersionProbe,
+    ProviderReadinessPrerequisites, ProviderTransport, ProviderUsageCapability,
+    ProviderVersionProbe,
 };
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 struct CompatibilityCliProvider {
@@ -25,82 +30,31 @@ struct CompatibilityCliProvider {
     parser_policy: ProviderParserPolicy,
     version_probe: ProviderVersionProbe,
     cancellation_policy: ProviderCancellationPolicy,
+    definition: &'static CompatibilityProviderDefinition,
 }
-
-struct CompatibilityProviderDefinition {
-    id: &'static str,
-    display_name: &'static str,
-    executable: &'static str,
-    managed_sdk_dependency_id: Option<&'static str>,
-    output_format: ProviderOutputFormat,
-    usage: ProviderUsageCapability,
-    reasoning: bool,
-    sandbox: bool,
-}
-
-const DEFINITIONS: [CompatibilityProviderDefinition; 5] = [
-    CompatibilityProviderDefinition {
-        id: "claude-code",
-        display_name: "Claude Code",
-        executable: "claude",
-        managed_sdk_dependency_id: Some("claude-sdk"),
-        output_format: ProviderOutputFormat::ClaudeStreamJson,
-        usage: ProviderUsageCapability::HeadlessAndTerminalReported,
-        reasoning: true,
-        sandbox: false,
-    },
-    CompatibilityProviderDefinition {
-        id: "codex-cli",
-        display_name: "Codex CLI",
-        executable: "codex",
-        managed_sdk_dependency_id: Some("codex-sdk"),
-        output_format: ProviderOutputFormat::StructuredJsonLines,
-        usage: ProviderUsageCapability::HeadlessAndTerminalReported,
-        reasoning: true,
-        sandbox: true,
-    },
-    CompatibilityProviderDefinition {
-        id: "gemini-cli",
-        display_name: "Gemini CLI",
-        executable: "gemini",
-        managed_sdk_dependency_id: None,
-        output_format: ProviderOutputFormat::StructuredJsonLines,
-        usage: ProviderUsageCapability::HeadlessAndTerminalReported,
-        reasoning: false,
-        sandbox: true,
-    },
-    CompatibilityProviderDefinition {
-        id: "opencode",
-        display_name: "OpenCode",
-        executable: "opencode",
-        managed_sdk_dependency_id: None,
-        output_format: ProviderOutputFormat::StructuredJsonLines,
-        usage: ProviderUsageCapability::HeadlessAndTerminalReported,
-        reasoning: false,
-        sandbox: false,
-    },
-    CompatibilityProviderDefinition {
-        id: "antigravity-cli",
-        display_name: "Antigravity CLI",
-        executable: "agy",
-        managed_sdk_dependency_id: None,
-        output_format: ProviderOutputFormat::AntigravityStreamJson,
-        usage: ProviderUsageCapability::HeadlessReported,
-        reasoning: true,
-        sandbox: true,
-    },
-];
 
 impl CompatibilityCliProvider {
     fn from_definition(
-        definition: CompatibilityProviderDefinition,
+        definition: &'static CompatibilityProviderDefinition,
     ) -> Result<Self, AgentProviderError> {
         let provider_id = definition.id.to_string();
-        let manifest = ValidatedProviderManifest::parse_json(&manifest_json(&definition))?;
+        let manifest = ValidatedProviderManifest::parse_json(&definition.manifest_json())?;
         let metadata = manifest.metadata;
-        let capabilities = manifest
-            .capabilities
-            .with_usage_capability(definition.usage);
+        // A version 1 manifest cannot express terminal-reported usage; the catalog refines it. A
+        // version 2 manifest already carries the reviewed value, and the catalog must agree.
+        let capabilities = if manifest.schema_version == 1 {
+            manifest
+                .capabilities
+                .with_usage_capability(definition.usage)
+        } else {
+            if manifest.capabilities.usage() != definition.usage {
+                return Err(preparation_error(
+                    &provider_id,
+                    "manifest usage disagrees with the catalog",
+                ));
+            }
+            manifest.capabilities
+        };
         let readiness = ProviderReadinessPrerequisites::new(
             manifest.readiness.executable_names().to_vec(),
             definition.managed_sdk_dependency_id.map(str::to_string),
@@ -120,6 +74,7 @@ impl CompatibilityCliProvider {
                 .map_err(|error| preparation_error(&provider_id, error))?,
             cancellation_policy: ProviderCancellationPolicy::process_tree(2_000)
                 .map_err(|error| preparation_error(&provider_id, error))?,
+            definition,
         })
     }
 
@@ -139,17 +94,13 @@ impl CompatibilityCliProvider {
             })
             .transpose()
     }
-}
 
-fn manifest_json(definition: &CompatibilityProviderDefinition) -> String {
-    format!(
-        r#"{{"schemaVersion":1,"id":"{}","name":"{}","runtime":"cli","executables":["{}"],"capabilities":{{"terminal":true,"resume":true,"structuredOutput":true,"images":false,"usage":true,"permissions":true,"modelSelection":true,"reasoning":{},"sandbox":{}}}}}"#,
-        definition.id,
-        definition.display_name,
-        definition.executable,
-        definition.reasoning,
-        definition.sandbox
-    )
+    fn unsupported(&self, capability: &str) -> AgentProviderError {
+        AgentProviderError::UnsupportedCapability {
+            provider_id: self.metadata.id().as_str().to_string(),
+            capability: capability.to_string(),
+        }
+    }
 }
 
 impl AgentProvider for CompatibilityCliProvider {
@@ -222,6 +173,16 @@ impl AgentProvider for CompatibilityCliProvider {
         &self,
         request: ProviderGenerationInvocationRequest<'_>,
     ) -> Result<ProviderInvocationSpec, AgentProviderError> {
+        // A one-shot headless launch is only meaningful for the headless transport. An ACP
+        // provider's prompt travels inside the protocol, and a legacy terminal provider has no
+        // managed conversation at all; refusing here is what keeps a wrong route from spawning
+        // `qwen --acp` with a prompt on stdin and reading protocol frames as prose.
+        if !self
+            .capabilities
+            .supports_transport(ProviderTransport::Headless)
+        {
+            return Err(self.unsupported("headless-generation"));
+        }
         let external_id = self.external_session_id(request.provider_session)?;
         #[cfg(test)]
         if self.metadata.id().as_str() == "fixture-cli" {
@@ -280,6 +241,47 @@ impl AgentProvider for CompatibilityCliProvider {
         )
         .map_err(|error| preparation_error(self.metadata.id().as_str(), error))
     }
+
+    fn prepare_acp(
+        &self,
+        request: ProviderAcpInvocationRequest<'_>,
+    ) -> Result<ProviderAcpInvocationSpec, AgentProviderError> {
+        let Some(grammar) = self.definition.acp else {
+            return Err(self.unsupported("acp-stdio"));
+        };
+        let mut environment = BTreeMap::new();
+        match request
+            .account_profile
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+        {
+            None => {}
+            Some(profile_id) => {
+                let profile = grammar
+                    .account_profiles
+                    .iter()
+                    .find(|profile| profile.id == profile_id)
+                    .ok_or_else(|| AgentProviderError::Preparation {
+                        provider_id: self.metadata.id().as_str().to_string(),
+                        message: format!("unknown account profile '{profile_id}'"),
+                    })?;
+                if let Some((key, value)) = profile.environment {
+                    environment.insert(key.to_string(), value.to_string());
+                }
+            }
+        }
+        // Profile tokens precede the reviewed ACP entry; invocation-slot tokens follow it. The
+        // grammar owns the entry flag, and nothing in either segment may carry the prompt.
+        let mut args = request.global_args.to_vec();
+        args.extend(grammar.args.iter().map(|arg| (*arg).to_string()));
+        args.extend_from_slice(request.invocation_args);
+        Ok(ProviderAcpInvocationSpec {
+            executable: request.executable,
+            args,
+            environment,
+            adapter_revision: self.definition.adapter_revision,
+        })
+    }
 }
 
 fn preparation_error(provider_id: &str, error: impl std::fmt::Display) -> AgentProviderError {
@@ -291,7 +293,7 @@ fn preparation_error(provider_id: &str, error: impl std::fmt::Display) -> AgentP
 
 pub(crate) fn builtin_cli_provider_registry() -> Result<ProviderRegistry, AgentProviderError> {
     let providers = DEFINITIONS
-        .into_iter()
+        .iter()
         .map(CompatibilityCliProvider::from_definition)
         .map(|provider| provider.map(|provider| Arc::new(provider) as Arc<dyn AgentProvider>))
         .collect::<Result<Vec<_>, _>>()?;
@@ -302,21 +304,35 @@ pub(crate) fn builtin_cli_provider_registry() -> Result<ProviderRegistry, AgentP
 
 #[cfg(test)]
 pub(super) fn fixture_provider() -> Arc<dyn AgentProvider> {
-    Arc::new(
-        CompatibilityCliProvider::from_definition(CompatibilityProviderDefinition {
-            id: "fixture-cli",
-            display_name: "Fixture CLI",
-            executable: "fixture",
-            managed_sdk_dependency_id: None,
-            output_format: ProviderOutputFormat::StructuredJsonLines,
-            usage: ProviderUsageCapability::HeadlessReported,
-            reasoning: false,
-            sandbox: false,
-        })
-        .expect("valid fixture provider"),
-    )
+    use super::definitions::ProviderLifecycle;
+    static FIXTURE: CompatibilityProviderDefinition = CompatibilityProviderDefinition {
+        id: "fixture-cli",
+        display_name: "Fixture CLI",
+        executable: "fixture",
+        managed_sdk_dependency_id: None,
+        output_format: ProviderOutputFormat::StructuredJsonLines,
+        usage: ProviderUsageCapability::HeadlessReported,
+        reasoning: false,
+        sandbox: false,
+        transports: &[ProviderTransport::Terminal, ProviderTransport::Headless],
+        resume: true,
+        model_selection: true,
+        permissions: true,
+        structured_output: true,
+        acp: None,
+        lifecycle: ProviderLifecycle::Active,
+        adapter_revision: "fixture-v1",
+    };
+    Arc::new(CompatibilityCliProvider::from_definition(&FIXTURE).expect("valid fixture provider"))
 }
 
+/// The mandatory contract every built-in provider must satisfy, per declared transport.
+///
+/// Common concerns are unconditional. Transport concerns apply only where the transport is
+/// declared: a headless provider must parse text fallback and report usage; an ACP provider must
+/// expose a grammar; a terminal-only provider must refuse every managed path. Optional features
+/// (resume, usage, reasoning, model selection) may be declared unsupported, and that declaration
+/// is accepted rather than treated as incompleteness.
 fn validate_builtin_contracts(registry: &ProviderRegistry) -> Result<(), AgentProviderError> {
     let providers = registry.list();
     if providers.len() != DEFINITIONS.len() {
@@ -329,23 +345,22 @@ fn validate_builtin_contracts(registry: &ProviderRegistry) -> Result<(), AgentPr
         let metadata = provider.metadata();
         let capabilities = provider.capabilities();
         let readiness = provider.readiness_prerequisites();
-        let valid = !metadata.display_name().is_empty()
+        let definition = catalog_definition(metadata.id().as_str()).ok_or_else(|| {
+            preparation_error(
+                metadata.id().as_str(),
+                "provider is absent from the catalog",
+            )
+        })?;
+        let common_valid = !metadata.display_name().is_empty()
             && metadata.family() == ProviderFamily::CodingCli
             && capabilities
                 .interaction_modes()
                 .contains(&InteractionMode::Cli)
-            && capabilities.session_resume()
-            && capabilities.structured_output()
             && capabilities.terminal()
-            && capabilities.permissions()
-            && capabilities.model_selection()
-            && matches!(
-                capabilities.usage(),
-                ProviderUsageCapability::HeadlessReported
-                    | ProviderUsageCapability::HeadlessAndTerminalReported
-            )
-            && readiness.executable_names().len() == 1;
-        if !valid {
+            && capabilities.supports_transport(ProviderTransport::Terminal)
+            && readiness.executable_names().len() == 1
+            && capabilities.transports() == definition.transports;
+        if !common_valid {
             return Err(preparation_error(
                 metadata.id().as_str(),
                 "built-in provider declaration is incomplete",
@@ -355,33 +370,11 @@ fn validate_builtin_contracts(registry: &ProviderRegistry) -> Result<(), AgentPr
         let cancellation = provider.cancellation_policy();
         let version_probe = provider.version_probe();
         let sdk_contract_valid = parser_policy.max_buffer_bytes() >= 1_024
-            && parser_policy.text_fallback()
             && !version_probe.args().is_empty()
             && version_probe.timeout_ms() <= 15_000
             && cancellation.grace_period_ms() <= 30_000
             && cancellation.uses_process_tree()
             && provider.classify_health(true, true) == ProviderHealth::Ready
-            && provider
-                .map_options(ProviderOptionRequest {
-                    permission: Some(ProviderPermissionMode::Standard),
-                    model: None,
-                    reasoning: None,
-                })
-                .is_ok()
-            && [
-                ProviderPermissionMode::Readonly,
-                ProviderPermissionMode::Unrestricted,
-            ]
-            .into_iter()
-            .all(|permission| {
-                provider
-                    .map_options(ProviderOptionRequest {
-                        permission: Some(permission),
-                        model: None,
-                        reasoning: None,
-                    })
-                    .is_ok()
-            })
             && registry
                 .require(metadata.id().as_str(), ProviderCapability::Cancellation)
                 .is_ok();
@@ -391,35 +384,132 @@ fn validate_builtin_contracts(registry: &ProviderRegistry) -> Result<(), AgentPr
                 "built-in provider SDK declaration is incomplete",
             ));
         }
-        for capability in [
-            ProviderCapability::Resume,
-            ProviderCapability::StructuredOutput,
-            ProviderCapability::Terminal,
-            ProviderCapability::Usage,
-            ProviderCapability::Permissions,
-            ProviderCapability::ModelSelection,
-            ProviderCapability::Reasoning,
-            ProviderCapability::Sandbox,
-            ProviderCapability::Cancellation,
-        ] {
-            let _ = capabilities.supports(capability);
+        validate_transport_contract(registry, provider.as_ref(), definition)?;
+        // The capability query must agree with the declaration it answers for: usage is a
+        // supported capability exactly when it is reported, sandbox exactly when declared.
+        if capabilities.supports(ProviderCapability::Usage) != definition.usage.is_reported()
+            || capabilities.supports(ProviderCapability::Sandbox) != definition.sandbox
+        {
+            return Err(preparation_error(
+                metadata.id().as_str(),
+                "capability query disagrees with the declaration",
+            ));
         }
-        let definition = DEFINITIONS
-            .iter()
-            .find(|definition| definition.id == metadata.id().as_str())
-            .ok_or_else(|| {
-                preparation_error(
-                    metadata.id().as_str(),
-                    "provider is absent from the catalog",
-                )
-            })?;
         if readiness.managed_sdk_dependency_id() != definition.managed_sdk_dependency_id
             || capabilities.reasoning() != definition.reasoning
             || capabilities.sandbox() != definition.sandbox
+            || capabilities.session_resume() != definition.resume
+            || capabilities.model_selection() != definition.model_selection
+            || capabilities.permissions() != definition.permissions
+            || capabilities.structured_output() != definition.structured_output
+            || capabilities.usage() != definition.usage
         {
             return Err(preparation_error(
                 metadata.id().as_str(),
                 "provider declaration differs from the built-in catalog",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_transport_contract(
+    registry: &ProviderRegistry,
+    provider: &dyn AgentProvider,
+    definition: &CompatibilityProviderDefinition,
+) -> Result<(), AgentProviderError> {
+    let id = provider.metadata().id().as_str();
+    let capabilities = provider.capabilities();
+    let permission_mapping_valid = [
+        ProviderPermissionMode::Readonly,
+        ProviderPermissionMode::Standard,
+        ProviderPermissionMode::Unrestricted,
+    ]
+    .into_iter()
+    .all(|permission| {
+        let mapped = provider.map_options(ProviderOptionRequest {
+            permission: Some(permission),
+            model: None,
+            reasoning: None,
+        });
+        // A provider that declares no permission model must classify the request, not accept it.
+        if capabilities.permissions() {
+            mapped.is_ok()
+        } else {
+            matches!(
+                mapped,
+                Err(AgentProviderError::UnsupportedCapability { .. })
+            )
+        }
+    });
+    if !permission_mapping_valid {
+        return Err(preparation_error(id, "permission mapping is incomplete"));
+    }
+    if capabilities.supports_transport(ProviderTransport::Headless) {
+        let headless_valid = capabilities.structured_output()
+            && provider.parser_policy().text_fallback()
+            && capabilities.usage().is_reported()
+            && registry
+                .require(id, ProviderCapability::StructuredOutput)
+                .is_ok();
+        if !headless_valid {
+            return Err(preparation_error(
+                id,
+                "headless transport contract is incomplete",
+            ));
+        }
+    }
+    if capabilities.supports_transport(ProviderTransport::AcpStdio) {
+        let acp_valid = capabilities.structured_output()
+            && capabilities.permissions()
+            && definition
+                .acp
+                .is_some_and(|grammar| !grammar.args.is_empty())
+            && provider
+                .prepare_acp(ProviderAcpInvocationRequest {
+                    executable: definition.executable.to_string(),
+                    global_args: &[],
+                    invocation_args: &[],
+                    account_profile: None,
+                })
+                .is_ok();
+        if !acp_valid {
+            return Err(preparation_error(
+                id,
+                "acp transport contract is incomplete",
+            ));
+        }
+    }
+    if capabilities.managed_transport().is_none() {
+        // Terminal-only: every managed path must refuse with a classified result, and the usage
+        // declaration must be truthful about there being nothing to report.
+        let refuses_generation = matches!(
+            provider.prepare_generation(ProviderGenerationInvocationRequest {
+                executable: definition.executable.to_string(),
+                prompt: "contract",
+                provider_session: None,
+                global_args: &[],
+                invocation_args: &[],
+                role_briefing: None,
+            }),
+            Err(AgentProviderError::UnsupportedCapability { .. })
+        );
+        let refuses_acp = matches!(
+            provider.prepare_acp(ProviderAcpInvocationRequest {
+                executable: definition.executable.to_string(),
+                global_args: &[],
+                invocation_args: &[],
+                account_profile: None,
+            }),
+            Err(AgentProviderError::UnsupportedCapability { .. })
+        );
+        if !refuses_generation
+            || !refuses_acp
+            || capabilities.usage() != ProviderUsageCapability::Unavailable
+        {
+            return Err(preparation_error(
+                id,
+                "terminal-only transport contract is incomplete",
             ));
         }
     }

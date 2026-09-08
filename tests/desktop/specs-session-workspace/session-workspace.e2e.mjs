@@ -241,9 +241,10 @@ globalThis.describe("VaneHub AI desktop session workspace", () => {
     await (await dialog()).waitForExist({ timeout: 20000 });
     await submitCreateSession({ projectPath: folder, title: "深层工作区搜索验证", agentId: "opencode" });
 
-    const files = await globalThis.$('//*[@role="tablist" and @aria-label="会话工作区"]//*[@role="tab" and @title="文件"]');
-    await files.waitForClickable({ timeout: 30000 });
-    await files.click();
+    // Through the shared helper, like every other tab click in this file: session creation can
+    // re-render the tab strip right after activation, and a raw handle taken before that frame
+    // never becomes clickable again.
+    await clickWorkspaceTab("文件", 30000);
     const openSearch = await globalThis.$('//button[@title="在文件中搜索" or @aria-label="在文件中搜索"]');
     await openSearch.waitForClickable({ timeout: 30000 });
     await openSearch.click();

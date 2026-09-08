@@ -33,6 +33,9 @@ pub(crate) use super::cli_parameters::api::{
     CliLaunchExecutionContext, CliLaunchScope, CliParameterRuntimeApi, CliParameterSelection,
     CliParameterSelectionMap, CliParameterValue, ResolveCliLaunchParametersInput,
 };
+/// The CLIs that have user-editable parameter catalog entries. A managed CLI outside this list
+/// still launches; its policy projection is runtime-owned rather than catalog-rendered.
+pub(crate) use super::cli_parameters::domain::catalog_validation::MANAGED_CLI_AGENT_IDS as MANAGED_CLI_PARAMETER_AGENT_IDS;
 #[cfg(test)]
 pub(crate) use super::skills::api::EffectiveSkillCatalogShadow;
 pub(crate) use super::skills::api::{

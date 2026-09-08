@@ -14,6 +14,7 @@ import { CliEnvironmentRejection } from "../types/cli-environment";
 import type {
   CliActionPlan,
   CliBulkActionPlan,
+  CliConnectionCheck,
   ExecuteCliActionInput,
   PrepareCliActionInput,
 } from "../types/cli-environment-snapshot";
@@ -228,5 +229,24 @@ export const webCliEnvironmentClient: CliToolService = {
       // `unknown` is the honest answer for a runtime that cannot run the tool's own diagnostics.
       result: { agentId, doctor: "unknown" },
     });
+  },
+
+  async checkCliConnection(agentId: string, providerId: string | null): Promise<CliConnectionCheck> {
+    const snapshot = webCliEnvironmentSnapshots().find((item) => item.agentId === agentId);
+    if (!snapshot) throw new Error(`Unknown CLI tool: ${agentId}`);
+    // The mock refuses the same two cases the desktop refuses, so the page's failure branch is
+    // reachable in a browser. It never pretends a legacy or headless tool speaks ACP.
+    if (snapshot.managedTransport !== "acp-stdio") throw new Error("connection-check-not-supported");
+    if (!snapshot.pathSelectedInstallationId) throw new Error("connection-check-not-installed");
+    return {
+      agentId,
+      transport: "acp-stdio",
+      protocolVersion: 1,
+      loadSession: agentId !== "copilot-cli",
+      agentName: `mock-${snapshot.executableNames[0] ?? agentId}`,
+      agentVersion: snapshot.installations.find((item) => item.id === snapshot.pathSelectedInstallationId)?.reportedVersion ?? null,
+      authMethods: providerId ? [providerId] : [],
+      elapsedMs: 12,
+    };
   },
 };

@@ -1,4 +1,5 @@
 use super::{stable_id, GenerationApiError, SkillEvolutionGenerationApi};
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::{params, OptionalExtension};
 use serde_json::{json, Value};
 
@@ -171,7 +172,7 @@ impl SkillEvolutionGenerationApi {
             .connection()
             .map_err(|_| GenerationApiError::Storage)?;
         let transaction = connection
-            .transaction()
+            .write_transaction()
             .map_err(|_| GenerationApiError::Storage)?;
         let source=transaction.query_row("SELECT schema_version,workspace_id,seed_id,seed_revision,assessment_attempt_id,assessment_revision,input_witness_json,input_witness_hash,current_attempt,budget_json,status FROM evolution_generation_jobs WHERE job_id=?1",[job_id],|row| Ok((row.get::<_,i64>(0)?,row.get::<_,Option<String>>(1)?,row.get::<_,String>(2)?,row.get::<_,String>(3)?,row.get::<_,String>(4)?,row.get::<_,String>(5)?,row.get::<_,String>(6)?,row.get::<_,String>(7)?,row.get::<_,i64>(8)?,row.get::<_,String>(9)?,row.get::<_,String>(10)?))).optional().map_err(|_| GenerationApiError::Storage)?.ok_or(GenerationApiError::NotFound)?;
         if source.7 != expected_hash {

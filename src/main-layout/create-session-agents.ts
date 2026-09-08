@@ -41,10 +41,19 @@ export function defaultSessionAgent(
     );
     if (onepiece) return onepiece;
   }
+  // A legacy CLI is never the default: it is opt-in, and choosing it for someone would present
+  // a terminal-only program with no official service as if it were an ordinary agent.
   return agents.find((agent) =>
     createSessionCliPriority.includes(agent.id as (typeof createSessionCliPriority)[number])
+      && !isLegacySessionAgent(agent)
       && isSessionAgentSelectable(agent),
-  ) ?? agents.find(isSessionAgentSelectable) ?? agents[0] ?? null;
+  ) ?? agents.find((agent) => !isLegacySessionAgent(agent) && isSessionAgentSelectable(agent))
+    ?? agents.find((agent) => !isLegacySessionAgent(agent)) ?? agents[0] ?? null;
+}
+
+/** The backend seeds `legacy` as a capability tag; the dialog reads that tag, not an id list. */
+export function isLegacySessionAgent(agent: AgentRegistryEntry): boolean {
+  return agent.capabilityTags.includes("legacy");
 }
 
 export function groupSessionAgents(agents: AgentRegistryEntry[]) {
@@ -55,8 +64,15 @@ export function groupSessionAgents(agents: AgentRegistryEntry[]) {
       agents: agents.filter((agent) =>
         agent.id !== "onepiece"
         && agent.agentOrigin === "builtin"
-        && agent.supportedInteractionModes.includes("cli"),
+        && agent.supportedInteractionModes.includes("cli")
+        && !isLegacySessionAgent(agent),
       ),
+    },
+    {
+      // Hidden until the user asks for it: see `CreateSessionAgentSection`.
+      id: "legacy" as const,
+      labelKey: "onepiece.group.legacy",
+      agents: agents.filter((agent) => agent.agentOrigin === "builtin" && isLegacySessionAgent(agent)),
     },
     {
       id: "native" as const,

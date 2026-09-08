@@ -5,6 +5,7 @@ use crate::contexts::desktop::domain::{
     AutomaticArchivalSettings, DesktopSettingKey, DesktopSettingMutation,
 };
 use crate::platform::database::NativeDatabase;
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::{params, Connection, OptionalExtension};
 
 #[derive(Clone)]
@@ -42,7 +43,7 @@ impl SqliteDesktopSettingsRepository {
         updated_at: &str,
     ) -> Result<(), DesktopSettingsApplicationError> {
         let mut connection = self.database.connection().map_err(database_error)?;
-        let transaction = connection.transaction().map_err(repository_error)?;
+        let transaction = connection.write_transaction().map_err(repository_error)?;
         upsert_setting(
             &transaction,
             "defaultFolderOpenerId",
@@ -103,7 +104,7 @@ impl DesktopSettingsRepository for SqliteDesktopSettingsRepository {
         updated_at: &str,
     ) -> Result<(), DesktopSettingsApplicationError> {
         let mut connection = self.database.connection().map_err(database_error)?;
-        let transaction = connection.transaction().map_err(repository_error)?;
+        let transaction = connection.write_transaction().map_err(repository_error)?;
         upsert_setting(
             &transaction,
             DesktopSettingKey::AutomaticArchivalEnabled.as_str(),

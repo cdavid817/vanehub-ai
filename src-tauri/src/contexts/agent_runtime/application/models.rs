@@ -770,6 +770,12 @@ pub(crate) struct GenerationProcessRequest {
     /// straight off the session is what sent a second seat's turn to resume a thread its own CLI
     /// had never issued.
     pub(crate) resume_thread_id: Option<String>,
+    /// The seat this turn speaks for in a multi-seat session, resolved by the caller that owns
+    /// the turn. A process adapter keys its per-seat state (an ACP binding, its thread) by it;
+    /// inferring the seat from the provider and the threads on file picked the wrong seat the
+    /// first time a second seat of the same CLI was addressed, and its binding landed under the
+    /// other seat's key. `None` for single-Agent sessions.
+    pub(crate) seat_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

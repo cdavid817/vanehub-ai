@@ -2,6 +2,7 @@ use crate::contexts::artifacts::application::{
     ArtifactCatalogPort, ArtifactCreator, ArtifactDescriptor, ArtifactEvidenceKind,
     ArtifactPublicationReference, ArtifactServiceError, ArtifactVisibility,
 };
+use crate::platform::database::SqliteWriteTransaction;
 use crate::platform::database::{table_has_column, DatabaseError, NativeDatabase};
 use rusqlite::{params, Connection, OptionalExtension};
 
@@ -19,7 +20,7 @@ impl SqliteArtifactCatalog {
 impl ArtifactCatalogPort for SqliteArtifactCatalog {
     fn insert_immutable(&self, artifact: &ArtifactDescriptor) -> Result<(), ArtifactServiceError> {
         let mut connection = self.database.connection().map_err(catalog_error)?;
-        let transaction = connection.transaction().map_err(catalog_error)?;
+        let transaction = connection.write_transaction().map_err(catalog_error)?;
         transaction
             .execute(
                 r#"

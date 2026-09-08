@@ -82,4 +82,17 @@ test.describe("Agent global CLI configuration", () => {
     await expect(profile).toBeVisible();
     await expect(page.locator("body")).not.toContainText("gemini-e2e-secret");
   });
+
+  test("creates and applies Qwen Code and iFlow third-party endpoint profiles", async ({ page }) => {
+    test.slow();
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await openAgentConfigurations(page);
+
+    // Both CLIs speak OpenAI-compatible chat completions, so the shared provider directory offers
+    // the same DeepSeek endpoint to each; the presets already select the API-key strategy.
+    await createAndApplyProfile(page, "Qwen Code", "DeepSeek", "Qwen DeepSeek", "qwen-e2e-secret");
+    await createAndApplyProfile(page, "iFlow CLI", "DeepSeek", "iFlow DeepSeek", "iflow-e2e-secret");
+    await expect(page.locator("body")).not.toContainText("qwen-e2e-secret");
+    await expect(page.locator("body")).not.toContainText("iflow-e2e-secret");
+  });
 });

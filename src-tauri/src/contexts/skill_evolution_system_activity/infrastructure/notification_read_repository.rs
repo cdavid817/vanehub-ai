@@ -1,3 +1,4 @@
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::{params, OptionalExtension, Transaction};
 
 use super::retention_repository::refresh_session_summary;
@@ -33,7 +34,7 @@ impl SqliteActivityProjectionRepository<'_> {
     ) -> Result<ActivityNotificationOpenOutcome, ActivityProjectionRepositoryError> {
         validate_text_time(request_id, "notification.request_id", seen_at_ms)?;
         validate_text_time(user_id, "notification.user_id", seen_at_ms)?;
-        let transaction = self.connection.unchecked_transaction()?;
+        let transaction = self.connection.write_transaction_unchecked()?;
         let visible = transaction
             .query_row(
                 "SELECT i.session_id,i.sequence FROM evolution_activity_notification_requests n

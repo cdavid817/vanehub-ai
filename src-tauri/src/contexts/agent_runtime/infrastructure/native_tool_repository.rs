@@ -4,6 +4,7 @@ use crate::contexts::agent_runtime::application::{
     ArtifactRecord, ChangeSetApplyRecord, ChangeSetRecord, DelegationAttemptRecord,
     DelegationRecord, NativeToolPersistencePort, RecoveryRecord, StoredToolOperation,
 };
+use crate::platform::database::SqliteWriteTransaction;
 use crate::platform::database::{DatabaseError, NativeDatabase};
 use rusqlite::params;
 
@@ -85,7 +86,7 @@ impl SqliteNativeToolRepository {
 
     pub(crate) fn insert_artifact(&self, record: &ArtifactRecord) -> Result<(), DatabaseError> {
         let mut connection = self.database.connection()?;
-        let transaction = connection.transaction()?;
+        let transaction = connection.write_transaction()?;
         transaction.execute(
             r#"
             INSERT INTO native_tool_artifacts (
@@ -183,7 +184,7 @@ impl SqliteNativeToolRepository {
 
     pub(crate) fn insert_change_set(&self, record: &ChangeSetRecord) -> Result<(), DatabaseError> {
         let mut connection = self.database.connection()?;
-        let transaction = connection.transaction()?;
+        let transaction = connection.write_transaction()?;
         transaction.execute(
             r#"
             INSERT INTO native_tool_change_sets (

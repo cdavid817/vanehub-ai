@@ -44,6 +44,10 @@ fn snapshot() -> CliEnvironmentSnapshotDto {
         last_mutation: None,
         last_operation_id: None,
         checked_at: None,
+        lifecycle: "active".to_string(),
+        legacy_service_shutdown: None,
+        managed_transport: "headless".to_string(),
+        login_docs_url: None,
     }
 }
 

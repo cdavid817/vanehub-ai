@@ -18,6 +18,11 @@ export const PROVIDER_LABELS: Record<string, string> = {
   google: "Google",
   opencode: "OpenCode",
   onepiece: "OnePiece",
+  // CodeBuddy's provider id is also its account environment; the three are the reviewed values
+  // the native runtime starts the CLI against.
+  "codebuddy-international": "CodeBuddy (International)",
+  "codebuddy-china": "CodeBuddy (China)",
+  "codebuddy-ioa": "CodeBuddy (iOA)",
 };
 
 /**

@@ -1886,6 +1886,725 @@
           "dependencies": {}
         }
       ]
+    },
+    {
+      "agentId": "qwen-code",
+      "parameters": [
+        {
+          "id": "model",
+          "agentId": "qwen-code",
+          "category": "model",
+          "ownership": "user-editable",
+          "maturity": "stable",
+          "control": "custom-text",
+          "labelKey": "cliParameters.qwen-code.model.label",
+          "descriptionKey": "cliParameters.qwen-code.model.description",
+          "defaultSelection": {
+            "state": "inherit"
+          },
+          "launchScopes": [
+            "interactive",
+            "chat"
+          ],
+          "risk": "normal",
+          "advanced": false,
+          "options": [],
+          "renderer": {
+            "kind": "flag-value",
+            "flag": "--model",
+            "slot": "global"
+          },
+          "constraints": {
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/+-]*$",
+            "dedupe": false
+          },
+          "compatibility": {
+            "platforms": [
+              "windows",
+              "macos",
+              "linux"
+            ]
+          },
+          "dependencies": {}
+        },
+        {
+          "id": "safeMode",
+          "agentId": "qwen-code",
+          "category": "diagnostics",
+          "ownership": "user-editable",
+          "maturity": "stable",
+          "control": "boolean-flag",
+          "labelKey": "cliParameters.qwen-code.safeMode.label",
+          "descriptionKey": "cliParameters.qwen-code.safeMode.description",
+          "defaultSelection": {
+            "state": "inherit"
+          },
+          "launchScopes": [
+            "interactive",
+            "chat"
+          ],
+          "risk": "normal",
+          "advanced": false,
+          "options": [],
+          "renderer": {
+            "kind": "presence-flag",
+            "flag": "--safe-mode",
+            "slot": "global"
+          },
+          "constraints": {
+            "dedupe": false
+          },
+          "compatibility": {
+            "platforms": [
+              "windows",
+              "macos",
+              "linux"
+            ]
+          },
+          "dependencies": {}
+        },
+        {
+          "id": "bare",
+          "agentId": "qwen-code",
+          "category": "experience",
+          "ownership": "user-editable",
+          "maturity": "stable",
+          "control": "boolean-flag",
+          "labelKey": "cliParameters.qwen-code.bare.label",
+          "descriptionKey": "cliParameters.qwen-code.bare.description",
+          "defaultSelection": {
+            "state": "inherit"
+          },
+          "launchScopes": [
+            "interactive",
+            "chat"
+          ],
+          "risk": "normal",
+          "advanced": true,
+          "options": [],
+          "renderer": {
+            "kind": "presence-flag",
+            "flag": "--bare",
+            "slot": "global"
+          },
+          "constraints": {
+            "dedupe": false
+          },
+          "compatibility": {
+            "platforms": [
+              "windows",
+              "macos",
+              "linux"
+            ]
+          },
+          "dependencies": {}
+        }
+      ]
+    },
+    {
+      "agentId": "kimi-cli",
+      "parameters": [
+        {
+          "id": "model",
+          "agentId": "kimi-cli",
+          "category": "model",
+          "ownership": "user-editable",
+          "maturity": "stable",
+          "control": "custom-text",
+          "labelKey": "cliParameters.kimi-cli.model.label",
+          "descriptionKey": "cliParameters.kimi-cli.model.description",
+          "defaultSelection": {
+            "state": "inherit"
+          },
+          "launchScopes": [
+            "interactive",
+            "chat"
+          ],
+          "risk": "normal",
+          "advanced": false,
+          "options": [],
+          "renderer": {
+            "kind": "flag-value",
+            "flag": "--model",
+            "slot": "global"
+          },
+          "constraints": {
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/+-]*$",
+            "dedupe": false
+          },
+          "compatibility": {
+            "platforms": [
+              "windows",
+              "macos",
+              "linux"
+            ]
+          },
+          "dependencies": {}
+        },
+        {
+          "id": "agent",
+          "agentId": "kimi-cli",
+          "category": "runtime",
+          "ownership": "user-editable",
+          "maturity": "stable",
+          "control": "custom-text",
+          "labelKey": "cliParameters.kimi-cli.agent.label",
+          "descriptionKey": "cliParameters.kimi-cli.agent.description",
+          "defaultSelection": {
+            "state": "inherit"
+          },
+          "launchScopes": [
+            "interactive",
+            "chat"
+          ],
+          "risk": "normal",
+          "advanced": false,
+          "options": [],
+          "renderer": {
+            "kind": "flag-value",
+            "flag": "--agent",
+            "slot": "global"
+          },
+          "constraints": {
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/+-]*$",
+            "dedupe": false
+          },
+          "compatibility": {
+            "platforms": [
+              "windows",
+              "macos",
+              "linux"
+            ]
+          },
+          "dependencies": {}
+        }
+      ]
+    },
+    {
+      "agentId": "qoder-cli",
+      "parameters": [
+        {
+          "id": "model",
+          "agentId": "qoder-cli",
+          "category": "model",
+          "ownership": "user-editable",
+          "maturity": "stable",
+          "control": "custom-text",
+          "labelKey": "cliParameters.qoder-cli.model.label",
+          "descriptionKey": "cliParameters.qoder-cli.model.description",
+          "defaultSelection": {
+            "state": "inherit"
+          },
+          "launchScopes": [
+            "interactive",
+            "chat"
+          ],
+          "risk": "normal",
+          "advanced": false,
+          "options": [],
+          "renderer": {
+            "kind": "flag-value",
+            "flag": "--model",
+            "slot": "global"
+          },
+          "constraints": {
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/+-]*$",
+            "dedupe": false
+          },
+          "compatibility": {
+            "platforms": [
+              "windows",
+              "macos",
+              "linux"
+            ]
+          },
+          "dependencies": {}
+        },
+        {
+          "id": "thinking",
+          "agentId": "qoder-cli",
+          "category": "model",
+          "ownership": "user-editable",
+          "maturity": "stable",
+          "control": "enum",
+          "labelKey": "cliParameters.qoder-cli.thinking.label",
+          "descriptionKey": "cliParameters.qoder-cli.thinking.description",
+          "defaultSelection": {
+            "state": "inherit"
+          },
+          "launchScopes": [
+            "interactive",
+            "chat"
+          ],
+          "risk": "normal",
+          "advanced": false,
+          "options": [
+            {
+              "value": "auto",
+              "labelKey": "cliParameters.qoder-cli.thinking.values.auto.label",
+              "descriptionKey": "cliParameters.qoder-cli.thinking.values.auto.description"
+            },
+            {
+              "value": "adaptive",
+              "labelKey": "cliParameters.qoder-cli.thinking.values.adaptive.label",
+              "descriptionKey": "cliParameters.qoder-cli.thinking.values.adaptive.description"
+            },
+            {
+              "value": "enabled",
+              "labelKey": "cliParameters.qoder-cli.thinking.values.enabled.label",
+              "descriptionKey": "cliParameters.qoder-cli.thinking.values.enabled.description"
+            },
+            {
+              "value": "disabled",
+              "labelKey": "cliParameters.qoder-cli.thinking.values.disabled.label",
+              "descriptionKey": "cliParameters.qoder-cli.thinking.values.disabled.description"
+            }
+          ],
+          "renderer": {
+            "kind": "flag-value",
+            "flag": "--thinking",
+            "slot": "global"
+          },
+          "constraints": {
+            "dedupe": false
+          },
+          "compatibility": {
+            "platforms": [
+              "windows",
+              "macos",
+              "linux"
+            ]
+          },
+          "dependencies": {}
+        },
+        {
+          "id": "agent",
+          "agentId": "qoder-cli",
+          "category": "runtime",
+          "ownership": "user-editable",
+          "maturity": "stable",
+          "control": "custom-text",
+          "labelKey": "cliParameters.qoder-cli.agent.label",
+          "descriptionKey": "cliParameters.qoder-cli.agent.description",
+          "defaultSelection": {
+            "state": "inherit"
+          },
+          "launchScopes": [
+            "interactive",
+            "chat"
+          ],
+          "risk": "normal",
+          "advanced": false,
+          "options": [],
+          "renderer": {
+            "kind": "flag-value",
+            "flag": "--agent",
+            "slot": "global"
+          },
+          "constraints": {
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/+-]*$",
+            "dedupe": false
+          },
+          "compatibility": {
+            "platforms": [
+              "windows",
+              "macos",
+              "linux"
+            ]
+          },
+          "dependencies": {}
+        }
+      ]
+    },
+    {
+      "agentId": "codebuddy-code",
+      "parameters": [
+        {
+          "id": "model",
+          "agentId": "codebuddy-code",
+          "category": "model",
+          "ownership": "user-editable",
+          "maturity": "stable",
+          "control": "custom-text",
+          "labelKey": "cliParameters.codebuddy-code.model.label",
+          "descriptionKey": "cliParameters.codebuddy-code.model.description",
+          "defaultSelection": {
+            "state": "inherit"
+          },
+          "launchScopes": [
+            "interactive",
+            "chat"
+          ],
+          "risk": "normal",
+          "advanced": false,
+          "options": [],
+          "renderer": {
+            "kind": "flag-value",
+            "flag": "--model",
+            "slot": "global"
+          },
+          "constraints": {
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/+-]*$",
+            "dedupe": false
+          },
+          "compatibility": {
+            "platforms": [
+              "windows",
+              "macos",
+              "linux"
+            ]
+          },
+          "dependencies": {}
+        },
+        {
+          "id": "effort",
+          "agentId": "codebuddy-code",
+          "category": "model",
+          "ownership": "user-editable",
+          "maturity": "stable",
+          "control": "enum",
+          "labelKey": "cliParameters.codebuddy-code.effort.label",
+          "descriptionKey": "cliParameters.codebuddy-code.effort.description",
+          "defaultSelection": {
+            "state": "inherit"
+          },
+          "launchScopes": [
+            "interactive",
+            "chat"
+          ],
+          "risk": "normal",
+          "advanced": false,
+          "options": [
+            {
+              "value": "minimal",
+              "labelKey": "cliParameters.codebuddy-code.effort.values.minimal.label",
+              "descriptionKey": "cliParameters.codebuddy-code.effort.values.minimal.description"
+            },
+            {
+              "value": "low",
+              "labelKey": "cliParameters.codebuddy-code.effort.values.low.label",
+              "descriptionKey": "cliParameters.codebuddy-code.effort.values.low.description"
+            },
+            {
+              "value": "medium",
+              "labelKey": "cliParameters.codebuddy-code.effort.values.medium.label",
+              "descriptionKey": "cliParameters.codebuddy-code.effort.values.medium.description"
+            },
+            {
+              "value": "high",
+              "labelKey": "cliParameters.codebuddy-code.effort.values.high.label",
+              "descriptionKey": "cliParameters.codebuddy-code.effort.values.high.description"
+            },
+            {
+              "value": "xhigh",
+              "labelKey": "cliParameters.codebuddy-code.effort.values.xhigh.label",
+              "descriptionKey": "cliParameters.codebuddy-code.effort.values.xhigh.description"
+            },
+            {
+              "value": "max",
+              "labelKey": "cliParameters.codebuddy-code.effort.values.max.label",
+              "descriptionKey": "cliParameters.codebuddy-code.effort.values.max.description"
+            }
+          ],
+          "renderer": {
+            "kind": "flag-value",
+            "flag": "--effort",
+            "slot": "global"
+          },
+          "constraints": {
+            "dedupe": false
+          },
+          "compatibility": {
+            "platforms": [
+              "windows",
+              "macos",
+              "linux"
+            ]
+          },
+          "dependencies": {}
+        },
+        {
+          "id": "agent",
+          "agentId": "codebuddy-code",
+          "category": "runtime",
+          "ownership": "user-editable",
+          "maturity": "stable",
+          "control": "custom-text",
+          "labelKey": "cliParameters.codebuddy-code.agent.label",
+          "descriptionKey": "cliParameters.codebuddy-code.agent.description",
+          "defaultSelection": {
+            "state": "inherit"
+          },
+          "launchScopes": [
+            "interactive",
+            "chat"
+          ],
+          "risk": "normal",
+          "advanced": false,
+          "options": [],
+          "renderer": {
+            "kind": "flag-value",
+            "flag": "--agent",
+            "slot": "global"
+          },
+          "constraints": {
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/+-]*$",
+            "dedupe": false
+          },
+          "compatibility": {
+            "platforms": [
+              "windows",
+              "macos",
+              "linux"
+            ]
+          },
+          "dependencies": {}
+        }
+      ]
+    },
+    {
+      "agentId": "copilot-cli",
+      "parameters": [
+        {
+          "id": "model",
+          "agentId": "copilot-cli",
+          "category": "model",
+          "ownership": "user-editable",
+          "maturity": "stable",
+          "control": "custom-text",
+          "labelKey": "cliParameters.copilot-cli.model.label",
+          "descriptionKey": "cliParameters.copilot-cli.model.description",
+          "defaultSelection": {
+            "state": "inherit"
+          },
+          "launchScopes": [
+            "interactive",
+            "chat"
+          ],
+          "risk": "normal",
+          "advanced": false,
+          "options": [],
+          "renderer": {
+            "kind": "flag-value",
+            "flag": "--model",
+            "slot": "global"
+          },
+          "constraints": {
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/+-]*$",
+            "dedupe": false
+          },
+          "compatibility": {
+            "platforms": [
+              "windows",
+              "macos",
+              "linux"
+            ]
+          },
+          "dependencies": {}
+        },
+        {
+          "id": "effort",
+          "agentId": "copilot-cli",
+          "category": "model",
+          "ownership": "user-editable",
+          "maturity": "stable",
+          "control": "enum",
+          "labelKey": "cliParameters.copilot-cli.effort.label",
+          "descriptionKey": "cliParameters.copilot-cli.effort.description",
+          "defaultSelection": {
+            "state": "inherit"
+          },
+          "launchScopes": [
+            "interactive",
+            "chat"
+          ],
+          "risk": "normal",
+          "advanced": false,
+          "options": [
+            {
+              "value": "none",
+              "labelKey": "cliParameters.copilot-cli.effort.values.none.label",
+              "descriptionKey": "cliParameters.copilot-cli.effort.values.none.description"
+            },
+            {
+              "value": "minimal",
+              "labelKey": "cliParameters.copilot-cli.effort.values.minimal.label",
+              "descriptionKey": "cliParameters.copilot-cli.effort.values.minimal.description"
+            },
+            {
+              "value": "low",
+              "labelKey": "cliParameters.copilot-cli.effort.values.low.label",
+              "descriptionKey": "cliParameters.copilot-cli.effort.values.low.description"
+            },
+            {
+              "value": "medium",
+              "labelKey": "cliParameters.copilot-cli.effort.values.medium.label",
+              "descriptionKey": "cliParameters.copilot-cli.effort.values.medium.description"
+            },
+            {
+              "value": "high",
+              "labelKey": "cliParameters.copilot-cli.effort.values.high.label",
+              "descriptionKey": "cliParameters.copilot-cli.effort.values.high.description"
+            },
+            {
+              "value": "xhigh",
+              "labelKey": "cliParameters.copilot-cli.effort.values.xhigh.label",
+              "descriptionKey": "cliParameters.copilot-cli.effort.values.xhigh.description"
+            },
+            {
+              "value": "max",
+              "labelKey": "cliParameters.copilot-cli.effort.values.max.label",
+              "descriptionKey": "cliParameters.copilot-cli.effort.values.max.description"
+            }
+          ],
+          "renderer": {
+            "kind": "flag-value",
+            "flag": "--effort",
+            "slot": "global"
+          },
+          "constraints": {
+            "dedupe": false
+          },
+          "compatibility": {
+            "platforms": [
+              "windows",
+              "macos",
+              "linux"
+            ]
+          },
+          "dependencies": {}
+        }
+      ]
+    },
+    {
+      "agentId": "cursor-agent-cli",
+      "parameters": [
+        {
+          "id": "model",
+          "agentId": "cursor-agent-cli",
+          "category": "model",
+          "ownership": "user-editable",
+          "maturity": "stable",
+          "control": "custom-text",
+          "labelKey": "cliParameters.cursor-agent-cli.model.label",
+          "descriptionKey": "cliParameters.cursor-agent-cli.model.description",
+          "defaultSelection": {
+            "state": "inherit"
+          },
+          "launchScopes": [
+            "interactive",
+            "chat"
+          ],
+          "risk": "normal",
+          "advanced": false,
+          "options": [],
+          "renderer": {
+            "kind": "flag-value",
+            "flag": "--model",
+            "slot": "global"
+          },
+          "constraints": {
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/+=,\\[\\]-]*$",
+            "dedupe": false
+          },
+          "compatibility": {
+            "platforms": [
+              "windows",
+              "macos",
+              "linux"
+            ]
+          },
+          "dependencies": {}
+        }
+      ]
+    },
+    {
+      "agentId": "iflow-cli",
+      "parameters": [
+        {
+          "id": "model",
+          "agentId": "iflow-cli",
+          "category": "model",
+          "ownership": "user-editable",
+          "maturity": "stable",
+          "control": "custom-text",
+          "labelKey": "cliParameters.iflow-cli.model.label",
+          "descriptionKey": "cliParameters.iflow-cli.model.description",
+          "defaultSelection": {
+            "state": "inherit"
+          },
+          "launchScopes": [
+            "interactive",
+            "chat"
+          ],
+          "risk": "normal",
+          "advanced": false,
+          "options": [],
+          "renderer": {
+            "kind": "flag-value",
+            "flag": "--model",
+            "slot": "global"
+          },
+          "constraints": {
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/+-]*$",
+            "dedupe": false
+          },
+          "compatibility": {
+            "platforms": [
+              "windows",
+              "macos",
+              "linux"
+            ]
+          },
+          "dependencies": {}
+        },
+        {
+          "id": "thinking",
+          "agentId": "iflow-cli",
+          "category": "model",
+          "ownership": "user-editable",
+          "maturity": "stable",
+          "control": "boolean-flag",
+          "labelKey": "cliParameters.iflow-cli.thinking.label",
+          "descriptionKey": "cliParameters.iflow-cli.thinking.description",
+          "defaultSelection": {
+            "state": "inherit"
+          },
+          "launchScopes": [
+            "interactive",
+            "chat"
+          ],
+          "risk": "normal",
+          "advanced": false,
+          "options": [],
+          "renderer": {
+            "kind": "presence-flag",
+            "flag": "--thinking",
+            "slot": "global"
+          },
+          "constraints": {
+            "dedupe": false
+          },
+          "compatibility": {
+            "platforms": [
+              "windows",
+              "macos",
+              "linux"
+            ]
+          },
+          "dependencies": {}
+        }
+      ]
     }
   ]
 }

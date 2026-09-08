@@ -250,6 +250,7 @@ pub(crate) fn invoke_handler(
         // Tooling: source-aware CLI environment.
         crate::commands::tooling::cli_environment::list_cli_environments::list_cli_environments,
         crate::commands::tooling::cli_environment::refresh_cli_environment::refresh_cli_environment,
+        crate::commands::tooling::cli_environment::check_cli_connection::check_cli_connection,
         crate::commands::tooling::cli_environment::prepare_cli_action::prepare_cli_action,
         crate::commands::tooling::cli_environment::get_cli_action_plan::get_cli_action_plan,
         crate::commands::tooling::cli_environment::execute_cli_action::execute_cli_action,

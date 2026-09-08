@@ -303,7 +303,17 @@ impl CliEnvironmentService {
                 cancellation,
             )?;
             installation.executable_status = if outcome.succeeded() {
-                CliExecutableStatus::Healthy
+                // Running is not being the right program. A generic basename that runs but
+                // carries none of the reviewed identity markers is refused, not launched.
+                if definition.identity.accepts(
+                    &installation.executable_path,
+                    installation.canonical_path.as_deref(),
+                    &outcome.stdout,
+                ) {
+                    CliExecutableStatus::Healthy
+                } else {
+                    CliExecutableStatus::IdentityMismatch
+                }
             } else if outcome.timed_out {
                 CliExecutableStatus::TimedOut
             } else {
@@ -600,11 +610,9 @@ fn compatibility_for(
     definition: &'static CliToolDefinition,
     active_version: Option<&NormalizedCliVersion>,
 ) -> CliCompatibilityStatus {
-    if !definition
-        .compatibility
-        .platforms
-        .supports_current_platform()
-    {
+    // Platform and architecture together: a vendor that ships no Windows arm64 build is
+    // unsupported there even though Windows itself is declared.
+    if !definition.compatibility.supports_current_target() {
         return CliCompatibilityStatus::UnsupportedPlatform;
     }
     match active_version.and_then(|version| definition.compatibility.is_below_floor(version)) {

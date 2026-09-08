@@ -5,7 +5,8 @@ use super::super::application::{
 use super::super::domain::{
     AppliedStateRecord, ClaudeAuthMode, CliConfigDriftState, CliConfigError, CliConfigPayload,
     CodexAuthStrategy, CodexWireApi, GeminiAuthStrategy, OpenCodeModelDefinition, ProfileRecord,
-    ANTIGRAVITY_MANAGED_KEYS, SUPPORTED_AGENT_IDS,
+    QwenAuthStrategy, ANTIGRAVITY_MANAGED_KEYS, IFLOW_MANAGED_KEYS, QWEN_MANAGED_ENV_KEYS,
+    SUPPORTED_AGENT_IDS,
 };
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
@@ -29,6 +30,12 @@ const CLAUDE_CORE_KEYS: [&str; 7] = [
     "ANTHROPIC_DEFAULT_OPUS_MODEL",
 ];
 const GEMINI_CORE_KEYS: [&str; 3] = ["GEMINI_API_KEY", "GOOGLE_GEMINI_BASE_URL", "GEMINI_MODEL"];
+/// The one settings key VaneHub manages for Qwen Code: which authentication mode the CLI uses.
+/// An explicit OAuth selection here would override the `.env` endpoint, so an API-key profile
+/// has to claim it.
+const QWEN_AUTH_TYPE_KEY: &str = "selectedType";
+const QWEN_OPENAI_AUTH_TYPE: &str = "openai";
+const IFLOW_OPENAI_COMPATIBLE_AUTH_TYPE: &str = "openai-compatible";
 
 /// Where CLI global configuration lives: the override when set (absolute only), the real home
 /// otherwise. Pure so the rule is testable without racing on process environment.
@@ -105,6 +112,10 @@ impl NativeCliGlobalConfigAdapter {
                 .join("antigravity-cli")
                 .join("settings.json")),
             "gemini-cli" => Ok(self.home_dir.join(".gemini").join(".env")),
+            // Qwen Code's OpenAI-compatible endpoint lives in its user-level `.env`; the
+            // authentication-mode selection is a second file, see `qwen_settings_path`.
+            "qwen-code" => Ok(self.home_dir.join(".qwen").join(".env")),
+            "iflow-cli" => Ok(self.home_dir.join(".iflow").join("settings.json")),
             _ => Err(CliConfigError::Validation(format!(
                 "unsupported CLI agent id: {agent_id}"
             ))),
@@ -113,6 +124,41 @@ impl NativeCliGlobalConfigAdapter {
 
     fn auth_path(&self) -> PathBuf {
         self.home_dir.join(".codex").join("auth.json")
+    }
+
+    fn qwen_settings_path(&self) -> PathBuf {
+        self.home_dir.join(".qwen").join("settings.json")
+    }
+
+    /// The managed fragment as it stands on disk: the primary document's managed keys plus, for
+    /// Qwen, the auth selection VaneHub manages in `settings.json`. An API-key profile claims
+    /// that selection, so a change to it -- the user switching back to OAuth from the CLI, the
+    /// file going missing -- is drift the fingerprint has to see, or the page keeps reporting
+    /// "applied" over a configuration the CLI no longer uses.
+    fn live_fragment(
+        &self,
+        agent_id: &str,
+        primary: &[u8],
+        profile: Option<&ProfileRecord>,
+    ) -> Result<Vec<u8>, CliConfigError> {
+        let mut fragment = managed_fragment(agent_id, primary, profile)?;
+        if agent_id == "qwen-code" {
+            fragment.extend_from_slice(b"\n--qwen-settings--\n");
+            fragment.extend_from_slice(self.qwen_auth_selection()?.as_bytes());
+        }
+        Ok(fragment)
+    }
+
+    fn qwen_auth_selection(&self) -> Result<String, CliConfigError> {
+        let path = self.qwen_settings_path();
+        if !path.exists() {
+            return Ok(format!("{QWEN_AUTH_TYPE_KEY}=<absent>"));
+        }
+        let document = parse_json_or_empty_at(&read_file(&path)?, &path)?;
+        let selected = document["security"]["auth"][QWEN_AUTH_TYPE_KEY]
+            .as_str()
+            .unwrap_or("<unset>");
+        Ok(format!("{QWEN_AUTH_TYPE_KEY}={selected}"))
     }
 
     fn lock_for(&self, agent_id: &str) -> Result<Arc<Mutex<()>>, CliConfigError> {
@@ -125,10 +171,10 @@ impl NativeCliGlobalConfigAdapter {
 impl CliGlobalConfigPort for NativeCliGlobalConfigAdapter {
     fn paths(&self, agent_id: &str) -> Result<Vec<PathBuf>, CliConfigError> {
         let primary = self.primary_path(agent_id)?;
-        if agent_id == "codex-cli" {
-            Ok(vec![primary, self.auth_path()])
-        } else {
-            Ok(vec![primary])
+        match agent_id {
+            "codex-cli" => Ok(vec![primary, self.auth_path()]),
+            "qwen-code" => Ok(vec![primary, self.qwen_settings_path()]),
+            _ => Ok(vec![primary]),
         }
     }
 
@@ -142,7 +188,7 @@ impl CliGlobalConfigPort for NativeCliGlobalConfigAdapter {
         let paths = self.paths(agent_id)?;
         if !path.exists() {
             let managed_fingerprint =
-                fingerprint(&managed_fragment(agent_id, &[], applied_profile)?);
+                fingerprint(&self.live_fragment(agent_id, &[], applied_profile)?);
             return Ok(LiveInspection {
                 paths,
                 state: if applied.is_some() {
@@ -154,7 +200,7 @@ impl CliGlobalConfigPort for NativeCliGlobalConfigAdapter {
             });
         }
         let bytes = read_file(&path)?;
-        let fragment = match managed_fragment(agent_id, &bytes, applied_profile) {
+        let fragment = match self.live_fragment(agent_id, &bytes, applied_profile) {
             Ok(fragment) => fragment,
             Err(CliConfigError::Parse { .. }) => {
                 return Ok(LiveInspection {
@@ -193,6 +239,8 @@ impl CliGlobalConfigPort for NativeCliGlobalConfigAdapter {
             "codex-cli" => import_codex(&path, &bytes),
             "opencode" => import_opencode(&path, &bytes),
             "gemini-cli" => import_gemini(&path, &bytes),
+            "qwen-code" => import_qwen(&path, &bytes),
+            "iflow-cli" => import_iflow(&path, &bytes),
             _ => Err(CliConfigError::Validation(format!(
                 "unsupported CLI agent id: {agent_id}"
             ))),
@@ -224,6 +272,14 @@ impl CliGlobalConfigPort for NativeCliGlobalConfigAdapter {
             "opencode" => discover_opencode(&path, &bytes)?,
             "gemini-cli" => (
                 vec![discover_exclusive(import_gemini(&path, &bytes)?, true)],
+                vec![],
+            ),
+            "qwen-code" => (
+                vec![discover_exclusive(import_qwen(&path, &bytes)?, true)],
+                vec![],
+            ),
+            "iflow-cli" => (
+                vec![discover_exclusive(import_iflow(&path, &bytes)?, true)],
                 vec![],
             ),
             _ => {
@@ -261,7 +317,7 @@ impl CliGlobalConfigPort for NativeCliGlobalConfigAdapter {
             }
             None => {
                 let current_fragment =
-                    managed_fragment(&profile.agent_id, &current_bytes, previous)?;
+                    self.live_fragment(&profile.agent_id, &current_bytes, previous)?;
                 fingerprint(&current_fragment) == expected_live_fingerprint
             }
         };
@@ -303,6 +359,54 @@ impl CliGlobalConfigPort for NativeCliGlobalConfigAdapter {
                 primary.clone(),
                 project_gemini(&primary, &current_bytes, profile, previous, credential)?,
             )],
+            CliConfigPayload::QwenCode { auth_strategy, .. } => {
+                let mut writes = vec![(
+                    primary.clone(),
+                    project_qwen(&primary, &current_bytes, profile, previous, credential)?,
+                )];
+                // The endpoint in `.env` only wins when no OAuth selection is recorded, so an
+                // API-key profile claims the selection; a preserve-official profile leaves the
+                // user's own choice alone.
+                if *auth_strategy == QwenAuthStrategy::ApiKey {
+                    let settings_path = self.qwen_settings_path();
+                    let settings_bytes = if settings_path.exists() {
+                        read_file(&settings_path)?
+                    } else {
+                        Vec::new()
+                    };
+                    writes.push((
+                        settings_path.clone(),
+                        project_qwen_auth_selection(&settings_path, &settings_bytes)?,
+                    ));
+                } else if previous.is_some_and(|previous| {
+                    matches!(
+                        previous.payload,
+                        CliConfigPayload::QwenCode {
+                            auth_strategy: QwenAuthStrategy::ApiKey,
+                            ..
+                        }
+                    )
+                }) {
+                    // Switching back from an API-key profile: the `.env` loses the key, and the
+                    // selection that profile claimed goes with it -- left in place, the CLI would
+                    // keep starting in OpenAI mode with no key behind it instead of the OAuth
+                    // flow the user chose.
+                    let settings_path = self.qwen_settings_path();
+                    if settings_path.exists() {
+                        let settings_bytes = read_file(&settings_path)?;
+                        if let Some(released) =
+                            release_qwen_auth_selection(&settings_path, &settings_bytes)?
+                        {
+                            writes.push((settings_path, released));
+                        }
+                    }
+                }
+                writes
+            }
+            CliConfigPayload::IflowCli { .. } => vec![(
+                primary.clone(),
+                project_iflow(&primary, &current_bytes, profile, previous, credential)?,
+            )],
         };
 
         let snapshots = writes
@@ -329,7 +433,8 @@ impl CliGlobalConfigPort for NativeCliGlobalConfigAdapter {
             .find(|(path, _)| path == &primary)
             .map(|(_, bytes)| bytes.as_slice())
             .ok_or(CliConfigError::Repository)?;
-        let live_fragment = managed_fragment(&profile.agent_id, written_primary, Some(profile))?;
+        let live_fragment =
+            self.live_fragment(&profile.agent_id, written_primary, Some(profile))?;
         let live_fingerprint = fingerprint(&live_fragment);
         Ok(ProjectionOutcome {
             paths: writes.into_iter().map(|(path, _)| path).collect(),
@@ -470,10 +575,68 @@ fn managed_fragment(
         "opencode" => opencode_fragment(bytes, profile),
         "antigravity-cli" => antigravity_fragment(bytes, profile),
         "gemini-cli" => gemini_fragment(bytes, profile),
+        "qwen-code" => dotenv_fragment(bytes, &QWEN_MANAGED_ENV_KEYS, profile, "Qwen .env"),
+        "iflow-cli" => {
+            root_json_fragment(bytes, &IFLOW_MANAGED_KEYS, profile, "iFlow settings.json")
+        }
         _ => Err(CliConfigError::Validation(format!(
             "unsupported CLI agent id: {agent_id}"
         ))),
     }
+}
+
+/// The managed subset of a dotenv document: the core keys plus whatever the applied profile
+/// declared, in a stable order, so the fingerprint only moves when a managed value does.
+fn dotenv_fragment(
+    bytes: &[u8],
+    core_keys: &[&str],
+    profile: Option<&ProfileRecord>,
+    label: &str,
+) -> Result<Vec<u8>, CliConfigError> {
+    let values = parse_dotenv(bytes, Path::new(label))?;
+    let mut keys = core_keys
+        .iter()
+        .map(|key| (*key).to_string())
+        .collect::<Vec<_>>();
+    if let Some(profile) = profile {
+        keys.extend(profile.managed_keys.iter().cloned());
+    }
+    keys.sort();
+    keys.dedup();
+    let fragment = keys
+        .into_iter()
+        .filter_map(|key| values.get(&key).cloned().map(|value| (key, value)))
+        .collect::<BTreeMap<_, _>>();
+    serde_json::to_vec(&fragment).map_err(|_| CliConfigError::Repository)
+}
+
+/// The managed subset of a JSON document whose managed values sit at the root.
+fn root_json_fragment(
+    bytes: &[u8],
+    core_keys: &[&str],
+    profile: Option<&ProfileRecord>,
+    label: &str,
+) -> Result<Vec<u8>, CliConfigError> {
+    let document = parse_json_or_empty(bytes, label)?;
+    let root = document.as_object();
+    let mut keys = core_keys
+        .iter()
+        .map(|key| (*key).to_string())
+        .collect::<Vec<_>>();
+    if let Some(profile) = profile {
+        keys.extend(profile.managed_keys.iter().cloned());
+    }
+    keys.sort();
+    keys.dedup();
+    let fragment = keys
+        .into_iter()
+        .filter_map(|key| {
+            root.and_then(|values| values.get(&key))
+                .cloned()
+                .map(|value| (key, value))
+        })
+        .collect::<BTreeMap<_, _>>();
+    serde_json::to_vec(&fragment).map_err(|_| CliConfigError::Repository)
 }
 
 fn gemini_fragment(
@@ -866,6 +1029,191 @@ fn project_gemini(
     render_dotenv(&values)
 }
 
+fn project_qwen(
+    path: &Path,
+    bytes: &[u8],
+    profile: &ProfileRecord,
+    previous: Option<&ProfileRecord>,
+    credential: Option<&str>,
+) -> Result<Vec<u8>, CliConfigError> {
+    let mut values = parse_dotenv(bytes, path)?;
+    if let Some(previous) = previous {
+        for key in &previous.managed_keys {
+            values.remove(key);
+        }
+    }
+    for key in QWEN_MANAGED_ENV_KEYS {
+        values.remove(key);
+    }
+    let CliConfigPayload::QwenCode {
+        base_url,
+        model,
+        auth_strategy,
+        advanced_env,
+    } = &profile.payload
+    else {
+        return Err(CliConfigError::Validation("invalid Qwen payload".into()));
+    };
+    values.insert("OPENAI_BASE_URL".into(), base_url.clone());
+    values.insert("OPENAI_MODEL".into(), model.clone());
+    if *auth_strategy == QwenAuthStrategy::ApiKey {
+        values.insert(
+            "OPENAI_API_KEY".into(),
+            credential
+                .ok_or(CliConfigError::CredentialRequired)?
+                .to_string(),
+        );
+    }
+    values.extend(advanced_env.clone());
+    render_dotenv(&values)
+}
+
+/// `security.auth.selectedType = "openai"` in Qwen's settings document, with every other setting
+/// (including the rest of `security` and `auth`) left as the user had it.
+fn project_qwen_auth_selection(path: &Path, bytes: &[u8]) -> Result<Vec<u8>, CliConfigError> {
+    let mut document = parse_json_or_empty_at(bytes, path)?;
+    let root = document
+        .as_object_mut()
+        .ok_or_else(|| parse_error(path, "root must be a JSON object"))?;
+    let security = root
+        .entry("security".to_string())
+        .or_insert_with(|| Value::Object(Map::new()));
+    let security = security
+        .as_object_mut()
+        .ok_or_else(|| parse_error(path, "security must be a JSON object"))?;
+    let auth = security
+        .entry("auth".to_string())
+        .or_insert_with(|| Value::Object(Map::new()));
+    let auth = auth
+        .as_object_mut()
+        .ok_or_else(|| parse_error(path, "security.auth must be a JSON object"))?;
+    auth.insert(QWEN_AUTH_TYPE_KEY.into(), json!(QWEN_OPENAI_AUTH_TYPE));
+    serde_json::to_vec_pretty(&document).map_err(|_| CliConfigError::Repository)
+}
+
+/// Removes `security.auth.selectedType` when it is the `openai` value an API-key profile wrote,
+/// leaving everything else (and any other selection the user made since) untouched. `None`
+/// when there is nothing to release.
+fn release_qwen_auth_selection(
+    path: &Path,
+    bytes: &[u8],
+) -> Result<Option<Vec<u8>>, CliConfigError> {
+    let mut document = parse_json_or_empty_at(bytes, path)?;
+    let Some(auth) = document
+        .get_mut("security")
+        .and_then(|security| security.get_mut("auth"))
+        .and_then(Value::as_object_mut)
+    else {
+        return Ok(None);
+    };
+    if auth.get(QWEN_AUTH_TYPE_KEY).and_then(Value::as_str) != Some(QWEN_OPENAI_AUTH_TYPE) {
+        return Ok(None);
+    }
+    auth.remove(QWEN_AUTH_TYPE_KEY);
+    serde_json::to_vec_pretty(&document)
+        .map(Some)
+        .map_err(|_| CliConfigError::Repository)
+}
+
+/// iFlow reads its authentication type and key from this file and nowhere else, so the credential
+/// is materialized here (the same rule that lets Codex own `auth.json`). Unmanaged root keys,
+/// including the identifiers iFlow writes for itself, are preserved; keys the previous profile
+/// managed and this one does not are removed, so an advanced setting deleted in the profile is
+/// deleted in the file too.
+fn project_iflow(
+    path: &Path,
+    bytes: &[u8],
+    profile: &ProfileRecord,
+    previous: Option<&ProfileRecord>,
+    credential: Option<&str>,
+) -> Result<Vec<u8>, CliConfigError> {
+    let mut document = parse_json_or_empty_at(bytes, path)?;
+    let root = document
+        .as_object_mut()
+        .ok_or_else(|| parse_error(path, "root must be a JSON object"))?;
+    if let Some(previous) = previous {
+        for key in &previous.managed_keys {
+            root.remove(key);
+        }
+    }
+    let CliConfigPayload::IflowCli {
+        base_url,
+        model,
+        advanced_settings,
+    } = &profile.payload
+    else {
+        return Err(CliConfigError::Validation("invalid iFlow payload".into()));
+    };
+    let secret = credential.ok_or(CliConfigError::CredentialRequired)?;
+    root.insert(
+        "selectedAuthType".into(),
+        json!(IFLOW_OPENAI_COMPATIBLE_AUTH_TYPE),
+    );
+    root.insert("apiKey".into(), json!(secret));
+    root.insert("baseUrl".into(), json!(base_url));
+    root.insert("modelName".into(), json!(model));
+    for (key, value) in advanced_settings {
+        root.insert(key.clone(), value.clone());
+    }
+    serde_json::to_vec_pretty(&document).map_err(|_| CliConfigError::Repository)
+}
+
+fn import_qwen(path: &Path, bytes: &[u8]) -> Result<ImportedLiveConfig, CliConfigError> {
+    let values = parse_dotenv(bytes, path)?;
+    let credential = values
+        .get("OPENAI_API_KEY")
+        .map(|secret| Zeroizing::new(secret.clone()));
+    Ok(ImportedLiveConfig {
+        payload: CliConfigPayload::QwenCode {
+            base_url: values
+                .get("OPENAI_BASE_URL")
+                .cloned()
+                .unwrap_or_else(|| "https://dashscope.aliyuncs.com/compatible-mode/v1".into()),
+            model: values
+                .get("OPENAI_MODEL")
+                .cloned()
+                .unwrap_or_else(|| "coder-model".into()),
+            auth_strategy: if credential.is_some() {
+                QwenAuthStrategy::ApiKey
+            } else {
+                QwenAuthStrategy::PreserveOfficial
+            },
+            advanced_env: BTreeMap::new(),
+        },
+        credential,
+        source_fingerprint: String::new(),
+    })
+}
+
+fn import_iflow(path: &Path, bytes: &[u8]) -> Result<ImportedLiveConfig, CliConfigError> {
+    let document = parse_json_or_empty_at(bytes, path)?;
+    let root = document
+        .as_object()
+        .ok_or_else(|| parse_error(path, "root must be a JSON object"))?;
+    let string = |key: &str, fallback: &str| {
+        root.get(key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(fallback)
+            .to_string()
+    };
+    let credential = root
+        .get("apiKey")
+        .and_then(Value::as_str)
+        .filter(|secret| !secret.is_empty())
+        .map(|secret| Zeroizing::new(secret.to_string()));
+    Ok(ImportedLiveConfig {
+        payload: CliConfigPayload::IflowCli {
+            base_url: string("baseUrl", "https://apis.iflow.cn/v1"),
+            model: string("modelName", "auto"),
+            advanced_settings: BTreeMap::new(),
+        },
+        credential,
+        source_fingerprint: String::new(),
+    })
+}
+
 fn import_claude(path: &Path, bytes: &[u8]) -> Result<ImportedLiveConfig, CliConfigError> {
     let document = parse_json_or_empty_at(bytes, path)?;
     let env = document
@@ -1104,6 +1452,22 @@ fn discover_exclusive(imported: ImportedLiveConfig, is_default: bool) -> Discove
         } => (
             "Local Gemini CLI".to_string(),
             endpoint_provider_name(base_url, "Google Gemini"),
+            base_url.clone(),
+            model.clone(),
+        ),
+        CliConfigPayload::QwenCode {
+            base_url, model, ..
+        } => (
+            "Local Qwen Code".to_string(),
+            endpoint_provider_name(base_url, "Qwen"),
+            base_url.clone(),
+            model.clone(),
+        ),
+        CliConfigPayload::IflowCli {
+            base_url, model, ..
+        } => (
+            "Local iFlow".to_string(),
+            endpoint_provider_name(base_url, "iFlow"),
             base_url.clone(),
             model.clone(),
         ),
@@ -2025,6 +2389,287 @@ mod tests {
     }
 
     #[test]
+    fn qwen_projection_writes_env_and_claims_the_auth_selection_while_preserving_the_rest() {
+        let directory = TempDirectory::new("cli-config-qwen");
+        let adapter = NativeCliGlobalConfigAdapter::with_home(directory.path().to_path_buf());
+        let env_path = adapter.primary_path("qwen-code").expect("path");
+        let settings_path = adapter.qwen_settings_path();
+        fs::create_dir_all(env_path.parent().expect("parent")).expect("directory");
+        fs::write(&env_path, "UNRELATED=kept\nOLD_MANAGED=old\n").expect("env fixture");
+        fs::write(
+            &settings_path,
+            r#"{"general":{"preferredEditor":"vim"},"security":{"auth":{"selectedType":"qwen-oauth","enforcedType":"x"}}}"#,
+        )
+        .expect("settings fixture");
+        assert_eq!(adapter.paths("qwen-code").expect("paths").len(), 2);
+        let previous = profile(
+            "qwen-code",
+            CliConfigPayload::QwenCode {
+                base_url: "https://old.example.com/v1".into(),
+                model: "old".into(),
+                auth_strategy: QwenAuthStrategy::ApiKey,
+                advanced_env: BTreeMap::from([("OLD_MANAGED".into(), "old".into())]),
+            },
+        );
+        let current = profile(
+            "qwen-code",
+            CliConfigPayload::QwenCode {
+                base_url: "https://api.deepseek.com/v1".into(),
+                model: "deepseek-v4-flash".into(),
+                auth_strategy: QwenAuthStrategy::ApiKey,
+                advanced_env: BTreeMap::new(),
+            },
+        );
+        let before = fs::read(&env_path).expect("read");
+        let expected = fingerprint(
+            &adapter
+                .live_fragment("qwen-code", &before, Some(&previous))
+                .expect("fragment"),
+        );
+
+        adapter
+            .apply(
+                &current,
+                Some(&previous),
+                Some("qwen-secret"),
+                false,
+                &expected,
+            )
+            .expect("apply");
+
+        let written =
+            parse_dotenv(&fs::read(&env_path).expect("written"), &env_path).expect("dotenv");
+        assert_eq!(written.get("UNRELATED").map(String::as_str), Some("kept"));
+        assert!(!written.contains_key("OLD_MANAGED"));
+        assert_eq!(
+            written.get("OPENAI_BASE_URL").map(String::as_str),
+            Some("https://api.deepseek.com/v1")
+        );
+        assert_eq!(
+            written.get("OPENAI_MODEL").map(String::as_str),
+            Some("deepseek-v4-flash")
+        );
+        assert_eq!(
+            written.get("OPENAI_API_KEY").map(String::as_str),
+            Some("qwen-secret")
+        );
+        let settings: Value =
+            serde_json::from_slice(&fs::read(&settings_path).expect("settings")).expect("json");
+        assert_eq!(
+            settings["security"]["auth"]["selectedType"],
+            json!("openai")
+        );
+        assert_eq!(settings["security"]["auth"]["enforcedType"], json!("x"));
+        assert_eq!(settings["general"]["preferredEditor"], json!("vim"));
+
+        let discovery = adapter.discover_current("qwen-code").expect("discovery");
+        assert_eq!(discovery.candidates.len(), 1);
+        assert_eq!(discovery.candidates[0].model, "deepseek-v4-flash");
+        assert!(discovery.candidates[0].credential.is_some());
+        assert_eq!(
+            adapter
+                .inspect("qwen-code", None, Some(&current))
+                .expect("inspection")
+                .state,
+            CliConfigDriftState::Detached
+        );
+
+        // Preserve-official: the managed key goes away and the settings file is not touched.
+        let official = profile(
+            "qwen-code",
+            CliConfigPayload::QwenCode {
+                base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".into(),
+                model: "coder-model".into(),
+                auth_strategy: QwenAuthStrategy::PreserveOfficial,
+                advanced_env: BTreeMap::new(),
+            },
+        );
+        let current_env = fs::read(&env_path).expect("env");
+        let expected = fingerprint(
+            &adapter
+                .live_fragment("qwen-code", &current_env, Some(&current))
+                .expect("fragment"),
+        );
+        adapter
+            .apply(&official, Some(&current), None, false, &expected)
+            .expect("apply official");
+        let written =
+            parse_dotenv(&fs::read(&env_path).expect("written"), &env_path).expect("dotenv");
+        assert!(!written.contains_key("OPENAI_API_KEY"));
+        assert_eq!(
+            written.get("OPENAI_MODEL").map(String::as_str),
+            Some("coder-model")
+        );
+        // The selection the API-key profile claimed is released with the key; the rest of the
+        // settings document is the user's and stays.
+        let settings: Value =
+            serde_json::from_slice(&fs::read(&settings_path).expect("settings")).expect("json");
+        assert!(settings["security"]["auth"].get("selectedType").is_none());
+        assert_eq!(settings["security"]["auth"]["enforcedType"], json!("x"));
+        assert_eq!(settings["general"]["preferredEditor"], json!("vim"));
+    }
+
+    /// The API-key profile manages `settings.json`'s auth selection, so the selection is part of
+    /// what "applied" means: switching it from the CLI, or losing the file, is drift.
+    #[test]
+    fn qwen_drift_detection_covers_the_auth_selection_in_settings() {
+        let directory = TempDirectory::new("cli-config-qwen-drift");
+        let adapter = NativeCliGlobalConfigAdapter::with_home(directory.path().to_path_buf());
+        let env_path = adapter.primary_path("qwen-code").expect("path");
+        let settings_path = adapter.qwen_settings_path();
+        fs::create_dir_all(env_path.parent().expect("parent")).expect("directory");
+        fs::write(&env_path, "").expect("env fixture");
+        fs::write(
+            &settings_path,
+            r#"{"security":{"auth":{"selectedType":"qwen-oauth"}}}"#,
+        )
+        .expect("settings fixture");
+        let current = profile(
+            "qwen-code",
+            CliConfigPayload::QwenCode {
+                base_url: "https://api.deepseek.com/v1".into(),
+                model: "deepseek-v4-flash".into(),
+                auth_strategy: QwenAuthStrategy::ApiKey,
+                advanced_env: BTreeMap::new(),
+            },
+        );
+        let expected = fingerprint(
+            &adapter
+                .live_fragment("qwen-code", b"", None)
+                .expect("fragment"),
+        );
+        let outcome = adapter
+            .apply(&current, None, Some("qwen-secret"), false, &expected)
+            .expect("apply");
+        let applied = AppliedStateRecord {
+            agent_id: "qwen-code".into(),
+            profile_id: Some(current.id.clone()),
+            projection_fingerprint: outcome.projection_fingerprint.clone(),
+            live_fingerprint: outcome.live_fingerprint.clone(),
+            drift_state: CliConfigDriftState::Applied,
+            applied_at: "2026-09-08T00:00:00Z".into(),
+            applied_payload: Some(current.payload.clone()),
+            managed_keys: current.managed_keys.clone(),
+        };
+        let state = |adapter: &NativeCliGlobalConfigAdapter| {
+            adapter
+                .inspect("qwen-code", Some(&applied), Some(&current))
+                .expect("inspection")
+                .state
+        };
+        assert_eq!(state(&adapter), CliConfigDriftState::Applied);
+
+        // The user switches auth from inside the CLI: `.env` is unchanged, the selection is not.
+        fs::write(
+            &settings_path,
+            r#"{"security":{"auth":{"selectedType":"qwen-oauth"}}}"#,
+        )
+        .expect("switch");
+        assert_eq!(state(&adapter), CliConfigDriftState::Drifted);
+
+        // An unrelated setting changes: still applied.
+        fs::write(
+            &settings_path,
+            r#"{"general":{"preferredEditor":"vim"},"security":{"auth":{"selectedType":"openai"}}}"#,
+        )
+        .expect("unrelated");
+        assert_eq!(state(&adapter), CliConfigDriftState::Applied);
+
+        // The settings file disappears or breaks: not applied either.
+        fs::remove_file(&settings_path).expect("remove");
+        assert_eq!(state(&adapter), CliConfigDriftState::Drifted);
+        fs::write(&settings_path, "{broken").expect("break");
+        assert_eq!(state(&adapter), CliConfigDriftState::Malformed);
+    }
+
+    #[test]
+    fn iflow_projection_materializes_the_key_and_preserves_iflow_owned_keys() {
+        let directory = TempDirectory::new("cli-config-iflow");
+        let adapter = NativeCliGlobalConfigAdapter::with_home(directory.path().to_path_buf());
+        let path = adapter.primary_path("iflow-cli").expect("path");
+        fs::create_dir_all(path.parent().expect("parent")).expect("directory");
+        fs::write(
+            &path,
+            r#"{"cna":"3V0kI6qbhwsCAd9oiBQVmnQm","theme":"light","selectedAuthType":"iflow","apiKey":"old"}"#,
+        )
+        .expect("fixture");
+        let current = profile(
+            "iflow-cli",
+            CliConfigPayload::IflowCli {
+                base_url: "https://api.deepseek.com/v1".into(),
+                model: "deepseek-v4-flash".into(),
+                advanced_settings: BTreeMap::from([("theme".into(), json!("dark"))]),
+            },
+        );
+        let before = fs::read(&path).expect("read");
+        let expected =
+            fingerprint(&managed_fragment("iflow-cli", &before, None).expect("fragment"));
+        assert!(matches!(
+            adapter.apply(&current, None, None, false, &expected),
+            Err(CliConfigError::CredentialRequired)
+        ));
+        assert_eq!(fs::read(&path).expect("untouched"), before);
+
+        adapter
+            .apply(&current, None, Some("iflow-secret"), false, &expected)
+            .expect("apply");
+        let written: Value =
+            serde_json::from_slice(&fs::read(&path).expect("written")).expect("json");
+        assert_eq!(written["cna"], json!("3V0kI6qbhwsCAd9oiBQVmnQm"));
+        assert_eq!(written["selectedAuthType"], json!("openai-compatible"));
+        assert_eq!(written["apiKey"], json!("iflow-secret"));
+        assert_eq!(written["baseUrl"], json!("https://api.deepseek.com/v1"));
+        assert_eq!(written["modelName"], json!("deepseek-v4-flash"));
+        assert_eq!(written["theme"], json!("dark"));
+
+        let imported = adapter.import_current("iflow-cli").expect("import");
+        let CliConfigPayload::IflowCli {
+            base_url, model, ..
+        } = &imported.payload
+        else {
+            panic!("imported an iFlow payload");
+        };
+        assert_eq!(base_url, "https://api.deepseek.com/v1");
+        assert_eq!(model, "deepseek-v4-flash");
+        assert_eq!(
+            imported.credential.as_deref().map(String::as_str),
+            Some("iflow-secret")
+        );
+        let discovery = adapter.discover_current("iflow-cli").expect("discovery");
+        assert_eq!(discovery.candidates.len(), 1);
+        assert_eq!(discovery.candidates[0].provider_name, "api.deepseek.com");
+
+        // A profile without the advanced key replaces the one that set it: the key leaves the
+        // file, iFlow's own identifier and the managed endpoint keys stay.
+        let next = profile(
+            "iflow-cli",
+            CliConfigPayload::IflowCli {
+                base_url: "https://api.deepseek.com/v1".into(),
+                model: "deepseek-v4-pro".into(),
+                advanced_settings: BTreeMap::new(),
+            },
+        );
+        let current_bytes = fs::read(&path).expect("current");
+        let expected = fingerprint(
+            &managed_fragment("iflow-cli", &current_bytes, Some(&current)).expect("fragment"),
+        );
+        adapter
+            .apply(
+                &next,
+                Some(&current),
+                Some("iflow-secret"),
+                false,
+                &expected,
+            )
+            .expect("apply next");
+        let written: Value =
+            serde_json::from_slice(&fs::read(&path).expect("written")).expect("json");
+        assert_eq!(written["cna"], json!("3V0kI6qbhwsCAd9oiBQVmnQm"));
+        assert_eq!(written["modelName"], json!("deepseek-v4-pro"));
+        assert!(written.get("theme").is_none(), "{written}");
+    }
+
+    #[test]
     fn malformed_live_documents_are_reported_without_modification() {
         for (agent_id, relative, body) in [
             ("claude-code", ".claude/settings.json", "{broken"),
@@ -2039,6 +2684,7 @@ mod tests {
                 ".gemini/antigravity-cli/settings.json",
                 "{broken",
             ),
+            ("iflow-cli", ".iflow/settings.json", "{broken"),
         ] {
             let directory = TempDirectory::new(&format!("cli-config-malformed-{agent_id}"));
             let adapter = NativeCliGlobalConfigAdapter::with_home(directory.path().to_path_buf());
