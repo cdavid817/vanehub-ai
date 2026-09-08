@@ -281,10 +281,14 @@ impl PendingResponse {
 impl AcpConnection {
     /// Spawns the agent and wires its pipes. The child is contained by the platform process
     /// layer (process group / job object), so terminating it reaps whatever it spawned.
+    ///
+    /// `spec.environment` is the child's complete environment, not an overlay: it was built by
+    /// `child_environment` from the parent minus other vendors' credentials, and an overlay
+    /// spawn would hand those credentials straight back through inheritance.
     pub(crate) fn spawn(spec: &AcpLaunchSpec) -> Result<Arc<Self>, AcpError> {
         let cwd = spec.cwd.as_deref().map(Path::new);
         let mut child =
-            ManagedChild::spawn_in(&spec.executable, &spec.args, &spec.environment, cwd)
+            ManagedChild::spawn_isolated(&spec.executable, &spec.args, &spec.environment, cwd)
                 .map_err(|error| AcpError::Spawn(error.to_string()))?;
         let stdin = child
             .take_stdin()
@@ -395,7 +399,18 @@ impl AcpConnection {
         if let Some(failure) = self.failure() {
             return Err(AcpError::Closed(failure));
         }
-        self.write_document(&response_document(id, outcome))
+        match self.write_document(&response_document(id, outcome)) {
+            // A result that does not fit one frame is still an answer the agent is waiting for:
+            // leaving the request unanswered looks, from its side, like a host that is still
+            // working, and nothing bounds that wait. The bounded error is what it gets instead.
+            Err(AcpError::Framing(error)) => self.write_document(&response_document(
+                id,
+                Err(RpcError::refused(format!(
+                    "response exceeds the host's frame limit: {error}"
+                ))),
+            )),
+            other => other,
+        }
     }
 
     /// The next agent-originated message, or a timeout. `Closed` is delivered once, after which
@@ -646,6 +661,7 @@ pub(crate) mod test_support {
 
 #[cfg(test)]
 mod tests {
+    use super::super::budget::MAX_FRAME_BYTES;
     use super::test_support::fake_agent;
     use super::*;
     use serde_json::json;
@@ -836,5 +852,29 @@ mod tests {
             AcpError::Backpressure { pending: 1 }.reason_code(),
             "acp-backpressure"
         );
+    }
+
+    #[test]
+    fn an_oversized_response_is_answered_with_a_bounded_error_not_silence() {
+        let agent = fake_agent(|_| Vec::new());
+        let huge = json!({"content": "x".repeat(MAX_FRAME_BYTES)});
+        agent
+            .connection
+            .respond(&RpcId::Text("read-1".to_string()), Ok(huge))
+            .expect("the fallback response is written");
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let document = loop {
+            if let Some(document) = lock(&agent.received).first().cloned() {
+                break document;
+            }
+            assert!(Instant::now() < deadline, "no frame reached the agent");
+            thread::sleep(Duration::from_millis(10));
+        };
+        assert_eq!(document["id"], json!("read-1"));
+        assert!(document["error"]["message"]
+            .as_str()
+            .expect("error message")
+            .contains("frame limit"));
+        assert!(document.get("result").is_none());
     }
 }

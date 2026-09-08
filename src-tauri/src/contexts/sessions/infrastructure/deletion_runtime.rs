@@ -56,6 +56,11 @@ impl SessionDeletionRuntimePort for AgentSessionRuntimeAdapter {
             blockers.push("tool_approval_waiter".to_string());
         }
 
+        // Managed (ACP) connections: the agent process, its proxied terminals and its binding
+        // records belong to this session and to nothing else. Without this they would outlive
+        // the deletion by up to the idle timeout, holding the worktree as their cwd.
+        let _ = runtime.release_managed_connections(session_id);
+
         // Background commands: kill and wait for every supervisor to settle.
         if !runtime.reap_background_commands_and_wait(session_id, remaining()) {
             blockers.push("background_command".to_string());

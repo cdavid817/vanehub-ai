@@ -315,7 +315,7 @@ impl AcpLauncher for FakeLauncher {
                     vec![
                         update(
                             "sess_fake",
-                            json!({"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":format!(" answered={}", document["result"]["outcome"])}}),
+                            json!({"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":format!(" answered={}", document["result"]["outcome"]["outcome"])}}),
                         ),
                         json!({"jsonrpc":"2.0","id":prompt_id,"result":{"stopReason":"end_turn"}}),
                     ]
@@ -516,6 +516,7 @@ fn request_for(
         runner: RunnerSelection::local(),
         endpoint_profile: None,
         resume_thread_id: resume.map(str::to_string),
+        seat_id: None,
     }
 }
 
@@ -891,7 +892,10 @@ fn cursor_question_blocks_until_answered_and_reply_is_validated() {
         .into_iter()
         .find(|document| document.get("id") == Some(&json!("q-1")))
         .expect("question reply");
-    assert_eq!(reply["result"]["answers"]["which"], json!(["b"]));
+    assert_eq!(
+        reply["result"],
+        json!({"outcome": {"outcome": "answered", "answers": [{"questionId": "which", "selectedOptionIds": ["b"]}]}})
+    );
     adapter.release_session("session-acp");
 }
 
@@ -1080,6 +1084,182 @@ fn resume_requires_peer_load_support_and_a_recorded_binding() {
     let events = sink.wait_for_terminal(Duration::from_secs(10));
     assert_eq!(tokens(&events), "echo: fresh");
     adapter.release_session("session-acp");
+}
+
+/// Two seats of one CLI, neither with a thread yet, and the first turn addresses the second
+/// seat. The binding must land under that seat's key -- the caller said which seat speaks --
+/// so the seat's next turn finds its own record instead of `binding-record-missing`.
+#[test]
+fn a_turn_binds_under_the_seat_the_caller_named_not_the_first_free_seat() {
+    use crate::contexts::agent_runtime::application::AgentSessionSeat;
+    let workspace = TempDirectory::new("acp-e2e-seat-named");
+    let database = TempDirectory::new("acp-e2e-seat-named-db");
+    let (adapter, launcher, _) =
+        adapter_with_store(FakeMode::Normal, Effect::Deny, database.path());
+    let seats = |thread_for_b: Option<&str>| {
+        vec![
+            AgentSessionSeat {
+                seat_id: "seat-a".to_string(),
+                agent_id: "qwen-code".to_string(),
+                role_id: None,
+                left_at: None,
+                provider_thread_id: None,
+            },
+            AgentSessionSeat {
+                seat_id: "seat-b".to_string(),
+                agent_id: "qwen-code".to_string(),
+                role_id: None,
+                left_at: None,
+                provider_thread_id: thread_for_b.map(str::to_string),
+            },
+        ]
+    };
+    let mut first = request("qwen-code", workspace.path(), "first", None, true);
+    first.session.seats = seats(None);
+    first.session.runtime_session_id = None;
+    first.seat_id = Some("seat-b".to_string());
+    let started = adapter.start_generation(first).expect("first turn");
+    let sink = Arc::new(CapturingSink::default());
+    adapter
+        .monitor_generation(&started.process_id, sink.clone())
+        .expect("monitor");
+    let events = sink.wait_for_terminal(Duration::from_secs(10));
+    assert_eq!(runtime_session_id(&events).as_deref(), Some("sess_fake"));
+
+    // The service records the thread on seat B and resumes it for seat B's next turn.
+    let mut second = request(
+        "qwen-code",
+        workspace.path(),
+        "second",
+        Some("sess_fake"),
+        true,
+    );
+    second.session.seats = seats(Some("sess_fake"));
+    second.seat_id = Some("seat-b".to_string());
+    let resumed = adapter
+        .start_generation(second)
+        .expect("seat B resumes its own thread");
+    let sink = Arc::new(CapturingSink::default());
+    adapter
+        .monitor_generation(&resumed.process_id, sink.clone())
+        .expect("monitor");
+    let events = sink.wait_for_terminal(Duration::from_secs(10));
+    assert_eq!(tokens(&events), "echo: second");
+    assert_eq!(
+        launcher.launches.load(Ordering::SeqCst),
+        1,
+        "the same process serves both turns"
+    );
+    assert_eq!(adapter.release_session("session-acp"), 1);
+}
+
+/// A turn that would start the process differently (here `--approval-mode plan`, the Plan
+/// switch) cannot reuse the running one: the process is retired and the thread resumed in a
+/// new process started the new way.
+#[test]
+fn changed_launch_arguments_retire_the_process_and_resume_the_thread() {
+    let workspace = TempDirectory::new("acp-e2e-relaunch");
+    let database = TempDirectory::new("acp-e2e-relaunch-db");
+    let (adapter, launcher, _) =
+        adapter_with_store(FakeMode::Normal, Effect::Deny, database.path());
+    let started = adapter
+        .start_generation(request("qwen-code", workspace.path(), "first", None, true))
+        .expect("first turn");
+    let sink = Arc::new(CapturingSink::default());
+    adapter
+        .monitor_generation(&started.process_id, sink.clone())
+        .expect("monitor");
+    sink.wait_for_terminal(Duration::from_secs(10));
+
+    let mut second = request(
+        "qwen-code",
+        workspace.path(),
+        "second",
+        Some("sess_fake"),
+        true,
+    );
+    second.cli_profile.global_args = vec!["--approval-mode".to_string(), "plan".to_string()];
+    let resumed = adapter.start_generation(second).expect("second turn");
+    let sink = Arc::new(CapturingSink::default());
+    adapter
+        .monitor_generation(&resumed.process_id, sink.clone())
+        .expect("monitor");
+    let events = sink.wait_for_terminal(Duration::from_secs(10));
+    assert_eq!(tokens(&events), "echo: second");
+    assert_eq!(launcher.launches.load(Ordering::SeqCst), 2, "a new process");
+    assert!(
+        launcher
+            .all_received()
+            .iter()
+            .any(|document| document["method"] == json!("session/load")),
+        "the thread is resumed in the new process"
+    );
+    // The same arguments again: the new process is reused, not replaced once more.
+    let mut third = request(
+        "qwen-code",
+        workspace.path(),
+        "third",
+        Some("sess_fake"),
+        true,
+    );
+    third.cli_profile.global_args = vec!["--approval-mode".to_string(), "plan".to_string()];
+    let again = adapter.start_generation(third).expect("third turn");
+    let sink = Arc::new(CapturingSink::default());
+    adapter
+        .monitor_generation(&again.process_id, sink.clone())
+        .expect("monitor");
+    sink.wait_for_terminal(Duration::from_secs(10));
+    assert_eq!(launcher.launches.load(Ordering::SeqCst), 2);
+    assert_eq!(adapter.release_session("session-acp"), 1);
+}
+
+/// The fake answers `session/load` with two replayed history updates and then the response,
+/// all in one write. The response reaches the driver ahead of the queued updates; the next
+/// turn must not project "old reply" as its own text.
+#[test]
+fn resume_discards_the_replayed_history_before_the_next_turn() {
+    let workspace = TempDirectory::new("acp-e2e-replay");
+    let database = TempDirectory::new("acp-e2e-replay-db");
+    let (adapter, _, _) = adapter_with_store(FakeMode::Normal, Effect::Deny, database.path());
+    let started = adapter
+        .start_generation(request("qwen-code", workspace.path(), "first", None, true))
+        .expect("first turn");
+    let sink = Arc::new(CapturingSink::default());
+    adapter
+        .monitor_generation(&started.process_id, sink.clone())
+        .expect("monitor");
+    sink.wait_for_terminal(Duration::from_secs(10));
+    assert_eq!(adapter.shutdown_all().len(), 1);
+    drop(adapter);
+
+    for attempt in 0..5 {
+        let (adapter, launcher, _) =
+            adapter_with_store(FakeMode::Normal, Effect::Deny, database.path());
+        let resumed = adapter
+            .start_generation(request(
+                "qwen-code",
+                workspace.path(),
+                "second",
+                Some("sess_fake"),
+                true,
+            ))
+            .expect("resumed turn");
+        let sink = Arc::new(CapturingSink::default());
+        adapter
+            .monitor_generation(&resumed.process_id, sink.clone())
+            .expect("monitor");
+        let events = sink.wait_for_terminal(Duration::from_secs(10));
+        assert_eq!(tokens(&events), "echo: second", "attempt {attempt}");
+        assert!(
+            launcher
+                .all_received()
+                .iter()
+                .any(|document| document["method"] == json!("session/load")),
+            "attempt {attempt} resumed through session/load"
+        );
+        // Retire the process so the next attempt resumes again.
+        assert_eq!(adapter.shutdown_all().len(), 1);
+    }
 }
 
 #[test]

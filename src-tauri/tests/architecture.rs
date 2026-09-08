@@ -2761,7 +2761,13 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // and config profiles on one side; session deletion, worktree cleanup, and terminal
         // stop-by-session on the other). Both histories above are kept; the figure is measured
         // on the merged tree, not summed, because the branches share a baseline.
-        budget: 73_573,
+        //
+        // Third review pass (2026-09-08, the 19-item external review) raises it to 74,295: the
+        // Cursor question/plan schema (per-question options, nested outcomes), the exclusive
+        // temporary file and permission carry-over in the fs proxy, the launch fingerprint and
+        // seat-owned binding key, the replay drain on resume, the stop escalation and the
+        // completion ordering in the adapter, plus the regression tests for each.
+        budget: 74_295,
         owner: "extend-cli-providers-with-acp",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
@@ -2977,7 +2983,12 @@ const NATIVE_PRODUCTION_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // and config profiles on one side; session deletion, worktree cleanup, and terminal
         // stop-by-session on the other). Both histories above are kept; the figure is measured
         // on the merged tree, not summed, because the branches share a baseline.
-        budget: 40_484,
+        //
+        // Third review pass (2026-09-08) raises it to 40,865: the production half of the fixes
+        // listed on the aggregate above -- Cursor schema parsing and replies, the exclusive
+        // temporary file, the launch fingerprint, seat-owned keys, replay drain, stop escalation,
+        // completion ordering -- with their rationale comments.
+        budget: 40_865,
         owner: "extend-cli-providers-with-acp",
     },
 ];

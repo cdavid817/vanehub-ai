@@ -2873,6 +2873,9 @@ impl AgentRuntimeApplicationService {
                 runner,
                 endpoint_profile,
                 resume_thread_id: resume_thread_id.clone(),
+                seat_id: seat_ownership
+                    .as_ref()
+                    .map(|ownership| ownership.seat_id.clone()),
             }) {
             Ok(started) => started,
             Err(error) => {

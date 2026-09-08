@@ -8,11 +8,14 @@
 
 use super::definitions::AcpLaunchGrammar;
 use super::interactions::{
-    select_permission_option, InteractionKind, PermissionOption, PermissionOptionKind,
+    select_permission_option, CursorOption, CursorQuestion, InteractionKind, PermissionOption,
+    PermissionOptionKind,
 };
 use super::jsonrpc::RpcError;
 use super::proxy_fs::{read_text_file, write_text_file, AuthorizedRoots};
-use super::proxy_terminal::{TerminalCreateRequest, TerminalOwner, TerminalRegistry};
+use super::proxy_terminal::{
+    TerminalCreateRequest, TerminalOwner, TerminalProxyError, TerminalRegistry,
+};
 use crate::contexts::permissions::api::Effect;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -488,17 +491,28 @@ fn handle_terminal_lifecycle(
             }
             document
         }),
-        // Bounded so the driver stays responsive, and abandoned on cancel so the turn can end;
-        // the agent may ask again.
+        // Bounded so the driver stays responsive, and abandoned on cancel so the turn can end.
+        // A wait that outlives the bound is refused, not answered: the protocol's reply means
+        // "the command exited", and a fabricated status for a still-running process would send
+        // the agent on to read output that is not final. It may ask again.
         "terminal/wait_for_exit" => context
             .terminals
-            .wait_for_exit(owner, terminal_id, Duration::from_secs(60), &|| {
+            .wait_for_exit(owner, terminal_id, TERMINAL_WAIT_BOUND, &|| {
                 context.cancel.load(Ordering::SeqCst)
             })
-            .map(|status| match status {
-                Some(status) => json!({"exitCode": status.exit_code, "signal": status.signal}),
-                None => json!({"exitCode": null, "signal": "timeout"}),
-            }),
+            .and_then(|status| {
+                status.ok_or_else(|| {
+                    if context.cancel.load(Ordering::SeqCst) {
+                        TerminalProxyError::Io("wait abandoned: the turn was cancelled".to_string())
+                    } else {
+                        TerminalProxyError::Io(format!(
+                            "the command is still running after the host's {}s wait bound; ask again",
+                            TERMINAL_WAIT_BOUND.as_secs()
+                        ))
+                    }
+                })
+            })
+            .map(|status| json!({"exitCode": status.exit_code, "signal": status.signal})),
         "terminal/kill" => context
             .terminals
             .kill(owner, terminal_id)
@@ -512,48 +526,27 @@ fn handle_terminal_lifecycle(
     HandlerOutcome::Reply(reply.map_err(|error| RpcError::refused(error.message())))
 }
 
+/// Bound on one `terminal/wait_for_exit`. The turn driver answers requests one at a time, so a
+/// wait this long holds every later request (output, kill) behind it; long enough for a build
+/// step, short enough that the agent's own timeouts still see the host answer.
+const TERMINAL_WAIT_BOUND: Duration = Duration::from_secs(60);
+
 fn handle_cursor_question(context: &HandlerContext<'_>, params: &Value) -> HandlerOutcome {
     let Some(tool_call_id) = params.get("toolCallId").and_then(Value::as_str) else {
         return HandlerOutcome::Reply(Err(RpcError::invalid_params("toolCallId is required")));
     };
-    let questions: Vec<&Value> = params
+    let questions: Vec<CursorQuestion> = params
         .get("questions")
         .and_then(Value::as_array)
-        .map(|questions| questions.iter().collect())
+        .map(|questions| questions.iter().map(parse_cursor_question).collect())
         .unwrap_or_default();
-    let Some(first) = questions.first() else {
+    if questions.is_empty() {
         return HandlerOutcome::Reply(Err(RpcError::invalid_params("questions must not be empty")));
-    };
-    if !context.interactive {
-        return HandlerOutcome::Reply(Ok(json!({"outcome": "skipped"})));
     }
-    let question_ids: Vec<String> = questions
-        .iter()
-        .filter_map(|question| question.get("id").and_then(Value::as_str))
-        .map(str::to_string)
-        .collect();
-    let prompt = first
-        .get("prompt")
-        .and_then(Value::as_str)
-        .unwrap_or("The agent has a question.")
-        .to_string();
-    let options: Vec<String> = first
-        .get("options")
-        .and_then(Value::as_array)
-        .map(|options| {
-            options
-                .iter()
-                .filter_map(|option| {
-                    option.as_str().map(str::to_string).or_else(|| {
-                        option
-                            .get("label")
-                            .and_then(Value::as_str)
-                            .map(str::to_string)
-                    })
-                })
-                .collect()
-        })
-        .unwrap_or_default();
+    if !context.interactive {
+        return HandlerOutcome::Reply(Ok(cursor_outcome("skipped", None)));
+    }
+    let (prompt, options) = question_card(&questions);
     HandlerOutcome::Defer {
         ui: DeferredUi::Question {
             tool_call_id: tool_call_id.to_string(),
@@ -563,10 +556,90 @@ fn handle_cursor_question(context: &HandlerContext<'_>, params: &Value) -> Handl
         },
         kind: InteractionKind::Question {
             tool_call_id: tool_call_id.to_string(),
-            question_ids,
+            questions,
         },
         deadline: None,
     }
+}
+
+/// Cursor's schema gives every option an `id` and a `label`. A bare string (older agents, and
+/// the fixtures) is both at once.
+fn parse_cursor_question(question: &Value) -> CursorQuestion {
+    let options = question
+        .get("options")
+        .and_then(Value::as_array)
+        .map(|options| {
+            options
+                .iter()
+                .filter_map(|option| {
+                    if let Some(text) = option.as_str() {
+                        return Some(CursorOption {
+                            id: text.to_string(),
+                            label: text.to_string(),
+                        });
+                    }
+                    let label = option.get("label").and_then(Value::as_str);
+                    let id = option.get("id").and_then(Value::as_str).or(label)?;
+                    Some(CursorOption {
+                        id: id.to_string(),
+                        label: label.unwrap_or(id).to_string(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    CursorQuestion {
+        id: question
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        prompt: question
+            .get("prompt")
+            .and_then(Value::as_str)
+            .unwrap_or("The agent has a question.")
+            .to_string(),
+        options,
+        allow_multiple: question
+            .get("allowMultiple")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+    }
+}
+
+/// What the card shows. One question shows its prompt and its option labels as choices; several
+/// are listed in order with their options inline, and the person answers one line per question
+/// -- every question the agent asked is on the card, so none is answered on their behalf.
+fn question_card(questions: &[CursorQuestion]) -> (String, Vec<String>) {
+    if let [only] = questions {
+        let mut prompt = only.prompt.clone();
+        if only.allow_multiple && !only.options.is_empty() {
+            prompt.push_str(" (several may apply; separate choices with commas)");
+        }
+        let options = only
+            .options
+            .iter()
+            .map(|option| option.label.clone())
+            .collect();
+        return (prompt, options);
+    }
+    let mut prompt =
+        String::from("The agent asks several questions. Answer one per line, in order:");
+    for (index, question) in questions.iter().enumerate() {
+        prompt.push_str(&format!("\n{}. {}", index + 1, question.prompt));
+        if !question.options.is_empty() {
+            let labels: Vec<&str> = question
+                .options
+                .iter()
+                .map(|option| option.label.as_str())
+                .collect();
+            prompt.push_str(&format!(" [{}]", labels.join(" / ")));
+            if question.allow_multiple {
+                prompt.push_str(" (several may apply)");
+            }
+        }
+    }
+    (prompt, Vec::new())
 }
 
 fn handle_cursor_plan(context: &HandlerContext<'_>, params: &Value) -> HandlerOutcome {
@@ -574,18 +647,44 @@ fn handle_cursor_plan(context: &HandlerContext<'_>, params: &Value) -> HandlerOu
         return HandlerOutcome::Reply(Err(RpcError::invalid_params("toolCallId is required")));
     };
     if !context.interactive {
-        return HandlerOutcome::Reply(Ok(json!({"outcome": "cancelled"})));
+        return HandlerOutcome::Reply(Ok(cursor_outcome("cancelled", None)));
     }
     let name = params
         .get("name")
         .and_then(Value::as_str)
         .unwrap_or("Plan")
         .to_string();
+    // The person decides on the plan itself, so the card carries it: overview, the plan text,
+    // and the todo list, bounded so a long plan cannot blow the card up.
+    let mut question = format!("Accept the proposed plan \"{name}\"?");
+    if let Some(overview) = params.get("overview").and_then(Value::as_str) {
+        if !overview.trim().is_empty() {
+            question.push_str(&format!("\n\n{}", overview.trim()));
+        }
+    }
+    if let Some(plan) = params.get("plan").and_then(Value::as_str) {
+        if !plan.trim().is_empty() {
+            question.push_str(&format!(
+                "\n\n{}",
+                truncate_chars(plan.trim(), PLAN_CARD_CHARS)
+            ));
+        }
+    }
+    if let Some(todos) = params.get("todos").and_then(Value::as_array) {
+        let items: Vec<String> = todos
+            .iter()
+            .filter_map(|todo| todo.get("content").and_then(Value::as_str))
+            .map(|content| format!("- {content}"))
+            .collect();
+        if !items.is_empty() {
+            question.push_str(&format!("\n\n{}", items.join("\n")));
+        }
+    }
     HandlerOutcome::Defer {
         ui: DeferredUi::Question {
             tool_call_id: tool_call_id.to_string(),
             tool_name: "cursor/create_plan".to_string(),
-            question: format!("Accept the proposed plan \"{name}\"?"),
+            question,
             options: vec!["accept".to_string(), "reject".to_string()],
         },
         kind: InteractionKind::Plan {
@@ -595,15 +694,111 @@ fn handle_cursor_plan(context: &HandlerContext<'_>, params: &Value) -> HandlerOu
     }
 }
 
-/// The reply for a resolved question or plan. Answers are keyed by question id; a free-text
-/// answer applies to every question the agent asked, which is the only mapping available when
-/// the card shows one prompt.
-pub(crate) fn question_reply(question_ids: &[String], answer: &str) -> Value {
-    let answers: serde_json::Map<String, Value> = question_ids
+const PLAN_CARD_CHARS: usize = 4_000;
+
+fn truncate_chars(text: &str, limit: usize) -> String {
+    if text.chars().count() <= limit {
+        return text.to_string();
+    }
+    let mut shortened: String = text.chars().take(limit).collect();
+    shortened.push_str(" [...]");
+    shortened
+}
+
+/// Cursor's response envelope: the outcome is an object under `outcome`, whose own `outcome`
+/// field names the variant (`answered`, `skipped`, `cancelled`, `accepted`, `rejected`).
+pub(crate) fn cursor_outcome(variant: &str, extra: Option<(&str, Value)>) -> Value {
+    let mut outcome = serde_json::Map::new();
+    outcome.insert("outcome".to_string(), json!(variant));
+    if let Some((key, value)) = extra {
+        outcome.insert(key.to_string(), value);
+    }
+    json!({ "outcome": Value::Object(outcome) })
+}
+
+/// The `answered` reply: one entry per question that received an answer, naming the option ids
+/// the agent issued. The card asked for one line per question in order; a line names an option
+/// by its id or its label (case-insensitively) or its position, several separated by commas
+/// when the question allows more than one. A question whose line names nothing it offered is
+/// left unanswered rather than answered with a guess; if nothing at all could be mapped, the
+/// reply is `skipped` with the reason, so the agent never receives an answer nobody gave.
+pub(crate) fn question_reply(questions: &[CursorQuestion], answer: &str) -> Value {
+    let lines: Vec<&str> = if questions.len() == 1 {
+        vec![answer.trim()]
+    } else {
+        answer
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .collect()
+    };
+    let answers: Vec<Value> = questions
         .iter()
-        .map(|id| (id.clone(), json!([answer])))
+        .zip(lines.iter())
+        .filter_map(|(question, line)| {
+            let selected = select_option_ids(question, line);
+            (!selected.is_empty())
+                .then(|| json!({"questionId": question.id, "selectedOptionIds": selected}))
+        })
         .collect();
-    json!({"outcome": "answered", "answers": answers})
+    if answers.is_empty() {
+        return cursor_outcome(
+            "skipped",
+            Some((
+                "reason",
+                json!("the reply named none of the offered options"),
+            )),
+        );
+    }
+    cursor_outcome("answered", Some(("answers", Value::Array(answers))))
+}
+
+fn select_option_ids(question: &CursorQuestion, line: &str) -> Vec<String> {
+    let tokens: Vec<&str> = if question.allow_multiple {
+        line.split(',')
+            .map(str::trim)
+            .filter(|token| !token.is_empty())
+            .collect()
+    } else {
+        vec![line.trim()]
+    };
+    let mut selected = Vec::new();
+    for token in tokens {
+        // A question without options takes the text itself as the answer id: the agent offered
+        // nothing to pick from, so there is nothing to mismatch.
+        if question.options.is_empty() {
+            if !token.is_empty() {
+                selected.push(token.to_string());
+            }
+            continue;
+        }
+        // A numbered choice ("2") counts as the option at that position on the card.
+        let by_position = token
+            .parse::<usize>()
+            .ok()
+            .and_then(|number| number.checked_sub(1))
+            .and_then(|index| question.options.get(index));
+        let found = question
+            .options
+            .iter()
+            .find(|option| option.id == token)
+            .or_else(|| {
+                question
+                    .options
+                    .iter()
+                    .find(|option| option.label.eq_ignore_ascii_case(token))
+            })
+            .or(by_position);
+        if let Some(option) = found {
+            if !selected.contains(&option.id) {
+                selected.push(option.id.clone());
+            }
+        }
+        if !question.allow_multiple {
+            break;
+        }
+    }
+    selected
 }
 
 pub(crate) fn plan_reply(answer: &str) -> Value {
@@ -611,7 +806,11 @@ pub(crate) fn plan_reply(answer: &str) -> Value {
         answer.trim().to_ascii_lowercase().as_str(),
         "accept" | "accepted" | "yes" | "approve" | "approved" | "接受" | "同意"
     );
-    json!({"outcome": if accepted { "accepted" } else { "rejected" }})
+    if accepted {
+        cursor_outcome("accepted", None)
+    } else {
+        cursor_outcome("rejected", Some(("reason", json!(answer.trim()))))
+    }
 }
 
 fn stable_token(input: &str) -> String {
@@ -796,12 +995,12 @@ mod tests {
             handle_request(&context, "cursor/ask_question", &question, &|_, _| {
                 Effect::Ask
             }),
-            HandlerOutcome::Reply(Ok(json!({"outcome": "skipped"})))
+            HandlerOutcome::Reply(Ok(json!({"outcome": {"outcome": "skipped"}})))
         );
         let plan = json!({"toolCallId":"p1","name":"Refactor","plan":"..."});
         assert_eq!(
             handle_request(&context, "cursor/create_plan", &plan, &|_, _| Effect::Ask),
-            HandlerOutcome::Reply(Ok(json!({"outcome": "cancelled"})))
+            HandlerOutcome::Reply(Ok(json!({"outcome": {"outcome": "cancelled"}})))
         );
         let target = workspace.path().join("unattended.txt");
         assert!(matches!(
@@ -959,15 +1158,15 @@ mod tests {
             &environment,
             true,
         );
-        let question = json!({"toolCallId":"q1","title":"Choose","questions":[{"id":"q-a","prompt":"Which framework?","options":[{"label":"React"},"Vue"]}]});
-        match handle_request(&context, "cursor/ask_question", &question, &|_, _| {
+        let question = json!({"toolCallId":"q1","title":"Choose","questions":[{"id":"q-a","prompt":"Which framework?","options":[{"id":"react","label":"React"},"Vue"]}]});
+        let parsed = match handle_request(&context, "cursor/ask_question", &question, &|_, _| {
             Effect::Ask
         }) {
             HandlerOutcome::Defer {
                 kind:
                     InteractionKind::Question {
                         tool_call_id,
-                        question_ids,
+                        questions,
                     },
                 ui:
                     DeferredUi::Question {
@@ -976,12 +1175,64 @@ mod tests {
                 ..
             } => {
                 assert_eq!(tool_call_id, "q1");
-                assert_eq!(question_ids, vec!["q-a".to_string()]);
+                assert_eq!(questions.len(), 1);
+                assert_eq!(questions[0].id, "q-a");
+                assert_eq!(questions[0].options[0].id, "react");
+                assert_eq!(questions[0].options[1].id, "Vue");
                 assert_eq!(question, "Which framework?");
                 assert_eq!(options, vec!["React".to_string(), "Vue".to_string()]);
+                questions
             }
             other => panic!("unexpected {other:?}"),
-        }
+        };
+        // The reply follows Cursor's schema: a nested outcome naming option ids, never labels.
+        let answered = |ids: Vec<&str>| json!({"outcome": {"outcome": "answered", "answers": [{"questionId": "q-a", "selectedOptionIds": ids}]}});
+        assert_eq!(question_reply(&parsed, "react"), answered(vec!["react"]));
+        assert_eq!(question_reply(&parsed, "React"), answered(vec!["react"]));
+        assert_eq!(question_reply(&parsed, "2"), answered(vec!["Vue"]));
+        assert_eq!(
+            question_reply(&parsed, "Svelte")["outcome"]["outcome"],
+            json!("skipped")
+        );
+
+        // Several questions: each shows on the card, each is answered from its own line, and a
+        // multi-select question takes comma-separated choices. Nothing is copied across.
+        let several = json!({"toolCallId":"q3","questions":[
+            {"id":"lang","prompt":"Language?","options":[{"id":"ts","label":"TypeScript"},{"id":"rs","label":"Rust"}]},
+            {"id":"tools","prompt":"Tools?","options":[{"id":"lint","label":"Lint"},{"id":"fmt","label":"Format"},{"id":"test","label":"Test"}],"allowMultiple":true}
+        ]});
+        let parsed = match handle_request(&context, "cursor/ask_question", &several, &|_, _| {
+            Effect::Ask
+        }) {
+            HandlerOutcome::Defer {
+                kind: InteractionKind::Question { questions, .. },
+                ui:
+                    DeferredUi::Question {
+                        question, options, ..
+                    },
+                ..
+            } => {
+                assert!(question.contains("1. Language?") && question.contains("2. Tools?"));
+                assert!(question.contains("Lint / Format / Test"));
+                assert!(options.is_empty());
+                questions
+            }
+            other => panic!("unexpected {other:?}"),
+        };
+        assert_eq!(
+            question_reply(&parsed, "Rust\nlint, Test"),
+            json!({"outcome": {"outcome": "answered", "answers": [
+                {"questionId": "lang", "selectedOptionIds": ["rs"]},
+                {"questionId": "tools", "selectedOptionIds": ["lint", "test"]}
+            ]}})
+        );
+        // Only the first line given: the second question stays unanswered, not guessed.
+        assert_eq!(
+            question_reply(&parsed, "ts"),
+            json!({"outcome": {"outcome": "answered", "answers": [
+                {"questionId": "lang", "selectedOptionIds": ["ts"]}
+            ]}})
+        );
         assert!(matches!(
             handle_request(
                 &context,
@@ -994,25 +1245,33 @@ mod tests {
         match handle_request(
             &context,
             "cursor/create_plan",
-            &json!({"toolCallId":"p1","name":"Migrate","plan":"do things"}),
+            &json!({"toolCallId":"p1","name":"Migrate","overview":"Move to v2","plan":"do things","todos":[{"id":"t1","content":"Inspect","status":"pending"}]}),
             &|_, _| Effect::Ask,
         ) {
             HandlerOutcome::Defer {
                 kind: InteractionKind::Plan { tool_call_id },
-                ui: DeferredUi::Question { options, .. },
+                ui:
+                    DeferredUi::Question {
+                        question, options, ..
+                    },
                 ..
             } => {
                 assert_eq!(tool_call_id, "p1");
                 assert_eq!(options, vec!["accept".to_string(), "reject".to_string()]);
+                // The person judges the plan itself, so the card carries it.
+                assert!(question.contains("Move to v2") && question.contains("do things"));
+                assert!(question.contains("- Inspect"));
             }
             other => panic!("unexpected {other:?}"),
         }
         assert_eq!(
-            question_reply(&["q-a".to_string()], "React"),
-            json!({"outcome": "answered", "answers": {"q-a": ["React"]}})
+            plan_reply("accept"),
+            json!({"outcome": {"outcome": "accepted"}})
         );
-        assert_eq!(plan_reply("accept"), json!({"outcome": "accepted"}));
-        assert_eq!(plan_reply("no thanks"), json!({"outcome": "rejected"}));
+        assert_eq!(
+            plan_reply("no thanks"),
+            json!({"outcome": {"outcome": "rejected", "reason": "no thanks"}})
+        );
     }
 
     #[cfg(unix)]

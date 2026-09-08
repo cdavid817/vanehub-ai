@@ -1,11 +1,10 @@
 use tauri::State;
 
+use super::background;
 use super::dto::CliConnectionCheckDto;
-use super::error::{command_error, CliEnvironmentCommandError};
+use super::error::CliEnvironmentCommandError;
 use crate::contexts::agent_runtime::api::AgentRuntimeApi;
-use crate::contexts::agent_runtime::application::ManagedConnectionCheckRequest;
 use crate::contexts::tooling::cli::api::CliApi;
-use crate::platform::logging::redact_text;
 
 /// An explicit, user-initiated ACP handshake with the installed program.
 ///
@@ -14,26 +13,25 @@ use crate::platform::logging::redact_text;
 /// from the management page, and it does `initialize` only -- no session, no prompt -- before
 /// the process is released. The executable is the one detection resolved; a bare command name is
 /// never re-resolved inside the child.
+///
+/// Async and off-thread: the handshake waits up to the ACP handshake budget for a program that
+/// may be slow to start or never answer, and a synchronous command would hold the main thread
+/// (window, navigation, every other IPC) for the whole of that wait.
 #[tauri::command]
-pub(crate) fn check_cli_connection(
+pub(crate) async fn check_cli_connection(
     api: State<'_, CliApi>,
     agent_runtime: State<'_, AgentRuntimeApi>,
     agent_id: String,
     provider_id: Option<String>,
 ) -> Result<CliConnectionCheckDto, CliEnvironmentCommandError> {
-    let executable = api
-        .resolve_executable(&agent_id)
-        .map_err(command_error)?
-        .ok_or_else(|| check_failure("connection-check-not-installed", &agent_id))?;
-    let workspace = std::env::temp_dir().to_string_lossy().to_string();
-    let report = agent_runtime
-        .check_managed_connection(ManagedConnectionCheckRequest {
-            agent_id: agent_id.clone(),
-            executable,
-            workspace,
-            provider_id,
-        })
-        .map_err(|message| check_failure("connection-check-failed", &message))?;
+    let report = background::spawn_connection_check(
+        api.inner().clone(),
+        agent_runtime.inner().clone(),
+        agent_id,
+        provider_id,
+    )
+    .await
+    .map_err(|error| background::check_failure("connection-check-failed", &error.to_string()))??;
     Ok(CliConnectionCheckDto {
         agent_id: report.agent_id,
         transport: report.transport,
@@ -44,13 +42,4 @@ pub(crate) fn check_cli_connection(
         auth_methods: report.auth_methods,
         elapsed_ms: report.elapsed_ms,
     })
-}
-
-fn check_failure(category: &str, message: &str) -> CliEnvironmentCommandError {
-    CliEnvironmentCommandError {
-        category: category.to_string(),
-        message: redact_text(message),
-        retryable_with_a_new_plan: false,
-        diagnostic_id: None,
-    }
 }

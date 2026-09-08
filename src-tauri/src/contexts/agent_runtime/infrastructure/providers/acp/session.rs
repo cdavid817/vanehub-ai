@@ -12,8 +12,9 @@ use super::budget::{CANCEL_GRACE, DRIVER_TICK, HANDSHAKE_TIMEOUT};
 use super::connection::{AcpConnection, AcpError, InboundEvent};
 use super::definitions::AcpLaunchGrammar;
 use super::handlers::{
-    apply_terminal_create, apply_write, cancelled_outcome, handle_request, permission_reply,
-    plan_reply, question_reply, DeferredUi, HandlerContext, HandlerOutcome, TerminalCreateRecord,
+    apply_terminal_create, apply_write, cancelled_outcome, cursor_outcome, handle_request,
+    permission_reply, plan_reply, question_reply, DeferredUi, HandlerContext, HandlerOutcome,
+    TerminalCreateRecord,
 };
 use super::interactions::{
     InteractionKind, InteractionRejection, InteractionScope, PendingInteraction,
@@ -204,6 +205,12 @@ pub(crate) fn load_session(
     let mut summary = ReplaySummary::default();
     loop {
         if let Some(outcome) = pending.try_recv() {
+            // Responses bypass the inbound queue, so the replay the agent wrote before its
+            // response can still be sitting there when the response lands. The reader thread
+            // queued every earlier frame before it delivered this one, so a non-blocking sweep
+            // now sees the whole replay -- and the next turn starts with a clean queue instead
+            // of projecting old history as its own output.
+            drain_replay(connection, &mut summary);
             return match outcome? {
                 Ok(_) => Ok(summary),
                 Err(error) => Err(AcpError::Protocol {
@@ -231,6 +238,19 @@ pub(crate) fn load_session(
                     },
                 )))
             }
+        }
+    }
+}
+
+fn drain_replay(connection: &AcpConnection, summary: &mut ReplaySummary) {
+    while let Ok(event) = connection.next_inbound(Duration::ZERO) {
+        match event {
+            InboundEvent::Notification { .. } => summary.replayed_updates += 1,
+            InboundEvent::Request { id, .. } => {
+                summary.refused_requests += 1;
+                let _ = connection.respond(&id, Err(RpcError::cancelled()));
+            }
+            InboundEvent::Closed(_) => break,
         }
     }
 }
@@ -512,18 +532,19 @@ impl TurnShared {
                 Err(RpcError::refused("command execution denied by user"))
             }
             (
-                InteractionKind::Question { question_ids, .. },
+                InteractionKind::Question { questions, .. },
                 ToolApprovalDecision::Answered(answer),
             ) => {
+                let reply = question_reply(questions, answer);
                 self.emit_tool(
                     &interaction.call_id,
                     "cursor/ask_question",
                     ToolLifecyclePhase::Completed,
                     "completed",
                     None,
-                    Some(json!({"answer": answer})),
+                    Some(json!({"answer": answer, "reply": reply.clone()})),
                 );
-                Ok(question_reply(question_ids, answer))
+                Ok(reply)
             }
             (InteractionKind::Question { .. }, ToolApprovalDecision::Denied) => {
                 self.emit_tool(
@@ -534,7 +555,7 @@ impl TurnShared {
                     None,
                     None,
                 );
-                Ok(json!({"outcome": "skipped"}))
+                Ok(cursor_outcome("skipped", None))
             }
             (InteractionKind::Plan { .. }, ToolApprovalDecision::Answered(answer)) => {
                 let reply = plan_reply(answer);
@@ -557,7 +578,7 @@ impl TurnShared {
                     None,
                     None,
                 );
-                Ok(json!({"outcome": "accepted"}))
+                Ok(cursor_outcome("accepted", None))
             }
             (InteractionKind::Plan { .. }, ToolApprovalDecision::Denied) => {
                 self.emit_tool(
@@ -568,7 +589,7 @@ impl TurnShared {
                     None,
                     None,
                 );
-                Ok(json!({"outcome": "rejected"}))
+                Ok(cursor_outcome("rejected", None))
             }
             _ => Err(RpcError::cancelled()),
         }
@@ -637,7 +658,7 @@ fn cancelled_reply(kind: &InteractionKind) -> Result<Value, RpcError> {
     match kind {
         InteractionKind::Permission { .. } => Ok(cancelled_outcome()),
         InteractionKind::Question { .. } | InteractionKind::Plan { .. } => {
-            Ok(json!({"outcome": "cancelled"}))
+            Ok(cursor_outcome("cancelled", None))
         }
         InteractionKind::FileWrite { .. } | InteractionKind::TerminalCreate { .. } => {
             Err(RpcError::cancelled())
@@ -887,6 +908,9 @@ fn dispatch_request(shared: &Arc<TurnShared>, id: RpcId, method: &str, params: &
                     }
                 }
             }
+            // A failed write here means the connection is closed (an oversized reply is
+            // already answered with a bounded error inside `respond`); the driver observes the
+            // closed connection on its next tick and ends the turn with the failure.
             let _ = shared.binding.connection.respond(&id, reply);
             is_tool
         }

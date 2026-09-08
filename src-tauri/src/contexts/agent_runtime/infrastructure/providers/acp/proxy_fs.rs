@@ -206,21 +206,59 @@ pub(crate) fn write_text_file(
         .ok_or_else(|| FsProxyError::InvalidPath("no file name".to_string()))?
         .to_string_lossy()
         .to_string();
-    let temporary = canonical_parent.join(format!(
-        ".{file_name}.vanehub-acp-{}.tmp",
-        std::process::id()
-    ));
+    let target = canonical_parent.join(&file_name);
+    // An existing file keeps its mode across the replace: a 0755 script the agent edits must
+    // still run afterwards, and a 0600 file must not widen to the umask default.
+    let existing_permissions = fs::metadata(&target).ok().map(|meta| meta.permissions());
     let write = (|| -> std::io::Result<()> {
-        let mut file = fs::File::create(&temporary)?;
-        file.write_all(content.as_bytes())?;
-        file.sync_all()?;
-        fs::rename(&temporary, canonical_parent.join(&file_name))
+        let (temporary, mut file) = create_exclusive_temporary(&canonical_parent, &file_name)?;
+        let outcome = (|| -> std::io::Result<()> {
+            file.write_all(content.as_bytes())?;
+            file.sync_all()?;
+            if let Some(permissions) = existing_permissions.clone() {
+                file.set_permissions(permissions)?;
+            }
+            drop(file);
+            fs::rename(&temporary, &target)
+        })();
+        if outcome.is_err() {
+            let _ = fs::remove_file(&temporary);
+        }
+        outcome
     })();
-    if let Err(error) = write {
-        let _ = fs::remove_file(&temporary);
-        return Err(FsProxyError::Io(error.to_string()));
+    write.map_err(|error| FsProxyError::Io(error.to_string()))
+}
+
+/// A sibling temporary file that is created exclusively and never through a link. A predictable
+/// name opened with `File::create` follows whatever already sits at that name -- a symlink planted
+/// there redirects the write outside the roots before the rename ever happens -- so the name
+/// carries a per-process counter and the open refuses an existing entry of any kind.
+fn create_exclusive_temporary(
+    parent: &Path,
+    file_name: &str,
+) -> std::io::Result<(PathBuf, fs::File)> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    for _ in 0..16 {
+        let nonce = SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_nanos())
+            .unwrap_or(0);
+        let candidate = parent.join(format!(
+            ".{file_name}.vanehub-acp-{}-{stamp:x}-{nonce}.tmp",
+            std::process::id()
+        ));
+        match crate::platform::filesystem::create_new_file(&candidate) {
+            Ok(file) => return Ok((candidate, file)),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
     }
-    Ok(())
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "could not allocate a fresh temporary file name",
+    ))
 }
 
 #[cfg(test)]
@@ -314,6 +352,81 @@ mod tests {
             FsProxyError::OutsideRoots
         );
         assert!(!outside.path().join("new.txt").exists());
+    }
+
+    /// The pre-fix temporary name was `.{name}.vanehub-acp-{pid}.tmp`, which an agent could plant
+    /// as a symlink to a file outside the roots; `File::create` then followed it. The write must
+    /// neither follow nor disturb whatever sits at that name.
+    #[cfg(unix)]
+    #[test]
+    fn a_planted_symlink_at_a_temporary_name_cannot_redirect_the_write() {
+        let workspace = TempDirectory::new("acp-fs-tmp-link");
+        let outside = TempDirectory::new("acp-fs-tmp-link-target");
+        let roots = AuthorizedRoots::new([workspace.path().to_path_buf()]);
+        let victim = outside.path().join("victim.txt");
+        fs::write(&victim, "keep").expect("victim");
+        let planted = workspace
+            .path()
+            .join(format!(".a.txt.vanehub-acp-{}.tmp", std::process::id()));
+        std::os::unix::fs::symlink(&victim, &planted).expect("planted link");
+
+        let target = workspace.path().join("a.txt");
+        write_text_file(&roots, &target.to_string_lossy(), "payload").expect("write");
+        assert_eq!(fs::read_to_string(&victim).expect("victim intact"), "keep");
+        assert_eq!(fs::read_to_string(&target).expect("target"), "payload");
+        assert!(
+            !fs::symlink_metadata(&target)
+                .expect("target metadata")
+                .file_type()
+                .is_symlink(),
+            "the written file must be a regular file"
+        );
+        // The planted entry is untouched: it was never opened, never renamed.
+        assert!(fs::symlink_metadata(&planted)
+            .expect("planted still there")
+            .file_type()
+            .is_symlink());
+        assert!(!workspace
+            .path()
+            .read_dir()
+            .expect("dir")
+            .filter_map(Result::ok)
+            .any(
+                |entry| entry.file_name().to_string_lossy().ends_with(".tmp")
+                    && entry.path() != planted
+            ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn replacing_an_existing_file_keeps_its_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let workspace = TempDirectory::new("acp-fs-mode");
+        let roots = AuthorizedRoots::new([workspace.path().to_path_buf()]);
+        for mode in [0o755, 0o600] {
+            let script = workspace.path().join(format!("run-{mode:o}.sh"));
+            fs::write(&script, "#!/bin/sh\necho old\n").expect("script");
+            fs::set_permissions(&script, fs::Permissions::from_mode(mode)).expect("chmod");
+            write_text_file(&roots, &script.to_string_lossy(), "#!/bin/sh\necho new\n")
+                .expect("rewrite");
+            assert_eq!(
+                fs::metadata(&script)
+                    .expect("metadata")
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                mode,
+                "mode {mode:o} must survive the replace"
+            );
+            assert_eq!(
+                fs::read_to_string(&script).expect("content"),
+                "#!/bin/sh\necho new\n"
+            );
+        }
+        // A brand-new file gets the process default, not a mode copied from anywhere.
+        let fresh = workspace.path().join("fresh.txt");
+        write_text_file(&roots, &fresh.to_string_lossy(), "x").expect("fresh");
+        assert!(fresh.is_file());
     }
 
     #[test]

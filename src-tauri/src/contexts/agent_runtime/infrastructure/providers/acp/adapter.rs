@@ -33,7 +33,7 @@ use crate::contexts::agent_runtime::application::{
 };
 use crate::contexts::agent_runtime::domain::ProviderTransport;
 use serde_json::json;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -70,6 +70,10 @@ pub(crate) struct AcpAgentProcessDependencies {
 struct Binding {
     state: Arc<BindingState>,
     installation_fingerprint: String,
+    /// What the process was started with (arguments and environment): a turn whose launch
+    /// would differ cannot reuse it, because the running process still carries the old
+    /// arguments -- an approval mode, a model -- and nothing in the protocol changes them.
+    launch_fingerprint: String,
     adapter_revision: &'static str,
     account_profile: Option<String>,
     last_used: Instant,
@@ -355,16 +359,30 @@ impl AcpAgentProcessAdapter {
             account_profile: account_profile.as_deref(),
         })?;
         let fingerprint = installation_fingerprint(&spec.executable);
+        let mut environment =
+            child_environment(&request.agent.id, std::env::vars(), &spec.environment);
+        for (key, value) in &request.cli_profile.env {
+            environment.insert(key.clone(), value.clone());
+        }
+        let launch_fingerprint = launch_fingerprint(&spec.args, &environment);
+        environment.insert(
+            "TRACEPARENT".to_string(),
+            request.execution_context.traceparent(),
+        );
 
-        // Reuse a healthy binding for the same program. A changed fingerprint means the user's
-        // installation moved or was upgraded under a live session; the old process is retired
-        // rather than trusted to still be the reviewed one.
+        // Reuse a healthy binding for the same program started the same way. A changed
+        // installation fingerprint means the user's installation moved or was upgraded under a
+        // live session; a changed launch fingerprint means this turn wants different arguments
+        // (Plan -> Execute, another model) or another environment than the running process
+        // has. Either way the old process is retired and the thread resumed in a new one,
+        // rather than trusting the old process to be what this turn asked for.
         {
             let mut bindings = lock(&self.bindings);
             if let Some(existing) = bindings.get_mut(binding_key) {
                 let reusable = existing.state.connection.is_open()
                     && existing.state.connection.poll_child_exit().is_none()
                     && existing.installation_fingerprint == fingerprint
+                    && existing.launch_fingerprint == launch_fingerprint
                     && existing.adapter_revision == spec.adapter_revision
                     && existing.account_profile == account_profile
                     && existing.state.workspace == workspace
@@ -409,15 +427,6 @@ impl AcpAgentProcessAdapter {
                 action: format!("acp-launch:{}", error.code()),
             })?;
 
-        let mut environment =
-            child_environment(&request.agent.id, std::env::vars(), &spec.environment);
-        for (key, value) in &request.cli_profile.env {
-            environment.insert(key.clone(), value.clone());
-        }
-        environment.insert(
-            "TRACEPARENT".to_string(),
-            request.execution_context.traceparent(),
-        );
         let launch = AcpLaunchSpec {
             executable: spec.executable.clone(),
             args: spec.args.clone(),
@@ -579,6 +588,7 @@ impl AcpAgentProcessAdapter {
             Binding {
                 state: state.clone(),
                 installation_fingerprint: fingerprint,
+                launch_fingerprint,
                 adapter_revision: spec.adapter_revision,
                 account_profile,
                 last_used: Instant::now(),
@@ -667,7 +677,9 @@ impl AgentProcessGateway for AcpAgentProcessAdapter {
                 "the runtime is shutting down".to_string(),
             ));
         }
-        let seat_id = seat_for(&request);
+        // The caller resolved the seat that owns this turn; the inference is only for a request
+        // that predates seat ownership and still carries seats.
+        let seat_id = request.seat_id.clone().or_else(|| seat_for(&request));
         let binding_key = match &seat_id {
             Some(seat) => format!("{}/{seat}", request.session.id),
             None => format!("{}/{}", request.session.id, request.agent.id),
@@ -713,7 +725,7 @@ impl AgentProcessGateway for AcpAgentProcessAdapter {
             ActiveProcess {
                 binding_key,
                 turn,
-                prompt: request.effective_prompt.clone(),
+                prompt: prompt_with_briefing(&request),
                 monitoring: false,
             },
         );
@@ -784,6 +796,33 @@ impl AgentProcessGateway for AcpAgentProcessAdapter {
             ));
             let outcome = run_turn(&turn, &prompt);
             let connection_open = turn.binding.connection.is_open();
+            // The binding is free before the terminal event goes out, not after: the sink's
+            // completion handler publishes "completed" to the UI and then does its own
+            // follow-up work (memory extraction is a model call), and a next turn sent in that
+            // window must find the binding idle rather than "still busy with the previous turn".
+            lock(&adapter.processes).remove(&process_id);
+            {
+                let mut bindings = lock(&adapter.bindings);
+                if let Some(binding) = bindings.get_mut(&binding_key) {
+                    binding.active_turn = None;
+                    binding.last_used = Instant::now();
+                }
+                if !connection_open {
+                    // Only this turn's connection is retired: a next turn may already have
+                    // re-bound the key to a fresh process.
+                    let epoch = turn.binding.connection.epoch();
+                    let stale = bindings
+                        .get(&binding_key)
+                        .is_some_and(|binding| binding.state.connection.epoch() == epoch);
+                    if stale {
+                        if let Some(retired) = bindings.remove(&binding_key) {
+                            adapter
+                                .terminals
+                                .release_epoch(retired.state.connection.epoch());
+                        }
+                    }
+                }
+            }
             for event in adapter.terminal_event(&outcome, &turn.binding.negotiated) {
                 let _ = turn.sink.handle(event);
             }
@@ -807,19 +846,6 @@ impl AgentProcessGateway for AcpAgentProcessAdapter {
                 span_id: None,
                 occurred_at: adapter.clock.now(),
             });
-            lock(&adapter.processes).remove(&process_id);
-            let mut bindings = lock(&adapter.bindings);
-            if let Some(binding) = bindings.get_mut(&binding_key) {
-                binding.active_turn = None;
-                binding.last_used = Instant::now();
-            }
-            if !connection_open {
-                if let Some(retired) = bindings.remove(&binding_key) {
-                    adapter
-                        .terminals
-                        .release_epoch(retired.state.connection.epoch());
-                }
-            }
         });
         Ok(())
     }
@@ -862,14 +888,34 @@ impl AgentProcessGateway for AcpAgentProcessAdapter {
                 .connection
                 .terminate("acp-runtime-cleanup", initiator.as_str());
         }
-        let deadline = Instant::now() + SHUTDOWN_DEADLINE;
-        while Instant::now() < deadline {
+        if self.wait_for_turn_end(process_id, SHUTDOWN_DEADLINE) {
+            return Ok(true);
+        }
+        // The driver did not honour the flag in time. It may be blocked where it cannot look at
+        // it -- a `session/prompt` write stuck on a pipe the agent stopped reading -- so the stop
+        // is enforced from here: terminating the process breaks the pipe, the blocked write
+        // fails, and the driver finishes with the closed connection. A stop that still cannot
+        // prove the turn ended reports that, rather than "stopped".
+        let _ = turn.binding.connection.terminate(
+            "acp-stop-escalated",
+            "the turn did not stop within the grace period",
+        );
+        Ok(self.wait_for_turn_end(process_id, SHUTDOWN_DEADLINE))
+    }
+}
+
+impl AcpAgentProcessAdapter {
+    fn wait_for_turn_end(&self, process_id: &str, within: Duration) -> bool {
+        let deadline = Instant::now() + within;
+        loop {
             if !lock(&self.processes).contains_key(process_id) {
-                break;
+                return true;
+            }
+            if Instant::now() >= deadline {
+                return false;
             }
             thread::sleep(Duration::from_millis(20));
         }
-        Ok(true)
     }
 }
 
@@ -971,8 +1017,44 @@ pub(crate) fn installation_fingerprint(executable: &str) -> String {
     crate::platform::hashing::sha256_tagged(format!("v1\0{executable}\0{size}\0{modified}"))
 }
 
-/// The seat this turn speaks for, when the session has seats. Matches by agent and by the
-/// thread being resumed, so two seats of the same provider bind to two processes.
+/// The arguments and environment a process is started with, minus the per-turn trace parent,
+/// which changes every turn without changing what the process is.
+fn launch_fingerprint(args: &[String], environment: &BTreeMap<String, String>) -> String {
+    let mut material = String::from("v1");
+    for argument in args {
+        material.push('\0');
+        material.push_str(argument);
+    }
+    material.push_str("\0--env--");
+    for (key, value) in environment {
+        if key == "TRACEPARENT" {
+            continue;
+        }
+        material.push('\0');
+        material.push_str(key);
+        material.push('=');
+        material.push_str(value);
+    }
+    crate::platform::hashing::sha256_tagged(material)
+}
+
+/// The prompt as the agent receives it. ACP has no system-prompt channel, so a multi-seat
+/// session's role briefing rides at the top of the turn text: without it the seat's role,
+/// duties and collaboration rules never reach the process at all.
+fn prompt_with_briefing(request: &GenerationProcessRequest) -> String {
+    match request
+        .role_briefing
+        .as_deref()
+        .map(str::trim)
+        .filter(|briefing| !briefing.is_empty())
+    {
+        Some(briefing) => format!("{briefing}\n\n{}", request.effective_prompt),
+        None => request.effective_prompt.clone(),
+    }
+}
+
+/// The seat this turn speaks for when the caller did not say. Matches by agent and by the
+/// thread being resumed; kept for requests that predate seat ownership on the request.
 fn seat_for(request: &GenerationProcessRequest) -> Option<String> {
     let seats: Vec<_> = request
         .session

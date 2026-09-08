@@ -117,7 +117,10 @@ impl TerminalRegistry {
                 });
             }
         }
-        let mut child = ManagedChild::spawn_in(
+        // The request carries the whole environment (the scrubbed base plus the agent's own
+        // additions), so it is applied as such: an overlay spawn would re-inherit the other
+        // vendors' credentials the base was built to leave out.
+        let mut child = ManagedChild::spawn_isolated(
             &request.command,
             &request.args,
             &request.environment,

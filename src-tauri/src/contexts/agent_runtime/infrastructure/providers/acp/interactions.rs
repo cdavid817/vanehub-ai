@@ -67,6 +67,21 @@ pub(crate) fn select_permission_option(
         .find_map(|kind| options.iter().find(|option| option.kind == *kind))
 }
 
+/// One entry of a `cursor/ask_question` request (Cursor's ACP extension schema).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct CursorQuestion {
+    pub(crate) id: String,
+    pub(crate) prompt: String,
+    pub(crate) options: Vec<CursorOption>,
+    pub(crate) allow_multiple: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct CursorOption {
+    pub(crate) id: String,
+    pub(crate) label: String,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum InteractionKind {
     /// `session/request_permission`.
@@ -77,10 +92,11 @@ pub(crate) enum InteractionKind {
         action: String,
         resource: String,
     },
-    /// `cursor/ask_question`.
+    /// `cursor/ask_question`, with every question kept whole so the reply can name the option
+    /// ids the agent issued instead of echoing labels back under the wrong key.
     Question {
         tool_call_id: String,
-        question_ids: Vec<String>,
+        questions: Vec<CursorQuestion>,
     },
     /// `cursor/create_plan`.
     Plan { tool_call_id: String },
