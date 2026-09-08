@@ -420,10 +420,12 @@ const scenarios: Record<string, (page: Page, locale: Locale) => Promise<Locator>
     const shell = page.locator("main").first();
     await expect(shell).toBeVisible();
     // The evaluation centre keeps its own h1 inside the settings page, so the level-2 heading
-    // the other settings captures wait for does not exist here.
+    // the other settings captures wait for does not exist here. It is scoped to the centre
+    // because the settings top bar repeats the section name as an h1 too, and in zh-CN the two
+    // read identically.
     await waitForFeature(
       shell,
-      shell.getByRole("heading", { level: 1, name: text(locale, "Agent 评测", "Agent evaluations") }),
+      page.getByTestId("evaluation-center").getByRole("heading", { level: 1, name: text(locale, "Agent 评测", "Agent evaluations") }),
     );
     return shell;
   },
