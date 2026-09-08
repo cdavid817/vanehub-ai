@@ -222,32 +222,33 @@ test.describe("workspace activity bar", () => {
     await expect(sessionCard).toHaveClass(/shadow-xs/);
   });
 
-  test("opens scheduled tasks and manages a Web mock task", async ({ page }) => {
+  test("exposes four entries, hosts scheduled tasks inline under Automations, and keeps Help in settings", async ({ page }) => {
     await page.goto("/");
 
-    const scheduledTasks = page.getByRole("button", { name: "定时任务" });
+    const activityBar = page.getByRole("navigation", { name: "工作区导航" });
+    await expect(activityBar.getByRole("button")).toHaveCount(4);
     await page.getByRole("button", { name: "折叠会话栏" }).focus();
     await page.keyboard.press("Tab");
-    await expect(page.getByRole("button", { name: "循环工程" })).toBeFocused();
-    // Scheduled tasks opens a dialog, so it follows every destination entry in its
-    // own group rather than sitting between them.
+    await expect(page.getByRole("button", { name: "收件箱" })).toBeFocused();
     await page.keyboard.press("Tab");
-    await expect(page.getByRole("button", { name: "任务看板" })).toBeFocused();
+    await expect(page.getByRole("button", { name: "自动化" })).toBeFocused();
     await page.keyboard.press("Tab");
-    await expect(page.getByRole("button", { name: "目标中心" })).toBeFocused();
-    await page.keyboard.press("Tab");
-    await expect(page.getByRole("button", { name: "Agent 评测" })).toBeFocused();
-    await page.keyboard.press("Tab");
-    await expect(page.getByRole("button", { name: "系统活动" })).toBeFocused();
-    await page.keyboard.press("Tab");
-    await expect(page.getByRole("button", { name: "任务控制台" })).toBeFocused();
-    await page.keyboard.press("Tab");
-    await expect(scheduledTasks).toBeFocused();
-    await scheduledTasks.click();
-    // Scheduled tasks is a dialog, not a destination, so it must leave the workspace route alone.
-    await expect(page).toHaveURL(/\/workspace\/sessions/);
+    await expect(page.getByRole("button", { name: "设置", exact: true })).toBeFocused();
+    for (const retired of ["循环工程", "任务看板", "目标中心", "Agent 评测", "系统活动", "任务控制台", "定时任务", "帮助"]) {
+      await expect(activityBar.getByRole("button", { name: retired })).toHaveCount(0);
+    }
+    // The tooltip carries the chord; the accessible name stays the plain label.
+    await expect(page.getByRole("button", { name: "收件箱" })).toHaveAttribute("title", /收件箱 · (Ctrl\+2|⌘2)/);
+
+    await page.getByRole("button", { name: "自动化" }).click();
+    await expect(page).toHaveURL(/\/workspace\/automations\/loops$/);
+    await page.getByRole("tab", { name: "定时任务" }).click();
+    await expect(page).toHaveURL(/\/workspace\/automations\/scheduled$/);
+    // Page content now, not a dialog: no modal, and focus lands on the first control.
+    await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "定时任务" })).toBeVisible();
     await expect(page.getByPlaceholder("例如：每日整理项目进度")).toBeVisible();
+    await expect(page.getByLabel("任务名称")).toBeFocused();
 
     await page.getByLabel("任务名称").fill("每日整理项目进度");
     await page.getByLabel("任务内容").fill("请整理当前项目进度");
@@ -270,12 +271,81 @@ test.describe("workspace activity bar", () => {
     await taskRow.getByRole("button", { name: "确认删除" }).click();
     await expect(page.getByText("每日整理项目进度")).toHaveCount(0);
     await expect(page.getByText("还没有定时任务。")).toBeVisible();
-    await expect(page.getByRole("button", { name: "帮助" })).toBeVisible();
 
-    await page.keyboard.press("Escape");
-    await expect(page.getByRole("heading", { name: "定时任务" })).toHaveCount(0);
+    // Switching tabs hides the surface rather than unmounting it, so a draft survives the trip.
+    await page.getByLabel("任务名称").fill("未提交的草稿");
+    await page.getByRole("tab", { name: "目标中心" }).click();
+    await expect(page).toHaveURL(/\/workspace\/automations\/goals$/);
+    await page.getByRole("tab", { name: "定时任务" }).click();
+    await expect(page.getByLabel("任务名称")).toHaveValue("未提交的草稿");
+
     await page.getByRole("button", { name: "设置", exact: true }).click();
     await expect(page).toHaveURL(/\/settings$/);
+    await expect(page.locator("[data-settings-group='bottom']").getByRole("button", { name: "使用文档" })).toBeVisible();
+  });
+
+  test("switches entries with Mod+1..4 and leaves the chords to text entry", async ({ page }) => {
+    await page.goto("/");
+    await createSession(page, "快捷键测试");
+
+    await page.keyboard.press("Control+2");
+    await expect(page).toHaveURL(/\/workspace\/inbox\/attention$/);
+    await page.keyboard.press("Control+3");
+    await expect(page).toHaveURL(/\/workspace\/automations\/loops$/);
+    await page.keyboard.press("Control+1");
+    await expect(page).toHaveURL(/\/workspace\/sessions/);
+
+    // The session search is a text input that is always enabled; the composer is covered by the
+    // unit test because the mock runtime can disable it right after a session is created, which
+    // drops focus and would make this assertion about the runtime rather than the guard.
+    const search = page.locator("#workspace-session-search");
+    await search.click();
+    await search.pressSequentially("草稿");
+    await expect(search).toBeFocused();
+    await page.keyboard.press("Control+3");
+    await expect(page).toHaveURL(/\/workspace\/sessions/);
+    await page.keyboard.press("Control+2");
+    await expect(page).toHaveURL(/\/workspace\/sessions/);
+
+    await page.locator("body").click({ position: { x: 5, y: 5 } });
+    await page.keyboard.press("Control+4");
+    await expect(page).toHaveURL(/\/settings$/);
+  });
+
+  test("reaches demoted surfaces from the top-bar search", async ({ page }) => {
+    await page.goto("/");
+    const openSearch = page.getByRole("button", { name: "打开搜索" });
+    const searchInput = page.locator("#workspace-session-search");
+
+    await openSearch.click();
+    await expect(searchInput).toBeFocused();
+    await searchInput.fill("看板");
+    const surfaces = page.getByTestId("workspace-surface-results");
+    await expect(surfaces.getByRole("button", { name: "任务看板" })).toBeVisible();
+    await surfaces.getByRole("button", { name: "任务看板" }).click();
+    await expect(page).toHaveURL(/\/workspace\/inbox\/board$/);
+    await expect(page.locator("#todo-board")).toBeVisible();
+
+    await openSearch.click();
+    await searchInput.fill("scheduled");
+    await surfaces.getByRole("button", { name: "定时任务" }).click();
+    await expect(page).toHaveURL(/\/workspace\/automations\/scheduled$/);
+
+    await openSearch.click();
+    await searchInput.fill("loop");
+    await surfaces.getByRole("button", { name: "循环工程" }).click();
+    await expect(page).toHaveURL(/\/workspace\/automations\/loops$/);
+
+    await openSearch.click();
+    await searchInput.fill("目标");
+    await surfaces.getByRole("button", { name: "目标中心" }).click();
+    await expect(page).toHaveURL(/\/workspace\/automations\/goals$/);
+
+    await openSearch.click();
+    await searchInput.fill("评测");
+    await surfaces.getByRole("button", { name: "Agent 评测" }).click();
+    await expect(page).toHaveURL(/\/settings\?section=evaluation$/);
+    await expect(page.getByTestId("evaluation-center")).toBeVisible();
   });
 
   for (const viewport of [

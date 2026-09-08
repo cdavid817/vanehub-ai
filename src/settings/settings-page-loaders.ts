@@ -11,6 +11,8 @@ export const loadProvidersPage: LazyFeatureLoader<SettingsPageContext> = () => i
   .then((module) => ({ default: module.CliManagementPage }));
 export const loadCliParametersPage: LazyFeatureLoader<SettingsPageContext> = () => import("./cli-parameters/cli-parameters-page")
   .then((module) => ({ default: module.CliParametersPage }));
+export const loadEvaluationPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/evaluation-page")
+  .then((module) => ({ default: module.EvaluationPage }));
 export const loadExtensionsPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/extensions-page")
   .then((module) => ({ default: module.ExtensionsPage }));
 export const loadMcpPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/mcp-page")

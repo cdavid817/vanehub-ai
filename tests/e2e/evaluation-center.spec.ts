@@ -8,7 +8,8 @@ async function openEvaluation(page: Page, theme: Theme, width: number) {
     window.localStorage.setItem("vanehub.appSettings", JSON.stringify({ applicationLanguage: "en", theme: selectedTheme }));
   }, theme);
   await page.goto("/");
-  await page.getByRole("button", { name: "Evaluations" }).click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.locator("nav").getByRole("button", { name: "Agent Evaluation", exact: true }).click();
   await expect(page.getByTestId("evaluation-center")).toBeVisible();
 }
 

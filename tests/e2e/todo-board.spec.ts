@@ -3,8 +3,11 @@ import { expect, test } from "@playwright/test";
 test.describe("Todo Board", () => {
   test("creates, edits, moves, filters, archives, restores, and deletes manual work", async ({ page }) => {
     await page.goto("/");
-    const navigationEntry = page.getByRole("button", { name: "任务看板" });
+    // The board is the Board view of Inbox rather than a destination of its own.
+    const navigationEntry = page.getByRole("button", { name: "收件箱" });
     await navigationEntry.click();
+    await page.getByTestId("inbox-view-board").click();
+    await expect(page).toHaveURL(/\/workspace\/inbox\/board$/);
     await expect(navigationEntry).toHaveClass(/text-primary/);
     await expect(page.getByRole("heading", { name: "任务看板" })).toBeVisible();
 
@@ -49,8 +52,7 @@ test.describe("Todo Board", () => {
 
   test("keeps every stage reachable on a compact viewport", async ({ page }) => {
     await page.setViewportSize({ width: 700, height: 720 });
-    await page.goto("/");
-    await page.getByRole("button", { name: "任务看板" }).click();
+    await page.goto("/workspace/inbox/board");
 
     const stage = page.getByLabel("工作阶段").first();
     await expect(stage).toBeVisible();

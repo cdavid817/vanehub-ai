@@ -16,7 +16,7 @@ Goals are that consolidating layer. You attach the relevant Loops and board item
 
 ### Create a goal
 
-1. Select **Goal Center** in the activity bar.
+1. Select **Automations** in the activity bar, then the **Goals** tab.
 2. Select **New goal** at the top right.
 3. Fill in the fields:
 
@@ -116,7 +116,7 @@ The key design is that **the board stage and the source status are kept complete
 
 ### Open the board
 
-Select **Todo Board** in the activity bar. There are two views at the top, **Active board** and **Archive**; you land on the active board, where archived items are not shown.
+Select **Inbox** in the activity bar and switch the toggle at the top right to **Board**; the choice is remembered. Inside the board there are two views at the top, **Active board** and **Archive**; you land on the active board, where archived items are not shown.
 
 ### The five stages
 

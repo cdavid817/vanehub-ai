@@ -326,25 +326,29 @@ globalThis.describe("VaneHub AI desktop workspace UI flows", () => {
     const grid = await globalThis.$(".ucd-workspace-grid");
     await grid.waitForDisplayed({ timeout: 30_000 });
 
-    // workspace-activity-bar.tsx:90 -- each destination button names the region it controls, and
-    // those ids are the section ids in main-layout.tsx:431-483. Nothing here reads a label.
-    const boardButton = await globalThis.$('nav.ucd-activity-bar button[aria-controls="work-board"]');
-    await boardButton.waitForClickable({ timeout: 20_000 });
-    await boardButton.click();
-    await (await globalThis.$("#work-board")).waitForDisplayed({ timeout: 30_000 });
+    // Each activity entry names the region it controls (`aria-controls`), and those ids are the
+    // section ids in main-layout.tsx. Nothing here reads a label. The board is the Board view of
+    // Inbox now, so the toggle inside Inbox is the second hop.
+    const inboxButton = await globalThis.$('nav.ucd-activity-bar button[aria-controls="inbox"]');
+    await inboxButton.waitForClickable({ timeout: 20_000 });
+    await inboxButton.click();
+    const boardToggle = await globalThis.$('[data-testid="inbox-view-board"]');
+    await boardToggle.waitForClickable({ timeout: 30_000 });
+    await boardToggle.click();
+    await (await globalThis.$("#todo-board")).waitForDisplayed({ timeout: 30_000 });
     await globalThis.browser.waitUntil(
       async () => !(await grid.isDisplayed()),
       { timeout: 20_000, timeoutMsg: "The sessions grid stayed on screen after switching destination." },
     );
-    await waitForUrl("/workspace/work-board", "The activity bar did not change the workspace route.");
+    await waitForUrl("/workspace/inbox/board", "The activity bar did not change the workspace route.");
 
     await globalThis.browser.refresh();
     await bootstrapReady("React bootstrap did not become ready after the reload.");
     // Either route back counts: the WebView may reload the deep path directly, or land on the
     // launch route and be sent here by the remembered location (workspace-route.ts:58). What the
     // user is promised is the destination, not the mechanism.
-    await waitForUrl("/workspace/work-board", "The chosen destination did not survive a reload.");
-    await (await globalThis.$("#work-board")).waitForDisplayed({ timeout: 30_000 });
+    await waitForUrl("/workspace/inbox/board", "The chosen destination did not survive a reload.");
+    await (await globalThis.$("#todo-board")).waitForDisplayed({ timeout: 30_000 });
 
     const sessionsButton = await globalThis.$('nav.ucd-activity-bar button[aria-controls="workspace-session-sidebar"]');
     await sessionsButton.waitForClickable({ timeout: 20_000 });
@@ -492,9 +496,12 @@ globalThis.describe("VaneHub AI desktop workspace UI flows", () => {
   });
 
   globalThis.it("creates a work item on the board and moves it between stages", async function driveWorkBoard() {
-    const boardButton = await globalThis.$('nav.ucd-activity-bar button[aria-controls="work-board"]');
-    await boardButton.waitForClickable({ timeout: 20_000 });
-    await boardButton.click();
+    const inboxButton = await globalThis.$('nav.ucd-activity-bar button[aria-controls="inbox"]');
+    await inboxButton.waitForClickable({ timeout: 20_000 });
+    await inboxButton.click();
+    const boardToggle = await globalThis.$('[data-testid="inbox-view-board"]');
+    await boardToggle.waitForClickable({ timeout: 30_000 });
+    await boardToggle.click();
     const board = await globalThis.$("#todo-board");
     await board.waitForDisplayed({ timeout: 60_000 });
 

@@ -1,92 +1,82 @@
-import { Children, isValidElement, type ButtonHTMLAttributes, type ReactElement, type ReactNode } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
-import { WorkspaceActivityBar, type WorkspaceActivityBarLabels } from "./workspace-activity-bar";
+// @vitest-environment jsdom
 
-const labels: WorkspaceActivityBarLabels = {
-  navigation: "Workspace navigation",
-  sessions: "Sessions",
-  expandSessions: "Expand sessions",
-  collapseSessions: "Collapse sessions",
-  loops: "Loops",
-  scheduledTasks: "Scheduled tasks",
-  todoBoard: "Todo Board",
-  goals: "Goals",
-  evaluations: "Evaluations",
-  missionControl: "Mission Control",
-  systemActivity: "System activity",
-  settings: "Settings",
-  help: "Help",
-};
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { Inbox, MessagesSquare, Settings, Workflow } from "lucide-react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { WorkspaceActivityBar, type ActivityItem } from "./workspace-activity-bar";
 
-function groupButtons(element: ReactElement<{ children: ReactNode }>, groupIndex: number) {
-  const group = Children.toArray(element.props.children as ReactNode)[groupIndex];
-  if (!isValidElement<{ children: ReactNode }>(group)) throw new Error("Expected activity group");
-  return Children.toArray(group.props.children).map((child) => {
-    if (!isValidElement<ButtonHTMLAttributes<HTMLButtonElement>>(child)) throw new Error("Expected activity button");
-    return child;
-  });
+afterEach(cleanup);
+
+function items(overrides: Partial<Record<ActivityItem["id"], Partial<ActivityItem>>> = {}) {
+  const primary: ActivityItem[] = [
+    { id: "sessions", icon: MessagesSquare, label: "Collapse sessions", shortcut: "Mod+1", ariaControls: "workspace-session-sidebar", expanded: true, active: true, onSelect: vi.fn(), ...overrides.sessions },
+    { id: "inbox", icon: Inbox, label: "Inbox", shortcut: "Mod+2", ariaControls: "inbox", onSelect: vi.fn(), ...overrides.inbox },
+    { id: "automations", icon: Workflow, label: "Automations", shortcut: "Mod+3", ariaControls: "automations", onSelect: vi.fn(), ...overrides.automations },
+  ];
+  const utility: ActivityItem[] = [
+    { id: "settings", icon: Settings, label: "Settings", shortcut: "Mod+4", testId: "desktop-smoke-settings", onSelect: vi.fn(), ...overrides.settings },
+  ];
+  return { primary, utility };
 }
 
 describe("WorkspaceActivityBar", () => {
-  it("renders icon-only primary and utility groups with accessible state", () => {
-    const html = renderToStaticMarkup(
-      <WorkspaceActivityBar activeDestination="sessions" labels={labels} onEvaluations={vi.fn()} onHelp={vi.fn()} onLoops={vi.fn()} onMissionControl={vi.fn()} onOpenSettings={vi.fn()} onScheduledTasks={vi.fn()} onSessions={vi.fn()} onGoals={vi.fn()} onWorkBoard={vi.fn()} onSystemActivity={vi.fn()} systemActivityUnread={0} sessionSidebarExpanded />,
-    );
+  it("renders exactly the configured icon-only entries in two groups", () => {
+    const { primary, utility } = items();
+    render(<WorkspaceActivityBar items={primary} label="Workspace navigation" utilityItems={utility} />);
 
-    expect(html).toContain('aria-label="Workspace navigation"');
-    expect(html).toContain('data-activity-group="primary"');
-    // Scheduled tasks opens a dialog, so it is grouped away from the destination entries.
-    expect(html).toContain('data-activity-group="tools"');
-    expect(html).toContain('data-activity-group="utility"');
-    expect(html.indexOf('title="Todo Board"')).toBeLessThan(html.indexOf('title="Scheduled tasks"'));
-    expect(html.indexOf('title="Collapse sessions"')).toBeLessThan(html.indexOf('title="Scheduled tasks"'));
-    expect(html.indexOf('title="Settings"')).toBeLessThan(html.indexOf('title="Help"'));
-    expect(html).toContain('aria-controls="workspace-session-sidebar"');
-    expect(html).toContain('aria-expanded="true"');
-    expect(html).toContain('data-testid="desktop-smoke-settings"');
-    expect(html).not.toContain(">Sessions<");
+    const nav = screen.getByRole("navigation", { name: "Workspace navigation" });
+    const buttons = nav.querySelectorAll("button");
+    expect(buttons).toHaveLength(4);
+    expect([...buttons].map((button) => button.getAttribute("aria-label"))).toEqual(["Collapse sessions", "Inbox", "Automations", "Settings"]);
+    expect(nav.querySelector("[data-activity-group='primary']")?.querySelectorAll("button")).toHaveLength(3);
+    expect(nav.querySelector("[data-activity-group='utility']")?.querySelectorAll("button")).toHaveLength(1);
+    expect(nav.textContent).toBe("");
+    expect(screen.getByTestId("desktop-smoke-settings").getAttribute("aria-label")).toBe("Settings");
+    for (const retired of ["Loops", "Scheduled tasks", "Todo Board", "Goals", "Evaluations", "System activity", "Mission Control", "Help"]) {
+      expect(screen.queryByRole("button", { name: retired })).toBeNull();
+    }
   });
 
-  it("exposes the collapsed action and forwards activity callbacks", () => {
-    const onSessions = vi.fn();
-    const onLoops = vi.fn();
-    const onScheduledTasks = vi.fn();
-    const onWorkBoard = vi.fn();
-    const onGoals = vi.fn();
-    const onEvaluations = vi.fn();
-    const onMissionControl = vi.fn();
-    const onOpenSettings = vi.fn();
-    const onHelp = vi.fn();
-    const onSystemActivity = vi.fn();
-    const element = WorkspaceActivityBar({ activeDestination: "loops", labels, onEvaluations, onGoals, onHelp, onLoops, onMissionControl, onOpenSettings, onScheduledTasks, onSessions, onSystemActivity, onWorkBoard, sessionSidebarExpanded: false, systemActivityUnread: 3 });
-    const destinationButtons = groupButtons(element, 0);
-    const toolButtons = groupButtons(element, 1);
-    const utilityButtons = groupButtons(element, 2);
+  it("carries the shortcut in the tooltip and aria-keyshortcuts, and the sidebar state on Sessions", () => {
+    const { primary, utility } = items({ sessions: { expanded: false, label: "Expand sessions", active: false } });
+    render(<WorkspaceActivityBar items={primary} label="nav" utilityItems={utility} />);
 
-    destinationButtons[0].props.onClick?.({} as never);
-    destinationButtons[1].props.onClick?.({} as never);
-    destinationButtons[2].props.onClick?.({} as never);
-    destinationButtons[3].props.onClick?.({} as never);
-    destinationButtons[4].props.onClick?.({} as never);
-    destinationButtons[5].props.onClick?.({} as never);
-    destinationButtons[6].props.onClick?.({} as never);
-    toolButtons[0].props.onClick?.({} as never);
-    utilityButtons[0].props.onClick?.({} as never);
-    utilityButtons[1].props.onClick?.({} as never);
+    const sessions = screen.getByRole("button", { name: "Expand sessions" });
+    expect(sessions.getAttribute("aria-expanded")).toBe("false");
+    expect(sessions.getAttribute("aria-controls")).toBe("workspace-session-sidebar");
+    expect(sessions.title).toMatch(/^Expand sessions · (Ctrl\+1|⌘1)$/);
+    expect(sessions.getAttribute("aria-keyshortcuts")).toMatch(/^(Control|Meta)\+1$/);
+    expect(screen.getByRole("button", { name: "Inbox" }).getAttribute("aria-expanded")).toBeNull();
+    expect(screen.getByRole("button", { name: "Automations" }).title).toMatch(/3$/);
+    expect(screen.getByRole("button", { name: "Settings" }).title).toMatch(/4$/);
+  });
 
-    expect(onSessions).toHaveBeenCalledOnce();
-    expect(onLoops).toHaveBeenCalledOnce();
-    expect(onScheduledTasks).toHaveBeenCalledOnce();
-    expect(onWorkBoard).toHaveBeenCalledOnce();
-    expect(onGoals).toHaveBeenCalledOnce();
-    expect(onEvaluations).toHaveBeenCalledOnce();
-    expect(onMissionControl).toHaveBeenCalledOnce();
-    expect(onSystemActivity).toHaveBeenCalledOnce();
-    expect(renderToStaticMarkup(element)).toContain('data-testid="system-activity-bar-badge"');
-    expect(onOpenSettings).toHaveBeenCalledWith();
-    expect(renderToStaticMarkup(element)).toContain('title="Expand sessions"');
-    expect(utilityButtons[1].props.title).toBe("Help");
-    expect(onHelp).toHaveBeenCalledOnce();
+  it("marks only the active entry and forwards selection", () => {
+    const { primary, utility } = items({ sessions: { active: false }, inbox: { active: true } });
+    render(<WorkspaceActivityBar items={primary} label="nav" utilityItems={utility} />);
+
+    expect(screen.getByRole("button", { name: "Inbox" }).className).toContain("text-primary");
+    expect(screen.getByRole("button", { name: "Collapse sessions" }).className).not.toContain("text-primary");
+    fireEvent.click(screen.getByRole("button", { name: "Automations" }));
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(primary[2].onSelect).toHaveBeenCalledOnce();
+    expect(utility[0].onSelect).toHaveBeenCalledOnce();
+    expect(primary[0].onSelect).not.toHaveBeenCalled();
+  });
+
+  it("renders a badge only on an entry whose count is above zero", () => {
+    const { primary, utility } = items({ inbox: { badge: 7 }, automations: { badge: 0 } });
+    render(<WorkspaceActivityBar items={primary} label="nav" utilityItems={utility} />);
+
+    expect(screen.getByTestId("activity-bar-badge-inbox").textContent).toBe("7");
+    expect(screen.queryByTestId("activity-bar-badge-automations")).toBeNull();
+    expect(screen.queryByTestId("activity-bar-badge-sessions")).toBeNull();
+    expect(document.querySelectorAll("[data-testid^='activity-bar-badge-']")).toHaveLength(1);
+  });
+
+  it("caps a large badge", () => {
+    const { primary, utility } = items({ inbox: { badge: 250 } });
+    render(<WorkspaceActivityBar items={primary} label="nav" utilityItems={utility} />);
+    expect(screen.getByTestId("activity-bar-badge-inbox").textContent).toBe("99+");
   });
 });

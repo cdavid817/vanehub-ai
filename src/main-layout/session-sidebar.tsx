@@ -7,6 +7,7 @@ import { getAgentVisualIdentity } from "../lib/agent-visual-identity";
 import { lifecycleDotClass, lifecycleLabelKey, lifecycleTone } from "../lib/session-lifecycle";
 import { cn } from "../lib/utils";
 import type { Session, SessionCategory, SessionSearchResult } from "../types/agent";
+import type { WorkspaceSurfaceEntry } from "./workspace-search-entries";
 import {
   filterSearchResultsByAgent,
   filterSessionsByAgent,
@@ -97,7 +98,7 @@ function SessionCard({ active, batchMode, checked, draggable, onContextMenu, onD
   );
 }
 
-export function SessionSidebar({ activeSessionId, agentsAvailable, archivedSessions, categories, deletingSessions, focusSearchToken = 0, onAssignCategory, onBatchDelete, onContextMenu, onNew, onSearchChange, onSelect, searchQuery, searchResults, sessions }: {
+export function SessionSidebar({ activeSessionId, agentsAvailable, archivedSessions, categories, deletingSessions, focusSearchToken = 0, onAssignCategory, onBatchDelete, onContextMenu, onNew, onOpenSurface, onSearchChange, onSelect, searchQuery, searchResults, sessions, surfaceMatches = [] }: {
   activeSessionId: string | null; agentsAvailable: boolean; archivedSessions: Session[]; categories: SessionCategory[]; deletingSessions?: boolean;
   /** Incremented by the shell to move focus here from the top bar search entry. */
   focusSearchToken?: number;
@@ -105,6 +106,8 @@ export function SessionSidebar({ activeSessionId, agentsAvailable, archivedSessi
   onBatchDelete: (sessions: Session[]) => void;
   onContextMenu: (event: MouseEvent<HTMLButtonElement>, session: Session) => void;
   onNew: () => void; onSearchChange: (value: string) => void; onSelect: (session: Session) => void; searchQuery: string; searchResults: SessionSearchResult[]; sessions: Session[];
+  /** Workspace surfaces matching the query; the top-bar search is how demoted surfaces stay reachable. */
+  surfaceMatches?: WorkspaceSurfaceEntry[]; onOpenSurface?: (entry: WorkspaceSurfaceEntry) => void;
 }) {
   const { t } = useTranslation();
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -268,6 +271,7 @@ export function SessionSidebar({ activeSessionId, agentsAvailable, archivedSessi
       <select aria-label={t("layout.agentFilter")} className="ucd-input mb-2 h-8 rounded-md px-2 text-xs" onChange={(event) => setAgentFilter(event.target.value as SessionAgentFilter)} value={agentFilter}>{sessionAgentFilters.map((filter) => <option key={filter} value={filter}>{t(`layout.agentFilter.${filter}`)}</option>)}</select>
       {batchMode ? <div className="ucd-muted-panel mb-2 grid gap-2 rounded-md p-2"><div className="flex items-center justify-between text-xs text-muted-foreground"><span>{t("layout.batchSelectedCount", { count: selectedSessions.length })}</span><span>{renderedSessions.length}</span></div><div className="grid grid-cols-3 gap-1"><Button className="h-7 px-1 text-xs" disabled={renderedSessions.length === 0} onClick={selectVisible} size="sm" variant="outline">{t("layout.batchSelectVisible")}</Button><Button className="h-7 px-1 text-xs text-destructive" disabled={selectedSessions.length === 0 || deletingSessions} onClick={requestBatchDelete} size="sm" variant="outline"><Trash2 aria-hidden="true" className="h-3.5 w-3.5" />{t("layout.batchDelete")}</Button><Button className="h-7 px-1 text-xs" onClick={exitBatch} size="sm" variant="outline"><X aria-hidden="true" className="h-3.5 w-3.5" />{t("layout.batchExit")}</Button></div></div> : null}
       <div className="-mx-1 min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-1">
+        {searchQuery.trim() && surfaceMatches.length > 0 ? <div className="mb-3 grid gap-1 border-b border-border pb-3" data-testid="workspace-surface-results"><div className="text-xs text-muted-foreground">{t("layout.searchSurfaces")}</div>{surfaceMatches.map((entry) => <button className="ucd-list-row flex h-8 items-center gap-2 rounded-md px-2 text-left text-xs" data-surface-id={entry.id} key={entry.id} onClick={() => onOpenSurface?.(entry)} type="button"><Search aria-hidden="true" className="h-3.5 w-3.5 text-primary" /><span className="truncate">{entry.label}</span></button>)}</div> : null}
         {searchQuery.trim() && presentation !== "project" ? <div className="grid gap-2"><div className="flex justify-between text-xs text-muted-foreground"><span>{t("layout.searchResults")}</span><span>{filteredSearchResults.length}</span></div>{filteredSearchResults.map((result) => <div className="grid gap-1" key={result.session.id}>{card(result.session)}<p className="truncate px-2 text-xs text-muted-foreground">{result.matches[0]?.excerpt}</p></div>)}{filteredSearchResults.length === 0 ? <p className="ucd-muted-panel rounded-md p-3 text-xs text-muted-foreground">{t("layout.noSearchResults")}</p> : null}</div> : null}
         {!searchQuery.trim() && pinned.length > 0 ? <section className="mb-3 grid gap-2 border-b border-border pb-3"><div className="flex justify-between text-xs text-muted-foreground"><span><Pin className="mr-1 inline h-3.5 w-3.5" />{t("layout.pinned")}</span><span>{pinned.length}</span></div>{pinned.map(card)}</section> : null}
         {!searchQuery.trim() && presentation === "list" ? <div className="grid gap-1">{listSessions.map(card)}{listSessions.length === 0 ? <p className="ucd-muted-panel rounded-md p-3 text-xs text-muted-foreground">{emptyListMessage}</p> : null}</div> : null}

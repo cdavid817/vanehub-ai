@@ -9,6 +9,7 @@ describe("settingsPages", () => {
       "agent-configurations",
       "agent-policies",
       "cli-parameters",
+      "evaluation",
       "code-intelligence",
       "mcp",
       "skills",
@@ -28,7 +29,7 @@ describe("settingsPages", () => {
     ]);
   });
   it("registers every page as a lazy first-visit module", () => {
-    expect(settingsPages).toHaveLength(20);
+    expect(settingsPages).toHaveLength(21);
     expect(settingsPages.every((page) => typeof page.loader === "function")).toBe(true);
     expect(settingsPages.every((page) => !("component" in page))).toBe(true);
   });

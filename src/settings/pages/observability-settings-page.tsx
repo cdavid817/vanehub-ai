@@ -8,6 +8,7 @@ import type { ExecutionObservabilityService } from "../../services/execution-obs
 import { executionObservabilityService } from "../../services/runtime-execution-observability-client";
 import type { ObservabilitySettings } from "../../types/execution-observability";
 import { PageHeader, SectionPanel } from "./page-parts";
+import { SystemActivityMaintenanceSection } from "./observability/system-activity-maintenance-section";
 
 const queryKey = ["execution-observability"] as const;
 
@@ -79,6 +80,7 @@ export function ObservabilitySettingsPage({
     t("observability.export.title"),
     t("observability.capture.title"),
     t("observability.mcp.title"),
+    t("observability.systemActivity.title"),
   ].some((value) => value.toLowerCase().includes(searchTerm.trim().toLowerCase()));
 
   function update<K extends keyof ObservabilitySettings>(key: K, value: ObservabilitySettings[K]) {
@@ -151,6 +153,8 @@ export function ObservabilitySettingsPage({
           {t(draft.capturePolicy === "redacted_content" ? "observability.capture.warning" : "observability.capture.safeDefault")}
         </div>
       </SectionPanel>
+
+      <SystemActivityMaintenanceSection />
 
       <SectionPanel description={t("observability.mcp.description")} icon={Boxes} title={t("observability.mcp.title")} variant="plain">
         <ToggleRow checked={draft.mcpRelayEnabled} disabled={!relayAvailable} label={t("observability.mcp.relay")} onChange={(value) => update("mcpRelayEnabled", value)} />

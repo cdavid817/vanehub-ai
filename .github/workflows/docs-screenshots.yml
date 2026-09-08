@@ -1,0 +1,56 @@
+name: Documentation screenshots
+
+# Regenerates the user-guide screenshot baselines on the platform the CI check compares
+# against. The check in `ci.yml` runs on Windows and the capture pins Windows fonts
+# (Arial / Microsoft YaHei UI), so baselines rendered on Linux or macOS drift past the
+# pixel tolerance even for pages nothing touched. This workflow only publishes the fresh
+# captures as an artifact; committing them stays a reviewed, deliberate step.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "tests/docs/**"
+      - "docs/user-guide/screenshots.json"
+      - "playwright.docs.config.ts"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  capture:
+    name: Capture on Windows
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install chromium
+
+      - name: Regenerate screenshot baselines
+        run: npm run docs:screenshots:update
+
+      - name: Upload regenerated screenshots
+        # Published even when a capture failed, so the ones that did render are still reviewable.
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: documentation-screenshots-${{ github.run_id }}
+          path: |
+            docs/user-guide/en/src/assets/screenshots/*.png
+            docs/user-guide/zh-CN/src/assets/screenshots/*.png
+          if-no-files-found: error
