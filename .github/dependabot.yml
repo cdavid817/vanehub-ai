@@ -15,6 +15,20 @@ updates:
     commit-message:
       prefix: deps(npm)
     groups:
+      # Listed before the catch-all: a dependency joins the first group it matches, and this
+      # family has to move as a unit. `@vitest/coverage-v8` declares an exact peer on `vitest`,
+      # so a release that lands in two pull requests cannot be merged from either side --
+      # `npm ci` fails with ERESOLVE whichever one goes first. That is what happened to the
+      # 4.1.11 -> 5.0.0 bump: the catch-all below only covers minor and patch, the major fell
+      # outside it, and dependabot opened one pull request per package (#283, #284).
+      #
+      # `update-types` is omitted deliberately, which means every type including major. A major
+      # here still needs review for breaking changes; grouping only decides that the review has
+      # one mergeable pull request to look at.
+      vitest:
+        patterns:
+          - "vitest"
+          - "@vitest/*"
       npm-minor-patch:
         patterns:
           - "*"
