@@ -410,11 +410,13 @@ jobs:
   cli-parameter-fixtures:
     name: CLI Parameter Fixtures (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    # A cold macOS Rust cache spends about 25 minutes compiling the native fixture domain and,
-    # since the ACP runtime landed, another 19 minutes on the subdomain suite's extra workspace
-    # test binaries, so 45 minutes cancelled a healthy run during the npm steps that follow. A
-    # cancelled job never reaches the cache save either, which kept every later run cold too.
-    timeout-minutes: 60
+    # A cold macOS Rust cache spends 25 to 35 minutes compiling the native fixture domain and,
+    # since the ACP runtime landed, another 20 or so on the subdomain suite's extra workspace test
+    # binaries, then about a minute saving the 1.6 GB cache. 45 minutes cancelled a healthy run
+    # during the npm steps and 60 cancelled it during that save; a cancelled job never saves the
+    # cache, which kept every later run cold too. Only a cold run comes anywhere near this limit;
+    # a warm one finishes in well under ten minutes.
+    timeout-minutes: 75
     # Every platform reports independently. A Windows separator rule and a POSIX executable bit
     # fail for unrelated reasons, and stopping the matrix on the first one hides the other.
     strategy:
