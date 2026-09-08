@@ -12,7 +12,7 @@ Turn repetitive work into a recurring task that automatically creates a session 
 
 ### Create one
 
-Select **Scheduled tasks** in the activity bar to open the dialog. Existing tasks are on the left, the new-task form on the right:
+Select **Automations** in the activity bar, then the **Scheduled** tab. The surface is page content rather than a dialog, so an unsaved form survives a switch to another tab. Existing tasks are on the left, the new-task form on the right:
 
 | Field | Notes |
 | --- | --- |
@@ -33,7 +33,7 @@ Select **Scheduled tasks** in the activity bar to open the dialog. Existing task
 
 The interval must be positive. A task card shows its **next run time**, and can be **enabled or disabled** at any time without deleting it.
 
-![The scheduled tasks dialog with the task list on the left and the new-task form on the right](assets/screenshots/scheduled-tasks-en.png)
+![The Scheduled tab of Automations with the task list on the left and the new-task form on the right](assets/screenshots/scheduled-tasks-en.png)
 
 ### How the time is computed
 

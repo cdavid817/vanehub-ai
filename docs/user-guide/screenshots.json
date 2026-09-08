@@ -495,6 +495,22 @@
       "runtime": "web-mock",
       "featureState": "delivered",
       "path": "zh-CN/src/assets/screenshots/settings-local-media-zh-CN.png"
+    },
+    {
+      "id": "inbox-en",
+      "scenario": "inbox",
+      "locale": "en",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "en/src/assets/screenshots/inbox-en.png"
+    },
+    {
+      "id": "inbox-zh-CN",
+      "scenario": "inbox",
+      "locale": "zh-CN",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "zh-CN/src/assets/screenshots/inbox-zh-CN.png"
     }
   ]
 }

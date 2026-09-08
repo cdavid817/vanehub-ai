@@ -9,9 +9,9 @@ describe("frontend feature module boundaries", () => {
     const pages = read("settings/settings-pages.ts");
     // A page may live in its own directory rather than under `pages/`, so the count is of dynamic
     // imports rather than of one path shape; what must not appear is a static import of either.
-    // 20 after merging both branches: 19 from the CLI-parameter cutover plus the Local media page.
+    // 21: the 20 after merging the CLI-parameter cutover and Local media, plus the evaluation page.
     const pageModules = loaders.match(/import\("\.\/[^"]+"\)/g) ?? [];
-    expect(pageModules).toHaveLength(20);
+    expect(pageModules).toHaveLength(21);
     expect(loaders).not.toMatch(/from "\.\/pages\//);
     expect(loaders).not.toMatch(/from "\.\/cli-parameters\//);
     expect(pages).not.toMatch(/from "\.\/pages\//);
@@ -25,9 +25,22 @@ describe("frontend feature module boundaries", () => {
 
   it("keeps Loop Center and non-default session tabs behind dynamic imports", () => {
     const mainLayout = read("main-layout/main-layout.tsx");
+    const automations = read("automations/automations.tsx");
+    const inbox = read("inbox/inbox.tsx");
     const sessionTabs = read("session-workspace/session-tabs.tsx");
-    expect(mainLayout).toContain('import("../loop-center/loop-center")');
-    expect(mainLayout).not.toContain('from "../loop-center/loop-center"');
+    // The shell loads the two hosting surfaces lazily, and each of those loads its hosted
+    // features lazily in turn, so a first paint still carries none of them.
+    expect(mainLayout).toContain('import("../automations/automations")');
+    expect(mainLayout).toContain('import("../inbox/inbox")');
+    expect(mainLayout).not.toMatch(/from "\.\.\/(loop-center|goal-center|work-board|mission-control)\//);
+    expect(mainLayout).not.toMatch(/from "\.\.\/(automations\/automations|inbox\/inbox|system-activity\/system-activity-view)"/);
+    expect(automations).toContain('import("../loop-center/loop-center")');
+    expect(automations).toContain('import("./scheduled-tasks-panel")');
+    expect(automations).toContain('import("../goal-center/goal-center")');
+    expect(automations).not.toContain('from "../loop-center/loop-center"');
+    expect(inbox).toContain('import("../work-board/work-board")');
+    expect(inbox).toContain('import("../mission-control/mission-control")');
+    expect(inbox).toContain('import("../system-activity/system-activity-view")');
     expect(sessionTabs).toContain('import("./logs-tab")');
     expect(sessionTabs).toContain('import("./report-tab")');
     expect(sessionTabs).not.toContain('from "./logs-tab"');
