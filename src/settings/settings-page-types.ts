@@ -18,6 +18,7 @@ export type SettingsPageId =
   | "plugins"
   | "mcp"
   | "agent-configurations"
+  | "evaluation"
   | "code-intelligence"
   | "expert-roles"
   | "local-media"

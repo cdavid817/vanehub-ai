@@ -48,10 +48,16 @@ async function navigate(path) {
 }
 
 async function openEvaluationCenter() {
+  // The evaluation center is a settings page now (`/workspace/evaluations` redirects to it), and
+  // the settings shell unmounts on every route change. Navigating again while it is already on
+  // screen would remount it and drop the attempt the previous run selected, so only navigate when
+  // it is not there.
+  const mounted = await globalThis.$('[data-testid="evaluation-center"]');
+  if (await mounted.isExisting()) return mounted;
   await navigate("/workspace/evaluations");
   const center = await globalThis.$('[data-testid="evaluation-center"]');
-  // Lazily loaded on first visit (main-layout.tsx:445), so the wait is for the chunk as well as
-  // for the initial catalogue round trip.
+  // Lazily loaded on first visit, so the wait is for the chunk as well as for the initial
+  // catalogue round trip.
   await center.waitForExist({ timeout: 60_000 });
   return center;
 }

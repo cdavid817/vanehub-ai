@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { ArrowLeft } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { LazyFeature, type LazyFeatureLoader } from "../components/lazy-feature";
@@ -7,7 +7,10 @@ import { SessionTabs } from "../session-workspace/session-tabs";
 import { ApiSessionComposer } from "../session-workspace/api-session-composer";
 import type { SessionTabId } from "../session-workspace/session-tab-bar";
 import { agentService } from "../services/runtime-agent-client";
-import { useSystemActivityUnread } from "../system-activity/use-system-activity-badge";
+import { useInboxUnread } from "../inbox/use-inbox-badge";
+import type { AutomationsView, InboxView } from "./workspace-route";
+import { resolveMissionControlNavigation } from "./workspace-navigation";
+import { matchWorkspaceSurfaces, workspaceSurfaceEntries, type WorkspaceSurfaceEntry } from "./workspace-search-entries";
 import type { Session } from "../types/agent";
 import type { ChatMessage } from "../types/chat";
 import type { LoopInspectionTarget } from "../types/loop";
@@ -18,11 +21,11 @@ import { useSessionDeletion, type SessionDeletionController } from "./session-de
 import { SessionInfoPanel } from "./session-info-panel";
 import { SessionSidebar } from "./session-sidebar";
 import { nextSlashTabRequestState, type SlashTabRequest } from "./slash-tab-request";
-import { ScheduledTasksDialog } from "./scheduled-tasks-dialog";
 import { TopBar } from "./top-bar";
 import { useMainLayoutModel } from "./use-main-layout-model";
 import { useWorkspaceSessionRoute } from "./use-workspace-session-route";
-import { workspaceActivityBarLabels, WorkspaceActivityBar } from "./workspace-activity-bar";
+import { WorkspaceActivityBar } from "./workspace-activity-bar";
+import { readLastAutomationsView, rememberAutomationsView, useWorkspaceActivityItems } from "./use-workspace-activity-items";
 import { cn } from "../lib/utils";
 import type { SettingsPageId } from "../settings/settings-pages";
 import type { WorkspaceLocation } from "./workspace-route";
@@ -35,20 +38,12 @@ const sessionSidebarWidthStorageKey = "vanehub.session-sidebar.width.v1";
 const minSessionSidebarWidth = 232;
 const maxSessionSidebarWidth = 420;
 const defaultSessionSidebarWidth = 232;
-type LoopCenterProps = { onInspect?: (target: LoopInspectionTarget) => void };
-const loadLoopCenter: LazyFeatureLoader<LoopCenterProps> = () => import("../loop-center/loop-center")
-  .then((module) => ({ default: module.LoopCenter }));
-const loadWorkBoard: LazyFeatureLoader<Record<string, never>> = () => import("../work-board/work-board")
-  .then((module) => ({ default: module.WorkBoard }));
-const loadGoalCenter: LazyFeatureLoader<Record<string, never>> = () => import("../goal-center/goal-center")
-  .then((module) => ({ default: module.GoalCenter }));
-const loadEvaluationCenter: LazyFeatureLoader<Record<string, never>> = () => import("../evaluation-center/evaluation-center")
-  .then((module) => ({ default: module.EvaluationCenter }));
-const loadSystemActivity: LazyFeatureLoader<Record<string, never>> = () => import("../system-activity/system-activity-view")
-  .then((module) => ({ default: module.SystemActivityView }));
-type MissionControlProps = { onNavigate?: (target: import("../types/mission-control").MissionControlNavigationTarget) => void };
-const loadMissionControl: LazyFeatureLoader<MissionControlProps> = () => import("../mission-control/mission-control")
-  .then((module) => ({ default: module.MissionControl }));
+type AutomationsProps = import("../automations/automations").AutomationsProps;
+const loadAutomations: LazyFeatureLoader<AutomationsProps> = () => import("../automations/automations")
+  .then((module) => ({ default: module.Automations }));
+type InboxProps = import("../inbox/inbox").InboxProps;
+const loadInbox: LazyFeatureLoader<InboxProps> = () => import("../inbox/inbox")
+  .then((module) => ({ default: module.Inbox }));
 // Loaded on the first delete rather than with the shell: the confirmation is opened rarely and its
 // worktree rows, result panel and preview state machine would otherwise ride in the main chunk.
 const loadSessionDeletionDialog: LazyFeatureLoader<{ controller: SessionDeletionController }> = () =>
@@ -84,6 +79,7 @@ export function MainLayout({
   const model = useMainLayoutModel();
   const deletion = useSessionDeletion();
   const destination = location.destination;
+  const view = location.view;
   const { activeSessionId, archivedSessions, sessions, switchSession } = model;
   const goTo = (next: Partial<WorkspaceLocation>, options?: { replace?: boolean }) =>
     onNavigate({ ...location, ...next }, options);
@@ -106,14 +102,32 @@ export function MainLayout({
   const [workspaceTabsCollapsed, setWorkspaceTabsCollapsed] = useState(false);
   const [sessionSidebarWidth, setSessionSidebarWidth] = useState(readSessionSidebarWidth);
   const [contextPanel, setContextPanel] = useState<ContextPanelState | null>(null);
-  const [scheduledTasksOpen, setScheduledTasksOpen] = useState(false);
-  const [loopCenterVisited, setLoopCenterVisited] = useState(false);
-  const [workBoardVisited, setWorkBoardVisited] = useState(false);
-  const [goalCenterVisited, setGoalCenterVisited] = useState(false);
-  const [evaluationCenterVisited, setEvaluationCenterVisited] = useState(false);
-  const [missionControlVisited, setMissionControlVisited] = useState(false);
-  const [systemActivityVisited, setSystemActivityVisited] = useState(false);
-  const systemActivityUnread = useSystemActivityUnread(destination);
+  const [automationsVisited, setAutomationsVisited] = useState(false);
+  const [inboxVisited, setInboxVisited] = useState(false);
+  // While Inbox is on screen its own feed already knows the count, so the shell only fetches the
+  // badge on its own when Inbox is not the destination.
+  const [reportedInboxUnread, setReportedInboxUnread] = useState<number | null>(null);
+  const fetchedInboxUnread = useInboxUnread(destination, { enabled: destination !== "inbox" });
+  const inboxUnread = destination === "inbox" && reportedInboxUnread !== null ? reportedInboxUnread : fetchedInboxUnread;
+  const surfaceEntries = useMemo(() => workspaceSurfaceEntries(t), [t]);
+  const openSurface = (entry: WorkspaceSurfaceEntry) => {
+    if (entry.target.kind === "settings") onOpenSettings(entry.target.pageId);
+    else goTo(entry.target.location);
+  };
+  const activityItems = useWorkspaceActivityItems({
+    activeDestination: destination,
+    inboxUnread,
+    sessionSidebarExpanded: !(conversationFocusMode || sessionSidebarCollapsed),
+    onSessions: () => {
+      if (destination !== "sessions") goTo({ destination: "sessions" });
+      else if (conversationFocusMode) setConversationFocusMode(false);
+      else setSessionSidebarCollapsed((collapsed) => !collapsed);
+    },
+    onInbox: () => goTo({ destination: "inbox", view: "attention" }),
+    // The most recently used tab, so returning to Automations resumes rather than restarts.
+    onAutomations: () => goTo({ destination: "automations", view: readLastAutomationsView() }),
+    onSettings: () => onOpenSettings(),
+  });
   // Nonce, not just the tab id: requesting the same tab twice in a row (e.g. `/logs` again after
   // the user manually switched back to chat) must still re-trigger `SessionTabs`' activation effect.
   const [slashTabRequest, setSlashTabRequest] = useState<SlashTabRequest | null>(null);
@@ -152,12 +166,12 @@ export function MainLayout({
   // Visited flags gate the hidden-but-mounted destinations. Deriving them from the destination
   // rather than from click handlers is what makes a deep link render content instead of nothing.
   useEffect(() => {
-    if (destination === "loops") setLoopCenterVisited(true);
-    if (destination === "work-board") setWorkBoardVisited(true);
-    if (destination === "goals") setGoalCenterVisited(true);
-    if (destination === "evaluations") setEvaluationCenterVisited(true);
-    if (destination === "mission-control") setMissionControlVisited(true);
-    if (destination === "system-activity") setSystemActivityVisited(true);
+    if (destination === "automations" && (view === "loops" || view === "scheduled" || view === "goals")) rememberAutomationsView(view);
+  }, [destination, view]);
+
+  useEffect(() => {
+    if (destination === "inbox") setInboxVisited(true);
+    if (destination === "automations") setAutomationsVisited(true);
   }, [destination]);
 
   // The URL and the backend's active session are two claims about the same thing.
@@ -246,7 +260,7 @@ export function MainLayout({
       navigation={{
         // No visited-flag bookkeeping here: those are derived from `destination` above, which is
         // what lets a deep link render content. A command is just another way to change it.
-        openDestination: (target) => goTo({ destination: target }),
+        openDestination: (target) => goTo(target),
         openSessionTab: (tab) => setSlashTabRequest((current) => ({ tab, nonce: (current?.nonce ?? 0) + 1 })),
       }}
     />
@@ -269,26 +283,7 @@ export function MainLayout({
           }}
         />
         <div className="relative flex min-h-0 flex-1" data-testid="workspace-frame">
-          <WorkspaceActivityBar
-            activeDestination={destination}
-            labels={workspaceActivityBarLabels(t)}
-            onHelp={() => onOpenSettings("help")}
-            onOpenSettings={onOpenSettings}
-            onLoops={() => goTo({ destination: "loops" })}
-            onScheduledTasks={() => setScheduledTasksOpen(true)}
-            onWorkBoard={() => goTo({ destination: "work-board" })}
-            onGoals={() => goTo({ destination: "goals" })}
-            onEvaluations={() => goTo({ destination: "evaluations" })}
-            onMissionControl={() => goTo({ destination: "mission-control" })}
-            onSystemActivity={() => goTo({ destination: "system-activity" })}
-            systemActivityUnread={systemActivityUnread}
-            onSessions={() => {
-              if (destination !== "sessions") goTo({ destination: "sessions" });
-              else if (conversationFocusMode) setConversationFocusMode(false);
-              else setSessionSidebarCollapsed((collapsed) => !collapsed);
-            }}
-            sessionSidebarExpanded={!effectiveSessionSidebarCollapsed}
-          />
+          <WorkspaceActivityBar items={activityItems.items} label={t("layout.activityBar.label")} utilityItems={activityItems.utilityItems} />
           <div
             className={cn(
               "ucd-workspace-grid relative min-h-0 min-w-0 flex-1 gap-0",
@@ -319,6 +314,7 @@ export function MainLayout({
                 onBatchDelete={deletion.request}
                 onContextMenu={openContextMenu}
                 onNew={() => goTo({ destination: "sessions", creatingSession: true })}
+                onOpenSurface={openSurface}
                 onSearchChange={model.setSessionSearchQuery}
                 onSelect={(session) => {
                   setContextPanel(null);
@@ -329,6 +325,7 @@ export function MainLayout({
                 searchQuery={model.sessionSearchQuery}
                 searchResults={model.sessionSearchResults}
                 sessions={model.sessions}
+                surfaceMatches={matchWorkspaceSurfaces(model.sessionSearchQuery, surfaceEntries)}
               />
               <button
                 aria-label={t("layout.resizeSessionSidebar")}
@@ -347,7 +344,7 @@ export function MainLayout({
                     onClick={() => {
                       // Navigate before clearing the inspected loop session so the session-route
                       // reconciler never observes that hidden role session as a normal deep link.
-                      goTo({ destination: "loops" });
+                      goTo({ destination: "automations", view: "loops" });
                       setLoopInspection(null);
                     }}
                     title={t("loops.inspection.back")}
@@ -432,44 +429,28 @@ export function MainLayout({
               requestedTab={loopInspection?.target.surface === "usage" ? "usage" : requestedInfoTab}
             />
           </div>
-          <section
-            aria-label={t("layout.activityBar.todoBoard")}
-            className={cn("min-h-0 min-w-0 flex-1 p-2", destination === "work-board" ? "flex" : "hidden")}
-            id="work-board"
-          >
-            {workBoardVisited ? <LazyFeature className="h-full min-h-0 flex-1" componentProps={{}} loader={loadWorkBoard} /> : null}
+          <section aria-label={t("layout.activityBar.inbox")} className={cn("min-h-0 min-w-0 flex-1 p-2", destination === "inbox" ? "flex" : "hidden")} id="inbox">
+            {inboxVisited ? <LazyFeature className="h-full min-h-0 flex-1" componentProps={{
+              active: destination === "inbox",
+              view: (destination === "inbox" ? view : null) as InboxView | null ?? "attention",
+              onViewChange: (next: InboxView) => goTo({ destination: "inbox", view: next }),
+              onBadgeChange: setReportedInboxUnread,
+              onNavigate: (target) => {
+                const resolved = resolveMissionControlNavigation(target);
+                if (resolved.kind === "settings") { onOpenSettings(resolved.pageId); return; }
+                if (resolved.sessionTab) setSlashTabRequest((current) => ({ tab: "changes", nonce: (current?.nonce ?? 0) + 1 }));
+                goTo(resolved.location);
+              },
+            }} loader={loadInbox} /> : null}
           </section>
-          <section
-            aria-label={t("layout.activityBar.goals")}
-            className={cn("min-h-0 min-w-0 flex-1 p-2", destination === "goals" ? "flex" : "hidden")}
-            id="goal-center"
-          >
-            {goalCenterVisited ? <LazyFeature className="h-full min-h-0 flex-1" componentProps={{}} loader={loadGoalCenter} /> : null}
-          </section>
-          <section aria-label={t("layout.activityBar.evaluations")} className={cn("min-h-0 min-w-0 flex-1 p-2", destination === "evaluations" ? "flex" : "hidden")} id="evaluation-center">
-            {evaluationCenterVisited ? <LazyFeature className="h-full min-h-0 flex-1" componentProps={{}} loader={loadEvaluationCenter} /> : null}
-          </section>
-          <section aria-label={t("layout.activityBar.missionControl")} className={cn("min-h-0 min-w-0 flex-1 p-2", destination === "mission-control" ? "flex" : "hidden")} id="mission-control">
-            {missionControlVisited ? <LazyFeature className="h-full min-h-0 flex-1" componentProps={{ onNavigate: (target) => {
-              if (target.kind === "review") setSlashTabRequest((current) => ({ tab: "changes", nonce: (current?.nonce ?? 0) + 1 }));
-              goTo({ destination: "sessions", sessionId: target.sessionId ?? target.id });
-            } }} loader={loadMissionControl} /> : null}
-          </section>
-          <section aria-label={t("layout.activityBar.systemActivity")} className={cn("min-h-0 min-w-0 flex-1 p-2", destination === "system-activity" ? "flex" : "hidden")} id="system-activity">
-            {systemActivityVisited ? <LazyFeature className="h-full min-h-0 flex-1" componentProps={{}} loader={loadSystemActivity} /> : null}
-          </section>
-          <section
-            aria-label={t("layout.activityBar.loops")}
-            className={cn("min-h-0 min-w-0 flex-1 p-2", destination === "loops" ? "flex" : "hidden")}
-            id="loop-center"
-          >
-            {loopCenterVisited ? (
-              <LazyFeature
-                className="h-full min-h-0 flex-1"
-                componentProps={{ onInspect: inspectLoopSession }}
-                loader={loadLoopCenter}
-              />
-            ) : null}
+          <section aria-label={t("layout.activityBar.automations")} className={cn("min-h-0 min-w-0 flex-1 p-2", destination === "automations" ? "flex" : "hidden")} id="automations">
+            {automationsVisited ? <LazyFeature className="h-full min-h-0 flex-1" componentProps={{
+              active: destination === "automations",
+              agents: model.agents,
+              view: (destination === "automations" ? view : null) as AutomationsView | null ?? "loops",
+              onViewChange: (next: AutomationsView) => goTo({ destination: "automations", view: next }),
+              onInspectLoop: inspectLoopSession,
+            }} loader={loadAutomations} /> : null}
           </section>
           <div
             aria-hidden="true"
@@ -507,7 +488,6 @@ export function MainLayout({
         }}
         open={location.creatingSession}
       />
-      <ScheduledTasksDialog agents={model.agents} onClose={() => setScheduledTasksOpen(false)} open={scheduledTasksOpen} />
       {categoryDialogSession ? (
         <CreateCategoryDialog
           onClose={() => setCategoryDialogSession(null)}

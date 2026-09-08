@@ -4,7 +4,7 @@ test.describe("work board columns", () => {
   test("a full column scrolls inside the board instead of being clipped", async ({ page }) => {
     // Short enough that an inbox with a handful of cards cannot show every card at once.
     await page.setViewportSize({ width: 1280, height: 480 });
-    await page.goto("/workspace/work-board");
+    await page.goto("/workspace/inbox/board");
     await expect(page.getByRole("heading", { name: "任务看板" })).toBeVisible();
     for (let index = 1; index <= 8; index += 1) {
       await page.getByRole("button", { name: "新建工作项" }).click();
@@ -12,7 +12,8 @@ test.describe("work board columns", () => {
       await page.getByRole("button", { name: "创建", exact: true }).click();
       await expect(page.getByTestId(/work-item-web-/).filter({ hasText: `收件箱滚动 ${index}` })).toBeAttached();
     }
-    const inbox = page.getByRole("heading", { name: "收件箱" }).locator("xpath=ancestor::section[1]");
+    // Scoped to the board: the Inbox destination hosting it has a heading of the same name.
+    const inbox = page.locator("#todo-board").getByRole("heading", { name: "收件箱" }).locator("xpath=ancestor::section[1]");
     await expect(inbox.getByTestId(/work-item-web-/).first()).toBeVisible();
 
     const measured = await inbox.evaluate((column) => {

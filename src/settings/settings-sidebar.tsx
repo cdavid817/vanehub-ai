@@ -1,8 +1,10 @@
+import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { aboutCurrentVersion } from "../services/about-service";
 import {
   settingsPageGroupOrder,
   settingsPages,
+  type SettingsPageDefinition,
   type SettingsPageGroup,
   type SettingsPageId,
 } from "./settings-pages";
@@ -20,6 +22,33 @@ const groupLabelKeys: Record<SettingsPageGroup, string> = {
   diagnostics: "settings.group.diagnostics",
 };
 
+/** Rendered after every group rather than inside one. */
+const bottomPageIds: SettingsPageId[] = ["help"];
+
+function PageButton({ active, onSelect, page, t }: { active: boolean; onSelect: (pageId: SettingsPageId) => void; page: SettingsPageDefinition; t: TFunction }) {
+  const Icon = page.icon;
+  return (
+    <button
+      className={`relative flex min-h-10 min-w-0 items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors max-lg:min-w-max max-lg:shrink-0 ${
+        active ? "bg-[hsl(var(--nav-active-soft))] font-semibold text-primary" : "text-foreground hover:bg-muted"
+      }`}
+      onClick={() => onSelect(page.id)}
+      type="button"
+    >
+      {active ? <span className="absolute left-0 h-5 w-0.5 rounded bg-primary max-lg:hidden" /> : null}
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-[hsl(var(--panel-muted))]">
+        <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+      </span>
+      <span className="min-w-0 flex-1 truncate" title={t(page.labelKey)}>{t(page.labelKey)}</span>
+      {page.badge ? (
+        <span className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-[hsl(var(--nav-active-soft))] px-1.5 text-xs text-primary">
+          {page.badge}
+        </span>
+      ) : null}
+    </button>
+  );
+}
+
 export function SettingsSidebar({ activePageId, onSelectPage }: SettingsSidebarProps) {
   const { t } = useTranslation();
 
@@ -33,41 +62,24 @@ export function SettingsSidebar({ activePageId, onSelectPage }: SettingsSidebarP
         className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] gap-1 overflow-y-auto pt-1 max-lg:flex max-lg:grid-cols-none max-lg:overflow-x-auto max-lg:overflow-y-hidden max-lg:pt-0"
       >
         {settingsPageGroupOrder.map((group) => {
-          const pages = settingsPages.filter((page) => page.group === group);
+          const pages = settingsPages.filter((page) => page.group === group && !bottomPageIds.includes(page.id));
           if (pages.length === 0) return null;
           return (
             <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1 max-lg:flex max-lg:shrink-0 max-lg:grid-cols-none max-lg:gap-1" key={group}>
               <div className="px-2.5 pb-0.5 pt-2 text-[11px] font-semibold tracking-wide text-muted-foreground max-lg:hidden">
                 {t(groupLabelKeys[group])}
               </div>
-              {pages.map((page) => {
-                const Icon = page.icon;
-                const active = page.id === activePageId;
-                return (
-                  <button
-                    className={`relative flex min-h-10 min-w-0 items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors max-lg:min-w-max max-lg:shrink-0 ${
-                      active ? "bg-[hsl(var(--nav-active-soft))] font-semibold text-primary" : "text-foreground hover:bg-muted"
-                    }`}
-                    key={page.id}
-                    onClick={() => onSelectPage(page.id)}
-                    type="button"
-                  >
-                    {active ? <span className="absolute left-0 h-5 w-0.5 rounded bg-primary max-lg:hidden" /> : null}
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-[hsl(var(--panel-muted))]">
-                      <Icon className="h-3.5 w-3.5" aria-hidden="true" />
-                    </span>
-                    <span className="min-w-0 flex-1 truncate" title={t(page.labelKey)}>{t(page.labelKey)}</span>
-                    {page.badge ? (
-                      <span className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-[hsl(var(--nav-active-soft))] px-1.5 text-xs text-primary">
-                        {page.badge}
-                      </span>
-                    ) : null}
-                  </button>
-                );
-              })}
+              {pages.map((page) => <PageButton active={page.id === activePageId} key={page.id} onSelect={onSelectPage} page={page} t={t} />)}
             </div>
           );
         })}
+        {/* Help was an activity-bar entry; it is pinned here so it stays one click from every
+            settings page without competing with the workflow-ordered groups above. */}
+        <div className="mt-auto grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1 border-t border-border pt-2 max-lg:mt-0 max-lg:flex max-lg:shrink-0 max-lg:grid-cols-none max-lg:border-t-0 max-lg:pt-0" data-settings-group="bottom">
+          {settingsPages.filter((page) => bottomPageIds.includes(page.id)).map((page) => (
+            <PageButton active={page.id === activePageId} key={page.id} onSelect={onSelectPage} page={page} t={t} />
+          ))}
+        </div>
       </nav>
 
       <div className="mt-auto border-t border-border px-3 py-3 text-xs leading-5 text-muted-foreground max-lg:hidden">

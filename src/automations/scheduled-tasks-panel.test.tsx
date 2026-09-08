@@ -1,24 +1,36 @@
 // @vitest-environment jsdom
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { i18n } from "../i18n";
 import { agentService } from "../services/runtime-agent-client";
 import { mockAgents } from "../services/mock-agent-data";
 import type { ScheduledTask } from "../types/agent";
-import { ScheduledTasksDialog } from "./scheduled-tasks-dialog";
+import { ScheduledTasksPanel } from "./scheduled-tasks-panel";
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
-describe("ScheduledTasksDialog", () => {
+describe("ScheduledTasksPanel", () => {
+  it("renders inline without a dialog and focuses the first control of the surface", async () => {
+    await i18n.changeLanguage("zh-CN");
+    vi.spyOn(agentService, "listScheduledTasks").mockResolvedValue([]);
+    render(<ScheduledTasksPanel agents={mockAgents} />);
+
+    expect(await screen.findByRole("heading", { name: "定时任务" })).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.querySelector("[aria-modal]")).toBeNull();
+    expect(document.activeElement).toBe(screen.getByLabelText("任务名称"));
+    expect(screen.getByPlaceholderText("例如：每日整理项目进度")).toBeTruthy();
+  });
+
   it("validates and creates a localized scheduled task for a stable Agent id", async () => {
     await i18n.changeLanguage("zh-CN");
     const user = userEvent.setup();
     const created = taskFixture();
     vi.spyOn(agentService, "listScheduledTasks").mockResolvedValue([]);
     const create = vi.spyOn(agentService, "createScheduledTask").mockResolvedValue(created);
-    render(<ScheduledTasksDialog agents={mockAgents} onClose={vi.fn()} open />);
+    render(<ScheduledTasksPanel agents={mockAgents} />);
 
     const createButton = await screen.findByRole("button", { name: "创建任务" });
     expect((createButton as HTMLButtonElement).disabled).toBe(true);
@@ -46,7 +58,7 @@ describe("ScheduledTasksDialog", () => {
     const user = userEvent.setup();
     vi.spyOn(agentService, "listScheduledTasks").mockResolvedValue([]);
     const create = vi.spyOn(agentService, "createScheduledTask");
-    render(<ScheduledTasksDialog agents={mockAgents} onClose={vi.fn()} open />);
+    render(<ScheduledTasksPanel agents={mockAgents} />);
 
     await user.type(await screen.findByLabelText("任务名称"), "检查");
     await user.type(screen.getByLabelText("任务内容"), "检查项目");
@@ -65,7 +77,7 @@ describe("ScheduledTasksDialog", () => {
     let resolveMutation: ((value: ScheduledTask) => void) | undefined;
     vi.spyOn(agentService, "listScheduledTasks").mockResolvedValue([task]);
     vi.spyOn(agentService, "setScheduledTaskEnabled").mockReturnValue(new Promise((resolve) => { resolveMutation = resolve; }));
-    render(<ScheduledTasksDialog agents={mockAgents} onClose={vi.fn()} open />);
+    render(<ScheduledTasksPanel agents={mockAgents} />);
 
     const toggle = await screen.findByRole("switch", { name: "停用任务“每周代码检查”" });
     await user.click(toggle);
@@ -74,6 +86,20 @@ describe("ScheduledTasksDialog", () => {
 
     resolveMutation?.({ ...task, enabled: false });
     expect(await screen.findByRole("switch", { name: "启用任务“每周代码检查”" })).toBeTruthy();
+  });
+
+  it("keeps a failed load's error and the existing list visible after a failed mutation", async () => {
+    await i18n.changeLanguage("zh-CN");
+    const user = userEvent.setup();
+    const task = taskFixture();
+    vi.spyOn(agentService, "listScheduledTasks").mockResolvedValue([task]);
+    vi.spyOn(agentService, "setScheduledTaskEnabled").mockRejectedValue(new Error("native refused"));
+    render(<ScheduledTasksPanel agents={mockAgents} />);
+
+    await user.click(await screen.findByRole("switch", { name: "停用任务“每周代码检查”" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("native refused");
+    expect(screen.getByText("每周仓库检查")).toBeTruthy();
+    expect(screen.getByRole("switch", { name: "停用任务“每周代码检查”" })).toBeTruthy();
   });
 });
 

@@ -84,7 +84,7 @@ function RunSection({ onAct, onInspect, runs, title, urgent = false }: { onAct: 
   return <section className="mb-4"><h2 className="mb-2 flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{urgent ? <AlertTriangle aria-hidden="true" className="h-3.5 w-3.5 text-warning" /> : null}{title}</h2><div className="grid gap-2">{runs.map((run) => <RunCard key={run.runId} onAct={onAct} onInspect={onInspect} run={run} />)}</div></section>;
 }
 
-function RunCard({ onAct, onInspect, run }: { onAct: (run: MissionControlRunSummary, action: MissionControlAction) => void; onInspect: (run: MissionControlRunSummary) => void; run: MissionControlRunSummary }) {
+export function RunCard({ onAct, onInspect, run }: { onAct: (run: MissionControlRunSummary, action: MissionControlAction) => void; onInspect: (run: MissionControlRunSummary) => void; run: MissionControlRunSummary }) {
   const { t } = useTranslation();
   const ended = run.endedAt ?? run.updatedAt;
   const elapsed = Math.max(0, Date.parse(ended) - Date.parse(run.createdAt));
