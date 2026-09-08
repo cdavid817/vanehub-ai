@@ -28,6 +28,7 @@ import {
   loadCliParametersPage,
   loadCodeIntelligencePage,
   loadDocumentationPage,
+  loadEvaluationPage,
   loadExpertRolesPage,
   loadExtensionsPage,
   loadImPage,
@@ -91,6 +92,15 @@ export const settingsPages: SettingsPageDefinition[] = [
     icon: SlidersHorizontal,
     searchPlaceholderKey: "settings.search.cliParameters",
     loader: loadCliParametersPage,
+  },
+  {
+    id: "evaluation",
+    group: "agent",
+    labelKey: "settings.pages.evaluation",
+    crumbKey: "settings.pages.evaluation",
+    icon: BarChart3,
+    searchPlaceholderKey: "settings.search.evaluation",
+    loader: loadEvaluationPage,
   },
   {
     id: "code-intelligence",

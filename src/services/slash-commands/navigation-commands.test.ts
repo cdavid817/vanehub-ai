@@ -23,7 +23,10 @@ const byName = (name: string): SlashCommand => {
 
 describe("navigation commands", () => {
   it("/todo and /loops switch destination", async () => {
-    for (const [name, destination] of [["todo", "work-board"], ["loops", "loops"]] as const) {
+    for (const [name, destination] of [
+      ["todo", { destination: "inbox", view: "board" }],
+      ["loops", { destination: "automations", view: "loops" }],
+    ] as const) {
       const { ctx, navigate } = context();
       await byName(name).run(ctx, []);
       expect(navigate.openDestination).toHaveBeenCalledWith(destination);

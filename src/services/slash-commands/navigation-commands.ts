@@ -7,8 +7,8 @@ const TAB_COMMANDS: SessionTabId[] = [
 ];
 
 const DESTINATION_COMMANDS: Array<{ name: string; destination: SlashCommandDestination }> = [
-  { name: "todo", destination: "work-board" },
-  { name: "loops", destination: "loops" },
+  { name: "todo", destination: { destination: "inbox", view: "board" } },
+  { name: "loops", destination: { destination: "automations", view: "loops" } },
 ];
 
 export const NAVIGATION_COMMANDS: SlashCommand[] = [

@@ -4,7 +4,7 @@
 
 单个功能的设置项在各自的章节里说明；这一章只讲设置中心本身和跨功能的基础配置。
 
-左侧活动栏的**设置**进入设置中心，左侧是设置项导航，右侧是配置页。共 20 个设置页：
+左侧活动栏的**设置**进入设置中心，左侧是设置项导航，右侧是配置页。共 21 个设置页，另有固定在侧栏底部的**使用文档**：
 
 | 设置页 | 内容 |
 | --- | --- |
@@ -16,6 +16,7 @@
 | **MCP 服务器** | MCP server 配置与按 Agent 绑定，见 [MCP 服务器](mcp.md) |
 | **Agent 配置** | 按 Agent 配置 provider、端点与模型（含 OnePiece），见 [工具与扩展](agent-configuration.md#agent-配置) |
 | **Agent 权限策略** | 权限策略与审批模板，见 [权限审批](permissions.md) |
+| **Agent 评测** | 让多个 Agent 跑同一道基准题并对照结果，见 [Agent 评测](evaluation.md) |
 | **专家角色** | 角色与评审策略，见 [专家角色](expert-roles.md) |
 | **AI 个性化** | Custom Instructions 与跨会话记忆，见 [个性化](personalization.md) |
 | **Skill 管理** | Skill 安装与绑定，见 [Skill 管理](skill-management.md) |

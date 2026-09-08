@@ -42,7 +42,7 @@ function session(id: string, overrides: Partial<Session> = {}): Session {
 }
 
 function location(overrides: Partial<WorkspaceLocation> = {}): WorkspaceLocation {
-  return { creatingSession: false, destination: "sessions", sessionId: null, ...overrides };
+  return { creatingSession: false, destination: "sessions", sessionId: null, view: null, ...overrides };
 }
 
 function renderRoute(options: Parameters<typeof useWorkspaceSessionRoute>[0]) {
@@ -67,7 +67,7 @@ describe("useWorkspaceSessionRoute", () => {
     renderRoute({ ...defaults, activeSessionId: "session-1", location: location(), onNavigate });
 
     expect(onNavigate).toHaveBeenCalledWith(
-      { creatingSession: false, destination: "sessions", sessionId: "session-1" },
+      { creatingSession: false, destination: "sessions", sessionId: "session-1", view: null },
       { replace: true },
     );
   });
@@ -120,14 +120,14 @@ describe("useWorkspaceSessionRoute", () => {
     });
 
     expect(onNavigate).toHaveBeenCalledWith(
-      { creatingSession: false, destination: "sessions", sessionId: null },
+      { creatingSession: false, destination: "sessions", sessionId: null, view: null },
       { replace: true },
     );
   });
 
   it("stays out of the way on other destinations and while creating", () => {
     const onNavigate = vi.fn();
-    renderRoute({ ...defaults, activeSessionId: "session-1", location: location({ destination: "loops" }), onNavigate });
+    renderRoute({ ...defaults, activeSessionId: "session-1", location: location({ destination: "automations", view: "loops" }), onNavigate });
     expect(onNavigate).not.toHaveBeenCalled();
 
     cleanup();

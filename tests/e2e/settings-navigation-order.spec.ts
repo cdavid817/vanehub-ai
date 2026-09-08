@@ -9,6 +9,7 @@ test("orders Settings destinations around common setup and customization workflo
     "Agent 配置",
     "Agent 权限策略",
     "CLI 参数",
+    "Agent 评测",
     "代码智能",
     "MCP 服务器",
     "Skill 管理",
@@ -23,8 +24,9 @@ test("orders Settings destinations around common setup and customization workflo
     "SSH 连接",
     "执行可观测性",
     "使用统计",
-    "使用文档",
     "关于",
+    // Help is pinned in the sidebar's bottom group, after every workflow group.
+    "使用文档",
   ];
   const navigation = page.locator("nav");
   for (const label of expected) {

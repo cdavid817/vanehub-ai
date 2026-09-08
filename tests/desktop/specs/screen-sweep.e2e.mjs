@@ -10,8 +10,10 @@ import { navigateTo } from "../helpers/navigation.mjs";
 const run = promisify(execFile);
 const invoke = (fn, ...args) => globalThis.browser.tauri.execute(fn, ...args);
 
+// Destination plus sub-view, the way the route addresses them; the retired destinations now
+// redirect into these, so sweeping the hosts covers every surface they used to be.
 const WORKSPACE_DESTINATIONS = [
-  "sessions", "loops", "work-board", "goals", "evaluations", "mission-control",
+  "sessions", "inbox/attention", "inbox/board", "automations/loops", "automations/scheduled", "automations/goals",
 ];
 // Mirrors `SessionTabId` in src/session-workspace/session-tab-bar.tsx. The tab buttons carry
 // `aria-controls`, which is the one selector on this screen that does not move with the locale.
@@ -108,7 +110,7 @@ globalThis.describe("VaneHub AI desktop screen sweep", () => {
       const frame = await globalThis.$('[data-testid="workspace-frame"]');
       await frame.waitForExist({ timeout: 20_000 });
       await assertScreenRendered(`workspace/${destination}`);
-      await capture(`workspace-${destination}`);
+      await capture(`workspace-${destination.replace("/", "-")}`);
     }
   });
 

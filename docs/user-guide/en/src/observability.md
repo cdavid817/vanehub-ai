@@ -114,7 +114,7 @@ What the privacy design excludes is **content**, not identifiers: raw prompts, A
 
 ## Mission Control
 
-A trace answers "what happened inside this one run". **Mission Control answers the other question: which runs need you right now.** It is the **Mission Control** entry in the left activity bar.
+A trace answers "what happened inside this one run". **Mission Control answers the other question: which runs need you right now.** Its runs are the **Needs attention**, **Running**, and **Recently finished** sections of the **Inbox**; the full console below is the **Mission Control console** disclosure at the bottom of the Inbox.
 
 ![The Mission Control overview with summary counts across the top and the Attention inbox, Active Runs, and Recently completed sections below](assets/screenshots/mission-control-en.png)
 

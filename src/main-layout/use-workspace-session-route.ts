@@ -45,7 +45,7 @@ export function useWorkspaceSessionRoute({
 
   useEffect(() => {
     if (destination !== "sessions" || creatingSession) return;
-    const base: WorkspaceLocation = { creatingSession: false, destination: "sessions", sessionId: null };
+    const base: WorkspaceLocation = { creatingSession: false, destination: "sessions", sessionId: null, view: null };
 
     if (!sessionId) {
       attemptedRef.current = null;

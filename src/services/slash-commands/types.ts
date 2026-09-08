@@ -1,16 +1,16 @@
 import type { Session, SessionExportFormat } from "../../types/agent";
 import type { ChatConfig, SessionExecutionMode } from "../../types/chat";
 import type { SessionTabId } from "../../session-workspace/session-tab-bar";
-import type { WorkspaceDestination } from "../../main-layout/workspace-route";
+import type { WorkspaceLocation } from "../../main-layout/workspace-route";
 
 export type SlashCommandCategory = "session" | "runtime" | "navigation" | "info";
 
 /**
- * Aliased rather than redeclared: a second copy of this union would silently drift the day a
- * destination is renamed, and the navigation commands would keep compiling while pointing at a
- * route that no longer exists.
+ * Taken from the route model rather than redeclared: a second copy of these unions would silently
+ * drift the day a destination or view is renamed, and the navigation commands would keep compiling
+ * while pointing at a route that no longer exists.
  */
-export type SlashCommandDestination = WorkspaceDestination;
+export type SlashCommandDestination = Pick<WorkspaceLocation, "destination" | "view">;
 
 /**
  * Facts a command needs for its availability decision that do not live on the session row.

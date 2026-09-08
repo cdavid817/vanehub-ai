@@ -3,9 +3,9 @@ import { ErrorBoundary } from "react-error-boundary";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router";
 import { MainLayout } from "./main-layout/main-layout";
 import {
-  parseWorkspaceLocation,
   recallWorkspacePath,
   rememberWorkspaceLocation,
+  resolveWorkspaceRoute,
   workspacePath,
   type WorkspaceLocation,
 } from "./main-layout/workspace-route";
@@ -52,9 +52,17 @@ function RouteErrorFallback({ error }: { error: unknown }) {
 function WorkspaceRoute() {
   const navigate = useNavigate();
   const location = useLocation();
-  const workspaceLocation = useMemo(() => parseWorkspaceLocation(location.pathname), [location.pathname]);
+  const resolution = useMemo(() => resolveWorkspaceRoute(location.pathname), [location.pathname]);
+  const workspaceLocation = resolution.location;
 
   useEffect(() => rememberWorkspaceLocation(workspaceLocation), [workspaceLocation]);
+  // A retired path is rewritten to the host it resolved to, so Back, bookmarks, and the remembered
+  // location all converge on one URL. One whose host became a settings page opens it over the
+  // session workspace, which is remembered and rendered behind it so returning lands somewhere real.
+  useEffect(() => {
+    if (resolution.kind === "settings") navigate(`/settings?section=${resolution.pageId}`, { replace: true });
+    else if (resolution.legacy) navigate(workspacePath(resolution.location), { replace: true });
+  }, [navigate, resolution]);
 
   // Takes a whole location so it depends only on `navigate`. An inline arrow closing over the
   // current location would change every render and re-fire the layout's reconciliation effect.

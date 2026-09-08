@@ -38,8 +38,9 @@ export async function bootDesktopUi() {
     input: { key: "applicationLanguage", value: "zh-CN" },
   }));
   // The startup activity is intentionally not assumed. The activity bar is common to every
-  // workspace surface, so it is the stable readiness signal each layer can navigate from.
-  await globalThis.browser.waitUntil(async () => (await scheduledTasksButton()).isExisting(), {
+  // workspace surface, so it is the stable readiness signal each layer can navigate from; its
+  // landmark label is what proves the pinned language has been applied.
+  await globalThis.browser.waitUntil(async () => (await activityBar()).isExisting(), {
     timeout: 30000,
     timeoutMsg: "The UI did not settle on the pinned language.",
   });
@@ -110,7 +111,48 @@ export async function createSessionButton() {
   return create;
 }
 
-export const scheduledTasksButton = () => globalThis.$('button[aria-haspopup="dialog"][aria-label="定时任务"]');
+export const activityBar = () => globalThis.$('nav.ucd-activity-bar[aria-label="工作区导航"]');
+/** One of the four activity entries, addressed by the region it controls rather than its label. */
+export const activityBarButton = (controls) => globalThis.$(`nav.ucd-activity-bar button[aria-controls="${controls}"]`);
+/** An Automations tab by its zh-CN label; the shell renders them with `role="tab"`. */
+export const automationsTab = (label) => globalThis.$(`//*[@role="tablist"]//button[@role="tab" and normalize-space(.)="${label}"]`);
+
+/** Opens the Scheduled tab of Automations and returns the inline scheduled-task surface. */
+export async function openScheduledTasksSurface() {
+  const automations = await activityBarButton("automations");
+  await automations.waitForClickable({ timeout: 30000 });
+  await automations.click();
+  const tab = await automationsTab("定时任务");
+  await tab.waitForClickable({ timeout: 30000 });
+  await tab.click();
+  const surface = await globalThis.$('[data-testid="scheduled-tasks-panel"]');
+  await surface.waitForDisplayed({ timeout: 60000 });
+  return surface;
+}
+
+export const surfaceButton = (testId, label) => globalThis.$(`//*[@data-testid="${testId}"]//button[normalize-space(.)="${label}"]`);
+
+export async function surfaceField(testId, label) {
+  const fieldLabel = await globalThis.$(`//*[@data-testid="${testId}"]//label[normalize-space(.)="${label}"]`);
+  await fieldLabel.waitForExist({ timeout: 20000 });
+  const id = await fieldLabel.getAttribute("for");
+  if (!id) throw new Error(`Surface field has no associated control: ${label}`);
+  return globalThis.$(`[id="${id}"]`);
+}
+
+export async function selectSurfaceOption(testId, label, value) {
+  const select = await surfaceField(testId, label);
+  await setSelectValue(select, value, label);
+  return select;
+}
+
+export async function activeElementInside(testId) {
+  return globalThis.browser.execute((id) => {
+    const node = globalThis.document.querySelector(`[data-testid="${id}"]`);
+    const active = globalThis.document.activeElement;
+    return Boolean(node && active && node !== active && node.contains(active));
+  }, testId);
+}
 export const dialog = () => globalThis.$('[role="dialog"]');
 export const dialogButton = (label) => globalThis.$(`//*[@role="dialog"]//button[normalize-space(.)="${label}"]`);
 
@@ -124,6 +166,11 @@ export async function dialogField(label) {
 
 export async function selectDialogOption(label, value) {
   const select = await dialogField(label);
+  await setSelectValue(select, value, label);
+  return select;
+}
+
+async function setSelectValue(select, value, label) {
   const id = await select.getAttribute("id");
   await globalThis.browser.execute((controlId, selectedValue) => {
     const control = globalThis.document.getElementById(controlId);
@@ -137,7 +184,6 @@ export async function selectDialogOption(label, value) {
     timeout: 10000,
     timeoutMsg: `${label} did not select ${value}.`,
   });
-  return select;
 }
 
 export async function activeElementInsideDialog() {

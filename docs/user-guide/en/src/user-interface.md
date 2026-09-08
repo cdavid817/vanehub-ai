@@ -22,7 +22,15 @@ The session list on the left supports three display modes: **list / by category 
 
 ### Activity bar navigation
 
-The activity bar to the left of the session list switches between the main destinations: **Sessions / Loops / Todo Board / Goal Center / Evaluations / Mission Control / Scheduled tasks / Settings / Help**.
+The activity bar to the left of the session list has four entries: **Sessions**, **Inbox**, and **Automations** in the top group, and **Settings** at the bottom. `Ctrl+1` to `Ctrl+4` (`⌘1` to `⌘4` on macOS) switch between them while no text field has focus.
+
+- **Inbox** is the one place that answers "what needs me right now": **Needs attention**, **Running**, and **Recently finished** combine Mission Control runs with unread system activity, and it carries the only unread badge. A **List / Board** toggle at the top swaps the sections for the Todo Board, and two disclosures at the bottom open the full **Mission Control console** and the **Activity log** timeline.
+- **Automations** hosts everything that runs without you watching as three tabs: **Loops**, **Scheduled**, and **Goals**. The entry reopens the tab you used last.
+- **Settings** opens the settings centre; **Documentation** is pinned at the bottom of its sidebar, and **Agent Evaluation** lives under the Agent group there.
+
+![The Inbox with its Needs attention, Running, and Recently finished sections](assets/screenshots/inbox-en.png)
+
+Older links to `/workspace/loops`, `/workspace/work-board`, `/workspace/mission-control`, and the other retired destinations still work: they open the new host. **Global search** in the top bar also lists Board, Loops, Scheduled, Goals, and Agent Evaluation as places you can jump to.
 
 ## Agent types
 
@@ -78,7 +86,7 @@ Once the floating assistant is enabled in settings, a separate floating window s
 
 ## Loop center
 
-**Loops** in the activity bar manages Loop engineering: the run list and inspector, run controls (pause/resume/cancel/accept/reject), the verification command editor, and the timeline. For the concept and how to create one, see [Loop Engineering](loop-engineering.md).
+**Automations → Loops** manages Loop engineering: the run list and inspector, run controls (pause/resume/cancel/accept/reject), the verification command editor, and the timeline. For the concept and how to create one, see [Loop Engineering](loop-engineering.md).
 
 ![The Loop center](assets/screenshots/loop-center-en.png)
 

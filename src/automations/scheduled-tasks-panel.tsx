@@ -1,28 +1,32 @@
 import { Loader2, Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ApplicationDialog } from "../components/ui/application-dialog";
 import { Button } from "../components/ui/button";
+import { ScheduledTaskForm } from "../main-layout/scheduled-task-form";
+import { ScheduledTaskList, type ScheduledTaskMutation } from "../main-layout/scheduled-task-list";
+import { initialScheduledTaskDraft, isValidScheduledTaskDraft } from "../main-layout/scheduled-task-model";
 import { agentService } from "../services/runtime-agent-client";
 import type { AgentRegistryEntry, ScheduledTask } from "../types/agent";
-import { ScheduledTaskForm } from "./scheduled-task-form";
-import { ScheduledTaskList, type ScheduledTaskMutation } from "./scheduled-task-list";
-import { initialScheduledTaskDraft, isValidScheduledTaskDraft } from "./scheduled-task-model";
 
 function sortTasks(tasks: ScheduledTask[]) {
   return [...tasks].sort((left, right) => left.nextRunAt.localeCompare(right.nextRunAt));
 }
 
-export function ScheduledTasksDialog({
-  agents,
-  onClose,
-  open,
-}: {
+const firstControlSelector = 'input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled])';
+
+/**
+ * Scheduled-task management as page content. The form, validation, list, refresh, mutation, and
+ * error-retention behavior are the dialog's, unchanged; only the container differs — no modal, no
+ * open/close lifecycle, and focus lands on the surface's first control when the tab is shown.
+ */
+export function ScheduledTasksPanel({ active = true, agents, focusOnActivate = true }: {
+  active?: boolean;
   agents: AgentRegistryEntry[];
-  onClose: () => void;
-  open: boolean;
+  /** Off when the tab was reached with the arrow keys, which must keep focus on the tablist. */
+  focusOnActivate?: boolean;
 }) {
   const { t } = useTranslation();
+  const rootRef = useRef<HTMLElement>(null);
   const [tasks, setTasks] = useState<ScheduledTask[]>([]);
   const [draft, setDraft] = useState(initialScheduledTaskDraft);
   const [loading, setLoading] = useState(false);
@@ -38,30 +42,42 @@ export function ScheduledTasksDialog({
   const defaultAgentIdRef = useRef("");
   defaultAgentIdRef.current = selectableAgents[0]?.id ?? "";
 
+  // The draft is seeded once for the life of the surface: switching tabs hides it rather than
+  // unmounting it, which is what keeps an unsubmitted draft in place.
   useEffect(() => {
-    if (!open) return undefined;
-    let active = true;
     setDraft(initialScheduledTaskDraft(defaultAgentIdRef.current));
-    setConfirmingDeleteId(null);
+  }, []);
+
+  // The list is re-read every time the tab is shown again, because the scheduler keeps running
+  // while it is hidden and next-run, status, and error columns move without the user. Existing
+  // rows stay visible while the refresh is in flight, and a failed refresh keeps them too.
+  useEffect(() => {
+    if (!active) return undefined;
+    let mounted = true;
     setLoading(true);
     setError(null);
     void agentService.listScheduledTasks()
       .then((loaded) => {
-        if (active) setTasks(sortTasks(loaded));
+        if (mounted) setTasks(sortTasks(loaded));
       })
       .catch((reason: unknown) => {
-        if (active) setError(reason instanceof Error ? reason.message : String(reason));
+        if (mounted) setError(reason instanceof Error ? reason.message : String(reason));
       })
       .finally(() => {
-        if (active) setLoading(false);
+        if (mounted) setLoading(false);
       });
-    return () => { active = false; };
-  }, [open]);
+    return () => { mounted = false; };
+  }, [active]);
 
   useEffect(() => {
-    if (!open || draft.agentId || !defaultAgentIdRef.current) return;
+    if (draft.agentId || !defaultAgentIdRef.current) return;
     setDraft((current) => ({ ...current, agentId: defaultAgentIdRef.current }));
-  }, [draft.agentId, open, selectableAgents]);
+  }, [draft.agentId, selectableAgents]);
+
+  useEffect(() => {
+    if (!active || !focusOnActivate) return;
+    rootRef.current?.querySelector<HTMLElement>(firstControlSelector)?.focus();
+  }, [active, focusOnActivate]);
 
   async function createTask() {
     if (!isValidScheduledTaskDraft(draft)) return;
@@ -110,27 +126,18 @@ export function ScheduledTasksDialog({
     }
   }
 
-  if (!open) return null;
   const busy = saving || mutation !== null;
 
   return (
-    <ApplicationDialog
-      closeDisabled={busy}
-      description={t("scheduledTasks.description")}
-      footer={(
-        <div className="flex min-h-8 items-center justify-between gap-3">
-          <p className="min-w-0 flex-1 wrap-break-word text-xs leading-5 text-destructive" role={error ? "alert" : undefined}>{error}</p>
-          <Button className="h-8 shrink-0 px-3 text-xs" disabled={!isValidScheduledTaskDraft(draft) || busy} onClick={() => void createTask()} type="button">
-            {saving ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Plus aria-hidden="true" />}
-            {saving ? t("scheduledTasks.creating") : t("scheduledTasks.create")}
-          </Button>
-        </div>
-      )}
-      maxWidth="max-w-6xl"
-      onClose={onClose}
-      title={t("scheduledTasks.title")}
-    >
-      <div className="grid min-h-0 gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
+    <section aria-labelledby="scheduled-tasks-title" className="ucd-panel flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-lg" data-testid="scheduled-tasks-panel" id="scheduled-tasks" ref={rootRef}>
+      <header className="shrink-0 border-b border-border p-3 md:p-4">
+        <h1 className="text-base font-semibold" id="scheduled-tasks-title">{t("scheduledTasks.title")}</h1>
+        <p className="text-xs text-muted-foreground">{t("scheduledTasks.description")}</p>
+      </header>
+      {/* Form first in DOM order so the surface's first control is the task name; the list's own
+          order classes still place it on the left at desktop width. */}
+      <div className="grid min-h-0 flex-1 gap-5 overflow-y-auto p-3 md:p-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <ScheduledTaskForm agents={selectableAgents} disabled={busy} draft={draft} onChange={setDraft} />
         <ScheduledTaskList
           agents={agents}
           confirmingDeleteId={confirmingDeleteId}
@@ -142,8 +149,14 @@ export function ScheduledTasksDialog({
           onSetEnabled={(task, enabled) => void setEnabled(task, enabled)}
           tasks={tasks}
         />
-        <ScheduledTaskForm agents={selectableAgents} disabled={busy} draft={draft} onChange={setDraft} />
       </div>
-    </ApplicationDialog>
+      <footer className="flex min-h-8 shrink-0 items-center justify-between gap-3 border-t border-border p-3">
+        <p className="min-w-0 flex-1 wrap-break-word text-xs leading-5 text-destructive" role={error ? "alert" : undefined}>{error}</p>
+        <Button className="h-8 shrink-0 px-3 text-xs" disabled={!isValidScheduledTaskDraft(draft) || busy} onClick={() => void createTask()} type="button">
+          {saving ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Plus aria-hidden="true" />}
+          {saving ? t("scheduledTasks.creating") : t("scheduledTasks.create")}
+        </Button>
+      </footer>
+    </section>
   );
 }

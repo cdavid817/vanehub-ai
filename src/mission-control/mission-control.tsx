@@ -7,7 +7,11 @@ import type { MissionControlAction, MissionControlFacet, MissionControlNavigatio
 const states = ["", "running", "waiting_approval", "waiting_user", "retrying", "stuck", "failed", "completed"] as const;
 const facets = ["overview", "timeline", "tools", "files", "review", "verification", "context", "usage", "logs"] as const;
 
-export function MissionControl({ onNavigate }: { onNavigate?: (target: MissionControlNavigationTarget) => void }) {
+export function MissionControl({ focusRun = null, onNavigate }: {
+  onNavigate?: (target: MissionControlNavigationTarget) => void;
+  /** A run a hosting surface wants selected; the nonce lets the same run be requested twice. */
+  focusRun?: { runId: string; nonce: number } | null;
+}) {
   const { t } = useTranslation();
   const [overview, setOverview] = useState<MissionControlOverview | null>(null);
   const [selected, setSelected] = useState<MissionControlRunDetail | null>(null);
@@ -36,9 +40,11 @@ export function MissionControl({ onNavigate }: { onNavigate?: (target: MissionCo
     return () => { window.clearInterval(polling); window.removeEventListener("focus", reconcile); document.removeEventListener("visibilitychange", reconcile); };
   }, [load]);
 
-  async function inspect(run: MissionControlRunSummary) {
-    try { setSelected(await agentService.getMissionControlRun(run.runId)); setActiveFacet("overview"); } catch { setError(t("missionControl.loadError")); }
-  }
+  const inspectRun = useCallback(async (runId: string) => {
+    try { setSelected(await agentService.getMissionControlRun(runId)); setActiveFacet("overview"); } catch { setError(t("missionControl.loadError")); }
+  }, [t]);
+  useEffect(() => { if (focusRun) void inspectRun(focusRun.runId); }, [focusRun, inspectRun]);
+  function inspect(run: MissionControlRunSummary) { return inspectRun(run.runId); }
   async function act(run: MissionControlRunSummary, action: MissionControlAction) {
     if (action === "open" || action === "approval" || action === "review") {
       if (run.navigation) onNavigate?.(run.navigation);
@@ -84,7 +90,7 @@ function RunSection({ onAct, onInspect, runs, title, urgent = false }: { onAct: 
   return <section className="mb-4"><h2 className="mb-2 flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{urgent ? <AlertTriangle aria-hidden="true" className="h-3.5 w-3.5 text-warning" /> : null}{title}</h2><div className="grid gap-2">{runs.map((run) => <RunCard key={run.runId} onAct={onAct} onInspect={onInspect} run={run} />)}</div></section>;
 }
 
-function RunCard({ onAct, onInspect, run }: { onAct: (run: MissionControlRunSummary, action: MissionControlAction) => void; onInspect: (run: MissionControlRunSummary) => void; run: MissionControlRunSummary }) {
+export function RunCard({ onAct, onInspect, run }: { onAct: (run: MissionControlRunSummary, action: MissionControlAction) => void; onInspect: (run: MissionControlRunSummary) => void; run: MissionControlRunSummary }) {
   const { t } = useTranslation();
   const ended = run.endedAt ?? run.updatedAt;
   const elapsed = Math.max(0, Date.parse(ended) - Date.parse(run.createdAt));

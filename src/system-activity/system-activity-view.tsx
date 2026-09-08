@@ -11,6 +11,12 @@ import { useSystemActivity } from "./use-system-activity";
 
 export interface SystemActivityViewProps {
   onNavigate?: ActivityNavigator;
+  /**
+   * Whether the export, rebuild, and projection health controls render beside the timeline.
+   * Off when the timeline is hosted inside Inbox, where those controls belong to the
+   * observability settings page instead.
+   */
+  maintenanceControls?: boolean;
 }
 
 const severityOptions: readonly ActivitySeverity[] = ["info", "warning", "error", "critical"];
@@ -20,7 +26,7 @@ const severityOptions: readonly ActivitySeverity[] = ["info", "warning", "error"
  * no composer, Agent lifecycle hook, seat, or provider runtime ever mounts here; every action is
  * navigation, filtering, read-state, preferences, rebuild, or export.
  */
-export function SystemActivityView({ onNavigate = () => undefined }: SystemActivityViewProps) {
+export function SystemActivityView({ maintenanceControls = true, onNavigate = () => undefined }: SystemActivityViewProps) {
   const { t, i18n } = useTranslation();
   const model = useSystemActivity();
   const selected = model.sessions.find((session) => session.sessionId === model.selectedSessionId);
@@ -181,8 +187,8 @@ export function SystemActivityView({ onNavigate = () => undefined }: SystemActiv
             ))}
           </section>
         ) : null}
-        {model.health ? <SystemActivityHealthPanel health={model.health} language={i18n.language} /> : null}
-        {selected ? <SystemActivityControls onChanged={model.refresh} session={selected} /> : null}
+        {maintenanceControls && model.health ? <SystemActivityHealthPanel health={model.health} language={i18n.language} /> : null}
+        {maintenanceControls && selected ? <SystemActivityControls onChanged={model.refresh} session={selected} /> : null}
       </aside>
     </div>
   );
