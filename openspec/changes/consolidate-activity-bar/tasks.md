@@ -63,3 +63,21 @@ Notes:
 - Hosted surfaces changed only at their container: `mission-control.tsx` exports `RunCard` (additive) and `SystemActivityView` gained a `maintenanceControls` prop (default `true`) so Inbox can hide export/rebuild/health.
 - Goal Center emits no `onNavigate`; 4.3 maps Mission Control's `loop`/`goal`/`evaluation`/`review`/`session` targets only.
 - Needs attention lists unread `warning`/`critical` activity as specified; `error`-severity events are counted in the badge and remain in the Activity log.
+
+## Review follow-up (2026-09-08, PR #292 review F01–F12)
+
+All twelve findings reproduced and were fixed with regression tests asserting the corrected behavior:
+
+- F01 one load in flight at a time; a poll or refresh that arrives meanwhile runs once afterwards (`use-inbox-feed.ts`).
+- F02 / F04 per-session activity cache keyed by `lastSequence:unreadCount`; only changed, new, or previously failed sessions are re-read, a failed read keeps the last good rows and reports a partial failure, manual refresh forces revalidation, detail reads are capped at four in flight (`load-inbox-feed.ts`).
+- F03 unread activity is fetched with `severities: ["warning", "critical"]` so newer informational events cannot hide a critical one.
+- F05 the scheduled-task surface re-reads its list on every activation while keeping the draft and the visible rows.
+- F06 the observability picker lists hidden system sessions with a "(hidden)" suffix so their visibility can be restored.
+- F07 `MissionControl` accepts an additive `focusRun` prop; Inbox passes the inspected run so the console selects it.
+- F08 attention pages are followed by cursor up to 100 runs; the badge counts every fetched attention run and the section offers the console when more remain.
+- F09 Board mode still performs one load for the badge; only the polling is tied to the list.
+- F10 a route-driven Board view is written back to the stored preference.
+- F11 arrow-key tab changes keep focus on the tablist; only a click or deep link hands focus to the first control.
+- F12 a hidden Automations shell is handed the last used tab and never marks a tab visited.
+- Found while verifying in the browser: the hook's mounted flag must be re-armed on StrictMode's remount.
+

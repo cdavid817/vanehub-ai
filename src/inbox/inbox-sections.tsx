@@ -11,17 +11,21 @@ import type { InboxView } from "../main-layout/workspace-route";
 interface InboxSectionsProps {
   sections: InboxSectionData;
   loading: boolean;
+  /** True when attention runs exist beyond the pages the feed fetched. */
+  moreAttention: boolean;
   /** The section the route names; it is scrolled into view when it changes. */
   focusedView: InboxView;
   onAct: (run: MissionControlRunSummary, action: MissionControlAction) => void;
   onInspect: (run: MissionControlRunSummary) => void;
   onNavigateActivity: ActivityNavigator;
+  onOpenConsole: () => void;
 }
 
-function Section({ children, count, focused, id, title, urgent = false }: {
+function Section({ children, count, focused, footer, id, title, urgent = false }: {
   children: ReactNode;
   count: number;
   focused: boolean;
+  footer?: ReactNode;
   id: string;
   title: string;
   urgent?: boolean;
@@ -39,6 +43,7 @@ function Section({ children, count, focused, id, title, urgent = false }: {
         <span className="ml-1 rounded-full bg-muted px-1.5 text-[10px] tabular-nums text-muted-foreground" data-testid={`${id}-count`}>{count}</span>
       </h2>
       {count === 0 ? <p className="ucd-muted-panel rounded-md p-3 text-xs text-muted-foreground">{t("inbox.sectionEmpty")}</p> : <div className="grid gap-2">{children}</div>}
+      {footer}
     </section>
   );
 }
@@ -48,13 +53,24 @@ function Section({ children, count, focused, id, title, urgent = false }: {
  * activity rows are System Activity's own timeline items, so each row keeps the navigation and
  * control actions its owning surface defines.
  */
-export function InboxSections({ focusedView, loading, onAct, onInspect, onNavigateActivity, sections }: InboxSectionsProps) {
+export function InboxSections({ focusedView, loading, moreAttention, onAct, onInspect, onNavigateActivity, onOpenConsole, sections }: InboxSectionsProps) {
   const { i18n, t } = useTranslation();
   const attentionCount = sections.attention.runs.length + sections.attention.activity.length;
   const total = attentionCount + sections.running.length + sections.recent.length;
   return (
     <div className="min-h-0 flex-1 overflow-y-auto p-3" data-testid="inbox-sections">
-      <Section count={attentionCount} focused={focusedView === "attention"} id="inbox-attention" title={t("inbox.section.attention")} urgent>
+      <Section
+        count={attentionCount}
+        focused={focusedView === "attention"}
+        footer={moreAttention ? (
+          <button className="ucd-interactive mt-2 rounded-md border border-input px-3 py-1.5 text-xs" data-testid="inbox-attention-more" onClick={onOpenConsole} type="button">
+            {t("inbox.moreAttention")}
+          </button>
+        ) : null}
+        id="inbox-attention"
+        title={t("inbox.section.attention")}
+        urgent
+      >
         {sections.attention.runs.map((run) => <RunCard key={run.runId} onAct={onAct} onInspect={onInspect} run={run} />)}
         {sections.attention.activity.map(({ entry, sessionId }) => (
           <SystemActivityTimelineItem entry={entry} key={`${sessionId}:${entry.envelope.eventId}`} language={i18n.language} onNavigate={onNavigateActivity} t={t} unread />

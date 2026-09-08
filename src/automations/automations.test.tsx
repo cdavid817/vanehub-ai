@@ -57,21 +57,42 @@ describe("Automations", () => {
     // Hidden, not unmounted: the draft is still there when the tab comes back.
     fireEvent.click(screen.getByRole("tab", { name: "定时任务" }));
     expect((screen.getByLabelText("任务名称") as HTMLInputElement).value).toBe("草稿任务");
-    expect(listScheduledTasks).toHaveBeenCalledTimes(1);
+    // Returning re-reads the list (the scheduler kept running) without touching the draft.
+    await waitFor(() => expect(listScheduledTasks).toHaveBeenCalledTimes(2));
   }, 30_000);
 
-  it("moves selection and focus between tabs with the arrow keys", () => {
+  it("moves selection and focus between tabs with the arrow keys, even once the Scheduled surface mounts", async () => {
     renderWithAppProviders(<Harness initial="loops" />);
     screen.getByRole("tab", { name: "循环工程" }).focus();
     fireEvent.keyDown(screen.getByRole("tab", { name: "循环工程" }), { key: "ArrowRight" });
     expect(screen.getByRole("tab", { name: "定时任务" }).getAttribute("aria-selected")).toBe("true");
-    // Roving focus: the newly selected tab is the one that now has focus.
+    // Roving focus: the newly selected tab is the one that now has focus, and it stays there after
+    // the lazily loaded surface mounts instead of being pulled into the first input.
     expect(document.activeElement).toBe(screen.getByRole("tab", { name: "定时任务" }));
-    fireEvent.keyDown(screen.getByRole("tab", { name: "定时任务" }), { key: "ArrowLeft" });
-    expect(screen.getByRole("tab", { name: "循环工程" }).getAttribute("aria-selected")).toBe("true");
-    fireEvent.keyDown(screen.getByRole("tab", { name: "循环工程" }), { key: "ArrowLeft" });
+    await screen.findByLabelText("任务名称", {}, lazyTimeout);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(document.activeElement).toBe(screen.getByRole("tab", { name: "定时任务" }));
+    fireEvent.keyDown(screen.getByRole("tab", { name: "定时任务" }), { key: "ArrowRight" });
     expect(screen.getByRole("tab", { name: "目标中心" }).getAttribute("aria-selected")).toBe("true");
-  });
+    expect(document.activeElement).toBe(screen.getByRole("tab", { name: "目标中心" }));
+    fireEvent.keyDown(screen.getByRole("tab", { name: "目标中心" }), { key: "ArrowLeft" });
+    expect(screen.getByRole("tab", { name: "定时任务" }).getAttribute("aria-selected")).toBe("true");
+    // A click on the tab is the path that hands focus to the surface's first control.
+    fireEvent.click(screen.getByRole("tab", { name: "定时任务" }));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("任务名称")));
+  }, 20_000);
+
+  it("does not visit the placeholder tab a hidden shell is handed", async () => {
+    const definitions = vi.spyOn(agentService, "listLoopDefinitions");
+    const { rerender } = renderWithAppProviders(<Automations agents={mockAgents} onViewChange={vi.fn()} view="scheduled" />);
+    await screen.findByLabelText("任务名称", {}, lazyTimeout);
+    // Leaving Automations: the shell keeps the last tab, but even a different placeholder must
+    // not mount a surface while nothing is on screen.
+    rerender(<Automations active={false} agents={mockAgents} onViewChange={vi.fn()} view="loops" />);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(document.querySelector("#loop-center")?.childElementCount).toBe(0);
+    expect(definitions).not.toHaveBeenCalled();
+  }, 20_000);
 
   it("does not pull focus into the tablist when the view changes from outside", async () => {
     const { rerender } = renderWithAppProviders(<Automations agents={mockAgents} onViewChange={vi.fn()} view="loops" />);

@@ -7,7 +7,11 @@ import type { MissionControlAction, MissionControlFacet, MissionControlNavigatio
 const states = ["", "running", "waiting_approval", "waiting_user", "retrying", "stuck", "failed", "completed"] as const;
 const facets = ["overview", "timeline", "tools", "files", "review", "verification", "context", "usage", "logs"] as const;
 
-export function MissionControl({ onNavigate }: { onNavigate?: (target: MissionControlNavigationTarget) => void }) {
+export function MissionControl({ focusRun = null, onNavigate }: {
+  onNavigate?: (target: MissionControlNavigationTarget) => void;
+  /** A run a hosting surface wants selected; the nonce lets the same run be requested twice. */
+  focusRun?: { runId: string; nonce: number } | null;
+}) {
   const { t } = useTranslation();
   const [overview, setOverview] = useState<MissionControlOverview | null>(null);
   const [selected, setSelected] = useState<MissionControlRunDetail | null>(null);
@@ -36,9 +40,11 @@ export function MissionControl({ onNavigate }: { onNavigate?: (target: MissionCo
     return () => { window.clearInterval(polling); window.removeEventListener("focus", reconcile); document.removeEventListener("visibilitychange", reconcile); };
   }, [load]);
 
-  async function inspect(run: MissionControlRunSummary) {
-    try { setSelected(await agentService.getMissionControlRun(run.runId)); setActiveFacet("overview"); } catch { setError(t("missionControl.loadError")); }
-  }
+  const inspectRun = useCallback(async (runId: string) => {
+    try { setSelected(await agentService.getMissionControlRun(runId)); setActiveFacet("overview"); } catch { setError(t("missionControl.loadError")); }
+  }, [t]);
+  useEffect(() => { if (focusRun) void inspectRun(focusRun.runId); }, [focusRun, inspectRun]);
+  function inspect(run: MissionControlRunSummary) { return inspectRun(run.runId); }
   async function act(run: MissionControlRunSummary, action: MissionControlAction) {
     if (action === "open" || action === "approval" || action === "review") {
       if (run.navigation) onNavigate?.(run.navigation);

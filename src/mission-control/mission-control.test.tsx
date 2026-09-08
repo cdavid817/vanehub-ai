@@ -69,6 +69,18 @@ describe("MissionControl", () => {
     }
   });
 
+  it("selects the run a hosting surface asks for, and again when the same run is asked for later", async () => {
+    await i18n.changeLanguage("en");
+    const detail = vi.spyOn(agentService, "getMissionControlRun");
+    const { rerender } = render(<MissionControl focusRun={{ runId: "018f0f17-4d6a-7e20-b41d-66c5271a294", nonce: 1 }} />);
+    await waitFor(() => expect(detail).toHaveBeenCalledWith("018f0f17-4d6a-7e20-b41d-66c5271a294"));
+    await waitFor(() => expect(document.querySelector("[role='tablist']")).toBeTruthy());
+    rerender(<MissionControl focusRun={{ runId: "018f0f17-4d6a-7e20-b41d-66c5271a291", nonce: 2 }} />);
+    await waitFor(() => expect(detail).toHaveBeenLastCalledWith("018f0f17-4d6a-7e20-b41d-66c5271a291"));
+    rerender(<MissionControl focusRun={{ runId: "018f0f17-4d6a-7e20-b41d-66c5271a291", nonce: 3 }} />);
+    await waitFor(() => expect(detail).toHaveBeenCalledTimes(3));
+  });
+
   it("renders an explicit empty state", async () => {
     const empty: MissionControlOverview = { counts: { running: 0, waitingApproval: 0, waitingUser: 0, retrying: 0, blocked: 0, failed: 0, completedRecently: 0 }, attention: { items: [], nextCursor: null }, active: { items: [], nextCursor: null }, recent: { items: [], nextCursor: null } };
     vi.spyOn(agentService, "getMissionControlOverview").mockResolvedValue(empty);

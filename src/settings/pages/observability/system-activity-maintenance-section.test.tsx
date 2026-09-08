@@ -43,4 +43,16 @@ describe("SystemActivityMaintenanceSection", () => {
     await userEvent.click(screen.getByTestId("system-activity-export"));
     await waitFor(() => expect(exportSpy).toHaveBeenCalledOnce());
   });
+
+  it("keeps a hidden session selectable so its visibility can be restored", async () => {
+    seedWebSystemActivityEventForTest("workspace", "hidden-one", "run_completed");
+    const sessions = await agentService.listSystemActivitySessions();
+    vi.spyOn(agentService, "listSystemActivitySessions").mockResolvedValue(sessions.map((session) => ({ ...session, visible: false })));
+    renderWithAppProviders(<SystemActivityMaintenanceSection />);
+
+    const picker = await screen.findByRole("combobox", { name: "System session" });
+    expect(Array.from((picker as HTMLSelectElement).options).map((option) => option.textContent)).toEqual(["hidden-one (hidden)"]);
+    expect(await screen.findByTestId("system-activity-preferences")).toBeTruthy();
+    expect(screen.queryByTestId("observability-system-activity-empty")).toBeNull();
+  });
 });

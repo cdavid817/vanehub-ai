@@ -88,6 +88,41 @@ describe("ScheduledTasksPanel", () => {
     expect(await screen.findByRole("switch", { name: "启用任务“每周代码检查”" })).toBeTruthy();
   });
 
+  it("re-reads the list on every activation while keeping the draft and the visible rows", async () => {
+    await i18n.changeLanguage("zh-CN");
+    const user = userEvent.setup();
+    const task = taskFixture();
+    const list = vi.spyOn(agentService, "listScheduledTasks")
+      .mockResolvedValueOnce([task])
+      .mockResolvedValueOnce([{ ...task, latestStatus: "failed", latestError: "runner exited" }])
+      .mockRejectedValueOnce(new Error("native busy"));
+    const { rerender } = render(<ScheduledTasksPanel agents={mockAgents} />);
+    await screen.findByText("每周仓库检查");
+    await user.type(screen.getByLabelText("任务名称"), "草稿");
+
+    rerender(<ScheduledTasksPanel active={false} agents={mockAgents} />);
+    rerender(<ScheduledTasksPanel agents={mockAgents} />);
+    // The scheduler ran while the tab was hidden; the updated status shows on return.
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText(/runner exited/)).toBeTruthy();
+    expect((screen.getByLabelText("任务名称") as HTMLInputElement).value).toBe("草稿");
+
+    // A failed refresh keeps the rows that were already on screen and surfaces the error.
+    rerender(<ScheduledTasksPanel active={false} agents={mockAgents} />);
+    rerender(<ScheduledTasksPanel agents={mockAgents} />);
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(3));
+    expect((await screen.findByRole("alert")).textContent).toContain("native busy");
+    expect(screen.getByText("每周仓库检查")).toBeTruthy();
+  });
+
+  it("does not take focus when told the activation came from the keyboard", async () => {
+    await i18n.changeLanguage("zh-CN");
+    vi.spyOn(agentService, "listScheduledTasks").mockResolvedValue([]);
+    render(<ScheduledTasksPanel agents={mockAgents} focusOnActivate={false} />);
+    await screen.findByRole("heading", { name: "定时任务" });
+    expect(document.activeElement).toBe(document.body);
+  });
+
   it("keeps a failed load's error and the existing list visible after a failed mutation", async () => {
     await i18n.changeLanguage("zh-CN");
     const user = userEvent.setup();

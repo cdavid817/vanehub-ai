@@ -12,7 +12,10 @@ import { useInboxFeed } from "./use-inbox-feed";
 
 const loadWorkBoard: LazyFeatureLoader<Record<string, never>> = () => import("../work-board/work-board")
   .then((module) => ({ default: module.WorkBoard }));
-type MissionControlProps = { onNavigate?: (target: MissionControlNavigationTarget) => void };
+type MissionControlProps = {
+  onNavigate?: (target: MissionControlNavigationTarget) => void;
+  focusRun?: { runId: string; nonce: number } | null;
+};
 const loadMissionControl: LazyFeatureLoader<MissionControlProps> = () => import("../mission-control/mission-control")
   .then((module) => ({ default: module.MissionControl }));
 type SystemActivityProps = { maintenanceControls: boolean; onNavigate?: ActivityNavigator };
@@ -54,14 +57,17 @@ function Disclosure({ children, id, onToggle, open, title }: { children: ReactNo
 export function Inbox({ active = true, onBadgeChange, onNavigate, onNavigateActivity = () => undefined, onViewChange, view }: InboxProps) {
   const { t } = useTranslation();
   const [storedMode, setStoredMode] = useState<InboxViewMode>(readInboxViewMode);
-  // The route can force Board (a `/workspace/work-board` redirect does); otherwise the persisted
-  // preference decides, so the toggle survives a relaunch like the other layout preferences.
+  // The route can force Board (a `/workspace/work-board` redirect does) and that choice is kept
+  // as the preference too, so a later render with a list view does not silently flip it back.
+  useEffect(() => { if (view === "board") setStoredMode("board"); }, [view]);
   const mode: InboxViewMode = view === "board" ? "board" : storedMode;
-  // The list is the only consumer of the feed, so Board mode stops the polling with it.
-  const model = useInboxFeed({ active: active && mode === "list", onNavigate });
+  // Board mode still loads once so the badge is known; only the polling belongs to the list.
+  const model = useInboxFeed({ active, polling: mode === "list", onNavigate });
   const [boardVisited, setBoardVisited] = useState(mode === "board");
   // One disclosure at a time: two open together outgrow the panel and the second gets clipped.
   const [openDisclosure, setOpenDisclosure] = useState<InboxDisclosure | null>(null);
+  // Nonce so inspecting the same run twice re-selects it after the user browsed elsewhere.
+  const [focusRun, setFocusRun] = useState<{ runId: string; nonce: number } | null>(null);
   useEffect(() => {
     rememberInboxViewMode(mode);
     if (mode === "board") setBoardVisited(true);
@@ -107,16 +113,21 @@ export function Inbox({ active = true, onBadgeChange, onNavigate, onNavigateActi
         <InboxSections
           focusedView={focusedView}
           loading={model.loading}
+          moreAttention={Boolean(model.feed.overview?.attention.nextCursor)}
           onAct={(run, action) => void model.act(run, action)}
-          onInspect={() => setOpenDisclosure("console")}
+          onInspect={(run) => {
+            setFocusRun((current) => ({ runId: run.runId, nonce: (current?.nonce ?? 0) + 1 }));
+            setOpenDisclosure("console");
+          }}
           onNavigateActivity={onNavigateActivity}
+          onOpenConsole={() => setOpenDisclosure("console")}
           sections={model.sections}
         />
       ) : null}
       {mode === "list" ? (
         <>
           <Disclosure id="inbox-console" onToggle={() => toggleDisclosure("console")} open={openDisclosure === "console"} title={t("inbox.console")}>
-            <LazyFeature className="min-h-0 flex-1" componentProps={{ onNavigate }} loader={loadMissionControl} />
+            <LazyFeature className="min-h-0 flex-1" componentProps={{ focusRun, onNavigate }} loader={loadMissionControl} />
           </Disclosure>
           <Disclosure id="inbox-activity-log" onToggle={() => toggleDisclosure("log")} open={openDisclosure === "log"} title={t("inbox.activityLog")}>
             <LazyFeature className="min-h-0 flex-1" componentProps={{ maintenanceControls: false, onNavigate: onNavigateActivity }} loader={loadSystemActivity} />

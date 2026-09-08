@@ -11,14 +11,21 @@ export interface InboxActivityItem {
   entry: SystemActivityTimelineEntry;
 }
 
+/** What one session's unread activity was fetched for, so an unchanged session is not refetched. */
+export interface InboxActivityCacheEntry {
+  signature: string;
+  items: InboxActivityItem[];
+}
+
 export interface InboxFeed {
+  /** Mission Control overview with every fetched attention page merged into `attention.items`. */
   overview: MissionControlOverview | null;
-  /** Every unread entry across visible system sessions, newest first per session. */
+  /** Unread warning/critical entries across visible system sessions, newest first per session. */
   activity: InboxActivityItem[];
-  /** Sum of per-session unread counts, which may exceed the fetched page of `activity`. */
+  /** Per-session cache behind `activity`; a session that failed to load has no entry. */
+  activityCache: Record<string, InboxActivityCacheEntry>;
+  /** Sum of per-session unread counts across all severities. */
   unreadTotal: number;
-  /** Identity of the session list `activity` was fetched for; null before the first load. */
-  activitySignature: string | null;
 }
 
 export interface InboxSections {
@@ -27,7 +34,7 @@ export interface InboxSections {
   recent: MissionControlRunSummary[];
 }
 
-export const emptyInboxFeed: InboxFeed = { overview: null, activity: [], unreadTotal: 0, activitySignature: null };
+export const emptyInboxFeed: InboxFeed = { overview: null, activity: [], activityCache: {}, unreadTotal: 0 };
 
 /** The run an activity entry is about, when the envelope names one; used to count it once. */
 export function inboxActivityRunId(entry: SystemActivityTimelineEntry): string | null {

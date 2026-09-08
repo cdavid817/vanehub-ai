@@ -10,7 +10,7 @@ import type { LoopInspectionTarget } from "../types/loop";
 type LoopCenterProps = { onInspect?: (target: LoopInspectionTarget) => void };
 const loadLoopCenter: LazyFeatureLoader<LoopCenterProps> = () => import("../loop-center/loop-center")
   .then((module) => ({ default: module.LoopCenter }));
-type ScheduledProps = { active?: boolean; agents: AgentRegistryEntry[] };
+type ScheduledProps = { active?: boolean; agents: AgentRegistryEntry[]; focusOnActivate?: boolean };
 const loadScheduledTasks: LazyFeatureLoader<ScheduledProps> = () => import("./scheduled-tasks-panel")
   .then((module) => ({ default: module.ScheduledTasksPanel }));
 const loadGoalCenter: LazyFeatureLoader<Record<string, never>> = () => import("../goal-center/goal-center")
@@ -38,11 +38,17 @@ const tabs: Array<{ view: AutomationsView; icon: LucideIcon; labelKey: string; p
  */
 export function Automations({ active = true, agents, onInspectLoop, onViewChange, view }: AutomationsProps) {
   const { t } = useTranslation();
-  const [visited, setVisited] = useState<Set<AutomationsView>>(() => new Set([view]));
+  const [visited, setVisited] = useState<Set<AutomationsView>>(() => new Set(active ? [view] : []));
+  // True while the current selection was made with the arrow keys: the tablist keeps focus then,
+  // and a hosted surface must not pull it into its first control.
+  const [keyboardSelection, setKeyboardSelection] = useState(false);
   const tablistRef = useRef<HTMLDivElement>(null);
+  // Only a shown tab counts as visited: while the shell is hidden the view it is handed is a
+  // placeholder, and mounting a surface for it would load data nobody asked for.
   useEffect(() => {
+    if (!active) return;
     setVisited((current) => current.has(view) ? current : new Set(current).add(view));
-  }, [view]);
+  }, [active, view]);
   // Roving focus: when the selection changed while a tab had focus (the arrow keys), focus follows
   // it; a click elsewhere or a route change from outside must not steal focus into the tablist.
   useEffect(() => {
@@ -56,6 +62,7 @@ export function Automations({ active = true, agents, onInspectLoop, onViewChange
     if (event.key === "ArrowRight") onViewChange(automationsViews[(index + 1) % automationsViews.length]);
     else if (event.key === "ArrowLeft") onViewChange(automationsViews[(index + automationsViews.length - 1) % automationsViews.length]);
     else return;
+    setKeyboardSelection(true);
     event.preventDefault();
   }
 
@@ -76,7 +83,7 @@ export function Automations({ active = true, agents, onInspectLoop, onViewChange
               data-automations-tab={tab.view}
               id={`automations-tab-${tab.view}`}
               key={tab.view}
-              onClick={() => onViewChange(tab.view)}
+              onClick={() => { setKeyboardSelection(false); onViewChange(tab.view); }}
               onKeyDown={moveSelection}
               role="tab"
               tabIndex={selected ? 0 : -1}
@@ -101,7 +108,7 @@ export function Automations({ active = true, agents, onInspectLoop, onViewChange
           >
             {visited.has(tab.view) ? (
               tab.view === "loops" ? <LazyFeature className="h-full min-h-0 flex-1" componentProps={{ onInspect: onInspectLoop }} loader={loadLoopCenter} />
-                : tab.view === "scheduled" ? <LazyFeature className="h-full min-h-0 flex-1" componentProps={{ active: active && selected, agents }} loader={loadScheduledTasks} />
+                : tab.view === "scheduled" ? <LazyFeature className="h-full min-h-0 flex-1" componentProps={{ active: active && selected, agents, focusOnActivate: !keyboardSelection }} loader={loadScheduledTasks} />
                   : <LazyFeature className="h-full min-h-0 flex-1" componentProps={{}} loader={loadGoalCenter} />
             ) : null}
           </div>

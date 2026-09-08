@@ -19,7 +19,12 @@ const firstControlSelector = 'input:not([disabled]), select:not([disabled]), tex
  * error-retention behavior are the dialog's, unchanged; only the container differs — no modal, no
  * open/close lifecycle, and focus lands on the surface's first control when the tab is shown.
  */
-export function ScheduledTasksPanel({ active = true, agents }: { active?: boolean; agents: AgentRegistryEntry[] }) {
+export function ScheduledTasksPanel({ active = true, agents, focusOnActivate = true }: {
+  active?: boolean;
+  agents: AgentRegistryEntry[];
+  /** Off when the tab was reached with the arrow keys, which must keep focus on the tablist. */
+  focusOnActivate?: boolean;
+}) {
   const { t } = useTranslation();
   const rootRef = useRef<HTMLElement>(null);
   const [tasks, setTasks] = useState<ScheduledTask[]>([]);
@@ -37,11 +42,18 @@ export function ScheduledTasksPanel({ active = true, agents }: { active?: boolea
   const defaultAgentIdRef = useRef("");
   defaultAgentIdRef.current = selectableAgents[0]?.id ?? "";
 
-  // Loaded once for the life of the surface: switching tabs hides it rather than unmounting it,
-  // which is what keeps the list and an unsubmitted draft in place.
+  // The draft is seeded once for the life of the surface: switching tabs hides it rather than
+  // unmounting it, which is what keeps an unsubmitted draft in place.
   useEffect(() => {
-    let mounted = true;
     setDraft(initialScheduledTaskDraft(defaultAgentIdRef.current));
+  }, []);
+
+  // The list is re-read every time the tab is shown again, because the scheduler keeps running
+  // while it is hidden and next-run, status, and error columns move without the user. Existing
+  // rows stay visible while the refresh is in flight, and a failed refresh keeps them too.
+  useEffect(() => {
+    if (!active) return undefined;
+    let mounted = true;
     setLoading(true);
     setError(null);
     void agentService.listScheduledTasks()
@@ -55,7 +67,7 @@ export function ScheduledTasksPanel({ active = true, agents }: { active?: boolea
         if (mounted) setLoading(false);
       });
     return () => { mounted = false; };
-  }, []);
+  }, [active]);
 
   useEffect(() => {
     if (draft.agentId || !defaultAgentIdRef.current) return;
@@ -63,9 +75,9 @@ export function ScheduledTasksPanel({ active = true, agents }: { active?: boolea
   }, [draft.agentId, selectableAgents]);
 
   useEffect(() => {
-    if (!active) return;
+    if (!active || !focusOnActivate) return;
     rootRef.current?.querySelector<HTMLElement>(firstControlSelector)?.focus();
-  }, [active]);
+  }, [active, focusOnActivate]);
 
   async function createTask() {
     if (!isValidScheduledTaskDraft(draft)) return;

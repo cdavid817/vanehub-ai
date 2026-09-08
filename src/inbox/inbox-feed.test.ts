@@ -56,7 +56,7 @@ describe("inbox feed", () => {
       overview: overview([run("a", "waiting_approval")], [run("b")], [run("c", "completed")]),
       activity: [activity("e1", "warning"), activity("e2", "info"), activity("e3", "critical"), activity("e4", "error")],
       unreadTotal: 4,
-      activitySignature: null,
+      activityCache: {},
     });
     expect(sections.attention.runs.map((item) => item.runId)).toEqual(["a"]);
     expect(sections.attention.activity.map((item) => item.entry.envelope.eventId)).toEqual(["e1", "e3"]);
@@ -65,7 +65,7 @@ describe("inbox feed", () => {
   });
 
   it("renders empty sections without an overview", () => {
-    const sections = classifyInboxFeed({ overview: null, activity: [], unreadTotal: 0, activitySignature: null });
+    const sections = classifyInboxFeed({ overview: null, activity: [], unreadTotal: 0, activityCache: {} });
     expect(sections.attention).toEqual({ runs: [], activity: [] });
     expect(sections.running).toEqual([]);
     expect(sections.recent).toEqual([]);
@@ -76,12 +76,12 @@ describe("inbox feed", () => {
       overview: overview([run("a", "waiting_approval"), run("b", "failed")]),
       activity: [activity("e1", "error", "a"), activity("e2", "warning", "zzz"), activity("e3", "info")],
       unreadTotal: 3,
-      activitySignature: null,
+      activityCache: {},
     };
     // Two attention runs + three unread items, minus the one item that is about run "a".
     expect(countInboxBadge(feed)).toBe(4);
     expect(countInboxBadge({ ...feed, activity: [], unreadTotal: 0 })).toBe(2);
-    expect(countInboxBadge({ overview: null, activity: [], unreadTotal: 5, activitySignature: null })).toBe(5);
+    expect(countInboxBadge({ overview: null, activity: [], unreadTotal: 5, activityCache: {} })).toBe(5);
   });
 
   it("identifies the run an entry is about only through run navigation", () => {

@@ -447,7 +447,7 @@ export function MainLayout({
             {automationsVisited ? <LazyFeature className="h-full min-h-0 flex-1" componentProps={{
               active: destination === "automations",
               agents: model.agents,
-              view: (destination === "automations" ? view : null) as AutomationsView | null ?? "loops",
+              view: (destination === "automations" ? view : null) as AutomationsView | null ?? readLastAutomationsView(),
               onViewChange: (next: AutomationsView) => goTo({ destination: "automations", view: next }),
               onInspectLoop: inspectLoopSession,
             }} loader={loadAutomations} /> : null}

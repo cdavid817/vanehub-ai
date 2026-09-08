@@ -13,7 +13,9 @@ import { SectionPanel } from "../page-parts";
 export function SystemActivityMaintenanceSection() {
   const { i18n, t } = useTranslation();
   const model = useSystemActivity();
-  const sessions = model.sessions.filter((session) => session.visible);
+  // Every session, hidden ones included: a session hidden from the timeline can only be shown
+  // again through its preferences, and those live behind this picker.
+  const sessions = model.sessions;
   const selected = sessions.find((session) => session.sessionId === model.selectedSessionId) ?? null;
 
   return (
@@ -33,6 +35,7 @@ export function SystemActivityMaintenanceSection() {
               {sessions.map((session) => (
                 <option key={session.sessionId} value={session.sessionId}>
                   {session.scopeKind === "global" ? t("systemActivity.view.globalSession") : session.safeDisplayIdentity ?? session.canonicalScopeId}
+                  {session.visible ? "" : ` ${t("observability.systemActivity.hiddenSuffix")}`}
                 </option>
               ))}
             </select>

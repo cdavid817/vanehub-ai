@@ -103,13 +103,20 @@ describe("Inbox", () => {
     expect(screen.queryByTestId("system-activity-health")).toBeNull();
   });
 
-  it("opens the Mission Control console from a row's inspect action", { timeout: 20_000 }, async () => {
+  it("opens the Mission Control console on the run that was inspected, and moves with the next one", { timeout: 20_000 }, async () => {
+    const detail = vi.spyOn(agentService, "getMissionControlRun");
     renderWithAppProviders(<Inbox onViewChange={vi.fn()} view="running" />);
-    const [row] = await screen.findAllByTestId("mission-run-018f0f17-4d6a-7e20-b41d-66c5271a294");
+    const [failed] = await screen.findAllByTestId("mission-run-018f0f17-4d6a-7e20-b41d-66c5271a294");
     expect(screen.getByRole("button", { name: "Mission Control console" }).getAttribute("aria-expanded")).toBe("false");
-    fireEvent.click(row.querySelector("button")!);
+    fireEvent.click(failed.querySelector("button")!);
     expect(screen.getByRole("button", { name: "Mission Control console" }).getAttribute("aria-expanded")).toBe("true");
     await waitFor(() => expect(screen.getByTestId("mission-control")).toBeTruthy(), { timeout: 15_000 });
+    await waitFor(() => expect(detail).toHaveBeenLastCalledWith("018f0f17-4d6a-7e20-b41d-66c5271a294"));
+    await waitFor(() => expect(screen.getByTestId("mission-control").querySelector("[role='tablist']")).toBeTruthy());
+
+    const [waitingUser] = await screen.findAllByTestId("mission-run-018f0f17-4d6a-7e20-b41d-66c5271a291");
+    fireEvent.click(waitingUser.querySelector("button")!);
+    await waitFor(() => expect(detail).toHaveBeenLastCalledWith("018f0f17-4d6a-7e20-b41d-66c5271a291"));
     expect(document.querySelector("#inbox-running")?.getAttribute("data-inbox-focused")).toBe("true");
   });
 
@@ -122,18 +129,55 @@ describe("Inbox", () => {
     await waitFor(() => expect(screen.getByTestId("inbox-attention-count").textContent).toBe("1"));
   });
 
-  it("stops polling in Board mode and resumes when the list returns", async () => {
+  it("loads once in Board mode for the badge but does not poll until the list returns", async () => {
+    seedWebSystemActivityEventForTest("workspace", "w", "breaker_opened", "critical");
     const overview = vi.spyOn(agentService, "getMissionControlOverview");
-    const { rerender } = renderWithAppProviders(<Inbox onViewChange={vi.fn()} view="board" />);
+    const onBadgeChange = vi.fn();
+    const { rerender } = renderWithAppProviders(<Inbox onBadgeChange={onBadgeChange} onViewChange={vi.fn()} view="board" />);
     await waitFor(() => expect(document.querySelector("#todo-board")).toBeTruthy(), { timeout: 15_000 });
+    await waitFor(() => expect(onBadgeChange).toHaveBeenCalled());
+    expect(onBadgeChange.mock.lastCall?.[0]).toBeGreaterThan(0);
+    const afterFirstLoad = overview.mock.calls.length;
+    fireEvent(window, new Event("focus"));
     await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(overview).not.toHaveBeenCalled();
+    expect(overview).toHaveBeenCalledTimes(afterFirstLoad);
 
-    localStorage.setItem("vanehub.inbox.view-mode.v1", "list");
-    rerender(<Inbox onViewChange={vi.fn()} view="attention" />);
+    // The toggle asks the shell for the attention route; the shell answers with the new view.
     fireEvent.click(screen.getByTestId("inbox-view-list"));
-    await waitFor(() => expect(overview).toHaveBeenCalled());
+    rerender(<Inbox onBadgeChange={onBadgeChange} onViewChange={vi.fn()} view="attention" />);
+    await waitFor(() => expect(overview.mock.calls.length).toBeGreaterThan(afterFirstLoad));
+    const afterListLoad = overview.mock.calls.length;
+    fireEvent(window, new Event("focus"));
+    await waitFor(() => expect(overview.mock.calls.length).toBeGreaterThan(afterListLoad));
   }, 20_000);
+
+  it("keeps a slow load's result instead of discarding it for the next poll", async () => {
+    const empty = { counts: { running: 0, waitingApproval: 0, waitingUser: 0, retrying: 0, blocked: 0, failed: 0, completedRecently: 0 }, attention: { items: [], nextCursor: null }, active: { items: [], nextCursor: null }, recent: { items: [], nextCursor: null } };
+    const pending: Array<() => void> = [];
+    const overview = vi.spyOn(agentService, "getMissionControlOverview")
+      .mockImplementation(() => new Promise((resolve) => { pending.push(() => resolve(empty)); }));
+    renderWithAppProviders(<Inbox onViewChange={vi.fn()} view="attention" />);
+    await waitFor(() => expect(overview).toHaveBeenCalledTimes(1));
+    // Polls that fire while the first load is still running do not start more requests.
+    fireEvent(window, new Event("focus"));
+    fireEvent(window, new Event("focus"));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(overview).toHaveBeenCalledTimes(1);
+    // When the slow response lands it is applied, and the one remembered poll runs afterwards.
+    pending[0]();
+    await screen.findByTestId("inbox-empty");
+    await waitFor(() => expect(overview).toHaveBeenCalledTimes(2));
+    pending[1]();
+  });
+
+  it("keeps the Board preference that a route asked for across a hidden render with a list view", async () => {
+    const { rerender } = renderWithAppProviders(<Inbox onViewChange={vi.fn()} view="board" />);
+    expect(localStorage.getItem("vanehub.inbox.view-mode.v1")).toBe("board");
+    // The shell hands a hidden Inbox its default list view; that must not flip the preference.
+    rerender(<Inbox active={false} onViewChange={vi.fn()} view="attention" />);
+    expect(localStorage.getItem("vanehub.inbox.view-mode.v1")).toBe("board");
+    expect(screen.getByTestId("inbox").getAttribute("data-inbox-mode")).toBe("board");
+  });
 
   it("keeps the empty state and a still refresh icon during background polls", async () => {
     const empty = { counts: { running: 0, waitingApproval: 0, waitingUser: 0, retrying: 0, blocked: 0, failed: 0, completedRecently: 0 }, attention: { items: [], nextCursor: null }, active: { items: [], nextCursor: null }, recent: { items: [], nextCursor: null } };
