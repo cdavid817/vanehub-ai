@@ -182,3 +182,8 @@ Windows / macOS：全部 NOT RUN。
 ### 二次合并（2026-09-08，`e3796fd9`）
 
 首个 PR 提交后 main 又前进 4 个提交（vitest 5.0.0、npm/cargo 依赖组、PR #287 桌面适配器归一化 CLI 参数载荷），GitHub 判定 PR 冲突，`pull_request` 工作流因此未启动。重新合并：唯一冲突是 `src/services` 行数预算，按合并树实测提到 28263；本分支的原生侧 `dependencies` 序列化修正撤回（`c509b765`），改用 main 的适配器归一化。`npm ci` 后在 vitest 5 上重跑：`architecture:check`、`test`（3027）、`test:coverage`、`coverage:check:frontend`、`build`、`local-media:fake:check`、`contracts:check`、`docs:check`、`version:unit:test`、`coverage:policy:test`、`release:unit:test`、`deps:config:*`、`desktop:unit:test`、两条 `openspec validate`、`cargo fmt/check/clippy`、`native:panic:check`、`cargo test --workspace`（6964 passed）全部 PASSED。Playwright 与桌面层未在本机重跑（另一会话仍占满机器），以 CI 为准。
+
+### 第三轮审查修正后的门禁（2026-09-08）
+
+外部审查报告 19 项全部确认并修复（明细见 implementation-notes「第三轮审查修正」）。本机（Linux x86_64，顺序执行）：`cargo fmt --check`、`cargo clippy --workspace --all-targets -- -D warnings`、`native:panic:check`、`cargo test --workspace`（6972 passed，0 failed，含架构 fitness 63 项）、`architecture:check`、`lint:ci`、`test`/`test:coverage`（3029）、`coverage:check:frontend`、`build`、`local-media:fake:check`、`contracts:check`、`docs:check`、`version:unit:test`、`coverage:policy:test`、`release:unit:test`、`deps:config:*`、`desktop:unit:test`、两条 `openspec validate` 全部 PASSED。行数预算按实测提到：native aggregate 74_295、production 40_865、`src/services` 28277，理由写在预算旁。Playwright 与桌面层未在本机重跑，以 PR CI 为准。本轮编译两次被内核 OOM 杀掉（swap 已满），改为 `-j 1` 前台编译后通过。
+

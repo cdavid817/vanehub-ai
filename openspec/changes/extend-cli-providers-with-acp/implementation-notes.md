@@ -149,6 +149,32 @@
 - `src/assets/agent-icons/`：Qwen Code（文档站 favicon）、Kimi（kimi.com PWA 图标）、Qoder（qoder.com 图标）、iFlow（iflow.cn 图标）四个 PNG 缩至 64×64；CodeBuddy 取自已安装 npm 包内的 `dist/web-ui/pwa-icon.svg`（官网拒绝脚本访问）；Cursor 取官方 `favicon.svg`；Copilot 内联 Primer Octicons `copilot-24`（MIT，`currentColor`）。来源、日期与商标说明见目录内 `PROVENANCE.md`。
 - `AgentBrandIcon` 对六家走 `<img data-agent-icon>`，Copilot 走内联 SVG；未知 id 仍回退到通用 Bot 图形。`agent-visual-identity.ts` 的 lucide 图形保留给在场/席位小徽标，注释同步更正。测试覆盖七家渲染与未知 id 回退。
 
+### 第三轮审查修正（2026-09-08，外部审查报告 19 项，逐项核实后全部按代码链路确认）
+
+用户提供的 PR #291 审查报告列出 8 项 P1、11 项 P2。逐项对照代码核实，19 项均有真实链路，全部修复；每项附回归测试或说明为何不可单测。
+
+- **01 子进程重新继承其他供应商凭据**：`child_environment` 构造的是完整环境，但 `AcpConnection::spawn` 与 `TerminalRegistry::create` 调用的是叠加式 `ManagedChild::spawn_in`，被过滤的变量又从父进程继承回来。两处改为 `spawn_isolated`（`env_clear` 后整体设置），传入的本就是完整环境，PATH/HOME/代理均在其中。
+- **02 临时符号链接绕过工作区边界**：`proxy_fs::write_text_file` 的临时名可预测且用 `File::create` 打开，会跟随预置的符号链接写到工作区外。改为 `create_new` 排他创建、名字带 pid/纳秒/计数器；回归测试 `a_planted_symlink_at_a_temporary_name_cannot_redirect_the_write` 预置旧格式链接，断言外部文件原样、链接未被打开也未被重命名。
+- **03 超限响应被吞**：`fs/read_text_file` 允许 8 MiB，帧上限 1 MiB，编码失败后 `respond` 的错误被丢弃，代理永久等待。`AcpConnection::respond` 在 `Framing` 错误时改写为有界 JSON-RPC 错误响应（`response exceeds the host's frame limit`）；测试 `an_oversized_response_is_answered_with_a_bounded_error_not_silence`。
+- **04 Cursor 问答/计划响应不符合官方协议**：按 [cursor.com/docs/cli/acp](https://cursor.com/docs/cli/acp) 重写：响应为嵌套 `outcome` 对象；`answered` 携带 `[{questionId, selectedOptionIds}]`；选项保留 `id`/`label`（裸字符串两者同值）；多题全部上卡片、按行逐题作答、`allowMultiple` 逗号多选、按 id/label（不区分大小写）/序号映射，映射不到的题不作答、全部映射不到则 `skipped` 附 reason；`create_plan` 卡片带 overview/plan/todos，拒绝时附 reason。`InteractionKind::Question` 改为携带完整 `CursorQuestion`。测试 `cursor_extensions_defer_with_validated_shapes` 与端到端 `cursor_question_blocks_until_answered_and_reply_is_validated` 按官方形态断言。
+- **05 多座位首次点名绑定错座位**：`GenerationProcessRequest` 新增 `seat_id`，应用服务从 `seat_ownership` 填入；ACP 适配器优先用它构造绑定键，`seat_for` 只作无 seat_id 的兼容回退。测试 `a_turn_binds_under_the_seat_the_caller_named_not_the_first_free_seat`（两个 Qwen 座位、首轮 @B、B 的下一轮恢复成功、单进程）。
+- **06 恢复时历史回放未排空**：`load_session` 收到响应后先以零超时排空入站队列（读线程在投递响应前已把回放帧全部入队）。测试 `resume_discards_the_replayed_history_before_the_next_turn` 连续 5 次重启恢复，断言新轮输出只有 `echo: second`。
+- **07 统一删除流程未释放 ACP**：`deletion_runtime.rs::quiesce` 在停止生成后调用 `release_managed_connections`，ACP 进程、代理终端、内存与持久绑定随会话删除释放。
+- **08 复用连接忽略启动参数**：`Binding` 新增 `launch_fingerprint`（参数 + 环境，剔除每轮变化的 `TRACEPARENT`），与安装指纹一并参与复用判定；不同则淘汰旧进程并经 `session/load` 在新进程恢复。测试 `changed_launch_arguments_retire_the_process_and_resume_the_thread`（Plan 参数变化 → 第二个进程 + `session/load`；参数不变 → 复用）。
+- **09 检查连接阻塞主线程**：`check_cli_connection` 改为 `async` command，解析与握手放进 `tauri::async_runtime::spawn_blocking`。
+- **10 ACP 座位收不到角色说明**：`role_briefing` 现拼在轮次 prompt 顶部（ACP 无系统提示通道，与 headless 的「调用方按轮注入」一致）。
+- **11 `terminal/wait_for_exit` 伪造超时退出状态**：超过 60 秒宿主上限或本轮取消时改为返回 JSON-RPC 错误（"still running…; ask again"），不再返回 `exitCode: null, signal: timeout`。等待仍占用驱动线程（单驱动模型），未做成异步待决请求，见下方遗留。
+- **12 用户停止缺少强杀兜底**：`stop_generation` 在 5 秒宽限后进程仍在时终止连接（管道断裂让阻塞的 `write_all` 失败、驱动收尾），再等 5 秒；仍未结束则返回 `Ok(false)` 而不是谎称已停止。
+- **13 完成事件先于 busy 清理**：监控线程改为先移除进程记录、清空 `active_turn`，再向 sink 发终态事件；连接已关闭时按 epoch 比对只淘汰本轮的绑定，避免误删下一轮刚建立的绑定。
+- **14 编辑现有文件丢失权限**：写入前读取目标文件权限并在 rename 前赋给临时文件；测试 `replacing_an_existing_file_keeps_its_permissions`（0755/0600）。
+- **15 Qwen 切回 OAuth 后残留 `selectedType=openai`**：PreserveOfficial 且上一 profile 为 ApiKey 时，若 `settings.json` 的 `security.auth.selectedType` 仍为 `openai` 则移除该键（其余设置不动）。原测试断言「settings 未动」相应改为「选择被释放、其他键保留」。
+- **16 Qwen 漂移检测遗漏 settings.json**：新增 `live_fragment`，Qwen 的指纹把 `.env` 受管片段与 `settings.json` 的 `selectedType`（缺文件记 `<absent>`）一起纳入；`inspect`、apply 的漂移守卫与结果指纹统一使用。测试 `qwen_drift_detection_covers_the_auth_selection_in_settings`（CLI 内切换 → Drifted；无关键变化 → Applied；文件删除 → Drifted；损坏 → Malformed）。
+- **17 CodeBuddy 区域账号未接通**：领域层 `normalize_chat_preferences` 与 `is_valid_chat_snapshot` 接受 `codebuddy-china`/`codebuddy-ioa`（仅当期望 provider 为 `codebuddy-international`），并把所选值写入偏好；前端 `normalizeChatConfigForSession` 保留这两个值，`PROVIDER_LABELS` 增加三个 CodeBuddy 环境以便选择器显示与选择。检查连接的 `provider_id` 仍由前端传 `null`（握手不区分环境）。
+- **18 iFlow 出现在多座位与评估入口**：`SessionSeatAssignment` 与评估中心过滤 `legacy` 能力标签；后端 `prepare_generation` 本已拒绝。
+- **19 iFlow 切换 profile 残留旧高级配置**：`project_iflow` 接收 `previous` 并先移除其 `managed_keys`；测试扩展为 A→B 后 `theme` 消失、`cna` 与端点键保留。
+
+未完全解决、如实记录：11 的等待仍是同步的（其他入站请求排队），要做成异步待决请求需要驱动模型改造；12 的「代理不读 stdin」场景没有可靠的假 CLI 复现，只由代码路径与既有终止测试覆盖；17 的聊天配置选择器本身是通用 provider 下拉（既有实现按 anthropic/openai/google 猜测），新增 CLI 的模型列表仍为空，这是 PR 之前就有的 UI 限制。
+
 ### 第二轮审查修正（2026-09-07）
 
 - `acp/adapter.rs::bind`：对同一绑定发起第二轮时，原代码先把绑定从表里移除、再因 `active_turn` 存在返回冲突，活动连接由此脱离管理（轮次结束后不再可复用，下一轮被迫重新拉起并 `session/load`；`release_session` 也找不到它）。改为先判忙碌返回冲突、只在空闲时才淘汰替换；回归测试 `a_busy_binding_is_refused_but_not_evicted`。
