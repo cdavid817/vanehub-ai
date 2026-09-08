@@ -397,6 +397,13 @@ export const managedCliAgentIds = [
   "opencode",
   "antigravity-cli",
   "gemini-cli",
+  "qwen-code",
+  "kimi-cli",
+  "qoder-cli",
+  "codebuddy-code",
+  "copilot-cli",
+  "cursor-agent-cli",
+  "iflow-cli",
 ] as const;
 export type ManagedCliAgentId = (typeof managedCliAgentIds)[number];
 export type {

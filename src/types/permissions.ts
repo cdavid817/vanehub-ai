@@ -87,4 +87,17 @@ export const CLAUDE_CODE_AGENT_ID = "claude-code";
  * `agentService.listAgents()` — mirrors `MANAGED_CLI_AGENT_IDS` in `cli_parameters.rs`. Only
  * `claude-code` gets the extra hook-install confirmation; the other three project their
  * template straight into launch flags (`add-cli-agent-permission-launch-flags`). */
-export const MANAGED_CLI_AGENT_IDS = ["claude-code", "codex-cli", "opencode", "antigravity-cli", "gemini-cli"] as const;
+export const MANAGED_CLI_AGENT_IDS = [
+  "claude-code",
+  "codex-cli",
+  "opencode",
+  "antigravity-cli",
+  "gemini-cli",
+  "qwen-code",
+  "kimi-cli",
+  "qoder-cli",
+  "codebuddy-code",
+  "copilot-cli",
+  "cursor-agent-cli",
+  "iflow-cli",
+] as const;

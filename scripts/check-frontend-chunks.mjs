@@ -46,7 +46,14 @@ const maxStaticEntryGzipBytes = 350 * 1024;
 // path, the session-row and badge width constraints, the collapsible CLI composer strip, and
 // the CLI theme attribute plumbing in the settings provider -- all of it in files the App chunk
 // already owned, none of it a second copy of a lazy panel.
-const maxRawJavaScriptChunkBytes = 704 * 1024;
+//
+// Raised from 704 KiB by `extend-cli-providers-with-acp`, measured after merging main: `npm run
+// build` emits 721,101 bytes (704.2 KiB). The growth over main is the seven expanded CLIs in the
+// static closure -- their registry entries, the create-session legacy group, the CLI management
+// connection actions and status badges, the Agent configuration selector's two new targets, and
+// the brand-mark imports -- all in files the App chunk already owned. 705 keeps the same
+// headroom the previous raises left for the slightly larger desktop-e2e build.
+const maxRawJavaScriptChunkBytes = 705 * 1024;
 
 for (const source of requiredDynamicEntries) {
   const entry = Object.values(manifest).find((candidate) => candidate.src === source);

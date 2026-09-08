@@ -157,7 +157,14 @@ pub(super) const TEST_CATALOG: &str = r#"{
     },
     { "agentId": "gemini-cli", "parameters": [] },
     { "agentId": "opencode", "parameters": [] },
-    { "agentId": "antigravity-cli", "parameters": [] }
+    { "agentId": "antigravity-cli", "parameters": [] },
+    { "agentId": "qwen-code", "parameters": [] },
+    { "agentId": "kimi-cli", "parameters": [] },
+    { "agentId": "qoder-cli", "parameters": [] },
+    { "agentId": "codebuddy-code", "parameters": [] },
+    { "agentId": "copilot-cli", "parameters": [] },
+    { "agentId": "cursor-agent-cli", "parameters": [] },
+    { "agentId": "iflow-cli", "parameters": [] }
   ]
 }"#;
 

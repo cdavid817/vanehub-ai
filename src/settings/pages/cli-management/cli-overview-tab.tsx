@@ -20,6 +20,8 @@ const AXES: Array<[label: string, field: keyof CliEnvironmentSnapshot, prefix: s
   ["cli.axis.compatibility", "compatibility", "cli.compatibility"],
   ["cli.axis.update", "update", "cli.update"],
   ["cli.axis.freshness", "freshness", "cli.freshness"],
+  ["cli.axis.lifecycle", "lifecycle", "cli.lifecycle"],
+  ["cli.axis.transport", "managedTransport", "cli.transport"],
 ];
 
 function InstallationLine({ labelKey, path, version }: {

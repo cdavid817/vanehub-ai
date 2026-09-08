@@ -11,7 +11,8 @@ use crate::contexts::sessions::domain::{
     reconcile_cumulative_usage, CumulativeReconciliation, MeasurementQuality, TokenDimensions,
     UsageStatus,
 };
-use rusqlite::{params, Connection, OptionalExtension, Row, Transaction, TransactionBehavior};
+use crate::platform::database::SqliteWriteTransaction;
+use rusqlite::{params, Connection, OptionalExtension, Row, Transaction};
 use serde::{de::DeserializeOwned, Serialize};
 
 pub(crate) fn apply_schema(
@@ -194,9 +195,7 @@ impl TokenAccountingRepository for SqliteSessionsRepository {
     ) -> Result<TokenUsageObservation, SessionsApplicationError> {
         validate_observation(observation)?;
         let mut connection = self.connection()?;
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(repository_error)?;
+        let transaction = connection.write_transaction().map_err(repository_error)?;
         insert_observation(&transaction, observation)?;
         let saved = load_observation(&transaction, &observation.source_key)?.ok_or_else(|| {
             SessionsApplicationError::Repository("observation was not persisted".to_string())
@@ -215,9 +214,7 @@ impl TokenAccountingRepository for SqliteSessionsRepository {
             .validate()
             .map_err(|message| SessionsApplicationError::Validation(message.to_string()))?;
         let mut connection = self.connection()?;
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(repository_error)?;
+        let transaction = connection.write_transaction().map_err(repository_error)?;
         let stored = load_cursor(&transaction, &advance.current.source_id)?;
         if stored != advance.previous {
             return Err(SessionsApplicationError::Transaction(

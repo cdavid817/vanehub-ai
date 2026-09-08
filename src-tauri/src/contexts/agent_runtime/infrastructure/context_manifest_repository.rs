@@ -3,6 +3,7 @@ use crate::contexts::agent_runtime::domain::{
     ContextEvidenceManifest, ContextEvidenceManifestPage, ContextEvidenceSummary, ContextRange,
     ContextReasonCode, ContextSourceKind, ContextSourceOutcome,
 };
+use crate::platform::database::SqliteWriteTransaction;
 use crate::platform::database::{DatabaseError, NativeDatabase, PooledSqlite};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
@@ -47,7 +48,7 @@ impl ContextManifestRepository for SqliteContextManifestRepository {
             .map(|(kind, outcome)| (kind.as_str(), outcome.as_str()))
             .collect::<BTreeMap<_, _>>();
         let mut connection = self.connection()?;
-        let transaction = connection.transaction().map_err(storage_error)?;
+        let transaction = connection.write_transaction().map_err(storage_error)?;
         transaction
             .execute(
                 r#"INSERT OR REPLACE INTO context_evidence_manifests (

@@ -133,7 +133,7 @@ pub(crate) use memory_selection::{
 pub(crate) use provider::{
     AgentProviderId, ProviderCancellationPolicy, ProviderCapabilities, ProviderCapability,
     ProviderCapabilityInput, ProviderFamily, ProviderHealth, ProviderMetadata,
-    ProviderParserPolicy, ProviderReadinessPrerequisites, ProviderSessionRef,
+    ProviderParserPolicy, ProviderReadinessPrerequisites, ProviderSessionRef, ProviderTransport,
     ProviderUsageCapability, ProviderVersionProbe,
 };
 pub(crate) use provider_profile::{

@@ -22,6 +22,15 @@ pub(crate) struct CliPackageReference {
     pub(crate) identifier: &'static str,
 }
 
+/// A (platform, architecture) pair a vendor documents as unsupported. Qoder's "Windows arm64 is
+/// temporarily not supported" is the case that motivates it: the OS is supported, the CPU is not.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CliArchitectureExclusion {
+    pub(crate) platform: CliPlatform,
+    /// Rust's `std::env::consts::ARCH` spelling: `aarch64`, `x86_64`.
+    pub(crate) architecture: &'static str,
+}
+
 /// Which versions of a CLI this product is known to work with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct CliCompatibilityPolicy {
@@ -29,6 +38,8 @@ pub(crate) struct CliCompatibilityPolicy {
     /// established, which yields `unknown` -- not `supported`.
     pub(crate) minimum_supported: Option<&'static str>,
     pub(crate) platforms: PlatformSet,
+    /// Targets inside `platforms` the vendor nevertheless excludes.
+    pub(crate) excluded_targets: &'static [CliArchitectureExclusion],
 }
 
 impl CliCompatibilityPolicy {
@@ -36,7 +47,24 @@ impl CliCompatibilityPolicy {
         Self {
             minimum_supported: None,
             platforms: PlatformSet::ALL,
+            excluded_targets: &[],
         }
+    }
+
+    /// Whether the host this build runs on is a documented target: its platform is declared and
+    /// its (platform, architecture) pair is not excluded.
+    pub(crate) fn supports_current_target(&self) -> bool {
+        let Some(platform) = CliPlatform::current() else {
+            return false;
+        };
+        self.supports_target(platform, std::env::consts::ARCH)
+    }
+
+    pub(crate) fn supports_target(&self, platform: CliPlatform, architecture: &str) -> bool {
+        self.platforms.contains(platform)
+            && !self.excluded_targets.iter().any(|exclusion| {
+                exclusion.platform == platform && exclusion.architecture == architecture
+            })
     }
 
     /// `None` when no floor is declared or the reported version is opaque: an unordered version
@@ -151,6 +179,102 @@ fn narrower(left: CliTargetVersionMode, right: CliTargetVersionMode) -> CliTarge
     }
 }
 
+/// Whether a catalog entry is an actively supported product or a legacy local-compatibility one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CliToolLifecycle {
+    Active,
+    /// The vendor's official service is gone. Only a locally installed program with the user's
+    /// own configuration is supported: no default install, no managed conversation, no
+    /// automation.
+    Legacy {
+        /// ISO date of the official shutdown, shown verbatim.
+        service_shutdown: &'static str,
+    },
+}
+
+impl CliToolLifecycle {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Legacy { .. } => "legacy",
+        }
+    }
+
+    pub(crate) fn service_shutdown(self) -> Option<&'static str> {
+        match self {
+            Self::Active => None,
+            Self::Legacy { service_shutdown } => Some(service_shutdown),
+        }
+    }
+}
+
+/// Which managed-conversation transport the Agent Runtime drives this CLI through. Catalog data
+/// here so the CLI Management page can say it without reaching into the runtime; a consistency
+/// test asserts it agrees with the runtime's own provider declarations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CliManagedTransport {
+    /// One process per turn, structured stdout.
+    Headless,
+    /// A long-lived ACP agent over stdio.
+    AcpStdio,
+    /// Native terminal only; no managed conversation.
+    TerminalOnly,
+}
+
+impl CliManagedTransport {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Headless => "headless",
+            Self::AcpStdio => "acp-stdio",
+            Self::TerminalOnly => "terminal-only",
+        }
+    }
+}
+
+/// How a discovered candidate is confirmed to be *this* program and not another one with the
+/// same basename. A basename alone is proof for `claude`; it is not for `agent`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CliIdentityRule {
+    /// The basename is distinctive; any runnable candidate is accepted.
+    Basename,
+    /// Accepted only when the canonical path or the version output carries a reviewed marker.
+    /// Markers are matched case-insensitively as substrings.
+    Reviewed {
+        canonical_path_markers: &'static [&'static str],
+        version_output_markers: &'static [&'static str],
+    },
+}
+
+impl CliIdentityRule {
+    /// Whether a candidate that runs is the program this entry names.
+    pub(crate) fn accepts(
+        self,
+        executable_path: &str,
+        canonical_path: Option<&str>,
+        version_output: &str,
+    ) -> bool {
+        match self {
+            Self::Basename => true,
+            Self::Reviewed {
+                canonical_path_markers,
+                version_output_markers,
+            } => {
+                let path = canonical_path
+                    .unwrap_or(executable_path)
+                    .replace('\\', "/")
+                    .to_ascii_lowercase();
+                let output = version_output.to_ascii_lowercase();
+                canonical_path_markers
+                    .iter()
+                    .any(|marker| path.contains(&marker.to_ascii_lowercase()))
+                    || version_output_markers
+                        .iter()
+                        .any(|marker| output.contains(&marker.to_ascii_lowercase()))
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct CliToolDefinition {
     pub(crate) agent_id: &'static str,
@@ -162,9 +286,20 @@ pub(crate) struct CliToolDefinition {
     pub(crate) distributions: &'static [CliDistributionDefinition],
     pub(crate) probes: CliProbeDefinition,
     pub(crate) compatibility: CliCompatibilityPolicy,
+    pub(crate) lifecycle: CliToolLifecycle,
+    pub(crate) identity: CliIdentityRule,
+    pub(crate) managed_transport: CliManagedTransport,
+    /// The vendor's own sign-in documentation, HTTPS only. The application never signs in on the
+    /// user's behalf; this is where it points them. `None` when the tool's own auth probe or
+    /// existing guidance already covers it.
+    pub(crate) login_docs_url: Option<&'static str>,
 }
 
 impl CliToolDefinition {
+    pub(crate) fn is_legacy(&self) -> bool {
+        matches!(self.lifecycle, CliToolLifecycle::Legacy { .. })
+    }
+
     pub(crate) fn tool_id(&self) -> Result<CliToolId, CliIdError> {
         CliToolId::new(self.agent_id)
     }
@@ -450,7 +585,14 @@ mod tests {
             distributions: DISTRIBUTIONS,
             probes: CliProbeDefinition::version_only(),
             compatibility: CliCompatibilityPolicy::any_desktop(),
+            lifecycle: CliToolLifecycle::Active,
+            identity: CliIdentityRule::Basename,
+            managed_transport: CliManagedTransport::Headless,
+            login_docs_url: None,
         };
+        assert!(!tool.is_legacy());
+        assert_eq!(CliManagedTransport::AcpStdio.as_str(), "acp-stdio");
+        assert_eq!(CliManagedTransport::TerminalOnly.as_str(), "terminal-only");
 
         let actionable = tool
             .actionable_distributions()
@@ -477,10 +619,61 @@ mod tests {
     }
 
     #[test]
+    fn architecture_exclusions_narrow_a_declared_platform() {
+        let policy = CliCompatibilityPolicy {
+            minimum_supported: None,
+            platforms: PlatformSet::ALL,
+            excluded_targets: &[CliArchitectureExclusion {
+                platform: CliPlatform::Windows,
+                architecture: "aarch64",
+            }],
+        };
+        assert!(!policy.supports_target(CliPlatform::Windows, "aarch64"));
+        assert!(policy.supports_target(CliPlatform::Windows, "x86_64"));
+        assert!(policy.supports_target(CliPlatform::Macos, "aarch64"));
+        assert!(policy.supports_target(CliPlatform::Linux, "x86_64"));
+        assert!(CliCompatibilityPolicy::any_desktop().supports_current_target());
+        let no_platforms = CliCompatibilityPolicy {
+            minimum_supported: None,
+            platforms: PlatformSet::of(&[]),
+            excluded_targets: &[],
+        };
+        assert!(!no_platforms.supports_current_target());
+    }
+
+    #[test]
+    fn identity_rules_accept_by_marker_and_never_by_basename_alone_when_reviewed() {
+        let reviewed = CliIdentityRule::Reviewed {
+            canonical_path_markers: &["cursor"],
+            version_output_markers: &["Cursor"],
+        };
+        assert!(reviewed.accepts(
+            "/home/u/.local/bin/agent",
+            Some("/home/u/.local/share/cursor-agent/versions/1.0/cursor-agent"),
+            ""
+        ));
+        assert!(reviewed.accepts("/usr/bin/agent", None, "cursor agent 2026.09.01"));
+        assert!(!reviewed.accepts(
+            "/usr/bin/agent",
+            Some("/usr/lib/other-agent/agent"),
+            "other-agent 3.1.0"
+        ));
+        assert!(CliIdentityRule::Basename.accepts("/usr/bin/agent", None, ""));
+        assert_eq!(CliToolLifecycle::Active.as_str(), "active");
+        let legacy = CliToolLifecycle::Legacy {
+            service_shutdown: "2026-04-17",
+        };
+        assert_eq!(legacy.as_str(), "legacy");
+        assert_eq!(legacy.service_shutdown(), Some("2026-04-17"));
+        assert_eq!(CliToolLifecycle::Active.service_shutdown(), None);
+    }
+
+    #[test]
     fn a_compatibility_floor_never_judges_an_opaque_version() {
         let policy = CliCompatibilityPolicy {
             minimum_supported: Some("1.2.0"),
             platforms: PlatformSet::ALL,
+            excluded_targets: &[],
         };
         assert_eq!(
             policy.is_below_floor(&NormalizedCliVersion::parse("1.1.9")),

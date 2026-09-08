@@ -66,6 +66,32 @@ pub(crate) struct ProviderOptionRequest<'a> {
     pub(crate) reasoning: Option<&'a str>,
 }
 
+/// What an ACP-capable provider needs to start its stdio agent process for one execution
+/// binding. The prompt itself never appears here: on this transport it travels inside the
+/// protocol, not on argv or stdin.
+pub(crate) struct ProviderAcpInvocationRequest<'a> {
+    pub(crate) executable: String,
+    /// Resolved user-profile tokens that precede the ACP entry flag.
+    pub(crate) global_args: &'a [String],
+    /// Resolved user-profile tokens the ACP grammar owns.
+    pub(crate) invocation_args: &'a [String],
+    /// The reviewed account/environment profile id, when the provider distinguishes several.
+    /// `None` selects the provider's own default environment.
+    pub(crate) account_profile: Option<&'a str>,
+}
+
+/// A prepared ACP agent launch. `environment` carries only the variables the reviewed adapter
+/// derived from the request (an account-environment switch, for example); it never carries a
+/// credential value.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ProviderAcpInvocationSpec {
+    pub(crate) executable: String,
+    pub(crate) args: Vec<String>,
+    pub(crate) environment: BTreeMap<String, String>,
+    /// The adapter revision the fixture and session-binding evidence is recorded against.
+    pub(crate) adapter_revision: &'static str,
+}
+
 pub(crate) trait AgentProvider: Send + Sync {
     fn metadata(&self) -> &ProviderMetadata;
     fn capabilities(&self) -> &ProviderCapabilities;
@@ -87,6 +113,18 @@ pub(crate) trait AgentProvider: Send + Sync {
         &self,
         request: ProviderInteractiveInvocationRequest<'_>,
     ) -> Result<ProviderInteractiveInvocationSpec, AgentProviderError>;
+    /// Starts the provider as an ACP stdio agent. The default is a classified refusal, so a
+    /// provider that never declared the transport cannot be driven through it by accident.
+    fn prepare_acp(
+        &self,
+        request: ProviderAcpInvocationRequest<'_>,
+    ) -> Result<ProviderAcpInvocationSpec, AgentProviderError> {
+        let _ = request;
+        Err(AgentProviderError::UnsupportedCapability {
+            provider_id: self.metadata().id().as_str().to_string(),
+            capability: "acp-stdio".to_string(),
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

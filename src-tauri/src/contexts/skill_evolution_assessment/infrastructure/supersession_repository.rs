@@ -1,6 +1,7 @@
 use super::assessment_repository::target_universe_hash;
 use crate::contexts::skill_evolution_assessment::domain::AssessmentWitness;
 use crate::platform::database::NativeDatabase;
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::{params, OptionalExtension};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,7 +55,7 @@ impl SqliteSupersessionRepository {
             .connection()
             .map_err(|_| SupersessionError::Storage)?;
         let transaction = connection
-            .unchecked_transaction()
+            .write_transaction_unchecked()
             .map_err(|_| SupersessionError::Storage)?;
         if let Some(existing) = transaction
             .query_row(

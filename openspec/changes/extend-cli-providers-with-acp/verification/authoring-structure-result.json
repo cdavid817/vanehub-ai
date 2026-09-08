@@ -1,0 +1,20 @@
+{
+  "validationKind": "structural-not-openspec-cli",
+  "change": "extend-cli-providers-with-acp",
+  "result": "PASSED",
+  "counts": {
+    "specFiles": 8,
+    "requirements": 51,
+    "scenarios": 131,
+    "implementationTasks": 81,
+    "checkedTasks": 0,
+    "baselineScenarioTitlesPreserved": 11,
+    "relativeLinksChecked": 33
+  },
+  "errors": [],
+  "limitations": [
+    "Not the official OpenSpec validator; schema and semantic validation must run in the target repository.",
+    "No implementation, executable, network, build, desktop or live-provider tests are performed.",
+    "Baseline scenario preservation uses the supplied audit, not a fresh target-repository read."
+  ]
+}

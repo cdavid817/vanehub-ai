@@ -1,3 +1,4 @@
+use crate::platform::database::SqliteWriteTransaction;
 use std::collections::BTreeMap;
 
 use rusqlite::{params, OptionalExtension};
@@ -46,7 +47,7 @@ impl SqliteActivityProjectionRepository<'_> {
         if now_ms < 0 {
             return Err(ActivityProjectionRepositoryError::InvalidInput);
         }
-        let transaction = self.connection.unchecked_transaction()?;
+        let transaction = self.connection.write_transaction_unchecked()?;
         let due = {
             let mut statement = transaction.prepare(
                 "SELECT bucket_id,scope_kind,canonical_scope_id,cadence,window_started_at_ms,
@@ -141,7 +142,7 @@ impl SqliteActivityProjectionRepository<'_> {
         let started_at_ms = projected_at_ms - projected_at_ms.rem_euclid(window_ms);
         let cadence_text = enum_text(cadence)?;
         let bucket_id = format!("digest:{target_scope}:{cadence_text}:{started_at_ms}");
-        let transaction = self.connection.unchecked_transaction()?;
+        let transaction = self.connection.write_transaction_unchecked()?;
         let existing = transaction
             .query_row(
                 "SELECT counts_json,highest_severity FROM evolution_activity_digest_buckets

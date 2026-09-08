@@ -116,7 +116,7 @@ As a host process, the VaneHub AI desktop client spawns several **headless child
 
 The constraint both share is that **application logging must go to stderr** — printing to stdout breaks the framing.
 
-> Earlier revisions used "ACP-stdio" as a generic label for this transport. That was wrong: ACP names the Agent Client Protocol, a different protocol. LSP is not ACP, MCP is not ACP, and this project does not implement ACP.
+> Earlier revisions used "ACP-stdio" as a generic label for this transport. That was wrong: ACP names the Agent Client Protocol, a specific protocol. LSP is not ACP and MCP is not ACP. This project does implement ACP, but only as the managed-conversation transport of six specific CLIs (see [ACP runtime](acp-runtime.md)); the generic label for "JSON-RPC over a child's stdio" remains the transport described in this section.
 
 ### What this project uses
 
@@ -125,10 +125,11 @@ This project **mixes the two modes by subsystem**:
 | Subsystem | Mode | Implementation |
 | --- | --- | --- |
 | CLI Agents (claude-code and the rest) | **Headless command + streaming stdout parsing** | Each CLI starts through its **headless command contract** — non-interactive, programmatically drivable, streaming. `ProviderOutputFramer` parses stdout in each vendor's native format and normalizes it into chat events such as `started`, `token`, `thinking`, `tool_use`, `completed`, `failed`, and `cancelled`. The prompt is delivered over stdin in preference to a command-line argument |
+| ACP CLI Agents (Qwen Code, Kimi Code CLI, Qoder CLI, CodeBuddy Code, GitHub Copilot CLI, Cursor Agent CLI) | **JSON-RPC over stdio (ACP binding)** | The CLI starts once per session binding as a long-lived agent (`qwen --acp`, `kimi acp`, `copilot --acp --stdio`, …) speaking newline-delimited JSON-RPC 2.0. `providers/acp/framing.rs` frames by newline with bounded size and depth, `connection.rs` pairs requests with responses on an independent reader, and `session.rs` drives `initialize` / `session/new` / `session/prompt` and answers the agent's own `session/request_permission`, `fs/*`, and `terminal/*` requests mid-turn. See [ACP runtime](acp-runtime.md) |
 | LSP code intelligence | **JSON-RPC over stdio (LSP binding)** | The LSP server starts as a headless child and parent and child speak standard LSP JSON-RPC. `lsp_framing.rs` frames with `Content-Length: {}\r\n\r\n`, and `json_rpc_actor.rs` handles request-response pairing and `$/cancelRequest` |
 | MCP servers | **JSON-RPC over stdio (MCP binding)** | The MCP server starts as a headless child (`relay_stdio` / `bounded_stdio`) speaking JSON-RPC 2.0, with `relay_jsonrpc.rs` parsing newline-delimited `jsonrpc: "2.0"` frames. Claude Code and Codex CLI additionally go through the relay (`--vanehub-mcp-relay`), proxied by VaneHub AI |
 
-**Why CLI Agents do not use JSON-RPC over stdio**: the coding CLIs — claude-code, codex-cli, gemini-cli, and the rest — expose no JSON-RPC interface. Each has its own native output format, so no standard JSON-RPC contract can be assumed. CLI Agents therefore use headless commands plus parsing customized per vendor through `output_parser_for(agent_id)`, respecting each CLI's existing contract rather than imposing a protocol on it.
+**Why the original five CLI Agents do not use JSON-RPC over stdio**: claude-code, codex-cli, gemini-cli, opencode, and antigravity-cli expose no JSON-RPC interface in the mode VaneHub drives. Each has its own native output format, so no standard JSON-RPC contract can be assumed. CLI Agents therefore use headless commands plus parsing customized per vendor through `output_parser_for(agent_id)`, respecting each CLI's existing contract rather than imposing a protocol on it.
 
 **Why LSP and MCP do use JSON-RPC over stdio**: both have a standardized JSON-RPC protocol and each specification defines a stdio transport, though with different framing (see above). Local parent-child communication needs no port and no network stack, starts and tears down simply, and isolates processes cleanly — a good fit for a desktop Agent host.
 

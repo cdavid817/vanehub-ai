@@ -43,7 +43,10 @@ export function CliParameterRail({
 
   return (
     <SectionPanel
-      className="sticky top-4 self-start"
+      // Sticky only beside the content: stacked above it on narrow screens, a twelve-entry rail
+      // would otherwise ride over the fields as the page scrolls. Bounded so it scrolls itself
+      // rather than pushing the content below the fold on short viewports.
+      className="self-start lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto"
       description={t("cliParameters.agents.description")}
       title={t("cliParameters.agents.title")}
     >

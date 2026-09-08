@@ -2,6 +2,7 @@ use super::intake_source::load_checks;
 use super::repository_support::{from_sql_u64, parse_state, sql_u64, state_name};
 use super::{append_system_event, SqliteCuratorRepository, SystemAuditEvent};
 use crate::contexts::skill_evolution_curation::{application::*, domain::*};
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::{params, OptionalExtension, TransactionBehavior};
 use serde::Deserialize;
 
@@ -85,7 +86,7 @@ impl CuratorDraftReviewStore for SqliteCuratorRepository<'_> {
             .map_err(|_| CuratorDraftReviewStoreError::InvalidInput)?;
         let transaction = self
             .connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .write_transaction()
             .map_err(|_| CuratorDraftReviewStoreError::Storage)?;
         let current = transaction
             .query_row(

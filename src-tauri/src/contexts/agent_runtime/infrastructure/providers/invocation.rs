@@ -3,16 +3,177 @@ use crate::contexts::agent_runtime::application::{
     ProviderPromptDelivery,
 };
 use crate::contexts::permissions::api::PolicyTemplateName;
-use crate::contexts::tooling::api::{CliParameterSelection, CliParameterSelectionMap};
+use crate::contexts::tooling::api::{
+    CliLaunchScope, CliParameterSelection, CliParameterSelectionMap,
+};
 use std::fmt::{Display, Formatter};
 /// Managed CLI agents whose chat and terminal launches receive a final policy projection.
-pub(crate) const POLICY_TEMPLATE_GOVERNED_AGENT_IDS: [&str; 5] = [
+///
+/// Every built-in CLI is listed, including the ones whose terminal cannot express a template as a
+/// flag: for those the projection is empty and `terminal_policy_enforceability` decides whether
+/// the launch may proceed at all. Leaving an id out would make its launch fail with "no mapping"
+/// instead of a truthful "this mode cannot enforce that policy".
+pub(crate) const POLICY_TEMPLATE_GOVERNED_AGENT_IDS: [&str; 12] = [
     "claude-code",
     "codex-cli",
     "gemini-cli",
     "opencode",
     "antigravity-cli",
+    "qwen-code",
+    "kimi-cli",
+    "qoder-cli",
+    "codebuddy-code",
+    "copilot-cli",
+    "cursor-agent-cli",
+    "iflow-cli",
 ];
+
+/// Whether a PTY launch of `agent_id` can honour `template`.
+///
+/// The terminal is the CLI's own interactive surface: VaneHub can pass a reviewed flag, but it
+/// cannot arbitrate the CLI's internal approvals the way the ACP bridge does. A template the CLI
+/// cannot express as a flag is therefore either honoured by the CLI's own default (ask before
+/// acting, which is what `standard` means) or not enforceable at all. `readonly` on a CLI with no
+/// plan/read-only mode is the case that must refuse: launching anyway would hand a write-capable
+/// terminal to a session whose policy forbids writes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TerminalPolicyEnforceability {
+    /// A reviewed flag or the CLI's own default expresses the template.
+    HostProjected,
+    /// The CLI asks before acting on its own; VaneHub passed no restriction and verified none.
+    ProviderDelegated,
+    /// No reviewed way to express the template on this transport. The launch must be refused.
+    NotEnforceable { reason_code: &'static str },
+}
+
+/// Providers whose policy flags are rendered by the runtime (`direct_policy_arguments`) rather
+/// than through catalog policy overrides, because the right flag depends on the transport.
+pub(crate) const RUNTIME_POLICY_AGENT_IDS: [&str; 7] = [
+    "qwen-code",
+    "kimi-cli",
+    "qoder-cli",
+    "codebuddy-code",
+    "copilot-cli",
+    "cursor-agent-cli",
+    "iflow-cli",
+];
+
+/// Policy flags rendered by the runtime itself for the seven expanded CLIs. The catalog renders
+/// their user-editable parameters; the policy tokens come from here because they depend on the
+/// transport. `None` for an id the runtime does not govern.
+///
+/// Every flag below was read from the installed program's own `--help` on 2026-09-06 (Qwen Code
+/// 0.23.0, Kimi Code CLI 0.41.0, Qoder CLI 1.1.45, CodeBuddy Code 2.146.0, GitHub Copilot CLI
+/// 1.0.83, Cursor Agent 2026.09.02, iFlow CLI 0.5.19); nothing here is inferred from another
+/// vendor's grammar.
+///
+/// The transport matters. On a PTY the flag is the only policy the host can apply, so each
+/// template is projected in full. Under ACP the agent asks the host through
+/// `session/request_permission` and the host's policy answers per call; a permissive launch flag
+/// would let the agent skip that question, so only the restrictive read-only posture is passed
+/// and `standard`/`trusted`/`yolo` carry no flag at all.
+pub(crate) fn direct_policy_arguments(
+    agent_id: &str,
+    template: PolicyTemplateName,
+    scope: CliLaunchScope,
+) -> Option<Vec<String>> {
+    if !POLICY_TEMPLATE_GOVERNED_AGENT_IDS.contains(&agent_id) {
+        return None;
+    }
+    let readonly = template == PolicyTemplateName::Readonly;
+    let permissive = matches!(
+        template,
+        PolicyTemplateName::Trusted | PolicyTemplateName::Yolo
+    );
+    let terminal = scope == CliLaunchScope::Interactive;
+    let flag = |tokens: &[&str]| tokens.iter().map(|token| (*token).to_string()).collect();
+    Some(match agent_id {
+        // `--approval-mode plan|default|auto-edit|auto|yolo`.
+        "qwen-code" => match template {
+            PolicyTemplateName::Readonly => flag(&["--approval-mode", "plan"]),
+            PolicyTemplateName::Standard if terminal => flag(&["--approval-mode", "default"]),
+            PolicyTemplateName::Trusted if terminal => flag(&["--approval-mode", "auto-edit"]),
+            PolicyTemplateName::Yolo if terminal => flag(&["--approval-mode", "yolo"]),
+            _ => Vec::new(),
+        },
+        // `--plan` (plan mode), `--yolo` (routine edits/commands run, risky actions still ask),
+        // `--auto` (never ask). The default is ask-first.
+        "kimi-cli" => match template {
+            PolicyTemplateName::Readonly => flag(&["--plan"]),
+            PolicyTemplateName::Trusted if terminal => flag(&["--yolo"]),
+            PolicyTemplateName::Yolo if terminal => flag(&["--auto"]),
+            _ => Vec::new(),
+        },
+        // `--permission-mode default|accept_edits|bypass_permissions|dont_ask|auto`. There is no
+        // plan/read-only mode, so `readonly` stays unenforceable on the terminal.
+        "qoder-cli" => match template {
+            PolicyTemplateName::Standard if terminal => flag(&["--permission-mode", "default"]),
+            _ if permissive && terminal => flag(&["--permission-mode", "accept_edits"]),
+            _ => Vec::new(),
+        },
+        // `--permission-mode acceptEdits|bypassPermissions|default|plan|dontAsk|auto`.
+        "codebuddy-code" => match template {
+            PolicyTemplateName::Readonly => flag(&["--permission-mode", "plan"]),
+            PolicyTemplateName::Standard if terminal => flag(&["--permission-mode", "default"]),
+            _ if permissive && terminal => flag(&["--permission-mode", "acceptEdits"]),
+            _ => Vec::new(),
+        },
+        // `--mode interactive|plan|autopilot`; `--allow-all-tools` runs tools without prompting
+        // while path and URL checks stay on. The default is ask-first.
+        "copilot-cli" => match template {
+            PolicyTemplateName::Readonly => flag(&["--mode", "plan"]),
+            _ if permissive && terminal => flag(&["--allow-all-tools"]),
+            _ => Vec::new(),
+        },
+        // `--mode plan|ask`; `--force` allows commands unless explicitly denied. The default is
+        // ask-first.
+        "cursor-agent-cli" => match template {
+            PolicyTemplateName::Readonly => flag(&["--mode", "plan"]),
+            _ if permissive && terminal => flag(&["--force"]),
+            _ => Vec::new(),
+        },
+        // `--plan`, `--default`, `--autoEdit`, `--yolo`. Terminal only: iFlow has no managed
+        // conversation.
+        "iflow-cli" => match template {
+            PolicyTemplateName::Readonly => flag(&["--plan"]),
+            PolicyTemplateName::Standard => flag(&["--default"]),
+            PolicyTemplateName::Trusted => flag(&["--autoEdit"]),
+            PolicyTemplateName::Yolo => flag(&["--yolo"]),
+        },
+        _ => {
+            let _ = readonly;
+            Vec::new()
+        }
+    })
+}
+
+pub(crate) fn terminal_policy_enforceability(
+    agent_id: &str,
+    template: PolicyTemplateName,
+) -> TerminalPolicyEnforceability {
+    use TerminalPolicyEnforceability::{HostProjected, NotEnforceable, ProviderDelegated};
+    match (agent_id, template) {
+        // The original five, Qwen, Kimi, CodeBuddy, and iFlow project every template through a
+        // flag their own `--help` documents.
+        (
+            "claude-code" | "codex-cli" | "gemini-cli" | "opencode" | "antigravity-cli"
+            | "qwen-code" | "kimi-cli" | "codebuddy-code" | "iflow-cli",
+            _,
+        ) => HostProjected,
+        // Qoder has no plan/read-only launch mode; every other template has a `--permission-mode`.
+        ("qoder-cli", PolicyTemplateName::Readonly) => NotEnforceable {
+            reason_code: "terminal-readonly-unsupported",
+        },
+        ("qoder-cli", _) => HostProjected,
+        // Copilot and Cursor: `--mode plan` for read-only, a pre-approval flag for trusted/yolo,
+        // and their own ask-first default for standard.
+        ("copilot-cli" | "cursor-agent-cli", PolicyTemplateName::Standard) => ProviderDelegated,
+        ("copilot-cli" | "cursor-agent-cli", _) => HostProjected,
+        _ => NotEnforceable {
+            reason_code: "policy-mapping-missing",
+        },
+    }
+}
 /// The two registry-declared placement slots, resolved by the Tooling CLI-parameter API. The
 /// provider grammar decides where each lands; the builder never inspects a token's spelling.
 #[derive(Debug, Clone, Copy, Default)]
@@ -206,6 +367,49 @@ pub(crate) fn build_interactive_invocation(
         "opencode" => {
             if let Some(session_id) = existing_session_id {
                 push_session_arg(&mut args, "--session", session_id);
+            }
+        }
+        // Qwen Code's own `--resume <id>` / `--session-id <id>` pair (packages/cli/src/config/
+        // config.ts). The shape mirrors Gemini's because Qwen's source defines the same two
+        // options; it is verified against Qwen, not inherited.
+        "qwen-code" => {
+            if let Some(session_id) = existing_session_id {
+                push_session_arg(&mut args, "--resume", session_id);
+            } else {
+                let session_id = uuid::Uuid::new_v4().to_string();
+                push_session_arg(&mut args, "--session-id", &session_id);
+                assigned_runtime_session_id = Some(session_id);
+            }
+        }
+        // `kimi --session <id>` resumes a session by id (`-S`). No flag names a fresh session,
+        // so a new launch lets the CLI mint its own id.
+        "kimi-cli" => {
+            if let Some(session_id) = existing_session_id {
+                push_session_arg(&mut args, "--session", session_id);
+            }
+        }
+        // Qoder 1.1.45 and CodeBuddy 2.146.0 both document `--resume <id>` and `--session-id <id>`,
+        // so a fresh launch is named up front like Qwen's and a stored id resumes exactly.
+        "qoder-cli" | "codebuddy-code" => {
+            if let Some(session_id) = existing_session_id {
+                push_session_arg(&mut args, "--resume", session_id);
+            } else {
+                let session_id = uuid::Uuid::new_v4().to_string();
+                push_session_arg(&mut args, "--session-id", &session_id);
+                assigned_runtime_session_id = Some(session_id);
+            }
+        }
+        // Copilot 1.0.83: `-r, --resume[=value]`; the value must be attached with `=`.
+        "copilot-cli" => {
+            if let Some(session_id) = existing_session_id {
+                args.push(format!("--resume={session_id}"));
+            }
+        }
+        // Cursor 2026.09.02 `--resume [chatId]` and iFlow 0.5.19 `-r, --resume [id]` take the id
+        // as the next token. Neither names a fresh session, so the CLI mints its own.
+        "cursor-agent-cli" | "iflow-cli" => {
+            if let Some(session_id) = existing_session_id {
+                push_session_arg(&mut args, "--resume", session_id);
             }
         }
         // No id can be assigned up front: `agy` has `--conversation <id>` to resume an existing
@@ -414,6 +618,103 @@ pub(crate) fn policy_override_selections(
                 CliParameterSelection::text("accept-edits"),
             );
             overrides.insert("sandbox".to_string(), CliParameterSelection::boolean(false));
+        }
+        // The seven expanded CLIs mirror `direct_policy_arguments` (terminal scope), keyed by the
+        // parameter id a future catalog entry would carry. Values come from each program's own
+        // `--help`, read on 2026-09-06.
+        ("qwen-code", PolicyTemplateName::Readonly) => {
+            overrides.insert(
+                "approvalMode".to_string(),
+                CliParameterSelection::text("plan"),
+            );
+        }
+        ("qwen-code", PolicyTemplateName::Standard) => {
+            overrides.insert(
+                "approvalMode".to_string(),
+                CliParameterSelection::text("default"),
+            );
+        }
+        ("qwen-code", PolicyTemplateName::Trusted) => {
+            overrides.insert(
+                "approvalMode".to_string(),
+                CliParameterSelection::text("auto-edit"),
+            );
+        }
+        ("qwen-code", PolicyTemplateName::Yolo) => {
+            overrides.insert(
+                "approvalMode".to_string(),
+                CliParameterSelection::text("yolo"),
+            );
+        }
+        ("kimi-cli", PolicyTemplateName::Readonly) => {
+            overrides.insert("plan".to_string(), CliParameterSelection::boolean(true));
+        }
+        ("kimi-cli", PolicyTemplateName::Standard) => {}
+        ("kimi-cli", PolicyTemplateName::Trusted) => {
+            overrides.insert("yolo".to_string(), CliParameterSelection::boolean(true));
+        }
+        ("kimi-cli", PolicyTemplateName::Yolo) => {
+            overrides.insert("auto".to_string(), CliParameterSelection::boolean(true));
+        }
+        ("qoder-cli", PolicyTemplateName::Readonly) => {}
+        ("qoder-cli", PolicyTemplateName::Standard) => {
+            overrides.insert(
+                "permissionMode".to_string(),
+                CliParameterSelection::text("default"),
+            );
+        }
+        ("qoder-cli", PolicyTemplateName::Trusted | PolicyTemplateName::Yolo) => {
+            overrides.insert(
+                "permissionMode".to_string(),
+                CliParameterSelection::text("accept_edits"),
+            );
+        }
+        ("codebuddy-code", PolicyTemplateName::Readonly) => {
+            overrides.insert(
+                "permissionMode".to_string(),
+                CliParameterSelection::text("plan"),
+            );
+        }
+        ("codebuddy-code", PolicyTemplateName::Standard) => {
+            overrides.insert(
+                "permissionMode".to_string(),
+                CliParameterSelection::text("default"),
+            );
+        }
+        ("codebuddy-code", PolicyTemplateName::Trusted | PolicyTemplateName::Yolo) => {
+            overrides.insert(
+                "permissionMode".to_string(),
+                CliParameterSelection::text("acceptEdits"),
+            );
+        }
+        ("copilot-cli", PolicyTemplateName::Readonly) => {
+            overrides.insert("mode".to_string(), CliParameterSelection::text("plan"));
+        }
+        ("copilot-cli", PolicyTemplateName::Standard) => {}
+        ("copilot-cli", PolicyTemplateName::Trusted | PolicyTemplateName::Yolo) => {
+            overrides.insert(
+                "allowAllTools".to_string(),
+                CliParameterSelection::boolean(true),
+            );
+        }
+        ("cursor-agent-cli", PolicyTemplateName::Readonly) => {
+            overrides.insert("mode".to_string(), CliParameterSelection::text("plan"));
+        }
+        ("cursor-agent-cli", PolicyTemplateName::Standard) => {}
+        ("cursor-agent-cli", PolicyTemplateName::Trusted | PolicyTemplateName::Yolo) => {
+            overrides.insert("force".to_string(), CliParameterSelection::boolean(true));
+        }
+        ("iflow-cli", PolicyTemplateName::Readonly) => {
+            overrides.insert("plan".to_string(), CliParameterSelection::boolean(true));
+        }
+        ("iflow-cli", PolicyTemplateName::Standard) => {
+            overrides.insert("default".to_string(), CliParameterSelection::boolean(true));
+        }
+        ("iflow-cli", PolicyTemplateName::Trusted) => {
+            overrides.insert("autoEdit".to_string(), CliParameterSelection::boolean(true));
+        }
+        ("iflow-cli", PolicyTemplateName::Yolo) => {
+            overrides.insert("yolo".to_string(), CliParameterSelection::boolean(true));
         }
         _ => {}
     }

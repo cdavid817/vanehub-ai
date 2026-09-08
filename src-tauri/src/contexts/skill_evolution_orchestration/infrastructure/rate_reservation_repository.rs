@@ -1,3 +1,4 @@
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::{params, OptionalExtension, TransactionBehavior};
 
 use crate::{
@@ -46,7 +47,7 @@ impl SqliteRateReservationRepository {
             .connection()
             .map_err(|_| RateReservationError::Storage)?;
         let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .write_transaction()
             .map_err(|_| RateReservationError::Storage)?;
         if let Some(existing) = load(&transaction, &reservation.reservation_id)? {
             return if existing == *reservation {
@@ -116,7 +117,7 @@ impl SqliteRateReservationRepository {
             .connection()
             .map_err(|_| RateReservationError::Storage)?;
         let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .write_transaction()
             .map_err(|_| RateReservationError::Storage)?;
         let current = load(&transaction, reservation_id)?.ok_or(RateReservationError::NotFound)?;
         if current.revision != expected_revision {

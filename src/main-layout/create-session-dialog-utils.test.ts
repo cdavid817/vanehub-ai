@@ -78,19 +78,25 @@ describe("create-session agent discovery", () => {
       .toEqual(["codex-cli", "onepiece", "custom-api"]);
   });
 
-  it("uses the requested five-CLI order before OnePiece and defaults to Claude Code", () => {
+  it("uses the requested CLI order before OnePiece and defaults to Claude Code", () => {
     const claude = { ...agent, id: "claude-code", displayName: "Claude Code" };
     const gemini = { ...agent, id: "gemini-cli", displayName: "Gemini CLI" };
     const opencode = { ...agent, id: "opencode", displayName: "OpenCode" };
     const antigravity = { ...agent, id: "antigravity-cli", displayName: "Antigravity" };
-    const candidates = selectSessionAgents([onepiece, opencode, gemini, antigravity, claude, agent]);
+    const iflow = { ...agent, id: "iflow-cli", displayName: "iFlow" };
+    const qwen = { ...agent, id: "qwen-code", displayName: "Qwen" };
+    const candidates = selectSessionAgents([onepiece, iflow, opencode, gemini, antigravity, qwen, claude, agent]);
 
+    // The original five keep their order and the default; the additions follow them and the
+    // legacy entry ranks last among CLIs.
     expect(candidates.map((value) => value.id)).toEqual([
       "claude-code",
       "codex-cli",
       "opencode",
       "antigravity-cli",
       "gemini-cli",
+      "qwen-code",
+      "iflow-cli",
       "onepiece",
     ]);
     expect(defaultSessionAgent(candidates, null)?.id).toBe("claude-code");
@@ -136,6 +142,23 @@ describe("create-session agent discovery", () => {
       [{ ...onepiece, availabilityState: "needs-auth" }, agent],
       "onepiece",
     )?.id).toBe("codex-cli");
+  });
+
+  it("keeps a legacy CLI out of the default and in its own opt-in group", () => {
+    const iflow: AgentRegistryEntry = {
+      ...agent,
+      id: "iflow-cli",
+      displayName: "iFlow",
+      capabilityTags: ["coding", "cli", "legacy", "terminal-only"],
+    };
+    const candidates = selectSessionAgents([iflow, onepiece]);
+    // OnePiece is not ready here, and the only CLI is legacy: still never the default.
+    expect(defaultSessionAgent(candidates, null)?.id).toBe("onepiece");
+    const groups = groupSessionAgents(selectSessionAgents([iflow, agent]));
+    expect(groups.map((group) => [group.id, group.agents.map((value) => value.id)])).toEqual([
+      ["builtin-cli", ["codex-cli"]],
+      ["legacy", ["iflow-cli"]],
+    ]);
   });
 
   it("groups native, built-in CLI, and custom API candidates without changing ids", () => {

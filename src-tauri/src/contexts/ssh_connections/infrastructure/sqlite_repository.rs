@@ -2,6 +2,7 @@ use super::super::application::{SshConnectionError, SshConnectionRepository};
 use super::super::domain::{
     SshAuthMode, SshConnectionProfile, SshConnectionTestStatus, SshHostTrustMetadata,
 };
+use crate::platform::database::SqliteWriteTransaction;
 use crate::platform::database::{DatabaseError, NativeDatabase};
 use rusqlite::{params, Connection, Row};
 
@@ -91,7 +92,7 @@ impl SshConnectionRepository for SqliteSshConnectionRepository {
 
     fn insert(&self, profile: &SshConnectionProfile) -> Result<(), SshConnectionError> {
         let mut connection = self.database.connection().map_err(repository_error)?;
-        let transaction = connection.transaction().map_err(sql_error)?;
+        let transaction = connection.write_transaction().map_err(sql_error)?;
         insert_profile(&transaction, profile).map_err(sql_error)?;
         sync_host_trust(&transaction, profile).map_err(sql_error)?;
         transaction.commit().map_err(sql_error)?;
@@ -100,7 +101,7 @@ impl SshConnectionRepository for SqliteSshConnectionRepository {
 
     fn update(&self, profile: &SshConnectionProfile) -> Result<(), SshConnectionError> {
         let mut connection = self.database.connection().map_err(repository_error)?;
-        let transaction = connection.transaction().map_err(sql_error)?;
+        let transaction = connection.write_transaction().map_err(sql_error)?;
         transaction
             .execute(
                 r#"

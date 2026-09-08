@@ -92,6 +92,33 @@ describe("Web CLI global configuration", () => {
     })).rejects.toThrow("Credential");
   });
 
+  it("supports Qwen Code and iFlow third-party endpoint profiles without returning credentials", async () => {
+    for (const [agentId, kind] of [["qwen-code", "qwen-code"], ["iflow-cli", "iflow-cli"]] as const) {
+      const presets = await webAgentClient.listCliConfigPresets(agentId);
+      expect(presets.length).toBeGreaterThanOrEqual(8);
+      const preset = presets.find((candidate) => candidate.providerId === "deepseek");
+      if (!preset || preset.payload.kind !== kind) throw new Error(`${agentId} DeepSeek preset missing`);
+      const secret = `${agentId}-secret-not-for-dto`;
+      const profile = await webAgentClient.saveCliConfigProfile({
+        agentId,
+        name: `${agentId} ${Date.now()}`,
+        payload: preset.payload,
+        credential: secret,
+      });
+      expect(profile).toMatchObject({ agentId, credentialConfigured: true, validationState: "valid" });
+      expect(JSON.stringify(profile)).not.toContain(secret);
+      await expect(webAgentClient.applyCliConfigProfile({ agentId, profileId: profile.id }))
+        .resolves.toMatchObject({ status: "succeeded", simulated: true });
+    }
+    // A Qwen OAuth profile keeps the CLI's own sign-in and needs no key.
+    const official = (await webAgentClient.listCliConfigPresets("qwen-code")).find((candidate) => candidate.providerId === "qwen-oauth");
+    if (!official || official.payload.kind !== "qwen-code") throw new Error("Qwen OAuth preset missing");
+    const profile = await webAgentClient.saveCliConfigProfile({ agentId: "qwen-code", name: `Qwen OAuth ${Date.now()}`, payload: official.payload });
+    expect(profile).toMatchObject({ agentId: "qwen-code", credentialConfigured: false, validationState: "valid" });
+    // The CLIs without a third-party endpoint surface are still refused.
+    await expect(webAgentClient.listCliConfigProfiles("kimi-cli")).rejects.toThrow("Unsupported");
+  });
+
   it("supports the Gemini profile lifecycle without returning its credential", async () => {
     const preset = (await webAgentClient.listCliConfigPresets("gemini-cli"))[0];
     if (!preset || preset.payload.kind !== "gemini-cli") throw new Error("Gemini preset missing");

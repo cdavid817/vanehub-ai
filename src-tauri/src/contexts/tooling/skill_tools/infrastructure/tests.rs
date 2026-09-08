@@ -11,7 +11,7 @@ use crate::contexts::tooling::skill_tools::domain::{
     DEFAULT_MANIFEST_LIMITS,
 };
 use crate::platform::database::NativeDatabase;
-use crate::test_support::TempDirectory;
+use crate::test_support::{while_another_connection_commits, TempDirectory};
 use rusqlite::params;
 use std::sync::Arc;
 
@@ -538,4 +538,32 @@ fn a_persisted_trust_decision_is_visible_in_the_revision_state_it_authorizes() {
             .trusted,
         "the listing path disagrees with the single-revision read",
     );
+}
+
+/// Pins the failure seen in the 2026-09-06 desktop smoke: `set_skill_tool_trust` returned `storage`
+/// because its read-then-write transaction was deferred and a registry refresh committed in
+/// between. The repository now opens `BEGIN IMMEDIATE`, so it waits for the competing commit.
+#[test]
+fn trust_is_saved_while_another_connection_commits() {
+    let (_directory, repository, database) = repository("skill-tool-trust-contention");
+    let original = state('a', "digest-1");
+    repository.record_discovered(&original).expect("insert");
+    let record = SkillToolTrustRecord {
+        revision: original.key.revision.clone(),
+        integrity: original.integrity.clone(),
+        decision: SkillToolTrustDecision::Trusted,
+        actor: "operator".to_string(),
+        decided_at: "2026-09-06T17:30:19Z".to_string(),
+    };
+
+    while_another_connection_commits(&database, || {
+        repository.save_trust(&record, SkillToolTrustDecision::Trusted)
+    })
+    .expect("trust waits for the competing commit instead of failing");
+
+    let stored = repository
+        .trust_record(&original.key.revision)
+        .expect("read")
+        .expect("record");
+    assert!(matches!(stored.decision, SkillToolTrustDecision::Trusted));
 }

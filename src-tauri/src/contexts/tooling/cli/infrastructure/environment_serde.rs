@@ -318,6 +318,7 @@ fn decode_executable_status(value: &Value, key: &str) -> Decoded<CliExecutableSt
             CliExecutableStatus::TimedOut,
             CliExecutableStatus::PermissionDenied,
             CliExecutableStatus::UnsupportedArchitecture,
+            CliExecutableStatus::IdentityMismatch,
             CliExecutableStatus::Unknown,
         ]
     ))
@@ -376,6 +377,7 @@ fn decode_installation(value: &Value) -> Decoded<CliInstallation> {
                 CliSourceKind::Homebrew,
                 CliSourceKind::Bun,
                 CliSourceKind::Volta,
+                CliSourceKind::Uv,
                 CliSourceKind::Desktop,
                 CliSourceKind::System,
                 CliSourceKind::Manual,
@@ -501,6 +503,7 @@ fn decode_source_summary(value: &Value) -> Decoded<CliSourceSummary> {
                 CliSourceKind::Homebrew,
                 CliSourceKind::Bun,
                 CliSourceKind::Volta,
+                CliSourceKind::Uv,
                 CliSourceKind::Desktop,
                 CliSourceKind::System,
                 CliSourceKind::Manual,
@@ -531,6 +534,7 @@ fn decode_source_summary(value: &Value) -> Decoded<CliSourceSummary> {
                 CliSourceKind::Homebrew,
                 CliSourceKind::Bun,
                 CliSourceKind::Volta,
+                CliSourceKind::Uv,
                 CliSourceKind::Desktop,
                 CliSourceKind::System,
                 CliSourceKind::Manual,

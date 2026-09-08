@@ -22,6 +22,7 @@ use crate::contexts::permissions::domain::{
     ALL_RESOLUTION_STATES,
 };
 use crate::platform::database::NativeDatabase;
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
 #[derive(Clone)]
@@ -170,7 +171,7 @@ impl ApprovalResolutionRepository for SqliteApprovalResolutionRepository {
         commit: &ResolutionCommit,
     ) -> Result<ApprovalResolution, PermissionsApplicationError> {
         let mut connection = self.database.connection().map_err(repository_error)?;
-        let transaction = connection.transaction().map_err(repository_error)?;
+        let transaction = connection.write_transaction().map_err(repository_error)?;
         let resolution: &NewApprovalResolution = &commit.resolution;
 
         transaction
@@ -263,7 +264,7 @@ impl ApprovalResolutionRepository for SqliteApprovalResolutionRepository {
         now: &str,
     ) -> Result<ApprovalResolution, PermissionsApplicationError> {
         let mut connection = self.database.connection().map_err(repository_error)?;
-        let transaction = connection.transaction().map_err(repository_error)?;
+        let transaction = connection.write_transaction().map_err(repository_error)?;
         transaction
             .execute(
                 &format!(

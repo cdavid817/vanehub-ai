@@ -1,4 +1,5 @@
 import { CheckCircle2 } from "lucide-react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AgentBrandIcon } from "../components/agent-brand-icon";
 import { getAgentVisualIdentity } from "../lib/agent-visual-identity";
@@ -20,11 +21,17 @@ export function CreateSessionAgentSection({
   selectedAgent: AgentRegistryEntry | null;
 }) {
   const { t } = useTranslation();
+  // Legacy CLIs are opt-in: the group exists in the model, but the user has to ask to see it. A
+  // previously selected legacy agent keeps the group open so the selection stays visible.
+  const [legacyRequested, setLegacyRequested] = useState(false);
+  const showLegacy = legacyRequested || Boolean(selectedAgent && selectedAgent.capabilityTags.includes("legacy"));
+  const groups = groupSessionAgents(agents);
+  const hiddenLegacy = groups.find((group) => group.id === "legacy" && !showLegacy);
   return (
     <section className="grid gap-2">
       <span className="text-xs font-medium text-muted-foreground">{t("createSession.agent")}</span>
       <div className="grid gap-3">
-        {groupSessionAgents(agents).map((group) => (
+        {groups.filter((group) => group.id !== "legacy" || showLegacy).map((group) => (
           <div className="grid min-w-0 gap-2" key={group.id}>
             <span className="text-xs font-medium text-muted-foreground">
               {t(group.labelKey)}
@@ -77,6 +84,13 @@ export function CreateSessionAgentSection({
                       </span>
                       {selected ? <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" /> : null}
                     </button>
+                    {/* A legacy CLI is selectable, but only its native terminal exists: say so
+                        here rather than letting the user discover it after creating a session. */}
+                    {agent.capabilityTags.includes("legacy") ? (
+                      <span className="text-xs text-[hsl(var(--warning))]" data-testid="create-session-legacy-hint">
+                        {t("createSession.legacyTerminalOnly")}
+                      </span>
+                    ) : null}
                     {unavailable && agent.id === "onepiece" ? (
                       <button
                         className="justify-self-start text-left text-xs text-primary hover:underline"
@@ -92,6 +106,16 @@ export function CreateSessionAgentSection({
             </div>
           </div>
         ))}
+        {hiddenLegacy ? (
+          <button
+            className="justify-self-start text-left text-xs text-muted-foreground hover:underline"
+            data-testid="create-session-show-legacy"
+            onClick={() => setLegacyRequested(true)}
+            type="button"
+          >
+            {t("createSession.showLegacy", { count: hiddenLegacy.agents.length })}
+          </button>
+        ) : null}
       </div>
     </section>
   );

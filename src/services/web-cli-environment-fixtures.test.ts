@@ -27,8 +27,11 @@ const EXECUTABLE = [
   "timeout",
   "permission-denied",
   "unsupported-architecture",
+  "identity-mismatch",
   "unknown",
 ];
+const LIFECYCLE = ["active", "legacy"];
+const TRANSPORT = ["headless", "acp-stdio", "terminal-only"];
 const AUTHENTICATION = ["authenticated", "required", "expired", "unknown", "not-applicable"];
 const READINESS = ["ready", "needs-auth", "missing-dependency", "misconfigured", "broken", "unknown"];
 const COMPATIBILITY = ["supported", "unsupported-version", "unsupported-platform", "unknown"];
@@ -45,6 +48,7 @@ const SOURCE_KIND = [
   "homebrew",
   "bun",
   "volta",
+  "uv",
   "desktop",
   "system",
   "manual",
@@ -75,9 +79,28 @@ describe("Web CLI environment fixtures", () => {
       "gemini-cli",
       "opencode",
       "antigravity-cli",
+      "qwen-code",
+      "kimi-cli",
+      "qoder-cli",
+      "codebuddy-code",
+      "copilot-cli",
+      "cursor-agent-cli",
+      "iflow-cli",
     ]);
     expect(snapshots.some((snapshot) => snapshot.conflicts.length > 0)).toBe(true);
     expect(snapshots.some((snapshot) => snapshot.installations.length === 0)).toBe(true);
+    // The expanded additions cover the states this change introduces: two Kimi distributions,
+    // an unrelated `agent` refused on identity, and a legacy entry with no managed conversation.
+    const kimi = snapshots.find((snapshot) => snapshot.agentId === "kimi-cli");
+    expect(kimi?.installations.map((installation) => installation.sourceKind)).toEqual(["npm", "uv"]);
+    const cursor = snapshots.find((snapshot) => snapshot.agentId === "cursor-agent-cli");
+    expect(cursor?.executable).toBe("identity-mismatch");
+    const iflow = snapshots.find((snapshot) => snapshot.agentId === "iflow-cli");
+    expect(iflow).toMatchObject({ lifecycle: "legacy", legacyServiceShutdown: "2026-04-17", managedTransport: "terminal-only" });
+    for (const snapshot of snapshots) {
+      expect(LIFECYCLE, `${snapshot.agentId}.lifecycle`).toContain(snapshot.lifecycle);
+      expect(TRANSPORT, `${snapshot.agentId}.managedTransport`).toContain(snapshot.managedTransport);
+    }
     expect(snapshots.some((snapshot) => snapshot.freshness === "stale")).toBe(true);
     expect(snapshots.some((snapshot) =>
       snapshot.sources.some((source) => source.management === "detect-only"))).toBe(true);

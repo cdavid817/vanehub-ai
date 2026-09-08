@@ -3,6 +3,7 @@ import type { CliToolService } from "./cli-service";
 import type {
   CliActionPlan,
   CliBulkActionPlan,
+  CliConnectionCheck,
   CliEnvironmentSnapshot,
   ExecuteCliActionInput,
   PrepareCliActionInput,
@@ -110,5 +111,9 @@ export const tauriCliEnvironmentClient: CliToolService = {
   async runCliDoctor(agentId: string) {
     const handle = await invoke<CliOperationHandle>("run_cli_doctor", { agentId });
     return startedCliOperation(handle, agentId);
+  },
+
+  async checkCliConnection(agentId: string, providerId: string | null): Promise<CliConnectionCheck> {
+    return invoke<CliConnectionCheck>("check_cli_connection", { agentId, providerId });
   },
 };

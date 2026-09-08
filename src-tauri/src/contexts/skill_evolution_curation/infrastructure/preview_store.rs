@@ -2,6 +2,7 @@ use super::preview_binding_store::{load_binding_row, validate_current};
 use super::repository_support::{from_sql_u64, parse_state, sql_u64, state_name};
 use super::{append_system_event, SqliteCuratorRepository, SystemAuditEvent};
 use crate::contexts::skill_evolution_curation::{application::*, domain::*};
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::{params, OptionalExtension, Transaction, TransactionBehavior};
 
 impl CuratorPreviewStore for SqliteCuratorRepository<'_> {
@@ -33,7 +34,7 @@ impl CuratorPreviewStore for SqliteCuratorRepository<'_> {
             .map_err(|_| CuratorPreviewStoreError::InvalidInput)?;
         let transaction = self
             .connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .write_transaction()
             .map_err(|_| CuratorPreviewStoreError::Storage)?;
         validate_current(&transaction, preview)?;
         transaction
@@ -80,7 +81,7 @@ impl CuratorPreviewStore for SqliteCuratorRepository<'_> {
     ) -> Result<u64, CuratorPreviewStoreError> {
         let transaction = self
             .connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .write_transaction()
             .map_err(|_| CuratorPreviewStoreError::Storage)?;
         let (state, revision, staleness_json) = transaction
             .query_row(

@@ -22,6 +22,13 @@ const AGENT_NAMES = {
   "gemini-cli": "Gemini CLI",
   opencode: "OpenCode",
   "antigravity-cli": "Antigravity CLI",
+  "qwen-code": "Qwen Code",
+  "kimi-cli": "Kimi Code CLI",
+  "qoder-cli": "Qoder CLI",
+  "codebuddy-code": "CodeBuddy Code",
+  "copilot-cli": "GitHub Copilot CLI",
+  "cursor-agent-cli": "Cursor Agent CLI",
+  "iflow-cli": "iFlow CLI",
 };
 
 function flagOf(renderer) {

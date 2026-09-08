@@ -2,6 +2,7 @@ use crate::contexts::skill_evolution_orchestration::domain::{
     canonical_json, is_safe_identifier, orchestration_idempotency_key, EvolutionCheckpointStatus,
     EvolutionRunUsageV1, EvolutionStageKind,
 };
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::{params, TransactionBehavior};
 
 use super::{OrchestrationPersistenceError, OrchestrationRepository};
@@ -60,7 +61,7 @@ impl OrchestrationRepository {
             .connection()
             .map_err(|_| OrchestrationPersistenceError::Storage)?;
         let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .write_transaction()
             .map_err(|_| OrchestrationPersistenceError::Storage)?;
         let changed = transaction
             .execute(
@@ -138,7 +139,7 @@ impl OrchestrationRepository {
             .connection()
             .map_err(|_| OrchestrationPersistenceError::Storage)?;
         let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .write_transaction()
             .map_err(|_| OrchestrationPersistenceError::Storage)?;
         let changed = transaction
             .execute(

@@ -5,6 +5,8 @@ import type {
   CliConfigPayload,
   CodexCliConfigPayload,
   GeminiCliConfigPayload,
+  IflowCliConfigPayload,
+  QwenCodeConfigPayload,
   OpenCodeConfigPayload,
 } from "../../../types/cli-agent-config";
 import { useTranslation } from "react-i18next";
@@ -169,6 +171,44 @@ function GeminiFields({ payload, onChange, advanced }: {
   );
 }
 
+function QwenFields({ payload, onChange, advanced }: {
+  payload: QwenCodeConfigPayload;
+  onChange: (payload: QwenCodeConfigPayload) => void;
+  advanced: boolean;
+}) {
+  const { t } = useTranslation();
+  if (advanced) return null;
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      <TextField label={t("agents.globalConfig.field.baseUrl")} value={payload.baseUrl} onChange={(baseUrl) => onChange({ ...payload, baseUrl })} />
+      <TextField label={t("agents.globalConfig.field.model")} value={payload.model} onChange={(model) => onChange({ ...payload, model })} />
+      <label className="flex flex-col gap-1 text-sm">
+        {t("agents.globalConfig.field.authentication")}
+        <select className={inputClass} value={payload.authStrategy} onChange={(event) => onChange({ ...payload, authStrategy: event.target.value as QwenCodeConfigPayload["authStrategy"] })}>
+          <option value="preserve-official">{t("agents.globalConfig.field.preserveOfficial")}</option>
+          <option value="api-key">{t("agents.globalConfig.field.apiKey")}</option>
+        </select>
+      </label>
+    </div>
+  );
+}
+
+/** iFlow has no official sign-in left to preserve: endpoint and model, and the key field beside them. */
+function IflowFields({ payload, onChange, advanced }: {
+  payload: IflowCliConfigPayload;
+  onChange: (payload: IflowCliConfigPayload) => void;
+  advanced: boolean;
+}) {
+  const { t } = useTranslation();
+  if (advanced) return null;
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      <TextField label={t("agents.globalConfig.field.baseUrl")} value={payload.baseUrl} onChange={(baseUrl) => onChange({ ...payload, baseUrl })} />
+      <TextField label={t("agents.globalConfig.field.model")} value={payload.model} onChange={(model) => onChange({ ...payload, model })} />
+    </div>
+  );
+}
+
 export function CliConfigPayloadFields({
   payload,
   onChange,
@@ -183,11 +223,13 @@ export function CliConfigPayloadFields({
   if (payload.kind === "codex-cli") return <CodexFields advanced={advanced} payload={payload} onChange={onChange} />;
   if (payload.kind === "antigravity") return <AntigravityFields advanced={advanced} payload={payload} onChange={onChange} />;
   if (payload.kind === "gemini-cli") return <GeminiFields advanced={advanced} payload={payload} onChange={onChange} />;
+  if (payload.kind === "qwen-code") return <QwenFields advanced={advanced} payload={payload} onChange={onChange} />;
+  if (payload.kind === "iflow-cli") return <IflowFields advanced={advanced} payload={payload} onChange={onChange} />;
   return <OpenCodeFields advanced={advanced} payload={payload} onChange={onChange} />;
 }
 
 export function payloadHasAdvancedFields(payload: CliConfigPayload) {
-  return payload.kind !== "gemini-cli";
+  return payload.kind !== "gemini-cli" && payload.kind !== "qwen-code" && payload.kind !== "iflow-cli";
 }
 
 const toolPermissions: AntigravityToolPermission[] = [

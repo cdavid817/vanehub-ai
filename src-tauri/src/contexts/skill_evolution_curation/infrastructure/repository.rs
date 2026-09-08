@@ -1,7 +1,8 @@
 use super::repository_support::*;
 use super::{append_audit_event, safe_snapshot_json, *};
 use crate::contexts::skill_evolution_curation::domain::*;
-use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
+use crate::platform::database::SqliteWriteTransaction;
+use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
 pub(crate) struct SqliteCuratorRepository<'a> {
     pub(super) connection: &'a mut Connection,
@@ -19,7 +20,7 @@ impl<'a> SqliteCuratorRepository<'a> {
         validate_snapshot(snapshot)?;
         let snapshot_json = safe_snapshot_json(snapshot)?;
         let snapshot_revision = sql_u64(snapshot.revision)?;
-        let transaction = self.transaction()?;
+        let transaction = self.write_transaction()?;
         let inserted = transaction.execute(
             "INSERT INTO evolution_curator_candidates (
                 candidate_id,schema_version,workspace_id,seed_id,seed_revision,
@@ -97,7 +98,7 @@ impl<'a> SqliteCuratorRepository<'a> {
         &mut self,
         request: &CandidateTransitionRequest<'_>,
     ) -> Result<u64, CuratorRepositoryError> {
-        let transaction = self.transaction()?;
+        let transaction = self.write_transaction()?;
         let (current_state, current_revision) =
             current_candidate(&transaction, request.candidate_id)?;
         if current_revision != request.expected_revision {
@@ -151,7 +152,7 @@ impl<'a> SqliteCuratorRepository<'a> {
         if input.idempotency_key.trim().is_empty() || input.idempotency_key.len() > 160 {
             return Err(CuratorRepositoryError::InvalidInput);
         }
-        let transaction = self.transaction()?;
+        let transaction = self.write_transaction()?;
         let decision_revision = sql_u64(input.decision.candidate_revision)?;
         if let Some(decision_id) = transaction
             .query_row(
@@ -196,9 +197,9 @@ impl<'a> SqliteCuratorRepository<'a> {
         Ok(PersistDecisionOutcome::Inserted)
     }
 
-    fn transaction(&mut self) -> Result<Transaction<'_>, CuratorRepositoryError> {
+    fn write_transaction(&mut self) -> Result<Transaction<'_>, CuratorRepositoryError> {
         self.connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .write_transaction()
             .map_err(|_| CuratorRepositoryError::Storage)
     }
 }

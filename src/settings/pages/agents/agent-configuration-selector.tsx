@@ -16,6 +16,8 @@ export const agentNameKeys: Record<ConfigurableAgentId, string> = {
   "codex-cli": "agentConfigurations.agent.codex",
   "antigravity-cli": "agentConfigurations.agent.antigravity",
   "gemini-cli": "agentConfigurations.agent.gemini",
+  "qwen-code": "agentConfigurations.agent.qwen",
+  "iflow-cli": "agentConfigurations.agent.iflow",
 };
 
 export function AgentConfigurationSelector({ selected, onSelect }: {

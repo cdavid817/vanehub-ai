@@ -6,6 +6,7 @@
 
 - [快速开始](quick-start.md)
 - [安装并认证 CLI](getting-started.md)
+- [ACP CLI Agent 与 iFlow 历史兼容条目](acp-cli-agents.md)
 - [创建第一个会话](first-session.md)
 - [核心概念](core-concepts.md)
 - [版本更新](app-updates.md)

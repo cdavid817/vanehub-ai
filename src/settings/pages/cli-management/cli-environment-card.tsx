@@ -18,6 +18,7 @@ import {
   sourceSummary,
   targetVersionOptions,
 } from "./cli-management-presenters";
+import { CliConnectionActions } from "./cli-connection-actions";
 import { CliOperationStatus, isOperationRunning } from "./cli-operation-status";
 import { CliStatusBadges } from "./cli-status-badges";
 
@@ -145,9 +146,18 @@ export function CliEnvironmentCard(props: CliEnvironmentCardProps) {
           <span>{t(`cli.conflict.${conflict.reasonCode}`)}</span>
         </div>
       ) : null}
+      {snapshot.lifecycle === "legacy" ? (
+        <div className="flex gap-2 rounded-md border p-2 text-xs ucd-status-warning" data-testid="cli-legacy-notice">
+          <AlertTriangle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            {t("cli.legacy.shutdownNotice", { date: snapshot.legacyServiceShutdown ?? t("cli.versionUnknown") })}
+          </span>
+        </div>
+      ) : null}
       {source?.guidanceCode ? (
         <p className="text-xs text-muted-foreground">{t(source.guidanceCode)}</p>
       ) : null}
+      <CliConnectionActions snapshot={snapshot} />
 
       <div className="mt-auto flex flex-wrap items-center gap-2">
         {options.length > 0 ? (

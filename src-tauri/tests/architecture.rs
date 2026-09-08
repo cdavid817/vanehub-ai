@@ -147,6 +147,13 @@ fn provider_neutral_layers_do_not_select_concrete_cli_providers() {
         "gemini-cli",
         "opencode",
         "antigravity-cli",
+        "qwen-code",
+        "kimi-cli",
+        "qoder-cli",
+        "codebuddy-code",
+        "copilot-cli",
+        "cursor-agent-cli",
+        "iflow-cli",
     ];
     let mut violations = Vec::new();
 
@@ -2713,8 +2720,55 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // the existing `stop` and `terminate_terminal_child` keep the fixed quit-path budget whose
         // reap result is deliberately discarded, which is exactly why the deletion path could not
         // reuse them: it hands the child's working directory to `git worktree remove` next.
-        budget: 63_186,
-        owner: "stop-session-terminals-before-worktree-removal",
+        //
+        // `extend-cli-providers-with-acp` raises it to 72,647. The +9,768 is one new transport
+        // at this boundary, not a copy of the headless one: the ACP runtime under `providers/acp/`
+        // (framing, JSON-RPC classification, the connection with its reader thread and single
+        // writer, the session/turn driver, the request handlers with their fs and terminal
+        // proxies, the scoped interaction store, the SQLite execution binding, the gateway
+        // adapter, and the card-shaped rich blocks), the twelve provider definitions that the
+        // compatibility registry now reads instead of carrying five inline, and the tests that
+        // drive a fake ACP agent through two turns, mid-prompt permission, cancel escalation,
+        // EOF, resume, Cursor's blocking extensions, two concurrent sessions, and installation
+        // drift, plus the explicit connection check (a handshake-only entry point on the same
+        // adapter) and its two tests, and the opt-in live handshake test that records real
+        // installed agents, plus the auth-required classification (`AcpError::AuthRequired`) the
+        // live probe showed every installed agent needs, with its fake-agent and live tests, and
+        // the policy-flag table re-read from each installed program's `--help`, and the resolver
+        // change that prepends those runtime-owned policy tokens to the catalog's user-editable
+        // rendering. The headless adapter, PTY runtime, and session capture are untouched.
+        //
+        // `harden-sqlite-write-transactions` raises it to 72,652: one `SqliteWriteTransaction`
+        // import line in each of the five repositories here that open a writing transaction.
+        //
+        // `extend-cli-providers-with-acp` (live verification, 2026-09-07) raises it to 73,112:
+        // the opt-in live tests that drive an installed agent through the production adapter --
+        // one prompt turn, tool approval, policy denial, cooperative cancel, and resume across a
+        // host restart -- plus their shared target/adapter/request helpers. Test code only; the
+        // production ceiling below is unchanged.
+        //
+        // Review pass of the same change (2026-09-07) raises it to 73,238: connection
+        // termination now kills the child before taking the writer lock (so a write blocked on a
+        // full stdin pipe cannot hang termination), a second pending host-proxied write for the
+        // same path gets its own id instead of overwriting the first, a proxied
+        // `terminal/wait_for_exit` returns early on cancel, and the regression test that drives
+        // two same-path writes through the fake agent.
+        //
+        // Second review pass raises it to 73,276: `bind` refuses a busy binding without evicting
+        // it, plus the regression test that proves the live binding survives the refusal.
+        //
+        // Merged with main on 2026-09-07 (this branch's ACP runtime, transaction hardening,
+        // and config profiles on one side; session deletion, worktree cleanup, and terminal
+        // stop-by-session on the other). Both histories above are kept; the figure is measured
+        // on the merged tree, not summed, because the branches share a baseline.
+        //
+        // Third review pass (2026-09-08, the 19-item external review) raises it to 74,295: the
+        // Cursor question/plan schema (per-question options, nested outcomes), the exclusive
+        // temporary file and permission carry-over in the fs proxy, the launch fingerprint and
+        // seat-owned binding key, the replay drain on resume, the stop escalation and the
+        // completion ordering in the adapter, plus the regression tests for each.
+        budget: 74_295,
+        owner: "extend-cli-providers-with-acp",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
     // directory module. The +51 is entirely per-file boilerplate: +29 module headers (the `mod`
@@ -2826,8 +2880,22 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // layouts`): a local database shared between worktrees can record versions 88-90 from
         // another branch while the personalization columns never landed, so startup re-applies
         // those three idempotent schemas in one transaction after the version-gated migrations.
-        budget: 3_662,
-        owner: "harden-session-workspace-tab-layouts",
+        //
+        // `extend-cli-providers-with-acp` raises it to 3,644: the fixed registration cost of
+        // migration 112 (`cli-execution-bindings`), whose SQL lives in the ACP binding module,
+        // plus the two seed-count assertions moving from six to thirteen agents.
+        //
+        // `harden-sqlite-write-transactions` raises it to 3,774: the `SqliteWriteTransaction`
+        // entry point (the one place `BEGIN IMMEDIATE` is spelled out) with its rationale, and the
+        // three contention tests that reproduce the deferred lock-upgrade failure and prove the
+        // immediate form waits instead.
+        //
+        // Merged with main on 2026-09-07 (this branch's ACP runtime, transaction hardening,
+        // and config profiles on one side; session deletion, worktree cleanup, and terminal
+        // stop-by-session on the other). Both histories above are kept; the figure is measured
+        // on the merged tree, not summed, because the branches share a baseline.
+        budget: 3_803,
+        owner: "harden-sqlite-write-transactions",
     },
 ];
 
@@ -2891,8 +2959,37 @@ const NATIVE_PRODUCTION_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // +72 production by `stop-session-terminals-before-worktree-removal`: the stop-by-session
         // gateway method and its bounded-reap helper. The remaining 29 of that change's 101
         // aggregate lines are its test, counted by the aggregate above and deliberately not here.
-        budget: 34_025,
-        owner: "stop-session-terminals-before-worktree-removal",
+        //
+        // `extend-cli-providers-with-acp` raises it to 40,020. The +6,154 is the production half
+        // of the ACP transport listed on the aggregate above: the wire, connection, session,
+        // handler, proxy, interaction, binding, and adapter modules, plus the provider
+        // definitions table, the connection-check entry point on the adapter, and the
+        // auth-required error path, and the per-transport policy-flag table verified against the
+        // installed programs, plus the catalog-then-policy launch resolution for the seven
+        // (measured 40,295). The fake agent and the scenario tests are counted by the aggregate
+        // and deliberately not here.
+        //
+        // `harden-sqlite-write-transactions` raises it to 40,300: the import line of the write
+        // entry point in the five repositories here (measured 40,300).
+        //
+        // `extend-cli-providers-with-acp` review pass raises it to 40,334: the three production
+        // fixes listed on the aggregate above (termination order, unique pending ids, cancel-aware
+        // terminal wait) and their rationale comments.
+        //
+        // Second review pass raises it to 40,335: the busy-binding check in `bind` moved ahead of
+        // the eviction, one line net.
+        //
+        // Merged with main on 2026-09-07 (this branch's ACP runtime, transaction hardening,
+        // and config profiles on one side; session deletion, worktree cleanup, and terminal
+        // stop-by-session on the other). Both histories above are kept; the figure is measured
+        // on the merged tree, not summed, because the branches share a baseline.
+        //
+        // Third review pass (2026-09-08) raises it to 40,865: the production half of the fixes
+        // listed on the aggregate above -- Cursor schema parsing and replies, the exclusive
+        // temporary file, the launch fingerprint, seat-owned keys, replay drain, stop escalation,
+        // completion ordering -- with their rationale comments.
+        budget: 40_865,
+        owner: "extend-cli-providers-with-acp",
     },
 ];
 
@@ -4137,5 +4234,194 @@ fn the_default_workspace_exclusions_have_exactly_one_owner() {
         holders.is_empty(),
         "the default exclusion list is restated in {holders:?}; it belongs to {OWNER} and travels \
          to the remote helper in the request"
+    );
+}
+
+/// Where production code is still allowed to open a transaction that is not the platform write
+/// entry point: read-only snapshots that need one consistent view across several reads. The
+/// startup migrations under `platform/database/` are exempt as a directory: they run
+/// single-threaded before any command or background task exists. Everything else goes through
+/// `SqliteWriteTransaction` (`BEGIN IMMEDIATE`), because a deferred transaction that reads before
+/// it writes cannot upgrade under WAL once another connection has committed -- it fails with
+/// BUSY_SNAPSHOT at once and `busy_timeout` never applies. Adding an entry here is a design
+/// decision: state the reason, and make sure the transaction never writes.
+const DEFERRED_TRANSACTION_ALLOWLIST: &[(&str, &str, &str)] = &[
+    (
+        "contexts/sessions/infrastructure/sqlite_repository.rs",
+        "read_terminal_evidence",
+        "read-only snapshot across the session row and its messages",
+    ),
+    (
+        "contexts/skill_evolution_curation/infrastructure/draft_review_store.rs",
+        "review_binding",
+        "read-only snapshot of a candidate and its draft review binding, spelled out as Deferred",
+    ),
+    (
+        "contexts/skill_evolution_curation/infrastructure/preview_store.rs",
+        "preview_binding",
+        "read-only snapshot of a candidate's preview binding, spelled out as Deferred",
+    ),
+];
+
+/// Directories whose transactions are exempt as a whole: the entry point itself is the one place
+/// `transaction_with_behavior` may be spelled out, and the migrations beside it are startup-only.
+const DEFERRED_TRANSACTION_EXEMPT_PREFIXES: &[&str] = &[
+    "platform/database/",
+    // Compiled only under `cfg(test)` (declared so in `cli_parameters/mod.rs`); the per-file
+    // visitor cannot see the module attribute, and `is_test_source` keys on file names.
+    "contexts/tooling/cli_parameters/legacy_baseline.rs",
+];
+
+#[derive(Debug)]
+struct TransactionOpen {
+    line: usize,
+    function: String,
+    method: String,
+}
+
+#[derive(Default)]
+struct TransactionOpenVisitor {
+    current_function: Vec<String>,
+    opens: Vec<TransactionOpen>,
+}
+
+impl TransactionOpenVisitor {
+    fn record(&mut self, line: usize, method: &str) {
+        self.opens.push(TransactionOpen {
+            line,
+            function: self
+                .current_function
+                .last()
+                .cloned()
+                .unwrap_or_else(|| "<module>".to_string()),
+            method: method.to_string(),
+        });
+    }
+}
+
+impl<'ast> Visit<'ast> for TransactionOpenVisitor {
+    fn visit_item_mod(&mut self, node: &'ast syn::ItemMod) {
+        if is_test_only(&node.attrs) {
+            return;
+        }
+        syn::visit::visit_item_mod(self, node);
+    }
+
+    fn visit_item_fn(&mut self, node: &'ast ItemFn) {
+        if is_test_only(&node.attrs) {
+            return;
+        }
+        self.current_function.push(node.sig.ident.to_string());
+        syn::visit::visit_item_fn(self, node);
+        self.current_function.pop();
+    }
+
+    fn visit_impl_item_fn(&mut self, node: &'ast syn::ImplItemFn) {
+        if is_test_only(&node.attrs) {
+            return;
+        }
+        self.current_function.push(node.sig.ident.to_string());
+        syn::visit::visit_impl_item_fn(self, node);
+        self.current_function.pop();
+    }
+
+    fn visit_expr_method_call(&mut self, node: &'ast syn::ExprMethodCall) {
+        let method = node.method.to_string();
+        if matches!(
+            method.as_str(),
+            "transaction" | "unchecked_transaction" | "transaction_with_behavior"
+        ) {
+            self.record(node.span().start().line, &method);
+        }
+        syn::visit::visit_expr_method_call(self, node);
+    }
+
+    fn visit_expr_call(&mut self, node: &'ast syn::ExprCall) {
+        if let Expr::Path(path) = node.func.as_ref() {
+            let segments = path
+                .path
+                .segments
+                .iter()
+                .map(|segment| segment.ident.to_string())
+                .collect::<Vec<_>>();
+            let tail = segments
+                .iter()
+                .rev()
+                .take(2)
+                .map(String::as_str)
+                .collect::<Vec<_>>();
+            if matches!(
+                tail.as_slice(),
+                ["new_unchecked", "Transaction"] | ["new", "Transaction"]
+            ) {
+                self.record(node.span().start().line, "Transaction::new");
+            }
+        }
+        syn::visit::visit_expr_call(self, node);
+    }
+}
+
+fn transaction_opens(source: &str) -> Result<Vec<TransactionOpen>, String> {
+    let syntax = syn::parse_file(source).map_err(|error| error.to_string())?;
+    let mut visitor = TransactionOpenVisitor::default();
+    visitor.visit_file(&syntax);
+    Ok(visitor.opens)
+}
+
+/// ARCH-NATIVE-SQLITE-001 (`harden-sqlite-write-transactions`): production code opens writing
+/// transactions only through `platform::database::SqliteWriteTransaction`. A plain
+/// `transaction()` / `unchecked_transaction()` is a deferred transaction, and a deferred
+/// transaction that reads before it writes fails outright under WAL contention. The allowlist
+/// above names the read-only snapshots that may keep deferred semantics.
+#[test]
+fn production_transactions_go_through_the_platform_write_entry_point() {
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut violations = Vec::new();
+    let mut seen_allowlist = BTreeSet::new();
+
+    for path in rust_files(&source_root).expect("enumerate native Rust sources") {
+        let relative = path
+            .strip_prefix(&source_root)
+            .expect("relative source path")
+            .to_string_lossy()
+            .replace(std::path::MAIN_SEPARATOR, "/");
+        if is_test_source(&relative)
+            || DEFERRED_TRANSACTION_EXEMPT_PREFIXES
+                .iter()
+                .any(|prefix| relative.starts_with(prefix))
+        {
+            continue;
+        }
+        let source = fs::read_to_string(&path).expect("read native Rust source");
+        for open in transaction_opens(&source).expect("parse native Rust source") {
+            let allowed = DEFERRED_TRANSACTION_ALLOWLIST
+                .iter()
+                .find(|(file, function, _)| *file == relative && *function == open.function);
+            match allowed {
+                Some((file, function, _)) => {
+                    seen_allowlist.insert((*file, *function));
+                }
+                None => violations.push(format!(
+                    "{relative}:{} in `{}` opens a transaction with `{}`; use \
+                     `SqliteWriteTransaction::write_transaction` (or `_unchecked`) for anything \
+                     that writes, or add a read-only snapshot entry with its reason",
+                    open.line, open.function, open.method
+                )),
+            }
+        }
+    }
+
+    let stale = DEFERRED_TRANSACTION_ALLOWLIST
+        .iter()
+        .filter(|(file, function, _)| !seen_allowlist.contains(&(*file, *function)))
+        .map(|(file, function, _)| format!("{file}::{function}"))
+        .collect::<Vec<_>>();
+
+    assert!(
+        violations.is_empty() && stale.is_empty(),
+        "deferred SQLite transactions outside the allowlist:\n{}\n\nallowlist entries that no \
+         longer match anything (remove them):\n{}",
+        violations.join("\n"),
+        stale.join("\n")
     );
 }

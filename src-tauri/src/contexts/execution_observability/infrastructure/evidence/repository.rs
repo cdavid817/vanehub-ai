@@ -22,10 +22,9 @@ use crate::contexts::execution_observability::domain::{
     fidelity_token, reason_codes, status_token, EvidenceCoverageState, EvidenceSeatId,
     EvidenceSessionId, ExecutionEvidenceEvent, ExecutionStatus, SafeReasonCode,
 };
+use crate::platform::database::SqliteWriteTransaction;
 use crate::platform::database::{NativeDatabase, PooledSqlite};
-use rusqlite::{
-    params, params_from_iter, Connection, OptionalExtension, ToSql, TransactionBehavior,
-};
+use rusqlite::{params, params_from_iter, Connection, OptionalExtension, ToSql};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
@@ -178,9 +177,7 @@ impl EvidenceRepositoryPort for SqliteEvidenceRepository {
         // connection's five-second busy timeout does not apply to this path at all. Taking the
         // write lock at `BEGIN` is the case the handler does cover. Every agent action appends
         // evidence, so this contends with ordinary use rather than with anything rare.
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(storage)?;
+        let transaction = connection.write_transaction().map_err(storage)?;
 
         let existing: Option<(i64, String)> = transaction
             .query_row(

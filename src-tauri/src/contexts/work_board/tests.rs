@@ -1,7 +1,7 @@
 use super::api;
 use super::models::{CreateWorkItemInput, MoveWorkItemInput, WorkItemFilters};
 use crate::platform::database::NativeDatabase;
-use crate::test_support::TempDirectory;
+use crate::test_support::{while_another_connection_commits, TempDirectory};
 
 #[test]
 fn manual_work_is_durable_movable_and_independently_archived() {
@@ -108,4 +108,41 @@ fn move_before_allocates_a_sparse_midpoint_and_preserves_order() {
             .collect::<Vec<_>>(),
         vec!["First", "Third", "Second"]
     );
+}
+
+/// Pins the `database is locked` seen once in the 2026-09-06 desktop smoke: moving an item reads
+/// neighbouring ranks before it writes the new one.
+#[test]
+fn moving_an_item_waits_for_a_competing_commit_instead_of_failing() {
+    let directory = TempDirectory::new("work-board-contention");
+    let database = NativeDatabase::new(directory.path().to_path_buf()).expect("database");
+    let create = |title: &str| {
+        api::create(
+            &database,
+            CreateWorkItemInput {
+                title: title.to_string(),
+                description: String::new(),
+                stage: None,
+                priority: None,
+                project_path: None,
+                due_at: None,
+            },
+        )
+        .expect("create")
+    };
+    let first = create("First");
+    let second = create("Second");
+
+    let moved = while_another_connection_commits(&database, || {
+        api::move_item(
+            &database,
+            MoveWorkItemInput {
+                work_item_id: second.id.clone(),
+                stage: "inbox".to_string(),
+                before_work_item_id: Some(first.id.clone()),
+            },
+        )
+    })
+    .expect("the move waits for the write lock and commits");
+    assert!(moved.rank < first.rank);
 }

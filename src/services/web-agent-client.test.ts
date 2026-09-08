@@ -261,7 +261,25 @@ describe("webAgentClient", () => {
       "gemini-cli",
       "opencode",
       "antigravity-cli",
+      "qwen-code",
+      "kimi-cli",
+      "qoder-cli",
+      "codebuddy-code",
+      "copilot-cli",
+      "cursor-agent-cli",
+      "iflow-cli",
     ]);
+    // Simulation stays honest about what it is: the legacy entry is marked legacy with its
+    // shutdown date, the ACP additions say so, and nothing claims a managed conversation for
+    // a terminal-only tool.
+    const byId = new Map(snapshots.map((snapshot) => [snapshot.agentId, snapshot]));
+    expect(byId.get("iflow-cli")).toMatchObject({
+      lifecycle: "legacy",
+      legacyServiceShutdown: "2026-04-17",
+      managedTransport: "terminal-only",
+    });
+    expect(byId.get("qwen-code")).toMatchObject({ lifecycle: "active", managedTransport: "acp-stdio" });
+    expect(byId.get("claude-code")).toMatchObject({ lifecycle: "active", managedTransport: "headless" });
     // Invented, and obviously so. A realistic home directory would read as a real finding on a
     // page that cannot have looked at one.
     expect(snapshots.flatMap((snapshot) => snapshot.installations)
@@ -287,7 +305,10 @@ describe("webAgentClient", () => {
 
   it("persists and resets structured CLI parameter profiles", async () => {
     const initial = await webAgentClient.listCliParameterProfiles();
-    expect(initial.map((profile) => profile.agentId)).toEqual(["claude-code", "codex-cli", "opencode", "antigravity-cli", "gemini-cli"]);
+    expect(initial.map((profile) => profile.agentId)).toEqual([
+      "claude-code", "codex-cli", "opencode", "antigravity-cli", "gemini-cli",
+      "qwen-code", "kimi-cli", "qoder-cli", "codebuddy-code", "copilot-cli", "cursor-agent-cli", "iflow-cli",
+    ]);
     const codex = initial.find((profile) => profile.agentId === "codex-cli")!;
 
     const saved = await webAgentClient.saveCliParameterProfile({

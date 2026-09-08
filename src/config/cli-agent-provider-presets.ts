@@ -47,8 +47,42 @@ const geminiPreset: CliConfigPreset = {
   },
 };
 
+/**
+ * Qwen Code's own sign-in: no third-party endpoint, no key. Listed once so the OAuth path stays a
+ * first-class choice beside the per-provider OpenAI-compatible entries.
+ */
+const qwenOfficialPreset: CliConfigPreset = {
+  id: "qwen-code-qwen-oauth-official",
+  catalogVersion: 1,
+  displayName: "Qwen OAuth",
+  description: "Qwen OAuth · Qwen Code",
+  category: "official",
+  agentId: "qwen-code",
+  deprecated: false,
+  providerId: "qwen-oauth",
+  endpointType: "openai-chat-completions",
+  iconKey: "qwen",
+  payload: {
+    kind: "qwen-code",
+    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    model: "coder-model",
+    authStrategy: "preserve-official",
+    advancedEnv: {},
+  },
+};
+
+const agentLabels: Record<CliConfigAgentId, string> = {
+  "claude-code": "Claude Code",
+  "codex-cli": "Codex",
+  opencode: "OpenCode",
+  "antigravity-cli": "Antigravity CLI",
+  "gemini-cli": "Gemini CLI",
+  "qwen-code": "Qwen Code",
+  "iflow-cli": "iFlow",
+};
+
 function basePreset(provider: OnePieceProviderPreset, endpoint: OnePieceProviderEndpoint, agentId: CliConfigAgentId) {
-  const agentLabel = agentId === "claude-code" ? "Claude Code" : agentId === "codex-cli" ? "Codex" : "OpenCode";
+  const agentLabel = agentLabels[agentId];
   return {
     id: `${agentId}-${provider.id}-${endpoint.type}`,
     catalogVersion: provider.catalogVersion,
@@ -83,8 +117,18 @@ function buildPresets(): CliConfigPreset[] {
       npm: "@ai-sdk/openai-compatible", baseUrl: endpoint.baseUrl, headers: {},
       models: provider.fallbackModels.map((id) => ({ id, name: id })), defaultModel: provider.defaultModelId,
     }};
-    return [codex, opencode];
-  })).concat(antigravityPreset, geminiPreset);
+    if (endpoint.type !== "openai-chat-completions") return [codex, opencode];
+    // Qwen Code and iFlow speak chat completions only, so the responses-API endpoints of the same
+    // provider are not offered to them.
+    const qwen: CliConfigPreset = { ...basePreset(provider, endpoint, "qwen-code"), payload: {
+      kind: "qwen-code", baseUrl: endpoint.baseUrl, model: provider.defaultModelId,
+      authStrategy: "api-key", advancedEnv: {},
+    }};
+    const iflow: CliConfigPreset = { ...basePreset(provider, endpoint, "iflow-cli"), payload: {
+      kind: "iflow-cli", baseUrl: endpoint.baseUrl, model: provider.defaultModelId, advancedSettings: {},
+    }};
+    return [codex, opencode, qwen, iflow];
+  })).concat(antigravityPreset, geminiPreset, qwenOfficialPreset);
 }
 
 export const cliAgentProviderPresets: readonly CliConfigPreset[] = buildPresets();
@@ -99,5 +143,7 @@ export function createCustomCliConfigPayload(agentId: CliConfigAgentId): CliConf
   if (agentId === "codex-cli") return { kind: "codex-cli", providerId: "custom", baseUrl: "https://", model: "", wireApi: "responses", reasoningEffort: "medium", authStrategy: "bearer-token", advancedToml: {} };
   if (agentId === "antigravity-cli") return { kind: "antigravity", toolPermission: "request-review", enableTerminalSandbox: false, verbosity: "high", model: "", advancedSettings: {} };
   if (agentId === "gemini-cli") return { kind: "gemini-cli", baseUrl: "https://generativelanguage.googleapis.com", model: "auto", authStrategy: "api-key", advancedEnv: {} };
+  if (agentId === "qwen-code") return { kind: "qwen-code", baseUrl: "https://", model: "", authStrategy: "api-key", advancedEnv: {} };
+  if (agentId === "iflow-cli") return { kind: "iflow-cli", baseUrl: "https://", model: "", advancedSettings: {} };
   return { kind: "opencode", providerId: "custom", providerName: "Custom provider", npm: "@ai-sdk/openai-compatible", baseUrl: "https://", headers: {}, models: [], defaultModel: "" };
 }

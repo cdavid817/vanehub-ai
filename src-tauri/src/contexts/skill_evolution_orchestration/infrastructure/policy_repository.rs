@@ -2,6 +2,7 @@ use crate::contexts::skill_evolution_orchestration::domain::{
     apply_policy_mutation, canonical_hash, import_policy_without_local_consent, is_safe_identifier,
     revoke_policy_consent, EvolutionOrchestrationPolicyV1, EvolutionPolicyMutationV1,
 };
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::{params, Transaction, TransactionBehavior};
 use std::collections::BTreeSet;
 
@@ -49,7 +50,7 @@ impl OrchestrationRepository {
             .connection()
             .map_err(|_| OrchestrationPersistenceError::Storage)?;
         let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .write_transaction()
             .map_err(|_| OrchestrationPersistenceError::Storage)?;
         let persisted = load_policy(&transaction, workspace_id)?;
         let exists = persisted.is_some();
@@ -109,7 +110,7 @@ impl OrchestrationRepository {
             .connection()
             .map_err(|_| OrchestrationPersistenceError::Storage)?;
         let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .write_transaction()
             .map_err(|_| OrchestrationPersistenceError::Storage)?;
         persist_policy(&transaction, &next, current.revision, true)?;
         let removed = removed_skill_ids(current, &next);
@@ -137,7 +138,7 @@ impl OrchestrationRepository {
             .connection()
             .map_err(|_| OrchestrationPersistenceError::Storage)?;
         let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .write_transaction()
             .map_err(|_| OrchestrationPersistenceError::Storage)?;
         persist_policy(&transaction, &policy, 0, false)?;
         transaction

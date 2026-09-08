@@ -1,4 +1,5 @@
 use crate::contexts::skill_evolution_generation::application::GenerationRetentionCutoffsV1;
+use crate::platform::database::SqliteWriteTransaction;
 use rusqlite::{params, Connection, Transaction};
 
 use super::GenerationPersistenceError;
@@ -33,7 +34,7 @@ impl<'connection> GenerationRetentionRepository<'connection> {
         }
         let transaction = self
             .connection
-            .unchecked_transaction()
+            .write_transaction_unchecked()
             .map_err(|_| GenerationPersistenceError::Storage)?;
         let jobs = source_job_ids(&transaction, source_id, source_revision)?;
         let dossiers = source_dossier_ids(&transaction, source_id, source_revision)?;
@@ -55,7 +56,7 @@ impl<'connection> GenerationRetentionRepository<'connection> {
         }
         let transaction = self
             .connection
-            .unchecked_transaction()
+            .write_transaction_unchecked()
             .map_err(|_| GenerationPersistenceError::Storage)?;
         let jobs = retention_job_ids(&transaction, cutoffs)?;
         let dossiers = job_dossier_ids(&transaction, &jobs)?;

@@ -24,6 +24,9 @@ pub(crate) enum CliSourceKind {
     Homebrew,
     Bun,
     Volta,
+    /// A `uv tool install` tree. The retired Python distribution of Kimi Code CLI lives here,
+    /// which is how it is told apart from the current Node/native one that shares its basename.
+    Uv,
     /// Bundled inside a desktop application's install tree.
     Desktop,
     /// A system package manager or a system path such as `/usr/bin`.
@@ -42,6 +45,7 @@ impl CliSourceKind {
             Self::Homebrew => "homebrew",
             Self::Bun => "bun",
             Self::Volta => "volta",
+            Self::Uv => "uv",
             Self::Desktop => "desktop",
             Self::System => "system",
             Self::Manual => "manual",
@@ -80,6 +84,7 @@ impl CliSourceKind {
             Self::Homebrew => Some("cli.guidance.homebrew"),
             Self::Bun => Some("cli.guidance.bun"),
             Self::Volta => Some("cli.guidance.volta"),
+            Self::Uv => Some("cli.guidance.uv"),
             Self::Desktop => Some("cli.guidance.desktop"),
             Self::System => Some("cli.guidance.system"),
             Self::Manual => Some("cli.guidance.manual"),
@@ -381,6 +386,7 @@ mod tests {
             CliSourceKind::Homebrew,
             CliSourceKind::Bun,
             CliSourceKind::Volta,
+            CliSourceKind::Uv,
             CliSourceKind::Desktop,
             CliSourceKind::System,
             CliSourceKind::Manual,
@@ -392,6 +398,8 @@ mod tests {
         assert!(!names.contains(&"curl"));
         assert!(!names.contains(&"powershell"));
         assert!(names.contains(&"vendor-installer"));
+        assert!(names.contains(&"uv"));
+        assert_eq!(CliSourceKind::Uv.guidance_code(), Some("cli.guidance.uv"));
     }
 
     #[test]
@@ -411,6 +419,7 @@ mod tests {
             CliSourceKind::Homebrew,
             CliSourceKind::Bun,
             CliSourceKind::Volta,
+            CliSourceKind::Uv,
             CliSourceKind::Desktop,
             CliSourceKind::System,
             CliSourceKind::Manual,
