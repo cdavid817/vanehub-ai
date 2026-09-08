@@ -4,7 +4,7 @@ How the settings centre is grouped, and the basic configuration it holds: interf
 
 Settings that belong to one feature are documented in that feature's own chapter; this one covers the settings centre itself and the cross-cutting basics.
 
-**Settings** in the activity bar opens the settings center: navigation on the left, the configuration page on the right. There are 20 settings pages:
+**Settings** in the activity bar opens the settings center: navigation on the left, the configuration page on the right. There are 21 settings pages, plus **Documentation** pinned at the bottom of the sidebar:
 
 | Settings page | What it holds |
 | --- | --- |
@@ -16,6 +16,7 @@ Settings that belong to one feature are documented in that feature's own chapter
 | **MCP Servers** | MCP server configuration and per-Agent binding — see [MCP servers](mcp.md) |
 | **Agent Configurations** | Provider, endpoint, and model per Agent, including OnePiece — see [Tools and extensions](agent-configuration.md#agent-configurations) |
 | **Agent Policies** | Permission policy and approval templates — see [Permission approvals](permissions.md) |
+| **Agent Evaluation** | Run several Agents against the same benchmark task and compare — see [Agent evaluation](evaluation.md) |
 | **Expert Roles** | Role fields, responsibilities, and review policy — see [Expert roles](expert-roles.md) |
 | **AI Personalization** | Overview, Instructions, Memory, and Runtime Preview — see [Personalization](personalization.md) |
 | **Skills** | Skill installation and binding — see [Manage Skills](skill-management.md) |

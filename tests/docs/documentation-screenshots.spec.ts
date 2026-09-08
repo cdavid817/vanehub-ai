@@ -87,24 +87,28 @@ async function openSettings(page: Page, section: string, heading: string): Promi
   return shell;
 }
 
-/**
- * Opens a surface from the activity bar and waits for that surface's own h1.
- *
- * The h1 is matched rather than any text because the top bar also renders the entry's name:
- * asserting on the label alone would pass while the surface itself is still a lazy fallback.
- * The activity-bar label and the surface heading differ on several entries (Goal Center opens
- * "Goals"), so both are passed in.
- */
-async function openActivitySurface(
-  page: Page,
-  activityLabel: string,
-  heading: string,
-): Promise<Locator> {
+/** Opens Inbox from the activity bar in List mode and waits for its sections. */
+async function openInbox(page: Page, locale: Locale): Promise<Locator> {
   await visit(page, "/");
-  await page.getByRole("button", { name: activityLabel, exact: true }).first().click();
+  await page.getByRole("button", { name: text(locale, "收件箱", "Inbox"), exact: true }).click();
   const shell = page.locator("main").first();
   await expect(shell).toBeVisible();
-  await waitForFeature(shell, shell.getByRole("heading", { level: 1, name: heading }));
+  await waitForFeature(shell, page.getByTestId("inbox"));
+  // The List / Board choice persists, and the sections are what the Inbox captures document.
+  await page.getByTestId("inbox-view-list").click();
+  await expect(page.getByTestId("inbox-sections")).toBeVisible();
+  return shell;
+}
+
+/** Opens Automations from the activity bar and selects one of its tabs. */
+async function openAutomationsTab(page: Page, locale: Locale, tab: string): Promise<Locator> {
+  await visit(page, "/");
+  await page.getByRole("button", { name: text(locale, "自动化", "Automations"), exact: true }).click();
+  const shell = page.locator("main").first();
+  await expect(shell).toBeVisible();
+  await waitForFeature(shell, shell.getByRole("tablist", { name: text(locale, "自动化页签", "Automations tabs") }));
+  await shell.getByRole("tab", { name: tab }).click();
+  await expect(shell.getByRole("tab", { name: tab })).toHaveAttribute("aria-selected", "true");
   return shell;
 }
 
@@ -373,25 +377,16 @@ const scenarios: Record<string, (page: Page, locale: Locale) => Promise<Locator>
   },
 
   "scheduled-tasks": async (page, locale) => {
-    await visit(page, "/");
-    await page
-      .getByRole("button", { name: text(locale, "定时任务", "Scheduled tasks"), exact: true })
-      .first()
-      .click();
-    const dialog = page.getByRole("dialog");
+    await openAutomationsTab(page, locale, text(locale, "定时任务", "Scheduled"));
+    const panel = page.getByTestId("scheduled-tasks-panel");
     await expect(
-      dialog.getByRole("heading", { name: text(locale, "定时任务", "Scheduled tasks") }),
+      panel.getByRole("heading", { level: 1, name: text(locale, "定时任务", "Scheduled Tasks") }),
     ).toBeVisible();
-    return dialog;
+    return panel;
   },
 
   "loop-center": async (page, locale) => {
-    await visit(page, "/");
-    await page
-      .getByRole("button", { name: text(locale, "循环工程", "Loops"), exact: true })
-      .click();
-    const shell = page.locator("main").first();
-    await expect(shell).toBeVisible();
+    const shell = await openAutomationsTab(page, locale, text(locale, "循环工程", "Loops"));
     // The Loop Center's own h1, distinct from the top bar's product name. It is structural
     // rather than data-dependent, so it holds whether or not any definitions exist.
     await waitForFeature(
@@ -401,29 +396,57 @@ const scenarios: Record<string, (page: Page, locale: Locale) => Promise<Locator>
     return shell;
   },
 
-  "todo-board": (page, locale) =>
-    openActivitySurface(
-      page,
-      text(locale, "任务看板", "Todo Board"),
-      text(locale, "任务看板", "Todo Board"),
-    ),
+  "todo-board": async (page, locale) => {
+    const shell = await openInbox(page, locale);
+    await page.getByTestId("inbox-view-board").click();
+    await waitForFeature(
+      shell,
+      shell.getByRole("heading", { level: 1, name: text(locale, "任务看板", "Todo Board") }),
+    );
+    return shell;
+  },
 
-  "goal-center": (page, locale) =>
-    openActivitySurface(page, text(locale, "目标中心", "Goal Center"), text(locale, "目标", "Goals")),
+  "goal-center": async (page, locale) => {
+    const shell = await openAutomationsTab(page, locale, text(locale, "目标中心", "Goals"));
+    await waitForFeature(
+      shell,
+      shell.getByRole("heading", { level: 1, name: text(locale, "目标", "Goals") }),
+    );
+    return shell;
+  },
 
-  evaluations: (page, locale) =>
-    openActivitySurface(
-      page,
-      text(locale, "Agent 评测", "Evaluations"),
-      text(locale, "Agent 评测", "Agent evaluations"),
-    ),
+  evaluations: async (page, locale) => {
+    await visit(page, "/settings?section=evaluation");
+    const shell = page.locator("main").first();
+    await expect(shell).toBeVisible();
+    // The evaluation centre keeps its own h1 inside the settings page, so the level-2 heading
+    // the other settings captures wait for does not exist here.
+    await waitForFeature(
+      shell,
+      shell.getByRole("heading", { level: 1, name: text(locale, "Agent 评测", "Agent evaluations") }),
+    );
+    return shell;
+  },
 
-  "mission-control": (page, locale) =>
-    openActivitySurface(
-      page,
-      text(locale, "任务控制台", "Mission Control"),
-      text(locale, "Agent 任务控制台", "Agent Mission Control"),
-    ),
+  inbox: async (page, locale) => {
+    const shell = await openInbox(page, locale);
+    await expect(
+      shell.getByRole("heading", { level: 2, name: text(locale, "需要关注", "Needs attention") }),
+    ).toBeVisible();
+    return shell;
+  },
+
+  "mission-control": async (page, locale) => {
+    await openInbox(page, locale);
+    await page
+      .getByRole("button", { name: text(locale, "任务控制台", "Mission Control console") })
+      .click();
+    const console = page.getByTestId("mission-control");
+    await expect(
+      console.getByRole("heading", { level: 1, name: text(locale, "Agent 任务控制台", "Agent Mission Control") }),
+    ).toBeVisible({ timeout: 15_000 });
+    return console;
+  },
 };
 
 /**
