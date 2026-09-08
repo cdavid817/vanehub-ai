@@ -12,14 +12,17 @@ async function openEvaluation(page: Page, theme: Theme, width: number) {
   await expect(page.getByTestId("evaluation-center")).toBeVisible();
 }
 
-// The seven CLIs added by `extend-cli-providers-with-acp`. The mock arena caps a run at eight
-// agents, so the flows below deselect these to keep the original six-agent scenario.
+// The managed CLIs added by `extend-cli-providers-with-acp`. The mock arena caps a run at eight
+// agents, so the flows below deselect these to keep the original six-agent scenario. iFlow is
+// not among them: it is terminal-only, so the center never offers it as a candidate.
 const expandedAgentIds = [
-  "qwen-code", "kimi-cli", "qoder-cli", "codebuddy-code", "copilot-cli", "cursor-agent-cli", "iflow-cli",
+  "qwen-code", "kimi-cli", "qoder-cli", "codebuddy-code", "copilot-cli", "cursor-agent-cli",
 ];
 
 test("runs, compares, filters, inspects, and exports the complete mock benchmark", async ({ page }) => {
   await openEvaluation(page, "futuristic", 1440);
+  await expect(page.getByTestId("evaluation-agent-qwen-code")).toBeVisible();
+  await expect(page.getByTestId("evaluation-agent-iflow-cli")).toHaveCount(0);
   for (const agentId of ["claude-code", "opencode", "codex-cli", "gemini-cli", "antigravity-cli", "onepiece", ...expandedAgentIds]) {
     await page.getByTestId(`evaluation-agent-${agentId}`).uncheck();
   }
