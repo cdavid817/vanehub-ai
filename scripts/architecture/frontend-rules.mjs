@@ -442,7 +442,11 @@ const SUBTREE_LINE_BUDGETS = Object.freeze([
   //
   // 再次合并 main(2026-09-08,含 fix-cli-parameters-native-payload-normalization 的 +35)后在合并树上
   // 实测;本分支对 `dependencies: {}` 的原生序列化修正已撤回,改用 main 的适配器归一化,避免两处修同一缺陷。
-  { root: "src/services", budget: 28263, owner: "harden-session-workspace-tab-layouts" },
+  //
+  // 28263 -> 28277(extend-cli-providers-with-acp 第三轮审查修正):+14 是聊天配置归一化对 CodeBuddy
+  // 区域账号(`codebuddy-china` / `codebuddy-ioa`)的保留规则,与领域层 `is_reviewed_account_environment`
+  // 镜像;不是既有逻辑的复制。
+  { root: "src/services", budget: 28277, owner: "harden-session-workspace-tab-layouts" },
 ]);
 
 const STATE_PACKAGES = new Set([

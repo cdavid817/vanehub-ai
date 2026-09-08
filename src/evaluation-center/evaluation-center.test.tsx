@@ -19,6 +19,8 @@ describe("EvaluationCenter", () => {
     const run = await screen.findByRole("button", { name: "运行竞技场" });
     await waitFor(() => expect((run as HTMLButtonElement).disabled).toBe(false));
     expect(screen.getByTestId("evaluation-agent-opencode")).toBeTruthy();
+    // iFlow is terminal-only (legacy): no arena attempt can drive it, so it is not offered.
+    expect(screen.queryByTestId("evaluation-agent-iflow-cli")).toBeNull();
     // No mock agent reports `available`, so the center preselects the first eight of the
     // registry (the original five plus Qwen, Kimi, Qoder). Uncheck seven of those and check
     // OnePiece, leaving exactly Codex CLI and OnePiece for the arena.

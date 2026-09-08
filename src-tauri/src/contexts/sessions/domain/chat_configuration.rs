@@ -132,6 +132,21 @@ pub(crate) fn clamp_reasoning_for_model(model_id: &str, value: Option<&str>) -> 
     Some(requested.min(maximum).as_str().to_string())
 }
 
+/// CodeBuddy's provider id doubles as its account environment: the vendor default is the
+/// expected provider, and the two reviewed alternates (`codebuddy-china`, `codebuddy-ioa`) are
+/// accepted wherever that default is expected, so the runtime can start the CLI against the
+/// chosen environment. Keyed by the expected provider because the persisted-snapshot check has
+/// no Agent id, only the provider it expects.
+fn is_reviewed_account_environment(expected_provider: &str, provider_id: &str) -> bool {
+    expected_provider == "codebuddy-international"
+        && matches!(provider_id, "codebuddy-china" | "codebuddy-ioa")
+}
+
+fn provider_accepted(expected_provider: &str, provider_id: &str) -> bool {
+    provider_id == expected_provider
+        || is_reviewed_account_environment(expected_provider, provider_id)
+}
+
 pub(crate) fn normalize_chat_preferences(
     agent_id: &str,
     expected_provider: &str,
@@ -140,7 +155,7 @@ pub(crate) fn normalize_chat_preferences(
 ) -> Result<ChatPreferences, SessionsDomainError> {
     let execution_mode = SessionExecutionMode::parse(request.execution_mode)?;
     let provider_id = request.provider_id.unwrap_or(expected_provider);
-    if provider_id != expected_provider {
+    if !provider_accepted(expected_provider, provider_id) {
         return Err(SessionsDomainError::ProviderMismatch {
             provider_id: provider_id.to_string(),
             agent_id: agent_id.to_string(),
@@ -161,7 +176,7 @@ pub(crate) fn normalize_chat_preferences(
     }
     Ok(ChatPreferences {
         execution_mode: execution_mode.as_str().to_string(),
-        provider_id: expected_provider.to_string(),
+        provider_id: provider_id.to_string(),
         model_id: model_id.to_string(),
         reasoning_depth: clamp_reasoning_for_model(model_id, request.reasoning_depth),
         streaming: request.streaming,
@@ -177,7 +192,7 @@ pub(crate) fn is_valid_chat_snapshot(
     model_id: &str,
     reasoning_depth: Option<&str>,
 ) -> bool {
-    provider_id == expected_provider
+    provider_accepted(expected_provider, provider_id)
         && !model_id.trim().is_empty()
         && SessionExecutionMode::parse(execution_mode).is_ok()
         && reasoning_depth.is_none_or(|depth| ReasoningDepth::parse(depth).is_ok())
@@ -293,6 +308,68 @@ mod tests {
             normalize("gemini-cli", invalid),
             Err(SessionsDomainError::UnsupportedReasoningDepth)
         );
+    }
+
+    #[test]
+    fn codebuddy_accepts_its_reviewed_account_environments_and_nothing_else() {
+        let mut china = request();
+        china.provider_id = Some("codebuddy-china");
+        let preferences = normalize_chat_preferences(
+            "codebuddy-code",
+            "codebuddy-international",
+            "codebuddy-default",
+            china,
+        )
+        .expect("china environment");
+        assert_eq!(preferences.provider_id(), "codebuddy-china");
+
+        let mut ioa = request();
+        ioa.provider_id = Some("codebuddy-ioa");
+        assert_eq!(
+            normalize_chat_preferences(
+                "codebuddy-code",
+                "codebuddy-international",
+                "codebuddy-default",
+                ioa,
+            )
+            .expect("ioa environment")
+            .provider_id(),
+            "codebuddy-ioa"
+        );
+
+        let mut unknown = request();
+        unknown.provider_id = Some("codebuddy-eu");
+        assert!(matches!(
+            normalize_chat_preferences(
+                "codebuddy-code",
+                "codebuddy-international",
+                "codebuddy-default",
+                unknown,
+            ),
+            Err(SessionsDomainError::ProviderMismatch { .. })
+        ));
+        // The alternates belong to CodeBuddy alone.
+        let mut elsewhere = request();
+        elsewhere.provider_id = Some("codebuddy-china");
+        assert!(matches!(
+            normalize("gemini-cli", elsewhere),
+            Err(SessionsDomainError::ProviderMismatch { .. })
+        ));
+        // A persisted snapshot with the alternate restores rather than falling back.
+        assert!(is_valid_chat_snapshot(
+            "codebuddy-international",
+            "inherit",
+            "codebuddy-ioa",
+            "codebuddy-default",
+            None
+        ));
+        assert!(!is_valid_chat_snapshot(
+            "google",
+            "inherit",
+            "codebuddy-ioa",
+            "gemini-2-5-pro",
+            None
+        ));
     }
 
     #[test]

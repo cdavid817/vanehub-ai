@@ -26,9 +26,12 @@ export function EvaluationCenter() {
         const [registry, catalog, history] = await Promise.all([
           agentService.listAgents(), agentService.listEvaluationTasks(), agentService.listEvaluationArenas(),
         ]);
-        const available = registry.filter((agent) => agent.availabilityState === "available");
+        // A legacy (terminal-only) Agent has no managed conversation for an arena attempt to
+        // drive, so it is not a candidate: the backend would refuse the attempt anyway.
+        const candidates = registry.filter((agent) => !agent.capabilityTags.includes("legacy"));
+        const available = candidates.filter((agent) => agent.availabilityState === "available");
         // Never preselect more than an arena may hold: the registry lists more Agents than that.
-        setAgents(registry); setAgentIds((available.length > 0 ? available : registry).slice(0, MAX_ARENA_AGENTS).map((agent) => agent.id));
+        setAgents(candidates); setAgentIds((available.length > 0 ? available : candidates).slice(0, MAX_ARENA_AGENTS).map((agent) => agent.id));
         setTasks(catalog); setTaskId(catalog[0]?.id ?? ""); setArenas(history);
       } catch { setError(t("evaluation.loadError")); }
     }
