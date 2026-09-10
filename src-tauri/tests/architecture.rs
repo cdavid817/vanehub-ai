@@ -2452,7 +2452,7 @@ const NATIVE_PATH_BUDGETS: &[PathBudget] = &[
     PathBudget {
         path:
             "src-tauri/src/contexts/agent_runtime/infrastructure/api_process_adapter/native_tools.rs",
-        budget: 1_579,
+        budget: 1_584,
         owner: "enforce-loop-execution-scope",
     },
     // Lowered from 5,110 by `relocate-heavyweight-inline-tests`, which split seven subject
@@ -2777,12 +2777,12 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // seat-owned binding key, the replay drain on resume, the stop escalation and the
         // completion ordering in the adapter, plus the regression tests for each.
         //
-        // `enforce-loop-execution-scope` (2026-09-09) raises it to 80,190: the unix
+        // `enforce-loop-execution-scope` (2026-09-09) raises it to 80,347: the unix
         // handle-relative filesystem boundary, the complete artifact scanner, the
         // content-addressed evidence store, the in-process `patch-whitespace` check, the scope
         // platform/guard/authority adapters, the scope schema migration and the repository scope
         // columns, each with sentinel-based tests, plus the strict-Loop lifecycle test.
-        budget: 80_190,
+        budget: 80_347,
         owner: "enforce-loop-execution-scope",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
@@ -3007,11 +3007,11 @@ const NATIVE_PRODUCTION_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // temporary file, the launch fingerprint, seat-owned keys, replay drain, stop escalation,
         // completion ordering -- with their rationale comments.
         //
-        // `enforce-loop-execution-scope` (2026-09-09) raises it to 44,976: the production half
+        // `enforce-loop-execution-scope` (2026-09-09) raises it to 45,049: the production half
         // of the scope boundary listed on the aggregate above -- openat/renameat/unlinkat
         // delivery, manifest scanning and diffing, evidence sealing, native check, guard and
         // authority, repository scope persistence and the ACP/native tool admission paths.
-        budget: 44_976,
+        budget: 45_049,
         owner: "enforce-loop-execution-scope",
     },
 ];

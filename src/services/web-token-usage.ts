@@ -17,7 +17,18 @@ interface FixtureEntry {
   observation: UsageObservation;
 }
 
-const at = "2026-08-10T10:00:00.000Z";
+// Three days before the mock clock, pinned to 10:00 UTC. A fixed calendar date silently aged
+// out of the "last 30 days" window the usage page opens with, turning the mock ledger to zeros.
+function fixtureInstant(): string {
+  const value = new Date();
+  value.setUTCDate(value.getUTCDate() - 3);
+  value.setUTCHours(10, 0, 0, 0);
+  return value.toISOString();
+}
+
+/** The instant every ledger fixture is stamped with; tests derive their windows from it. */
+export const WEB_TOKEN_USAGE_FIXTURE_AT = fixtureInstant();
+const at = WEB_TOKEN_USAGE_FIXTURE_AT;
 
 function fixture(
   id: string,
