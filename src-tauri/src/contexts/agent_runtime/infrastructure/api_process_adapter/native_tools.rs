@@ -11,6 +11,7 @@ use super::super::SqliteNativeToolRepository;
 use super::code_intelligence::execute_code_intelligence_tool;
 use super::interactive::{await_approval, plan_mode_denial, ApprovalOutcome};
 use super::{failed_non_retryable, failed_retryable, PendingApprovals, REQUEST_TIMEOUT};
+use crate::contexts::agent_runtime::application::LoopScopeGuard;
 use crate::contexts::agent_runtime::application::{
     AgentClockPort, AgentCodeIntelligencePort, AgentCodeRetrievalOutcome, AgentLog, AgentLogLevel,
     AgentLoggingPort, AgentMcpToolPort, AgentPermissionPort, AgentProcessEventSink,
@@ -25,6 +26,7 @@ use crate::contexts::agent_runtime::application::{
     FILE_TOOL_NAME, IMAGE_ARTIFACT_METADATA_KEY, LIST_SKILLS_TOOL_NAME, LOAD_SKILL_TOOL_NAME,
     READ_SKILL_RESOURCE_TOOL_NAME,
 };
+use crate::contexts::agent_runtime::domain::LoopSideEffectChannel;
 use crate::contexts::agent_runtime::domain::{UtilityDelegationLimits, UtilityDelegationRequest};
 use crate::contexts::artifacts::application::ArtifactService;
 use crate::platform::filesystem::BoundedFilesystem;
@@ -593,11 +595,15 @@ pub(super) fn execute_tool_call_with_runtime_ports(
     skills: &dyn AgentSkillPort,
     utility_delegation: Option<&UtilityDelegationApplicationService>,
     generation: &GenerationProcessRequest,
+    loop_scope: Option<&dyn LoopScopeGuard>,
 ) -> ToolExecutionOutcome {
     if name == DELEGATE_UTILITY_SKILL_TOOL_NAME {
+        if loop_scope.is_some() {
+            return loop_scope_denial("Utility delegation");
+        }
         return execute_utility_delegation(input, cancelled, utility_delegation, generation);
     }
-    execute_tool_call_impl(
+    execute_tool_call_scoped(
         name,
         input,
         workspace_folder,
@@ -609,7 +615,208 @@ pub(super) fn execute_tool_call_with_runtime_ports(
         plan_mode,
         skills,
         Some(generation.session.id.as_str()),
+        loop_scope,
     )
+}
+
+fn loop_scope_denial(what: &str) -> ToolExecutionOutcome {
+    ToolExecutionOutcome {
+        output: format!(
+            "{what} is not available in a Loop-owned session: only host-mediated file tools are admitted within the run scope."
+        ),
+        is_error: true,
+    }
+}
+
+/// Loop-owned sessions route every mutation through the scope guard and refuse every channel it
+/// does not admit. Everything else falls through to the ordinary dispatcher.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn execute_tool_call_scoped(
+    name: &str,
+    input: &Value,
+    workspace_folder: Option<&str>,
+    cancelled: Arc<AtomicBool>,
+    mcp: &dyn AgentMcpToolPort,
+    retrieval: &dyn AgentRetrievalPort,
+    code_intelligence: Option<&dyn AgentCodeIntelligencePort>,
+    workspace_mutations: Option<&dyn AgentWorkspaceMutationPort>,
+    plan_mode: bool,
+    skills: &dyn AgentSkillPort,
+    session_id: Option<&str>,
+    loop_scope: Option<&dyn LoopScopeGuard>,
+) -> ToolExecutionOutcome {
+    let Some(scope) = loop_scope else {
+        return execute_tool_call_impl(
+            name,
+            input,
+            workspace_folder,
+            cancelled,
+            mcp,
+            retrieval,
+            code_intelligence,
+            workspace_mutations,
+            plan_mode,
+            skills,
+            session_id,
+        );
+    };
+    let handler = ExistingToolHandlerRegistry::resolve(name);
+    match handler {
+        Some(ExistingToolHandler::Shell) | Some(ExistingToolHandler::ShellKill) => {
+            return loop_scope_denial("Shell execution");
+        }
+        Some(ExistingToolHandler::Mcp) => return loop_scope_denial("MCP tool use"),
+        // Language servers are host-launched processes with the worktree as cwd; nothing
+        // mediates what they write, so a scoped session never reaches them.
+        Some(ExistingToolHandler::CodeIntelligence) => {
+            return loop_scope_denial("Code intelligence")
+        }
+        Some(ExistingToolHandler::Notebook)
+            if input.get("operation").and_then(Value::as_str) != Some("read") =>
+        {
+            return loop_scope_denial("Notebook editing");
+        }
+        _ => {}
+    }
+    let write_operation = match handler {
+        Some(ExistingToolHandler::File) => {
+            input.get("operation").and_then(Value::as_str) == Some("write")
+        }
+        Some(ExistingToolHandler::Edit) => true,
+        _ => false,
+    };
+    if !write_operation {
+        return execute_tool_call_impl(
+            name,
+            input,
+            workspace_folder,
+            cancelled,
+            mcp,
+            retrieval,
+            code_intelligence,
+            workspace_mutations,
+            plan_mode,
+            skills,
+            session_id,
+        );
+    }
+    if plan_mode {
+        return plan_mode_denial("Writing files");
+    }
+    if let Err(reason) = scope.admit_channel(LoopSideEffectChannel::MediatedFile) {
+        return ToolExecutionOutcome {
+            output: reason,
+            is_error: true,
+        };
+    }
+    if !scope.mediated() {
+        return ToolExecutionOutcome {
+            output: "This host has no verified handle-relative delivery; mediated Loop writes are refused."
+                .to_string(),
+            is_error: true,
+        };
+    }
+    let path = input
+        .get("path")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let outcome = match handler {
+        Some(ExistingToolHandler::File) => {
+            let content = input
+                .get("content")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            match scope.write(path, content.as_bytes()) {
+                Ok(()) => ToolExecutionOutcome {
+                    output: format!("Wrote {} bytes to \"{path}\".", content.len()),
+                    is_error: false,
+                },
+                Err(reason) => ToolExecutionOutcome {
+                    output: reason,
+                    is_error: true,
+                },
+            }
+        }
+        _ => execute_scoped_edit(scope, path, input),
+    };
+    if !outcome.is_error {
+        if let Some(folder) = workspace_folder {
+            publish_workspace_mutation(
+                folder,
+                path,
+                session_id.unwrap_or_default(),
+                AgentWorkspaceChangeKind::Modified,
+                workspace_mutations,
+            );
+        }
+    }
+    outcome
+}
+
+fn execute_scoped_edit(
+    scope: &dyn LoopScopeGuard,
+    path: &str,
+    input: &Value,
+) -> ToolExecutionOutcome {
+    let raw = match scope.read(path) {
+        Ok(raw) => raw,
+        Err(reason) => {
+            return ToolExecutionOutcome {
+                output: format!("Path \"{path}\" is not accessible: {reason}"),
+                is_error: true,
+            }
+        }
+    };
+    if crate::contexts::agent_runtime::infrastructure::tools::looks_binary(&raw) {
+        return ToolExecutionOutcome {
+            output: format!("\"{path}\" appears to be a binary file and cannot be edited as text."),
+            is_error: true,
+        };
+    }
+    let Ok(text) = String::from_utf8(raw) else {
+        return ToolExecutionOutcome {
+            output: format!("\"{path}\" is not valid UTF-8 text."),
+            is_error: true,
+        };
+    };
+    let old_string = input
+        .get("old_string")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let new_string = input
+        .get("new_string")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let replace_all = input
+        .get("replace_all")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let (updated, occurrences) =
+        match crate::contexts::agent_runtime::infrastructure::tools::compute_edit(
+            &text,
+            old_string,
+            new_string,
+            replace_all,
+            path,
+        ) {
+            Ok(result) => result,
+            Err(message) => {
+                return ToolExecutionOutcome {
+                    output: message,
+                    is_error: true,
+                }
+            }
+        };
+    match scope.write(path, updated.as_bytes()) {
+        Ok(()) => ToolExecutionOutcome {
+            output: format!("Replaced {occurrences} occurrence(s) in \"{path}\"."),
+            is_error: false,
+        },
+        Err(reason) => ToolExecutionOutcome {
+            output: reason,
+            is_error: true,
+        },
+    }
 }
 
 #[derive(Deserialize)]

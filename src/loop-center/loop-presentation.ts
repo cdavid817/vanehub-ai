@@ -1,6 +1,6 @@
 import type { LoopEvidence, LoopIteration, LoopRun } from "../types/loop";
 
-export type LoopCheckOutcome = "passed" | "failed" | "blocked" | "pending" | "cancelled" | "not-evaluated";
+export type LoopCheckOutcome = LoopEvidence["status"] | "not-evaluated";
 
 export interface LoopBudgetSummary {
   elapsedMs: number;

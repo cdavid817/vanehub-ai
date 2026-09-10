@@ -93,6 +93,8 @@ export function LoopDefinitionOverview({
         <Value label={t("loops.editor.field.branch")} value={definition.baseBranch} />
         <ListValue label={t("loops.definition.allowedPaths")} values={definition.allowedPaths} />
         <ListValue label={t("loops.definition.protectedPaths")} values={definition.protectedPaths} />
+        <Value label={t("loops.editor.field.requestedMode")} value={definition.requestedMode ? t(`loops.mode.${definition.requestedMode}`) : t("loops.mode.legacy")} />
+        {definition.scopeState === "legacy-unverified" ? <p className="text-xs text-warning sm:col-span-2">{t("loops.definition.legacyScope")}</p> : null}
       </OverviewSection>
       <OverviewSection title={t("loops.definition.acceptance")}>
         <div className="min-w-0 sm:col-span-2">

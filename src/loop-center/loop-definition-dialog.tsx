@@ -165,6 +165,14 @@ function ScopeStep({ branches, draft, loading, projects, setDraft }: StepProps &
     <Field className="sm:col-span-2" label="loops.editor.field.acceptance"><textarea className={`${inputClass} min-h-24 py-2`} value={draft.acceptanceCriteria} onChange={(event) => setDraft({ ...draft, acceptanceCriteria: event.target.value })} /></Field>
     <Field label="loops.editor.field.allowedPaths"><textarea className={`${inputClass} min-h-20 py-2`} value={draft.allowedPaths} onChange={(event) => setDraft({ ...draft, allowedPaths: event.target.value })} /></Field>
     <Field label="loops.editor.field.protectedPaths"><textarea className={`${inputClass} min-h-20 py-2`} value={draft.protectedPaths} onChange={(event) => setDraft({ ...draft, protectedPaths: event.target.value })} /></Field>
+    <p className="text-xs leading-5 text-muted-foreground sm:col-span-2">{t("loops.editor.scopeHelp")}</p>
+    <Field className="sm:col-span-2" label="loops.editor.field.requestedMode">
+      <select className={inputClass} value={draft.requestedMode} onChange={(event) => setDraft({ ...draft, requestedMode: event.target.value === "artifact-audited" ? "artifact-audited" : "preventive-required" })}>
+        <option value="preventive-required">{t("loops.mode.preventive-required")}</option>
+        <option value="artifact-audited">{t("loops.mode.artifact-audited")}</option>
+      </select>
+    </Field>
+    <p className="text-xs leading-5 text-muted-foreground sm:col-span-2">{t(`loops.mode.help.${draft.requestedMode}`)}</p>
   </div>;
 }
 
@@ -197,16 +205,16 @@ function VerificationStep({ draft, setDraft, showErrors }: StepProps & { showErr
 function ReviewStep({ agents, draft }: { agents: AgentRegistryEntry[]; draft: LoopDefinitionDraft }) {
   const { t } = useTranslation();
   const name = (id: string) => agents.find((agent) => agent.id === id)?.displayName ?? id;
-  const commands = draft.verificationCommands.map((command) => `${command.program} ${command.arguments.split(/\r?\n/).filter(Boolean).join(" ")}`.trim()).join("; ");
+  const commands = draft.verificationCommands.map((command) => `${command.kind === "native-check" ? `[${t("loops.editor.kind.native-check")}] ` : ""}${command.program} ${command.arguments.split(/\r?\n/).filter(Boolean).join(" ")}`.trim()).join("; ");
   const rows = [
     ["name", draft.name], ["enabled", t(draft.enabled ? "loops.definition.enabled" : "loops.definition.disabled")],
     ["project", draft.projectPath], ["branch", draft.baseBranch], ["goal", draft.goal], ["acceptance", draft.acceptanceCriteria],
-    ["allowedPaths", draft.allowedPaths], ["protectedPaths", draft.protectedPaths], ["worker", name(draft.workerAgentId)],
+    ["allowedPaths", draft.allowedPaths], ["protectedPaths", draft.protectedPaths], ["requestedMode", t(`loops.mode.${draft.requestedMode}`)], ["worker", name(draft.workerAgentId)],
     ["verifier", name(draft.verifierAgentId)], ["commands", commands], ["maxIterations", String(draft.limits.maxIterations)],
     ["stepTimeoutSeconds", String(draft.limits.stepTimeoutSeconds)], ["totalTimeoutSeconds", String(draft.limits.totalTimeoutSeconds)],
     ["maxConsecutiveRuntimeErrors", String(draft.limits.maxConsecutiveRuntimeErrors)], ["maxConsecutiveNoProgress", String(draft.limits.maxConsecutiveNoProgress)],
   ];
-  return <div className="grid gap-4"><dl className="grid gap-x-6 gap-y-3 sm:grid-cols-[minmax(8rem,auto)_1fr]">{rows.map(([key, value]) => <div className="contents" key={key}><dt className="text-xs font-medium text-muted-foreground">{t(`loops.editor.field.${key}`)}</dt><dd className="wrap-break-word whitespace-pre-line text-sm">{value}</dd></div>)}</dl><div className="border-t border-border pt-3 text-xs leading-5 text-muted-foreground"><p>{t("loops.editor.review.worktree")}</p><p className="mt-1 font-medium text-foreground">{t("loops.editor.review.humanGate")}</p></div></div>;
+  return <div className="grid gap-4"><dl className="grid gap-x-6 gap-y-3 sm:grid-cols-[minmax(8rem,auto)_1fr]">{rows.map(([key, value]) => <div className="contents" key={key}><dt className="text-xs font-medium text-muted-foreground">{t(`loops.editor.field.${key}`)}</dt><dd className="wrap-break-word whitespace-pre-line text-sm">{value}</dd></div>)}</dl><div className="border-t border-border pt-3 text-xs leading-5 text-muted-foreground"><p>{t("loops.editor.review.worktree")}</p><p>{t(`loops.mode.help.${draft.requestedMode}`)}</p><p className="mt-1 font-medium text-foreground">{t("loops.editor.review.humanGate")}</p></div></div>;
 }
 
 interface StepProps { draft: LoopDefinitionDraft; setDraft: (draft: LoopDefinitionDraft) => void }

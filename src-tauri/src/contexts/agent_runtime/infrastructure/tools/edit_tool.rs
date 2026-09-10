@@ -74,13 +74,43 @@ pub(crate) fn execute_edit(
         Ok(text) => text,
         Err(_) => return error(&format!("\"{path}\" is not valid UTF-8 text.")),
     };
+    let (updated, occurrences) =
+        match compute_edit(&text, old_string, new_string, replace_all, path) {
+            Ok(result) => result,
+            Err(message) => return error(&message),
+        };
+    match write_atomically(&resolved, &updated) {
+        Ok(()) => ToolExecutionOutcome {
+            output: format!("Replaced {occurrences} occurrence(s) in \"{path}\"."),
+            is_error: false,
+        },
+        Err(failure) => error(&describe_write_failure(path, &failure)),
+    }
+}
 
+/// The pure replacement step shared by the workspace-path executor and the scoped Loop
+/// executor, which delivers through its own boundary instead of a path.
+pub(crate) fn compute_edit(
+    text: &str,
+    old_string: &str,
+    new_string: &str,
+    replace_all: bool,
+    path: &str,
+) -> Result<(String, usize), String> {
+    if old_string.is_empty() {
+        return Err("The old_string argument must not be empty.".to_string());
+    }
+    if old_string == new_string {
+        return Err(
+            "The old_string and new_string arguments are identical; nothing to change.".to_string(),
+        );
+    }
     let occurrences = text.matches(old_string).count();
     if occurrences == 0 {
-        return error(&format!("The old_string was not found in \"{path}\"."));
+        return Err(format!("The old_string was not found in \"{path}\"."));
     }
     if occurrences > 1 && !replace_all {
-        return error(&format!(
+        return Err(format!(
             "The old_string matches {occurrences} times in \"{path}\". Provide more surrounding context to make it unique, or set replace_all to true."
         ));
     }
@@ -97,7 +127,7 @@ pub(crate) fn execute_edit(
         new_string.len(),
     );
     if projected_len > MAX_FILE_BYTES {
-        return error(&format!(
+        return Err(format!(
             "The result of this edit to \"{path}\" would be larger than the {} MB edit limit.",
             MAX_FILE_BYTES / (1024 * 1024)
         ));
@@ -107,13 +137,12 @@ pub(crate) fn execute_edit(
     } else {
         text.replacen(old_string, new_string, 1)
     };
-    match write_atomically(&resolved, &updated) {
-        Ok(()) => ToolExecutionOutcome {
-            output: format!("Replaced {occurrences} occurrence(s) in \"{path}\"."),
-            is_error: false,
-        },
-        Err(failure) => error(&describe_write_failure(path, &failure)),
-    }
+    Ok((updated, occurrences))
+}
+
+/// Whether bytes look binary for the scoped editor, mirroring the path executor's rule.
+pub(crate) fn looks_binary(raw: &[u8]) -> bool {
+    is_binary(raw)
 }
 
 fn error(message: &str) -> ToolExecutionOutcome {

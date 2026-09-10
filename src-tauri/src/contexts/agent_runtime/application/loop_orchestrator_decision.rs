@@ -1,8 +1,9 @@
-use super::loop_orchestrator::{current_iteration, missing, required};
+use super::loop_orchestrator::{current_iteration, missing, required, scope_ref};
+use super::loop_scope_evidence::{scope_evidence_state, ScopeEvidenceState};
 use super::{
-    AgentRuntimeApplicationError, CanonicalLoopSignal, LoopOperationContext, LoopOperationKind,
-    LoopOrchestratorApplicationService, LoopRunView, LoopVerificationCancellation,
-    RecordLoopRevisionProgressRequest, StartLoopVerifierRequest,
+    AgentRuntimeApplicationError, CanonicalLoopSignal, LoopGuardRole, LoopOperationContext,
+    LoopOperationKind, LoopOrchestratorApplicationService, LoopRunView,
+    LoopVerificationCancellation, RecordLoopRevisionProgressRequest, StartLoopVerifierRequest,
 };
 use crate::contexts::agent_runtime::domain::{
     decide_loop_iteration, LoopDecision, LoopDecisionInput, LoopDecisionOutcome, LoopLimits,
@@ -16,6 +17,9 @@ impl LoopOrchestratorApplicationService {
         view: &LoopRunView,
         cancellation: &LoopVerificationCancellation,
     ) -> Result<(), AgentRuntimeApplicationError> {
+        let Some(binding) = self.admitted_binding(view, LoopRunStatus::Running)? else {
+            return Ok(());
+        };
         let iteration = current_iteration(view)?;
         if iteration.verifier_recommendation.is_none() {
             let started = self.ports.verifier.start(StartLoopVerifierRequest {
@@ -26,7 +30,13 @@ impl LoopOrchestratorApplicationService {
                 worktree_path: required(&view.worktree_path, "Loop worktree path")?,
                 worktree_name: required(&view.worktree_name, "Loop worktree name")?,
                 worktree_branch: required(&view.worktree_branch, "Loop worktree branch")?,
-                check_evidence: iteration.evidence.clone(),
+                check_evidence: iteration
+                    .evidence
+                    .iter()
+                    .filter(|item| item.kind == "verification-command")
+                    .cloned()
+                    .collect(),
+                scope_ref: Some(scope_ref(&binding, LoopGuardRole::Verifier)),
             })?;
             let operation = match self.ports.observer.start(
                 LoopOperationContext {
@@ -68,6 +78,31 @@ impl LoopOrchestratorApplicationService {
         // Verifier completion persists ownership and findings. Decisions and fingerprints must
         // use that durable boundary instead of the pre-generation projection.
         let refreshed_view = self.run_view(&view.id)?;
+        let iteration = current_iteration(&refreshed_view)?.clone();
+        let verifier_sealed =
+            super::loop_scope_evidence::latest_passed_manifest(&iteration, "verifier").is_some()
+                || iteration.evidence.iter().any(|item| {
+                    item.kind == super::loop_scope_evidence::SCOPE_EVIDENCE_KIND
+                        && item.status != "passed"
+                        && item
+                            .details
+                            .as_ref()
+                            .and_then(|details| details.get("phase"))
+                            .and_then(serde_json::Value::as_str)
+                            == Some("verifier")
+                });
+        if !verifier_sealed
+            && !self.seal_phase(
+                &refreshed_view,
+                &iteration,
+                "verifier",
+                &binding,
+                cancellation,
+            )?
+        {
+            return Ok(());
+        }
+        let refreshed_view = self.run_view(&view.id)?;
         let iteration = current_iteration(&refreshed_view)?;
         let recommendation = iteration
             .verifier_recommendation
@@ -88,11 +123,31 @@ impl LoopOrchestratorApplicationService {
                         .unwrap_or(false)
             })
             .all(|item| item.status == "passed");
+        // Scope evidence dominates: a violation fails the run regardless of checks or advice, and
+        // incomplete evidence can never reach awaiting-acceptance.
+        let scope_state = scope_evidence_state(iteration);
+        let hard_terminal_reason = match &scope_state {
+            ScopeEvidenceState::Violation => Some(LoopTerminalReason::ScopeViolation),
+            _ => None,
+        };
+        if matches!(
+            scope_state,
+            ScopeEvidenceState::Unverifiable | ScopeEvidenceState::Incomplete
+        ) {
+            self.pause_for_scope(
+                &view.id,
+                LoopRunStatus::Running,
+                LoopTerminalReason::ScopeUnverifiable,
+                "Scope evidence for this iteration is incomplete or unverifiable.",
+                None,
+            )?;
+            return Ok(());
+        }
         let decision = decide_loop_iteration(&LoopDecisionInput {
             required_checks_passed: checks_passed,
             verifier_recommendation: recommendation,
             user_feedback: iteration.user_feedback.clone(),
-            hard_terminal_reason: None,
+            hard_terminal_reason,
         });
         let operation = self.ports.observer.start(
             LoopOperationContext {

@@ -13,6 +13,8 @@ mod execution_policy;
 mod existing_tool_registry;
 mod expert_role;
 mod local_model_discovery;
+mod loop_acceptance;
+mod loop_assessment;
 mod loop_control;
 mod loop_models;
 mod loop_observability;
@@ -21,6 +23,8 @@ mod loop_orchestrator_decision;
 mod loop_orchestrator_support;
 mod loop_progress;
 mod loop_recovery;
+mod loop_scope;
+mod loop_scope_evidence;
 mod loop_service;
 mod loop_verification;
 mod loop_verifier;
@@ -77,18 +81,24 @@ pub(crate) use expert_role::{
     ExpertRoleIdPort, ExpertRolePort,
 };
 pub(crate) use local_model_discovery::LocalModelDiscoveryService;
+pub(crate) use loop_acceptance::{
+    LoopAcceptanceApplicationPorts, LoopAcceptanceApplicationService,
+};
+pub(crate) use loop_assessment::LoopAssessmentService;
 pub(crate) use loop_control::{LoopControlApplicationPorts, LoopControlApplicationService};
 #[cfg(test)]
 pub(crate) use loop_models::LoopLimitsView;
 pub(crate) use loop_models::LoopVerificationCommandView;
 pub(crate) use loop_models::{
-    ContinueLoopRequest, LoopChildRecoveryDecision, LoopChildRecoveryProjection,
-    LoopDefinitionView, LoopEvidenceView, LoopGitStateEntryView, LoopGitStateView,
-    LoopIterationView, LoopOwnedRecoverySession, LoopReadinessCheckView, LoopReadinessReportView,
-    LoopRoleSessionRequest, LoopRunView, LoopVerificationBatchResult, LoopVerifierResult,
-    PreparedLoopWorktree, RunLoopVerificationRequest, SaveLoopDefinitionRequest,
-    SaveLoopVerifierResultRequest, StartLoopResultView, StartLoopVerifierRequest,
-    StartLoopWorkerRequest, StartedLoopVerifierView, StartedLoopWorkerView,
+    ContinueLoopRequest, LoopAcceptanceResultView, LoopBindingStatus, LoopChildRecoveryDecision,
+    LoopChildRecoveryProjection, LoopControlOperationClaim, LoopDefinitionView, LoopEvidenceView,
+    LoopGitStateEntryView, LoopGitStateView, LoopIterationView, LoopOwnedRecoverySession,
+    LoopReadinessCheckView, LoopReadinessReportView, LoopRoleSessionRequest, LoopRunScopeRecord,
+    LoopRunScopeView, LoopRunView, LoopScopeRef, LoopVerificationBatchResult,
+    LoopVerificationScope, LoopVerifierResult, PreparedLoopWorktree, RequestLoopAcceptanceRequest,
+    RunLoopVerificationRequest, SaveLoopDefinitionRequest, SaveLoopVerifierResultRequest,
+    StartLoopResultView, StartLoopVerifierRequest, StartLoopWorkerRequest, StartedLoopVerifierView,
+    StartedLoopWorkerView,
 };
 pub(crate) use loop_observability::{ActiveLoopOperation, LoopOperationObserver};
 pub(crate) use loop_orchestrator::{LoopOrchestratorApplicationService, LoopOrchestratorPorts};
@@ -96,7 +106,19 @@ pub(crate) use loop_orchestrator::{LoopOrchestratorApplicationService, LoopOrche
 pub(crate) use loop_progress::fingerprint_loop_iteration;
 pub(crate) use loop_progress::{LoopProgressApplicationService, RecordLoopRevisionProgressRequest};
 pub(crate) use loop_recovery::{LoopRecoveryApplicationPorts, LoopRecoveryApplicationService};
+pub(crate) use loop_scope::{
+    assess_execution, assessment_digest, LoopAdmissionView, LoopAssessmentInput,
+    LoopAuditConsumption, LoopAuditReceipt, LoopCliCapabilityPort, LoopCliWitness,
+    LoopControlAction, LoopControlEnvelope, LoopExecutionAssessment, LoopGuardRole,
+    LoopManifestChangeView, LoopManifestRef, LoopNativeCheckView, LoopPlatformWitness,
+    LoopRoleAgentFacts, LoopRootBinding, LoopRootIdentity, LoopScopeAuthorityPort,
+    LoopScopeBinding, LoopScopeFailure, LoopScopeGuard, LoopScopePlatformPort, LoopSealReceipt,
+    PrepareLoopAdmissionRequest, AUDIT_RECEIPT_TTL_SECONDS, LOOP_SCOPE_RUNTIME_REVISION,
+};
+pub(crate) use loop_scope_evidence::SCOPE_EVIDENCE_KIND;
 pub(crate) use loop_service::{LoopApplicationPorts, LoopApplicationService};
+#[cfg(test)]
+pub(crate) use loop_verification::verification_fingerprint;
 pub(crate) use loop_verification::{
     LoopVerificationApplicationPorts, LoopVerificationApplicationService,
     LoopVerificationEvidenceFact, LoopVerificationEvidencePort,
@@ -194,7 +216,7 @@ pub(crate) use ports::{
     AgentWorkflowRepository, ApiAgentGateway, ApiCredentialPort, AuthoritativeContextPort,
     CanonicalLoopSignal, CanonicalRunLinks, CanonicalRunOutcome, CanonicalRunSignal,
     ConversationHistoryPort, EffectivePromptGateway, GenerationPersonalizationContext,
-    LocalModelDiscoveryPort, LoopExecutionControlPort, LoopExecutionLeasePort,
+    LocalModelDiscoveryPort, LoopBackgroundPort, LoopExecutionControlPort, LoopExecutionLeasePort,
     LoopGenerationControlPort, LoopGitStatePort, LoopIterationRepository, LoopLoggingPort,
     LoopProjectPort, LoopRepository, LoopRoleGenerationCompletionPort, LoopRoleSessionPort,
     LoopSessionRecoveryPort, LoopVerificationProcessPort, LoopVerifierContextPort,
@@ -262,6 +284,8 @@ mod terminal_service_tests;
 
 #[cfg(test)]
 mod loop_service_tests;
+#[cfg(test)]
+pub(crate) mod loop_test_support;
 
 #[cfg(test)]
 mod loop_control_tests;

@@ -156,6 +156,19 @@ impl LoopOrchestratorApplicationService {
         }
     }
 
+    /// Stops every role session of the current iteration. Used when the run loses its scope
+    /// authority mid-phase, where stopping only the latest role would leave the other running.
+    pub(super) fn stop_owned_roles(&self, view: &LoopRunView) {
+        if let Ok(iteration) = current_iteration(view) {
+            for session_id in [&iteration.worker_session_id, &iteration.verifier_session_id]
+                .into_iter()
+                .flatten()
+            {
+                let _ = self.ports.generations.stop_loop_generation(session_id);
+            }
+        }
+    }
+
     pub(super) fn worker_request(&self, view: &LoopRunView) -> StartLoopWorkerRequest {
         StartLoopWorkerRequest {
             run_id: view.id.clone(),
@@ -175,6 +188,7 @@ impl LoopOrchestratorApplicationService {
                 .last()
                 .and_then(|item| item.user_feedback.clone()),
             elapsed_seconds: elapsed_seconds(&view.created_at),
+            scope_ref: None,
         }
     }
 }

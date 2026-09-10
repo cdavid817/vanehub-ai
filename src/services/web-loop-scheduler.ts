@@ -1,4 +1,5 @@
 import { i18n } from "../i18n";
+import { mockAgents } from "./mock-agent-data";
 import type { Session } from "../types/agent";
 import type { LoopIteration, LoopRun } from "../types/loop";
 import { nowIso } from "./web-mock-clock";
@@ -28,7 +29,7 @@ export function createWebLoopRoleSession(run: LoopRun, iteration: LoopIteration,
     id: sessionId,
     title: `${run.definitionSnapshot.name} - ${i18n.t(`loops.inspection.role.${role}`)}`,
     agentId,
-    interactionMode: "cli",
+    interactionMode: mockAgents.find((agent) => agent.id === agentId)?.supportedInteractionModes.includes("cli") ? "cli" : "api",
     personalizationMode: "standard", lifecycleState: "stopped",
     recoveryStatus: "clean",
     recoveryRevision: 0,

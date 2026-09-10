@@ -10,7 +10,8 @@ use crate::contexts::agent_runtime::application::{
     CodeExecutionNativeToolHandler, ContextEngineService, ContextManifestQueryService,
     ContextQualityQueryService, ContextQualityRecorder, DelegateCliNativeToolHandler,
     ExpertRoleApplicationPorts, ExpertRoleApplicationService, LocalModelDiscoveryService,
-    LoopApplicationPorts, LoopApplicationService, LoopControlApplicationPorts,
+    LoopAcceptanceApplicationPorts, LoopAcceptanceApplicationService, LoopApplicationPorts,
+    LoopApplicationService, LoopAssessmentService, LoopControlApplicationPorts,
     LoopControlApplicationService, LoopOperationObserver, LoopOrchestratorApplicationService,
     LoopOrchestratorPorts, LoopProgressApplicationService, LoopRecoveryApplicationPorts,
     LoopRecoveryApplicationService, LoopVerificationApplicationPorts,
@@ -25,14 +26,15 @@ use crate::contexts::agent_runtime::application::{
 use crate::contexts::agent_runtime::infrastructure::LocalMediaOcrAdapter;
 use crate::contexts::agent_runtime::infrastructure::{
     builtin_expert_roles, AgentRuntimeLoggingAdapter, AgentRuntimeOperationAdapter,
-    BuiltinAwareExpertRoleRepository, CodeIntelligenceContextSource, CompositeAgentProcessGateway,
-    CompositeToolApprovalPort, CredentialAwareAgentRegistry, ExplicitReferenceContextSource,
-    HttpLocalModelDiscoveryAdapter, HttpOnePieceModelDiscoveryAdapter,
-    HttpStructuredModelTransport, InMemoryAgentMessageTerminalCompletions,
-    InMemoryGenerationCoordinator, InMemoryLoopExecutionCoordinator,
-    InMemoryLoopRoleGenerationCompletions, InMemorySeatTurnCompletions, LocalRunner,
-    ManualNativeToolAuthorityAdapter, ManualNativeToolControl, ManualNativeToolOperationAdapter,
-    MonotonicContextEngineClock, NativeAgentCoreInstructionsAdapter, NativeLoopScheduler,
+    BuiltinAwareExpertRoleRepository, CatalogLoopCliCapability, CodeIntelligenceContextSource,
+    CompositeAgentProcessGateway, CompositeToolApprovalPort, CredentialAwareAgentRegistry,
+    ExplicitReferenceContextSource, HttpLocalModelDiscoveryAdapter,
+    HttpOnePieceModelDiscoveryAdapter, HttpStructuredModelTransport,
+    InMemoryAgentMessageTerminalCompletions, InMemoryGenerationCoordinator,
+    InMemoryLoopExecutionCoordinator, InMemoryLoopRoleGenerationCompletions,
+    InMemorySeatTurnCompletions, LocalRunner, ManualNativeToolAuthorityAdapter,
+    ManualNativeToolControl, ManualNativeToolOperationAdapter, MonotonicContextEngineClock,
+    NativeAgentCoreInstructionsAdapter, NativeLoopScheduler, NativeLoopScopePlatform,
     NativeSeatTurnCoordinator, NativeSkillToolExecutionAdapter,
     NativeSkillToolExecutionDependencies, NativeSubagentExecutor, NativeUtilityChildExecutor,
     OsApiCredentialAdapter, PermissionsPortAdapter, PortablePtyAgentTerminalRuntime,
@@ -45,8 +47,8 @@ use crate::contexts::agent_runtime::infrastructure::{
     SqliteContextManifestRepository, SqliteContextQualityRepository, SqliteExpertRoleRepository,
     SqliteLoopRepository, SqliteNativeToolRepository, SshRunner, StructuredLoopVerificationProcess,
     SubagentRuntime, SystemAgentRuntimeClock, SystemExpertRoleClock, TauriAgentRuntimeEventAdapter,
-    TerminalExecutionObservability, UnavailableNativeToolPort, UnifiedContextEngineDiagnostics,
-    UuidExpertRoleIds, WorkspaceLoopProjectAdapter,
+    TerminalExecutionObservability, ThreadLoopBackground, UnavailableNativeToolPort,
+    UnifiedContextEngineDiagnostics, UuidExpertRoleIds, WorkspaceLoopProjectAdapter,
 };
 use crate::contexts::artifacts::application::{ArtifactBlobStorePolicy, ArtifactService};
 use crate::contexts::artifacts::infrastructure::{
@@ -531,8 +533,13 @@ pub(crate) fn assemble_agent_runtime_api(
             .map_err(|error| error.to_string())?,
     );
     let runners = dependencies.runners;
+    // The scope authority is installed once the Loop repository and platform exist; until then
+    // every Loop-owned session fails closed because no guard can be derived.
+    let loop_scope_authority =
+        Arc::new(crate::contexts::agent_runtime::infrastructure::LoopScopeAuthority::default());
     let agent_permissions = Arc::new(PermissionsPortAdapter::new(
         dependencies.permissions.clone(),
+        loop_scope_authority.clone(),
     ));
     let cli_processes = Arc::new(RuntimeAgentProcessAdapter::new(
         crate::contexts::agent_runtime::infrastructure::RuntimeAgentProcessDependencies {
@@ -838,6 +845,24 @@ pub(crate) fn assemble_agent_runtime_api(
     let loop_repository = Arc::new(SqliteLoopRepository::new(dependencies.database.clone()));
     let loop_projects = Arc::new(WorkspaceLoopProjectAdapter(dependencies.workspaces));
     let loop_execution = Arc::new(InMemoryLoopExecutionCoordinator::default());
+    // Evidence lives beside the database, outside every worktree, so a mediated Worker bound to
+    // its run root cannot reach baselines or sealed objects.
+    let evidence_root = dependencies
+        .database
+        .db_path
+        .parent()
+        .map(|parent| parent.join("loop-evidence"))
+        .unwrap_or_else(|| std::path::PathBuf::from("loop-evidence"));
+    let loop_scope_platform: Arc<
+        dyn crate::contexts::agent_runtime::application::LoopScopePlatformPort,
+    > = Arc::new(NativeLoopScopePlatform::new(evidence_root));
+    let loop_assessment = LoopAssessmentService::new(
+        registry.clone(),
+        repository.clone(),
+        Arc::new(CatalogLoopCliCapability),
+        loop_scope_platform.clone(),
+        clock.clone(),
+    );
     let loops = LoopApplicationService::new(LoopApplicationPorts {
         loops: loop_repository.clone(),
         registry: registry.clone(),
@@ -845,10 +870,27 @@ pub(crate) fn assemble_agent_runtime_api(
         projects: loop_projects.clone(),
         observer: loop_observer.clone(),
         clock: clock.clone(),
+        assessment: loop_assessment.clone(),
+        app_epoch: format!("epoch-{}", uuid::Uuid::new_v4()),
     });
+    loop_scope_authority.install(
+        loop_repository.clone(),
+        sessions.clone(),
+        loop_scope_platform.clone(),
+    );
     let loop_controls = LoopControlApplicationService::new(LoopControlApplicationPorts {
         loops: loop_repository.clone(),
         execution: loop_execution.clone(),
+        observer: loop_observer.clone(),
+        clock: clock.clone(),
+        admission: loops.clone(),
+    });
+    let loop_acceptance = LoopAcceptanceApplicationService::new(LoopAcceptanceApplicationPorts {
+        loops: loop_repository.clone(),
+        iterations: loop_repository.clone(),
+        generations: Arc::new(service.clone()),
+        scope_platform: loop_scope_platform.clone(),
+        background: Arc::new(ThreadLoopBackground),
         observer: loop_observer.clone(),
         clock: clock.clone(),
     });
@@ -879,6 +921,7 @@ pub(crate) fn assemble_agent_runtime_api(
                 dependencies.evidence.clone(),
                 dependencies.database.clone(),
             )),
+            scope_platform: loop_scope_platform.clone(),
         });
     let loop_verifier = LoopVerifierApplicationService::new(LoopVerifierApplicationPorts {
         iterations: loop_repository.clone(),
@@ -900,6 +943,8 @@ pub(crate) fn assemble_agent_runtime_api(
         progress: LoopProgressApplicationService::new(loop_repository),
         observer: loop_observer,
         clock,
+        scope_platform: loop_scope_platform,
+        assessment: loop_assessment,
     });
     let loop_scheduler = NativeLoopScheduler::new((*loop_execution).clone(), loop_orchestrator);
     let seat_turns = NativeSeatTurnCoordinator::new(service.clone());
@@ -909,6 +954,7 @@ pub(crate) fn assemble_agent_runtime_api(
             terminal_service,
             loops,
             loop_controls,
+            loop_acceptance,
             loop_recovery,
             loop_scheduler,
             expert_roles,

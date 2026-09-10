@@ -12,9 +12,8 @@ use super::budget::{CANCEL_GRACE, DRIVER_TICK, HANDSHAKE_TIMEOUT};
 use super::connection::{AcpConnection, AcpError, InboundEvent};
 use super::definitions::AcpLaunchGrammar;
 use super::handlers::{
-    apply_terminal_create, apply_write, cancelled_outcome, cursor_outcome, handle_request,
-    permission_reply, plan_reply, question_reply, DeferredUi, HandlerContext, HandlerOutcome,
-    TerminalCreateRecord,
+    apply_terminal_create, cancelled_outcome, cursor_outcome, handle_request, permission_reply,
+    plan_reply, question_reply, DeferredUi, HandlerContext, HandlerOutcome, TerminalCreateRecord,
 };
 use super::interactions::{
     InteractionKind, InteractionRejection, InteractionScope, PendingInteraction,
@@ -27,8 +26,9 @@ use crate::contexts::agent_runtime::application::{
     AgentPermissionPort, AgentProcessEventSink, GenerationProcessEvent, ToolApprovalDecision,
     ToolLifecycleEvent, ToolLifecyclePhase, ToolUseBlock,
 };
+use crate::contexts::agent_runtime::domain::LoopSideEffectChannel;
 use crate::contexts::execution_observability::api::ExecutionFidelity;
-use crate::contexts::permissions::api::{Action, Effect, Resource};
+use crate::contexts::permissions::api::{Action, Effect, PermissionVerdict, Resource};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -344,11 +344,13 @@ pub(crate) struct TurnShared {
     pub(crate) terminals: Arc<TerminalRegistry>,
     pub(crate) cancel: AtomicBool,
     pub(crate) sequence: AtomicU64,
+    /// The Loop scope guard for a Loop-owned session; `None` for ordinary sessions.
+    pub(crate) scope: Option<Arc<dyn crate::contexts::agent_runtime::application::LoopScopeGuard>>,
 }
 
 impl TurnShared {
-    fn evaluate(&self, action: &str, resource: &str) -> Effect {
-        self.permissions.evaluate(
+    fn evaluate(&self, action: &str, resource: &str) -> PermissionVerdict {
+        self.permissions.evaluate_checked(
             &self.agent_id,
             Action::new(action),
             Resource::new(resource),
@@ -356,6 +358,13 @@ impl TurnShared {
             &self.operation_id,
             &self.project_key,
         )
+    }
+
+    /// A re-evaluation before an approved effect: a healthy non-Deny keeps the approval usable;
+    /// anything else refuses without the effect.
+    fn still_permitted(&self, action: &str, resource: &str) -> bool {
+        let verdict = self.evaluate(action, resource);
+        verdict.healthy && verdict.effect != Effect::Deny
     }
 
     fn handler_context(&self) -> HandlerContext<'_> {
@@ -372,6 +381,7 @@ impl TurnShared {
             advertised_terminal: self.binding.host.terminal,
             child_environment: &self.binding.child_environment,
             cancel: &self.cancel,
+            scope: self.scope.as_deref(),
         }
     }
 
@@ -469,17 +479,17 @@ impl TurnShared {
             ) => {
                 // The policy may have tightened while the request waited. A user's yes cannot
                 // override a template that now says no.
-                let approve = self.evaluate(action, resource) != Effect::Deny;
+                let approve = self.still_permitted(action, resource);
                 Ok(permission_reply(options, approve))
             }
             (InteractionKind::Permission { options, .. }, ToolApprovalDecision::Denied) => {
                 Ok(permission_reply(options, false))
             }
             (InteractionKind::FileWrite { path, content }, ToolApprovalDecision::Approved) => {
-                let outcome = if self.evaluate("file.write", path) == Effect::Deny {
+                let outcome = if !self.still_permitted("file.write", path) {
                     Err(RpcError::refused("write denied by policy"))
                 } else {
-                    apply_write(&self.binding.roots, path, content)
+                    super::handlers::apply_scoped_write(&context, path, content)
                 };
                 self.emit_tool(
                     &interaction.call_id,
@@ -502,9 +512,60 @@ impl TurnShared {
                 );
                 Err(RpcError::refused("write denied by user"))
             }
+            (
+                InteractionKind::FileRead {
+                    path,
+                    line,
+                    limit,
+                    identity,
+                },
+                ToolApprovalDecision::Approved,
+            ) => {
+                // Delivery re-checks current policy and the bound target identity; the file is
+                // opened only here, after the resolution committed and matched this pending read.
+                let outcome = if !self.still_permitted("file.read", path) {
+                    Err(RpcError::refused("read denied by policy"))
+                } else {
+                    super::handlers::deliver_read(
+                        &self.binding.roots,
+                        path,
+                        *line,
+                        *limit,
+                        *identity,
+                    )
+                };
+                self.emit_tool(
+                    &interaction.call_id,
+                    "fs/read_text_file",
+                    phase_of(&outcome),
+                    status_of(&outcome),
+                    None,
+                    None,
+                );
+                outcome
+            }
+            (InteractionKind::FileRead { .. }, ToolApprovalDecision::Denied) => {
+                self.emit_tool(
+                    &interaction.call_id,
+                    "fs/read_text_file",
+                    ToolLifecyclePhase::Cancelled,
+                    "cancelled",
+                    None,
+                    None,
+                );
+                Err(RpcError::refused("read denied by user"))
+            }
             (InteractionKind::TerminalCreate { request }, ToolApprovalDecision::Approved) => {
-                let outcome = if self.evaluate("shell.exec", "workspace") == Effect::Deny {
+                let outcome = if !self.still_permitted("shell.exec", "workspace") {
                     Err(RpcError::refused("command execution denied by policy"))
+                } else if context.scope.is_some_and(|scope| {
+                    scope
+                        .admit_channel(LoopSideEffectChannel::Terminal)
+                        .is_err()
+                }) {
+                    Err(RpcError::refused(
+                        "terminal channel is not admitted for this Loop role",
+                    ))
                 } else {
                     serde_json::from_value::<TerminalCreateRecord>(request.clone())
                         .map_err(|_| RpcError::refused("terminal request is no longer readable"))
@@ -645,6 +706,7 @@ fn decision_fits(kind: &InteractionKind, decision: &ToolApprovalDecision) -> boo
         (
             InteractionKind::Permission { .. }
                 | InteractionKind::FileWrite { .. }
+                | InteractionKind::FileRead { .. }
                 | InteractionKind::TerminalCreate { .. },
             ToolApprovalDecision::Answered(_),
         ) | (
@@ -660,9 +722,9 @@ fn cancelled_reply(kind: &InteractionKind) -> Result<Value, RpcError> {
         InteractionKind::Question { .. } | InteractionKind::Plan { .. } => {
             Ok(cursor_outcome("cancelled", None))
         }
-        InteractionKind::FileWrite { .. } | InteractionKind::TerminalCreate { .. } => {
-            Err(RpcError::cancelled())
-        }
+        InteractionKind::FileWrite { .. }
+        | InteractionKind::FileRead { .. }
+        | InteractionKind::TerminalCreate { .. } => Err(RpcError::cancelled()),
     }
 }
 
@@ -674,6 +736,9 @@ fn interaction_display(kind: &InteractionKind) -> (&'static str, ToolLifecyclePh
         ),
         InteractionKind::FileWrite { .. } => {
             ("fs/write_text_file", ToolLifecyclePhase::AwaitingApproval)
+        }
+        InteractionKind::FileRead { .. } => {
+            ("fs/read_text_file", ToolLifecyclePhase::AwaitingApproval)
         }
         InteractionKind::TerminalCreate { .. } => {
             ("terminal/create", ToolLifecyclePhase::AwaitingApproval)
@@ -884,7 +949,10 @@ fn dispatch_request(shared: &Arc<TurnShared>, id: RpcId, method: &str, params: &
         HandlerOutcome::Reply(reply) => {
             let is_tool = matches!(
                 method,
-                "session/request_permission" | "fs/write_text_file" | "terminal/create"
+                "session/request_permission"
+                    | "fs/write_text_file"
+                    | "fs/read_text_file"
+                    | "terminal/create"
             );
             if method == "session/request_permission" && !shared.interactive {
                 if let Ok(reply) = &reply {

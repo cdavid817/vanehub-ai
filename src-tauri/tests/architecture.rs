@@ -2424,11 +2424,15 @@ const NATIVE_PATH_BUDGETS: &[PathBudget] = &[
     // chain (seven branches ending in `continue`, two mutating the image counter), the remaining
     // setup bindings (no boundary, just position), and the two 27-line `maybe_compact_accounted`
     // calls (no reduction, only indirection). See that change's design.md.
+    //
+    // Raised from 955 by `enforce-loop-execution-scope`: a Loop-owned session resolves its scope
+    // guard from the backend authority before the tool loop starts and threads it into every
+    // dispatch, so an out-of-scope write is refused before the tool runs rather than after.
     PathBudget {
         path:
             "src-tauri/src/contexts/agent_runtime/infrastructure/api_process_adapter/execution.rs",
-        budget: 955,
-        owner: "decompose-api-tool-use-loop",
+        budget: 999,
+        owner: "enforce-loop-execution-scope",
     },
     // The other residual `split-api-adapter-modules` left above 1,000 lines: 43 native tool
     // implementations, the largest of which is `execute_tool_call_impl`'s 266-line dispatch.
@@ -2440,11 +2444,16 @@ const NATIVE_PATH_BUDGETS: &[PathBudget] = &[
     // session, and "did this file exist" is only answerable before the write. The three call sites
     // each gained the two arguments and one of them the existence check. No branch was duplicated;
     // the growth is the two facts themselves.
+    //
+    // Raised from 1,507 by `enforce-loop-execution-scope`: `execute_tool_call_scoped` closes
+    // shell, MCP, notebook and delegation for Loop-owned sessions and delivers file/edit writes
+    // through the handle-relative guard. It sits next to the dispatcher it wraps so the closed
+    // channels are enumerated against the same handler registry, not a copied list.
     PathBudget {
         path:
             "src-tauri/src/contexts/agent_runtime/infrastructure/api_process_adapter/native_tools.rs",
-        budget: 1_507,
-        owner: "split-api-adapter-modules",
+        budget: 1_579,
+        owner: "enforce-loop-execution-scope",
     },
     // Lowered from 5,110 by `relocate-heavyweight-inline-tests`, which split seven subject
     // modules out into `tests/`. What stays is the scaffolding they share — `Fixture`, the
@@ -2767,8 +2776,14 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // temporary file and permission carry-over in the fs proxy, the launch fingerprint and
         // seat-owned binding key, the replay drain on resume, the stop escalation and the
         // completion ordering in the adapter, plus the regression tests for each.
-        budget: 74_295,
-        owner: "extend-cli-providers-with-acp",
+        //
+        // `enforce-loop-execution-scope` (2026-09-09) raises it to 80,190: the unix
+        // handle-relative filesystem boundary, the complete artifact scanner, the
+        // content-addressed evidence store, the in-process `patch-whitespace` check, the scope
+        // platform/guard/authority adapters, the scope schema migration and the repository scope
+        // columns, each with sentinel-based tests, plus the strict-Loop lifecycle test.
+        budget: 80_190,
+        owner: "enforce-loop-execution-scope",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
     // directory module. The +51 is entirely per-file boilerplate: +29 module headers (the `mod`
@@ -2894,8 +2909,11 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // and config profiles on one side; session deletion, worktree cleanup, and terminal
         // stop-by-session on the other). Both histories above are kept; the figure is measured
         // on the merged tree, not summed, because the branches share a baseline.
-        budget: 3_803,
-        owner: "harden-sqlite-write-transactions",
+        //
+        // `enforce-loop-execution-scope` raises it to 3,813: one migration registration
+        // (`loop-execution-scope`, id 115) and its expected-migration entry.
+        budget: 3_813,
+        owner: "enforce-loop-execution-scope",
     },
 ];
 
@@ -2988,8 +3006,13 @@ const NATIVE_PRODUCTION_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // listed on the aggregate above -- Cursor schema parsing and replies, the exclusive
         // temporary file, the launch fingerprint, seat-owned keys, replay drain, stop escalation,
         // completion ordering -- with their rationale comments.
-        budget: 40_865,
-        owner: "extend-cli-providers-with-acp",
+        //
+        // `enforce-loop-execution-scope` (2026-09-09) raises it to 44,976: the production half
+        // of the scope boundary listed on the aggregate above -- openat/renameat/unlinkat
+        // delivery, manifest scanning and diffing, evidence sealing, native check, guard and
+        // authority, repository scope persistence and the ACP/native tool admission paths.
+        budget: 44_976,
+        owner: "enforce-loop-execution-scope",
     },
 ];
 

@@ -35,6 +35,8 @@ fn definition() -> LoopDefinition {
         version: 1,
         created_at: "2026-07-22T10:00:00Z".to_string(),
         updated_at: "2026-07-22T10:00:00Z".to_string(),
+        scope_schema_version: None,
+        requested_mode: None,
     })
     .expect("definition")
 }

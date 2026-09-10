@@ -68,5 +68,5 @@ describe("LoopDefinitionOverview", () => {
 
 function renderOverview(runs: ReturnType<typeof loopRunFixture>[]) {
   const client = new QueryClient({ defaultOptions: { mutations: { retry: false }, queries: { retry: false } } });
-  render(<QueryClientProvider client={client}><LoopDefinitionOverview definition={loopDefinitionFixture()} onDeleted={() => undefined} onEdit={() => undefined} onPreflight={() => undefined} runs={runs} /></QueryClientProvider>);
+  render(<QueryClientProvider client={client}><LoopDefinitionOverview definition={loopDefinitionFixture({ workerAgentId: "codex-cli" })} onDeleted={() => undefined} onEdit={() => undefined} onPreflight={() => undefined} runs={runs} /></QueryClientProvider>);
 }

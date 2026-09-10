@@ -1,14 +1,19 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { agentService } from "../services/runtime-agent-client";
-import type { LoopDefinition, SaveLoopDefinitionInput } from "../types/loop";
+import type { LoopControlEnvelope, LoopDefinition, SaveLoopDefinitionInput } from "../types/loop";
 import { loopQueryKeys } from "./loop-query";
+
+export interface StartLoopRequest {
+  definitionId: string;
+  envelope?: LoopControlEnvelope;
+}
 
 export function useStartLoopMutation() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (definitionId: string) => agentService.startLoop(definitionId),
-    onError: (_error, definitionId) => client.invalidateQueries({ queryKey: loopQueryKeys.readiness(definitionId) }),
-    onSuccess: ({ run }, definitionId) => {
+    mutationFn: ({ definitionId, envelope }: StartLoopRequest) => agentService.startLoop(definitionId, envelope),
+    onError: (_error, { definitionId }) => client.invalidateQueries({ queryKey: loopQueryKeys.readiness(definitionId) }),
+    onSuccess: ({ run }, { definitionId }) => {
       client.setQueryData(loopQueryKeys.run(run.id), run);
       void client.invalidateQueries({ queryKey: loopQueryKeys.runs(definitionId) });
       void client.invalidateQueries({ queryKey: loopQueryKeys.readiness(definitionId) });
@@ -50,7 +55,8 @@ export function useDeleteLoopDefinitionMutation() {
   });
 }
 
-function definitionInput(
+/** Round-trips every persisted field, including the scope version and mode: a copy or toggle must never silently downgrade a verified scope to legacy. */
+export function definitionInput(
   definition: LoopDefinition,
   overrides: Partial<SaveLoopDefinitionInput> = {},
 ): SaveLoopDefinitionInput {
@@ -65,9 +71,11 @@ function definitionInput(
     protectedPaths: [...definition.protectedPaths],
     workerAgentId: definition.workerAgentId,
     verifierAgentId: definition.verifierAgentId,
-    verificationCommands: definition.verificationCommands.map((command) => ({ ...command, args: [...command.args] })),
+    verificationCommands: definition.verificationCommands.map((command) => ({ ...command, kind: command.kind ?? "process", args: [...command.args] })),
     limits: { ...definition.limits },
     expectedVersion: definition.version,
+    scopeSchemaVersion: definition.scopeSchemaVersion,
+    requestedMode: definition.requestedMode,
     ...overrides,
   };
 }

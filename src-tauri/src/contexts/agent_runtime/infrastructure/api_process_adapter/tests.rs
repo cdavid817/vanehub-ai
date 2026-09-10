@@ -9617,3 +9617,218 @@ fn a_refused_proposal_batch_leaves_the_compaction_it_hung_off_intact() {
         .any(|log| log.message.contains("could not queue its proposals")));
     assert!(!logs.iter().any(|log| log.message.contains("Uses pnpm")));
 }
+
+// ---- Loop scope enforcement on native file tools (acceptance SC-01, SC-02, SC-12, SC-13) ----
+
+#[cfg(unix)]
+mod loop_scope_native_tools {
+    use super::super::native_tools::execute_tool_call_scoped;
+    use super::*;
+    use crate::contexts::agent_runtime::application::{LoopGuardRole, LoopScopeGuard};
+    use crate::contexts::agent_runtime::domain::LoopRequestedMode;
+    use crate::contexts::agent_runtime::infrastructure::loop_scope_platform::test_guard;
+    use crate::test_support::TempDirectory;
+
+    fn sentinel(label: &str) -> String {
+        format!(
+            "SENTINEL-{label}-{}",
+            SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        )
+    }
+
+    fn run_scoped(
+        guard: &dyn LoopScopeGuard,
+        workspace: &str,
+        name: &str,
+        input: &Value,
+    ) -> ToolExecutionOutcome {
+        execute_tool_call_scoped(
+            name,
+            input,
+            Some(workspace),
+            not_cancelled(),
+            &NoopMcp,
+            &NoopRetrieval,
+            None,
+            None,
+            false,
+            &UnavailableSkillReads,
+            Some(TEST_SESSION_ID),
+            Some(guard),
+        )
+    }
+
+    #[test]
+    fn worker_writes_land_only_inside_the_allowed_scope_and_nothing_else_moves() {
+        let workspace = TempDirectory::new("native-loop-scope");
+        let storage = TempDirectory::new("native-loop-scope-store");
+        let outside_sentinel = sentinel("docs");
+        let protected_sentinel = sentinel("generated");
+        workspace.write("docs/readme.md", &outside_sentinel);
+        workspace.write("src/generated/a.ts", &protected_sentinel);
+        workspace.write("src/app.ts", "const value = 1;\n");
+        let folder = workspace.path().to_string_lossy().to_string();
+        let worker = test_guard(
+            workspace.path(),
+            storage.path(),
+            &["src"],
+            &["src/generated"],
+            LoopRequestedMode::PreventiveRequired,
+            LoopGuardRole::Worker,
+        );
+
+        let written = run_scoped(
+            worker.as_ref(),
+            &folder,
+            FILE_TOOL_NAME,
+            &json!({"operation": "write", "path": "src/new.ts", "content": "export const fresh = true;\n"}),
+        );
+        assert!(!written.is_error, "{}", written.output);
+        assert_eq!(
+            std::fs::read_to_string(workspace.path().join("src/new.ts")).expect("written"),
+            "export const fresh = true;\n"
+        );
+        let edited = run_scoped(
+            worker.as_ref(),
+            &folder,
+            EDIT_TOOL_NAME,
+            &json!({"path": "src/app.ts", "old_string": "value = 1", "new_string": "value = 2"}),
+        );
+        assert!(!edited.is_error, "{}", edited.output);
+        assert_eq!(
+            std::fs::read_to_string(workspace.path().join("src/app.ts")).expect("edited"),
+            "const value = 2;\n"
+        );
+
+        // Outside the allowed scope, under a protected path, through an absolute path and
+        // through a traversal: every one is refused before any byte lands.
+        for (name, input) in [
+            (
+                FILE_TOOL_NAME,
+                json!({"operation": "write", "path": "docs/readme.md", "content": "x"}),
+            ),
+            (
+                FILE_TOOL_NAME,
+                json!({"operation": "write", "path": "src/generated/a.ts", "content": "x"}),
+            ),
+            (
+                FILE_TOOL_NAME,
+                json!({"operation": "write", "path": "src/../docs/readme.md", "content": "x"}),
+            ),
+            (
+                FILE_TOOL_NAME,
+                json!({"operation": "write", "path": "/tmp/native-loop-scope-escape.txt", "content": "x"}),
+            ),
+            (
+                EDIT_TOOL_NAME,
+                json!({"path": "docs/readme.md", "old_string": "SENTINEL", "new_string": "x"}),
+            ),
+            (
+                EDIT_TOOL_NAME,
+                json!({"path": "src/generated/a.ts", "old_string": "SENTINEL", "new_string": "x"}),
+            ),
+        ] {
+            let refused = run_scoped(worker.as_ref(), &folder, name, &input);
+            assert!(
+                refused.is_error,
+                "{name} {input} must be refused: {}",
+                refused.output
+            );
+            assert!(
+                !refused.output.contains("SENTINEL-"),
+                "refusals never echo file content"
+            );
+        }
+        assert_eq!(
+            std::fs::read_to_string(workspace.path().join("docs/readme.md")).expect("kept"),
+            outside_sentinel
+        );
+        assert_eq!(
+            std::fs::read_to_string(workspace.path().join("src/generated/a.ts")).expect("kept"),
+            protected_sentinel
+        );
+        assert!(!Path::new("/tmp/native-loop-scope-escape.txt").exists());
+
+        // Uncovered channels are closed for a Loop-owned session regardless of the request.
+        let shell = run_scoped(
+            worker.as_ref(),
+            &folder,
+            SHELL_TOOL_NAME,
+            &json!({"command": "touch docs/from-shell.txt"}),
+        );
+        assert!(shell.is_error);
+        assert!(shell
+            .output
+            .contains("not available in a Loop-owned session"));
+        assert!(!workspace.path().join("docs/from-shell.txt").exists());
+        let intelligence = run_scoped(
+            worker.as_ref(),
+            &folder,
+            "find_references",
+            &json!({"path": "src/new.ts", "line": 1, "column": 1}),
+        );
+        assert!(intelligence.is_error);
+        assert!(intelligence
+            .output
+            .contains("not available in a Loop-owned session"));
+
+        // Reads stay available: the scope bounds mutations, not inspection of the worktree.
+        let read = run_scoped(
+            worker.as_ref(),
+            &folder,
+            FILE_TOOL_NAME,
+            &json!({"operation": "read", "path": "src/new.ts"}),
+        );
+        assert!(!read.is_error, "{}", read.output);
+        assert!(read.output.contains("fresh"));
+    }
+
+    #[test]
+    fn verifier_sessions_cannot_mutate_through_any_native_channel() {
+        let workspace = TempDirectory::new("native-loop-scope-verifier");
+        let storage = TempDirectory::new("native-loop-scope-verifier-store");
+        let sentinel = sentinel("app");
+        workspace.write("src/app.ts", &sentinel);
+        let folder = workspace.path().to_string_lossy().to_string();
+        let verifier = test_guard(
+            workspace.path(),
+            storage.path(),
+            &["src"],
+            &[],
+            LoopRequestedMode::ArtifactAudited,
+            LoopGuardRole::Verifier,
+        );
+        for (name, input) in [
+            (
+                FILE_TOOL_NAME,
+                json!({"operation": "write", "path": "src/app.ts", "content": "x"}),
+            ),
+            (
+                EDIT_TOOL_NAME,
+                json!({"path": "src/app.ts", "old_string": "SENTINEL", "new_string": "x"}),
+            ),
+            (SHELL_TOOL_NAME, json!({"command": "echo x > src/app.ts"})),
+        ] {
+            let refused = run_scoped(verifier.as_ref(), &folder, name, &input);
+            assert!(
+                refused.is_error,
+                "{name} must be refused for a Verifier: {}",
+                refused.output
+            );
+        }
+        assert_eq!(
+            std::fs::read_to_string(workspace.path().join("src/app.ts")).expect("unchanged"),
+            sentinel
+        );
+        let read = run_scoped(
+            verifier.as_ref(),
+            &folder,
+            FILE_TOOL_NAME,
+            &json!({"operation": "read", "path": "src/app.ts"}),
+        );
+        assert!(!read.is_error, "{}", read.output);
+    }
+}

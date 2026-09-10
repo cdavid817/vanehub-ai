@@ -1,8 +1,12 @@
+use super::loop_test_support::{
+    assessment_service, scope_evidence, test_binding, FakeScopePlatform,
+};
 use super::*;
 use crate::contexts::agent_runtime::domain::{
     AgentAvailability, AgentDefinition, AgentDefinitionInput, AvailabilityAssessment,
-    InteractionMode, LaunchMetadata, LoopDefinition, LoopDefinitionInput, LoopLimits, LoopRun,
-    LoopRunPhase, LoopRunSnapshot, LoopRunStatus, LoopVerificationCommand,
+    InteractionMode, LaunchMetadata, LoopDefinition, LoopDefinitionInput, LoopLimits,
+    LoopRequestedMode, LoopRun, LoopRunPhase, LoopRunSnapshot, LoopRunStatus, LoopTerminalReason,
+    LoopVerificationCommand, LoopVerificationKind, NATIVE_CHECK_PATCH_WHITESPACE,
 };
 use serde_json::json;
 use std::sync::{Arc, Mutex};
@@ -14,6 +18,9 @@ struct OrchestratorWorld {
     terminal: Mutex<Option<LoopRoleGenerationTerminal>>,
     operations: Mutex<Vec<LoopOperationContext>>,
     logs: Mutex<Vec<LoopLog>>,
+    platform: Arc<FakeScopePlatform>,
+    bound: Mutex<bool>,
+    stopped: Mutex<Vec<String>>,
 }
 
 impl OrchestratorWorld {
@@ -48,14 +55,30 @@ impl OrchestratorWorld {
                 diff_fingerprint: None,
                 check_failure_fingerprint: None,
                 user_feedback: Some("Keep the public API stable.".to_string()),
-                evidence: vec![required_failure()],
+                evidence: vec![
+                    required_failure(),
+                    scope_evidence("worker", "passed", "tree-1"),
+                    scope_evidence("verification", "passed", "tree-1"),
+                ],
                 started_at: "2099-01-01T00:00:00Z".to_string(),
                 completed_at: None,
             }),
             terminal: Mutex::new(None),
             operations: Mutex::new(Vec::new()),
             logs: Mutex::new(Vec::new()),
+            platform: FakeScopePlatform::new("tree-1"),
+            bound: Mutex::new(true),
+            stopped: Mutex::new(Vec::new()),
         })
+    }
+
+    fn assessment(self: &Arc<Self>) -> LoopAssessmentService {
+        assessment_service(
+            self.clone(),
+            self.clone(),
+            self.platform.clone(),
+            self.clone(),
+        )
     }
 
     fn view(&self) -> LoopRunView {
@@ -82,6 +105,8 @@ impl OrchestratorWorld {
             started_at: Some("2099-01-01T00:00:00Z".to_string()),
             updated_at: "2099-01-01T00:00:00Z".to_string(),
             completed_at: None,
+            revision: 1,
+            scope: None,
         }
     }
 
@@ -102,6 +127,7 @@ impl OrchestratorWorld {
                 observer: observer.clone(),
                 clock: self.clone(),
                 evidence: self.clone(),
+                scope_platform: self.platform.clone(),
             });
         let verifier = LoopVerifierApplicationService::new(LoopVerifierApplicationPorts {
             iterations: self.clone(),
@@ -123,7 +149,41 @@ impl OrchestratorWorld {
             progress: LoopProgressApplicationService::new(self.clone()),
             observer,
             clock: self.clone(),
+            scope_platform: self.platform.clone(),
+            assessment: self.assessment(),
         })
+    }
+}
+
+impl ApiAgentGateway for OrchestratorWorld {
+    fn register(
+        &self,
+        _: &str,
+        _: &RegisterApiAgentInput,
+    ) -> Result<AgentDefinition, AgentRuntimeApplicationError> {
+        unreachable!()
+    }
+    fn provider_config(
+        &self,
+        _: &str,
+    ) -> Result<Option<ApiProviderConfig>, AgentRuntimeApplicationError> {
+        Ok(Some(ApiProviderConfig {
+            source_provider_id: None,
+            model_id: "model".to_string(),
+            interface_format: "anthropic".to_string(),
+            base_url: None,
+            auto_approve_tools: true,
+        }))
+    }
+    fn update(
+        &self,
+        _: &str,
+        _: &UpdateApiAgentInput,
+    ) -> Result<AgentDefinition, AgentRuntimeApplicationError> {
+        unreachable!()
+    }
+    fn delete(&self, _: &str) -> Result<(), AgentRuntimeApplicationError> {
+        unreachable!()
     }
 }
 
@@ -225,6 +285,99 @@ impl LoopRepository for OrchestratorWorld {
     ) -> Result<Option<LoopDefinition>, AgentRuntimeApplicationError> {
         Ok((run_id == "run-1").then(|| self.definition.clone()))
     }
+
+    fn find_run_scope(
+        &self,
+        run_id: &str,
+    ) -> Result<Option<LoopRunScopeRecord>, AgentRuntimeApplicationError> {
+        if run_id != "run-1" {
+            return Ok(None);
+        }
+        let bound = *self.bound.lock().expect("bound");
+        let assessment = assessment_service(
+            Arc::new(TrustedApiAgents),
+            Arc::new(TrustedApiAgents),
+            self.platform.clone(),
+            Arc::new(TrustedApiAgents),
+        )
+        .assess(&self.definition)?;
+        Ok(Some(LoopRunScopeRecord {
+            revision: 1,
+            binding: bound
+                .then(|| test_binding(&self.definition, &assessment, "tree-1"))
+                .transpose()?,
+            assessment: Some(assessment),
+            sealed_evidence_id: None,
+            acceptance_operation_id: None,
+        }))
+    }
+}
+
+/// The trusted API roles the strict mode admits, used to build the frozen binding.
+struct TrustedApiAgents;
+
+impl AgentRegistryRepository for TrustedApiAgents {
+    fn list(&self) -> Result<Vec<AgentDefinition>, AgentRuntimeApplicationError> {
+        unreachable!()
+    }
+    fn find(
+        &self,
+        agent_id: &str,
+    ) -> Result<Option<AgentDefinition>, AgentRuntimeApplicationError> {
+        Ok(Some(api_agent(agent_id)))
+    }
+}
+
+impl ApiAgentGateway for TrustedApiAgents {
+    fn register(
+        &self,
+        _: &str,
+        _: &RegisterApiAgentInput,
+    ) -> Result<AgentDefinition, AgentRuntimeApplicationError> {
+        unreachable!()
+    }
+    fn provider_config(
+        &self,
+        _: &str,
+    ) -> Result<Option<ApiProviderConfig>, AgentRuntimeApplicationError> {
+        Ok(Some(ApiProviderConfig {
+            source_provider_id: None,
+            model_id: "model".to_string(),
+            interface_format: "anthropic".to_string(),
+            base_url: None,
+            auto_approve_tools: true,
+        }))
+    }
+    fn update(
+        &self,
+        _: &str,
+        _: &UpdateApiAgentInput,
+    ) -> Result<AgentDefinition, AgentRuntimeApplicationError> {
+        unreachable!()
+    }
+    fn delete(&self, _: &str) -> Result<(), AgentRuntimeApplicationError> {
+        unreachable!()
+    }
+}
+
+impl AgentClockPort for TrustedApiAgents {
+    fn now(&self) -> String {
+        "2099-01-01T00:01:00Z".to_string()
+    }
+}
+
+fn api_agent(agent_id: &str) -> AgentDefinition {
+    AgentDefinition::new(AgentDefinitionInput {
+        id: agent_id.to_string(),
+        display_name: agent_id.to_string(),
+        provider: "test".to_string(),
+        managed_sdk_dependency_id: None,
+        launch: LaunchMetadata::new("api".to_string(), None, None, None).expect("launch"),
+        supported_interaction_modes: vec![InteractionMode::Api],
+        availability: AvailabilityAssessment::new(AgentAvailability::Available, None),
+        capability_tags: Vec::new(),
+    })
+    .expect("agent")
 }
 
 impl AgentRegistryRepository for OrchestratorWorld {
@@ -236,19 +389,7 @@ impl AgentRegistryRepository for OrchestratorWorld {
         &self,
         agent_id: &str,
     ) -> Result<Option<AgentDefinition>, AgentRuntimeApplicationError> {
-        Ok(Some(
-            AgentDefinition::new(AgentDefinitionInput {
-                id: agent_id.to_string(),
-                display_name: agent_id.to_string(),
-                provider: "test".to_string(),
-                managed_sdk_dependency_id: None,
-                launch: LaunchMetadata::new("cli".to_string(), None, None, None).expect("launch"),
-                supported_interaction_modes: vec![InteractionMode::Cli],
-                availability: AvailabilityAssessment::new(AgentAvailability::Available, None),
-                capability_tags: Vec::new(),
-            })
-            .expect("agent"),
-        ))
+        Ok(Some(api_agent(agent_id)))
     }
 }
 
@@ -320,8 +461,16 @@ impl LoopIterationRepository for OrchestratorWorld {
         Ok(())
     }
 
-    fn append_evidence(&self, _: &LoopEvidenceView) -> Result<(), AgentRuntimeApplicationError> {
-        unreachable!()
+    fn append_evidence(
+        &self,
+        evidence: &LoopEvidenceView,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        self.iteration
+            .lock()
+            .expect("iteration")
+            .evidence
+            .push(evidence.clone());
+        Ok(())
     }
 }
 
@@ -403,7 +552,11 @@ impl LoopRoleGenerationCompletionPort for OrchestratorWorld {
 }
 
 impl LoopGenerationControlPort for OrchestratorWorld {
-    fn stop_loop_generation(&self, _: &str) -> Result<(), AgentRuntimeApplicationError> {
+    fn stop_loop_generation(&self, session_id: &str) -> Result<(), AgentRuntimeApplicationError> {
+        self.stopped
+            .lock()
+            .expect("stopped")
+            .push(session_id.to_string());
         Ok(())
     }
 }
@@ -506,13 +659,14 @@ fn definition() -> LoopDefinition {
         goal: "Fix the project".to_string(),
         acceptance_criteria: vec!["Required tests pass".to_string()],
         allowed_paths: vec!["src".to_string()],
-        protected_paths: vec![".git".to_string()],
+        protected_paths: vec!["src/generated".to_string()],
         worker_agent_id: "worker".to_string(),
         verifier_agent_id: "verifier".to_string(),
-        verification_commands: vec![LoopVerificationCommand::new(
+        verification_commands: vec![LoopVerificationCommand::new_with_kind(
             "tests".to_string(),
-            "npm".to_string(),
-            vec!["test".to_string()],
+            LoopVerificationKind::NativeCheck,
+            NATIVE_CHECK_PATCH_WHITESPACE.to_string(),
+            Vec::new(),
             None,
             60,
             true,
@@ -522,6 +676,8 @@ fn definition() -> LoopDefinition {
         version: 1,
         created_at: "2099-01-01T00:00:00Z".to_string(),
         updated_at: "2099-01-01T00:00:00Z".to_string(),
+        scope_schema_version: Some(1),
+        requested_mode: Some(LoopRequestedMode::PreventiveRequired),
     })
     .expect("definition")
 }
@@ -576,16 +732,100 @@ fn deciding_refreshes_verifier_state_records_fingerprints_and_starts_revision() 
     drop(iteration);
 
     let operations = world.operations.lock().expect("operations");
-    assert_eq!(operations.len(), 2);
+    assert_eq!(operations.len(), 3);
     assert_eq!(operations[0].kind, LoopOperationKind::RoleGeneration);
-    assert_eq!(operations[1].kind, LoopOperationKind::Decision);
+    assert_eq!(operations[1].kind, LoopOperationKind::ScopeEvidence);
+    assert_eq!(operations[2].kind, LoopOperationKind::Decision);
     assert!(operations.iter().all(|context| {
         context.run_id == "run-1" && context.iteration_id.as_deref() == Some("iteration-1")
     }));
     drop(operations);
 
     let logs = world.logs.lock().expect("logs");
-    assert_eq!(logs.len(), 4);
+    assert_eq!(logs.len(), 6);
     assert!(logs.iter().all(|log| log.operation_id.is_some()));
     assert!(logs.iter().all(|log| log.context.run_id == "run-1"));
+}
+
+#[test]
+fn deciding_fails_the_run_on_a_verifier_phase_scope_violation() {
+    let world = OrchestratorWorld::new();
+    world
+        .platform
+        .changes
+        .lock()
+        .expect("changes")
+        .push(LoopManifestChangeView {
+            path: "src/generated/out.js".to_string(),
+            kind: "modified".to_string(),
+        });
+
+    world
+        .service()
+        .decide(&world.view(), &LoopVerificationCancellation::default())
+        .expect("decision");
+
+    let run = world.run.lock().expect("run");
+    assert_eq!(run.status(), LoopRunStatus::Failed);
+    assert_eq!(
+        run.terminal_reason(),
+        Some(LoopTerminalReason::ScopeViolation)
+    );
+    drop(run);
+    let iteration = world.iteration.lock().expect("iteration");
+    assert!(iteration.evidence.iter().any(|item| {
+        item.kind == SCOPE_EVIDENCE_KIND
+            && item.status == "violation"
+            && item
+                .details
+                .as_ref()
+                .is_some_and(|details| details["sticky"] == true)
+    }));
+    assert!(iteration
+        .decision_reason
+        .as_deref()
+        .is_some_and(|reason| reason.starts_with("scope-violation")));
+}
+
+#[test]
+fn deciding_pauses_when_the_scan_cannot_complete_or_the_binding_is_missing() {
+    let unverifiable = OrchestratorWorld::new();
+    *unverifiable.platform.fail_capture.lock().expect("fail") =
+        Some(LoopScopeFailure::new("scan-budget-exceeded", "too large"));
+    unverifiable
+        .service()
+        .decide(
+            &unverifiable.view(),
+            &LoopVerificationCancellation::default(),
+        )
+        .expect("decision");
+    let run = unverifiable.run.lock().expect("run");
+    assert_eq!(run.status(), LoopRunStatus::Paused);
+    assert_eq!(
+        run.terminal_reason(),
+        Some(LoopTerminalReason::ScopeUnverifiable)
+    );
+    drop(run);
+
+    let unbound = OrchestratorWorld::new();
+    *unbound.bound.lock().expect("bound") = false;
+    unbound
+        .service()
+        .decide(&unbound.view(), &LoopVerificationCancellation::default())
+        .expect("decision");
+    let run = unbound.run.lock().expect("run");
+    assert_eq!(run.status(), LoopRunStatus::Paused);
+    assert_eq!(
+        run.terminal_reason(),
+        Some(LoopTerminalReason::ScopeBindingMissing)
+    );
+    assert!(
+        unbound.operations.lock().expect("operations").is_empty(),
+        "no Verifier was launched"
+    );
+    assert_eq!(
+        unbound.stopped.lock().expect("stopped").as_slice(),
+        ["worker-session".to_string()],
+        "the owned Worker session is stopped when the run loses its authority"
+    );
 }

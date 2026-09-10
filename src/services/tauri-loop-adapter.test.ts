@@ -57,6 +57,10 @@ describe("Tauri Loop adapter", () => {
     await tauriLoopClient.acceptLoop("run-1");
     await tauriLoopClient.continueLoop({ runId: "run-1", feedback: "Revise tests" });
     await tauriLoopClient.rejectLoop("run-1");
+    await tauriLoopClient.prepareLoopAdmission({ action: "start", definitionId: "definition-1", expectedRevision: 3 });
+    await tauriLoopClient.acknowledgeLoopAudit("challenge-1");
+    await tauriLoopClient.requestLoopAcceptance({ runId: "run-1", expectedRevision: 4, expectedScopeDigest: "sha256:scope" });
+    await tauriLoopClient.startLoop("definition-1", { expectedRevision: 3, auditAcknowledgementId: "receipt-1" });
 
     expect(invokeMock.mock.calls).toEqual([
       ["list_known_projects"],
@@ -69,13 +73,17 @@ describe("Tauri Loop adapter", () => {
       ["list_loop_runs", { definitionId: null }],
       ["list_loop_runs", { definitionId: "definition-1" }],
       ["get_loop_run", { runId: "run-1" }],
-      ["start_loop", { definitionId: "definition-1" }],
+      ["start_loop", { definitionId: "definition-1", envelope: null }],
       ["pause_loop", { runId: "run-1" }],
-      ["resume_loop", { runId: "run-1" }],
+      ["resume_loop", { runId: "run-1", envelope: null }],
       ["cancel_loop", { runId: "run-1" }],
       ["accept_loop", { runId: "run-1" }],
-      ["continue_loop", { input: { runId: "run-1", feedback: "Revise tests" } }],
+      ["continue_loop", { input: { runId: "run-1", feedback: "Revise tests", envelope: null } }],
       ["reject_loop", { runId: "run-1" }],
+      ["prepare_loop_admission", { input: { action: "start", definitionId: "definition-1", runId: null, expectedRevision: 3, clientContext: "desktop" } }],
+      ["acknowledge_loop_audit", { challengeId: "challenge-1" }],
+      ["request_loop_acceptance", { input: { runId: "run-1", expectedRevision: 4, expectedScopeDigest: "sha256:scope", expectedEvidenceId: null, idempotencyKey: null } }],
+      ["start_loop", { definitionId: "definition-1", envelope: { expectedRevision: 3, idempotencyKey: null, auditAcknowledgementId: "receipt-1" } }],
     ]);
   });
 

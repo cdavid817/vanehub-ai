@@ -446,7 +446,12 @@ const SUBTREE_LINE_BUDGETS = Object.freeze([
   // 28263 -> 28277(extend-cli-providers-with-acp 第三轮审查修正):+14 是聊天配置归一化对 CodeBuddy
   // 区域账号(`codebuddy-china` / `codebuddy-ioa`)的保留规则,与领域层 `is_reviewed_account_environment`
   // 镜像;不是既有逻辑的复制。
-  { root: "src/services", budget: 28277, owner: "harden-session-workspace-tab-layouts" },
+  //
+  // 28277 -> 28606(enforce-loop-execution-scope):+329 是 Web/mock 适配器对执行范围契约的模拟层——
+  // 覆盖度评估、审计 challenge/receipt 的一次性消费、封存验收与旧定义拒绝(`web-loop-scope.ts`、
+  // `web-loop-definition-validation.ts`),以及 Tauri 适配器的三条新命令映射;与原生规则同形但全部标注
+  // simulated,不是既有逻辑的复制。
+  { root: "src/services", budget: 28606, owner: "enforce-loop-execution-scope" },
 ]);
 
 const STATE_PACKAGES = new Set([

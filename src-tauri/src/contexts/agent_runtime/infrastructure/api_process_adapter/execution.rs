@@ -30,6 +30,7 @@ use super::{
     failed_non_retryable, failed_retryable, ExecutedToolCall, PendingApprovals, HISTORY_LIMIT,
     MAX_TOOL_ROUND_TRIPS,
 };
+use crate::contexts::agent_runtime::application::LoopScopeGuard;
 use crate::contexts::agent_runtime::application::{
     AgentClockPort, AgentCodeIntelligencePort, AgentCoreInstructionsPort, AgentLoggingPort,
     AgentMcpToolPort, AgentPermissionPort, AgentPersonalizationSnapshotPort, AgentProcessEventSink,
@@ -151,6 +152,22 @@ pub(super) fn execute_with_code_intelligence(
         }
     };
     let plan_mode = is_plan_mode(&request.configuration);
+    // Loop-owned sessions execute only through the frozen run scope. The guard is derived from
+    // backend ownership; a Loop-owned session that cannot derive one never runs a tool.
+    let loop_scope: Option<std::sync::Arc<dyn LoopScopeGuard>> =
+        match permissions.loop_scope_guard(&request.session.id) {
+            Ok(guard) => guard,
+            Err(error) => {
+                return failed_non_retryable(&format!(
+                    "Loop scope authority refused this session: {error}"
+                ))
+            }
+        };
+    if request.session.loop_ownership.is_some() && loop_scope.is_none() {
+        return failed_non_retryable(
+            "This Loop-owned session has no trustworthy scope binding; refusing to execute tools.",
+        );
+    }
     let mut tools = resolve_generation_tool_catalog(
         request,
         mcp,
@@ -165,9 +182,18 @@ pub(super) fn execute_with_code_intelligence(
     );
     // Declared here, not returned as one value: `_skill_tool_catalog_lease` is an `Arc` held for
     // the rest of the generation, and these three drop in this order at the end of it.
+    if loop_scope.is_some() {
+        tools.retain(|tool| loop_scope_admits_tool(&tool.name));
+    }
     let mut skill_tool_keys = HashMap::new();
     let mut _skill_tool_catalog_lease = None;
     let mut _skill_tool_catalog_generation = None;
+    // Skill tools are an uncovered channel; a scoped session never offers them.
+    let skill_tool_catalog = if loop_scope.is_some() {
+        None
+    } else {
+        skill_tool_catalog
+    };
     if let Some(catalog) = skill_tool_catalog {
         if let Some(resolved) = resolve_generation_skill_tools(
             catalog,
@@ -590,6 +616,7 @@ pub(super) fn execute_with_code_intelligence(
                 pending_approvals,
                 sink,
                 &cancelled,
+                loop_scope.as_deref(),
             ) {
                 ToolAuthorization::Allowed => {}
                 ToolAuthorization::Denied(denial) => {
@@ -624,6 +651,7 @@ pub(super) fn execute_with_code_intelligence(
                     skills,
                     utility_delegation,
                     request,
+                    loop_scope.as_deref(),
                 )
             };
             if cancelled.load(Ordering::SeqCst) {
@@ -945,4 +973,26 @@ pub(super) fn dispatch_skill_tool(
             output: format!("Skill tool failed: {}", error.code()),
             is_error: true,
         })
+}
+
+/// The catalog a Loop-owned session may see: host-mediated file access, read-only search and
+/// inspection, task notes and memory recall. Shell, background commands, MCP, notebooks, Skill
+/// tools and delegation are withheld because none of them is mediated per action.
+fn loop_scope_admits_tool(name: &str) -> bool {
+    use crate::contexts::agent_runtime::application::{
+        ExistingToolHandler, ExistingToolHandlerRegistry,
+    };
+    matches!(
+        ExistingToolHandlerRegistry::resolve(name),
+        Some(
+            ExistingToolHandler::File
+                | ExistingToolHandler::Edit
+                | ExistingToolHandler::Grep
+                | ExistingToolHandler::Glob
+                | ExistingToolHandler::SearchCode
+                | ExistingToolHandler::Recall
+                | ExistingToolHandler::TodoWrite
+                | ExistingToolHandler::ExitPlanMode
+        )
+    )
 }

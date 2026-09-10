@@ -1,3 +1,31 @@
+import type {
+  LoopControlEnvelope,
+  LoopExecutionAssessment,
+  LoopRequestedMode,
+  LoopRunScope,
+  LoopScopeState,
+  LoopVerificationKind,
+} from "./loop-scope";
+
+export type {
+  LoopAcceptanceResult,
+  LoopAdmission,
+  LoopAuditAcknowledgement,
+  LoopBindingStatus,
+  LoopControlAction,
+  LoopControlEnvelope,
+  LoopCoverage,
+  LoopExecutionAssessment,
+  LoopRequestedMode,
+  LoopRunScope,
+  LoopScopeState,
+  LoopSurfaceAssessment,
+  LoopVerificationKind,
+  PrepareLoopAdmissionInput,
+  RequestLoopAcceptanceInput,
+} from "./loop-scope";
+export { LOOP_NATIVE_CHECK_PATCH_WHITESPACE, LOOP_SCOPE_SCHEMA_VERSION } from "./loop-scope";
+
 export type LoopRunStatus =
   | "queued"
   | "running"
@@ -21,15 +49,39 @@ export type LoopTerminalReason =
   | "runtime-error"
   | "recovery-required"
   | "user-rejected"
-  | "user-stopped";
+  | "user-stopped"
+  | "scope-violation"
+  | "scope-binding-missing"
+  | "scope-unverifiable"
+  | "scope-capability-changed";
 
 export type LoopRole = "worker" | "verifier";
 export type LoopVerifierRecommendation = "pass" | "revise" | "blocked";
-export type LoopEvidenceKind = "worktree" | "worker" | "verification" | "verifier" | "decision" | "recovery";
-export type LoopEvidenceStatus = "pending" | "passed" | "failed" | "blocked" | "cancelled";
+export type LoopEvidenceKind =
+  | "worktree"
+  | "worker"
+  | "verification"
+  | "verification-command"
+  | "verifier"
+  | "decision"
+  | "recovery"
+  | "scope-binding"
+  | "scope-evidence"
+  | "acceptance";
+export type LoopEvidenceStatus =
+  | "pending"
+  | "passed"
+  | "failed"
+  | "blocked"
+  | "cancelled"
+  | "error"
+  | "timed-out"
+  | "violation"
+  | "unverifiable";
 
 export interface LoopVerificationCommand {
   id: string;
+  kind: LoopVerificationKind;
   program: string;
   args: string[];
   workingDirectory: string | null;
@@ -62,6 +114,9 @@ export interface LoopDefinition {
   version: number;
   createdAt: string;
   updatedAt: string;
+  scopeSchemaVersion: number | null;
+  requestedMode: LoopRequestedMode | null;
+  scopeState: LoopScopeState;
 }
 
 export interface SaveLoopDefinitionInput {
@@ -78,6 +133,8 @@ export interface SaveLoopDefinitionInput {
   verificationCommands: LoopVerificationCommand[];
   limits: LoopLimits;
   expectedVersion?: number | null;
+  scopeSchemaVersion?: number | null;
+  requestedMode?: LoopRequestedMode | null;
 }
 
 export interface LoopEvidence {
@@ -136,6 +193,8 @@ export interface LoopRun {
   startedAt: string | null;
   updatedAt: string;
   completedAt: string | null;
+  revision: number;
+  scope: LoopRunScope | null;
 }
 
 export interface StartLoopResult {
@@ -167,7 +226,9 @@ export type LoopReadinessCheckCode =
   | "verifier-eligible"
   | "verification-valid"
   | "path-scope-valid"
-  | "no-active-run";
+  | "no-active-run"
+  | "scope-version-supported"
+  | "execution-coverage";
 
 export type LoopReadinessCategory = "definition" | "workspace" | "agent" | "verification" | "runtime";
 export type LoopReadinessCheckStatus = "passed" | "blocked";
@@ -195,6 +256,11 @@ export interface LoopReadinessReport {
   simulated: boolean;
   checks: LoopReadinessCheck[];
   checkedAt: string;
+  requestedMode: LoopRequestedMode | null;
+  scopeState: LoopScopeState;
+  assessment: LoopExecutionAssessment | null;
+  acknowledgementRequired: boolean;
+  definitionRevision: number;
 }
 
 export type LoopEventKind = "run-updated" | "iteration-updated" | "evidence-added";
@@ -202,6 +268,12 @@ export type LoopEventKind = "run-updated" | "iteration-updated" | "evidence-adde
 export interface LoopEvent {
   kind: LoopEventKind;
   run: LoopRun;
+}
+
+export interface ContinueLoopInput {
+  runId: string;
+  feedback: string;
+  envelope?: LoopControlEnvelope;
 }
 
 export type LoopInspectionSurface =
@@ -216,9 +288,4 @@ export type LoopInspectionSurface =
 export interface LoopInspectionTarget {
   sessionId: string;
   surface: LoopInspectionSurface;
-}
-
-export interface ContinueLoopInput {
-  runId: string;
-  feedback: string;
 }
