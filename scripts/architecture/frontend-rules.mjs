@@ -451,7 +451,10 @@ const SUBTREE_LINE_BUDGETS = Object.freeze([
   // 覆盖度评估、审计 challenge/receipt 的一次性消费、封存验收与旧定义拒绝(`web-loop-scope.ts`、
   // `web-loop-definition-validation.ts`),以及 Tauri 适配器的三条新命令映射;与原生规则同形但全部标注
   // simulated,不是既有逻辑的复制。
-  { root: "src/services", budget: 28606, owner: "enforce-loop-execution-scope" },
+  //
+  // 28606 -> 28617(enforce-loop-execution-scope CI 修正):+11 是 Web token 用量 mock 把固定日期改为相对
+  // mock 时钟的三天前,避免"最近 30 天"窗口随日历失效;不是既有逻辑的复制。
+  { root: "src/services", budget: 28617, owner: "enforce-loop-execution-scope" },
 ]);
 
 const STATE_PACKAGES = new Set([
