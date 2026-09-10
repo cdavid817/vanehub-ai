@@ -1240,6 +1240,7 @@ fn ready_code_intelligence<T>(value: T) -> AgentCodeIntelligenceOutcome<T> {
 #[derive(Default)]
 struct FakePermissions {
     overrides: std::collections::HashMap<String, Effect>,
+    loop_guard: Option<Arc<dyn crate::contexts::agent_runtime::application::LoopScopeGuard>>,
 }
 
 impl FakePermissions {
@@ -1247,14 +1248,37 @@ impl FakePermissions {
         Self::default()
     }
 
+    /// Marks the session as Loop-owned by handing out a real scope guard.
+    fn with_loop_guard(
+        guard: Arc<dyn crate::contexts::agent_runtime::application::LoopScopeGuard>,
+    ) -> Self {
+        Self {
+            overrides: std::collections::HashMap::new(),
+            loop_guard: Some(guard),
+        }
+    }
+
     fn with_override(action: Action, effect: Effect) -> Self {
         let mut overrides = std::collections::HashMap::new();
         overrides.insert(action.as_str().to_string(), effect);
-        Self { overrides }
+        Self {
+            overrides,
+            loop_guard: None,
+        }
     }
 }
 
 impl AgentPermissionPort for FakePermissions {
+    fn loop_scope_guard(
+        &self,
+        _session_id: &str,
+    ) -> Result<
+        Option<Arc<dyn crate::contexts::agent_runtime::application::LoopScopeGuard>>,
+        AgentRuntimeApplicationError,
+    > {
+        Ok(self.loop_guard.clone())
+    }
+
     fn evaluate(
         &self,
         _agent_id: &str,
@@ -9831,4 +9855,123 @@ mod loop_scope_native_tools {
         );
         assert!(!read.is_error, "{}", read.output);
     }
+}
+
+/// Acceptance SC-13 / review R01: a registered native tool the catalog never offered is still
+/// refused when the model names it, before its executor and before any policy or approval.
+#[cfg(unix)]
+#[test]
+fn loop_owned_sessions_never_reach_registered_native_tools() {
+    use crate::contexts::agent_runtime::application::{LoopGuardRole, LoopRoleGenerationOwnership};
+    use crate::contexts::agent_runtime::domain::LoopRequestedMode;
+    use crate::contexts::agent_runtime::infrastructure::loop_scope_platform::test_guard;
+    use crate::test_support::TempDirectory;
+
+    let registry = NativeToolRegistry::try_new(vec![Arc::new(
+        crate::contexts::agent_runtime::application::OcrNativeToolHandler::new(Arc::new(
+            NativeOcrPort,
+        )),
+    )])
+    .expect("registry");
+    let workspace = TempDirectory::new("loop-registered-tool");
+    let storage = TempDirectory::new("loop-registered-tool-store");
+    workspace.write("src/app.ts", "a");
+    let guard = test_guard(
+        workspace.path(),
+        storage.path(),
+        &["src"],
+        &[],
+        LoopRequestedMode::PreventiveRequired,
+        LoopGuardRole::Worker,
+    );
+    let first_response = sse_body(&[
+        r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_ocr_1","type":"function","function":{"name":"ocr","arguments":"{\"artifact_id\":\"artifact-source\",\"languages\":[\"en\"]}"}}]},"finish_reason":null}]}"#,
+        "[DONE]",
+    ]);
+    let second_response = sse_body(&["[DONE]"]);
+    let (address, server) = http_fixture_sequence("200 OK", vec![first_response, second_response]);
+    let mut request = onepiece_request();
+    request.session.folder = Some(workspace.path().to_string_lossy().to_string());
+    request.session.loop_ownership = Some(LoopRoleGenerationOwnership {
+        run_id: "run-1".to_string(),
+        iteration_id: "iteration-1".to_string(),
+        role: "worker".to_string(),
+    });
+    let sink = CapturingSink::default();
+    let permissions = FakePermissions::with_loop_guard(guard);
+    let code_intelligence = super::super::RuntimeAgentCodeIntelligenceAdapter::new(Arc::new(
+        super::super::UnavailableAgentCodeIntelligenceResponder,
+    ));
+    let mut ignored_observations = Vec::new();
+    let memories = FakeMemories::default();
+    let governed = SnapshotFromLegacyPorts {
+        personalization: &NoopPersonalization,
+        memories: &memories,
+    };
+
+    let event = execute_with_code_intelligence(
+        &request,
+        not_cancelled(),
+        &FakeCredentials {
+            value: Some("sk-test".to_string()),
+        },
+        &openai_compatible_config("test-model", Some(&address)),
+        &FakeHistory(FakeHistoryOutcome::Messages(Vec::new())),
+        &sink,
+        &no_pending_approvals(),
+        &NoopLogging,
+        &FixedClock,
+        &NoopSkills,
+        &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
+        &NoopMcp,
+        &permissions,
+        &NoopRetrieval,
+        &code_intelligence,
+        &NOOP_WORKSPACE_MUTATIONS,
+        &governed,
+        None,
+        None,
+        None,
+        None,
+        &mut ignored_observations,
+        None,
+        &registry,
+        None,
+        None,
+        None,
+    );
+
+    assert!(
+        matches!(event, GenerationProcessEvent::Completed(None)),
+        "{event:?}"
+    );
+    let requests = server.join().expect("fixture server");
+    assert_eq!(requests.len(), 2);
+    let events = sink.events.lock().expect("events");
+    let outcome = events
+        .iter()
+        .find_map(|event| match event {
+            GenerationProcessEvent::ToolUse(tool_use)
+                if tool_use.name == "ocr" && tool_use.output.is_some() =>
+            {
+                Some(tool_use.clone())
+            }
+            _ => None,
+        })
+        .expect("the refused tool call is reported");
+    let output = outcome
+        .output
+        .map(|value| value.to_string())
+        .unwrap_or_default();
+    assert!(
+        output.contains("not available in a Loop-owned session"),
+        "{output}"
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|event| format!("{event:?}").contains("native-ocr")),
+        "the registered executor never ran"
+    );
+    assert_ne!(outcome.status, "completed");
 }

@@ -426,6 +426,24 @@ pub(super) fn execute_with_code_intelligence(
             }
             let input = tool_use.input.clone().unwrap_or(Value::Null);
             if native_tools.handler(&tool_use.name).is_some() {
+                // Registered native tools (delegation apply, OCR, ...) run through their own
+                // executors, which carry no scope binding. A Loop-owned session never reaches
+                // them: the catalog filter is presentation, this is the execution boundary, and
+                // neither the ordinary policy nor a person's approval can widen the frozen scope.
+                if loop_scope.is_some() {
+                    let denial = ToolExecutionOutcome {
+                        output: format!(
+                            "{} is not available in a Loop-owned session: only host-mediated file tools are admitted within the run scope.",
+                            tool_use.name
+                        ),
+                        is_error: true,
+                    };
+                    match record_tool_outcome(sink, tool_use, denial, None) {
+                        Ok(entry) => executed.push(entry),
+                        Err(failure) => return failure,
+                    }
+                    continue;
+                }
                 let outcome = match execute_registered_native_tool(
                     &mut tool_use,
                     &input,

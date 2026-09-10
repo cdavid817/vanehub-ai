@@ -552,6 +552,8 @@ impl LoopRun {
             (LoopRunPhase::Acting, LoopRunPhase::Verifying)
                 | (LoopRunPhase::Verifying, LoopRunPhase::Deciding)
                 | (LoopRunPhase::Deciding, LoopRunPhase::Acting)
+                // Re-verification: the tree changed after the checks ran.
+                | (LoopRunPhase::Deciding, LoopRunPhase::Verifying)
         );
         if !valid {
             return Err(self.transition_error(phase.as_str()));

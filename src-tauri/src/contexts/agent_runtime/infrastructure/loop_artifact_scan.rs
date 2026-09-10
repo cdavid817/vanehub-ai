@@ -36,6 +36,9 @@ pub(crate) enum ScanFailure {
     Cancelled,
     Unstable,
     LinkTraversal(String),
+    /// A name the manifest cannot represent losslessly; two different names must never share
+    /// one manifest key, so the scan reports instead of guessing.
+    NonUtf8Name(String),
 }
 
 impl ScanFailure {
@@ -46,6 +49,7 @@ impl ScanFailure {
             Self::Cancelled => "scan-cancelled",
             Self::Unstable => "scan-unstable",
             Self::LinkTraversal(_) => "scan-link-traversal",
+            Self::NonUtf8Name(_) => "scan-non-utf8-name",
         }
     }
 
@@ -56,6 +60,9 @@ impl ScanFailure {
             Self::Cancelled => "the evidence scan was cancelled".to_string(),
             Self::Unstable => "the workspace changed while evidence was being captured".to_string(),
             Self::LinkTraversal(path) => format!("an entry changed into a link at {path}"),
+            Self::NonUtf8Name(path) => {
+                format!("an entry under {path} has a name that is not valid UTF-8")
+            }
         }
     }
 }
@@ -227,7 +234,9 @@ pub(crate) fn scan_workspace(
             .map_err(|_| ScanFailure::Unreadable(display_path(&prefix, "")))?;
         for item in listing {
             let item = item.map_err(|_| ScanFailure::Unreadable(display_path(&prefix, "")))?;
-            let name = item.file_name().to_string_lossy().to_string();
+            let Some(name) = item.file_name().to_str().map(str::to_string) else {
+                return Err(ScanFailure::NonUtf8Name(display_path(&prefix, "")));
+            };
             let relative = display_path(&prefix, &name);
             let metadata = fs::symlink_metadata(item.path())
                 .map_err(|_| ScanFailure::Unreadable(relative.clone()))?;
@@ -240,7 +249,7 @@ pub(crate) fn scan_workspace(
                     kind: "symlink".to_string(),
                     size: 0,
                     mode: mode_of(&metadata),
-                    digest: Some(hex(&Sha256::digest(target.to_string_lossy().as_bytes()))),
+                    digest: Some(hex(&Sha256::digest(link_target_bytes(&target)?))),
                 }
             } else if file_type.is_dir() {
                 pending.push((item.path(), relative.clone()));
@@ -368,6 +377,23 @@ fn mode_of(metadata: &fs::Metadata) -> u32 {
     u32::from(metadata.permissions().readonly())
 }
 
+/// The raw bytes of a link target: two targets that differ only in bytes a lossy string
+/// would collapse must still produce different digests.
+fn link_target_bytes(target: &Path) -> Result<Vec<u8>, ScanFailure> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        Ok(target.as_os_str().as_bytes().to_vec())
+    }
+    #[cfg(not(unix))]
+    {
+        target
+            .to_str()
+            .map(|text| text.as_bytes().to_vec())
+            .ok_or_else(|| ScanFailure::NonUtf8Name(target.to_string_lossy().to_string()))
+    }
+}
+
 fn display_path(prefix: &str, name: &str) -> String {
     match (prefix.is_empty(), name.is_empty()) {
         (true, true) => ".".to_string(),
@@ -470,5 +496,40 @@ mod tests {
             scan_workspace(workspace.path(), &ScanBudget::default(), &cancel).expect("scan");
         manifest.entries[0].size += 1;
         assert!(!manifest.verify_integrity());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn link_targets_are_compared_by_raw_bytes_and_non_utf8_names_are_reported() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+        let workspace = TempDirectory::new("artifact-scan-bytes");
+        workspace.write("src/app.ts", "a");
+        let cancel = AtomicBool::new(false);
+        let link = workspace.path().join("link");
+        std::os::unix::fs::symlink(OsStr::from_bytes(b"../target-\xff"), &link).expect("link");
+        let first = scan_stable(workspace.path(), &ScanBudget::default(), &cancel).expect("first");
+        std::fs::remove_file(&link).expect("unlink");
+        std::os::unix::fs::symlink(OsStr::from_bytes(b"../target-\xfe"), &link).expect("relink");
+        let second =
+            scan_stable(workspace.path(), &ScanBudget::default(), &cancel).expect("second");
+        assert_ne!(
+            first.find("link").and_then(|entry| entry.digest.clone()),
+            second.find("link").and_then(|entry| entry.digest.clone()),
+            "two targets a lossy string would merge keep distinct digests"
+        );
+        assert_ne!(first.digest, second.digest);
+
+        std::fs::write(
+            workspace
+                .path()
+                .join(OsStr::from_bytes(b"src/bad-\xff.txt")),
+            "x",
+        )
+        .expect("bad name");
+        assert!(matches!(
+            scan_stable(workspace.path(), &ScanBudget::default(), &cancel),
+            Err(ScanFailure::NonUtf8Name(_))
+        ));
     }
 }

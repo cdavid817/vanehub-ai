@@ -2428,10 +2428,13 @@ const NATIVE_PATH_BUDGETS: &[PathBudget] = &[
     // Raised from 955 by `enforce-loop-execution-scope`: a Loop-owned session resolves its scope
     // guard from the backend authority before the tool loop starts and threads it into every
     // dispatch, so an out-of-scope write is refused before the tool runs rather than after.
+    // The PR #293 review round raises it to 1,016: registered native tools (delegation apply,
+    // OCR) are refused for Loop-owned sessions before their own executors, where no scope
+    // binding exists.
     PathBudget {
         path:
             "src-tauri/src/contexts/agent_runtime/infrastructure/api_process_adapter/execution.rs",
-        budget: 999,
+        budget: 1_016,
         owner: "enforce-loop-execution-scope",
     },
     // The other residual `split-api-adapter-modules` left above 1,000 lines: 43 native tool
@@ -2777,12 +2780,12 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // seat-owned binding key, the replay drain on resume, the stop escalation and the
         // completion ordering in the adapter, plus the regression tests for each.
         //
-        // `enforce-loop-execution-scope` (2026-09-09) raises it to 80,347: the unix
+        // `enforce-loop-execution-scope` (2026-09-09) raises it to 80,754: the unix
         // handle-relative filesystem boundary, the complete artifact scanner, the
         // content-addressed evidence store, the in-process `patch-whitespace` check, the scope
         // platform/guard/authority adapters, the scope schema migration and the repository scope
         // columns, each with sentinel-based tests, plus the strict-Loop lifecycle test.
-        budget: 80_347,
+        budget: 80_754,
         owner: "enforce-loop-execution-scope",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
@@ -3011,7 +3014,7 @@ const NATIVE_PRODUCTION_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // of the scope boundary listed on the aggregate above -- openat/renameat/unlinkat
         // delivery, manifest scanning and diffing, evidence sealing, native check, guard and
         // authority, repository scope persistence and the ACP/native tool admission paths.
-        budget: 45_049,
+        budget: 45_141,
         owner: "enforce-loop-execution-scope",
     },
 ];

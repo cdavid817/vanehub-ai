@@ -5,13 +5,13 @@ import { cn } from "../lib/utils";
 import type { LoopEvidence, LoopInspectionTarget, LoopIteration } from "../types/loop";
 import { LoopInspectionActions } from "./loop-inspection-actions";
 import { evidenceDetailNumber } from "./loop-monitoring";
-import { compareConsecutiveIterations } from "./loop-presentation";
+import { compareConsecutiveIterations, isVerificationEvidence } from "./loop-presentation";
 
 export function LoopIterationDetails({ iteration, onInspect, open, previousIteration }: { iteration: LoopIteration; onInspect?: (target: LoopInspectionTarget) => void; open: boolean; previousIteration: LoopIteration | null }) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(open);
   const workerEvidence = iteration.evidence.find((evidence) => evidence.kind === "worker");
-  const checks = iteration.evidence.filter((evidence) => evidence.kind === "verification");
+  const checks = iteration.evidence.filter(isVerificationEvidence);
   const changedFiles = evidenceDetailNumber(workerEvidence, "changedFiles");
   const additions = evidenceDetailNumber(workerEvidence, "additions");
   const deletions = evidenceDetailNumber(workerEvidence, "deletions");

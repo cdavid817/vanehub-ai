@@ -103,6 +103,21 @@
 - Windows/macOS 与真实 CLI 的运行时验证未执行；严格模式在这些环境按设计 fail closed。
 - `cargo test --workspace` 全量受主机内存限制，按第 5 节说明拆分执行；桌面 WDIO Loop 层以脱离会话守护的方式构建后运行通过。
 
+## 4a. PR #293 外部审查修复（2026-09-10）
+
+审查报告 `vanehub-ai-pr293-review-and-fix.md` 提出 7 项问题与 1 项 ACP 补充，逐项核对后均属实并已修复；每项先补能失败的回归用例再修调用链。
+
+| 编号 | 修复 | 回归用例 | 结果 |
+|---|---|---|---|
+| R01 | 工具循环在 registered 原生工具分支之前检查 Loop 归属：Loop 会话对任何注册工具（delegation apply、OCR 等）直接拒绝，不进入其执行器，普通策略与人工批准无法扩权 | `api_process_adapter::tests::loop_owned_sessions_never_reach_registered_native_tools`（provider fixture 返回未展示的 `ocr`，断言执行器未运行、结果为拒绝） | PASS |
+| R02 | 验证阶段先封存 `verification-input` 清单并以此为检查输入与复用指纹；检查后再封存 `verification`，两者不一致则有界重跑（2 轮）后暂停；Deciding 阶段若 Verifier 清单 ≠ verification 清单则回到 Verifying 重验（上限 6 次），Verifier 不重启；域状态机新增 Deciding→Verifying | `loop_lifecycle_tests::a_file_added_after_the_worker_seal_is_checked_and_blocks_acceptance`（真实 worktree，Worker 封存后外部写入带尾随空白的 allowed 文件，必需检查失败、不进入验收） | PASS |
+| R03 | 评估把 `artifact-validation` 面在 `safe_mutation=false` 的宿主标为 `unsupported`，严格与审计模式均在 readiness/start 阻断，与 `bind_root` 一致 | `application::loop_scope::tests::legacy_definitions_and_unsupported_platforms_block_and_change_the_witness`（新增 windows 审计模式断言） | PASS（Linux 单测；Windows 实机 NOT RUN） |
+| R04 | `verifier_sealed` 只承认与 verification 清单一致的 passed 封存或 violation；unverifiable 在恢复时重新扫描 | `loop_orchestrator_tests::deciding_reseals_the_verifier_phase_after_an_unverifiable_scan_without_restarting_the_verifier` | PASS |
+| R05 | 前端 `isVerificationEvidence` 同时接受 `verification-command` 与历史 `verification`；必需检查取同一命令的最新一行；Web mock 改为记录原生 kind | `loop-presentation.test.ts`（native/legacy/重验三种形状）、`web-agent-client.test.ts`、`web-loop-scope.test.ts` | PASS |
+| R06 | 临时文件名不再嵌入目标名（`.vanehub-scope-<pid>-<nonce>.tmp`） | `loop_scope_fs::tests::legal_names_near_name_max_are_written_and_replaced_atomically`（250 字节 ASCII 与 252 字节多字节名） | PASS |
+| R07 | 清单对链接目标按原始字节求摘要；非 UTF-8 条目名返回 `scan-non-utf8-name` 而非有损合并 | `loop_artifact_scan::tests::link_targets_are_compared_by_raw_bytes_and_non_utf8_names_are_reported` | PASS |
+| ACP | 目标身份无法建立（文件不存在）时 Ask 读取直接拒绝而不排队；Windows 用 creation/last-write/size 作为身份 | `handlers::tests::a_read_of_a_missing_target_is_refused_instead_of_waiting_for_approval`；既有 identity 断言在 Windows 亦成立（未在 Windows 实机运行） | PASS |
+
 ## 5. Rust 测试执行说明与最终结果
 
 本机 16 GB 内存且有其他 worktree 会话并行编译，`cargo test` 默认参数下 rustc 被 OOM 终止。实际执行方式：

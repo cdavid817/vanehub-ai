@@ -110,7 +110,7 @@ describe("webAgentClient", () => {
     expect(awaiting).toMatchObject({ status: "awaiting-acceptance", phase: "finalizing", simulated: true });
     expect(awaiting.iterations[0].evidence.map((item) => item.kind)).toEqual([
       "worker",
-      "verification",
+      "verification-command",
       "verifier",
       "decision",
     ]);
@@ -247,7 +247,7 @@ describe("webAgentClient", () => {
     const failed = await webAgentClient.getLoopRun(started.run.id);
     expect(failed).toMatchObject({ status: "failed", terminalReason: "verification-failed" });
     expect(failed.iterations[0].evidence).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: "verification", status: "failed", exitCode: 1 }),
+      expect.objectContaining({ kind: "verification-command", status: "failed", exitCode: 1 }),
       expect.objectContaining({ kind: "decision", status: "failed" }),
     ]));
   });

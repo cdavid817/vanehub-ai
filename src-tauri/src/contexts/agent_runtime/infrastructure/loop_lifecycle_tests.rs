@@ -37,6 +37,7 @@ use crate::platform::database::NativeDatabase;
 use crate::test_support::TempDirectory;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 const API_AGENT: &str = "loop-lifecycle-api";
@@ -92,6 +93,13 @@ struct LifecycleWorld {
     refusals: Mutex<Vec<String>>,
     outside_sentinel: String,
     protected_sentinel: String,
+    worktree: Mutex<Option<PathBuf>>,
+    /// When set, an allowed-scope file with trailing whitespace appears in the worktree right
+    /// after the Worker phase sealed its manifest, simulating an external editor at the pause
+    /// boundary (review R02): the checks must still see it.
+    dirty_after_worker: bool,
+    worker_done: AtomicBool,
+    dirtied: AtomicBool,
 }
 
 impl LifecycleWorld {
@@ -255,6 +263,21 @@ impl AgentRegistryRepository for LifecycleWorld {
         &self,
         agent_id: &str,
     ) -> Result<Option<AgentDefinition>, AgentRuntimeApplicationError> {
+        // The first registry lookup after the Worker finished is the verification phase's
+        // capability re-check, i.e. after the Worker-phase seal and before any check runs.
+        if self.dirty_after_worker
+            && self.worker_done.load(Ordering::SeqCst)
+            && !self.dirtied.swap(true, Ordering::SeqCst)
+        {
+            let worktree = self
+                .worktree
+                .lock()
+                .expect("worktree")
+                .clone()
+                .expect("worktree");
+            std::fs::write(worktree.join("src/dirty.ts"), "export const dirty = 1; \n")
+                .expect("external edit");
+        }
         Ok(match agent_id {
             API_AGENT => Some(agent(API_AGENT, false)),
             CLI_AGENT => Some(agent(CLI_AGENT, true)),
@@ -322,6 +345,7 @@ impl LoopProjectPort for LifecycleWorld {
                 base_branch,
             ],
         );
+        *self.worktree.lock().expect("worktree") = Some(path.clone());
         Ok(PreparedLoopWorktree {
             path: path.to_string_lossy().to_string(),
             name: format!("loop-{name}"),
@@ -467,6 +491,7 @@ impl LoopWorkerGenerationPort for LifecycleWorld {
                 .expect_err("uncovered channel is closed in strict mode");
             refusals.push(format!("channel {}: {error}", channel.as_str()));
         }
+        self.worker_done.store(true, Ordering::SeqCst);
         self.completions.deliver(LoopRoleGenerationTerminal {
             run_id,
             iteration_id,
@@ -596,6 +621,10 @@ struct Fixture {
 }
 
 fn fixture(label: &str) -> Fixture {
+    fixture_with(label, false)
+}
+
+fn fixture_with(label: &str, dirty_after_worker: bool) -> Fixture {
     let project_directory = TempDirectory::new(&format!("{label}-project"));
     let worktrees = TempDirectory::new(&format!("{label}-worktrees"));
     let evidence = TempDirectory::new(&format!("{label}-evidence"));
@@ -634,6 +663,10 @@ fn fixture(label: &str) -> Fixture {
         refusals: Mutex::new(Vec::new()),
         outside_sentinel,
         protected_sentinel,
+        worktree: Mutex::new(None),
+        dirty_after_worker,
+        worker_done: AtomicBool::new(false),
+        dirtied: AtomicBool::new(false),
     });
     Fixture {
         _directories: vec![project_directory, worktrees, evidence, data, outside],
@@ -643,6 +676,14 @@ fn fixture(label: &str) -> Fixture {
 }
 
 fn definition_request(world: &LifecycleWorld, verifier: &str) -> SaveLoopDefinitionRequest {
+    definition_request_with_iterations(world, verifier, 2)
+}
+
+fn definition_request_with_iterations(
+    world: &LifecycleWorld,
+    verifier: &str,
+    max_iterations: u16,
+) -> SaveLoopDefinitionRequest {
     SaveLoopDefinitionRequest {
         name: "Lifecycle".to_string(),
         enabled: true,
@@ -664,7 +705,7 @@ fn definition_request(world: &LifecycleWorld, verifier: &str) -> SaveLoopDefinit
             true,
         )
         .expect("native check")],
-        limits: LoopLimits::new(2, 60, 600, 2, 2).expect("limits"),
+        limits: LoopLimits::new(max_iterations, 60, 600, 2, 2).expect("limits"),
         expected_version: None,
         scope_schema_version: Some(1),
         requested_mode: Some(LoopRequestedMode::PreventiveRequired),
@@ -773,8 +814,8 @@ fn strict_native_loop_runs_from_start_to_sealed_acceptance_with_zero_out_of_scop
             .iter()
             .filter(|item| item.kind == "scope-evidence" && item.status == "passed")
             .count(),
-        3,
-        "worker, verification and verifier phases each seal complete scope evidence"
+        4,
+        "worker, verification input, verification and verifier phases each seal complete scope evidence"
     );
     assert_eq!(iteration.verifier_recommendation.as_deref(), Some("pass"));
     // The binding row is run-level (it precedes the first iteration), so it is checked in the
@@ -918,4 +959,77 @@ fn strict_start_refuses_a_cli_verifier_without_creating_a_run_or_worktree() {
         .next()
         .is_none());
     assert_eq!(*world.operations.lock().expect("operations"), 0);
+}
+
+/// Review R02: a file that appears in the allowed scope after the Worker-phase seal (an external
+/// editor at the pause boundary, an audited process check) must be checked before acceptance.
+#[test]
+fn a_file_added_after_the_worker_seal_is_checked_and_blocks_acceptance() {
+    let fixture = fixture_with("loop-lifecycle-drift", true);
+    let world = fixture.world.clone();
+    let admission = world.admission();
+    let definition = admission
+        .create_definition(definition_request_with_iterations(&world, API_AGENT, 1))
+        .expect("definition");
+    let started = admission
+        .start_manual(
+            &definition.id,
+            LoopControlEnvelope {
+                expected_revision: Some(definition.version),
+                idempotency_key: None,
+                audit_acknowledgement_id: None,
+            },
+        )
+        .expect("start");
+    world
+        .orchestrator()
+        .execute(&started.run_id, LoopVerificationCancellation::default())
+        .expect("orchestration");
+
+    assert!(
+        world.dirtied.load(Ordering::SeqCst),
+        "the fixture injected the late file"
+    );
+    let run = world
+        .repository
+        .find_run_view(&started.run_id)
+        .expect("view")
+        .expect("run");
+    assert_ne!(
+        run.status,
+        LoopRunStatus::AwaitingAcceptance,
+        "a tree with an unchecked trailing-whitespace file never reaches acceptance: {run:?}"
+    );
+    let iteration = run.iterations.last().expect("iteration");
+    let input_rows: Vec<_> = iteration
+        .evidence
+        .iter()
+        .filter(|item| {
+            item.kind == "scope-evidence"
+                && item
+                    .details
+                    .as_ref()
+                    .and_then(|details| details.get("phase"))
+                    .and_then(serde_json::Value::as_str)
+                    == Some("verification-input")
+        })
+        .collect();
+    assert!(
+        !input_rows.is_empty(),
+        "verification captured its own input manifest"
+    );
+    let check = iteration
+        .evidence
+        .iter()
+        .find(|item| item.kind == "verification-command")
+        .expect("the required check ran");
+    assert_eq!(
+        check.status, "failed",
+        "the late file's trailing whitespace was inspected: {check:?}"
+    );
+    assert!(check.summary.contains("finding"), "{}", check.summary);
+    assert!(
+        run.status.is_terminal() || run.status == LoopRunStatus::Paused,
+        "{run:?}"
+    );
 }

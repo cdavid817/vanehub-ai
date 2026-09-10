@@ -346,22 +346,31 @@ fn handle_read(
         Effect::Ask if !context.interactive => HandlerOutcome::Reply(Err(RpcError::refused(
             "read requires a human approval and none is available",
         ))),
-        Effect::Ask => HandlerOutcome::Defer {
-            ui: DeferredUi::Approval {
-                tool_call_id: format!("acp-fs-read-{}", stable_token(&path)),
-                tool_name: "fs/read_text_file".to_string(),
-                action: "file.read",
-                resource: path.clone(),
-                input: json!({"path": path, "line": line, "limit": limit}),
-            },
-            kind: InteractionKind::FileRead {
-                identity: read_identity(&resolved),
-                path,
-                line,
-                limit,
-            },
-            deadline: None,
-        },
+        Effect::Ask => {
+            // Without a bound identity an approval could be delivered against whatever appears
+            // at the path later; such a read is refused rather than queued.
+            let Some(identity) = read_identity(&resolved) else {
+                return HandlerOutcome::Reply(Err(RpcError::refused(
+                    "read target must be an existing regular file before it can wait for approval",
+                )));
+            };
+            HandlerOutcome::Defer {
+                ui: DeferredUi::Approval {
+                    tool_call_id: format!("acp-fs-read-{}", stable_token(&path)),
+                    tool_name: "fs/read_text_file".to_string(),
+                    action: "file.read",
+                    resource: path.clone(),
+                    input: json!({"path": path, "line": line, "limit": limit}),
+                },
+                kind: InteractionKind::FileRead {
+                    identity: Some(identity),
+                    path,
+                    line,
+                    limit,
+                },
+                deadline: None,
+            }
+        }
     }
 }
 
@@ -385,7 +394,21 @@ fn read_identity(resolved: &std::path::Path) -> Option<(u64, u64, i64)> {
                 )
             })
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        std::fs::symlink_metadata(resolved)
+            .ok()
+            .filter(|metadata| metadata.is_file())
+            .map(|metadata| {
+                (
+                    metadata.creation_time(),
+                    metadata.file_size(),
+                    i64::try_from(metadata.last_write_time()).unwrap_or(i64::MAX),
+                )
+            })
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = resolved;
         None
@@ -1964,5 +1987,28 @@ mod tests {
             deliver_read(&fixture.roots, &path, line, limit, None).expect_err("outside root");
         assert!(!format!("{refused:?}").contains(&secret));
         let _ = &fixture.workspace;
+    }
+
+    #[test]
+    fn a_read_of_a_missing_target_is_refused_instead_of_waiting_for_approval() {
+        let fixture = ReadFixture::new("acp-read-missing");
+        let context = fixture.context(true);
+        let later = fixture
+            .workspace
+            .path()
+            .join("later.txt")
+            .to_string_lossy()
+            .to_string();
+        let outcome = handle_request(
+            &context,
+            "fs/read_text_file",
+            &read_params(&later, None, None),
+            &|_, _| Effect::Ask,
+        );
+        assert!(
+            matches!(&outcome, HandlerOutcome::Reply(Err(error)) if error.code == super::super::jsonrpc::HOST_REFUSED),
+            "nothing may wait for an approval whose target does not exist yet: {outcome:?}"
+        );
+        assert!(!matches!(outcome, HandlerOutcome::Defer { .. }));
     }
 }

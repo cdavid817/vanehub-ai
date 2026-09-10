@@ -566,11 +566,9 @@ mod unix {
                 return Err(ScopedFsError::TooLarge(self.display));
             }
             let nonce = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-            let temporary = format!(
-                ".{}.vanehub-scope-{}-{nonce}.tmp",
-                self.name,
-                std::process::id()
-            );
+            // The temporary name must not embed the target name: a legal name near NAME_MAX
+            // would push the combination over the limit and refuse a legitimate write.
+            let temporary = format!(".vanehub-scope-{}-{nonce}.tmp", std::process::id());
             let c_temp = c_str(&temporary)?;
             let c_name = c_str(&self.name)?;
             // SAFETY: valid directory fd and NUL-terminated name.
@@ -1091,5 +1089,32 @@ mod tests {
         );
         assert!(relative_scope_path(root.root(), "/etc/passwd").is_err());
         assert!(relative_scope_path(root.root(), "../x").is_err());
+    }
+
+    #[test]
+    fn legal_names_near_name_max_are_written_and_replaced_atomically() {
+        let workspace = TempDirectory::new("scope-fs-long-name");
+        let root = ScopedWorkspaceRoot::open(workspace.path()).expect("root");
+        let scope = scope(&["src"], &[]);
+        for name in ["a".repeat(250), "文".repeat(84)] {
+            let path = rel(&format!("src/{name}"));
+            root.write_file(&scope, &path, b"first").expect("create");
+            root.write_file(&scope, &path, b"second").expect("replace");
+            assert_eq!(
+                fs::read_to_string(workspace.path().join("src").join(&name)).expect("read"),
+                "second"
+            );
+        }
+        let leftovers = fs::read_dir(workspace.path().join("src"))
+            .expect("dir")
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .contains("vanehub-scope")
+            })
+            .count();
+        assert_eq!(leftovers, 0, "no temporary file survives a delivery");
     }
 }

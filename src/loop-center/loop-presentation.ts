@@ -2,6 +2,11 @@ import type { LoopEvidence, LoopIteration, LoopRun } from "../types/loop";
 
 export type LoopCheckOutcome = LoopEvidence["status"] | "not-evaluated";
 
+/** Native runs record `verification-command`; rows written before that rename say `verification`. */
+export function isVerificationEvidence(evidence: Pick<LoopEvidence, "kind">): boolean {
+  return evidence.kind === "verification-command" || evidence.kind === "verification";
+}
+
 export interface LoopBudgetSummary {
   elapsedMs: number;
   remainingMs: number;
@@ -49,7 +54,7 @@ export function selectLatestDecision(run: LoopRun) {
 export function selectRequiredCheckOutcomes(run: LoopRun) {
   const latest = run.iterations.at(-1);
   return run.definitionSnapshot.verificationCommands.filter((command) => command.required).map((command) => {
-    const evidence = latest?.evidence.find((item) => item.kind === "verification" && item.commandId === command.id);
+    const evidence = [...(latest?.evidence ?? [])].reverse().find((item) => isVerificationEvidence(item) && item.commandId === command.id);
     return { commandId: command.id, outcome: evidence ? evidence.status : "not-evaluated" as LoopCheckOutcome };
   });
 }
@@ -91,7 +96,7 @@ export function selectRecoveryGuidance(run: LoopRun): "resume" | "inspect" | "no
 
 function failedCommandIds(iteration: LoopIteration) {
   return new Set(iteration.evidence.filter((item) => (
-    item.kind === "verification" && ["failed", "blocked"].includes(item.status) && item.commandId
+    isVerificationEvidence(item) && ["failed", "blocked", "error", "timed-out"].includes(item.status) && item.commandId
   )).map((item) => item.commandId as string));
 }
 

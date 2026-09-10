@@ -829,3 +829,46 @@ fn deciding_pauses_when_the_scan_cannot_complete_or_the_binding_is_missing() {
         "the owned Worker session is stopped when the run loses its authority"
     );
 }
+
+#[test]
+fn deciding_reseals_the_verifier_phase_after_an_unverifiable_scan_without_restarting_the_verifier()
+{
+    let world = OrchestratorWorld::new();
+    {
+        let mut iteration = world.iteration.lock().expect("iteration");
+        iteration.verifier_recommendation = Some("revise".to_string());
+        iteration.verifier_session_id = Some("verifier-session".to_string());
+        iteration
+            .evidence
+            .push(scope_evidence("verifier", "unverifiable", "tree-1"));
+    }
+    world
+        .service()
+        .decide(&world.view(), &LoopVerificationCancellation::default())
+        .expect("decision");
+    assert!(
+        world
+            .platform
+            .captured
+            .lock()
+            .expect("captured")
+            .iter()
+            .any(|manifest| manifest.starts_with("verifier")),
+        "the Verifier phase is scanned again once the cause of the unverifiable result is gone"
+    );
+    assert!(
+        world
+            .operations
+            .lock()
+            .expect("operations")
+            .iter()
+            .all(|context| { context.kind != LoopOperationKind::RoleGeneration }),
+        "the finished Verifier is not started again"
+    );
+    let run = world.run.lock().expect("run");
+    assert_ne!(
+        run.terminal_reason(),
+        Some(LoopTerminalReason::ScopeUnverifiable),
+        "a stale unverifiable row does not pause the run again"
+    );
+}

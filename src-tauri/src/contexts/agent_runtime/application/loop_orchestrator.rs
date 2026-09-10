@@ -412,73 +412,123 @@ impl LoopOrchestratorApplicationService {
         let Some(binding) = self.admitted_binding(view, LoopRunStatus::Running)? else {
             return Ok(());
         };
-        let iteration = current_iteration(view)?.clone();
-        let Some((input_manifest_id, input_digest)) =
-            super::loop_scope_evidence::latest_passed_manifest(&iteration, "worker")
-        else {
-            self.pause_for_scope(
-                &view.id,
-                LoopRunStatus::Running,
-                LoopTerminalReason::ScopeUnverifiable,
-                "The Worker phase has no complete scope evidence to verify against.",
-                None,
-            )?;
-            return Ok(());
-        };
         let record = self.ports.loops.find_run_scope(&view.id)?;
         let assessment_digest = record
             .and_then(|record| record.assessment)
             .map(|assessment| super::assessment_digest(&assessment))
             .unwrap_or_default();
-        let scope = LoopVerificationScope {
-            binding: binding.clone(),
-            input_manifest_id,
-            input_digest,
-            assessment_digest,
-        };
-        let existing = view
-            .definition_snapshot
-            .verification_commands
-            .iter()
-            .all(|command| {
-                let expected = super::loop_verification::verification_fingerprint(command, &scope);
-                iteration.evidence.iter().any(|item| {
-                    item.kind == "verification-command"
-                        && item.command_id.as_deref() == Some(command.id.as_str())
-                        && item
-                            .details
-                            .as_ref()
-                            .and_then(|details| details.get("fingerprint"))
-                            .and_then(serde_json::Value::as_str)
-                            == Some(expected.as_str())
-                })
-            });
-        if !existing {
-            let result = self
-                .ports
-                .verification
-                .run_commands(RunLoopVerificationRequest {
-                    run_id: view.id.clone(),
-                    iteration_id: iteration.id.clone(),
-                    worktree_root: required(&view.worktree_path, "Loop worktree path")?,
-                    commands: view.definition_snapshot.verification_commands.clone(),
-                    cancellation: cancellation.clone(),
-                    scope: Some(scope),
-                })?;
-            if result.cancelled {
+        // Checks run against a manifest captured now, never against the Worker-phase manifest: a
+        // pause boundary or an audited process check may have changed the tree since. A check
+        // that rewrites files invalidates its own input, so the phase repeats until the manifest
+        // after the checks equals the one they ran on, within a small bound.
+        for round in 0..MAX_VERIFICATION_ROUNDS {
+            let current = self.run_view(&view.id)?;
+            let iteration = current_iteration(&current)?.clone();
+            if !self.seal_phase(
+                &current,
+                &iteration,
+                VERIFICATION_INPUT_PHASE,
+                &binding,
+                cancellation,
+            )? {
                 return Ok(());
             }
-        }
-        let refreshed = self.run_view(&view.id)?;
-        let iteration = current_iteration(&refreshed)?.clone();
-        if !self.seal_phase(
-            &refreshed,
-            &iteration,
-            "verification",
-            &binding,
-            cancellation,
-        )? {
-            return Ok(());
+            let current = self.run_view(&view.id)?;
+            let iteration = current_iteration(&current)?.clone();
+            let Some((input_manifest_id, input_digest)) =
+                super::loop_scope_evidence::latest_passed_manifest(
+                    &iteration,
+                    VERIFICATION_INPUT_PHASE,
+                )
+            else {
+                self.pause_for_scope(
+                    &view.id,
+                    LoopRunStatus::Running,
+                    LoopTerminalReason::ScopeUnverifiable,
+                    "The verification input manifest could not be established.",
+                    None,
+                )?;
+                return Ok(());
+            };
+            let scope = LoopVerificationScope {
+                binding: binding.clone(),
+                input_manifest_id,
+                input_digest: input_digest.clone(),
+                assessment_digest: assessment_digest.clone(),
+            };
+            let existing = view
+                .definition_snapshot
+                .verification_commands
+                .iter()
+                .all(|command| {
+                    let expected =
+                        super::loop_verification::verification_fingerprint(command, &scope);
+                    iteration.evidence.iter().any(|item| {
+                        item.kind == "verification-command"
+                            && item.command_id.as_deref() == Some(command.id.as_str())
+                            && item
+                                .details
+                                .as_ref()
+                                .and_then(|details| details.get("fingerprint"))
+                                .and_then(serde_json::Value::as_str)
+                                == Some(expected.as_str())
+                    })
+                });
+            if !existing {
+                let result = self
+                    .ports
+                    .verification
+                    .run_commands(RunLoopVerificationRequest {
+                        run_id: view.id.clone(),
+                        iteration_id: iteration.id.clone(),
+                        worktree_root: required(&view.worktree_path, "Loop worktree path")?,
+                        commands: view.definition_snapshot.verification_commands.clone(),
+                        cancellation: cancellation.clone(),
+                        scope: Some(scope),
+                    })?;
+                if result.cancelled {
+                    return Ok(());
+                }
+            }
+            let refreshed = self.run_view(&view.id)?;
+            let iteration = current_iteration(&refreshed)?.clone();
+            if !self.seal_phase(
+                &refreshed,
+                &iteration,
+                "verification",
+                &binding,
+                cancellation,
+            )? {
+                return Ok(());
+            }
+            let refreshed = self.run_view(&view.id)?;
+            let iteration = current_iteration(&refreshed)?.clone();
+            let settled =
+                super::loop_scope_evidence::latest_passed_manifest(&iteration, "verification")
+                    .map(|(_, digest)| digest);
+            if settled.as_deref() == Some(input_digest.as_str()) {
+                break;
+            }
+            if round + 1 == MAX_VERIFICATION_ROUNDS {
+                self.pause_for_scope(
+                    &view.id,
+                    LoopRunStatus::Running,
+                    LoopTerminalReason::ScopeUnverifiable,
+                    "Verification commands kept changing the tree; the checks could not be bound to a stable result.",
+                    None,
+                )?;
+                return Ok(());
+            }
+            self.ports.observer.record(
+                &LoopOperationContext {
+                    run_id: view.id.clone(),
+                    iteration_id: Some(iteration.id.clone()),
+                    kind: LoopOperationKind::Verification,
+                },
+                None,
+                AgentLogLevel::Warn,
+                "Verification commands changed the tree; re-running the checks against the new manifest.",
+            )?;
         }
         let mut run = self.run(&view.id)?;
         let snapshot = self.snapshot(&view.id)?;
@@ -651,6 +701,14 @@ pub(super) fn scope_ref(binding: &LoopScopeBinding, role: LoopGuardRole) -> Loop
         role,
     }
 }
+
+/// Phase name of the manifest verification commands run against.
+pub(super) const VERIFICATION_INPUT_PHASE: &str = "verification-input";
+/// How many times a verification pass may rewrite the tree before the run pauses.
+pub(super) const MAX_VERIFICATION_ROUNDS: usize = 2;
+/// How many verification passes one iteration may take, counting re-verification after the
+/// Verifier phase found a changed tree, before the run pauses as unverifiable.
+pub(super) const MAX_VERIFICATION_PASSES: usize = 6;
 
 pub(super) fn current_iteration(
     view: &LoopRunView,

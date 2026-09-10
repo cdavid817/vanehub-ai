@@ -387,10 +387,27 @@ pub(crate) fn assess_execution(input: LoopAssessmentInput<'_>) -> LoopExecutionA
             mode,
         ));
     }
+    // Root binding, manifests, native checks and sealing all go through the handle-relative
+    // boundary; without it there is no artifact validation either, so audit mode is not an
+    // option on such a host rather than a promise that fails at the first bind.
+    let (artifact_coverage, artifact_detail) = if input.platform.safe_mutation {
+        (
+            LoopCoverage::CompleteEnforcement,
+            "Complete worktree manifests are captured at every phase boundary.".to_string(),
+        )
+    } else {
+        (
+            LoopCoverage::Unsupported,
+            format!(
+                "{} has no handle-relative root binding, manifest capture or sealed acceptance; no Loop mode can run here.",
+                input.platform.platform
+            ),
+        )
+    };
     surfaces.push(surface(
         "artifact-validation",
-        LoopCoverage::CompleteEnforcement,
-        "Complete worktree manifests are captured at every phase boundary.".to_string(),
+        artifact_coverage,
+        artifact_detail,
         mode,
     ));
 
@@ -915,6 +932,27 @@ mod tests {
             Some(LoopCoverage::ArtifactValidationOnly)
         );
         assert!(!windows.satisfies_requested_mode);
+        assert_eq!(
+            windows.coverage_for("artifact-validation"),
+            Some(LoopCoverage::Unsupported)
+        );
+        assert!(windows
+            .blockers
+            .iter()
+            .any(|item| item.starts_with("artifact-validation: unsupported")));
+        // Audit mode is refused on the same host: readiness and bind_root agree.
+        let audited = assess_execution(LoopAssessmentInput {
+            definition: &definition(Some(LoopRequestedMode::ArtifactAudited), true, Some(1)),
+            worker: Some(api("worker")),
+            verifier: Some(api("verifier")),
+            platform: LoopPlatformWitness {
+                platform: "windows".to_string(),
+                safe_mutation: false,
+                detail: "none".to_string(),
+            },
+            assessed_at: "t".to_string(),
+        });
+        assert!(!audited.satisfies_requested_mode);
         assert_ne!(windows.witness_digest, legacy.witness_digest);
         assert_ne!(assessment_digest(&windows), assessment_digest(&legacy));
     }

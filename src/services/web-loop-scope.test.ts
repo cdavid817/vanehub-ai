@@ -117,7 +117,7 @@ describe("Web Loop scope simulation", () => {
     const accepted = await webAgentClient.requestLoopAcceptance({ runId: awaiting.id, expectedRevision: awaiting.revision, expectedScopeDigest: awaiting.scope?.scopeDigest });
     expect(accepted.run).toMatchObject({ status: "succeeded", terminalReason: "goal-met" });
     expect(accepted.run.scope?.sealedEvidenceId).toBeTruthy();
-    expect(accepted.run.iterations[0].evidence.map((item) => item.kind)).toEqual(["worker", "verification", "verifier", "decision", "scope-evidence", "acceptance"]);
+    expect(accepted.run.iterations[0].evidence.map((item) => item.kind)).toEqual(["worker", "verification-command", "verifier", "decision", "scope-evidence", "acceptance"]);
     expect(accepted.run.scope?.assessment?.surfaces.map((surface) => surface.coverage)).not.toContain("artifact-validation-only");
     await expect(webAgentClient.requestLoopAcceptance({ runId: awaiting.id })).rejects.toThrow();
   });
