@@ -776,7 +776,7 @@ fn write_batch_log(
         [
             (
                 "batchSize",
-                (outcome.succeeded + outcome.failed).to_string(),
+                (outcome.succeeded + outcome.failed + outcome.keyword_only).to_string(),
             ),
             ("succeeded", outcome.succeeded.to_string()),
             ("failed", outcome.failed.to_string()),
@@ -833,7 +833,7 @@ fn write_code_batch_log(
             ("phase", phase.as_str().to_string()),
             (
                 "batchSize",
-                (outcome.succeeded + outcome.failed).to_string(),
+                (outcome.succeeded + outcome.failed + outcome.keyword_only).to_string(),
             ),
             ("succeeded", outcome.succeeded.to_string()),
             ("failed", outcome.failed.to_string()),

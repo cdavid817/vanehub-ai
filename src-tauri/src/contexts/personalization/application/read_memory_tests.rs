@@ -98,6 +98,32 @@ fn freeze(
     MemoryReadContext::freeze(snapshot, binding, "generation-1", None, 1, EPOCH)
 }
 
+/// Seat presence is part of the subject. An empty seat id is a different value from no seat, and
+/// two contexts that differ only there must not share a digest -- or a surfaced-store partition.
+#[test]
+fn an_empty_seat_id_and_no_seat_id_are_different_subjects() {
+    let snapshot = permissive_snapshot("agent-a", SessionPersonalizationMode::Standard, true, None);
+    let no_seat = MemoryReadContext::freeze(
+        &snapshot,
+        WorkspaceBinding::Absent,
+        "generation-1",
+        None,
+        1,
+        EPOCH,
+    );
+    let empty_seat = MemoryReadContext::freeze(
+        &snapshot,
+        WorkspaceBinding::Absent,
+        "generation-1",
+        Some(""),
+        1,
+        EPOCH,
+    );
+    assert_ne!(no_seat.fingerprint, empty_seat.fingerprint);
+    assert!(no_seat.is_authentic(EPOCH));
+    assert!(empty_seat.is_authentic(EPOCH));
+}
+
 #[test]
 fn a_standard_context_admits_global_and_its_own_workspace_only_by_audience() {
     let snapshot = permissive_snapshot(

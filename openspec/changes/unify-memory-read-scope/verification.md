@@ -102,7 +102,9 @@ lib 中 14 个 ignored 用例均为仓库既有的手动/环境相关用例，�
 | SQL 只校验 audience 数组形状，成员非文本/含分隔符的行通过分类却在 Rust 解析失败，整条 relation 报错 | SQL 增加成员类型、空串、未 trim、`/`、`\`、长度 >120 的 `invalid_record` 分支，`$.selected_agents` 缺失亦为 invalid；Rust 侧对残余无法指纹化的行改为跳过（游标仍推进，总数扣减）而非失败 | `a_projected_row_this_build_cannot_classify_is_excluded_rather_than_guessed_eligible`（6 种损坏行） |
 | 授权临时表逐行自动提交插入，5 万行每次 recall 约多 0.3 s | 改为单条 `INSERT ... SELECT value FROM json_each(?1)`；连接池初始化增加 `PRAGMA temp_store = MEMORY` | `a_relation_at_the_enumeration_budget_is_materialized_and_still_filters`（50,001 id）、`connection_applies_all_migrations_foreign_keys_and_seeds` 断言 pragma |
 
-架构预算随之更新：`agent_runtime/infrastructure` 74,719；`platform/database` 3,820。
+架构预算随之更新：`agent_runtime/infrastructure` 74,719；`platform/database` 3,820（与 `main` 合并后按合并树重测为 81,188 / 45,250 / 3,830）。
+
+低严重度项一并处理（2026-09-14）：`verify_refs` 同时比对快照记录的 authority 指纹（用例 `an_index_ref_whose_authority_changed_since_the_snapshot_is_dropped_even_when_still_admitted`：外部编辑收窄受众但保持修订与正文，记录仍可读却从索引页剔除）；relation 预算改为持有前检查（严格 50,000）；seat 在鉴权指纹中编码存在性（`Some("")` 与 `None` 不同，用例 `an_empty_seat_id_and_no_seat_id_are_different_subjects`）；受限 upsert 同时清 `embedding_dimensions`；批次日志 `batchSize` 计入退役行；开发者文档不再声称状态页展示 `keywordOnly`。未处理：`verify_refs` 拒绝折叠为空页（需改 bridge 契约）、原生端不可达的 `recall unavailable` 档位、绑定会话时未入座 Agent 的静默替换、`mark_surfaced` 在首个请求成功前打标、CLI 每回合两次快照。
 
 ## 兼容与边界
 

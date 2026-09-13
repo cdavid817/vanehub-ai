@@ -187,7 +187,12 @@ impl MemoryReadContext {
     }
 
     fn compute_fingerprint(&self, epoch: &str) -> String {
-        let seat = self.subject.seat_id.clone().unwrap_or_default();
+        let seat = self
+            .subject
+            .seat_id
+            .as_ref()
+            .map(|id| format!("seat:{id}"))
+            .unwrap_or_else(|| "no-seat".to_string());
         let workspace_allowed = self
             .workspace_allowed
             .as_ref()

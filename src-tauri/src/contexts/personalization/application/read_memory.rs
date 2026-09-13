@@ -141,7 +141,12 @@ impl GovernedMemoryReadService {
             .filter_map(|entry| {
                 let record = self.admitted_record(context, &entry.id)?;
                 let handle = MemoryReadHandle::of(&record);
-                (handle.revision == entry.revision && handle.content_hash == entry.content_hash)
+                // Version and authority both pinned by the snapshot: a record re-scoped or
+                // re-audienced since is dropped here explicitly, whatever `admitted_record`
+                // decided about its new shape.
+                (handle.revision == entry.revision
+                    && handle.content_hash == entry.content_hash
+                    && handle.authority_fingerprint == entry.authority_fingerprint)
                     .then(|| VerifiedMemoryRef {
                         snapshot_ref: entry.clone(),
                         handle,

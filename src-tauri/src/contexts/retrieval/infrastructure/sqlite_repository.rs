@@ -67,6 +67,8 @@ impl RetrievalDocumentRepository for SqliteRetrievalDocumentRepository {
                                      ELSE retrieval_documents.embedding END,
                     embedding_model = CASE WHEN excluded.egress_restricted THEN NULL
                                            ELSE retrieval_documents.embedding_model END,
+                    embedding_dimensions = CASE WHEN excluded.egress_restricted THEN NULL
+                                                ELSE retrieval_documents.embedding_dimensions END,
                     updated_at = excluded.updated_at
                 "#,
                 params![
@@ -143,6 +145,8 @@ impl RetrievalDocumentRepository for SqliteRetrievalDocumentRepository {
                                      ELSE retrieval_documents.embedding END,
                     embedding_model = CASE WHEN excluded.egress_restricted THEN NULL
                                            ELSE retrieval_documents.embedding_model END,
+                    embedding_dimensions = CASE WHEN excluded.egress_restricted THEN NULL
+                                                ELSE retrieval_documents.embedding_dimensions END,
                     updated_at = excluded.updated_at
                 "#,
                 )

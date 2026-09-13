@@ -798,8 +798,7 @@ impl MemoryProjectionPort for SqliteMemoryProjection {
                     page.push(handle);
                 }
             }
-            entries.extend(page);
-            if entries.len() > budget.max_entries {
+            if entries.len() + page.len() > budget.max_entries {
                 // The relation is larger than this build is willing to hold. Reported as
                 // incomplete rather than cut to the budget: a truncated relation is an
                 // authorization set with eligible records silently missing from it.
@@ -807,6 +806,7 @@ impl MemoryProjectionPort for SqliteMemoryProjection {
                 entries.clear();
                 break;
             }
+            entries.extend(page);
             if page_len < page_size {
                 break;
             }

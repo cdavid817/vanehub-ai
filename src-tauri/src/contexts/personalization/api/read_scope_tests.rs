@@ -694,6 +694,51 @@ fn an_archived_record_is_dropped_at_delivery_even_when_its_handle_is_otherwise_i
     assert!(relation_ids(&fixture, &context).is_empty());
 }
 
+/// MR-15 at the index page: an external edit that changes the record's audience but keeps its
+/// revision and body -- so the record is still admitted for this Agent -- is dropped from the
+/// page all the same, because the page pinned the authority the snapshot saw.
+#[test]
+fn an_index_ref_whose_authority_changed_since_the_snapshot_is_dropped_even_when_still_admitted() {
+    let fixture = open_fixture("read-scope-authority-drift");
+    mark_ready(&fixture);
+    seed_global_policy(&fixture);
+    let corpus = seed_corpus(&fixture);
+    let (snapshot, context) = standard_in_w1(&fixture);
+    assert!(verified_ids(&fixture, &snapshot, &context).contains(&corpus.g_all.id));
+
+    // Narrow `all_agents` to exactly this Agent in the file, keeping revision and body. The
+    // record remains eligible for the Agent; only its authority digest differs from the page's.
+    let path = memory_file(&fixture, &corpus.g_all.id);
+    let raw = fs::read_to_string(&path).expect("read file");
+    let narrowed = raw.replacen(
+        "
+audience: all_agents
+",
+        &format!(
+            "
+audience: selected:{AGENT_A}
+"
+        ),
+        1,
+    );
+    assert_ne!(
+        narrowed, raw,
+        "the fixture file carries the all-agents audience line"
+    );
+    fs::write(&path, narrowed).expect("write file");
+    let record = fixture
+        .service
+        .detail(&corpus.g_all.id)
+        .expect("detail")
+        .expect("record");
+    assert!(
+        context.admits(&record).is_ok(),
+        "still admitted for this Agent"
+    );
+
+    assert!(!verified_ids(&fixture, &snapshot, &context).contains(&corpus.g_all.id));
+}
+
 // --- MR-19 -----------------------------------------------------------------------------------
 
 #[test]
