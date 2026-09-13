@@ -1,12 +1,16 @@
-use super::loop_orchestrator::{current_iteration, missing, required};
+use super::loop_orchestrator::{
+    current_iteration, missing, required, scope_ref, MAX_VERIFICATION_PASSES,
+    VERIFICATION_INPUT_PHASE,
+};
+use super::loop_scope_evidence::{scope_evidence_state, ScopeEvidenceState};
 use super::{
-    AgentRuntimeApplicationError, CanonicalLoopSignal, LoopOperationContext, LoopOperationKind,
-    LoopOrchestratorApplicationService, LoopRunView, LoopVerificationCancellation,
-    RecordLoopRevisionProgressRequest, StartLoopVerifierRequest,
+    AgentLogLevel, AgentRuntimeApplicationError, CanonicalLoopSignal, LoopGuardRole,
+    LoopOperationContext, LoopOperationKind, LoopOrchestratorApplicationService, LoopRunView,
+    LoopVerificationCancellation, RecordLoopRevisionProgressRequest, StartLoopVerifierRequest,
 };
 use crate::contexts::agent_runtime::domain::{
     decide_loop_iteration, LoopDecision, LoopDecisionInput, LoopDecisionOutcome, LoopLimits,
-    LoopObjectiveFingerprints, LoopRun, LoopRunStatus, LoopTerminalReason,
+    LoopObjectiveFingerprints, LoopRun, LoopRunPhase, LoopRunStatus, LoopTerminalReason,
     LoopVerifierRecommendation,
 };
 
@@ -16,6 +20,9 @@ impl LoopOrchestratorApplicationService {
         view: &LoopRunView,
         cancellation: &LoopVerificationCancellation,
     ) -> Result<(), AgentRuntimeApplicationError> {
+        let Some(binding) = self.admitted_binding(view, LoopRunStatus::Running)? else {
+            return Ok(());
+        };
         let iteration = current_iteration(view)?;
         if iteration.verifier_recommendation.is_none() {
             let started = self.ports.verifier.start(StartLoopVerifierRequest {
@@ -26,7 +33,13 @@ impl LoopOrchestratorApplicationService {
                 worktree_path: required(&view.worktree_path, "Loop worktree path")?,
                 worktree_name: required(&view.worktree_name, "Loop worktree name")?,
                 worktree_branch: required(&view.worktree_branch, "Loop worktree branch")?,
-                check_evidence: iteration.evidence.clone(),
+                check_evidence: iteration
+                    .evidence
+                    .iter()
+                    .filter(|item| item.kind == "verification-command")
+                    .cloned()
+                    .collect(),
+                scope_ref: Some(scope_ref(&binding, LoopGuardRole::Verifier)),
             })?;
             let operation = match self.ports.observer.start(
                 LoopOperationContext {
@@ -68,7 +81,88 @@ impl LoopOrchestratorApplicationService {
         // Verifier completion persists ownership and findings. Decisions and fingerprints must
         // use that durable boundary instead of the pre-generation projection.
         let refreshed_view = self.run_view(&view.id)?;
+        let iteration = current_iteration(&refreshed_view)?.clone();
+        // Sealed means: a passed Verifier-phase manifest that matches the tree the checks ran on,
+        // or a recorded violation (which is sticky). An unverifiable scan is re-proven on resume
+        // instead of being treated as a seal; the finished Verifier is never started again.
+        let verification_digest =
+            super::loop_scope_evidence::latest_passed_manifest(&iteration, "verification")
+                .map(|(_, digest)| digest);
+        let verifier_sealed =
+            super::loop_scope_evidence::latest_passed_manifest(&iteration, "verifier")
+                .is_some_and(|(_, digest)| Some(digest) == verification_digest)
+                || iteration.evidence.iter().any(|item| {
+                    item.kind == super::loop_scope_evidence::SCOPE_EVIDENCE_KIND
+                        && item.status == "violation"
+                        && item
+                            .details
+                            .as_ref()
+                            .and_then(|details| details.get("phase"))
+                            .and_then(serde_json::Value::as_str)
+                            == Some("verifier")
+                });
+        if !verifier_sealed
+            && !self.seal_phase(
+                &refreshed_view,
+                &iteration,
+                "verifier",
+                &binding,
+                cancellation,
+            )?
+        {
+            return Ok(());
+        }
+        let refreshed_view = self.run_view(&view.id)?;
         let iteration = current_iteration(&refreshed_view)?;
+        // The tree the Verifier saw must be the tree the required checks ran on; otherwise the
+        // checks describe a different artifact and the iteration goes back through verification
+        // (the Verifier's advice is kept, the scans and checks are redone).
+        let verifier_digest =
+            super::loop_scope_evidence::latest_passed_manifest(iteration, "verifier")
+                .map(|(_, digest)| digest);
+        let verification_digest =
+            super::loop_scope_evidence::latest_passed_manifest(iteration, "verification")
+                .map(|(_, digest)| digest);
+        let has_violation = scope_evidence_state(iteration) == ScopeEvidenceState::Violation;
+        if !has_violation && verifier_digest.is_some() && verifier_digest != verification_digest {
+            let passes = iteration
+                .evidence
+                .iter()
+                .filter(|item| {
+                    item.kind == super::loop_scope_evidence::SCOPE_EVIDENCE_KIND
+                        && item
+                            .details
+                            .as_ref()
+                            .and_then(|details| details.get("phase"))
+                            .and_then(serde_json::Value::as_str)
+                            == Some(VERIFICATION_INPUT_PHASE)
+                })
+                .count();
+            if passes >= MAX_VERIFICATION_PASSES {
+                self.pause_for_scope(
+                    &view.id,
+                    LoopRunStatus::Running,
+                    LoopTerminalReason::ScopeUnverifiable,
+                    "The tree kept changing between verification and the Verifier phase; the checks could not be bound to a stable result.",
+                    None,
+                )?;
+                return Ok(());
+            }
+            self.ports.observer.record(
+                &LoopOperationContext {
+                    run_id: view.id.clone(),
+                    iteration_id: Some(iteration.id.clone()),
+                    kind: LoopOperationKind::ScopeEvidence,
+                },
+                None,
+                AgentLogLevel::Warn,
+                "The tree changed after verification; re-running the checks before deciding.",
+            )?;
+            let mut run = self.run(&view.id)?;
+            run.move_to(LoopRunPhase::Verifying)?;
+            self.save_run(&run, LoopRunStatus::Running, None)?;
+            return Ok(());
+        }
         let recommendation = iteration
             .verifier_recommendation
             .as_deref()
@@ -88,11 +182,31 @@ impl LoopOrchestratorApplicationService {
                         .unwrap_or(false)
             })
             .all(|item| item.status == "passed");
+        // Scope evidence dominates: a violation fails the run regardless of checks or advice, and
+        // incomplete evidence can never reach awaiting-acceptance.
+        let scope_state = scope_evidence_state(iteration);
+        let hard_terminal_reason = match &scope_state {
+            ScopeEvidenceState::Violation => Some(LoopTerminalReason::ScopeViolation),
+            _ => None,
+        };
+        if matches!(
+            scope_state,
+            ScopeEvidenceState::Unverifiable | ScopeEvidenceState::Incomplete
+        ) {
+            self.pause_for_scope(
+                &view.id,
+                LoopRunStatus::Running,
+                LoopTerminalReason::ScopeUnverifiable,
+                "Scope evidence for this iteration is incomplete or unverifiable.",
+                None,
+            )?;
+            return Ok(());
+        }
         let decision = decide_loop_iteration(&LoopDecisionInput {
             required_checks_passed: checks_passed,
             verifier_recommendation: recommendation,
             user_feedback: iteration.user_feedback.clone(),
-            hard_terminal_reason: None,
+            hard_terminal_reason,
         });
         let operation = self.ports.observer.start(
             LoopOperationContext {

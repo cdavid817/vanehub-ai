@@ -28,6 +28,8 @@ pub(crate) enum AgentRuntimeDomainError {
     InvalidLoopValue(&'static str),
     #[error("invalid Loop limit: {0}.")]
     InvalidLoopLimit(&'static str),
+    #[error("invalid Loop scope: {0}.")]
+    InvalidLoopScope(super::loop_scope::LoopScopeError),
     #[error("Cannot transition Loop from '{from}' to '{to}'.")]
     InvalidLoopTransition { from: String, to: String },
     #[error("Loop limit reached: {0}.")]

@@ -157,6 +157,147 @@ pub(crate) trait LoopRepository: Send + Sync {
             "Loop recovery persistence is unavailable.".to_string(),
         ))
     }
+
+    /// Queues a run with its frozen assessment, consuming an audit receipt in the same
+    /// transaction when one is required. Fakes without scope support fall back to `create_run`.
+    fn create_run_with_scope(
+        &self,
+        run: &LoopRun,
+        definition_snapshot: &LoopDefinition,
+        project_path: &str,
+        created_at: &str,
+        _assessment: &super::LoopExecutionAssessment,
+        _audit: Option<&super::LoopAuditConsumption>,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        self.create_run(run, definition_snapshot, project_path, created_at)
+    }
+
+    fn find_run_scope(
+        &self,
+        _run_id: &str,
+    ) -> Result<Option<super::LoopRunScopeRecord>, AgentRuntimeApplicationError> {
+        Ok(None)
+    }
+
+    fn attach_run_scope_binding(
+        &self,
+        _run_id: &str,
+        _binding: &super::LoopScopeBinding,
+        _expected_status: LoopRunStatus,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        Err(AgentRuntimeApplicationError::Loop(
+            "Loop scope binding persistence is unavailable.".to_string(),
+        ))
+    }
+
+    fn save_run_transition_with_audit(
+        &self,
+        run: &LoopRun,
+        expected_status: LoopRunStatus,
+        updated_at: &str,
+        completed_at: Option<&str>,
+        _audit: Option<&super::LoopAuditConsumption>,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        self.save_run_transition(run, expected_status, updated_at, completed_at)
+    }
+
+    fn save_continue_transition_with_audit(
+        &self,
+        run: &LoopRun,
+        expected_status: LoopRunStatus,
+        feedback: &str,
+        updated_at: &str,
+        _audit: Option<&super::LoopAuditConsumption>,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        self.save_continue_transition(run, expected_status, feedback, updated_at)
+    }
+
+    /// Marks the run as owned by one acceptance operation. Fails when another operation already
+    /// holds it or the revision moved.
+    fn attach_acceptance_operation(
+        &self,
+        _run_id: &str,
+        _operation_id: &str,
+        _expected_revision: u64,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        Err(AgentRuntimeApplicationError::Loop(
+            "Loop acceptance operations are unavailable.".to_string(),
+        ))
+    }
+
+    fn release_acceptance_operation(
+        &self,
+        _run_id: &str,
+        _operation_id: &str,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        Ok(())
+    }
+
+    /// Commits success only when the run revision and status are exactly what the sealed
+    /// evidence was validated against.
+    fn seal_acceptance(
+        &self,
+        _run: &LoopRun,
+        _expected_revision: u64,
+        _operation_id: &str,
+        _evidence_id: &str,
+        _completed_at: &str,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        Err(AgentRuntimeApplicationError::Loop(
+            "Loop acceptance sealing is unavailable.".to_string(),
+        ))
+    }
+
+    fn create_audit_challenge(
+        &self,
+        _receipt: &super::LoopAuditReceipt,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        Err(AgentRuntimeApplicationError::Loop(
+            "Loop audit challenges are unavailable.".to_string(),
+        ))
+    }
+
+    fn acknowledge_audit_challenge(
+        &self,
+        _challenge_id: &str,
+        _acknowledged_at: &str,
+    ) -> Result<super::LoopAuditReceipt, AgentRuntimeApplicationError> {
+        Err(AgentRuntimeApplicationError::Loop(
+            "Loop audit challenges are unavailable.".to_string(),
+        ))
+    }
+
+    fn find_audit_receipt(
+        &self,
+        _receipt_id: &str,
+    ) -> Result<Option<super::LoopAuditReceipt>, AgentRuntimeApplicationError> {
+        Ok(None)
+    }
+
+    fn claim_control_operation(
+        &self,
+        _idempotency_key: &str,
+        _action: &str,
+        _target_id: &str,
+        _created_at: &str,
+    ) -> Result<super::LoopControlOperationClaim, AgentRuntimeApplicationError> {
+        Ok(super::LoopControlOperationClaim::New)
+    }
+
+    fn record_control_operation(
+        &self,
+        _idempotency_key: &str,
+        _outcome: &str,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        Ok(())
+    }
+
+    fn release_control_operation(
+        &self,
+        _idempotency_key: &str,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        Ok(())
+    }
 }
 
 pub(crate) trait LoopExecutionControlPort: Send + Sync {
@@ -251,6 +392,24 @@ pub(crate) trait LoopProjectPort: Send + Sync {
             "Loop worktree preparation is unavailable.".to_string(),
         ))
     }
+    /// The commit a prepared worktree starts from, recorded on the binding for display and
+    /// later comparison. Absent when the adapter cannot resolve it.
+    fn head_commit(
+        &self,
+        _worktree_path: &str,
+    ) -> Result<Option<String>, AgentRuntimeApplicationError> {
+        Ok(None)
+    }
+}
+
+/// Runs a variable-duration native task off the caller's thread. The acceptance gate uses it so
+/// a full-tree copy never blocks a Tauri command.
+pub(crate) trait LoopBackgroundPort: Send + Sync {
+    fn spawn(
+        &self,
+        name: &str,
+        task: Box<dyn FnOnce() + Send + 'static>,
+    ) -> Result<(), AgentRuntimeApplicationError>;
 }
 
 pub(crate) trait LoopGitStatePort: Send + Sync {
@@ -818,6 +977,43 @@ pub(crate) trait AgentPermissionPort: Send + Sync {
         call_id: &str,
         project_key: &str,
     ) -> Result<(), AgentRuntimeApplicationError>;
+
+    /// The same evaluation with its health: `healthy == false` means the effect is the
+    /// fail-closed fallback of an evaluation that could not complete, which delivery must treat
+    /// as a refusal rather than as an ordinary Ask.
+    #[allow(clippy::too_many_arguments)]
+    fn evaluate_checked(
+        &self,
+        agent_id: &str,
+        action: crate::contexts::permissions::api::Action,
+        resource: crate::contexts::permissions::api::Resource,
+        session_id: &str,
+        generation_id: &str,
+        project_key: &str,
+    ) -> crate::contexts::permissions::api::PermissionVerdict {
+        crate::contexts::permissions::api::PermissionVerdict {
+            effect: self.evaluate(
+                agent_id,
+                action,
+                resource,
+                session_id,
+                generation_id,
+                project_key,
+            ),
+            healthy: true,
+        }
+    }
+
+    /// The Loop scope guard for a session, derived from backend ownership. `Ok(None)` means the
+    /// session is not Loop-owned; an error means it is Loop-owned but no guard can be derived,
+    /// which every caller treats as a refusal.
+    fn loop_scope_guard(
+        &self,
+        _session_id: &str,
+    ) -> Result<Option<std::sync::Arc<dyn super::LoopScopeGuard>>, AgentRuntimeApplicationError>
+    {
+        Ok(None)
+    }
 }
 
 pub(crate) trait AgentEventPort: Send + Sync {

@@ -102,6 +102,16 @@ pub(crate) enum InteractionKind {
     Plan { tool_call_id: String },
     /// `fs/write_text_file` the policy asked about.
     FileWrite { path: String, content: String },
+    /// `fs/read_text_file` the policy asked about. Carries the request, never the content: the
+    /// file is opened only after a committed approval.
+    FileRead {
+        path: String,
+        line: Option<u64>,
+        limit: Option<u64>,
+        /// `(device, inode, ctime)` of the resolved target when the request was deferred, so delivery
+        /// can tell a replaced file from the one the person approved. `None` off unix.
+        identity: Option<(u64, u64, i64)>,
+    },
     /// `terminal/create` the policy asked about.
     TerminalCreate { request: Value },
 }
@@ -113,7 +123,7 @@ impl InteractionKind {
             Self::Permission { tool_call_id, .. }
             | Self::Question { tool_call_id, .. }
             | Self::Plan { tool_call_id } => Some(tool_call_id),
-            Self::FileWrite { .. } | Self::TerminalCreate { .. } => None,
+            Self::FileWrite { .. } | Self::FileRead { .. } | Self::TerminalCreate { .. } => None,
         }
     }
 }

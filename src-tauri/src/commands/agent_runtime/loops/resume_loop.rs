@@ -7,8 +7,9 @@ use tauri::State;
 pub(crate) fn resume_loop(
     api: State<'_, AgentRuntimeApi>,
     run_id: String,
+    envelope: Option<dto::LoopControlEnvelope>,
 ) -> Result<dto::LoopRun, CommandError> {
-    api.resume_loop(&run_id)
+    api.resume_loop(&run_id, mapper::envelope(envelope))
         .map(mapper::run)
         .map_err(map_command_error)
 }

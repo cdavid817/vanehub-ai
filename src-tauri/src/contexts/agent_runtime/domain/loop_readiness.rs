@@ -8,6 +8,10 @@ pub(crate) enum LoopReadinessCheckCode {
     VerificationValid,
     PathScopeValid,
     NoActiveRun,
+    /// The definition carries a supported scope version and requested mode.
+    ScopeVersionSupported,
+    /// Every reachable mutation surface satisfies the requested mode.
+    ExecutionCoverage,
 }
 
 impl LoopReadinessCheckCode {
@@ -21,6 +25,8 @@ impl LoopReadinessCheckCode {
             Self::VerificationValid => "verification-valid",
             Self::PathScopeValid => "path-scope-valid",
             Self::NoActiveRun => "no-active-run",
+            Self::ScopeVersionSupported => "scope-version-supported",
+            Self::ExecutionCoverage => "execution-coverage",
         }
     }
 }

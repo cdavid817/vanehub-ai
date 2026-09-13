@@ -10,6 +10,7 @@ const contractMethods = [
   "listLoopDefinitions", "createLoopDefinition", "updateLoopDefinition", "deleteLoopDefinition",
   "listLoopRuns", "getLoopRun", "startLoop", "pauseLoop", "resumeLoop", "cancelLoop",
   "acceptLoop", "continueLoop", "rejectLoop", "subscribeLoopEvents",
+  "prepareLoopAdmission", "acknowledgeLoopAudit", "requestLoopAcceptance",
 ] as const satisfies readonly (keyof LoopWorkbenchService)[];
 
 describe("Loop adapter conformance", () => {
@@ -23,8 +24,8 @@ describe("Loop adapter conformance", () => {
     const definition = await webAgentClient.createLoopDefinition({
       name: "Conformance Loop", enabled: true, projectPath: "D:/example-workspace", baseBranch: "main",
       goal: "Verify parity", acceptanceCriteria: ["Checks pass"], allowedPaths: ["src"], protectedPaths: [".git"],
-      workerAgentId: "codex-cli", verifierAgentId: "claude-code",
-      verificationCommands: [{ id: "tests", program: "npm", args: ["test"], workingDirectory: null, timeoutSeconds: 60, required: true }],
+      workerAgentId: "onepiece", verifierAgentId: "onepiece", scopeSchemaVersion: 1,
+      verificationCommands: [{ id: "whitespace", kind: "native-check", program: "patch-whitespace", args: [], workingDirectory: null, timeoutSeconds: 60, required: true }],
       limits: { maxIterations: 3, stepTimeoutSeconds: 60, totalTimeoutSeconds: 600, maxConsecutiveRuntimeErrors: 2, maxConsecutiveNoProgress: 2 },
     });
 
@@ -44,8 +45,8 @@ describe("Loop adapter conformance", () => {
     const definition = await webAgentClient.createLoopDefinition({
       name: "Unavailable Loop", enabled: true, projectPath: "D:/missing", baseBranch: "deleted-branch",
       goal: "Keep selections", acceptanceCriteria: ["Visible"], allowedPaths: ["src"], protectedPaths: [".git"],
-      workerAgentId: "codex-cli", verifierAgentId: "claude-code",
-      verificationCommands: [{ id: "tests", program: "npm", args: ["test"], workingDirectory: null, timeoutSeconds: 60, required: true }],
+      workerAgentId: "onepiece", verifierAgentId: "onepiece", scopeSchemaVersion: 1,
+      verificationCommands: [{ id: "tests", kind: "process", program: "npm", args: ["test"], workingDirectory: null, timeoutSeconds: 60, required: true }],
       limits: { maxIterations: 3, stepTimeoutSeconds: 60, totalTimeoutSeconds: 600, maxConsecutiveRuntimeErrors: 2, maxConsecutiveNoProgress: 2 },
     });
     const projects = await webLoopAdapter.listLoopProjectChoices();

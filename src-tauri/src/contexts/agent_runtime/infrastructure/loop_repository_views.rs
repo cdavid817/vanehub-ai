@@ -1,9 +1,11 @@
 use super::loop_repository::StoredDefinition;
 use crate::contexts::agent_runtime::application::{
-    AgentRuntimeApplicationError, LoopDefinitionView, LoopEvidenceView, LoopIterationView,
-    LoopRunView,
+    AgentRuntimeApplicationError, LoopBindingStatus, LoopDefinitionView, LoopEvidenceView,
+    LoopExecutionAssessment, LoopIterationView, LoopRunScopeView, LoopRunView, LoopScopeBinding,
 };
-use crate::contexts::agent_runtime::domain::{LoopRunPhase, LoopRunStatus, LoopTerminalReason};
+use crate::contexts::agent_runtime::domain::{
+    LoopRunPhase, LoopRunStatus, LoopScopeState, LoopTerminalReason,
+};
 use crate::platform::database::NativeDatabase;
 use rusqlite::{OptionalExtension, Row};
 use std::collections::HashMap;
@@ -11,7 +13,8 @@ use std::collections::HashMap;
 const RUN_SELECT: &str = r#"SELECT id, definition_id, definition_snapshot, status, phase,
     terminal_reason, current_iteration, consecutive_runtime_errors, consecutive_no_progress,
     pause_requested, project_path, worktree_path, worktree_name, worktree_branch,
-    active_operation_id, simulated, created_at, started_at, updated_at, completed_at
+    active_operation_id, simulated, created_at, started_at, updated_at, completed_at,
+    revision, scope_binding, execution_assessment, sealed_evidence_id, acceptance_operation_id
     FROM loop_runs"#;
 
 pub(super) fn list_run_views(
@@ -202,6 +205,45 @@ fn read_run_view(row: &Row<'_>) -> rusqlite::Result<LoopRunView> {
     let stored: StoredDefinition =
         serde_json::from_str(&row.get::<_, String>(2)?).map_err(sql_conversion)?;
     let definition = stored.into_domain().map_err(sql_conversion)?;
+    let revision = u64::try_from(row.get::<_, i64>(20)?).unwrap_or(1);
+    let binding = row
+        .get::<_, Option<String>>(21)?
+        .map(|value| serde_json::from_str::<LoopScopeBinding>(&value))
+        .transpose()
+        .map_err(sql_conversion)?;
+    let assessment = row
+        .get::<_, Option<String>>(22)?
+        .map(|value| serde_json::from_str::<LoopExecutionAssessment>(&value))
+        .transpose()
+        .map_err(sql_conversion)?;
+    let sealed_evidence_id: Option<String> = row.get(23)?;
+    let acceptance_operation_id: Option<String> = row.get(24)?;
+    let scope = Some(LoopRunScopeView {
+        requested_mode: binding
+            .as_ref()
+            .and_then(LoopScopeBinding::mode)
+            .or(definition.requested_mode()),
+        scope_digest: binding.as_ref().map(|binding| binding.scope_digest.clone()),
+        binding_status: match (&binding, definition.scope_state()) {
+            (Some(_), _) => LoopBindingStatus::Bound,
+            (None, LoopScopeState::Verified) => LoopBindingStatus::Missing,
+            (None, LoopScopeState::LegacyUnverified) => LoopBindingStatus::Legacy,
+        },
+        assessment,
+        sealed_evidence_id,
+        acceptance_operation_id,
+        baseline_digest: binding
+            .as_ref()
+            .map(|binding| binding.baseline_digest.clone()),
+        allowed_paths: binding
+            .as_ref()
+            .map(|binding| binding.allowed_paths.clone())
+            .unwrap_or_else(|| definition.values().allowed_paths.clone()),
+        protected_paths: binding
+            .as_ref()
+            .map(|binding| binding.protected_paths.clone())
+            .unwrap_or_else(|| definition.values().protected_paths.clone()),
+    });
     Ok(LoopRunView {
         id: row.get(0)?,
         definition_id: row.get(1)?,
@@ -228,6 +270,8 @@ fn read_run_view(row: &Row<'_>) -> rusqlite::Result<LoopRunView> {
         updated_at: row.get(18)?,
         completed_at: row.get(19)?,
         iterations: Vec::new(),
+        revision,
+        scope,
     })
 }
 

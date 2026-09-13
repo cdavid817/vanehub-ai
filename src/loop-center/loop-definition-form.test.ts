@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { LoopDefinition } from "../types/loop";
-import { createLoopDefinitionDraft, createVerificationCommandDraft, toSaveLoopDefinitionInput, validateLoopDefinitionStep, validateVerificationCommand } from "./loop-definition-form";
+import { createLoopDefinitionDraft, createVerificationCommandDraft, toSaveLoopDefinitionInput, validateLoopDefinitionStep, validateScopePaths, validateVerificationCommand, withVerificationKind } from "./loop-definition-form";
 
 describe("Loop definition form", () => {
   it("creates a runnable draft with bounded default limits", () => {
@@ -15,7 +15,7 @@ describe("Loop definition form", () => {
     const draft = createLoopDefinitionDraft();
     expect(validateLoopDefinitionStep(draft, 0)).toBe("scope");
 
-    Object.assign(draft, { name: "Release", projectPath: "D:/repo", goal: "Ship", acceptanceCriteria: "Tests pass" });
+    Object.assign(draft, { name: "Release", projectPath: "D:/repo", goal: "Ship", acceptanceCriteria: "Tests pass", allowedPaths: "src" });
     expect(validateLoopDefinitionStep(draft, 0)).toBeNull();
     expect(validateLoopDefinitionStep(draft, 1)).toBe("agents");
 
@@ -33,6 +33,7 @@ describe("Loop definition form", () => {
       baseBranch: "main",
       goal: "Ship",
       acceptanceCriteria: "Tests pass",
+      allowedPaths: "src",
       workerAgentId: "codex-cli",
       verifierAgentId: "claude-code",
     });
@@ -73,6 +74,7 @@ describe("Loop definition form", () => {
     const input = toSaveLoopDefinitionInput(draft, definition);
 
     expect(input.expectedVersion).toBe(4);
+    expect(input).toMatchObject({ scopeSchemaVersion: 1, requestedMode: "artifact-audited" });
     expect(input.verificationCommands).toHaveLength(2);
     expect(input.verificationCommands[0]).toMatchObject({ id: "tests", program: "npm", args: ["run", "lint"] });
     expect(input.verificationCommands[1].id).toBe("lint");
@@ -150,10 +152,48 @@ function exampleDefinition(): LoopDefinition {
     id: "loop-1", name: "Release", enabled: true, projectPath: "D:/repo", baseBranch: "main", goal: "Ship",
     acceptanceCriteria: ["Tests pass"], allowedPaths: ["src"], protectedPaths: [".git"], workerAgentId: "codex-cli", verifierAgentId: "claude-code",
     verificationCommands: [
-      { id: "tests", program: "npm", args: ["test"], workingDirectory: null, timeoutSeconds: 120, required: true },
-      { id: "lint", program: "npm", args: ["run", "lint"], workingDirectory: null, timeoutSeconds: 120, required: false },
+      { id: "tests", kind: "process", program: "npm", args: ["test"], workingDirectory: null, timeoutSeconds: 120, required: true },
+      { id: "lint", kind: "process", program: "npm", args: ["run", "lint"], workingDirectory: null, timeoutSeconds: 120, required: false },
     ],
     limits: { maxIterations: 3, stepTimeoutSeconds: 300, totalTimeoutSeconds: 1800, maxConsecutiveRuntimeErrors: 2, maxConsecutiveNoProgress: 2 },
     version: 4, createdAt: "2026-07-22T00:00:00Z", updatedAt: "2026-07-22T00:00:00Z",
+    scopeSchemaVersion: 1, requestedMode: "artifact-audited", scopeState: "verified",
   };
 }
+
+describe("Loop definition scope and native check drafts", () => {
+  it("defaults new drafts to strict enforcement and always saves the current scope schema", () => {
+    const draft = createLoopDefinitionDraft();
+    expect(draft.requestedMode).toBe("preventive-required");
+    expect(toSaveLoopDefinitionInput(draft)).toMatchObject({ scopeSchemaVersion: 1, requestedMode: "preventive-required" });
+  });
+
+  it("re-saves a legacy definition under the strict default instead of inventing its old mode", () => {
+    const legacy = { ...exampleDefinition(), scopeSchemaVersion: null, requestedMode: null, scopeState: "legacy-unverified" as const };
+    const draft = createLoopDefinitionDraft(legacy);
+    expect(draft.requestedMode).toBe("preventive-required");
+    expect(draft.verificationCommands[0].kind).toBe("process");
+  });
+
+  it("mirrors the literal scope rules of schema v1", () => {
+    expect(validateScopePaths([], [])).toBe("allowedPaths");
+    expect(validateScopePaths(["../outside"], [])).toBe("scopeSyntax");
+    expect(validateScopePaths(["C:/repo"], [])).toBe("scopeSyntax");
+    expect(validateScopePaths(["src/**"], [])).toBe("scopeSyntax");
+    expect(validateScopePaths([".git/hooks"], [])).toBe("scopeReserved");
+    expect(validateScopePaths(["src/generated"], ["src"])).toBe("scopeCovered");
+    expect(validateScopePaths(["src"], ["."])).toBe("scopeCovered");
+    expect(validateScopePaths(["."], [".git", "docs"])).toBeNull();
+    expect(validateScopePaths(["src", "tests"], ["src/vendor"])).toBeNull();
+  });
+
+  it("pins the built-in check to patch-whitespace without arguments", () => {
+    const command = withVerificationKind({ ...createVerificationCommandDraft([]), program: "npm", arguments: "test" }, "native-check");
+    expect(command).toMatchObject({ kind: "native-check", program: "patch-whitespace", arguments: "" });
+    expect(validateVerificationCommand(command)).toBeNull();
+    expect(validateVerificationCommand({ ...command, arguments: "--strict" })).toBe("nativeCheck");
+    expect(validateVerificationCommand({ ...command, program: "eslint" })).toBe("nativeCheck");
+    expect(validateVerificationCommand({ ...command, workingDirectory: "packages/app" })).toBe("nativeCheck");
+    expect(withVerificationKind(command, "process").program).toBe("");
+  });
+});

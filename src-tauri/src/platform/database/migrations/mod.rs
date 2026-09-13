@@ -720,6 +720,15 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "cli-execution-bindings",
         crate::contexts::agent_runtime::infrastructure::providers::acp::apply_execution_binding_schema,
     )?;
+    // Additive: scope version/mode columns on definitions, revision/binding/evidence columns on
+    // runs, plus audit receipts and idempotent control operations. Legacy rows keep NULL scope
+    // columns and are read as legacy-unverified rather than being given an invented scope.
+    apply_migration(
+        conn,
+        115,
+        "loop-execution-scope",
+        crate::contexts::agent_runtime::infrastructure::apply_loop_scope_schema,
+    )?;
     repair_missing_stable_participant_schema(conn)?;
     repair_missing_cli_parameter_profile_schema(conn)?;
     crate::contexts::execution_observability::infrastructure::repair_missing_evidence_schema(conn)?;
@@ -891,6 +900,7 @@ pub(super) const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (112, "managed-worktree-resources"),
     (113, "session-deletion-operations"),
     (114, "cli-execution-bindings"),
+    (115, "loop-execution-scope"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {

@@ -56,12 +56,13 @@ describe("Loop Center localization and themes", () => {
       ...exactValues<LoopTerminalReason>()([
         "goal-met", "max-iterations", "time-budget", "phase-timeout", "runtime-errors", "no-progress",
         "verification-failed", "verifier-blocked", "runtime-error", "recovery-required", "user-rejected", "user-stopped",
+        "scope-violation", "scope-binding-missing", "scope-unverifiable", "scope-capability-changed",
       ] as const).map((value) => `loops.reason.${value}`),
-      ...exactValues<LoopEvidenceKind>()(["worktree", "worker", "verification", "verifier", "decision", "recovery"] as const)
+      ...exactValues<LoopEvidenceKind>()(["worktree", "worker", "verification", "verification-command", "verifier", "decision", "recovery", "scope-binding", "scope-evidence", "acceptance"] as const)
         .map((value) => `loops.evidence.kind.${value}`),
-      ...exactValues<LoopEvidenceStatus>()(["pending", "passed", "failed", "blocked", "cancelled"] as const)
+      ...exactValues<LoopEvidenceStatus>()(["pending", "passed", "failed", "blocked", "cancelled", "error", "timed-out", "violation", "unverifiable"] as const)
         .map((value) => `loops.evidence.status.${value}`),
-      ...exactValues<LoopReadinessCheckCode>()(["definition-enabled", "project-available", "branch-available", "worker-eligible", "verifier-eligible", "verification-valid", "path-scope-valid", "no-active-run"] as const)
+      ...exactValues<LoopReadinessCheckCode>()(["definition-enabled", "project-available", "branch-available", "worker-eligible", "verifier-eligible", "verification-valid", "path-scope-valid", "no-active-run", "scope-version-supported", "execution-coverage"] as const)
         .map((value) => `loops.preflight.check.${value}`),
       ...exactValues<Exclude<LoopReadinessRemediationTarget, null>>()(["definition", "project", "branch", "worker", "verifier", "verification", "runs"] as const)
         .map((value) => `loops.preflight.remediation.${value}`),

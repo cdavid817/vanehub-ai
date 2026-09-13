@@ -5,6 +5,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { tauriSkillAssessmentClient } from "./tauri-skill-assessment-client";
 import { tauriSkillGenerationClient } from "./tauri-skill-generation-client";
 import { tauriSkillEvolutionOrchestrationClient } from "./tauri-skill-evolution-orchestration-client";
+import { tauriLoopClient } from "./tauri-loop-client";
 import { tauriSkillCuratorClient } from "../adapters/tauri-skill-curator-client";
 import {
   revokeTauriReusableGuidanceAuthorization,
@@ -88,12 +89,6 @@ import type { AgentRunnerDescriptor } from "../types/agent-runner";
 import type { MissionControlActionReceipt, MissionControlOverview, MissionControlRunDetail } from "../types/mission-control";
 import type { EvaluationArena, EvaluationAttempt, EvaluationExport, EvaluationTask } from "../types/evaluation";
 import type {
-  ContinueLoopInput,
-  LoopDefinition,
-  LoopEvent,
-  LoopRun,
-  SaveLoopDefinitionInput,
-  StartLoopResult,
 } from "../types/loop";
 import type {
   PromptAssemblyPreviewInput,
@@ -151,7 +146,6 @@ import { normalizeSkillOverlayError } from "./skill-overlay-error";
 import { tauriSessionWorkspaceClient } from "./tauri-session-workspace-client";
 import { tauriSessionWorkspaceEvidenceClient } from "./tauri-session-workspace-evidence-client";
 import { normalizeTauriSessionUsageSummary, normalizeTauriUsageStatistics } from "./tauri-usage-statistics";
-import { subscribeLoopRunPolling } from "./loop-run-polling";
 import type {
   ApplyCliConfigProfileInput,
   CliConfigApplyResult,
@@ -245,7 +239,7 @@ function isSessionStateEvent(value: unknown): value is SessionStateEvent {
     && value.recoveryRevision >= 0;
 }
 
-export const tauriAgentClient: AgentService = { ...tauriSkillCuratorClient,
+export const tauriAgentClient: AgentService = { ...tauriSkillCuratorClient, ...tauriLoopClient,
   listEvaluationTasks: () => invoke<EvaluationTask[]>("list_evaluation_tasks"),
   startEvaluation: (input) => invoke<EvaluationArena>("start_evaluation", { input }),
   listEvaluationArenas: () => invoke<EvaluationArena[]>("list_evaluation_arenas"),
@@ -727,62 +721,6 @@ export const tauriAgentClient: AgentService = { ...tauriSkillCuratorClient,
 
   async deleteScheduledTask(taskId: string) {
     await invoke<void>("delete_scheduled_task", { taskId });
-  },
-
-  listLoopDefinitions() {
-    return invoke<LoopDefinition[]>("list_loop_definitions");
-  },
-
-  createLoopDefinition(input: SaveLoopDefinitionInput) {
-    return invoke<LoopDefinition>("create_loop_definition", { input });
-  },
-
-  updateLoopDefinition(definitionId: string, input: SaveLoopDefinitionInput) {
-    return invoke<LoopDefinition>("update_loop_definition", { definitionId, input });
-  },
-
-  async deleteLoopDefinition(definitionId: string) {
-    await invoke<void>("delete_loop_definition", { definitionId });
-  },
-
-  listLoopRuns(definitionId?: string) {
-    return invoke<LoopRun[]>("list_loop_runs", { definitionId: definitionId ?? null });
-  },
-
-  getLoopRun(runId: string) {
-    return invoke<LoopRun>("get_loop_run", { runId });
-  },
-
-  startLoop(definitionId: string) {
-    return invoke<StartLoopResult>("start_loop", { definitionId });
-  },
-
-  pauseLoop(runId: string) {
-    return invoke<LoopRun>("pause_loop", { runId });
-  },
-
-  resumeLoop(runId: string) {
-    return invoke<LoopRun>("resume_loop", { runId });
-  },
-
-  cancelLoop(runId: string) {
-    return invoke<LoopRun>("cancel_loop", { runId });
-  },
-
-  acceptLoop(runId: string) {
-    return invoke<LoopRun>("accept_loop", { runId });
-  },
-
-  continueLoop(input: ContinueLoopInput) {
-    return invoke<LoopRun>("continue_loop", { input });
-  },
-
-  rejectLoop(runId: string) {
-    return invoke<LoopRun>("reject_loop", { runId });
-  },
-
-  async subscribeLoopEvents(runId: string, handler: (event: LoopEvent) => void) {
-    return subscribeLoopRunPolling(() => invoke<LoopRun>("get_loop_run", { runId }), handler);
   },
 
   getSessionChatConfig(sessionId) {

@@ -60,6 +60,7 @@ impl LoopVerifierApplicationService {
                 worktree_path: request.worktree_path.clone(),
                 worktree_name: request.worktree_name.clone(),
                 worktree_branch: request.worktree_branch.clone(),
+                scope_ref: request.scope_ref.clone(),
             })?;
         self.ports
             .iterations

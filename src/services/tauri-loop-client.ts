@@ -1,7 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { KnownProject } from "../types/agent";
 import type {
+  LoopAcceptanceResult,
+  LoopAdmission,
+  LoopAuditAcknowledgement,
   LoopBranchChoice,
+  LoopControlEnvelope,
   LoopDefinition,
   LoopProjectChoice,
   LoopReadinessReport,
@@ -10,6 +14,16 @@ import type {
 } from "../types/loop";
 import type { LoopWorkbenchService } from "./loop-service";
 import { subscribeLoopRunPolling } from "./loop-run-polling";
+
+function envelopeArgument(envelope?: LoopControlEnvelope) {
+  return envelope
+    ? {
+        expectedRevision: envelope.expectedRevision ?? null,
+        idempotencyKey: envelope.idempotencyKey ?? null,
+        auditAcknowledgementId: envelope.auditAcknowledgementId ?? null,
+      }
+    : null;
+}
 
 export const tauriLoopClient: LoopWorkbenchService = {
   async listLoopProjectChoices() {
@@ -26,6 +40,20 @@ export const tauriLoopClient: LoopWorkbenchService = {
   },
   checkLoopReadiness(definitionId) {
     return invoke<LoopReadinessReport>("check_loop_readiness", { definitionId });
+  },
+  prepareLoopAdmission(input) {
+    return invoke<LoopAdmission>("prepare_loop_admission", {
+      input: {
+        action: input.action,
+        definitionId: input.definitionId ?? null,
+        runId: input.runId ?? null,
+        expectedRevision: input.expectedRevision,
+        clientContext: input.clientContext ?? "desktop",
+      },
+    });
+  },
+  acknowledgeLoopAudit(challengeId) {
+    return invoke<LoopAuditAcknowledgement>("acknowledge_loop_audit", { challengeId });
   },
   listLoopDefinitions() {
     return invoke<LoopDefinition[]>("list_loop_definitions");
@@ -45,14 +73,14 @@ export const tauriLoopClient: LoopWorkbenchService = {
   getLoopRun(runId) {
     return invoke<LoopRun>("get_loop_run", { runId });
   },
-  startLoop(definitionId) {
-    return invoke<StartLoopResult>("start_loop", { definitionId });
+  startLoop(definitionId, envelope) {
+    return invoke<StartLoopResult>("start_loop", { definitionId, envelope: envelopeArgument(envelope) });
   },
   pauseLoop(runId) {
     return invoke<LoopRun>("pause_loop", { runId });
   },
-  resumeLoop(runId) {
-    return invoke<LoopRun>("resume_loop", { runId });
+  resumeLoop(runId, envelope) {
+    return invoke<LoopRun>("resume_loop", { runId, envelope: envelopeArgument(envelope) });
   },
   cancelLoop(runId) {
     return invoke<LoopRun>("cancel_loop", { runId });
@@ -60,8 +88,21 @@ export const tauriLoopClient: LoopWorkbenchService = {
   acceptLoop(runId) {
     return invoke<LoopRun>("accept_loop", { runId });
   },
+  requestLoopAcceptance(input) {
+    return invoke<LoopAcceptanceResult>("request_loop_acceptance", {
+      input: {
+        runId: input.runId,
+        expectedRevision: input.expectedRevision ?? null,
+        expectedScopeDigest: input.expectedScopeDigest ?? null,
+        expectedEvidenceId: input.expectedEvidenceId ?? null,
+        idempotencyKey: input.idempotencyKey ?? null,
+      },
+    });
+  },
   continueLoop(input) {
-    return invoke<LoopRun>("continue_loop", { input });
+    return invoke<LoopRun>("continue_loop", {
+      input: { runId: input.runId, feedback: input.feedback, envelope: envelopeArgument(input.envelope) },
+    });
   },
   rejectLoop(runId) {
     return invoke<LoopRun>("reject_loop", { runId });

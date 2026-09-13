@@ -1,0 +1,78 @@
+{
+  "deltas": {
+    "cli-agent-permission-launch-flags": {
+      "added": 2,
+      "modified": 0,
+      "scenarios": 4
+    },
+    "loop-engineering-runtime": {
+      "added": 2,
+      "modified": 8,
+      "scenarios": 39
+    },
+    "loop-execution-scope": {
+      "added": 13,
+      "modified": 0,
+      "scenarios": 42
+    },
+    "loop-management-ui": {
+      "added": 3,
+      "modified": 1,
+      "scenarios": 10
+    },
+    "permissions-approval": {
+      "added": 2,
+      "modified": 0,
+      "scenarios": 7
+    },
+    "permissions-core": {
+      "added": 2,
+      "modified": 1,
+      "scenarios": 9
+    }
+  },
+  "task_count": 52,
+  "scenario_count": 111,
+  "requirement_count": 34,
+  "original_scenario_names_retained": true,
+  "checks": [
+    {
+      "label": "change-strict",
+      "exit_code": 0,
+      "summary": {
+        "totals": {
+          "items": 1,
+          "passed": 1,
+          "failed": 0
+        },
+        "byType": {
+          "change": {
+            "items": 1,
+            "passed": 1,
+            "failed": 0
+          }
+        }
+      },
+      "failed": []
+    },
+    {
+      "label": "merged-specs-strict",
+      "exit_code": 0,
+      "summary": {
+        "totals": {
+          "items": 148,
+          "passed": 148,
+          "failed": 0
+        },
+        "byType": {
+          "spec": {
+            "items": 148,
+            "passed": 148,
+            "failed": 0
+          }
+        }
+      },
+      "failed": []
+    }
+  ]
+}

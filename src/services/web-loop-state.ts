@@ -9,6 +9,7 @@ import type {
 import { nowIso } from "./web-mock-clock";
 import { deleteWebSessionMessages } from "./web-chat-state";
 import { listWebSessions, replaceWebSessions } from "./web-session-state";
+import { resetWebLoopScopeForTest } from "./web-loop-scope";
 
 // Owned here and never exported. The scheduler, the client and the composition root all reach this
 // state through the accessors below, so no importer can end up with a stale copy of it.
@@ -166,6 +167,7 @@ export function resetWebLoopsForTest(): void {
   replaceWebSessions(listWebSessions().filter((session) => !roleSessionIds.includes(session.id)));
   roleSessionIds.forEach((sessionId) => deleteWebSessionMessages(sessionId));
   loopRoleSessionIds.clear();
+  resetWebLoopScopeForTest();
   loopDefinitions = [];
   loopRuns = [];
   nextLoopDefinitionId = 1;

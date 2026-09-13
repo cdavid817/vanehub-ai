@@ -26,6 +26,7 @@ import type { ChatStreamEvent } from "../types/chat";
 import type { PromptHookMutationInput } from "../types/prompt-hook";
 import type { SaveLoopDefinitionInput } from "../types/loop";
 import { i18n } from "../i18n";
+import { webLoopClient } from "./web-loop-client";
 
 afterEach(() => {
   resetWebLoopsForTest();
@@ -45,12 +46,14 @@ const loopDefinitionInput: SaveLoopDefinitionInput = {
   acceptanceCriteria: ["Tests pass"],
   allowedPaths: ["src"],
   protectedPaths: [".git"],
-  workerAgentId: "codex-cli",
-  verifierAgentId: "claude-code",
+  workerAgentId: "onepiece",
+  verifierAgentId: "onepiece",
+  scopeSchemaVersion: 1,
   verificationCommands: [{
     id: "tests",
-    program: "npm",
-    args: ["test"],
+    kind: "native-check",
+    program: "patch-whitespace",
+    args: [],
     workingDirectory: null,
     timeoutSeconds: 60,
     required: true,
@@ -107,7 +110,7 @@ describe("webAgentClient", () => {
     expect(awaiting).toMatchObject({ status: "awaiting-acceptance", phase: "finalizing", simulated: true });
     expect(awaiting.iterations[0].evidence.map((item) => item.kind)).toEqual([
       "worker",
-      "verification",
+      "verification-command",
       "verifier",
       "decision",
     ]);
@@ -231,15 +234,20 @@ describe("webAgentClient", () => {
     vi.useFakeTimers();
     const definition = await webAgentClient.createLoopDefinition({
       ...loopDefinitionInput,
-      verificationCommands: [{ ...loopDefinitionInput.verificationCommands[0], program: "false" }],
+      requestedMode: "artifact-audited",
+      verificationCommands: [{ ...loopDefinitionInput.verificationCommands[0], kind: "process", program: "false" }],
     });
-    const started = await webAgentClient.startLoop(definition.id);
+    // A process check is never completely enforced, so only artifact-audited mode admits it,
+    // and every start in that mode consumes an explicit acknowledgement receipt.
+    const admission = await webLoopClient.prepareLoopAdmission({ action: "start", definitionId: definition.id, expectedRevision: definition.version });
+    const receipt = await webLoopClient.acknowledgeLoopAudit(admission.challengeId ?? "");
+    const started = await webAgentClient.startLoop(definition.id, { expectedRevision: definition.version, auditAcknowledgementId: receipt.acknowledgementId });
     await vi.advanceTimersByTimeAsync(900);
 
     const failed = await webAgentClient.getLoopRun(started.run.id);
     expect(failed).toMatchObject({ status: "failed", terminalReason: "verification-failed" });
     expect(failed.iterations[0].evidence).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: "verification", status: "failed", exitCode: 1 }),
+      expect.objectContaining({ kind: "verification-command", status: "failed", exitCode: 1 }),
       expect.objectContaining({ kind: "decision", status: "failed" }),
     ]));
   });

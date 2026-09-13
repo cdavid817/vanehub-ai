@@ -302,6 +302,8 @@ pub(crate) enum LoopOperationKind {
     Decision,
     Cancellation,
     Recovery,
+    ScopeEvidence,
+    Acceptance,
 }
 
 impl LoopOperationKind {
@@ -314,6 +316,8 @@ impl LoopOperationKind {
             Self::Decision => "decision",
             Self::Cancellation => "cancellation",
             Self::Recovery => "recovery",
+            Self::ScopeEvidence => "scope-evidence",
+            Self::Acceptance => "acceptance",
         }
     }
 }

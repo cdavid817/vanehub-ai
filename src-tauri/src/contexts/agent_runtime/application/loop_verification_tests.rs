@@ -1,13 +1,31 @@
+use super::loop_test_support::{test_binding, FakeScopePlatform};
 use super::*;
+use crate::contexts::agent_runtime::domain::{
+    LoopDefinition, LoopDefinitionInput, LoopLimits, LoopVerificationCommand, LoopVerificationKind,
+    NATIVE_CHECK_PATCH_WHITESPACE,
+};
 use std::sync::{Arc, Mutex};
 
-#[derive(Default)]
 struct VerificationWorld {
+    platform: Arc<FakeScopePlatform>,
     commands: Mutex<Vec<String>>,
     evidence: Mutex<Vec<LoopEvidenceView>>,
     operation_events: Mutex<Vec<String>>,
     logs: Mutex<Vec<LoopLog>>,
     projections: Mutex<Vec<LoopVerificationEvidenceFact>>,
+}
+
+impl Default for VerificationWorld {
+    fn default() -> Self {
+        Self {
+            platform: FakeScopePlatform::new("tree-1"),
+            commands: Mutex::new(Vec::new()),
+            evidence: Mutex::new(Vec::new()),
+            operation_events: Mutex::new(Vec::new()),
+            logs: Mutex::new(Vec::new()),
+            projections: Mutex::new(Vec::new()),
+        }
+    }
 }
 
 impl VerificationWorld {
@@ -18,6 +36,7 @@ impl VerificationWorld {
             observer: LoopOperationObserver::new(self.clone(), self.clone(), self.clone()),
             clock: self.clone(),
             evidence: self.clone(),
+            scope_platform: self.platform.clone(),
         })
     }
 }
@@ -204,11 +223,81 @@ impl LoopLoggingPort for VerificationWorld {
 fn command(id: &str, required: bool) -> LoopVerificationCommandView {
     LoopVerificationCommandView {
         id: id.to_string(),
+        kind: LoopVerificationKind::Process,
         program: "npm".to_string(),
         args: vec!["test".to_string()],
         working_directory: None,
         timeout_seconds: 60,
         required,
+    }
+}
+
+fn native_command(id: &str) -> LoopVerificationCommandView {
+    LoopVerificationCommandView {
+        id: id.to_string(),
+        kind: LoopVerificationKind::NativeCheck,
+        program: NATIVE_CHECK_PATCH_WHITESPACE.to_string(),
+        args: Vec::new(),
+        working_directory: None,
+        timeout_seconds: 60,
+        required: true,
+    }
+}
+
+fn scoped_definition(
+    mode: crate::contexts::agent_runtime::domain::LoopRequestedMode,
+) -> LoopDefinition {
+    LoopDefinition::new(LoopDefinitionInput {
+        id: "loop-1".to_string(),
+        name: "Loop".to_string(),
+        enabled: true,
+        project_path: "C:/work/project".to_string(),
+        base_branch: "main".to_string(),
+        goal: "goal".to_string(),
+        acceptance_criteria: vec!["done".to_string()],
+        allowed_paths: vec!["src".to_string()],
+        protected_paths: Vec::new(),
+        worker_agent_id: "worker".to_string(),
+        verifier_agent_id: "verifier".to_string(),
+        verification_commands: vec![LoopVerificationCommand::new(
+            "tests".to_string(),
+            "npm".to_string(),
+            vec!["test".to_string()],
+            None,
+            60,
+            true,
+        )
+        .expect("command")],
+        limits: LoopLimits::new(3, 60, 600, 2, 2).expect("limits"),
+        version: 1,
+        created_at: "t".to_string(),
+        updated_at: "t".to_string(),
+        scope_schema_version: Some(1),
+        requested_mode: Some(mode),
+    })
+    .expect("definition")
+}
+
+fn verification_scope(
+    mode: crate::contexts::agent_runtime::domain::LoopRequestedMode,
+) -> LoopVerificationScope {
+    let definition = scoped_definition(mode);
+    let assessment = LoopExecutionAssessment {
+        requested_mode: mode.as_str().to_string(),
+        surfaces: Vec::new(),
+        blockers: Vec::new(),
+        limitations: Vec::new(),
+        satisfies_requested_mode: true,
+        acknowledgement_required: false,
+        witness_digest: "sha256:witness".to_string(),
+        assessed_at: "t".to_string(),
+        simulated: false,
+    };
+    LoopVerificationScope {
+        binding: test_binding(&definition, &assessment, "tree-1").expect("binding"),
+        input_manifest_id: "worker-1".to_string(),
+        input_digest: "tree-1".to_string(),
+        assessment_digest: assessment_digest(&assessment),
     }
 }
 
@@ -219,6 +308,9 @@ fn request(commands: Vec<LoopVerificationCommandView>) -> RunLoopVerificationReq
         worktree_root: "C:/work/project-loop".to_string(),
         commands,
         cancellation: LoopVerificationCancellation::default(),
+        scope: Some(verification_scope(
+            crate::contexts::agent_runtime::domain::LoopRequestedMode::ArtifactAudited,
+        )),
     }
 }
 
@@ -314,4 +406,74 @@ fn optional_process_error_records_evidence_without_blocking_acceptance() {
         .iter()
         .all(|log| log.context.kind == LoopOperationKind::Verification));
     assert!(logs.iter().all(|log| log.operation_id.is_some()));
+}
+
+#[test]
+fn strict_mode_refuses_process_checks_and_runs_native_checks_in_process() {
+    let world = Arc::new(VerificationWorld::default());
+    let mut strict = request(vec![command("tests", true), native_command("whitespace")]);
+    strict.scope = Some(verification_scope(
+        crate::contexts::agent_runtime::domain::LoopRequestedMode::PreventiveRequired,
+    ));
+    let result = world.service().run_commands(strict).expect("verification");
+
+    assert!(
+        world.commands.lock().expect("commands").is_empty(),
+        "no process was launched"
+    );
+    assert_eq!(result.evidence[0].status, "error");
+    assert_eq!(result.evidence[1].status, "passed");
+    assert_eq!(
+        result.evidence[1].details.as_ref().expect("details")["verificationKind"],
+        "native-check"
+    );
+    assert!(!result.required_checks_passed);
+
+    *world.platform.native_check.lock().expect("native") = Some(LoopNativeCheckView {
+        status: "failed".to_string(),
+        findings: vec!["src/a.ts:3: trailing whitespace".to_string()],
+        inspected_files: 1,
+        binary_excluded: 0,
+        detail: None,
+    });
+    let mut failing = request(vec![native_command("whitespace")]);
+    failing.scope = Some(verification_scope(
+        crate::contexts::agent_runtime::domain::LoopRequestedMode::PreventiveRequired,
+    ));
+    let result = world.service().run_commands(failing).expect("verification");
+    assert_eq!(result.evidence[0].status, "failed");
+    assert!(!result.required_checks_passed);
+}
+
+#[test]
+fn verification_fingerprints_change_with_inputs_scope_and_command_content() {
+    let scope = verification_scope(
+        crate::contexts::agent_runtime::domain::LoopRequestedMode::PreventiveRequired,
+    );
+    let base = verification_fingerprint(&command("tests", true), &scope);
+    let mut other_input = scope.clone();
+    other_input.input_digest = "tree-2".to_string();
+    assert_ne!(
+        base,
+        verification_fingerprint(&command("tests", true), &other_input)
+    );
+    let mut other_args = command("tests", true);
+    other_args.args = vec!["lint".to_string()];
+    assert_ne!(base, verification_fingerprint(&other_args, &scope));
+    let mut other_scope = scope.clone();
+    other_scope.binding.scope_digest = "sha256:other".to_string();
+    assert_ne!(
+        base,
+        verification_fingerprint(&command("tests", true), &other_scope)
+    );
+    let mut other_policy = scope.clone();
+    other_policy.assessment_digest = "sha256:policy".to_string();
+    assert_ne!(
+        base,
+        verification_fingerprint(&command("tests", true), &other_policy)
+    );
+    assert_eq!(
+        base,
+        verification_fingerprint(&command("tests", true), &scope)
+    );
 }

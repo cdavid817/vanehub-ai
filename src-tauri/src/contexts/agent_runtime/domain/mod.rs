@@ -28,6 +28,7 @@ mod loop_decision;
 mod loop_engineering;
 mod loop_progress;
 mod loop_readiness;
+mod loop_scope;
 mod memory_document;
 #[cfg(test)]
 mod memory_document_tests;
@@ -104,15 +105,22 @@ pub(crate) use loop_decision::{
     decide_loop_iteration, LoopDecision, LoopDecisionInput, LoopDecisionOutcome,
     LoopVerifierRecommendation,
 };
+#[cfg(test)]
+pub(crate) use loop_engineering::NATIVE_CHECK_PATCH_WHITESPACE;
 pub(crate) use loop_engineering::{
     LoopDefinition, LoopDefinitionInput, LoopLimits, LoopRun, LoopRunPhase, LoopRunSnapshot,
-    LoopRunStatus, LoopTerminalReason, LoopVerificationCommand,
+    LoopRunStatus, LoopScopeState, LoopTerminalReason, LoopVerificationCommand,
+    LoopVerificationKind,
 };
 pub(crate) use loop_progress::{
     assess_revision_progress, fingerprint_objective_state, LoopCheckOutcome,
     LoopObjectiveFingerprints, LoopRequiredCheckObservation, LoopRevisionProgress,
 };
 pub(crate) use loop_readiness::{LoopReadinessCategory, LoopReadinessCheckCode};
+pub(crate) use loop_scope::{
+    CaseRule, LoopCoverage, LoopRequestedMode, LoopScopeConfig, LoopScopePath,
+    LoopSideEffectChannel, ScopeClassification, ScopeRejection, LOOP_SCOPE_SCHEMA_VERSION,
+};
 pub(crate) use memory_document::{
     compose_memory_document, parse_memory_document, validate_name, MemoryDocument, MemoryMetadata,
     MemoryType,

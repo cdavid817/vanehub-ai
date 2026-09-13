@@ -26,14 +26,15 @@ const runPhases = exactValues<LoopRunPhase>()([
 const terminalReasons = exactValues<LoopTerminalReason>()([
   "goal-met", "max-iterations", "time-budget", "phase-timeout", "runtime-errors", "no-progress",
   "verification-failed", "verifier-blocked", "runtime-error", "recovery-required", "user-rejected", "user-stopped",
+        "scope-violation", "scope-binding-missing", "scope-unverifiable", "scope-capability-changed",
 ] as const);
 const roles = exactValues<LoopRole>()(["worker", "verifier"] as const);
 const recommendations = exactValues<LoopVerifierRecommendation>()(["pass", "revise", "blocked"] as const);
 const evidenceKinds = exactValues<LoopEvidenceKind>()([
-  "worktree", "worker", "verification", "verifier", "decision", "recovery",
+  "worktree", "worker", "verification", "verification-command", "verifier", "decision", "recovery", "scope-binding", "scope-evidence", "acceptance",
 ] as const);
 const evidenceStatuses = exactValues<LoopEvidenceStatus>()([
-  "pending", "passed", "failed", "blocked", "cancelled",
+  "pending", "passed", "failed", "blocked", "cancelled", "error", "timed-out", "violation", "unverifiable",
 ] as const);
 const eventKinds = exactValues<LoopEventKind>()([
   "run-updated", "iteration-updated", "evidence-added",
@@ -60,11 +61,12 @@ describe("Loop frontend model", () => {
       terminalReasons: [
         "goal-met", "max-iterations", "time-budget", "phase-timeout", "runtime-errors", "no-progress",
         "verification-failed", "verifier-blocked", "runtime-error", "recovery-required", "user-rejected", "user-stopped",
+        "scope-violation", "scope-binding-missing", "scope-unverifiable", "scope-capability-changed",
       ],
       roles: ["worker", "verifier"],
       recommendations: ["pass", "revise", "blocked"],
-      evidenceKinds: ["worktree", "worker", "verification", "verifier", "decision", "recovery"],
-      evidenceStatuses: ["pending", "passed", "failed", "blocked", "cancelled"],
+      evidenceKinds: ["worktree", "worker", "verification", "verification-command", "verifier", "decision", "recovery", "scope-binding", "scope-evidence", "acceptance"],
+      evidenceStatuses: ["pending", "passed", "failed", "blocked", "cancelled", "error", "timed-out", "violation", "unverifiable"],
       eventKinds: ["run-updated", "iteration-updated", "evidence-added"],
       inspectionSurfaces: ["chat", "changes", "files", "terminal", "logs", "report", "usage"],
     });

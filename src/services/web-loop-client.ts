@@ -6,13 +6,15 @@ import type {
   SaveLoopDefinitionInput,
   StartLoopResult,
 } from "../types/loop";
+import { validateLoopDefinitionInput } from "./web-loop-definition-validation";
 import type { LoopRun } from "../types/loop";
 import type { LoopWorkbenchService } from "./loop-service";
-import { mockAgents } from "./mock-agent-data";
 import { nowIso } from "./web-mock-clock";
 import { prependWebAgentRun, projectWebOwnerRun, setWebAgentRunEvents } from "./web-agent-run-state";
 import { createWebLoopRoleSession, scheduleWebLoopPhase } from "./web-loop-scheduler";
+import { consumeWebLoopAudit, requireWebLoopRevision, simulateLoopAssessment, simulateLoopRunScope } from "./web-loop-scope";
 import {
+  addLoopEvidence,
   clearWebLoopTimer,
   cloneLoopValue,
   createWebLoopIteration,
@@ -30,49 +32,6 @@ import {
   subscribeWebLoopEvents,
 } from "./web-loop-state";
 import { activeLoopStatuses, webLoopReadinessClient } from "./web-loop-readiness-client";
-
-function validateLoopDefinitionInput(input: SaveLoopDefinitionInput) {
-  const name = input.name.trim();
-  const projectPath = input.projectPath.trim();
-  const baseBranch = input.baseBranch.trim();
-  const goal = input.goal.trim();
-  if (!name || !projectPath || !baseBranch || !goal) throw new Error(i18n.t("loops.editor.error.scope"));
-  if (!mockAgents.some((agent) => agent.id === input.workerAgentId)) throw new Error(i18n.t("loops.web.error.unsupportedWorker", { agentId: input.workerAgentId }));
-  if (!mockAgents.some((agent) => agent.id === input.verifierAgentId)) throw new Error(i18n.t("loops.web.error.unsupportedVerifier", { agentId: input.verifierAgentId }));
-  if (input.acceptanceCriteria.every((criterion) => !criterion.trim())) throw new Error(i18n.t("loops.editor.error.acceptance"));
-  if (input.verificationCommands.length === 0) throw new Error(i18n.t("loops.editor.error.verificationRequired"));
-  for (const command of input.verificationCommands) {
-    if (!command.id.trim() || !command.program.trim() || command.timeoutSeconds < 1) throw new Error(i18n.t("loops.web.error.invalidCommand"));
-    const workingDirectory = command.workingDirectory?.trim() ?? null;
-    if (workingDirectory && (/^(?:[a-zA-Z]:[\\/]|[\\/])/.test(workingDirectory) || workingDirectory.split(/[\\/]+/).includes(".."))) {
-      throw new Error(i18n.t("loops.editor.error.verificationDirectory"));
-    }
-  }
-  const { limits } = input;
-  if (
-    limits.maxIterations < 1 || limits.maxIterations > 20 ||
-    limits.stepTimeoutSeconds < 1 || limits.totalTimeoutSeconds < limits.stepTimeoutSeconds ||
-    limits.maxConsecutiveRuntimeErrors < 1 || limits.maxConsecutiveNoProgress < 1
-  ) throw new Error(i18n.t("loops.editor.error.limits"));
-  return {
-    ...input,
-    name,
-    projectPath,
-    baseBranch,
-    goal,
-    acceptanceCriteria: input.acceptanceCriteria.map((value) => value.trim()).filter(Boolean),
-    allowedPaths: input.allowedPaths.map((value) => value.trim()).filter(Boolean),
-    protectedPaths: input.protectedPaths.map((value) => value.trim()).filter(Boolean),
-    verificationCommands: input.verificationCommands.map((command) => ({
-      ...command,
-      id: command.id.trim(),
-      program: command.program.trim(),
-      args: command.args.map((value) => value.trim()).filter(Boolean),
-      workingDirectory: command.workingDirectory?.trim() || null,
-    })),
-    limits: { ...input.limits },
-  };
-}
 
 export const webLoopClient: LoopWorkbenchService = {
   ...webLoopReadinessClient,
@@ -127,9 +86,14 @@ export const webLoopClient: LoopWorkbenchService = {
     return cloneLoopValue(findLoopRun(runId));
   },
 
-  async startLoop(definitionId: string): Promise<StartLoopResult> {
+  async startLoop(definitionId: string, envelope): Promise<StartLoopResult> {
     const definition = findLoopDefinition(definitionId);
     if (!definition.enabled) throw new Error(i18n.t("loops.web.error.definitionDisabled"));
+    requireWebLoopRevision(envelope, definition.version);
+    if (definition.scopeState !== "verified") throw new Error(i18n.t("loops.web.error.legacyScope"));
+    const assessment = simulateLoopAssessment(definition);
+    if (!assessment.satisfiesRequestedMode) throw new Error(i18n.t("loops.web.error.coverage", { mode: assessment.requestedMode, blockers: assessment.blockers.join("; ") }));
+    consumeWebLoopAudit(envelope, "start", definition.id, definition.version, definition);
     if (listWebLoopRuns().some((run) => run.definitionId === definitionId && activeLoopStatuses.includes(run.status))) {
       throw new Error(i18n.t("loops.web.error.activeRunExists"));
     }
@@ -158,6 +122,8 @@ export const webLoopClient: LoopWorkbenchService = {
       startedAt: null,
       updatedAt: timestamp,
       completedAt: null,
+      revision: 1,
+      scope: simulateLoopRunScope(definition, assessment),
     };
     prependWebLoopRun(run);
     const canonicalId = `018f0f17-4d6a-7e20-b41d-66c5271a${String(peekWebLoopRunSequence()).padStart(4, "0")}`;
@@ -190,15 +156,18 @@ export const webLoopClient: LoopWorkbenchService = {
     return cloneLoopValue(run);
   },
 
-  async resumeLoop(runId: string) {
+  async resumeLoop(runId: string, envelope) {
     const run = findLoopRun(runId);
     if (run.status !== "paused") throw new Error(i18n.t("loops.web.error.resumeState"));
-    run.status = run.iterations.length === 0 ? "queued" : "running";
-    projectWebOwnerRun(run.id, "running");
+    requireWebLoopRevision(envelope, run.revision);
+    if (run.terminalReason === "scope-binding-missing" || run.scope?.bindingStatus !== "bound") throw new Error(i18n.t("loops.web.error.bindingMissing"));
+    consumeWebLoopAudit(envelope, "resume", run.id, run.revision, run.definitionSnapshot);
+    run.status = run.iterations.length === 0 ? "queued" : run.phase === "finalizing" ? "awaiting-acceptance" : "running";
+    projectWebOwnerRun(run.id, run.status === "awaiting-acceptance" ? "verifying" : "running");
     run.terminalReason = null;
     run.pauseRequested = false;
     emitLoopEvent(run);
-    scheduleWebLoopPhase(run);
+    if (run.status !== "awaiting-acceptance") scheduleWebLoopPhase(run);
     return cloneLoopValue(run);
   },
 
@@ -218,14 +187,54 @@ export const webLoopClient: LoopWorkbenchService = {
   },
 
   async acceptLoop(runId: string) {
-    const run = findLoopRun(runId);
+    const result = await this.requestLoopAcceptance({ runId });
+    return result.run;
+  },
+
+  async requestLoopAcceptance(input) {
+    const run = findLoopRun(input.runId);
     if (run.status !== "awaiting-acceptance") throw new Error(i18n.t("loops.web.error.acceptanceState"));
+    requireWebLoopRevision({ expectedRevision: input.expectedRevision }, run.revision);
+    if (input.expectedScopeDigest && input.expectedScopeDigest !== run.scope?.scopeDigest) throw new Error(i18n.t("loops.web.error.staleRevision"));
+    if (run.scope?.acceptanceOperationId) throw new Error(i18n.t("loops.web.error.acceptanceInProgress"));
+    // The simulated seal and commit happen inline: no real worktree exists to rescan, so an
+    // asynchronous operation would only pretend to wait.
+    const operationId = `web-loop-accept-${run.id}-${run.revision}`;
+    const iteration = run.iterations.at(-1) ?? null;
+    const sealedEvidenceId = `web-loop-sealed-${run.id}-${run.revision}`;
+    if (run.scope) {
+      run.scope.sealedEvidenceId = sealedEvidenceId;
+      run.scope.acceptanceOperationId = null;
+    }
+    addLoopEvidence(run, iteration, {
+      kind: "scope-evidence",
+      status: "passed",
+      summary: i18n.t("loops.web.evidence.sealed"),
+      operationId,
+      commandId: null,
+      exitCode: null,
+      durationMs: 0,
+      details: { simulated: true, sealedEvidenceId, scopeDigest: run.scope?.scopeDigest ?? null },
+    });
+    run.revision += 1;
     run.status = "succeeded";
-    projectWebOwnerRun(run.id, "completed");
+    run.phase = "finalizing";
     run.terminalReason = "goal-met";
     run.completedAt = nowIso();
+    if (iteration) { iteration.status = "succeeded"; iteration.completedAt = run.completedAt; }
+    projectWebOwnerRun(run.id, "completed");
+    addLoopEvidence(run, iteration, {
+      kind: "acceptance",
+      status: "passed",
+      summary: i18n.t("loops.web.evidence.accepted"),
+      operationId,
+      commandId: null,
+      exitCode: null,
+      durationMs: 0,
+      details: { simulated: true, sealedEvidenceId },
+    });
     emitLoopEvent(run);
-    return cloneLoopValue(run);
+    return { run: cloneLoopValue(run), operationId };
   },
 
   async continueLoop(input: ContinueLoopInput) {
@@ -234,6 +243,9 @@ export const webLoopClient: LoopWorkbenchService = {
     if (run.status !== "awaiting-acceptance") throw new Error(i18n.t("loops.web.error.acceptanceState"));
     if (!feedback) throw new Error(i18n.t("loops.web.error.feedbackRequired"));
     if (run.currentIteration >= run.definitionSnapshot.limits.maxIterations) throw new Error(i18n.t("loops.web.error.maxIterations"));
+    requireWebLoopRevision(input.envelope, run.revision);
+    consumeWebLoopAudit(input.envelope, "continue", run.id, run.revision, run.definitionSnapshot);
+    run.revision += 1;
     run.currentIteration += 1;
     const iteration = createWebLoopIteration(run.id, run.currentIteration, feedback);
     run.iterations.push(iteration);

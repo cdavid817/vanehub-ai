@@ -1,7 +1,7 @@
 use crate::contexts::agent_runtime::domain::{
     InteractionMode, LoopDefinition, LoopLimits, LoopReadinessCategory, LoopReadinessCheckCode,
-    LoopRunPhase, LoopRunStatus, LoopTerminalReason, LoopVerificationCommand,
-    LoopVerifierRecommendation,
+    LoopRequestedMode, LoopRunPhase, LoopRunStatus, LoopScopeState, LoopTerminalReason,
+    LoopVerificationCommand, LoopVerificationKind, LoopVerifierRecommendation,
 };
 use serde_json::Value;
 
@@ -30,6 +30,7 @@ pub(crate) struct LoopOwnedRecoverySession {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LoopVerificationCommandView {
     pub(crate) id: String,
+    pub(crate) kind: LoopVerificationKind,
     pub(crate) program: String,
     pub(crate) args: Vec<String>,
     pub(crate) working_directory: Option<String>,
@@ -41,6 +42,7 @@ impl From<&LoopVerificationCommand> for LoopVerificationCommandView {
     fn from(command: &LoopVerificationCommand) -> Self {
         Self {
             id: command.id().to_string(),
+            kind: command.kind(),
             program: command.program().to_string(),
             args: command.args().to_vec(),
             working_directory: command.working_directory().map(str::to_string),
@@ -89,6 +91,9 @@ pub(crate) struct LoopDefinitionView {
     pub(crate) version: u64,
     pub(crate) created_at: String,
     pub(crate) updated_at: String,
+    pub(crate) scope_schema_version: Option<u32>,
+    pub(crate) requested_mode: Option<LoopRequestedMode>,
+    pub(crate) scope_state: LoopScopeState,
 }
 
 impl From<&LoopDefinition> for LoopDefinitionView {
@@ -115,6 +120,9 @@ impl From<&LoopDefinition> for LoopDefinitionView {
             version: values.version,
             created_at: values.created_at.clone(),
             updated_at: values.updated_at.clone(),
+            scope_schema_version: values.scope_schema_version,
+            requested_mode: values.requested_mode,
+            scope_state: definition.scope_state(),
         }
     }
 }
@@ -155,6 +163,53 @@ pub(crate) struct LoopIterationView {
     pub(crate) completed_at: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LoopBindingStatus {
+    Bound,
+    Missing,
+    Legacy,
+}
+
+impl LoopBindingStatus {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Bound => "bound",
+            Self::Missing => "missing",
+            Self::Legacy => "legacy",
+        }
+    }
+}
+
+/// The persisted scope facts of one run, as stored alongside its row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LoopRunScopeRecord {
+    pub(crate) revision: u64,
+    pub(crate) binding: Option<super::LoopScopeBinding>,
+    pub(crate) assessment: Option<super::LoopExecutionAssessment>,
+    pub(crate) sealed_evidence_id: Option<String>,
+    pub(crate) acceptance_operation_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LoopRunScopeView {
+    pub(crate) requested_mode: Option<LoopRequestedMode>,
+    pub(crate) scope_digest: Option<String>,
+    pub(crate) binding_status: LoopBindingStatus,
+    pub(crate) assessment: Option<super::LoopExecutionAssessment>,
+    pub(crate) sealed_evidence_id: Option<String>,
+    pub(crate) acceptance_operation_id: Option<String>,
+    pub(crate) baseline_digest: Option<String>,
+    pub(crate) allowed_paths: Vec<String>,
+    pub(crate) protected_paths: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum LoopControlOperationClaim {
+    New,
+    Existing(String),
+    InFlight,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct LoopRunView {
     pub(crate) id: String,
@@ -178,12 +233,29 @@ pub(crate) struct LoopRunView {
     pub(crate) started_at: Option<String>,
     pub(crate) updated_at: String,
     pub(crate) completed_at: Option<String>,
+    pub(crate) revision: u64,
+    pub(crate) scope: Option<LoopRunScopeView>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct StartLoopResultView {
     pub(crate) run_id: String,
     pub(crate) operation_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LoopAcceptanceResultView {
+    pub(crate) run_id: String,
+    pub(crate) operation_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RequestLoopAcceptanceRequest {
+    pub(crate) run_id: String,
+    pub(crate) expected_revision: Option<u64>,
+    pub(crate) expected_scope_digest: Option<String>,
+    pub(crate) expected_evidence_id: Option<String>,
+    pub(crate) idempotency_key: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -201,12 +273,18 @@ pub(crate) struct LoopReadinessReportView {
     pub(crate) ready: bool,
     pub(crate) checks: Vec<LoopReadinessCheckView>,
     pub(crate) checked_at: String,
+    pub(crate) requested_mode: Option<LoopRequestedMode>,
+    pub(crate) scope_state: LoopScopeState,
+    pub(crate) assessment: Option<super::LoopExecutionAssessment>,
+    pub(crate) acknowledgement_required: bool,
+    pub(crate) definition_revision: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ContinueLoopRequest {
     pub(crate) run_id: String,
     pub(crate) feedback: String,
+    pub(crate) envelope: super::LoopControlEnvelope,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -224,6 +302,9 @@ pub(crate) struct SaveLoopDefinitionRequest {
     pub(crate) verification_commands: Vec<LoopVerificationCommand>,
     pub(crate) limits: LoopLimits,
     pub(crate) expected_version: Option<u64>,
+    /// `None` keeps a legacy definition unverified; the UI always sends the current version.
+    pub(crate) scope_schema_version: Option<u32>,
+    pub(crate) requested_mode: Option<LoopRequestedMode>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -259,6 +340,7 @@ pub(crate) struct StartLoopWorkerRequest {
     pub(crate) prior_evidence: Vec<LoopEvidenceView>,
     pub(crate) user_feedback: Option<String>,
     pub(crate) elapsed_seconds: u64,
+    pub(crate) scope_ref: Option<LoopScopeRef>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -271,6 +353,16 @@ pub(crate) struct LoopRoleSessionRequest {
     pub(crate) worktree_path: String,
     pub(crate) worktree_name: String,
     pub(crate) worktree_branch: String,
+    /// Backend-issued reference to the frozen run scope. The session gateway records the run
+    /// ownership; the guard is later re-derived from that ownership, never from this value.
+    pub(crate) scope_ref: Option<LoopScopeRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LoopScopeRef {
+    pub(crate) scope_digest: String,
+    pub(crate) requested_mode: LoopRequestedMode,
+    pub(crate) role: super::LoopGuardRole,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -288,6 +380,17 @@ pub(crate) struct RunLoopVerificationRequest {
     pub(crate) worktree_root: String,
     pub(crate) commands: Vec<LoopVerificationCommandView>,
     pub(crate) cancellation: super::LoopVerificationCancellation,
+    /// The frozen scope facts the commands run under. Absent only in legacy fakes; the native
+    /// verifier refuses to run without it.
+    pub(crate) scope: Option<LoopVerificationScope>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LoopVerificationScope {
+    pub(crate) binding: super::LoopScopeBinding,
+    pub(crate) input_manifest_id: String,
+    pub(crate) input_digest: String,
+    pub(crate) assessment_digest: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -307,6 +410,7 @@ pub(crate) struct StartLoopVerifierRequest {
     pub(crate) worktree_name: String,
     pub(crate) worktree_branch: String,
     pub(crate) check_evidence: Vec<LoopEvidenceView>,
+    pub(crate) scope_ref: Option<LoopScopeRef>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
