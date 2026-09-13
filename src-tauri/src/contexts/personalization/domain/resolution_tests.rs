@@ -8,8 +8,9 @@ use super::scope::{
     WorkspaceKey, WorkspaceKind,
 };
 use super::snapshot::{
-    EffectivePersonalizationSnapshot, InstructionField, PersonalizationResolutionContext,
-    PersonalizationRuntimeCapabilities, PersonalizationWarningCode, FAIL_CLOSED_REVISION_TOKEN,
+    EffectivePersonalizationSnapshot, InstructionField, MemoryBlockReason, MemoryDeliveryMode,
+    PersonalizationResolutionContext, PersonalizationRuntimeCapabilities,
+    PersonalizationWarningCode, FAIL_CLOSED_REVISION_TOKEN,
 };
 
 fn agent() -> AgentId {
@@ -264,6 +265,31 @@ fn an_inheriting_layer_changes_nothing() {
     assert_eq!(result.instruction_segments.len(), 1);
     assert_eq!(result.instruction_segments[0].scope_kind, "global");
     assert!(result.memory_access.read);
+}
+
+/// The one block a policy itself produces. Every other reason names a condition outside the
+/// policy; this one tells the preview which switch to look at, and leaves the separate saving
+/// switch exactly as the user set it.
+#[test]
+fn reading_turned_off_by_policy_is_named_as_the_block_reason_and_leaves_saving_alone() {
+    let mut global = global_with("", "");
+    global.set_memory_read_mode(PolicyToggle::Disabled);
+
+    let result = snapshot(
+        layers_with_global(global),
+        SessionPersonalizationMode::Standard,
+    );
+
+    assert!(!result.memory_access.read);
+    assert_eq!(
+        result.memory_access.block_reason,
+        Some(MemoryBlockReason::ReadDisabled)
+    );
+    assert_eq!(result.memory_access.delivery, MemoryDeliveryMode::None);
+    assert!(
+        result.memory_access.explicit_save,
+        "saving is its own switch"
+    );
 }
 
 #[test]

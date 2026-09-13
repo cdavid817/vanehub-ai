@@ -775,17 +775,22 @@ impl<'a> QueryLocalAuthority<'a> {
             ))
             .map_err(storage_error)?;
         let relation = Self { connection, table };
-        {
-            let mut insert = connection
-                .prepare(&format!(
-                    "INSERT OR IGNORE INTO temp.\"{}\" (source_id) VALUES (?1)",
+        // One statement, so the whole relation lands in one implicit transaction: a row-per-
+        // statement loop pays a journal commit per id, which at the enumeration budget is most
+        // of a recall's latency. The ids travel as one JSON array parameter, so their number is
+        // not bounded by the host variable limit either.
+        let payload = serde_json::to_string(source_ids)
+            .map_err(|error| RetrievalError::Storage(error.to_string()))?;
+        connection
+            .execute(
+                &format!(
+                    "INSERT OR IGNORE INTO temp.\"{}\" (source_id) \
+                     SELECT value FROM json_each(?1) WHERE type = 'text'",
                     relation.table
-                ))
-                .map_err(storage_error)?;
-            for source_id in source_ids {
-                insert.execute(params![source_id]).map_err(storage_error)?;
-            }
-        }
+                ),
+                params![payload],
+            )
+            .map_err(storage_error)?;
         Ok(relation)
     }
 
@@ -1101,6 +1106,40 @@ mod tests {
             .expect("rows");
         assert!(none.vector.expect("vector").is_empty());
         assert!(none.keyword.expect("keyword").is_empty());
+    }
+
+    /// MR-32 (7.3): the relation is materialized whole, so an authority set at the enumeration
+    /// budget's scale still answers a keyword query and still admits only its own rows.
+    #[test]
+    fn a_relation_at_the_enumeration_budget_is_materialized_and_still_filters() {
+        let fixture = Fixture::new("retrieval large authority relation");
+        for source_id in ["admitted", "excluded-a", "excluded-b"] {
+            fixture
+                .repository
+                .upsert_pending(&document(source_id, "a", "", "uses npm not pnpm"))
+                .expect("upsert");
+        }
+        let mut source_ids: Vec<String> = (0..50_000)
+            .map(|index| format!("elsewhere-{index}"))
+            .collect();
+        source_ids.push("admitted".to_string());
+        let authority = crate::contexts::retrieval::application::AuthorizedSourceSet {
+            source_ids,
+            complete: true,
+        };
+
+        let rows = fixture
+            .repository
+            .authorized_candidates(
+                SourceKind::AgentMemory,
+                &authority,
+                None,
+                Some("\"pnpm\""),
+                10,
+            )
+            .expect("candidates");
+
+        assert_eq!(rows.keyword.expect("keyword"), vec!["admitted".to_string()]);
     }
 
     #[test]

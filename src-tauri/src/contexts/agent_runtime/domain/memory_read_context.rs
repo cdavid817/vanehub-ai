@@ -31,7 +31,12 @@ pub(crate) struct AgentMemoryReadContext {
     pub(crate) workspace_allowed: Option<String>,
     pub(crate) maintenance_generation: u64,
     pub(crate) contract_version: u32,
+    /// The owning context's authenticity digest. Carried back to it verbatim; never read here,
+    /// and never written anywhere a log could hold it.
     pub(crate) fingerprint: String,
+    /// The bounded, non-secret label of the frozen scope, derived by the owning context for
+    /// diagnostics. This is the only fingerprint a log line may carry.
+    pub(crate) scope_fingerprint: String,
 }
 
 impl AgentMemoryReadContext {

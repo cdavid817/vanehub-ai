@@ -90,6 +90,20 @@ lib 中 14 个 ignored 用例均为仓库既有的手动/环境相关用例，�
 
 `最小真实集成验收`：PASS。`bootstrap/memory_read_generation_tests.rs` 用真实 v2 目录、SQLite 投影与 FTS、真实 `GovernedPersonalizationAdapter`（无 sessions owner，工作区按 legacy folder 规则解析）、真实 `RetrievalApi`/`IndexingService`/`DeferredAgentRetrieval`、真实 Context Engine 与 `RuntimeAgentApiAdapter`，模型为脚本化本地 HTTP 端点，embedder 为可计数的固定向量。四条记录（G-all、W1-all、W2-all、G-selected-agent-b）全部命中查询，标准会话只在 selector 清单、索引页、选中正文、Context Engine manifest 与 recall 结果中看到 G-all 与 W1-all；临时会话零 memory 调用仍完成；第二个工作区的会话不复用第一个的授权。MR-11（>200）保留在 API 级用例（每条 owner 写入含 fsync，端到端播种 200 条过慢）。
 
+## 审查修正（2026-09-13）
+
+四层并行代码审查提出的 5 个中等问题已修正并各附测试：
+
+| 问题 | 修正 | 测试 |
+|---|---|---|
+| 快照日志记录的是绑定 epoch 的鉴权指纹 | `AgentMemoryReadContext` 新增 `scope_fingerprint`（由 owning context 的 `scope_fingerprint()` 派生），日志改记它；鉴权指纹不再进入任何日志 | `the_snapshot_log_names_the_scope_and_never_the_authenticity_digest` |
+| 提案作用域按 legacy folder 解析，`Unresolved` 时回退为 Global | `propose_memories` 复用 `workspace_binding`；`Unresolved` 直接拒绝（`workspace_unresolved`），快照同时关闭 `explicit_save`/`automatic_extraction`/`candidate_creation`/`retrieval_write` | `an_unresolvable_workspace_denies_proposals_as_well_as_reads`（真实栈） |
+| 原生端策略关闭读取时 `block_reason` 为空，与 Web mock 的 `read_disabled` 不一致 | `finalize_memory_access` 在 `!read && block_reason.is_none()` 时记 `ReadDisabled`，其余开关保持策略解析结果 | `reading_turned_off_by_policy_is_named_as_the_block_reason_and_leaves_saving_alone` |
+| SQL 只校验 audience 数组形状，成员非文本/含分隔符的行通过分类却在 Rust 解析失败，整条 relation 报错 | SQL 增加成员类型、空串、未 trim、`/`、`\`、长度 >120 的 `invalid_record` 分支，`$.selected_agents` 缺失亦为 invalid；Rust 侧对残余无法指纹化的行改为跳过（游标仍推进，总数扣减）而非失败 | `a_projected_row_this_build_cannot_classify_is_excluded_rather_than_guessed_eligible`（6 种损坏行） |
+| 授权临时表逐行自动提交插入，5 万行每次 recall 约多 0.3 s | 改为单条 `INSERT ... SELECT value FROM json_each(?1)`；连接池初始化增加 `PRAGMA temp_store = MEMORY` | `a_relation_at_the_enumeration_budget_is_materialized_and_still_filters`（50,001 id）、`connection_applies_all_migrations_foreign_keys_and_seeds` 断言 pragma |
+
+架构预算随之更新：`agent_runtime/infrastructure` 74,719；`platform/database` 3,820。
+
 ## 兼容与边界
 
 - 新增 migration 115 `retrieval-memory-egress-restriction`：`retrieval_documents.egress_restricted` 列，附加式，不重写 v2 文件与用户 scope/audience/policy。

@@ -383,7 +383,7 @@ pub(super) fn resolve_generation_personalization(
             format!(
                 "Memory read context frozen (contract v{}, scope {}): {} eligible, {} in the index page.",
                 context.contract_version,
-                context.fingerprint,
+                context.scope_fingerprint,
                 snapshot.memory.eligible_total,
                 snapshot.memory.eligible.len()
             ),

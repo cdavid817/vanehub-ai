@@ -426,9 +426,10 @@ fn a_projected_row_this_build_cannot_classify_is_excluded_rather_than_guessed_el
         MemoryScope::Global,
         MemoryAudience::AllAgents,
     );
-    // Corrupt three projection rows directly, the way a newer build or a partial migration could
-    // leave them: an unknown scope kind, an unparseable audience, and a global row carrying a
-    // workspace key.
+    // Corrupt six projection rows directly, the way a newer build or a partial migration could
+    // leave them: an unknown scope kind, an unparseable audience, a global row carrying a
+    // workspace key, and three audiences that are valid JSON but not an audience this build can
+    // read -- each of which also names the querying Agent, so an admission would be visible.
     let database = NativeDatabase::new(fixture.directory_path.clone()).expect("database");
     let connection = database.connection().expect("connection");
     for (suffix, sql) in [
@@ -438,6 +439,15 @@ fn a_projected_row_this_build_cannot_classify_is_excluded_rather_than_guessed_el
             "audience_json = '{\"selected_agents\": [\"agent-a\"'",
         ),
         ("global-with-workspace", "workspace_key = 'ws_zzz'"),
+        (
+            "non-text-member",
+            "audience_json = '{\"selected_agents\": [\"agent-a\", 5]}'",
+        ),
+        ("no-members-key", "audience_json = '{\"foo\": 1}'"),
+        (
+            "separator-member",
+            "audience_json = '{\"selected_agents\": [\"agent-a\", \"bad/id\"]}'",
+        ),
     ] {
         let record = seed(
             &fixture,
@@ -468,7 +478,7 @@ fn a_projected_row_this_build_cannot_classify_is_excluded_rather_than_guessed_el
             .find(|entry| entry.reason
                 == crate::contexts::personalization::domain::PersonalizationExclusionReason::InvalidRecord)
             .map(|entry| entry.count),
-        Some(3)
+        Some(6)
     );
     assert_eq!(
         verified_ids(&fixture, &snapshot, &context),

@@ -221,17 +221,25 @@ impl AgentPersonalizationSnapshotPort for GovernedPersonalizationAdapter {
             .and_then(|policy| policy.settings.tool_assisted_extraction_enabled)
             .unwrap_or(false);
         let mut memory = memory_access(&resolved, tool_assisted, &verified);
-        if matches!(binding, WorkspaceBinding::Unresolved) && memory.read {
-            // The policy would have permitted reading, but the session names a workspace this
-            // build could not identify. No scope decision is safe without it, so nothing is read
-            // and the reason says which fact to fix.
+        if matches!(binding, WorkspaceBinding::Unresolved) {
+            // The session names a workspace this build could not identify. No scope decision is
+            // safe without it in either direction: nothing is read, and nothing is proposed --
+            // a proposal from here would land in the global scope by default, wider than
+            // anything the session could read. The reason says which fact to fix.
             memory = AgentMemoryAccess {
                 read: false,
+                explicit_save: false,
+                automatic_extraction: false,
+                automatic_extraction_in_tool_assisted_turns: false,
+                candidate_creation: false,
+                retrieval_write: false,
                 delivery: AgentMemoryDelivery::None,
                 eligible: Vec::new(),
                 eligible_total: 0,
-                blocked_reason: Some("workspace_unresolved".to_string()),
-                ..memory
+                blocked_reason: memory
+                    .blocked_reason
+                    .take()
+                    .or_else(|| Some("workspace_unresolved".to_string())),
             };
         }
         AgentPersonalizationSnapshot {
@@ -294,24 +302,22 @@ impl AgentPersonalizationSnapshotPort for GovernedPersonalizationAdapter {
         &self,
         submission: AgentCandidateSubmission,
     ) -> Result<AgentCandidateOutcome, AgentRuntimeApplicationError> {
-        let workspace = submission
-            .folder
-            .as_deref()
-            .and_then(legacy_workspace_request)
-            .and_then(|request| self.workspace_identity.resolve(&request).ok())
-            .flatten();
+        // The same three-way answer the read side gets, from the same resolution. A session
+        // that names a workspace this build cannot identify proposes nothing: falling back to
+        // the global scope here would let a proposal reach wider than the session may read.
+        let scope = match self
+            .workspace_binding(&submission.session_id, submission.folder.as_deref())
+        {
+            WorkspaceBinding::Resolved(workspace_key) => MemoryScope::Workspace { workspace_key },
+            WorkspaceBinding::Absent => MemoryScope::Global,
+            WorkspaceBinding::Unresolved => return Err(bridge_error("workspace_unresolved")),
+        };
         let provenance = MemoryProvenance {
             source_agent_id: AgentId::parse(&submission.agent_id).ok(),
             source_session_id: SessionId::parse(&submission.session_id).ok(),
-            source_workspace_key: workspace.as_ref().map(|identity| identity.key().clone()),
+            source_workspace_key: scope.workspace_key().cloned(),
             source_message_id: submission.source_message_id.clone(),
             ..MemoryProvenance::default()
-        };
-        let scope = match workspace.as_ref() {
-            Some(identity) => MemoryScope::Workspace {
-                workspace_key: identity.key().clone(),
-            },
-            None => MemoryScope::Global,
         };
         let eligible_targets: Vec<MemoryId> = submission
             .eligible
@@ -373,6 +379,7 @@ pub(super) fn to_runtime_context(context: &MemoryReadContext) -> AgentMemoryRead
         maintenance_generation: context.maintenance_generation,
         contract_version: context.contract_version,
         fingerprint: context.fingerprint.clone(),
+        scope_fingerprint: context.scope_fingerprint(),
     }
 }
 

@@ -556,6 +556,7 @@ mod tests {
             maintenance_generation: 1,
             contract_version: 1,
             fingerprint: "scope-fp".to_string(),
+            scope_fingerprint: "scope-label".to_string(),
         }
     }
 

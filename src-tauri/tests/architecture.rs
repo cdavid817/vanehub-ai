@@ -2768,15 +2768,17 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // seat-owned binding key, the replay drain on resume, the stop escalation and the
         // completion ordering in the adapter, plus the regression tests for each.
         //
-        // `unify-memory-read-scope` raises it to 74,683, measured. Every memory surface of a
+        // `unify-memory-read-scope` raises it to 74,719, measured. Every memory surface of a
         // generation now carries the trusted read context: the surfaced store is partitioned by
         // subject and keyed by revision/hash rather than mtime (rewritten, with its tests), the
         // selector speaks immutable ids, `recall` re-checks the context at execution, the Context
         // Engine memory source refuses without one, and the tool loop takes the snapshot the
         // caller resolved before the engine ran instead of resolving its own. The test half is the
         // read-context fixture, the fail-closed `recall` test, the id-based selection fakes and the
-        // Context Engine memory-source test (idle without a permitting context).
-        budget: 74_683,
+        // Context Engine memory-source test (idle without a permitting context), plus the
+        // review fix that carries the non-secret scope label beside the authenticity digest and
+        // the test proving the snapshot log line names the label and never the digest.
+        budget: 74_719,
         owner: "unify-memory-read-scope",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
@@ -2903,9 +2905,10 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // and config profiles on one side; session deletion, worktree cleanup, and terminal
         // stop-by-session on the other). Both histories above are kept; the figure is measured
         // on the merged tree, not summed, because the branches share a baseline.
-        // +10 by `unify-memory-read-scope`: one additive migration registration (the
-        // `egress_restricted` column on `retrieval_documents`) and its sequence-table row.
-        budget: 3_813,
+        // +17 by `unify-memory-read-scope`: one additive migration registration (the
+        // `egress_restricted` column on `retrieval_documents`) and its sequence-table row, and
+        // the `temp_store = MEMORY` pragma in the pool's per-connection init with its assertion.
+        budget: 3_820,
         owner: "unify-memory-read-scope",
     },
 ];

@@ -149,7 +149,14 @@ const ELIGIBILITY_CLASSIFICATION: &str = "\
       WHEN scope_kind = 'workspace' AND workspace_key IS NULL THEN 'invalid_record' \
       WHEN audience_json <> '\"all_agents\"' \
         AND NOT (json_valid(audience_json) \
-                 AND json_type(audience_json, '$.selected_agents') = 'array') \
+                 AND json_type(audience_json, '$.selected_agents') IS 'array' \
+                 AND NOT EXISTS (SELECT 1 FROM json_each(audience_json, '$.selected_agents') \
+                                 WHERE json_each.type <> 'text' \
+                                    OR json_each.value = '' \
+                                    OR json_each.value <> trim(json_each.value) \
+                                    OR instr(json_each.value, '/') > 0 \
+                                    OR instr(json_each.value, '\\') > 0 \
+                                    OR length(json_each.value) > 120)) \
         THEN 'invalid_record' \
       WHEN status = 'candidate' THEN 'pending_candidate' \
       WHEN status <> 'active' THEN 'archived' \
@@ -723,7 +730,14 @@ impl MemoryProjectionPort for SqliteMemoryProjection {
             )
             .map_err(storage)?;
         for row in rows {
-            summary.refs.push(row.map_err(storage)??);
+            match row.map_err(storage)? {
+                Ok(entry) => summary.refs.push(entry),
+                // Admitted by the classification, unusable by this build (a member the domain
+                // rejects that the SQL shape check let through). Dropped, and taken out of the
+                // total it was counted in: dropping narrows, and failing the whole snapshot
+                // over one row would deny every read until it is repaired.
+                Err(_) => summary.eligible_total = summary.eligible_total.saturating_sub(1),
+            }
         }
         summary.truncated = summary.refs.len() < summary.eligible_total;
         summary.digest = eligibility_digest(&summary.refs);
@@ -772,12 +786,17 @@ impl MemoryProjectionPort for SqliteMemoryProjection {
                 )
                 .map_err(storage)?;
             let mut page = Vec::new();
+            let mut page_len = 0usize;
             for row in rows {
-                page.push(row.map_err(storage)??);
-            }
-            let page_len = page.len();
-            if let Some(last) = page.last() {
-                after = last.id.as_str().to_string();
+                let (memory_id, handle) = row.map_err(storage)?;
+                page_len += 1;
+                after = memory_id;
+                // Admitted by the classification, unusable by this build. Dropped rather than
+                // delivered, and never a reason to refuse the whole relation: that would deny
+                // every recall for every session until one row is repaired.
+                if let Ok(handle) = handle {
+                    page.push(handle);
+                }
             }
             entries.extend(page);
             if entries.len() > budget.max_entries {
@@ -816,7 +835,9 @@ impl MemoryProjectionPort for SqliteMemoryProjection {
     }
 }
 
-fn read_authority_row(row: &Row<'_>) -> rusqlite::Result<Result<MemoryReadHandle>> {
+/// The raw id beside the parsed handle: the keyset cursor has to advance past a row whether or
+/// not this build could turn it into a handle.
+fn read_authority_row(row: &Row<'_>) -> rusqlite::Result<(String, Result<MemoryReadHandle>)> {
     let memory_id: String = row.get(0)?;
     let revision: i64 = row.get(1)?;
     let content_hash: String = row.get(2)?;
@@ -824,7 +845,7 @@ fn read_authority_row(row: &Row<'_>) -> rusqlite::Result<Result<MemoryReadHandle
     let scope_kind: String = row.get(4)?;
     let workspace_key: Option<String> = row.get(5)?;
     let audience: String = row.get(6)?;
-    Ok((|| {
+    let handle = (|| {
         Ok(MemoryReadHandle {
             id: MemoryId::parse(&memory_id)?,
             revision: u64::try_from(revision).unwrap_or_default(),
@@ -836,7 +857,8 @@ fn read_authority_row(row: &Row<'_>) -> rusqlite::Result<Result<MemoryReadHandle
                 &audience,
             )?,
         })
-    })())
+    })();
+    Ok((memory_id, handle))
 }
 
 fn collect_ids(conn: &Connection, statement: &str) -> Result<Vec<MemoryId>> {

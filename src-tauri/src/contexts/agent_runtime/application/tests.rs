@@ -1206,6 +1206,7 @@ impl AgentPersonalizationSnapshotPort for FakeWorld {
                     maintenance_generation: 1,
                     contract_version: 1,
                     fingerprint: "fake-world".to_string(),
+                    scope_fingerprint: "scope-label".to_string(),
                 }
             }),
             revision_token: "fake-world-snapshot".to_string(),

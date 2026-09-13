@@ -15,15 +15,16 @@ use super::retrieval::{
     DeferredAgentRetrieval, GovernedEmbeddingEgressGuard, GovernedMemoryIndexSource,
 };
 use crate::contexts::agent_runtime::application::{
-    AgentChatConfiguration, AgentClockPort, AgentLaunchView, AgentLog, AgentLoggingPort,
-    AgentMcpToolPort, AgentMessage, AgentPermissionPort, AgentProcessEventSink,
-    AgentProcessGateway, AgentRetrievalPort, AgentRuntimeApplicationError, AgentSession,
+    AgentCandidateSubmission, AgentChatConfiguration, AgentClockPort, AgentLaunchView, AgentLog,
+    AgentLoggingPort, AgentMcpToolPort, AgentMemoryProposal, AgentMessage, AgentPermissionPort,
+    AgentPersonalizationSnapshotPort, AgentProcessEventSink, AgentProcessGateway,
+    AgentProposalOrigin, AgentRetrievalPort, AgentRuntimeApplicationError, AgentSession,
     AgentSkillPort, AgentToolCallOutcome, AgentView, AgentWorkspaceMutation,
     AgentWorkspaceMutationPort, ApiAgentGateway, ApiCredentialPort, ApiProviderConfig,
     BoundSkillPrompt, CliProfileSnapshot, ContextEngineService, ContextManifestRepository,
-    ConversationHistoryPort, GenerationProcessEvent, GenerationProcessRequest,
-    RegisterApiAgentInput, RunnerSelection, ToolDefinition, UpdateApiAgentInput,
-    INTERFACE_FORMAT_OPENAI_COMPATIBLE,
+    ConversationHistoryPort, GenerationPersonalizationContext, GenerationProcessEvent,
+    GenerationProcessRequest, RegisterApiAgentInput, RunnerSelection, ToolDefinition,
+    UpdateApiAgentInput, INTERFACE_FORMAT_OPENAI_COMPATIBLE,
 };
 use crate::contexts::agent_runtime::domain::{
     AgentAvailability, AgentDefinition, AgentLifecycle, AgentOrigin, AutomaticCompactionMode,
@@ -1007,5 +1008,71 @@ fn a_session_in_another_workspace_never_reuses_the_previous_workspace_authorizat
     assert!(
         requests[2].contains("yarn"),
         "W2's recall result reaches the follow-up turn"
+    );
+}
+
+/// The write side binds through the same workspace resolution as the read side. A session whose
+/// folder names a workspace this build cannot identify -- a relative path here -- reads nothing,
+/// and its proposals are refused rather than filed into the global scope by default.
+#[test]
+fn an_unresolvable_workspace_denies_proposals_as_well_as_reads() {
+    let stack = stack("unresolved-workspace");
+    stack.seed_corpus();
+    let bridge = GovernedPersonalizationAdapter::without_sessions(
+        stack.personalization.clone(),
+        stack.settings.clone(),
+    );
+    let folder = "relative/project";
+
+    let snapshot = bridge.snapshot(GenerationPersonalizationContext {
+        agent_id: "onepiece".to_string(),
+        session_id: "session-unresolved".to_string(),
+        generation_id: "generation-unresolved".to_string(),
+        seat_id: None,
+        folder: Some(folder.to_string()),
+        personalization_mode: "standard".to_string(),
+    });
+    assert!(!snapshot.memory.read);
+    assert_eq!(
+        snapshot.memory.blocked_reason.as_deref(),
+        Some("workspace_unresolved")
+    );
+    assert!(!snapshot.memory.candidate_creation);
+    assert!(!snapshot.memory.explicit_save);
+    assert!(!snapshot.memory.automatic_extraction);
+    assert!(snapshot.memory.eligible.is_empty());
+
+    let before = stack
+        .personalization
+        .pending_memory_candidate_count()
+        .expect("candidate count");
+    let refused = bridge.propose_memories(AgentCandidateSubmission {
+        proposals: vec![AgentMemoryProposal::Create {
+            name: "package-manager".to_string(),
+            description: "Which package manager the project uses.".to_string(),
+            memory_type: None,
+            content: "This project uses pnpm.".to_string(),
+        }],
+        origin: AgentProposalOrigin::ModelTool,
+        agent_id: "onepiece".to_string(),
+        session_id: "session-unresolved".to_string(),
+        folder: Some(folder.to_string()),
+        source_message_id: None,
+        eligible: Vec::new(),
+    });
+    assert!(
+        refused
+            .as_ref()
+            .err()
+            .is_some_and(|error| error.to_string().contains("workspace_unresolved")),
+        "expected a workspace_unresolved refusal, got {refused:?}"
+    );
+    assert_eq!(
+        stack
+            .personalization
+            .pending_memory_candidate_count()
+            .expect("candidate count"),
+        before,
+        "nothing was filed for review"
     );
 }

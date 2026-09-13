@@ -569,6 +569,7 @@ fn test_read_context(session_id: &str) -> AgentMemoryReadContext {
         maintenance_generation: 1,
         contract_version: 1,
         fingerprint: "test-fingerprint".to_string(),
+        scope_fingerprint: "scope-label".to_string(),
     }
 }
 
@@ -6649,6 +6650,39 @@ fn execute_logs_the_reason_when_personalization_is_unavailable() {
         .collect();
     assert_eq!(personalization.len(), 1);
     assert!(personalization[0].message.contains("policy_unavailable"));
+}
+
+/// The frozen-context line names the scope by its safe label. The authenticity digest is what
+/// the owning context checks a context against, and a log directory is not a place it may be
+/// read back from.
+#[test]
+fn the_snapshot_log_names_the_scope_and_never_the_authenticity_digest() {
+    let request = sample_request("api");
+    let logging = RecordingLogging::default();
+    let mut context = test_read_context(&request.session.id);
+    context.fingerprint = "authenticity-digest-7f3a".to_string();
+    context.scope_fingerprint = "scope-label-91c2".to_string();
+    let mut snapshot = snapshot_with(None, Vec::new(), AgentMemoryDelivery::IndexOnly);
+    snapshot.read_context = Some(context);
+    let snapshots = ScriptedSnapshots::new(snapshot);
+
+    let _ = execute_with_snapshot_port(&request, &snapshots, &logging);
+
+    let logs = logging.logs.lock().expect("logs");
+    let line = logs
+        .iter()
+        .find(|log| log.category == "session.runtime.api.personalization")
+        .expect("the frozen-context line");
+    assert!(
+        line.message.contains("scope-label-91c2"),
+        "{}",
+        line.message
+    );
+    assert!(
+        !line.message.contains("authenticity-digest-7f3a"),
+        "{}",
+        line.message
+    );
 }
 
 #[test]
