@@ -48,9 +48,12 @@ flowchart TB
 
 ### 工具契约与可用性
 
-- `recall` 输入恰好 `query` + `limit`（默认 5，钳制 1–20），无 agent、folder、scope 参数——作用域收窄由存储侧的兼容视图完成，不暴露给模型。
-- **嵌入未配置时 `recall` 不注册进工具目录**（`resolve_tool_catalog` 按 `is_configured()` 条件注入），模型看不到它；**基于新近度的普通记忆注入不依赖检索配置，此时仍照常工作**。
-- 返回给模型的每条命中只有 `content`、`created_at`、`matched_via`（vector/keyword/both）；`source_id` 与分数是内部字段，刻意不给——对模型没有决策价值，给了反而是幻觉原料。
+- `recall` 输入恰好 `query` + `limit`（默认 5，钳制 1–20），无 agent、folder、scope 参数——读取域由生成快照冻结的 `MemoryReadContext` 决定（见[跨会话记忆](cross-session-memory.md)的读取边界一节），模型塞入的任何 scope 字段都被忽略。
+- **两道门禁**：目录层在会话不允许读取时不注册 `recall`；执行层（`execute_recall`）在没有可用读取上下文时直接返回既有的"暂不可用"成功结果，不做 query embedding、不碰记忆池。
+- **授权先于排序**：`RetrievalApi::search_authorized(query, limit, authority, resolver)` 是唯一入口，没有无上下文的变体。`authority` 是 personalization 枚举出的完整资格 metadata 关系（不完整即拒绝，绝不搜索半张关系），仓储把它物化为查询局部临时表，向量行在装载/打分前、FTS 行在 rank/LIMIT 前 JOIN 它，越权记录无法挤占合法命中的名额；`resolver` 绑定同一上下文，把融合后的候选 id 按 pinned revision/hash 回读权威正文，已删除/已改动/已撤销的条目缺席。
+- **嵌入未配置时 `recall` 不注册进工具目录**（`resolve_tool_catalog` 按 `is_configured()` 条件注入），模型看不到它；**记忆索引注入与相关性正文选择不依赖检索配置，此时仍照常工作**。
+- **索引覆盖 ≠ 外发授权**：后台索引源枚举全部有效 active 记录（含 workspace 与受限受众）进入本地 FTS；没有外发授权的记录固定为 `keyword_only` 状态，不入 embedding 队列，worker 在每次 embed 前还会经 `EmbeddingEgressGuardPort` 回源复核。状态页的 `keywordOnly` 计数单独报告，不与 pending 混淆。
+- 返回给模型的每条命中只有 `content`、`created_at`、`matched_via`（vector/keyword/both）；`source_id`、分数与 pinned 记忆身份是内部字段，刻意不给——对模型没有决策价值，给了反而是幻觉原料。模型也看不到被排除记录的存在、标题或数量。
 
 ### 索引维护：后台对账，不在查询路径上
 

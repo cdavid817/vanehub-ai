@@ -1,5 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { queryWebTokenUsageDetails, queryWebTokenUsageSummary } from "./web-token-usage";
+import {
+  WEB_TOKEN_USAGE_OCCURRED_AT,
+  queryWebTokenUsageDetails,
+  queryWebTokenUsageSummary,
+} from "./web-token-usage";
+
+const occurredMs = new Date(WEB_TOKEN_USAGE_OCCURRED_AT).getTime();
+const HOUR = 60 * 60 * 1000;
+
+function localDateOf(instant: Date) {
+  return [
+    instant.getFullYear(),
+    String(instant.getMonth() + 1).padStart(2, "0"),
+    String(instant.getDate()).padStart(2, "0"),
+  ].join("-");
+}
+
+/** The instant written in the +08:00 offset, so range comparison has to normalise it. */
+function inShanghai(ms: number) {
+  return new Date(ms + 8 * HOUR).toISOString().replace("Z", "+08:00");
+}
 
 describe("Web Token usage ledger fixtures", () => {
   it("keeps quality, purpose, multi-call, and unit totals separate", () => {
@@ -13,7 +33,7 @@ describe("Web Token usage ledger fixtures", () => {
     expect(summary.userResponse.reported.headlineTotal).toBe(440);
     expect(summary.internal.reported.headlineTotal).toBe(40);
     expect(summary.counts).toEqual({ calls: 6, generations: 3, sessions: 2 });
-    expect(summary.daily[0]?.localDate).toBe("2026-08-10");
+    expect(summary.daily[0]?.localDate).toBe(localDateOf(new Date(occurredMs)));
   });
 
   it("applies the same dimensions to totals and breakdowns", () => {
@@ -42,7 +62,9 @@ describe("Web Token usage ledger fixtures", () => {
     expect(second.invocations).toHaveLength(4);
     expect(second.nextCursor).toBeNull();
 
-    const empty = queryWebTokenUsageSummary({ rangeStart: "2026-08-11T00:00:00.000Z" });
+    const empty = queryWebTokenUsageSummary({
+      rangeStart: new Date(occurredMs + 24 * HOUR).toISOString(),
+    });
     expect(empty.counts.calls).toBe(0);
     expect(empty.daily).toEqual([]);
     expect(empty.totals.reported.headlineTotal).toBe(0);
@@ -50,18 +72,12 @@ describe("Web Token usage ledger fixtures", () => {
 
   it("compares offset ranges as instants and emits a local-calendar date", () => {
     const summary = queryWebTokenUsageSummary({
-      rangeStart: "2026-08-10T17:00:00+08:00",
-      rangeEnd: "2026-08-10T19:00:00+08:00",
+      rangeStart: inShanghai(occurredMs - HOUR),
+      rangeEnd: inShanghai(occurredMs + HOUR),
     });
-    const event = new Date("2026-08-10T10:00:00.000Z");
-    const localDate = [
-      event.getFullYear(),
-      String(event.getMonth() + 1).padStart(2, "0"),
-      String(event.getDate()).padStart(2, "0"),
-    ].join("-");
 
     expect(summary.counts.calls).toBe(6);
     expect(summary.daily).toHaveLength(1);
-    expect(summary.daily[0]?.localDate).toBe(localDate);
+    expect(summary.daily[0]?.localDate).toBe(localDateOf(new Date(occurredMs)));
   });
 });

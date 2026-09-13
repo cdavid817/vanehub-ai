@@ -27,6 +27,8 @@ mod permissions;
 mod personalization;
 // Transitional: satisfies the pre-governance memory port from the governed store. Removed when the
 // snapshot runtime adapters take over.
+#[cfg(test)]
+mod memory_read_generation_tests;
 mod personalization_bridge;
 #[cfg(test)]
 mod personalization_bridge_tests;

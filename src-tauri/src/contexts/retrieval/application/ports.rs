@@ -12,8 +12,56 @@ pub(crate) struct RetrievalIndexStatus {
     pub(crate) indexed: u32,
     pub(crate) pending: u32,
     pub(crate) failed: u32,
+    /// Rows searchable by keyword whose bodies have no egress authorization. Reported apart from
+    /// `pending` so a scoped record is never displayed as "still indexing".
+    pub(crate) keyword_only: u32,
     /// 只给类别，不带原始错误文本——错误体可能含凭据或 provider 响应内容（设计文档 §8.2）。
     pub(crate) last_failure_category: Option<String>,
+}
+
+/// The complete set of source ids one trusted read context may search, built by the owning
+/// context before any ranking happens and materialized query-locally by the repository.
+///
+/// `complete` is carried rather than assumed: a set that stopped short of the full eligibility
+/// domain must never be searched, because the records past the cut are exactly the ones a global
+/// top-k would let an unauthorized neighbour displace.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct AuthorizedSourceSet {
+    pub(crate) source_ids: Vec<String>,
+    pub(crate) complete: bool,
+}
+
+/// Both retrieval paths' raw candidates, each filtered through the authorized relation before
+/// any ranking, and each failing independently so single-path degradation stays possible.
+#[derive(Debug)]
+pub(crate) struct AuthorizedCandidateRows {
+    pub(crate) vector: Result<Vec<(String, Vec<f32>)>, RetrievalError>,
+    pub(crate) keyword: Result<Vec<String>, RetrievalError>,
+}
+
+/// One hit resolved through the owning context's authoritative read, at the pinned version.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ResolvedHit {
+    pub(crate) source_id: String,
+    pub(crate) content: String,
+    pub(crate) created_at: String,
+}
+
+/// Resolves ranked candidate ids into authoritative bodies for one read context.
+///
+/// Supplied per query rather than held by the service, because the resolution is bound to the
+/// caller's trusted context: retrieval ranks ids, and never reads a body on its own authority.
+pub(crate) trait AuthorizedHitResolverPort {
+    fn resolve(&self, source_ids: &[String]) -> Result<Vec<ResolvedHit>, RetrievalError>;
+}
+
+/// Decides, immediately before dispatch, which queued bodies may still leave the machine.
+///
+/// The row that queued a document recorded what was true at reconcile time. A record that became
+/// workspace-scoped or audience-restricted since then must be blocked here, from the authoritative
+/// record, regardless of how the row reached the pending state.
+pub(crate) trait EmbeddingEgressGuardPort: Send + Sync {
+    fn permitted(&self, documents: &[RetrievalDocument]) -> Vec<bool>;
 }
 
 pub(crate) trait RetrievalDocumentRepository: Send + Sync {
@@ -22,6 +70,49 @@ pub(crate) trait RetrievalDocumentRepository: Send + Sync {
         &self,
         source_kind: SourceKind,
     ) -> Result<Vec<(String, String)>, RetrievalError>;
+
+    /// `(source_id, content_hash, egress_restricted)` for every indexed row, so reconciliation can
+    /// see a restriction change that left the content alone. Defaults to "nothing restricted" for
+    /// repositories that predate the column.
+    fn list_indexed_source_states(
+        &self,
+        source_kind: SourceKind,
+    ) -> Result<Vec<(String, String, bool)>, RetrievalError> {
+        Ok(self
+            .list_indexed_source_ids(source_kind)?
+            .into_iter()
+            .map(|(source_id, hash)| (source_id, hash, false))
+            .collect())
+    }
+
+    /// Moves one row out of the embedding queue for good: keyword-searchable, never dispatched,
+    /// any stored vector dropped. The default refuses so a fake cannot silently permit egress.
+    fn mark_keyword_only(&self, id: &str) -> Result<(), RetrievalError> {
+        let _ = id;
+        Err(RetrievalError::Storage(
+            "keyword-only marking is not supported by this repository".to_string(),
+        ))
+    }
+
+    /// Both candidate paths, filtered by `authority` before ranking, in one connection scope.
+    ///
+    /// The relation is query-local: it exists only for this call and is discarded before the
+    /// connection returns to the pool, so a later query on the same connection cannot inherit it.
+    /// `model: None` skips the vector path (nothing to score without a query vector);
+    /// `keyword_query: None` skips the keyword path.
+    fn authorized_candidates(
+        &self,
+        source_kind: SourceKind,
+        authority: &AuthorizedSourceSet,
+        model: Option<&str>,
+        keyword_query: Option<&str>,
+        keyword_limit: usize,
+    ) -> Result<AuthorizedCandidateRows, RetrievalError> {
+        let _ = (source_kind, authority, model, keyword_query, keyword_limit);
+        Err(RetrievalError::Storage(
+            "authorized candidate queries are not supported by this repository".to_string(),
+        ))
+    }
 
     /// Apply a reconcile diff — upsert every changed/new document and delete every orphan —
     /// in a single transaction. The default implementation falls back to one call per item;

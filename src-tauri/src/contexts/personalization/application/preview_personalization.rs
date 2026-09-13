@@ -71,6 +71,11 @@ pub(crate) struct EffectivePreview {
     pub(crate) automatic_extraction: bool,
     pub(crate) eligible_memory_count: usize,
     pub(crate) considered_memory_count: usize,
+    /// How many of the eligible records fit the bounded injection page, and whether it was cut.
+    /// Separate from the count above: the page is what injection shows, the count is what recall
+    /// may consider, and a screen must never present the first as the second.
+    pub(crate) index_entry_count: usize,
+    pub(crate) index_truncated: bool,
     pub(crate) memory_exclusions: Vec<MemoryExclusionCount>,
     pub(crate) warnings: Vec<PersonalizationWarning>,
     pub(crate) context_estimate: ContextSizeEstimate,
@@ -139,6 +144,8 @@ impl PersonalizationPreviewService {
             memory_access: snapshot.memory_access,
             eligible_memory_count: snapshot.memory.eligible_total,
             considered_memory_count: snapshot.memory.considered,
+            index_entry_count: snapshot.memory.refs.len(),
+            index_truncated: snapshot.memory.truncated,
             memory_exclusions: snapshot.memory.exclusions,
             warnings: snapshot.warnings,
             context_estimate,

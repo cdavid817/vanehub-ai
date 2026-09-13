@@ -1,0 +1,75 @@
+{
+  "cli_version": "1.8.0",
+  "baseline": "75f23d81406bdc1fd4d6b4d5a41fbf90e395c4fc",
+  "deltas": {
+    "agent-context-engine": {
+      "added": 0,
+      "modified": 3,
+      "scenarios": 6
+    },
+    "agent-cross-session-memory": {
+      "added": 0,
+      "modified": 6,
+      "scenarios": 34
+    },
+    "memory-read-scope": {
+      "added": 10,
+      "modified": 0,
+      "scenarios": 32
+    },
+    "retrieval-vector-search": {
+      "added": 1,
+      "modified": 7,
+      "scenarios": 22
+    },
+    "unified-personalization-governance": {
+      "added": 0,
+      "modified": 4,
+      "scenarios": 14
+    }
+  },
+  "tasks": 41,
+  "requirements": 31,
+  "scenarios": 108,
+  "original_scenario_names_preserved": true,
+  "checks": [
+    {
+      "check": "change-strict",
+      "exit_code": 0,
+      "summary": {
+        "totals": {
+          "items": 1,
+          "passed": 1,
+          "failed": 0
+        },
+        "byType": {
+          "change": {
+            "items": 1,
+            "passed": 1,
+            "failed": 0
+          }
+        }
+      },
+      "failed": []
+    },
+    {
+      "check": "merged-specs-strict",
+      "exit_code": 0,
+      "summary": {
+        "totals": {
+          "items": 148,
+          "passed": 148,
+          "failed": 0
+        },
+        "byType": {
+          "spec": {
+            "items": 148,
+            "passed": 148,
+            "failed": 0
+          }
+        }
+      },
+      "failed": []
+    }
+  ]
+}

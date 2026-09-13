@@ -2767,8 +2767,17 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // temporary file and permission carry-over in the fs proxy, the launch fingerprint and
         // seat-owned binding key, the replay drain on resume, the stop escalation and the
         // completion ordering in the adapter, plus the regression tests for each.
-        budget: 74_295,
-        owner: "extend-cli-providers-with-acp",
+        //
+        // `unify-memory-read-scope` raises it to 74,683, measured. Every memory surface of a
+        // generation now carries the trusted read context: the surfaced store is partitioned by
+        // subject and keyed by revision/hash rather than mtime (rewritten, with its tests), the
+        // selector speaks immutable ids, `recall` re-checks the context at execution, the Context
+        // Engine memory source refuses without one, and the tool loop takes the snapshot the
+        // caller resolved before the engine ran instead of resolving its own. The test half is the
+        // read-context fixture, the fail-closed `recall` test, the id-based selection fakes and the
+        // Context Engine memory-source test (idle without a permitting context).
+        budget: 74_683,
+        owner: "unify-memory-read-scope",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
     // directory module. The +51 is entirely per-file boilerplate: +29 module headers (the `mod`
@@ -2894,8 +2903,10 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // and config profiles on one side; session deletion, worktree cleanup, and terminal
         // stop-by-session on the other). Both histories above are kept; the figure is measured
         // on the merged tree, not summed, because the branches share a baseline.
-        budget: 3_803,
-        owner: "harden-sqlite-write-transactions",
+        // +10 by `unify-memory-read-scope`: one additive migration registration (the
+        // `egress_restricted` column on `retrieval_documents`) and its sequence-table row.
+        budget: 3_813,
+        owner: "unify-memory-read-scope",
     },
 ];
 
@@ -2988,8 +2999,13 @@ const NATIVE_PRODUCTION_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // listed on the aggregate above -- Cursor schema parsing and replies, the exclusive
         // temporary file, the launch fingerprint, seat-owned keys, replay drain, stop escalation,
         // completion ordering -- with their rationale comments.
-        budget: 40_865,
-        owner: "extend-cli-providers-with-acp",
+        //
+        // `unify-memory-read-scope` raises it to 40,966: the production half of the
+        // aggregate note above -- the read-context threading through prompt, native tools,
+        // generation and the memory context source, the subject-partitioned surfaced store, and the
+        // bounded read-context log line (fingerprint and counts only) at snapshot time.
+        budget: 40_966,
+        owner: "unify-memory-read-scope",
     },
 ];
 
@@ -4260,6 +4276,12 @@ const DEFERRED_TRANSACTION_ALLOWLIST: &[(&str, &str, &str)] = &[
         "contexts/skill_evolution_curation/infrastructure/preview_store.rs",
         "preview_binding",
         "read-only snapshot of a candidate's preview binding, spelled out as Deferred",
+    ),
+    (
+        "contexts/personalization/infrastructure/sqlite_memory_projection.rs",
+        "eligible_authority",
+        "read-only snapshot across the paged complete-eligibility enumeration, so a save between \
+         two pages cannot mix two states of the store into one authorization relation",
     ),
 ];
 

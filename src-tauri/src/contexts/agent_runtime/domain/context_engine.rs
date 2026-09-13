@@ -118,6 +118,10 @@ pub(crate) struct ContextRequest {
     pub(crate) workspace_ref: Option<String>,
     pub(crate) explicit_refs: Vec<String>,
     pub(crate) model_capacity: Option<u64>,
+    /// The trusted memory-read authority resolved for this generation before assembly began.
+    /// `None` means no memory source may run: a request assembled without a resolved context
+    /// has no way to decide what a memory candidate is allowed to be.
+    pub(crate) memory_read: Option<super::AgentMemoryReadContext>,
 }
 
 #[allow(dead_code)]

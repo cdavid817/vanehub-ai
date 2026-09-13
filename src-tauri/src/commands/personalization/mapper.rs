@@ -256,8 +256,141 @@ pub(super) fn workspace_to_dto(identity: &WorkspaceIdentity) -> dto::WorkspaceSc
     }
 }
 
-pub(super) fn preview_to_dto(preview: EffectivePreview) -> dto::EffectivePreviewView {
+/// The runtime-channel facts the preview command decides beside the resolution.
+pub(super) struct PreviewChannel {
+    pub(super) kind: &'static str,
+    pub(super) recall_availability: &'static str,
+}
+
+/// One preview's resolution request and which kind of preview produced it.
+pub(super) struct PreviewResolution {
+    pub(super) request: ResolutionRequest,
+    pub(super) kind: &'static str,
+    pub(super) agent_id: AgentId,
+}
+
+/// Bound to the stored session when there is one, hypothetical from the caller's fields otherwise.
+pub(super) fn preview_resolution(
+    api: &PersonalizationApi,
+    input: dto::EffectivePreviewInput,
+    stored: Option<&crate::contexts::sessions::api::SessionRecord>,
+) -> Result<PreviewResolution, CommandError> {
+    let (request, kind) = match stored {
+        Some(session) => (
+            bound_session_request(&input, session, api)?,
+            "bound_session",
+        ),
+        None => (resolution_request(input)?, "hypothetical"),
+    };
+    Ok(PreviewResolution {
+        agent_id: request.agent_id.clone(),
+        request,
+        kind,
+    })
+}
+
+/// Whether the governed `recall` channel would exist for this resolution.
+///
+/// Five distinct answers, decided in this order: a session that may not read has no channel; a
+/// runtime without a native tool loop (index-only CLI adapters, recognised by not taking selected
+/// bodies) never has one; an unconfigured embedder means the tool is not offered; an unready store
+/// means it would refuse; otherwise the channel exists -- even over an empty pool.
+pub(super) fn preview_channel(
+    api: &PersonalizationApi,
+    retrieval_configured: bool,
+    kind: &'static str,
+    agent_id: &AgentId,
+    preview: &EffectivePreview,
+) -> PreviewChannel {
+    let supports_recall_channel = api
+        .agent_capabilities()
+        .ok()
+        .and_then(|entries| {
+            entries
+                .into_iter()
+                .find(|entry| entry.agent_id == *agent_id)
+                .map(|entry| entry.capabilities.supports_selected_memory_bodies)
+        })
+        .unwrap_or(false);
+    let recall_availability = if !preview.memory_access.read {
+        "disabled"
+    } else if !supports_recall_channel {
+        "unsupported"
+    } else if !retrieval_configured {
+        "unconfigured"
+    } else if !api.memory_is_ready() {
+        "unavailable"
+    } else {
+        "available"
+    };
+    PreviewChannel {
+        kind,
+        recall_availability,
+    }
+}
+
+/// A bound-session request: Agent, mode and workspace come from the stored session, never from
+/// the caller's fields. An Agent the session does not seat falls back to the session's own.
+pub(super) fn bound_session_request(
+    input: &dto::EffectivePreviewInput,
+    session: &crate::contexts::sessions::api::SessionRecord,
+    api: &PersonalizationApi,
+) -> Result<ResolutionRequest, CommandError> {
+    let seated = session
+        .seats
+        .iter()
+        .any(|seat| seat.agent_id == input.agent_id && seat.left_at.is_none())
+        || session.agent_id == input.agent_id;
+    let agent = if seated {
+        input.agent_id.as_str()
+    } else {
+        session.agent_id.as_str()
+    };
+    let request = WorkspaceIdentityRequest::from_session_workspace(
+        session.workspace.worktree_path.as_deref(),
+        session
+            .workspace
+            .remote_workspace
+            .as_ref()
+            .map(|remote| remote.uri.as_str()),
+        session.workspace.project_path.as_deref(),
+        session.workspace.folder.as_deref(),
+    );
+    let workspace = match request {
+        None => None,
+        Some(request) => api
+            .resolve_workspace(&request)
+            .map_err(|error| CommandError::validation(error.to_string()))?,
+    };
+    Ok(ResolutionRequest {
+        agent_id: agent_id(agent)?,
+        session_id: SessionId::parse(session.id())
+            .map_err(|error| CommandError::validation(error.to_string()))?,
+        workspace,
+        session_mode: match session.personalization_mode.as_str() {
+            "project-only" => SessionPersonalizationMode::ProjectOnly,
+            "temporary" => SessionPersonalizationMode::Temporary,
+            "standard" | "" => SessionPersonalizationMode::Standard,
+            other => return Err(invalid("session mode", other)),
+        },
+        session_override: None,
+    })
+}
+
+pub(super) fn preview_to_dto(
+    preview: EffectivePreview,
+    channel: PreviewChannel,
+) -> dto::EffectivePreviewView {
     dto::EffectivePreviewView {
+        preview_kind: channel.kind.to_string(),
+        recall_availability: channel.recall_availability.to_string(),
+        memory_read_allowed: preview.memory_access.read,
+        read_block_reason: preview
+            .memory_access
+            .block_reason
+            .map(|reason| reason.as_str().to_string()),
+        index_entry_count: preview.index_entry_count,
+        index_truncated: preview.index_truncated,
         revision_token: preview.revision_token,
         instruction_mode: preview.instruction_mode.as_str().to_string(),
         included_instructions: preview

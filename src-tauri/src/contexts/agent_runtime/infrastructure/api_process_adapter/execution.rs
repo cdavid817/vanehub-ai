@@ -22,14 +22,14 @@ use super::native_tools::{
     log_image_attachment, resolve_tool_image,
 };
 use super::prompt::{
-    propose_remembered_memory, resolve_generation_personalization, resolve_generation_skill_tools,
-    resolve_generation_tool_catalog, resolve_system_prompt_with_settings,
-    GenerationPersonalization,
+    propose_remembered_memory, resolve_generation_skill_tools, resolve_generation_tool_catalog,
+    resolve_system_prompt_with_settings, GenerationPersonalization,
 };
 use super::{
     failed_non_retryable, failed_retryable, ExecutedToolCall, PendingApprovals, HISTORY_LIMIT,
     MAX_TOOL_ROUND_TRIPS,
 };
+use crate::contexts::agent_runtime::application::AgentPersonalizationSnapshot;
 use crate::contexts::agent_runtime::application::{
     AgentClockPort, AgentCodeIntelligencePort, AgentCoreInstructionsPort, AgentLoggingPort,
     AgentMcpToolPort, AgentPermissionPort, AgentPersonalizationSnapshotPort, AgentProcessEventSink,
@@ -57,9 +57,16 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+/// The tool-use loop over one already-resolved personalization snapshot.
+///
+/// The snapshot is an argument rather than resolved here so the caller that runs the Context
+/// Engine (`run_generation`) resolves it first and feeds the same read context to both: the
+/// engine's memory source and this loop's index, selector, bodies and `recall` all decide
+/// eligibility from one value, and one generation never holds two policy revisions.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn execute_with_code_intelligence(
+pub(super) fn execute_with_resolved_personalization(
     request: &GenerationProcessRequest,
+    generation_personalization: AgentPersonalizationSnapshot,
     cancelled: Arc<AtomicBool>,
     credentials: &dyn ApiCredentialPort,
     config: &dyn ApiAgentGateway,
@@ -98,8 +105,6 @@ pub(super) fn execute_with_code_intelligence(
         Ok(endpoint) => endpoint,
         Err(failure) => return failure,
     };
-    let generation_personalization =
-        resolve_generation_personalization(personalization, logging, clock, request);
     let governed = GenerationPersonalization {
         snapshot: &generation_personalization,
         port: personalization,
@@ -624,6 +629,7 @@ pub(super) fn execute_with_code_intelligence(
                     skills,
                     utility_delegation,
                     request,
+                    generation_personalization.read_context.as_ref(),
                 )
             };
             if cancelled.load(Ordering::SeqCst) {

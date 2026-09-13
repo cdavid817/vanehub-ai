@@ -446,7 +446,15 @@ const SUBTREE_LINE_BUDGETS = Object.freeze([
   // 28263 -> 28277(extend-cli-providers-with-acp 第三轮审查修正):+14 是聊天配置归一化对 CodeBuddy
   // 区域账号(`codebuddy-china` / `codebuddy-ioa`)的保留规则,与领域层 `is_reviewed_account_environment`
   // 镜像;不是既有逻辑的复制。
-  { root: "src/services", budget: 28277, owner: "harden-session-workspace-tab-layouts" },
+  //
+  // 28277 -> 28404(unify-memory-read-scope):+127 是 Web/mock 有效预览从"只读全局策略行、用结果条数
+  // 冒充读取开关"改成与原生同一套读取语义:全局→Agent→工作区→工作区-Agent 四层 read/global 继承、
+  // 会话模式硬收窄、精确受众成员匹配、未知 scope 拒绝,以及 readAllowed/索引页/recall 通道/预览种类
+  // 这几个独立事实。不是复制:原先的判定是错的,不存在可复用的正确版本。
+  //
+  // 28404 -> 28410(unify-memory-read-scope 的 CI 修正):+6 是 Web token 用量 fixture 从固定日期改为
+  // 锚定当前时刻,并导出该时刻供测试推导区间;固定日期滑出"最近 30 天"后文档截图会退化成全零。
+  { root: "src/services", budget: 28410, owner: "unify-memory-read-scope" },
 ]);
 
 const STATE_PACKAGES = new Set([

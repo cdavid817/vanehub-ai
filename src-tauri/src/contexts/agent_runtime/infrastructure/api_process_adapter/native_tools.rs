@@ -593,6 +593,7 @@ pub(super) fn execute_tool_call_with_runtime_ports(
     skills: &dyn AgentSkillPort,
     utility_delegation: Option<&UtilityDelegationApplicationService>,
     generation: &GenerationProcessRequest,
+    memory_read: Option<&crate::contexts::agent_runtime::domain::AgentMemoryReadContext>,
 ) -> ToolExecutionOutcome {
     if name == DELEGATE_UTILITY_SKILL_TOOL_NAME {
         return execute_utility_delegation(input, cancelled, utility_delegation, generation);
@@ -609,6 +610,7 @@ pub(super) fn execute_tool_call_with_runtime_ports(
         plan_mode,
         skills,
         Some(generation.session.id.as_str()),
+        memory_read,
     )
 }
 
@@ -958,6 +960,9 @@ pub(super) fn execute_tool_call_impl(
     // model-supplied: a handle resolves only within the session that started it, so accepting a
     // session id as a tool argument would let one session read or kill another's processes.
     session_id: Option<&str>,
+    // The generation's trusted memory-read authority. Never model-supplied either: `recall`
+    // takes query and limit from the model and everything else from here.
+    memory_read: Option<&crate::contexts::agent_runtime::domain::AgentMemoryReadContext>,
 ) -> ToolExecutionOutcome {
     let registered_handler = ExistingToolHandlerRegistry::resolve(name);
     if registered_handler == Some(ExistingToolHandler::SkillRead) {
@@ -975,10 +980,10 @@ pub(super) fn execute_tool_call_impl(
     }
     // `recall` is handled in the same spot for the same reason: it only ever reads this app's own
     // storage, never the workspace filesystem, so it needs neither a workspace folder nor a
-    // plan-mode restriction. It also needs no `agent_id`/`workspace_folder`: memories are one
-    // host-level shared pool (`agent-memory-shared-pool`), so there is no slice of it to name.
+    // plan-mode restriction. What it needs is the generation's read context: the pool is shared
+    // storage, and which slice of it this session may read is decided natively, never by input.
     if registered_handler == Some(ExistingToolHandler::Recall) {
-        return execute_recall(input, retrieval);
+        return execute_recall(input, retrieval, memory_read);
     }
     // Handled beside remember/recall for the same reason: it touches only VaneHub-internal
     // session state, so it needs neither a workspace folder nor a plan-mode restriction.
@@ -1266,7 +1271,11 @@ fn publish_workspace_mutation(
 /// model that recall is temporarily unavailable, so generation continues. Bubbling an optional
 /// enhancement's failure up as a generation failure is unacceptable (design.md §8.1): the model
 /// must never confuse "search failed" with "no such memory exists".
-fn execute_recall(input: &Value, retrieval: &dyn AgentRetrievalPort) -> ToolExecutionOutcome {
+fn execute_recall(
+    input: &Value,
+    retrieval: &dyn AgentRetrievalPort,
+    memory_read: Option<&crate::contexts::agent_runtime::domain::AgentMemoryReadContext>,
+) -> ToolExecutionOutcome {
     let query = input
         .get("query")
         .and_then(Value::as_str)
@@ -1278,12 +1287,21 @@ fn execute_recall(input: &Value, retrieval: &dyn AgentRetrievalPort) -> ToolExec
             is_error: true,
         };
     }
+    // The second gate. The catalog already omits `recall` for a session that may not read, but a
+    // caller that bypasses the catalog lands here, and here the search is refused before any
+    // query embedding or pool access -- with the same nonfatal answer the model already knows.
+    let Some(context) = memory_read.filter(|context| context.permits_read()) else {
+        return ToolExecutionOutcome {
+            output: "Memory search is temporarily unavailable. Continue without it.".to_string(),
+            is_error: false,
+        };
+    };
     let limit = input
         .get("limit")
         .and_then(Value::as_u64)
         .unwrap_or(5)
         .clamp(1, 20) as usize;
-    match retrieval.search(query, limit) {
+    match retrieval.search(context, query, limit) {
         Ok(outcome) => ToolExecutionOutcome {
             output: serde_json::to_string(&recall_payload(&outcome))
                 .unwrap_or_else(|_| "{\"results\":[]}".to_string()),

@@ -41,6 +41,12 @@ function preview(overrides: Partial<EffectivePreview> = {}): EffectivePreview {
     knownCharacters: 48,
     selectedBodyBudgetMax: 5,
     excludedSurfaces: [],
+    previewKind: "hypothetical",
+    memoryReadAllowed: true,
+    readBlockReason: null,
+    indexEntryCount: 0,
+    indexTruncated: false,
+    recallAvailability: "unconfigured",
     estimatorVersion: "test",
     cliInternalCompactionManaged: false,
     ...overrides,
@@ -206,6 +212,72 @@ describe("RuntimePreviewSection", () => {
     expect(screen.getByTestId("personalization-preview-memory-exclusions").textContent).toContain(
       "属于另一个工作区",
     );
+  });
+
+  it("tells an allowed empty pool apart from blocked reading", async () => {
+    // Allowed with nothing eligible is a legitimate state, not a disabled policy; the two must
+    // read differently on screen.
+    renderPreview({
+      previewEffectivePersonalization: async () =>
+        preview({
+          memoryReadAllowed: true,
+          memoryRead: true,
+          readBlockReason: null,
+          eligibleMemoryCount: 0,
+          indexEntryCount: 0,
+          recallAvailability: "available",
+        }),
+    });
+    await chooseAgent();
+
+    await screen.findByTestId("personalization-preview-empty-pool");
+    expect(screen.getByTestId("personalization-preview-read-allowed").textContent).toBe("允许读取记忆");
+    expect(screen.getByTestId("personalization-preview-recall").textContent).toBe("recall 可用");
+    expect(screen.queryByTestId("personalization-preview-read-block-reason")).toBeNull();
+  });
+
+  it("names why reading is blocked and reports the recall channel off with it", async () => {
+    renderPreview({
+      previewEffectivePersonalization: async () =>
+        preview({
+          memoryReadAllowed: false,
+          memoryRead: false,
+          readBlockReason: "session_mode",
+          memoryDelivery: "none",
+          eligibleMemoryCount: 0,
+          recallAvailability: "disabled",
+        }),
+    });
+    await chooseAgent();
+
+    const reason = await screen.findByTestId("personalization-preview-read-block-reason");
+    expect(reason.textContent).toBe("该会话模式不使用记忆");
+    expect(screen.getByTestId("personalization-preview-read-allowed").textContent).toBe("记忆读取被阻止");
+    expect(screen.getByTestId("personalization-preview-recall").textContent).toBe("读取关闭，recall 一并关闭");
+    expect(screen.queryByTestId("personalization-preview-empty-pool")).toBeNull();
+  });
+
+  it("shows the bounded index page separately from the eligible total and says when it was cut", async () => {
+    renderPreview({
+      previewEffectivePersonalization: async () =>
+        preview({
+          eligibleMemoryCount: 205,
+          consideredMemoryCount: 210,
+          indexEntryCount: 200,
+          indexTruncated: true,
+          recallAvailability: "unsupported",
+        }),
+    });
+    await chooseAgent();
+
+    const page = await screen.findByTestId("personalization-preview-index-page");
+    expect(page.textContent).toContain("200");
+    expect(page.textContent).toContain("recall 仍会搜索全部可用记忆");
+    expect(screen.getByTestId("personalization-preview-counts").textContent).toContain("205");
+    // An index-capable CLI is not a recall-capable one.
+    expect(screen.getByTestId("personalization-preview-recall").textContent).toBe("仅索引；该 Agent 没有 recall 通道");
+    expect(screen.getByTestId("personalization-preview-kind").textContent).toContain("假设预览");
+    expect(screen.getByTestId("personalization-preview-same-scope").textContent).toContain("相同的资格范围");
   });
 
   it("states that a CLI's own compaction is not VaneHub's, before and after a resolution", async () => {

@@ -101,7 +101,7 @@ use compaction::{
 };
 #[cfg(test)]
 use execution::{
-    dispatch_skill_tool, emit_skill_tool_lifecycle, execute_with_code_intelligence,
+    dispatch_skill_tool, emit_skill_tool_lifecycle, execute_with_resolved_personalization,
     set_skill_result_summary, skill_tool_provenance, AgentSkillToolLifecycle,
 };
 #[cfg(test)]

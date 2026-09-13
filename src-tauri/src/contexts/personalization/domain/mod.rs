@@ -13,6 +13,7 @@ mod policy;
 #[cfg(test)]
 mod policy_tests;
 mod query;
+mod read_context;
 mod resolution;
 #[cfg(test)]
 mod resolution_tests;
@@ -53,6 +54,10 @@ pub(crate) use policy::{
 pub(crate) use query::{
     MemoryCursor, MemoryOrder, MemoryPage, MemoryQuery, MemoryScopeFilter, MemorySummary,
     MEMORY_PAGE_DEFAULT_SIZE, MEMORY_PAGE_MAX_SIZE,
+};
+pub(crate) use read_context::{
+    authority_fingerprint, MemoryReadContext, MemoryReadHandle, MemoryReadSubject,
+    WorkspaceBinding, MEMORY_READ_CONTEXT_CONTRACT_VERSION,
 };
 pub(crate) use resolution::{
     resolve, MaintenanceState, PersonalizationLayers, PolicyLayerState, PolicyResolutionBundle,

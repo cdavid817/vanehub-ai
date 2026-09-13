@@ -77,6 +77,25 @@ pub(crate) fn apply_retrieval_schema(connection: &Connection) -> Result<(), Data
     Ok(())
 }
 
+/// Additive: the per-row egress restriction agent-memory indexing decides from the authoritative
+/// record. Existing rows default to unrestricted, which is exactly what they were: the old
+/// compatibility source only ever indexed global all-Agent records.
+pub(crate) fn apply_retrieval_egress_restriction_schema(
+    connection: &Connection,
+) -> Result<(), DatabaseError> {
+    if !crate::platform::database::table_has_column(
+        connection,
+        "retrieval_documents",
+        "egress_restricted",
+    )? {
+        connection.execute_batch(
+            "ALTER TABLE retrieval_documents ADD COLUMN egress_restricted INTEGER NOT NULL \
+             DEFAULT 0;",
+        )?;
+    }
+    Ok(())
+}
+
 pub(crate) fn apply_code_index_automatic_mode_schema(
     connection: &Connection,
 ) -> Result<(), DatabaseError> {

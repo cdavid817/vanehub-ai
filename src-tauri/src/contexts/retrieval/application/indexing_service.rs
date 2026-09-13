@@ -5,7 +5,7 @@ use crate::contexts::retrieval::domain::{
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use super::ports::{EmbeddingPort, RetrievalDocumentRepository};
+use super::ports::{EmbeddingEgressGuardPort, EmbeddingPort, RetrievalDocumentRepository};
 // EmbeddingFailure 只在测试里的 FakeEmbedder::embed 构造它（Err 分支）；非测试代码只经
 // EmbeddingPort::embed 的返回类型隐式用到它，从不在本文件里显式写出它的名字。同上，这个
 // import 不会有"届时移除"的那一天。
@@ -30,12 +30,21 @@ pub(crate) const EMBEDDING_CONTENT_LIMIT: usize = 8000;
 /// retrieval 从源上下文取记录的消费侧契约。第 1 期唯一实现是 bootstrap 里的记忆表适配器。
 pub(crate) trait IndexSourcePort: Send + Sync {
     /// 全量快照。`reconcile` 需要全局视图才能判定孤儿行，所以这一个方法必须是全量的。
-    fn snapshot(&self) -> Result<Vec<IndexSourceRecord>, RetrievalError>;
-    /// 按 id 取记录，命中不到的 id 直接缺席（源已删）。
     ///
-    /// 检索路只需要按融合排名解析出的至多 `limit` 条记录，走 `snapshot()` 会在生成的工具调用
-    /// 里同步加载并克隆整个共享池，而源表是只增不减的。
-    fn fetch(&self, source_ids: &[String]) -> Result<Vec<IndexSourceRecord>, RetrievalError>;
+    /// Maintenance only. There is deliberately no per-id fetch here any more: a search hit is
+    /// resolved through the owning context's governed read under the caller's trusted context
+    /// (`AuthorizedHitResolverPort`), never through the index source's own unscoped view.
+    fn snapshot(&self) -> Result<Vec<IndexSourceRecord>, RetrievalError>;
+}
+
+/// The default egress guard: every claimed row may be dispatched. Correct for sources whose
+/// bodies carry no per-record egress restriction (workspace code behind an explicit confirmation).
+struct PermitAllEgress;
+
+impl EmbeddingEgressGuardPort for PermitAllEgress {
+    fn permitted(&self, documents: &[RetrievalDocument]) -> Vec<bool> {
+        vec![true; documents.len()]
+    }
 }
 
 pub(crate) trait IndexGenerationGuard: Send + Sync {
@@ -59,6 +68,9 @@ pub(crate) struct IndexSourceRecord {
     /// 检索结果要带上它（Task 9 的 `ScoredHit.created_at`），且它只存在于源表——
     /// 索引行刻意不复制这个字段，避免又多一处会陈旧的副本。
     pub(crate) created_at: String,
+    /// Whether the body may be sent to a remote embedder. Decided by the owning source; a
+    /// restricted record enters the local keyword index and nothing else.
+    pub(crate) egress_restricted: bool,
 }
 
 pub(crate) struct IndexingService {
@@ -68,6 +80,7 @@ pub(crate) struct IndexingService {
     source_kind: SourceKind,
     scope: RetrievalScope,
     generation_guard: Arc<dyn IndexGenerationGuard>,
+    egress: Arc<dyn EmbeddingEgressGuardPort>,
 }
 
 impl IndexingService {
@@ -90,7 +103,15 @@ impl IndexingService {
             source_kind: SourceKind::AgentMemory,
             scope: RetrievalScope::GlobalMemory,
             generation_guard: Arc::new(AlwaysCurrentGeneration),
+            egress: Arc::new(PermitAllEgress),
         }
+    }
+
+    /// Installs the dispatch-time egress check. Production agent-memory indexing always sets
+    /// one; the permissive default exists for sources without per-record restrictions.
+    pub(crate) fn with_egress_guard(mut self, egress: Arc<dyn EmbeddingEgressGuardPort>) -> Self {
+        self.egress = egress;
+        self
     }
 
     /// The checked constructor for a caller-chosen scope/kind pair with the default generation
@@ -131,6 +152,7 @@ impl IndexingService {
             source_kind,
             scope,
             generation_guard,
+            egress: Arc::new(PermitAllEgress),
         })
     }
 
@@ -141,11 +163,23 @@ impl IndexingService {
     /// 协调式的代价只是最多延迟一个周期，而且顺带把历史存量记忆回填掉，不需要单独的数据迁移脚本。
     pub(crate) fn reconcile(&self) -> Result<ReconcileOutcome, RetrievalError> {
         let records = self.source.snapshot()?;
-        let existing: HashMap<String, String> = self
-            .repository
-            .list_indexed_source_ids_scoped(self.source_kind, &self.scope)?
-            .into_iter()
-            .collect();
+        let existing: HashMap<String, (String, bool)> = match self.scope {
+            // The scoped listing predates the restriction column and answers for one workspace;
+            // the host-wide memory pool reads the richer form so a restriction change alone is
+            // enough to re-queue or retire a row.
+            RetrievalScope::GlobalMemory => self
+                .repository
+                .list_indexed_source_states(self.source_kind)?
+                .into_iter()
+                .map(|(source_id, hash, restricted)| (source_id, (hash, restricted)))
+                .collect(),
+            RetrievalScope::Workspace(_) => self
+                .repository
+                .list_indexed_source_ids_scoped(self.source_kind, &self.scope)?
+                .into_iter()
+                .map(|(source_id, hash)| (source_id, (hash, false)))
+                .collect(),
+        };
 
         let mut outcome = ReconcileOutcome::default();
         let mut live: HashSet<&str> = HashSet::new();
@@ -154,7 +188,11 @@ impl IndexingService {
             live.insert(record.source_id.as_str());
             let hash = content_hash(&record.content);
             match existing.get(&record.source_id) {
-                Some(existing_hash) if existing_hash == &hash => continue,
+                Some((existing_hash, restricted))
+                    if existing_hash == &hash && *restricted == record.egress_restricted =>
+                {
+                    continue
+                }
                 Some(_) => outcome.invalidated += 1,
                 None => outcome.added += 1,
             }
@@ -166,9 +204,14 @@ impl IndexingService {
                 scope_folder: record.folder.clone(),
                 content: record.content.clone(),
                 content_hash: hash,
-                index_state: IndexState::Pending,
+                index_state: if record.egress_restricted {
+                    IndexState::KeywordOnly
+                } else {
+                    IndexState::Pending
+                },
                 attempt_count: 0,
                 embedding_model: None,
+                egress_restricted: record.egress_restricted,
             });
         }
 
@@ -214,6 +257,30 @@ impl IndexingService {
         if batch.is_empty() {
             return Ok(BatchOutcome::default());
         }
+        // Re-decided from the authoritative record at dispatch time, not from the row: a public
+        // record that was restricted after it queued must not leave the machine because an older
+        // reconcile once said it could. Blocked rows retire to keyword-only rather than counting
+        // as failures, so they neither retry forever nor read as completed vectors.
+        let permitted = self.egress.permitted(&batch);
+        let mut blocked = 0usize;
+        let mut dispatch = Vec::with_capacity(batch.len());
+        for (index, document) in batch.into_iter().enumerate() {
+            let allowed =
+                permitted.get(index).copied().unwrap_or(false) && !document.egress_restricted;
+            if allowed {
+                dispatch.push(document);
+            } else {
+                blocked += 1;
+                self.repository.mark_keyword_only(&document.id)?;
+            }
+        }
+        let batch = dispatch;
+        if batch.is_empty() {
+            return Ok(BatchOutcome {
+                keyword_only: blocked,
+                ..BatchOutcome::default()
+            });
+        }
         let inputs: Vec<String> = batch
             .iter()
             .map(|document| truncate_for_embedding(&document.content))
@@ -239,6 +306,7 @@ impl IndexingService {
                     failed: batch.len(),
                     last_failure_category: Some(FailureCategory::InvalidRequest),
                     retry_after: None,
+                    keyword_only: blocked,
                 })
             }
             Ok(vectors) => {
@@ -251,6 +319,7 @@ impl IndexingService {
                     failed: 0,
                     last_failure_category: None,
                     retry_after: None,
+                    keyword_only: blocked,
                 })
             }
             Err(failure) => {
@@ -265,6 +334,7 @@ impl IndexingService {
                     failed: batch.len(),
                     last_failure_category: Some(failure.category),
                     retry_after: failure.retry_after,
+                    keyword_only: blocked,
                 })
             }
         }
@@ -294,6 +364,9 @@ pub(crate) struct BatchOutcome {
     /// provider 响应体或凭据经这条路径渗出。`None` 表示本批没有失败（全部成功，或本来就是空批）。
     pub(crate) last_failure_category: Option<FailureCategory>,
     pub(crate) retry_after: Option<std::time::Duration>,
+    /// Rows this batch retired to the keyword-only index instead of dispatching. Neither a
+    /// success nor a failure: the worker moves on without backing off.
+    pub(crate) keyword_only: usize,
 }
 
 #[cfg(test)]
@@ -309,9 +382,6 @@ mod tests {
     impl IndexSourcePort for FakeSource {
         fn snapshot(&self) -> Result<Vec<IndexSourceRecord>, RetrievalError> {
             Ok(self.records.clone())
-        }
-        fn fetch(&self, _source_ids: &[String]) -> Result<Vec<IndexSourceRecord>, RetrievalError> {
-            unimplemented!("only the search path fetches by id")
         }
     }
 
@@ -365,7 +435,11 @@ mod tests {
     struct FakeRepository {
         /// 已存在的索引行：(source_id, content_hash)
         rows: Vec<(String, String)>,
+        /// Existing rows with their restriction flag; used instead of `rows` when non-empty.
+        states: Vec<(String, String, bool)>,
         upserted: Mutex<Vec<String>>,
+        upserted_documents: Mutex<Vec<RetrievalDocument>>,
+        keyword_only: Mutex<Vec<String>>,
         deleted: Mutex<Vec<String>>,
         /// claim_pending_batch 要返回的待索引文档，测试按场景摆放。
         pending: Vec<RetrievalDocument>,
@@ -373,6 +447,9 @@ mod tests {
         claim_limits: Mutex<Vec<usize>>,
         stored: Mutex<Vec<(String, String, Vec<f32>)>>,
         failures: Mutex<Vec<(String, FailureCategory, bool)>>,
+        /// How many `reconcile_apply` calls fail before committing anything, standing in for a
+        /// crash or a lost connection between computing the diff and writing it.
+        apply_failures: AtomicUsize,
     }
 
     impl RetrievalDocumentRepository for FakeRepository {
@@ -381,6 +458,10 @@ mod tests {
                 .lock()
                 .expect("lock")
                 .push(document.source_id.clone());
+            self.upserted_documents
+                .lock()
+                .expect("lock")
+                .push(document.clone());
             Ok(())
         }
 
@@ -389,6 +470,46 @@ mod tests {
             _source_kind: SourceKind,
         ) -> Result<Vec<(String, String)>, RetrievalError> {
             Ok(self.rows.clone())
+        }
+
+        fn list_indexed_source_states(
+            &self,
+            _source_kind: SourceKind,
+        ) -> Result<Vec<(String, String, bool)>, RetrievalError> {
+            if self.states.is_empty() {
+                return Ok(self
+                    .rows
+                    .iter()
+                    .map(|(id, hash)| (id.clone(), hash.clone(), false))
+                    .collect());
+            }
+            Ok(self.states.clone())
+        }
+
+        fn mark_keyword_only(&self, id: &str) -> Result<(), RetrievalError> {
+            self.keyword_only.lock().expect("lock").push(id.to_string());
+            Ok(())
+        }
+
+        fn reconcile_apply(
+            &self,
+            upserts: &[RetrievalDocument],
+            orphan_source_ids: &[String],
+            source_kind: SourceKind,
+        ) -> Result<(), RetrievalError> {
+            if self.apply_failures.load(Ordering::SeqCst) > 0 {
+                self.apply_failures.fetch_sub(1, Ordering::SeqCst);
+                return Err(RetrievalError::Storage(
+                    "interrupted before the diff committed".to_string(),
+                ));
+            }
+            for document in upserts {
+                self.upsert_pending(document)?;
+            }
+            for source_id in orphan_source_ids {
+                self.delete_by_source(source_kind, source_id)?;
+            }
+            Ok(())
         }
 
         fn delete_by_source(
@@ -474,6 +595,7 @@ mod tests {
             folder: String::new(),
             content: content.to_string(),
             created_at: "2026-08-05T00:00:00Z".to_string(),
+            egress_restricted: false,
         }
     }
 
@@ -495,6 +617,7 @@ mod tests {
             index_state: IndexState::Pending,
             attempt_count,
             embedding_model: None,
+            egress_restricted: false,
         }
     }
 
@@ -536,6 +659,177 @@ mod tests {
             embedder.clone(),
         );
         (service, repository, embedder)
+    }
+
+    /// Blocks every document whose source id is in its list; records what it was asked.
+    struct DenyingEgress {
+        blocked: Vec<&'static str>,
+        asked: Mutex<Vec<Vec<String>>>,
+    }
+
+    impl EmbeddingEgressGuardPort for DenyingEgress {
+        fn permitted(&self, documents: &[RetrievalDocument]) -> Vec<bool> {
+            self.asked.lock().expect("lock").push(
+                documents
+                    .iter()
+                    .map(|document| document.source_id.clone())
+                    .collect(),
+            );
+            documents
+                .iter()
+                .map(|document| !self.blocked.contains(&document.source_id.as_str()))
+                .collect()
+        }
+    }
+
+    #[test]
+    fn a_body_the_authoritative_record_no_longer_permits_is_retired_before_dispatch_not_embedded() {
+        // MR-23: the queue row still says public; the guard, answering from the authoritative
+        // record at dispatch time, says restricted. The body must not reach the embedder, and the
+        // row must retire to keyword-only rather than count as a failure to retry.
+        let repository = Arc::new(FakeRepository {
+            pending: vec![
+                pending_document("public", "uses npm", 0),
+                pending_document("restricted", "workspace secret", 0),
+            ],
+            ..FakeRepository::default()
+        });
+        let embedder = Arc::new(FakeEmbedder::succeeding(vec![vec![0.1]]));
+        let guard = Arc::new(DenyingEgress {
+            blocked: vec!["restricted"],
+            asked: Mutex::new(Vec::new()),
+        });
+        let service = IndexingService::new(
+            repository.clone(),
+            Arc::new(FakeSource {
+                records: Vec::new(),
+            }),
+            embedder.clone(),
+        )
+        .with_egress_guard(guard.clone());
+
+        let outcome = service.process_pending_batch(MODEL).expect("batch");
+
+        assert_eq!(outcome.succeeded, 1);
+        assert_eq!(outcome.failed, 0);
+        assert_eq!(outcome.keyword_only, 1);
+        assert_eq!(
+            *repository.keyword_only.lock().expect("lock"),
+            vec!["restricted".to_string()]
+        );
+        let calls = embedder.calls.lock().expect("lock");
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].1, vec!["uses npm".to_string()]);
+        assert!(repository.failures.lock().expect("lock").is_empty());
+    }
+
+    #[test]
+    fn a_row_already_flagged_restricted_is_never_dispatched_even_when_the_guard_would_permit_it() {
+        let repository = Arc::new(FakeRepository {
+            pending: vec![RetrievalDocument {
+                egress_restricted: true,
+                ..pending_document("scoped", "workspace fact", 0)
+            }],
+            ..FakeRepository::default()
+        });
+        let embedder = Arc::new(FakeEmbedder::succeeding(vec![vec![0.1]]));
+        let service = IndexingService::new(
+            repository.clone(),
+            Arc::new(FakeSource {
+                records: Vec::new(),
+            }),
+            embedder.clone(),
+        );
+
+        let outcome = service.process_pending_batch(MODEL).expect("batch");
+
+        assert_eq!(
+            outcome,
+            BatchOutcome {
+                keyword_only: 1,
+                ..BatchOutcome::default()
+            }
+        );
+        assert!(embedder.calls.lock().expect("lock").is_empty());
+    }
+
+    #[test]
+    fn reconcile_queues_a_restricted_record_as_keyword_only_and_notices_a_restriction_change() {
+        let mut restricted = record("scoped", "workspace fact");
+        restricted.egress_restricted = true;
+        let (service, repository) = service(
+            vec![restricted, record("public", "shared fact")],
+            vec![indexed("public", "shared fact")],
+        );
+
+        let outcome = service.reconcile().expect("reconcile");
+
+        assert_eq!(outcome.added, 1);
+        assert_eq!(outcome.invalidated, 0);
+        let upserted = repository.upserted_documents.lock().expect("lock");
+        assert_eq!(upserted.len(), 1);
+        assert_eq!(upserted[0].source_id, "scoped");
+        assert_eq!(upserted[0].index_state, IndexState::KeywordOnly);
+        assert!(upserted[0].egress_restricted);
+        drop(upserted);
+
+        // Same content, restriction lifted: the row is re-queued even though the hash is equal.
+        let repository_rows = vec![("scoped".to_string(), content_hash("workspace fact"), true)];
+        let repository = Arc::new(FakeRepository {
+            states: repository_rows,
+            ..FakeRepository::default()
+        });
+        let service = IndexingService::new(
+            repository.clone(),
+            Arc::new(FakeSource {
+                records: vec![record("scoped", "workspace fact")],
+            }),
+            Arc::new(FakeEmbedder::succeeding(Vec::new())),
+        );
+        let outcome = service.reconcile().expect("reconcile");
+        assert_eq!(outcome.invalidated, 1);
+        let upserted = repository.upserted_documents.lock().expect("lock");
+        assert_eq!(upserted[0].index_state, IndexState::Pending);
+        assert!(!upserted[0].egress_restricted);
+    }
+
+    /// MR-24 / 7.2: a reconcile interrupted before its diff commits leaves nothing half-applied
+    /// -- no orphan deleted early, no upsert lost -- and the next run recomputes the whole diff
+    /// from the sources rather than resuming a partial one.
+    #[test]
+    fn an_interrupted_reconcile_applies_nothing_and_the_next_run_recomputes_the_whole_diff() {
+        let (service, repository) = service(
+            vec![
+                record("kept", "same text"),
+                record("changed", "new text"),
+                record("added", "fresh text"),
+            ],
+            vec![
+                indexed("kept", "same text"),
+                indexed("changed", "old text"),
+                indexed("orphan", "gone text"),
+            ],
+        );
+        repository.apply_failures.store(1, Ordering::SeqCst);
+
+        assert!(matches!(
+            service.reconcile(),
+            Err(RetrievalError::Storage(_))
+        ));
+        assert!(repository.upserted.lock().expect("lock").is_empty());
+        assert!(repository.deleted.lock().expect("lock").is_empty());
+
+        let outcome = service.reconcile().expect("the retried reconcile");
+        assert_eq!(outcome.added, 1);
+        assert_eq!(outcome.invalidated, 1);
+        assert_eq!(outcome.orphans_removed, 1);
+        let mut upserted = repository.upserted.lock().expect("lock").clone();
+        upserted.sort();
+        assert_eq!(upserted, vec!["added".to_string(), "changed".to_string()]);
+        assert_eq!(
+            repository.deleted.lock().expect("lock").as_slice(),
+            ["orphan".to_string()]
+        );
     }
 
     struct FirstCheckOnlyGuard {

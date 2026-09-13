@@ -1,4 +1,6 @@
-use crate::contexts::retrieval::application::{RetrievalDocumentRepository, RetrievalIndexStatus};
+use crate::contexts::retrieval::application::{
+    AuthorizedCandidateRows, AuthorizedSourceSet, RetrievalDocumentRepository, RetrievalIndexStatus,
+};
 use crate::contexts::retrieval::domain::{
     decode_embedding, encode_embedding, FailureCategory, IndexState, RetrievalDocument,
     RetrievalError, RetrievalScope, SourceKind,
@@ -6,7 +8,7 @@ use crate::contexts::retrieval::domain::{
 use crate::platform::clock::SystemClock;
 use crate::platform::database::SqliteWriteTransaction;
 use crate::platform::database::{DatabaseError, NativeDatabase};
-use rusqlite::{params, Row};
+use rusqlite::{params, Connection, Row};
 
 #[derive(Clone)]
 pub(crate) struct SqliteRetrievalDocumentRepository {
@@ -30,19 +32,41 @@ impl RetrievalDocumentRepository for SqliteRetrievalDocumentRepository {
                 r#"
                 INSERT INTO retrieval_documents
                     (id, source_kind, source_id, scope_agent_id, scope_folder, content, content_hash,
-                     index_state, attempt_count, failure_category, created_at, updated_at)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pending', 0, NULL, ?8, ?8)
+                     index_state, attempt_count, failure_category, created_at, updated_at,
+                     egress_restricted)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7,
+                        CASE WHEN ?9 THEN 'keyword_only' ELSE 'pending' END, 0, NULL, ?8, ?8, ?9)
                 ON CONFLICT(id) DO UPDATE SET
                     content = excluded.content,
                     content_hash = excluded.content_hash,
                     scope_agent_id = excluded.scope_agent_id,
                     scope_folder = excluded.scope_folder,
-                    index_state = CASE WHEN retrieval_documents.content_hash = excluded.content_hash
-                                       THEN retrieval_documents.index_state ELSE 'pending' END,
-                    attempt_count = CASE WHEN retrieval_documents.content_hash = excluded.content_hash
-                                         THEN retrieval_documents.attempt_count ELSE 0 END,
-                    failure_category = CASE WHEN retrieval_documents.content_hash = excluded.content_hash
-                                            THEN retrieval_documents.failure_category ELSE NULL END,
+                    egress_restricted = excluded.egress_restricted,
+                    -- A restricted record retires to keyword-only whatever it was; an unchanged
+                    -- unrestricted one keeps its state; anything else re-queues. A row leaving
+                    -- keyword-only (restriction lifted) must be embedded afresh, so it re-queues too.
+                    index_state = CASE
+                        WHEN excluded.egress_restricted THEN 'keyword_only'
+                        WHEN retrieval_documents.content_hash = excluded.content_hash
+                             AND retrieval_documents.index_state <> 'keyword_only'
+                            THEN retrieval_documents.index_state
+                        ELSE 'pending' END,
+                    attempt_count = CASE
+                        WHEN NOT excluded.egress_restricted
+                             AND retrieval_documents.content_hash = excluded.content_hash
+                             AND retrieval_documents.index_state <> 'keyword_only'
+                            THEN retrieval_documents.attempt_count
+                        ELSE 0 END,
+                    failure_category = CASE
+                        WHEN NOT excluded.egress_restricted
+                             AND retrieval_documents.content_hash = excluded.content_hash
+                             AND retrieval_documents.index_state <> 'keyword_only'
+                            THEN retrieval_documents.failure_category
+                        ELSE NULL END,
+                    embedding = CASE WHEN excluded.egress_restricted THEN NULL
+                                     ELSE retrieval_documents.embedding END,
+                    embedding_model = CASE WHEN excluded.egress_restricted THEN NULL
+                                           ELSE retrieval_documents.embedding_model END,
                     updated_at = excluded.updated_at
                 "#,
                 params![
@@ -54,6 +78,7 @@ impl RetrievalDocumentRepository for SqliteRetrievalDocumentRepository {
                     document.content,
                     document.content_hash,
                     now,
+                    document.egress_restricted,
                 ],
             )
             .map_err(storage_error)?;
@@ -83,19 +108,41 @@ impl RetrievalDocumentRepository for SqliteRetrievalDocumentRepository {
                     r#"
                 INSERT INTO retrieval_documents
                     (id, source_kind, source_id, scope_agent_id, scope_folder, content, content_hash,
-                     index_state, attempt_count, failure_category, created_at, updated_at)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pending', 0, NULL, ?8, ?8)
+                     index_state, attempt_count, failure_category, created_at, updated_at,
+                     egress_restricted)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7,
+                        CASE WHEN ?9 THEN 'keyword_only' ELSE 'pending' END, 0, NULL, ?8, ?8, ?9)
                 ON CONFLICT(id) DO UPDATE SET
                     content = excluded.content,
                     content_hash = excluded.content_hash,
                     scope_agent_id = excluded.scope_agent_id,
                     scope_folder = excluded.scope_folder,
-                    index_state = CASE WHEN retrieval_documents.content_hash = excluded.content_hash
-                                       THEN retrieval_documents.index_state ELSE 'pending' END,
-                    attempt_count = CASE WHEN retrieval_documents.content_hash = excluded.content_hash
-                                         THEN retrieval_documents.attempt_count ELSE 0 END,
-                    failure_category = CASE WHEN retrieval_documents.content_hash = excluded.content_hash
-                                            THEN retrieval_documents.failure_category ELSE NULL END,
+                    egress_restricted = excluded.egress_restricted,
+                    -- A restricted record retires to keyword-only whatever it was; an unchanged
+                    -- unrestricted one keeps its state; anything else re-queues. A row leaving
+                    -- keyword-only (restriction lifted) must be embedded afresh, so it re-queues too.
+                    index_state = CASE
+                        WHEN excluded.egress_restricted THEN 'keyword_only'
+                        WHEN retrieval_documents.content_hash = excluded.content_hash
+                             AND retrieval_documents.index_state <> 'keyword_only'
+                            THEN retrieval_documents.index_state
+                        ELSE 'pending' END,
+                    attempt_count = CASE
+                        WHEN NOT excluded.egress_restricted
+                             AND retrieval_documents.content_hash = excluded.content_hash
+                             AND retrieval_documents.index_state <> 'keyword_only'
+                            THEN retrieval_documents.attempt_count
+                        ELSE 0 END,
+                    failure_category = CASE
+                        WHEN NOT excluded.egress_restricted
+                             AND retrieval_documents.content_hash = excluded.content_hash
+                             AND retrieval_documents.index_state <> 'keyword_only'
+                            THEN retrieval_documents.failure_category
+                        ELSE NULL END,
+                    embedding = CASE WHEN excluded.egress_restricted THEN NULL
+                                     ELSE retrieval_documents.embedding END,
+                    embedding_model = CASE WHEN excluded.egress_restricted THEN NULL
+                                           ELSE retrieval_documents.embedding_model END,
                     updated_at = excluded.updated_at
                 "#,
                 )
@@ -111,6 +158,7 @@ impl RetrievalDocumentRepository for SqliteRetrievalDocumentRepository {
                         document.content,
                         document.content_hash,
                         now,
+                        document.egress_restricted,
                     ])
                     .map_err(storage_error)?;
             }
@@ -149,6 +197,76 @@ impl RetrievalDocumentRepository for SqliteRetrievalDocumentRepository {
         Ok(rows)
     }
 
+    fn list_indexed_source_states(
+        &self,
+        source_kind: SourceKind,
+    ) -> Result<Vec<(String, String, bool)>, RetrievalError> {
+        let connection = self.database.connection().map_err(database_error)?;
+        let mut statement = connection
+            .prepare(
+                "SELECT source_id, content_hash, egress_restricted FROM retrieval_documents \
+                 WHERE source_kind = ?1",
+            )
+            .map_err(storage_error)?;
+        let rows = statement
+            .query_map(params![source_kind.as_str()], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, bool>(2)?,
+                ))
+            })
+            .map_err(storage_error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(storage_error)?;
+        Ok(rows)
+    }
+
+    fn mark_keyword_only(&self, id: &str) -> Result<(), RetrievalError> {
+        let connection = self.database.connection().map_err(database_error)?;
+        connection
+            .execute(
+                r#"
+                UPDATE retrieval_documents
+                SET index_state = 'keyword_only', egress_restricted = 1, embedding = NULL,
+                    embedding_model = NULL, embedding_dimensions = NULL, failure_category = NULL,
+                    updated_at = ?2
+                WHERE id = ?1
+                "#,
+                params![id, SystemClock.rfc3339()],
+            )
+            .map_err(storage_error)?;
+        Ok(())
+    }
+
+    /// The authority set becomes a temp table that lives exactly as long as this call.
+    ///
+    /// Both queries JOIN it, so the filter happens inside SQLite before `ORDER BY`/`LIMIT`, never
+    /// after a global top-k. The table name is unique per call and dropped on every exit path,
+    /// so a pooled connection reused by the next caller carries nothing over; if a drop ever
+    /// failed, the next call still creates its own differently named table.
+    fn authorized_candidates(
+        &self,
+        source_kind: SourceKind,
+        authority: &AuthorizedSourceSet,
+        model: Option<&str>,
+        keyword_query: Option<&str>,
+        keyword_limit: usize,
+    ) -> Result<AuthorizedCandidateRows, RetrievalError> {
+        let connection = self.database.connection().map_err(database_error)?;
+        let relation = QueryLocalAuthority::materialize(&connection, &authority.source_ids)?;
+        let vector = match model {
+            Some(model) => relation.vector_rows(&connection, source_kind, model),
+            None => Err(RetrievalError::Unavailable),
+        };
+        let keyword = match keyword_query {
+            Some(query) => relation.keyword_rows(&connection, source_kind, query, keyword_limit),
+            None => Err(RetrievalError::Unavailable),
+        };
+        drop(relation);
+        Ok(AuthorizedCandidateRows { vector, keyword })
+    }
+
     fn delete_by_source(
         &self,
         source_kind: SourceKind,
@@ -174,7 +292,7 @@ impl RetrievalDocumentRepository for SqliteRetrievalDocumentRepository {
             .prepare(
                 r#"
                 SELECT id, source_kind, source_id, scope_agent_id, scope_folder, content, content_hash,
-                       index_state, attempt_count, embedding_model
+                       index_state, attempt_count, embedding_model, egress_restricted
                 FROM retrieval_documents
                 WHERE source_kind = ?1 AND index_state = 'pending'
                 ORDER BY updated_at ASC
@@ -319,25 +437,15 @@ impl RetrievalDocumentRepository for SqliteRetrievalDocumentRepository {
                   SUM(index_state = 'indexed'), SUM(index_state = 'pending'), SUM(index_state = 'failed'),
                   (SELECT failure_category FROM retrieval_documents
                    WHERE failure_category IS NOT NULL
-                   ORDER BY updated_at DESC LIMIT 1)
+                   ORDER BY updated_at DESC LIMIT 1),
+                  SUM(index_state = 'keyword_only')
                 FROM retrieval_documents
                 "#,
                 [],
-                |row| {
-                    // 一行索引都还没建过时，SUM() 在零行上聚合返回 NULL（SQLite 的空集合聚合
-                    // 语义），不是 0——必须按 Option 读，否则会在全新安装上把这条本该是
-                    // "状态全零"的查询错误地变成一个 storage 错误。
-                    let indexed: Option<i64> = row.get(0)?;
-                    let pending: Option<i64> = row.get(1)?;
-                    let failed: Option<i64> = row.get(2)?;
-                    let last_failure_category: Option<String> = row.get(3)?;
-                    Ok(RetrievalIndexStatus {
-                        indexed: indexed.unwrap_or(0) as u32,
-                        pending: pending.unwrap_or(0) as u32,
-                        failed: failed.unwrap_or(0) as u32,
-                        last_failure_category,
-                    })
-                },
+                // 一行索引都还没建过时，SUM() 在零行上聚合返回 NULL（SQLite 的空集合聚合
+                // 语义），不是 0——必须按 Option 读，否则会在全新安装上把这条本该是
+                // "状态全零"的查询错误地变成一个 storage 错误。
+                read_index_status,
             )
             .map_err(storage_error)
     }
@@ -350,6 +458,7 @@ impl RetrievalDocumentRepository for SqliteRetrievalDocumentRepository {
                 r#"
                 UPDATE retrieval_documents
                 SET index_state = 'pending', attempt_count = 0, failure_category = NULL, updated_at = ?1
+                WHERE index_state <> 'keyword_only'
                 "#,
                 params![now],
             )
@@ -413,7 +522,7 @@ impl RetrievalDocumentRepository for SqliteRetrievalDocumentRepository {
             .prepare(
                 r#"
                 SELECT id, source_kind, source_id, scope_agent_id, scope_folder, content, content_hash,
-                       index_state, attempt_count, embedding_model
+                       index_state, attempt_count, embedding_model, egress_restricted
                 FROM retrieval_documents
                 WHERE source_kind = ?1 AND (?2 IS NULL OR scope_folder = ?2)
                   AND index_state = 'pending'
@@ -506,7 +615,8 @@ impl RetrievalDocumentRepository for SqliteRetrievalDocumentRepository {
                   SUM(index_state = 'indexed'), SUM(index_state = 'pending'), SUM(index_state = 'failed'),
                   (SELECT failure_category FROM retrieval_documents
                    WHERE source_kind = ?1 AND (?2 IS NULL OR scope_folder = ?2)
-                     AND failure_category IS NOT NULL ORDER BY updated_at DESC LIMIT 1)
+                     AND failure_category IS NOT NULL ORDER BY updated_at DESC LIMIT 1),
+                  SUM(index_state = 'keyword_only')
                 FROM retrieval_documents
                 WHERE source_kind = ?1 AND (?2 IS NULL OR scope_folder = ?2)
                 "#,
@@ -529,6 +639,7 @@ impl RetrievalDocumentRepository for SqliteRetrievalDocumentRepository {
                 UPDATE retrieval_documents
                 SET index_state = 'pending', attempt_count = 0, failure_category = NULL, updated_at = ?3
                 WHERE source_kind = ?1 AND (?2 IS NULL OR scope_folder = ?2)
+                  AND index_state <> 'keyword_only'
                 "#,
                 params![source_kind.as_str(), workspace_id, SystemClock.rfc3339()],
             )
@@ -593,12 +704,157 @@ fn read_index_status(row: &Row<'_>) -> Result<RetrievalIndexStatus, rusqlite::Er
     let indexed: Option<i64> = row.get(0)?;
     let pending: Option<i64> = row.get(1)?;
     let failed: Option<i64> = row.get(2)?;
+    let keyword_only: Option<i64> = row.get(4)?;
     Ok(RetrievalIndexStatus {
         indexed: indexed.unwrap_or(0) as u32,
         pending: pending.unwrap_or(0) as u32,
         failed: failed.unwrap_or(0) as u32,
+        keyword_only: keyword_only.unwrap_or(0) as u32,
         last_failure_category: row.get(3)?,
     })
+}
+
+/// A query-local temp table holding one authorized source set, dropped when this value drops.
+///
+/// Rows go in with a prepared statement rather than one giant `IN (...)`: SQLite's variable
+/// limit would cap the set, and the relation has to be complete or unusable. The temp schema is
+/// per connection, never fsynced, and unaffected by the main database's write lock.
+struct QueryLocalAuthority<'a> {
+    connection: &'a Connection,
+    table: String,
+}
+
+#[cfg(test)]
+impl SqliteRetrievalDocumentRepository {
+    /// The planner's answer for the authorized keyword query, for the scale measurement notes:
+    /// the relation must be joined by its primary key, never scanned per FTS hit.
+    pub(crate) fn explain_authorized_keyword_query(
+        &self,
+        source_ids: &[String],
+        query: &str,
+    ) -> Result<Vec<String>, RetrievalError> {
+        let connection = self.database.connection().map_err(database_error)?;
+        let relation = QueryLocalAuthority::materialize(&connection, source_ids)?;
+        let mut statement = connection
+            .prepare(&format!(
+                r#"
+                EXPLAIN QUERY PLAN
+                SELECT d.source_id FROM retrieval_documents d
+                JOIN retrieval_documents_fts f ON f.rowid = d.rowid
+                JOIN temp."{}" a ON a.source_id = d.source_id
+                WHERE retrieval_documents_fts MATCH ?1 AND d.source_kind = ?2
+                ORDER BY bm25(retrieval_documents_fts)
+                LIMIT ?3
+                "#,
+                relation.table
+            ))
+            .map_err(storage_error)?;
+        let rows = statement
+            .query_map(
+                params![query, SourceKind::AgentMemory.as_str(), 20_i64],
+                |row| row.get::<_, String>(3),
+            )
+            .map_err(storage_error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(storage_error)?;
+        drop(statement);
+        drop(relation);
+        Ok(rows)
+    }
+}
+
+impl<'a> QueryLocalAuthority<'a> {
+    fn materialize(
+        connection: &'a Connection,
+        source_ids: &[String],
+    ) -> Result<Self, RetrievalError> {
+        let table = format!("authority_{}", uuid::Uuid::new_v4().simple());
+        connection
+            .execute_batch(&format!(
+                "CREATE TEMP TABLE \"{table}\" (source_id TEXT PRIMARY KEY) WITHOUT ROWID"
+            ))
+            .map_err(storage_error)?;
+        let relation = Self { connection, table };
+        {
+            let mut insert = connection
+                .prepare(&format!(
+                    "INSERT OR IGNORE INTO temp.\"{}\" (source_id) VALUES (?1)",
+                    relation.table
+                ))
+                .map_err(storage_error)?;
+            for source_id in source_ids {
+                insert.execute(params![source_id]).map_err(storage_error)?;
+            }
+        }
+        Ok(relation)
+    }
+
+    fn vector_rows(
+        &self,
+        connection: &Connection,
+        source_kind: SourceKind,
+        model: &str,
+    ) -> Result<Vec<(String, Vec<f32>)>, RetrievalError> {
+        let mut statement = connection
+            .prepare(&format!(
+                r#"
+                SELECT d.source_id, d.embedding FROM retrieval_documents d
+                JOIN temp."{}" a ON a.source_id = d.source_id
+                WHERE d.source_kind = ?1
+                  AND d.index_state = 'indexed' AND d.embedding_model = ?2 AND d.embedding IS NOT NULL
+                "#,
+                self.table
+            ))
+            .map_err(storage_error)?;
+        let rows = statement
+            .query_map(params![source_kind.as_str(), model], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?))
+            })
+            .map_err(storage_error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(storage_error)?;
+        decode_candidates(rows)
+    }
+
+    fn keyword_rows(
+        &self,
+        connection: &Connection,
+        source_kind: SourceKind,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<String>, RetrievalError> {
+        let mut statement = connection
+            .prepare(&format!(
+                r#"
+                SELECT d.source_id FROM retrieval_documents d
+                JOIN retrieval_documents_fts f ON f.rowid = d.rowid
+                JOIN temp."{}" a ON a.source_id = d.source_id
+                WHERE retrieval_documents_fts MATCH ?1 AND d.source_kind = ?2
+                ORDER BY bm25(retrieval_documents_fts)
+                LIMIT ?3
+                "#,
+                self.table
+            ))
+            .map_err(storage_error)?;
+        let rows = statement
+            .query_map(params![query, source_kind.as_str(), limit as i64], |row| {
+                row.get::<_, String>(0)
+            })
+            .map_err(storage_error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(storage_error)?;
+        Ok(rows)
+    }
+}
+
+impl Drop for QueryLocalAuthority<'_> {
+    fn drop(&mut self) {
+        // Best effort by construction: a failed drop leaves a uniquely named temp table on one
+        // pooled connection, which no later query names, and the next call creates its own.
+        let _ = self
+            .connection
+            .execute_batch(&format!("DROP TABLE IF EXISTS temp.\"{}\"", self.table));
+    }
 }
 
 struct DocumentRow {
@@ -612,6 +868,7 @@ struct DocumentRow {
     index_state: String,
     attempt_count: u32,
     embedding_model: Option<String>,
+    egress_restricted: bool,
 }
 
 impl DocumentRow {
@@ -627,6 +884,7 @@ impl DocumentRow {
             index_state: row.get(7)?,
             attempt_count: row.get(8)?,
             embedding_model: row.get(9)?,
+            egress_restricted: row.get(10)?,
         })
     }
 
@@ -654,6 +912,7 @@ impl DocumentRow {
             index_state,
             attempt_count: self.attempt_count,
             embedding_model: self.embedding_model,
+            egress_restricted: self.egress_restricted,
         })
     }
 }
@@ -720,6 +979,7 @@ mod tests {
             index_state: IndexState::Pending,
             attempt_count: 0,
             embedding_model: None,
+            egress_restricted: false,
         }
     }
 
@@ -735,11 +995,292 @@ mod tests {
             index_state: IndexState::Pending,
             attempt_count: 0,
             embedding_model: None,
+            egress_restricted: false,
         }
     }
 
     fn workspace_scope(id: &str) -> RetrievalScope {
         RetrievalScope::Workspace(id.to_string())
+    }
+
+    fn restricted_document(source_id: &str, content: &str) -> RetrievalDocument {
+        RetrievalDocument {
+            index_state: IndexState::KeywordOnly,
+            egress_restricted: true,
+            ..document(source_id, "a", "", content)
+        }
+    }
+
+    fn authority(ids: &[&str]) -> crate::contexts::retrieval::application::AuthorizedSourceSet {
+        crate::contexts::retrieval::application::AuthorizedSourceSet {
+            source_ids: ids.iter().map(|id| id.to_string()).collect(),
+            complete: true,
+        }
+    }
+
+    /// MR-32 (7.3): the authorized keyword query joins the query-local relation by its primary
+    /// key. A plan that scanned the relation per FTS hit would grow with the pool, and one that
+    /// sorted the whole table would grow with the index.
+    #[test]
+    fn the_authorized_keyword_query_probes_the_relation_by_primary_key() {
+        let fixture = Fixture::new("retrieval authorized keyword plan");
+        let ids: Vec<String> = (0..1_000).map(|index| format!("row-{index:04}")).collect();
+        for source_id in &ids {
+            fixture
+                .repository
+                .upsert_pending(&document(source_id, "a", "", "uses npm not pnpm"))
+                .expect("upsert");
+        }
+        let plan = fixture
+            .repository
+            .explain_authorized_keyword_query(&ids, "pnpm")
+            .expect("plan");
+        for line in &plan {
+            eprintln!("MR-32 keyword plan: {line}");
+        }
+        // The relation is aliased `a` in the query; the planner reports it by that alias.
+        assert!(
+            plan.iter()
+                .any(|line| line.contains("SEARCH a USING PRIMARY KEY")),
+            "the relation is probed by key, not scanned: {plan:?}"
+        );
+        assert!(
+            !plan.iter().any(|line| line.contains("SCAN a")),
+            "the relation is never scanned: {plan:?}"
+        );
+    }
+
+    #[test]
+    fn authorized_candidates_filter_both_paths_before_the_limit_so_excluded_rows_cannot_crowd_out_a_hit(
+    ) {
+        // MR-12: five excluded rows match the query as well as the one admitted row, and the
+        // keyword limit is one. Filtering after LIMIT would return nothing admitted.
+        let fixture = Fixture::new("retrieval authorized before top-k");
+        for source_id in ["x1", "x2", "x3", "x4", "x5", "ok"] {
+            fixture
+                .repository
+                .upsert_pending(&document(source_id, "a", "", "uses npm not pnpm"))
+                .expect("upsert");
+            fixture
+                .repository
+                .store_embedding(
+                    &document_id(SourceKind::AgentMemory, source_id),
+                    "m",
+                    &[1.0, 0.0],
+                )
+                .expect("store");
+        }
+
+        let rows = fixture
+            .repository
+            .authorized_candidates(
+                SourceKind::AgentMemory,
+                &authority(&["ok"]),
+                Some("m"),
+                Some("\"npm\""),
+                1,
+            )
+            .expect("rows");
+        let vector = rows.vector.expect("vector path");
+        assert_eq!(
+            vector.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>(),
+            vec!["ok"]
+        );
+        assert_eq!(rows.keyword.expect("keyword path"), vec!["ok".to_string()]);
+
+        // An empty authority set admits nothing on either path, however well the rows match.
+        let none = fixture
+            .repository
+            .authorized_candidates(
+                SourceKind::AgentMemory,
+                &authority(&[]),
+                Some("m"),
+                Some("\"npm\""),
+                10,
+            )
+            .expect("rows");
+        assert!(none.vector.expect("vector").is_empty());
+        assert!(none.keyword.expect("keyword").is_empty());
+    }
+
+    #[test]
+    fn the_query_local_relation_never_survives_into_the_next_query() {
+        // MR-31: two queries with different authority sets over the same pooled connection see
+        // only their own relation; the temp table is created and dropped per call.
+        let fixture = Fixture::new("retrieval query-local relation");
+        for source_id in ["a", "b"] {
+            fixture
+                .repository
+                .upsert_pending(&document(source_id, "a", "", "shared words"))
+                .expect("upsert");
+        }
+        let first = fixture
+            .repository
+            .authorized_candidates(
+                SourceKind::AgentMemory,
+                &authority(&["a"]),
+                None,
+                Some("\"shared\""),
+                10,
+            )
+            .expect("first");
+        let second = fixture
+            .repository
+            .authorized_candidates(
+                SourceKind::AgentMemory,
+                &authority(&["b"]),
+                None,
+                Some("\"shared\""),
+                10,
+            )
+            .expect("second");
+        assert_eq!(first.keyword.expect("keyword"), vec!["a".to_string()]);
+        assert_eq!(second.keyword.expect("keyword"), vec!["b".to_string()]);
+        let leftover: i64 = fixture
+            .database
+            .connection()
+            .expect("connection")
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_temp_master WHERE name LIKE 'authority_%'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("temp tables");
+        assert_eq!(leftover, 0, "no query-local relation may outlive its query");
+    }
+
+    #[test]
+    fn a_restricted_record_is_keyword_searchable_but_never_claimed_for_embedding() {
+        // MR-22/MR-23: a scoped memory enters the local FTS index and is never dispatched.
+        let fixture = Fixture::new("retrieval keyword only");
+        fixture
+            .repository
+            .upsert_pending(&restricted_document("scoped", "workspace-only fact"))
+            .expect("upsert");
+
+        assert!(fixture
+            .repository
+            .claim_pending_batch(SourceKind::AgentMemory, 10)
+            .expect("claim")
+            .is_empty());
+        let rows = fixture
+            .repository
+            .authorized_candidates(
+                SourceKind::AgentMemory,
+                &authority(&["scoped"]),
+                Some("m"),
+                Some("\"workspace-only\""),
+                10,
+            )
+            .expect("rows");
+        assert!(rows.vector.expect("vector").is_empty());
+        assert_eq!(rows.keyword.expect("keyword"), vec!["scoped".to_string()]);
+        let status = fixture.repository.index_status().expect("status");
+        assert_eq!(status.keyword_only, 1);
+        assert_eq!(status.pending, 0);
+
+        // Neither a rebuild nor a model switch revives it into the queue.
+        fixture.repository.requeue_all().expect("requeue");
+        fixture
+            .repository
+            .requeue_stale_model("new-model")
+            .expect("requeue stale");
+        assert!(fixture
+            .repository
+            .claim_pending_batch(SourceKind::AgentMemory, 10)
+            .expect("claim")
+            .is_empty());
+    }
+
+    #[test]
+    fn a_public_row_that_becomes_restricted_drops_its_vector_and_retires_to_keyword_only() {
+        // MR-23: the record was embedded while public; a later reconcile carrying the restriction
+        // must not leave the old vector serving recall.
+        let fixture = Fixture::new("retrieval restrict after embed");
+        fixture
+            .repository
+            .upsert_pending(&document("m1", "a", "", "fact"))
+            .expect("upsert");
+        fixture
+            .repository
+            .store_embedding(
+                &document_id(SourceKind::AgentMemory, "m1"),
+                "m",
+                &[1.0, 0.0],
+            )
+            .expect("store");
+
+        fixture
+            .repository
+            .upsert_pending(&restricted_document("m1", "fact"))
+            .expect("restrict");
+
+        let states = fixture
+            .repository
+            .list_indexed_source_states(SourceKind::AgentMemory)
+            .expect("states");
+        assert_eq!(states, vec![("m1".to_string(), content_hash("fact"), true)]);
+        assert!(fixture
+            .repository
+            .vector_candidates(SourceKind::AgentMemory, "m")
+            .expect("vectors")
+            .is_empty());
+        assert_eq!(
+            fixture
+                .repository
+                .index_status()
+                .expect("status")
+                .keyword_only,
+            1
+        );
+
+        // And the restriction lifted re-queues it for a fresh embedding rather than trusting the
+        // dropped vector.
+        fixture
+            .repository
+            .upsert_pending(&document("m1", "a", "", "fact"))
+            .expect("unrestrict");
+        assert_eq!(
+            fixture
+                .repository
+                .claim_pending_batch(SourceKind::AgentMemory, 10)
+                .expect("claim")
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn mark_keyword_only_retires_a_claimed_row_without_a_failure_and_drops_its_vector() {
+        let fixture = Fixture::new("retrieval mark keyword only");
+        fixture
+            .repository
+            .upsert_pending(&document("m1", "a", "", "fact"))
+            .expect("upsert");
+        fixture
+            .repository
+            .store_embedding(
+                &document_id(SourceKind::AgentMemory, "m1"),
+                "m",
+                &[1.0, 0.0],
+            )
+            .expect("store");
+
+        fixture
+            .repository
+            .mark_keyword_only(&document_id(SourceKind::AgentMemory, "m1"))
+            .expect("mark");
+
+        let status = fixture.repository.index_status().expect("status");
+        assert_eq!(status.keyword_only, 1);
+        assert_eq!(status.indexed, 0);
+        assert_eq!(status.failed, 0);
+        assert_eq!(status.last_failure_category, None);
+        assert!(fixture
+            .repository
+            .vector_candidates(SourceKind::AgentMemory, "m")
+            .expect("vectors")
+            .is_empty());
     }
 
     #[test]

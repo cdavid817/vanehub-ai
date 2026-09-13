@@ -120,6 +120,17 @@ pub(super) fn mark_ready(fixture: &Fixture) {
         .expect("mark migration complete");
 }
 
+pub(super) fn migration_state_of(fixture: &Fixture) -> MigrationState {
+    fixture.migration_state.load().expect("migration state")
+}
+
+pub(super) fn save_migration_state(fixture: &Fixture, state: &MigrationState) {
+    fixture
+        .migration_state
+        .save(state)
+        .expect("save migration state");
+}
+
 pub(super) fn seed(
     fixture: &Fixture,
     name: &str,

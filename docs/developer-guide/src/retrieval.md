@@ -25,14 +25,14 @@ flowchart TB
     T --> V["② Vector retrieval<br/>query embedding → cosine ordering<br/>whole-path failure returns None"]
     V --> K["③ Full-text retrieval<br/>FTS5 (trigram); failure returns None"]
     K --> RRF["④ RRF fusion<br/>fuse_with_rrf"]
-    RRF --> LOOK["⑤ Source lookup by source_id<br/>batch fetch; deleted entries skipped"]
+    RRF --> LOOK["⑤ Governed resolve by pinned id/revision/hash<br/>under the caller's read context; stale or revoked entries skipped"]
     LOOK --> OUT["take(limit) → results"]
 ```
 
 - **① Preprocessing** — the 8,000-character truncation applies to **both paths**: the truncated text goes to the embedding and to FTS alike (the FTS side is two characters longer because the whole string is wrapped in quotes). The query is model-authored; without truncation an over-long query would break the embedding call outright. FTS escaping literalizes `OR`/`NEAR`/`*` and the rest of the query syntax so the meaning cannot drift and the statement cannot error.
 - **②③** — each path over-fetches to `limit × 4`. `None` means "this whole path is unavailable"; an empty `Vec` means "available, no hits" — different semantics.
 - **④** — Reciprocal Rank Fusion merges the two orderings.
-- **⑤ Source lookup** — only the fused candidate ids are batch-resolved against the authoritative source (never a full-table snapshot — a test pins this), and **a hit whose source record is gone is dropped**, which is what stops a deleted memory leaking from a surviving index row. `take(limit)` runs **after** the dropping, so deleted entries never waste a slot. **The final count can still be under `limit`**: too few candidates, or several candidates' sources are gone.
+- **⑤ Governed resolve** — only the fused candidate ids are handed to the caller-supplied `AuthorizedHitResolverPort`, which reads each authoritative record at the revision and hash the authorization relation pinned (never a full-table snapshot — a test pins this), and **a hit whose record is gone, moved, re-scoped or revoked is dropped**, which is what stops a deleted or narrowed memory leaking from a surviving index row. `take(limit)` runs **after** the dropping, so deleted entries never waste a slot. **The final count can still be under `limit`**: too few candidates, or several candidates' sources are gone.
 
 ### Degradation and the error boundary
 
@@ -48,9 +48,12 @@ The lower layers use typed errors to keep "cannot search" apart from "nothing fo
 
 ### Tool contract and availability
 
-- `recall`'s input is exactly `query` + `limit` (default 5, clamped 1–20); no agent, folder, or scope parameter — the narrowing lives in the storage-side compatibility view, never exposed to the model.
-- **With no embedding configured, `recall` is not registered into the tool catalog** (`resolve_tool_catalog` injects it only when `is_configured()`), so the model never sees it; **recency-based plain memory injection does not depend on retrieval configuration and keeps working**.
-- Each hit handed to the model carries only `content`, `created_at`, and `matched_via` (vector/keyword/both); `source_id` and scores are internal — no decision value to the model, raw hallucination material if included.
+- `recall`'s input is exactly `query` + `limit` (default 5, clamped 1–20); no agent, folder, or scope parameter — the read domain is the `MemoryReadContext` the generation snapshot froze (see the read-boundary section of the cross-session memory chapter), and any scope field the model adds is ignored.
+- **Two gates**: the catalog omits `recall` for a session that may not read; execution (`execute_recall`) returns the existing "temporarily unavailable" success result when no usable read context is present, without a query embedding or any pool access.
+- **Authorization before ranking**: `RetrievalApi::search_authorized(query, limit, authority, resolver)` is the only entry point; there is no context-free variant. `authority` is the complete eligible-metadata relation personalization enumerated (an incomplete relation is refused, never searched), the repository materializes it as a query-local temp table, and vector rows are filtered before loading/scoring and FTS rows before rank/LIMIT, so an excluded record can never take a slot from a valid hit. `resolver` is bound to the same context and re-reads each fused candidate at its pinned revision/hash; deleted, edited, or revoked entries are absent.
+- **With no embedding configured, `recall` is not registered into the tool catalog** (`resolve_tool_catalog` injects it only when `is_configured()`), so the model never sees it; **memory index injection and relevance-selected bodies do not depend on retrieval configuration and keep working**.
+- **Index coverage is not egress authorization**: the background source enumerates every valid active record (workspace-scoped and audience-restricted included) into the local FTS index; records without egress authorization stay in the `keyword_only` state, never enter the embedding queue, and the worker re-checks each queued body against the authoritative record through `EmbeddingEgressGuardPort` right before dispatch. The status page reports `keywordOnly` separately from `pending`.
+- Each hit handed to the model carries only `content`, `created_at`, and `matched_via` (vector/keyword/both); `source_id`, scores and the pinned memory identity are internal — no decision value to the model, raw hallucination material if included. The model also never learns the existence, titles or count of excluded records.
 
 ### Index maintenance: background reconciliation, never on the query path
 

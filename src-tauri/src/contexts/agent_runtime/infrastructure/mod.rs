@@ -155,7 +155,7 @@ pub(crate) use memory_schema::{apply_memory_schema, apply_memory_shared_pool_sch
 #[allow(unused_imports)]
 pub(crate) use memory_selection_gateway::RuntimeAgentMemorySelectionAdapter;
 #[allow(unused_imports)]
-pub(crate) use memory_surfaced::{mark_surfaced, unsurfaced_candidates};
+pub(crate) use memory_surfaced::{mark_surfaced, unsurfaced_refs};
 pub(crate) use message_terminal_completions::InMemoryAgentMessageTerminalCompletions;
 #[allow(unused_imports)]
 pub(crate) use native_tool_logging::NativeToolLogger;

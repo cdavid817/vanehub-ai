@@ -50,7 +50,7 @@ function nativeViewFields(source: string): Map<string, string[]> {
   return views;
 }
 
-/** Parameter names of every `#[tauri::command]`, minus the injected `api` state handle. */
+/** Parameter names of every `#[tauri::command]`, minus the injected `State<...>` handles. */
 function nativeCommandParameters(): Map<string, string[]> {
   const commands = new Map<string, string[]>();
   for (const file of readdirSync(COMMAND_DIR)) {
@@ -59,9 +59,11 @@ function nativeCommandParameters(): Map<string, string[]> {
     const match = /#\[tauri::command\]\npub\(crate\) fn (\w+)\(([\s\S]*?)\n\) ->/u.exec(source);
     if (!match) continue;
     const [, name, signature] = match;
-    const parameters = [...signature.matchAll(/^\s{4}(\w+):/gmu)]
+    // A managed-state handle is injected by Tauri, never sent over the wire, whatever it is named:
+    // the preview command takes three of them.
+    const parameters = [...signature.matchAll(/^\s{4}(\w+): ([^,\n]+)/gmu)]
+      .filter(([, , type]) => !type.startsWith("State<"))
       .map(([, parameter]) => parameter)
-      .filter((parameter) => parameter !== "api")
       .map(camel);
     commands.set(name, parameters);
   }

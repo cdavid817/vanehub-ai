@@ -127,6 +127,7 @@ fn request() -> ContextRequest {
         workspace_ref: Some("workspace-1".to_string()),
         explicit_refs: Vec::new(),
         model_capacity: Some(1_000),
+        memory_read: None,
     }
 }
 
