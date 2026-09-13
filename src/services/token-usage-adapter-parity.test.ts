@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { WEB_TOKEN_USAGE_OCCURRED_AT } from "./web-token-usage";
 
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
 
@@ -42,7 +43,12 @@ describe("Token usage adapter parity", () => {
   });
 
   it("preserves empty ranges and propagates bounded query errors", async () => {
-    const emptyQuery = { rangeStart: "2026-08-11T00:00:00.000Z" };
+    // A day after the fixture's own instant, so the range is empty whenever the test runs.
+    const emptyQuery = {
+      rangeStart: new Date(
+        new Date(WEB_TOKEN_USAGE_OCCURRED_AT).getTime() + 24 * 60 * 60 * 1000,
+      ).toISOString(),
+    };
     const emptyWeb = await webAgentClient.getTokenUsageSummary(emptyQuery);
     invokeMock.mockResolvedValueOnce(emptyWeb);
     await expect(tauriAgentClient.getTokenUsageSummary(emptyQuery)).resolves.toEqual(emptyWeb);

@@ -853,7 +853,7 @@ fn a_standard_generation_reads_exactly_its_scope_on_every_surface_over_the_real_
 
     assert!(
         matches!(terminal, GenerationProcessEvent::Completed(_)),
-        "generation ended with {terminal:?}"
+        "the generation did not complete"
     );
     assert_eq!(requests.len(), 3, "selector, tool turn, final turn");
     assert_never_shown(&requests, &corpus);
@@ -923,7 +923,7 @@ fn a_temporary_generation_completes_without_touching_any_memory_surface_over_the
 
     assert!(
         matches!(terminal, GenerationProcessEvent::Completed(_)),
-        "generation ended with {terminal:?}"
+        "the generation did not complete"
     );
     assert_eq!(requests.len(), 1, "no selector call, no tool turn");
     assert_never_shown(&requests, &corpus);
@@ -985,7 +985,7 @@ fn a_session_in_another_workspace_never_reuses_the_previous_workspace_authorizat
 
     assert!(
         matches!(terminal, GenerationProcessEvent::Completed(_)),
-        "generation ended with {terminal:?}"
+        "the generation did not complete"
     );
     assert_eq!(requests.len(), 3);
     for request in &requests {
