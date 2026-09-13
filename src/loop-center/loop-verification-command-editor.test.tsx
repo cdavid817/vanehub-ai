@@ -6,8 +6,8 @@ import { LoopVerificationCommandEditor } from "./loop-verification-command-edito
 describe("LoopVerificationCommandEditor", () => {
   it("renders repeatable structured command controls with localized errors", () => {
     const html = renderToStaticMarkup(<LoopVerificationCommandEditor commands={[
-      { id: "tests", program: "", arguments: "run\ntest", workingDirectory: "packages/app", timeoutSeconds: 120, required: true },
-      { id: "lint", program: "npm", arguments: "run\nlint", workingDirectory: "", timeoutSeconds: 60, required: false },
+      { id: "tests", kind: "process" as const, program: "", arguments: "run\ntest", workingDirectory: "packages/app", timeoutSeconds: 120, required: true },
+      { id: "lint", kind: "process" as const, program: "npm", arguments: "run\nlint", workingDirectory: "", timeoutSeconds: 60, required: false },
     ]} onChange={() => undefined} showErrors />);
 
     expect(html).toContain("命令 1");
@@ -15,6 +15,8 @@ describe("LoopVerificationCommandEditor", () => {
     expect(html).toContain("相对工作目录");
     expect(html).toContain("参数（每行一项）");
     expect(html).toContain("必需检查");
+    expect(html).toContain("检查类型");
+    expect(html).toContain("内置检查");
     expect(html).toContain("每条验证命令都必须填写程序");
     expect(html).toContain('title="下移命令"');
     expect(html).toContain('title="删除命令"');

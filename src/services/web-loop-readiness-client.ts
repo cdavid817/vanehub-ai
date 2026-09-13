@@ -1,7 +1,9 @@
 import { mockAgents } from "./mock-agent-data";
 import { nowIso } from "./web-mock-clock";
 import { webKnownWorkspaceClient } from "./web-known-workspace-client";
-import { findLoopDefinition, listWebLoopDefinitions, listWebLoopRuns } from "./web-loop-state";
+import { findLoopDefinition, findLoopRun, listWebLoopDefinitions, listWebLoopRuns } from "./web-loop-state";
+import { acknowledgeWebLoopAudit, prepareWebLoopAdmission, simulateLoopAssessment } from "./web-loop-scope";
+import { i18n } from "../i18n";
 import type {
   LoopBranchChoice,
   LoopProjectChoice,
@@ -18,8 +20,9 @@ function readinessCheck(
   category: LoopReadinessCheck["category"],
   passed: boolean,
   remediationTarget: LoopReadinessCheck["remediationTarget"],
+  detail: string | null = null,
 ): LoopReadinessCheck {
-  return { code, category, status: passed ? "passed" : "blocked", blocking: true, detail: null, remediationTarget: passed ? null : remediationTarget };
+  return { code, category, status: passed ? "passed" : "blocked", blocking: true, detail: passed ? null : detail, remediationTarget: passed ? null : remediationTarget };
 }
 
 type ReadinessService = LoopReadinessService;
@@ -56,7 +59,9 @@ export const webLoopReadinessClient: ReadinessService = {
     const branches = await this.listLoopBranches(definition.projectPath);
     const hasActiveRun = listWebLoopRuns().some((run) => run.definitionId === definitionId && activeLoopStatuses.includes(run.status));
     const commandsValid = definition.verificationCommands.length > 0 && definition.verificationCommands.every((command) => Boolean(command.program.trim()) && command.timeoutSeconds > 0);
-    const pathScopeValid = !definition.allowedPaths.some((path) => definition.protectedPaths.includes(path));
+    const scopeSupported = definition.scopeState === "verified";
+    const pathScopeValid = scopeSupported && definition.allowedPaths.length > 0 && !definition.allowedPaths.some((path) => definition.protectedPaths.includes(path));
+    const assessment = simulateLoopAssessment(definition);
     const checks = [
       readinessCheck("definition-enabled", "definition", definition.enabled, "definition"),
       readinessCheck("project-available", "workspace", projects.some((project) => project.path === definition.projectPath && project.available), "project"),
@@ -64,9 +69,33 @@ export const webLoopReadinessClient: ReadinessService = {
       readinessCheck("worker-eligible", "agent", mockAgents.some((agent) => agent.id === definition.workerAgentId), "worker"),
       readinessCheck("verifier-eligible", "agent", mockAgents.some((agent) => agent.id === definition.verifierAgentId), "verifier"),
       readinessCheck("verification-valid", "verification", commandsValid, "verification"),
-      readinessCheck("path-scope-valid", "verification", pathScopeValid, "verification"),
+      readinessCheck("scope-version-supported", "definition", scopeSupported, "definition", i18n.t("loops.web.assessment.legacy")),
+      readinessCheck("path-scope-valid", "verification", pathScopeValid, "definition"),
+      readinessCheck("execution-coverage", "agent", assessment.satisfiesRequestedMode, "worker", assessment.blockers.join(" ")),
       readinessCheck("no-active-run", "runtime", !hasActiveRun, "runs"),
     ];
-    return { definitionId, ready: checks.every((check) => check.status === "passed"), simulated: true, checks, checkedAt: nowIso() };
+    return {
+      definitionId,
+      ready: checks.every((check) => check.status === "passed"),
+      simulated: true,
+      checks,
+      checkedAt: nowIso(),
+      requestedMode: definition.requestedMode,
+      scopeState: definition.scopeState,
+      assessment,
+      acknowledgementRequired: assessment.acknowledgementRequired,
+      definitionRevision: definition.version,
+    };
+  },
+  async prepareLoopAdmission(input) {
+    if (input.action === "start") {
+      const definition = findLoopDefinition(input.definitionId ?? "");
+      return prepareWebLoopAdmission(input, definition, definition.version, definition.id);
+    }
+    const run = findLoopRun(input.runId ?? "");
+    return prepareWebLoopAdmission(input, run.definitionSnapshot, run.revision, run.id);
+  },
+  async acknowledgeLoopAudit(challengeId) {
+    return acknowledgeWebLoopAudit(challengeId);
   },
 };

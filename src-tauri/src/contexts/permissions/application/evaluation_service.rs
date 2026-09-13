@@ -7,8 +7,8 @@ use super::ports::{
     PermissionsClockPort, PermissionsDiagnosticsPort, PermissionsIdPort, PrincipalRepository,
 };
 use crate::contexts::permissions::domain::{
-    policies_for_template, resolve_for, risk_level_for, Action, Effect, PolicyTemplateName,
-    Principal, Resource,
+    policies_for_template, resolve_for, risk_level_for, Action, Effect, PermissionVerdict,
+    PolicyTemplateName, Principal, Resource,
 };
 use std::sync::Arc;
 
@@ -60,6 +60,28 @@ impl EvaluationService {
         generation_id: &str,
         project_key: &str,
     ) -> Effect {
+        self.evaluate_checked(
+            agent_id,
+            action,
+            resource,
+            session_id,
+            generation_id,
+            project_key,
+        )
+        .effect
+    }
+
+    /// The same resolution with its health. An unhealthy verdict always carries `Ask`; the flag
+    /// is what lets an ACP read or a mediated write refuse instead of prompting on a failure.
+    pub(crate) fn evaluate_checked(
+        &self,
+        agent_id: &str,
+        action: Action,
+        resource: Resource,
+        session_id: &str,
+        generation_id: &str,
+        project_key: &str,
+    ) -> PermissionVerdict {
         match self.evaluate_inner(
             agent_id,
             &action,
@@ -68,7 +90,10 @@ impl EvaluationService {
             generation_id,
             project_key,
         ) {
-            Ok(effect) => effect,
+            Ok(effect) => PermissionVerdict {
+                effect,
+                healthy: true,
+            },
             Err(error) => {
                 // Fail closed, and leave evidence saying why. A bare `unwrap_or(Ask)` made a
                 // storage outage and a policy that genuinely asks look identical in the audit
@@ -82,7 +107,10 @@ impl EvaluationService {
                     generation_id,
                     &error,
                 );
-                Effect::Ask
+                PermissionVerdict {
+                    effect: Effect::Ask,
+                    healthy: false,
+                }
             }
         }
     }

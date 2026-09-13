@@ -17,13 +17,18 @@ interface FixtureEntry {
   observation: UsageObservation;
 }
 
-// Anchored to the wall clock rather than a fixed date: the Usage page opens on "last 30 days",
-// and a fixture that ages out of that window shows a page of zeros a few weeks after it was
-// written. Three days back keeps it inside every range the page offers.
-const OCCURRED_MS = Date.now() - 3 * 24 * 60 * 60 * 1000;
-/** When every fixture invocation ran, for tests that reason about ranges around it. */
-export const WEB_TOKEN_USAGE_OCCURRED_AT = new Date(OCCURRED_MS).toISOString();
-const at = WEB_TOKEN_USAGE_OCCURRED_AT;
+// Three days before the mock clock, pinned to 10:00 UTC. A fixed calendar date silently aged
+// out of the "last 30 days" window the usage page opens with, turning the mock ledger to zeros.
+function fixtureInstant(): string {
+  const value = new Date();
+  value.setUTCDate(value.getUTCDate() - 3);
+  value.setUTCHours(10, 0, 0, 0);
+  return value.toISOString();
+}
+
+/** The instant every ledger fixture is stamped with; tests derive their windows from it. */
+export const WEB_TOKEN_USAGE_FIXTURE_AT = fixtureInstant();
+const at = WEB_TOKEN_USAGE_FIXTURE_AT;
 
 function fixture(
   id: string,
@@ -253,7 +258,7 @@ export function queryWebTokenUsageSummary(query: TokenUsageSummaryQuery): TokenU
       ...breakdown(entries, dimension),
       entries: breakdown(entries, dimension).entries.slice(0, query.breakdownLimit ?? 10),
     })),
-    generatedAt: new Date(OCCURRED_MS + 5 * 60 * 1000).toISOString(),
+    generatedAt: "2026-08-10T10:05:00.000Z",
   };
 }
 

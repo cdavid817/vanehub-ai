@@ -1,10 +1,12 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { AlertCircle, CheckCircle2, Loader2, Play, RefreshCw, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../components/ui/button";
+import { useLoopAdmission, type LoopAdmissionTarget } from "../hooks/use-loop-admission";
 import { useStartLoopMutation } from "../hooks/use-loop-mutations";
 import { useLoopReadinessQuery } from "../hooks/use-loop-queries";
-import type { LoopDefinition, LoopReadinessCheck } from "../types/loop";
+import type { LoopControlEnvelope, LoopDefinition, LoopReadinessCheck } from "../types/loop";
+import { LoopAuditAcknowledgement, LoopScopeAssessment } from "./loop-scope-assessment";
 
 export function LoopPreflightDialog({
   definition,
@@ -22,6 +24,18 @@ export function LoopPreflightDialog({
   const readiness = useLoopReadinessQuery(definition.id);
   const start = useStartLoopMutation();
   const startError = start.error instanceof Error ? start.error.message : start.error ? String(start.error) : null;
+  const launch = useCallback(async (target: LoopAdmissionTarget, envelope: LoopControlEnvelope) => {
+    try {
+      const result = await start.mutateAsync({ definitionId: target.definitionId ?? definition.id, envelope });
+      onStarted(result.run.id);
+    } catch {
+      // The authoritative rejection is already on the mutation; readiness is refetched so the
+      // dialog explains what changed instead of offering the same start again.
+      await readiness.refetch();
+    }
+  }, [definition.id, onStarted, readiness, start]);
+  const admission = useLoopAdmission(launch);
+  const busy = start.isPending || admission.busy;
 
   useEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -31,7 +45,7 @@ export function LoopPreflightDialog({
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !start.isPending) onClose();
+      if (event.key === "Escape" && !busy) onClose();
       if (event.key !== "Tab" || !panelRef.current) return;
       const items = [...panelRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), [tabindex]:not([tabindex="-1"])')];
       const first = items[0];
@@ -41,17 +55,15 @@ export function LoopPreflightDialog({
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [onClose, start.isPending]);
+  }, [onClose, busy]);
 
-  async function launch() {
-    try {
-      const result = await start.mutateAsync(definition.id);
-      onStarted(result.run.id);
-    } catch {
-      await readiness.refetch();
-    }
+  function requestStart() {
+    if (!readiness.data) return;
+    start.reset();
+    void admission.request({ action: "start", definitionId: definition.id, expectedRevision: readiness.data.definitionRevision });
   }
 
+  const error = startError ?? admission.error;
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-background/75 p-3 sm:p-4">
       <div aria-labelledby="loop-preflight-title" aria-modal="true" className="ucd-panel grid max-h-[90vh] w-full max-w-xl grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-lg shadow-xl" ref={panelRef} role="dialog">
@@ -61,7 +73,7 @@ export function LoopPreflightDialog({
             <p className="truncate text-xs text-muted-foreground">{definition.name}</p>
           </div>
           {readiness.data?.simulated ? <span className="rounded border border-warning/50 px-2 py-1 text-[11px] text-warning">{t("loops.simulated")}</span> : null}
-          <Button aria-label={t("loops.preflight.close")} disabled={start.isPending} onClick={onClose} size="icon" title={t("loops.preflight.close")} type="button" variant="ghost"><X aria-hidden="true" /></Button>
+          <Button aria-label={t("loops.preflight.close")} disabled={busy} onClick={onClose} size="icon" title={t("loops.preflight.close")} type="button" variant="ghost"><X aria-hidden="true" /></Button>
         </header>
         <div className="min-h-0 overflow-y-auto p-4">
           {readiness.isLoading ? <LoadingState /> : null}
@@ -72,15 +84,17 @@ export function LoopPreflightDialog({
               <ol className="grid gap-1" aria-label={t("loops.preflight.checks")}>
                 {readiness.data.checks.map((check) => <ReadinessRow check={check} key={check.code} />)}
               </ol>
+              <LoopScopeAssessment assessment={readiness.data.assessment} requestedMode={readiness.data.requestedMode} />
+              {admission.pending ? <LoopAuditAcknowledgement admission={admission.pending} busy={busy} onAcknowledge={() => void admission.acknowledge()} onDismiss={admission.dismiss} /> : null}
             </div>
           ) : null}
         </div>
         <footer className="flex min-h-14 flex-wrap items-center justify-between gap-2 border-t border-border px-4 py-2">
-          <p aria-live="assertive" className="min-w-0 flex-1 text-xs text-destructive">{startError}</p>
+          <p aria-live="assertive" className="min-w-0 flex-1 whitespace-pre-line text-xs text-destructive">{error}</p>
           <div className="flex gap-2">
-            {!readiness.data?.ready ? <Button disabled={start.isPending} onClick={onEdit} size="sm" type="button" variant="outline">{t("loops.preflight.edit")}</Button> : null}
-            <Button disabled={readiness.isFetching || start.isPending} onClick={() => { start.reset(); void readiness.refetch(); }} size="sm" type="button" variant="outline"><RefreshCw aria-hidden="true" className={readiness.isFetching ? "animate-spin" : ""} />{t("loops.preflight.retry")}</Button>
-            <Button disabled={!readiness.data?.ready || start.isPending} onClick={() => void launch()} size="sm" type="button">{start.isPending ? <Loader2 aria-hidden="true" className="animate-spin" /> : <Play aria-hidden="true" />}{t("loops.preflight.start")}</Button>
+            {!readiness.data?.ready ? <Button disabled={busy} onClick={onEdit} size="sm" type="button" variant="outline">{t("loops.preflight.edit")}</Button> : null}
+            <Button disabled={readiness.isFetching || busy} onClick={() => { start.reset(); admission.dismiss(); void readiness.refetch(); }} size="sm" type="button" variant="outline"><RefreshCw aria-hidden="true" className={readiness.isFetching ? "animate-spin" : ""} />{t("loops.preflight.retry")}</Button>
+            <Button disabled={!readiness.data?.ready || busy || admission.pending !== null} onClick={requestStart} size="sm" type="button">{busy ? <Loader2 aria-hidden="true" className="animate-spin" /> : <Play aria-hidden="true" />}{t("loops.preflight.start")}</Button>
           </div>
         </footer>
       </div>
@@ -102,7 +116,7 @@ function ReadinessRow({ check }: { check: LoopReadinessCheck }) {
       <Icon aria-hidden="true" className={passed ? "mt-0.5 h-4 w-4 text-success" : "mt-0.5 h-4 w-4 text-destructive"} />
       <div className="min-w-0">
         <p className="text-sm font-medium">{t(`loops.preflight.check.${check.code}`)}</p>
-        {!passed ? <p className="mt-0.5 text-xs text-muted-foreground">{check.detail ?? t(`loops.preflight.remediation.${check.remediationTarget}`)}</p> : null}
+        {!passed ? <p className="mt-0.5 whitespace-pre-line text-xs text-muted-foreground">{check.detail ?? t(`loops.preflight.remediation.${check.remediationTarget}`)}</p> : null}
       </div>
     </li>
   );

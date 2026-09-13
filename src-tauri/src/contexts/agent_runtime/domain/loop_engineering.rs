@@ -1,3 +1,6 @@
+use super::loop_scope::{
+    LoopRequestedMode, LoopScopeConfig, LoopScopeError, LOOP_SCOPE_SCHEMA_VERSION,
+};
 use super::AgentRuntimeDomainError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -95,9 +98,26 @@ pub(crate) enum LoopTerminalReason {
     RecoveryRequired,
     UserRejected,
     UserStopped,
+    /// A confirmed protected or out-of-scope change. Terminal and sticky.
+    ScopeViolation,
+    /// Paused: the run predates scope enforcement and has no trustworthy binding.
+    ScopeBindingMissing,
+    /// Paused: artifact evidence could not be completed or the root identity is uncertain.
+    ScopeUnverifiable,
+    /// Paused: the frozen requested mode is no longer satisfied by fresh capability evidence.
+    ScopeCapabilityChanged,
 }
 
 impl LoopTerminalReason {
+    /// Reasons that keep a run paused rather than finished. Resume must re-prove the blocker
+    /// before clearing any of them.
+    pub(crate) fn is_scope_pause(self) -> bool {
+        matches!(
+            self,
+            Self::ScopeBindingMissing | Self::ScopeUnverifiable | Self::ScopeCapabilityChanged
+        )
+    }
+
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::GoalMet => "goal-met",
@@ -112,6 +132,10 @@ impl LoopTerminalReason {
             Self::RecoveryRequired => "recovery-required",
             Self::UserRejected => "user-rejected",
             Self::UserStopped => "user-stopped",
+            Self::ScopeViolation => "scope-violation",
+            Self::ScopeBindingMissing => "scope-binding-missing",
+            Self::ScopeUnverifiable => "scope-unverifiable",
+            Self::ScopeCapabilityChanged => "scope-capability-changed",
         }
     }
 
@@ -129,6 +153,10 @@ impl LoopTerminalReason {
             "recovery-required" => Ok(Self::RecoveryRequired),
             "user-rejected" => Ok(Self::UserRejected),
             "user-stopped" => Ok(Self::UserStopped),
+            "scope-violation" => Ok(Self::ScopeViolation),
+            "scope-binding-missing" => Ok(Self::ScopeBindingMissing),
+            "scope-unverifiable" => Ok(Self::ScopeUnverifiable),
+            "scope-capability-changed" => Ok(Self::ScopeCapabilityChanged),
             _ => Err(AgentRuntimeDomainError::InvalidLoopValue("terminal reason")),
         }
     }
@@ -192,9 +220,39 @@ impl LoopLimits {
     }
 }
 
+/// The built-in in-process check name. It inspects newly added text lines for trailing blanks
+/// against safe snapshots and never launches a process.
+pub(crate) const NATIVE_CHECK_PATCH_WHITESPACE: &str = "patch-whitespace";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LoopVerificationKind {
+    Process,
+    NativeCheck,
+}
+
+impl LoopVerificationKind {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Process => "process",
+            Self::NativeCheck => "native-check",
+        }
+    }
+
+    pub(crate) fn parse(value: &str) -> Result<Self, AgentRuntimeDomainError> {
+        match value {
+            "process" => Ok(Self::Process),
+            "native-check" => Ok(Self::NativeCheck),
+            _ => Err(AgentRuntimeDomainError::InvalidLoopValue(
+                "verification kind",
+            )),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LoopVerificationCommand {
     id: String,
+    kind: LoopVerificationKind,
     program: String,
     args: Vec<String>,
     working_directory: Option<String>,
@@ -211,8 +269,40 @@ impl LoopVerificationCommand {
         timeout_seconds: u64,
         required: bool,
     ) -> Result<Self, AgentRuntimeDomainError> {
+        Self::new_with_kind(
+            id,
+            LoopVerificationKind::Process,
+            program,
+            args,
+            working_directory,
+            timeout_seconds,
+            required,
+        )
+    }
+
+    pub(crate) fn new_with_kind(
+        id: String,
+        kind: LoopVerificationKind,
+        program: String,
+        args: Vec<String>,
+        working_directory: Option<String>,
+        timeout_seconds: u64,
+        required: bool,
+    ) -> Result<Self, AgentRuntimeDomainError> {
         let id = required_text(id, "verification command id")?;
         let program = required_text(program, "verification program")?;
+        // A native check is a fixed rule, not a launcher: only the known name with no arguments
+        // and the worktree root as its directory is accepted, so it can never be bent into
+        // executing something.
+        if kind == LoopVerificationKind::NativeCheck
+            && (program != NATIVE_CHECK_PATCH_WHITESPACE
+                || !args.is_empty()
+                || !matches!(working_directory.as_deref(), None | Some(".") | Some("./")))
+        {
+            return Err(AgentRuntimeDomainError::InvalidLoopValue(
+                "native verification check",
+            ));
+        }
         if timeout_seconds == 0
             || contains_control(&program)
             || args.iter().any(|arg| contains_control(arg))
@@ -234,6 +324,7 @@ impl LoopVerificationCommand {
         }
         Ok(Self {
             id,
+            kind,
             program,
             args,
             working_directory,
@@ -244,6 +335,9 @@ impl LoopVerificationCommand {
 
     pub(crate) fn id(&self) -> &str {
         &self.id
+    }
+    pub(crate) fn kind(&self) -> LoopVerificationKind {
+        self.kind
     }
     pub(crate) fn program(&self) -> &str {
         &self.program
@@ -280,6 +374,25 @@ pub(crate) struct LoopDefinitionInput {
     pub(crate) version: u64,
     pub(crate) created_at: String,
     pub(crate) updated_at: String,
+    /// `None` for definitions saved before scope enforcement existed. They stay editable but
+    /// cannot start until saved again under a supported version.
+    pub(crate) scope_schema_version: Option<u32>,
+    pub(crate) requested_mode: Option<LoopRequestedMode>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LoopScopeState {
+    Verified,
+    LegacyUnverified,
+}
+
+impl LoopScopeState {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Verified => "verified",
+            Self::LegacyUnverified => "legacy-unverified",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -305,11 +418,52 @@ impl LoopDefinition {
         {
             return Err(AgentRuntimeDomainError::InvalidLoopValue("definition"));
         }
+        match input.scope_schema_version {
+            None => {
+                // Legacy rows keep their raw values for editing. A mode without a scope version
+                // would be an invented claim, so it is dropped.
+                input.requested_mode = None;
+            }
+            Some(LOOP_SCOPE_SCHEMA_VERSION) => {
+                let scope = LoopScopeConfig::parse(&input.allowed_paths, &input.protected_paths)
+                    .map_err(AgentRuntimeDomainError::InvalidLoopScope)?;
+                input.allowed_paths = scope.allowed_display();
+                input.protected_paths = scope.protected_display();
+                if input.requested_mode.is_none() {
+                    input.requested_mode = Some(LoopRequestedMode::PreventiveRequired);
+                }
+            }
+            Some(_) => {
+                return Err(AgentRuntimeDomainError::InvalidLoopValue(
+                    "scope schema version",
+                ))
+            }
+        }
         Ok(Self { input })
     }
 
     pub(crate) fn values(&self) -> &LoopDefinitionInput {
         &self.input
+    }
+
+    pub(crate) fn scope_state(&self) -> LoopScopeState {
+        match self.input.scope_schema_version {
+            Some(LOOP_SCOPE_SCHEMA_VERSION) => LoopScopeState::Verified,
+            _ => LoopScopeState::LegacyUnverified,
+        }
+    }
+
+    /// The parsed scope for a verified definition. Legacy definitions have none: an empty or
+    /// unversioned allowed list is never widened into whole-workspace access.
+    pub(crate) fn scope(&self) -> Result<LoopScopeConfig, LoopScopeError> {
+        if self.scope_state() != LoopScopeState::Verified {
+            return Err(LoopScopeError::EmptyAllowedScope);
+        }
+        LoopScopeConfig::parse(&self.input.allowed_paths, &self.input.protected_paths)
+    }
+
+    pub(crate) fn requested_mode(&self) -> Option<LoopRequestedMode> {
+        self.input.requested_mode
     }
 }
 
@@ -398,6 +552,8 @@ impl LoopRun {
             (LoopRunPhase::Acting, LoopRunPhase::Verifying)
                 | (LoopRunPhase::Verifying, LoopRunPhase::Deciding)
                 | (LoopRunPhase::Deciding, LoopRunPhase::Acting)
+                // Re-verification: the tree changed after the checks ran.
+                | (LoopRunPhase::Deciding, LoopRunPhase::Verifying)
         );
         if !valid {
             return Err(self.transition_error(phase.as_str()));
@@ -449,6 +605,22 @@ impl LoopRun {
         }
         self.status = LoopRunStatus::Paused;
         self.terminal_reason = Some(LoopTerminalReason::RecoveryRequired);
+        self.pause_requested = false;
+        Ok(())
+    }
+
+    /// Pauses at a scope blocker. Allowed from any active status: a missing binding is found at
+    /// startup, an unverifiable scan at a phase boundary, and a capability change even while
+    /// awaiting acceptance.
+    pub(crate) fn pause_for_scope(
+        &mut self,
+        reason: LoopTerminalReason,
+    ) -> Result<(), AgentRuntimeDomainError> {
+        if !reason.is_scope_pause() || !self.status.is_active() {
+            return Err(self.transition_error(reason.as_str()));
+        }
+        self.status = LoopRunStatus::Paused;
+        self.terminal_reason = Some(reason);
         self.pause_requested = false;
         Ok(())
     }
@@ -659,10 +831,10 @@ impl LoopRun {
             | LoopRunStatus::Cancelled => phase == LoopRunPhase::Finalizing,
         };
         let reason_matches_status = match status {
-            LoopRunStatus::Paused => matches!(
-                terminal_reason,
-                None | Some(LoopTerminalReason::RecoveryRequired)
-            ),
+            LoopRunStatus::Paused => match terminal_reason {
+                None | Some(LoopTerminalReason::RecoveryRequired) => true,
+                Some(reason) => reason.is_scope_pause(),
+            },
             status if status.is_terminal() => terminal_reason.is_some(),
             _ => terminal_reason.is_none(),
         };

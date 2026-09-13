@@ -684,6 +684,22 @@ impl AgentProcessGateway for AcpAgentProcessAdapter {
             Some(seat) => format!("{}/{seat}", request.session.id),
             None => format!("{}/{}", request.session.id, request.agent.id),
         };
+        // A Loop-owned session executes only under its frozen scope. The guard comes from backend
+        // ownership; without one the turn never starts.
+        let scope = self
+            .permissions
+            .loop_scope_guard(&request.session.id)
+            .map_err(|error| AgentRuntimeApplicationError::PolicyDenied {
+                session_id: request.session.id.clone(),
+                action: format!("loop-scope: {error}"),
+            })?;
+        if request.session.loop_ownership.is_some() && scope.is_none() {
+            return Err(AgentRuntimeApplicationError::PolicyDenied {
+                session_id: request.session.id.clone(),
+                action: "loop-scope: this Loop-owned session has no trustworthy scope binding"
+                    .to_string(),
+            });
+        }
         let state = self.bind(&request, &binding_key, seat_id.as_deref())?;
         let turn = Arc::new(TurnShared {
             turn_id: request.operation_id.clone(),
@@ -698,6 +714,7 @@ impl AgentProcessGateway for AcpAgentProcessAdapter {
             interactions: Mutex::new(PendingInteractionStore::default()),
             terminals: self.terminals.clone(),
             cancel: AtomicBool::new(false),
+            scope,
             sequence: AtomicU64::new(0),
         });
         {
@@ -775,6 +792,7 @@ impl AgentProcessGateway for AcpAgentProcessAdapter {
             terminals: turn.terminals.clone(),
             cancel: AtomicBool::new(turn.cancel.load(Ordering::SeqCst)),
             sequence: AtomicU64::new(0),
+            scope: turn.scope.clone(),
         });
         {
             let mut processes = lock(&self.processes);

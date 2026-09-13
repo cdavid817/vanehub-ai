@@ -19,18 +19,31 @@ pub(super) fn worker_prompt(
             .take(12),
         5 * 1024,
     );
+    // The prompt is a description for the model, never the policy: the executor always uses the
+    // complete frozen binding. A long list is summarized with an explicit omission note and the
+    // scope digest so nobody mistakes the excerpt for the whole configuration.
+    let scope_note = request
+        .scope_ref
+        .as_ref()
+        .map(|scope| {
+            format!(
+                "enforcement mode {} · scope digest {} · every write is checked against the complete scope by the host",
+                scope.requested_mode.as_str(),
+                scope.scope_digest
+            )
+        })
+        .unwrap_or_else(|| "scope enforcement reference unavailable".to_string());
+    prompt.section("Scope enforcement", [scope_note.as_str()], 1024);
+    let allowed_lines = summarized_paths(&definition.allowed_paths);
     prompt.section(
-        "Allowed paths",
-        definition.allowed_paths.iter().map(String::as_str).take(32),
+        "Allowed paths (summary)",
+        allowed_lines.iter().map(String::as_str),
         2 * 1024,
     );
+    let protected_lines = summarized_paths(&definition.protected_paths);
     prompt.section(
-        "Protected paths",
-        definition
-            .protected_paths
-            .iter()
-            .map(String::as_str)
-            .take(32),
+        "Protected paths (summary)",
+        protected_lines.iter().map(String::as_str),
         2 * 1024,
     );
     let git_lines = std::iter::once(format!(
@@ -84,6 +97,24 @@ pub(super) fn worker_prompt(
         1024,
     );
     prompt.finish()
+}
+
+const MAX_PROMPT_SCOPE_ENTRIES: usize = 32;
+
+fn summarized_paths(paths: &[String]) -> Vec<String> {
+    let mut lines: Vec<String> = paths
+        .iter()
+        .take(MAX_PROMPT_SCOPE_ENTRIES)
+        .cloned()
+        .collect();
+    if paths.len() > MAX_PROMPT_SCOPE_ENTRIES {
+        lines.push(format!(
+            "… {} more entries omitted from this summary; the host enforces all {} entries",
+            paths.len() - MAX_PROMPT_SCOPE_ENTRIES,
+            paths.len()
+        ));
+    }
+    lines
 }
 
 struct PromptBuilder {

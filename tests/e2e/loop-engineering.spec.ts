@@ -32,14 +32,21 @@ test.describe("Loop engineering", () => {
       const module = await import("/src/services/web-agent-client.ts");
       module.setWebLoopPhaseDelayForTest(1_000);
     });
-    await createAndRunLoop(page, "Playwright 接受循环");
+    // Audit mode keeps the CLI Worker and the process check that strict mode would refuse, so
+    // every start, resume and continue below must pass an explicit acknowledgement first.
+    await createAndRunLoop(page, "Playwright 接受循环", "artifact-audited");
     await expect(loopCenter.getByText("运行中", { exact: true }).first()).toBeVisible();
+    await expect(loopCenter.getByText("模式: 工件审计（需知情确认）")).toBeVisible();
+    await expect(loopCenter.getByText("绑定: 已绑定")).toBeVisible();
     await loopCenter.getByRole("button", { name: "暂停", exact: true }).click({ force: true });
     await expect(loopCenter.getByText("暂停此循环？")).toBeVisible();
     await loopCenter.getByRole("button", { name: "确认", exact: true }).click({ force: true });
     await expect(loopCenter.getByText("已暂停", { exact: true }).first()).toBeVisible();
     await expect(page.getByTestId("agent-run-status")).toHaveAttribute("data-state", "paused");
     await loopCenter.getByRole("button", { name: "恢复", exact: true }).click();
+    const resumeAcknowledgement = loopCenter.getByRole("alertdialog", { name: "在恢复前确认局限" });
+    await expect(resumeAcknowledgement).toBeVisible();
+    await resumeAcknowledgement.getByRole("button", { name: "确认局限并恢复" }).click();
 
     await expect(loopCenter.getByText("等待验收", { exact: true }).first()).toBeVisible();
     await expect(page.getByTestId("agent-run-status")).toHaveAttribute("data-state", "verifying");
@@ -54,6 +61,9 @@ test.describe("Loop engineering", () => {
 
     await loopCenter.getByLabel("下一次迭代的反馈").fill("补充边界条件回归测试");
     await loopCenter.getByRole("button", { name: "根据反馈继续" }).click();
+    const continueAcknowledgement = loopCenter.getByRole("alertdialog", { name: "在继续前确认局限" });
+    await expect(continueAcknowledgement).toBeVisible();
+    await continueAcknowledgement.getByRole("button", { name: "确认局限并继续" }).click();
     await expect(loopCenter.getByText("补充边界条件回归测试")).toBeVisible();
     await expect(loopCenter.getByText("第 2 次迭代")).toBeVisible();
     await expect(loopCenter.getByText("等待验收", { exact: true }).first()).toBeVisible();
@@ -61,6 +71,7 @@ test.describe("Loop engineering", () => {
     await expect(loopCenter.getByText("已成功", { exact: true }).first()).toBeVisible();
     await expect(page.getByTestId("agent-run-status")).toHaveAttribute("data-state", "completed");
     await expect(loopCenter.getByText("目标已达成").first()).toBeVisible();
+    await expect(loopCenter.getByText("证据已封存")).toBeVisible();
   });
 
   test("rejects an acceptance-ready Loop while retaining its evidence", async ({ page }) => {
@@ -70,6 +81,8 @@ test.describe("Loop engineering", () => {
     await createAndRunLoop(page, "Playwright 拒绝循环");
 
     await expect(loopCenter.getByText("等待验收", { exact: true }).first()).toBeVisible();
+    await expect(loopCenter.getByText("模式: 预防性强制（严格）")).toBeVisible();
+    await expect(loopCenter.getByText("覆盖度: 已满足")).toBeVisible();
     const acceptance = loopCenter.getByLabel("人工验收");
     await expect(acceptance.getByText("验证检查")).toBeVisible();
     await loopCenter.getByRole("button", { name: "拒绝结果" }).click();

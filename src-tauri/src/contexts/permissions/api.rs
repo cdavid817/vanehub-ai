@@ -9,9 +9,9 @@ use std::sync::Arc;
 
 pub(crate) use super::application::{PermissionsApplicationError, ResolveApprovalUseCase};
 pub(crate) use super::domain::{
-    Action, ApprovalDecision, ApprovalRequest, ApprovalResolutionId, Effect, PolicyTemplateName,
-    Principal, Resource, RiskLevel, Scope, SkillApprovalInvalidation, SkillApprovalProvenance,
-    CLAUDE_CODE_AGENT_ID,
+    Action, ApprovalDecision, ApprovalRequest, ApprovalResolutionId, Effect, PermissionVerdict,
+    PolicyTemplateName, Principal, Resource, RiskLevel, Scope, SkillApprovalInvalidation,
+    SkillApprovalProvenance, CLAUDE_CODE_AGENT_ID,
 };
 
 #[derive(Clone)]
@@ -49,6 +49,27 @@ impl PermissionsApi {
         project_key: &str,
     ) -> Effect {
         self.evaluation.evaluate(
+            agent_id,
+            action,
+            resource,
+            session_id,
+            generation_id,
+            project_key,
+        )
+    }
+
+    /// `evaluate` plus the evaluation's health, for callers that must refuse a fail-closed Ask
+    /// instead of prompting on it (`permissions-core`'s "Evaluation failure fails closed").
+    pub(crate) fn evaluate_checked(
+        &self,
+        agent_id: &str,
+        action: Action,
+        resource: Resource,
+        session_id: &str,
+        generation_id: &str,
+        project_key: &str,
+    ) -> PermissionVerdict {
+        self.evaluation.evaluate_checked(
             agent_id,
             action,
             resource,

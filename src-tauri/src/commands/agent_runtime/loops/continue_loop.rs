@@ -11,6 +11,7 @@ pub(crate) fn continue_loop(
     api.continue_loop(ContinueLoopRequest {
         run_id: input.run_id,
         feedback: input.feedback,
+        envelope: mapper::envelope(input.envelope),
     })
     .map(mapper::run)
     .map_err(map_command_error)

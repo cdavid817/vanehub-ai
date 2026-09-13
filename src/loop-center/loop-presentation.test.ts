@@ -44,3 +44,29 @@ describe("Loop presentation selectors", () => {
     expect(compareConsecutiveIterations(previous, { ...current, evidence: current.evidence.slice(0, 1) }).changeDelta).toBeNull();
   });
 });
+
+describe("verification evidence kinds", () => {
+  it("reads required check outcomes from the native kind and the historical kind alike", () => {
+    const native = loopRunFixture("awaiting-acceptance", { iterations: [loopIterationFixture({ evidence: [
+      loopEvidenceFixture({ id: "native", kind: "verification-command", commandId: "tests", status: "passed", details: { required: true } }),
+    ] })] });
+    expect(selectRequiredCheckOutcomes(native)).toEqual([{ commandId: "tests", outcome: "passed" }]);
+    const legacy = loopRunFixture("awaiting-acceptance", { iterations: [loopIterationFixture({ evidence: [
+      loopEvidenceFixture({ id: "legacy", kind: "verification", commandId: "tests", status: "failed", details: null }),
+    ] })] });
+    expect(selectRequiredCheckOutcomes(legacy)).toEqual([{ commandId: "tests", outcome: "failed" }]);
+    // Re-verification appends a fresh row for the same command; the latest one is the current result.
+    const reverified = loopRunFixture("awaiting-acceptance", { iterations: [loopIterationFixture({ evidence: [
+      loopEvidenceFixture({ id: "first", kind: "verification-command", commandId: "tests", status: "failed", details: null }),
+      loopEvidenceFixture({ id: "second", kind: "verification-command", commandId: "tests", status: "passed", details: null }),
+    ] })] });
+    expect(selectRequiredCheckOutcomes(reverified)).toEqual([{ commandId: "tests", outcome: "passed" }]);
+  });
+
+  it("compares consecutive iterations across both kinds", () => {
+    const previous = loopIterationFixture({ sequence: 1, evidence: [loopEvidenceFixture({ commandId: "lint", kind: "verification", status: "failed", details: null })] });
+    const current = loopIterationFixture({ id: "iteration-2", sequence: 2, evidence: [loopEvidenceFixture({ commandId: "lint", kind: "verification-command", status: "passed", details: null })] });
+    expect(compareConsecutiveIterations(previous, current).resolvedFailures).toEqual(["lint"]);
+  });
+});
+

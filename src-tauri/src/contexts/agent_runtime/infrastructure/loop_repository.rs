@@ -5,8 +5,9 @@ use crate::contexts::agent_runtime::application::{
 #[cfg(test)]
 use crate::contexts::agent_runtime::application::{LoopVerifierRecommendation, LoopVerifierResult};
 use crate::contexts::agent_runtime::domain::{
-    LoopDefinition, LoopDefinitionInput, LoopLimits, LoopRun, LoopRunPhase, LoopRunSnapshot,
-    LoopRunStatus, LoopTerminalReason, LoopVerificationCommand,
+    LoopDefinition, LoopDefinitionInput, LoopLimits, LoopRequestedMode, LoopRun, LoopRunPhase,
+    LoopRunSnapshot, LoopRunStatus, LoopTerminalReason, LoopVerificationCommand,
+    LoopVerificationKind,
 };
 use crate::platform::database::SqliteWriteTransaction;
 use crate::platform::database::{NativeDatabase, PooledSqlite};
@@ -67,8 +68,9 @@ impl LoopRepository for SqliteLoopRepository {
                 r#"INSERT INTO loop_definitions (
                     id, name, enabled, project_path, base_branch, goal, acceptance_criteria,
                     allowed_paths, protected_paths, worker_agent_id, verifier_agent_id,
-                    verification_commands, limits, version, created_at, updated_at
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)"#,
+                    verification_commands, limits, version, created_at, updated_at,
+                    scope_schema_version, requested_mode
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)"#,
                 rusqlite::params_from_iter(definition_param_values(&stored)?),
             )
             .map_err(loop_error)?;
@@ -93,8 +95,9 @@ impl LoopRepository for SqliteLoopRepository {
                     name = ?2, enabled = ?3, project_path = ?4, base_branch = ?5, goal = ?6,
                     acceptance_criteria = ?7, allowed_paths = ?8, protected_paths = ?9,
                     worker_agent_id = ?10, verifier_agent_id = ?11, verification_commands = ?12,
-                    limits = ?13, version = ?14, updated_at = ?16
-                WHERE id = ?1 AND version = ?17"#,
+                    limits = ?13, version = ?14, updated_at = ?16, scope_schema_version = ?17,
+                    requested_mode = ?18
+                WHERE id = ?1 AND version = ?19"#,
                 rusqlite::params_from_iter(
                     definition_param_values(&stored)?
                         .into_iter()
@@ -244,7 +247,8 @@ impl LoopRepository for SqliteLoopRepository {
         let changed = self
             .connection()?
             .execute(
-                r#"UPDATE loop_runs SET active_operation_id = ?2, updated_at = ?3
+                r#"UPDATE loop_runs SET active_operation_id = ?2, updated_at = ?3,
+                       revision = revision + 1
                    WHERE id = ?1 AND status = ?4 AND active_operation_id IS NULL"#,
                 params![run_id, operation_id, updated_at, expected_status.as_str()],
             )
@@ -267,7 +271,8 @@ impl LoopRepository for SqliteLoopRepository {
             .connection()?
             .execute(
                 r#"UPDATE loop_runs
-                   SET worktree_path = ?2, worktree_name = ?3, worktree_branch = ?4
+                   SET worktree_path = ?2, worktree_name = ?3, worktree_branch = ?4,
+                       revision = revision + 1
                    WHERE id = ?1 AND status = ?5 AND worktree_path IS NULL
                      AND worktree_name IS NULL AND worktree_branch IS NULL"#,
                 params![run_id, path, name, branch, expected_status.as_str()],
@@ -292,7 +297,7 @@ impl LoopRepository for SqliteLoopRepository {
                 r#"UPDATE loop_runs SET status = ?2, phase = ?3, terminal_reason = ?4,
                     current_iteration = ?5, consecutive_runtime_errors = ?6,
                     consecutive_no_progress = ?7, pause_requested = ?8, updated_at = ?9,
-                    completed_at = ?10
+                    completed_at = ?10, revision = revision + 1
                    WHERE id = ?1 AND status = ?11"#,
                 params![
                     run.id(),
@@ -325,7 +330,8 @@ impl LoopRepository for SqliteLoopRepository {
         let changed = self
             .connection()?
             .execute(
-                r#"UPDATE loop_runs SET pause_requested = ?2, updated_at = ?3
+                r#"UPDATE loop_runs SET pause_requested = ?2, updated_at = ?3,
+                       revision = revision + 1
                    WHERE id = ?1 AND status = ?4 AND pause_requested = ?5"#,
                 params![
                     run.id(),
@@ -392,7 +398,7 @@ impl LoopRepository for SqliteLoopRepository {
                 r#"UPDATE loop_runs SET status = ?2, phase = ?3, terminal_reason = ?4,
                     current_iteration = ?5, consecutive_runtime_errors = ?6,
                     consecutive_no_progress = ?7, pause_requested = ?8, updated_at = ?9,
-                    completed_at = NULL
+                    completed_at = NULL, revision = revision + 1
                    WHERE id = ?1 AND status = ?10"#,
                 params![
                     run.id(),
@@ -447,6 +453,7 @@ impl LoopRepository for SqliteLoopRepository {
             .execute(
                 r#"UPDATE loop_runs SET status = ?2, phase = ?3, terminal_reason = ?4,
                     pause_requested = ?5, active_operation_id = NULL, updated_at = ?6,
+                    revision = revision + 1,
                     completed_at = CASE
                         WHEN ?2 IN ('succeeded', 'failed', 'cancelled') THEN ?6
                         ELSE completed_at
@@ -515,6 +522,200 @@ impl LoopRepository for SqliteLoopRepository {
             )
             .map_err(loop_error)?;
         transaction.commit().map_err(loop_error)
+    }
+
+    fn create_run_with_scope(
+        &self,
+        run: &LoopRun,
+        definition_snapshot: &LoopDefinition,
+        project_path: &str,
+        created_at: &str,
+        assessment: &crate::contexts::agent_runtime::application::LoopExecutionAssessment,
+        audit: Option<&crate::contexts::agent_runtime::application::LoopAuditConsumption>,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        super::loop_repository_scope::create_run_with_scope(
+            &self.database,
+            run,
+            definition_snapshot,
+            project_path,
+            created_at,
+            assessment,
+            audit,
+        )
+    }
+
+    fn find_run_scope(
+        &self,
+        run_id: &str,
+    ) -> Result<
+        Option<crate::contexts::agent_runtime::application::LoopRunScopeRecord>,
+        AgentRuntimeApplicationError,
+    > {
+        super::loop_repository_scope::find_run_scope(&self.database, run_id)
+    }
+
+    fn attach_run_scope_binding(
+        &self,
+        run_id: &str,
+        binding: &crate::contexts::agent_runtime::application::LoopScopeBinding,
+        expected_status: LoopRunStatus,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        super::loop_repository_scope::attach_run_scope_binding(
+            &self.database,
+            run_id,
+            binding,
+            expected_status,
+        )
+    }
+
+    fn save_run_transition_with_audit(
+        &self,
+        run: &LoopRun,
+        expected_status: LoopRunStatus,
+        updated_at: &str,
+        completed_at: Option<&str>,
+        audit: Option<&crate::contexts::agent_runtime::application::LoopAuditConsumption>,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        super::loop_repository_scope::save_run_transition_with_audit(
+            &self.database,
+            run,
+            expected_status,
+            updated_at,
+            completed_at,
+            audit,
+        )
+    }
+
+    fn save_continue_transition_with_audit(
+        &self,
+        run: &LoopRun,
+        expected_status: LoopRunStatus,
+        feedback: &str,
+        updated_at: &str,
+        audit: Option<&crate::contexts::agent_runtime::application::LoopAuditConsumption>,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        super::loop_repository_scope::save_continue_transition_with_audit(
+            &self.database,
+            run,
+            expected_status,
+            feedback,
+            updated_at,
+            audit,
+        )
+    }
+
+    fn attach_acceptance_operation(
+        &self,
+        run_id: &str,
+        operation_id: &str,
+        expected_revision: u64,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        super::loop_repository_scope::attach_acceptance_operation(
+            &self.database,
+            run_id,
+            operation_id,
+            expected_revision,
+        )
+    }
+
+    fn release_acceptance_operation(
+        &self,
+        run_id: &str,
+        operation_id: &str,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        super::loop_repository_scope::release_acceptance_operation(
+            &self.database,
+            run_id,
+            operation_id,
+        )
+    }
+
+    fn seal_acceptance(
+        &self,
+        run: &LoopRun,
+        expected_revision: u64,
+        operation_id: &str,
+        evidence_id: &str,
+        completed_at: &str,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        super::loop_repository_scope::seal_acceptance(
+            &self.database,
+            run,
+            expected_revision,
+            operation_id,
+            evidence_id,
+            completed_at,
+        )
+    }
+
+    fn create_audit_challenge(
+        &self,
+        receipt: &crate::contexts::agent_runtime::application::LoopAuditReceipt,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        super::loop_repository_scope::create_audit_challenge(&self.database, receipt)
+    }
+
+    fn acknowledge_audit_challenge(
+        &self,
+        challenge_id: &str,
+        acknowledged_at: &str,
+    ) -> Result<
+        crate::contexts::agent_runtime::application::LoopAuditReceipt,
+        AgentRuntimeApplicationError,
+    > {
+        super::loop_repository_scope::acknowledge_audit_challenge(
+            &self.database,
+            challenge_id,
+            acknowledged_at,
+        )
+    }
+
+    fn find_audit_receipt(
+        &self,
+        receipt_id: &str,
+    ) -> Result<
+        Option<crate::contexts::agent_runtime::application::LoopAuditReceipt>,
+        AgentRuntimeApplicationError,
+    > {
+        super::loop_repository_scope::find_audit_receipt(&self.database, receipt_id)
+    }
+
+    fn claim_control_operation(
+        &self,
+        idempotency_key: &str,
+        action: &str,
+        target_id: &str,
+        created_at: &str,
+    ) -> Result<
+        crate::contexts::agent_runtime::application::LoopControlOperationClaim,
+        AgentRuntimeApplicationError,
+    > {
+        super::loop_repository_scope::claim_control_operation(
+            &self.database,
+            idempotency_key,
+            action,
+            target_id,
+            created_at,
+        )
+    }
+
+    fn record_control_operation(
+        &self,
+        idempotency_key: &str,
+        outcome: &str,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        super::loop_repository_scope::record_control_operation(
+            &self.database,
+            idempotency_key,
+            outcome,
+        )
+    }
+
+    fn release_control_operation(
+        &self,
+        idempotency_key: &str,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        super::loop_repository_scope::release_control_operation(&self.database, idempotency_key)
     }
 }
 
@@ -740,6 +941,10 @@ impl SqliteLoopRepository {
 #[derive(Debug, Serialize, Deserialize)]
 struct StoredCommand {
     id: String,
+    /// Absent in rows written before native checks existed; those decode as `process` and never
+    /// silently gain the in-process guarantee.
+    #[serde(default)]
+    kind: Option<String>,
     program: String,
     args: Vec<String>,
     working_directory: Option<String>,
@@ -774,10 +979,14 @@ pub(super) struct StoredDefinition {
     version: u64,
     created_at: String,
     updated_at: String,
+    #[serde(default)]
+    scope_schema_version: Option<u32>,
+    #[serde(default)]
+    requested_mode: Option<String>,
 }
 
 impl StoredDefinition {
-    fn from_domain(definition: &LoopDefinition) -> Self {
+    pub(super) fn from_domain(definition: &LoopDefinition) -> Self {
         let value = definition.values();
         Self {
             id: value.id.clone(),
@@ -796,6 +1005,7 @@ impl StoredDefinition {
                 .iter()
                 .map(|command| StoredCommand {
                     id: command.id().to_string(),
+                    kind: Some(command.kind().as_str().to_string()),
                     program: command.program().to_string(),
                     args: command.args().to_vec(),
                     working_directory: command.working_directory().map(str::to_string),
@@ -813,6 +1023,8 @@ impl StoredDefinition {
             version: value.version,
             created_at: value.created_at.clone(),
             updated_at: value.updated_at.clone(),
+            scope_schema_version: value.scope_schema_version,
+            requested_mode: value.requested_mode.map(|mode| mode.as_str().to_string()),
         }
     }
 
@@ -821,8 +1033,13 @@ impl StoredDefinition {
             .verification_commands
             .into_iter()
             .map(|command| {
-                LoopVerificationCommand::new(
+                let kind = match command.kind.as_deref() {
+                    None => LoopVerificationKind::Process,
+                    Some(value) => LoopVerificationKind::parse(value)?,
+                };
+                LoopVerificationCommand::new_with_kind(
                     command.id,
+                    kind,
                     command.program,
                     command.args,
                     command.working_directory,
@@ -855,12 +1072,17 @@ impl StoredDefinition {
             version: self.version,
             created_at: self.created_at,
             updated_at: self.updated_at,
+            scope_schema_version: self.scope_schema_version,
+            requested_mode: self
+                .requested_mode
+                .as_deref()
+                .and_then(LoopRequestedMode::parse),
         })?)
     }
 }
 
 fn definition_select(table: &str) -> String {
-    format!("SELECT id, name, enabled, project_path, base_branch, goal, acceptance_criteria, allowed_paths, protected_paths, worker_agent_id, verifier_agent_id, verification_commands, limits, version, created_at, updated_at FROM {table}")
+    format!("SELECT id, name, enabled, project_path, base_branch, goal, acceptance_criteria, allowed_paths, protected_paths, worker_agent_id, verifier_agent_id, verification_commands, limits, version, created_at, updated_at, scope_schema_version, requested_mode FROM {table}")
 }
 
 fn read_definition(row: &Row<'_>) -> rusqlite::Result<LoopDefinition> {
@@ -881,6 +1103,10 @@ fn read_definition(row: &Row<'_>) -> rusqlite::Result<LoopDefinition> {
         version: row.get::<_, i64>(13)? as u64,
         created_at: row.get(14)?,
         updated_at: row.get(15)?,
+        scope_schema_version: row
+            .get::<_, Option<i64>>(16)?
+            .and_then(|value| u32::try_from(value).ok()),
+        requested_mode: row.get(17)?,
     };
     stored.into_domain().map_err(to_sql_error)
 }
@@ -929,6 +1155,14 @@ fn definition_param_values(
         Value::Integer(to_i64(stored.version)?),
         Value::Text(stored.created_at.clone()),
         Value::Text(stored.updated_at.clone()),
+        match stored.scope_schema_version {
+            Some(version) => Value::Integer(i64::from(version)),
+            None => Value::Null,
+        },
+        match &stored.requested_mode {
+            Some(mode) => Value::Text(mode.clone()),
+            None => Value::Null,
+        },
     ])
 }
 
@@ -985,6 +1219,8 @@ mod tests {
             version,
             created_at: "2026-07-21T00:00:00Z".to_string(),
             updated_at: format!("2026-07-21T00:00:0{version}Z"),
+            scope_schema_version: None,
+            requested_mode: None,
         })
         .expect("definition")
     }

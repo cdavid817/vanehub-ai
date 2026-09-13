@@ -237,6 +237,7 @@ mod tests {
     use crate::contexts::agent_runtime::application::{
         LoopVerificationCancellation, LoopVerificationCommandView,
     };
+    use crate::contexts::agent_runtime::domain::LoopVerificationKind;
     use std::thread;
 
     fn fixture_root() -> PathBuf {
@@ -256,6 +257,7 @@ mod tests {
                 working_directory: None,
                 timeout_seconds: 30,
                 required: true,
+                kind: LoopVerificationKind::Process,
             },
             cancellation: LoopVerificationCancellation::default(),
         }

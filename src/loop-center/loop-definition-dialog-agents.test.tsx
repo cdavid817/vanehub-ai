@@ -36,6 +36,7 @@ async function openAgentsStep(agents: AgentRegistryEntry[]) {
   await userEvent.type(screen.getByLabelText("名称"), "loop");
   await userEvent.type(screen.getByLabelText("目标"), "goal");
   await userEvent.type(screen.getByLabelText("验收标准（每行一项）"), "criterion");
+  await userEvent.type(screen.getByLabelText("允许路径（每行一项）"), "src");
   await waitFor(() => expect((screen.getByLabelText("项目路径") as HTMLSelectElement).value).toBe("/repo"));
   await userEvent.click(screen.getByRole("button", { name: "下一步" }));
   await screen.findByLabelText("执行智能体");

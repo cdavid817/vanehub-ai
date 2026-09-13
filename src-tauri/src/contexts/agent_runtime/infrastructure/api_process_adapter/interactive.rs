@@ -3,6 +3,7 @@
 use super::super::memory_directory::is_within_memory_directory;
 use super::super::tools::ToolExecutionOutcome;
 use super::{failed_non_retryable, failed_retryable, PendingApprovals, APPROVAL_POLL_INTERVAL};
+use crate::contexts::agent_runtime::application::LoopScopeGuard;
 use crate::contexts::agent_runtime::application::{
     AgentPermissionPort, AgentProcessEventSink, GenerationProcessEvent, GenerationProcessRequest,
     ToolApprovalDecision, ToolUseBlock, ASK_USER_QUESTION_TOOL_NAME, EDIT_TOOL_NAME,
@@ -16,6 +17,7 @@ use crate::contexts::agent_runtime::application::{
     SEARCH_CODE_TOOL_NAME, SHELL_KILL_TOOL_NAME, SHELL_OUTPUT_TOOL_NAME, SHELL_TOOL_NAME,
     TODO_WRITE_TOOL_NAME,
 };
+use crate::contexts::agent_runtime::domain::LoopSideEffectChannel;
 use crate::contexts::permissions::domain::{Action, Effect, Resource};
 use serde_json::Value;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -347,7 +349,27 @@ pub(super) fn authorize_tool_call(
     pending_approvals: &PendingApprovals,
     sink: &dyn AgentProcessEventSink,
     cancelled: &AtomicBool,
+    loop_scope: Option<&dyn LoopScopeGuard>,
 ) -> ToolAuthorization {
+    // Scope admission precedes normal permission resolution: no template, grant or approval can
+    // open a channel the frozen run scope does not admit.
+    if let Some(scope) = loop_scope {
+        if let Some(channel) = loop_channel_for(&tool_use.name, input) {
+            if let Err(reason) = scope.admit_channel(channel) {
+                tool_use.status = "failed".to_string();
+                tool_use.output = Some(Value::String(reason.clone()));
+                if sink
+                    .handle(GenerationProcessEvent::ToolUse(tool_use.clone()))
+                    .is_err()
+                {
+                    return ToolAuthorization::Failed(failed_retryable(
+                        "Agent generation event handling failed.",
+                    ));
+                }
+                return ToolAuthorization::Denied(reason);
+            }
+        }
+    }
     let (permission_action, permission_resource) =
         permission_action_and_resource(&tool_use.name, input);
     let project_key = request.session.folder.as_deref().unwrap_or("");
@@ -437,6 +459,34 @@ pub(super) fn authorize_tool_call(
         }
     }
     ToolAuthorization::Allowed
+}
+
+/// Maps a tool call onto the side-effect channel it would use, or `None` for a read.
+fn loop_channel_for(tool_name: &str, input: &Value) -> Option<LoopSideEffectChannel> {
+    use crate::contexts::agent_runtime::application::{
+        ExistingToolHandler, ExistingToolHandlerRegistry, DELEGATE_UTILITY_SKILL_TOOL_NAME,
+    };
+    if tool_name == DELEGATE_UTILITY_SKILL_TOOL_NAME {
+        return Some(LoopSideEffectChannel::Delegation);
+    }
+    if tool_name.starts_with("skill__") {
+        return Some(LoopSideEffectChannel::SkillTool);
+    }
+    let operation = input.get("operation").and_then(Value::as_str);
+    match ExistingToolHandlerRegistry::resolve(tool_name) {
+        Some(ExistingToolHandler::Shell | ExistingToolHandler::ShellKill) => {
+            Some(LoopSideEffectChannel::Shell)
+        }
+        Some(ExistingToolHandler::Mcp) => Some(LoopSideEffectChannel::Mcp),
+        Some(ExistingToolHandler::Notebook) if operation != Some("read") => {
+            Some(LoopSideEffectChannel::Notebook)
+        }
+        Some(ExistingToolHandler::File) if operation == Some("write") => {
+            Some(LoopSideEffectChannel::MediatedFile)
+        }
+        Some(ExistingToolHandler::Edit) => Some(LoopSideEffectChannel::MediatedFile),
+        _ => None,
+    }
 }
 
 pub(super) fn await_approval(

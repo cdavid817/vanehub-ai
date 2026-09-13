@@ -2,7 +2,7 @@ import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../components/ui/button";
-import { createVerificationCommandDraft, validateVerificationCommand, type LoopVerificationCommandDraft } from "./loop-definition-form";
+import { createVerificationCommandDraft, validateVerificationCommand, withVerificationKind, type LoopVerificationCommandDraft } from "./loop-definition-form";
 
 interface LoopVerificationCommandEditorProps {
   commands: LoopVerificationCommandDraft[];
@@ -55,6 +55,7 @@ function CommandRow({ command, index, onMove, onRemove, onUpdate, showError, tot
 }) {
   const { t } = useTranslation();
   const issue = showError ? validateVerificationCommand(command) : null;
+  const native = command.kind === "native-check";
   return (
     <fieldset className="grid gap-3 rounded-md border border-border p-3">
       <legend className="sr-only">{t("loops.editor.commands.number", { number: index + 1 })}</legend>
@@ -65,9 +66,16 @@ function CommandRow({ command, index, onMove, onRemove, onUpdate, showError, tot
         <CommandAction label={t("loops.editor.commands.remove")} onClick={onRemove}><Trash2 aria-hidden="true" /></CommandAction>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="loops.editor.field.program"><input className={inputClass} value={command.program} onChange={(event) => onUpdate({ ...command, program: event.target.value })} /></Field>
-        <Field label="loops.editor.field.workingDirectory"><input className={inputClass} value={command.workingDirectory} onChange={(event) => onUpdate({ ...command, workingDirectory: event.target.value })} /></Field>
-        <Field label="loops.editor.field.arguments"><textarea className={`${inputClass} min-h-20 py-2`} value={command.arguments} onChange={(event) => onUpdate({ ...command, arguments: event.target.value })} /></Field>
+        <Field label="loops.editor.field.commandKind">
+          <select className={inputClass} value={command.kind} onChange={(event) => onUpdate(withVerificationKind(command, event.target.value === "native-check" ? "native-check" : "process"))}>
+            <option value="process">{t("loops.editor.kind.process")}</option>
+            <option value="native-check">{t("loops.editor.kind.native-check")}</option>
+          </select>
+        </Field>
+        <p className="self-end text-xs leading-5 text-muted-foreground">{t(`loops.editor.kindHelp.${command.kind}`)}</p>
+        <Field label="loops.editor.field.program"><input className={inputClass} disabled={native} value={command.program} onChange={(event) => onUpdate({ ...command, program: event.target.value })} /></Field>
+        <Field label="loops.editor.field.workingDirectory"><input className={inputClass} disabled={native} value={command.workingDirectory} onChange={(event) => onUpdate({ ...command, workingDirectory: event.target.value })} /></Field>
+        <Field label="loops.editor.field.arguments"><textarea className={`${inputClass} min-h-20 py-2`} disabled={native} value={command.arguments} onChange={(event) => onUpdate({ ...command, arguments: event.target.value })} /></Field>
         <div className="grid content-start gap-3">
           <Field label="loops.editor.field.commandTimeout"><input className={inputClass} min={1} type="number" value={command.timeoutSeconds} onChange={(event) => onUpdate({ ...command, timeoutSeconds: Number(event.target.value) })} /></Field>
           <label className="flex h-9 items-center gap-2 text-xs font-medium"><input checked={command.required} className="h-4 w-4 accent-primary" onChange={(event) => onUpdate({ ...command, required: event.target.checked })} type="checkbox" />{t("loops.editor.field.required")}</label>

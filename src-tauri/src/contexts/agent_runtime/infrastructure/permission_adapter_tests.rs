@@ -6,7 +6,24 @@ use crate::contexts::permissions::api::test_permissions_api;
 use crate::contexts::permissions::domain::PolicyTemplateName;
 
 fn adapter(template: PolicyTemplateName) -> PermissionsPortAdapter {
-    PermissionsPortAdapter::new(test_permissions_api(template))
+    PermissionsPortAdapter::new(
+        test_permissions_api(template),
+        std::sync::Arc::new(NoLoopScope),
+    )
+}
+
+struct NoLoopScope;
+
+impl crate::contexts::agent_runtime::application::LoopScopeAuthorityPort for NoLoopScope {
+    fn guard_for_session(
+        &self,
+        _: &str,
+    ) -> Result<
+        Option<std::sync::Arc<dyn crate::contexts::agent_runtime::application::LoopScopeGuard>>,
+        crate::contexts::agent_runtime::application::AgentRuntimeApplicationError,
+    > {
+        Ok(None)
+    }
 }
 
 fn context(selection: RunnerSelection) -> RunnerPermissionContext {

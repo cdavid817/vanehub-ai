@@ -23,12 +23,126 @@ pub(crate) struct LoopReadinessCheck {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub(crate) struct LoopSurfaceAssessment {
+    pub(crate) surface: String,
+    pub(crate) coverage: String,
+    pub(crate) detail: String,
+    pub(crate) blocking: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LoopExecutionAssessment {
+    pub(crate) requested_mode: String,
+    pub(crate) surfaces: Vec<LoopSurfaceAssessment>,
+    pub(crate) blockers: Vec<String>,
+    pub(crate) limitations: Vec<String>,
+    pub(crate) satisfies_requested_mode: bool,
+    pub(crate) acknowledgement_required: bool,
+    pub(crate) witness_digest: String,
+    pub(crate) assessed_at: String,
+    pub(crate) simulated: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct LoopReadinessReport {
     pub(crate) definition_id: String,
     pub(crate) ready: bool,
     pub(crate) simulated: bool,
     pub(crate) checks: Vec<LoopReadinessCheck>,
     pub(crate) checked_at: String,
+    pub(crate) requested_mode: Option<String>,
+    pub(crate) scope_state: String,
+    pub(crate) assessment: Option<LoopExecutionAssessment>,
+    pub(crate) acknowledgement_required: bool,
+    pub(crate) definition_revision: u64,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LoopControlEnvelope {
+    #[serde(default)]
+    pub(crate) expected_revision: Option<u64>,
+    #[serde(default)]
+    pub(crate) idempotency_key: Option<String>,
+    #[serde(default)]
+    pub(crate) audit_acknowledgement_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PrepareLoopAdmissionInput {
+    pub(crate) action: String,
+    #[serde(default)]
+    pub(crate) definition_id: Option<String>,
+    #[serde(default)]
+    pub(crate) run_id: Option<String>,
+    pub(crate) expected_revision: u64,
+    #[serde(default)]
+    pub(crate) client_context: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LoopAdmission {
+    pub(crate) action: String,
+    pub(crate) target_id: String,
+    pub(crate) expected_revision: u64,
+    pub(crate) requested_mode: String,
+    pub(crate) scope_digest: String,
+    pub(crate) allowed_paths: Vec<String>,
+    pub(crate) protected_paths: Vec<String>,
+    pub(crate) assessment: LoopExecutionAssessment,
+    pub(crate) acknowledgement_required: bool,
+    pub(crate) challenge_id: Option<String>,
+    pub(crate) expires_at: Option<String>,
+    pub(crate) simulated: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LoopAuditAcknowledgement {
+    pub(crate) acknowledgement_id: String,
+    pub(crate) action: String,
+    pub(crate) target_id: String,
+    pub(crate) expected_revision: u64,
+    pub(crate) expires_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RequestLoopAcceptanceInput {
+    pub(crate) run_id: String,
+    #[serde(default)]
+    pub(crate) expected_revision: Option<u64>,
+    #[serde(default)]
+    pub(crate) expected_scope_digest: Option<String>,
+    #[serde(default)]
+    pub(crate) expected_evidence_id: Option<String>,
+    #[serde(default)]
+    pub(crate) idempotency_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LoopAcceptanceResult {
+    pub(crate) run: LoopRun,
+    pub(crate) operation_id: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LoopRunScope {
+    pub(crate) requested_mode: Option<String>,
+    pub(crate) scope_digest: Option<String>,
+    pub(crate) binding_status: String,
+    pub(crate) assessment: Option<LoopExecutionAssessment>,
+    pub(crate) sealed_evidence_id: Option<String>,
+    pub(crate) acceptance_operation_id: Option<String>,
+    pub(crate) baseline_digest: Option<String>,
+    pub(crate) allowed_paths: Vec<String>,
+    pub(crate) protected_paths: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -47,12 +161,20 @@ pub(crate) struct SaveLoopDefinitionInput {
     pub(crate) verification_commands: Vec<LoopVerificationCommand>,
     pub(crate) limits: LoopLimits,
     pub(crate) expected_version: Option<u64>,
+    /// Omitted by older clients: the definition is then saved as legacy-unverified and cannot
+    /// start until it is saved with the current scope version.
+    #[serde(default)]
+    pub(crate) scope_schema_version: Option<u32>,
+    #[serde(default)]
+    pub(crate) requested_mode: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct LoopVerificationCommand {
     pub(crate) id: String,
+    #[serde(default)]
+    pub(crate) kind: Option<String>,
     pub(crate) program: String,
     pub(crate) args: Vec<String>,
     pub(crate) working_directory: Option<String>,
@@ -75,6 +197,8 @@ pub(crate) struct LoopLimits {
 pub(crate) struct ContinueLoopInput {
     pub(crate) run_id: String,
     pub(crate) feedback: String,
+    #[serde(default)]
+    pub(crate) envelope: Option<LoopControlEnvelope>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -96,6 +220,9 @@ pub(crate) struct LoopDefinition {
     pub(crate) version: u64,
     pub(crate) created_at: String,
     pub(crate) updated_at: String,
+    pub(crate) scope_schema_version: Option<u32>,
+    pub(crate) requested_mode: Option<String>,
+    pub(crate) scope_state: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -160,6 +287,8 @@ pub(crate) struct LoopRun {
     pub(crate) started_at: Option<String>,
     pub(crate) updated_at: String,
     pub(crate) completed_at: Option<String>,
+    pub(crate) revision: u64,
+    pub(crate) scope: Option<LoopRunScope>,
 }
 
 #[derive(Debug, Clone, Serialize)]

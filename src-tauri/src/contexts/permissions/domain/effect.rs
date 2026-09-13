@@ -8,6 +8,24 @@ pub(crate) enum Effect {
     Ask,
 }
 
+/// An effect together with whether the evaluation that produced it completed. A fail-closed
+/// `Ask` from a storage failure is not an invitation to prompt; `healthy` lets delivery tell the
+/// two apart without a second evaluator.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct PermissionVerdict {
+    pub(crate) effect: Effect,
+    pub(crate) healthy: bool,
+}
+
+impl From<Effect> for PermissionVerdict {
+    fn from(effect: Effect) -> Self {
+        Self {
+            effect,
+            healthy: true,
+        }
+    }
+}
+
 /// Resolves conflicting policy matches by explicit-Deny-first precedence (design.md D4):
 /// explicit `Deny` beats explicit `Allow`, which beats the default `Ask`. An action with no
 /// matching policy at all (empty `candidates`) defaults to `Ask`, never `Allow` —

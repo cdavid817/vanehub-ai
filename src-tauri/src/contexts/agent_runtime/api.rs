@@ -11,10 +11,10 @@ pub(crate) use super::application::{
 use super::application::{
     AgentRuntimeApplicationService, AgentTerminalApplicationService, BrowserHandoffControlPort,
     ContextManifestQueryService, ContextQualityQueryService, ExpertRoleApplicationService,
-    LocalModelDiscoveryService, LoopApplicationService, LoopControlApplicationService,
-    LoopRecoveryApplicationService, LoopVerificationCancellation, LoopVerificationCommandView,
-    LoopVerificationProcessPort, LoopVerificationProcessRequest, LoopVerificationProcessStatus,
-    ManagedConnectionControlPort,
+    LocalModelDiscoveryService, LoopAcceptanceApplicationService, LoopApplicationService,
+    LoopControlApplicationService, LoopRecoveryApplicationService, LoopVerificationCancellation,
+    LoopVerificationCommandView, LoopVerificationProcessPort, LoopVerificationProcessRequest,
+    LoopVerificationProcessStatus, ManagedConnectionControlPort,
 };
 use super::infrastructure::{
     background_shell_registry, task_list_store, ManualNativeToolControl, NativeLoopScheduler,
@@ -32,14 +32,15 @@ pub(crate) use super::application::{
     DelegationAttemptRecord, DelegationMode, DelegationRecord, DelegationStatus, DelegationTarget,
     DiscoverOnePieceProviderModelsInput, EmbeddingEndpointView, FileChangeKind, HybridRoutePreview,
     HybridRoutePreviewInput, LaunchWorkflowResult, LocalEndpointVerificationRequest,
-    LocalModelDiscoveryResult, LoopDefinitionView, LoopReadinessReportView, LoopRunView,
+    LocalModelDiscoveryResult, LoopAcceptanceResultView, LoopAdmissionView, LoopAuditReceipt,
+    LoopControlEnvelope, LoopDefinitionView, LoopReadinessReportView, LoopRunView,
     ManualApplyDelegationRequest, ManualStartDelegationRequest, NativeToolErrorCode,
     NativeToolPersistencePort, NativeToolPortRequest, NativeToolRegistry, NativeToolResultEnvelope,
     NativeToolResultStatus, OnePieceProviderConfig, OnePieceProviderModelDiscoveryResult,
     OnePieceProviderModelOption, OnePieceProviderPreset, OnePieceProviderProfiles,
-    OpenAgentTerminalRequest, ProviderCredentialValidationResult, ReadinessView,
-    RecoverSessionResult, RecoveryRecord, RecoveryStatus, RegisterApiAgentInput,
-    ResizeAgentTerminalRequest, RunnerDescriptor, RunnerSelection,
+    OpenAgentTerminalRequest, PrepareLoopAdmissionRequest, ProviderCredentialValidationResult,
+    ReadinessView, RecoverSessionResult, RecoveryRecord, RecoveryStatus, RegisterApiAgentInput,
+    RequestLoopAcceptanceRequest, ResizeAgentTerminalRequest, RunnerDescriptor, RunnerSelection,
     SaveCustomOnePieceProviderProfileInput, SaveLoopDefinitionRequest,
     SaveOnePieceProviderConfigInput, SaveOnePieceProviderProfileInput, SendMessageRequest,
     StartLoopResultView, StartedAgentMessage, StopAgentTerminalRequest, StopGenerationResult,
@@ -97,7 +98,7 @@ pub(crate) use super::application::{AgentLaunchView, MessageTokenUsage};
 pub(crate) use super::domain::{
     AgentAvailability, AgentLifecycle, ContextEvidenceManifest, ContextEvidenceManifestPage,
     ContextQualityAssessmentPage, ContextQualitySummary, ExpertRole, ExpertRoleInput,
-    InteractionMode, LoopLimits, LoopVerificationCommand,
+    InteractionMode, LoopLimits, LoopRunStatus, LoopVerificationCommand,
 };
 
 /// Assembled in bootstrap and handed over whole, so adding a service does not lengthen a
@@ -107,6 +108,7 @@ pub(crate) struct AgentRuntimeApiServices {
     pub(crate) terminal_service: AgentTerminalApplicationService,
     pub(crate) loops: LoopApplicationService,
     pub(crate) loop_controls: LoopControlApplicationService,
+    pub(crate) loop_acceptance: LoopAcceptanceApplicationService,
     pub(crate) loop_recovery: LoopRecoveryApplicationService,
     pub(crate) loop_scheduler: NativeLoopScheduler,
     pub(crate) expert_roles: ExpertRoleApplicationService,
@@ -132,6 +134,7 @@ pub(crate) struct AgentRuntimeApi {
     terminal_service: AgentTerminalApplicationService,
     loops: LoopApplicationService,
     loop_controls: LoopControlApplicationService,
+    loop_acceptance: LoopAcceptanceApplicationService,
     loop_recovery: LoopRecoveryApplicationService,
     loop_scheduler: NativeLoopScheduler,
     seat_turns: NativeSeatTurnCoordinator,
@@ -154,6 +157,7 @@ impl AgentRuntimeApi {
             terminal_service,
             loops,
             loop_controls,
+            loop_acceptance,
             loop_recovery,
             loop_scheduler,
             expert_roles,
@@ -173,6 +177,7 @@ impl AgentRuntimeApi {
             terminal_service,
             loops,
             loop_controls,
+            loop_acceptance,
             loop_recovery,
             loop_scheduler,
             expert_roles,
@@ -462,10 +467,34 @@ impl AgentRuntimeApi {
     pub(crate) fn start_loop(
         &self,
         definition_id: &str,
+        envelope: LoopControlEnvelope,
     ) -> Result<StartLoopResultView, AgentRuntimeApplicationError> {
-        let result = self.loops.start_manual(definition_id)?;
-        self.loop_scheduler.schedule(&result.run_id)?;
+        let result = self.loops.start_manual(definition_id, envelope)?;
+        // A replayed idempotent start returns the recorded run; scheduling it again would race
+        // the live lease and is refused by the coordinator, which is the intended outcome.
+        let _ = self.loop_scheduler.schedule(&result.run_id);
         Ok(result)
+    }
+
+    pub(crate) fn prepare_loop_admission(
+        &self,
+        request: PrepareLoopAdmissionRequest,
+    ) -> Result<LoopAdmissionView, AgentRuntimeApplicationError> {
+        self.loops.prepare_admission(request)
+    }
+
+    pub(crate) fn acknowledge_loop_audit(
+        &self,
+        challenge_id: &str,
+    ) -> Result<LoopAuditReceipt, AgentRuntimeApplicationError> {
+        self.loops.acknowledge_audit(challenge_id)
+    }
+
+    pub(crate) fn request_loop_acceptance(
+        &self,
+        request: RequestLoopAcceptanceRequest,
+    ) -> Result<LoopAcceptanceResultView, AgentRuntimeApplicationError> {
+        self.loop_acceptance.request(request)
     }
 
     pub(crate) fn pause_loop(
@@ -479,9 +508,14 @@ impl AgentRuntimeApi {
     pub(crate) fn resume_loop(
         &self,
         run_id: &str,
+        envelope: LoopControlEnvelope,
     ) -> Result<LoopRunView, AgentRuntimeApplicationError> {
-        self.loop_controls.resume(run_id)?;
-        self.loop_scheduler.schedule(run_id)?;
+        let resumed = self.loop_controls.resume(run_id, envelope)?;
+        // A run resumed into awaiting-acceptance has nothing to execute; scheduling it would
+        // only take a lease the acceptance gate does not use.
+        if resumed.status() != LoopRunStatus::AwaitingAcceptance {
+            self.loop_scheduler.schedule(run_id)?;
+        }
         self.loops.get_run(run_id)
     }
 
@@ -493,11 +527,19 @@ impl AgentRuntimeApi {
         self.loops.get_run(run_id)
     }
 
+    /// The legacy entry point routes through the same sealed-evidence gate: it schedules the
+    /// asynchronous acceptance and returns the run, which stays awaiting until the gate commits.
     pub(crate) fn accept_loop(
         &self,
         run_id: &str,
     ) -> Result<LoopRunView, AgentRuntimeApplicationError> {
-        self.loop_controls.accept(run_id)?;
+        self.loop_acceptance.request(RequestLoopAcceptanceRequest {
+            run_id: run_id.to_string(),
+            expected_revision: None,
+            expected_scope_digest: None,
+            expected_evidence_id: None,
+            idempotency_key: None,
+        })?;
         self.loops.get_run(run_id)
     }
 

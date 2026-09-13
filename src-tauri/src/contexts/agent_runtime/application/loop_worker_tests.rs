@@ -1,4 +1,5 @@
 use super::*;
+use crate::contexts::agent_runtime::domain::LoopScopeState;
 use crate::contexts::agent_runtime::domain::{
     AgentAvailability, AgentDefinition, AgentDefinitionInput, AvailabilityAssessment,
     InteractionMode, LaunchMetadata, LoopRunStatus,
@@ -233,6 +234,9 @@ fn definition() -> LoopDefinitionView {
         version: 1,
         created_at: "2026-07-22T07:00:00Z".to_string(),
         updated_at: "2026-07-22T07:00:00Z".to_string(),
+        scope_schema_version: None,
+        requested_mode: None,
+        scope_state: LoopScopeState::LegacyUnverified,
     }
 }
 
@@ -261,6 +265,7 @@ fn request(sequence: u16) -> StartLoopWorkerRequest {
         }],
         user_feedback: Some("Keep the public API stable".to_string()),
         elapsed_seconds: 120,
+        scope_ref: None,
     }
 }
 

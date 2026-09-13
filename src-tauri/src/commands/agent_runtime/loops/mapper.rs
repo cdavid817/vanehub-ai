@@ -1,8 +1,91 @@
 use super::dto;
 use crate::contexts::agent_runtime::api::{
-    AgentRuntimeApplicationError, LoopDefinitionView, LoopLimits, LoopReadinessReportView,
-    LoopRunView, LoopVerificationCommand, SaveLoopDefinitionRequest,
+    AgentRuntimeApplicationError, LoopAdmissionView, LoopAuditReceipt, LoopControlEnvelope,
+    LoopDefinitionView, LoopLimits, LoopReadinessReportView, LoopRunView, LoopVerificationCommand,
+    PrepareLoopAdmissionRequest, SaveLoopDefinitionRequest,
 };
+use crate::contexts::agent_runtime::application::{LoopControlAction, LoopExecutionAssessment};
+use crate::contexts::agent_runtime::domain::{LoopRequestedMode, LoopVerificationKind};
+
+pub(crate) fn envelope(value: Option<dto::LoopControlEnvelope>) -> LoopControlEnvelope {
+    match value {
+        Some(value) => LoopControlEnvelope {
+            expected_revision: value.expected_revision,
+            idempotency_key: value.idempotency_key,
+            audit_acknowledgement_id: value.audit_acknowledgement_id,
+        },
+        None => LoopControlEnvelope::legacy(),
+    }
+}
+
+pub(crate) fn assessment(value: &LoopExecutionAssessment) -> dto::LoopExecutionAssessment {
+    dto::LoopExecutionAssessment {
+        requested_mode: value.requested_mode.clone(),
+        surfaces: value
+            .surfaces
+            .iter()
+            .map(|surface| dto::LoopSurfaceAssessment {
+                surface: surface.surface.clone(),
+                coverage: surface.coverage.clone(),
+                detail: surface.detail.clone(),
+                blocking: surface.blocking,
+            })
+            .collect(),
+        blockers: value.blockers.clone(),
+        limitations: value.limitations.clone(),
+        satisfies_requested_mode: value.satisfies_requested_mode,
+        acknowledgement_required: value.acknowledgement_required,
+        witness_digest: value.witness_digest.clone(),
+        assessed_at: value.assessed_at.clone(),
+        simulated: value.simulated,
+    }
+}
+
+pub(crate) fn admission_request(
+    input: dto::PrepareLoopAdmissionInput,
+) -> Result<PrepareLoopAdmissionRequest, crate::commands::error::CommandError> {
+    let action = LoopControlAction::parse(&input.action).ok_or_else(|| {
+        crate::commands::error::map_command_error(AgentRuntimeApplicationError::Validation(
+            "Loop admission action is not supported.".to_string(),
+        ))
+    })?;
+    Ok(PrepareLoopAdmissionRequest {
+        action,
+        definition_id: input.definition_id,
+        run_id: input.run_id,
+        expected_revision: input.expected_revision,
+        client_context: input
+            .client_context
+            .unwrap_or_else(|| "desktop".to_string()),
+    })
+}
+
+pub(crate) fn admission(value: LoopAdmissionView) -> dto::LoopAdmission {
+    dto::LoopAdmission {
+        action: value.action.as_str().to_string(),
+        target_id: value.target_id,
+        expected_revision: value.expected_revision,
+        requested_mode: value.requested_mode.as_str().to_string(),
+        scope_digest: value.scope_digest,
+        allowed_paths: value.allowed_paths,
+        protected_paths: value.protected_paths,
+        assessment: assessment(&value.assessment),
+        acknowledgement_required: value.acknowledgement_required,
+        challenge_id: value.challenge_id,
+        expires_at: value.expires_at,
+        simulated: false,
+    }
+}
+
+pub(crate) fn acknowledgement(value: LoopAuditReceipt) -> dto::LoopAuditAcknowledgement {
+    dto::LoopAuditAcknowledgement {
+        acknowledgement_id: value.id,
+        action: value.action.as_str().to_string(),
+        target_id: value.target_id,
+        expected_revision: value.expected_revision,
+        expires_at: value.expires_at,
+    }
+}
 use crate::contexts::workspaces::api::GitBranchReference;
 
 pub(crate) fn branch(value: GitBranchReference) -> dto::LoopBranchChoice {
@@ -32,6 +115,11 @@ pub(crate) fn readiness(value: LoopReadinessReportView) -> dto::LoopReadinessRep
             })
             .collect(),
         checked_at: value.checked_at,
+        requested_mode: value.requested_mode.map(|mode| mode.as_str().to_string()),
+        scope_state: value.scope_state.as_str().to_string(),
+        assessment: value.assessment.as_ref().map(assessment),
+        acknowledgement_required: value.acknowledgement_required,
+        definition_revision: value.definition_revision,
     }
 }
 
@@ -42,8 +130,13 @@ pub(crate) fn save_request(
         .verification_commands
         .into_iter()
         .map(|command| {
-            LoopVerificationCommand::new(
+            let kind = match command.kind.as_deref() {
+                None => LoopVerificationKind::Process,
+                Some(value) => LoopVerificationKind::parse(value)?,
+            };
+            LoopVerificationCommand::new_with_kind(
                 command.id,
+                kind,
                 command.program,
                 command.args,
                 command.working_directory,
@@ -54,6 +147,14 @@ pub(crate) fn save_request(
         .collect::<Result<Vec<_>, _>>()
         .map_err(AgentRuntimeApplicationError::from)
         .map_err(crate::commands::error::map_command_error)?;
+    let requested_mode = match input.requested_mode.as_deref() {
+        None => None,
+        Some(value) => Some(LoopRequestedMode::parse(value).ok_or_else(|| {
+            crate::commands::error::map_command_error(AgentRuntimeApplicationError::Validation(
+                "Loop requested mode is not supported.".to_string(),
+            ))
+        })?),
+    };
     let limits = LoopLimits::new(
         input.limits.max_iterations,
         input.limits.step_timeout_seconds,
@@ -77,6 +178,8 @@ pub(crate) fn save_request(
         verification_commands: commands,
         limits,
         expected_version: input.expected_version,
+        scope_schema_version: input.scope_schema_version,
+        requested_mode,
     })
 }
 
@@ -98,6 +201,7 @@ pub(crate) fn definition(value: LoopDefinitionView) -> dto::LoopDefinition {
             .into_iter()
             .map(|command| dto::LoopVerificationCommand {
                 id: command.id,
+                kind: Some(command.kind.as_str().to_string()),
                 program: command.program,
                 args: command.args,
                 working_directory: command.working_directory,
@@ -115,6 +219,9 @@ pub(crate) fn definition(value: LoopDefinitionView) -> dto::LoopDefinition {
         version: value.version,
         created_at: value.created_at,
         updated_at: value.updated_at,
+        scope_schema_version: value.scope_schema_version,
+        requested_mode: value.requested_mode.map(|mode| mode.as_str().to_string()),
+        scope_state: value.scope_state.as_str().to_string(),
     }
 }
 
@@ -181,6 +288,18 @@ pub(crate) fn run(value: LoopRunView) -> dto::LoopRun {
         started_at: value.started_at,
         updated_at: value.updated_at,
         completed_at: value.completed_at,
+        revision: value.revision,
+        scope: value.scope.map(|scope| dto::LoopRunScope {
+            requested_mode: scope.requested_mode.map(|mode| mode.as_str().to_string()),
+            scope_digest: scope.scope_digest,
+            binding_status: scope.binding_status.as_str().to_string(),
+            assessment: scope.assessment.as_ref().map(assessment),
+            sealed_evidence_id: scope.sealed_evidence_id,
+            acceptance_operation_id: scope.acceptance_operation_id,
+            baseline_digest: scope.baseline_digest,
+            allowed_paths: scope.allowed_paths,
+            protected_paths: scope.protected_paths,
+        }),
     }
 }
 
@@ -209,6 +328,11 @@ mod tests {
                 },
             ],
             checked_at: "2026-08-21T00:00:00Z".to_string(),
+            requested_mode: None,
+            scope_state: crate::contexts::agent_runtime::domain::LoopScopeState::LegacyUnverified,
+            assessment: None,
+            acknowledgement_required: false,
+            definition_revision: 1,
         });
 
         assert_eq!(
@@ -236,6 +360,7 @@ mod tests {
             verifier_agent_id: "verifier".to_string(),
             verification_commands: vec![dto::LoopVerificationCommand {
                 id: "tests".to_string(),
+                kind: None,
                 program: " ".to_string(),
                 args: Vec::new(),
                 working_directory: None,
@@ -250,6 +375,8 @@ mod tests {
                 max_consecutive_no_progress: 2,
             },
             expected_version: None,
+            scope_schema_version: None,
+            requested_mode: None,
         })
         .expect_err("invalid command");
 

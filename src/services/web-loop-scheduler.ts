@@ -1,4 +1,5 @@
 import { i18n } from "../i18n";
+import { mockAgents } from "./mock-agent-data";
 import type { Session } from "../types/agent";
 import type { LoopIteration, LoopRun } from "../types/loop";
 import { nowIso } from "./web-mock-clock";
@@ -28,7 +29,7 @@ export function createWebLoopRoleSession(run: LoopRun, iteration: LoopIteration,
     id: sessionId,
     title: `${run.definitionSnapshot.name} - ${i18n.t(`loops.inspection.role.${role}`)}`,
     agentId,
-    interactionMode: "cli",
+    interactionMode: mockAgents.find((agent) => agent.id === agentId)?.supportedInteractionModes.includes("cli") ? "cli" : "api",
     personalizationMode: "standard", lifecycleState: "stopped",
     recoveryStatus: "clean",
     recoveryRevision: 0,
@@ -119,7 +120,7 @@ export function scheduleWebLoopPhase(run: LoopRun) {
       run.definitionSnapshot.verificationCommands.forEach((command) => {
         const failed = command.program.toLowerCase() === "false";
         addLoopEvidence(run, iteration, {
-          kind: "verification",
+          kind: "verification-command",
           status: failed ? "failed" : "passed",
           summary: `${command.program} ${command.args.join(" ")}`.trim(),
           operationId: `web-loop-check-${run.id}-${iteration.sequence}-${command.id}`,
@@ -130,7 +131,7 @@ export function scheduleWebLoopPhase(run: LoopRun) {
         });
       });
       const requiredCheckFailed = iteration.evidence.some(
-        (evidence) => evidence.kind === "verification" && evidence.status === "failed" && evidence.details?.required === true,
+        (evidence) => evidence.kind === "verification-command" && evidence.status === "failed" && evidence.details?.required === true,
       );
       iteration.verifierSessionId = `web-loop-verifier-${run.id}-${iteration.sequence}`;
       createWebLoopRoleSession(run, iteration, "verifier");
@@ -158,7 +159,7 @@ export function scheduleWebLoopPhase(run: LoopRun) {
 
     if (run.phase === "deciding") {
       const requiredCheckFailed = iteration.evidence.some(
-        (evidence) => evidence.kind === "verification" && evidence.status === "failed" && evidence.details?.required === true,
+        (evidence) => evidence.kind === "verification-command" && evidence.status === "failed" && evidence.details?.required === true,
       );
       iteration.status = requiredCheckFailed ? "failed" : "awaiting-acceptance";
       iteration.decisionReason = requiredCheckFailed

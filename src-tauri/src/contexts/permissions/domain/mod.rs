@@ -29,7 +29,7 @@ pub(crate) use approval_resolution::{
 pub(crate) use canonical_grant_key::{
     CanonicalGrantKey, GrantActivationState, PersistedEffect, RememberedScope,
 };
-pub(crate) use effect::Effect;
+pub(crate) use effect::{Effect, PermissionVerdict};
 pub(crate) use error::PermissionsDomainError;
 pub(crate) use grant::Grant;
 pub(crate) use policy::resolve_for;

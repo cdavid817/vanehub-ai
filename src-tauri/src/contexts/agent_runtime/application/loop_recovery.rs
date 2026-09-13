@@ -3,7 +3,7 @@ use super::{
     LoopChildRecoveryProjection, LoopEvidenceView, LoopExecutionLeasePort, LoopOperationContext,
     LoopOperationKind, LoopOperationObserver, LoopRepository, LoopSessionRecoveryPort,
 };
-use crate::contexts::agent_runtime::domain::{LoopRun, LoopTerminalReason};
+use crate::contexts::agent_runtime::domain::{LoopRun, LoopRunStatus, LoopTerminalReason};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -42,7 +42,19 @@ impl LoopRecoveryApplicationService {
                 "Reconciling interrupted Loop run",
             )?;
             let projection = self.child_projection(run.id())?;
+            // A run that already progressed past preparation without a trustworthy binding is
+            // a pre-migration run: it pauses with scope-binding-missing and is never resumed by
+            // synthesizing the authority it never had.
+            let binding_missing = run.status() != LoopRunStatus::Queued
+                && self
+                    .ports
+                    .loops
+                    .find_run_scope(run.id())?
+                    .is_none_or(|record| record.binding.is_none());
             match projection.decision {
+                _ if binding_missing => {
+                    run.pause_for_scope(LoopTerminalReason::ScopeBindingMissing)?;
+                }
                 LoopChildRecoveryDecision::Failed => {
                     run.fail(LoopTerminalReason::RuntimeError)?;
                 }

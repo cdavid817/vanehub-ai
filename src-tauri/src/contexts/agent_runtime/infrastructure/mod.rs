@@ -37,15 +37,25 @@ mod generation_coordinator;
 mod local_media_ocr_adapter;
 mod local_model_discovery;
 mod local_runner;
+mod loop_artifact_scan;
+mod loop_evidence_store;
 mod loop_execution_coordinator;
 mod loop_generation_completions;
+#[cfg(test)]
+mod loop_lifecycle_tests;
+mod loop_native_check;
 mod loop_project;
 mod loop_repository;
 #[cfg(test)]
 mod loop_repository_control_tests;
+mod loop_repository_scope;
 mod loop_repository_views;
 mod loop_scheduler;
 mod loop_schema;
+mod loop_scope_authority;
+mod loop_scope_fs;
+mod loop_scope_platform;
+mod loop_scope_schema;
 mod loop_verification_process;
 mod manual_native_tool_adapter;
 mod manual_native_tool_control;
@@ -136,6 +146,11 @@ pub(crate) use loop_project::WorkspaceLoopProjectAdapter;
 pub(crate) use loop_repository::SqliteLoopRepository;
 pub(crate) use loop_scheduler::NativeLoopScheduler;
 pub(crate) use loop_schema::apply_loop_schema;
+pub(crate) use loop_scope_authority::LoopScopeAuthority;
+pub(crate) use loop_scope_platform::{
+    CatalogLoopCliCapability, NativeLoopScopePlatform, ThreadLoopBackground,
+};
+pub(crate) use loop_scope_schema::apply_loop_scope_schema;
 pub(crate) use loop_verification_process::StructuredLoopVerificationProcess;
 pub(crate) use manual_native_tool_adapter::{
     ManualNativeToolAuthorityAdapter, ManualNativeToolOperationAdapter,

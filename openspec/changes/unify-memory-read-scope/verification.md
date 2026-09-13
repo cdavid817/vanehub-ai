@@ -106,7 +106,7 @@ lib 中 14 个 ignored 用例均为仓库既有的手动/环境相关用例，�
 
 ## 兼容与边界
 
-- 新增 migration 115 `retrieval-memory-egress-restriction`：`retrieval_documents.egress_restricted` 列，附加式，不重写 v2 文件与用户 scope/audience/policy。
+- 新增 migration 116 `retrieval-memory-egress-restriction`（合并 `main` 前为 115；`main` 的 `loop-execution-scope` 占用了 115）：`retrieval_documents.egress_restricted` 列，附加式，不重写 v2 文件与用户 scope/audience/policy。
 - Tauri `preview_effective_personalization` 新增 `SessionsApi`/`RetrievalApi` 依赖；DTO 增加 `previewKind`、`memoryReadAllowed`、`readBlockReason`、`indexEntryCount`、`indexTruncated`、`recallAvailability`。Web mock 同步。
 - 检索索引状态增加 `keywordOnly` 计数。
 - restricted（scoped/selected audience）记忆首版固定 FTS-only；claim/retry/rebuild/模型切换统一排除，embed 前回源复核。

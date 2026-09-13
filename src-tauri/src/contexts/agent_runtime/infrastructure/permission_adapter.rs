@@ -2,21 +2,26 @@
 //! `AgentPermissionPort`, the native tool-use loop's own dependency-inversion boundary.
 
 use crate::contexts::agent_runtime::application::{
-    AgentPermissionPort, AgentRuntimeApplicationError, RunnerError, RunnerErrorKind, RunnerKind,
-    RunnerPermissionContext, RunnerPermissionPort, RunnerPolicyWitness,
+    AgentPermissionPort, AgentRuntimeApplicationError, LoopScopeAuthorityPort, LoopScopeGuard,
+    RunnerError, RunnerErrorKind, RunnerKind, RunnerPermissionContext, RunnerPermissionPort,
+    RunnerPolicyWitness,
 };
-use crate::contexts::permissions::api::PermissionsApi;
+use crate::contexts::permissions::api::{PermissionVerdict, PermissionsApi};
 use crate::contexts::permissions::domain::{Action, Effect, Resource};
 use sha2::{Digest, Sha256};
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub(crate) struct PermissionsPortAdapter {
     api: PermissionsApi,
+    /// Loop scope admission precedes normal permission resolution; the authority derives the
+    /// guard from backend session ownership only.
+    loop_scope: Arc<dyn LoopScopeAuthorityPort>,
 }
 
 impl PermissionsPortAdapter {
-    pub(crate) fn new(api: PermissionsApi) -> Self {
-        Self { api }
+    pub(crate) fn new(api: PermissionsApi, loop_scope: Arc<dyn LoopScopeAuthorityPort>) -> Self {
+        Self { api, loop_scope }
     }
 }
 
@@ -62,6 +67,32 @@ impl AgentPermissionPort for PermissionsPortAdapter {
             )
             .map(|_| ())
             .map_err(|error| AgentRuntimeApplicationError::Permission(error.to_string()))
+    }
+
+    fn evaluate_checked(
+        &self,
+        agent_id: &str,
+        action: Action,
+        resource: Resource,
+        session_id: &str,
+        generation_id: &str,
+        project_key: &str,
+    ) -> PermissionVerdict {
+        self.api.evaluate_checked(
+            agent_id,
+            action,
+            resource,
+            session_id,
+            generation_id,
+            project_key,
+        )
+    }
+
+    fn loop_scope_guard(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<Arc<dyn LoopScopeGuard>>, AgentRuntimeApplicationError> {
+        self.loop_scope.guard_for_session(session_id)
     }
 }
 

@@ -7,8 +7,11 @@ use tauri::State;
 pub(crate) fn start_loop(
     api: State<'_, AgentRuntimeApi>,
     definition_id: String,
+    envelope: Option<dto::LoopControlEnvelope>,
 ) -> Result<dto::StartLoopResult, CommandError> {
-    let started = api.start_loop(&definition_id).map_err(map_command_error)?;
+    let started = api
+        .start_loop(&definition_id, mapper::envelope(envelope))
+        .map_err(map_command_error)?;
     let run = api
         .get_loop_run(&started.run_id)
         .map_err(map_command_error)?;

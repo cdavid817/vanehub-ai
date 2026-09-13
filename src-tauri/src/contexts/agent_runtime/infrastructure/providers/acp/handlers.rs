@@ -16,8 +16,13 @@ use super::proxy_fs::{read_text_file, write_text_file, AuthorizedRoots};
 use super::proxy_terminal::{
     TerminalCreateRequest, TerminalOwner, TerminalProxyError, TerminalRegistry,
 };
-use crate::contexts::permissions::api::Effect;
+use crate::contexts::agent_runtime::application::LoopScopeGuard;
+use crate::contexts::agent_runtime::domain::LoopSideEffectChannel;
+use crate::contexts::permissions::api::{Effect, PermissionVerdict};
 use serde_json::{json, Value};
+
+/// Line/limit bounds accepted for a proxied read, checked before any policy or file access.
+pub(crate) const MAX_READ_LIMIT: u64 = 20_000;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -169,15 +174,21 @@ pub(crate) struct HandlerContext<'a> {
     /// The turn's cancel flag. A blocking proxy wait polls it so a cancel is not held behind a
     /// command the agent chose to wait on.
     pub(crate) cancel: &'a AtomicBool,
+    /// The frozen Loop scope for a Loop-owned session. Admission through it precedes policy.
+    pub(crate) scope: Option<&'a dyn LoopScopeGuard>,
 }
 
-/// Decides one inbound request. `evaluate` is the permission decision point.
-pub(crate) fn handle_request(
+/// Decides one inbound request. `evaluate` is the permission decision point. It may return a
+/// bare `Effect` (tests, fixed policies) or a `PermissionVerdict` carrying evaluation health.
+pub(crate) fn handle_request<E: Into<PermissionVerdict>>(
     context: &HandlerContext<'_>,
     method: &str,
     params: &Value,
-    evaluate: &dyn Fn(&str, &str) -> Effect,
+    evaluate: &dyn Fn(&str, &str) -> E,
 ) -> HandlerOutcome {
+    let verdict =
+        |action: &str, resource: &str| -> PermissionVerdict { evaluate(action, resource).into() };
+    let evaluate: &dyn Fn(&str, &str) -> PermissionVerdict = &verdict;
     if let Some(session_id) = params.get("sessionId").and_then(Value::as_str) {
         if session_id != context.external_session_id {
             return HandlerOutcome::Reply(Err(RpcError::refused(
@@ -221,7 +232,7 @@ pub(crate) fn handle_request(
 fn handle_permission(
     context: &HandlerContext<'_>,
     params: &Value,
-    evaluate: &dyn Fn(&str, &str) -> Effect,
+    evaluate: &dyn Fn(&str, &str) -> PermissionVerdict,
 ) -> HandlerOutcome {
     let subject = match permission_subject(params) {
         Ok(subject) => subject,
@@ -231,7 +242,22 @@ fn handle_permission(
         Ok(options) => options,
         Err(error) => return HandlerOutcome::Reply(Err(error)),
     };
-    match evaluate(subject.action, &subject.resource) {
+    // An agent-internal mutation is an opaque channel: a Loop role that does not admit it is
+    // answered with the rejection option before policy is even consulted.
+    if let Some(scope) = context.scope {
+        if subject.action != "file.read"
+            && scope
+                .admit_channel(LoopSideEffectChannel::CliInternal)
+                .is_err()
+        {
+            return HandlerOutcome::Reply(Ok(permission_reply(&options, false)));
+        }
+    }
+    let verdict = evaluate(subject.action, &subject.resource);
+    if !verdict.healthy {
+        return HandlerOutcome::Reply(Ok(permission_reply(&options, false)));
+    }
+    match verdict.effect {
         Effect::Allow => HandlerOutcome::Reply(Ok(permission_reply(&options, true))),
         Effect::Deny => HandlerOutcome::Reply(Ok(permission_reply(&options, false))),
         Effect::Ask if !context.interactive => {
@@ -263,30 +289,170 @@ fn handle_permission(
     }
 }
 
+/// Validates the read request's shape before any policy or filesystem access.
+pub(crate) fn read_request(params: &Value) -> Result<(String, Option<u64>, Option<u64>), RpcError> {
+    let Some(path) = params.get("path").and_then(Value::as_str) else {
+        return Err(RpcError::invalid_params("path is required"));
+    };
+    if path.trim().is_empty() || path.chars().any(char::is_control) || path.len() > 4096 {
+        return Err(RpcError::invalid_params("path is invalid"));
+    }
+    let line = match params.get("line") {
+        None | Some(Value::Null) => None,
+        Some(value) => match value.as_u64() {
+            Some(line) if line >= 1 => Some(line),
+            _ => return Err(RpcError::invalid_params("line must be a positive integer")),
+        },
+    };
+    let limit = match params.get("limit") {
+        None | Some(Value::Null) => None,
+        Some(value) => match value.as_u64() {
+            Some(limit) if (1..=MAX_READ_LIMIT).contains(&limit) => Some(limit),
+            _ => {
+                return Err(RpcError::invalid_params(
+                    "limit must be between 1 and the proxy maximum",
+                ))
+            }
+        },
+    };
+    Ok((path.to_string(), line, limit))
+}
+
+/// Every effect is explicit. Allow reads after safe resolution; Deny answers without touching
+/// the file; a healthy Ask defers to durable approval without reading anything first; an
+/// unanswerable or unhealthy Ask is refused.
 fn handle_read(
     context: &HandlerContext<'_>,
     params: &Value,
-    evaluate: &dyn Fn(&str, &str) -> Effect,
+    evaluate: &dyn Fn(&str, &str) -> PermissionVerdict,
 ) -> HandlerOutcome {
-    let Some(path) = params.get("path").and_then(Value::as_str) else {
-        return HandlerOutcome::Reply(Err(RpcError::invalid_params("path is required")));
+    let (path, line, limit) = match read_request(params) {
+        Ok(request) => request,
+        Err(error) => return HandlerOutcome::Reply(Err(error)),
     };
-    if evaluate("file.read", path) == Effect::Deny {
-        return HandlerOutcome::Reply(Err(RpcError::refused("read denied by policy")));
+    let resolved = match context.roots.resolve(&path) {
+        Ok(resolved) => resolved,
+        Err(error) => return HandlerOutcome::Reply(Err(RpcError::refused(error.message()))),
+    };
+    let verdict = evaluate("file.read", &path);
+    if !verdict.healthy {
+        return HandlerOutcome::Reply(Err(RpcError::refused(
+            "read policy could not be evaluated; refusing without reading",
+        )));
     }
-    let line = params.get("line").and_then(Value::as_u64);
-    let limit = params.get("limit").and_then(Value::as_u64);
-    HandlerOutcome::Reply(
-        read_text_file(context.roots, path, line, limit)
-            .map(|content| json!({"content": content}))
-            .map_err(|error| RpcError::refused(error.message())),
-    )
+    match verdict.effect {
+        Effect::Deny => HandlerOutcome::Reply(Err(RpcError::refused("read denied by policy"))),
+        Effect::Allow => HandlerOutcome::Reply(apply_read(context.roots, &path, line, limit)),
+        Effect::Ask if !context.interactive => HandlerOutcome::Reply(Err(RpcError::refused(
+            "read requires a human approval and none is available",
+        ))),
+        Effect::Ask => {
+            // Without a bound identity an approval could be delivered against whatever appears
+            // at the path later; such a read is refused rather than queued.
+            let Some(identity) = read_identity(&resolved) else {
+                return HandlerOutcome::Reply(Err(RpcError::refused(
+                    "read target must be an existing regular file before it can wait for approval",
+                )));
+            };
+            HandlerOutcome::Defer {
+                ui: DeferredUi::Approval {
+                    tool_call_id: format!("acp-fs-read-{}", stable_token(&path)),
+                    tool_name: "fs/read_text_file".to_string(),
+                    action: "file.read",
+                    resource: path.clone(),
+                    input: json!({"path": path, "line": line, "limit": limit}),
+                },
+                kind: InteractionKind::FileRead {
+                    identity: Some(identity),
+                    path,
+                    line,
+                    limit,
+                },
+                deadline: None,
+            }
+        }
+    }
+}
+
+/// `(device, inode, ctime)` of an existing target; `None` when it cannot be stated, in which case
+/// delivery falls back to path resolution alone.
+fn read_identity(resolved: &std::path::Path) -> Option<(u64, u64, i64)> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        std::fs::symlink_metadata(resolved)
+            .ok()
+            .filter(|metadata| metadata.is_file())
+            .map(|metadata| {
+                (
+                    metadata.dev(),
+                    metadata.ino(),
+                    metadata
+                        .ctime()
+                        .saturating_mul(1_000_000_000)
+                        .saturating_add(metadata.ctime_nsec()),
+                )
+            })
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        std::fs::symlink_metadata(resolved)
+            .ok()
+            .filter(|metadata| metadata.is_file())
+            .map(|metadata| {
+                (
+                    metadata.creation_time(),
+                    metadata.file_size(),
+                    i64::try_from(metadata.last_write_time()).unwrap_or(i64::MAX),
+                )
+            })
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = resolved;
+        None
+    }
+}
+
+/// Delivers a read the person approved while it was pending. The target is resolved again and
+/// must still be the file that was deferred: a replaced, moved or relinked target is refused
+/// without opening anything, so an approval never reads a file the person did not see.
+pub(crate) fn deliver_read(
+    roots: &AuthorizedRoots,
+    path: &str,
+    line: Option<u64>,
+    limit: Option<u64>,
+    identity: Option<(u64, u64, i64)>,
+) -> Result<Value, RpcError> {
+    let resolved = roots
+        .resolve(path)
+        .map_err(|_| RpcError::refused("read target is no longer inside the authorized roots"))?;
+    if let Some(expected) = identity {
+        if read_identity(&resolved) != Some(expected) {
+            return Err(RpcError::refused(
+                "read target was replaced while the approval was pending; request it again",
+            ));
+        }
+    }
+    apply_read(roots, path, line, limit)
+}
+
+pub(crate) fn apply_read(
+    roots: &AuthorizedRoots,
+    path: &str,
+    line: Option<u64>,
+    limit: Option<u64>,
+) -> Result<Value, RpcError> {
+    read_text_file(roots, path, line, limit)
+        .map(|content| json!({"content": content}))
+        .map_err(|error| RpcError::refused(error.message()))
 }
 
 fn handle_write(
     context: &HandlerContext<'_>,
     params: &Value,
-    evaluate: &dyn Fn(&str, &str) -> Effect,
+    evaluate: &dyn Fn(&str, &str) -> PermissionVerdict,
 ) -> HandlerOutcome {
     let (Some(path), Some(content)) = (
         params.get("path").and_then(Value::as_str),
@@ -300,8 +466,20 @@ fn handle_write(
     if let Err(error) = context.roots.resolve(path) {
         return HandlerOutcome::Reply(Err(RpcError::refused(error.message())));
     }
-    match evaluate("file.write", path) {
-        Effect::Allow => HandlerOutcome::Reply(apply_write(context.roots, path, content)),
+    // Scope admission precedes policy: an out-of-bound write is never offered for approval.
+    if let Some(scope) = context.scope {
+        if let Err(reason) = scope.admit_write(path) {
+            return HandlerOutcome::Reply(Err(RpcError::refused(&reason)));
+        }
+    }
+    let verdict = evaluate("file.write", path);
+    if !verdict.healthy {
+        return HandlerOutcome::Reply(Err(RpcError::refused(
+            "write policy could not be evaluated; refusing",
+        )));
+    }
+    match verdict.effect {
+        Effect::Allow => HandlerOutcome::Reply(apply_scoped_write(context, path, content)),
         Effect::Deny => HandlerOutcome::Reply(Err(RpcError::refused("write denied by policy"))),
         Effect::Ask if !context.interactive => {
             HandlerOutcome::Reply(Err(RpcError::refused("write requires a human approval")))
@@ -331,6 +509,22 @@ pub(crate) fn apply_write(
     write_text_file(roots, path, content)
         .map(|()| Value::Null)
         .map_err(|error| RpcError::refused(error.message()))
+}
+
+/// Delivers through the Loop guard when the session is Loop-owned, otherwise through the
+/// authorized roots. The guard re-admits the real resource at delivery time.
+pub(crate) fn apply_scoped_write(
+    context: &HandlerContext<'_>,
+    path: &str,
+    content: &str,
+) -> Result<Value, RpcError> {
+    match context.scope {
+        Some(scope) => scope
+            .write(path, content.as_bytes())
+            .map(|()| Value::Null)
+            .map_err(|reason| RpcError::refused(&reason)),
+        None => apply_write(context.roots, path, content),
+    }
 }
 
 fn terminal_request(
@@ -388,13 +582,24 @@ fn terminal_request(
 fn handle_terminal_create(
     context: &HandlerContext<'_>,
     params: &Value,
-    evaluate: &dyn Fn(&str, &str) -> Effect,
+    evaluate: &dyn Fn(&str, &str) -> PermissionVerdict,
 ) -> HandlerOutcome {
     let request = match terminal_request(context, params) {
         Ok(request) => request,
         Err(error) => return HandlerOutcome::Reply(Err(error)),
     };
-    match evaluate("shell.exec", "workspace") {
+    if let Some(scope) = context.scope {
+        if let Err(reason) = scope.admit_channel(LoopSideEffectChannel::Terminal) {
+            return HandlerOutcome::Reply(Err(RpcError::refused(&reason)));
+        }
+    }
+    let verdict = evaluate("shell.exec", "workspace");
+    if !verdict.healthy {
+        return HandlerOutcome::Reply(Err(RpcError::refused(
+            "command policy could not be evaluated; refusing",
+        )));
+    }
+    match verdict.effect {
         Effect::Allow => HandlerOutcome::Reply(apply_terminal_create(context, &request)),
         Effect::Deny => {
             HandlerOutcome::Reply(Err(RpcError::refused("command execution denied by policy")))
@@ -825,6 +1030,9 @@ fn stable_token(input: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::contexts::agent_runtime::application::LoopGuardRole;
+    use crate::contexts::agent_runtime::domain::LoopRequestedMode;
+    use crate::contexts::agent_runtime::infrastructure::loop_scope_platform::test_guard;
     use crate::test_support::TempDirectory;
 
     fn grammar() -> AcpLaunchGrammar {
@@ -854,6 +1062,7 @@ mod tests {
             advertised_terminal: true,
             child_environment: environment,
             cancel: &NEVER_CANCELLED,
+            scope: None,
         }
     }
 
@@ -958,7 +1167,7 @@ mod tests {
         // Wrong session id is refused before policy is consulted.
         let foreign = json!({"sessionId":"someone-else","toolCall":{"toolCallId":"c","kind":"read"},"options":[{"optionId":"a","name":"A","kind":"allow_once"}]});
         assert!(matches!(
-            handle_request(&context, "session/request_permission", &foreign, &|_, _| panic!("not consulted")),
+            handle_request(&context, "session/request_permission", &foreign, &|_, _| -> Effect { panic!("not consulted") }),
             HandlerOutcome::Reply(Err(error)) if error.code == super::super::jsonrpc::HOST_REFUSED
         ));
     }
@@ -1355,5 +1564,451 @@ mod tests {
             HandlerOutcome::Reply(Err(_))
         ));
         terminals.release_epoch(5);
+    }
+
+    // ---- ACP file.read three-state behaviour (acceptance AC-01, AC-02, AC-03, AC-04, AC-05, AC-08) ----
+
+    fn sentinel(label: &str) -> String {
+        format!(
+            "SENTINEL-{label}-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        )
+    }
+
+    fn read_params(path: &str, line: Option<u64>, limit: Option<u64>) -> Value {
+        json!({"sessionId": "ext-1", "path": path, "line": line, "limit": limit})
+    }
+
+    struct ReadFixture {
+        workspace: TempDirectory,
+        roots: AuthorizedRoots,
+        terminals: TerminalRegistry,
+        grammar: AcpLaunchGrammar,
+        environment: BTreeMap<String, String>,
+        workspace_text: String,
+        file: String,
+        sentinel: String,
+    }
+
+    impl ReadFixture {
+        fn new(label: &str) -> Self {
+            let workspace = TempDirectory::new(label);
+            let sentinel = sentinel(label);
+            let file = workspace
+                .write("notes.txt", &format!("alpha\n{sentinel}\ngamma\n"))
+                .to_string_lossy()
+                .to_string();
+            let roots = AuthorizedRoots::new([workspace.path().to_path_buf()]);
+            let workspace_text = workspace.path().to_string_lossy().to_string();
+            Self {
+                workspace,
+                roots,
+                terminals: TerminalRegistry::default(),
+                grammar: grammar(),
+                environment: BTreeMap::new(),
+                workspace_text,
+                file,
+                sentinel,
+            }
+        }
+
+        fn context(&self, interactive: bool) -> HandlerContext<'_> {
+            context(
+                &self.workspace_text,
+                &self.roots,
+                &self.terminals,
+                &self.grammar,
+                &self.environment,
+                interactive,
+            )
+        }
+    }
+
+    #[test]
+    fn file_read_allow_returns_the_requested_window_after_safe_resolution() {
+        let fixture = ReadFixture::new("acp-read-allow");
+        let context = fixture.context(true);
+        let consulted = std::cell::Cell::new(0);
+        let outcome = handle_request(
+            &context,
+            "fs/read_text_file",
+            &read_params(&fixture.file, Some(2), Some(1)),
+            &|action, resource| {
+                consulted.set(consulted.get() + 1);
+                assert_eq!(action, "file.read");
+                assert_eq!(resource, fixture.file);
+                Effect::Allow
+            },
+        );
+        assert_eq!(consulted.get(), 1, "policy is consulted exactly once");
+        assert_eq!(
+            outcome,
+            HandlerOutcome::Reply(Ok(json!({"content": fixture.sentinel})))
+        );
+        let whole = handle_request(
+            &context,
+            "fs/read_text_file",
+            &read_params(&fixture.file, None, None),
+            &|_, _| Effect::Allow,
+        );
+        assert_eq!(
+            whole,
+            HandlerOutcome::Reply(Ok(
+                json!({"content": format!("alpha\n{}\ngamma\n", fixture.sentinel)})
+            ))
+        );
+        let _ = &fixture.workspace;
+    }
+
+    #[test]
+    fn file_read_deny_answers_without_content_or_pending_interaction() {
+        let fixture = ReadFixture::new("acp-read-deny");
+        let context = fixture.context(true);
+        let outcome = handle_request(
+            &context,
+            "fs/read_text_file",
+            &read_params(&fixture.file, None, None),
+            &|_, _| Effect::Deny,
+        );
+        let HandlerOutcome::Reply(Err(error)) = &outcome else {
+            panic!("deny must reply with an error, got {outcome:?}");
+        };
+        assert_eq!(error.code, super::super::jsonrpc::HOST_REFUSED);
+        assert!(!format!("{outcome:?}").contains(&fixture.sentinel));
+    }
+
+    #[test]
+    fn file_read_ask_defers_without_reading_and_refuses_when_unattended() {
+        let fixture = ReadFixture::new("acp-read-ask");
+        let interactive = fixture.context(true);
+        let outcome = handle_request(
+            &interactive,
+            "fs/read_text_file",
+            &read_params(&fixture.file, Some(1), Some(2)),
+            &|_, _| Effect::Ask,
+        );
+        match &outcome {
+            HandlerOutcome::Defer {
+                kind:
+                    InteractionKind::FileRead {
+                        path,
+                        line,
+                        limit,
+                        identity,
+                    },
+                ui:
+                    DeferredUi::Approval {
+                        tool_name,
+                        action,
+                        resource,
+                        input,
+                        ..
+                    },
+                ..
+            } => {
+                assert_eq!(path, &fixture.file);
+                assert_eq!((*line, *limit), (Some(1), Some(2)));
+                assert!(
+                    identity.is_some(),
+                    "the deferred read binds the target identity"
+                );
+                assert_eq!(tool_name, "fs/read_text_file");
+                assert_eq!(*action, "file.read");
+                assert_eq!(resource, &fixture.file);
+                assert_eq!(input["path"], json!(fixture.file));
+            }
+            other => panic!("healthy Ask must defer, got {other:?}"),
+        }
+        assert!(
+            !format!("{outcome:?}").contains(&fixture.sentinel),
+            "nothing is read before the approval commits"
+        );
+
+        let unattended = fixture.context(false);
+        let refused = handle_request(
+            &unattended,
+            "fs/read_text_file",
+            &read_params(&fixture.file, None, None),
+            &|_, _| Effect::Ask,
+        );
+        assert!(matches!(
+            &refused,
+            HandlerOutcome::Reply(Err(error)) if error.code == super::super::jsonrpc::HOST_REFUSED
+        ));
+        assert!(!format!("{refused:?}").contains(&fixture.sentinel));
+    }
+
+    #[test]
+    fn file_read_fails_closed_when_policy_evaluation_is_unhealthy() {
+        let fixture = ReadFixture::new("acp-read-unhealthy");
+        let context = fixture.context(true);
+        for effect in [Effect::Allow, Effect::Ask, Effect::Deny] {
+            let outcome = handle_request(
+                &context,
+                "fs/read_text_file",
+                &read_params(&fixture.file, None, None),
+                &|_, _| PermissionVerdict {
+                    effect,
+                    healthy: false,
+                },
+            );
+            assert!(
+                matches!(&outcome, HandlerOutcome::Reply(Err(error)) if error.code == super::super::jsonrpc::HOST_REFUSED),
+                "an evaluator fault is never an Allow and never a pending Ask: {outcome:?}"
+            );
+            assert!(!format!("{outcome:?}").contains(&fixture.sentinel));
+        }
+    }
+
+    #[test]
+    fn file_read_rejects_bad_windows_and_escapes_before_consulting_policy() {
+        let fixture = ReadFixture::new("acp-read-invalid");
+        let context = fixture.context(true);
+        let never = |_: &str, _: &str| -> Effect { panic!("policy must not be consulted") };
+        for params in [
+            json!({"sessionId": "ext-1", "path": fixture.file, "line": 0}),
+            json!({"sessionId": "ext-1", "path": fixture.file, "limit": 0}),
+            json!({"sessionId": "ext-1", "path": fixture.file, "limit": MAX_READ_LIMIT + 1}),
+            json!({"sessionId": "ext-1", "path": fixture.file, "line": -3}),
+            json!({"sessionId": "ext-1"}),
+        ] {
+            let outcome = handle_request(&context, "fs/read_text_file", &params, &never);
+            assert!(
+                matches!(&outcome, HandlerOutcome::Reply(Err(_))),
+                "{outcome:?}"
+            );
+            assert!(!format!("{outcome:?}").contains(&fixture.sentinel));
+        }
+        let outside = TempDirectory::new("acp-read-outside");
+        let secret = sentinel("outside");
+        let outside_file = outside
+            .write("secret.txt", &secret)
+            .to_string_lossy()
+            .to_string();
+        let outcome = handle_request(
+            &context,
+            "fs/read_text_file",
+            &read_params(&outside_file, None, None),
+            &never,
+        );
+        assert!(matches!(&outcome, HandlerOutcome::Reply(Err(_))));
+        assert!(!format!("{outcome:?}").contains(&secret));
+    }
+
+    // ---- Loop scope admission on ACP writes (acceptance SC-01, SC-02, SC-12) ----
+
+    #[cfg(unix)]
+    #[test]
+    fn scoped_writes_are_admitted_before_policy_and_never_widened_by_approval() {
+        let workspace_directory = TempDirectory::new("acp-scope-write");
+        let storage = TempDirectory::new("acp-scope-write-store");
+        let outside_sentinel = sentinel("docs");
+        let protected_sentinel = sentinel("generated");
+        workspace_directory.write("docs/readme.md", &outside_sentinel);
+        workspace_directory.write("src/generated/a.ts", &protected_sentinel);
+        // The guard binds the canonical root; requests use the same spelling so absolute paths
+        // inside the worktree resolve as in-root.
+        let root = std::fs::canonicalize(workspace_directory.path()).expect("canonical root");
+        let workspace = root.as_path();
+        let roots = AuthorizedRoots::new([root.clone()]);
+        let terminals = TerminalRegistry::default();
+        let grammar = grammar();
+        let environment = BTreeMap::new();
+        let workspace_text = root.to_string_lossy().to_string();
+        let worker = test_guard(
+            workspace,
+            storage.path(),
+            &["src"],
+            &["src/generated"],
+            LoopRequestedMode::PreventiveRequired,
+            LoopGuardRole::Worker,
+        );
+        let mut context = context(
+            &workspace_text,
+            &roots,
+            &terminals,
+            &grammar,
+            &environment,
+            true,
+        );
+        context.scope = Some(worker.as_ref());
+        let target = |relative: &str| workspace.join(relative).to_string_lossy().to_string();
+        let write_params = |relative: &str| json!({"sessionId": "ext-1", "path": target(relative), "content": "mutated"});
+
+        // In scope: policy Allow delivers through the guard.
+        let allowed = handle_request(
+            &context,
+            "fs/write_text_file",
+            &write_params("src/app.ts"),
+            &|_, _| Effect::Allow,
+        );
+        assert_eq!(allowed, HandlerOutcome::Reply(Ok(Value::Null)));
+        assert_eq!(
+            std::fs::read_to_string(workspace.join("src/app.ts")).expect("written"),
+            "mutated"
+        );
+
+        // Out of scope and protected: refused before policy, even a global Allow cannot widen it.
+        let never = |_: &str, _: &str| -> Effect {
+            panic!("policy must not be consulted for an out-of-scope write")
+        };
+        for relative in ["docs/readme.md", "src/generated/a.ts"] {
+            let refused = handle_request(
+                &context,
+                "fs/write_text_file",
+                &write_params(relative),
+                &never,
+            );
+            assert!(
+                matches!(&refused, HandlerOutcome::Reply(Err(error)) if error.code == super::super::jsonrpc::HOST_REFUSED),
+                "{refused:?}"
+            );
+        }
+        assert_eq!(
+            std::fs::read_to_string(workspace.join("docs/readme.md")).expect("kept"),
+            outside_sentinel
+        );
+        assert_eq!(
+            std::fs::read_to_string(workspace.join("src/generated/a.ts")).expect("kept"),
+            protected_sentinel
+        );
+        // An Ask for an in-scope write is still deferred: scope admission never replaces policy.
+        let deferred = handle_request(
+            &context,
+            "fs/write_text_file",
+            &write_params("src/other.ts"),
+            &|_, _| Effect::Ask,
+        );
+        assert!(matches!(
+            deferred,
+            HandlerOutcome::Defer {
+                kind: InteractionKind::FileWrite { .. },
+                ..
+            }
+        ));
+        assert!(!workspace.join("src/other.ts").exists());
+
+        // A Verifier is read-only on every channel: an Allow verdict still cannot write.
+        let verifier = test_guard(
+            workspace,
+            storage.path(),
+            &["src"],
+            &["src/generated"],
+            LoopRequestedMode::PreventiveRequired,
+            LoopGuardRole::Verifier,
+        );
+        context.scope = Some(verifier.as_ref());
+        let refused = handle_request(
+            &context,
+            "fs/write_text_file",
+            &write_params("src/app.ts"),
+            &never,
+        );
+        assert!(matches!(&refused, HandlerOutcome::Reply(Err(_))));
+        assert_eq!(
+            std::fs::read_to_string(workspace.join("src/app.ts")).expect("unchanged"),
+            "mutated"
+        );
+        let terminal = handle_request(
+            &context,
+            "terminal/create",
+            &json!({"sessionId": "ext-1", "command": "touch", "args": ["src/app.ts"]}),
+            &|_, _| Effect::Allow,
+        );
+        assert!(
+            matches!(&terminal, HandlerOutcome::Reply(Err(_))),
+            "{terminal:?}"
+        );
+        terminals.release_epoch(5);
+    }
+
+    // ---- deferred read delivery binds the target identity (acceptance AC-06, AC-07) ----
+
+    #[cfg(unix)]
+    #[test]
+    fn approved_read_delivers_the_deferred_target_once_and_refuses_a_replaced_or_relinked_target() {
+        let fixture = ReadFixture::new("acp-read-delivery");
+        let context = fixture.context(true);
+        let deferred = handle_request(
+            &context,
+            "fs/read_text_file",
+            &read_params(&fixture.file, None, None),
+            &|_, _| Effect::Ask,
+        );
+        let HandlerOutcome::Defer {
+            kind:
+                InteractionKind::FileRead {
+                    path,
+                    line,
+                    limit,
+                    identity,
+                },
+            ..
+        } = deferred
+        else {
+            panic!("expected a deferred read");
+        };
+        assert!(identity.is_some());
+
+        // The approval delivers exactly the content that was pending.
+        let delivered =
+            deliver_read(&fixture.roots, &path, line, limit, identity).expect("delivered");
+        assert_eq!(
+            delivered,
+            json!({"content": format!("alpha\n{}\ngamma\n", fixture.sentinel)})
+        );
+
+        // The target is replaced by a different file at the same path: the old approval must
+        // not read it.
+        let replacement = sentinel("replacement");
+        std::fs::remove_file(&path).expect("remove");
+        std::fs::write(&path, &replacement).expect("replace");
+        let refused = deliver_read(&fixture.roots, &path, line, limit, identity)
+            .expect_err("replaced target is refused");
+        assert!(!format!("{refused:?}").contains(&replacement));
+        assert!(!format!("{refused:?}").contains(&fixture.sentinel));
+
+        // The path is turned into a link to a file outside the roots: refused before reading.
+        let outside = TempDirectory::new("acp-read-delivery-outside");
+        let secret = sentinel("secret");
+        let secret_path = outside.write("secret.txt", &secret);
+        std::fs::remove_file(&path).expect("remove replacement");
+        std::os::unix::fs::symlink(&secret_path, &path).expect("relink");
+        let refused = deliver_read(&fixture.roots, &path, line, limit, identity)
+            .expect_err("relinked target is refused");
+        assert!(!format!("{refused:?}").contains(&secret));
+
+        // A pending read from before the deferral rules cannot be widened either: without a
+        // bound identity delivery still requires the path to resolve inside the roots.
+        let refused =
+            deliver_read(&fixture.roots, &path, line, limit, None).expect_err("outside root");
+        assert!(!format!("{refused:?}").contains(&secret));
+        let _ = &fixture.workspace;
+    }
+
+    #[test]
+    fn a_read_of_a_missing_target_is_refused_instead_of_waiting_for_approval() {
+        let fixture = ReadFixture::new("acp-read-missing");
+        let context = fixture.context(true);
+        let later = fixture
+            .workspace
+            .path()
+            .join("later.txt")
+            .to_string_lossy()
+            .to_string();
+        let outcome = handle_request(
+            &context,
+            "fs/read_text_file",
+            &read_params(&later, None, None),
+            &|_, _| Effect::Ask,
+        );
+        assert!(
+            matches!(&outcome, HandlerOutcome::Reply(Err(error)) if error.code == super::super::jsonrpc::HOST_REFUSED),
+            "nothing may wait for an approval whose target does not exist yet: {outcome:?}"
+        );
+        assert!(!matches!(outcome, HandlerOutcome::Defer { .. }));
     }
 }

@@ -720,12 +720,21 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "cli-execution-bindings",
         crate::contexts::agent_runtime::infrastructure::providers::acp::apply_execution_binding_schema,
     )?;
+    // Additive: scope version/mode columns on definitions, revision/binding/evidence columns on
+    // runs, plus audit receipts and idempotent control operations. Legacy rows keep NULL scope
+    // columns and are read as legacy-unverified rather than being given an invented scope.
+    apply_migration(
+        conn,
+        115,
+        "loop-execution-scope",
+        crate::contexts::agent_runtime::infrastructure::apply_loop_scope_schema,
+    )?;
     // Additive: one column recording whether an indexed memory body may leave the machine for a
     // remote embedder. Rows that predate it default to unrestricted, which is what the old
     // global-only index source guaranteed.
     apply_migration(
         conn,
-        115,
+        116,
         "retrieval-memory-egress-restriction",
         crate::contexts::retrieval::infrastructure::apply_retrieval_egress_restriction_schema,
     )?;
@@ -900,7 +909,8 @@ pub(super) const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (112, "managed-worktree-resources"),
     (113, "session-deletion-operations"),
     (114, "cli-execution-bindings"),
-    (115, "retrieval-memory-egress-restriction"),
+    (115, "loop-execution-scope"),
+    (116, "retrieval-memory-egress-restriction"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {

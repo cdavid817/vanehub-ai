@@ -1,4 +1,5 @@
 pub(crate) mod accept_loop;
+pub(crate) mod acknowledge_loop_audit;
 pub(crate) mod cancel_loop;
 pub(crate) mod check_loop_readiness;
 pub(crate) mod continue_loop;
@@ -11,7 +12,9 @@ pub(crate) mod list_loop_definitions;
 pub(crate) mod list_loop_runs;
 mod mapper;
 pub(crate) mod pause_loop;
+pub(crate) mod prepare_loop_admission;
 pub(crate) mod reject_loop;
+pub(crate) mod request_loop_acceptance;
 pub(crate) mod resume_loop;
 pub(crate) mod start_loop;
 pub(crate) mod update_loop_definition;

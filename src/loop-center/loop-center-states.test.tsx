@@ -101,15 +101,15 @@ function exampleRun(overrides: Partial<LoopRun>): LoopRun {
   const definition = {
     id: "loop-1", name: "Release", enabled: true, projectPath: "D:/repo", baseBranch: "main", goal: "Ship safely",
     acceptanceCriteria: ["Tests pass"], allowedPaths: ["src"], protectedPaths: [".git"], workerAgentId: "codex-cli", verifierAgentId: "claude-code",
-    verificationCommands: [{ id: "tests", program: "npm", args: ["test"], workingDirectory: null, timeoutSeconds: 120, required: true }],
+    verificationCommands: [{ id: "tests", kind: "process" as const, program: "npm", args: ["test"], workingDirectory: null, timeoutSeconds: 120, required: true }],
     limits: { maxIterations: 3, stepTimeoutSeconds: 300, totalTimeoutSeconds: 1800, maxConsecutiveRuntimeErrors: 2, maxConsecutiveNoProgress: 2 },
-    version: 1, createdAt: "2026-07-23T00:00:00Z", updatedAt: "2026-07-23T00:00:00Z",
+    version: 1, createdAt: "2026-07-23T00:00:00Z", updatedAt: "2026-07-23T00:00:00Z", scopeSchemaVersion: 1, requestedMode: "preventive-required" as const, scopeState: "verified" as const,
   };
   return {
     id: "run-1", definitionId: definition.id, definitionSnapshot: definition, status: "running", phase: "acting", terminalReason: null,
     currentIteration: 1, consecutiveRuntimeErrors: 0, consecutiveNoProgress: 0, pauseRequested: false, projectPath: definition.projectPath,
     worktreePath: "D:/repo-loop", worktreeName: "loop-release", worktreeBranch: "vanehub/loop-release", activeOperationId: null,
-    iterations: [], simulated: true, createdAt: "2026-07-23T00:00:00Z", startedAt: "2026-07-23T00:00:00Z",
+    iterations: [], simulated: true, revision: 1, scope: null, createdAt: "2026-07-23T00:00:00Z", startedAt: "2026-07-23T00:00:00Z",
     updatedAt: "2026-07-23T00:01:00Z", completedAt: null, ...overrides,
   };
 }

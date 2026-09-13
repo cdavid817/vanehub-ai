@@ -452,9 +452,18 @@ const SUBTREE_LINE_BUDGETS = Object.freeze([
   // 会话模式硬收窄、精确受众成员匹配、未知 scope 拒绝,以及 readAllowed/索引页/recall 通道/预览种类
   // 这几个独立事实。不是复制:原先的判定是错的,不存在可复用的正确版本。
   //
-  // 28404 -> 28410(unify-memory-read-scope 的 CI 修正):+6 是 Web token 用量 fixture 从固定日期改为
-  // 锚定当前时刻,并导出该时刻供测试推导区间;固定日期滑出"最近 30 天"后文档截图会退化成全零。
-  { root: "src/services", budget: 28410, owner: "unify-memory-read-scope" },
+  // 28277 -> 28606(enforce-loop-execution-scope):+329 是 Web/mock 适配器对执行范围契约的模拟层——
+  // 覆盖度评估、审计 challenge/receipt 的一次性消费、封存验收与旧定义拒绝(`web-loop-scope.ts`、
+  // `web-loop-definition-validation.ts`),以及 Tauri 适配器的三条新命令映射;与原生规则同形但全部标注
+  // simulated,不是既有逻辑的复制。
+  //
+  // 28606 -> 28617(enforce-loop-execution-scope CI 修正):+11 是 Web token 用量 mock 把固定日期改为相对
+  // mock 时钟的三天前,避免"最近 30 天"窗口随日历失效;不是既有逻辑的复制。
+  //
+  // 2026-09-13 与 main 合并(读取范围与 Loop 执行范围各在一侧):两段历史都保留,数字按合并后的树实测,
+  // 不做相加,因为两个分支共享同一基线;本分支对 token 用量 fixture 的同类修正已弃用,改用 main 的版本。
+  // 合并后实测 28744。
+  { root: "src/services", budget: 28744, owner: "unify-memory-read-scope" },
 ]);
 
 const STATE_PACKAGES = new Set([

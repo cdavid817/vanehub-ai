@@ -6,7 +6,16 @@ export async function openLoops(page: Page) {
   await expect(page.locator("#loop-center")).toBeVisible();
 }
 
-export async function createAndRunLoop(page: Page, name: string) {
+export type LoopRunMode = "preventive-required" | "artifact-audited";
+
+/**
+ * Creates and starts a Loop through the wizard and the readiness dialog.
+ *
+ * Strict mode only admits completely enforced surfaces, so it pairs the native OnePiece roles
+ * with the built-in `patch-whitespace` check. Audit mode keeps a CLI Worker and the default
+ * process check and must acknowledge the listed limitations before the start is admitted.
+ */
+export async function createAndRunLoop(page: Page, name: string, mode: LoopRunMode = "preventive-required") {
   const create = page.getByRole("button", { name: "新建循环定义" });
   const openList = page.getByRole("button", { name: "打开循环列表" });
   await expect(create.or(openList)).toBeVisible();
@@ -23,12 +32,17 @@ export async function createAndRunLoop(page: Page, name: string) {
   await page.getByLabel("验收标准（每行一项）").fill("所有检查通过\n保留完整证据");
   await page.getByLabel("允许路径（每行一项）").fill("src\ntests");
   await page.getByLabel("保护路径（每行一项）").fill(".git");
+  await page.getByLabel("强制模式").selectOption(mode);
   await page.getByRole("button", { name: "下一步" }).click();
 
-  await page.getByLabel("执行智能体").selectOption("codex-cli");
-  await page.getByLabel("验证智能体").selectOption("claude-code");
+  await page.getByLabel("执行智能体").selectOption(mode === "preventive-required" ? "onepiece" : "codex-cli");
+  await page.getByLabel("验证智能体").selectOption("onepiece");
   await page.getByRole("button", { name: "下一步" }).click();
   await expect(page.getByLabel("验证程序")).toHaveValue("npm");
+  if (mode === "preventive-required") {
+    await page.getByLabel("检查类型").selectOption("native-check");
+    await expect(page.getByLabel("验证程序")).toHaveValue("patch-whitespace");
+  }
   await page.getByRole("button", { name: "下一步" }).click();
   await expect(page.getByText(name)).toBeVisible();
   await page.getByRole("button", { name: "保存并运行" }).click();
@@ -36,7 +50,14 @@ export async function createAndRunLoop(page: Page, name: string) {
   const preflight = page.getByRole("dialog", { name: "运行就绪检查" });
   await expect(preflight).toBeVisible();
   await expect(preflight.getByText("已准备好启动")).toBeVisible();
+  await expect(preflight.getByText("执行覆盖度", { exact: true })).toBeVisible();
   await preflight.getByRole("button", { name: "启动循环" }).click();
+  if (mode === "artifact-audited") {
+    const acknowledgement = preflight.getByRole("alertdialog", { name: "在启动前确认局限" });
+    await expect(acknowledgement).toBeVisible();
+    await expect(acknowledgement.getByText(/artifact-validation-only/).first()).toBeVisible();
+    await acknowledgement.getByRole("button", { name: "确认局限并启动" }).click();
+  }
   await expect(preflight).toHaveCount(0);
 
   const closeNavigation = page.getByRole("button", { name: "关闭循环列表" });

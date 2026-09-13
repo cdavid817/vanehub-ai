@@ -8,6 +8,8 @@ use std::sync::{Arc, Mutex};
 struct RecoveryWorld {
     runs: Mutex<Vec<LoopRun>>,
     live_leases: BTreeSet<String>,
+    /// Runs whose binding predates scope enforcement. Every other run reports a binding.
+    unbound: Mutex<BTreeSet<String>>,
     evidence: Mutex<Vec<LoopEvidenceView>>,
     operations: Mutex<Vec<LoopOperationContext>>,
     logs: Mutex<Vec<LoopLog>>,
@@ -21,6 +23,7 @@ impl RecoveryWorld {
         Arc::new(Self {
             runs: Mutex::new(runs),
             live_leases: live_leases.iter().map(|value| value.to_string()).collect(),
+            unbound: Mutex::new(BTreeSet::new()),
             evidence: Mutex::new(Vec::new()),
             operations: Mutex::new(Vec::new()),
             logs: Mutex::new(Vec::new()),
@@ -84,6 +87,46 @@ impl LoopRepository for RecoveryWorld {
             .iter()
             .find(|run| run.id() == run_id)
             .cloned())
+    }
+    fn find_run_scope(
+        &self,
+        run_id: &str,
+    ) -> Result<Option<LoopRunScopeRecord>, AgentRuntimeApplicationError> {
+        if self.unbound.lock().expect("unbound").contains(run_id) {
+            return Ok(Some(LoopRunScopeRecord {
+                revision: 1,
+                binding: None,
+                assessment: None,
+                sealed_evidence_id: None,
+                acceptance_operation_id: None,
+            }));
+        }
+        Ok(Some(LoopRunScopeRecord {
+            revision: 1,
+            binding: Some(LoopScopeBinding {
+                schema_version: 1,
+                allowed_paths: vec!["src".to_string()],
+                protected_paths: Vec::new(),
+                requested_mode: "preventive-required".to_string(),
+                definition_version: 1,
+                scope_digest: "sha256:scope".to_string(),
+                root: LoopRootIdentity {
+                    canonical_path: "D:/project-loop".to_string(),
+                    device: 1,
+                    inode: 2,
+                    case_rule: "sensitive".to_string(),
+                },
+                base_commit: None,
+                baseline_manifest_id: "baseline".to_string(),
+                baseline_digest: "tree".to_string(),
+                witness_digest: "sha256:witness".to_string(),
+                audit_receipt_id: None,
+                bound_at: "t".to_string(),
+            }),
+            assessment: None,
+            sealed_evidence_id: None,
+            acceptance_operation_id: None,
+        }))
     }
     fn recovery_owned_sessions(
         &self,
@@ -387,4 +430,38 @@ fn startup_recovery_keeps_conflicting_child_projections_behind_pause_gate() {
         Some(LoopTerminalReason::RecoveryRequired)
     );
     assert_eq!(evidence[0].status, "blocked");
+}
+
+#[test]
+fn startup_recovery_pauses_pre_migration_runs_with_scope_binding_missing() {
+    let mut running = queued("legacy-running");
+    running.begin().expect("begin");
+    let world = RecoveryWorld::new(vec![running, queued("legacy-queued")], &[]);
+    world
+        .unbound
+        .lock()
+        .expect("unbound")
+        .extend(["legacy-running".to_string(), "legacy-queued".to_string()]);
+
+    let recovered = world.service().reconcile_startup().expect("reconcile");
+    let by_id = |id: &str| {
+        recovered
+            .iter()
+            .find(|run| run.id() == id)
+            .expect(id)
+            .clone()
+    };
+    let running = by_id("legacy-running");
+    assert_eq!(running.status(), LoopRunStatus::Paused);
+    assert_eq!(
+        running.terminal_reason(),
+        Some(LoopTerminalReason::ScopeBindingMissing),
+        "a run that already executed without a binding never regains authority"
+    );
+    let queued = by_id("legacy-queued");
+    assert_eq!(
+        queued.terminal_reason(),
+        Some(LoopTerminalReason::RecoveryRequired),
+        "a queued run binds during preparation and follows ordinary recovery"
+    );
 }

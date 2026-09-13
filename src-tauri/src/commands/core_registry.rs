@@ -87,6 +87,9 @@ pub(crate) fn invoke_handler(
         crate::commands::agent_runtime::loops::accept_loop::accept_loop,
         crate::commands::agent_runtime::loops::continue_loop::continue_loop,
         crate::commands::agent_runtime::loops::reject_loop::reject_loop,
+        crate::commands::agent_runtime::loops::prepare_loop_admission::prepare_loop_admission,
+        crate::commands::agent_runtime::loops::acknowledge_loop_audit::acknowledge_loop_audit,
+        crate::commands::agent_runtime::loops::request_loop_acceptance::request_loop_acceptance,
         // Sessions
         crate::commands::sessions::open_code_review::open_code_review,
         crate::commands::sessions::get_code_review::get_code_review,

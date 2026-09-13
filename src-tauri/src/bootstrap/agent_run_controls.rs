@@ -49,7 +49,12 @@ impl AgentRunControlsApi {
         match run.owner.owner_type.as_str() {
             "loop_run" => {
                 self.agents
-                    .resume_loop(&run.owner.owner_id)
+                    // A canonical-run resume is unattended: it carries no acknowledgement, so an
+                    // artifact-audited Loop is refused here rather than silently admitted.
+                    .resume_loop(
+                        &run.owner.owner_id,
+                        crate::contexts::agent_runtime::api::LoopControlEnvelope::legacy(),
+                    )
                     .map_err(|_| OperationsError::Internal("run owner resume failed".into()))?;
             }
             _ => return self.runs.resume(run_id, version),
