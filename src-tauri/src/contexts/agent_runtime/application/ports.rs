@@ -1287,10 +1287,10 @@ pub(crate) trait AgentMemoryExtractionPort: Send + Sync {
 /// Chooses which stored memories are worth injecting in full for one generation
 /// (`add-two-tier-memory-recall`).
 ///
-/// Sees names, types, ages, and descriptions — never bodies — so its cost scales with how many
-/// memories exist rather than how large they are. Returns the selected names; an empty result
-/// means nothing was clearly useful, which is the expected outcome most of the time and never an
-/// error. `Err` is reserved for a call that could not be made or whose result was unusable, and
+/// Sees ids, names, types, ages, and descriptions — never bodies — so its cost scales with how
+/// many memories exist rather than how large they are. Returns the selected immutable ids, never
+/// display names, so two same-named records cannot be confused; an empty result means nothing was
+/// clearly useful, which is the expected outcome most of the time and never an error. `Err` is reserved for a call that could not be made or whose result was unusable, and
 /// the caller degrades to index-only injection rather than failing the generation.
 // Wired by task 3.1, which runs the selection once at generation start.
 #[allow(dead_code)]
@@ -1322,6 +1322,11 @@ pub(crate) trait AgentMemorySelectionPort: Send + Sync {
 pub(crate) struct GenerationPersonalizationContext {
     pub(crate) agent_id: String,
     pub(crate) session_id: String,
+    /// The generation or seat turn this snapshot is frozen for. Part of the read context's
+    /// identity, so a context cannot be carried into a later generation.
+    pub(crate) generation_id: String,
+    /// The seat speaking in a multi-seat session, `None` for a single-Agent session.
+    pub(crate) seat_id: Option<String>,
     /// The workspace folder this session is working in, as the session records it.
     pub(crate) folder: Option<String>,
     /// The mode the session was created in. Applied last and able only to narrow, so no policy,
@@ -1349,6 +1354,7 @@ pub(crate) trait AgentPersonalizationSnapshotPort: Send + Sync {
     /// whose record moved since is simply absent rather than silently newer.
     fn pinned_bodies(
         &self,
+        context: &crate::contexts::agent_runtime::domain::AgentMemoryReadContext,
         refs: &[AgentMemoryRef],
     ) -> Result<Vec<AgentMemoryBody>, AgentRuntimeApplicationError>;
 
@@ -1454,6 +1460,11 @@ pub(crate) struct AgentRetrievalHit {
     pub(crate) content: String,
     pub(crate) created_at: String,
     pub(crate) matched_via: String,
+    /// Internal provenance for host-side consumers (Context Engine candidates, diagnostics).
+    /// Never projected into the model-facing tool payload.
+    pub(crate) memory_id: String,
+    pub(crate) revision: u64,
+    pub(crate) content_hash: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1501,10 +1512,16 @@ pub(crate) trait AgentRetrievalPort: Send + Sync {
     /// configured", exactly like `RetrievalApi::is_configured`'s own contract.
     fn is_configured(&self) -> bool;
 
-    /// No scope arguments: memories are a single host-level pool shared by every agent
-    /// (`agent-memory-shared-pool`), which is the same pool the recency injection draws from, so
-    /// there is no per-agent or per-folder slice for a caller to name.
-    fn search(&self, query: &str, limit: usize) -> Result<AgentRetrievalOutcome, String>;
+    /// Governed search. The model supplies only `query` and `limit`; the read context comes from
+    /// the generation's snapshot and is the only thing that decides which records may be
+    /// considered. There is no variant without a context: storage is one shared pool, the read
+    /// domain is not.
+    fn search(
+        &self,
+        context: &crate::contexts::agent_runtime::domain::AgentMemoryReadContext,
+        query: &str,
+        limit: usize,
+    ) -> Result<AgentRetrievalOutcome, String>;
 
     fn code_retrieval(&self) -> Option<&dyn AgentCodeRetrievalPort> {
         None

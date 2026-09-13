@@ -504,6 +504,9 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         Arc::new(crate::contexts::personalization::infrastructure::SystemPersonalizationClock),
     )
     .map_err(boxed_message)?;
+    // Memory authority for `recall` is the personalization boundary; bound as soon as it exists
+    // so no generation can reach the retrieval port without it.
+    deferred_retrieval.bind_personalization(personalization_api.clone());
     let super::AgentRuntimeAssembly {
         api: agent_runtime_api,
         telemetry_lifecycle,

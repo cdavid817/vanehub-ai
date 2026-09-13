@@ -3,8 +3,9 @@ use chrono::{DateTime, Utc};
 use super::error::PersonalizationApplicationError;
 use super::migrate_legacy_policy::{LegacyPersonalizationSettings, MigratedPolicy};
 use super::models::{
-    CreateMemoryInput, DeleteMemoryOutcome, DiscoveredLegacySource, MemoryEligibilityCriteria,
-    ResetCounts, UpdateMemoryPatch, WorkspaceIdentityRequest,
+    AuthorizedMemoryRelation, CreateMemoryInput, DeleteMemoryOutcome, DiscoveredLegacySource,
+    EligibilityEnumerationBudget, MemoryEligibilityCriteria, ResetCounts, UpdateMemoryPatch,
+    WorkspaceIdentityRequest,
 };
 use crate::contexts::personalization::domain::{
     AgentId, CandidateReviewStatus, LegacyAddressKey, LegacySourceId, LegacySourceLocator,
@@ -170,6 +171,23 @@ pub(crate) trait MemoryProjectionPort: Send + Sync {
         &self,
         criteria: &MemoryEligibilityCriteria,
     ) -> Result<MemoryEligibilitySummary>;
+
+    /// The complete eligible metadata relation, paged under one consistent read.
+    ///
+    /// Distinct from `eligible_page`, whose refs are a bounded injection page: this is the whole
+    /// domain a recall or Context Engine query may consider, and it must be complete or reported
+    /// as not. Never carries a body. Fakes that do not model retrieval keep the default, which
+    /// refuses rather than pretending an empty relation is a complete one.
+    fn eligible_authority(
+        &self,
+        criteria: &MemoryEligibilityCriteria,
+        budget: EligibilityEnumerationBudget,
+    ) -> Result<AuthorizedMemoryRelation> {
+        let _ = (criteria, budget);
+        Err(PersonalizationApplicationError::Storage(
+            "complete eligibility enumeration is not supported by this projection".to_string(),
+        ))
+    }
 
     fn projected_ids(&self) -> Result<Vec<MemoryId>>;
     fn clear(&self) -> Result<usize>;

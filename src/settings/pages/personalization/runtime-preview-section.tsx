@@ -232,8 +232,26 @@ function PreviewOutput({ preview }: { preview: EffectivePreview }) {
 
       <section>
         <h4 className="text-sm font-semibold">{t("personalization.preview.memory")}</h4>
+        <p className="mt-1 text-xs text-muted-foreground" data-testid="personalization-preview-kind">
+          {t(`personalization.preview.kind.${preview.previewKind}`)}
+        </p>
         <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          <Badge tone={preview.memoryRead ? "success" : "muted"} data-testid="personalization-preview-delivery">
+          {/* Read allowance is a fact of its own. An allowed empty pool is still allowed, and a
+              blocked read names the thing to change rather than hiding behind a zero count. */}
+          <Badge
+            tone={preview.memoryReadAllowed ? "success" : "muted"}
+            data-testid="personalization-preview-read-allowed"
+          >
+            {preview.memoryReadAllowed
+              ? t("personalization.preview.readAllowed")
+              : t("personalization.preview.readBlocked")}
+          </Badge>
+          {!preview.memoryReadAllowed && preview.readBlockReason ? (
+            <span data-testid="personalization-preview-read-block-reason">
+              {t(`personalization.preview.readBlockReason.${preview.readBlockReason}`)}
+            </span>
+          ) : null}
+          <Badge tone={preview.memoryReadAllowed ? "success" : "muted"} data-testid="personalization-preview-delivery">
             {t(`personalization.overview.delivery.${preview.memoryDelivery}`)}
           </Badge>
           <span data-testid="personalization-preview-counts">
@@ -242,8 +260,23 @@ function PreviewOutput({ preview }: { preview: EffectivePreview }) {
               considered: preview.consideredMemoryCount,
             })}
           </span>
+          <span data-testid="personalization-preview-index-page">
+            {t("personalization.preview.indexPage", { entries: preview.indexEntryCount })}
+            {preview.indexTruncated ? ` · ${t("personalization.preview.indexTruncated")}` : ""}
+          </span>
+          <span data-testid="personalization-preview-recall">
+            {t(`personalization.preview.recall.${preview.recallAvailability}`)}
+          </span>
           <span>{t("personalization.preview.tokens", { count: preview.approximateTokens })}</span>
         </div>
+        {preview.memoryReadAllowed && preview.eligibleMemoryCount === 0 ? (
+          <p className="mt-1 text-xs text-muted-foreground" data-testid="personalization-preview-empty-pool">
+            {t("personalization.preview.emptyPool")}
+          </p>
+        ) : null}
+        <p className="mt-1 text-xs text-muted-foreground" data-testid="personalization-preview-same-scope">
+          {t("personalization.preview.sameScope")}
+        </p>
         {preview.memoryExclusions.length > 0 ? (
           <ul className="mt-2 list-disc pl-5 text-xs text-muted-foreground" data-testid="personalization-preview-memory-exclusions">
             {preview.memoryExclusions.map((exclusion) => (

@@ -1,7 +1,6 @@
 use crate::contexts::retrieval::application::{IndexSourcePort, IndexSourceRecord};
 use crate::contexts::retrieval::domain::RetrievalError;
 use crate::platform::database::{DatabaseError, NativeDatabase};
-use rusqlite::{params, OptionalExtension};
 
 pub(crate) struct WorkspaceFileIndexSource {
     database: NativeDatabase,
@@ -38,43 +37,14 @@ impl IndexSourcePort for WorkspaceFileIndexSource {
                     folder: self.workspace_id.clone(),
                     content: row.get(1)?,
                     created_at: row.get(2)?,
+                    // Workspace code is admitted for embedding by the explicit per-workspace
+                    // confirmation, which the generation guard checks; no per-record restriction.
+                    egress_restricted: false,
                 })
             })
             .map_err(storage_error)?
             .collect::<Result<Vec<_>, _>>()
             .map_err(storage_error)?;
-        Ok(records)
-    }
-
-    fn fetch(&self, source_ids: &[String]) -> Result<Vec<IndexSourceRecord>, RetrievalError> {
-        let connection = self.database.connection().map_err(database_error)?;
-        let mut statement = connection
-            .prepare(
-                r#"
-                SELECT source_id, content, created_at
-                FROM retrieval_documents
-                WHERE source_kind = 'workspace_file' AND scope_folder = ?1 AND source_id = ?2
-                "#,
-            )
-            .map_err(storage_error)?;
-        let mut records = Vec::with_capacity(source_ids.len());
-        for source_id in source_ids {
-            let record = statement
-                .query_row(params![self.workspace_id, source_id], |row| {
-                    Ok(IndexSourceRecord {
-                        source_id: row.get(0)?,
-                        agent_id: String::new(),
-                        folder: self.workspace_id.clone(),
-                        content: row.get(1)?,
-                        created_at: row.get(2)?,
-                    })
-                })
-                .optional()
-                .map_err(storage_error)?;
-            if let Some(record) = record {
-                records.push(record);
-            }
-        }
         Ok(records)
     }
 }

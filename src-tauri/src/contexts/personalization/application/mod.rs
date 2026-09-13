@@ -11,6 +11,9 @@ mod models;
 mod policy_cache;
 mod ports;
 mod preview_personalization;
+mod read_memory;
+#[cfg(test)]
+mod read_memory_tests;
 mod resolve_policy;
 #[cfg(test)]
 mod resolve_policy_tests;
@@ -36,9 +39,10 @@ pub(crate) use migrate_legacy_policy::{
     ONEPIECE_AGENT_ID,
 };
 pub(crate) use models::{
-    CreateMemoryInput, DeleteMemoryOutcome, DiscoveredLegacySource, LegacyMemoryFields,
-    MemoryEligibilityCriteria, MigrationRunOutcome, ResetCounts, UpdateMemoryPatch,
-    WorkspaceIdentityRequest,
+    AuthorizedMemoryRelation, CreateMemoryInput, DeleteMemoryOutcome, DiscoveredLegacySource,
+    EligibilityEnumerationBudget, EmbeddingEgressDecision, IndexMaintenanceRecord,
+    LegacyMemoryFields, MemoryEligibilityCriteria, MemoryReadRefusal, MigrationRunOutcome,
+    PinnedMemoryBody, ResetCounts, UpdateMemoryPatch, WorkspaceIdentityRequest,
 };
 pub(crate) use policy_cache::{
     is_transient_read_failure, LastKnownGoodPolicyCache, PolicyCacheKey,
@@ -54,6 +58,7 @@ pub(crate) use ports::{
 pub(crate) use preview_personalization::{
     ContextSizeEstimate, EffectivePreview, PersonalizationPreviewService, PreviewInstructionSegment,
 };
+pub(crate) use read_memory::{GovernedMemoryReadService, VerifiedMemoryRef};
 pub(crate) use resolve_policy::{PolicyResolutionService, ResolutionRequest};
 pub(crate) use resolve_workspace_identity::WorkspaceIdentityResolver;
 pub(crate) use review_candidates::{CandidateReviewService, ReviewRequest};

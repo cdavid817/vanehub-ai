@@ -1,6 +1,6 @@
 //! Tool catalog resolution, system prompt assembly, personalization, and memory sections.
 
-use super::super::memory_surfaced::{mark_surfaced, unsurfaced_candidates};
+use super::super::memory_surfaced::{mark_surfaced, unsurfaced_refs};
 use super::super::skill_tool_catalog_adapter::{
     resolve_skill_tool_catalog, ResolvedSkillToolCatalog,
 };
@@ -350,7 +350,10 @@ pub(super) fn propose_remembered_memory(
 ///
 /// A generation that silently lost its personalization is indistinguishable, from the outside,
 /// from a user who configured none, so the loss is recorded. The reason is a stable code — never a
-/// path, never a store error, never instruction text — because this is a log line.
+/// path, never a store error, never instruction text — because this is a log line. A generation
+/// that did get one records only its bounded facts: the scope fingerprint and two counts. Which
+/// memories were excluded, and that they exist at all, stays out of the log as it stays out of
+/// the model's view.
 pub(super) fn resolve_generation_personalization(
     personalization: &dyn AgentPersonalizationSnapshotPort,
     logging: &dyn AgentLoggingPort,
@@ -360,25 +363,48 @@ pub(super) fn resolve_generation_personalization(
     let snapshot = personalization.snapshot(GenerationPersonalizationContext {
         agent_id: request.agent.id.clone(),
         session_id: request.session.id.clone(),
+        generation_id: request.operation_id.clone(),
+        seat_id: request.seat_id.clone(),
         folder: request.session.folder.clone(),
         personalization_mode: request.session.personalization_mode.clone(),
     });
-    if let Some(reason) = snapshot.memory.blocked_reason.as_deref() {
-        let _ = logging.record(AgentLog {
-            level: AgentLogLevel::Warn,
-            category: "session.runtime.api.personalization".to_string(),
-            message: format!(
+    let (level, message) = match (
+        snapshot.memory.blocked_reason.as_deref(),
+        snapshot.read_context.as_ref(),
+    ) {
+        (Some(reason), _) => (
+            AgentLogLevel::Warn,
+            format!(
                 "Personalization unavailable ({reason}); continuing without custom instructions or memory."
             ),
-            agent_id: Some(request.agent.id.clone()),
-            session_id: Some(request.session.id.clone()),
-            operation_id: Some(request.operation_id.clone()),
-            run_id: None,
-            trace_id: None,
-            span_id: None,
-            occurred_at: clock.now(),
-        });
-    }
+        ),
+        (None, Some(context)) => (
+            AgentLogLevel::Debug,
+            format!(
+                "Memory read context frozen (contract v{}, scope {}): {} eligible, {} in the index page.",
+                context.contract_version,
+                context.fingerprint,
+                snapshot.memory.eligible_total,
+                snapshot.memory.eligible.len()
+            ),
+        ),
+        (None, None) => (
+            AgentLogLevel::Debug,
+            "No memory read context for this generation; memory surfaces stay idle.".to_string(),
+        ),
+    };
+    let _ = logging.record(AgentLog {
+        level,
+        category: "session.runtime.api.personalization".to_string(),
+        message,
+        agent_id: Some(request.agent.id.clone()),
+        session_id: Some(request.session.id.clone()),
+        operation_id: Some(request.operation_id.clone()),
+        run_id: None,
+        trace_id: None,
+        span_id: None,
+        occurred_at: clock.now(),
+    });
     snapshot
 }
 
@@ -482,15 +508,24 @@ pub(super) fn resolve_system_prompt_with_settings(
         AgentMemoryDelivery::IndexOnly => (format_memory_section(&eligible), None),
         AgentMemoryDelivery::IndexWithSelectedBodies => (
             format_memory_section(&eligible),
-            select_memory_bodies(
-                &snapshot.memory.eligible,
-                &eligible,
-                personalization,
-                selection,
-                logging,
-                clock,
-                request,
-            ),
+            // No read context means no body work: the selector is not called and nothing is
+            // loaded. The index above was already verified under that same context when the
+            // snapshot was taken.
+            snapshot
+                .read_context
+                .as_ref()
+                .filter(|context| context.permits_read())
+                .and_then(|context| {
+                    select_memory_bodies(
+                        context,
+                        &snapshot.memory.eligible,
+                        personalization,
+                        selection,
+                        logging,
+                        clock,
+                        request,
+                    )
+                }),
         ),
     };
     // Changes on every `todo_write` (`add-agent-task-list` D2), so it is the most volatile section
@@ -525,29 +560,37 @@ pub(super) fn resolve_system_prompt_with_settings(
 /// bodies have to live in the system prompt; and a system prompt that changed every round trip
 /// would invalidate the provider prefix cache on every round trip inside a tool loop.
 ///
+/// Selection speaks immutable ids. The selector is shown each candidate's id and returns ids; a
+/// returned id that was not offered is dropped, and two same-named records can never be confused.
+/// Bodies are then read through the governed port at the pinned revision and hash, under the
+/// same read context the index was built with.
+///
 /// Any failure degrades to index-only injection. Selection is an enhancement — its loss costs
 /// relevance, never the generation, and the index alone still tells the model what exists.
 #[allow(clippy::too_many_arguments)]
 fn select_memory_bodies(
+    context: &crate::contexts::agent_runtime::domain::AgentMemoryReadContext,
     refs: &[AgentMemoryRef],
-    memories: &[AgentMemory],
     personalization: &dyn AgentPersonalizationSnapshotPort,
     selection: &dyn AgentMemorySelectionPort,
     logging: &dyn AgentLoggingPort,
     clock: &dyn AgentClockPort,
     request: &GenerationProcessRequest,
 ) -> Option<String> {
-    if memories.is_empty() {
+    if refs.is_empty() {
         return None;
     }
-    // Excluded before the call, not after: filtering afterwards would spend the bounded selection
-    // budget on memories this session has already been shown and the caller is about to discard.
-    let candidates = unsurfaced_candidates(&request.session.id, memories);
-    if candidates.is_empty() {
+    // Deduplicated after eligibility, never instead of it: the refs here already passed the
+    // current decision, and the surfaced store only removes what this exact subject has been
+    // shown at this exact version. Filtering happens before the selector call so the bounded
+    // selection budget is not spent on memories the caller is about to discard.
+    let candidate_refs = unsurfaced_refs(context, refs);
+    if candidate_refs.is_empty() {
         return None;
     }
-    let selected_names = match selection.select(&request.effective_prompt, &candidates) {
-        Ok(names) => names,
+    let candidates: Vec<AgentMemory> = candidate_refs.iter().map(memory_from_ref).collect();
+    let selected_ids = match selection.select(&request.effective_prompt, &candidates) {
+        Ok(ids) => ids,
         Err(error) => {
             let _ = logging.record(AgentLog {
                 level: AgentLogLevel::Warn,
@@ -566,28 +609,20 @@ fn select_memory_bodies(
             return None;
         }
     };
-    // Follows the selector's own order so its ranking survives into the prompt. A name the selector
-    // returned that is not among the candidates is dropped rather than looked up elsewhere — that
-    // is the only place selection could otherwise reach past what policy allowed.
-    let selected = selected_names
+    // Follows the selector's own order so its ranking survives into the prompt. An id the selector
+    // returned that is not among the offered candidates is dropped rather than looked up elsewhere —
+    // that is the only place selection could otherwise reach past what policy allowed.
+    let pinned: Vec<AgentMemoryRef> = selected_ids
         .iter()
-        .filter_map(|name| {
-            candidates
-                .iter()
-                .find(|memory| &memory.name == name)
-                .cloned()
-        })
-        .collect::<Vec<_>>();
-    if selected.is_empty() {
+        .filter_map(|id| candidate_refs.iter().find(|entry| &entry.id == id).cloned())
+        .collect();
+    if pinned.is_empty() {
         return None;
     }
-    // Fetched at the revisions the snapshot pinned. A memory edited since this generation began is
-    // absent rather than silently newer, so the body in the prompt is the body the index described.
-    let pinned: Vec<AgentMemoryRef> = selected
-        .iter()
-        .filter_map(|memory| refs.iter().find(|entry| entry.id == memory.id).cloned())
-        .collect();
-    let bodies = match personalization.pinned_bodies(&pinned) {
+    // Fetched at the revisions and hashes the snapshot pinned, through the governed read. A memory
+    // edited, re-scoped or revoked since this generation began is absent rather than silently
+    // newer, so the body in the prompt is the body the index described.
+    let bodies = match personalization.pinned_bodies(context, &pinned) {
         Ok(bodies) => bodies,
         Err(error) => {
             let _ = logging.record(AgentLog {
@@ -609,17 +644,22 @@ fn select_memory_bodies(
     };
     // Marked only for what actually reached the prompt. Marking the selection instead would hide a
     // memory from later turns that this one never showed.
-    let surfaced: Vec<AgentMemory> = pinned
+    let (surfaced_refs, surfaced): (Vec<AgentMemoryRef>, Vec<AgentMemory>) = pinned
         .iter()
         .filter_map(|entry| {
-            let body = bodies.iter().find(|body| body.id == entry.id)?;
-            Some(AgentMemory {
-                content: body.content.clone(),
-                ..memory_from_ref(entry)
-            })
+            let body = bodies
+                .iter()
+                .find(|body| body.id == entry.id && body.revision == entry.revision)?;
+            Some((
+                entry.clone(),
+                AgentMemory {
+                    content: body.content.clone(),
+                    ..memory_from_ref(entry)
+                },
+            ))
         })
-        .collect();
-    mark_surfaced(&request.session.id, &surfaced);
+        .unzip();
+    mark_surfaced(context, &surfaced_refs);
     crate::contexts::agent_runtime::application::format_memory_bodies(
         &surfaced,
         std::time::SystemTime::now(),

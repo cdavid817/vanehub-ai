@@ -8,7 +8,7 @@ use tempfile::TempDir;
 
 use super::sqlite_memory_projection::SqliteMemoryProjection;
 use crate::contexts::personalization::application::{
-    MemoryEligibilityCriteria, MemoryProjectionPort,
+    EligibilityEnumerationBudget, MemoryEligibilityCriteria, MemoryProjectionPort,
 };
 use crate::contexts::personalization::domain::{
     AgentId, MemoryAudience, MemoryId, MemoryProvenance, MemoryRecord, MemoryScope,
@@ -441,4 +441,116 @@ fn a_digest_carries_no_memory_text() {
         .all(|character| character.is_ascii_hexdigit()));
     assert!(!digest.contains("body"));
     assert!(!digest.contains("memory"));
+}
+
+#[test]
+fn the_complete_relation_pages_every_eligible_row_and_never_the_injection_bound() {
+    // MR-11 at the projection: the refs page stops at its limit, the relation does not.
+    let fixture = fixture("authority-complete");
+    for _ in 0..7 {
+        fixture.put(
+            MemoryScope::Global,
+            MemoryAudience::AllAgents,
+            MemoryStatus::Active,
+        );
+    }
+    fixture.put(
+        MemoryScope::Global,
+        MemoryAudience::AllAgents,
+        MemoryStatus::Candidate,
+    );
+    let mut criteria = fixture.criteria();
+    criteria.limit = 2;
+
+    let page = fixture.projection.eligible_page(&criteria).expect("page");
+    assert_eq!(page.refs.len(), 2);
+    assert!(page.truncated);
+
+    let relation = fixture
+        .projection
+        .eligible_authority(
+            &criteria,
+            EligibilityEnumerationBudget {
+                max_entries: 100,
+                page_size: 3,
+            },
+        )
+        .expect("relation");
+    assert!(relation.complete);
+    assert_eq!(
+        relation.entries.len(),
+        7,
+        "paged across three pages of three"
+    );
+    assert_eq!(relation.considered, 8);
+    let mut ids: Vec<&str> = relation
+        .entries
+        .iter()
+        .map(|handle| handle.id.as_str())
+        .collect();
+    let unique: std::collections::BTreeSet<&str> = ids.iter().copied().collect();
+    assert_eq!(
+        unique.len(),
+        7,
+        "keyset paging must visit each row exactly once"
+    );
+    ids.sort();
+    assert!(relation
+        .entries
+        .iter()
+        .all(|handle| !handle.content_hash.is_empty() && !handle.authority_fingerprint.is_empty()));
+}
+
+#[test]
+fn a_relation_larger_than_its_budget_is_reported_incomplete_rather_than_cut() {
+    // MR-14/MR-31: a truncated authorization set would silently drop eligible records past the
+    // cut, so the enumeration reports incomplete and hands back nothing to search over.
+    let fixture = fixture("authority-budget");
+    for _ in 0..5 {
+        fixture.put(
+            MemoryScope::Global,
+            MemoryAudience::AllAgents,
+            MemoryStatus::Active,
+        );
+    }
+
+    let relation = fixture
+        .projection
+        .eligible_authority(
+            &fixture.criteria(),
+            EligibilityEnumerationBudget {
+                max_entries: 4,
+                page_size: 2,
+            },
+        )
+        .expect("relation");
+    assert!(!relation.complete);
+    assert!(relation.entries.is_empty());
+}
+
+#[test]
+fn audience_membership_is_exact_under_sql_as_well_as_in_the_domain() {
+    // MR-06 at the projection: the JSON membership test admits the complete stable id only.
+    let fixture = fixture("authority-exact-audience");
+    fixture.put(
+        MemoryScope::Global,
+        MemoryAudience::SelectedAgents {
+            agent_ids: vec![agent("agent-1")],
+        },
+        MemoryStatus::Active,
+    );
+    let eligible_for = |agent_id: &str| {
+        let mut criteria = fixture.criteria();
+        criteria.agent_id = agent(agent_id);
+        fixture
+            .projection
+            .eligible_authority(&criteria, EligibilityEnumerationBudget::DEFAULT)
+            .expect("relation")
+            .entries
+            .len()
+    };
+    assert_eq!(eligible_for("agent-1"), 1);
+    for impostor in ["agent-10", "AGENT-1", "agent-%", "agent-_", "gent-1"] {
+        assert_eq!(eligible_for(impostor), 0, "{impostor}");
+    }
 }

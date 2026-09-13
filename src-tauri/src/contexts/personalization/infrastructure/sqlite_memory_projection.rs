@@ -4,13 +4,14 @@ use rusqlite::{types::Value, Connection, Row, ToSql};
 use sha2::{Digest, Sha256};
 
 use crate::contexts::personalization::application::{
-    MemoryEligibilityCriteria, MemoryProjectionPort, PersonalizationApplicationError, ResetCounts,
+    AuthorizedMemoryRelation, EligibilityEnumerationBudget, MemoryEligibilityCriteria,
+    MemoryProjectionPort, PersonalizationApplicationError, ResetCounts,
 };
 use crate::contexts::personalization::domain::{
-    AgentId, LegacyMemorySaveSource, MemoryAudience, MemoryCursor, MemoryEligibilitySummary,
-    MemoryExclusionCount, MemoryId, MemoryOrder, MemoryPage, MemoryQuery, MemoryRecord,
-    MemoryScopeFilter, MemorySource, MemoryStatus, MemorySummary, MemoryType,
-    PersonalizationExclusionReason, SnapshotMemoryRef, WorkspaceKey,
+    authority_fingerprint, AgentId, LegacyMemorySaveSource, MemoryAudience, MemoryCursor,
+    MemoryEligibilitySummary, MemoryExclusionCount, MemoryId, MemoryOrder, MemoryPage, MemoryQuery,
+    MemoryReadHandle, MemoryRecord, MemoryScope, MemoryScopeFilter, MemorySource, MemoryStatus,
+    MemorySummary, MemoryType, PersonalizationExclusionReason, SnapshotMemoryRef, WorkspaceKey,
 };
 use crate::platform::database::{NativeDatabase, PooledSqlite};
 
@@ -51,10 +52,123 @@ fn audience_is_restricted(json: &str) -> bool {
     json != "\"all_agents\""
 }
 
+/// The inverse of `audience_json`, strict: anything but the two shapes this projection writes is
+/// an error, never a guess at "all agents".
+fn parse_audience_json(json: &str) -> Result<MemoryAudience> {
+    if json == "\"all_agents\"" {
+        return Ok(MemoryAudience::AllAgents);
+    }
+    let value: serde_json::Value = serde_json::from_str(json).map_err(|error| {
+        PersonalizationApplicationError::Storage(format!(
+            "personalization projection holds an unreadable audience: {error}"
+        ))
+    })?;
+    let ids = value
+        .get("selected_agents")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| {
+            PersonalizationApplicationError::Storage(
+                "personalization projection holds an audience of unknown shape".to_string(),
+            )
+        })?;
+    let agent_ids = ids
+        .iter()
+        .map(|id| {
+            id.as_str()
+                .ok_or_else(|| {
+                    PersonalizationApplicationError::Storage(
+                        "personalization projection holds a non-text audience member".to_string(),
+                    )
+                })
+                .and_then(|id| AgentId::parse(id).map_err(PersonalizationApplicationError::from))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(MemoryAudience::SelectedAgents { agent_ids })
+}
+
+/// The one eligibility expression every governed query shares.
+///
+/// Bound parameters, in order: `?1` the stable Agent id, `?2` whether global scope is allowed,
+/// `?3` whether the session is project-only, `?4` the one admitted workspace key or NULL.
+///
+/// Rows this build cannot classify -- an unknown status or scope kind, inconsistent workspace
+/// columns, or an audience that is not one of the two shapes this projection writes -- come out
+/// as `invalid_record` before any policy branch, so they can never fall through to `eligible`.
+/// Audience membership is an exact `json_each` equality under BINARY collation: no LIKE, no
+/// substring, no case folding, so `agent-1` never admits `agent-10` and `Agent` never admits
+/// `agent`.
+/// One keyset page of the complete eligibility relation. Params: ?1 agent, ?2 allow_global,
+/// ?3 project_only, ?4 workspace, ?5 the last id of the previous page, ?6 the page size.
+fn eligibility_page_statement() -> String {
+    format!(
+        "SELECT memory_id, revision, content_hash, status, scope_kind, workspace_key, \
+                audience_json \
+         FROM personalization_memory_projection \
+         WHERE ({ELIGIBILITY_CLASSIFICATION}) = 'eligible' AND memory_id > ?5 \
+         ORDER BY memory_id ASC LIMIT ?6"
+    )
+}
+
+#[cfg(test)]
+impl SqliteMemoryProjection {
+    /// The planner's answer for one relation page, for the scale measurement notes.
+    pub(crate) fn explain_eligibility_page(
+        &self,
+        criteria: &MemoryEligibilityCriteria,
+        page_size: usize,
+    ) -> Result<Vec<String>> {
+        let conn = self.connection()?;
+        let statement = format!("EXPLAIN QUERY PLAN {}", eligibility_page_statement());
+        let mut prepared = conn.prepare(&statement).map_err(storage)?;
+        let rows = prepared
+            .query_map(
+                rusqlite::params![
+                    criteria.agent_id.as_str(),
+                    i64::from(criteria.allow_global),
+                    i64::from(criteria.project_only),
+                    criteria
+                        .workspace
+                        .as_ref()
+                        .map(|key| key.as_str().to_string()),
+                    "",
+                    i64::try_from(page_size).unwrap_or(i64::MAX),
+                ],
+                |row| row.get::<_, String>(3),
+            )
+            .map_err(storage)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(storage)
+    }
+}
+
+const ELIGIBILITY_CLASSIFICATION: &str = "\
+    CASE \
+      WHEN status NOT IN ('candidate', 'active', 'archived') THEN 'invalid_record' \
+      WHEN scope_kind NOT IN ('global', 'workspace') THEN 'invalid_record' \
+      WHEN scope_kind = 'global' AND workspace_key IS NOT NULL THEN 'invalid_record' \
+      WHEN scope_kind = 'workspace' AND workspace_key IS NULL THEN 'invalid_record' \
+      WHEN audience_json <> '\"all_agents\"' \
+        AND NOT (json_valid(audience_json) \
+                 AND json_type(audience_json, '$.selected_agents') = 'array') \
+        THEN 'invalid_record' \
+      WHEN status = 'candidate' THEN 'pending_candidate' \
+      WHEN status <> 'active' THEN 'archived' \
+      WHEN scope_kind = 'global' AND ?3 = 1 THEN 'project_only_session' \
+      WHEN scope_kind = 'global' AND ?2 = 0 THEN 'global_memory_disabled' \
+      WHEN scope_kind = 'workspace' AND (?4 IS NULL OR workspace_key IS NOT ?4) \
+        THEN 'other_workspace' \
+      WHEN audience_json <> '\"all_agents\"' \
+        AND NOT EXISTS (SELECT 1 FROM json_each(audience_json, '$.selected_agents') \
+                        WHERE json_each.type = 'text' AND json_each.value = ?1) \
+        THEN 'agent_audience' \
+      ELSE 'eligible' \
+    END";
+
 fn exclusion_reason(outcome: &str) -> Option<PersonalizationExclusionReason> {
     Some(match outcome {
         "pending_candidate" => PersonalizationExclusionReason::PendingCandidate,
         "archived" => PersonalizationExclusionReason::Archived,
+        "invalid_record" => PersonalizationExclusionReason::InvalidRecord,
         "project_only_session" => PersonalizationExclusionReason::ProjectOnlySession,
         "global_memory_disabled" => PersonalizationExclusionReason::GlobalMemoryDisabled,
         "other_workspace" => PersonalizationExclusionReason::OtherWorkspace,
@@ -73,12 +187,20 @@ fn read_snapshot_ref(row: &Row<'_>) -> rusqlite::Result<Result<SnapshotMemoryRef
     let scope_kind: String = row.get(6)?;
     let workspace_key: Option<String> = row.get(7)?;
     let updated_at: String = row.get(8)?;
+    let status: String = row.get(9)?;
+    let audience: String = row.get(10)?;
 
     Ok((|| {
         Ok(SnapshotMemoryRef {
             id: MemoryId::parse(&memory_id)?,
             revision: u64::try_from(revision).unwrap_or_default(),
             content_hash,
+            authority_fingerprint: row_authority_fingerprint(
+                &status,
+                &scope_kind,
+                workspace_key.as_deref(),
+                &audience,
+            )?,
             name,
             description,
             memory_type: MemoryType::parse(&memory_type)?,
@@ -88,6 +210,22 @@ fn read_snapshot_ref(row: &Row<'_>) -> rusqlite::Result<Result<SnapshotMemoryRef
             updated_at: parse_timestamp(&updated_at)?,
         })
     })())
+}
+
+/// The authority digest for one projected row, computed from the same columns the domain reads.
+fn row_authority_fingerprint(
+    status: &str,
+    scope_kind: &str,
+    workspace_key: Option<&str>,
+    audience_json: &str,
+) -> Result<String> {
+    let workspace_key = workspace_key.map(WorkspaceKey::parse).transpose()?;
+    let scope = MemoryScope::from_parts(scope_kind, workspace_key.as_ref())?;
+    Ok(authority_fingerprint(
+        &MemoryStatus::parse(status)?,
+        &scope,
+        &parse_audience_json(audience_json)?,
+    ))
 }
 
 /// A digest over what was eligible, in a fixed order.
@@ -260,8 +398,9 @@ fn build_filters(query: &MemoryQuery) -> FilterSql {
         );
     }
     if let Some(audience_agent_id) = query.audience_agent_id.as_ref() {
-        // Either the memory is open to everyone, or the JSON list names this Agent. Matching on
-        // the quoted id avoids `agent-1` matching `agent-10`.
+        // Either the memory is open to everyone, or the JSON list names exactly this Agent. An
+        // exact `json_each` equality rather than a LIKE: a pattern match would admit prefixes,
+        // wildcard characters inside an id, and case variants.
         let all_index = filter.next_index();
         filter
             .bindings
@@ -269,9 +408,11 @@ fn build_filters(query: &MemoryQuery) -> FilterSql {
         let named_index = filter.next_index();
         filter
             .bindings
-            .push(Value::Text(format!("%\"{}\"%", audience_agent_id.as_str())));
+            .push(Value::Text(audience_agent_id.as_str().to_string()));
         filter.clauses.push(format!(
-            "(audience_json = ?{all_index} OR audience_json LIKE ?{named_index})"
+            "(audience_json = ?{all_index} OR (json_valid(audience_json) AND EXISTS (\
+                SELECT 1 FROM json_each(audience_json, '$.selected_agents') \
+                WHERE json_each.type = 'text' AND json_each.value = ?{named_index})))"
         ));
     }
     filter
@@ -515,40 +656,19 @@ impl MemoryProjectionPort for SqliteMemoryProjection {
             .workspace
             .as_ref()
             .map(|key| key.as_str().to_string());
-        let audience_all = "\"all_agents\"".to_string();
-        // Matches the encoding `audience_json` writes for a selected list, so an Agent id that is a
-        // prefix of another cannot match by accident.
-        let audience_named = format!("%\"{}\"%", criteria.agent_id.as_str());
 
         // One expression, evaluated once per row, that assigns exactly one outcome. Computing
         // eligibility and the exclusion counts separately is how the two drift until they stop
         // adding up, and the whole point of this summary is that they do.
-        //
-        // The branch order is the primary-reason precedence, most fundamental first: a record that
-        // is not a live memory at all, then the session restriction, then the global toggle, then
-        // the workspace, then the audience. A user is told the outermost thing to change.
-        let classification = "\
-            CASE \
-              WHEN status = 'candidate' THEN 'pending_candidate' \
-              WHEN status <> 'active' THEN 'archived' \
-              WHEN scope_kind = 'global' AND ?4 = 1 THEN 'project_only_session' \
-              WHEN scope_kind = 'global' AND ?3 = 0 THEN 'global_memory_disabled' \
-              WHEN scope_kind = 'workspace' AND (?5 IS NULL OR workspace_key IS NOT ?5) \
-                THEN 'other_workspace' \
-              WHEN audience_json <> ?1 AND audience_json NOT LIKE ?2 THEN 'agent_audience' \
-              ELSE 'eligible' \
-            END";
-
         let counts_statement = format!(
-            "SELECT {classification} AS outcome, COUNT(*) \
+            "SELECT {ELIGIBILITY_CLASSIFICATION} AS outcome, COUNT(*) \
              FROM personalization_memory_projection GROUP BY outcome"
         );
         let mut prepared = conn.prepare(&counts_statement).map_err(storage)?;
         let rows = prepared
             .query_map(
                 rusqlite::params![
-                    audience_all,
-                    audience_named,
+                    criteria.agent_id.as_str(),
                     i64::from(criteria.allow_global),
                     i64::from(criteria.project_only),
                     workspace,
@@ -566,10 +686,10 @@ impl MemoryProjectionPort for SqliteMemoryProjection {
                 "eligible" => summary.eligible_total = count,
                 other => {
                     // An outcome this build cannot name still has to be counted, or the totals
-                    // would quietly stop adding up. Attributing it to the runtime is the honest
-                    // catch-all: something here could not classify the row.
+                    // would quietly stop adding up. It is attributed to the record, never to the
+                    // session: something here could not classify the row.
                     let reason = exclusion_reason(other)
-                        .unwrap_or(PersonalizationExclusionReason::RuntimeCapability);
+                        .unwrap_or(PersonalizationExclusionReason::InvalidRecord);
                     summary
                         .exclusions
                         .push(MemoryExclusionCount { reason, count });
@@ -584,17 +704,16 @@ impl MemoryProjectionPort for SqliteMemoryProjection {
 
         let refs_statement = format!(
             "SELECT memory_id, revision, content_hash, name, description, memory_type, scope_kind, \
-                    workspace_key, updated_at \
+                    workspace_key, updated_at, status, audience_json \
              FROM personalization_memory_projection \
-             WHERE ({classification}) = 'eligible' \
-             ORDER BY updated_at DESC, memory_id ASC LIMIT ?6"
+             WHERE ({ELIGIBILITY_CLASSIFICATION}) = 'eligible' \
+             ORDER BY updated_at DESC, memory_id ASC LIMIT ?5"
         );
         let mut prepared = conn.prepare(&refs_statement).map_err(storage)?;
         let rows = prepared
             .query_map(
                 rusqlite::params![
-                    audience_all,
-                    audience_named,
+                    criteria.agent_id.as_str(),
                     i64::from(criteria.allow_global),
                     i64::from(criteria.project_only),
                     workspace,
@@ -611,6 +730,77 @@ impl MemoryProjectionPort for SqliteMemoryProjection {
         Ok(summary)
     }
 
+    /// One read-only snapshot for the whole enumeration, so a save landing between two pages
+    /// cannot produce a relation that mixes two states of the store. Released before any caller
+    /// goes near a network call.
+    fn eligible_authority(
+        &self,
+        criteria: &MemoryEligibilityCriteria,
+        budget: EligibilityEnumerationBudget,
+    ) -> Result<AuthorizedMemoryRelation> {
+        let mut conn = self.connection()?;
+        let snapshot = conn.transaction().map_err(storage)?;
+        let workspace = criteria
+            .workspace
+            .as_ref()
+            .map(|key| key.as_str().to_string());
+        let considered: i64 = snapshot
+            .query_row(
+                "SELECT COUNT(*) FROM personalization_memory_projection",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(storage)?;
+        let page_size = budget.page_size.clamp(1, 10_000);
+        let statement = eligibility_page_statement();
+        let mut prepared = snapshot.prepare(&statement).map_err(storage)?;
+        let mut entries: Vec<MemoryReadHandle> = Vec::new();
+        let mut after = String::new();
+        let mut complete = true;
+        loop {
+            let rows = prepared
+                .query_map(
+                    rusqlite::params![
+                        criteria.agent_id.as_str(),
+                        i64::from(criteria.allow_global),
+                        i64::from(criteria.project_only),
+                        workspace,
+                        after,
+                        i64::try_from(page_size).unwrap_or(i64::MAX),
+                    ],
+                    read_authority_row,
+                )
+                .map_err(storage)?;
+            let mut page = Vec::new();
+            for row in rows {
+                page.push(row.map_err(storage)??);
+            }
+            let page_len = page.len();
+            if let Some(last) = page.last() {
+                after = last.id.as_str().to_string();
+            }
+            entries.extend(page);
+            if entries.len() > budget.max_entries {
+                // The relation is larger than this build is willing to hold. Reported as
+                // incomplete rather than cut to the budget: a truncated relation is an
+                // authorization set with eligible records silently missing from it.
+                complete = false;
+                entries.clear();
+                break;
+            }
+            if page_len < page_size {
+                break;
+            }
+        }
+        drop(prepared);
+        snapshot.finish().map_err(storage)?;
+        Ok(AuthorizedMemoryRelation {
+            entries,
+            considered: usize::try_from(considered).unwrap_or_default(),
+            complete,
+        })
+    }
+
     fn projected_ids(&self) -> Result<Vec<MemoryId>> {
         let conn = self.connection()?;
         collect_ids(
@@ -624,6 +814,29 @@ impl MemoryProjectionPort for SqliteMemoryProjection {
         conn.execute("DELETE FROM personalization_memory_projection", [])
             .map_err(storage)
     }
+}
+
+fn read_authority_row(row: &Row<'_>) -> rusqlite::Result<Result<MemoryReadHandle>> {
+    let memory_id: String = row.get(0)?;
+    let revision: i64 = row.get(1)?;
+    let content_hash: String = row.get(2)?;
+    let status: String = row.get(3)?;
+    let scope_kind: String = row.get(4)?;
+    let workspace_key: Option<String> = row.get(5)?;
+    let audience: String = row.get(6)?;
+    Ok((|| {
+        Ok(MemoryReadHandle {
+            id: MemoryId::parse(&memory_id)?,
+            revision: u64::try_from(revision).unwrap_or_default(),
+            content_hash,
+            authority_fingerprint: row_authority_fingerprint(
+                &status,
+                &scope_kind,
+                workspace_key.as_deref(),
+                &audience,
+            )?,
+        })
+    })())
 }
 
 fn collect_ids(conn: &Connection, statement: &str) -> Result<Vec<MemoryId>> {

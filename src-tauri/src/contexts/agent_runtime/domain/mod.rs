@@ -35,6 +35,7 @@ mod memory_extraction;
 #[cfg(test)]
 mod memory_extraction_tests;
 mod memory_freshness;
+mod memory_read_context;
 mod memory_selection;
 #[cfg(test)]
 mod memory_selection_tests;
@@ -126,6 +127,7 @@ pub(crate) use memory_extraction::{
 pub(crate) use memory_freshness::{
     memory_staleness_caveat, render_memory_age, MEMORY_STALENESS_CAVEAT,
 };
+pub(crate) use memory_read_context::{AgentMemoryReadContext, AgentWorkspaceBinding};
 #[allow(unused_imports)]
 pub(crate) use memory_selection::{
     parse_memory_selection, MAX_SELECTED_MEMORIES, MEMORY_SELECTION_INSTRUCTION,

@@ -70,6 +70,12 @@ function previewFor(agentId: string): EffectivePreview {
     knownCharacters: 24,
     selectedBodyBudgetMax: 5,
     excludedSurfaces: [],
+    previewKind: "hypothetical",
+    memoryReadAllowed: capable,
+    readBlockReason: capable ? null : "runtime_capability",
+    indexEntryCount: 0,
+    indexTruncated: false,
+    recallAvailability: "unconfigured",
     estimatorVersion: "test",
     cliInternalCompactionManaged: false,
   };

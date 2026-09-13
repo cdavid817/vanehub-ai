@@ -9,7 +9,8 @@ use crate::contexts::agent_runtime::application::{
     GenerationProcessFailureKind, INTERFACE_FORMAT_ANTHROPIC,
 };
 use crate::contexts::agent_runtime::domain::{
-    AgentAvailability, AgentDefinition, AgentLifecycle, InteractionMode,
+    AgentAvailability, AgentDefinition, AgentLifecycle, AgentMemoryReadContext,
+    AgentWorkspaceBinding, InteractionMode,
 };
 use crate::contexts::execution_observability::api::CapturePolicy;
 use crate::contexts::execution_observability::application::ExecutionIdentityPort;
@@ -21,7 +22,9 @@ use crate::contexts::skill_evolution_evidence::domain::EvidenceSourceEnvelope;
 use std::collections::BTreeMap;
 use std::time::SystemTime;
 
-use super::prompt::{propose_remembered_memory, GenerationPersonalization};
+use super::prompt::{
+    propose_remembered_memory, resolve_generation_personalization, GenerationPersonalization,
+};
 
 const MESSAGES_ENDPOINT: &str = "https://api.anthropic.com/v1/messages";
 
@@ -60,8 +63,9 @@ fn execute(
         personalization,
         memories,
     };
-    execute_with_code_intelligence(
+    execute_with_resolved_personalization(
         request,
+        resolve_generation_personalization(&governed, logging, clock, request),
         cancelled,
         credentials,
         config,
@@ -173,6 +177,8 @@ fn resolve_system_prompt_with_observations(
     let snapshot = governed.snapshot(GenerationPersonalizationContext {
         agent_id: request.agent.id.clone(),
         session_id: request.session.id.clone(),
+        generation_id: request.operation_id.clone(),
+        seat_id: request.seat_id.clone(),
         folder: request.session.folder.clone(),
         personalization_mode: "standard".to_string(),
     });
@@ -263,7 +269,7 @@ struct SnapshotFromLegacyPorts<'a> {
 }
 
 impl AgentPersonalizationSnapshotPort for SnapshotFromLegacyPorts<'_> {
-    fn snapshot(&self, _context: GenerationPersonalizationContext) -> AgentPersonalizationSnapshot {
+    fn snapshot(&self, context: GenerationPersonalizationContext) -> AgentPersonalizationSnapshot {
         let Ok(settings) = self.personalization.settings() else {
             return AgentPersonalizationSnapshot::fail_closed("policy_unavailable");
         };
@@ -275,11 +281,12 @@ impl AgentPersonalizationSnapshotPort for SnapshotFromLegacyPorts<'_> {
         } else {
             Vec::new()
         };
-        snapshot_from_legacy_settings(Ok(settings), &stored)
+        snapshot_from_legacy_settings(Ok(settings), &stored, &context.session_id)
     }
 
     fn pinned_bodies(
         &self,
+        _context: &AgentMemoryReadContext,
         refs: &[AgentMemoryRef],
     ) -> Result<Vec<AgentMemoryBody>, AgentRuntimeApplicationError> {
         let stored = self.memories.list_all()?;
@@ -300,6 +307,7 @@ impl AgentPersonalizationSnapshotPort for SnapshotFromLegacyPorts<'_> {
 fn snapshot_from_legacy_settings(
     settings: Result<PreGovernanceSettings, AgentRuntimeApplicationError>,
     stored: &[AgentMemory],
+    session_id: &str,
 ) -> AgentPersonalizationSnapshot {
     {
         let Ok(settings) = settings else {
@@ -311,6 +319,8 @@ fn snapshot_from_legacy_settings(
                 .map(|memory| AgentMemoryRef {
                     id: memory.id.clone(),
                     revision: 1,
+                    content_hash: format!("hash:{}", memory.id),
+                    authority_fingerprint: String::new(),
                     name: memory.name.clone(),
                     description: memory.description.clone(),
                     memory_type: memory.memory_type,
@@ -321,6 +331,9 @@ fn snapshot_from_legacy_settings(
             Vec::new()
         };
         AgentPersonalizationSnapshot {
+            read_context: settings
+                .memory_enabled
+                .then(|| test_read_context(session_id)),
             revision_token: "test-snapshot".to_string(),
             instruction_block: settings.custom_instructions_block(),
             memory: AgentMemoryAccess {
@@ -386,6 +399,8 @@ fn maybe_compact(
     let snapshot = governed.snapshot(GenerationPersonalizationContext {
         agent_id: request.agent.id.clone(),
         session_id: request.session.id.clone(),
+        generation_id: request.operation_id.clone(),
+        seat_id: request.seat_id.clone(),
         folder: request.session.folder.clone(),
         personalization_mode: "standard".to_string(),
     });
@@ -535,6 +550,28 @@ fn extract_memories(
 /// a missing session call `execute_tool_call_impl` with `None` directly.
 const TEST_SESSION_ID: &str = "test-session";
 
+/// A permissive read context for one session, standing in for what the native owner freezes.
+///
+/// Production mints these from a resolved snapshot and authenticates them on every read; the
+/// adapter under test only carries them, so a fixture value is enough to drive every surface.
+fn test_read_context(session_id: &str) -> AgentMemoryReadContext {
+    AgentMemoryReadContext {
+        agent_id: "onepiece".to_string(),
+        session_id: session_id.to_string(),
+        generation_id: "generation-1".to_string(),
+        seat_id: None,
+        workspace: AgentWorkspaceBinding::Absent,
+        session_mode: "standard".to_string(),
+        policy_revision: "policy".to_string(),
+        read: true,
+        global_allowed: true,
+        workspace_allowed: None,
+        maintenance_generation: 1,
+        contract_version: 1,
+        fingerprint: "test-fingerprint".to_string(),
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn execute_tool_call(
     name: &str,
@@ -557,6 +594,7 @@ fn execute_tool_call(
         plan_mode,
         &UnavailableSkillReads,
         Some(TEST_SESSION_ID),
+        Some(&test_read_context(TEST_SESSION_ID)),
     )
 }
 
@@ -583,6 +621,7 @@ fn execute_tool_call_with_code_intelligence(
         plan_mode,
         &UnavailableSkillReads,
         Some(TEST_SESSION_ID),
+        Some(&test_read_context(TEST_SESSION_ID)),
     )
 }
 
@@ -609,6 +648,7 @@ fn execute_tool_call_with_workspace_mutations(
         plan_mode,
         &UnavailableSkillReads,
         Some(TEST_SESSION_ID),
+        Some(&test_read_context(TEST_SESSION_ID)),
     )
 }
 
@@ -635,6 +675,7 @@ fn execute_tool_call_with_skills(
         plan_mode,
         skills,
         Some(TEST_SESSION_ID),
+        Some(&test_read_context(TEST_SESSION_ID)),
     )
 }
 
@@ -1047,12 +1088,17 @@ impl PreGovernancePersonalization for NoopPersonalization {
 }
 
 impl AgentPersonalizationSnapshotPort for NoopPersonalization {
-    fn snapshot(&self, _context: GenerationPersonalizationContext) -> AgentPersonalizationSnapshot {
-        snapshot_from_legacy_settings(Ok(PreGovernanceSettings::safe_fallback()), &[])
+    fn snapshot(&self, context: GenerationPersonalizationContext) -> AgentPersonalizationSnapshot {
+        snapshot_from_legacy_settings(
+            Ok(PreGovernanceSettings::safe_fallback()),
+            &[],
+            &context.session_id,
+        )
     }
 
     fn pinned_bodies(
         &self,
+        _context: &AgentMemoryReadContext,
         _refs: &[AgentMemoryRef],
     ) -> Result<Vec<AgentMemoryBody>, AgentRuntimeApplicationError> {
         Ok(Vec::new())
@@ -1354,7 +1400,12 @@ impl AgentRetrievalPort for NoopRetrieval {
         false
     }
 
-    fn search(&self, _query: &str, _limit: usize) -> Result<AgentRetrievalOutcome, String> {
+    fn search(
+        &self,
+        _context: &AgentMemoryReadContext,
+        _query: &str,
+        _limit: usize,
+    ) -> Result<AgentRetrievalOutcome, String> {
         Err("NoopRetrieval cannot search.".to_string())
     }
 }
@@ -1386,7 +1437,12 @@ impl AgentRetrievalPort for FakeRetrieval {
         self.configured
     }
 
-    fn search(&self, query: &str, limit: usize) -> Result<AgentRetrievalOutcome, String> {
+    fn search(
+        &self,
+        _context: &AgentMemoryReadContext,
+        query: &str,
+        limit: usize,
+    ) -> Result<AgentRetrievalOutcome, String> {
         self.calls
             .lock()
             .expect("calls")
@@ -1429,7 +1485,12 @@ impl AgentRetrievalPort for CodeOnlyRetrieval {
         false
     }
 
-    fn search(&self, _query: &str, _limit: usize) -> Result<AgentRetrievalOutcome, String> {
+    fn search(
+        &self,
+        _context: &AgentMemoryReadContext,
+        _query: &str,
+        _limit: usize,
+    ) -> Result<AgentRetrievalOutcome, String> {
         Err("memory retrieval is unused".to_string())
     }
 
@@ -1529,7 +1590,8 @@ impl AgentMemorySelectionPort for FailingSelection {
     }
 }
 
-/// Selects by name, so a test can pin that a chosen body reaches the prompt behind the index.
+/// Selects one fixture memory by name, returning its id as the selector contract requires, so a
+/// test can pin that a chosen body reaches the prompt behind the index.
 struct FixedSelection(&'static str);
 
 impl AgentMemorySelectionPort for FixedSelection {
@@ -1538,7 +1600,7 @@ impl AgentMemorySelectionPort for FixedSelection {
         _query: &str,
         _candidates: &[AgentMemory],
     ) -> Result<Vec<String>, AgentRuntimeApplicationError> {
-        Ok(vec![self.0.to_string()])
+        Ok(vec![format!("{}.md", self.0)])
     }
 }
 
@@ -3217,6 +3279,7 @@ fn background_start_is_unavailable_without_an_owning_session() {
         false,
         &UnavailableSkillReads,
         None,
+        Some(&test_read_context(TEST_SESSION_ID)),
     );
     assert!(outcome.is_error);
     assert!(
@@ -3282,6 +3345,7 @@ fn write_todos(session_id: &str, todos: Value, plan_mode: bool) -> ToolExecution
         plan_mode,
         &UnavailableSkillReads,
         Some(session_id),
+        None,
     )
 }
 
@@ -4294,6 +4358,8 @@ fn the_memory_tool_proposes_a_candidate_rather_than_writing_a_memory() {
     let snapshot = snapshots.snapshot(GenerationPersonalizationContext {
         agent_id: request.agent.id.clone(),
         session_id: request.session.id.clone(),
+        generation_id: request.operation_id.clone(),
+        seat_id: request.seat_id.clone(),
         folder: request.session.folder.clone(),
         personalization_mode: "standard".to_string(),
     });
@@ -4330,6 +4396,8 @@ fn an_unnamed_proposal_is_labelled_from_its_own_first_line() {
     let snapshot = snapshots.snapshot(GenerationPersonalizationContext {
         agent_id: request.agent.id.clone(),
         session_id: request.session.id.clone(),
+        generation_id: request.operation_id.clone(),
+        seat_id: request.seat_id.clone(),
         folder: request.session.folder.clone(),
         personalization_mode: "standard".to_string(),
     });
@@ -4357,6 +4425,8 @@ fn the_memory_tool_rejects_empty_content_before_proposing_anything() {
     let snapshot = snapshots.snapshot(GenerationPersonalizationContext {
         agent_id: request.agent.id.clone(),
         session_id: request.session.id.clone(),
+        generation_id: request.operation_id.clone(),
+        seat_id: request.seat_id.clone(),
         folder: request.session.folder.clone(),
         personalization_mode: "standard".to_string(),
     });
@@ -4387,6 +4457,8 @@ fn a_temporary_session_proposes_no_candidate_from_the_memory_tool() {
     let snapshot = snapshots.snapshot(GenerationPersonalizationContext {
         agent_id: request.agent.id.clone(),
         session_id: request.session.id.clone(),
+        generation_id: request.operation_id.clone(),
+        seat_id: request.seat_id.clone(),
         folder: request.session.folder.clone(),
         personalization_mode: "standard".to_string(),
     });
@@ -5652,6 +5724,49 @@ fn recall_ignores_scope_properties_the_model_invents_because_the_pool_is_shared(
 }
 
 #[test]
+fn recall_without_a_read_context_fails_closed_without_searching() {
+    // The second gate. A caller that bypasses the catalog and invokes `recall` in a session whose
+    // snapshot carries no read context gets the same nonfatal answer the model already knows, and
+    // the retrieval port is never reached -- no query embedding, no pool access.
+    let retrieval = FakeRetrieval::configured(Ok(AgentRetrievalOutcome {
+        hits: vec![AgentRetrievalHit {
+            content: "SENTINEL-BODY".to_string(),
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            matched_via: "vector".to_string(),
+            memory_id: "m".to_string(),
+            revision: 1,
+            content_hash: String::new(),
+        }],
+        degraded: None,
+    }));
+    let denied = AgentMemoryReadContext {
+        read: false,
+        ..test_read_context(TEST_SESSION_ID)
+    };
+
+    for context in [None, Some(&denied)] {
+        let outcome = execute_tool_call_impl(
+            RECALL_TOOL_NAME,
+            &json!({"query": "npm"}),
+            Some("."),
+            not_cancelled(),
+            &NoopMcp,
+            &retrieval,
+            None,
+            None,
+            false,
+            &UnavailableSkillReads,
+            Some(TEST_SESSION_ID),
+            context,
+        );
+        assert!(!outcome.is_error);
+        assert!(outcome.output.contains("temporarily unavailable"));
+        assert!(!outcome.output.contains("SENTINEL-BODY"));
+    }
+    assert!(retrieval.calls.lock().expect("calls").is_empty());
+}
+
+#[test]
 fn recall_clamps_its_limit_to_the_documented_bounds() {
     // limit 缺省 → 5；limit = 0 → 1；limit = 999 → 20
     let retrieval = FakeRetrieval::configured(Ok(AgentRetrievalOutcome {
@@ -5688,6 +5803,9 @@ fn recall_projects_away_internal_fields() {
             content: "uses npm not pnpm".to_string(),
             created_at: "2026-01-01T00:00:00Z".to_string(),
             matched_via: "vector".to_string(),
+            memory_id: "internal-id".to_string(),
+            revision: 3,
+            content_hash: "sha256:internal".to_string(),
         }],
         degraded: None,
     }));
@@ -6167,9 +6285,19 @@ struct RecordingSelection {
 }
 
 impl RecordingSelection {
+    /// Names of fixture memories; returned as the ids the selector contract requires, because
+    /// every fixture derives its id from its name.
     fn returning(names: &[&str]) -> Self {
         Self {
-            returns: names.iter().map(|name| name.to_string()).collect(),
+            returns: names.iter().map(|name| format!("{name}.md")).collect(),
+            offered: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// Raw selector output, for a test that returns an id the fixtures never offered.
+    fn returning_ids(ids: &[&str]) -> Self {
+        Self {
+            returns: ids.iter().map(|id| id.to_string()).collect(),
             offered: Mutex::new(Vec::new()),
         }
     }
@@ -6201,13 +6329,20 @@ impl AgentMemorySelectionPort for RecordingSelection {
 }
 
 impl AgentPersonalizationSnapshotPort for ScriptedSnapshots {
-    fn snapshot(&self, _context: GenerationPersonalizationContext) -> AgentPersonalizationSnapshot {
+    fn snapshot(&self, context: GenerationPersonalizationContext) -> AgentPersonalizationSnapshot {
         self.calls.fetch_add(1, Ordering::SeqCst);
-        self.snapshot.clone()
+        let mut snapshot = self.snapshot.clone();
+        // A scripted snapshot that permits reading carries the context the owner would have
+        // frozen for this session; one that denies carries none, exactly as production does.
+        if snapshot.memory.read && snapshot.read_context.is_none() {
+            snapshot.read_context = Some(test_read_context(&context.session_id));
+        }
+        snapshot
     }
 
     fn pinned_bodies(
         &self,
+        _context: &AgentMemoryReadContext,
         refs: &[AgentMemoryRef],
     ) -> Result<Vec<AgentMemoryBody>, AgentRuntimeApplicationError> {
         self.body_requests
@@ -6243,6 +6378,8 @@ fn noop_snapshot() -> AgentPersonalizationSnapshot {
     NoopPersonalization.snapshot(GenerationPersonalizationContext {
         agent_id: "onepiece".to_string(),
         session_id: "session-1".to_string(),
+        generation_id: "generation-1".to_string(),
+        seat_id: None,
         folder: None,
         personalization_mode: "standard".to_string(),
     })
@@ -6275,6 +6412,8 @@ fn memory_ref(id: &str, description: &str) -> AgentMemoryRef {
     AgentMemoryRef {
         id: format!("{id}.md"),
         revision: 1,
+        content_hash: format!("hash:{id}"),
+        authority_fingerprint: String::new(),
         name: id.to_string(),
         description: description.to_string(),
         memory_type: None,
@@ -6304,6 +6443,7 @@ fn snapshot_with(
         },
         automatic_context_compaction_enabled: true,
         context_quality_retention_days: 30,
+        read_context: None,
     }
 }
 
@@ -6323,6 +6463,8 @@ fn resolve_prompt_with_selection(
     let snapshot = snapshots.snapshot(GenerationPersonalizationContext {
         agent_id: request.agent.id.clone(),
         session_id: request.session.id.clone(),
+        generation_id: request.operation_id.clone(),
+        seat_id: request.seat_id.clone(),
         folder: request.session.folder.clone(),
         personalization_mode: "standard".to_string(),
     });
@@ -6360,8 +6502,9 @@ fn execute_with_snapshot_port(
     let code_intelligence = super::super::RuntimeAgentCodeIntelligenceAdapter::new(Arc::new(
         super::super::UnavailableAgentCodeIntelligenceResponder,
     ));
-    execute_with_code_intelligence(
+    execute_with_resolved_personalization(
         request,
+        resolve_generation_personalization(personalization, logging, &FixedClock, request),
         not_cancelled(),
         &FakeCredentials {
             value: Some("sk-ant-test".to_string()),
@@ -7064,6 +7207,8 @@ fn extraction_proposes_candidates_and_writes_no_memory() {
     let snapshot = snapshots.snapshot(GenerationPersonalizationContext {
         agent_id: request.agent.id.clone(),
         session_id: request.session.id.clone(),
+        generation_id: request.operation_id.clone(),
+        seat_id: request.seat_id.clone(),
         folder: request.session.folder.clone(),
         personalization_mode: "standard".to_string(),
     });
@@ -7122,6 +7267,8 @@ fn extract_memories_saves_nothing_and_logs_nothing_when_the_response_is_empty() 
     let snapshot = snapshots.snapshot(GenerationPersonalizationContext {
         agent_id: request.agent.id.clone(),
         session_id: request.session.id.clone(),
+        generation_id: request.operation_id.clone(),
+        seat_id: request.seat_id.clone(),
         folder: request.session.folder.clone(),
         personalization_mode: "standard".to_string(),
     });
@@ -7162,6 +7309,8 @@ fn extract_memories_saves_nothing_and_logs_a_warning_when_the_http_call_fails() 
     let snapshot = snapshots.snapshot(GenerationPersonalizationContext {
         agent_id: request.agent.id.clone(),
         session_id: request.session.id.clone(),
+        generation_id: request.operation_id.clone(),
+        seat_id: request.seat_id.clone(),
         folder: request.session.folder.clone(),
         personalization_mode: "standard".to_string(),
     });
@@ -7263,6 +7412,8 @@ fn run_optimizer_compaction_with_logging(
     let snapshot = governed.snapshot(GenerationPersonalizationContext {
         agent_id: "onepiece".to_string(),
         session_id: "session-1".to_string(),
+        generation_id: "generation-1".to_string(),
+        seat_id: None,
         folder: None,
         personalization_mode: "standard".to_string(),
     });
@@ -9234,11 +9385,12 @@ fn a_selected_name_the_selector_was_never_offered_reaches_no_body() {
             memory_body("out-of-scope", "A secret from another workspace."),
         ],
     );
-    let selection = RecordingSelection::returning(&["out-of-scope"]);
+    let selection = RecordingSelection::returning_ids(&["out-of-scope.md", "in-scope"]);
 
     let system =
         resolve_prompt_with_selection(&snapshots, &selection, &request).expect("system prompt");
 
+    // Neither an id that was never offered nor a bare display name resolves to a body.
     assert!(!system.contains("## Relevant memories"));
     assert!(!system.contains("A secret from another workspace."));
     assert!(snapshots.offered_bodies().is_empty());
@@ -9333,10 +9485,16 @@ fn a_memory_corrected_since_it_was_surfaced_is_offered_again() {
     .expect("first prompt");
 
     let corrected = SystemTime::UNIX_EPOCH + Duration::from_secs(60 * 60 * 24 * 365 * 40);
+    // A correction advances the revision and changes the hash; the surfaced tracker keys on
+    // those, not on the timestamp.
     let after = ScriptedSnapshots::with_bodies(
         snapshot_with(
             None,
-            vec![dated_memory_ref("npm-only", "Eligible.", corrected)],
+            vec![AgentMemoryRef {
+                revision: 2,
+                content_hash: "hash:npm-only@2".to_string(),
+                ..dated_memory_ref("npm-only", "Eligible.", corrected)
+            }],
             AgentMemoryDelivery::IndexWithSelectedBodies,
         ),
         vec![memory_body("npm-only", "Uses pnpm after all.")],
@@ -9576,6 +9734,8 @@ fn a_refused_proposal_batch_leaves_the_compaction_it_hung_off_intact() {
     let snapshot = snapshots.snapshot(GenerationPersonalizationContext {
         agent_id: request.agent.id.clone(),
         session_id: request.session.id.clone(),
+        generation_id: request.operation_id.clone(),
+        seat_id: request.seat_id.clone(),
         folder: request.session.folder.clone(),
         personalization_mode: "standard".to_string(),
     });

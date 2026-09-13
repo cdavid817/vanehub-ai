@@ -1153,6 +1153,7 @@ impl AgentMemoryExtractionPort for FakeWorld {
 /// through has changed.
 impl AgentPersonalizationSnapshotPort for FakeWorld {
     fn snapshot(&self, context: GenerationPersonalizationContext) -> AgentPersonalizationSnapshot {
+        let session_id = context.session_id.clone();
         self.snapshot_requests.lock().expect("snapshots").push((
             context.agent_id,
             context.session_id,
@@ -1177,6 +1178,8 @@ impl AgentPersonalizationSnapshotPort for FakeWorld {
                 .map(|memory| AgentMemoryRef {
                     id: memory.id.clone(),
                     revision: 1,
+                    content_hash: format!("hash:{}", memory.id),
+                    authority_fingerprint: String::new(),
                     name: memory.name.clone(),
                     description: memory.description.clone(),
                     memory_type: memory.memory_type,
@@ -1187,6 +1190,24 @@ impl AgentPersonalizationSnapshotPort for FakeWorld {
             Vec::new()
         };
         AgentPersonalizationSnapshot {
+            read_context: settings.memory_enabled.then(|| {
+                crate::contexts::agent_runtime::domain::AgentMemoryReadContext {
+                    agent_id: "onepiece".to_string(),
+                    session_id,
+                    generation_id: "generation".to_string(),
+                    seat_id: None,
+                    workspace:
+                        crate::contexts::agent_runtime::domain::AgentWorkspaceBinding::Absent,
+                    session_mode: "standard".to_string(),
+                    policy_revision: "policy".to_string(),
+                    read: true,
+                    global_allowed: true,
+                    workspace_allowed: None,
+                    maintenance_generation: 1,
+                    contract_version: 1,
+                    fingerprint: "fake-world".to_string(),
+                }
+            }),
             revision_token: "fake-world-snapshot".to_string(),
             instruction_block: settings.custom_instructions_block(),
             memory: AgentMemoryAccess {
@@ -1213,6 +1234,7 @@ impl AgentPersonalizationSnapshotPort for FakeWorld {
 
     fn pinned_bodies(
         &self,
+        _context: &crate::contexts::agent_runtime::domain::AgentMemoryReadContext,
         _refs: &[AgentMemoryRef],
     ) -> Result<Vec<AgentMemoryBody>, AgentRuntimeApplicationError> {
         Ok(Vec::new())

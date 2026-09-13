@@ -158,7 +158,8 @@ export type MemoryExclusionReason =
   | "global_memory_disabled"
   | "memory_read_disabled"
   | "runtime_capability"
-  | "unsafe_maintenance_state";
+  | "unsafe_maintenance_state"
+  | "invalid_record";
 
 export interface MemoryExclusion {
   reason: MemoryExclusionReason;
@@ -174,19 +175,42 @@ export type PersonalizationWarning =
   | "unknown-agent"
   | "workspace-required";
 
+/**
+ * Whether the governed `recall` channel would exist for one resolution. Index support alone is
+ * `unsupported`; an allowed empty pool is still `available`.
+ */
+export type RecallAvailability = "available" | "unconfigured" | "disabled" | "unsupported" | "unavailable";
+
+/**
+ * `hypothetical` when the inputs describe a session that does not exist and establish no runtime
+ * authority; `bound_session` when the stored session supplied its own Agent, mode and workspace.
+ */
+export type PreviewKind = "hypothetical" | "bound_session";
+
 export interface EffectivePreview {
   revisionToken: string;
+  previewKind: PreviewKind;
   instructionMode: InstructionMergeMode;
   includedInstructions: PreviewSegment[];
   excludedInstructions: ExcludedSegment[];
   memoryDelivery: MemoryDelivery;
+  /** Whether the effective policy permits reading. Never inferred from the count below. */
   memoryRead: boolean;
+  /** The same fact under the read-scope contract's name. */
+  memoryReadAllowed: boolean;
+  /** Why nothing may be read, as a stable code; null when reading is allowed, even over an empty pool. */
+  readBlockReason: string | null;
   explicitSave: boolean;
   automaticExtraction: boolean;
   candidateCreation: boolean;
   retrievalWrite: boolean;
+  /** Every eligible record -- what recall may consider. */
   eligibleMemoryCount: number;
   consideredMemoryCount: number;
+  /** The bounded injection page: how many of the eligible records it holds, and whether it was cut. */
+  indexEntryCount: number;
+  indexTruncated: boolean;
+  recallAvailability: RecallAvailability;
   memoryExclusions: MemoryExclusion[];
   warnings: PersonalizationWarning[];
   approximateTokens: number;

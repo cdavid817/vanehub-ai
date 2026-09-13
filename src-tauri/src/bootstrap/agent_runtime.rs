@@ -567,6 +567,7 @@ pub(crate) fn assemble_agent_runtime_api(
     let agent_personalization = Arc::new(GovernedPersonalizationAdapter::new(
         dependencies.personalization.clone(),
         dependencies.desktop_settings,
+        dependencies.sessions.clone(),
     ));
     let agent_memory_extraction = Arc::new(RuntimeAgentMemoryExtractionAdapter::new(
         api_credentials.clone(),

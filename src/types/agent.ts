@@ -302,6 +302,8 @@ export interface RetrievalIndexStatus {
   indexed: number;
   pending: number;
   failed: number;
+  /** Rows searchable by keyword whose bodies never leave the machine (scoped or audience-restricted memories). */
+  keywordOnly: number;
   // Category only (e.g. "auth" | "invalid_request" | "rate_limit" | "network") — never raw error
   // text, which may carry credentials or provider response content (design doc §8.2).
   lastFailureCategory: string | null;

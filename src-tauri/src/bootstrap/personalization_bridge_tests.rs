@@ -407,7 +407,7 @@ fn no_resolved_segments_render_no_instruction_block_at_all() {
 fn the_tool_assisted_sub_policy_cannot_re_enable_extraction_the_snapshot_denied() {
     let denied = resolved_snapshot(Vec::new());
 
-    let access = memory_access(&denied, true);
+    let access = memory_access(&denied, true, &[]);
 
     assert!(!access.automatic_extraction);
     assert!(!access.automatic_extraction_in_tool_assisted_turns);

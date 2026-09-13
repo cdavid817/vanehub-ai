@@ -4,8 +4,9 @@
 //! （设计文档 §4.1）。
 
 use super::application::{
-    CodeIndexRepository, RetrievalConfiguration, RetrievalConfigurationRepository,
-    RetrievalDocumentRepository, RetrievalIndexStatus, SearchOutcome, SearchService,
+    AuthorizedHitResolverPort, AuthorizedSourceSet, CodeIndexRepository, RetrievalConfiguration,
+    RetrievalConfigurationRepository, RetrievalDocumentRepository, RetrievalIndexStatus,
+    SearchOutcome, SearchService,
 };
 use super::domain::{
     CodeEmbeddingConfirmation, CodeIndexAuditEntry, CodeIndexAuditEvent, CodeIndexAutomaticMode,
@@ -147,17 +148,24 @@ impl RetrievalApi {
         }
     }
 
-    /// 不收 agent/folder：检索面向的就是最近记忆注入所读的那一个主机级共享池
-    /// （`agent-memory-shared-pool`）。
-    pub(crate) fn search(
+    /// Governed search: the caller supplies the complete authorized source set it resolved for
+    /// its trusted read context and a resolver bound to that context. There is no variant that
+    /// searches the whole pool -- the pool is shared storage, not a shared read domain.
+    pub(crate) fn search_authorized(
         &self,
         query: &str,
         limit: usize,
+        authority: &AuthorizedSourceSet,
+        resolver: &dyn AuthorizedHitResolverPort,
     ) -> Result<SearchOutcome, RetrievalError> {
-        self.search.search(&RetrievalQuery {
-            text: query.to_string(),
-            limit,
-        })
+        self.search.search(
+            &RetrievalQuery {
+                text: query.to_string(),
+                limit,
+            },
+            authority,
+            resolver,
+        )
     }
 
     /// 每次生成的工具集解析路径上都会调用（Task 13），所以只做一次单行配置读取，且**永不**
@@ -432,7 +440,7 @@ impl CodeIndexApi {
 mod tests {
     use super::*;
     use crate::contexts::retrieval::application::{
-        EmbeddingFailure, EmbeddingPort, IndexSourcePort, IndexSourceRecord,
+        AuthorizedCandidateRows, EmbeddingFailure, EmbeddingPort, ResolvedHit,
         RetrievalConfiguration, RetrievalConfigurationRepository, RetrievalDocumentRepository,
         RetrievalIndexStatus, SearchService,
     };
@@ -599,8 +607,7 @@ mod tests {
             _source_kind: SourceKind,
             _model: &str,
         ) -> Result<Vec<(String, Vec<f32>)>, RetrievalError> {
-            self.recall_calls.lock().expect("lock").push("vector");
-            Ok(Vec::new())
+            unimplemented!("the governed search never uses the unscoped candidate query")
         }
         fn keyword_candidates(
             &self,
@@ -608,8 +615,27 @@ mod tests {
             _query: &str,
             _limit: usize,
         ) -> Result<Vec<String>, RetrievalError> {
-            self.recall_calls.lock().expect("lock").push("keyword");
-            Ok(Vec::new())
+            unimplemented!("the governed search never uses the unscoped candidate query")
+        }
+        fn authorized_candidates(
+            &self,
+            _source_kind: SourceKind,
+            _authority: &AuthorizedSourceSet,
+            model: Option<&str>,
+            keyword_query: Option<&str>,
+            _keyword_limit: usize,
+        ) -> Result<AuthorizedCandidateRows, RetrievalError> {
+            let mut calls = self.recall_calls.lock().expect("lock");
+            if model.is_some() {
+                calls.push("vector");
+            }
+            if keyword_query.is_some() {
+                calls.push("keyword");
+            }
+            Ok(AuthorizedCandidateRows {
+                vector: Ok(Vec::new()),
+                keyword: Ok(Vec::new()),
+            })
         }
         fn index_status(&self) -> Result<RetrievalIndexStatus, RetrievalError> {
             unimplemented!("not exercised by api tests")
@@ -626,13 +652,10 @@ mod tests {
         }
     }
 
-    struct FakeSource;
+    struct NoRecords;
 
-    impl IndexSourcePort for FakeSource {
-        fn snapshot(&self) -> Result<Vec<IndexSourceRecord>, RetrievalError> {
-            Ok(Vec::new())
-        }
-        fn fetch(&self, _source_ids: &[String]) -> Result<Vec<IndexSourceRecord>, RetrievalError> {
+    impl AuthorizedHitResolverPort for NoRecords {
+        fn resolve(&self, _source_ids: &[String]) -> Result<Vec<ResolvedHit>, RetrievalError> {
             Ok(Vec::new())
         }
     }
@@ -664,7 +687,6 @@ mod tests {
         let search = SearchService::new(
             configuration.clone(),
             documents.clone(),
-            Arc::new(FakeSource),
             Arc::new(FakeEmbedder),
         );
         (
@@ -698,14 +720,18 @@ mod tests {
     }
 
     #[test]
-    fn search_reaches_both_recall_paths_without_narrowing_them_to_a_scope() {
-        // 这条曾经断言门面把会话的 agent/folder 织进 scope 再传给两路召回。
-        // `agent-memory-shared-pool` 之后没有 scope 可传了：门面只转发 query 与 limit，
-        // 检索面向的就是注入所读的同一个共享池。方法签名本身已经让"传 scope"无从表达，
-        // 这里钉死的是两路都仍然被调用到。
+    fn search_reaches_both_recall_paths_inside_the_caller_supplied_authority() {
+        // The facade forwards query, limit and the caller's authorized set; there is no method
+        // that searches the pool without one. Both paths must still be reached through the
+        // authority-filtered candidate query.
         let (api, documents, _wakeups) = api(FakeConfigurationRepository::Configured);
+        let authority = AuthorizedSourceSet {
+            source_ids: vec!["m1".to_string()],
+            complete: true,
+        };
 
-        api.search("npm", 5).expect("search");
+        api.search_authorized("npm", 5, &authority, &NoRecords)
+            .expect("search");
 
         let mut calls = documents.recall_calls.lock().expect("lock").clone();
         calls.sort_unstable();

@@ -275,19 +275,30 @@ impl ContextCandidateSource for RetrievalContextSource {
             return cancelled_result();
         }
         if self.kind == ContextSourceKind::Memory {
-            return match self.retrieval.search(&request.task, 8) {
+            // No resolved read context, or one that permits nothing: the source is disabled
+            // outright. Nothing is searched and no query is embedded, so a temporary or
+            // read-disabled session leaves no trace in the memory pool or at the embedder.
+            let Some(context) = request
+                .memory_read
+                .as_ref()
+                .filter(|context| context.permits_read())
+            else {
+                return unavailable();
+            };
+            return match self.retrieval.search(context, &request.task, 8) {
                 Ok(outcome) => ContextSourceResult {
                     outcome: degradation(outcome.degraded.as_deref()),
                     candidates: outcome
                         .hits
                         .into_iter()
-                        .enumerate()
-                        .map(|(index, hit)| {
-                            let hash = fingerprint(&hit.content);
+                        .map(|hit| {
+                            // Identity is the immutable memory id at its pinned version, never
+                            // the content hash alone: two records may carry identical text and
+                            // still be different records with different authority.
                             candidate(
-                                format!("memory:{index}:{hash}"),
+                                format!("memory:{}@{}", hit.memory_id, hit.revision),
                                 self.kind,
-                                format!("memory/{hash}"),
+                                format!("memory/{}", hit.memory_id),
                                 hit.content,
                                 None,
                                 None,
@@ -487,10 +498,113 @@ mod tests {
                 "/etc/passwd".to_string(),
             ],
             model_capacity: Some(100),
+            memory_read: None,
         };
         let result = ExplicitReferenceContextSource.collect(&request, &AtomicBool::new(false));
         assert_eq!(result.candidates.len(), 1);
         assert_eq!(result.candidates[0].source_ref, "safe.rs");
+    }
+
+    /// Counts searches and answers one memory hit, so a test can tell "refused before the
+    /// pool" from "searched and found nothing".
+    struct CountingRetrieval(Mutex<Vec<String>>);
+    impl AgentRetrievalPort for CountingRetrieval {
+        fn is_configured(&self) -> bool {
+            true
+        }
+        fn search(
+            &self,
+            context: &crate::contexts::agent_runtime::domain::AgentMemoryReadContext,
+            query: &str,
+            _limit: usize,
+        ) -> Result<crate::contexts::agent_runtime::application::AgentRetrievalOutcome, String>
+        {
+            self.0
+                .lock()
+                .expect("queries")
+                .push(format!("{}|{query}", context.fingerprint));
+            Ok(
+                crate::contexts::agent_runtime::application::AgentRetrievalOutcome {
+                    hits: vec![
+                        crate::contexts::agent_runtime::application::AgentRetrievalHit {
+                            content: "memory body".to_string(),
+                            created_at: "2026-01-01T00:00:00Z".to_string(),
+                            matched_via: "keyword".to_string(),
+                            memory_id: "mem-1".to_string(),
+                            revision: 3,
+                            content_hash: "h1".to_string(),
+                        },
+                    ],
+                    degraded: None,
+                },
+            )
+        }
+    }
+
+    fn read_context(read: bool) -> crate::contexts::agent_runtime::domain::AgentMemoryReadContext {
+        crate::contexts::agent_runtime::domain::AgentMemoryReadContext {
+            agent_id: "onepiece".to_string(),
+            session_id: "s".to_string(),
+            generation_id: "g".to_string(),
+            seat_id: None,
+            workspace: crate::contexts::agent_runtime::domain::AgentWorkspaceBinding::Absent,
+            session_mode: if read { "standard" } else { "temporary" }.to_string(),
+            policy_revision: "policy".to_string(),
+            read,
+            global_allowed: read,
+            workspace_allowed: None,
+            maintenance_generation: 1,
+            contract_version: 1,
+            fingerprint: "scope-fp".to_string(),
+        }
+    }
+
+    fn memory_request(
+        memory_read: Option<crate::contexts::agent_runtime::domain::AgentMemoryReadContext>,
+    ) -> ContextRequest {
+        ContextRequest {
+            session_id: "s".to_string(),
+            turn_id: "t".to_string(),
+            generation_id: "g".to_string(),
+            task: "which package manager".to_string(),
+            workspace_ref: None,
+            explicit_refs: Vec::new(),
+            model_capacity: Some(100),
+            memory_read,
+        }
+    }
+
+    /// MR-04 / MR-21 at the Context Engine: the memory source does no work at all -- no search,
+    /// so no query embedding and no pool access -- unless the request carries a read context
+    /// that permits reading; with one, every candidate is identified by the memory's immutable
+    /// id at its pinned revision, never by its text.
+    #[test]
+    fn the_memory_source_stays_idle_without_a_permitting_read_context_and_searches_with_one() {
+        let retrieval = Arc::new(CountingRetrieval(Mutex::new(Vec::new())));
+        let source = RetrievalContextSource::memory(retrieval.clone());
+        let not_cancelled = AtomicBool::new(false);
+
+        for request in [
+            memory_request(None),
+            memory_request(Some(read_context(false))),
+        ] {
+            let result = source.collect(&request, &not_cancelled);
+            assert_eq!(result.outcome, ContextSourceOutcome::Unavailable);
+            assert!(result.candidates.is_empty());
+        }
+        assert!(retrieval.0.lock().expect("queries").is_empty());
+
+        let result = source.collect(&memory_request(Some(read_context(true))), &not_cancelled);
+        assert_eq!(result.outcome, ContextSourceOutcome::Ready);
+        assert_eq!(
+            retrieval.0.lock().expect("queries").as_slice(),
+            ["scope-fp|which package manager".to_string()]
+        );
+        assert_eq!(result.candidates.len(), 1);
+        assert_eq!(result.candidates[0].id, "memory:mem-1@3");
+        assert_eq!(result.candidates[0].source_ref, "memory/mem-1");
+        assert_eq!(result.candidates[0].source_kind, ContextSourceKind::Memory);
+        assert_eq!(result.candidates[0].content, "memory body");
     }
 
     #[test]

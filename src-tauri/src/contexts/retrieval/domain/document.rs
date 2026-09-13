@@ -55,6 +55,9 @@ pub(crate) enum IndexState {
     Pending,
     Indexed,
     Failed,
+    /// Searchable by keyword, never sent to a remote embedder. The state of a record whose body
+    /// has no egress authorization: not a failure, not pending, and never claimed by the worker.
+    KeywordOnly,
 }
 
 impl IndexState {
@@ -68,6 +71,7 @@ impl IndexState {
             Self::Pending => "pending",
             Self::Indexed => "indexed",
             Self::Failed => "failed",
+            Self::KeywordOnly => "keyword_only",
         }
     }
 
@@ -76,6 +80,7 @@ impl IndexState {
             "pending" => Some(Self::Pending),
             "indexed" => Some(Self::Indexed),
             "failed" => Some(Self::Failed),
+            "keyword_only" => Some(Self::KeywordOnly),
             _ => None,
         }
     }
@@ -131,6 +136,10 @@ pub(crate) struct RetrievalDocument {
     pub(crate) index_state: IndexState,
     pub(crate) attempt_count: u32,
     pub(crate) embedding_model: Option<String>,
+    /// Whether the body may be transmitted to a remote embedder. Decided by the owning source
+    /// from the authoritative record and re-checked before every dispatch; a restricted row stays
+    /// in the keyword index and is never claimed for embedding.
+    pub(crate) egress_restricted: bool,
 }
 
 /// 确定性主键，与 `UNIQUE (source_kind, source_id)` 同源——reconcile 因此可以直接 upsert，
@@ -232,7 +241,13 @@ mod tests {
         assert_eq!(IndexState::Pending.as_str(), "pending");
         assert_eq!(IndexState::Indexed.as_str(), "indexed");
         assert_eq!(IndexState::Failed.as_str(), "failed");
-        for state in [IndexState::Pending, IndexState::Indexed, IndexState::Failed] {
+        assert_eq!(IndexState::KeywordOnly.as_str(), "keyword_only");
+        for state in [
+            IndexState::Pending,
+            IndexState::Indexed,
+            IndexState::Failed,
+            IndexState::KeywordOnly,
+        ] {
             assert_eq!(IndexState::parse(state.as_str()), Some(state));
         }
         assert_eq!(IndexState::parse("nonsense"), None);

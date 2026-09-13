@@ -21,12 +21,12 @@ use crate::contexts::operations::api::{DiagnosticLog, DiagnosticLogPort, LogSeve
 use crate::contexts::personalization::api::{PersonalizationApi, PersonalizationApiParts};
 use crate::contexts::personalization::application::{
     AgentCapabilityEntry, AgentCapabilityPort, CandidateReviewService, CandidateSubmissionService,
-    ClockPort, LastKnownGoodPolicyCache, LegacyMemoryMigrationPorts, LegacyMemoryMigrationService,
-    LegacyPersonalizationSettings, LegacyPersonalizationSettingsPort, LegacyRowMigrationPort,
-    LegacySettingField, LegacySettingsCompatibility, LegacySettingsView, MemoryApplicationService,
-    PersonalizationApplicationError, PersonalizationPreviewService, PolicyResolutionService,
-    RetrievalIndexPort, StartupMaintenancePorts, StartupMaintenanceService,
-    WorkspaceIdentityResolver,
+    ClockPort, GovernedMemoryReadService, LastKnownGoodPolicyCache, LegacyMemoryMigrationPorts,
+    LegacyMemoryMigrationService, LegacyPersonalizationSettings, LegacyPersonalizationSettingsPort,
+    LegacyRowMigrationPort, LegacySettingField, LegacySettingsCompatibility, LegacySettingsView,
+    MemoryApplicationService, PersonalizationApplicationError, PersonalizationPreviewService,
+    PolicyResolutionService, RetrievalIndexPort, StartupMaintenancePorts,
+    StartupMaintenanceService, WorkspaceIdentityResolver,
 };
 use crate::contexts::personalization::domain::{
     MemoryId, MemoryRecord, PersonalizationRuntimeCapabilities,
@@ -76,6 +76,7 @@ pub(crate) fn assemble_personalization(
     );
     let projection = Arc::new(SqliteMemoryProjection::new(database.clone()));
     let projection_for_resolver = projection.clone();
+    let projection_for_reads = projection.clone();
     let memories = Arc::new(MemoryApplicationService::new(
         repository.clone(),
         repository.clone(),
@@ -157,12 +158,23 @@ pub(crate) fn assemble_personalization(
         resolver.clone(),
         Arc::new(PlatformSecretRedaction),
     ));
+    // The governed read path shares the authoritative repository, the projection and the health
+    // authority with everything else here, so a record the management surface can see and one
+    // the runtime may read are decided over the same files.
+    let reads = Arc::new(GovernedMemoryReadService::new(
+        repository.clone(),
+        repository.clone(),
+        projection_for_reads,
+        maintenance.clone(),
+        &UuidMemoryIdGenerator,
+    ));
     let api = PersonalizationApi::new(PersonalizationApiParts {
         memories,
         resolver: resolver.clone(),
         candidates,
         reviews,
         preview: preview.clone(),
+        reads,
         policies: policies.clone(),
         policy_cache: policy_cache.clone(),
         agents: capabilities,

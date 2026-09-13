@@ -96,7 +96,7 @@ impl InstructionMergeMode {
 /// A hard restriction rather than another policy layer: it is applied last and can only narrow
 /// what the resolved policy allows, so no override can widen a temporary session back into
 /// long-term memory.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub(crate) enum SessionPersonalizationMode {
     #[default]

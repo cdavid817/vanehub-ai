@@ -1483,6 +1483,12 @@ pub(crate) struct AgentMemoryRef {
     /// The handle every other surface addresses this memory by.
     pub(crate) id: String,
     pub(crate) revision: u64,
+    /// Fingerprint of the body at the pinned revision, so a body read can prove it got the same
+    /// text even when an external edit forgot to advance the revision.
+    pub(crate) content_hash: String,
+    /// Digest of the lifecycle/scope/audience the eligibility decision was made on. Opaque here;
+    /// the owning context compares it at delivery.
+    pub(crate) authority_fingerprint: String,
     pub(crate) name: String,
     pub(crate) description: String,
     pub(crate) memory_type: Option<MemoryType>,
@@ -1559,6 +1565,9 @@ pub(crate) struct AgentPersonalizationSnapshot {
     /// generation needs rather than three reads that could disagree.
     pub(crate) automatic_context_compaction_enabled: bool,
     pub(crate) context_quality_retention_days: i64,
+    /// The trusted read authority every memory surface of this generation carries. `None` when no
+    /// memory may be read at all, which every consumer treats as "do no memory work".
+    pub(crate) read_context: Option<crate::contexts::agent_runtime::domain::AgentMemoryReadContext>,
 }
 
 impl AgentPersonalizationSnapshot {
@@ -1573,6 +1582,7 @@ impl AgentPersonalizationSnapshot {
             memory: AgentMemoryAccess::denied(reason),
             automatic_context_compaction_enabled: true,
             context_quality_retention_days: 30,
+            read_context: None,
         }
     }
 }

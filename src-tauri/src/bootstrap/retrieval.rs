@@ -9,26 +9,31 @@
 //! **绝不落盘**：记忆内容、query 原文、凭据、provider 响应体——下面每条日志的字段都只有计数、
 //! 耗时、模型 id 与错误类别。
 
+use super::personalization_bridge::from_runtime_context;
 use crate::contexts::agent_runtime::api::AgentRuntimeApi;
 use crate::contexts::agent_runtime::application::{
     AgentCodeRetrievalHit, AgentCodeRetrievalOutcome, AgentCodeRetrievalPort, AgentRetrievalHit,
     AgentRetrievalOutcome, AgentRetrievalPort,
 };
+use crate::contexts::agent_runtime::domain::AgentMemoryReadContext;
 use crate::contexts::operations::api::{DiagnosticLog, DiagnosticLogPort, LogSeverity};
 use crate::contexts::operations::infrastructure::UnifiedLoggingAdapter;
 use crate::contexts::personalization::api::PersonalizationApi;
+use crate::contexts::personalization::domain::{MemoryReadContext, MemoryReadHandle};
 use crate::contexts::retrieval::api::{
     CodeIndexApi, CodeIndexMutationBatch, CodeIndexMutationQueue, RetrievalApi,
     RetrievalWorkerSignal,
 };
 use crate::contexts::retrieval::application::{
-    BatchOutcome, CodeRetrievalPort, EmbeddingEndpointPort, EmbeddingFailure, EmbeddingPort,
-    IndexSourcePort, IndexSourceRecord, IndexingService, ResolvedEmbeddingEndpoint,
+    AuthorizedHitResolverPort, AuthorizedSourceSet, BatchOutcome, CodeRetrievalPort,
+    EmbeddingEgressGuardPort, EmbeddingEndpointPort, EmbeddingFailure, EmbeddingPort,
+    IndexSourcePort, IndexSourceRecord, IndexingService, ResolvedEmbeddingEndpoint, ResolvedHit,
     RetrievalConfigurationRepository, RetrievalDocumentRepository, SearchOutcome, SearchService,
     RECONCILE_POLL_INTERVAL_SECONDS, RETRY_BACKOFF_SECONDS,
 };
 use crate::contexts::retrieval::domain::{
-    CodeIndexAuditEvent, CodeIndexMode, CodeIndexPhase, FailureCategory, RetrievalError,
+    CodeIndexAuditEvent, CodeIndexMode, CodeIndexPhase, FailureCategory, RetrievalDocument,
+    RetrievalError,
 };
 use crate::contexts::retrieval::infrastructure::{
     code_index_repository::SqliteCodeIndexRepository, HttpEmbeddingAdapter,
@@ -38,7 +43,7 @@ use crate::contexts::retrieval::infrastructure::{
 use crate::contexts::sessions::api::SessionsApi;
 use crate::contexts::workspaces::api::WorkspaceApi;
 use crate::platform::database::NativeDatabase;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -118,7 +123,13 @@ pub(crate) fn assemble_retrieval(
     );
     // The governed store, not the pre-v2 directory. Once migration completes the v1 files are gone,
     // so a source still reading them would index an empty pool and quietly stop answering recalls.
-    let source: Arc<dyn IndexSourcePort> = Arc::new(GovernedMemoryIndexSource { personalization });
+    let source: Arc<dyn IndexSourcePort> = Arc::new(GovernedMemoryIndexSource {
+        personalization: personalization.clone(),
+    });
+    // Re-decides every queued body against the authoritative record right before dispatch, so a
+    // record restricted after it queued never reaches the embedder.
+    let egress: Arc<dyn EmbeddingEgressGuardPort> =
+        Arc::new(GovernedEmbeddingEgressGuard { personalization });
     let endpoint: Arc<dyn EmbeddingEndpointPort> =
         Arc::new(AgentRuntimeEmbeddingEndpoint { agent_runtime });
     let embeddings: Arc<dyn EmbeddingPort> = Arc::new(ConfiguredProfileEmbeddingAdapter {
@@ -131,7 +142,6 @@ pub(crate) fn assemble_retrieval(
         Arc::new(SearchService::new(
             configuration.clone(),
             documents.clone(),
-            source.clone(),
             embeddings.clone(),
         )),
         documents.clone(),
@@ -152,7 +162,8 @@ pub(crate) fn assemble_retrieval(
         }),
         api,
         worker: RetrievalIndexingWorker {
-            indexing: IndexingService::new(documents.clone(), source, embeddings.clone()),
+            indexing: IndexingService::new(documents.clone(), source, embeddings.clone())
+                .with_egress_guard(egress),
             configuration,
             wakeups,
             inter_batch_interval: DEFAULT_INTER_BATCH_INTERVAL,
@@ -668,7 +679,7 @@ fn drain_pending_batches(
                 return;
             }
         };
-        if outcome.succeeded == 0 && outcome.failed == 0 {
+        if outcome.succeeded == 0 && outcome.failed == 0 && outcome.keyword_only == 0 {
             return;
         }
         write_batch_log(logging, &outcome, started.elapsed(), model);
@@ -769,6 +780,7 @@ fn write_batch_log(
             ),
             ("succeeded", outcome.succeeded.to_string()),
             ("failed", outcome.failed.to_string()),
+            ("keywordOnly", outcome.keyword_only.to_string()),
             ("durationMs", elapsed.as_millis().to_string()),
             ("model", model.to_string()),
         ],
@@ -876,51 +888,80 @@ fn error_category(error: &RetrievalError) -> &'static str {
 /// snapshot is not a safe stand-in: reconciliation treats anything missing from it as deleted, so
 /// a failed store would silently wipe every indexed memory instead of leaving the index intact
 /// until the directory is reachable again.
-struct GovernedMemoryIndexSource {
-    personalization: PersonalizationApi,
+pub(super) struct GovernedMemoryIndexSource {
+    pub(super) personalization: PersonalizationApi,
 }
 
 impl IndexSourcePort for GovernedMemoryIndexSource {
     /// The governed store is the authoritative snapshot, so a memory added or removed outside the
     /// application converges on the next reconcile with no user action.
     ///
-    /// Empty while migration has not finished, which is the point: indexing a half-migrated store
-    /// would leave documents for memories that are about to be rewritten, and the reconcile that
-    /// runs once it *is* finished removes anything that no longer exists — including every row
-    /// keyed on a pre-v2 path.
+    /// Maintenance, not an Agent read: every valid active record enters the local keyword index
+    /// whatever its scope or audience, because which session may read it is decided at query time
+    /// by that session's own context. The source also decides, per record, whether the body may be
+    /// sent to a remote embedder; at this baseline nothing authorizes that for a scoped or
+    /// audience-restricted record, so those stay keyword-only.
+    ///
+    /// Fails rather than answering empty while the store is not `Ready`: reconciliation treats an
+    /// empty snapshot as "everything was deleted", and an unavailable store must never say that.
     fn snapshot(&self) -> Result<Vec<IndexSourceRecord>, RetrievalError> {
-        let memories = self
+        let records = self
             .personalization
-            .compatibility_memories()
-            .map_err(|error| RetrievalError::Storage(error.to_string()))?;
-        Ok(memories.into_iter().map(index_source_record).collect())
-    }
-
-    /// Hits resolve by reading the named records. One whose record is gone is simply absent, which
-    /// is what stops a deleted memory being surfaced from a surviving index row.
-    fn fetch(&self, source_ids: &[String]) -> Result<Vec<IndexSourceRecord>, RetrievalError> {
-        let memories = self
-            .personalization
-            .compatibility_memories_by_handle(source_ids)
-            .map_err(|error| RetrievalError::Storage(error.to_string()))?;
-        Ok(memories.into_iter().map(index_source_record).collect())
+            .index_maintenance_records()
+            .map_err(|refusal| RetrievalError::Storage(refusal.as_str().to_string()))?;
+        Ok(records.into_iter().map(index_source_record).collect())
     }
 }
 
 fn index_source_record(
-    memory: crate::contexts::personalization::api::CompatibilityMemory,
+    record: crate::contexts::personalization::application::IndexMaintenanceRecord,
 ) -> IndexSourceRecord {
     IndexSourceRecord {
-        // The v2 file name, which is what the compatibility view hands out as a handle everywhere
-        // else. Keying on anything else would make a hit unresolvable.
-        source_id: memory.file_name,
-        agent_id: memory.source_agent_id.unwrap_or_default(),
-        // 无工作区文件夹用空串哨兵，与检索侧 scope 的映射一致；两侧不一致就永远搜不到。
-        folder: memory.source_workspace.unwrap_or_default(),
-        content: memory.content,
-        created_at: memory
+        // The v2 file name, derived from the immutable id alone. It is what the governed read
+        // resolves a hit back through, so nothing else could serve as the row key.
+        source_id: record.handle.source_id(),
+        // Provenance columns only. The index row carries no authority; the read context does.
+        agent_id: String::new(),
+        folder: String::new(),
+        content: record.content,
+        created_at: record
             .created_at
             .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+        egress_restricted: record.egress_restricted,
+    }
+}
+
+/// The dispatch-time egress check for the agent-memory index, answered by the owning context.
+pub(super) struct GovernedEmbeddingEgressGuard {
+    pub(super) personalization: PersonalizationApi,
+}
+
+impl EmbeddingEgressGuardPort for GovernedEmbeddingEgressGuard {
+    fn permitted(&self, documents: &[RetrievalDocument]) -> Vec<bool> {
+        // The queue hashes bodies as bare hex; the owning context spells the same digest with
+        // its `sha256:` prefix. Same bytes, one spelling per context.
+        let queued: Vec<(crate::contexts::personalization::domain::MemoryId, String)> = documents
+            .iter()
+            .filter_map(|document| {
+                let id = MemoryReadHandle::id_from_source_id(&document.source_id).ok()?;
+                Some((id, format!("sha256:{}", document.content_hash)))
+            })
+            .collect();
+        let decisions: HashMap<String, bool> = self
+            .personalization
+            .embedding_egress(&queued)
+            .into_iter()
+            .map(|decision| (decision.id.as_str().to_string(), decision.permitted))
+            .collect();
+        documents
+            .iter()
+            .map(|document| {
+                MemoryReadHandle::id_from_source_id(&document.source_id)
+                    .ok()
+                    .and_then(|id| decisions.get(id.as_str()).copied())
+                    .unwrap_or(false)
+            })
+            .collect()
     }
 }
 
@@ -993,6 +1034,9 @@ impl EmbeddingPort for ConfiguredProfileEmbeddingAdapter {
 pub(crate) struct DeferredAgentRetrieval {
     bound: OnceLock<RetrievalApi>,
     code: OnceLock<Arc<dyn AgentCodeRetrievalPort>>,
+    /// The owning context for memory authority. Bound right after personalization is assembled,
+    /// which is before any generation can run; without it every search refuses.
+    personalization: OnceLock<PersonalizationApi>,
 }
 
 impl DeferredAgentRetrieval {
@@ -1007,6 +1051,10 @@ impl DeferredAgentRetrieval {
     pub(crate) fn bind_code(&self, retrieval: Arc<dyn AgentCodeRetrievalPort>) {
         let _ = self.code.set(retrieval);
     }
+
+    pub(crate) fn bind_personalization(&self, personalization: PersonalizationApi) {
+        let _ = self.personalization.set(personalization);
+    }
 }
 
 impl AgentRetrievalPort for DeferredAgentRetrieval {
@@ -1014,13 +1062,48 @@ impl AgentRetrievalPort for DeferredAgentRetrieval {
         self.bound.get().is_some_and(RetrievalApi::is_configured)
     }
 
-    fn search(&self, query: &str, limit: usize) -> Result<AgentRetrievalOutcome, String> {
+    /// Governed recall, end to end: the runtime's context is handed back to the owning context,
+    /// which authenticates it and enumerates the complete eligible relation; retrieval ranks
+    /// inside that relation only; every hit is then re-read at its pinned version under the same
+    /// context. A refusal at any step is an `Err`, which the tool turns into its nonfatal
+    /// "temporarily unavailable" answer -- never a wider search.
+    fn search(
+        &self,
+        context: &AgentMemoryReadContext,
+        query: &str,
+        limit: usize,
+    ) -> Result<AgentRetrievalOutcome, String> {
         let Some(retrieval) = self.bound.get() else {
             return Err("retrieval is not yet available".to_string());
         };
+        let Some(personalization) = self.personalization.get() else {
+            return Err("memory authority is not yet available".to_string());
+        };
+        let Some(context) = from_runtime_context(context) else {
+            return Err("the memory read context is not one this host issued".to_string());
+        };
+        // The metadata snapshot transaction inside `open_memory_query` is released before
+        // `search_authorized` embeds the query: nothing holds SQLite across the network call.
+        let relation = personalization
+            .open_memory_query(&context)
+            .map_err(|refusal| refusal.as_str().to_string())?;
+        let handles: HashMap<String, MemoryReadHandle> = relation
+            .entries
+            .into_iter()
+            .map(|handle| (handle.source_id(), handle))
+            .collect();
+        let authority = AuthorizedSourceSet {
+            source_ids: handles.keys().cloned().collect(),
+            complete: relation.complete,
+        };
+        let resolver = GovernedHitResolver {
+            personalization,
+            context: &context,
+            handles: &handles,
+        };
         retrieval
-            .search(query, limit)
-            .map(project_search_outcome)
+            .search_authorized(query, limit, &authority, &resolver)
+            .map(|outcome| project_search_outcome(outcome, &handles))
             .map_err(|error| error.to_string())
     }
 
@@ -1029,18 +1112,65 @@ impl AgentRetrievalPort for DeferredAgentRetrieval {
     }
 }
 
-/// Projects `retrieval`'s internal `SearchOutcome` into `agent_runtime`'s own, deliberately
-/// narrower shape for the `recall` tool result — `source_id`/`score` are internal to `retrieval`
-/// and stop here; they never cross the context boundary (Task 13 brief).
-fn project_search_outcome(outcome: SearchOutcome) -> AgentRetrievalOutcome {
+/// Resolves ranked candidate ids into authoritative bodies under one read context.
+///
+/// Built per query and never stored: it closes over the context and the pinned handles the
+/// relation produced, so a hit is only ever read at the version the authorization was decided
+/// on, and a record that moved in between is absent rather than substituted.
+struct GovernedHitResolver<'a> {
+    personalization: &'a PersonalizationApi,
+    context: &'a MemoryReadContext,
+    handles: &'a HashMap<String, MemoryReadHandle>,
+}
+
+impl AuthorizedHitResolverPort for GovernedHitResolver<'_> {
+    fn resolve(&self, source_ids: &[String]) -> Result<Vec<ResolvedHit>, RetrievalError> {
+        let wanted: Vec<MemoryReadHandle> = source_ids
+            .iter()
+            .filter_map(|source_id| self.handles.get(source_id).cloned())
+            .collect();
+        let bodies = self
+            .personalization
+            .read_pinned_memories(self.context, &wanted)
+            .map_err(|refusal| RetrievalError::Storage(refusal.as_str().to_string()))?;
+        Ok(bodies
+            .into_iter()
+            .map(|body| ResolvedHit {
+                source_id: body.handle.source_id(),
+                content: body.content,
+                created_at: body
+                    .created_at
+                    .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            })
+            .collect())
+    }
+}
+
+/// Projects `retrieval`'s internal `SearchOutcome` into `agent_runtime`'s own shape for the
+/// `recall` tool result. `score` is internal to `retrieval` and stops here; the pinned identity
+/// travels for host-side consumers and is never projected into the model-facing payload.
+fn project_search_outcome(
+    outcome: SearchOutcome,
+    handles: &HashMap<String, MemoryReadHandle>,
+) -> AgentRetrievalOutcome {
     AgentRetrievalOutcome {
         hits: outcome
             .hits
             .into_iter()
-            .map(|hit| AgentRetrievalHit {
-                content: hit.content,
-                created_at: hit.created_at,
-                matched_via: hit.matched_via.as_str().to_string(),
+            .map(|hit| {
+                let handle = handles.get(&hit.source_id);
+                AgentRetrievalHit {
+                    content: hit.content,
+                    created_at: hit.created_at,
+                    matched_via: hit.matched_via.as_str().to_string(),
+                    memory_id: handle
+                        .map(|handle| handle.id.as_str().to_string())
+                        .unwrap_or_else(|| hit.source_id.clone()),
+                    revision: handle.map(|handle| handle.revision).unwrap_or_default(),
+                    content_hash: handle
+                        .map(|handle| handle.content_hash.clone())
+                        .unwrap_or_default(),
+                }
             })
             .collect(),
         degraded: outcome
@@ -1210,9 +1340,6 @@ mod tests {
         fn snapshot(&self) -> Result<Vec<IndexSourceRecord>, RetrievalError> {
             Err(RetrievalError::Storage("SENSITIVE-SENTINEL".to_string()))
         }
-        fn fetch(&self, _source_ids: &[String]) -> Result<Vec<IndexSourceRecord>, RetrievalError> {
-            unimplemented!("these tests drive the indexing worker, not the search path")
-        }
     }
 
     struct EmptySource;
@@ -1220,9 +1347,6 @@ mod tests {
     impl IndexSourcePort for EmptySource {
         fn snapshot(&self) -> Result<Vec<IndexSourceRecord>, RetrievalError> {
             Ok(Vec::new())
-        }
-        fn fetch(&self, _source_ids: &[String]) -> Result<Vec<IndexSourceRecord>, RetrievalError> {
-            unimplemented!("these tests drive the indexing worker, not the search path")
         }
     }
 
@@ -1291,6 +1415,7 @@ mod tests {
                 index_state: IndexState::Pending,
                 attempt_count: 0,
                 embedding_model: None,
+                egress_restricted: false,
             }])
         }
         fn store_embedding(
@@ -1394,6 +1519,7 @@ mod tests {
                 index_state: IndexState::Pending,
                 attempt_count: 0,
                 embedding_model: None,
+                egress_restricted: false,
             }])
         }
         fn store_embedding(
@@ -1784,7 +1910,25 @@ mod tests {
         let deferred = DeferredAgentRetrieval::default();
 
         assert!(!deferred.is_configured());
-        assert!(deferred.search("npm", 5).is_err());
+        assert!(deferred.search(&test_read_context(), "npm", 5).is_err());
+    }
+
+    fn test_read_context() -> AgentMemoryReadContext {
+        AgentMemoryReadContext {
+            agent_id: "onepiece".to_string(),
+            session_id: "session-1".to_string(),
+            generation_id: "generation-1".to_string(),
+            seat_id: None,
+            workspace: crate::contexts::agent_runtime::domain::AgentWorkspaceBinding::Absent,
+            session_mode: "standard".to_string(),
+            policy_revision: "policy".to_string(),
+            read: true,
+            global_allowed: true,
+            workspace_allowed: None,
+            maintenance_generation: 1,
+            contract_version: 1,
+            fingerprint: "not-minted-here".to_string(),
+        }
     }
 
     #[test]
@@ -1802,7 +1946,7 @@ mod tests {
             degraded: Some(Degradation::KeywordOnly),
         };
 
-        let projected = project_search_outcome(outcome);
+        let projected = project_search_outcome(outcome, &HashMap::new());
 
         assert_eq!(projected.hits.len(), 1);
         assert_eq!(projected.hits[0].content, "uses npm not pnpm");
