@@ -82,6 +82,8 @@ mod tests {
         AgentMemoryRef {
             id: format!("{name}.md"),
             revision,
+            content_hash: String::new(),
+            authority_fingerprint: String::new(),
             name: name.to_string(),
             description: format!("About {name}"),
             memory_type: Some(MemoryType::Project),

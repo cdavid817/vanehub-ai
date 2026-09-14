@@ -391,6 +391,9 @@ pub(crate) enum PersonalizationExclusionReason {
     RuntimeCapability,
     /// Migration or reconciliation has not established a safe generation.
     UnsafeMaintenanceState,
+    /// The projected row could not be classified: unknown scope or status, malformed audience, or
+    /// inconsistent workspace columns. Never guessed eligible.
+    InvalidRecord,
 }
 
 impl PersonalizationExclusionReason {
@@ -408,6 +411,7 @@ impl PersonalizationExclusionReason {
             Self::MemoryReadDisabled => "memory_read_disabled",
             Self::RuntimeCapability => "runtime_capability",
             Self::UnsafeMaintenanceState => "unsafe_maintenance_state",
+            Self::InvalidRecord => "invalid_record",
         }
     }
 }
@@ -479,6 +483,9 @@ pub(crate) struct SnapshotMemoryRef {
     /// Fingerprint of the body at that revision. Lets a later read prove it got the same text
     /// without having had the text here.
     pub(crate) content_hash: String,
+    /// Digest of the lifecycle, scope and audience the eligibility decision was made on, so a
+    /// later delivery can detect an authority change that left body and revision untouched.
+    pub(crate) authority_fingerprint: String,
     pub(crate) name: String,
     pub(crate) description: String,
     pub(crate) memory_type: MemoryType,

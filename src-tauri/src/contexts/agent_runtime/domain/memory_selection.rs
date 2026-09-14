@@ -15,18 +15,20 @@ pub(crate) const MAX_SELECTED_MEMORIES: usize = 5;
 /// model treats a confidently-surfaced irrelevant memory as if it were relevant.
 pub(crate) const MEMORY_SELECTION_INSTRUCTION: &str = r#"You are selecting which stored memories are worth reading in full for the request below.
 
-You will be given the request and a list of available memories, each with its type, name, age, and a one-line description.
+You will be given the request and a list of available memories, each with its opaque id in square brackets, its type, name, age, and a one-line description.
 
-Return a JSON array of memory names and nothing else. Select only memories that are clearly useful for this request, at most 5.
+Return a JSON array of memory ids (the bracketed values, exactly as written) and nothing else. Select only memories that are clearly useful for this request, at most 5. Two memories may share a name; only the id identifies one.
 - If you are unsure whether a memory is useful, leave it out.
 - If none are clearly useful, return an empty array. That is the expected answer most of the time and is never wrong.
 - Judge from the description alone. You are not being shown the memories' contents."#;
 
-/// Parses the selector's response into names that exist in the manifest it was shown.
+/// Parses the selector's response into ids that exist in the manifest it was shown.
 ///
-/// A name absent from `available` is discarded rather than treated as an error: a hallucinated
-/// name costs nothing once dropped, while failing the whole selection over one would throw away
-/// the valid choices beside it. Order follows the selector's own, so its ranking survives.
+/// Ids, never display names: two eligible records may share a name, and a name lookup would pick
+/// whichever came first. An id absent from `available` is discarded rather than treated as an
+/// error: a hallucinated id costs nothing once dropped, while failing the whole selection over
+/// one would throw away the valid choices beside it. Order follows the selector's own, so its
+/// ranking survives.
 pub(crate) fn parse_memory_selection(raw: &str, available: &HashSet<String>) -> Vec<String> {
     let Some(array) = extract_json_array(raw) else {
         return Vec::new();

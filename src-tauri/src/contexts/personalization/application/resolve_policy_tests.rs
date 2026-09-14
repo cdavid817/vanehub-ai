@@ -1554,6 +1554,7 @@ fn a_preview_carries_no_memory_body_and_no_recorded_path() {
             id: MemoryId::parse("01K2MEM0000000000000000001").expect("id"),
             revision: 1,
             content_hash: "sha256:abc".to_string(),
+            authority_fingerprint: "authority".to_string(),
             name: "user-role".to_string(),
             description: "A short hook".to_string(),
             memory_type: MemoryType::Project,

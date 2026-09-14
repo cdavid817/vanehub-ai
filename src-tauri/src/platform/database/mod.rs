@@ -99,6 +99,9 @@ impl NativeDatabase {
             connection.query_row("PRAGMA journal_mode=WAL", [], |_row| Ok(()))?;
             connection.pragma_update(None, "foreign_keys", "ON")?;
             connection.pragma_update(None, "synchronous", "FULL")?;
+            // Query-local scratch tables (the retrieval authority relation is one per recall)
+            // never need to survive the connection, so they stay off the disk.
+            connection.pragma_update(None, "temp_store", "MEMORY")?;
             let synchronous =
                 connection.query_row("PRAGMA synchronous", [], |row| row.get::<_, i64>(0))?;
             if synchronous != SQLITE_SYNCHRONOUS_FULL {
@@ -161,6 +164,10 @@ mod tests {
         let synchronous: i64 = connection
             .query_row("PRAGMA synchronous", [], |row| row.get(0))
             .expect("synchronous setting");
+        let temp_store: i64 = connection
+            .query_row("PRAGMA temp_store", [], |row| row.get(0))
+            .expect("temp_store setting");
+        assert_eq!(temp_store, 2, "temp tables live in memory");
         let agent_count: i64 = connection
             .query_row("SELECT COUNT(*) FROM agents", [], |row| row.get(0))
             .expect("agent count");

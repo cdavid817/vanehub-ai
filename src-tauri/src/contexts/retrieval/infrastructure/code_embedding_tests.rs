@@ -20,10 +20,6 @@ impl IndexSourcePort for EmptySource {
     fn snapshot(&self) -> Result<Vec<IndexSourceRecord>, RetrievalError> {
         Ok(Vec::new())
     }
-
-    fn fetch(&self, _source_ids: &[String]) -> Result<Vec<IndexSourceRecord>, RetrievalError> {
-        Ok(Vec::new())
-    }
 }
 
 #[derive(Default)]

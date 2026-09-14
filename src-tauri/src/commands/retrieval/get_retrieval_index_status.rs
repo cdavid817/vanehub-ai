@@ -13,6 +13,9 @@ pub(crate) struct RetrievalIndexStatus {
     pub(crate) indexed: u32,
     pub(crate) pending: u32,
     pub(crate) failed: u32,
+    /// Rows searchable by keyword whose bodies never leave the machine: workspace-scoped or
+    /// audience-restricted memories, which have no embedding egress authorization.
+    pub(crate) keyword_only: u32,
     /// Category only (e.g. `auth` / `invalid_request` / `rate_limit` / `network`) — never raw
     /// error text, which may carry credentials or provider response content (design doc §8.2).
     pub(crate) last_failure_category: Option<String>,
@@ -27,6 +30,7 @@ pub(crate) fn get_retrieval_index_status(
             indexed: status.indexed,
             pending: status.pending,
             failed: status.failed,
+            keyword_only: status.keyword_only,
             last_failure_category: status.last_failure_category,
         })
         // 类别而非 `Display`：同 `RetrievalIndexStatus::last_failure_category`，这个串会被
