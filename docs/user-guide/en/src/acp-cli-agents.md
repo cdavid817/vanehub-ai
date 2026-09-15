@@ -1,5 +1,7 @@
 # ACP CLI Agents and the legacy iFlow entry
 
+> **Status:** `main` / unreleased — the ACP agents are not in the stable v1.5.0 download. Their automation is **fixture-qualified** (the desktop suite drives them with credential-less fake CLIs); the only **live-qualified** run so far is Qwen Code 0.23.0 on Linux (2026-09-07). Kimi, Qoder, CodeBuddy, Copilot, and Cursor live smoke tests are still open, and no platform other than Linux has been run. The governing OpenSpec change `extend-cli-providers-with-acp` is still active, so nothing here is a released specification. Per-agent status is tracked in the [agent capability matrix](../../../reference/agents/capability-matrix.md).
+
 Besides the original five CLIs, VaneHub AI drives six more coding CLIs through the **Agent Client Protocol (ACP)**: Qwen Code, Kimi Code CLI, Qoder CLI, CodeBuddy Code, GitHub Copilot CLI, and Cursor Agent CLI. A seventh entry, iFlow CLI, is kept only as a legacy native-terminal option. This chapter covers what differs from the original five; everything else (creating a session, the workspace tabs, permission templates) works the same way.
 
 ## What ACP changes for you
@@ -34,7 +36,7 @@ Two explicit actions live on each card in Settings → CLI Management:
 
 ## Third-party endpoints
 
-Qwen Code and iFlow can run against any OpenAI-compatible endpoint. Rather than editing `~/.qwen/.env` or `~/.iflow/settings.json` by hand, create a profile for either Agent under **Settings → Agent configurations** and apply it; see [Agent configuration](agent-configuration.md). The other five CLIs offer no such setting in their programs, so VaneHub does not pretend to configure one.
+Qwen Code and iFlow can run against any OpenAI-compatible endpoint. Rather than editing `~/.qwen/.env` or `~/.iflow/settings.json` by hand, create a profile for either Agent under **Settings → Agent configurations** and apply it; see [Agent configuration](agent-configuration.md). The other ACP CLIs (Kimi Code CLI, Qoder CLI, CodeBuddy Code, GitHub Copilot CLI, Cursor Agent CLI) offer no such setting in their programs, so VaneHub does not pretend to configure one.
 
 ## Resuming a session
 

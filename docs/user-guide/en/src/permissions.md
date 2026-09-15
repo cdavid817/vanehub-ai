@@ -22,7 +22,7 @@ Choose a template under **Settings → Agent Policies**. **A template affects on
 Two things are easy to misread:
 
 - **"Read-only" does not forbid everything** — reading files and writing memories are still allowed.
-- **"Trusted" and "Yolo" have identical policy in practice**; they differ only in how firmly you have to confirm when granting them.
+- **"Trusted" and "Yolo" give the same answers inside VaneHub AI** (both allow commands and file writes); they differ in how firmly you have to confirm when granting them. What each CLI is *launched with* is a separate projection of the template and can differ per CLI — see [What each CLI is launched with](#what-each-cli-is-launched-with) below.
 
 ![The Agent Policies settings page, one row per Agent with four selectable templates](assets/screenshots/permissions-en.png)
 
@@ -68,15 +68,22 @@ The system resolves in a fixed order and returns on the first match:
 
 **An action that matches no rule falls through to "ask", not to allow.** Any internal error also falls back to "ask" — the system does not allow something because it failed.
 
-## What is special about Claude Code
+## What each CLI is launched with
 
-Claude Code does not express permissions through launch flags. It uses a **separate permission hook** that decides dynamically on each call, which is more precise than flags fixed at launch.
+The template you pick is always enforced by VaneHub AI's own policy layer (approval cards, remembered grants, audit records). In addition, VaneHub AI passes the template to each CLI at launch so the CLI's own approval mode matches. How much of that is *guaranteed by VaneHub AI* depends on the transport; the full per-agent table is in the [agent capability matrix](../../../reference/agents/capability-matrix.md).
 
-When the hook is unavailable it falls back to an offline decision based on risk classification, rather than failing the whole chain.
+| Transport | Agents | Read-only | Standard | Trusted / Yolo | What VaneHub AI guarantees |
+| --- | --- | --- | --- | --- | --- |
+| Headless CLIs | Claude Code, Codex CLI, Gemini CLI, OpenCode, Antigravity CLI | The CLI's plan / read-only mode | The CLI's own ask-first mode (OpenCode via an environment variable) | The CLI's accept-edits / auto mode | Flags are chosen by VaneHub AI from an audited catalog; no bypass flag is ever used |
+| ACP agents (managed conversation) | Qwen Code, Kimi Code CLI, Qoder CLI, CodeBuddy Code, GitHub Copilot CLI, Cursor Agent CLI | Plan flag where the CLI has one | No launch flag: every tool call is asked of VaneHub AI per call | No launch flag: VaneHub AI answers per call from your template | Per-call decisions by VaneHub AI; an unattended "ask" is rejected, never approved |
+| ACP agents in the Agent Terminal | same six | Plan flag; **Qoder CLI has no read-only mode, so a read-only terminal launch is refused** | Qwen, CodeBuddy: default flag; Kimi, Copilot, Cursor: the CLI's own ask-first default (**provider-delegated**, VaneHub AI passes and verifies nothing) | The CLI's auto-approve flag | Only the launch flag; the CLI's internal approvals are its own |
+| Legacy terminal | iFlow CLI | `--plan` | `--default` | `--autoEdit` / `--yolo` | Only the launch flag; no managed conversation |
 
-Gemini CLI, Codex CLI, and OpenCode project the template into their own native approval or sandbox launch flags, each expressing it differently — OpenCode uses environment variables, Codex CLI uses command-line options. You do not need to care about these differences; configuring the template is enough.
+**Claude Code is special** in one more way: the launch flag only sets its permission mode. The real gate is a **permission hook** that asks VaneHub AI on every intercepted tool call, which is more precise than flags fixed at launch. When the hook is unavailable it falls back to an offline decision based on risk classification, rather than failing the whole chain.
 
-**Antigravity CLI has no native flags to project into.** It stays bound by VaneHub AI's own policy layer — approval cards and audit records work as usual — but it will not additionally enforce an equivalent restriction inside its own process the way the three above do. Which layer a policy takes effect in depends on each Agent's declared capabilities, not on all CLIs being alike.
+**Antigravity CLI does have native flags** (`--mode` and `--sandbox`); VaneHub AI projects the template into them like the other headless CLIs, and never uses its `--dangerously-skip-permissions` bypass.
+
+"Provider-delegated" or "unverified" in the UI means VaneHub AI passed no restriction and checked none — the CLI is following its own defaults. "Not managed by VaneHub AI" never means the CLI itself lacks the feature.
 
 ## Notes and limits
 

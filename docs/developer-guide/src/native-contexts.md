@@ -168,4 +168,4 @@ Native diagnostics use the unified logging port and contain only safe ids, phase
 
 ## Authoritative source
 
-The ownership descriptions in this table share their source with the Bounded contexts table in [`openspec/project.md`](../../../openspec/project.md), which CI enforces against `src-tauri/src/contexts/`. For the full implemented context and command inventory, read [`src-tauri/ARCHITECTURE.md`](../reference/native-architecture.md) alongside the generated [native API reference](native-api-reference.md).
+The ownership descriptions in this table share their source with the Bounded contexts table in [`openspec/project.md`](../../../openspec/project.md), which CI enforces against `src-tauri/src/contexts/`. For the full implemented context and command inventory, read [`src-tauri/ARCHITECTURE.md`](../../../src-tauri/ARCHITECTURE.md) alongside the generated [native API reference](native-api-reference.md).

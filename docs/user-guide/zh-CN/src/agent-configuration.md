@@ -18,7 +18,7 @@ Gemini CLI、OpenCode 与 Antigravity CLI 没有对应的受管 SDK。
 
 **设置 → CLI 管理**汇报这台机器上装了什么，并且对能驱动的来源代为改动。顶部状态条把每个工具计入且只计入一个桶——**就绪**、**待登录**、**可更新**、**有冲突**、**无法运行**——每个计数同时就是它的筛选按钮。搜索、来源筛选和"只看需要处理的"可以进一步收窄列表。
 
-![设置中的 CLI 管理页面，五个 CLI 卡片与本地环境检查](assets/screenshots/cli-zh-CN.png)
+![设置中的 CLI 管理页面，展示已安装与可安装的 Agent 以及本地环境检查](assets/screenshots/cli-zh-CN.png)
 
 #### 实际跑的那一份，和 VaneHub 会动的那一份
 
@@ -150,7 +150,7 @@ OnePiece 不走外部 CLI，没有上述命令行参数，因此它不是 CLI �
 
 **设置 → Agent 配置**做的是一件和上面几节都不同的事：**决定各个 Agent 去调哪个厂商、哪个模型**。它是本页唯一会主动改写各 CLI 自己配置文件的功能。
 
-![设置中的 Agent 配置页面，六个 Agent 标签与全局配置状态](assets/screenshots/settings-agent-configurations-zh-CN.png)
+![设置中的 Agent 配置页面，每个受管 Agent 一个标签与全局配置状态](assets/screenshots/settings-agent-configurations-zh-CN.png)
 
 页面顶部按 Agent 分标签：**Claude Code / Codex CLI / OpenCode / Antigravity CLI / Gemini CLI / Qwen Code / iFlow CLI / OnePiece**。同一页面下方还有[LSP 代码智能](lsp-code-intelligence.md)的语言服务器开关。
 

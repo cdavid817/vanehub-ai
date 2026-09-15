@@ -29,7 +29,7 @@ MCP (Model Context Protocol) is Anthropic's standardized protocol for the questi
 
 ### How MCP relates to function calling and Skills
 
-The three layer and cooperate rather than exclude one another (see the three-layer table in [Skill management](skill-management.md)):
+The three layers cooperate rather than exclude one another (see the three-layer table in [Skill management](skill-management.md)):
 
 - **Function calling** is the protocol layer — the model emits a structured call intent.
 - **MCP** is the connection layer — it standardizes who is called, how they are discovered, and how they are connected. The tools a server exposes are converted into function-calling tool schemas when passed to the model.
@@ -69,7 +69,7 @@ flowchart TD
     G --> H["Fixed shell / file / remember tools<br/>never collide"]
 ```
 
-**The relay**: VaneHub AI can act as a proxy between a CLI and an MCP server, marked by `RELAY_FLAG` = `--vanehub-mcp-relay`. Only Claude Code and Codex CLI take the relay path. Gemini CLI, OpenCode, and Antigravity CLI configure MCP independently, and their MCP calls do not enter VaneHub AI's execution trace. The relay filesystem is isolated by `PrivateRelayDirectory` to prevent cross-session and cross-Agent interference.
+**The relay**: VaneHub AI can act as a proxy between a CLI and an MCP server, marked by `RELAY_FLAG` = `--vanehub-mcp-relay`. The relay allowlist in `bootstrap/managed_mcp_relay.rs` is `claude-code`, `codex-cli`, and `opencode`; every other agent id receives an empty `PreparedMcpRelay`. Gemini CLI and Antigravity CLI configure MCP independently, the six ACP agents receive `mcpServers: []` on `session/new` and `session/load` and take MCP from the vendor CLI's own configuration, and iFlow CLI is terminal-only — none of those MCP calls enter VaneHub AI's execution trace. The relay filesystem is isolated by `PrivateRelayDirectory` to prevent cross-session and cross-Agent interference.
 
 **Catalog degradation**: an untested or failed server contributes no tools, and so does an inactive server or one outside the current session's scope. MCP catalog names never collide with or shadow the fixed `shell`, `file`, and `remember` tools. When the catalog lookup itself fails, degradation is graceful — the generation proceeds with only the fixed catalog rather than failing the whole request.
 
@@ -78,7 +78,7 @@ flowchart TD
 The MCP infrastructure lives in `tooling/mcp/infrastructure/`, implemented across the `relay_*.rs` modules:
 
 - **Three transports** — `stdio` (a local child process with bounded reads and writes through `bounded_stdio`), `streamable_http` (over HTTP, through the streamable HTTP protocol module), and legacy `sse` (transactionally migrated to `streamable_http` through the `relay_legacy_sse*` modules, preserving its previously effective protocol behavior). An unknown transport value is rejected and never silently reinterpreted as `stdio`.
-- **The relay flag** `RELAY_FLAG = "--vanehub-mcp-relay"` in `relay.rs` — only Claude Code and Codex CLI take the relay path, where VaneHub AI proxies JSON-RPC between the CLI and the MCP server. Gemini CLI, OpenCode, and Antigravity CLI configure MCP independently and their MCP calls stay out of VaneHub AI's execution trace.
+- **The relay flag** `RELAY_FLAG = "--vanehub-mcp-relay"` in `relay.rs` — Claude Code, Codex CLI, and OpenCode take the relay path (`managed_mcp_relay.rs` allowlist), where VaneHub AI proxies JSON-RPC between the CLI and the MCP server; OpenCode receives the projection through `OPENCODE_CONFIG_CONTENT`. Gemini CLI, Antigravity CLI, the ACP agents, and iFlow CLI configure MCP independently and their MCP calls stay out of VaneHub AI's execution trace. The desktop `agent-mcp` layer drives all three relayed agents.
 - **`PrivateRelayDirectory`**, from `platform::private_relay_fs` — the isolated relay filesystem directory that prevents cross-session and cross-Agent interference. Startup scavenges stale directories through `PrivateRelayDirectory::scavenge_stale()`.
 - **JSON-RPC frame parsing** in `relay_jsonrpc.rs` — `parse_json_rpc_frame` parses a frame, and `JsonRpcFrame` and `JsonRpcId` handle request-response pairing.
 - **Failure observation** in `relay_failure.rs` — relay failures are classified as `RelayFailure`, and the relay observer records diagnostic events such as `mcp_relay_enabled` and `mcp_relay_terminated`, carrying safe metadata only.
@@ -94,13 +94,15 @@ MCP configuration and the catalog are **managed uniformly** — one server confi
 
 The difference is the **transport path**, because a CLI process and OnePiece have different runtime shapes:
 
-| Dimension | Claude Code / Codex CLI | Gemini CLI / OpenCode / Antigravity CLI | OnePiece native Agent |
-| --- | --- | --- | --- |
-| Uses the relay | **Yes** (`RELAY_FLAG` = `--vanehub-mcp-relay`) — VaneHub AI proxies JSON-RPC between the CLI and the MCP server | No — each configures MCP independently | Included directly through the native tool catalog |
-| Enters the execution trace | Relayed calls do enter VaneHub AI's execution trace | **No** — a black box | Native fidelity, expandable layer by layer in a trace |
-| Filesystem isolation | Relay files isolated by `PrivateRelayDirectory` | Managed by each CLI itself | The same catalog space as the fixed tools |
+| Dimension | Claude Code / Codex CLI / OpenCode | Gemini CLI / Antigravity CLI | ACP agents (Qwen, Kimi, Qoder, CodeBuddy, Copilot, Cursor) | iFlow CLI (legacy) | OnePiece native Agent |
+| --- | --- | --- | --- | --- | --- |
+| Uses the relay | **Yes** (`RELAY_FLAG` = `--vanehub-mcp-relay`) — VaneHub AI proxies JSON-RPC between the CLI and the MCP server | No — each configures MCP independently | No — the ACP session is opened with `mcpServers: []`; MCP comes from the vendor CLI's own configuration | No — terminal only, no managed path | Included directly through the native tool catalog |
+| Enters the execution trace | Relayed calls do enter VaneHub AI's execution trace | **No** — a black box | **No** — a black box | No | Native fidelity, expandable layer by layer in a trace |
+| Filesystem isolation | Relay files isolated by `PrivateRelayDirectory` | Managed by each CLI itself | Managed by each CLI itself | Managed by the CLI itself | The same catalog space as the fixed tools |
 
-**Managing MCP statistically** applies to the relay path: relay failures are classified as `RelayFailure`, and the relay observer records diagnostic events such as `mcp_relay_enabled` and `mcp_relay_terminated`. Non-relayed CLIs and OnePiece both obey the same constraint that a catalog name never collides with or shadows the fixed `shell`, `file`, and `remember` tools.
+The per-agent relay column is also in the generated [agent capability matrix](../../reference/agents/capability-matrix.md).
+
+**MCP observability** is uniform across the relay path: relay failures are classified as `RelayFailure`, and the relay observer records diagnostic events such as `mcp_relay_enabled` and `mcp_relay_terminated`. Non-relayed CLIs and OnePiece both obey the same constraint that a catalog name never collides with or shadows the fixed `shell`, `file`, and `remember` tools.
 
 ## Where the design lives
 

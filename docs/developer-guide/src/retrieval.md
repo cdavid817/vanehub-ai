@@ -6,9 +6,9 @@ The `retrieval` bounded context owns **two independent search chains**: cross-se
 
 | | Memory recall (`recall`) | Code search (`search_code`) |
 | --- | --- | --- |
-| Data source | The `personalization` compatibility view (active + global + all-Agents memories) | The per-workspace code index (Tree-sitter chunks — see [Tree-sitter code indexing](tree-sitter-code-indexing.md)) |
+| Data source | The complete eligible relation `personalization` opens for the frozen read context (`open_memory_query`), never the whole pool or the legacy compatibility view | The per-workspace code index (Tree-sitter chunks — see [Tree-sitter code indexing](tree-sitter-code-indexing.md)) |
 | Index | Vector + FTS5, one host-level pool | FTS5 always; vectors only in semantic mode after confirmation |
-| Scope | Host-level; narrowed memories are absent from the pool entirely (see [Cross-session memory](cross-session-memory.md)) | The current session's workspace, determined implicitly by the trusted runtime |
+| Scope | Governed per read context: global and current-workspace memories the session may read, by exact audience (see [Cross-session memory](cross-session-memory.md)) | The current session's workspace, determined implicitly by the trusted runtime |
 | Availability | Vector embedding configured (otherwise the tool never enters the catalog) | The workspace's index enabled and its phase not `Unavailable` |
 | Privacy boundary | Deleted memories are dropped at source lookup, never leaked | Index and results are redacted text throughout |
 | Degradation | `keyword_only` / `vector_only` / a soft "temporarily unavailable" | Same; local mode has no vectors and is **not** a degradation |

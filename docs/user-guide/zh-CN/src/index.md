@@ -1,5 +1,8 @@
 # VaneHub AI 用户指南
 
+> **适用版本**：`main` 上的这份指南描述的是下一个、尚未发布的版本。当前稳定下载版本是 **v1.5.0**；要确认该安装包的确切行为，请读 [v1.5.0 版指南](https://github.com/cdavid817/vanehub-ai/tree/v1.5.0/docs/user-guide/zh-CN/src)。标为 `main` 的章节与表行不在 v1.5.0 中；状态词汇（`stable`、`main`、fixture-qualified、live-qualified、legacy、planned）见[术语表](../../../reference/terminology.md)，逐 Agent 的支持情况见 [Agent 能力矩阵](../../../reference/agents/capability-matrix.md)。
+>
+> **按任务进入**：[安装与认证](getting-started.md) · [首个会话](first-session.md) · [权限](permissions.md) · [MCP](mcp.md) · [评测](evaluation.md) · [故障排查](troubleshooting.md)
 <a href="../../en/src/index.md">English</a>
 
 VaneHub AI 是统一运行、管理和协作多个 AI 编码 Agent 的桌面工作台：既能驱动 Claude Code、Codex CLI 等外部 CLI，也内置不依赖任何 CLI 的原生 Agent OnePiece。

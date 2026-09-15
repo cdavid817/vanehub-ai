@@ -1,6 +1,8 @@
 # ACP runtime for managed CLI conversations
 
-Six of the twelve catalog CLIs run their managed conversation over the **Agent Client Protocol (ACP)** instead of a per-turn headless command: Qwen Code, Kimi Code CLI, Qoder CLI, CodeBuddy Code, GitHub Copilot CLI, and Cursor Agent CLI. The seventh addition, iFlow CLI, is a legacy entry with a native terminal only. This chapter explains the transport, how it plugs into the existing provider runtime, and where each safety boundary is enforced. The normative requirements live in the OpenSpec change `extend-cli-providers-with-acp`.
+> **Status:** `main` / unreleased — the ACP agents are not in the stable v1.5.0 download. Their automation is **fixture-qualified** (the desktop suite drives them with credential-less fake CLIs); the only **live-qualified** run so far is Qwen Code 0.23.0 on Linux (2026-09-07). Kimi, Qoder, CodeBuddy, Copilot, and Cursor live smoke tests are still open, and no platform other than Linux has been run. The governing OpenSpec change `extend-cli-providers-with-acp` is still active, so nothing here is a released specification. Per-agent status is tracked in the [agent capability matrix](../../reference/agents/capability-matrix.md).
+
+Six of the twelve catalog CLIs run their managed conversation over the **Agent Client Protocol (ACP)** instead of a per-turn headless command: Qwen Code, Kimi Code CLI, Qoder CLI, CodeBuddy Code, GitHub Copilot CLI, and Cursor Agent CLI. The seventh addition, iFlow CLI, is a legacy entry with a native terminal only. This chapter explains the transport, how it plugs into the existing provider runtime, and where each safety boundary is enforced. The normative requirements are still in the **active** OpenSpec change `extend-cli-providers-with-acp` (its delta specs have not been merged into `openspec/specs/`), so read them as in-flight requirements, not a released main specification.
 
 ## Three transports, one gateway
 

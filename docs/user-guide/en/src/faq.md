@@ -66,7 +66,7 @@ The interface explains: a run missed because the application was closed is **mad
 
 ## Does configuring MCP once cover every Agent?
 
-**Only Claude Code and Codex CLI go through the relay today.** Gemini CLI, OpenCode, and Antigravity CLI need their own configuration, and their MCP calls do not appear in the execution trace.
+**Not yet.** Claude Code, Codex CLI, and OpenCode go through the relay, so one registration covers them and their MCP calls appear in the execution trace. Gemini CLI, Antigravity CLI, the ACP Agents (Qwen Code, Kimi Code CLI, Qoder CLI, CodeBuddy Code, GitHub Copilot CLI, Cursor Agent CLI), and iFlow CLI need their own configuration, and their MCP calls do not appear in the trace. OnePiece uses the registered servers directly. See the table in [MCP servers](mcp.md#relay-let-external-clis-use-the-same-mcp-servers).
 
 ## Which languages does the interface support?
 

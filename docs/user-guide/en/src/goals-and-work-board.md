@@ -108,7 +108,7 @@ If the object a child points at is deleted, or its state cannot be queried, the 
 
 ![The Todo Board with its stage columns and work item cards](assets/screenshots/todo-board-en.png)
 
-### Overview
+### Work board overview
 
 Sessions and scheduled tasks each have their own list, and manual to-dos have nowhere to live at all. The Todo Board collects them into one board: **what you wrote down by hand and what the Agents produced sit side by side**, organized by the same stages, priorities, and filters.
 

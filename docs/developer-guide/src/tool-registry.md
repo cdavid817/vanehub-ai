@@ -108,7 +108,7 @@ As long as the model's response contains `tool_use`, the runtime executes those 
 - **The round-trip ceiling** — each user message has a fixed maximum of `MAX_TOOL_ROUND_TRIPS = 25` round trips (in `contexts/agent_runtime/infrastructure/api_process_adapter/mod.rs`). Exceeding it is handled explicitly rather than looping forever.
 - **The fixed catalog comes first** — the runtime resolves a tool name against the fixed native catalog first, and Skill and MCP tools layer on top rather than replacing it.
 
-### Tool source and execution boundary
+### Tool source and execution boundary (reference)
 
 | Tool source | Where it executes | Notes |
 | --- | --- | --- |

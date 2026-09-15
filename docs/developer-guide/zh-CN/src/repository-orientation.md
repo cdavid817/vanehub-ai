@@ -18,7 +18,7 @@ VaneHub AI 是一个以桌面端为主的 AI 编程 Agent 工作台。它使用�
 | --- | --- |
 | 贡献规则、禁止事项、提交前校验命令 | [`AGENTS.md`](../../../../AGENTS.md) |
 | 强制架构规则、完整 bounded context 清单 | [`openspec/project.md`](../../../../openspec/project.md) |
-| 已实现的 Native 模块清单、迁移状态与 ADR | [`src-tauri/ARCHITECTURE.md`](../../reference/native-architecture.md) |
+| 已实现的 Native 模块清单、迁移状态与 ADR | [`src-tauri/ARCHITECTURE.md`](../../../../src-tauri/ARCHITECTURE.md) |
 | 已确认的产品行为 | `openspec/specs/` |
 | 尚在实施的变更设计与任务证据 | `openspec/changes/<change-name>/` |
 | 帮助贡献者理解代码的解释性材料 | 本开发者指南 |

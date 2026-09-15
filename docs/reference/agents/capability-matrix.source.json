@@ -1,0 +1,420 @@
+{
+  "stableRelease": "v1.5.0",
+  "notes": {
+    "releaseStatus": "stable = present in the current stable download; main = merged on main, not yet in a stable release; legacy = detect-only terminal entry with no managed conversation.",
+    "liveQualification": "platforms lists only operating systems with a recorded real-CLI run. An empty list means fixture-qualified only. upstreamVersion and verifiedOn are filled at generation time from src/contracts/fixtures/cli-parameter-source-audit.json."
+  },
+  "agents": [
+    {
+      "id": "claude-code",
+      "displayName": "Claude Code",
+      "releaseStatus": "stable",
+      "stableSince": "v1.5.0",
+      "transport": "headless",
+      "managedChat": true,
+      "installSources": [
+        {
+          "kind": "npm",
+          "package": "@anthropic-ai/claude-code"
+        },
+        {
+          "kind": "winget",
+          "id": "Anthropic.ClaudeCode"
+        },
+        {
+          "kind": "vendor",
+          "url": "https://claude.ai/install.sh",
+          "platforms": [
+            "macos",
+            "linux"
+          ]
+        }
+      ],
+      "authProbe": "unknown",
+      "authProbeNotes": "Deliberately undocumented upstream; `claude doctor` is probed instead.",
+      "providerConfig": "exclusive",
+      "providerConfigFile": "~/.claude/settings.json",
+      "permissionProjection": "hook-plus-permission-mode",
+      "enforceabilityNotes": "Launch sets `--permission-mode`; the PreToolUse hook is the action-level boundary. Host-projected.",
+      "mcpRelay": "relayed",
+      "executionTrace": true,
+      "evaluationCandidate": true,
+      "evaluationReason": "Not tagged legacy.",
+      "usageReporting": "headless-and-terminal",
+      "liveQualification": {
+        "platforms": [],
+        "source": "tests/desktop/spec-manifest.mjs (external-provider suite, no per-agent record)"
+      }
+    },
+    {
+      "id": "codex-cli",
+      "displayName": "Codex CLI",
+      "releaseStatus": "stable",
+      "stableSince": "v1.5.0",
+      "transport": "headless",
+      "managedChat": true,
+      "installSources": [
+        {
+          "kind": "npm",
+          "package": "@openai/codex"
+        }
+      ],
+      "authProbe": "signed-in",
+      "authProbeNotes": "`codex login status`.",
+      "providerConfig": "exclusive",
+      "providerConfigFile": "~/.codex/config.toml + auth.json",
+      "permissionProjection": "catalog-policy-governed",
+      "enforceabilityNotes": "`--sandbox` and `--ask-for-approval` per template. Host-projected.",
+      "mcpRelay": "relayed",
+      "executionTrace": true,
+      "evaluationCandidate": true,
+      "evaluationReason": "Not tagged legacy.",
+      "usageReporting": "headless-and-terminal",
+      "liveQualification": {
+        "platforms": [],
+        "source": "tests/desktop/spec-manifest.mjs (external-provider suite, no per-agent record)"
+      }
+    },
+    {
+      "id": "opencode",
+      "displayName": "OpenCode",
+      "releaseStatus": "stable",
+      "stableSince": "v1.5.0",
+      "transport": "headless",
+      "managedChat": true,
+      "installSources": [
+        {
+          "kind": "npm",
+          "package": "opencode-ai"
+        },
+        {
+          "kind": "vendor",
+          "url": "https://opencode.ai/install",
+          "platforms": [
+            "macos",
+            "linux"
+          ]
+        }
+      ],
+      "authProbe": "signed-in",
+      "authProbeNotes": "`opencode auth list`.",
+      "providerConfig": "additive",
+      "providerConfigFile": "~/.config/opencode/opencode.json",
+      "permissionProjection": "catalog-policy-governed",
+      "enforceabilityNotes": "`--agent plan` / `OPENCODE_PERMISSION` env / `--auto`. Host-projected.",
+      "mcpRelay": "relayed",
+      "executionTrace": true,
+      "evaluationCandidate": true,
+      "evaluationReason": "Not tagged legacy; asserted by evaluation-center tests.",
+      "usageReporting": "headless-and-terminal",
+      "liveQualification": {
+        "platforms": [],
+        "source": "tests/desktop/spec-manifest.mjs AGENT_EVALUATION_SPECS names a live-opencode mode; docs/desktop-release-verification.md records a 2026-09-04 multi-agent run on real claude/codex/opencode without a platform pin"
+      }
+    },
+    {
+      "id": "antigravity-cli",
+      "displayName": "Antigravity CLI",
+      "releaseStatus": "stable",
+      "stableSince": "v1.5.0",
+      "transport": "headless",
+      "managedChat": true,
+      "installSources": [
+        {
+          "kind": "vendor",
+          "url": "https://antigravity.google/cli/install.ps1",
+          "platforms": [
+            "windows"
+          ]
+        },
+        {
+          "kind": "vendor",
+          "url": "https://antigravity.google/cli/install.sh",
+          "platforms": [
+            "macos",
+            "linux"
+          ]
+        }
+      ],
+      "authProbe": "unknown",
+      "providerConfig": "apply-only",
+      "providerConfigFile": "~/.gemini/antigravity-cli/settings.json",
+      "providerConfigNotes": "VaneHub applies model and approval fields but manages no endpoint or credential field; the upstream CLI itself supports API keys and compatible endpoints.",
+      "permissionProjection": "catalog-policy-governed",
+      "enforceabilityNotes": "`--mode plan|accept-edits` and `--sandbox`; never `--dangerously-skip-permissions`. Host-projected.",
+      "mcpRelay": "own-config",
+      "executionTrace": false,
+      "evaluationCandidate": true,
+      "evaluationReason": "Not tagged legacy.",
+      "usageReporting": "headless-reported",
+      "liveQualification": {
+        "platforms": [],
+        "source": "docs/desktop-release-verification.md records an unresolved hang pending real-environment recheck"
+      }
+    },
+    {
+      "id": "gemini-cli",
+      "displayName": "Gemini CLI",
+      "releaseStatus": "stable",
+      "stableSince": "v1.5.0",
+      "transport": "headless",
+      "managedChat": true,
+      "installSources": [
+        {
+          "kind": "npm",
+          "package": "@google/gemini-cli"
+        }
+      ],
+      "authProbe": "unknown",
+      "providerConfig": "exclusive",
+      "providerConfigFile": "~/.gemini/.env",
+      "permissionProjection": "catalog-policy-governed",
+      "enforceabilityNotes": "`--approval-mode plan|default|yolo`. Host-projected.",
+      "mcpRelay": "own-config",
+      "executionTrace": false,
+      "evaluationCandidate": true,
+      "evaluationReason": "Not tagged legacy.",
+      "usageReporting": "headless-and-terminal",
+      "liveQualification": {
+        "platforms": [],
+        "source": "tests/desktop/spec-manifest.mjs (external-provider suite, no per-agent record)"
+      }
+    },
+    {
+      "id": "qwen-code",
+      "displayName": "Qwen Code",
+      "releaseStatus": "main",
+      "stableSince": null,
+      "transport": "acp-stdio",
+      "managedChat": true,
+      "installSources": [
+        {
+          "kind": "npm",
+          "package": "@qwen-code/qwen-code"
+        }
+      ],
+      "authProbe": "unknown",
+      "providerConfig": "exclusive",
+      "providerConfigFile": "~/.qwen/.env + settings.json",
+      "permissionProjection": "runtime-flags-pty-only-under-acp",
+      "enforceabilityNotes": "PTY: `--approval-mode plan|default|auto-edit|yolo`; ACP: only the read-only flag, other templates answered per call by the host. Host-projected.",
+      "mcpRelay": "acp-own-config",
+      "executionTrace": false,
+      "evaluationCandidate": true,
+      "evaluationReason": "Not tagged legacy.",
+      "usageReporting": "unavailable",
+      "liveQualification": {
+        "platforms": [
+          "linux"
+        ],
+        "source": "openspec/changes/extend-cli-providers-with-acp/tasks.md 5.4 (2026-09-07, Qwen Code 0.23.0; Windows/macOS NOT RUN)"
+      }
+    },
+    {
+      "id": "kimi-cli",
+      "displayName": "Kimi Code CLI",
+      "releaseStatus": "main",
+      "stableSince": null,
+      "transport": "acp-stdio",
+      "managedChat": true,
+      "installSources": [
+        {
+          "kind": "npm",
+          "package": "@moonshot-ai/kimi-code"
+        }
+      ],
+      "authProbe": "unknown",
+      "providerConfig": "not-applicable",
+      "permissionProjection": "runtime-flags-pty-only-under-acp",
+      "enforceabilityNotes": "PTY: `--plan` / CLI default / `--yolo` / `--auto`; ACP: only the read-only flag. Host-projected.",
+      "mcpRelay": "acp-own-config",
+      "executionTrace": false,
+      "evaluationCandidate": true,
+      "evaluationReason": "Not tagged legacy.",
+      "usageReporting": "unavailable",
+      "liveQualification": {
+        "platforms": [],
+        "source": "openspec/changes/extend-cli-providers-with-acp/tasks.md 6.4 (BLOCKED: provider onboarding missing after login)"
+      }
+    },
+    {
+      "id": "qoder-cli",
+      "displayName": "Qoder CLI",
+      "releaseStatus": "main",
+      "stableSince": null,
+      "transport": "acp-stdio",
+      "managedChat": true,
+      "installSources": [
+        {
+          "kind": "npm",
+          "package": "@qoder-ai/qodercli",
+          "notes": "Windows arm64 unsupported upstream"
+        }
+      ],
+      "authProbe": "unknown",
+      "providerConfig": "not-applicable",
+      "permissionProjection": "runtime-flags-pty-only-under-acp",
+      "enforceabilityNotes": "No plan/read-only mode upstream: a read-only terminal launch is refused (`terminal-readonly-unsupported`). PTY: `--permission-mode default|accept_edits`; ACP: no flag.",
+      "mcpRelay": "acp-own-config",
+      "executionTrace": false,
+      "evaluationCandidate": true,
+      "evaluationReason": "Not tagged legacy.",
+      "usageReporting": "unavailable",
+      "liveQualification": {
+        "platforms": [],
+        "source": "openspec/changes/extend-cli-providers-with-acp/tasks.md 7.4 (BLOCKED on account quota)"
+      }
+    },
+    {
+      "id": "codebuddy-code",
+      "displayName": "CodeBuddy Code",
+      "releaseStatus": "main",
+      "stableSince": null,
+      "transport": "acp-stdio",
+      "managedChat": true,
+      "installSources": [
+        {
+          "kind": "npm",
+          "package": "@tencent-ai/codebuddy-code"
+        }
+      ],
+      "authProbe": "unknown",
+      "providerConfig": "not-applicable",
+      "permissionProjection": "runtime-flags-pty-only-under-acp",
+      "enforceabilityNotes": "PTY: `--permission-mode plan|default|acceptEdits`; ACP: only the read-only flag. Host-projected.",
+      "mcpRelay": "acp-own-config",
+      "executionTrace": false,
+      "evaluationCandidate": true,
+      "evaluationReason": "Not tagged legacy.",
+      "usageReporting": "unavailable",
+      "liveQualification": {
+        "platforms": [],
+        "source": "openspec/changes/extend-cli-providers-with-acp/tasks.md 7.4 (not logged in)"
+      }
+    },
+    {
+      "id": "copilot-cli",
+      "displayName": "GitHub Copilot CLI",
+      "releaseStatus": "main",
+      "stableSince": null,
+      "transport": "acp-stdio",
+      "managedChat": true,
+      "installSources": [
+        {
+          "kind": "npm",
+          "package": "@github/copilot"
+        },
+        {
+          "kind": "winget",
+          "id": "GitHub.Copilot"
+        }
+      ],
+      "authProbe": "unknown",
+      "providerConfig": "not-applicable",
+      "permissionProjection": "runtime-flags-pty-only-under-acp",
+      "enforceabilityNotes": "PTY: `--mode plan` / no flag on standard (provider-delegated ask-first) / `--allow-all-tools`; ACP: only the read-only flag.",
+      "mcpRelay": "acp-own-config",
+      "executionTrace": false,
+      "evaluationCandidate": true,
+      "evaluationReason": "Not tagged legacy.",
+      "usageReporting": "unavailable",
+      "liveQualification": {
+        "platforms": [],
+        "source": "openspec/changes/extend-cli-providers-with-acp/tasks.md 8.5 (open)"
+      }
+    },
+    {
+      "id": "cursor-agent-cli",
+      "displayName": "Cursor Agent CLI",
+      "releaseStatus": "main",
+      "stableSince": null,
+      "transport": "acp-stdio",
+      "managedChat": true,
+      "installSources": [
+        {
+          "kind": "vendor",
+          "url": "https://cursor.com/install?win32=true",
+          "platforms": [
+            "windows"
+          ]
+        },
+        {
+          "kind": "vendor",
+          "url": "https://cursor.com/install",
+          "platforms": [
+            "macos",
+            "linux"
+          ]
+        }
+      ],
+      "authProbe": "unknown",
+      "providerConfig": "not-applicable",
+      "permissionProjection": "runtime-flags-pty-only-under-acp",
+      "enforceabilityNotes": "PTY: `--mode plan` / no flag on standard (provider-delegated ask-first) / `--force`; ACP: only the read-only flag. Binary is identity-checked, not matched by name.",
+      "mcpRelay": "acp-own-config",
+      "executionTrace": false,
+      "evaluationCandidate": true,
+      "evaluationReason": "Not tagged legacy.",
+      "usageReporting": "unavailable",
+      "liveQualification": {
+        "platforms": [],
+        "source": "openspec/changes/extend-cli-providers-with-acp/tasks.md 8.5 (open)"
+      }
+    },
+    {
+      "id": "iflow-cli",
+      "displayName": "iFlow CLI",
+      "releaseStatus": "legacy",
+      "stableSince": null,
+      "transport": "terminal-only",
+      "managedChat": false,
+      "installSources": [
+        {
+          "kind": "detect-only"
+        }
+      ],
+      "authProbe": "unknown",
+      "providerConfig": "exclusive",
+      "providerConfigFile": "~/.iflow/settings.json",
+      "permissionProjection": "runtime-flags-terminal-only",
+      "enforceabilityNotes": "PTY only: `--plan|--default|--autoEdit|--yolo`. Official service ended 2026-04-17; no managed conversation.",
+      "mcpRelay": "none",
+      "executionTrace": false,
+      "evaluationCandidate": false,
+      "evaluationReason": "Tagged legacy: no managed conversation for an arena attempt to drive.",
+      "usageReporting": "unavailable",
+      "liveQualification": {
+        "platforms": [],
+        "source": "none"
+      }
+    },
+    {
+      "id": "onepiece",
+      "displayName": "OnePiece",
+      "releaseStatus": "stable",
+      "stableSince": "v1.5.0",
+      "transport": "native-api",
+      "managedChat": true,
+      "installSources": [
+        {
+          "kind": "built-in"
+        }
+      ],
+      "authProbe": "not-applicable",
+      "authProbeNotes": "Credential presence only; the API key is validated once before saving.",
+      "providerConfig": "native-catalog",
+      "providerConfigNotes": "25-provider catalog or a custom compatible endpoint; key stored in the OS credential service.",
+      "permissionProjection": "host-policy-native",
+      "enforceabilityNotes": "Every tool call goes through the unified decision point directly; nothing to project.",
+      "mcpRelay": "native-tools",
+      "executionTrace": true,
+      "evaluationCandidate": true,
+      "evaluationReason": "Not tagged legacy.",
+      "usageReporting": "native-accounting",
+      "liveQualification": {
+        "platforms": [],
+        "source": "tests/desktop/spec-manifest.mjs AGENT_EVALUATION_SPECS names a live-onepiece mode; no per-platform run is recorded"
+      }
+    }
+  ]
+}

@@ -66,7 +66,7 @@ CLI Agent 的记忆提取由 OnePiece 代做——未配置时不会产生任何
 
 ## MCP 配一次能给所有 Agent 用吗？
 
-**目前只有 Claude Code 与 Codex CLI 走中继**。Gemini CLI、OpenCode 与 Antigravity CLI 需要各自配置，且它们的 MCP 调用不会出现在执行链路中。
+**还不能**。Claude Code、Codex CLI 与 OpenCode 走中继，注册一次即可覆盖，且它们的 MCP 调用会出现在执行链路中。Gemini CLI、Antigravity CLI、各 ACP Agent（Qwen Code、Kimi Code CLI、Qoder CLI、CodeBuddy Code、GitHub Copilot CLI、Cursor Agent CLI）与 iFlow CLI 需要各自配置，它们的 MCP 调用不进执行链路。OnePiece 直接使用已注册的服务器。见 [MCP 服务器](mcp.md)中的表格。
 
 ## 界面支持哪些语言？
 

@@ -24,7 +24,7 @@ Agent 要执行命令、写文件、调用工具或写记忆时，操作会先�
 两点容易误解的地方：
 
 - **「只读」并不禁止一切**——读文件与写记忆照常放行。
-- **「信任」与「Yolo」的实际策略完全相同**，差别只在赋予时的确认强度。
+- **「信任」与「Yolo」在 VaneHub AI 内部给出相同的答案**（都放行运行命令与写文件），差别在赋予时的确认强度。各 CLI *启动时拿到的参数*是模板的另一层投影，可能因 CLI 而异——见下文[每个 CLI 启动时拿到什么](#每个-cli-启动时拿到什么)。
 
 ## 提权需要确认
 
@@ -68,13 +68,22 @@ Agent 要执行命令、写文件、调用工具或写记忆时，操作会先�
 
 **没有任何规则命中的动作会落到「询问」，而不是放行**。任何内部错误也一律退到「询问」——系统不会因为出错而放行。
 
-## Claude Code 的特殊之处
+## 每个 CLI 启动时拿到什么
 
-各 CLI 的权限模板都会在启动时投影为各自的原生启动参数（ACP CLI 只投影只读姿态，其余由逐次审批决定）。Claude Code 在此之外还多一层：一个**独立的权限钩子**会在每次调用时动态判定——启动参数与钩子是叠加的双层机制，钩子那一层比启动时固定的参数更精确。
+你选的模板始终由 VaneHub AI 自己的策略层执行（审批卡片、记住的授权、审计记录）。除此之外，VaneHub AI 还会在启动时把模板传给各 CLI，让 CLI 自己的审批模式与之匹配。其中有多少是*由 VaneHub AI 保证的*取决于传输方式；逐 Agent 的完整表见 [Agent 能力矩阵](../../../reference/agents/capability-matrix.md)。
 
-钩子不可用时会退到基于风险分级的离线回退，而不是让整条链路失败。
+| 传输方式 | Agent | 只读 | 标准 | 信任 / Yolo | VaneHub AI 保证什么 |
+| --- | --- | --- | --- | --- | --- |
+| headless CLI | Claude Code、Codex CLI、Gemini CLI、OpenCode、Antigravity CLI | CLI 的 plan / 只读模式 | CLI 自己的先询问模式（OpenCode 通过环境变量） | CLI 的 accept-edits / 自动模式 | 旗标由 VaneHub AI 从审计过的目录中选取；绝不使用绕过旗标 |
+| ACP Agent（受管会话） | Qwen Code、Kimi Code CLI、Qoder CLI、CodeBuddy Code、GitHub Copilot CLI、Cursor Agent CLI | CLI 有 plan 旗标时传入 | 不传启动旗标：每次工具调用都逐次向 VaneHub AI 询问 | 不传启动旗标：VaneHub AI 按你的模板逐次作答 | 逐次由 VaneHub AI 决策；无人值守时的"询问"会被拒绝，绝不放行 |
+| ACP Agent 在 Agent Terminal 中 | 同上六个 | plan 旗标；**Qoder CLI 没有只读模式，只读的终端启动会被拒绝** | Qwen、CodeBuddy：default 旗标；Kimi、Copilot、Cursor：CLI 自己的先询问默认（**provider-delegated**，VaneHub AI 既不传入也不验证） | CLI 的自动放行旗标 | 只有启动旗标；CLI 内部的审批是它自己的 |
+| 历史兼容终端 | iFlow CLI | `--plan` | `--default` | `--autoEdit` / `--yolo` | 只有启动旗标；没有受管会话 |
 
-其余四个 CLI 各有各的表达方式——OpenCode 用环境变量，Codex CLI、Gemini CLI 和 Antigravity CLI 用命令行选项。你不需要关心这些差异，配好模板即可。
+**Claude Code 还多一层**：启动旗标只设置它的权限模式，真正的闸门是一个**权限钩子**，每次被拦截的工具调用都会询问 VaneHub AI，比启动时固定的旗标更精确。钩子不可用时会退到基于风险分级的离线回退，而不是让整条链路失败。
+
+**Antigravity CLI 有原生旗标**（`--mode` 与 `--sandbox`）；VaneHub AI 像对待其他 headless CLI 一样把模板投影进去，且绝不使用它的 `--dangerously-skip-permissions` 绕过旗标。
+
+界面上的"provider-delegated"或"unverified"表示 VaneHub AI 没有传入限制、也没有校验——CLI 在按自己的默认行为工作。"VaneHub AI 不管理"永远不等于"该 CLI 自身没有这个能力"。
 
 ## 注意事项与限制
 

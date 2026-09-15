@@ -1,4 +1,19 @@
 {
+  "capture": {
+    "schemaVersion": 1,
+    "runtimeNote": "Every entry declares its runtime; web-mock captures are UI previews, never desktop verification evidence.",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "theme": "light",
+    "localeSource": "seeded app settings per entry locale (tests/docs/documentation-screenshots.spec.ts)",
+    "clockFrozenAt": "2026-07-14T08:00:00Z",
+    "registrySnapshot": "src/services/mock-agent-data.ts",
+    "sourceCommit": "52b345eef0431b31348d9a781731afb8362eda9e",
+    "generatedAt": null,
+    "generatedAtNote": "Written by `npm run docs:screenshots:update` for audit only; not compared by `docs:screenshots:check`."
+  },
   "screenshots": [
     {
       "id": "create-session-en",

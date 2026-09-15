@@ -1,5 +1,7 @@
 # ACP CLI Agent 与 iFlow 历史兼容条目
 
+> **状态**：`main` / 未发布——ACP Agent 不在稳定版 v1.5.0 的下载包中。其自动化属于 **fixture-qualified**（桌面套件用无凭据的假 CLI 驱动）；目前唯一的 **live-qualified** 记录是 Linux 上的 Qwen Code 0.23.0（2026-09-07）。Kimi、Qoder、CodeBuddy、Copilot、Cursor 的真实 CLI 冒烟仍未完成，Linux 以外的平台尚未运行。对应的 OpenSpec change `extend-cli-providers-with-acp` 仍处于活跃状态，本页内容不是已发布的规范。逐 Agent 状态见 [Agent 能力矩阵](../../../reference/agents/capability-matrix.md)。
+
 除原有五个 CLI 之外，VaneHub AI 还通过 **Agent Client Protocol**（ACP）驱动六个编码 CLI：Qwen Code、Kimi Code CLI、Qoder CLI、CodeBuddy Code、GitHub Copilot CLI 与 Cursor Agent CLI。第七个条目 iFlow CLI 仅作为历史兼容的原生终端选项保留。本章只讲与原有五个的差异；创建会话、工作区标签、权限模板等其余部分完全一样。
 
 ## ACP 对你意味着什么
@@ -34,7 +36,7 @@
 
 ## 第三方端点
 
-Qwen Code 与 iFlow 可以接任意 OpenAI 兼容端点。不必手改 `~/.qwen/.env` 或 `~/.iflow/settings.json`：在**设置 → Agent 配置**里为这两个 Agent 新建配置并应用即可，见 [Agent 配置](agent-configuration.md)。其余五家 CLI 的程序本身没有这类设置，VaneHub 也不会假装能配。
+Qwen Code 与 iFlow 可以接任意 OpenAI 兼容端点。不必手改 `~/.qwen/.env` 或 `~/.iflow/settings.json`：在**设置 → Agent 配置**里为这两个 Agent 新建配置并应用即可，见 [Agent 配置](agent-configuration.md)。其余 ACP CLI（Kimi Code CLI、Qoder CLI、CodeBuddy Code、GitHub Copilot CLI、Cursor Agent CLI）的程序本身没有这类设置，VaneHub 也不会假装能配。
 
 ## 恢复会话
 

@@ -83,10 +83,13 @@ export interface PrincipalEntry {
  * alongside custom API agents and OnePiece — not a registered `AgentRegistryEntry`. */
 export const CLAUDE_CODE_AGENT_ID = "claude-code";
 
-/** The four managed CLI principal ids the Agent Policies page lists independently of
- * `agentService.listAgents()` — mirrors `MANAGED_CLI_AGENT_IDS` in `cli_parameters.rs`. Only
- * `claude-code` gets the extra hook-install confirmation; the other three project their
- * template straight into launch flags (`add-cli-agent-permission-launch-flags`). */
+/** The managed CLI principal ids the Agent Policies page lists independently of
+ * `agentService.listAgents()` — mirrors `MANAGED_CLI_AGENT_IDS` in
+ * `cli_parameters/domain/catalog_validation.rs` (order included). Only `claude-code` gets the
+ * extra hook-install confirmation because its action-level boundary is the PreToolUse hook; the
+ * original headless five project their template through catalog policy-governed parameters, and
+ * the seven expanded providers (six ACP agents plus legacy iFlow) through runtime-rendered flags
+ * that differ by transport (`invocation.rs`). */
 export const MANAGED_CLI_AGENT_IDS = [
   "claude-code",
   "codex-cli",
