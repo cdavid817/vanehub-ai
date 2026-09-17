@@ -56,19 +56,26 @@ flowchart TD
 
 ### 日志常量
 
-- `LOG_FILE_NAME="vanehub.log"` —— 活跃日志文件名;
-- `ARCHIVE_DIR_NAME="archive"` —— 冷保留子目录名;
-- `RETENTION_DAYS=30` —— 归档目录中超过 30 天的文件进一步移入 `archive` 子目录;
-- `ROTATION_AGE_HOURS=24` —— 活跃日志 mtime 超过 24 小时即改名归档;
-- `MAINTENANCE_INTERVAL_HOURS=1` —— 目录维护限频 1 小时一次。
+| 常量 | 值 | 含义 |
+| --- | --- | --- |
+| `LOG_FILE_NAME` | `"vanehub.log"` | 活跃日志文件名 |
+| `ARCHIVE_DIR_NAME` | `"archive"` | 冷保留子目录名 |
+| `RETENTION_DAYS` | `30` | 超过该天数的文件移入 `archive` 子目录 |
+| `ROTATION_AGE_HOURS` | `24` | 活跃日志 mtime 超过该小时数即改名归档 |
+| `MAINTENANCE_INTERVAL_HOURS` | `1` | 目录维护最多按此间隔执行一次 |
 
 ### 日志类型
 
-`LogLevel` 枚举四值:`error`/`warn`/`info`/`debug`。`LogEntry` 字段为 `timestamp`/`level`/`category`/`message`/`context`。`ClientLogEvent` 承载前端越过服务边界上报的事件,如 `ErrorBoundary`、`CriticalOperationFailure`。
+`LogLevel` 枚举四值:`Error`、`Warn`、`Info`、`Debug`。`LogEntry` 字段为 `timestamp`、`level`、`category`、`message`、`context`。`ClientLogEvent` 承载前端越过服务边界上报的事件,如 `ErrorBoundary`、`CriticalOperationFailure`。
 
 ### 脱敏
 
-`redact_text`/`redact_entry` 在写盘前与 JSON 序列化前各做一次脱敏,覆盖四类:私密路径 → `[REDACTED_PATH]`(匹配 `C:\`、`/home/`、`/Users/`、`file:///` 等绝对路径前缀);Bearer → `Bearer [REDACTED]`(只保留 scheme);provider token 按 `sk-`、`ghp_`、`github_pat_`、`ssh-connection` 等前缀识别并整体抹除;敏感键匹配 `password`/`token`/`secret`/`credential`/`authorization`/`key_path`/`private_key` 等键名时清空其值。
+`redact_text` 与 `redact_entry` 在写盘前与 JSON 序列化前各做一次脱敏,覆盖四类:
+
+- **私密路径** → `[REDACTED_PATH]`,匹配 `C:\`、`/home/`、`/Users/`、`file:///` 等绝对路径前缀。
+- **Bearer** → `Bearer [REDACTED]`,只保留 scheme。
+- **provider token** 按 `sk-`、`ghp_`、`github_pat_`、`ssh-connection` 等前缀识别并整体抹除。
+- **敏感键** 匹配 `password`、`token`、`secret`、`credential`、`authorization`、`key_path`、`private_key` 等键名时清空其值。
 
 ### 链路关联
 

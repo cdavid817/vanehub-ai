@@ -106,7 +106,7 @@ sequenceDiagram
 - **最大往返约束** —— 每条用户消息有固定最大往返次数 `MAX_TOOL_ROUND_TRIPS=25`(见 `contexts/agent_runtime/infrastructure/api_process_adapter/mod.rs`),超出上限会被显式处理,不会形成无限循环。
 - **固定目录优先** —— 运行时先在固定原生工具目录中按工具名查找;Skill 工具与 MCP 工具叠加在固定目录之上,不替换它。
 
-### 工具来源与执行边界
+### 工具来源与执行边界（速查）
 
 | 工具来源 | 执行位置 | 说明 |
 | --- | --- | --- |

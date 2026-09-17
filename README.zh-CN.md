@@ -28,6 +28,8 @@
 
 [下载安装包](https://github.com/cdavid817/vanehub-ai/releases) · [快速开始](#快速开始) · [文档](#文档)
 
+> **本页描述的是哪个版本？** `main` 上的这份 README 描述的是**下一个、尚未发布**的版本。当前稳定下载版本是 **v1.5.0**（[发布说明](https://github.com/cdavid817/vanehub-ai/releases/tag/v1.5.0) · [发布时的 README](https://github.com/cdavid817/vanehub-ai/blob/v1.5.0/README.md)），其中包含 OnePiece 与五个外部 CLI（Claude Code、Codex CLI、OpenCode、Gemini CLI、Antigravity CLI）。下文的六个 ACP Agent 与 iFlow 历史兼容支持**仅在 `main` 上可用**，要等下一个版本发布。各 Agent 的状态见 [Agent 能力矩阵](docs/reference/agents/capability-matrix.md)；状态词汇（stable、main/unreleased、fixture-qualified、live-qualified、legacy、planned）的定义见[术语表](docs/reference/terminology.md)。
+
 <!-- docs-section:overview -->
 
 ## 项目简介
@@ -37,13 +39,13 @@
 它支持两类 Agent，**选一条路径即可开始，不需要安装全部 CLI**：
 
 - **OnePiece**——内置的原生 API Agent，直接通过 HTTP 调用模型提供商（provider），不要求安装任何外部 CLI；
-- **外部 CLI Agent**——Claude Code、Codex CLI、OpenCode、Gemini CLI、Antigravity CLI、Qwen Code、Kimi Code CLI、Qoder CLI、CodeBuddy Code、GitHub Copilot CLI、Cursor Agent CLI，由你安装并在终端完成各自的认证。iFlow CLI 作为需显式启用的历史兼容终端条目保留。
+- **外部 CLI Agent**——Claude Code、Codex CLI、OpenCode、Gemini CLI、Antigravity CLI（自 v1.5.0 起为稳定版能力），以及 Qwen Code、Kimi Code CLI、Qoder CLI、CodeBuddy Code、GitHub Copilot CLI、Cursor Agent CLI（在 `main` 上，属于下一版本），由你安装并在终端完成各自的认证。iFlow CLI 在 `main` 上作为需显式启用的历史兼容终端条目保留。
 
 <!-- docs-section:features -->
 
 ## 核心能力
 
-- **统一 Agent 入口**——OnePiece 原生 API Agent 与十一个外部 CLI Agent 共用会话、配置、权限与观测体系。
+- **统一 Agent 入口**——在一个工作台里管理 OnePiece 原生 API Agent 与受支持的外部 CLI Agent。会话、配置、权限与观测能力随传输方式（原生 API、终端/headless、ACP）和提供商而不同，每个 Agent 实际获得什么以[能力矩阵](docs/reference/agents/capability-matrix.md)为准。
 - **会话与工作区**——项目、交互式终端（PTY）、Git worktree、远程工作区（SSH）。
 - **多 Agent 协作**——群聊席位与 `@` 交接、专家角色、Loop 自动迭代、Plan 模式、目标与任务看板。
 - **上下文与代码智能**——上下文压缩、跨会话记忆、个性化、检索、工作区代码索引、LSP 代码智能。
@@ -54,21 +56,23 @@
 
 ## Agent 与 CLI 支持
 
-| Agent | 形态 | 命令 | 模型来源 | 应用内安装 | 认证与模型配置 |
-| --- | --- | --- | --- | --- | --- |
-| OnePiece | 内置原生 API Agent | 无需 CLI | 提供商目录或自定义兼容端点 | 随应用内置 | 应用内配置 provider 与 API Key |
-| Claude Code | 外部 CLI | `claude` | Anthropic | ✅ npm / WinGet / 官方安装器 | 终端 OAuth；可在应用内配第三方兼容端点 |
-| Codex CLI | 外部 CLI | `codex` | OpenAI | ✅ npm | 终端 OAuth；可在应用内配第三方兼容端点 |
-| OpenCode | 外部 CLI | `opencode` | 取决于你配置的模型，无固定模型族 | ✅ npm / 官方安装器 | 终端认证；可在应用内配第三方兼容端点 |
-| Gemini CLI | 外部 CLI | `gemini` | Google | ✅ npm | 终端认证；端点可改，目录仅含官方预设 |
-| Antigravity CLI | 外部 CLI | `agy` | Google | ✅ 官方安装器（仅最新版） | 终端 Google 登录；CLI 官方另支持 API Key 与兼容端点，VaneHub 暂未纳入统一 Provider 配置 |
-| Qwen Code | 外部 CLI（ACP） | `qwen` | 阿里 Qwen | ✅ npm | 终端登录；统一对话经 `qwen --acp` |
-| Kimi Code CLI | 外部 CLI（ACP） | `kimi` | Moonshot | ✅ npm | 终端登录；统一对话经 `kimi acp`；旧 Python/uv 发行形态只检测不迁移 |
-| Qoder CLI | 外部 CLI（ACP） | `qoder` | Qoder | ✅ npm（上游暂不支持 Windows arm64） | 终端登录；统一对话经 `qoder --acp` |
-| CodeBuddy Code | 外部 CLI（ACP） | `codebuddy` | 腾讯 | ✅ npm | 终端登录；按会话选择国际 / 国内 / iOA 账号环境；统一对话经 `codebuddy --acp` |
-| GitHub Copilot CLI | 外部 CLI（ACP） | `copilot` | GitHub | ✅ npm / WinGet | 终端登录；统一对话经 `copilot --acp --stdio` |
-| Cursor Agent CLI | 外部 CLI（ACP） | `agent` | Cursor | ✅ 官方安装器（仅最新版） | 终端登录；统一对话经 `agent acp`；程序按身份校验而非仅按名字匹配 |
-| iFlow CLI | 历史兼容外部 CLI | `iflow` | iFlow（官方服务已于 2026-04-17 关闭） | ❌ 仅检测 | 仅原生终端配合你自己的自定义 API 配置；不提供统一对话与自动化，不声称官方服务 |
+各行的发布状态：**stable** = 已包含在 v1.5.0 下载包中；**main** = 已在 `main` 实现，尚未进入稳定版；**legacy** = 仅检测的终端条目。权限、MCP 中继、评测与用量上报的支持逐 Agent 不同——见 [能力矩阵](docs/reference/agents/capability-matrix.md)。
+
+| Agent | 状态 | 形态 | 命令 | 模型来源 | 应用内安装 | 认证与模型配置 |
+| --- | --- | --- | --- | --- | --- | --- |
+| OnePiece | stable | 内置原生 API Agent | 无需 CLI | 提供商目录或自定义兼容端点 | 随应用内置 | 应用内配置 provider 与 API Key |
+| Claude Code | stable | 外部 CLI | `claude` | Anthropic | ✅ npm / WinGet / 官方安装器 | 终端 OAuth；可在应用内配第三方兼容端点 |
+| Codex CLI | stable | 外部 CLI | `codex` | OpenAI | ✅ npm | 终端 OAuth；可在应用内配第三方兼容端点 |
+| OpenCode | stable | 外部 CLI | `opencode` | 取决于你配置的模型，无固定模型族 | ✅ npm / 官方安装器 | 终端认证；可在应用内配第三方兼容端点 |
+| Gemini CLI | stable | 外部 CLI | `gemini` | Google | ✅ npm | 终端认证；端点可改，目录仅含官方预设 |
+| Antigravity CLI | stable | 外部 CLI | `agy` | Google | ✅ 官方安装器（仅最新版） | 终端 Google 登录；CLI 官方另支持 API Key 与兼容端点，VaneHub 暂未纳入统一 Provider 配置 |
+| Qwen Code | main | 外部 CLI（ACP） | `qwen` | 阿里 Qwen | ✅ npm | 终端登录；统一对话经 `qwen --acp` |
+| Kimi Code CLI | main | 外部 CLI（ACP） | `kimi` | Moonshot | ✅ npm | 终端登录；统一对话经 `kimi acp`；旧 Python/uv 发行形态只检测不迁移 |
+| Qoder CLI | main | 外部 CLI（ACP） | `qoder` | Qoder | ✅ npm（上游暂不支持 Windows arm64） | 终端登录；统一对话经 `qoder --acp` |
+| CodeBuddy Code | main | 外部 CLI（ACP） | `codebuddy` | 腾讯 | ✅ npm | 终端登录；按会话选择国际 / 国内 / iOA 账号环境；统一对话经 `codebuddy --acp` |
+| GitHub Copilot CLI | main | 外部 CLI（ACP） | `copilot` | GitHub | ✅ npm / WinGet | 终端登录；统一对话经 `copilot --acp --stdio` |
+| Cursor Agent CLI | main | 外部 CLI（ACP） | `agent` | Cursor | ✅ 官方安装器（仅最新版） | 终端登录；统一对话经 `agent acp`；程序按身份校验而非仅按名字匹配 |
+| iFlow CLI | legacy (main) | 历史兼容外部 CLI | `iflow` | iFlow（官方服务已于 2026-04-17 关闭） | ❌ 仅检测 | 仅原生终端配合你自己的自定义 API 配置；不提供统一对话与自动化，不声称官方服务 |
 
 - **应用内安装**指能否在「设置 → CLI 管理」由 VaneHub AI 代为安装与升级：它能驱动 npm、Windows 上的 WinGet，以及逐个 CLI 审核过的官方安装器。来自 Homebrew、Bun、Volta、桌面应用自带或系统包的那一份会被检测并报告，但不会被改动。
 - **各家的官方订阅登录（OAuth）一律在终端完成**，VaneHub AI 不代管、不保存订阅凭据。
@@ -82,7 +86,7 @@
 
 ## 快速开始
 
-1. 从 [Releases 页面](https://github.com/cdavid817/vanehub-ai/releases)下载当前平台的桌面安装包并安装。
+1. 从 [Releases 页面](https://github.com/cdavid817/vanehub-ai/releases)下载当前平台的桌面安装包并安装。稳定安装包是 v1.5.0；上表标为 **main** 的 Agent 不在其中。要试用 `main`，请从源码构建（见[从源码运行](#从源码运行与开发)）或从 GitHub Actions 手动触发的 `Package Desktop Apps` 工作流下载构建产物。
 2. 二选一：在「设置 → Agent 配置」为 OnePiece 配置模型提供商与 API Key；或安装任意一个受支持的外部 CLI 并在终端完成认证，然后在「设置 → CLI 管理」刷新检测。
 3. 点击「新建」，选择 Agent 与项目文件夹，创建第一个会话。
 4. 在会话工作区的输入框里发出第一个任务。
@@ -219,7 +223,8 @@ npm run tauri:dev
 ## 项目状态与路线图
 
 - **已交付**——已实现行为与接口契约以 [OpenSpec 主规范](openspec/specs/)为准；各能力的使用方式见用户指南。
-- **进行中**——见[未归档的 OpenSpec 变更](openspec/changes/)：当前活跃方向包括内建 Skill 目录扩充、远程 Skill 注册表与供应链治理、跨会话记忆治理强化、区域截图采集与首个稳定版发布准备等。
+- **已在 `main` 实现、尚未发布**——v1.5.0 之后合入的代码（例如六个 ACP Agent 与统一记忆读取治理）在本页与各指南中以 `main` / unreleased 标注；这不代表稳定包已具备。
+- **进行中**——见[未归档的 OpenSpec 变更](openspec/changes/)，那里的条目才是完整清单。以下只是亮点而非完整状态：内建 Skill 目录、远程 Skill 注册表与供应链治理、受治理的跨会话记忆、区域截图采集。代码已在 `main` 但实网验证任务仍未完成的变更，在证据出现前保持 **fixture-qualified**。
 - **计划中**——仅在存在公开 proposal 或 issue 时列入；本节不承诺发布日期。
 - 部分能力（如 IM 连接器的个别平台、桌面各平台矩阵）以真实环境资格验证记录为准，见开发者指南「工程交付」。
 

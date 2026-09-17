@@ -116,7 +116,7 @@ Skill 体系是**统一管理**的——同一套 Skill 定义、作用域、漂
 | 工具暴露 | CLI 自身的工具系统 | OnePiece 的 native 工具目录(固定工具 + Skill 工具 + MCP 工具) |
 | 可观测性 | CLI 内部是黑盒,链路只到边界 | Skill 加载与工具调用是原生保真度,可在链路中逐层展开 |
 
-**统计管理 Skill** 的能力对两者一致:`list_skills` 返回限界生效元数据(不含指令正文)、`read_skill_resource` 按逻辑 URI 读取资源、漂移与就绪状态统一报告。资源用逻辑标识符(如 `skill://code-review/references/checklist.md`)寻址,模型永不收到宿主路径。详见[生效 Skill 运行时](effective-skill-runtime.md)与[Skill 覆盖层治理](skill-overlay-governance.md)。
+**Skill 清单与诊断**对两者一致:`list_skills` 返回限界生效元数据(不含指令正文)、`read_skill_resource` 按逻辑 URI 读取资源、漂移与就绪状态统一报告。资源用逻辑标识符(如 `skill://code-review/references/checklist.md`)寻址,模型永不收到宿主路径。详见[生效 Skill 运行时](effective-skill-runtime.md)与[Skill 覆盖层治理](skill-overlay-governance.md)。
 
 ## 设计所在之处
 

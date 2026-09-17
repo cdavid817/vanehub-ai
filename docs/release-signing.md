@@ -40,10 +40,12 @@ After the reviewed release commit is merged to `main`, verify its identity and c
 ```bash
 git switch main
 git pull --ff-only origin main
-npm run version:check -- v1.0.0
-git tag -a v1.0.0 -m "Release VaneHub AI v1.0.0"
-git push origin v1.0.0
+npm run version:check -- v<version>
+git tag -a v<version> -m "Release VaneHub AI v<version>"
+git push origin v<version>
 ```
+
+`<version>` is the value of `version` in `package.json` (the three manifests must already agree). Never hard-code a version in this runbook; `scripts/validate-docs.mjs` rejects stale literal versions in command examples.
 
 Do not run these commands until the branch rehearsal passes and the protected credential inventory is complete. Never reuse or move a published version tag.
 
@@ -77,11 +79,30 @@ Windows x64 builds use the Rust-toolchain-provided LLD linker. Linux x64 and ARM
 
 Debuginfo stripping does not remove VaneHub's operational `debug` log level. Release builds continue to persist redacted `error`, `warn`, `info`, and `debug` events through unified logging. Build prerequisites, verification commands, worktree cache behavior, and measurement evidence are documented in `docs/build-performance.md`.
 
-The current measurement record contains optimized Windows executable, MSI, and NSIS sizes but no comparable pre-change package artifacts because the baseline package was interrupted by an external Rust toolchain update. Those absolute sizes do not establish a measured size reduction.
+The current measurement record contains optimized Windows executable and NSIS installer sizes (an `.msi` size from an earlier local experiment is recorded there too, although `.msi` is not a published format) but no comparable pre-change package artifacts because the baseline package was interrupted by an external Rust toolchain update. Those absolute sizes do not establish a measured size reduction.
 
 ## GitHub environment secrets
 
 Store credentials only as secrets on the `release` environment. Never place their values in repository variables, workflow files, issues, logs, or artifacts.
+
+The workflow forwards every secret below only when it is non-empty, and the `if:` condition on each signing step is what decides whether a secret is required. The three groups therefore have different status today:
+
+**Required now (stable and preview tags)**
+
+| Secret | Purpose | Workflow behaviour when missing |
+| --- | --- | --- |
+| `TAURI_SIGNING_PRIVATE_KEY` | Tauri updater artifact signing key | Tag build fails closed (`tagged releases require the updater signing key`) |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Password for the updater signing key | Required only if the key was generated with a password |
+
+**Required only when Windows Authenticode signing is enabled** (steps are guarded by `env.WINDOWS_CERTIFICATE != ''`; not provisioned today)
+
+| Secret | Purpose |
+| --- | --- |
+| `WINDOWS_CERTIFICATE` | Base64-encoded Windows release certificate bundle (PFX) |
+| `WINDOWS_CERTIFICATE_PASSWORD` | Password for the Windows certificate bundle |
+| `WINDOWS_SIGNER_SUBJECT` | Expected Authenticode publisher subject checked after signing |
+
+**Required only when Apple Developer ID signing and notarization are enabled** (steps are guarded by `env.APPLE_CERTIFICATE != ''`; not provisioned today)
 
 | Secret | Purpose |
 | --- | --- |
@@ -91,11 +112,6 @@ Store credentials only as secrets on the `release` environment. Never place thei
 | `APPLE_ID` | Apple account used for notarization |
 | `APPLE_PASSWORD` | App-specific Apple password |
 | `APPLE_TEAM_ID` | Apple developer team identifier |
-| `TAURI_SIGNING_PRIVATE_KEY` | Tauri updater artifact signing key, when updater publishing is enabled |
-| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Password for the Tauri updater signing key |
-| `WINDOWS_CERTIFICATE` | Base64-encoded Windows release certificate bundle |
-| `WINDOWS_CERTIFICATE_PASSWORD` | Password for the Windows certificate bundle |
-| `WINDOWS_SIGNER_SUBJECT` | Expected Authenticode publisher subject checked after signing |
 
 Inventory names without reading or printing secret values:
 
@@ -103,11 +119,11 @@ Inventory names without reading or printing secret values:
 gh secret list --repo cdavid817/vanehub-ai --env release
 ```
 
-The expected inventory is the eleven names in the table above. A missing name makes stable release readiness `BLOCKED`; add its value through GitHub's Environment settings or an interactive `gh secret set --env release <NAME>` invocation, never through a command that exposes the value in shell history.
+During updater-only phase 1, stable release readiness is `BLOCKED` only when `TAURI_SIGNING_PRIVATE_KEY` (and its password, if any) is missing. The Windows and Apple groups are optional until the corresponding phase-2 signing gate is switched on; a missing name in those groups produces a disclosure line in the workflow log for non-prerelease tags, not a failure. When you add a value, do it through GitHub's Environment settings or an interactive `gh secret set --env release <NAME>` invocation, never through a command that exposes the value in shell history.
 
 ## Verification evidence
 
-Windows evidence follows `artifact -> Get-AuthenticodeSignature -> expected publisher subject -> timestamp certificate`. A `Valid` status alone is insufficient: the workflow rejects an unexpected publisher or missing timestamp.
+When Windows credentials are provisioned, Windows evidence follows `artifact -> signtool sign -> Get-AuthenticodeSignature -> expected publisher subject -> timestamp certificate`. A `Valid` status alone is insufficient: the workflow rejects an unexpected publisher or missing timestamp. During updater-only phase 1, Windows packages are explicitly unsigned and this step is skipped.
 
 When Apple credentials are provisioned, macOS evidence follows `build -> codesign --verify --deep --strict -> notarize -> staple -> stapler validate -> spctl --assess -> publish` for both x64 and arm64 matrix entries. During updater-only phase 1, macOS packages are explicitly unsigned and un-notarized.
 
@@ -115,9 +131,9 @@ Linux packages retain SHA-256, SPDX SBOM, and GitHub provenance/SBOM attestation
 
 Updater bundles are generated by Tauri with `createUpdaterArtifacts` and signed by `TAURI_SIGNING_PRIVATE_KEY`. The corresponding public key is embedded in `src-tauri/tauri.conf.json`; rotate both as one reviewed release change before using a newly generated private key. Clients reject altered metadata, signatures, or payloads. Stable and preview clients read separate fixed HTTPS channel releases.
 
-The repository does not currently define a Windows Authenticode provider. Before claiming signed Windows binaries, choose a managed certificate or key-vault provider, add its authentication at the `release` environment boundary, and verify the signature in the workflow. Do not export a long-lived private key merely to make CI convenient.
+The workflow already carries a provider-independent Windows signing path (base64 PFX import via `Import-PfxCertificate`, then `signtool sign` with an RFC 3161 timestamp), but no certificate is configured and the path is not a release gate. Before claiming signed Windows binaries, choose a managed certificate or key-vault provider, add its authentication at the `release` environment boundary, set the three `WINDOWS_*` secrets, and make the existing verification step a hard gate in the workflow. Do not export a long-lived private key merely to make CI convenient.
 
-After publication, inspect the `Package Desktop Apps` run and the versioned GitHub Release. Verify that all five matrix jobs passed, package names match their targets, Windows signature output contains the expected publisher and timestamp, both macOS jobs report notarization/stapling success, every package verifies against `SHA256SUMS`, attestations verify with `gh attestation verify`, and `update-stable/latest.json` names version `1.0.0`. Announce the release only after every check passes.
+After publication, inspect the `Package Desktop Apps` run and the versioned GitHub Release. Verify that all five matrix jobs passed, package names match their targets, every package verifies against `SHA256SUMS`, attestations verify with `gh attestation verify`, every updater `.sig` is present, and `update-stable/latest.json` names the released version (the `version` field must equal the tag without its `v` prefix). Only once phase-2 credentials are provisioned also verify that Windows signature output contains the expected publisher and timestamp and that both macOS jobs report notarization/stapling success; during updater-only phase 1 those two checks are skipped by design. Announce the release only after every check passes.
 
 ## Environment protection
 

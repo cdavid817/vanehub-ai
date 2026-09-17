@@ -28,6 +28,8 @@
 
 [ダウンロード](https://github.com/cdavid817/vanehub-ai/releases) · [クイックスタート](#クイックスタート) · [ドキュメント](#ドキュメント)
 
+> **このページはどのバージョンを説明していますか？** `main` 上のこの README は**次の未リリース**バージョンを説明しています。現在の安定版ダウンロードは **v1.5.0**（[リリースノート](https://github.com/cdavid817/vanehub-ai/releases/tag/v1.5.0) · [リリース時点の README](https://github.com/cdavid817/vanehub-ai/blob/v1.5.0/README.md)）で、OnePiece と 5 つの外部 CLI（Claude Code、Codex CLI、OpenCode、Gemini CLI、Antigravity CLI）を含みます。以下の 6 つの ACP エージェントと iFlow レガシー対応は、次のリリースまで **`main` でのみ利用可能**です。エージェントごとの状態は[エージェント機能マトリクス](docs/reference/agents/capability-matrix.md)で追跡し、状態語彙（stable、main/unreleased、fixture-qualified、live-qualified、legacy、planned）は[用語集](docs/reference/terminology.md)で定義しています。
+
 <!-- docs-section:overview -->
 
 ## 概要
@@ -37,13 +39,13 @@
 サポートするエージェントは 2 種類です。**どちらか一方を選べば始められ、すべての CLI をインストールする必要はありません**：
 
 - **OnePiece** — 組み込みのネイティブ API エージェント。モデルプロバイダを HTTP で直接呼び出し、外部 CLI を一切必要としません；
-- **外部 CLI エージェント** — Claude Code、Codex CLI、OpenCode、Gemini CLI、Antigravity CLI、Qwen Code、Kimi Code CLI、Qoder CLI、CodeBuddy Code、GitHub Copilot CLI、Cursor Agent CLI。ユーザー自身がインストールし、各ベンダーの認証フローをターミナルで完了します。iFlow CLI は明示的に有効化するレガシーのターミナル専用エントリとして残しています。
+- **外部 CLI エージェント** — Claude Code、Codex CLI、OpenCode、Gemini CLI、Antigravity CLI（v1.5.0 以降の安定版機能）、および Qwen Code、Kimi Code CLI、Qoder CLI、CodeBuddy Code、GitHub Copilot CLI、Cursor Agent CLI（`main` 上、次のリリース向け）。ユーザー自身がインストールし、各ベンダーの認証フローをターミナルで完了します。iFlow CLI は `main` 上で、明示的に有効化するレガシーのターミナル専用エントリとして残しています。
 
 <!-- docs-section:features -->
 
 ## コア機能
 
-- **すべてのエージェントへの統一入口** — OnePiece ネイティブ API エージェントと 5 つの外部 CLI エージェントが、セッション・設定・権限・可観測性を共有します。
+- **すべてのエージェントへの統一入口** — OnePiece ネイティブ API エージェントと対応する外部 CLI エージェントを一つのワークスペースから管理します。セッション・設定・権限・可観測性の機能はトランスポート（ネイティブ API、ターミナル/ヘッドレス、ACP）とプロバイダによって異なります。各エージェントが実際に得られる機能は[機能マトリクス](docs/reference/agents/capability-matrix.md)を参照してください。
 - **セッションとワークスペース** — プロジェクト、対話式ターミナル（PTY）、Git worktree、SSH 経由のリモートワークスペース。
 - **マルチエージェント協働** — `@` 引き継ぎ付きグループチャットのシート、エキスパートロール、Loop 自動反復、Plan モード、目標とワークボード。
 - **コンテキストとコードインテリジェンス** — コンテキスト圧縮、セッション横断メモリ、パーソナライズ、検索、ワークスペースコードインデックス、LSP コードインテリジェンス。
@@ -54,21 +56,23 @@
 
 ## エージェントと CLI サポート
 
-| Agent | 形態 | コマンド | モデルの出所 | アプリ内インストール | 認証とモデル設定 |
-| --- | --- | --- | --- | --- | --- |
-| OnePiece | 組み込みネイティブ API エージェント | CLI 不要 | プロバイダカタログまたはカスタム互換エンドポイント | アプリに同梱 | プロバイダと API キーをアプリ内で設定 |
-| Claude Code | 外部 CLI | `claude` | Anthropic | ✅ npm / WinGet / 公式インストーラー | ターミナルで OAuth；サードパーティ互換エンドポイントはアプリ内で設定可 |
-| Codex CLI | 外部 CLI | `codex` | OpenAI | ✅ npm | ターミナルで OAuth；サードパーティ互換エンドポイントはアプリ内で設定可 |
-| OpenCode | 外部 CLI | `opencode` | ユーザーが設定した任意のモデル。固定のモデルファミリなし | ✅ npm / 公式インストーラー | ターミナルで認証；サードパーティ互換エンドポイントはアプリ内で設定可 |
-| Gemini CLI | 外部 CLI | `gemini` | Google | ✅ npm | ターミナルで認証；エンドポイント変更可、カタログには公式プリセットのみ |
-| Antigravity CLI | 外部 CLI | `agy` | Google | ✅ 公式インストーラー（最新版のみ） | ターミナルで Google サインイン；CLI 自体は API キーと互換エンドポイントもサポートしますが、VaneHub の統一プロバイダ設定には未対応です |
-| Qwen Code | 外部 CLI（ACP） | `qwen` | Alibaba Qwen | ✅ npm | ターミナルでサインイン；統合会話は `qwen --acp` 経由 |
-| Kimi Code CLI | 外部 CLI（ACP） | `kimi` | Moonshot | ✅ npm | ターミナルでサインイン；統合会話は `kimi acp` 経由；旧 Python/uv 配布形態は検出のみで移行しません |
-| Qoder CLI | 外部 CLI（ACP） | `qoder` | Qoder | ✅ npm（上流では Windows arm64 未対応） | ターミナルでサインイン；統合会話は `qoder --acp` 経由 |
-| CodeBuddy Code | 外部 CLI（ACP） | `codebuddy` | Tencent | ✅ npm | ターミナルでサインイン；セッションごとに国際 / 中国 / iOA のアカウント環境を選択；統合会話は `codebuddy --acp` 経由 |
-| GitHub Copilot CLI | 外部 CLI（ACP） | `copilot` | GitHub | ✅ npm / WinGet | ターミナルでサインイン；統合会話は `copilot --acp --stdio` 経由 |
-| Cursor Agent CLI | 外部 CLI（ACP） | `agent` | Cursor | ✅ 公式インストーラー（最新版のみ） | ターミナルでサインイン；統合会話は `agent acp` 経由；プログラムは名前ではなく身元で検証します |
-| iFlow CLI | レガシー外部 CLI | `iflow` | iFlow（公式サービスは 2026-04-17 に終了） | ❌ 検出のみ | 独自のカスタム API 設定と組み合わせたネイティブターミナルのみ；統合会話・自動化なし、公式サービスは主張しません |
+各行のリリース状態：**stable** = v1.5.0 のダウンロードに含まれる；**main** = `main` に実装済みで安定版には未収録；**legacy** = 検出のみのターミナルエントリ。権限・MCP リレー・評価・使用量レポートの対応はエージェントごとに異なります — [機能マトリクス](docs/reference/agents/capability-matrix.md)を参照してください。
+
+| Agent | 状態 | 形態 | コマンド | モデルの出所 | アプリ内インストール | 認証とモデル設定 |
+| --- | --- | --- | --- | --- | --- | --- |
+| OnePiece | stable | 組み込みネイティブ API エージェント | CLI 不要 | プロバイダカタログまたはカスタム互換エンドポイント | アプリに同梱 | プロバイダと API キーをアプリ内で設定 |
+| Claude Code | stable | 外部 CLI | `claude` | Anthropic | ✅ npm / WinGet / 公式インストーラー | ターミナルで OAuth；サードパーティ互換エンドポイントはアプリ内で設定可 |
+| Codex CLI | stable | 外部 CLI | `codex` | OpenAI | ✅ npm | ターミナルで OAuth；サードパーティ互換エンドポイントはアプリ内で設定可 |
+| OpenCode | stable | 外部 CLI | `opencode` | ユーザーが設定した任意のモデル。固定のモデルファミリなし | ✅ npm / 公式インストーラー | ターミナルで認証；サードパーティ互換エンドポイントはアプリ内で設定可 |
+| Gemini CLI | stable | 外部 CLI | `gemini` | Google | ✅ npm | ターミナルで認証；エンドポイント変更可、カタログには公式プリセットのみ |
+| Antigravity CLI | stable | 外部 CLI | `agy` | Google | ✅ 公式インストーラー（最新版のみ） | ターミナルで Google サインイン；CLI 自体は API キーと互換エンドポイントもサポートしますが、VaneHub の統一プロバイダ設定には未対応です |
+| Qwen Code | main | 外部 CLI（ACP） | `qwen` | Alibaba Qwen | ✅ npm | ターミナルでサインイン；統合会話は `qwen --acp` 経由 |
+| Kimi Code CLI | main | 外部 CLI（ACP） | `kimi` | Moonshot | ✅ npm | ターミナルでサインイン；統合会話は `kimi acp` 経由；旧 Python/uv 配布形態は検出のみで移行しません |
+| Qoder CLI | main | 外部 CLI（ACP） | `qoder` | Qoder | ✅ npm（上流では Windows arm64 未対応） | ターミナルでサインイン；統合会話は `qoder --acp` 経由 |
+| CodeBuddy Code | main | 外部 CLI（ACP） | `codebuddy` | Tencent | ✅ npm | ターミナルでサインイン；セッションごとに国際 / 中国 / iOA のアカウント環境を選択；統合会話は `codebuddy --acp` 経由 |
+| GitHub Copilot CLI | main | 外部 CLI（ACP） | `copilot` | GitHub | ✅ npm / WinGet | ターミナルでサインイン；統合会話は `copilot --acp --stdio` 経由 |
+| Cursor Agent CLI | main | 外部 CLI（ACP） | `agent` | Cursor | ✅ 公式インストーラー（最新版のみ） | ターミナルでサインイン；統合会話は `agent acp` 経由；プログラムは名前ではなく身元で検証します |
+| iFlow CLI | legacy (main) | レガシー外部 CLI | `iflow` | iFlow（公式サービスは 2026-04-17 に終了） | ❌ 検出のみ | 独自のカスタム API 設定と組み合わせたネイティブターミナルのみ；統合会話・自動化なし、公式サービスは主張しません |
 
 - **アプリ内インストール**とは、設定 → CLI 管理から VaneHub AI がインストールとアップグレードを代行できるかどうかです：npm、Windows の WinGet、CLI ごとに監査済みの公式インストーラーを扱えます。Homebrew・Bun・Volta・デスクトップアプリ同梱・システムパッケージ由来のものは検出して報告しますが変更しません。
 - **各社のサブスクリプションログイン（OAuth）は必ずターミナルで行います**。VaneHub AI は仲介も保存もしません。
@@ -82,7 +86,7 @@
 
 ## クイックスタート
 
-1. [Releases ページ](https://github.com/cdavid817/vanehub-ai/releases)からお使いのプラットフォーム向けデスクトップパッケージをダウンロードしてインストールします。
+1. [Releases ページ](https://github.com/cdavid817/vanehub-ai/releases)からお使いのプラットフォーム向けデスクトップパッケージをダウンロードしてインストールします。安定版パッケージは v1.5.0 で、上の表で **main** と記されたエージェントは含まれません。`main` を試すにはソースからビルドする（[ソースから実行](#ソースからの実行と開発)を参照）か、GitHub Actions で手動実行した `Package Desktop Apps` ワークフローの成果物をダウンロードしてください。
 2. どちらかを選びます：設定 → Agent 設定で OnePiece のモデルプロバイダと API キーを設定する。またはサポート対象の外部 CLI をどれか一つインストールしてターミナルで認証し、設定 → CLI 管理で検出を更新する。
 3. 「新規」をクリックし、エージェントとプロジェクトフォルダを選んで最初のセッションを作成します。
 4. セッションワークスペースの入力ボックスから最初のタスクを送信します。
@@ -219,7 +223,8 @@ npm run tauri:dev
 ## プロジェクト状況とロードマップ
 
 - **提供済み** — 実装済みの挙動とインターフェース契約は [OpenSpec メイン仕様](openspec/specs/)に記録されています。使い方はユーザーガイドを参照してください。
-- **進行中** — [未アーカイブの OpenSpec 変更](openspec/changes/)を参照：現在は組み込み Skill カタログの拡充、リモート Skill レジストリとサプライチェーンガバナンス、セッション横断メモリガバナンスの強化、領域スクリーンショット取得、最初の安定版リリース準備などが進行しています。
+- **`main` に実装済み、未リリース** — v1.5.0 以降にマージされたコード（例：6 つの ACP エージェント、統一メモリ読み取りガバナンス）は本ページと各ガイドで `main` / unreleased と表記します。安定版パッケージに含まれている証拠ではありません。
+- **進行中** — [未アーカイブの OpenSpec 変更](openspec/changes/)を参照してください。完全な一覧はそこにあり、以下はハイライトに過ぎません：組み込み Skill カタログ、リモート Skill レジストリとサプライチェーンガバナンス、ガバナンス下のセッション横断メモリ、領域スクリーンショット取得。コードは `main` にあるが実環境検証タスクが未完了の変更は、証拠が揃うまで **fixture-qualified** のままです。
 - **計画中** — 公開された proposal や issue が存在する場合にのみ記載します。本節は日付を約束しません。
 - 一部の機能（個別の IM コネクタプラットフォーム、プラットフォームごとのデスクトップマトリクス）は実環境での適格性記録が基準です — 開発者ガイドのエンジニアリング領域を参照してください。
 

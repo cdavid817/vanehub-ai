@@ -168,4 +168,4 @@ native 诊断走统一日志端口，只含安全的 id、阶段、计数、时�
 
 ## 权威来源
 
-本表的所有权描述与 [`openspec/project.md`](../../../../openspec/project.md) 的 Bounded contexts 表同源，后者被 CI 强制与 `src-tauri/src/contexts/` 对齐。要看完整的 context 与 command 清单，把 [`src-tauri/ARCHITECTURE.md`](../../reference/native-architecture.md) 和生成的 [native API 参考](native-api-reference.md)一起读。
+本表的所有权描述与 [`openspec/project.md`](../../../../openspec/project.md) 的 Bounded contexts 表同源，后者被 CI 强制与 `src-tauri/src/contexts/` 对齐。要看完整的 context 与 command 清单，把 [`src-tauri/ARCHITECTURE.md`](../../../../src-tauri/ARCHITECTURE.md) 和生成的 [native API 参考](native-api-reference.md)一起读。

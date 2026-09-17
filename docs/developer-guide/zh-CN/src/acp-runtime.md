@@ -1,6 +1,8 @@
 # 托管 CLI 对话的 ACP 运行时
 
-目录中十二个 CLI 里有六个不再以「每轮一个 headless 进程」运行统一对话,而是通过 **Agent Client Protocol(ACP)**:Qwen Code、Kimi Code CLI、Qoder CLI、CodeBuddy Code、GitHub Copilot CLI 与 Cursor Agent CLI。第七个新增条目 iFlow CLI 是历史兼容项,只有原生终端。本章说明这条传输链路、它如何接入既有 provider 运行时,以及每条安全边界在哪里落实。规范性要求以 OpenSpec change `extend-cli-providers-with-acp` 为准。
+> **状态**：`main` / 未发布——ACP Agent 不在稳定版 v1.5.0 的下载包中。其自动化属于 **fixture-qualified**（桌面套件用无凭据的假 CLI 驱动）；目前唯一的 **live-qualified** 记录是 Linux 上的 Qwen Code 0.23.0（2026-09-07）。Kimi、Qoder、CodeBuddy、Copilot、Cursor 的真实 CLI 冒烟仍未完成，Linux 以外的平台尚未运行。对应的 OpenSpec change `extend-cli-providers-with-acp` 仍处于活跃状态，本页内容不是已发布的规范。逐 Agent 状态见 [Agent 能力矩阵](../../../reference/agents/capability-matrix.md)。
+
+目录中十二个 CLI 里有六个不再以「每轮一个 headless 进程」运行统一对话,而是通过 **Agent Client Protocol(ACP)**:Qwen Code、Kimi Code CLI、Qoder CLI、CodeBuddy Code、GitHub Copilot CLI 与 Cursor Agent CLI。第七个新增条目 iFlow CLI 是历史兼容项,只有原生终端。本章说明这条传输链路、它如何接入既有 provider 运行时,以及每条安全边界在哪里落实。规范性要求仍在**活跃的** OpenSpec change `extend-cli-providers-with-acp` 中（其 delta spec 尚未合入 `openspec/specs/`），应读作进行中的要求，而非已发布的主规范。
 
 ## 三种传输,一个网关
 

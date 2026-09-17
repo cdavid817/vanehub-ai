@@ -2,7 +2,12 @@
 
 > 版本：基于源码主干 `bb3d28d8`（2026-08）撰写。本文档通过四个并行代码探查子任务对整个仓库进行结构化测绘后综合而成，所有结论均以 `文件:行号` 形式锚定到真实源码，便于读者交叉验证。
 >
-> **历史快照说明**：本文保留 `bb3d28d8` 当时的代码测绘，不代表当前架构。独立 Plan Center、PlanRun 与 `task_orchestration` 已在后续重构中退役；当前 Plan 仅是 OnePiece 会话输入栏内的只读模式。当前设计以 `openspec/specs/` 和开发者指南为准。
+> ⚠️ **历史快照——不是当前事实源**
+>
+> - 快照提交：`bb3d28d8`（2026-08）。本文所有 `文件:行号` 引用都指向那个提交，在当前 `main` 上可能已不存在或已移动。
+> - 本文**不会**随代码更新。独立 Plan Center、PlanRun 与 `task_orchestration` 已在后续重构中退役；当前 Plan 仅是 OnePiece 会话输入栏内的只读模式；ACP Agent、权限投影、OpenCode MCP 中继、统一记忆读取治理等能力在本文写作时尚不存在。
+> - 当前设计的入口：[文档地图](README.md)、`openspec/specs/`、[开发者指南](developer-guide/src/index.md)（[简体中文](developer-guide/zh-CN/src/index.md)）与生成的 [Agent 能力矩阵](reference/agents/capability-matrix.md)。
+> - 不要尝试把本文逐行更新成当前架构；它的价值在于记录当时的设计取舍。
 
 ---
 

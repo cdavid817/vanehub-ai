@@ -787,7 +787,8 @@ jobs:
         run: cargo test --workspace tooling::cli
 
       # One invocation, not a build and a targeted layer and then this. `npm run test:desktop`
-      # already builds the artifact and runs all six layers, CLI management among them, so running
+      # already builds the artifact and runs every layer in `fullSuiteLayers` (CLI management
+      # among them; the list lives in scripts/test-desktop.mjs, not here), so running
       # the pieces first only built the desktop app twice in one job. That was not free: on the
       # macOS and Windows runners the second build left the suite failing on persistence -- no
       # session surviving in the database, a workspace still on its bootstrap shell -- while the

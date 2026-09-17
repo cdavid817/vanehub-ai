@@ -1,6 +1,6 @@
 # Single-Agent governance: the five control planes
 
-Single-Agent management in VaneHub AI is not "one launch button wrapped around five CLIs". It is a unified governance surface that puts external vendor CLIs and the built-in OnePiece Agent into one shared system of Agent identity, configuration, permissions, sessions, memory, observability, and recovery.
+Single-Agent management in VaneHub AI is not "one launch button wrapped around a handful of CLIs". It is a unified governance surface that puts external vendor CLIs and the built-in OnePiece Agent into one shared system of Agent identity, configuration, permissions, sessions, memory, observability, and recovery.
 
 This chapter presents the analytical model for that governance surface: one foundation layer plus five control planes. **It is a responsibility model, not a code structure** — the five control planes map neither to five Rust bounded contexts nor to five pages; the current code is split by business ownership across `agent_runtime`, `sessions`, `tooling`, `permissions`, and other contexts (see [Native bounded contexts](native-contexts.md)).
 
@@ -32,7 +32,7 @@ This chapter presents the analytical model for that governance surface: one foun
 
 Six core conclusions to remember first:
 
-1. **OnePiece is not "a sixth CLI"**. It is a built-in native Agent with `LaunchKind::Api`; the five external tools are `LaunchKind::Cli`. They share the upper governance contracts but not the underlying execution mechanism.
+1. **OnePiece is not "just another CLI"**. It is a built-in native Agent with `LaunchKind::Api`; every external tool is `LaunchKind::Cli`. They share the upper governance contracts but not the underlying execution mechanism.
 2. **The primary execution shape of a plain single-Agent CLI session is a session-scoped PTY / Agent Terminal**. Re-entering the same session prefers attaching to the retained process and replaying bounded terminal content, rather than unconditionally spawning a new headless subprocess.
 3. **The headless CLI runtime, the plain PTY session, and CLI delegation are three different paths**. The headless path serves managed chat, multi-Agent, and Loop structured execution; CLI delegation serves only isolated analysis/editing and the ChangeSet pipeline, and must not be conflated with a plain single-Agent session.
 4. **The five control planes are an architectural analysis model** that cuts across multiple bounded contexts and pages.
@@ -111,6 +111,10 @@ Do not force-unify: CLI installation sources versus the native API runtime; PTY 
 | Gemini CLI | `gemini-cli` | `Cli` | `gemini` CLI |
 | OpenCode | `opencode` | `Cli` | `opencode` CLI |
 | Antigravity CLI | `antigravity-cli` | `Cli` | `agy` CLI |
+| Qwen Code, Kimi Code CLI, Qoder CLI, CodeBuddy Code, GitHub Copilot CLI, Cursor Agent CLI | `qwen-code`, `kimi-cli`, `qoder-cli`, `codebuddy-code`, `copilot-cli`, `cursor-agent-cli` | `Cli` | The vendor CLI as a long-lived ACP agent (`main` / unreleased) |
+| iFlow CLI | `iflow-cli` | `Cli` | `iflow` CLI, terminal only (legacy) |
+
+The table shows the original five headless CLIs individually because the rest of this chapter uses them as the worked example; the ACP and legacy rows follow the same identity rules. The full per-agent capability set is generated into the [agent capability matrix](../../reference/agents/capability-matrix.md).
 
 The Agent Registry owns identity; the provider registry resolves the stable id into runtime behavior. Upper-layer session services must not branch on display names, nor repeat `if agent_id == "claude-code"` checks in multiple places; when no compatible provider is registered the correct outcome is `unsupported-provider`, never a silent fallback to another Agent. Callers must rely on the capability tags declared in provider metadata rather than guessing capabilities from an Agent's name.
 
@@ -177,14 +181,14 @@ OnePiece has no argv and must not appear on the CLI parameters page; its runtime
 The unified decision model, the four templates, scope resolution, and the approval broker are specified in [the permission model](permission-model.md). This chapter highlights only the structural differences across Agents:
 
 - Permission requests normalize into `principal + action + resource + context`, with the stable `agent_id` as the principal; outcomes are `Allow`, `Deny`, `Ask`, and both unmatched requests and internal failures fail closed to `Ask`.
-- **All five CLIs participate in policy-template launch-flag projection** (`POLICY_TEMPLATE_GOVERNED_AGENT_IDS`); Claude Code additionally has the per-call `PreToolUse` hook bridge — a "launch projection + hook" two-layer implementation.
+- **All twelve CLIs participate in policy-template launch-flag projection** (`POLICY_TEMPLATE_GOVERNED_AGENT_IDS`), the original five through catalog policy-governed parameters and the seven expanded providers through runtime-rendered, transport-dependent flags (an ACP agent receives only the read-only posture and asks the host per call); Claude Code additionally has the per-call `PreToolUse` hook bridge — a "launch projection + hook" two-layer implementation.
 - Permission enforcement fidelity is layered; "same permission template" does not mean "same enforcement precision":
 
 | Level | Meaning | Typical subject |
 | --- | --- | --- |
 | Native | Operations resolved and executed one by one inside VaneHub | OnePiece native tools |
 | Proxied / Hook-Enforced | Calls forwarded through a VaneHub hook/relay | Claude Code hook, MCP relay |
-| Launch-Projected | Parameters/env projected only at process start | Template projection for the five CLIs |
+| Launch-Projected | Parameters/env projected only at process start | Template projection for headless and terminal CLIs |
 | Inferred | Deduced from output or behavior | Some CLI usage/steps |
 | Opaque | Invisible inside the CLI | Unbridged internal CLI behavior |
 
@@ -225,4 +229,4 @@ Principles: provider, endpoint, model, plain parameters, and workspace freeze wh
 
 ## Closing
 
-The correct way for VaneHub AI to unify the five CLIs and OnePiece is: unified identity, unified governance, unified permission semantics, unified sessions and recovery, unified Skill/MCP/Memory entry points, unified observability and usage semantics — while **preserving runtime-adapter differences**. The anti-patterns: disguising OnePiece as a CLI; treating all CLIs as one protocol; merging plain PTY, headless, and delegation into one path; writing "not yet managed by VaneHub" as "unsupported upstream"; writing "same template" as "same enforcement fidelity".
+The correct way for VaneHub AI to unify the external CLIs and OnePiece is: unified identity, unified governance, unified permission semantics, unified sessions and recovery, unified Skill/MCP/Memory entry points, unified observability and usage semantics — while **preserving runtime-adapter differences**. The anti-patterns: disguising OnePiece as a CLI; treating all CLIs as one protocol; merging plain PTY, headless, and delegation into one path; writing "not yet managed by VaneHub" as "unsupported upstream"; writing "same template" as "same enforcement fidelity".

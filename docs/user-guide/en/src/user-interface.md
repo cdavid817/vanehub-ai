@@ -34,11 +34,11 @@ Older links to `/workspace/loops`, `/workspace/work-board`, `/workspace/mission-
 
 ## Agent types
 
-VaneHub AI works with six Agents, in two categories.
+VaneHub AI works with two categories of Agent: external CLIs and the built-in native Agent OnePiece. The table below lists the original five headless CLIs, which are in the stable v1.5.0 release; the six ACP CLIs on `main` are in [ACP CLI Agents](acp-cli-agents.md), and every Agent's capabilities are in the [agent capability matrix](../../../reference/agents/capability-matrix.md).
 
 ### External CLI Agents
 
-The first five are **external CLIs** — VaneHub AI starts their process and manages everything around it (launch parameters, permission interception, output capture), while the actual code generation is done by the CLI itself. **Each vendor's own subscription login is self-managed by that CLI**, and VaneHub AI never stores credentials it produces; but to switch one to a third-party compatible endpoint, you can configure that under [Settings → Agent configurations](agent-configuration.md#agent-configurations).
+**External CLIs** — VaneHub AI starts their process and manages everything around it (launch parameters, permission interception, output capture), while the actual code generation is done by the CLI itself. **Each vendor's own subscription login is self-managed by that CLI**, and VaneHub AI never stores credentials it produces; but to switch one to a third-party compatible endpoint, you can configure that under [Settings → Agent configurations](agent-configuration.md#agent-configurations).
 
 | Agent | Provider | Command | Notes |
 | --- | --- | --- | --- |

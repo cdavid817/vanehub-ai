@@ -1,5 +1,8 @@
 # VaneHub AI Developer Guide
 
+> **Applies to:** `main` (next, unreleased version). The stable line is **v1.5.0** ([guide as released](https://github.com/cdavid817/vanehub-ai/tree/v1.5.0/docs/developer-guide/src)). Status words are defined in [terminology](../../reference/terminology.md); per-agent facts come from the generated [agent capability matrix](../../reference/agents/capability-matrix.md).
+>
+> **Start by boundary:** [transport and lifecycle](agent-lifecycle.md) · [session and terminal runtime](terminal-runtime.md) · [governance: permissions](permission-model.md) · [persistence ownership](persistence-ownership.md) · [release](release.md) and [testing](testing.md)
 This guide is the curated entry point for contributors working on VaneHub AI. It explains ownership and integration boundaries; source code, OpenSpec main specifications, and generated Rustdoc remain the authoritative detail.
 
 Use this guide when you need to answer:
@@ -23,7 +26,7 @@ If you're new to this codebase, read these in order before anything else — the
 
 | Chapter | What it covers |
 | --- | --- |
-| [Single-Agent governance: the five control planes](single-agent-control-planes.md) | The analytical model unifying the five CLIs and OnePiece, the three execution paths, configuration effectivity rules |
+| [Single-Agent governance: the five control planes](single-agent-control-planes.md) | The analytical model unifying the external CLIs (headless, ACP, and terminal-only) and OnePiece, the three execution paths, configuration effectivity rules |
 | [Agent lifecycle and provider runtime](agent-lifecycle.md) | Registered Agent edits, stable provider resolution, capability declarations |
 | [OnePiece native Agent](onepiece-native-agent.md) | Built-in API Agent identity, Profile lifecycle, provider directory |
 | [OnePiece built-in tools](onepiece-builtin-tools.md) | Release gates, dependencies, and rollback triggers for the extended native toolset |
@@ -104,7 +107,7 @@ These live outside the guide's chapter list but are part of the repository's doc
 
 | Document | What it covers |
 | --- | --- |
-| [CLI Agent global configuration](../../cli-agent-global-configuration.md) | User-level provider profiles for all five CLI Agents, how VaneHub AI writes each CLI's own global configuration, how tests isolate it, and why saving one profile never changes the active Agent or Session |
+| [CLI Agent global configuration](../../cli-agent-global-configuration.md) | User-level provider profiles for the seven CLI Agents that expose a third-party endpoint, how VaneHub AI writes each CLI's own global configuration, how tests isolate it, and why saving one profile never changes the active Agent or Session |
 | [Built-in model provider catalog](../../model-providers.md) (Simplified Chinese) | Endpoint protocols, default models, and credential storage for the built-in provider catalog |
 | [Agent infrastructure technical documentation](../../agent-infrastructure/README.md) (Simplified Chinese) | MCP, LSP, Function Calling, RAG, and other **protocols and technologies themselves** — not VaneHub AI's implementation of them |
 | [Native build performance](../../build-performance.md) | Platform linker requirements, release-profile behavior, and measured build evidence |

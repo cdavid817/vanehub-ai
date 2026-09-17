@@ -28,7 +28,7 @@ flowchart TD
     C --> E{"LaunchKind"}
     D --> E
     E -- "Api" --> F["Native API runtime<br/>e.g. OnePiece"]
-    E -- "Cli" --> G["External CLI runtime<br/>e.g. the five CLIs"]
+    E -- "Cli" --> G["External CLI runtime<br/>headless, ACP, or terminal-only"]
     F --> H["Stable provider resolution<br/>by stable id, not display name"]
     G --> H
     H --> I{"Provider registration exists?"}
@@ -71,16 +71,16 @@ flowchart TD
 ### Built-in Agents
 
 - **OnePiece** — `builtin` plus `LaunchKind::Api`, stable id `onepiece`. It uses dedicated catalog-backed provider **Profile** operations that allow several independently secured provider, endpoint, and model combinations with one explicit active Profile. Its provider, endpoint type, interface format, and Base URL are all resolved from the selected built-in directory entry.
-- **The five CLIs** — `claude-code`, `codex-cli`, `gemini-cli`, `opencode`, and `antigravity-cli` are all `builtin` plus `Cli`, with runtime behavior resolved by the built-in provider registry.
+- **The external CLIs** — every CLI agent is `builtin` plus `Cli`, with runtime behavior resolved by the built-in provider registry (`providers/definitions.rs`). The original five (`claude-code`, `codex-cli`, `gemini-cli`, `opencode`, `antigravity-cli`) run a headless managed transport; the six ACP agents (`qwen-code`, `kimi-cli`, `qoder-cli`, `codebuddy-code`, `copilot-cli`, `cursor-agent-cli`; `main` / unreleased) run ACP over stdio; `iflow-cli` is a legacy terminal-only entry. Per-agent transport and capability rows are in the [agent capability matrix](../../reference/agents/capability-matrix.md).
 
 ## Key types and constants
 
 The lists below collect the core types, constants, and error codes of the Agent lifecycle and provider runtime for quick reference during implementation. The authoritative semantics remain the prose above and the specs.
 
-### Origin and runtime shape
+### Origin and runtime shape types
 
 - The `AgentOrigin` enum — `Builtin`, backed by the built-in catalog, and `User`, a user entry in the registry.
-- `LaunchKind` — `Api` for a native API runtime such as OnePiece, `Cli` for an external CLI runtime such as the five CLIs, plus `Browser`, `NativeDesktop`, and `Other`.
+- `LaunchKind` — `Api` for a native API runtime such as OnePiece, `Cli` for an external CLI runtime (headless, ACP, or terminal-only), plus `Browser`, `NativeDesktop`, and `Other`.
 
 ### Stable agent id
 
@@ -125,7 +125,7 @@ In a single-Agent session, the selected Agent takes a different runtime path acc
 | Process | VaneHub AI starts and manages the CLI child process through the Agent Terminal and its PTY; the CLI performs the actual code generation | No external process is started; the application calls the provider configured by the active Profile over HTTP |
 | Authentication | Managed by each CLI itself; VaneHub AI does not store its credentials | The API key is stored by VaneHub AI as a Profile-scoped credential |
 | Skills | Injected through the unified Skill system after overlay governance | Consumed through `AgentSkillPort` as an effective view: eager Skills are injected into the system prompt, on-demand ones load through a fixed read-only tool |
-| MCP | Claude Code and Codex CLI go through the relay; the others are configured individually | The native tool catalog directly includes visible, active MCP tools |
+| MCP | Claude Code, Codex CLI, and OpenCode go through the relay; Gemini CLI, Antigravity CLI, the ACP agents, and iFlow CLI are configured individually | The native tool catalog directly includes visible, active MCP tools |
 | Observability | The CLI's internals are a black box, so traces stop at the boundary | Native fidelity, with tool calls expandable layer by layer |
 
 The PTY and launch path for CLI Agents is covered in [Terminal and PTY runtime](terminal-runtime.md); OnePiece's provider invocation, context assembly, and tool loop are covered in [OnePiece native Agent](onepiece-native-agent.md). The unified Skill and MCP management architecture shared by both is covered in [Skill management](skill-management.md) and [MCP tools and clients](mcp-tools.md).

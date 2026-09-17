@@ -6,7 +6,7 @@
 
 ## 项目概览
 
-VaneHub AI 是一个桌面端多 AI 编程助手管理终端,用于统一管理和切换 Claude Code、OpenCode、Codex CLI、Gemini CLI、Antigravity CLI 等多个 AI 编程代理。同一套 React UI 既可运行在 Tauri 桌面客户端内,也可通过 Web/mock adapter 以浏览器页面形式运行。
+VaneHub AI 是一个桌面端多 AI 编程助手管理终端,用于统一管理和切换多个 AI 编程代理:内置原生 Agent OnePiece,headless 传输的 Claude Code、Codex CLI、OpenCode、Gemini CLI、Antigravity CLI,ACP 传输的 Qwen Code、Kimi Code CLI、Qoder CLI、CodeBuddy Code、GitHub Copilot CLI、Cursor Agent CLI,以及仅终端的历史兼容条目 iFlow CLI(逐 Agent 能力以 `docs/reference/agents/capability-matrix.md` 为准)。同一套 React UI 既可运行在 Tauri 桌面客户端内,也可通过 Web/mock adapter 以浏览器页面形式运行。
 
 ## 技术栈(严格约束,不允许引入替代方案)
 

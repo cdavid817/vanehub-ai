@@ -24,7 +24,7 @@ The local Agent Terminal is built on the `portable-pty` crate. The core structur
 - **Wrapper script** `generate_agent_terminal_wrapper` — generates a `.ps1`/`.cmd`/`.sh` wrapper that sets UTF-8, enters the session directory, and `exec`s the target CLI; `validate_token` rejects empty values and NUL; `redacted_command` is used for logging.
 - **Terminal size** — rows clamped to `1..=200`, cols clamped to `1..=500`.
 
-### Automatic start and attach
+### Automatic start and attach in the local PTY
 
 ```mermaid
 sequenceDiagram

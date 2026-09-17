@@ -6,7 +6,7 @@
 
 Agent 本身只有内置的那几样能力——跑命令、读写文件、搜索、记忆。想让它查数据库、调内部 API、操作设计稿，就得接一个 MCP 服务器进来，由那个服务器把自己的工具暴露给 Agent。
 
-**在 VaneHub AI 里注册一次，就能按 Agent 下发**，不必在每个 CLI 的配置文件里各写一遍。这是它存在的主要理由：五个 Agent 各有各的配置格式和位置，手工同步迟早漂移。
+**在 VaneHub AI 里注册一次，就能按 Agent 下发**，不必在每个 CLI 的配置文件里各写一遍。这是它存在的主要理由：每个外部 CLI 各有各的配置格式和位置，手工同步迟早漂移。
 
 ## 它能做什么
 
@@ -76,7 +76,17 @@ Agent 本身只有内置的那几样能力——跑命令、读写文件、搜�
 
 VaneHub AI 可以把统一注册的 MCP 服务器转发给外部 CLI，这样你不用在 CLI 里重复配置。
 
-> **中继目前只对 Claude Code 与 Codex CLI 启用**。Gemini CLI、OpenCode 与 Antigravity CLI 需要各自配置，且它们的 MCP 调用不会出现在执行链路中。
+> **中继对 Claude Code、Codex CLI 与 OpenCode 启用**。其余 Agent 使用各自的 MCP 配置：
+>
+> | Agent | 是否由 VaneHub AI 中继 | MCP 在哪里配置 | MCP 调用是否进执行链路 |
+> | --- | --- | --- | --- |
+> | Claude Code、Codex CLI、OpenCode | **是** | 在 VaneHub AI 注册一次 | 是 |
+> | Gemini CLI、Antigravity CLI | 否 | CLI 自己的配置文件 | 否（黑盒） |
+> | ACP Agent（Qwen Code、Kimi Code CLI、Qoder CLI、CodeBuddy Code、GitHub Copilot CLI、Cursor Agent CLI；`main` / 未发布） | 否——VaneHub AI 给 ACP 会话传入的是空服务器列表 | 厂商 CLI 自己的配置 | 否 |
+> | iFlow CLI（历史兼容） | 否——仅终端 | CLI 自己的配置 | 否 |
+> | OnePiece | 不需要——原生工具目录直接纳入已注册的服务器 | 在 VaneHub AI 注册一次 | 是，原生保真度 |
+>
+> 逐 Agent 的一行也收录在 [Agent 能力矩阵](../../../reference/agents/capability-matrix.md)。
 
 中继是**显式开启、按次调用生效**的：它转发 MCP 协议而**不改写你的全局 provider 配置**，并记录关联的代理请求生命周期。
 
@@ -112,7 +122,7 @@ VaneHub AI 可以把统一注册的 MCP 服务器转发给外部 CLI，这样你
 
 - **环境变量与 header 以明文存储**。它们以明文 JSON 落在本地数据库里，**导出时也是明文**。请据此判断要不要把长期凭据放进来。
 - **状态是缓存的**，不代表此刻的连通性；要确认请重新测试。
-- **中继只覆盖 Claude Code 与 Codex CLI**，其余三个 CLI 需各自配置且调用不进执行链路。
+- **中继覆盖 Claude Code、Codex CLI 与 OpenCode**；Gemini CLI、Antigravity CLI、各 ACP Agent 与 iFlow CLI 需各自配置且调用不进执行链路。
 - **每次 MCP 工具调用都要批准**，没有「信任此服务器」这类免批开关。
 - **名称全局唯一且格式受限**，重名不会覆盖而是被拒。
 

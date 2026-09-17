@@ -69,7 +69,7 @@ flowchart TD
     G --> H["固定 shell/file/remember 工具<br/>永不冲突"]
 ```
 
-**中继(relay)**：VaneHub 可在 CLI 与 MCP server 之间充当代理，标记位为 `RELAY_FLAG=` `--vanehub-mcp-relay`。仅 Claude Code 与 Codex CLI 走中继路径；Gemini CLI、OpenCode、Antigravity CLI 各自独立配置 MCP，其 MCP 调用不进入 VaneHub 的执行链路。中继文件系统由 `PrivateRelayDirectory` 隔离，防止跨会话或跨 Agent 串扰。
+**中继(relay)**：VaneHub 可在 CLI 与 MCP server 之间充当代理，标记位为 `RELAY_FLAG=` `--vanehub-mcp-relay`。`bootstrap/managed_mcp_relay.rs` 的中继允许清单是 `claude-code`、`codex-cli`、`opencode`，其他 agent id 得到空的 `PreparedMcpRelay`。Gemini CLI 与 Antigravity CLI 各自独立配置 MCP；六个 ACP Agent 在 `session/new` 与 `session/load` 收到的是 `mcpServers: []`，MCP 来自厂商 CLI 自己的配置；iFlow CLI 仅终端——这些 MCP 调用都不进入 VaneHub 的执行链路。中继文件系统由 `PrivateRelayDirectory` 隔离，防止跨会话或跨 Agent 串扰。
 
 **目录降级**：未测试或测试失败的 server 不贡献工具；inactive 或超出当前会话作用域的 server 不贡献工具。MCP 目录名永不与固定的 `shell`/`file`/`remember` 工具冲突或遮蔽。当目录查询本身失败时优雅降级：生成过程只使用固定目录继续进行，而不是直接失败整个请求。
 
@@ -78,7 +78,7 @@ flowchart TD
 MCP 基础设施位于 `tooling/mcp/infrastructure/`,实现见各 `relay_*.rs` 模块:
 
 - **三种 transport** —— `stdio`(本地子进程,经 `bounded_stdio` 有界读写)、`streamable_http`(HTTP,经 `relay_streamable_http_protocol`)、遗留 `sse`(经 `relay_legacy_sse*` 事务性迁移到 `streamable_http`,保留此前生效的协议行为)。未知 transport 取值被拒绝,绝不静默重新解释为 `stdio`。
-- **中继标记** `RELAY_FLAG = "--vanehub-mcp-relay"` —— 仅 Claude Code 与 Codex CLI 走中继路径,VaneHub 在 CLI 与 MCP server 间代理 JSON-RPC;Gemini CLI、OpenCode、Antigravity CLI 各自独立配置 MCP,其 MCP 调用不进入 VaneHub 执行链路。
+- **中继标记** `RELAY_FLAG = "--vanehub-mcp-relay"` —— Claude Code、Codex CLI 与 OpenCode 走中继路径(`managed_mcp_relay.rs` 允许清单),VaneHub 在 CLI 与 MCP server 间代理 JSON-RPC,OpenCode 经 `OPENCODE_CONFIG_CONTENT` 接收投影;Gemini CLI、Antigravity CLI、各 ACP Agent 与 iFlow CLI 各自独立配置 MCP,其 MCP 调用不进入 VaneHub 执行链路。桌面 `agent-mcp` 层会驱动全部三个中继 Agent。
 - **`PrivateRelayDirectory`** —— 中继文件系统隔离目录,防止跨会话或跨 Agent 串扰。
 - **JSON-RPC 帧解析** `relay_jsonrpc` —— `parse_json_rpc_frame` 解析帧、`JsonRpcFrame`/`JsonRpcId` 处理请求-响应配对。
 - **失败观察** `relay_failure` / `relay_observer` —— 中继失败按 `RelayFailure` 分类,`RelayObserver` 记录 `mcp_relay_enabled` 与 `mcp_relay_terminated` 等诊断事件(只含安全元数据)。
@@ -94,13 +94,15 @@ MCP 的配置与目录是**统一管理**的——同一套 MCP server 配置模
 
 差异在**传输路径**(因为 CLI 进程与 OnePiece 的运行时形态不同):
 
-| 维度 | Claude Code / Codex CLI | Gemini CLI / OpenCode / Antigravity CLI | OnePiece 原生 Agent |
-| --- | --- | --- | --- |
-| 是否走中继 | **走中继**(RELAY_FLAG=`--vanehub-mcp-relay`)——VaneHub 在 CLI 与 MCP server 间代理 JSON-RPC | 不走中继,各自独立配置 MCP | 经 native 工具目录直接纳入 |
-| 是否进执行链路 | 中继调用进 VaneHub 执行链路 | **不进执行链路**(黑盒) | 原生保真度,可在链路逐层展开 |
-| 文件系统隔离 | `PrivateRelayDirectory` 隔离中继文件 | 各 CLI 自行管理 | 与固定工具同一目录空间 |
+| 维度 | Claude Code / Codex CLI / OpenCode | Gemini CLI / Antigravity CLI | ACP Agent(Qwen、Kimi、Qoder、CodeBuddy、Copilot、Cursor) | iFlow CLI(历史兼容) | OnePiece 原生 Agent |
+| --- | --- | --- | --- | --- | --- |
+| 是否走中继 | **走中继**(RELAY_FLAG=`--vanehub-mcp-relay`)——VaneHub 在 CLI 与 MCP server 间代理 JSON-RPC | 不走中继,各自独立配置 MCP | 不走中继——ACP 会话以 `mcpServers: []` 打开,MCP 来自厂商 CLI 自己的配置 | 不走中继——仅终端,无受管路径 | 经 native 工具目录直接纳入 |
+| 是否进执行链路 | 中继调用进 VaneHub 执行链路 | **不进执行链路**(黑盒) | **不进执行链路**(黑盒) | 不进 | 原生保真度,可在链路逐层展开 |
+| 文件系统隔离 | `PrivateRelayDirectory` 隔离中继文件 | 各 CLI 自行管理 | 各 CLI 自行管理 | CLI 自行管理 | 与固定工具同一目录空间 |
 
-**统计管理 MCP** 的能力对中继路径有效:中继的失败按 `RelayFailure` 分类、`RelayObserver` 记录 `mcp_relay_enabled`/`mcp_relay_terminated` 等诊断事件。非中继的 CLI 与 OnePiece 的 MCP 工具都遵循"目录名永不与固定 `shell`/`file`/`remember` 工具冲突"的统一约束。
+逐 Agent 的中继列也收录在生成的 [Agent 能力矩阵](../../../reference/agents/capability-matrix.md)。
+
+**MCP 可观测性**在中继路径上是统一的:中继的失败按 `RelayFailure` 分类、`RelayObserver` 记录 `mcp_relay_enabled`/`mcp_relay_terminated` 等诊断事件。非中继的 CLI 与 OnePiece 的 MCP 工具都遵循"目录名永不与固定 `shell`/`file`/`remember` 工具冲突"的统一约束。
 
 ## 设计所在之处
 

@@ -2,6 +2,8 @@
 
 记忆是一个主机级共享池，OnePiece 与所有 CLI 包装的 Agent 共同读取。持久化与治理归 `personalization` 限界上下文（v2 应用服务是唯一生产写入路径），召回归 `retrieval`（见[检索与向量搜索](retrieval.md)）。每条记忆自带**作用域**（scope）与**受众**（audience）：共享是默认值，可按条收窄。
 
+> **状态：main / unreleased**。下文描述的受治理读取边界已在 `main`（提交 `52b345ee`）实现，尚未进入 v1.5.0 稳定版。OpenSpec 变更 `openspec/changes/unify-memory-read-scope/` 仍未归档：剩余任务 7.6 是各平台验证运行，因此该能力由单元与集成测试（见「锁定此行为的测试」）代码级验证，但尚未归档，其 `memory-read-scope` 增量也尚未同步进 `openspec/specs/`。
+
 ## 存储模型
 
 - **文件是权威面**：主机级 `memory/` 目录，每条记忆一个 `{id}.md`，id 由存储生成（v2 允许重名，名字不做文件名）。
@@ -45,9 +47,17 @@
 
 `surfaced` 去重（`memory_surfaced.rs`）按 `会话 + 实际 Agent/seat + 上下文指纹` 分区，条目为 `id → (revision, content hash)`；它在资格判定之后运行，换席位或换工作区不会继承抑制，更不会继承授权。
 
-三种权能是三个类型边界：`RuntimeMemoryRead`（上述受治理接口）、`OwnerMemoryManagement`（设置页的 `list_memories`/`memory_detail` 等，不受某个会话的临时限制影响）、`MemoryIndexMaintenance`（`index_maintenance_records` 为本地 FTS 枚举全部有效 active 记录，包括 workspace 与受限受众）。旧的 `compatibility_memories*` 兼容视图保留给确切的遗留调用方，不再用于注入、正文、recall 或 Context Engine。
+变更的设计文档区分三种权能，各有独立的接口边界：`RuntimeMemoryRead`（上述受治理接口）、`OwnerMemoryManagement`（设置页的 `list_memories`/`memory_detail` 等，不受某个会话的临时限制影响）、`MemoryIndexMaintenance`（`index_maintenance_records` 为本地 FTS 枚举全部有效 active 记录，包括 workspace 与受限受众）。旧的 `compatibility_memories*` 兼容视图保留给确切的遗留调用方，不再用于注入、正文、recall 或 Context Engine。
 
 **外发边界不随索引扩大而扩大**：基线没有针对 scoped/受限受众记忆的 embedding 外发授权能力，因此这些记录在检索侧固定为 `keyword_only`（本地 FTS 可搜、不排队、不外发；`requeue_all`/模型切换不会复活它们），每次 embed 前 worker 再经 `embedding_egress` 回源核对 status/scope/audience 与 content hash，排队后才变 restricted 的公共记录同样被拦下，并归为 keyword-only 而非失败重试。
+
+### 锁定此行为的测试
+
+- `personalization/application/read_memory_tests.rs` —— `a_standard_context_admits_global_and_its_own_workspace_only_by_audience`、`an_explicitly_absent_workspace_still_reads_global_but_an_unresolved_one_reads_nothing`、`a_temporary_or_read_disabled_snapshot_freezes_a_context_that_permits_nothing`、`a_context_authenticates_only_under_the_epoch_that_minted_it_and_only_unaltered`。
+- `personalization/api/read_scope_tests.rs` —— `a_standard_session_reads_global_and_its_workspace_by_exact_audience_on_every_surface`、`a_selected_audience_admits_the_exact_stable_id_and_never_a_prefix_case_or_wildcard_variant`、`the_recall_relation_is_complete_past_the_two_hundred_ref_injection_page`、`a_context_not_minted_by_this_host_or_altered_after_minting_is_refused`。
+- `retrieval/application/search_service.rs` —— `unauthorized_rows_are_filtered_before_top_k_so_they_cannot_crowd_out_a_valid_hit`、`an_incomplete_authority_set_is_refused_rather_than_searched`。
+- `retrieval/infrastructure/sqlite_repository.rs` —— `authorized_candidates_filter_both_paths_before_the_limit_so_excluded_rows_cannot_crowd_out_a_hit`、`the_query_local_relation_never_survives_into_the_next_query`。
+- `agent_runtime/infrastructure/memory_surfaced.rs` —— `another_seat_in_the_same_session_does_not_inherit_the_suppression`、`exclusions_do_not_leak_between_sessions`；`api_process_adapter/tests.rs` —— `recall_without_a_read_context_fails_closed_without_searching`、`a_session_denied_memory_reads_is_not_offered_the_recall_tool`。
 
 ## 会话模式与策略
 
@@ -130,6 +140,6 @@ flowchart LR
 
 - [openspec/specs/unified-personalization-governance](../../../../openspec/specs/unified-personalization-governance/spec.md) —— 作用域、受众、会话模式、候选审查。
 - [openspec/specs/agent-cross-session-memory](../../../../openspec/specs/agent-cross-session-memory/spec.md) —— 共享池、来源元数据、保存路径。
-- [openspec/specs/retrieval-vector-search](../../../../openspec/specs/retrieval-vector-search/spec.md) —— 召回工具与降级。其中"召回不受 agent/workspace 限制"的表述写于治理改造之前：对**兼容视图内**的记忆仍然成立，但收窄过的记忆已整体不在召回池内；scoped 召回是上文列出的待实现目标。
+- [openspec/specs/retrieval-vector-search](../../../../openspec/specs/retrieval-vector-search/spec.md) —— 召回工具与降级。其中"召回不受 agent/workspace 限制"的表述写于治理改造之前，已不是代码的实际行为：当前的规范文本是 `openspec/changes/unify-memory-read-scope/` 中的增量（新增能力 `memory-read-scope`，以及对上述三份主规范与 `agent-context-engine` 的增量），尚未同步进 `openspec/specs/`；代码与测试已经通过 `search_authorized` 实现受治理召回。
 
 记忆持久化与治理位于 `personalization` 限界上下文，召回位于 `retrieval`；见 [Native 限界上下文](native-contexts.md)。

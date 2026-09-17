@@ -43,6 +43,17 @@ for (const [source, destination] of books) {
  * markup carries `developer-guide/src/x.html`. Both extensions are matched so the rewrite does
  * not silently stop working if that behaviour changes.
  */
+// Loose Markdown documents at `docs/` root that the books link to. Each is copied into the
+// assembled site's `reference/` directory unchanged.
+const LOOSE_REFERENCE_DOCUMENTS = [
+  "release-signing",
+  "desktop-release-verification",
+  "cli-agent-global-configuration",
+  "build-performance",
+  "runtime-performance-budgets",
+  "model-providers",
+];
+
 const crossBookRewrites = [
   // From user/<locale>/, the English developer guide sits at ../../developer/.
   [
@@ -54,11 +65,32 @@ const crossBookRewrites = [
     /\.\.\/\.\.\/\.\.\/developer-guide\/zh-CN\/src\/([A-Za-z0-9-]+)\.(?:md|html)/g,
     "../../developer/zh-CN/$1.html",
   ],
+  // The language switch at the top of each user-guide index is authored as the sibling book's
+  // source path; the sibling book sits beside this one in the assembled site.
+  [/\.\.\/\.\.\/zh-CN\/src\/index\.(?:md|html)/g, "../zh-CN/index.html"],
+  [/\.\.\/\.\.\/en\/src\/index\.(?:md|html)/g, "../en/index.html"],
   // From developer/, a user guide sits at ../user/<locale>/.
   [
     /\.\.\/\.\.\/user-guide\/(en|zh-CN)\/src\/([A-Za-z0-9-]+)\.(?:md|html)/g,
     "../user/$1/$2.html",
   ],
+  // Loose reference documents (`docs/*.md`, `docs/reference/**`, `src-tauri/ARCHITECTURE.md`) are
+  // copied verbatim into `reference/` below and stay Markdown, so the rewritten link keeps `.md`.
+  // From developer/ (one level below the site root) they are authored as ../../<name>.md.
+  [
+    new RegExp(`(?<!\\.\\./)\\.\\./\\.\\./(${LOOSE_REFERENCE_DOCUMENTS.join("|")})\\.(?:md|html)`, "g"),
+    "../reference/$1.md",
+  ],
+  [/(?<!\.\.\/)\.\.\/\.\.\/reference\/([A-Za-z0-9/._-]+?)\.(?:md|html)/g, "../reference/$1.md"],
+  [/(?<!\.\.\/)\.\.\/\.\.\/\.\.\/src-tauri\/ARCHITECTURE\.(?:md|html)/g, "../reference/native-architecture.md"],
+  // From developer/zh-CN/ and user/<locale>/ (two levels below the root) the same documents are
+  // authored one directory further up.
+  [
+    new RegExp(`\\.\\./\\.\\./\\.\\./(${LOOSE_REFERENCE_DOCUMENTS.join("|")})\\.(?:md|html)`, "g"),
+    "../../reference/$1.md",
+  ],
+  [/\.\.\/\.\.\/\.\.\/reference\/([A-Za-z0-9/._-]+?)\.(?:md|html)/g, "../../reference/$1.md"],
+  [/\.\.\/\.\.\/\.\.\/\.\.\/src-tauri\/ARCHITECTURE\.(?:md|html)/g, "../../reference/native-architecture.md"],
 ];
 
 function rewriteCrossBookLinks(directory) {
@@ -95,10 +127,15 @@ run("cargo", [
 });
 
 cpSync(resolve(rustTarget, "doc"), resolve(outputRoot, "api"), { recursive: true });
-cpSync(
-  resolve(repositoryRoot, "docs", "release-signing.md"),
-  resolve(outputRoot, "reference", "release-signing.md"),
-);
+for (const name of LOOSE_REFERENCE_DOCUMENTS) {
+  cpSync(
+    resolve(repositoryRoot, "docs", `${name}.md`),
+    resolve(outputRoot, "reference", `${name}.md`),
+  );
+}
+cpSync(resolve(repositoryRoot, "docs", "reference"), resolve(outputRoot, "reference"), {
+  recursive: true,
+});
 cpSync(
   resolve(repositoryRoot, "src-tauri", "ARCHITECTURE.md"),
   resolve(outputRoot, "reference", "native-architecture.md"),

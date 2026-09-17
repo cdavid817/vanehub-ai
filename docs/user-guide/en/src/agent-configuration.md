@@ -18,7 +18,7 @@ Gemini CLI, OpenCode, and Antigravity CLI have no corresponding managed SDK.
 
 **Settings → CLI Management** is where VaneHub AI reports what is installed on this machine and, for the sources it can drive, changes it. The summary bar counts every tool into exactly one bucket — **Ready**, **Needs sign-in**, **Updates**, **Conflicts**, **Broken** — and each count is also the filter for it. Search, a source filter, and a "needs attention only" toggle narrow the list further.
 
-![The CLI Management settings page with five CLI cards and the local environment check](assets/screenshots/cli-en.png)
+![The CLI Management settings page showing installed and available agents and the local environment check](assets/screenshots/cli-en.png)
 
 #### What runs, and what VaneHub would act on
 
@@ -150,7 +150,7 @@ OnePiece doesn't go through an external CLI and has none of the command-line par
 
 **Settings → Agent configurations** does something different from every section above: it **decides which vendor and which model each Agent calls**. It's the only feature on this page that actively rewrites any CLI's own configuration file.
 
-![The Agent configurations settings page, with six Agent tabs and the global configuration status](assets/screenshots/settings-agent-configurations-en.png)
+![The Agent configurations settings page, with one tab per managed agent and the global configuration status](assets/screenshots/settings-agent-configurations-en.png)
 
 The tabs across the top of the page split by Agent: **Claude Code / Codex CLI / OpenCode / Antigravity CLI / Gemini CLI / Qwen Code / iFlow CLI / OnePiece**. The same page also carries the language-server toggles from [LSP code intelligence](lsp-code-intelligence.md) further down.
 
