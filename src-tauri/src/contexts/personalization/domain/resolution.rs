@@ -514,6 +514,12 @@ fn finalize_memory_access(
     access: &mut EffectiveMemoryAccess,
     capabilities: PersonalizationRuntimeCapabilities,
 ) {
+    if !access.read && access.block_reason.is_none() {
+        // Off by policy rather than by a session, runtime or maintenance condition, which all
+        // name themselves above. Named here so a preview can say which switch to look at. The
+        // other toggles stay as resolved: a user who turned reading off may still allow saving.
+        access.block_reason = Some(MemoryBlockReason::ReadDisabled);
+    }
     access.delivery = if !access.read {
         MemoryDeliveryMode::None
     } else if capabilities.supports_selected_memory_bodies {

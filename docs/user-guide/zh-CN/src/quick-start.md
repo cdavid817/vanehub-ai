@@ -10,9 +10,7 @@ VaneHub AI **驱动已安装的 Coding Agent CLI**，本身不代管各家的订
 
 **方式 A：在 VaneHub AI 里装（推荐）**
 
-打开**设置 → CLI 管理**，每个 CLI 旁会按状态给出操作：**安装**、**升级**、**降级**、**已是当前版本**、**不可用**或**手动处理**。点**安装**即可，VaneHub AI 会用 npm 替你装好，装完刷新检测。
-
-> Antigravity CLI 没有 npm 包，界面不提供安装/升级操作，只能走方式 B 的官方安装脚本。
+打开**设置 → CLI 管理**，每个 CLI 旁会按状态给出操作：**安装**、**升级**、**降级**、**已是当前版本**、**不可用**或**手动处理**。点**安装**即可，VaneHub AI 会用该 CLI 真正拥有的来源替你装好——多数 CLI 走 **npm**；Windows 上有包的走 **WinGet**（Claude Code、GitHub Copilot CLI）；没有 npm 包的走经审核的**官方安装器**（Antigravity CLI 与 Cursor Agent CLI，由 VaneHub 驱动，仅支持升级到最新）。iFlow CLI 只检测不安装。计划执行完毕后自动刷新检测。逐 CLI 的安装来源见 [Agent 能力矩阵](../../../reference/agents/capability-matrix.md)。
 
 **方式 B：手动装**
 
@@ -20,7 +18,7 @@ VaneHub AI **驱动已安装的 Coding Agent CLI**，本身不代管各家的订
 npm install -g @anthropic-ai/claude-code
 ```
 
-其余 CLI（Codex CLI、Gemini CLI、OpenCode、Antigravity CLI）按各自官方说明安装。详见[安装并认证 CLI](getting-started.md)。
+其他 CLI 按各自官方说明安装——原有五个（Claude Code、Codex CLI、Gemini CLI、OpenCode、Antigravity CLI；已在稳定版 v1.5.0 中）见[安装并认证 CLI](getting-started.md)，六个 ACP CLI（Qwen Code、Kimi Code CLI、Qoder CLI、CodeBuddy Code、GitHub Copilot CLI、Cursor Agent CLI；在 `main` 上，属于下一版本）见 [ACP CLI Agent](acp-cli-agents.md)。
 
 ## 1.5 认证 / 配置模型
 
@@ -55,7 +53,7 @@ claude
 | **Gemini CLI** | 端点可改，但目录里只有 Google 官方预设 | `~/.gemini/.env` |
 | **Antigravity CLI** | **VaneHub 暂未纳管** | `~/.gemini/antigravity-cli/settings.json` |
 
-> **VaneHub 当前未纳管 Antigravity 的端点与密钥字段**：它的配置面板里没有这两项，能调的是模型与审批行为；Google 登录凭据由 CLI 自己存在系统钥匙串。这是 VaneHub 当前的纳管范围，不等于 Antigravity CLI 本身不支持 API Key 或自定义端点——上游能力以 Antigravity 官方文档为准，需要时可在 CLI 自身环境中按官方方式配置。
+> **VaneHub 当前未纳管 Antigravity 的端点与密钥字段**：它的配置面板里没有这两项，能调的是模型与审批行为；Google 登录凭据由 CLI 自己存在系统钥匙串。这是 VaneHub 当前的纳管范围，不等于 Antigravity CLI 本身不支持 API Key 或自定义端点——**上游支持**这些能力（以 Antigravity 官方文档为准），需要时可在 CLI 自身环境中按官方方式配置。三层要分开看：**上游支持**什么、**VaneHub 纳管**什么（统一 provider 配置）、**VaneHub 验证**什么（只验证命令能跑）。Qwen Code 与 iFlow CLI 也能在这里配兼容端点；其余 ACP CLI 的程序本身没有这项设置。
 
 字段清单、凭据存放位置与漂移处理见[工具与扩展 → Agent 配置](agent-configuration.md#agent-配置)。
 

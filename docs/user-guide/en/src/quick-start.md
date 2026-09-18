@@ -8,9 +8,7 @@ VaneHub AI **drives coding Agent CLIs you have already installed**; it does not 
 
 **Method A: install it inside VaneHub AI (recommended)**
 
-Open **Settings → CLI management**; each CLI shows an action based on its status: **Install**, **Upgrade**, **Downgrade**, **Up to date**, **Unavailable**, or **Handle manually**. Click **Install**, and VaneHub AI installs it for you through npm, then refreshes detection.
-
-> Antigravity CLI has no npm package, so the UI offers no install/upgrade action for it — it can only go through Method B's official install script.
+Open **Settings → CLI management**; each CLI shows an action based on its status: **Install**, **Upgrade**, **Downgrade**, **Up to date**, **Unavailable**, or **Handle manually**. Click **Install**, and VaneHub AI installs it through the source that CLI actually has — **npm** for most CLIs, **WinGet** on Windows where a package exists (Claude Code, GitHub Copilot CLI), or the CLI's **audited vendor installer** (Antigravity CLI and Cursor Agent CLI have no npm package, so VaneHub drives their official installer, upgrade-to-latest only). iFlow CLI is detect-only: no install action at all. Detection refreshes when the plan finishes. The per-CLI install source is in the [agent capability matrix](../../../reference/agents/capability-matrix.md).
 
 **Method B: install it by hand**
 
@@ -18,7 +16,7 @@ Open **Settings → CLI management**; each CLI shows an action based on its stat
 npm install -g @anthropic-ai/claude-code
 ```
 
-Install the other CLIs — Codex CLI, Gemini CLI, OpenCode, Antigravity CLI — following their own official instructions. See [Install and authenticate a CLI](getting-started.md).
+Install any other CLI following its own official instructions — the original five (Claude Code, Codex CLI, Gemini CLI, OpenCode, Antigravity CLI; in the stable v1.5.0 release) are in [Install and authenticate a CLI](getting-started.md), and the six ACP CLIs (Qwen Code, Kimi Code CLI, Qoder CLI, CodeBuddy Code, GitHub Copilot CLI, Cursor Agent CLI; on `main`, next release) are in [ACP CLI Agents](acp-cli-agents.md).
 
 ## 1.5 Authenticate / configure a model
 
@@ -51,9 +49,9 @@ How far each CLI goes isn't the same across the board:
 | **Codex CLI** | Supported | `~/.codex/config.toml` |
 | **OpenCode** | Supported | `~/.config/opencode/opencode.json` |
 | **Gemini CLI** | The endpoint can be changed, but the catalog only ships Google's official preset | `~/.gemini/.env` |
-| **Antigravity CLI** | **Not supported** | `~/.gemini/antigravity-cli/settings.json` |
+| **Antigravity CLI** | **Not yet managed by VaneHub** | `~/.gemini/antigravity-cli/settings.json` |
 
-> **Antigravity CLI does not accept a custom endpoint.** It only goes through Google sign-in, with credentials stored in the system keychain — the configuration panel has no endpoint or key field at all. What you can adjust is the model and approval behavior.
+> **VaneHub does not yet manage Antigravity's endpoint and key fields**: its configuration panel has neither, and what you can adjust there is the model and approval behavior; Google sign-in credentials stay in the system keychain, stored by the CLI itself. That is the current scope of what VaneHub manages, not a statement about the CLI — **upstream supports** API keys and compatible endpoints per Antigravity's own documentation, and you can configure them in the CLI's environment when you need to. Keep the three layers apart: what **upstream supports**, what **VaneHub manages** in unified provider configuration, and what **VaneHub verifies** (only that the command runs). Qwen Code and iFlow CLI can also be given a compatible endpoint here; the other ACP CLIs expose none in their programs.
 
 The full field list, where credentials are stored, and how drift is handled are covered in [Tools and extensions → Agent configurations](agent-configuration.md#agent-configurations).
 

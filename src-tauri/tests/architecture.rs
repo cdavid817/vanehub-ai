@@ -2431,11 +2431,15 @@ const NATIVE_PATH_BUDGETS: &[PathBudget] = &[
     // The PR #293 review round raises it to 1,016: registered native tools (delegation apply,
     // OCR) are refused for Loop-owned sessions before their own executors, where no scope
     // binding exists.
+    //
+    // Merged with `unify-memory-read-scope` on 2026-09-13, measured at 1,021: the tool loop
+    // takes the snapshot its caller resolved before the Context Engine ran and hands the
+    // generation's read context to every dispatch beside the Loop scope.
     PathBudget {
         path:
             "src-tauri/src/contexts/agent_runtime/infrastructure/api_process_adapter/execution.rs",
-        budget: 1_016,
-        owner: "enforce-loop-execution-scope",
+        budget: 1_021,
+        owner: "unify-memory-read-scope",
     },
     // The other residual `split-api-adapter-modules` left above 1,000 lines: 43 native tool
     // implementations, the largest of which is `execute_tool_call_impl`'s 266-line dispatch.
@@ -2452,11 +2456,15 @@ const NATIVE_PATH_BUDGETS: &[PathBudget] = &[
     // shell, MCP, notebook and delegation for Loop-owned sessions and delivers file/edit writes
     // through the handle-relative guard. It sits next to the dispatcher it wraps so the closed
     // channels are enumerated against the same handler registry, not a copied list.
+    //
+    // Merged with `unify-memory-read-scope` on 2026-09-13, measured at 1,607: `recall` takes
+    // the generation's read context and refuses without one, and the scoped dispatcher forwards
+    // that context untouched -- a Loop scope decides what may be written, never what may be read.
     PathBudget {
         path:
             "src-tauri/src/contexts/agent_runtime/infrastructure/api_process_adapter/native_tools.rs",
-        budget: 1_584,
-        owner: "enforce-loop-execution-scope",
+        budget: 1_607,
+        owner: "unify-memory-read-scope",
     },
     // Lowered from 5,110 by `relocate-heavyweight-inline-tests`, which split seven subject
     // modules out into `tests/`. What stays is the scaffolding they share — `Fixture`, the
@@ -2780,13 +2788,28 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // seat-owned binding key, the replay drain on resume, the stop escalation and the
         // completion ordering in the adapter, plus the regression tests for each.
         //
+        // `unify-memory-read-scope` raises it to 74,719, measured. Every memory surface of a
+        // generation now carries the trusted read context: the surfaced store is partitioned by
+        // subject and keyed by revision/hash rather than mtime (rewritten, with its tests), the
+        // selector speaks immutable ids, `recall` re-checks the context at execution, the Context
+        // Engine memory source refuses without one, and the tool loop takes the snapshot the
+        // caller resolved before the engine ran instead of resolving its own. The test half is the
+        // read-context fixture, the fail-closed `recall` test, the id-based selection fakes and the
+        // Context Engine memory-source test (idle without a permitting context), plus the
+        // review fix that carries the non-secret scope label beside the authenticity digest and
+        // the test proving the snapshot log line names the label and never the digest.
+        //
         // `enforce-loop-execution-scope` (2026-09-09) raises it to 80,754: the unix
         // handle-relative filesystem boundary, the complete artifact scanner, the
         // content-addressed evidence store, the in-process `patch-whitespace` check, the scope
         // platform/guard/authority adapters, the scope schema migration and the repository scope
         // columns, each with sentinel-based tests, plus the strict-Loop lifecycle test.
-        budget: 80_754,
-        owner: "enforce-loop-execution-scope",
+        //
+        // Merged on 2026-09-13 (the read scope on one side, the Loop execution scope on the
+        // other). Both histories above are kept; the figure is measured on the merged tree, not
+        // summed, because the branches share a baseline.
+        budget: 81_188,
+        owner: "unify-memory-read-scope",
     },
     // Raised from 2,914 by `split-database-migrations`, which turned `migrations.rs` into a
     // directory module. The +51 is entirely per-file boilerplate: +29 module headers (the `mod`
@@ -2915,8 +2938,13 @@ const NATIVE_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         //
         // `enforce-loop-execution-scope` raises it to 3,813: one migration registration
         // (`loop-execution-scope`, id 115) and its expected-migration entry.
-        budget: 3_813,
-        owner: "enforce-loop-execution-scope",
+        //
+        // `unify-memory-read-scope` raises it to 3,830: one migration registration
+        // (`retrieval-memory-egress-restriction`, id 116 after the merge) and its
+        // expected-migration entry, and the `temp_store = MEMORY` pragma in the pool's
+        // per-connection init with its assertion.
+        budget: 3_830,
+        owner: "unify-memory-read-scope",
     },
 ];
 
@@ -3010,12 +3038,19 @@ const NATIVE_PRODUCTION_SUBTREE_BUDGETS: &[SubtreeBudget] = &[
         // temporary file, the launch fingerprint, seat-owned keys, replay drain, stop escalation,
         // completion ordering -- with their rationale comments.
         //
-        // `enforce-loop-execution-scope` (2026-09-09) raises it to 45,049: the production half
+        // `unify-memory-read-scope` raises it to 40,966: the production half of the
+        // aggregate note above -- the read-context threading through prompt, native tools,
+        // generation and the memory context source, the subject-partitioned surfaced store, and the
+        // bounded read-context log line (scope label and counts only) at snapshot time.
+        //
+        // `enforce-loop-execution-scope` (2026-09-09) raises it to 45,141: the production half
         // of the scope boundary listed on the aggregate above -- openat/renameat/unlinkat
         // delivery, manifest scanning and diffing, evidence sealing, native check, guard and
         // authority, repository scope persistence and the ACP/native tool admission paths.
-        budget: 45_141,
-        owner: "enforce-loop-execution-scope",
+        //
+        // Merged on 2026-09-13; measured on the merged tree, not summed.
+        budget: 45_250,
+        owner: "unify-memory-read-scope",
     },
 ];
 
@@ -4286,6 +4321,12 @@ const DEFERRED_TRANSACTION_ALLOWLIST: &[(&str, &str, &str)] = &[
         "contexts/skill_evolution_curation/infrastructure/preview_store.rs",
         "preview_binding",
         "read-only snapshot of a candidate's preview binding, spelled out as Deferred",
+    ),
+    (
+        "contexts/personalization/infrastructure/sqlite_memory_projection.rs",
+        "eligible_authority",
+        "read-only snapshot across the paged complete-eligibility enumeration, so a save between \
+         two pages cannot mix two states of the store into one authorization relation",
     ),
 ];
 

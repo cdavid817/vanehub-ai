@@ -116,7 +116,7 @@ The difference is the **injection mechanism**, because the runtime shapes differ
 | Tool exposure | The CLI's own tool system | OnePiece's native tool catalog: fixed tools plus Skill tools plus MCP tools |
 | Observability | The CLI's internals are a black box, so traces stop at the boundary | Skill loading and tool calls have native fidelity and can be expanded layer by layer in a trace |
 
-**Managing Skills statistically** behaves identically for both: `list_skills` returns bounded effective metadata without the instruction body, `read_skill_resource` reads a resource by logical URI, and drift and readiness states are reported the same way. Resources are addressed by logical identifier — for example `skill://code-review/references/checklist.md` — so the model never receives a host path. See [Effective Skill runtime](effective-skill-runtime.md) and [Skill overlay governance](skill-overlay-governance.md).
+**Skill inventory and diagnostics** behave identically for both: `list_skills` returns bounded effective metadata without the instruction body, `read_skill_resource` reads a resource by logical URI, and drift and readiness states are reported the same way. Resources are addressed by logical identifier — for example `skill://code-review/references/checklist.md` — so the model never receives a host path. See [Effective Skill runtime](effective-skill-runtime.md) and [Skill overlay governance](skill-overlay-governance.md).
 
 ## Where the design lives
 

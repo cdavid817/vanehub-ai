@@ -1,6 +1,6 @@
 # CLI Agent global configuration
 
-VaneHub manages user-level provider profiles for all five external CLI Agents from the Agent Management page. A saved profile is separate from the runtime Agent and Session selection. Saving or applying a profile never selects an Agent, changes the active Session, or restarts a running CLI process.
+VaneHub manages user-level provider profiles for seven external CLI Agents from the Agent Management page — exactly the `SUPPORTED_AGENT_IDS` set in `cli_config/domain/mod.rs`: `claude-code`, `opencode`, `codex-cli`, `antigravity-cli`, `gemini-cli`, `qwen-code`, and `iflow-cli`. The other managed CLIs (Kimi Code CLI, Qoder CLI, CodeBuddy Code, GitHub Copilot CLI, Cursor Agent CLI) expose no third-party endpoint in their programs and have no profile kind; the per-agent column is in the [agent capability matrix](reference/agents/capability-matrix.md). A saved profile is separate from the runtime Agent and Session selection. Saving or applying a profile never selects an Agent, changes the active Session, or restarts a running CLI process.
 
 ## Supported global files
 

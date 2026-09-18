@@ -1,6 +1,6 @@
 # 单 Agent 治理：五控制面模型
 
-VaneHub AI 的单 Agent 管理不是"给五个 CLI 套一个启动按钮"，而是建立一套统一的治理面，把外部厂商 CLI 和内置 OnePiece Agent 放进同一套 Agent 身份、配置、权限、会话、记忆、观测和恢复体系中。
+VaneHub AI 的单 Agent 管理不是"给几个 CLI 套一个启动按钮"，而是建立一套统一的治理面，把外部厂商 CLI 和内置 OnePiece Agent 放进同一套 Agent 身份、配置、权限、会话、记忆、观测和恢复体系中。
 
 本章给出理解这套治理体系的分析模型：一个 0 号底座加五个控制面。**它是职责分析模型，不是代码结构**——五个控制面既不对应五个 Rust bounded context，也不对应五个页面；当前代码按业务所有权拆分到 `agent_runtime`、`sessions`、`tooling`、`permissions` 等多个上下文（见 [Native 限界上下文](native-contexts.md)）。
 
@@ -32,7 +32,7 @@ VaneHub AI 的单 Agent 管理不是"给五个 CLI 套一个启动按钮"，而�
 
 先记住六条核心结论：
 
-1. **OnePiece 不是"第六个 CLI"**。它是 `LaunchKind::Api` 的内置原生 Agent；五个外部工具是 `LaunchKind::Cli`。它们共享上层治理契约，但不共享底层执行机制。
+1. **OnePiece 不是"又一个 CLI"**。它是 `LaunchKind::Api` 的内置原生 Agent；所有外部工具都是 `LaunchKind::Cli`。它们共享上层治理契约，但不共享底层执行机制。
 2. **普通单 Agent CLI 会话的主执行形态是会话级 PTY / Agent Terminal**。同一会话再次进入时优先附着到 retained 进程并回放有界终端内容，而不是无条件启动新的 Headless 子进程。
 3. **Headless CLI Runtime、普通 PTY 会话和 CLI 委派是三条不同路径**。Headless 路径服务于受管 Chat、多 Agent、Loop 等结构化执行；CLI 委派只面向隔离分析/编辑与 ChangeSet 管线，不能混同为普通单 Agent 会话。
 4. **五个控制面是架构分析模型**，会横跨多个 bounded context 与页面。
@@ -111,6 +111,10 @@ flowchart TB
 | Gemini CLI | `gemini-cli` | `Cli` | `gemini` CLI |
 | OpenCode | `opencode` | `Cli` | `opencode` CLI |
 | Antigravity CLI | `antigravity-cli` | `Cli` | `agy` CLI |
+| Qwen Code、Kimi Code CLI、Qoder CLI、CodeBuddy Code、GitHub Copilot CLI、Cursor Agent CLI | `qwen-code`、`kimi-cli`、`qoder-cli`、`codebuddy-code`、`copilot-cli`、`cursor-agent-cli` | `Cli` | 厂商 CLI 作为长驻 ACP agent（`main` / 未发布） |
+| iFlow CLI | `iflow-cli` | `Cli` | `iflow` CLI，仅终端（历史兼容） |
+
+表中单列原有五个 headless CLI，是因为本章后文以它们为工作示例；ACP 与历史兼容行遵循同样的身份规则。逐 Agent 的完整能力集生成在 [Agent 能力矩阵](../../../reference/agents/capability-matrix.md)。
 
 Agent Registry 负责身份；Provider Registry 负责把稳定 ID 解析成 Runtime 行为。上层 Session 服务不应按显示名分支，也不应在多处重复 `if agent_id == "claude-code"` 式判断；无兼容 Provider 注册时应返回 `unsupported-provider`，而不是悄悄回退到其他 Agent。调用方必须以 Provider 元数据声明的 capability 标签为依据，而不是从 Agent 名称猜测能力。
 
@@ -177,14 +181,14 @@ OnePiece 不存在 argv，不应出现在 CLI 参数页面；它对应的运行�
 统一决策模型、四档模板、Scope 解析与 Approval Broker 的完整语义见[权限模型](permission-model.md)。本章只强调跨 Agent 的结构差异：
 
 - 权限请求归一化为 `principal + action + resource + context`，principal 是稳定 `agent_id`；结果为 `Allow`、`Deny`、`Ask`，未匹配与内部故障均 fail-closed 为 `Ask`。
-- **五个 CLI 全部参与策略模板的启动参数投影**（`POLICY_TEMPLATE_GOVERNED_AGENT_IDS`），Claude Code 在此之外还有 `PreToolUse` Hook 的逐调用桥接——它是"启动参数投影 + Hook"双层实现。
+- **十二个 CLI 全部参与策略模板的启动参数投影**（`POLICY_TEMPLATE_GOVERNED_AGENT_IDS`）：原有五个经目录的 policy-governed 参数，七个扩展 provider 经运行时按传输渲染的旗标（ACP agent 只收到只读姿态并逐调用询问宿主）；Claude Code 在此之外还有 `PreToolUse` Hook 的逐调用桥接——它是"启动参数投影 + Hook"双层实现。
 - 权限的执行保真度分层，"权限模板相同"不等于"执行精度相同"：
 
 | 级别 | 含义 | 典型对象 |
 | --- | --- | --- |
 | Native | 操作在 VaneHub 内被逐次解析和执行 | OnePiece Native Tool |
 | Proxied / Hook-Enforced | 调用经 VaneHub Hook/Relay 转发 | Claude Code Hook、MCP Relay |
-| Launch-Projected | 只在进程启动时投影参数/环境变量 | 五个 CLI 的模板投影 |
+| Launch-Projected | 只在进程启动时投影参数/环境变量 | headless 与终端 CLI 的模板投影 |
 | Inferred | 从输出或行为推断 | 某些 CLI Usage/步骤 |
 | Opaque | CLI 内部不可见 | 外部 CLI 未桥接的内部行为 |
 
@@ -225,4 +229,4 @@ OnePiece 不存在 argv，不应出现在 CLI 参数页面；它对应的运行�
 
 ## 结语
 
-VaneHub AI 对五个 CLI 和 OnePiece 的正确统一方式是：统一身份、统一治理、统一权限语义、统一会话与恢复、统一 Skill/MCP/Memory 入口、统一观测与用量口径，同时**保留 Runtime Adapter 差异**。反面模式包括：把 OnePiece 伪装成 CLI；把所有 CLI 当作同一种协议；把普通 PTY、Headless 与 Delegation 混成一条路径；把 VaneHub 当前未纳管误写成上游不支持；把统一模板误写成统一执行保真度。
+VaneHub AI 对外部 CLI 和 OnePiece 的正确统一方式是：统一身份、统一治理、统一权限语义、统一会话与恢复、统一 Skill/MCP/Memory 入口、统一观测与用量口径，同时**保留 Runtime Adapter 差异**。反面模式包括：把 OnePiece 伪装成 CLI；把所有 CLI 当作同一种协议；把普通 PTY、Headless 与 Delegation 混成一条路径；把 VaneHub 当前未纳管误写成上游不支持；把统一模板误写成统一执行保真度。

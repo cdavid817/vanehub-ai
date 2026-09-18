@@ -31,7 +31,7 @@ VaneHub AI **驱动你已经装好的 CLI**。**各家的订阅登录（OAuth）
 **两个前提要清楚**：
 
 - **来源决定能力**。VaneHub AI 能驱动 npm、Windows 上的 WinGet，以及逐个 CLI 审核过的官方安装器；Homebrew、Bun、Volta、桌面应用自带与系统包只检测不改动。它绝不会把脚本管道喂给 shell，也绝不会在别人装好的那份旁边再装一份冒充升级。
-- **Antigravity CLI 没有 npm 包**，它只有官方安装器这一个来源，而官方安装器不支持钉精确版本，因此界面给的是“升级到最新”而不是一个版本列表。
+- **Antigravity CLI 与 Cursor Agent CLI 没有 npm 包**，它们只有经审核的官方安装器这一个来源，而官方安装器不支持钉精确版本，因此界面给的是“升级到最新”而不是一个版本列表。iFlow CLI 只检测不安装。逐 CLI 的来源见 [Agent 能力矩阵](../../../reference/agents/capability-matrix.md)。
 
 ### 方式 B：在终端里用命令装
 
@@ -43,9 +43,9 @@ VaneHub AI **驱动你已经装好的 CLI**。**各家的订阅登录（OAuth）
 
 无论走哪条路，**认证都得在终端里完成**，见[先在终端里跑通](#先在终端里跑通)。
 
-## 原有五个 CLI
+## 原有五个 CLI（headless 传输，自 v1.5.0 起为稳定版能力）
 
-VaneHub AI 支持十二个外部 CLI Agent。装一个就能开始，不必全都装。本节讲原有五个；六个 ACP CLI（Qwen Code、Kimi Code CLI、Qoder CLI、CodeBuddy Code、GitHub Copilot CLI、Cursor Agent CLI）与 iFlow 历史兼容条目见 [ACP CLI Agent](acp-cli-agents.md)。下表汇总各 CLI 的安装方式,各小节给出具体命令。
+VaneHub AI 的注册表列出十二个外部 CLI Agent。装一个就能开始，不必全都装。本节讲原有五个 headless CLI，它们已在稳定版 v1.5.0 中；六个 ACP CLI（Qwen Code、Kimi Code CLI、Qoder CLI、CodeBuddy Code、GitHub Copilot CLI、Cursor Agent CLI——在 `main` 上，属于下一版本）与 iFlow 历史兼容条目见 [ACP CLI Agent](acp-cli-agents.md)。下表汇总各 CLI 的安装方式,各小节给出具体命令。
 
 | Agent | 提供方 | 命令 | 依赖 | 推荐安装方式 |
 | --- | --- | --- | --- | --- |
@@ -190,7 +190,7 @@ CLI 工具页按状态提供不同操作：**安装**、**升级**、**降级**�
 
 ## 认证
 
-**官方订阅登录不在 VaneHub AI 里做**。五个 CLI 各自管理自己的订阅凭据，存在它们各自的位置。
+**官方订阅登录不在 VaneHub AI 里做**。每个外部 CLI 各自管理自己的订阅凭据，存在它们各自的位置。
 
 如果 Agent 在会话中提示要登录，去对应的 CLI 里完成认证，然后回到 VaneHub AI 刷新检测。
 
@@ -198,7 +198,7 @@ CLI 工具页按状态提供不同操作：**安装**、**升级**、**降级**�
 
 ## CLI 启动参数
 
-五个 CLI 各自的命令行参数与 VaneHub AI 里的启动参数配置，统一收在[工具与扩展 → CLI 参数](agent-configuration.md#cli-参数)。OnePiece 没有 CLI，也就没有启动参数，它的等价配置在[Agent 配置](agent-configuration.md#agent-配置)。
+各 CLI 自己的命令行参数与 VaneHub AI 里的启动参数配置，统一收在[工具与扩展 → CLI 参数](agent-configuration.md#cli-参数)。OnePiece 没有 CLI，也就没有启动参数，它的等价配置在[Agent 配置](agent-configuration.md#agent-配置)。
 
 ## 下一步
 

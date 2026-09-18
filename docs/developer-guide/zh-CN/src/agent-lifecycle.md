@@ -28,7 +28,7 @@ flowchart TD
     C --> E{"LaunchKind"}
     D --> E
     E -- "Api" --> F["原生 API 运行时<br/>例:OnePiece"]
-    E -- "Cli" --> G["外部 CLI 运行时<br/>例:五个 CLI"]
+    E -- "Cli" --> G["外部 CLI 运行时<br/>headless、ACP 或仅终端"]
     F --> H["稳定 provider 解析<br/>按稳定 id,不按显示名"]
     G --> H
     H --> I{"provider 注册存在?"}
@@ -71,16 +71,16 @@ flowchart TD
 ### 内置 Agent
 
 - **OnePiece** —— `builtin` + `LaunchKind::Api`,稳定 id `onepiece`;使用由目录支持的专用 provider **Profile** 操作,允许配置多个独立受保护的 provider/endpoint/model 组合与一个显式活跃 Profile。provider、endpoint 类型、interface format 与 Base URL 都从所选内置目录条目解析。
-- **五个 CLI** —— `claude-code`、`codex-cli`、`gemini-cli`、`opencode`、`antigravity-cli` 均为 `builtin` + `Cli`,由内置 provider registry 解析运行时行为。
+- **外部 CLI** —— 每个 CLI Agent 都是 `builtin` + `Cli`,由内置 provider registry(`providers/definitions.rs`)解析运行时行为。原有五个(`claude-code`、`codex-cli`、`gemini-cli`、`opencode`、`antigravity-cli`)走 headless 托管传输;六个 ACP Agent(`qwen-code`、`kimi-cli`、`qoder-cli`、`codebuddy-code`、`copilot-cli`、`cursor-agent-cli`;`main` / 未发布)走 stdio 上的 ACP;`iflow-cli` 是历史兼容的仅终端条目。逐 Agent 的传输与能力见 [Agent 能力矩阵](../../../reference/agents/capability-matrix.md)。
 
 ## 关键类型与常量
 
 下表汇总 Agent 生命周期与 provider 运行时的核心类型、常量与错误码,供实现时快速查阅。权威语义仍以本节前文与规范为准。
 
-### 起源与运行时形态
+### 起源与运行时形态的类型
 
 - `AgentOrigin` 枚举 —— `Builtin`(由内置目录支持)与 `User`(注册表中的用户条目)。
-- `LaunchKind` —— `Api`(原生 API 运行时,如 OnePiece)与 `Cli`(外部 CLI 运行时,如五个 CLI),另含 `Browser`/`NativeDesktop`/`Other`。
+- `LaunchKind` —— `Api`(原生 API 运行时,如 OnePiece)与 `Cli`(外部 CLI 运行时:headless、ACP 或仅终端),另含 `Browser`/`NativeDesktop`/`Other`。
 
 ### 稳定 agent id
 
@@ -125,7 +125,7 @@ provider 未声明的能力不会被静默假设为存在。
 | 进程 | VaneHub 启动并管理 CLI 子进程(经 Agent Terminal / PTY),真正的代码生成由 CLI 完成 | 不启动外部进程,直接在应用内通过 HTTP 调用 active Profile 配置的 provider |
 | 认证 | 由各 CLI 自行管理,VaneHub 不保存其凭据 | API Key 由 VaneHub 保存(Profile scoped 凭据) |
 | Skill | 经统一 Skill 体系,覆盖层治理后注入 | 经 `AgentSkillPort` 消费生效视图:eager 注入 system prompt,on-demand 经固定只读工具加载 |
-| MCP | Claude Code/Codex CLI 走中继;其余各自配置 | native 工具目录直接纳入可见且 active 的 MCP 工具 |
+| MCP | Claude Code、Codex CLI、OpenCode 走中继;Gemini CLI、Antigravity CLI、各 ACP Agent 与 iFlow CLI 各自配置 | native 工具目录直接纳入可见且 active 的 MCP 工具 |
 | 可观测性 | CLI 内部黑盒,链路只到边界 | 原生保真度,工具调用可逐层展开 |
 
 CLI Agent 的 PTY 与启动详见[终端与 PTY 运行时](terminal-runtime.md);OnePiece 的 provider 调用、上下文组装与工具循环详见[OnePiece native Agent](onepiece-native-agent.md)。两者的 Skill 与 MCP 统一管理架构见[Skill 管理](skill-management.md)与[MCP 工具与客户端](mcp-tools.md)。

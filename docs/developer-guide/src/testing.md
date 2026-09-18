@@ -29,7 +29,7 @@ The instrumented artifact enables test-only WebDriver plugins and permissions th
 
 Local results apply only to the current platform. CI runs `Desktop Smoke` independently on native Windows, macOS, and Linux runners with matrix fail-fast disabled. Review and report every platform separately as `PASSED`, `FAILED`, `BLOCKED`, or `NOT RUN`; never infer one platform from another. Failed or blocked jobs upload a platform-labelled evidence artifact, while successful jobs do not retain temporary application data.
 
-Packaging targets Windows, macOS, and Linux through Tauri. Signing credentials belong in protected release environments, never in repository configuration or screenshots. See the checked-in [release signing guide](../reference/release-signing.md).
+Packaging targets Windows, macOS, and Linux through Tauri. Signing credentials belong in protected release environments, never in repository configuration or screenshots. See the checked-in [release signing guide](../../release-signing.md).
 
 ## Test tiers
 
@@ -67,15 +67,13 @@ What each tier covers:
 
 Supplementary scripts must run when a change lands in their area: `npm run test:coverage` (which CI uses in place of `npm run test`), `npm run coverage:policy:test`, `npm run version:unit:test`, and `npm run contracts:check`. UI behavior changes run `npx playwright test`; runtime, startup-chain, or IPC changes run `npm run desktop:unit:test` and `npm run test:desktop`.
 
-## Test scripts and thresholds
-
 ## Key scripts and commands
 
-The scripts and gates along the test and release path:
+The scripts and gates along the test and release path. Command strings below are copied verbatim from `package.json` and `playwright.config.ts`; `scripts/docs-facts.node-test.mjs` fails when they drift.
 
-- **Vitest** — `package.json` defines `test: "vitest run"` and `test:coverage: "vitest run --coverage --maxWorkers=4 --testTimeout=15000"`, configured in `vite.config.ts`, which excludes `tests/docs/**` and `tests/e2e/**` and writes coverage to `./coverage/frontend`.
-- **Playwright** — `playwright.config.ts` sets `testDir: "./tests/e2e"` with a single chromium project, and its `webServer` starts `npm run dev` on port 5174.
-- **Desktop native tests** — `npm run test:desktop` runs `node scripts/test-desktop.mjs all`, split into `test:desktop:build` and the per-layer scripts. `test-desktop.mjs` builds the instrumented debug artifact with `--features desktop-e2e --config src-tauri/tauri.desktop-e2e.conf.json`, starts the real React WebView, invokes `get_settings`, navigates, and exits cleanly, under an isolated temporary `VANEHUB_APP_DATA_DIR`, writing failure evidence to `test-results/desktop/<run-id>/`.
+- **Vitest** — `package.json` defines `test: "vitest run --maxWorkers=4"` and `test:coverage: "vitest run --coverage --maxWorkers=2 --testTimeout=15000"` (coverage runs with fewer workers to keep the instrumented run within CI memory), configured in `vite.config.ts`, which excludes `tests/docs/**` and `tests/e2e/**` and writes coverage to `./coverage/frontend`.
+- **Playwright** — `playwright.config.ts` sets `testDir: "./tests/e2e"` with a single chromium project, and its `webServer` runs `npm run dev -- --port 5174 --strictPort` (the port comes from `PLAYWRIGHT_PORT`, default `5174`; `--strictPort` makes a busy port fail instead of silently moving).
+- **Desktop native tests** — `npm run test:desktop` runs `node scripts/test-desktop.mjs all`. Outside CI (or with `VANEHUB_DESKTOP_FULL_SUITE=1`) that runs every layer in `fullSuiteLayers`; under `CI` it runs only the `gatedLayers` pair (core smoke and session deletion). `test:desktop:build` builds once and `test:desktop:<layer>` runs one layer; the external-provider suite is separate and never part of `all` (see [Desktop release verification](../../desktop-release-verification.md) for the three tiers). `test-desktop.mjs` builds the instrumented debug artifact with `--features desktop-e2e --config src-tauri/tauri.desktop-e2e.conf.json`, starts the real React WebView, invokes `get_settings`, navigates, and exits cleanly, under an isolated temporary `VANEHUB_APP_DATA_DIR`, writing failure evidence to `test-results/desktop/<run-id>/`.
 - **`desktop:unit:test`** — runs the `scripts/desktop-*.node-test.mjs` automation-boundary tests.
 - **The coverage gate** — `coverage-policy.json` sets frontend `minimumLines: 45.2` and native `minimumLines: 67`, with three `criticalGroups` at 80 (`sqlite-transactions`, `agent-startup-and-terminal-control`, `mcp-routing`), checked by `scripts/check-coverage-policy.mjs`.
 - **CI Desktop Smoke** — `.github/workflows/ci.yml` runs the `desktop-smoke` job on a windows / macos / ubuntu matrix with `fail-fast: false`, using `xvfb-run -a npm run test:desktop` on Linux and labelling failure evidence per platform.

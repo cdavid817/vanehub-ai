@@ -140,6 +140,8 @@ In Web preview mode every cleanup is simulated, the dialog says so, and no local
 
 ## Notes and limits
 
+> **Language parity**: the Simplified Chinese edition of this page additionally carries a short Git worktree command primer. Product facts, limits, and status are identical in both languages; only layout and supplementary tutorial material may differ.
+
 - **Desktop only**, because it depends on a local Git executable.
 - **Available for Git projects only**; a plain folder has no such option.
 - **A remote workspace does not support worktrees** — it can only point at a path that already exists there. Which is why [Loop Engineering](loop-engineering.md) **does not apply to a remote workspace** either.

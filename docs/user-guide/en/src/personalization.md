@@ -87,7 +87,7 @@ Saved memories are listed a page at a time, with names and metadata only; a body
 
 **"Recorded by" and "readable by" are two different things**: something one Agent recorded can be readable only by another, or by none. This is also the answer to the old limitation that memory could only be switched on and off as a whole, with no way to isolate it per Agent.
 
-**That restriction applies to the injection path.** Scope and audience decide whether a memory is carried into an Agent's context automatically; they do not filter the `recall` tool, which searches the whole shared pool by design. A restricted audience therefore means "it will not be put in front of that Agent" rather than "that Agent cannot retrieve it" — it is relevance and noise control, not a confidentiality boundary.
+**Scope and audience apply to all four read paths at once.** The automatically injected memory index, the bodies picked by relevance, the `recall` tool's search and the Context Engine's memory source all decide with one rule whether a memory is readable for the current Agent, workspace and session mode; a memory that is not readable appears in no index and in no search result. The rule is frozen when a generation starts, so a settings change mid-turn reaches the next generation. The counts shown and searched may differ (the index lists at most 200 entries, `recall` searches every readable memory), but the readable set is the same. This boundary covers only what VaneHub itself delivers: content already sent to a model or written into a CLI's history is not recalled, and the CLIs' own memory files are outside it.
 
 From a memory's detail view you can also mark it **sensitive**, **archive** it (no longer injected, still kept), or **delete** it (the file goes too, and that is not reversible).
 
@@ -144,6 +144,8 @@ When you upgrade from an older version, existing memories are migrated across in
 **Runtime preview** answers one concrete question: given this Agent, this workspace, and this session mode, what would this run actually use?
 
 It lists the **instructions that apply**, **what was excluded and why**, and how many memories were judged eligible. **It does not show the core prompt, memory bodies, or file paths** — those are either not yours to change, or belong in the memory's own detail view.
+
+There are two kinds of preview. With no session selected it is **hypothetical**: it reasons from the Agent, workspace and mode you picked and grants no runtime authority. With a real session selected it is **bound to that session**: Agent, mode and workspace come from the stored session itself. The memory line states each fact separately: whether reading is allowed (an allowed pool with nothing in it is reported as empty, not as switched off), the eligible total next to how many entries the injected index actually lists (with a note when the 200-entry page was cut), and the state of the `recall` channel — available, needs an embedding source first, off together with reading, index-only for an Agent without a recall channel, or unavailable until the store is ready.
 
 ## Notes and limits
 

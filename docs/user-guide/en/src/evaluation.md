@@ -47,7 +47,7 @@ The first version ships three tasks, covering three typical categories of work:
 
 The running list refreshes every second until every attempt reaches a terminal state. Selecting a row lets you **cancel** it — this only works on attempts that haven't reached a terminal state yet.
 
-> **Only onepiece and codex-cli can be selected right now.** The Agent checkboxes in the UI are fixed to these two; the other three CLIs cannot enter yet.
+> **Which Agents can enter is decided by the Agent registry, not by a fixed list.** Every registered Agent that is not tagged `legacy` is a candidate — OnePiece, the five headless CLIs (for example OpenCode), and the six ACP Agents on `main`. iFlow CLI is tagged `legacy` (terminal only, no managed conversation an arena could drive), so it never appears. Agents currently detected as **available** are pre-checked for you, up to the arena ceiling of 8; you can check an unavailable Agent, but its attempt will fail as "Agent failed" rather than being refused up front. The per-Agent row is in the [agent capability matrix](../../../reference/agents/capability-matrix.md).
 
 ## Reading the results table
 
@@ -56,16 +56,16 @@ The results table has five columns:
 | Column | Meaning |
 | --- | --- |
 | **Agent** | Which Agent's attempt |
-| **Outcome** | One of nine terminal states, see below |
+| **Outcome** | One of nine states, seven of them terminal, see below |
 | **Tests** | `passed/total`, referring to acceptance checks, not the project's own test-case count |
 | **Tokens** | Input tokens |
 | **Time** | Elapsed time |
 
-### Nine outcomes
+### Nine states, seven terminal
 
 | Outcome | Meaning |
 | --- | --- |
-| **Queued** / **Running** | Not yet terminal |
+| **Queued** / **Running** | Not terminal — the list keeps polling while any attempt is in one of these two |
 | **Succeeded** | All checks passed, and the repeated verification agreed |
 | **Task failed** | The Agent finished running but didn't meet the acceptance bar |
 | **Agent failed** | The Agent itself errored out — not that it got the task wrong |
@@ -118,7 +118,7 @@ Every arena row has an **Export JSON** action at the end; the export carries the
 
 - **Desktop only.**
 - **Only the three built-in benchmarks can run** — no custom tasks, and no importing your own project as a benchmark.
-- **The Agents that can enter are currently fixed to onepiece and codex-cli.**
+- **Candidates come from the Agent registry**: everything except `legacy` Agents (so OpenCode is a candidate; iFlow CLI is not). Available Agents are pre-checked, at most 8.
 - **An arena holds at most 8 attempts.**
 - **The fixture copy has a ceiling**: over 2000 files or 32 MB fails.
 - **Each attempt uses an independent copy directory**, isolated from the others and cleaned up after evaluation; **your real workspace is unaffected.**

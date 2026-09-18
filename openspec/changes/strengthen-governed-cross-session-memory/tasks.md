@@ -1,3 +1,5 @@
+> Overlap with `unify-memory-read-scope` (implemented 2026-09-09 on `feat/unified-memory`): that change delivers the read-scope subset of this proposal — id-based body selection (2.3), surfaced deduplication partitioned by session + seat + read context (4.4), principal-aware governed recall over the complete eligibility relation with authoritative revalidation and a separate owner-management path (5.1–5.3). Those tasks stay unticked here on purpose: this proposal's extraction, review-saga, episode and shadow-evaluation items are independent, and its delta specs must be rebased onto the merged `memory-read-scope` requirements before archiving so the older "unconditional pool / result-set" wording cannot overwrite them.
+
 ## 1. Specification gate and terminology
 
 - [ ] 1.1 Ratify the recall ADR (governed recall, option B) and the audience semantics it implies; record the decision in this change before any recall code moves.

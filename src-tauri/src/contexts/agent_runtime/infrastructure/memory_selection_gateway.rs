@@ -100,18 +100,22 @@ impl AgentMemorySelectionPort for RuntimeAgentMemorySelectionAdapter<'_> {
         let Some(response) = response else {
             return Ok(Vec::new());
         };
+        // Ids, not names: two eligible records may share a display name, and the selector must
+        // name exactly one of them. A returned id absent from this set is dropped.
         let available = candidates
             .iter()
-            .map(|memory| memory.name.clone())
+            .map(|memory| memory.id.clone())
             .collect::<HashSet<_>>();
         Ok(parse_memory_selection(&response, &available))
     }
 }
 
-/// Type, name, age, and description — never a body.
+/// Id, type, name, age, and description — never a body.
 ///
 /// This is what keeps the call's cost proportional to how many memories exist rather than to how
-/// large they are, which is the entire reason the index and the bodies are separate surfaces.
+/// large they are, which is the entire reason the index and the bodies are separate surfaces. The
+/// id leads each line because it is what the selector must return: names are display text and
+/// may repeat.
 fn render_selection_manifest(candidates: &[AgentMemory], now: SystemTime) -> String {
     candidates
         .iter()
@@ -123,7 +127,10 @@ fn render_selection_manifest(candidates: &[AgentMemory], now: SystemTime) -> Str
             let age = render_memory_age(memory.modified_at, now)
                 .map(|age| format!(" ({age})"))
                 .unwrap_or_default();
-            format!("- {tag}{}{age} - {}", memory.name, memory.description)
+            format!(
+                "- [{}] {tag}{}{age} - {}",
+                memory.id, memory.name, memory.description
+            )
         })
         .collect::<Vec<_>>()
         .join("\n")

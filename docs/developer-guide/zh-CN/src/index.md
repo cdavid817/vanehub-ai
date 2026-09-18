@@ -1,5 +1,8 @@
 # VaneHub AI 开发者指南
 
+> **适用版本**：`main`（下一个、尚未发布的版本）。稳定线是 **v1.5.0**（[发布时的指南](https://github.com/cdavid817/vanehub-ai/tree/v1.5.0/docs/developer-guide/zh-CN/src)）。状态词汇见[术语表](../../../reference/terminology.md)；逐 Agent 事实来自生成的 [Agent 能力矩阵](../../../reference/agents/capability-matrix.md)。
+>
+> **按边界进入**：[传输与生命周期](agent-lifecycle.md) · [会话与终端运行时](terminal-runtime.md) · [治理：权限](permission-model.md) · [持久化所有权](persistence-ownership.md) · [发布](release.md)与[测试](testing.md)
 本指南面向参与 VaneHub AI 开发的贡献者，解释**所有权与集成边界**。源代码、OpenSpec 主规范以及生成的 Rustdoc 仍然是细节的权威来源。
 
 需要回答下面这类问题时用它：
@@ -23,7 +26,7 @@
 
 | 章节 | 覆盖内容 |
 | --- | --- |
-| [单 Agent 治理：五控制面模型](single-agent-control-planes.md) | 五个 CLI 与 OnePiece 统一治理的分析模型、三条执行路径、配置生效规则 |
+| [单 Agent 治理：五控制面模型](single-agent-control-planes.md) | 外部 CLI（headless、ACP 与仅终端）与 OnePiece 统一治理的分析模型、三条执行路径、配置生效规则 |
 | [Agent 生命周期与 provider 运行时](agent-lifecycle.md) | 注册 Agent 编辑、稳定 provider 解析、能力声明 |
 | [OnePiece native Agent](onepiece-native-agent.md) | 内置 API Agent 身份、Profile 生命周期与 provider 目录 |
 | [OnePiece 内置工具](onepiece-builtin-tools.md) | 扩展原生工具集的发布门控、依赖与回退触发条件 |
@@ -104,7 +107,7 @@ Tree-sitter 代码索引与 LSP 解决不同问题，职责对比如下（细节
 
 | 文档 | 覆盖内容 |
 | --- | --- |
-| [CLI Agent 全局配置](../../../cli-agent-global-configuration.md) | 五个 CLI Agent 的用户级 provider profile、VaneHub AI 如何写入各 CLI 自己的全局配置、测试如何隔离它，以及为何保存一个 profile 永远不会改变当前活跃的 Agent 或 Session |
+| [CLI Agent 全局配置](../../../cli-agent-global-configuration.md) | 七个暴露第三方端点的 CLI Agent 的用户级 provider profile、VaneHub AI 如何写入各 CLI 自己的全局配置、测试如何隔离它，以及为何保存一个 profile 永远不会改变当前活跃的 Agent 或 Session |
 | [内置模型提供商目录](../../../model-providers.md) | 内置提供商目录的端点协议、默认模型与凭据存放方式 |
 | [Agent 基础设施技术文档](../../../agent-infrastructure/README.md) | MCP、LSP、Function Calling、RAG 等**协议与技术本身**，不是 VaneHub AI 的实现 |
 | [Native 构建性能](../../../build-performance.md) | 各平台链接器要求、release profile 行为与实测构建证据 |

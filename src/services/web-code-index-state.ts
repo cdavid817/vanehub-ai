@@ -23,7 +23,7 @@ let webRetrievalConfiguration: RetrievalConfiguration = {
  * `lastFailureCategory` is deliberately always `null`: the Web/mock runtime guarantees the same
  * contract shape and observable behavior as the real one, not algorithmic equivalence with the
  * Rust-side failure classification (design doc §7.5). */
-const seededWebRetrievalIndexStatus = (): RetrievalIndexStatus => ({ indexed: 12, pending: 3, failed: 2, lastFailureCategory: null });
+const seededWebRetrievalIndexStatus = (): RetrievalIndexStatus => ({ indexed: 12, pending: 3, failed: 2, keywordOnly: 0, lastFailureCategory: null });
 let webRetrievalIndexStatus: RetrievalIndexStatus = seededWebRetrievalIndexStatus();
 
 let nextWebCodeIndexId = 1;
@@ -189,4 +189,10 @@ export function searchWebCodeIndex(workspaceId: string, query: string) {
     snippet: "export async function handle_login(request: Request) { /* redacted */ }",
     matchedVia: workspace.mode === "local" ? "keyword" : "hybrid",
   }];
+}
+
+/** Whether the mock's retrieval configuration names an embedding source, as `is_configured()` does natively. */
+export function readWebRetrievalConfigured(): boolean {
+  const configuration = readWebRetrievalConfiguration();
+  return Boolean(configuration.sourceProfileId && configuration.embeddingModel);
 }

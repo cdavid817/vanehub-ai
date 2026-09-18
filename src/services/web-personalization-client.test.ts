@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { webPersonalizationClient } from "./web-personalization-client";
+import { previewFor } from "./web-personalization-preview";
+import { listWebMemories, readWebPolicy } from "./web-personalization-state";
+import type { PersonalizationPolicy } from "../types/personalization";
+import type { MemoryDetail } from "../types/personalization-memory";
 
 /**
  * The mock's job is to refuse the same things the desktop refuses.
@@ -86,6 +90,82 @@ describe("web personalization mock", () => {
     // The count of what was considered still reports, so a screen can say why nothing was used.
     expect(preview.consideredMemoryCount).toBeGreaterThan(0);
     expect(preview.memoryExclusions.some((entry) => entry.reason === "temporary_session")).toBe(true);
+  });
+
+  it("reports an allowed empty pool as allowed rather than as disabled", async () => {
+    // A workspace nobody has saved anything for: reading is permitted, nothing is eligible, and
+    // the mock must say both -- inferring the switch from the count is the bug this replaces.
+    const preview = await client.previewEffectivePersonalization({
+      agentId: "onepiece",
+      sessionId: "session-1",
+      workspaceKey: "ws-nothing-saved-here",
+      sessionMode: "project-only",
+    });
+
+    expect(preview.memoryReadAllowed).toBe(true);
+    expect(preview.memoryRead).toBe(true);
+    expect(preview.readBlockReason).toBeNull();
+    expect(preview.eligibleMemoryCount).toBe(0);
+    expect(preview.memoryDelivery).toBe("index_with_selected_bodies");
+    expect(preview.previewKind).toBe("hypothetical");
+  });
+
+  it("applies the Agent layer's read switch on top of the global one", () => {
+    // The whole policy stack, not the global row alone: an Agent-level `disabled` narrows what the
+    // global `enabled` granted, and the preview reports the block by its reason. Resolved over an
+    // explicit policy list because the mock store keeps nothing outside a browser.
+    const global = readWebPolicy({ scopeKind: "global" });
+    expect(global).not.toBeNull();
+    const agentLayer: PersonalizationPolicy = {
+      scopeKind: "agent",
+      scopeKey: "onepiece",
+      revision: 1,
+      instructionMergeMode: "inherit",
+      aboutUser: "",
+      styleRules: "",
+      memoryReadMode: "disabled",
+      explicitSaveMode: "inherit",
+      automaticExtractionMode: "inherit",
+      globalMemoryAccessMode: "inherit",
+    };
+    const input = { agentId: "onepiece", sessionId: "session-1", workspaceKey: "ws-vanehub" };
+
+    const narrowed = previewFor(input, [global!, agentLayer], listWebMemories());
+    expect(narrowed.memoryReadAllowed).toBe(false);
+    expect(narrowed.readBlockReason).toBe("read_disabled");
+    expect(narrowed.memoryDelivery).toBe("none");
+    expect(narrowed.recallAvailability).toBe("disabled");
+    expect(narrowed.memoryExclusions.some((entry) => entry.reason === "memory_read_disabled")).toBe(true);
+
+    // The workspace-Agent layer sits above the Agent layer and can re-enable what it disabled.
+    const workspaceAgentLayer: PersonalizationPolicy = {
+      ...agentLayer,
+      scopeKind: "workspace-agent",
+      scopeKey: "ws-vanehub::onepiece",
+      memoryReadMode: "enabled",
+    };
+    const widened = previewFor(input, [global!, agentLayer, workspaceAgentLayer], listWebMemories(), {
+      retrievalConfigured: true,
+    });
+    expect(widened.memoryReadAllowed).toBe(true);
+    expect(widened.recallAvailability).toBe("available");
+  });
+
+  it("admits a selected audience only to the Agents it names", () => {
+    const global = readWebPolicy({ scopeKind: "global" });
+    const restricted: MemoryDetail = {
+      ...listWebMemories()[0]!,
+      id: "mem-0000000000000099",
+      scopeKind: "global",
+      workspaceKey: null,
+      status: "active",
+      audienceAgentIds: ["claude-code"],
+    };
+    const previewAs = (agentId: string) =>
+      previewFor({ agentId, sessionId: "session-1", workspaceKey: "ws-vanehub" }, [global!], [restricted]);
+
+    expect(previewAs("onepiece").memoryExclusions).toEqual([{ reason: "agent_audience", count: 1 }]);
+    expect(previewAs("claude-code").eligibleMemoryCount).toBe(1);
   });
 
   it("drops global memories in a project-only session", async () => {

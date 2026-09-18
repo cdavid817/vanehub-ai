@@ -13,29 +13,34 @@ mod compatibility_tests;
 mod management_tests;
 #[cfg(test)]
 mod onepiece_resolution_tests;
+#[cfg(test)]
+mod read_scope_tests;
 
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 
 use super::application::{
-    AgentCapabilityEntry, AgentCapabilityPort, CandidateReviewService, CandidateSubmission,
-    CandidateSubmissionOutcome, CandidateSubmissionService, ClockPort, CreateMemoryInput,
-    DeleteMemoryOutcome, EffectivePreview, LastKnownGoodPolicyCache, LegacyAddressAliasPort,
-    LegacySettingField, LegacySettingsCompatibility, LegacySettingsView, MaintenanceGatePort,
-    MemoryApplicationService, MemoryHealthPort, MemoryIdGeneratorPort, MigrationStatePort,
+    AgentCapabilityEntry, AgentCapabilityPort, AuthorizedMemoryRelation, CandidateReviewService,
+    CandidateSubmission, CandidateSubmissionOutcome, CandidateSubmissionService, ClockPort,
+    CreateMemoryInput, DeleteMemoryOutcome, EffectivePreview, EligibilityEnumerationBudget,
+    EmbeddingEgressDecision, GovernedMemoryReadService, IndexMaintenanceRecord,
+    LastKnownGoodPolicyCache, LegacyAddressAliasPort, LegacySettingField,
+    LegacySettingsCompatibility, LegacySettingsView, MaintenanceGatePort, MemoryApplicationService,
+    MemoryHealthPort, MemoryIdGeneratorPort, MemoryReadRefusal, MigrationStatePort,
     MutationAdmission, PersonalizationApplicationError, PersonalizationPreviewService,
-    PolicyRepository, PolicyResolutionService, ResolutionRequest, ReviewRequest, UpdateMemoryPatch,
-    WorkspaceIdentityPort, WorkspaceIdentityRequest,
+    PinnedMemoryBody, PolicyRepository, PolicyResolutionService, ResolutionRequest, ReviewRequest,
+    UpdateMemoryPatch, VerifiedMemoryRef, WorkspaceIdentityPort, WorkspaceIdentityRequest,
 };
 use super::domain::{
     EffectivePersonalizationSnapshot, LegacyAddressKey, MemoryAudience, MemoryCandidate, MemoryId,
-    MemoryPage, MemoryProvenance, MemoryQuery, MemoryRecord, MemoryRuntimeHealth, MemoryScope,
-    MemoryScopeFilter, MemorySensitivity, MemorySource, MemoryStatus, MemoryType,
-    PatchPolicyResult, PersonalizationDomainError, PersonalizationPolicyPatch,
-    PersonalizationPolicyRecord, PersonalizationPolicyScope, ReconcileMemoryOutcome,
-    ResetConfirmationToken, ResetMemoryOutcome, ResetMemoryPreview, ResetMemoryRequest,
-    ReviewOutcome, RevisionConflict, WorkspaceIdentity,
+    MemoryPage, MemoryProvenance, MemoryQuery, MemoryReadContext, MemoryReadHandle, MemoryRecord,
+    MemoryRuntimeHealth, MemoryScope, MemoryScopeFilter, MemorySensitivity, MemorySource,
+    MemoryStatus, MemoryType, PatchPolicyResult, PersonalizationDomainError,
+    PersonalizationPolicyPatch, PersonalizationPolicyRecord, PersonalizationPolicyScope,
+    ReconcileMemoryOutcome, ResetConfirmationToken, ResetMemoryOutcome, ResetMemoryPreview,
+    ResetMemoryRequest, ReviewOutcome, RevisionConflict, SnapshotMemoryRef, WorkspaceBinding,
+    WorkspaceIdentity,
 };
 
 type Result<T> = std::result::Result<T, PersonalizationApplicationError>;
@@ -127,6 +132,10 @@ pub(crate) struct PersonalizationApi {
     /// Renders one resolution for a screen. Held here rather than handed out separately so the
     /// screen and the runtime can never be looking at two differently assembled resolvers.
     preview: Arc<PersonalizationPreviewService>,
+    /// The one governed read path for Agent-facing memory: index verification, pinned bodies,
+    /// the complete authorized relation for recall, plus the host-wide index maintenance view
+    /// and the embedding egress check. Owner management stays on `memories`.
+    reads: Arc<GovernedMemoryReadService>,
     policies: Arc<dyn PolicyRepository>,
     /// Dropped on every successful policy write. Invalidating from the writer keeps the rule where
     /// the change is, rather than depending on a general event bus nobody owns.
@@ -159,6 +168,7 @@ pub(crate) struct PersonalizationApiParts {
     pub(crate) candidates: Arc<CandidateSubmissionService>,
     pub(crate) reviews: Arc<CandidateReviewService>,
     pub(crate) preview: Arc<PersonalizationPreviewService>,
+    pub(crate) reads: Arc<GovernedMemoryReadService>,
     pub(crate) policies: Arc<dyn PolicyRepository>,
     pub(crate) policy_cache: Arc<LastKnownGoodPolicyCache>,
     pub(crate) agents: Arc<dyn AgentCapabilityPort>,
@@ -180,6 +190,7 @@ impl PersonalizationApi {
             candidates,
             reviews,
             preview,
+            reads,
             policies,
             policy_cache,
             agents,
@@ -198,6 +209,7 @@ impl PersonalizationApi {
             candidates,
             reviews,
             preview,
+            reads,
             policies,
             policy_cache,
             agents,
@@ -336,6 +348,93 @@ impl PersonalizationApi {
     /// behaviour, minus everything a screen must not carry.
     pub(crate) fn preview(&self, request: ResolutionRequest) -> Result<EffectivePreview> {
         self.preview.preview(request)
+    }
+
+    /// Freezes the trusted read context for one generation from its resolved snapshot.
+    ///
+    /// The only constructor a runtime can reach. The workspace binding is the session owner's
+    /// answer, never the model's, and an unresolved binding is preserved so the context denies
+    /// every read rather than degrading into a workspace-less standard session.
+    pub(crate) fn freeze_memory_read_context(
+        &self,
+        snapshot: &EffectivePersonalizationSnapshot,
+        workspace: WorkspaceBinding,
+        generation_id: &str,
+        seat_id: Option<&str>,
+    ) -> MemoryReadContext {
+        self.reads
+            .freeze_context(snapshot, workspace, generation_id, seat_id)
+    }
+
+    /// The bounded index refs, re-validated against the authoritative files under the context.
+    ///
+    /// Names and descriptions are memory content too. An index line reaches a prompt only once
+    /// the file behind it still exists, still parses, is still active and admitted, and still
+    /// carries the pinned revision and hash; anything else is omitted rather than described.
+    pub(crate) fn verify_memory_refs(
+        &self,
+        context: &MemoryReadContext,
+        refs: &[SnapshotMemoryRef],
+    ) -> Vec<VerifiedMemoryRef> {
+        let Some(_admission) = self.admit_read() else {
+            return Vec::new();
+        };
+        self.reads.verify_refs(context, refs)
+    }
+
+    /// Bodies for pinned handles, under the context, dropping any whose record moved.
+    pub(crate) fn read_pinned_memories(
+        &self,
+        context: &MemoryReadContext,
+        handles: &[MemoryReadHandle],
+    ) -> std::result::Result<Vec<PinnedMemoryBody>, MemoryReadRefusal> {
+        let Some(_admission) = self.admit_read() else {
+            return Err(MemoryReadRefusal::Unhealthy);
+        };
+        self.reads.read_pinned(context, handles)
+    }
+
+    /// The complete eligible metadata relation a recall or Context Engine query may consider.
+    ///
+    /// Distinct from the injection refs page by construction: complete or refused, never a
+    /// prefix. Released before the caller goes anywhere near a network call.
+    pub(crate) fn open_memory_query(
+        &self,
+        context: &MemoryReadContext,
+    ) -> std::result::Result<AuthorizedMemoryRelation, MemoryReadRefusal> {
+        let Some(_admission) = self.admit_read() else {
+            return Err(MemoryReadRefusal::Unhealthy);
+        };
+        self.reads
+            .open_query(context, EligibilityEnumerationBudget::DEFAULT)
+    }
+
+    /// Every valid active record for the host-wide keyword index. Maintenance, not an Agent read:
+    /// takes no context, and a session that may not read a record does not remove it from here.
+    pub(crate) fn index_maintenance_records(
+        &self,
+    ) -> std::result::Result<Vec<IndexMaintenanceRecord>, MemoryReadRefusal> {
+        let Some(_admission) = self.admit_read() else {
+            return Err(MemoryReadRefusal::Unhealthy);
+        };
+        self.reads.index_maintenance_records()
+    }
+
+    /// Which queued bodies may still be sent to the remote embedder, per authoritative record.
+    pub(crate) fn embedding_egress(
+        &self,
+        queued: &[(MemoryId, String)],
+    ) -> Vec<EmbeddingEgressDecision> {
+        let Some(_admission) = self.admit_read() else {
+            return queued
+                .iter()
+                .map(|(id, _)| EmbeddingEgressDecision {
+                    id: id.clone(),
+                    permitted: false,
+                })
+                .collect();
+        };
+        self.reads.embedding_egress(queued)
     }
 
     /// The stable key a workspace scope is addressed by.
@@ -813,6 +912,7 @@ pub(crate) fn build_for_tests(
         MarkdownMemoryRepository::new(memory_root.clone(), Arc::new(UuidMemoryIdGenerator))
             .expect("memory repository"),
     );
+    let repository_for_reads = repository.clone();
     let service = Arc::new(MemoryApplicationService::new(
         repository.clone(),
         repository,
@@ -825,6 +925,13 @@ pub(crate) fn build_for_tests(
     let migration_state = Arc::new(SqliteMigrationState::new(database.clone()));
     let health = Arc::new(DurableMemoryHealth::new(migration_state.clone()));
     let cache = Arc::new(LastKnownGoodPolicyCache::default());
+    let reads = Arc::new(GovernedMemoryReadService::new(
+        repository_for_reads.clone(),
+        repository_for_reads,
+        Arc::new(SqliteMemoryProjection::new(database.clone())),
+        health.clone(),
+        &UuidMemoryIdGenerator,
+    ));
     let resolver = Arc::new(PolicyResolutionService::new(
         policies.clone(),
         Arc::new(EveryAgentCapable),
@@ -850,6 +957,7 @@ pub(crate) fn build_for_tests(
             resolver_for_preview,
             Arc::new(super::infrastructure::PlatformSecretRedaction),
         )),
+        reads,
         policies: policies.clone(),
         policy_cache: cache.clone(),
         agents: Arc::new(EveryAgentCapable),

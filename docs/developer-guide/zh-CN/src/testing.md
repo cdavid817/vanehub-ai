@@ -29,7 +29,7 @@ npm run test:desktop
 
 本地结果仅适用于当前平台。CI 在原生 Windows、macOS 与 Linux runner 上独立运行 `Desktop Smoke`,且禁用了矩阵的 fail-fast。逐个平台审查并报告为 `PASSED`、`FAILED`、`BLOCKED` 或 `NOT RUN`;切勿从一个平台推断另一个平台。失败或被阻塞的任务上传带平台标签的证据产物,而成功的任务不保留临时应用数据。
 
-打包通过 Tauri 面向 Windows、macOS 与 Linux。签名凭据属于受保护的发布环境,绝不放入仓库配置或截图。参见已签入的 [发布签名指南](../../reference/release-signing.md)。
+打包通过 Tauri 面向 Windows、macOS 与 Linux。签名凭据属于受保护的发布环境,绝不放入仓库配置或截图。参见已签入的 [发布签名指南](../../../release-signing.md)。
 
 ## 测试层级
 
@@ -67,15 +67,13 @@ flowchart TD
 
 补充脚本在改动落到相应区域时必须跑：`npm run test:coverage`(CI 用它取代 `npm run test`)、`npm run coverage:policy:test`、`npm run version:unit:test`、`npm run contracts:check`。UI 行为变更时 `npx playwright test`;运行时/启动链路/IPC 变更时 `npm run desktop:unit:test` 与 `npm run test:desktop`。
 
-## 测试相关脚本与门槛
-
 ## 关键脚本与命令
 
-测试与发布链路的核心脚本与门槛:
+测试与发布链路的核心脚本与门槛。下面的命令字符串逐字抄自 `package.json` 与 `playwright.config.ts`,`scripts/docs-facts.node-test.mjs` 会在漂移时失败:
 
-- **Vitest**:`package.json` `test: "vitest run"`、`test:coverage: "vitest run --coverage --maxWorkers=4 --testTimeout=15000"`;配置在 `vite.config.ts`(排除 `tests/docs/**` 与 `tests/e2e/**`,coverage 输出 `./coverage/frontend`)。
-- **Playwright**:`playwright.config.ts` `testDir: "./tests/e2e"`,chromium 单 project,`webServer` 起 `npm run dev --port 5174`。
-- **桌面原生测试**:`npm run test:desktop` = `node scripts/test-desktop.mjs all`,分 `test:desktop:build` 与 `test:desktop:smoke`;`test-desktop.mjs` 用 `--features desktop-e2e --config src-tauri/tauri.desktop-e2e.conf.json` 构建插桩 debug 工件,起真实 React WebView → invoke `get_settings` → 导航 → 干净退出;隔离临时 `VANEHUB_APP_DATA_DIR`;失败证据写 `test-results/desktop/<run-id>/`。
+- **Vitest**:`package.json` `test: "vitest run --maxWorkers=4"`、`test:coverage: "vitest run --coverage --maxWorkers=2 --testTimeout=15000"`(覆盖率运行用更少 worker,让插桩运行留在 CI 内存预算内);配置在 `vite.config.ts`(排除 `tests/docs/**` 与 `tests/e2e/**`,coverage 输出 `./coverage/frontend`)。
+- **Playwright**:`playwright.config.ts` `testDir: "./tests/e2e"`,chromium 单 project,`webServer` 运行 `npm run dev -- --port 5174 --strictPort`(端口来自 `PLAYWRIGHT_PORT`,默认 `5174`;`--strictPort` 让端口被占时直接失败而不是悄悄换端口)。
+- **桌面原生测试**:`npm run test:desktop` = `node scripts/test-desktop.mjs all`。非 CI(或设置 `VANEHUB_DESKTOP_FULL_SUITE=1`)时跑 `fullSuiteLayers` 的全部层;`CI` 下只跑 `gatedLayers` 两层(核心冒烟与会话删除)。`test:desktop:build` 只构建一次,`test:desktop:<层名>` 跑单层;external-provider 套件独立存在,永远不属于 `all`(三个层级见[桌面发布验证](../../../desktop-release-verification.md));`test-desktop.mjs` 用 `--features desktop-e2e --config src-tauri/tauri.desktop-e2e.conf.json` 构建插桩 debug 工件,起真实 React WebView → invoke `get_settings` → 导航 → 干净退出;隔离临时 `VANEHUB_APP_DATA_DIR`;失败证据写 `test-results/desktop/<run-id>/`。
 - **`desktop:unit:test`** —— 跑 `scripts/desktop-*.node-test.mjs`(自动化边界)。
 - **覆盖率门槛** `coverage-policy.json`:frontend `minimumLines: 45.2%`、native `minimumLines: 67%`,三个 `criticalGroups` 各 80 行(`sqlite-transactions`、`agent-startup-and-terminal-control`、`mcp-routing`);检查脚本 `scripts/check-coverage-policy.mjs`。
 - **CI Desktop Smoke** `.github/workflows/ci.yml`:`desktop-smoke` job matrix windows/macos/ubuntu,`fail-fast: false`,Linux 用 `xvfb-run -a npm run test:desktop`,失败按平台标注证据。

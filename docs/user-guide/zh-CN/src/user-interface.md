@@ -34,11 +34,11 @@
 
 ## Agent 类型
 
-VaneHub AI 接入 6 个 Agent，分两类：
+VaneHub AI 接入两类 Agent：外部 CLI 与内置原生 Agent OnePiece。下表列出原有五个 headless CLI，它们已在稳定版 v1.5.0 中；`main` 上的六个 ACP CLI 见 [ACP CLI Agent](acp-cli-agents.md)，每个 Agent 的能力见 [Agent 能力矩阵](../../../reference/agents/capability-matrix.md)。
 
 ### 外部 CLI Agent
 
-前五个是**外部 CLI**——VaneHub AI 启动它们的进程并管理进程之外的部分（启动参数、权限拦截、输出采集），真正的代码生成由 CLI 自己完成。**官方订阅登录由各 CLI 自己管**，VaneHub AI 不保存由此产生的凭据；但要把它们换成第三方兼容端点，可以在[设置 → Agent 配置](agent-configuration.md#agent-配置)里配。
+**外部 CLI**——VaneHub AI 启动它们的进程并管理进程之外的部分（启动参数、权限拦截、输出采集），真正的代码生成由 CLI 自己完成。**官方订阅登录由各 CLI 自己管**，VaneHub AI 不保存由此产生的凭据；但要把它们换成第三方兼容端点，可以在[设置 → Agent 配置](agent-configuration.md#agent-配置)里配。
 
 | Agent | 提供方 | 命令 | 说明 |
 | --- | --- | --- | --- |

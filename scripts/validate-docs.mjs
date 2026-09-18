@@ -76,26 +76,28 @@ export function headingIds(file, content = undefined) {
   return ids;
 }
 
+// A screenshot alt text that says "five CLI cards" or "six Agent tabs" goes stale the moment
+// the registry grows, while the image itself is regenerated: alt text must describe the screen,
+// not count registry rows. Tabs and stages fixed by a type union are not registry-dependent.
+const REGISTRY_COUNT_PATTERNS = [
+  /\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|\d+)\s+(?:CLI\s+cards?|CLI\s+agents?|Agent\s+tabs?|agents?)\b/i,
+  /[零一二三四五六七八九十\d]+\s*(?:张|个|列)\s*(?:CLI\s*卡片|CLI\s*Agent|Agent\s*标签|Agent\b)/,
+];
+
+export function hasRegistryCount(alt) {
+  return REGISTRY_COUNT_PATTERNS.some((pattern) => pattern.test(alt));
+}
+
 function resolveAuthoredTarget(file, target) {
   const isDeveloperGuide = file.includes(`${sep}docs${sep}developer-guide${sep}`);
   if (isDeveloperGuide && (target.startsWith("../api/") || target.startsWith("../../api/"))) {
     return null;
   }
-  if (
-    isDeveloperGuide &&
-    (target === "../reference/release-signing.md" || target === "../../reference/release-signing.md")
-  ) {
-    return resolve(repositoryRoot, "docs", "release-signing.md");
-  }
-  if (
-    isDeveloperGuide &&
-    (target === "../reference/native-architecture.md" || target === "../../reference/native-architecture.md")
-  ) {
-    return resolve(repositoryRoot, "src-tauri", "ARCHITECTURE.md");
-  }
-  // Cross-book links are authored as repository-relative Markdown paths and rewritten to site
-  // paths when the books are built, so ordinary resolution is all that is needed here. An
-  // assembled-site path authored in source is a broken link, not a shape to compensate for.
+  // Cross-book links and links to loose reference documents are authored as repository-relative
+  // Markdown paths and rewritten to site paths when the books are built (see
+  // `scripts/build-docs.mjs`), so ordinary resolution is all that is needed here. An
+  // assembled-site path authored in source is a broken link, not a shape to compensate for; the
+  // rustdoc output under `api/` is the one exception because it exists only after `cargo doc`.
   return resolve(dirname(file), target);
 }
 
@@ -107,6 +109,11 @@ function validateMarkdown(errors) {
       const [, imageMarker, alt, rawTarget] = match;
       if (imageMarker === "!" && alt.trim().length === 0) {
         errors.push(`${display}: image "${rawTarget}" has empty alternative text.`);
+      }
+      if (imageMarker === "!" && hasRegistryCount(alt)) {
+        errors.push(
+          `${display}: image "${rawTarget}" counts agents or CLI cards in its alternative text ("${alt}"); describe the screen without a registry-dependent number.`,
+        );
       }
       if (/^(?:https?:|mailto:|data:)/i.test(rawTarget)) continue;
       const { path: target, fragment } = splitTarget(rawTarget);
@@ -211,6 +218,11 @@ function validateScreenshotInventory(errors) {
     return;
   }
   const inventory = JSON.parse(readFileSync(inventoryPath, "utf8"));
+  for (const key of ["schemaVersion", "viewport", "theme", "clockFrozenAt", "sourceCommit"]) {
+    if (inventory.capture?.[key] === undefined) {
+      errors.push(`docs/user-guide/screenshots.json: capture metadata lacks "${key}".`);
+    }
+  }
   const seen = new Set();
   for (const item of inventory.screenshots ?? []) {
     if (!item.id || seen.has(item.id)) errors.push(`Screenshot id "${item.id ?? ""}" is missing or duplicated.`);

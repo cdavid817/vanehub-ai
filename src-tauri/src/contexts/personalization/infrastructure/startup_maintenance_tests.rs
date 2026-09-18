@@ -20,14 +20,14 @@ use super::{
 use crate::contexts::personalization::api::{PersonalizationApi, PersonalizationApiParts};
 use crate::contexts::personalization::application::{
     AgentCapabilityEntry, AgentCapabilityPort, CandidateReviewService, CandidateSubmissionService,
-    ClockPort, DerivedIndexPort, LastKnownGoodPolicyCache, LegacyMemoryMigrationPorts,
-    LegacyMemoryMigrationService, LegacyPersonalizationSettings, LegacyPersonalizationSettingsPort,
-    LegacyRowMigrationPort, LegacySettingField, LegacySettingsCompatibility, MaintenanceGatePort,
-    MemoryApplicationService, MemoryEligibilityCriteria, MemoryHealthPort, MemoryProjectionPort,
-    MemoryRepository, MigrationStatePort, PersonalizationApplicationError,
-    PersonalizationPreviewService, PolicyRepository, PolicyResolutionService, ResetCounts,
-    RetrievalIndexPort, StartupMaintenancePorts, StartupMaintenanceService,
-    WorkspaceIdentityResolver,
+    ClockPort, DerivedIndexPort, GovernedMemoryReadService, LastKnownGoodPolicyCache,
+    LegacyMemoryMigrationPorts, LegacyMemoryMigrationService, LegacyPersonalizationSettings,
+    LegacyPersonalizationSettingsPort, LegacyRowMigrationPort, LegacySettingField,
+    LegacySettingsCompatibility, MaintenanceGatePort, MemoryApplicationService,
+    MemoryEligibilityCriteria, MemoryHealthPort, MemoryProjectionPort, MemoryRepository,
+    MigrationStatePort, PersonalizationApplicationError, PersonalizationPreviewService,
+    PolicyRepository, PolicyResolutionService, ResetCounts, RetrievalIndexPort,
+    StartupMaintenancePorts, StartupMaintenanceService, WorkspaceIdentityResolver,
 };
 use crate::contexts::personalization::domain::{
     MemoryEligibilitySummary, MemoryId, MemoryPage, MemoryQuery, MemoryRecord, MemoryRuntimeHealth,
@@ -337,6 +337,13 @@ fn reopen(
         preview: Arc::new(PersonalizationPreviewService::new(
             resolver_for_preview,
             Arc::new(PlatformSecretRedaction),
+        )),
+        reads: Arc::new(GovernedMemoryReadService::new(
+            repository.clone(),
+            repository.clone(),
+            projection.clone(),
+            maintenance.clone(),
+            &UuidMemoryIdGenerator,
         )),
         policies: policies.clone(),
         policy_cache: Arc::new(LastKnownGoodPolicyCache::default()),

@@ -60,7 +60,15 @@ Evaluation continues to fail closed, and now leaves attributed evidence: a stora
 
 ## CLI launch-flag projection
 
-For all five CLI Agents — `claude-code`, `codex-cli`, `gemini-cli`, `opencode`, and `antigravity-cli` (the source constant `POLICY_TEMPLATE_GOVERNED_AGENT_IDS`) — an Agent principal's assigned policy template (`readonly`, `standard`, `trusted`, or `yolo`) is projected into that tool's own native approval/sandbox launch parameters whenever its Agent Terminal starts interactively. For Claude Code, launch-flag projection and the `PreToolUse` hook bridge below stack as two layers rather than being alternatives. Only catalog-legal, non-bypass parameter values are used — no raw bypass flag (e.g. one whose name contains "dangerously") is introduced to reach a template's behavior. `trusted` and `yolo` project to the same launch parameters.
+A policy template (`readonly`, `standard`, `trusted`, `yolo`) is a **host-side** statement: it decides the effect of `shell.exec` and `file.write` in the unified decision model above (`readonly` → Deny, `standard` → Ask, `trusted` and `yolo` → Allow; `file.read` and `memory.write` are always Allow). What a CLI process is *launched with* is a separate projection of that template, and the projection differs by transport. The governed set is the twelve ids in `POLICY_TEMPLATE_GOVERNED_AGENT_IDS` (`agent_runtime/infrastructure/providers/invocation.rs`); the per-agent table is in [CLI launch-flag projection by transport](#cli-launch-flag-projection-by-transport) below, and the generated [agent capability matrix](../../reference/agents/capability-matrix.md) carries the same rows.
+
+- **Headless / terminal CLIs** (`claude-code`, `codex-cli`, `gemini-cli`, `opencode`, `antigravity-cli`) project the template through **catalog `policy-governed` parameters** (`policy_override_selections`). These parameters are never user-editable.
+- **The seven expanded providers** (the six ACP agents `qwen-code`, `kimi-cli`, `qoder-cli`, `codebuddy-code`, `copilot-cli`, `cursor-agent-cli`, plus legacy `iflow-cli`) project the template through **runtime-rendered flags** (`direct_policy_arguments`) because the right flag depends on the transport. On a PTY the flag is the only policy the host can apply, so every template is projected. Under ACP the agent asks the host per call via `session/request_permission`, so only the restrictive read-only posture is passed and `standard`/`trusted`/`yolo` carry **no** launch flag at all — a permissive flag would let the agent skip the question.
+- **Claude Code** stacks two layers: the launch flag only sets `permissionMode`; the action-level boundary is the `PreToolUse` hook bridge below.
+- **Only catalog-legal, non-bypass values** are used; catalog validation rejects any flag containing `dangerously`.
+- **`trusted` and `yolo` differ only at assignment time** (`yolo` requires a confirmation to assign). At the host they produce identical Allow rules; at launch the effective policy is reduced to Readonly/Ask/Allow before projection, and Allow maps to the `trusted` projection — so on most CLIs the two are identical on the command line. Qwen Code, Kimi Code CLI, and iFlow CLI are the exception: their terminals receive a distinct flag for `yolo`.
+- **Enforceability is typed, not assumed.** `terminal_policy_enforceability` returns `HostProjected`, `ProviderDelegated`, or `NotEnforceable { reason_code }`. A `NotEnforceable` interactive launch is refused with `PolicyDenied { action: "terminal-launch:<reason_code>" }` rather than started with a weaker posture. Known cases: Qoder CLI has no plan/read-only mode, so `readonly` on its terminal is `terminal-readonly-unsupported`; GitHub Copilot CLI and Cursor Agent CLI on `standard` pass no flag and rely on the CLI's own ask-first default (`ProviderDelegated` — VaneHub passed no restriction and verified none). The UI labels these as provider-delegated or unverified, never as host-enforced, and ACP support is never presented as an OS sandbox.
+- **Plan mode** and `readonly` both reduce the effective policy to Readonly regardless of template, and a failed template lookup fails the launch instead of guessing a default.
 
 ## Claude Code permission-hook bridge
 
@@ -116,13 +124,26 @@ The memory semantics of `Scope` come from `is_remembered()` in `permissions/doma
 
 Only `Session`, `Project`, and `Global` persist a grant. `Once` never does.
 
-### CLI launch-flag projection
+### CLI launch-flag projection by transport
 
-For the five CLIs — `claude-code`, `codex-cli`, `gemini-cli`, `opencode`, and `antigravity-cli` — the policy template assigned to the Agent principal (`readonly`, `standard`, `trusted`, `yolo`) is projected into that CLI's own native approval and sandbox launch parameters when the Agent Terminal starts interactively.
+Flags below are what the template becomes on the command line (`invocation.rs`; catalog slots from `cli_parameters/catalog/catalog.v2.json`). `Trusted` and `Yolo` share a column where they project identically. "ACP" is the managed conversation transport for the six ACP agents; "PTY" is the Agent Terminal.
 
-- **Each template maps to a set of catalog-legal, non-bypass native parameters** rather than matching behavior by display name.
-- **`trusted` and `yolo` project to identical parameters** — the two produce no differentiated launch parameters in this baseline.
-- **No bypass flag is ever introduced** — no flag whose name contains something like `dangerously` is used to reach a template's behavior.
+| Agent | Transport | Readonly | Standard | Trusted | Yolo | Enforceability notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| Claude Code | headless / PTY + hook | `--permission-mode plan` | CLI default (inherit) | `--permission-mode acceptEdits` | same as Trusted | Host-projected; `PreToolUse` hook is the action boundary |
+| Codex CLI | headless / PTY | `--sandbox read-only --ask-for-approval never` | `--sandbox workspace-write --ask-for-approval on-request` | `--sandbox workspace-write --ask-for-approval never` | same | Host-projected |
+| Gemini CLI | headless / PTY | `--approval-mode plan` | `--approval-mode default` (emitted explicitly) | `--approval-mode yolo` | same | Host-projected |
+| OpenCode | headless / PTY | `--agent plan` | env `OPENCODE_PERMISSION={"edit":"ask","bash":"ask"}` | `--auto` | same | Host-projected |
+| Antigravity CLI | headless / PTY | `--mode plan --sandbox` | CLI default (`request-review`) | `--mode accept-edits` | same | Host-projected; never `--dangerously-skip-permissions` |
+| Qwen Code | ACP / PTY | `--approval-mode plan` | PTY: `--approval-mode default`; ACP: no flag | PTY: `--approval-mode auto-edit`; ACP: no flag | PTY: `--approval-mode yolo`; ACP: no flag | Host-projected; ACP asks per call |
+| Kimi Code CLI | ACP / PTY | `--plan` | PTY: CLI ask default; ACP: no flag | PTY: `--yolo`; ACP: no flag | PTY: `--auto`; ACP: no flag | Host-projected; ACP asks per call |
+| Qoder CLI | ACP / PTY | **none** — PTY launch refused (`terminal-readonly-unsupported`) | PTY: `--permission-mode default`; ACP: no flag | PTY: `--permission-mode accept_edits`; ACP: no flag | same as Trusted | No plan mode upstream |
+| CodeBuddy Code | ACP / PTY | `--permission-mode plan` | PTY: `--permission-mode default`; ACP: no flag | PTY: `--permission-mode acceptEdits`; ACP: no flag | same | Host-projected; ACP asks per call |
+| GitHub Copilot CLI | ACP / PTY | `--mode plan` | PTY: no flag (CLI ask default) — **provider-delegated**; ACP: no flag | PTY: `--allow-all-tools`; ACP: no flag | same | Standard relies on the CLI's own prompt |
+| Cursor Agent CLI | ACP / PTY | `--mode plan` | PTY: no flag (CLI ask default) — **provider-delegated**; ACP: no flag | PTY: `--force`; ACP: no flag | same | Standard relies on the CLI's own prompt |
+| iFlow CLI (legacy) | PTY only | `--plan` | `--default` | `--autoEdit` | `--yolo` | Host-projected; no managed conversation |
+
+Under ACP, every tool call the agent wants to make is mapped to a host action (`read`/`search`/`think` → `file.read`; `edit`/`delete`/`move` → `file.write`; `execute`/`fetch`/unknown → `shell.exec`) and evaluated by the same decision point; `Ask` defers to the approval UI in an interactive session and is **rejected** when unattended, recorded as needs-intervention. Cancellation, dismissal, and deadlines never approve.
 
 ### Claude Code hook bridge
 
@@ -181,7 +202,7 @@ A principal equals the **stable agent id** and stays constant across every sessi
 - `Trusted` — trusted
 - `Yolo` — no approval
 
-`Trusted` and `Yolo` project to the **same** native launch parameters in this baseline and produce no differentiated projection.
+`Trusted` and `Yolo` yield the same host-side rules; `Yolo` additionally requires confirmation to assign. Their launch projection is identical on every CLI except Qwen Code, Kimi Code CLI, and iFlow CLI terminals (see the table above).
 
 ### Hook tool mapping table
 

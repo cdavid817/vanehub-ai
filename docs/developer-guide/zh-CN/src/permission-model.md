@@ -60,7 +60,15 @@ claim → reserve → commit → deliver → acknowledge → activate
 
 ## CLI 启动参数投影
 
-对于 `claude-code`、`codex-cli`、`gemini-cli`、`opencode` 和 `antigravity-cli` 全部五个 CLI Agent(源码常量 `POLICY_TEMPLATE_GOVERNED_AGENT_IDS`),只要 Agent 的 Agent Terminal 以交互方式启动,Agent principal 所分配的策略模板(`readonly`、`standard`、`trusted` 或 `yolo`)就会被投影为该工具自身的 native 审批/沙箱启动参数。对 Claude Code,启动参数投影与下文的 `PreToolUse` hook 桥接是叠加的双层机制,而非二选一。仅使用目录合法、不可绕过的参数值——不会引入任何原始的绕过 flag(例如名称中包含 "dangerously" 的 flag)来达成某个模板的行为。`trusted` 和 `yolo` 投影为相同的启动参数。
+策略模板(`readonly`、`standard`、`trusted`、`yolo`)是一条**宿主侧**声明:它决定上文统一决策模型里 `shell.exec` 与 `file.write` 的效果(`readonly` → Deny,`standard` → Ask,`trusted` 与 `yolo` → Allow;`file.read` 与 `memory.write` 恒为 Allow)。CLI 进程*以什么参数启动*是这条模板的另一层投影,而投影方式随传输方式不同。受治理集合是 `POLICY_TEMPLATE_GOVERNED_AGENT_IDS`(`agent_runtime/infrastructure/providers/invocation.rs`)中的 12 个 id;逐 Agent 的表见下文[按传输方式的 CLI 启动参数投影](#按传输方式的-cli-启动参数投影),生成的 [Agent 能力矩阵](../../../reference/agents/capability-matrix.md)也携带同样的行。
+
+- **headless / 终端类 CLI**(`claude-code`、`codex-cli`、`gemini-cli`、`opencode`、`antigravity-cli`)通过**目录中的 `policy-governed` 参数**投影模板(`policy_override_selections`);这些参数永远不可由用户编辑。
+- **七个扩展提供商**(六个 ACP Agent `qwen-code`、`kimi-cli`、`qoder-cli`、`codebuddy-code`、`copilot-cli`、`cursor-agent-cli`,加上历史兼容的 `iflow-cli`)通过**运行时渲染的旗标**投影模板(`direct_policy_arguments`),因为正确的旗标取决于传输方式。在 PTY 上旗标是宿主唯一能施加的策略,所以每个模板都会投影;在 ACP 下 Agent 通过 `session/request_permission` 逐次向宿主询问,所以只传入限制性的只读姿态,`standard`/`trusted`/`yolo` **不带任何**启动旗标——宽松旗标会让 Agent 跳过询问。
+- **Claude Code** 叠加两层:启动旗标只设置 `permissionMode`,动作级边界是下文的 `PreToolUse` hook 桥接。
+- **只使用目录合法、不可绕过的值**;目录校验会拒绝任何包含 `dangerously` 的旗标。
+- **`trusted` 与 `yolo` 只在分配时不同**(`yolo` 需要确认才能分配)。在宿主侧两者产生相同的 Allow 规则;启动时有效策略先归约为 Readonly/Ask/Allow 再投影,Allow 映射到 `trusted` 的投影——因此在多数 CLI 上两者的命令行完全一致。例外是 Qwen Code、Kimi Code CLI 与 iFlow CLI:它们的终端会为 `yolo` 收到不同的旗标。
+- **可强制性是有类型的,不是假定的**。`terminal_policy_enforceability` 返回 `HostProjected`、`ProviderDelegated` 或 `NotEnforceable { reason_code }`。`NotEnforceable` 的交互式启动会以 `PolicyDenied { action: "terminal-launch:<reason_code>" }` 拒绝,而不是以更弱的姿态启动。已知情况:Qoder CLI 没有 plan/只读模式,其终端上的 `readonly` 为 `terminal-readonly-unsupported`;GitHub Copilot CLI 与 Cursor Agent CLI 在 `standard` 下不传旗标,依赖 CLI 自己的先询问默认(`ProviderDelegated`——VaneHub 未传入限制,也未验证)。UI 把这些标为 provider-delegated 或 unverified,绝不标为 host-enforced;ACP 支持也绝不被表述为操作系统沙箱。
+- **Plan 模式**与 `readonly` 都会把有效策略归约为 Readonly(无论模板为何);模板查找失败会让启动失败,而不是猜一个默认值。
 
 ## Claude Code permission-hook 桥接
 
@@ -121,13 +129,26 @@ stateDiagram-v2
 
 只有 `Session`/`Project`/`Global` 会持久化 grant;`Once` 永不持久化。
 
-### CLI 启动参数投影
+### 按传输方式的 CLI 启动参数投影
 
-对 `claude-code`、`codex-cli`、`gemini-cli`、`opencode` 与 `antigravity-cli` 五个 CLI,当 Agent Terminal 以交互方式启动时,Agent principal 所分配的策略模板(`readonly`、`standard`、`trusted`、`yolo`)被投影为该 CLI 自身的 native 审批/沙箱启动参数。
+下表是模板在命令行上的实际形态(`invocation.rs`;目录槽位来自 `cli_parameters/catalog/catalog.v2.json`)。`Trusted` 与 `Yolo` 投影相同时合并为一列。"ACP"是六个 ACP Agent 的受管会话传输;"PTY"是 Agent Terminal。
 
-- **`readonly` / `standard` / `trusted` / `yolo`** 各自映射到一组目录合法、不可绕过的 native 参数,而非通过显示名称匹配行为。
-- **`trusted` 与 `yolo` 投影为相同参数** —— 两者在本基础版本中不产生差异化启动参数。
-- **绝不引入绕过 flag** —— 不会使用任何名称含 `dangerously` 之类的绕过 flag 来达成某个模板的行为。
+| Agent | 传输 | Readonly | Standard | Trusted | Yolo | 可强制性说明 |
+| --- | --- | --- | --- | --- | --- | --- |
+| Claude Code | headless / PTY + hook | `--permission-mode plan` | CLI 默认(inherit) | `--permission-mode acceptEdits` | 同 Trusted | 宿主投影;`PreToolUse` hook 是动作边界 |
+| Codex CLI | headless / PTY | `--sandbox read-only --ask-for-approval never` | `--sandbox workspace-write --ask-for-approval on-request` | `--sandbox workspace-write --ask-for-approval never` | 同 | 宿主投影 |
+| Gemini CLI | headless / PTY | `--approval-mode plan` | `--approval-mode default`(显式发出) | `--approval-mode yolo` | 同 | 宿主投影 |
+| OpenCode | headless / PTY | `--agent plan` | 环境变量 `OPENCODE_PERMISSION={"edit":"ask","bash":"ask"}` | `--auto` | 同 | 宿主投影 |
+| Antigravity CLI | headless / PTY | `--mode plan --sandbox` | CLI 默认(`request-review`) | `--mode accept-edits` | 同 | 宿主投影;绝不使用 `--dangerously-skip-permissions` |
+| Qwen Code | ACP / PTY | `--approval-mode plan` | PTY:`--approval-mode default`;ACP:无旗标 | PTY:`--approval-mode auto-edit`;ACP:无旗标 | PTY:`--approval-mode yolo`;ACP:无旗标 | 宿主投影;ACP 逐次询问 |
+| Kimi Code CLI | ACP / PTY | `--plan` | PTY:CLI 询问默认;ACP:无旗标 | PTY:`--yolo`;ACP:无旗标 | PTY:`--auto`;ACP:无旗标 | 宿主投影;ACP 逐次询问 |
+| Qoder CLI | ACP / PTY | **无**——PTY 启动被拒绝(`terminal-readonly-unsupported`) | PTY:`--permission-mode default`;ACP:无旗标 | PTY:`--permission-mode accept_edits`;ACP:无旗标 | 同 Trusted | 上游没有 plan 模式 |
+| CodeBuddy Code | ACP / PTY | `--permission-mode plan` | PTY:`--permission-mode default`;ACP:无旗标 | PTY:`--permission-mode acceptEdits`;ACP:无旗标 | 同 | 宿主投影;ACP 逐次询问 |
+| GitHub Copilot CLI | ACP / PTY | `--mode plan` | PTY:无旗标(CLI 询问默认)——**provider-delegated**;ACP:无旗标 | PTY:`--allow-all-tools`;ACP:无旗标 | 同 | Standard 依赖 CLI 自身提示 |
+| Cursor Agent CLI | ACP / PTY | `--mode plan` | PTY:无旗标(CLI 询问默认)——**provider-delegated**;ACP:无旗标 | PTY:`--force`;ACP:无旗标 | 同 | Standard 依赖 CLI 自身提示 |
+| iFlow CLI(历史兼容) | 仅 PTY | `--plan` | `--default` | `--autoEdit` | `--yolo` | 宿主投影;无受管会话 |
+
+在 ACP 下,Agent 想发起的每次工具调用都会映射为宿主动作(`read`/`search`/`think` → `file.read`;`edit`/`delete`/`move` → `file.write`;`execute`/`fetch`/未知 → `shell.exec`)并由同一个决策点评估;`Ask` 在交互式会话中交给审批 UI,无人值守时**直接拒绝**并记为 needs-intervention。取消、关闭与超时永远不构成批准。
 
 ### Claude Code hook 桥接
 
@@ -186,7 +207,7 @@ principal 等于**稳定的 agent id**,在该 Agent 参与的所有会话中保�
 - `Trusted` —— 受信
 - `Yolo` —— 无审批
 
-`Trusted` 与 `Yolo` 在本基础版本中投影为**相同的** native 启动参数,不产生差异化投影。
+`Trusted` 与 `Yolo` 产生相同的宿主侧规则;`Yolo` 额外要求分配时确认。两者的启动投影在所有 CLI 上一致,例外是 Qwen Code、Kimi Code CLI 与 iFlow CLI 的终端(见上表)。
 
 ### hook 工具映射表
 

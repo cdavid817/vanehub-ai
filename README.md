@@ -28,6 +28,8 @@ A desktop-first workbench for AI coding agents: use and manage OnePiece, Claude 
 
 [Download](https://github.com/cdavid817/vanehub-ai/releases) · [Quick start](#quick-start) · [Documentation](#documentation)
 
+> **Which version does this page describe?** This README on `main` documents the **next, unreleased** version. The current stable download is **v1.5.0** ([release notes](https://github.com/cdavid817/vanehub-ai/releases/tag/v1.5.0) · [README as released](https://github.com/cdavid817/vanehub-ai/blob/v1.5.0/README.md)), which ships OnePiece plus five external CLIs (Claude Code, Codex CLI, OpenCode, Gemini CLI, Antigravity CLI). The six ACP agents and iFlow legacy support below are **available on `main` only** until the next release. Per-agent status is tracked in the [agent capability matrix](docs/reference/agents/capability-matrix.md); the vocabulary (stable, main/unreleased, fixture-qualified, live-qualified, legacy, planned) is defined in [terminology](docs/reference/terminology.md).
+
 <!-- docs-section:overview -->
 
 ## Overview
@@ -37,13 +39,13 @@ Working with several AI coding agents scatters sessions, projects, terminals, pe
 It supports two kinds of agents — **pick one path to start; you do not need to install every CLI**:
 
 - **OnePiece** — the built-in native API agent that calls model providers over HTTP directly, requiring no external CLI at all;
-- **External CLI agents** — Claude Code, Codex CLI, OpenCode, Gemini CLI, Antigravity CLI, Qwen Code, Kimi Code CLI, Qoder CLI, CodeBuddy Code, GitHub Copilot CLI, and Cursor Agent CLI, installed by you and authenticated through each vendor's own flow in your terminal. iFlow CLI is kept as an opt-in legacy terminal entry.
+- **External CLI agents** — Claude Code, Codex CLI, OpenCode, Gemini CLI, Antigravity CLI (stable since v1.5.0), plus Qwen Code, Kimi Code CLI, Qoder CLI, CodeBuddy Code, GitHub Copilot CLI, and Cursor Agent CLI (on `main`, next release), installed by you and authenticated through each vendor's own flow in your terminal. iFlow CLI is kept as an opt-in legacy terminal entry on `main`.
 
 <!-- docs-section:features -->
 
 ## Core capabilities
 
-- **One entry point for every agent** — the OnePiece native API agent and eleven external CLI agents share sessions, configuration, permissions, and observability.
+- **One entry point for every agent** — manage the OnePiece native API agent and the supported external CLI agents from one workspace. Session, configuration, permission, and observability capabilities vary by transport (native API, terminal/headless, ACP) and by provider; the [capability matrix](docs/reference/agents/capability-matrix.md) states what each agent actually gets.
 - **Sessions and workspaces** — projects, interactive terminals (PTY), Git worktrees, remote workspaces over SSH.
 - **Multi-agent collaboration** — group-chat seats with `@` handoff, expert roles, Loop automatic iteration, Plan mode, goals and the work board.
 - **Context and code intelligence** — context compaction, cross-session memory, personalization, retrieval, workspace code indexing, LSP code intelligence.
@@ -54,21 +56,23 @@ It supports two kinds of agents — **pick one path to start; you do not need to
 
 ## Agents and CLI support
 
-| Agent | Kind | Command | Model source | In-app install | Authentication and model configuration |
-| --- | --- | --- | --- | --- | --- |
-| OnePiece | Built-in native API agent | No CLI needed | Provider catalog or a custom compatible endpoint | Ships with the app | Configure provider and API key in-app |
-| Claude Code | External CLI | `claude` | Anthropic | ✅ npm / WinGet / vendor installer | Terminal OAuth; third-party compatible endpoints configurable in-app |
-| Codex CLI | External CLI | `codex` | OpenAI | ✅ npm | Terminal OAuth; third-party compatible endpoints configurable in-app |
-| OpenCode | External CLI | `opencode` | Whatever model you configure; no fixed family | ✅ npm / vendor installer | Terminal auth; third-party compatible endpoints configurable in-app |
-| Gemini CLI | External CLI | `gemini` | Google | ✅ npm | Terminal auth; endpoint editable, catalog ships the official preset only |
-| Antigravity CLI | External CLI | `agy` | Google | ✅ vendor installer (latest only) | Terminal Google sign-in; the CLI itself also supports API keys and compatible endpoints, which VaneHub does not yet manage in unified provider configuration |
-| Qwen Code | External CLI (ACP) | `qwen` | Alibaba Qwen | ✅ npm | Terminal sign-in; managed conversation over `qwen --acp` |
-| Kimi Code CLI | External CLI (ACP) | `kimi` | Moonshot | ✅ npm | Terminal sign-in; managed conversation over `kimi acp`; the older Python/uv distribution is detected but never migrated |
-| Qoder CLI | External CLI (ACP) | `qoder` | Qoder | ✅ npm (Windows arm64 unsupported upstream) | Terminal sign-in; managed conversation over `qoder --acp` |
-| CodeBuddy Code | External CLI (ACP) | `codebuddy` | Tencent | ✅ npm | Terminal sign-in; international / China / iOA account environment chosen per session; managed conversation over `codebuddy --acp` |
-| GitHub Copilot CLI | External CLI (ACP) | `copilot` | GitHub | ✅ npm / WinGet | Terminal sign-in; managed conversation over `copilot --acp --stdio` |
-| Cursor Agent CLI | External CLI (ACP) | `agent` | Cursor | ✅ vendor installer (latest only) | Terminal sign-in; managed conversation over `agent acp`; the program is identity-checked, not matched by name |
-| iFlow CLI | Legacy external CLI | `iflow` | iFlow (official service ended 2026-04-17) | ❌ detect-only | Native terminal only with your own custom API configuration; no managed conversation, no automation, no official service claimed |
+Release status per row: **stable** = in the v1.5.0 download; **main** = implemented on `main`, not yet in a stable release; **legacy** = detect-only terminal entry. Permission, MCP relay, evaluation, and usage-reporting support differ per agent — see the [capability matrix](docs/reference/agents/capability-matrix.md).
+
+| Agent | Status | Kind | Command | Model source | In-app install | Authentication and model configuration |
+| --- | --- | --- | --- | --- | --- | --- |
+| OnePiece | stable | Built-in native API agent | No CLI needed | Provider catalog or a custom compatible endpoint | Ships with the app | Configure provider and API key in-app |
+| Claude Code | stable | External CLI | `claude` | Anthropic | ✅ npm / WinGet / vendor installer | Terminal OAuth; third-party compatible endpoints configurable in-app |
+| Codex CLI | stable | External CLI | `codex` | OpenAI | ✅ npm | Terminal OAuth; third-party compatible endpoints configurable in-app |
+| OpenCode | stable | External CLI | `opencode` | Whatever model you configure; no fixed family | ✅ npm / vendor installer | Terminal auth; third-party compatible endpoints configurable in-app |
+| Gemini CLI | stable | External CLI | `gemini` | Google | ✅ npm | Terminal auth; endpoint editable, catalog ships the official preset only |
+| Antigravity CLI | stable | External CLI | `agy` | Google | ✅ vendor installer (latest only) | Terminal Google sign-in; the CLI itself also supports API keys and compatible endpoints, which VaneHub does not yet manage in unified provider configuration |
+| Qwen Code | main | External CLI (ACP) | `qwen` | Alibaba Qwen | ✅ npm | Terminal sign-in; managed conversation over `qwen --acp` |
+| Kimi Code CLI | main | External CLI (ACP) | `kimi` | Moonshot | ✅ npm | Terminal sign-in; managed conversation over `kimi acp`; the older Python/uv distribution is detected but never migrated |
+| Qoder CLI | main | External CLI (ACP) | `qoder` | Qoder | ✅ npm (Windows arm64 unsupported upstream) | Terminal sign-in; managed conversation over `qoder --acp` |
+| CodeBuddy Code | main | External CLI (ACP) | `codebuddy` | Tencent | ✅ npm | Terminal sign-in; international / China / iOA account environment chosen per session; managed conversation over `codebuddy --acp` |
+| GitHub Copilot CLI | main | External CLI (ACP) | `copilot` | GitHub | ✅ npm / WinGet | Terminal sign-in; managed conversation over `copilot --acp --stdio` |
+| Cursor Agent CLI | main | External CLI (ACP) | `agent` | Cursor | ✅ vendor installer (latest only) | Terminal sign-in; managed conversation over `agent acp`; the program is identity-checked, not matched by name |
+| iFlow CLI | legacy (main) | Legacy external CLI | `iflow` | iFlow (official service ended 2026-04-17) | ❌ detect-only | Native terminal only with your own custom API configuration; no managed conversation, no automation, no official service claimed |
 
 - **In-app install** means VaneHub AI can install and upgrade the CLI from Settings → CLI Management: it drives npm, WinGet on Windows, and per-CLI audited vendor installers. A copy that came from Homebrew, Bun, Volta, a desktop bundle, or a system package is detected and reported but never changed.
 - **Vendor subscription login (OAuth) always happens in your terminal**; VaneHub AI neither brokers nor stores subscription credentials.
@@ -82,7 +86,7 @@ It supports two kinds of agents — **pick one path to start; you do not need to
 
 ## Quick start
 
-1. Download and install the desktop package for your platform from the [Releases page](https://github.com/cdavid817/vanehub-ai/releases).
+1. Download and install the desktop package for your platform from the [Releases page](https://github.com/cdavid817/vanehub-ai/releases). The stable package is v1.5.0; agents marked **main** above are not in it. To try `main`, build from source (see [Run from source](#run-from-source-and-develop)) or download a manual `Package Desktop Apps` workflow artifact from GitHub Actions.
 2. Pick one: configure a model provider and API key for OnePiece in Settings → Agent Configurations; or install any one supported external CLI, authenticate it in your terminal, then refresh detection in Settings → CLI Management.
 3. Click New, choose an agent and a project folder, and create your first session.
 4. Send your first task from the session workspace input box.
@@ -219,7 +223,8 @@ Before submitting changes, run every command in the validation-commands section 
 ## Project status and roadmap
 
 - **Delivered** — implemented behavior and interface contracts are recorded in the [OpenSpec main specifications](openspec/specs/); usage is covered by the user guide.
-- **In progress** — see the [unarchived OpenSpec changes](openspec/changes/): current work includes expanding the built-in Skill catalog, remote Skill registry and supply-chain governance, hardening governed cross-session memory, region screenshot capture, and first-stable-release preparation.
+- **Implemented on `main`, not yet released** — code that has merged since v1.5.0 (for example the six ACP agents and unified memory read governance) is described here and in the guides with a `main` / unreleased label; it is not evidence that the stable package has it.
+- **In progress** — see the [unarchived OpenSpec changes](openspec/changes/); the entries there are the complete list. Highlights, not a full status: the built-in Skill catalog, remote Skill registry and supply-chain governance, governed cross-session memory, region screenshot capture. A change whose code is on `main` but whose live-qualification tasks are still open stays **fixture-qualified** until the evidence exists.
 - **Planned** — listed only when a public proposal or issue exists; this section promises no dates.
 - Some capabilities (individual IM connector platforms, the per-platform desktop matrix) are qualified by live-environment records — see the developer guide's engineering delivery domain.
 

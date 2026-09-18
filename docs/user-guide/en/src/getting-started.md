@@ -24,7 +24,7 @@ Good for: you already have Node.js 22+ on this machine, and you're fine with the
 **Two things to know going in:**
 
 - **The source decides what is possible.** VaneHub AI drives npm, WinGet on Windows, and per-CLI audited vendor installers. Homebrew, Bun, Volta, desktop bundles, and system packages are detected and reported but never changed. It never pipes a downloaded script into a shell, and it never installs a second copy beside someone else's and calls that an upgrade.
-- **Antigravity CLI has no npm package.** Its only source is the vendor installer, which pins no exact version, so the UI offers an upgrade to latest rather than a version list.
+- **Antigravity CLI and Cursor Agent CLI have no npm package.** Their only source is the audited vendor installer, which pins no exact version, so the UI offers an upgrade to latest rather than a version list. iFlow CLI is detect-only. The per-CLI source is listed in the [agent capability matrix](../../../reference/agents/capability-matrix.md).
 
 ### Method B: install it from the terminal
 
@@ -36,9 +36,9 @@ Good for: you want the officially recommended native binary (no Node.js dependen
 
 Whichever route you take, **authentication always has to happen in the terminal**; see [Get it working in a terminal first](#get-it-working-in-a-terminal-first).
 
-## The original five CLIs
+## The original five CLIs (headless transport, stable since v1.5.0)
 
-VaneHub AI supports twelve external CLI Agents. Installing one is enough to start; you don't need them all. This section covers the original five; the six ACP CLIs (Qwen Code, Kimi Code CLI, Qoder CLI, CodeBuddy Code, GitHub Copilot CLI, Cursor Agent CLI) and the legacy iFlow entry are in [ACP CLI Agents](acp-cli-agents.md). The table below summarizes each CLI's install method; each subsection gives the exact commands.
+VaneHub AI's registry lists twelve external CLI Agents. Installing one is enough to start; you don't need them all. This section covers the original five headless CLIs, which are in the stable v1.5.0 release; the six ACP CLIs (Qwen Code, Kimi Code CLI, Qoder CLI, CodeBuddy Code, GitHub Copilot CLI, Cursor Agent CLI — on `main`, next release) and the legacy iFlow entry are in [ACP CLI Agents](acp-cli-agents.md). The table below summarizes each CLI's install method; each subsection gives the exact commands.
 
 | Agent | Provider | Command | Dependency | Recommended install |
 | --- | --- | --- | --- | --- |
@@ -183,7 +183,7 @@ The CLI Management page offers different actions depending on status: **Install*
 
 ## Authentication
 
-**Vendor subscription login does not happen inside VaneHub AI.** The five CLIs each manage their own subscription credentials, stored in their own locations.
+**Vendor subscription login does not happen inside VaneHub AI.** Every external CLI manages its own subscription credentials, stored in its own location.
 
 If an Agent asks you to sign in during a session, complete authentication in that CLI, then return to VaneHub AI and refresh detection.
 

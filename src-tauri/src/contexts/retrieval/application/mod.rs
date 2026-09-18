@@ -17,9 +17,10 @@ pub(crate) use indexing_service::{
 // 同一惯例（sqlite_repository.rs 的导入方式）。ResolvedEmbeddingEndpoint 由 bootstrap 的端点
 // 适配器具名构造，因此也在此列。
 pub(crate) use ports::{
-    CodeIndexRepository, CodeRetrievalPort, EmbeddingEndpointPort, EmbeddingFailure, EmbeddingPort,
-    ResolvedEmbeddingEndpoint, RetrievalConfiguration, RetrievalConfigurationRepository,
-    RetrievalDocumentRepository, RetrievalIndexStatus,
+    AuthorizedCandidateRows, AuthorizedHitResolverPort, AuthorizedSourceSet, CodeIndexRepository,
+    CodeRetrievalPort, EmbeddingEgressGuardPort, EmbeddingEndpointPort, EmbeddingFailure,
+    EmbeddingPort, ResolvedEmbeddingEndpoint, ResolvedHit, RetrievalConfiguration,
+    RetrievalConfigurationRepository, RetrievalDocumentRepository, RetrievalIndexStatus,
 };
 // SearchService 由 bootstrap 装配并持有；SearchOutcome 经 api.rs 的 search() 返回给 Task 13 的
 // recall 工具（读取 hits/degraded 拼装工具结果）。

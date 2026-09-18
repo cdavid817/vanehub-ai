@@ -19,6 +19,8 @@ import type {
   UpdateMemoryInput,
 } from "../types/personalization-memory";
 import type { PersonalizationService } from "./personalization-service";
+import { readWebRetrievalConfigured } from "./web-code-index-state";
+import { listWebSessions } from "./web-session-state";
 import {
   listWebCandidates,
   listWebMemories,
@@ -96,7 +98,10 @@ export const webPersonalizationClient: PersonalizationService = {
     if (input.sessionMode === "project-only" && !input.workspaceKey) {
       throw validation("This operation needs a workspace to be scoped to.");
     }
-    return previewFor(input, readWebPolicy({ scopeKind: "global" }), listWebMemories());
+    return previewFor(input, listWebPolicies(), listWebMemories(), {
+      boundSession: listWebSessions().some((session) => session.id === input.sessionId),
+      retrievalConfigured: readWebRetrievalConfigured(),
+    });
   },
 
   async listPersonalizationAgentCapabilities(): Promise<AgentPersonalizationCapability[]> {

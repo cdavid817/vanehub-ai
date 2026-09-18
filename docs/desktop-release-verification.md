@@ -1,12 +1,18 @@
 # 桌面客户端发布验证清单
 
-每次版本发布前，必须在真实构建的桌面客户端上跑通本清单。执行入口是：
+每次版本发布前，必须在真实构建的桌面客户端上跑通本清单。桌面验证分三个层级，**只有第一层是 PR/CI 的硬门槛**，后两层按下表的规则决定是否阻塞发布。层的清单以 `scripts/test-desktop.mjs` 的 `gatedLayers` / `fullSuiteLayers` 与 `tests/desktop/spec-manifest.mjs` 为准——本文不写死层数。
 
-```bash
-npm run test:desktop
-```
+## 0. 三个层级
 
-它会构建带 `desktop-e2e` feature 的调试客户端，再用 WDIO + tauri-driver 驱动它。`npm run test:verify` 已经编排了这条命令，所以走完整验证流程时无需单独执行。
+| 层级 | 入口 | 需要真实 CLI / 凭据 | 阻塞发布 | 产出证据 | 当前适用平台 |
+| --- | --- | --- | --- | --- | --- |
+| **1. PR/CI 必跑的 fixture 门槛** | CI 的 `desktop-smoke` job 执行 `npm run test:desktop`；在 `CI` 环境下脚本只跑 `gatedLayers`（核心冒烟与会话删除）。本地等价命令：`CI=1 npm run test:desktop` | 否。CLI Agent 由 `tests/desktop/fixtures/cli/` 的桩程序顶替，不发生模型调用、不读凭据；`scripts/desktop/cli-side-effect-guard.mjs` 反查是否碰过真实 npm/WinGet/凭据 | **是**——任一平台 `FAILED` 即不得打 tag | `test-results/desktop/<runId>/`（`summary.json`、统一日志、截图），CI 按平台上传 artifact | Windows、macOS、Linux 原生 runner 各跑一次，逐平台报告 |
+| **2. 可选的完整 fixture 套件** | `npm run test:desktop`（非 CI 环境默认）或 `VANEHUB_DESKTOP_FULL_SUITE=1`；CI 里由 `desktop-full` job 在带 `desktop-full-suite` 标签或手动触发时运行，跑 `fullSuiteLayers` 全部层 | 否，同上 | 发布前**必须至少在一个平台跑通**；其它平台可豁免，但豁免必须写进发布记录并附原因 | 同上，逐层独立汇总 | 与第 1 层相同 |
+| **3. 外部提供商实网资格验证** | `npm run test:desktop:external-provider`（`tests/desktop/wdio.external-provider.conf.mjs`，spec 由 `spec-manifest.mjs` 的 `EXTERNAL_PROVIDER` 门标记）；以及 `test:desktop:agent-evaluation:live-opencode` / `live-onepiece`；CI 只在 `desktop-external-provider` job 手动或定时触发时运行 | **是**。需要已登录的真实 CLI（`VANEHUB_DESKTOP_LIVE_AGENTS`）、OnePiece provider 凭据、可选 SSH（`VANEHUB_DESKTOP_MUTATE_HOST` + `VANEHUB_SSH_*`） | **否**。它不是发布门槛，而是"live-qualified"状态的证据来源：没有跑过的能力只能标为 fixture-qualified | 同上，另加逐 Agent 的 `PASSED` / `PASSED WITH BLOCKED` / `BLOCKED` / `FAILED` / `NOT RUN` 记录（平台、CLI 版本、日期） | 只对实际运行的平台成立，不得外推 |
+
+`AGENTS.md` 里列出的 `agent-mcp`、`local-media`、`skills`、`feishu-im` 等"可单独运行的额外 suite"是第 2 层之外的独立层：它们各有 `test:desktop:<层名>` 入口，`agent-mcp` 已进入 `fullSuiteLayers`，其余不属于 `all`，需要时单独运行并单独报告。
+
+第 1、2 层的执行方式是：构建带 `desktop-e2e` feature 的调试客户端，再用 WDIO + tauri-driver 驱动它。`npm run test:verify` 已经编排了 `npm run test:desktop`，所以走完整验证流程时无需单独执行。
 
 ## 1. 结果状态语义（先读这一节）
 
@@ -20,13 +26,13 @@ npm run test:desktop
 
 发布记录必须逐平台使用五档：`PASSED`、`PASSED WITH BLOCKED`、`BLOCKED`、`FAILED`、`NOT RUN`。**必需场景（下节标注）被跳过时，该平台不得记为 `PASSED`**；记 `PASSED WITH BLOCKED` 并由发布负责人逐条签署豁免或补齐前置后重跑。脚本退出码只反映"已执行部分是否通过"，不代表发布要求全部满足。
 
-发布必需（release-blocking）场景：运行时基线（`smoke`）、原生注册表与 Agent 终端生命周期（`feature-sweep` 的非实网部分）、全屏渲染（`screen-sweep`）、至少一个 CLI Agent 与 OnePiece 的真实一轮会话（`sessions`）。SSH、IM、扩展安装、全部五个 CLI 的实网会话属于可豁免场景——豁免必须写进发布记录并附原因。
+发布必需（release-blocking）场景是第 1 层的全部用例，以及第 2 层里运行时基线（`smoke`）、原生注册表与 Agent 终端生命周期（`feature-sweep` 的非实网部分）、全屏渲染（`screen-sweep`）。**真实 CLI 与 OnePiece 的实网会话（`sessions` 的实网部分）、SSH、IM、扩展安装以及任何外部 CLI 的实网会话都属于第 3 层，不是发布门槛**——它们决定某个能力能否标为 live-qualified，未跑过时该能力保持 fixture-qualified，并在发布记录里如实写明。
 
 ## 2. 前置条件（不满足会以 BLOCKED 跳过）
 
 | 能力 | 需要的前置 | 缺失后果 |
 | --- | --- | --- |
-| CLI Agent 会话与终端 | `claude`、`codex`、`gemini`、`opencode`、`agy` 在 PATH 上且各自已登录（读各自的 `~/.claude`、`~/.codex` 等，不受测试隔离目录影响） | 相关用例跳过 |
+| CLI Agent 会话与终端（第 3 层） | 被验证的 CLI 在 PATH 上且已登录（读各自的 `~/.claude`、`~/.codex` 等，不受测试隔离目录影响），并通过 `VANEHUB_DESKTOP_LIVE_AGENTS` 指名；第 1、2 层不需要真实 CLI，用 `tests/desktop/fixtures/cli/` 的桩程序 | 相关用例跳过 |
 | 需要出网代理的 CLI | `HTTPS_PROXY` / `HTTP_PROXY` | claude-code 报 `403 Request not allowed` |
 | OnePiece 实网会话 | `VANEHUB_ONEPIECE_API_KEY`，或 `VANEHUB_ONEPIECE_PROFILE_ID`（指向本机已安装应用中的 profile，密钥由 WDIO 进程直接从操作系统凭据管理器读取） | 实网用例跳过 |
 | SSH 连接 | `VANEHUB_SSH_HOST`、`VANEHUB_SSH_USER`、`VANEHUB_SSH_PASSWORD` | SSH 用例跳过 |
@@ -79,9 +85,9 @@ env HTTPS_PROXY=http://127.0.0.1:<port> \
 
 渲染断言会拒绝 `Command X not found`，不只是致命错误边界——**一个被妥善处理的错误渲染出的页面看起来完全健康**，「目标」功能整体不可用就是这样被漏过又被抓到的。
 
-### `sessions.e2e.mjs` — 单 Agent 与多 Agent 会话（至少一个 CLI + OnePiece 为发布必需）
+### `sessions.e2e.mjs` — 单 Agent 与多 Agent 会话（实网部分属第 3 层，不阻塞发布）
 
-对每个内置 Agent 发真实一轮对话并断言回复。**两种 prompt 投递形态都必须覆盖**：claude-code、codex-cli 走 stdin，gemini-cli、opencode、antigravity-cli 走 argv，是两条不同代码路径。只测其中一条会把「5 个 Agent 里 3 个发不出对话」报成健康。
+对被指名的 Agent 发真实一轮对话并断言回复。**两种 prompt 投递形态都必须覆盖**：claude-code、codex-cli 走 stdin，gemini-cli、opencode、antigravity-cli 走 argv，是两条不同代码路径。只测其中一条会把「其中一条路径上的 Agent 发不出对话」报成健康。六个 ACP Agent 走第三条路径（ACP stdio 受管会话），其实网验证记录见 `openspec/changes/extend-cli-providers-with-acp/tasks.md`。
 
 多 Agent 部分覆盖入座、重载存活、离座。注意离座是 `leftAt` 墓碑而非删除，「房间里有谁」要按活跃座位过滤。
 

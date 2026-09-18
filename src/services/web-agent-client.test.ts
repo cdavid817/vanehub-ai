@@ -2474,6 +2474,7 @@ describe("webAgentClient", () => {
       indexed: expect.any(Number),
       pending: expect.any(Number),
       failed: expect.any(Number),
+      keywordOnly: expect.any(Number),
       lastFailureCategory: null,
     });
     expect(fetchSpy).not.toHaveBeenCalled();

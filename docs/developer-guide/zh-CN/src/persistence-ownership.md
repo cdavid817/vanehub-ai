@@ -47,17 +47,21 @@ flowchart TD
 
 ### 数据库常量
 
-- `DATABASE_FILE_NAME="vanehub.sqlite"` —— 单一数据库文件;
-- `MAX_POOL_SIZE=12` —— 连接池上限,接近 Tauri command worker 线程数;
-- `busy_timeout=5s` —— 写者阻塞时读者等待上限;
-- `CONNECTION_TIMEOUT=5s` —— 取连接的超时;
-- `journal_mode=WAL` —— 多读一写;
-- `foreign_keys=ON` —— 外键约束启用;
-- `synchronous=FULL` —— 在每个恢复关键提交点同步 WAL。
+| 常量 | 值 | 含义 |
+| --- | --- | --- |
+| `DATABASE_FILE_NAME` | `"vanehub.sqlite"` | 单一数据库文件 |
+| `MAX_POOL_SIZE` | `12` | 连接池上限,接近 Tauri command worker 线程数 |
+| `busy_timeout` | `5s` | 写者持锁时读者的等待上限 |
+| `CONNECTION_TIMEOUT` | `5s` | 获取连接的超时 |
+| `journal_mode` | `WAL` | 多读一写 |
+| `foreign_keys` | `ON` | 外键约束启用 |
+| `synchronous` | `FULL` | 在每个恢复关键提交点同步 WAL |
 
 ### 迁移
 
-`EXPECTED_MIGRATIONS`(`src-tauri/src/platform/database/migrations/mod.rs`)是迁移序列的真源;启动后密度检查与 `migration_sequence_matches_expected` 测试都会比照它。新增迁移必须追加在序列尾部,禁止插入或重排。本章刻意不写迁移条数——版本号跨并行分支分配,任何写死的数字在第二个分支合入时就已过时。`schema_migrations(version, name, applied_at)` 表为每条迁移记账。`seed_registry` 在迁移完成后于同一独占连接上执行一次。
+`EXPECTED_MIGRATIONS`(`src-tauri/src/platform/database/migrations/mod.rs`)是迁移序列的真源;启动后密度检查与 `migration_sequence_matches_expected` 测试都会比照它。新增迁移必须追加在序列尾部,禁止插入或重排。`schema_migrations(version, name, applied_at)` 表为每条已应用的迁移记账,`seed_registry` 在迁移完成后于同一独占连接上执行一次。
+
+本章刻意不写迁移条数——版本号跨并行分支分配,任何写死的数字在第二个分支合入时就已过时。
 
 ## 会话删除 journal 与受管理 worktree
 

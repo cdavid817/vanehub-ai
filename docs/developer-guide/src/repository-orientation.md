@@ -18,7 +18,7 @@ Different documents in the repository carry different responsibilities. When the
 | --- | --- |
 | Contribution rules, prohibitions, pre-commit verification commands | [`AGENTS.md`](../../../AGENTS.md) |
 | Mandatory architecture rules, complete bounded context list | [`openspec/project.md`](../../../openspec/project.md) |
-| Implemented native module inventory, migration status, and ADRs | [`src-tauri/ARCHITECTURE.md`](../../reference/native-architecture.md) |
+| Implemented native module inventory, migration status, and ADRs | [`src-tauri/ARCHITECTURE.md`](../../../src-tauri/ARCHITECTURE.md) |
 | Confirmed product behavior | `openspec/specs/` |
 | In-flight change designs and task evidence | `openspec/changes/<change-name>/` |
 | Explanatory material that helps contributors understand the code | This developer guide |

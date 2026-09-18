@@ -2,6 +2,8 @@
 
 记忆是一个主机级共享池，OnePiece 与所有 CLI 包装的 Agent 共同读取。持久化与治理归 `personalization` 限界上下文（v2 应用服务是唯一生产写入路径），召回归 `retrieval`（见[检索与向量搜索](retrieval.md)）。每条记忆自带**作用域**（scope）与**受众**（audience）：共享是默认值，可按条收窄。
 
+> **状态：main / unreleased**。下文描述的受治理读取边界已在 `main`（提交 `52b345ee`）实现，尚未进入 v1.5.0 稳定版。OpenSpec 变更 `openspec/changes/unify-memory-read-scope/` 仍未归档：剩余任务 7.6 是各平台验证运行，因此该能力由单元与集成测试（见「锁定此行为的测试」）代码级验证，但尚未归档，其 `memory-read-scope` 增量也尚未同步进 `openspec/specs/`。
+
 ## 存储模型
 
 - **文件是权威面**：主机级 `memory/` 目录，每条记忆一个 `{id}.md`，id 由存储生成（v2 允许重名，名字不做文件名）。
@@ -16,23 +18,46 @@
 - **`MemoryAudience`** —— `AllAgents` 或 `SelectedAgents { agent_ids }`。它是**作用域之后**追加的收窄，绝不替代作用域；空受众列表被拒绝。
 - **`provenance`**（`agent_id`、`folder`、`source`、`created_at`）单独记录来源，用于追溯与展示。**「由谁记录」不等于「谁可读取」**。
 
-## 读取边界：注入与召回是两条不同精度的路径
+## 读取边界：一个可信读取上下文约束四条入口
 
-这是本章此前与检索文档互相矛盾的地方，按当前代码澄清如下。
+存储仍是一个主机级共享池，但**读取域不是**。每次生成（或群聊中的一个席位回合）开始时，`personalization` 从解析出的快照冻结一份 `MemoryReadContext`（`personalization/domain/read_context.rs`）：稳定 Agent ID、会话、generation/seat、工作区绑定（`Absent`/`Resolved`/`Unresolved` 三值）、会话模式、冻结的策略修订、全局/工作区读取许可、维护代数，以及绑定到进程 epoch 的指纹。它只能由原生会话 owner 通过 `PersonalizationApi::freeze_memory_read_context` 铸造；运行时只搬运，不构造也不改写，`GovernedMemoryReadService::admit` 在每次读取前重新验证指纹、许可与维护代数。模型输入里塞入的 agentId/workspaceKey/scope 一律不影响主体。
 
-### 注入（可信运行时执行过滤）——目标语义已实现
+四条入口共用同一个判定（`eligibility()` 顺序固定：**生命周期** → **读取开关** → **作用域** → **精确受众**；来源字段只做溯源）：
 
-生成前的记忆注入走 `resolve_policy` 快照，每条记录经 `eligibility()` 判定（`personalization/domain/memory.rs`），顺序固定：**生命周期**（candidate 与 archived 一律排除）→ **读取策略开关** → **作用域**（workspace 记忆要求当前 workspace key 相等；global 记忆要求全局记忆访问开关开启）→ **受众**（`admits(agent_id)`）。过滤发生在预算与相关性选择**之前**，由可信运行时按当前 Agent、工作区、会话模式与策略执行——模型无法伪造任何一项。
+| 入口 | 走的接口 | 说明 |
+|---|---|---|
+| 索引注入（OnePiece 与 CLI index） | `verify_memory_refs(context, refs)` | 快照的 refs 页（最多 200 条）逐条回读权威文件，核对 revision/hash/权威指纹后才进入 prompt；名称与描述也是记忆内容 |
+| 正文选择 | `read_pinned_memories(context, handles)` | selector 看到并返回**不可变 ID**（manifest 每行以 `[id]` 开头），同名记录不再取首个；正文按 pinned revision/hash 读取，任何变动都丢弃而不换新版 |
+| `recall` | `open_memory_query(context)` → `RetrievalApi::search_authorized` | 完整资格 metadata 关系（`eligible_authority`，一次只读快照内分页，超预算即 `Incomplete` 而非截断），检索侧物化为查询局部临时表，FTS 与向量都在 rank/top-k **之前** JOIN 它；命中经同一上下文回读权威正文 |
+| Context Engine 记忆源 | `ContextRequest.memory_read` | 快照在 assemble 之前解析；上下文缺失或不允许读取时该源直接 `unavailable`，不发起搜索也不做 query embedding |
 
-### 召回（`recall` 工具）——当前是更粗的失败关闭，不是精细过滤
+已确定的行为（Web/mock 预览按同一真值表模拟）：
 
-`recall` 的输入恰好只有 `query` 与 `limit`，模型不能传 scope。但它检索的池**不是**治理后的全量池，而是 `compatibility_memories` 兼容视图——`is_compatibility_visible` 只放行 **active + `Global` 作用域 + `AllAgents` 受众**的记忆，索引快照与按 id 回源两个入口都套用同一过滤。因此：
+| 会话/策略 | 全局 active | 当前工作区 active | 其他工作区 |
+|---|---|---|---|
+| standard，允许读全局 | audience 匹配才允许 | audience 匹配才允许 | 拒绝 |
+| standard，关闭全局读取 | 拒绝 | audience 匹配才允许 | 拒绝 |
+| project-only，有可信工作区 | 拒绝 | audience 匹配才允许 | 拒绝 |
+| temporary / memory read 关闭 | 拒绝 | 拒绝 | 拒绝 |
+| 工作区存在但无法解析（`Unresolved`） | 拒绝 | 拒绝 | 拒绝 |
 
-- 收窄过的记忆（workspace 作用域或受众受限）**完全不可被召回**——即使调用方正处于那个 workspace、正是受众里的那个 Agent；
-- "任意 Agent 可召回主机全部记忆"不成立：可召回的只是未收窄的那部分；
-- 这是失败关闭的设计（无法表达 scope 的调用方就不给 scoped 记录），不是漏洞。
+"明确没有工作区"（`Absent`）的 standard 会话仍按策略读取全局；它与"解析失败"是两个答案，后者关闭全部读取。candidate、archived、投影里无法分类的行（未知 scope/status、非法 audience JSON、global 却带 workspace key，计为 `invalid_record`）永不交付。受众匹配在 SQL 里用 `json_each` 精确等值（BINARY 排序），不再 LIKE。
 
-**目标语义与改造范围（待实现，勿当作已完成）**：推荐的目标是由可信运行时依据当前 Agent、工作区与会话模式对召回执行与注入同级的过滤，让 workspace 记忆在其 workspace 内可召回。检索索引行已经带有 `scope_agent_id`/`scope_folder` 列与 `*_scoped` 查询通道，缺的是把召回入口从兼容视图切到治理快照、并让可信层把会话上下文传给 `SearchService`。在此之前，本节描述的粗粒度行为就是当前行为。
+统一的是**资格判定**而不是结果：注入看近期摘要、selector 看描述相关性、recall 看 query、Context Engine 有独立预算，同一规则可以给出不同的 top-k。冻结的是规则与主体，不是那 200 条 refs：同一 generation 内后续的 recall 可以按同一冻结规则看到新批准的记录，但不会扩大允许的 scope，也不会偷换已 pin 的旧 handle。
+
+`surfaced` 去重（`memory_surfaced.rs`）按 `会话 + 实际 Agent/seat + 上下文指纹` 分区，条目为 `id → (revision, content hash)`；它在资格判定之后运行，换席位或换工作区不会继承抑制，更不会继承授权。
+
+变更的设计文档区分三种权能，各有独立的接口边界：`RuntimeMemoryRead`（上述受治理接口）、`OwnerMemoryManagement`（设置页的 `list_memories`/`memory_detail` 等，不受某个会话的临时限制影响）、`MemoryIndexMaintenance`（`index_maintenance_records` 为本地 FTS 枚举全部有效 active 记录，包括 workspace 与受限受众）。旧的 `compatibility_memories*` 兼容视图保留给确切的遗留调用方，不再用于注入、正文、recall 或 Context Engine。
+
+**外发边界不随索引扩大而扩大**：基线没有针对 scoped/受限受众记忆的 embedding 外发授权能力，因此这些记录在检索侧固定为 `keyword_only`（本地 FTS 可搜、不排队、不外发；`requeue_all`/模型切换不会复活它们），每次 embed 前 worker 再经 `embedding_egress` 回源核对 status/scope/audience 与 content hash，排队后才变 restricted 的公共记录同样被拦下，并归为 keyword-only 而非失败重试。
+
+### 锁定此行为的测试
+
+- `personalization/application/read_memory_tests.rs` —— `a_standard_context_admits_global_and_its_own_workspace_only_by_audience`、`an_explicitly_absent_workspace_still_reads_global_but_an_unresolved_one_reads_nothing`、`a_temporary_or_read_disabled_snapshot_freezes_a_context_that_permits_nothing`、`a_context_authenticates_only_under_the_epoch_that_minted_it_and_only_unaltered`。
+- `personalization/api/read_scope_tests.rs` —— `a_standard_session_reads_global_and_its_workspace_by_exact_audience_on_every_surface`、`a_selected_audience_admits_the_exact_stable_id_and_never_a_prefix_case_or_wildcard_variant`、`the_recall_relation_is_complete_past_the_two_hundred_ref_injection_page`、`a_context_not_minted_by_this_host_or_altered_after_minting_is_refused`。
+- `retrieval/application/search_service.rs` —— `unauthorized_rows_are_filtered_before_top_k_so_they_cannot_crowd_out_a_valid_hit`、`an_incomplete_authority_set_is_refused_rather_than_searched`。
+- `retrieval/infrastructure/sqlite_repository.rs` —— `authorized_candidates_filter_both_paths_before_the_limit_so_excluded_rows_cannot_crowd_out_a_hit`、`the_query_local_relation_never_survives_into_the_next_query`。
+- `agent_runtime/infrastructure/memory_surfaced.rs` —— `another_seat_in_the_same_session_does_not_inherit_the_suppression`、`exclusions_do_not_leak_between_sessions`；`api_process_adapter/tests.rs` —— `recall_without_a_read_context_fails_closed_without_searching`、`a_session_denied_memory_reads_is_not_offered_the_recall_tool`。
 
 ## 会话模式与策略
 
@@ -99,13 +124,13 @@ flowchart LR
 
 以下当前行为已逐条对源码核实，改造由 `openspec/changes/strengthen-governed-cross-session-memory/` 提案承载——在其落地前，本节描述的就是现状：
 
-- **名称解析与重名歧义**——抽取动作与正文选择在模型侧按显示名引用；可信层确实把名称解析为 `target_id + expected_revision` 且只在冻结的 eligible 集内查找（`memory_proposals.rs`），但 v2 允许重名而解析取**首个命中**，两条同名 eligible 记忆可能被误路由。Delete 未命中即丢弃（绝不猜测目标）。
+- **名称解析与重名歧义**——抽取动作在模型侧仍按显示名引用；可信层把名称解析为 `target_id + expected_revision` 且只在冻结的 eligible 集内查找（`memory_proposals.rs`），但 v2 允许重名而解析取**首个命中**，两条同名 eligible 记忆可能被误路由。Delete 未命中即丢弃（绝不猜测目标）。正文选择已改为按不可变 ID（`unify-memory-read-scope`），抽取侧的名称引用仍待处理。
 - **Update 未命中转 Create 是显式设计**——注释给出的理由是"模型描述的是不存在的记忆，丢弃会静默丢失观察"；审计判定其在目标被改名、归档或策略排除时制造重复记忆。提案主张改为计数拒绝。
 - **CLI 回合末重新解析快照**——`propose_memories_from_turn` 在抽取时再次调用 `snapshot()`，同一回合可能受中途策略修改影响，这与治理 spec 的"每生成不可变快照"要求存在实现差距。
 - **审批幂等窗口**——`review()` 先 `apply`（写权威文件）后 `mark_reviewed`；两步之间崩溃后重试会通过 `is_pending` 检查并再次应用，Create 候选会产生第二条记忆。
 - **多 Agent Seat 逐回合抽取**——抽取入口只按 `is_cli_kind`（launch kind）判定，多 Agent Seat 回合未被排除，同一协作任务会按 Seat 重复产生候选。
 - **来源归因合并**——bridge 把所有自动抽取统一映射为 `OnePieceAutomatic`（`personalization_bridge.rs`），尽管领域模型里存在 `CliAutomatic`；生产者与抽取 provider 被混为一谈。
-- **已注入正文的去重只按会话，不分席位**——surfaced 追踪器（`memory_surfaced.rs`）以 `session → 记忆 id → 修改时间` 为键：同一会话里席位 A 看过的正文会抑制席位 B 再看到；记忆被修正后（mtime 变化）重新可注入。该状态是内存态（LRU 上限 64 个会话），重启即清空。
+- **已注入正文的去重**——已按 `会话 + 实际 Agent/seat + 上下文指纹` 分区并以 `id → (revision, hash)` 为键（`unify-memory-read-scope`）；该状态仍是内存态（LRU 上限 64 个主体），重启即清空。
 - **抽取与候选持久化前没有密钥脱敏闸**——`SecretRedactionPort` 存在，但唯一消费方是有效预览/日志；送往 provider 的抽取输入与写入候选队列的内容都不经过它。
 - **抽取无独立出境判定**——CLI 会话内容经 OnePiece 的 provider 代理抽取，没有针对该跨 provider 发送的独立数据出境决策与 provider 调用前的脱敏闸。
 
@@ -115,6 +140,6 @@ flowchart LR
 
 - [openspec/specs/unified-personalization-governance](../../../../openspec/specs/unified-personalization-governance/spec.md) —— 作用域、受众、会话模式、候选审查。
 - [openspec/specs/agent-cross-session-memory](../../../../openspec/specs/agent-cross-session-memory/spec.md) —— 共享池、来源元数据、保存路径。
-- [openspec/specs/retrieval-vector-search](../../../../openspec/specs/retrieval-vector-search/spec.md) —— 召回工具与降级。其中"召回不受 agent/workspace 限制"的表述写于治理改造之前：对**兼容视图内**的记忆仍然成立，但收窄过的记忆已整体不在召回池内；scoped 召回是上文列出的待实现目标。
+- [openspec/specs/retrieval-vector-search](../../../../openspec/specs/retrieval-vector-search/spec.md) —— 召回工具与降级。其中"召回不受 agent/workspace 限制"的表述写于治理改造之前，已不是代码的实际行为：当前的规范文本是 `openspec/changes/unify-memory-read-scope/` 中的增量（新增能力 `memory-read-scope`，以及对上述三份主规范与 `agent-context-engine` 的增量），尚未同步进 `openspec/specs/`；代码与测试已经通过 `search_authorized` 实现受治理召回。
 
 记忆持久化与治理位于 `personalization` 限界上下文，召回位于 `retrieval`；见 [Native 限界上下文](native-contexts.md)。

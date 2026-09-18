@@ -1,5 +1,8 @@
 # VaneHub AI User Guide
 
+> **Applies to:** this guide on `main` describes the next, unreleased version. The current stable download is **v1.5.0**; read [the v1.5.0 guide](https://github.com/cdavid817/vanehub-ai/tree/v1.5.0/docs/user-guide/en/src) for exactly what that package does. Chapters and rows marked `main` are not in v1.5.0; the status words (`stable`, `main`, fixture-qualified, live-qualified, legacy, planned) are defined in [terminology](../../../reference/terminology.md), and per-agent support in the [agent capability matrix](../../../reference/agents/capability-matrix.md).
+>
+> **Start by task:** [install and authenticate](getting-started.md) · [first session](first-session.md) · [permissions](permissions.md) · [MCP](mcp.md) · [evaluation](evaluation.md) · [troubleshooting](troubleshooting.md)
 <a href="../../zh-CN/src/index.md">简体中文</a>
 
 VaneHub AI is a desktop workbench for running, managing, and orchestrating multiple AI coding agents: it drives external CLIs such as Claude Code and Codex CLI, and ships OnePiece, a built-in native agent that needs no CLI at all.

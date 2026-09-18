@@ -2639,6 +2639,10 @@ impl AgentRuntimeApplicationService {
                 .snapshot(GenerationPersonalizationContext {
                     agent_id: agent.id().as_str().to_string(),
                     session_id: session.id.clone(),
+                    generation_id: operation.id.clone(),
+                    seat_id: seat_ownership
+                        .as_ref()
+                        .map(|ownership| ownership.seat_id.clone()),
                     folder: session.folder.clone(),
                     personalization_mode: session.personalization_mode.clone(),
                 });
@@ -4179,6 +4183,11 @@ impl GenerationEventHandler {
             .snapshot(GenerationPersonalizationContext {
                 agent_id: self.agent_id.clone(),
                 session_id: self.session_id.clone(),
+                generation_id: self.operation_id.clone(),
+                seat_id: self
+                    .seat_ownership
+                    .as_ref()
+                    .map(|ownership| ownership.seat_id.clone()),
                 folder: self.folder.clone(),
                 personalization_mode: self.personalization_mode.clone(),
             });

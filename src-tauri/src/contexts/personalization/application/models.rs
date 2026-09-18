@@ -2,8 +2,8 @@ use chrono::{DateTime, Utc};
 
 use crate::contexts::personalization::domain::{
     AgentId, LegacySourceFingerprint, LegacySourceId, LegacySourceLocator, MaintenanceFailure,
-    MemoryAudience, MemoryProvenance, MemoryScope, MemorySensitivity, MemorySource, MemoryStatus,
-    MemoryType, WorkspaceKey,
+    MemoryAudience, MemoryId, MemoryProvenance, MemoryReadHandle, MemoryScope, MemorySensitivity,
+    MemorySource, MemoryStatus, MemoryType, WorkspaceKey,
 };
 
 /// Everything needed to create one memory. Deliberately has no id field: allocating the immutable
@@ -160,6 +160,44 @@ pub(crate) struct WorkspaceIdentityRequest {
     pub(crate) remote_uri: Option<String>,
 }
 
+impl WorkspaceIdentityRequest {
+    /// The identity request for a stored session, in the owner's preference order: a worktree is
+    /// its own workspace, a remote workspace is a connection identity, then the project root, and
+    /// only then the legacy folder string. `None` when the session names no workspace at all.
+    ///
+    /// One function because two callers -- the generation bridge and the bound-session preview --
+    /// must agree on which workspace a session is in, and two rules would eventually disagree.
+    pub(crate) fn from_session_workspace(
+        worktree_path: Option<&str>,
+        remote_uri: Option<&str>,
+        project_path: Option<&str>,
+        folder: Option<&str>,
+    ) -> Option<Self> {
+        fn present(value: Option<&str>) -> Option<&str> {
+            value.map(str::trim).filter(|value| !value.is_empty())
+        }
+        if let Some(worktree) = present(worktree_path) {
+            return Some(Self {
+                worktree_path: Some(worktree.to_string()),
+                ..Self::default()
+            });
+        }
+        if let Some(remote) = present(remote_uri) {
+            return Some(Self {
+                remote_uri: Some(remote.to_string()),
+                ..Self::default()
+            });
+        }
+        if let Some(project) = present(project_path) {
+            return Some(Self {
+                project_path: Some(project.to_string()),
+                ..Self::default()
+            });
+        }
+        present(folder).and_then(super::migrate_legacy_memories::legacy_workspace_request)
+    }
+}
+
 /// What eligibility is being asked about, after every policy and session restriction is decided.
 ///
 /// Deliberately not a policy snapshot: by the time this is built, every "may I" question has been
@@ -178,4 +216,100 @@ pub(crate) struct MemoryEligibilityCriteria {
     pub(crate) project_only: bool,
     /// How many refs to return. The count is always exact regardless.
     pub(crate) limit: usize,
+}
+
+/// How much work one complete-eligibility enumeration may do before it is declared incomplete.
+///
+/// Versioned rather than implied: a relation that stopped early because of a limit is a partial
+/// authorization set, and searching over it would silently drop the eligible records past the
+/// cut. The caller sees `complete: false` and fails closed instead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct EligibilityEnumerationBudget {
+    pub(crate) max_entries: usize,
+    pub(crate) page_size: usize,
+}
+
+impl EligibilityEnumerationBudget {
+    /// Enough for any realistic personal memory pool while still bounding the memory a single
+    /// recall may hold; a pool past this is reported as unavailable, never truncated.
+    pub(crate) const DEFAULT: Self = Self {
+        max_entries: 50_000,
+        page_size: 1_000,
+    };
+}
+
+/// The complete authorized metadata domain for one read context, without a single body.
+///
+/// `entries` is every eligible record at the moment of the consistent read, each pinned by the
+/// version the authorization was decided on. Retrieval materializes this as a query-local relation
+/// and filters both paths through it before ranking; delivery re-validates each pinned handle
+/// against the authoritative file.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct AuthorizedMemoryRelation {
+    pub(crate) entries: Vec<MemoryReadHandle>,
+    /// How many projected rows the enumeration classified, eligible or not. Diagnostics only.
+    pub(crate) considered: usize,
+    /// False when the enumeration stopped at its budget. A partial relation must not be searched.
+    pub(crate) complete: bool,
+}
+
+/// One record as the background index maintenance sees it: every valid active record regardless of
+/// scope or audience, because the local keyword index is host-wide and each session's read
+/// authority is applied at query time, not at index time.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct IndexMaintenanceRecord {
+    pub(crate) handle: MemoryReadHandle,
+    pub(crate) content: String,
+    pub(crate) created_at: chrono::DateTime<chrono::Utc>,
+    /// Whether the body may leave the machine for a remote embedder. At this baseline nothing
+    /// grants that for a workspace-scoped or audience-restricted record, so those stay
+    /// keyword-only; the flag is decided here, once, from the authoritative record.
+    pub(crate) egress_restricted: bool,
+}
+
+/// One body read through the governed path, at exactly the version the handle pinned.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PinnedMemoryBody {
+    pub(crate) handle: MemoryReadHandle,
+    pub(crate) name: String,
+    pub(crate) description: String,
+    pub(crate) memory_type: MemoryType,
+    pub(crate) content: String,
+    pub(crate) scope_hint: String,
+    pub(crate) updated_at: chrono::DateTime<chrono::Utc>,
+    pub(crate) created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Why a governed read refused. Typed, bounded, and free of record identity: the model-facing
+/// caller turns these into the existing "unavailable" tool result and nothing more.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum MemoryReadRefusal {
+    /// The context was not minted by this process for this epoch, or was altered.
+    Inauthentic,
+    /// The frozen context permits no read at all (temporary, disabled, unresolved workspace).
+    ReadDenied,
+    /// Memory is not in a `Ready` generation, or the generation moved since the context froze.
+    Unhealthy,
+    /// The complete eligibility relation could not be enumerated within budget.
+    Incomplete,
+    Storage(String),
+}
+
+impl MemoryReadRefusal {
+    pub(crate) fn as_str(&self) -> &'static str {
+        match self {
+            Self::Inauthentic => "inauthentic_context",
+            Self::ReadDenied => "read_denied",
+            Self::Unhealthy => "unhealthy",
+            Self::Incomplete => "incomplete_authority",
+            Self::Storage(_) => "storage",
+        }
+    }
+}
+
+/// Which embedding dispatches the authoritative store still permits, per handle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct EmbeddingEgressDecision {
+    pub(crate) id: MemoryId,
+    pub(crate) permitted: bool,
 }

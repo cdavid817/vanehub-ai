@@ -38,6 +38,18 @@ Every weaker variant above passes locally and is rejected by CI.
 
 When your change touches the corresponding area, also run the conditional commands listed below that section: `npx playwright test` for UI behavior changes, the coverage and contract checks, and `openspec validate <change-name> --strict` for every active change you modify.
 
+## Documentation changes
+
+The documentation gate is reproducible from a clean checkout; nothing in it needs credentials.
+
+1. `npm ci`, then install the pinned mdBook version from [docs/toolchain.json](docs/toolchain.json) (`cargo install mdbook --version <mdbook> --locked`). `scripts/docs-tooling.mjs` refuses to run with any other version.
+2. `npm run docs:check` — README three-language parity, internal links and anchors, screenshot inventory, native documentation boundaries, the generated agent capability matrix (`docs:agents:check`), and the documentation fact tests (`scripts/docs-facts.node-test.mjs`, which pin statements in the guides to `package.json`, `playwright.config.ts`, the package workflow, and the MCP relay allowlist). Every generated file (`docs/reference/cli/parameter-matrix.md`, `docs/reference/agents/capability-matrix.md`) is regenerated from its source, never edited by hand.
+3. `npm run docs:test` and `npm run docs:build` — `mdbook test` for the four books and the full assembled site. Both end with Rustdoc, so a stable Rust toolchain is required; if `cargo` is unavailable, report those two as **NOT RUN**, not as passed.
+4. Only when a screenshot changes: `npx playwright install chromium`, then `npm run docs:screenshots:update` (captures from the Web/mock runtime and records the source commit in `docs/user-guide/screenshots.json`) and `npm run docs:screenshots:check`. Screenshots are UI previews, never desktop verification evidence.
+5. `README.md` is canonical; `README.zh-CN.md` and `README.ja.md` must carry the same sections, commands, links, and fact markers. A product fact that changes in one README changes in all three, and the stable/`main` boundary note near the top must stay consistent.
+6. User and developer guides ship in English and Simplified Chinese with the same facts, limits, and status in both; layout may differ. Use the status vocabulary in [docs/reference/terminology.md](docs/reference/terminology.md) (`stable`, `main` / unreleased, fixture-qualified, live-qualified, legacy, planned); a claim of "supported" or "delivered" must map to a main spec or a release manifest, never only to an active OpenSpec change.
+7. Never edit `openspec/changes/archive/` or mark an OpenSpec task complete without the evidence it names; historical documents such as `docs/VaneHub-AI-技术架构深度解析.md` are snapshots and are not updated to the current architecture.
+
 ## Commits and pull requests
 
 - Write an imperative, scoped commit subject.

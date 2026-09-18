@@ -3,8 +3,9 @@
 use super::super::tool_call_accumulator::ToolCallAccumulator;
 use super::super::SqliteNativeToolRepository;
 use super::compaction::turns_character_count;
-use super::execution::execute_with_code_intelligence;
+use super::execution::execute_with_resolved_personalization;
 use super::invocation::{begin_api_invocation, finish_api_invocation, WireFormat};
+use super::prompt::resolve_generation_personalization;
 use super::sinks::{EvidenceCountingSink, EvidenceToolCounts};
 use super::{ExecutedToolCall, PendingApprovals};
 use crate::contexts::agent_runtime::application::{
@@ -71,6 +72,15 @@ pub(super) fn run_generation(
     skill_tool_catalog: Option<Arc<dyn SkillToolCatalogPort>>,
     skill_tool_execution: Option<Arc<dyn SkillToolExecutionPort>>,
 ) {
+    // Resolved once, before anything that could read memory. The Context Engine's memory source
+    // below and the prompt/tool loop after it share this snapshot's read context, so a denied or
+    // temporary session skips memory collection here rather than merely hiding `recall`.
+    let generation_personalization = resolve_generation_personalization(
+        personalization.as_ref(),
+        logging.as_ref(),
+        clock.as_ref(),
+        &request,
+    );
     if request.agent.id == "onepiece" {
         if let Some(engine) = context_engine {
             let context_request = ContextRequest {
@@ -85,6 +95,7 @@ pub(super) fn run_generation(
                     .map(|reference| reference.path.clone())
                     .collect(),
                 model_capacity: Some(32_768),
+                memory_read: generation_personalization.read_context.clone(),
             };
             let budget = ContextBudget {
                 total: 32_768,
@@ -110,8 +121,9 @@ pub(super) fn run_generation(
     }
     let mut observed_skill_revisions = Vec::new();
     let counting_sink = EvidenceCountingSink::new(sink.clone());
-    let terminal = execute_with_code_intelligence(
+    let terminal = execute_with_resolved_personalization(
         &request,
+        generation_personalization,
         cancelled,
         credentials.as_ref(),
         config.as_ref(),

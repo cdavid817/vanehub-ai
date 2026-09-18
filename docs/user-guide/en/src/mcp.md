@@ -6,7 +6,7 @@
 
 An Agent by itself has only its built-in capabilities — running commands, reading and writing files, searching, memory. To have it query a database, call an internal API, or drive a design tool, you connect an MCP server, and that server exposes its own tools to the Agent.
 
-**Register it once in VaneHub AI and it can be handed to each Agent**, instead of writing it again in every CLI's configuration file. That is the main reason it exists: the five Agents each have their own configuration format and location, and keeping them in sync by hand drifts sooner or later.
+**Register it once in VaneHub AI and it can be handed to each Agent**, instead of writing it again in every CLI's configuration file. That is the main reason it exists: every external CLI has its own configuration format and location, and keeping them in sync by hand drifts sooner or later.
 
 ## What it can do
 
@@ -76,7 +76,17 @@ When you disable a server, **the last test's details are preserved** for you to 
 
 VaneHub AI can forward centrally registered MCP servers to external CLIs, so you do not have to configure them again inside the CLI.
 
-> **Relay is currently enabled only for Claude Code and Codex CLI.** Gemini CLI, OpenCode, and Antigravity CLI need their own configuration, and their MCP calls do not appear in the execution trace.
+> **The relay is enabled for Claude Code, Codex CLI, and OpenCode.** Every other Agent uses its own MCP configuration:
+>
+> | Agent | Relayed by VaneHub AI | Where MCP is configured | MCP calls in the execution trace |
+> | --- | --- | --- | --- |
+> | Claude Code, Codex CLI, OpenCode | **Yes** | Registered once in VaneHub AI | Yes |
+> | Gemini CLI, Antigravity CLI | No | The CLI's own configuration file | No — a black box |
+> | ACP Agents (Qwen Code, Kimi Code CLI, Qoder CLI, CodeBuddy Code, GitHub Copilot CLI, Cursor Agent CLI; `main` / unreleased) | No — VaneHub AI hands the ACP session an empty server list | The vendor CLI's own configuration | No |
+> | iFlow CLI (legacy) | No — terminal only | The CLI's own configuration | No |
+> | OnePiece | Not needed — the native tool catalog includes registered servers directly | Registered once in VaneHub AI | Yes, with native fidelity |
+>
+> The per-Agent row is also in the [agent capability matrix](../../../reference/agents/capability-matrix.md).
 
 The relay is **explicitly enabled and scoped to one invocation**: it forwards the MCP protocol **without mutating your global provider configuration**, and records correlated proxied request lifecycle telemetry.
 
@@ -112,7 +122,7 @@ When one server's cached catalog is malformed or over the limit, **only that ser
 
 - **Environment variables and headers are stored as plaintext.** They land in the local database as plaintext JSON, and **exports carry them as plaintext too**. Decide on that basis whether to put long-lived credentials here.
 - **Status is cached** and does not represent current connectivity; test again to confirm.
-- **The relay covers only Claude Code and Codex CLI**; the other three CLIs need their own configuration and their calls do not reach the execution trace.
+- **The relay covers Claude Code, Codex CLI, and OpenCode**; Gemini CLI, Antigravity CLI, the ACP Agents, and iFlow CLI need their own configuration and their calls do not reach the execution trace.
 - **Every MCP tool call needs approval**; there is no "trust this server" switch that skips it.
 - **Names are globally unique and format-constrained**, and a duplicate is rejected rather than overwriting.
 

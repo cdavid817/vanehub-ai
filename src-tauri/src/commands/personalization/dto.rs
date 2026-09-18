@@ -160,13 +160,30 @@ pub(crate) struct EffectivePreviewView {
     pub(crate) included_instructions: Vec<PreviewSegmentView>,
     pub(crate) excluded_instructions: Vec<ExcludedSegmentView>,
     pub(crate) memory_delivery: String,
+    /// Whether the effective policy permits reading at all. Kept under its historical name; it
+    /// has never meant "there are results", and `eligible_memory_count` below says that.
     pub(crate) memory_read: bool,
+    /// The same fact under the name the read-scope contract uses, so a screen can be explicit.
+    pub(crate) memory_read_allowed: bool,
     pub(crate) explicit_save: bool,
     pub(crate) automatic_extraction: bool,
     pub(crate) candidate_creation: bool,
     pub(crate) retrieval_write: bool,
     pub(crate) eligible_memory_count: usize,
     pub(crate) considered_memory_count: usize,
+    /// The bounded injection page: how many eligible records it holds and whether it was cut.
+    pub(crate) index_entry_count: usize,
+    pub(crate) index_truncated: bool,
+    /// `hypothetical` when the inputs describe a session that does not exist, `bound_session`
+    /// when the stored session supplied its own Agent, mode and workspace.
+    pub(crate) preview_kind: String,
+    /// `available` | `unconfigured` | `disabled` | `unsupported` | `unavailable`: whether the
+    /// governed `recall` channel would exist for this resolution. Index support alone is
+    /// `unsupported`; an allowed empty pool is still `available`.
+    pub(crate) recall_availability: String,
+    /// The block reason when nothing may be read, as a stable code. `None` when reading is
+    /// allowed -- including when the pool is empty.
+    pub(crate) read_block_reason: Option<String>,
     pub(crate) memory_exclusions: Vec<MemoryExclusionView>,
     pub(crate) warnings: Vec<String>,
     pub(crate) approximate_tokens: usize,
